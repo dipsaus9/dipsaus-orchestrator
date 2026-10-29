@@ -4,6 +4,7 @@
 // waiting read (DIPO-71) resolves its references in that transaction and runs its handler after it.
 
 import {
+  argsInvalid,
   type Clock,
   engineError,
   type EngineError,
@@ -13,7 +14,6 @@ import {
   type RequestId,
 } from "@dipsaus-orchestrator/contract";
 
-import { argsInvalid } from "../commands/execute";
 import { errorFromThrown } from "../commands/errors";
 import type { OfficeDirectory } from "../commands/offices";
 import type { ReadContext, RegisteredRead, Registry } from "../commands/registry";

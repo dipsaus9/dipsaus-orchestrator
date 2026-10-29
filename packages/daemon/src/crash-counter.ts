@@ -13,7 +13,7 @@ import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
-import type { ProcessIdentity } from "@dipsaus-orchestrator/engine";
+import { type ProcessIdentity } from "@dipsaus-orchestrator/engine/platform";
 
 export const CRASH_FILE = "crashes.json";
 /** Crashes count when they fall within this window before the start. */

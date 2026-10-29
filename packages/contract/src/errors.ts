@@ -144,6 +144,11 @@ export function engineError(code: string, message: string, details?: unknown): E
   return error;
 }
 
+/** `args.invalid` with the zod issues in `details.issues`. */
+export function argsInvalid(message: string, issues: readonly unknown[] = []): EngineError {
+  return engineError("args.invalid", message, { issues });
+}
+
 // `details` of `contract.unsupported`: the daemon's contract and version (frozen, section 11).
 export const ContractUnsupportedDetails = z.object({
   contract: ContractVersion,

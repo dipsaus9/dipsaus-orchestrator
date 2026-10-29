@@ -73,7 +73,6 @@ function recoveryContext(core: Core): RecoveryContext {
     logger: core.logger,
     clock: core.deps.clock,
     children: core.children,
-    database: () => core.database.open(),
   };
 }
 

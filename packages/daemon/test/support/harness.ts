@@ -1,218 +1,61 @@
-// The contract server in-process on a real Unix socket under the test's temp directory: a manual
-// clock (heartbeats move only when a test advances it), the daemon lifecycle, the software stream,
-// a migrated state database and fixture feature modules.
+// The contract server in-process on a real Unix socket under the test's temp directory, over a
+// hand-written engine surface (`FakeSurface`, DIPO-318), with a manual clock: heartbeats and the
+// summary debounce move only when a test advances it.
 
 import { join } from "node:path";
 
+import { OfficeId } from "@dipsaus-orchestrator/contract";
 import {
-  defineCommand,
-  defineRead,
-  OfficeId,
-  officeInit,
-  officeRescan,
-  workRun,
-  type CommandDefinition,
-  type ReadDefinition,
-  type ToolPaths,
-} from "@dipsaus-orchestrator/contract";
-import {
-  controlFeature,
   createLogger,
-  DaemonLifecycle,
-  emitDaemonStates,
-  engineSurface,
-  OfficeChanges,
-  type DrainRequest,
-  createSystemIds,
-  engineRegistry,
-  FEATURES,
-  helloFeature,
-  MemoryRequestTable,
-  newLogState,
-  noOfficeSummaries,
-  officeSummaryOfSource,
-  officeSummarySource,
-  openStateDatabase,
-  Renderer,
-  recordTuiLeft,
   serveUnixSocket,
-  SoftwareStream,
-  stateOfficeDirectory,
-  type FeatureModule,
   type ServedSocket,
-  type StateDatabase,
-} from "@dipsaus-orchestrator/engine";
+} from "@dipsaus-orchestrator/engine/platform";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { ContractServer } from "../../src/server";
+import { FakeSurface, TEST_VERSION } from "./fake-surface";
 
-export const TEST_VERSION = "0.0.0-test";
-
-function shipped<D extends CommandDefinition>(definition: D, name: string = definition.name) {
-  const { provisional: _provisional, since: _since, ...rest } = definition;
-  return defineCommand({ ...rest, name, since: 0 });
-}
-
-/** An office command that writes one `scan.finished` entry per call. */
-export const scanCommand = shipped(officeRescan, "fixture.scan");
-/** An office command that writes `BULK_ENTRIES` large `scan.finished` entries, to fill a slow client. */
-export const bulkCommand = shipped(officeRescan, "fixture.bulk");
-export const BULK_ENTRIES = 120;
-export const BULK_ENTRY_BYTES = 16 * 1024;
-const BULK_TEXT = "x".repeat(BULK_ENTRY_BYTES);
-/** `work.run` as if built, so the `safe` check can be seen; it starts nothing. */
-export const runCommand = shipped(workRun);
-/** A provisional command: registered, but never described and never a capability. */
-export const draftCommand = (() => {
-  const { since: _since, ...rest } = shipped(officeInit, "fixture.draft");
-  return defineCommand({ ...rest, provisional: true });
-})();
-/** A shipped test read with its own schemas. */
-export const echoRead: ReadDefinition = defineRead({
-  name: "fixture.echo",
-  args: officeRescan.args,
-  result: officeRescan.result,
-  since: 0,
-});
-
-export const fixtureFeature: FeatureModule = {
-  name: "test/fixtures",
-  register(registry) {
-    registry.addOfficeCommand({
-      definition: bulkCommand,
-      handle: (ctx) => {
-        for (let i = 0; i < BULK_ENTRIES; i++) {
-          ctx.emit({ type: "scan.finished", delta: { scripts: {}, warnings: [BULK_TEXT] } });
-        }
-        return { result: { scan: "started" as const } };
-      },
-    });
-    registry.addOfficeCommand({
-      definition: scanCommand,
-      handle: (ctx) => {
-        ctx.emit({
-          type: "scan.finished",
-          delta: { scripts: { test: "bun test" }, warnings: [] },
-        });
-        return { result: { scan: "started" as const } };
-      },
-    });
-    registry.addOfficeCommand({
-      definition: runCommand,
-      handle: () => ({ result: { started: [], skipped: [] } }),
-    });
-    registry.addSoftwareCommand({
-      definition: draftCommand,
-      handle: (_ctx, args) => ({ result: { office: args.office } }),
-    });
-    registry.addRead({ definition: echoRead, handle: () => ({ scan: "started" as const }) });
-  },
-};
+export { FakeSurface, TEST_VERSION };
 
 export interface Harness {
   readonly socketPath: string;
   readonly clock: ManualClock;
-  readonly lifecycle: DaemonLifecycle;
-  readonly software: SoftwareStream;
+  readonly engine: FakeSurface;
   readonly server: ContractServer;
-  readonly state: StateDatabase;
-  readonly stops: DrainRequest[];
-  /** Set `pending` to what `daemon.status` reports as `upgradePending`. */
-  readonly upgrade: { pending: boolean };
   readonly socket: ServedSocket;
-  /** Registers an office row as `office.open` will, and returns its id. */
-  addOffice(name?: string): OfficeId;
+  /** Each time the server said the last TUI of an office left. */
+  readonly tuiLeft: { readonly office: OfficeId; readonly at: number }[];
+  /** Adds an office to the fake's change logs and returns its id. */
+  addOffice(): OfficeId;
   close(): Promise<void>;
 }
 
 export interface HarnessOptions {
-  /** Lifecycle states to walk through before serving; `[]` stays in `starting`. */
-  readonly states?: readonly ("recovering" | "running" | "safe" | "draining")[];
   readonly heartbeatMs?: number;
-  readonly softwareCapacity?: number;
   readonly backpressureLimitBytes?: number;
-  readonly renderer?: Renderer;
-  /** What `daemon.status` reports as the resolved tool paths. */
-  readonly tools?: ToolPaths;
-  /** Feature modules registered after the fixtures, for a test that needs a real command name. */
-  readonly features?: readonly FeatureModule[];
-  /** Office summaries from the state database (DIPO-52); none by default. */
-  readonly officeSummaries?: boolean;
-  /** What `daemon.resumeScheduling` lifts of the offices' starts paused (0020); none by default. */
-  readonly liftStartsPaused?: (why: string) => number;
+  /** The surface to serve; a new fake by default. A restart serves the same one again. */
+  readonly engine?: FakeSurface;
+}
+
+let offices = 0;
+
+/** A fresh, valid office id. */
+export function officeId(): OfficeId {
+  offices += 1;
+  return OfficeId.parse(`off_01J9ZK5Q8W3V4X6Y7Z${offices.toString().padStart(8, "0")}`);
 }
 
 export async function startHarness(dir: string, options: HarnessOptions = {}): Promise<Harness> {
   const clock = new ManualClock();
   const logger = createLogger({ clock, sinks: [], component: "test" });
-  const lifecycle = new DaemonLifecycle("daemon started");
-  const software = new SoftwareStream({
-    clock,
-    ...(options.softwareCapacity === undefined ? {} : { capacity: options.softwareCapacity }),
-  });
-  emitDaemonStates(lifecycle, software);
-  for (const to of options.states ?? ["recovering", "running"]) lifecycle.transition(to, "setup");
-
-  const state = await openStateDatabase({
-    stateDir: join(dir, "state"),
-    logger,
-    clock,
-    engineVersion: TEST_VERSION,
-  });
+  const engine = options.engine ?? new FakeSurface();
   const socketPath = join(dir, "dipo.sock");
-  const stops: DrainRequest[] = [];
-  const upgrade = { pending: false };
-  const registry = engineRegistry([
-    ...FEATURES,
-    helloFeature({
-      engineVersion: TEST_VERSION,
-      daemonState: () => lifecycle.state,
-      softwareCursor: () => software.head(),
-      officeSummaries: noOfficeSummaries,
-    }),
-    controlFeature({
-      lifecycle,
-      logger,
-      clock,
-      startedAt: clock.now(),
-      pid: process.pid,
-      version: TEST_VERSION,
-      socket: socketPath,
-      tools: options.tools ?? {},
-      upgradePending: () => upgrade.pending,
-      loadedOffices: () => [],
-      ...(options.liftStartsPaused === undefined
-        ? {}
-        : { liftStartsPaused: options.liftStartsPaused }),
-      requestStop: (request) => stops.push(request),
-    }),
-    fixtureFeature,
-    ...(options.features ?? []),
-  ]);
-  const ids = createSystemIds(clock);
-  const engine = engineSurface({
-    version: TEST_VERSION,
-    registry,
-    offices: stateOfficeDirectory(state),
-    clock,
-    ids,
-    softwareRequests: new MemoryRequestTable(clock),
-    lifecycle,
-    software,
-    changes: new OfficeChanges(),
-    officeSummaries:
-      options.officeSummaries === true ? officeSummarySource(() => state) : noOfficeSummaries,
-    ...(options.officeSummaries === true
-      ? { officeSummary: officeSummaryOfSource(() => state) }
-      : {}),
-    logger,
-    ...(options.renderer === undefined ? {} : { renderer: options.renderer }),
-  });
+  const tuiLeft: { office: OfficeId; at: number }[] = [];
   const server = new ContractServer({
     engine,
     clock,
     logger,
-    tuiLeft: (office, at) => recordTuiLeft(state.office(office), at),
+    tuiLeft: (office, at) => tuiLeft.push({ office, at }),
     ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),
   });
   const socket = serveUnixSocket(
@@ -222,40 +65,21 @@ export async function startHarness(dir: string, options: HarnessOptions = {}): P
       ? {}
       : { backpressureLimitBytes: options.backpressureLimitBytes },
   );
-
   return {
     socketPath,
     clock,
-    lifecycle,
-    software,
+    engine,
     server,
-    state,
-    stops,
-    upgrade,
     socket,
-    addOffice(name = "demo") {
-      const office = OfficeId.parse(ids.next("off"));
-      const log = newLogState();
-      state.connection.immediate(() =>
-        state.connection.run(
-          `insert into offices (office_id, path, display_name, added_at, epoch, next_seq, replay_floor_seq)
-           values ($office, $path, $name, $at, $epoch, $next, $floor)`,
-          {
-            office,
-            path: `/repos/${name}`,
-            name,
-            at: clock.now(),
-            epoch: log.epoch,
-            next: log.nextSeq,
-            floor: log.replayFloorSeq,
-          },
-        ),
-      );
+    tuiLeft,
+    addOffice() {
+      const office = officeId();
+      engine.addOffice(office);
       return office;
     },
     async close() {
+      server.close();
       await socket.stop();
-      state.close();
     },
   };
 }

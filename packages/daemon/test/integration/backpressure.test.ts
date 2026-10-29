@@ -10,12 +10,14 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { createConnection, type Socket } from "node:net";
 
 import { CONTRACT_VERSION, type Cursor, type OfficeId } from "@dipsaus-orchestrator/contract";
-import { renderDelta, Renderer } from "@dipsaus-orchestrator/engine";
 import { makeTempDir, removeTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { requestId, TestClient } from "../support/client";
-import { BULK_ENTRIES, startHarness, type Harness, type HarnessOptions } from "../support/harness";
+import { FakeSurface, startHarness, type Harness, type HarnessOptions } from "../support/harness";
 
+/** Entries one `fixture.bulk` writes, each about 16 KiB. */
+const BULK_ENTRIES = 120;
+const BULK_TEXT = "x".repeat(16 * 1024);
 const COMMANDS = 5; // 5 x 120 entries of 16 KiB: about 9.4 MiB
 const TOTAL = BULK_ENTRIES * COMMANDS;
 const TIMEOUT_MS = 30_000;
@@ -23,11 +25,9 @@ const TIMEOUT_MS = 30_000;
 let dir: string;
 let harness: Harness | null = null;
 let raw: Socket | null = null;
-let rendered = 0;
 
 beforeEach(() => {
   dir = makeTempDir();
-  rendered = 0;
 });
 
 afterEach(async () => {
@@ -38,18 +38,28 @@ afterEach(async () => {
   removeTempDir(dir);
 });
 
-/** A renderer that counts the `scan.finished` entries it renders. */
-function countingRenderer(): Renderer {
-  return new Renderer({
-    "scan.finished": (entry) => {
-      rendered += 1;
-      return renderDelta(entry);
-    },
+/** An engine whose `fixture.bulk` writes `BULK_ENTRIES` large entries; it counts the pages read. */
+function bulkEngine(): FakeSurface {
+  const engine = new FakeSurface();
+  engine.commands.set("fixture.bulk", (request, fake) => {
+    if (request.office === undefined) throw new Error("fixture.bulk needs an office");
+    let last = fake.officeHead(request.office);
+    for (let i = 0; i < BULK_ENTRIES; i++) {
+      last = fake.appendOffice(request.office, "scan.finished", {
+        scripts: {},
+        warnings: [BULK_TEXT],
+      }).cursor;
+    }
+    return { ok: true, requestId: request.requestId, result: {}, changed: true, cursor: last };
   });
+  return engine;
 }
 
+/** The entries the engine read for subscribers so far. */
+const rendered = () => harness?.engine.paged ?? 0;
+
 async function start(options: HarnessOptions = {}): Promise<Harness> {
-  harness = await startHarness(dir, { renderer: countingRenderer(), ...options });
+  harness = await startHarness(dir, { engine: bulkEngine(), ...options });
   return harness;
 }
 
@@ -103,13 +113,7 @@ async function fill(h: Harness): Promise<{ office: OfficeId; start: Cursor }> {
     expect(await writer.command("fixture.bulk", {}, { office })).toMatchObject({ ok: true });
   }
   await writer.close();
-  const stream = `office:${office}`;
-  const epoch = h.state.connection.get<{ epoch: string }>(
-    "select epoch from offices where office_id = $office",
-    { office },
-  )?.epoch;
-  if (epoch === undefined) throw new Error("no office row");
-  return { office, start: { stream, epoch, seq: 0 } as Cursor };
+  return { office, start: { ...h.engine.officeHead(office), seq: 0 } as Cursor };
 }
 
 function subscribeFrames(from: Cursor): unknown[] {
@@ -149,9 +153,9 @@ describe("slow clients", () => {
       const h = await start();
       const { start: from } = await fill(h);
       raw = await slowClient(h.socketPath, subscribeFrames(from));
-      await until(() => rendered > 0, "the slow client's catch-up to start");
+      await until(() => rendered() > 0, "the slow client's catch-up to start");
       await Bun.sleep(200);
-      const forSlow = rendered;
+      const forSlow = rendered();
       // The pump stopped near the high-water mark: far from the whole log.
       expect(forSlow).toBeLessThan(TOTAL / 2);
       expect(h.server.connections).toBe(1);
@@ -159,7 +163,7 @@ describe("slow clients", () => {
       await resumeAll(h, from);
       // The slow client is still connected, still paused.
       await until(() => h.server.connections === 1, "the fast client to be gone");
-      expect(rendered - forSlow).toBe(TOTAL);
+      expect(rendered() - forSlow).toBe(TOTAL);
     },
     TIMEOUT_MS,
   );
@@ -172,19 +176,21 @@ describe("slow clients", () => {
       const { start: from } = await fill(h);
       raw = await slowClient(h.socketPath, subscribeFrames(from));
       await until(() => h.server.connections === 0, "the slow client to be closed");
-      const closedAfter = rendered;
+      const closedAfter = rendered();
       await Bun.sleep(100);
       // Nothing more was read or rendered for the closed connection.
-      expect(rendered).toBe(closedAfter);
+      expect(rendered()).toBe(closedAfter);
       expect(closedAfter).toBeLessThan(TOTAL);
 
       // A new connection to a daemon with the normal limit resumes from the same cursor: the
-      // change log and its epoch are in the state database.
+      // change log and its epoch outlive the server.
       raw.destroy();
       raw = null;
+      const engine = h.engine;
       await h.close();
       harness = null;
-      const again = await start();
+      const again = await startHarness(dir, { engine });
+      harness = again;
       await resumeAll(again, from);
     },
     TIMEOUT_MS,

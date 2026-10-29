@@ -17,6 +17,7 @@ import {
   type OfficeSummary,
   type ReadReply,
   type ReadRequest,
+  SOFTWARE_STREAM,
   type StreamName,
 } from "@dipsaus-orchestrator/contract";
 
@@ -29,8 +30,8 @@ import type { Registry } from "../commands/registry";
 import type { MemoryRequestTable } from "../commands/requests";
 import type { Logger } from "../log/logger";
 import { executeRead } from "../reads/execute";
-import type { OfficeSummarySource } from "../reads/hello";
-import { SOFTWARE_STREAM, type SoftwareStream } from "../software-stream";
+import { contractUnsupported, type OfficeSummarySource } from "../reads/hello";
+import type { SoftwareStream } from "../software-stream";
 import type { DaemonLifecycle } from "./lifecycle";
 import type { OfficeChanges } from "./notify";
 
@@ -115,6 +116,8 @@ export interface EngineSurface {
   officeSummaries(): readonly OfficeSummary[];
   /** The summary of one office, or undefined when it has none. */
   officeSummary(office: OfficeId): OfficeSummary | undefined;
+  /** `contract.unsupported`: the frozen surface is all a client of another major may use. */
+  contractUnsupported(): EngineError;
 }
 
 /** The parts the surface is made of; `createEngine` builds them, and tests pass their own. */
@@ -266,5 +269,6 @@ export function engineSurface(parts: SurfaceParts): EngineSurface {
       parts.officeSummary === undefined
         ? parts.officeSummaries().find((candidate) => candidate.office === office)
         : parts.officeSummary(office),
+    contractUnsupported: () => contractUnsupported(parts.version).error,
   };
 }

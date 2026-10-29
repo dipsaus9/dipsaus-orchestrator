@@ -7,17 +7,16 @@ import { describe, expect, it } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  createLogger,
-  type LockOutcome,
-  openStateDatabase,
-  PID_FILE,
-} from "@dipsaus-orchestrator/engine";
+import type { LockOutcome } from "@dipsaus-orchestrator/engine/platform";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { runDaemon } from "../../src/index";
 import type { DaemonIo } from "../../src/io";
 import { runRestoreForm } from "../../src/restore";
+import { migratedDatabase } from "../support/state-database";
+
+/** The daemon's lock file in the state folder. */
+const PID_FILE = "dipo.pid";
 
 const clock = new ManualClock();
 
@@ -38,14 +37,7 @@ function testIo(dir: string) {
 
 /** A state database under `dir/state` and a closed copy of it as the backup. */
 async function stateWithBackup(dir: string): Promise<{ live: string; backup: string }> {
-  const state = await openStateDatabase({
-    stateDir: join(dir, "state"),
-    logger: createLogger({ clock, sinks: [], component: "test" }),
-    clock,
-    engineVersion: "0.0.0-test",
-  });
-  const live = state.connection.path;
-  state.close();
+  const live = await migratedDatabase(join(dir, "state"), dir);
   const backup = join(dir, "dipo-20261014.db");
   copyFileSync(live, backup);
   return { live, backup };

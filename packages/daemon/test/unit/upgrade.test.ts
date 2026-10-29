@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { createLogger, type ExecutableStamp } from "@dipsaus-orchestrator/engine";
+import { createLogger, type ExecutableStamp } from "@dipsaus-orchestrator/engine/platform";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { UPGRADE_CHECK_MS, UpgradeWatcher } from "../../src/upgrade";

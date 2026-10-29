@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { type SpawnInteractive, testShellArgs } from "@dipsaus-orchestrator/engine";
+import { type SpawnInteractive, testShellArgs } from "@dipsaus-orchestrator/engine/platform";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import type { DaemonIo } from "./io";

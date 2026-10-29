@@ -23,7 +23,7 @@ The maintainer accepted the costs: Bun is young and owned by one company, which 
 
 ## Repository layout
 
-Bun workspaces. Every package is TypeScript ESM, scoped `@dipsaus-orchestrator/*`, with an `exports` map that exposes only its public entry.
+Bun workspaces. Every package is TypeScript ESM, scoped `@dipsaus-orchestrator/*`, with an `exports` map that exposes only its public entry; the engine also exposes its platform entry for the daemon (0005).
 
 | Package | Holds | May import |
 |---|---|---|
@@ -52,7 +52,7 @@ These are lint rules in `.oxlintrc.json` and `tools/lint/`, proven by `test/lint
 - No runtime import cycles (`import/no-cycle`, type-only cycles allowed).
 - Function size caps: at most 100 lines, complexity 20 and 5 parameters per function.
 
-Four of these rules are not in place yet (2026-10-24): `contract` importing nothing but zod, `engine` never importing the other packages, the ban on deep imports by relative path, and `daemon` importing only `createEngine`, types and the platform entry. The prune plan adds them.
+Three of these rules are not in place yet (2026-10-29): `contract` importing nothing but zod, `engine` never importing the other packages, and the ban on deep imports by relative path. The prune plan adds them.
 
 ## Tooling
 

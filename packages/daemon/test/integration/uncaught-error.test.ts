@@ -21,7 +21,7 @@ import {
 } from "@dipsaus-orchestrator/testkit";
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
-import { systemClock } from "@dipsaus-orchestrator/engine";
+import { systemClock } from "@dipsaus-orchestrator/engine/platform";
 
 import { CRASH_FILE, CrashCounter } from "../../src/crash-counter";
 import { runForeground } from "../../src/foreground";

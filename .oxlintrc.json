@@ -655,6 +655,13 @@
         "dipo/no-claude-cli-import": "error"
       }
     },
+    // The daemon imports from the engine only createEngine, types and the platform entry (0004).
+    {
+      "files": ["packages/daemon/src/**"],
+      "rules": {
+        "dipo/daemon-engine-imports": "error"
+      }
+    },
     {
       "files": [
         "packages/engine/src/workers/claude-cli/**",

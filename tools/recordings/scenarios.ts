@@ -7,12 +7,10 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  assembleReviewTaskMessage,
-  renderSystemFile,
-  REVIEW_TOOLS,
-} from "../../packages/engine/src/index";
-import type { PromptStory } from "../../packages/engine/src/index";
+import { assembleReviewTaskMessage } from "../../packages/engine/src/prompts/review";
+import type { PromptStory } from "../../packages/engine/src/prompts/story";
+import { renderSystemFile } from "../../packages/engine/src/prompts/system";
+import { REVIEW_TOOLS } from "../../packages/engine/src/workers/claude-cli/plan";
 import type { Envelope } from "./format";
 import { isRecord } from "./format";
 

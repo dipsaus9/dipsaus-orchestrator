@@ -1,15 +1,15 @@
 // `dipo office rescan` end to end over the real contract (DIPO-72): the CLI's `main` with a real
-// `DipoClient` on a real Unix socket, against the daemon's `ContractServer` in-process. Only the scan
-// is a fixture: `office.rescan` replies and writes a load scan's `scan.finished` and then the
-// rescan's. The CLI once subscribed with `filter: ["scan.finished"]`, but `filter` names the event
-// types the daemon leaves out (0005 section 5), so the event never arrived and the command waited
-// out its 120 s deadline. Fakes of the session missed it. `cli` may not import `daemon`, so this
-// test sits outside both packages and imports their files by path.
+// `DipoClient` on a real Unix socket, against the daemon's `ContractServer` in-process. Only the
+// engine is a fixture: a hand-written surface whose `office.rescan` replies and writes a load
+// scan's `scan.finished` and then the rescan's. The CLI once subscribed with
+// `filter: ["scan.finished"]`, but `filter` names the event types the daemon leaves out (0005
+// section 5), so the event never arrived and the command waited out its 120 s deadline. Fakes of
+// the session missed it. `cli` may not import `daemon`, so this test sits outside both packages and
+// imports their files by path.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { officeRescan, type OfficeId } from "../../packages/contract/src/index";
-import type { FeatureModule } from "../../packages/engine/src/index";
 import { makeTempDir, ManualClock, removeTempDir } from "../../packages/testkit/src/index";
 
 import { DipoClient } from "../../packages/client/src/index";
@@ -17,35 +17,47 @@ import { systemClock, unixSocketTransport } from "../../packages/client/src/node
 import type { DaemonControl } from "../../packages/cli/src/daemon-commands";
 import { fakeWorkspace } from "../../packages/cli/src/fake-workspace";
 import { main, type CliDeps } from "../../packages/cli/src/index";
-import { startHarness, type Harness } from "../../packages/daemon/test/support/harness";
+import {
+  FakeSurface,
+  startHarness,
+  type Harness,
+} from "../../packages/daemon/test/support/harness";
 
 /** `office.rescan` with a scan that is already done: a load scan's event, then the rescan's. */
-const rescanFeature: FeatureModule = {
-  name: "test/rescan",
-  register(registry) {
-    registry.addOfficeCommand({
-      definition: officeRescan,
-      handle: (ctx) => {
-        ctx.emit({
-          type: "scan.finished",
-          delta: { scripts: {}, warnings: [], trigger: "start" },
-        });
-        ctx.emit({
-          type: "scan.finished",
-          delta: {
-            scripts: { verify: "bun run verify" },
-            warnings: [],
-            trigger: "rescan",
-            level: "conforming",
-            deviations: [],
-            diff: ["~ verify: bun run test -> bun run verify"],
-          },
-        });
-        return { result: { scan: "started" as const }, changed: false };
+function rescanEngine(): FakeSurface {
+  const engine = new FakeSurface();
+  engine.commands.set(officeRescan.name, (request, fake) => {
+    const office = request.office;
+    if (office === undefined) throw new Error("office.rescan needs an office");
+    fake.appendOffice(
+      office,
+      "scan.finished",
+      { scripts: {}, warnings: [], trigger: "start" },
+      request.requestId,
+    );
+    const last = fake.appendOffice(
+      office,
+      "scan.finished",
+      {
+        scripts: { verify: "bun run verify" },
+        warnings: [],
+        trigger: "rescan",
+        level: "conforming",
+        deviations: [],
+        diff: ["~ verify: bun run test -> bun run verify"],
       },
-    });
-  },
-};
+      request.requestId,
+    );
+    return {
+      ok: true,
+      requestId: request.requestId,
+      result: { scan: "started" },
+      changed: false,
+      cursor: last.cursor,
+    };
+  });
+  return engine;
+}
 
 const NO_LIFECYCLE: DaemonControl = {
   inspect: () => Promise.reject(new Error("inspect must not be called")),
@@ -101,7 +113,7 @@ function cli(h: Harness) {
 
 describe("dipo office rescan against the contract server", () => {
   it("receives the rescan's scan.finished and prints it", async () => {
-    harness = await startHarness(dir, { features: [rescanFeature] });
+    harness = await startHarness(dir, { engine: rescanEngine() });
     const office: OfficeId = harness.addOffice();
     const run = cli(harness);
     expect(await main(["office", "rescan", "--office", office], run.deps)).toBe(0);

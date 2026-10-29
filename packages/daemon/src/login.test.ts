@@ -7,12 +7,7 @@ import { existsSync, writeFileSync } from "node:fs";
 
 import { describe, expect, it } from "bun:test";
 
-import {
-  boxTokenHoldPath,
-  SECURITY_CLI,
-  type SpawnInteractive,
-  storeTokenArgs,
-} from "@dipsaus-orchestrator/engine";
+import { boxTokenHoldPath, type SpawnInteractive } from "@dipsaus-orchestrator/engine/platform";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import type { DaemonIo } from "./io";
@@ -65,7 +60,19 @@ describe("dipo login box", () => {
     expect(code).toBe(0);
     expect(spawn.calls).toEqual([
       {
-        cmd: [SECURITY_CLI, ...storeTokenArgs()],
+        // `security add-generic-password` for dipo's box login, the token read from the terminal.
+        cmd: [
+          "/usr/bin/security",
+          "add-generic-password",
+          "-U",
+          "-s",
+          "dipo",
+          "-a",
+          "box-login",
+          "-l",
+          "dipo box login",
+          "-w",
+        ],
         env: { PATH: "/usr/bin:/bin", HOME: "/Users/someone" },
       },
     ]);

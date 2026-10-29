@@ -9,7 +9,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { type ChildProcess, EXIT_CONFIG, type Spawn } from "@dipsaus-orchestrator/contract";
-import { systemClock } from "@dipsaus-orchestrator/engine";
+import { systemClock } from "@dipsaus-orchestrator/engine/platform";
 import { isolatedDaemonEnv, withDaemonTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { runForeground } from "./foreground";

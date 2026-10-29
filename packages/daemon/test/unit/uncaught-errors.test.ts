@@ -5,7 +5,7 @@
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
 
-import { createLogger } from "@dipsaus-orchestrator/engine";
+import { createLogger } from "@dipsaus-orchestrator/engine/platform";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { onUncaughtErrors } from "../../src/foreground";

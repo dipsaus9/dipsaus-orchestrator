@@ -2,7 +2,7 @@
 // runtime feature the daemon relies on inside the compiled binary. The runner prints one line per
 // check and stops at the first failure, so the failing feature is named on the last line.
 
-import type { SelfCheck } from "@dipsaus-orchestrator/engine";
+import { type SelfCheck } from "@dipsaus-orchestrator/engine/platform";
 
 export async function runSelfChecks(
   checks: readonly SelfCheck[],

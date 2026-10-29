@@ -3,6 +3,7 @@
 // PID. A daemon of another contract major still answers through the frozen surface.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { CONTRACT_VERSION, type ContractVersion } from "@dipsaus-orchestrator/contract";
@@ -11,7 +12,7 @@ import {
   systemClock,
   writeRuntimeRecord,
   type PidRecord,
-} from "@dipsaus-orchestrator/engine";
+} from "@dipsaus-orchestrator/engine/platform";
 import { makeTempDir, removeTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { startHarness, TEST_VERSION, type Harness } from "../support/harness";
@@ -29,6 +30,7 @@ const record = (pid: number): PidRecord => ({
 beforeEach(async () => {
   dir = makeTempDir();
   harness = await startHarness(dir);
+  mkdirSync(join(dir, "state"), { recursive: true });
   writeRuntimeRecord(join(dir, "state"), {
     runtimeDir: dir,
     socket: harness.socketPath,

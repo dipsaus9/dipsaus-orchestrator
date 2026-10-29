@@ -19,7 +19,7 @@ const CLAUDE_CLI_DIR = /\/packages\/engine\/src\/workers\/claude-cli(\/|$)/;
 /** The engine entry, as an absolute path a relative import resolves to (a directory import too). */
 const ENGINE_ENTRY = /\/packages\/engine\/src(\/index(\.[cm]?[jt]s)?)?$/;
 
-/** The engine package's own name; its entry re-exports the adapter. */
+/** The engine package's own name: its entry, which engine code never imports. */
 const ENGINE_PACKAGE = "@dipsaus-orchestrator/engine";
 
 /** The Backlog.md StoryStore directory, as an absolute path a relative import resolves to. */
@@ -79,7 +79,99 @@ function importRule(description, messageFor) {
 const CLAUDE_CLI_MESSAGE =
   "Claude specifics stay in packages/engine/src/workers/claude-cli (0004, CLAUDE.md). Reach the adapter through the WorkerPort (0008 section 1); only workers/claude-cli/** and the composition root (the engine entry and the wiring of createEngine) import it, type-only imports included.";
 const ENGINE_ENTRY_MESSAGE =
-  "Engine code does not import the engine entry, which re-exports the Claude CLI adapter for the daemon (0004). Import the module itself; reach the adapter through the WorkerPort (0008 section 1).";
+  "Engine code does not import the engine entry, which is the daemon's (0004). Import the module itself; reach the adapter through the WorkerPort (0008 section 1).";
+
+const DAEMON_ENGINE_MESSAGE =
+  "The daemon imports from the engine only `createEngine`, types and the platform entry (0004, 0005): take a process piece from @dipsaus-orchestrator/engine/platform and reach everything else through the engine `createEngine` gives.";
+
+/** The name an import or export specifier names in the module it reads from. */
+function specifierName(node) {
+  const name = node.imported ?? node.local;
+  return name?.type === "Identifier" ? name.name : specifierOf(name);
+}
+
+/** The engine package's folder, as an absolute path a relative import resolves to. */
+const ENGINE_DIR = /\/packages\/engine(\/|$)/;
+
+/** True when `source` names the engine entry. */
+function fromEngine(source) {
+  return specifierOf(source) === ENGINE_PACKAGE;
+}
+
+/** True when `source` is a relative path into the engine package, resolved from `filename`. */
+function intoEngine(source, filename) {
+  const specifier = specifierOf(source);
+  if (specifier === null || !specifier.startsWith(".")) return false;
+  return ENGINE_DIR.test(resolve(dirname(filename), specifier).replaceAll("\\", "/"));
+}
+
+/** True when `callee` is `require` or `import.meta.require`. */
+function isRequire(callee) {
+  if (callee.type === "Identifier") return callee.name === "require";
+  return (
+    callee.type === "MemberExpression" &&
+    callee.object.type === "MetaProperty" &&
+    callee.property.type === "Identifier" &&
+    callee.property.name === "require"
+  );
+}
+
+/**
+ * The daemon's imports of the engine (0004): from the entry, `createEngine` and type-only imports
+ * pass; any other value, a side-effect, namespace or default import, a re-export of a value,
+ * `export *`, a dynamic import, `require`, `import.meta.require` or `import x = require(...)` of
+ * the entry is reported, and so is any form of a relative path into the engine package. The
+ * platform entry is another specifier, so it passes.
+ */
+const daemonEngineImports = {
+  meta: {
+    type: "problem",
+    docs: { description: "Let the daemon import only createEngine, types and the platform entry." },
+  },
+  create(context) {
+    const report = (node) => context.report({ node, message: DAEMON_ENGINE_MESSAGE });
+    const deep = (source) => intoEngine(source, context.filename);
+    const checkSpecifiers = (node, kindOf) => {
+      if (node.specifiers.length === 0) report(node);
+      for (const specifier of node.specifiers) {
+        if (specifier.type === "ImportSpecifier" || specifier.type === "ExportSpecifier") {
+          if (kindOf(specifier) === "type" || specifierName(specifier) === "createEngine") continue;
+        }
+        report(specifier);
+      }
+    };
+    return {
+      ImportDeclaration(node) {
+        if (deep(node.source)) report(node);
+        if (!fromEngine(node.source) || node.importKind === "type") return;
+        checkSpecifiers(node, (specifier) => specifier.importKind);
+      },
+      ExportNamedDeclaration(node) {
+        if (deep(node.source)) report(node);
+        if (!fromEngine(node.source) || node.exportKind === "type") return;
+        checkSpecifiers(node, (specifier) => specifier.exportKind);
+      },
+      ExportAllDeclaration(node) {
+        if (deep(node.source) || (fromEngine(node.source) && node.exportKind !== "type")) {
+          report(node);
+        }
+      },
+      ImportExpression(node) {
+        if (fromEngine(node.source) || deep(node.source)) report(node);
+      },
+      TSExternalModuleReference(node) {
+        if (fromEngine(node.expression) || deep(node.expression)) report(node);
+      },
+      TSImportType(node) {
+        if (deep(node.source ?? node.argument)) report(node);
+      },
+      CallExpression(node) {
+        if (!isRequire(node.callee)) return;
+        if (fromEngine(node.arguments[0]) || deep(node.arguments[0])) report(node);
+      },
+    };
+  },
+};
 
 /**
  * A path into `engine/src/workers/claude-cli`, or to the engine entry that re-exports it; relative
@@ -525,6 +617,7 @@ export default {
         };
       },
     },
+    "daemon-engine-imports": daemonEngineImports,
     "no-claude-cli-import": importRule(
       "Ban imports of the Claude CLI adapter, directly or through the engine entry, outside it and the entry.",
       claudeCliMessage,

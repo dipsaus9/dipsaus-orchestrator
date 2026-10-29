@@ -18,7 +18,7 @@ import {
   TOKEN_KEYCHAIN_ACCOUNT,
   TOKEN_KEYCHAIN_SERVICE,
   type SpawnInteractive,
-} from "@dipsaus-orchestrator/engine";
+} from "@dipsaus-orchestrator/engine/platform";
 
 import type { DaemonIo } from "./io";
 

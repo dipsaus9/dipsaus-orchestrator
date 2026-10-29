@@ -20,10 +20,20 @@ import {
   type ToolPaths,
 } from "@dipsaus-orchestrator/contract";
 import {
+  createEngine,
+  type DrainCaps,
+  type DrainRequest,
+  type Engine,
+  type FeatureModule,
+  type Logger,
+  type Migration,
+  type RecoveryStep,
+  type WorkerPort,
+} from "@dipsaus-orchestrator/engine";
+import {
   acquireLock,
   bootoutOwnLaunchdJob,
   chooseRuntimeDir,
-  createEngine,
   createLogger,
   currentPlatform,
   detachedEnv,
@@ -51,22 +61,18 @@ import {
   systemSpawnKeepAwake,
   underLaunchdJob,
   writeRuntimeRecord,
-  type DrainCaps,
-  type DrainRequest,
-  type Engine,
-  type FeatureModule,
+  systemHostStarter,
+  startForwarder,
+  systemReach,
+  systemListenHttp,
   type HeldLock,
   type LogFile,
-  type Logger,
-  type Migration,
   type PidRecord,
   type ReadExecutableStamp,
-  type RecoveryStep,
   type ServedSocket,
   type SpawnDetached,
   type SpawnKeepAwake,
-  type WorkerPort,
-} from "@dipsaus-orchestrator/engine";
+} from "@dipsaus-orchestrator/engine/platform";
 
 import { CrashCounter, STABLE_RUN_MS } from "./crash-counter";
 import { noOrphansActive, type DaemonIo, type UncaughtEvent, type UncaughtSource } from "./io";
@@ -497,12 +503,23 @@ function startEngine(
 ): Engine {
   const { io, logger, stateDir, options } = run;
   const record = parts.lock.record();
+  const probe = systemProcessProbe(run.platform);
   return createEngine({
     clock: io.clock,
     logger,
     spawn: systemSpawn,
-    probe: systemProcessProbe(run.platform),
+    probe,
     spawnKeepAwake: options.spawnKeepAwake ?? systemSpawnKeepAwake,
+    // Worker hosts run detached as `dipo daemon worker-host <run>` (0006 decision 8).
+    hosts: systemHostStarter({
+      clock: io.clock,
+      runtimeDir: place.runtimeDir,
+      dipoCommand: selfCommand(),
+      env: io.env,
+      probe,
+    }),
+    forwarders: { forward: startForwarder, reach: systemReach },
+    listenHttp: systemListenHttp,
     env: io.env,
     paths: { stateDir, runtimeDir: place.runtimeDir, tmpRoot: place.tmpRoot, home: passwdHome() },
     tools: daemonTools(run),

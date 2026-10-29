@@ -13,6 +13,7 @@
 // (DIPO-104), so a story merged to the base since the last poll resolves.
 
 import {
+  argsInvalid,
   type Clock,
   type CommandReply,
   type CommandRequest,
@@ -69,11 +70,6 @@ function failure(requestId: RequestId, error: EngineError): CommandReply {
 /** What a command's connection said in `engine.hello`: the client's name (0005 section 9). */
 export interface Connection {
   readonly client?: string;
-}
-
-/** `args.invalid` with the zod issues in `details.issues`. */
-export function argsInvalid(message: string, issues: readonly unknown[] = []): EngineError {
-  return engineError("args.invalid", message, { issues });
 }
 
 function isThenable(value: unknown): boolean {

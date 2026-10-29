@@ -18,7 +18,14 @@ import {
 } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
-import { chooseRuntimeDir, RuntimeDirError, runtimeCandidates } from "@dipsaus-orchestrator/engine";
+import { chooseRuntimeDir, runtimeCandidates } from "@dipsaus-orchestrator/engine/platform";
+
+/** What `chooseRuntimeDir` throws when no candidate is usable: `RuntimeDirError`. */
+interface RuntimeDirRefusal {
+  readonly name: string;
+  readonly code: string;
+  readonly rejected: readonly { readonly path: string; readonly reason: string }[];
+}
 import {
   guardRuns,
   isolatedDaemonEnv,
@@ -128,9 +135,9 @@ describe("testkit's runtime path limits", () => {
     } catch (thrown) {
       error = thrown;
     }
-    expect(error).toBeInstanceOf(RuntimeDirError);
+    expect((error as RuntimeDirRefusal).name).toBe("RuntimeDirError");
     // The engine's reason names its own byte count and limit: both must be testkit's.
-    expect((error as RuntimeDirError).rejected[0]).toEqual({
+    expect((error as RuntimeDirRefusal).rejected[0]).toEqual({
       path: over,
       reason: `socket paths would be ${RUNTIME_PATH_LIMIT + 1} bytes, over the ${RUNTIME_PATH_LIMIT}-byte limit`,
     });
@@ -172,9 +179,9 @@ describe("a test daemon's runtime directory", () => {
         } catch (thrown) {
           error = thrown;
         }
-        expect(error).toBeInstanceOf(RuntimeDirError);
-        expect((error as RuntimeDirError).code).toBe("paths.runtimeDirUnusable");
-        expect((error as RuntimeDirError).rejected).toEqual([
+        expect((error as RuntimeDirRefusal).name).toBe("RuntimeDirError");
+        expect((error as RuntimeDirRefusal).code).toBe("paths.runtimeDirUnusable");
+        expect((error as RuntimeDirRefusal).rejected).toEqual([
           { path: testRuntimeDir(dir), reason: "its mode is 0755, not 0700" },
         ]);
         expect(existsSync(join(dir, "tmp", "dipo"))).toBe(false);
