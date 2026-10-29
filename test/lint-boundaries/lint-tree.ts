@@ -23,7 +23,14 @@ export const LINT_TIMEOUT_MS = 180_000;
 export type Placement = { fixture: string; target: string };
 export type Diagnostic = { code: string; severity: string; filename: string };
 
-export function lintTree(placements: readonly Placement[]): {
+/**
+ * Lints `placements` in a scratch tree; `roots` are the top-level folders oxlint reads, `packages`
+ * by default.
+ */
+export function lintTree(
+  placements: readonly Placement[],
+  roots: readonly string[] = ["packages"],
+): {
   exitCode: number;
   diagnostics: Diagnostic[];
 } {
@@ -40,7 +47,7 @@ export function lintTree(placements: readonly Placement[]): {
       cpSync(join(FIXTURES, placement.fixture), target);
     }
     const result = Bun.spawnSync(
-      [OXLINT, "--config", ".oxlintrc.json", "--deny-warnings", "--format", "json", "packages"],
+      [OXLINT, "--config", ".oxlintrc.json", "--deny-warnings", "--format", "json", ...roots],
       { cwd: dir, stdout: "pipe", stderr: "pipe" },
     );
     const output = JSON.parse(result.stdout.toString()) as { diagnostics: Diagnostic[] };

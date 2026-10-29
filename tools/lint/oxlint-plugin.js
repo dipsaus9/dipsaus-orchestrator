@@ -588,7 +588,8 @@ const PACKAGE_IMPORTS = {
 const WORKSPACE = /^@dipsaus-orchestrator\/([^/]+)(?:\/(.*))?$/;
 /** A file in a package: the package folder (the last `packages/<name>/` of the path) and the rest. */
 const PACKAGE_FILE = /^(.*\/packages\/([^/]+)\/)(.*)$/;
-const TEST_FILE = /(^|\/)test\/|\.test\.tsx?$/;
+/** A package's test file: under its `test/` folder, or a `*.test.ts(x)` file anywhere in it. */
+const TEST_FILE = /^test\/|\.test\.tsx?$/;
 
 /** The package a file is in, the path inside it and whether it is a test file; null outside one. */
 function packageOf(filename) {
@@ -632,9 +633,36 @@ function packageImportMessage(specifier, filename, own) {
 }
 
 /**
+ * The root folders whose files may read package files by relative path (0004): the cross-package
+ * tests, the tools and the CI scripts. None of them is shipped.
+ */
+const BY_PATH_ROOTS = ["test/", "tools/", "scripts/"];
+
+/**
+ * Why `specifier`, named by a file outside `packages/`, breaks a boundary (0004); null if it does
+ * not. Such a file is no package: it may import any package's entry, never its `src` by package
+ * specifier, and only the files of `BY_PATH_ROOTS` may read package files by relative path.
+ */
+function outsideImportMessage(specifier, filename, cwd) {
+  const workspace = WORKSPACE.exec(specifier);
+  if (workspace !== null) {
+    const rest = workspace[2];
+    return rest !== undefined && (rest === "src" || rest.startsWith("src/"))
+      ? "Deep imports are banned (0004). Import the package entry instead."
+      : null;
+  }
+  if (!specifier.startsWith(".")) return null;
+  const target = resolve(dirname(filename), specifier).replaceAll("\\", "/");
+  if (!target.startsWith(`${cwd}/packages/`)) return null;
+  const inside = filename.replaceAll("\\", "/").slice(cwd.length + 1);
+  if (BY_PATH_ROOTS.some((root) => inside.startsWith(root))) return null;
+  return "Only the cross-package tests in test/, the tools in tools/ and the CI scripts in scripts/ read package files by relative path (0004). Import the package entry instead.";
+}
+
+/**
  * The package bans of 0004 over every import form, also a dynamic import and `require`. A file
- * outside `packages/` (the root `test/` with its cross-package tests, `tools/`) is no package, so
- * the rule leaves it alone: the written exception of 0004.
+ * outside `packages/` is no package: `outsideImportMessage` keeps it from package internals, but
+ * for the written exception of 0004 (`test/`, `tools/` and `scripts/` read package files by path).
  */
 const packageImports = {
   meta: {
@@ -643,11 +671,14 @@ const packageImports = {
   },
   create(context) {
     const own = packageOf(context.filename);
-    if (own === null) return {};
+    const cwd = (context.cwd ?? process.cwd()).replaceAll("\\", "/");
     return importVisitors((source) => {
       const specifier = specifierOf(source);
+      if (specifier === null) return;
       const message =
-        specifier === null ? null : packageImportMessage(specifier, context.filename, own);
+        own === null
+          ? outsideImportMessage(specifier, context.filename, cwd)
+          : packageImportMessage(specifier, context.filename, own);
       if (message !== null) context.report({ node: source, message });
     });
   },
