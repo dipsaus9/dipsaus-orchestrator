@@ -1,33 +1,17 @@
-// When the daily backup and maintenance run (0007 sections 7 and 10). The daemon checks every hour,
-// starting a minute after it reaches `running`:
-//
-// - Backup: once per UTC day while no office has active work, and at the latest 24 hours after the
-//   newest daily copy even with work running (`VACUUM INTO` in a Worker takes no write lock).
-// - Maintenance: once per UTC day, only while no office has active work.
+// When the daily database upkeep runs (0007). The daemon checks every hour, starting a minute after
+// it reaches `running`, and runs the upkeep once per UTC day, only while no office has active work:
+// incremental vacuum in slices, a truncating checkpoint and `PRAGMA optimize`.
 //
 // Checks run one at a time; `stop` waits for the running one, so the daemon closes the database
 // only after it. A timer's check runs as a background job (DIPO-110, DIPO-119): a failure outside
-// the backup and the maintenance (the database, the backups directory) is one logged line with
-// its error code, and the next check is still armed.
-
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+// the upkeep itself is one logged line with its error code, and the next check is still armed.
 
 import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import type { StateDatabase } from "../db/database";
 import type { Logger } from "../log/logger";
 import { background } from "../platform/background";
-import { DAY_MS } from "../retention/run";
 
-import { type DailyBackupResult, type VacuumInto, writeDailyBackup } from "./daily";
-import {
-  type BackupCounts,
-  backupsDirectory,
-  dailyBackupName,
-  newestDailyBackupAt,
-  utcDay,
-} from "./files";
 import { type MaintenanceReport, runMaintenance } from "./maintenance";
 
 export const MAINTENANCE_CHECK_MS = 60 * 60 * 1000;
@@ -40,23 +24,21 @@ export interface MaintenanceSchedulerDeps {
   /** True while no office has active work. */
   readonly idle: () => boolean;
   readonly logger: Pick<Logger, "info" | "warn" | "error">;
-  readonly counts?: BackupCounts;
-  readonly vacuum?: VacuumInto;
   readonly pause?: () => Promise<void>;
   readonly intervalMs?: number;
   readonly firstDelayMs?: number;
 }
 
-export interface CheckReport {
-  readonly backup: DailyBackupResult | null;
-  readonly maintenance: MaintenanceReport | null;
+/** `yyyy-mm-dd` of `ms` in UTC. */
+function utcDay(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
 }
 
 export class MaintenanceScheduler {
   readonly #deps: MaintenanceSchedulerDeps;
   #timer: TimerHandle | null = null;
   #stopped = false;
-  #running: Promise<CheckReport> | null = null;
+  #running: Promise<MaintenanceReport | null> | null = null;
   #maintainedDay: string | null = null;
 
   constructor(deps: MaintenanceSchedulerDeps) {
@@ -76,8 +58,11 @@ export class MaintenanceScheduler {
     await this.#running?.catch(() => undefined);
   }
 
-  /** One check; a check already running is joined instead of starting a second one. */
-  check(): Promise<CheckReport> {
+  /**
+   * One check: the upkeep when today's has not run and no office has active work, else null. A
+   * check already running is joined instead of starting a second one.
+   */
+  check(): Promise<MaintenanceReport | null> {
     if (this.#running !== null) return this.#running;
     const run = this.#check().finally(() => {
       this.#running = null;
@@ -86,61 +71,31 @@ export class MaintenanceScheduler {
     return run;
   }
 
-  /** Whether today's backup is due at `now`. */
-  backupDue(db: StateDatabase, now: number, idle: boolean): boolean {
-    const dir = backupsDirectory(db.connection.path);
-    const newest = newestDailyBackupAt(dir);
-    if (newest === null || now - newest >= DAY_MS) return true;
-    return idle && !existsSync(join(dir, dailyBackupName(now)));
-  }
-
-  async #check(): Promise<CheckReport> {
+  async #check(): Promise<MaintenanceReport | null> {
     const { clock, logger } = this.#deps;
     const db = this.#deps.database();
-    if (db === null || this.#stopped) return { backup: null, maintenance: null };
+    if (db === null || this.#stopped) return null;
     // Stopping, or another database, ends the work between slices.
     const idle = () => !this.#stopped && this.#deps.database() === db && this.#deps.idle();
-
-    let backup: DailyBackupResult | null = null;
-    const now = clock.now();
-    if (this.backupDue(db, now, idle())) {
-      try {
-        backup = await writeDailyBackup({
-          dbPath: db.connection.path,
-          now,
-          ...(this.#deps.counts === undefined ? {} : { counts: this.#deps.counts }),
-          ...(this.#deps.vacuum === undefined ? {} : { vacuum: this.#deps.vacuum }),
-        });
-        if (backup.written) {
-          logger.info("wrote daily backup", { path: backup.path, removed: backup.removed });
-        }
-      } catch (error) {
-        logger.error("daily backup failed", {
-          reason: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-
-    let maintenance: MaintenanceReport | null = null;
     const day = utcDay(clock.now());
-    if (this.#maintainedDay !== day && idle()) {
-      try {
-        maintenance = await runMaintenance({
-          connection: db.connection,
-          clock,
-          idle,
-          logger,
-          ...(this.#deps.pause === undefined ? {} : { pause: this.#deps.pause }),
-        });
-        if (!maintenance.interrupted) this.#maintainedDay = day;
-        logger.info("database maintenance", { ...maintenance });
-      } catch (error) {
-        logger.error("database maintenance failed", {
-          reason: error instanceof Error ? error.message : String(error),
-        });
-      }
+    if (this.#maintainedDay === day || !idle()) return null;
+    try {
+      const maintenance = await runMaintenance({
+        connection: db.connection,
+        clock,
+        idle,
+        logger,
+        ...(this.#deps.pause === undefined ? {} : { pause: this.#deps.pause }),
+      });
+      if (!maintenance.interrupted) this.#maintainedDay = day;
+      logger.info("database maintenance", { ...maintenance });
+      return maintenance;
+    } catch (error) {
+      logger.error("database maintenance failed", {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      return null;
     }
-    return { backup, maintenance };
   }
 
   #arm(delayMs: number): void {
@@ -148,7 +103,7 @@ export class MaintenanceScheduler {
       this.#timer = null;
       if (this.#stopped) return;
       background(() => this.check(), {
-        failed: "the backup and maintenance check failed",
+        failed: "the database maintenance check failed",
         log: (message, fields) => this.#deps.logger.warn(message, fields),
         settled: () => {
           if (!this.#stopped) this.#arm(this.#deps.intervalMs ?? MAINTENANCE_CHECK_MS);

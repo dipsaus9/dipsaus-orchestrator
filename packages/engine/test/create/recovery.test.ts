@@ -167,12 +167,13 @@ function backupFile(dir: string, name: string, version: number, at: number): str
 }
 
 describe("newestBackup", () => {
-  it("names the newest daily or pre-migration copy that holds a schema", () =>
+  it("names the newest pre-migration copy that holds a schema", () =>
     withTempDir((dir) => {
       expect(newestBackup(dir)).toBeNull();
-      const daily = backupFile(dir, "dipo-20261014.db", 29, 1_000_000);
-      backupFile(dir, "dipo-20261013.db", 29, 500_000);
-      expect(newestBackup(dir)).toBe(daily);
+      const older = backupFile(dir, "pre-v28-20261014T080000.db", 27, 1_000_000);
+      expect(newestBackup(dir)).toBe(older);
+      // A daily copy of an earlier dipo is no backup any more (0007).
+      backupFile(dir, "dipo-20261016.db", 29, 2_500_000);
       const pre = backupFile(dir, "pre-v30-20261015T080000.db", 29, 2_000_000);
       expect(newestBackup(dir)).toBe(pre);
       // A copy of a database that was still empty restores nothing; other files are no backups.
@@ -192,26 +193,26 @@ describe("databaseFailure", () => {
       );
       expect(failure.details).toEqual({ reason: "migration", backup });
       expect(failure.text).toBe(
-        `Migration 30 of the state database failed and was rolled back (no such table: agents), so dipo.db was left as it was. No office is loaded. This dipo cannot migrate it: run \`dipo daemon stop\`, then go back to the previous dipo version or upgrade to a release with a fixed migration, and start the daemon again. Restore the backup only if dipo.db itself is suspect: \`dipo restore ${backup}\`.`,
+        `Migration 30 of the state database failed and was rolled back (no such table: agents), so dipo.db was left as it was. No office is loaded. This dipo cannot migrate it: run \`dipo daemon stop\`, then go back to the previous dipo version or upgrade to a release with a fixed migration, and start the daemon again. Copy the backup ${backup} over dipo.db only if dipo.db itself is suspect.`,
       );
       rmSync(backup);
       expect(
         databaseFailure(new MigrationFailedError(30, backup, new Error("x")), dir).text,
       ).toContain(
-        `Restore a backup only if dipo.db itself is suspect; ${join(dir, "backups")} holds none.`,
+        `Move dipo.db away only if it is itself suspect; ${join(dir, "backups")} holds no backup.`,
       );
     }));
 
-  it("names stop and restore for a damaged file, from quick_check or from SQLite", () =>
+  it("names stop and the backup to copy in for a damaged file, from quick_check or from SQLite", () =>
     withTempDir((dir) => {
-      const backup = backupFile(dir, "dipo-20261015.db", 29, 1_000_000);
+      const backup = backupFile(dir, "pre-v30-20261015T080000.db", 29, 1_000_000);
       const checked = databaseFailure(
         new IntegrityCheckError(join(dir, "dipo.db"), ["Tree 5 page 5: btreeInitPage error 11"]),
         dir,
       );
       expect(checked.details).toEqual({ reason: "damaged", backup });
       expect(checked.text).toBe(
-        `The state database is damaged (PRAGMA quick_check reported: Tree 5 page 5: btreeInitPage error 11). No office is loaded. Run \`dipo daemon stop\`, then \`dipo restore ${backup}\`.`,
+        `The state database is damaged (PRAGMA quick_check reported: Tree 5 page 5: btreeInitPage error 11). No office is loaded. Run \`dipo daemon stop\`, move ${join(dir, "dipo.db")} away or copy ${backup} over it, then start the daemon again.`,
       );
       const notADatabase = Object.assign(new Error("file is not a database"), {
         code: "SQLITE_NOTADB",
@@ -230,13 +231,13 @@ describe("databaseFailure", () => {
       const failure = databaseFailure(new IntegrityCheckError(join(dir, "dipo.db"), ["x"]), dir);
       expect(failure.details).toEqual({ reason: "damaged" });
       expect(failure.text).toContain(
-        `Run \`dipo daemon stop\`, then \`dipo restore <file>\` with a copy of dipo.db; ${join(dir, "backups")} holds no backup.`,
+        `Run \`dipo daemon stop\`, move ${join(dir, "dipo.db")} away (${join(dir, "backups")} holds no backup), then start the daemon again; \`dipo office open\` registers each repository again.`,
       );
     }));
 
   it("says to upgrade dipo for a too-new database, and names no backup", () =>
     withTempDir((dir) => {
-      backupFile(dir, "dipo-20261015.db", 29, 1_000_000);
+      backupFile(dir, "pre-v29-20261015T080000.db", 28, 1_000_000);
       const failure = databaseFailure(new DatabaseTooNewError(31, 29), dir);
       expect(failure.details).toEqual({ reason: "tooNew" });
       expect(failure.text).toBe(
@@ -253,9 +254,9 @@ describe("databaseFailure", () => {
       );
     }));
 
-  it("names restore for an edited migration and for any other failure", () =>
+  it("names the backup to copy in for an edited migration and for any other failure", () =>
     withTempDir((dir) => {
-      const backup = backupFile(dir, "dipo-20261015.db", 29, 1_000_000);
+      const backup = backupFile(dir, "pre-v29-20261015T080000.db", 28, 1_000_000);
       const edited = databaseFailure(
         new MigrationChecksumError(4, "recorded checksum differs"),
         dir,
@@ -265,7 +266,7 @@ describe("databaseFailure", () => {
       const other = databaseFailure(new Error("EACCES: permission denied"), dir);
       expect(other.details).toEqual({ reason: "open", backup });
       expect(other.text).toBe(
-        `The state database could not be opened (EACCES: permission denied). No office is loaded. Run \`dipo daemon stop\`, then \`dipo restore ${backup}\`.`,
+        `The state database could not be opened (EACCES: permission denied). No office is loaded. Run \`dipo daemon stop\`, move ${join(dir, "dipo.db")} away or copy ${backup} over it, then start the daemon again.`,
       );
     }));
 });

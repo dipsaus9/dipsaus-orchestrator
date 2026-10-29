@@ -4,7 +4,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
 
@@ -15,6 +15,7 @@ import {
   type SqliteConnection,
   type SqlRunner,
 } from "../platform/sqlite";
+import { prunePreMigrationBackups } from "../backup/files";
 
 /** What a TypeScript step may use: statements and multi-statement SQL, inside its transaction. */
 export interface MigrationContext extends SqlRunner {
@@ -236,7 +237,9 @@ export async function migrate(
   const backup = fresh ? null : backupPath(db.path, head, options.clock.now());
   if (backup !== null) {
     await vacuumInto(db.path, backup);
-    logger.info("wrote pre-migration backup", { backup, from, to: head });
+    // The only backup (0007): the two newest copies are kept.
+    const removed = prunePreMigrationBackups(dirname(backup), new Set([basename(backup)]));
+    logger.info("wrote pre-migration backup", { backup, from, to: head, removed });
   }
 
   for (const step of migrations.slice(from)) {

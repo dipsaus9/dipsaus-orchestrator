@@ -1,7 +1,7 @@
 // The office list and the office engine instances (0006 decision 4, 0007 sections 2 and 3, 0011).
 // `office.open` registers a repository explicitly and writes its marker; `office.forget` hides it
-// from the list and keeps every row; `office.purge` deletes its rows and its `<git-common-dir>/dipo/`
-// directory (DIPO-76); an office's engine instance loads lazily on its first
+// from the list and keeps every row, which age out under the one retention rule (0007); an
+// office's engine instance loads lazily on its first
 // command, read or subscription, after checking that its marker still names it, reading its
 // configuration and running the load steps feature modules registered, in order. An invalid
 // configuration never refuses an office: it keeps the previous configuration for running work and
@@ -21,7 +21,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { filesAt } from "../box/image";
-import { appendEntries, newLogState } from "../changelog/log";
+import { appendEntries } from "../changelog/log";
 import { CommandError } from "../commands/errors";
 import {
   type OfficeAccess,
@@ -42,12 +42,10 @@ import type { StateDatabase } from "../db/database";
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
-import type { RandomFill } from "../platform/ids";
 import type { MountReader } from "../platform/sqlite";
 import type { SoftwareStream } from "../software-stream";
 
-import { type OfficeMarker, officeDirectory, readMarker, writeMarker } from "./marker";
-import { purgeOfficeRows } from "./purge";
+import { type OfficeMarker, readMarker, writeMarker } from "./marker";
 import {
   type GitRunner,
   isBacklogProject,
@@ -69,12 +67,8 @@ export interface OfficeManagerDeps {
   readonly logger: Logger;
   /** Replaces the system mount table, for tests. */
   readonly readMounts?: MountReader;
-  /** Randomness for new epochs; tests pass a fixed one. */
-  readonly fill?: RandomFill;
   /** Entries were appended to an office's change log outside a command; subscribers catch up. */
   readonly onOfficeChanged?: (office: OfficeId) => void;
-  /** Runs between the row batches of `office.purge`; defaults to one turn of the event loop. */
-  readonly pause?: () => Promise<void>;
 }
 
 export interface OpenResult {
@@ -87,16 +81,6 @@ export interface ForgetResult {
   readonly office: OfficeId;
   /** The registered path of the forgotten office. */
   readonly path: string;
-}
-
-export interface PurgeResult {
-  readonly office: OfficeId;
-  /** The registered path of the purged office. */
-  readonly path: string;
-  /** Rows deleted, the `offices` row included. */
-  readonly rows: number;
-  /** The `<git-common-dir>/dipo/` directory removed, when there was one of this office. */
-  readonly directory?: string;
 }
 
 export interface ReloadConfigResult {
@@ -298,7 +282,7 @@ export class OfficeManager implements OfficeDirectory {
     if (!existsSync(row.path)) {
       return this.#refuse(
         "office.pathMissing",
-        `Office ${officeId} at ${row.path}: path missing; \`dipo office open\` the new path, or \`dipo office purge\`.`,
+        `Office ${officeId} at ${row.path}: path missing; \`dipo office open\` the new path, or \`dipo office forget\` it.`,
         { office: officeId, path: row.path },
       );
     }
@@ -498,14 +482,6 @@ export class OfficeManager implements OfficeDirectory {
   }
 
   /**
-   * `office.purge { office }`: deletes the office's rows and its `<git-common-dir>/dipo/` directory.
-   * A software-level command, so its idempotency record lives in the executor's in-memory table.
-   */
-  purge(office: OfficeId): Promise<CommandOutcome<PurgeResult>> {
-    return this.#serialised(() => this.#purge(office));
-  }
-
-  /**
    * `office.reloadConfig { office, from? }` (0017 section 5). A valid configuration of a loaded
    * office goes to every registered config-reload listener, for example the office's git (DIPO-48).
    */
@@ -667,7 +643,7 @@ export class OfficeManager implements OfficeDirectory {
     return { officeId: marker.marker.officeId, mainWorktree: resolved.repository.mainWorktree };
   }
 
-  /** A new `offices` row with a random epoch and, unless the marker is kept, a new marker. */
+  /** A new `offices` row whose log starts at seq 1 and, unless the marker is kept, a new marker. */
   #register(
     db: StateDatabase,
     repository: Repository,
@@ -677,20 +653,16 @@ export class OfficeManager implements OfficeDirectory {
     const office = keep?.officeId ?? OfficeId.parse(this.#deps.ids.next("off"));
     // The marker first: a crash before the row leaves a marker whose id the next open registers.
     if (keep === null) writeMarker(repository.commonDir, { officeId: office, createdAt: iso(now) });
-    const log = newLogState(this.#deps.fill);
     const name = basename(repository.mainWorktree);
     db.connection.immediate(() =>
       db.connection.run(
-        `insert into offices (office_id, path, display_name, added_at, epoch, next_seq, replay_floor_seq)
-         values ($office, $path, $name, $at, $epoch, $next, $floor)`,
+        `insert into offices (office_id, path, display_name, added_at, next_seq)
+         values ($office, $path, $name, $at, 1)`,
         {
           office,
           path: repository.mainWorktree,
           name,
           at: now,
-          epoch: log.epoch,
-          next: log.nextSeq,
-          floor: log.replayFloorSeq,
         },
       ),
     );
@@ -767,61 +739,6 @@ export class OfficeManager implements OfficeDirectory {
     );
     this.#instances.delete(officeId);
     this.#deps.software.append("office.forgotten", { office: officeId });
-  }
-
-  /**
-   * `office.purge { office }` (0007 section 3): refused with `office.busy` while work is active.
-   * The office leaves the list first, so nothing loads it while its rows go; then its
-   * `<git-common-dir>/dipo/` directory is removed, then its rows in batches, the `offices` row
-   * last. A purge that stops halfway leaves a forgotten office that a second purge finishes.
-   */
-  async #purge(officeId: OfficeId): Promise<CommandOutcome<PurgeResult>> {
-    const db = this.#deps.database();
-    if (db === null) throw new CommandError(recovering().code, recovering().message);
-    const row = this.#existing(db, officeId);
-    this.#refuseBusy(db, officeId, "purging");
-    if (row.forgotten_at === null) this.#hide(db, officeId);
-    this.#instances.delete(officeId);
-    const directory = await this.#removeOfficeDirectory(officeId, row.path);
-    const report = await purgeOfficeRows({
-      connection: db.connection,
-      office: officeId,
-      clock: this.#deps.clock,
-      ...(this.#deps.pause === undefined ? {} : { pause: this.#deps.pause }),
-    });
-    this.#deps.logger.info("office purged", {
-      office: officeId,
-      path: row.path,
-      rows: report.rows,
-      directory: directory ?? null,
-      slowestMs: report.slowestMs,
-    });
-    return {
-      result: {
-        office: officeId,
-        path: row.path,
-        rows: report.rows,
-        ...(directory === undefined ? {} : { directory }),
-      },
-      changed: true,
-    };
-  }
-
-  /**
-   * Removes `<git-common-dir>/dipo/` (marker, `mcp.json`, run files) of the repository at `path`
-   * when its marker names this office; a missing path, a path that is no longer a repository, or a
-   * marker of another office (a reused path) is left alone. Returns the removed directory.
-   */
-  async #removeOfficeDirectory(officeId: OfficeId, path: string): Promise<string | undefined> {
-    if (!existsSync(path)) return undefined;
-    const resolved = await resolveRepository(this.#deps.git, path);
-    if (!resolved.ok) return undefined;
-    const { commonDir } = resolved.repository;
-    const marker = readMarker(commonDir);
-    if (marker.kind !== "marker" || marker.marker.officeId !== officeId) return undefined;
-    const dir = officeDirectory(commonDir);
-    rmSync(dir, { recursive: true, force: true });
-    return dir;
   }
 
   async #reloadConfig(officeId: OfficeId): Promise<CommandOutcome<ReloadConfigResult>> {

@@ -14,7 +14,7 @@ import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Clock, DatabaseUnavailableReason } from "@dipsaus-orchestrator/contract";
-import { backupsDirectory, dailyBackups, preMigrationBackups } from "../backup/files";
+import { backupsDirectory, preMigrationBackups } from "../backup/files";
 import {
   DatabaseTooNewError,
   MigrationChecksumError,
@@ -125,14 +125,14 @@ function headerUserVersion(path: string): number | null {
 }
 
 /**
- * The newest backup in `<state>/backups` that holds a schema (0007 section 10), daily or
- * pre-migration, by modification time; null when there is none. A pre-migration copy of a database
+ * The newest pre-migration backup in `<state>/backups` that holds a schema (0007), by modification
+ * time; null when there is none. A pre-migration copy of a database
  * that was still empty has `user_version` 0 and restores nothing, so it is never named.
  */
 export function newestBackup(stateDir: string): string | null {
   const dir = backupsDirectory(join(stateDir, "dipo.db"));
   let newest: { path: string; at: number } | null = null;
-  for (const name of [...dailyBackups(dir), ...preMigrationBackups(dir)]) {
+  for (const name of preMigrationBackups(dir)) {
     const path = join(dir, name);
     let at: number;
     try {
@@ -152,11 +152,16 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** The `dipo daemon stop`, then `dipo restore` instruction, naming the backup when one exists. */
+/**
+ * Recovery by hand (0007): stop the daemon, move `dipo.db` away or copy the pre-migration backup in,
+ * then start. Losing the file loses run history only; the next start rebuilds the rest.
+ */
 function restoreSteps(stateDir: string, backup: string | null): string {
-  if (backup !== null) return `Run \`dipo daemon stop\`, then \`dipo restore ${backup}\`.`;
-  const dir = backupsDirectory(join(stateDir, "dipo.db"));
-  return `Run \`dipo daemon stop\`, then \`dipo restore <file>\` with a copy of dipo.db; ${dir} holds no backup.`;
+  const db = join(stateDir, "dipo.db");
+  if (backup !== null) {
+    return `Run \`dipo daemon stop\`, move ${db} away or copy ${backup} over it, then start the daemon again.`;
+  }
+  return `Run \`dipo daemon stop\`, move ${db} away (${backupsDirectory(db)} holds no backup), then start the daemon again; \`dipo office open\` registers each repository again.`;
 }
 
 /** `problem` says what failed, `action` what to do; both are whole sentences. */
@@ -182,11 +187,11 @@ function damageOf(error: unknown): string {
 
 /**
  * What a failed open or migration of the state database means for the maintainer (0007 sections 9
- * and 10, DIPO-111): the reason, the newest backup when the fix is a restore, and one paragraph
+ * and 10, DIPO-111): the reason, the newest backup when one exists, and one paragraph
  * that says what to do. A failed migration left `dipo.db` as it was (the step rolled back), so the
  * fix is a dipo whose migrations work: the previous version or a fixed release; the backup is for
  * a file that is itself suspect. An edited migration, a damaged file or any other failure: stop
- * the daemon and restore the newest backup. A too-new database: upgrade dipo. A network
+ * the daemon and move the file away or copy the newest backup in. A too-new database: upgrade dipo. A network
  * filesystem: move the state directory.
  */
 export function databaseFailure(error: unknown, stateDir: string): DatabaseFailure {
@@ -219,8 +224,8 @@ export function databaseFailure(error: unknown, stateDir: string): DatabaseFailu
     const dir = backupsDirectory(join(stateDir, "dipo.db"));
     const suspect =
       backup === null
-        ? `Restore a backup only if dipo.db itself is suspect; ${dir} holds none.`
-        : `Restore the backup only if dipo.db itself is suspect: \`dipo restore ${backup}\`.`;
+        ? `Move dipo.db away only if it is itself suspect; ${dir} holds no backup.`
+        : `Copy the backup ${backup} over dipo.db only if dipo.db itself is suspect.`;
     return failure(
       "migration",
       `Migration ${error.version} of the state database failed and was rolled back (${messageOf(error.cause)}), so dipo.db was left as it was.`,

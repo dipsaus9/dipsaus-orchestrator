@@ -1,10 +1,8 @@
 // `dipo office` subcommands (0006 decision 4, DIPO-27): `open [path]` registers a repository,
 // `forget` removes an office from the list, `reload-config` re-reads its configuration, `rescan`
 // (DIPO-72) scans its run profile again and prints the diff, `init` (DIPO-36) prepares its backlog
-// for the 0012 lifecycle through one backlog PR and prints the PR or the waiting branch, `purge`
-// (DIPO-76) deletes the office's rows and its `.git/dipo/` directory after asking. The office
-// comes from
-// `--office <id>`, else from the repository around the current directory. In a Backlog.md project
+// for the 0012 lifecycle through one backlog PR and prints the PR or the waiting branch. The
+// office comes from `--office <id>`, else from the repository around the current directory. In a Backlog.md project
 // that is not an office the CLI says so and, at a terminal, asks once whether to open it (0006
 // open question 2); a script is never asked.
 
@@ -14,7 +12,6 @@ import {
   officeForget,
   officeInit,
   officeOpen,
-  officePurge,
   officeReloadConfig,
   officeRescan,
   scanFinished,
@@ -243,66 +240,6 @@ async function forgetCommand(args: readonly string[], deps: OfficeCommandDeps): 
   return withOffice(deps, options.office, forget, confirm);
 }
 
-async function purgeCommand(args: readonly string[], deps: OfficeCommandDeps): Promise<number> {
-  const options = parseOptions(args, true);
-  if (typeof options === "string") return usage(deps, `office purge: ${options}`);
-  // `office.purge` has `confirm: true` and `irreversible: true`: every client asks first and says
-  // that it cannot be undone (0005 section 4).
-  const confirm: Confirm = async (office, path) => {
-    const named = path === null ? `office ${office}` : `the office at ${path}`;
-    if (options.yes) return true;
-    if (!deps.workspace.interactive) {
-      deps.writeError(
-        `dipo: purging ${named} cannot be undone, so it needs confirmation; run it at a terminal or pass --yes.`,
-      );
-      return false;
-    }
-    const answer = await deps.workspace.ask(
-      `Purge ${named}? This deletes its history and run records from the state database and its .git/dipo directory, mcp.json included. Its repository and branches are kept. This cannot be undone. [y/N] `,
-    );
-    if (YES.test(answer)) return true;
-    deps.writeLine("nothing purged");
-    return false;
-  };
-  // `from` is the main worktree of the repository around the current directory, also with
-  // `--office`: the daemon answers `office.unknown` when it is not the office's registered path,
-  // so a copy that carries the original's marker never purges the original (0005 amendment of
-  // 2026-10-14). Outside any repository no `from` is sent.
-  const here = options.office === null ? null : await deps.workspace.locate(deps.workspace.cwd);
-  const purge: Act = async (session, office, resolvedFrom) => {
-    const from = resolvedFrom ?? here?.mainWorktree;
-    const outcome = await session.command(officePurge, {
-      office,
-      ...(from === undefined ? {} : { from }),
-    });
-    if (!outcome.ok) {
-      const details = outcome.error.details as { reason?: unknown } | undefined;
-      // A `from` that is not the registered path: say so, rather than offer to open the copy.
-      if (outcome.error.code === "office.unknown" && details?.reason === "path") {
-        engineFailure(deps, outcome.error);
-        deps.writeError(
-          `dipo: nothing purged; run \`dipo office purge --office ${office}\` from outside this repository, or from the office's own repository.`,
-        );
-        return 1;
-      }
-      return outcome.error.code === "office.unknown"
-        ? "unknown"
-        : engineFailure(deps, outcome.error);
-    }
-    const { path, rows, directory } = outcome.result;
-    deps.writeLine(
-      `purged office ${office} at ${path}: ${rows} ${rows === 1 ? "row" : "rows"} deleted`,
-    );
-    deps.writeLine(
-      directory === undefined
-        ? "no .git/dipo directory of this office to remove (the path is missing or holds another office)"
-        : `removed ${directory}`,
-    );
-    return 0;
-  };
-  return withOffice(deps, options.office, purge, confirm);
-}
-
 async function reloadConfigCommand(
   args: readonly string[],
   deps: OfficeCommandDeps,
@@ -490,7 +427,6 @@ async function rescanCommand(args: readonly string[], deps: OfficeCommandDeps): 
 export const OFFICE_SUBCOMMANDS: ReadonlyMap<string, Subcommand> = new Map<string, Subcommand>([
   ["open", openCommand],
   ["forget", forgetCommand],
-  ["purge", purgeCommand],
   ["reload-config", reloadConfigCommand],
   ["init", initCommand],
   ["rescan", rescanCommand],

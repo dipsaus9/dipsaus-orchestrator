@@ -8,7 +8,6 @@ import {
   contractReads,
   describeCommand,
   describeContract,
-  findCommand,
   commandsDescribe,
 } from "./index";
 import { readFixtures } from "../test/fixtures";
@@ -39,19 +38,12 @@ describe("command and read definitions", () => {
     expect(checkVersioning({ since: CONTRACT_VERSION.minor + 1 })).toBeDefined();
   });
 
-  it("defines office.purge with confirm and irreversible", () => {
-    const purge = findCommand("office.purge");
-    expect(purge?.confirm).toBe(true);
-    expect(purge?.irreversible).toBe(true);
-  });
-
   it("marks the commands of 0005 section 4 that ask first", () => {
     const confirmed = contractCommands.filter((d) => d.confirm).map((d) => d.name);
     expect(confirmed.toSorted()).toEqual(
       [
         "daemon.stop",
         "office.forget",
-        "office.purge",
         "office.setPrivacy",
         "gate.reject",
         "work.discard",
@@ -75,27 +67,6 @@ describe("commands.describe", () => {
     expect(open?.args).toMatchObject({ type: "object", required: ["path"] });
     expect(open?.confirm).toBe(false);
     expect(open?.irreversible).toBe(false);
-  });
-
-  it("lists office.purge since minor 1 with confirm, irreversible and its result (DIPO-76)", () => {
-    const entry = describeContract().commands.find((command) => command.name === "office.purge");
-    expect(entry).toMatchObject({
-      name: "office.purge",
-      since: 1,
-      level: "software",
-      confirm: true,
-      irreversible: true,
-      args: { type: "object", required: ["office"] },
-    });
-    const result = entry?.result as { properties?: object; required?: string[] } | undefined;
-    expect(Object.keys(result?.properties ?? {}).toSorted()).toEqual(
-      ["directory", "office", "path", "rows"].toSorted(),
-    );
-    expect(result?.required?.toSorted()).toEqual(["office", "path", "rows"]);
-    // `from` since the 0005 amendment of 2026-10-14, optional as on `office.forget`.
-    const args = entry?.args as { properties?: object; required?: string[] } | undefined;
-    expect(Object.keys(args?.properties ?? {}).toSorted()).toEqual(["from", "office"]);
-    expect(args?.required).toEqual(["office"]);
   });
 
   it("lists story.park and story.drop since minor 1; drop is irreversible when deleteBranch is set (DIPO-160, DIPO-344)", () => {
