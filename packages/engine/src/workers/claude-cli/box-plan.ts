@@ -8,8 +8,8 @@
 // the boundary (0021 section 7: no per-call checks inside the box).
 //
 // Its environment in the box is the session's route environment (`BoxSession.env`: the model
-// proxy's `boxModelEnvironment`, HTTPS_PROXY and HTTP_PROXY for the web proxy and the Safe-Chain
-// CA bundle) plus what Claude Code needs: IS_SANDBOX, without which it refuses all permissions as
+// proxy's `boxModelEnvironment`, and `boxRouteEnv` for the web proxy, NO_PROXY and the
+// Safe-Chain CA bundle) plus what Claude Code needs: IS_SANDBOX, without which it refuses all permissions as
 // root, and the session state events dipo's watchdog reads. Nothing comes from the Mac's
 // environment; the `container` client on the Mac gets only the backend's client environment.
 // The host runs the session's stop command when it signals the worker and after the worker

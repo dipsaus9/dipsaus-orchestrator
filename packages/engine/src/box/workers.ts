@@ -124,6 +124,28 @@ export const BOX_RUN_FILE = "box-run.json";
 export const BOX_SYSTEM_FILE = `${BOX_DIPO_DIR}/system.md`;
 /** The Safe-Chain CA bundle's path in a box, for the package managers' TLS to Safe-Chain. */
 export const BOX_CA_FILE = `${BOX_DIPO_DIR}/safe-chain-ca.pem`;
+/**
+ * The box's own loopback, which every command reaches directly (DIPO-372): the box firewall lets
+ * loopback through (0008) and the web proxy refuses it, so a test that serves on the box's
+ * loopback and asks it with a client that honours HTTP_PROXY must not go through the proxy.
+ */
+export const BOX_LOOPBACK_HOSTS: readonly string[] = ["localhost", "127.0.0.1", "::1"];
+
+/**
+ * What a box's commands get for dipo's web route: the proxy at `proxy`, NO_PROXY for `direct`
+ * (the model proxy's address in a session) and the box's loopback, and the Safe-Chain CA bundle.
+ */
+export function boxRouteEnv(
+  proxy: string,
+  direct: readonly string[] = [],
+): Readonly<Record<string, string>> {
+  return {
+    HTTPS_PROXY: proxy,
+    HTTP_PROXY: proxy,
+    NO_PROXY: [...direct, ...BOX_LOOPBACK_HOSTS].join(","),
+    NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
+  };
+}
 /** The prefix of the host folder dipo's files are staged in for a box. */
 export const BOX_FILES_STAGE_PREFIX = "dipo-box-files-";
 /** The index folder's name in dipo's state folder: one file per box not yet finished. */
@@ -211,8 +233,8 @@ export interface BoxSession {
   /** The working directory in the box: the code. */
   readonly workdir: string;
   /**
-   * The box environment of the routes: exactly `boxModelEnvironment`, HTTPS_PROXY and HTTP_PROXY
-   * for the web proxy, and NODE_EXTRA_CA_CERTS for the Safe-Chain CA bundle.
+   * The box environment of the routes: exactly `boxModelEnvironment` and `boxRouteEnv`, whose
+   * NO_PROXY holds the model proxy's address and the box's loopback.
    */
   readonly env: Readonly<Record<string, string>>;
   /** The system file's path in the box. */
@@ -914,13 +936,8 @@ export class BoxWorkers {
       await this.#copyDipoFiles(name, input.systemFile, web.caFile);
       // No local port of the Mac: a reviewer reaches no service of the Mac.
       const proxy = web.admit(name, []);
-      const env = {
-        ...BOX_IMAGE_ENV,
-        ...boxModelEnvironment(model),
-        HTTPS_PROXY: proxy,
-        HTTP_PROXY: proxy,
-        NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
-      };
+      const modelEnv = boxModelEnvironment(model);
+      const env = { ...BOX_IMAGE_ENV, ...modelEnv, ...boxRouteEnv(proxy, [modelEnv.NO_PROXY]) };
       this.#deps.info?.("reviewer box ready", { box: name, image: image.tag });
       return {
         box: name,
@@ -1029,13 +1046,8 @@ export class BoxWorkers {
     // The part queue is read while the session runs (DIPO-272).
     this.#door?.start(input.runId, name, input.runDir);
     const proxy = web.admit(name, record.localPorts ?? []);
-    const env = {
-      ...BOX_IMAGE_ENV,
-      ...boxModelEnvironment(model),
-      HTTPS_PROXY: proxy,
-      HTTP_PROXY: proxy,
-      NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
-    };
+    const modelEnv = boxModelEnvironment(model);
+    const env = { ...BOX_IMAGE_ENV, ...modelEnv, ...boxRouteEnv(proxy, [modelEnv.NO_PROXY]) };
     return {
       box: name,
       workdir: BOX_WORKDIR,
@@ -1251,8 +1263,8 @@ export class BoxWorkers {
    * The office's install at the start commit in the run's box (DIPO-294), after `create` and
    * before the worker's first session: dipo's web route acquired for the box (the box runs, so
    * the box network's address exists on the Mac), the Safe-Chain CA bundle copied in, and each
-   * command list run in `/work` with the image's environment plus the route's HTTPS_PROXY, HTTP_PROXY and
-   * NODE_EXTRA_CA_CERTS, exactly as a session gets them, within `timeoutMs` (`runBoxInstall`).
+   * command list run in `/work` with the image's environment plus the route's `boxRouteEnv`, as a
+   * session gets it, within `timeoutMs` (`runBoxInstall`).
    * With a package cache mounted (DIPO-295), the install first gets `boxCacheEnv`, so it takes the
    * cached packages; when that install fails, but not at its deadline or with the box stopped, it
    * runs once more without
@@ -1285,13 +1297,7 @@ export class BoxWorkers {
         {
           box,
           commands: input.commands,
-          env: {
-            ...BOX_IMAGE_ENV,
-            ...cacheEnv,
-            HTTPS_PROXY: proxy,
-            HTTP_PROXY: proxy,
-            NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
-          },
+          env: { ...BOX_IMAGE_ENV, ...cacheEnv, ...boxRouteEnv(proxy) },
           timeoutMs: input.timeoutMs,
         },
       );
@@ -1343,12 +1349,7 @@ export class BoxWorkers {
     await this.#firewall(box, web, null);
     await this.#copyDipoFiles(box, null, web.caFile);
     const proxy = this.#admit(web, box, this.#localPorts(this.#runDirOf(runId)));
-    return {
-      ...BOX_IMAGE_ENV,
-      HTTPS_PROXY: proxy,
-      HTTP_PROXY: proxy,
-      NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
-    };
+    return { ...BOX_IMAGE_ENV, ...boxRouteEnv(proxy) };
   }
 
   /**
@@ -1419,12 +1420,7 @@ export class BoxWorkers {
         box,
         commands: input.commands,
         cwd: input.cwd,
-        env: {
-          ...BOX_IMAGE_ENV,
-          HTTPS_PROXY: proxy,
-          HTTP_PROXY: proxy,
-          NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
-        },
+        env: { ...BOX_IMAGE_ENV, ...boxRouteEnv(proxy) },
         timeoutMs: input.timeoutMs,
       },
     );

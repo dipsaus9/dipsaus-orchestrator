@@ -7,7 +7,7 @@ import { describe, expect, it } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { guardRuns, withTempDir } from "@dipsaus-orchestrator/testkit";
+import { guardRuns, processRunning, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
   ChildProcesses,
@@ -383,8 +383,9 @@ describe("ChildProcesses (DIPO-68)", () => {
       expect(children.killGroups("SIGKILL")).toEqual([child.pid]);
       await children.waitAll();
       expect(child.signalCode).toBe("SIGKILL");
-      for (let i = 0; i < 100 && pidExists(grandchild); i++) await Bun.sleep(20);
-      expect(pidExists(grandchild)).toBe(false);
+      // Gone or a zombie: in a box PID 1 reaps no orphan (testkit `processRunning`, DIPO-372).
+      for (let i = 0; i < 100 && processRunning(grandchild); i++) await Bun.sleep(20);
+      expect(processRunning(grandchild)).toBe(false);
     });
   });
 });

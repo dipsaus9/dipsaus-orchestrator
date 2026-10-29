@@ -1,4 +1,4 @@
-version: 8
+version: 13
 # The worker sandbox reads the default toolchain paths (~/.bun, ~/.npm, ~/.cache). oxfmt and
 # oxlint run on node, so `bun run verify` passes inside a worker only when the sandbox can read
 # node too (DIPO-115). Where node lives is machine-specific, so it is not listed here: on a machine
@@ -17,3 +17,8 @@ version: 8
 # while the maintainer side merged its own finish-branch PRs.
 storyPr:
   open: true
+
+# The box image gets jq (DIPO-372): scripts/ci-light-path.test.ts runs the ci-ok step of ci.yml,
+# which reads the needs context with jq, so bun run verify needs it in the box as on the runner.
+box:
+  packages: [jq]

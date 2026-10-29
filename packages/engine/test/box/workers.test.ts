@@ -474,7 +474,8 @@ describe("the box of a box run (criteria 4 and 10)", () => {
         ...BOX_IMAGE_ENV,
         ANTHROPIC_API_KEY: BOX_PLACEHOLDER_API_KEY,
         ANTHROPIC_BASE_URL: `http://${BOX_HOST_ADDRESS}:4000`,
-        NO_PROXY: BOX_HOST_ADDRESS,
+        // The model proxy's address and the box's own loopback go direct (DIPO-372).
+        NO_PROXY: `${BOX_HOST_ADDRESS},localhost,127.0.0.1,::1`,
         HTTPS_PROXY: `http://dipo:pw-${BOX}@${BOX_HOST_ADDRESS}:3128`,
         HTTP_PROXY: `http://dipo:pw-${BOX}@${BOX_HOST_ADDRESS}:3128`,
         NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
@@ -970,6 +971,9 @@ describe("the verify in the box at done", () => {
       for (const name of ["HTTPS_PROXY", "HTTP_PROXY", "NODE_EXTRA_CA_CERTS"]) {
         expect(exec?.env?.[name]).toBe(session.env[name] as string);
       }
+      // A test that serves on the box's loopback reaches it directly, never through the web
+      // proxy, which refuses loopback (DIPO-372).
+      expect(exec?.env?.["NO_PROXY"]).toBe("localhost,127.0.0.1,::1");
       // No run environment of dipo's own: no port slot, no story worktree (DIPO-349).
       expect(Object.keys(exec?.env ?? {}).filter((name) => name.startsWith("DIPO_"))).toEqual([]);
       expect(w.warnings.map((x) => x.message)).toContain("the verify in the box is red");
@@ -1057,6 +1061,7 @@ describe("the install in the box before the worker (DIPO-294)", () => {
             ...BOX_IMAGE_ENV,
             HTTPS_PROXY: `http://dipo:pw-${BOX}@${BOX_HOST_ADDRESS}:3128`,
             HTTP_PROXY: `http://dipo:pw-${BOX}@${BOX_HOST_ADDRESS}:3128`,
+            NO_PROXY: "localhost,127.0.0.1,::1",
             NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
           },
         },
@@ -1903,6 +1908,7 @@ describe("the reviewer's box (0002, DIPO-347)", () => {
         `http://dipo:pw-${REVIEW_BOX}@${BOX_HOST_ADDRESS}:3128`,
       );
       expect(session.env["ANTHROPIC_BASE_URL"]).toBe(`http://${BOX_HOST_ADDRESS}:4000`);
+      expect(session.env["NO_PROXY"]).toBe(`${BOX_HOST_ADDRESS},localhost,127.0.0.1,::1`);
       expect(REVIEW_CODE_DIR.startsWith(`${REVIEW_ROOT}/`)).toBe(true);
       // Its session starts in the box, at its empty folder.
       const client = session.exec(["/bin/true"], {});

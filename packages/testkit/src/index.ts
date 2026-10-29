@@ -38,6 +38,7 @@ export {
 export type { FixtureTree, RunResult, TempRepo, TempRepoOptions, TempRepoWithRemote } from "./git";
 export { guardRuns } from "./guard";
 export { SequentialIds } from "./ids";
+export { groupRunning, processRunning } from "./running";
 export {
   assertTestRuntimeDir,
   isolatedDaemonEnv,

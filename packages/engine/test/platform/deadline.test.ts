@@ -6,7 +6,7 @@
 import { describe, expect, it } from "bun:test";
 
 import type { ChildProcess, SpawnOptions } from "@dipsaus-orchestrator/contract";
-import { ManualClock } from "@dipsaus-orchestrator/testkit";
+import { groupRunning, ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import {
   CALL_DEADLINE_MS,
@@ -205,15 +205,14 @@ describe("the calls the daemon's stop ends", () => {
   });
 });
 
-/** True once no process of the group `pgid` is left, polled on the system clock for `ms`. */
+/**
+ * True once no process of the group `pgid` runs, polled on the system clock for `ms`. A zombie
+ * counts as gone: in a box PID 1 reaps no orphan (testkit `groupRunning`, DIPO-372).
+ */
 async function groupGone(pgid: number, ms: number): Promise<boolean> {
   const until = systemClock.now() + ms;
   for (;;) {
-    try {
-      process.kill(-pgid, 0);
-    } catch {
-      return true;
-    }
+    if (!groupRunning(pgid)) return true;
     if (systemClock.now() >= until) return false;
     await Bun.sleep(20);
   }
@@ -233,8 +232,8 @@ describe("the daemon's stop on a real process group", () => {
     expect(await calls.stop(systemClock, 100)).toBe(1);
     const exit = await child.exited;
     expect(exit.signal).toBe("SIGKILL");
-    // Nothing of the group is left once its members are reaped: Linux may still list the group
-    // right after the leader's exit, so wait up to 2 s for it to go.
+    // Nothing of the group runs once its members are killed: Linux may still list the group right
+    // after the leader's exit, so wait up to 2 s for it to go.
     expect(await groupGone(child.pid, 2_000)).toBe(true);
   });
 });
