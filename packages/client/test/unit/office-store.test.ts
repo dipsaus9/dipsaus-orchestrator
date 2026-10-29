@@ -176,12 +176,12 @@ describe("OfficeStore", () => {
     expect(client.active(stream).after).toEqual(cursor(stream, 5));
     expect(store.state.work.map((view) => view.health)).toEqual(["busy"]);
 
-    const phase = work("looping", "verify");
+    const phase = work("looping", "review");
     client.emit(
       stream,
       event(stream, 6, "work.phase", {
         work: phase.work,
-        phase: "verify",
+        phase: "review",
         progress: phase.progress,
         view: phase,
       }),

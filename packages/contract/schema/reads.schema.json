@@ -934,6 +934,10 @@
                   }
                 ]
               },
+              "followOnly": {
+                "type": "boolean",
+                "const": true
+              },
               "lastOutputAt": {
                 "type": "string",
                 "format": "date-time",
@@ -1644,6 +1648,10 @@
                   }
                 ]
               },
+              "followOnly": {
+                "type": "boolean",
+                "const": true
+              },
               "lastOutputAt": {
                 "type": "string",
                 "format": "date-time",
@@ -2341,6 +2349,10 @@
                   "type": "string"
                 }
               ]
+            },
+            "followOnly": {
+              "type": "boolean",
+              "const": true
             },
             "lastOutputAt": {
               "type": "string",

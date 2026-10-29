@@ -377,14 +377,18 @@ class Watch {
       case workObserved.type: {
         const data = workObserved.data.safeParse(event.data);
         if (!data.success) break;
-        const { work, signal, since, clearedAt } = data.data;
+        const { work, signal, since, clearedAt, view } = data.data;
+        // The same `no-output` fact is observed again once it is stuck; the carried view says so.
+        const stuck = signal === "no-output" && view?.health === "stuck";
         this.#event(
           event,
           work.story,
           "signal",
-          clearedAt === undefined
-            ? `${signal} since ${clockTime(since)}: ${SIGNAL_MEANING[signal] ?? signal}`
-            : `${signal} cleared: output resumed (it began ${clockTime(since)})`,
+          clearedAt !== undefined
+            ? `${signal} cleared: output resumed (it began ${clockTime(since)})`
+            : stuck
+              ? `${signal} since ${clockTime(since)}, stuck: no output line past timeouts.workerStallMinutes`
+              : `${signal} since ${clockTime(since)}: ${SIGNAL_MEANING[signal] ?? signal}`,
         );
         this.#view(event, work, data.data.view);
         break;

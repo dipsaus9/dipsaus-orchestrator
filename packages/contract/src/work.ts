@@ -323,6 +323,9 @@ export const WorkView = z.object({
   progress: Progress,
   usage: Usage,
   health: Health,
+  // True while the run's worker host is followed only after a daemon restart, so it takes no steer
+  // (0005); absent otherwise. Goes with follow-only mode (DIPO-355).
+  followOnly: z.literal(true).optional(),
   lastOutputAt: Timestamp.optional(), // display only
   startedAt: Timestamp,
   evidence: EvidenceMap.optional(),

@@ -127,7 +127,10 @@ export const MAX_QUESTIONS = 3;
 /** The opt-in that puts tool inputs into the worker output (0007 section 8). */
 const COMMAND_BODIES = "privacy.storeCommandBodies";
 
-/** `DIPO-24 Add verify retry · developer · S · claude-sonnet · run_01J…` (AC 1). */
+/**
+ * `DIPO-24 Add verify retry · developer · S · claude-sonnet · run_01J…  [follow]` (AC 1); `[follow]`
+ * when the engine says the run's host is followed only, so it takes no steer (0005).
+ */
 export function headerLine(view: WorkView, story: StoryView | undefined, dot: string): string {
   const { work } = view;
   const parts = [
@@ -137,7 +140,7 @@ export function headerLine(view: WorkView, story: StoryView | undefined, dot: st
     work.model,
     String(work.run),
   ];
-  return parts.join(` ${dot} `);
+  return `${parts.join(` ${dot} `)}${view.followOnly === true ? "  [follow]" : ""}`;
 }
 
 /** How to answer a question from a shell: `dipo answer <id> allow|deny` or `<text>` (DIPO-59). */

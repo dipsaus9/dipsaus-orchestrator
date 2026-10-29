@@ -20,7 +20,7 @@ import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../comm
 import type { OfficeHandle } from "../db/office";
 import steerTemplate from "../prompts/feedback/steer.md" with { type: "text" };
 import { renderTemplate } from "../prompts/templates";
-import { workerHostsOf } from "../runs/worker-hosts";
+import { followedOnly } from "../runs/worker-hosts";
 
 import { type RunControlDeps, STORY_NOT_RUNNING } from "./control-types";
 import { findSteer, sendFeedback } from "./feedback";
@@ -137,8 +137,7 @@ export class Interventions {
         { story },
       );
     }
-    const newest = workerHostsOf(office, run.runId).at(-1);
-    if (newest !== undefined && newest.endedAt === null && newest.mode === "follow") {
+    if (followedOnly(office, run.runId)) {
       throw new CommandError(
         STORY_NOT_STEERABLE,
         `${story}'s worker host is followed only after a daemon restart, so dipo cannot steer it.`,

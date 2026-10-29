@@ -244,7 +244,7 @@ describe("dipo watch", () => {
       `${T} TASK-1 usage  2,000 of 400,000 tokens (0.5% of budget) · in 1,200 out 300 cache write 500 cache read 9,000 · 2 turns`,
       `${T} TASK-1 signal no-output since ${T}: no output line since then`,
       `${T} TASK-1 health quiet: no output for a few minutes (timeouts.workerQuietMinutes)`,
-      `${T} TASK-1 signal no-output since ${T}: no output line since then`,
+      `${T} TASK-1 signal no-output since ${T}, stuck: no output line past timeouts.workerStallMinutes`,
       `${T} TASK-1 health stuck: no output for a long time (timeouts.workerStallMinutes); the worker may hang`,
       `${T} TASK-1 signal no-output cleared: output resumed (it began ${T})`,
       `${T} TASK-1 health busy: the worker is producing output`,

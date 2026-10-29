@@ -1,10 +1,10 @@
 // One writer per run table (0001, DIPO-364): a scan of the product source finds no insert, update,
-// replace or delete of `runs`, `parks`, `agents` or `worker_hosts` outside the table's writer
-// module, whether the table is named plainly, quoted or with its schema. A write whose table is
-// not written out (an interpolated name, a quoted name, a string joined with `+`) is refused
-// anywhere outside a short list, since the scan cannot tell which table it writes. Migrations are
-// exempt; retention's age-out deletes are too until DIPO-354 cuts housekeeping to one rule, and so
-// are `office purge`'s deletes of a forgotten office's rows.
+// replace or delete of `runs`, `parks`, `agents`, `worker_hosts` or `run_signals` outside the
+// table's writer module, whether the table is named plainly, quoted or with its schema. A write
+// whose table is not written out (an interpolated name, a quoted name, a string joined with `+`) is
+// refused anywhere outside a short list, since the scan cannot tell which table it writes.
+// Migrations are exempt; retention's age-out deletes are too until DIPO-354 cuts housekeeping to
+// one rule, and so are `office purge`'s deletes of a forgotten office's rows.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -20,6 +20,7 @@ const WRITERS: Readonly<Record<string, string>> = {
   parks: "packages/engine/src/run/park-records.ts",
   agents: "packages/engine/src/runs/agents.ts",
   worker_hosts: "packages/engine/src/runs/worker-hosts.ts",
+  run_signals: "packages/engine/src/run/signals.ts",
 };
 
 const MIGRATIONS = "packages/engine/src/db/migrations/";
@@ -32,9 +33,9 @@ const DYNAMIC_ALLOWED = [RETENTION, "packages/engine/src/office/purge/rows.ts"];
 
 const VERB = String.raw`\b(?:insert(?:\s+or\s+\w+)?\s+into|replace\s+into|update(?:\s+or\s+\w+)?|delete\s+from)`;
 
-/** A write to one of the four tables, named plainly, quoted or with its schema. */
+/** A write to one of the run tables, named plainly, quoted or with its schema. */
 const NAMED = new RegExp(
-  String.raw`${VERB}\s+(?:\w+\.)?["\`\[]?(runs|parks|agents|worker_hosts)\b`,
+  String.raw`${VERB}\s+(?:\w+\.)?["\`\[]?(runs|parks|agents|worker_hosts|run_signals)\b`,
   "gi",
 );
 
