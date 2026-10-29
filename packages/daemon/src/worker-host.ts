@@ -14,7 +14,7 @@ import {
   RUN_DIR_ENV,
   signalGroup,
   systemSpawn,
-} from "@dipsaus-orchestrator/engine";
+} from "@dipsaus-orchestrator/engine/platform";
 
 import { noOrphansActive, type DaemonIo } from "./io";
 

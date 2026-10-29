@@ -1,8 +1,9 @@
 // The one factory (DIPO-318, 0005): `createEngine` starts from fakes for the daemon's process
 // concerns (the manual clock, a quiet log, a spawn that runs git in an isolated home, a probe that
-// finds no process, a keep-awake that never starts), with no daemon package. It recovers into
-// `running`, opens an office on a temporary repository, answers a read, and drains. A service
-// whose partner the engine has not connected yet fails loudly when it is called.
+// finds no process, and a keep-awake, worker hosts, forwarders and a listener that never start),
+// with no daemon package. It recovers into `running`, opens an office on a temporary repository,
+// answers a read, and drains. A service whose partner the engine has not connected yet fails
+// loudly when it is called.
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
@@ -50,6 +51,20 @@ function fakeDeps(root: string, home: string): { deps: EngineDeps; stops: unknow
       probe: async () => null,
       spawnKeepAwake: () => {
         throw new Error("no keep-awake starts here");
+      },
+      hosts: {
+        start: async () => {
+          throw new Error("no worker host starts here");
+        },
+      },
+      forwarders: {
+        forward: async () => {
+          throw new Error("no forwarder starts here");
+        },
+        reach: async () => false,
+      },
+      listenHttp: () => {
+        throw new Error("no model proxy listens here");
       },
       env: { PATH: "/usr/bin:/bin", HOME: home },
       paths: {

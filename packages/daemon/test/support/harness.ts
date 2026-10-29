@@ -17,7 +17,6 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import {
   controlFeature,
-  createLogger,
   DaemonLifecycle,
   emitDaemonStates,
   engineSurface,
@@ -35,13 +34,16 @@ import {
   openStateDatabase,
   Renderer,
   recordTuiLeft,
-  serveUnixSocket,
   SoftwareStream,
   stateOfficeDirectory,
   type FeatureModule,
-  type ServedSocket,
   type StateDatabase,
 } from "@dipsaus-orchestrator/engine";
+import {
+  createLogger,
+  serveUnixSocket,
+  type ServedSocket,
+} from "@dipsaus-orchestrator/engine/platform";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { ContractServer } from "../../src/server";

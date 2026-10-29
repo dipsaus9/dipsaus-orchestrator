@@ -12,16 +12,16 @@ import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "n
 import { homedir, tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
+import { OFFICE_DEFAULTS } from "../../packages/engine/src/config/schema";
+import { systemClock } from "../../packages/engine/src/platform/clock";
+import { encode as encodeClaudeOp } from "../../packages/engine/src/workers/claude-cli/encode";
 import {
-  encodeClaudeOp,
-  OFFICE_DEFAULTS,
-  planClaudeLaunch,
-  readInstalledPlugins,
-  REPORT_JSON_SCHEMAS,
+  plan as planClaudeLaunch,
   SETTINGS_FILE,
-  systemClock,
-} from "../../packages/engine/src/index";
-import type { LaunchPlan, WorkerSpec } from "../../packages/engine/src/index";
+} from "../../packages/engine/src/workers/claude-cli/plan";
+import { readInstalledPlugins } from "../../packages/engine/src/workers/claude-cli/plugins";
+import { REPORT_JSON_SCHEMAS } from "../../packages/engine/src/workers/claude-cli/report-schema";
+import type { LaunchPlan, WorkerSpec } from "../../packages/engine/src/workers/types";
 import { withTempRepo } from "../../packages/testkit/src/index";
 import { decisionFieldProblems } from "./checks";
 import type { Envelope, Meta, SteerRecord } from "./format";

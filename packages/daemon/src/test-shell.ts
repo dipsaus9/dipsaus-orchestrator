@@ -11,7 +11,7 @@ import {
   systemSpawnInteractive,
   testShellArgs,
   containerOnPath,
-} from "@dipsaus-orchestrator/engine";
+} from "@dipsaus-orchestrator/engine/platform";
 
 import type { DaemonIo } from "./io";
 

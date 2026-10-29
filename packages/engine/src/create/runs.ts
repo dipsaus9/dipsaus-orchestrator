@@ -36,14 +36,13 @@ import { AppleContainerBoxes } from "../box/apple-container";
 import { PACKAGE_CACHE_DIR } from "../box/cache";
 import { BoxCollisions } from "../box/collisions";
 import { BOX_NET_TOOLS_DIR } from "../box/firewall";
-import { startForwarder, systemReach } from "../box/forwarder";
 import { readBaseBox } from "../box/image";
 import { boxInstallInput, boxVerifyInput } from "../box/lifetime";
-import { startModelProxy } from "../box/model-proxy";
+import { startModelProxy, type ListenHttp } from "../box/model-proxy";
 import { BoxParts, partStageRoot, type BoxPartsDeps, type PartRun } from "../box/parts";
 import { boxName, type BoxNetwork, type BoxPort } from "../box/port";
 import { startBoxWebRoute } from "../box/safe-chain-box";
-import { TestBoxes } from "../box/test-box";
+import { TestBoxes, type TestBoxesDeps } from "../box/test-box";
 import { BOX_INDEX_DIR, BoxWorkers, type RouteBoxIds } from "../box/workers";
 import { appendEntries } from "../changelog/log";
 import type { StateDatabase } from "../db/database";
@@ -55,9 +54,8 @@ import type { MergeGatesDeps } from "../merge/commands";
 import { guardedParkWriter, guardedUnparkWriter, type AutoMergeGuard } from "../merge/guard";
 import type { StoryMergeDeps } from "../merge/stories";
 import type { OfficeManager } from "../office/manager";
-import { systemListenHttp } from "../platform/box-host";
 import { ensurePrivateDir } from "../platform/paths";
-import { selfCommand, signalProcess, systemSpawn, type ProcessProbe } from "../platform/process";
+import { signalProcess, systemSpawn, type ProcessProbe } from "../platform/process";
 import { runCaps } from "../run/caps";
 import {
   boxBehind,
@@ -78,8 +76,14 @@ import { Partner } from "../wiring/partner";
 import type { Caps } from "../workers/types";
 import { inReviewRunIds, markBoxCopied, pendingBoxCopy, StoryConflicts } from "../run/conflicts";
 import { RunControl } from "../run/control";
-import { hostSocketSteering, OfficeIngest, systemHostStarter } from "../run/hosts";
-import { capsOf, RunLauncher, runLaunchPaths, type TierCaps } from "../run/launch";
+import { hostSocketSteering, OfficeIngest } from "../run/hosts";
+import {
+  capsOf,
+  RunLauncher,
+  runLaunchPaths,
+  type HostStarter,
+  type TierCaps,
+} from "../run/launch";
 import type { Presence } from "../run/live-question";
 import { storyHoldsWork } from "../run/outcome-types";
 import { RunOutcomes } from "../run/outcomes";
@@ -126,6 +130,12 @@ export interface RunsOptions {
   readonly probe: ProcessProbe;
   /** Starts the processes of the runs: boxes, the Keychain, the worker. */
   readonly spawn: Spawn;
+  /** Starts the detached worker hosts (0006 decision 8). */
+  readonly hosts: HostStarter;
+  /** The test boxes' forwarders on the Mac's loopback, and the check that one answers (DIPO-309). */
+  readonly forwarders: Pick<TestBoxesDeps, "forward" | "reach">;
+  /** The model proxy's HTTP listener on the box network (0008). */
+  readonly listenHttp: ListenHttp;
   readonly clock: Clock;
   /** Ids of the agents a run's next session makes (DIPO-51). */
   readonly ids: IdSource;
@@ -435,7 +445,7 @@ function engineBoxWorkers(
       startModelProxy({
         network,
         keychain: { spawn: options.spawn, clock, env: { PATH: "/usr/bin:/bin", HOME: home } },
-        listen: systemListenHttp,
+        listen: options.listenHttp,
         log: (line) => options.logger.debug("model proxy", { line }),
       }),
     readBaseBox: (git) => readBaseBox(git),
@@ -684,8 +694,8 @@ function boxPassesOf(options: RunsOptions, boxed: BoxedRuns | null, paths: RunPa
       : new TestBoxes({
           workers: boxed.workers,
           boxes: boxed.boxes,
-          forward: startForwarder,
-          reach: systemReach,
+          forward: options.forwarders.forward,
+          reach: options.forwarders.reach,
           clock,
           warn: (message, fields) => options.logger.warn(message, fields),
           info: (message, fields) => options.logger.info(message, fields),
@@ -921,13 +931,7 @@ function baseRunPorts(options: RunsOptions, parts: RunPortParts): Omit<RunPorts,
     offices: options.offices,
     worker: parts.worker,
     steering: parts.steering,
-    hosts: systemHostStarter({
-      clock: options.clock,
-      runtimeDir: options.runtimeDir,
-      dipoCommand: selfCommand(),
-      env: options.env,
-      probe: options.probe,
-    }),
+    hosts: options.hosts,
     git: (office) => options.engineGit.forOffice(office),
     // A launch's dependencies and a run's next session read the stories on the base (DIPO-51).
     base: options.base,

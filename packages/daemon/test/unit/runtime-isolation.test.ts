@@ -18,7 +18,11 @@ import {
 } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
-import { chooseRuntimeDir, RuntimeDirError, runtimeCandidates } from "@dipsaus-orchestrator/engine";
+import {
+  chooseRuntimeDir,
+  RuntimeDirError,
+  runtimeCandidates,
+} from "@dipsaus-orchestrator/engine/platform";
 import {
   guardRuns,
   isolatedDaemonEnv,

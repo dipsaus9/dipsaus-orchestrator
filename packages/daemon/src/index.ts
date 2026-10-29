@@ -6,7 +6,7 @@
 
 import { tmpdir } from "node:os";
 
-import { platformSelfChecks, RUN_ID_PATTERN } from "@dipsaus-orchestrator/engine";
+import { platformSelfChecks, RUN_ID_PATTERN } from "@dipsaus-orchestrator/engine/platform";
 
 import { FOREGROUND_USAGE, runForeground } from "./foreground";
 import { LOGIN_USAGE, runLoginForm } from "./login";

@@ -1,8 +1,9 @@
 // What `createEngine` takes and what it gives (0005, DIPO-318). The daemon gives its process
-// concerns: time, the log, how processes start and are probed, its directories, settings and
-// tools, and the facts only it knows (its PID, socket, the upgrade check, how a stop is
-// requested). The engine builds everything else from them: the state database, git, the code host,
-// the worker port and every service. Tests pass fakes for the process concerns.
+// concerns: time, the log, how processes start and are probed (the worker hosts, the test-box
+// forwarders and the model proxy's listener among them), its directories, settings and tools, and
+// the facts only it knows (its PID, socket, the upgrade check, how a stop is requested). The engine
+// builds everything else from them: the state database, git, the code host, the worker port and
+// every service. Tests pass fakes for the process concerns.
 
 import type {
   Clock,
@@ -13,12 +14,15 @@ import type {
   ToolPaths,
 } from "@dipsaus-orchestrator/contract";
 
+import type { ListenHttp } from "../box/model-proxy";
+import type { TestBoxesDeps } from "../box/test-box";
 import type { Renderer } from "../changelog/render";
 import type { FeatureModule } from "../commands/registry";
 import type { Migration } from "../db/migrations";
 import type { Logger } from "../log/logger";
 import type { SpawnKeepAwake } from "../platform/keepawake";
 import type { ProcessProbe } from "../platform/process";
+import type { HostStarter } from "../run/launch";
 import type { WorkerPort } from "../workers/port";
 import type { DrainCaps, DrainRequest, DrainResult } from "./drain";
 import type { RecoveryStep } from "./recovery";
@@ -70,6 +74,12 @@ export interface EngineDeps {
   readonly probe: ProcessProbe;
   /** Starts the keep-awake assertion (0006 decision 12). */
   readonly spawnKeepAwake: SpawnKeepAwake;
+  /** Starts the detached worker hosts (0006 decision 8). */
+  readonly hosts: HostStarter;
+  /** The test boxes' forwarders on the Mac's loopback, and the check that one answers (DIPO-309). */
+  readonly forwarders: Pick<TestBoxesDeps, "forward" | "reach">;
+  /** The model proxy's HTTP listener on the box network (0008). */
+  readonly listenHttp: ListenHttp;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly paths: EnginePaths;
   /** The absolute tool paths resolved from the daemon's PATH at start (DIPO-70). */

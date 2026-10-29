@@ -12,7 +12,7 @@ import {
   SECURITY_CLI,
   type SpawnInteractive,
   storeTokenArgs,
-} from "@dipsaus-orchestrator/engine";
+} from "@dipsaus-orchestrator/engine/platform";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import type { DaemonIo } from "./io";

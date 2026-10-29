@@ -6,6 +6,7 @@
 
 import { resolve } from "node:path";
 
+import type { Logger } from "@dipsaus-orchestrator/engine";
 import {
   acquireLock,
   createLogger,
@@ -13,7 +14,6 @@ import {
   ensurePrivateDir,
   helloHandshake,
   type LockOutcome,
-  type Logger,
   openLogFile,
   passwdHome,
   type PidRecord,
@@ -21,7 +21,7 @@ import {
   restoreBackup,
   BackupRestoreError,
   systemProcessProbe,
-} from "@dipsaus-orchestrator/engine";
+} from "@dipsaus-orchestrator/engine/platform";
 
 import type { DaemonIo } from "./io";
 

@@ -7,12 +7,8 @@ import { describe, expect, it } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  createLogger,
-  type LockOutcome,
-  openStateDatabase,
-  PID_FILE,
-} from "@dipsaus-orchestrator/engine";
+import { openStateDatabase } from "@dipsaus-orchestrator/engine";
+import { createLogger, type LockOutcome, PID_FILE } from "@dipsaus-orchestrator/engine/platform";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { runDaemon } from "../../src/index";

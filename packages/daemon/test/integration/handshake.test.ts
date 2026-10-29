@@ -11,7 +11,7 @@ import {
   systemClock,
   writeRuntimeRecord,
   type PidRecord,
-} from "@dipsaus-orchestrator/engine";
+} from "@dipsaus-orchestrator/engine/platform";
 import { makeTempDir, removeTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { startHarness, TEST_VERSION, type Harness } from "../support/harness";

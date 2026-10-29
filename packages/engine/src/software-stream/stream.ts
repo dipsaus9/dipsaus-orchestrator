@@ -12,7 +12,7 @@ import {
   type Event,
   type EventDefinition,
   findEvent,
-  StreamName,
+  SOFTWARE_STREAM,
 } from "@dipsaus-orchestrator/contract";
 
 import { newEpoch } from "../changelog/log";
@@ -21,7 +21,8 @@ import type { RandomFill } from "../platform/ids";
 /** How many entries the software stream keeps (0006 decision 9). */
 export const SOFTWARE_STREAM_CAPACITY = 1000;
 
-export const SOFTWARE_STREAM: StreamName = StreamName.parse("software");
+// The stream name lives in the contract; the engine keeps its name for it.
+export { SOFTWARE_STREAM };
 
 export type SoftwareReplay =
   | { readonly ok: true; readonly events: readonly Event[]; readonly head: Cursor }

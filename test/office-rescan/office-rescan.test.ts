@@ -9,7 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { officeRescan, type OfficeId } from "../../packages/contract/src/index";
-import type { FeatureModule } from "../../packages/engine/src/index";
+import type { FeatureModule } from "../../packages/engine/src/commands/registry";
 import { makeTempDir, ManualClock, removeTempDir } from "../../packages/testkit/src/index";
 
 import { DipoClient } from "../../packages/client/src/index";

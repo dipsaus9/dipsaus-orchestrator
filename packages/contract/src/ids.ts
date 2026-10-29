@@ -68,6 +68,9 @@ export const StreamName = z
   .brand<"StreamName">();
 export type StreamName = z.infer<typeof StreamName>;
 
+/** The software stream: daemon states, notices and office summaries (0005 section 8). */
+export const SOFTWARE_STREAM: StreamName = StreamName.parse("software");
+
 // A position in one stream. `epoch` is random per change log, so a cursor from a recreated or
 // restored log never matches a new position.
 export const Cursor = z.object({

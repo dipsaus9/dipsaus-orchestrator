@@ -1,7 +1,7 @@
 // What the daemon forms need from their process, injectable so tests run them in-process.
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
-import { systemClock } from "@dipsaus-orchestrator/engine";
+import { systemClock } from "@dipsaus-orchestrator/engine/platform";
 
 /** The process events of an error no code caught (DIPO-117). */
 export type UncaughtEvent = "unhandledRejection" | "uncaughtException";

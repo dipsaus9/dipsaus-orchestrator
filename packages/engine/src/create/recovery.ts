@@ -15,7 +15,6 @@ import { join } from "node:path";
 
 import type { Clock, DatabaseUnavailableReason } from "@dipsaus-orchestrator/contract";
 import { backupsDirectory, dailyBackups, preMigrationBackups } from "../backup/files";
-import type { StateDatabase } from "../db/database";
 import {
   DatabaseTooNewError,
   MigrationChecksumError,
@@ -32,8 +31,6 @@ export interface RecoveryContext {
   readonly clock: Clock;
   /** Child processes a step starts go through here, so the drain waits for them. */
   readonly children: ChildProcesses;
-  /** The migrated state database; throws when called before the migrations step has run. */
-  database(): StateDatabase;
 }
 
 export interface RecoveryStep {

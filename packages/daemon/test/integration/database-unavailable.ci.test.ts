@@ -23,7 +23,8 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { createLogger, openStateDatabase } from "@dipsaus-orchestrator/engine";
+import { openStateDatabase } from "@dipsaus-orchestrator/engine";
+import { createLogger } from "@dipsaus-orchestrator/engine/platform";
 import {
   assertTestRuntimeDir,
   daemonTestEnv,

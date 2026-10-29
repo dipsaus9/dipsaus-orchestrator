@@ -11,7 +11,10 @@ import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { DetachedSpawnOptions, ExecutableStamp } from "@dipsaus-orchestrator/engine";
+import {
+  type DetachedSpawnOptions,
+  type ExecutableStamp,
+} from "@dipsaus-orchestrator/engine/platform";
 import {
   isolatedDaemonEnv,
   ManualClock,

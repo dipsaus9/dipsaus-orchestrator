@@ -10,6 +10,7 @@
 // the time for `office.digest` (DIPO-308).
 
 import {
+  argsInvalid,
   type Clock,
   type ClientFrame,
   type CommandReply,
@@ -21,21 +22,17 @@ import {
   type ReadReply,
   RequestId,
   type ServerFrame,
+  SOFTWARE_STREAM,
   type StreamName,
   TUI_CLIENT_NAME,
 } from "@dipsaus-orchestrator/contract";
+import type { EngineSurface, Logger, Presence } from "@dipsaus-orchestrator/engine";
 import {
-  argsInvalid,
   CLOSE_INVALID_PAYLOAD,
   CLOSE_POLICY_VIOLATION,
-  contractUnsupported,
-  type EngineSurface,
-  type Logger,
-  type Presence,
-  SOFTWARE_STREAM,
   type ConnectionSession,
   type SocketConnection,
-} from "@dipsaus-orchestrator/engine";
+} from "@dipsaus-orchestrator/engine/platform";
 
 /** An idle subscription gets a `stream.mark` this often (0005 section 8). */
 export const HEARTBEAT_MS = 15_000;
@@ -421,7 +418,7 @@ class Connection implements ConnectionSession {
     this.#reply({
       ok: false,
       requestId: frame.requestId,
-      error: contractUnsupported(this.#deps.engine.version).error,
+      error: this.#deps.engine.contractUnsupported(),
     });
   }
 

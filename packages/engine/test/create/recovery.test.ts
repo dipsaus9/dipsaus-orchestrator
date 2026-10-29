@@ -7,7 +7,6 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { StateDatabase } from "../../src/db/database";
 import {
   DatabaseTooNewError,
   MigrationChecksumError,
@@ -37,7 +36,6 @@ function context(): RecoveryContext {
     logger: createLogger({ clock, sinks: [], component: "test" }),
     clock,
     children: new ChildProcesses(),
-    database: () => ({}) as StateDatabase,
   };
 }
 

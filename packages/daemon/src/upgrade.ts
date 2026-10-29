@@ -5,12 +5,12 @@
 // maintainer runs `dipo daemon restart` when it suits (0006 open question 6).
 
 import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
+import type { Logger } from "@dipsaus-orchestrator/engine";
 import {
   type ExecutableStamp,
-  type Logger,
   type ReadExecutableStamp,
   sameStamp,
-} from "@dipsaus-orchestrator/engine";
+} from "@dipsaus-orchestrator/engine/platform";
 
 /** How often the daemon checks its executable (0006 decision 14). */
 export const UPGRADE_CHECK_MS = 60_000;
