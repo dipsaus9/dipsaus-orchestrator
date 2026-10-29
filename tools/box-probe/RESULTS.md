@@ -1,4 +1,17 @@
-# Box probe results (DIPO-264, DIPO-343)
+# Box probe results (DIPO-264, DIPO-343, DIPO-367)
+
+## Run of 2026-10-29: the pinned Debian base (DIPO-367)
+
+The probe ran again after the default Debian base of the office and Safe-Chain images was pinned by digest (`debian:trixie-slim@sha256:f6b08b09…`, `BOX_DEFAULTS.debianSha256`). It ran on macOS 26.6.2 (Apple silicon) with Apple `container` 1.6.0, by the maintainer's orchestrating session, against the code of `origin/main` at `84146541`. The Safe-Chain box came from a Safe-Chain image built fresh from the pinned base. The Mac's services were two stand-ins, one on all interfaces and one on loopback.
+
+**Every line passes, as in the run of 2026-10-27.** As then, the developer box reaches the Mac's all-interfaces port and its local-network address before dipo's firewall is set, and nothing once it is. Two things show differently:
+
+- Through the web proxy, each refused try prints `000` instead of `403`: curl got no HTTP answer to its `CONNECT`. The route logged a `refused` event with its reason for every one of them (an IP address, the Mac's own address, a registry alias or CDN name, a TLS handshake naming another host).
+- The Safe-Chain box's try of the malware lists through the upstream listener answers `403` from Aikido's root URL. The route logged the connection to `malware-list.aikido.dev`, so the host is reached.
+
+The first attempt did not get that far. The web route did not start: the Safe-Chain check, right after the Safe-Chain image was built, timed out three times downloading `is-number@7.0.0`. The route logged no registry connection at all. A `curl` of that file from the Mac right after got HTTP 200, and the second attempt, with the image already built, passed. This is a watch item, not a probe failure.
+
+The developer box of the probe is Alpine. A developer box made from the office image on the pinned base ran the same checks as the box user through `packages/engine/test/box/safe-chain-box.ci.test.ts` (`DIPO_TEST_CI=1 DIPO_TEST_BOX=1`): 1 pass, 0 fail. It built a new office image (`dipo-box:7df6abf8…`) from the pinned base. In that box an install through Safe-Chain works and Safe-Chain's test package is refused. Every bypass form fails, and with the Safe-Chain box stopped the install fails. The boxes listed before and after were the same.
 
 ## Run of 2026-10-27: the Safe-Chain box (DIPO-343)
 

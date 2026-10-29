@@ -1,10 +1,10 @@
 ---
 id: DIPO-367
 title: Pin the box images' Debian base by digest
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-28 15:04'
-updated_date: '2026-10-29 20:20'
+updated_date: '2026-10-29 21:17'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -42,6 +42,12 @@ test_plan:
 <!-- AC:BEGIN -->
 - [x] #1 The default Debian base of the office images and the Safe-Chain image is a tag with a pinned sha256 digest, kept in one place, and the image tag hash includes it
 - [x] #2 An office that sets its own debian release keeps working, and the image description says whether its base is pinned
-- [ ] #3 tools/box-probe/probe.sh passes for a developer box and the Safe-Chain box built from the pinned base, recorded in tools/box-probe/RESULTS.md
-- [ ] #4 The image-base check (packages/engine/test/box/args.test.ts and the code it tests) accepts debian:<release>-slim@sha256:<digest> and still refuses other forms, and the Apple container pull of a digest-pinned base is tested
+- [x] #3 tools/box-probe/probe.sh passes for a developer box and the Safe-Chain box built from the pinned base, recorded in tools/box-probe/RESULTS.md
+- [x] #4 The image-base check (packages/engine/test/box/args.test.ts and the code it tests) accepts debian:<release>-slim@sha256:<digest> and still refuses other forms, and the Apple container pull of a digest-pinned base is tested
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+The default Debian base of the office and Safe-Chain images is debian:trixie-slim pinned by sha256 digest, kept in BOX_DEFAULTS.debianSha256, and the image tag hashes it (#429). An office that sets its own release keeps the tag alone, and the image description's debianSha256 says whether the base is pinned. The image-base check accepts the digest form and refuses the others, and the pull of a digest-pinned base is tested in apple-container.test.ts and on real boxes. The escape probe passed on 2026-10-29 for the Safe-Chain box built from the pinned base, and safe-chain-box.ci.test.ts passed for a developer box of an office image built from it (tools/box-probe/RESULTS.md).
+<!-- SECTION:FINAL_SUMMARY:END -->
