@@ -237,22 +237,25 @@ describe("chooseRuntimeDir", () => {
       mkdir: () => undefined,
       mkdtemp: (prefix) => `${prefix}abc123`,
     };
+    // Not under /tmp: with the test marker /tmp/dipo-<uid> of this user is refused before it is
+    // checked, and in a box this user is uid 1000 (DIPO-372).
+    const squat = "/squat/dipo-1000";
     let error: unknown;
     try {
       chooseRuntimeDir({
-        candidates: [{ path: "/tmp/dipo-1000", source: "tmp" }],
+        candidates: [{ path: squat, source: "tmp" }],
         uid,
-        tmpBase: "/tmp",
+        tmpBase: "/squat",
         fs,
       });
     } catch (caught) {
       error = caught;
     }
     expect(error).toBeInstanceOf(RuntimeDirError);
-    expect((error as Error).message).toContain("/tmp/dipo-1000");
+    expect((error as Error).message).toContain(squat);
     expect((error as RuntimeDirError).rejected.map((r) => r.path)).toEqual([
-      "/tmp/dipo-1000",
-      "/tmp/dipo-abc123",
+      squat,
+      "/squat/dipo-abc123",
     ]);
   });
 });
