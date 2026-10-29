@@ -42,7 +42,6 @@ Each capability resolves from the first source that yields a result. Every resol
 | Runtime version | `.node-version`, `.nvmrc`, `engines.node` |
 | `setup`, `dev`, `test`, `lint`, `typecheck`, `build` | The standard script of that name |
 | `verify` | The `verify` script; a declared verify list in `.claude/backlog-workflow.json`; composed from `lint`, `typecheck` and `test` |
-
 | Anything else | Unresolved, until `dipo office infer` (section 6) |
 
 - **Conflicts are findings,** never resolved silently: two lockfiles, a `packageManager` that disagrees with the lockfile, or a `verify` script next to a different declared list.
@@ -58,7 +57,6 @@ Stored per office in the database (0007):
 - each capability's command list, working directory, source, confidence and whether it is confirmed;
 - extra scripts by name;
 - env files by path only: each example file, its expected real file, and whether git ignores it. The scan never reads env contents or hashes them;
-
 - the conformance level and its deviations, plus the previous profile so a rescan can show a diff.
 
 The profile also gives dipo the default box image for the office (0008): the toolchain and runtime the image needs. The maintainer can override it in the office config.
