@@ -1,9 +1,10 @@
 ---
 id: DIPO-377
-title: Fix the macOS flake in the backlog PR check test
+title: Fix the flake in the backlog PR check test
 status: Refined
 assignee: []
 created_date: '2026-10-29 09:29'
+updated_date: '2026-10-29 12:45'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -41,3 +42,9 @@ test_plan:
 - [ ] #1 The cause of the failure is named in the PR (timing, a temp path, git config or the Backlog CLI), and the test no longer depends on it
 - [ ] #2 The test passes 30 runs in a row on macOS
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-29: the same test ('passes a story made Ready', rule ready-decision) also failed on Linux verify for PR #423 (run 40846867414, attempt 1) and passed on a rerun, so the cause is not macOS-only. The test should pass 30 runs in a row on both.
+<!-- SECTION:NOTES:END -->
