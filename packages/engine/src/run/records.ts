@@ -711,7 +711,7 @@ export interface RunOutcome {
   readonly ciAttempts: number;
   readonly conflictHandoffs: number;
   readonly override: boolean;
-  /** The run's WebSearch and WebFetch calls (DIPO-164). */
+  /** The run's web searches and fetches (DIPO-164). */
   readonly webSearches: number;
   readonly webFetches: number;
 }

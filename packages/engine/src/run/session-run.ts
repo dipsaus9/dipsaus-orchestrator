@@ -175,7 +175,7 @@ export class SessionRuns implements ScanSessionRunner {
       },
       systemFile: join(paths.runDir, SESSION_SYSTEM_FILE),
       taskMessage: request.taskMessage,
-      tools: { allow: [], deny: [] },
+      web: false,
       session: { id: sessionUuid(agent), resume: false },
       reportSchema: request.schema,
     };

@@ -13,11 +13,11 @@ import { OFFICE_DEFAULTS } from "../../src/config";
 import { uncontained } from "../../src/box/firewall";
 import { REVIEW_CODE_DIR, REVIEW_SESSION_DIR } from "../../src/box/review-box";
 import type { BoxSession } from "../../src/box/workers";
-import { REVIEWER_TOOLS } from "../../src/run/launch";
 import { claudeWorkerPort } from "../../src/workers/claude-cli/adapter";
 import { BOX_CLAUDE, planInBox } from "../../src/workers/claude-cli/box-plan";
 import { plan, REVIEWER_ON_MAC_REFUSED } from "../../src/workers/claude-cli/plan";
 import { REVIEW_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
+import { REVIEW_TOOLS } from "../../src/workers/claude-cli/tools";
 import { AdapterHolds } from "../../src/workers/hold";
 import type { RunLaunchPaths } from "../../src/workers/port";
 import { PlanError } from "../../src/workers/types";
@@ -78,7 +78,7 @@ function flag(argv: readonly string[], name: string): string | undefined {
 
 describe("the reviewer's tool set (0002)", () => {
   it("is Read, Glob, Grep, WebSearch and WebFetch for the reviewer role", () => {
-    expect(REVIEWER_TOOLS).toEqual(["Read", "Glob", "Grep", "WebSearch", "WebFetch"]);
+    expect(REVIEW_TOOLS).toEqual(["Read", "Glob", "Grep", "WebSearch", "WebFetch"]);
   });
 
   it("passes only those tools, the review model and effort and the ReviewReport schema", () => {
@@ -92,11 +92,16 @@ describe("the reviewer's tool set (0002)", () => {
     expect(argv).not.toContain("--resume");
   });
 
-  it("refuses a shell, a write tool or any other tool in a review spec (bypass: a tool asked for)", () => {
-    for (const tool of ["Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "Task", "Agent"]) {
-      const asked = reviewSpec({ tools: { allow: [...REVIEWER_TOOLS, tool], deny: [] } });
-      expect(() => planInBox(asked, reviewBox(), RUN_DIR)).toThrow(PlanError);
-      expect(() => planInBox(asked, reviewBox(), RUN_DIR)).toThrow(`not ${tool}`);
+  it("gives a review session only those tools, whatever its spec says (bypass: a tool asked for)", () => {
+    // A spec names no tools (DIPO-318): the adapter takes the review set from the kind. A spec
+    // with the web off, or one carrying a tool list as an older caller would, still gets exactly
+    // the review set: no shell, no write tool, nothing else.
+    for (const asked of [
+      reviewSpec({ web: false }),
+      { ...reviewSpec(), tools: { allow: ["Bash", "Edit", "Write", "Task", "Agent"], deny: [] } },
+    ]) {
+      const argv = inBox(planInBox(asked, reviewBox(), RUN_DIR).argv);
+      expect(flag(argv, "--tools")).toBe(REVIEW_TOOLS.join(","));
     }
   });
 });

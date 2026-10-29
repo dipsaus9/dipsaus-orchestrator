@@ -65,13 +65,7 @@ import { runDirectory } from "../runs/worker-hosts";
 import type { PlainTask } from "../story-store/story";
 import { holdMessage } from "../workers/hold";
 import type { RunLaunchPaths, WorkerPort } from "../workers/port";
-import {
-  PlanError,
-  WEB_TOOLS,
-  type Caps,
-  type LaunchPlan,
-  type WorkerSpec,
-} from "../workers/types";
+import { PlanError, type Caps, type LaunchPlan, type WorkerSpec } from "../workers/types";
 import { BoxLifetime, type RunBoxes } from "../box/lifetime";
 import type { RunProfile } from "../scan/detect";
 import type { ClaimSetupDone, ClaimSetupFailed } from "../worktree/claim";
@@ -82,15 +76,6 @@ import { withWorkViews } from "../views/work";
 import { markPhase } from "./markers";
 import { type RunPrompts, renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 import { runTempDir, SHORT_TEMP_PREFIX, shortTempDir } from "./temp-dirs";
-
-/** The tools of the developer role (0008 section 2, "Tools and rules"). */
-export const DEVELOPER_TOOLS: readonly string[] = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"];
-
-/**
- * The tools of the reviewer role (0021 section 10, DIPO-276): read-only on the copy of the pushed
- * commit, plus web search and fetch. No shell, no write, no gh.
- */
-export const REVIEWER_TOOLS: readonly string[] = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"];
 
 /**
  * The reviewer's system file in the run directory: a name of its own, so a review never replaces
@@ -337,7 +322,7 @@ export function runWorkerSpec(
       // The reviewer's turns and minutes count only toward its own caps (0019 section 13); the
       // tokens are the story's budget.
       caps: { ...caps, maxTurns: reviewer.maxTurns, maxMinutes: reviewer.maxMinutes },
-      tools: { allow: [...REVIEWER_TOOLS], deny: [] },
+      web: true,
       // The reviewer never resumes (0008 section 8).
       session: { id: session.id, resume: false },
       reportSchema: worker.reportSchema.review,
@@ -349,7 +334,7 @@ export function runWorkerSpec(
     model: facts.caps.model,
     effort: facts.caps.effort,
     caps,
-    tools: { allow: [...DEVELOPER_TOOLS, ...(facts.web === true ? WEB_TOOLS : [])], deny: [] },
+    web: facts.web === true,
     session,
     reportSchema: worker.reportSchema.implement,
   };

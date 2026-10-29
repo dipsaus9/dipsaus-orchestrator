@@ -334,7 +334,7 @@ export async function capture(scenario: Scenario): Promise<string> {
         caps: { budgetTokens: 300_000, maxTurns: scenario.maxTurns, maxMinutes: 30 },
         systemFile,
         taskMessage: first,
-        tools: { allow: scenario.tools, deny: [] },
+        web: false,
         session: { id: sessionId, resume },
         reportSchema: REPORT_JSON_SCHEMAS[scenario.kind ?? "implement"],
       });
@@ -354,12 +354,20 @@ export async function capture(scenario: Scenario): Promise<string> {
           ? { plugins: { installed: readInstalledPlugins(home), allowed: [] } }
           : {}),
       };
+      // The adapter names the tools of each kind (DIPO-318); a recording asks for its own list.
+      const withTools = (launch: LaunchPlan): LaunchPlan => {
+        const at = launch.argv.indexOf("--tools");
+        if (at === -1) return launch;
+        const argv: [string, ...string[]] = [...launch.argv];
+        argv[at + 1] = scenario.tools.join(",");
+        return { ...launch, argv };
+      };
       const launches: [LaunchPlan, readonly string[], boolean][] = [];
-      const first = planClaudeLaunch(specFor(false, turns[0] ?? ""), context);
+      const first = withTools(planClaudeLaunch(specFor(false, turns[0] ?? ""), context));
       launches.push([first, turns, false]);
       if (resumeTurns.length > 0) {
         launches.push([
-          planClaudeLaunch(specFor(true, resumeTurns[0] ?? ""), context),
+          withTools(planClaudeLaunch(specFor(true, resumeTurns[0] ?? ""), context)),
           resumeTurns,
           true,
         ]);

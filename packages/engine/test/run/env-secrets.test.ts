@@ -172,10 +172,13 @@ async function withWorld(fn: (w: World) => Promise<void> | void): Promise<void> 
   });
 }
 
+/** A tool activity, with the web call the adapter names for a web tool (DIPO-318). */
 const activity = (tool: string, agentId?: string): WorkerEvent => ({
   t: "activity",
   kind: "tool",
   tool,
+  ...(tool === "WebSearch" ? { web: "search" as const } : {}),
+  ...(tool === "WebFetch" ? { web: "fetch" as const } : {}),
   ...(agentId === undefined ? {} : { agentId }),
 });
 
@@ -184,7 +187,7 @@ function pass(w: World, ...events: WorkerEvent[]): void {
 }
 
 describe("WebCalls", () => {
-  it("counts a run's web calls by tool, a subagent's included, and copies them to the outcome", () =>
+  it("counts a run's web calls by the call the adapter names, a subagent's included, and copies them to the outcome", () =>
     withWorld((w) => {
       pass(w, activity("WebSearch"), activity("Read"), activity("WebFetch"));
       pass(w, activity("WebSearch", "toolu-9"));

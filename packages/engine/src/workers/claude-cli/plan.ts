@@ -115,12 +115,6 @@ export const REVIEWER_ON_MAC_REFUSED =
   "a reviewer session runs only in a read-only box of its own (0002); dipo plans no reviewer on the Mac";
 
 /**
- * The only tools a `review` session may have (0002): it reads the read-only copy of the pushed
- * commit and may search the web. No shell, no Edit or Write, and so no git or gh.
- */
-export const REVIEW_TOOLS: readonly string[] = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"];
-
-/**
  * The MCP config file of a `session`, in the run directory: no server. With `--strict-mcp-config`
  * the session loads no MCP server, not even the office's.
  */
@@ -161,7 +155,6 @@ const CREDENTIAL_FILES = [".ssh", ".aws", ".config/gh", ".gnupg", ".netrc"] as c
 const CREDENTIAL_VARIABLES = ["GH_TOKEN", "GITHUB_TOKEN", "NPM_TOKEN"] as const;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const TOOL_NAME = /^[A-Za-z][A-Za-z0-9_]*$/;
 
 /** What the daemon knows about this run and machine; every path is absolute. */
 export interface ClaudeLaunchContext {
@@ -252,23 +245,9 @@ export function checkSpec(spec: WorkerSpec): void {
   if (!Number.isInteger(spec.caps.maxTurns) || spec.caps.maxTurns <= 0) {
     throw new PlanError(`maxTurns must be a positive integer: ${spec.caps.maxTurns}`);
   }
-  if (spec.kind === "session") {
-    // Every tool off (0021 amendment of 2026-10-22, DIPO-310): no read, shell or web.
-    if (spec.tools.allow.length > 0) {
-      throw new PlanError(
-        `a session runs with every tool off, not with ${spec.tools.allow.join(", ")} (DIPO-310)`,
-      );
-    }
-  } else if (spec.tools.allow.length === 0) {
-    throw new PlanError("the role must allow at least one tool");
-  }
-  for (const tool of spec.tools.allow) {
-    if (!TOOL_NAME.test(tool)) throw new PlanError(`not a tool name: ${tool}`);
-    if (spec.kind === "review" && !REVIEW_TOOLS.includes(tool)) {
-      throw new PlanError(
-        `a review session may use only ${REVIEW_TOOLS.join(", ")}, not ${tool} (0002)`,
-      );
-    }
+  // Every tool off (0021 amendment of 2026-10-22, DIPO-310): no read, shell or web.
+  if (spec.kind === "session" && spec.web) {
+    throw new PlanError("a session runs with every tool off, the web too (DIPO-310)");
   }
   if (spec.taskMessage.length === 0) throw new PlanError("the task message is empty");
 }

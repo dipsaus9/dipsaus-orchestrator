@@ -38,7 +38,7 @@ export function spec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
     caps: { budgetTokens: 800_000, maxTurns: 120, maxMinutes: 60 },
     systemFile: `${RUN_DIR}/system.md`,
     taskMessage: "<story>DIPO-999 Add a greeting</story>",
-    tools: { allow: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"], deny: [] },
+    web: false,
     session: { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume: false },
     reportSchema: WORKER_REPORT_JSON_SCHEMA,
     ...overrides,
@@ -53,7 +53,7 @@ export function sessionSpec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
   return spec({
     kind: "session",
     workdir: "/tmp/dipo-scan-run-0001-agt-0001/session",
-    tools: { allow: [], deny: [] },
+    web: false,
     ...overrides,
   });
 }
@@ -69,7 +69,7 @@ export function reviewSpec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
     effort: "high",
     caps: { budgetTokens: 200_000, maxTurns: 60, maxMinutes: 30 },
     systemFile: `${RUN_DIR}/system-review.md`,
-    tools: { allow: ["Read", "Glob", "Grep", "WebSearch", "WebFetch"], deny: [] },
+    web: true,
     reportSchema: REVIEW_REPORT_JSON_SCHEMA,
     ...overrides,
   });

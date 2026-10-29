@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { assembleReviewTaskMessage } from "../../packages/engine/src/prompts/review";
 import type { PromptStory } from "../../packages/engine/src/prompts/story";
 import { renderSystemFile } from "../../packages/engine/src/prompts/system";
-import { REVIEW_TOOLS } from "../../packages/engine/src/workers/claude-cli/plan";
+import { REVIEW_TOOLS } from "../../packages/engine/src/workers/claude-cli/tools";
 import type { Envelope } from "./format";
 import { isRecord } from "./format";
 

@@ -19,8 +19,8 @@
 // Version 7 (DIPO-210) adds `storyPr.open` (0019 amendment of 2026-10-19): whether the engine opens
 // and keeps the story PR for this office. `office.local.yaml` gains no key, so the switch is
 // committed with the repository.
-// Version 8 (DIPO-164) adds `worker.web` (0020 section 11b): whether the developer role gets
-// WebSearch and WebFetch. `office.local.yaml` gains no key.
+// Version 8 (DIPO-164) adds `worker.web` (0020 section 11b): whether the developer role gets the
+// web search and fetch tools. `office.local.yaml` gains no key.
 // Version 9 (DIPO-266) adds the `box` block (0021 section 5 and decision 9): the image of the
 // office's boxes (a Debian slim release, the toolchain versions, extra system packages and the
 // pinned Claude Code version) and the files outside git a box may get, each marked as holding no
@@ -312,7 +312,7 @@ const officeShapeV8 = {
     web: z
       .boolean()
       .describe(
-        "Whether the developer role gets WebSearch and WebFetch (0020 section 11b). Every call shows in the worker output and is counted on the run outcome; the box's web traffic goes through dipo's web proxy (0008). With false the developer keeps the M0 tool list. The key does not apply to the reviewer, which always has WebSearch and WebFetch in its reviewer box (0002).",
+        "Whether the developer role gets the web search and fetch tools (0020 section 11b). Every call shows in the worker output and is counted on the run outcome; the box's web traffic goes through dipo's web proxy (0008). With false the developer keeps the M0 tool list. The key does not apply to the reviewer, which always has them in its reviewer box (0002).",
       ),
   }),
 };
@@ -1112,7 +1112,8 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
   },
   // 0008 sections 2 and 5; `plugins` empty: no plugin in a worker session (0008 amendment of
   // 2026-10-12).
-  // `web` true: the developer role gets WebSearch and WebFetch (0020 section 11b, DIPO-164).
+  // `web` true: the developer role gets the web search and fetch tools (0020 section 11b,
+  // DIPO-164).
   worker: { adapter: "claude-cli", allowProjectSettings: [], plugins: [], web: true },
   // `requiredChecks` is no longer read (0002); the version 14 reset removes it. The rest of the
   // block and the review limits are DIPO-139's defaults.

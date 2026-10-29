@@ -44,7 +44,7 @@ function spec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
     caps: { budgetTokens: 200_000, maxTurns: 60, maxMinutes: 30 },
     systemFile: `${RUN_DIR}/system-review.md`,
     taskMessage: TASK,
-    tools: { allow: [], deny: [] },
+    web: false,
     session: { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume: false },
     reportSchema: REVIEW_REPORT_JSON_SCHEMA,
     ...overrides,
@@ -112,7 +112,7 @@ describe("a developer or reviewer session on the Mac (DIPO-240, DIPO-347)", () =
     const developer = spec({
       kind: "implement",
       workdir: "/home/maintainer/code/shop.worktrees/DIPO-999",
-      tools: { allow: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"], deny: [] },
+      web: false,
       reportSchema: WORKER_REPORT_JSON_SCHEMA,
       systemFile: `${RUN_DIR}/system.md`,
     });
@@ -126,7 +126,7 @@ describe("a developer or reviewer session on the Mac (DIPO-240, DIPO-347)", () =
     const reviewer = spec({
       kind: "review",
       workdir: "/home/maintainer/code/shop.worktrees/DIPO-999",
-      tools: { allow: ["Read", "Glob", "Grep", "WebSearch", "WebFetch"], deny: [] },
+      web: true,
     });
     expect(() => plan(reviewer, context())).toThrow(REVIEWER_ON_MAC_REFUSED);
   });

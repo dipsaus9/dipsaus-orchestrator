@@ -6,6 +6,7 @@
 // `run.planRefused` notice stays tested.
 
 import { userMessageLine } from "../../src/workers/claude-cli/encode";
+import { allowedTools } from "../../src/workers/claude-cli/tools";
 import type { RunLaunchPaths } from "../../src/workers/port";
 import { type LaunchPlan, PlanError, type WorkerSpec } from "../../src/workers/types";
 
@@ -36,7 +37,7 @@ export function standInPlan(
       "--max-turns",
       String(spec.caps.maxTurns),
       "--tools",
-      spec.tools.allow.join(","),
+      allowedTools(spec).join(","),
       "--append-system-prompt-file",
       spec.systemFile,
     ],

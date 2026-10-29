@@ -58,11 +58,11 @@ import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemListenHttp } from "../../src/platform/box-host";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
-import { REVIEWER_TOOLS } from "../../src/run/launch";
+import { REVIEW_TOOLS } from "../../src/workers/claude-cli/tools";
 import { planInBox } from "../../src/workers/claude-cli/box-plan";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { AdapterHolds } from "../../src/workers/hold";
-import { PlanError, type WorkerSpec } from "../../src/workers/types";
+import type { WorkerSpec } from "../../src/workers/types";
 
 const registers =
   process.env["DIPO_TEST_BOX"] === "1" &&
@@ -316,7 +316,7 @@ function reviewerSpec(systemFile: string, overrides: Partial<WorkerSpec> = {}): 
     caps: { budgetTokens: 100_000, maxTurns: 4, maxMinutes: 5 },
     systemFile,
     taskMessage: `Read ${REVIEW_CODE_DIR}/README.md, then report every criterion as none and the summary "ok".`,
-    tools: { allow: [...REVIEWER_TOOLS], deny: [] },
+    web: true,
     session: { id: crypto.randomUUID(), resume: false },
     reportSchema: REPORT_JSON_SCHEMAS.review,
     ...overrides,
@@ -436,17 +436,20 @@ if (registers) {
               expect(noProxy).toBe("closed");
               expect(otherPort).toBe("closed");
 
-              // Bypass: a shell or a write tool asked for is refused before any session.
-              for (const tool of ["Bash", "Edit", "Write"]) {
-                const asked = reviewerSpec(s.systemFile, {
-                  tools: { allow: [...REVIEWER_TOOLS, tool], deny: [] },
-                });
-                expect(() => planInBox(asked, session, tmp)).toThrow(PlanError);
+              // Bypass: a spec names no tools (DIPO-318); one with the web off, or carrying a
+              // tool list as an older caller would, still gets exactly the review set.
+              for (const asked of [
+                reviewerSpec(s.systemFile, { web: false }),
+                {
+                  ...reviewerSpec(s.systemFile),
+                  tools: { allow: ["Bash", "Edit", "Write"], deny: [] },
+                },
+              ]) {
+                const planned = planInBox(asked, session, tmp);
+                expect(planned.argv[planned.argv.indexOf("--tools") + 1]).toBe(
+                  REVIEW_TOOLS.join(","),
+                );
               }
-              const planned = planInBox(reviewerSpec(s.systemFile), session, tmp);
-              expect(planned.argv[planned.argv.indexOf("--tools") + 1]).toBe(
-                REVIEWER_TOOLS.join(","),
-              );
 
               // What the old barrier caught: no value of box.files anywhere in the box.
               const exported = join(tmp, "review-box.tar");
@@ -535,7 +538,7 @@ if (registers) {
               // The reviewer's tools, and the CLI's own tool for the structured report.
               const tools = (init?.["tools"] as string[] | undefined) ?? [];
               expect(tools.filter((tool) => tool !== "StructuredOutput").toSorted()).toEqual(
-                [...REVIEWER_TOOLS].toSorted(),
+                [...REVIEW_TOOLS].toSorted(),
               );
               const result = lines.find((line) => line["type"] === "result");
               fact(

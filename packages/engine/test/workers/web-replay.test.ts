@@ -8,7 +8,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { webCallCounts } from "../../src/run/web-calls";
-import { WEB_TOOLS } from "../../src/workers/types";
+import { WEB_TOOLS } from "../../src/workers/claude-cli/tools";
 import { loadRecording, replay } from "./replay";
 
 // The fixture env file of the `web` scenario (tools/recordings/scenarios.ts).
@@ -77,7 +77,7 @@ for (const name of WEB_RECORDINGS) {
         `[web] WebFetch ${URL}\n`,
         `[web] WebFetch ${REFUSED_URL}\n`,
       ]);
-      expect(webCallCounts(run.events)).toEqual({ WebSearch: 1, WebFetch: 2 });
+      expect(webCallCounts(run.events)).toEqual({ searches: 1, fetches: 2 });
     });
 
     it("gives the refused call the engine's reason, naming the file and key and not the value", () => {

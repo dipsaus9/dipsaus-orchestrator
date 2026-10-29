@@ -21,6 +21,7 @@
 // box user's settings (`--setting-sources user`): no settings, hooks or MCP servers of the copy
 // load.
 
+import { allowedTools } from "./tools";
 import { BOX_NPM_PREFIX } from "../../box/firewall";
 import { REVIEW_CODE_DIR } from "../../box/review-box";
 import type { BoxSession } from "../../box/workers";
@@ -64,7 +65,7 @@ export function boxClaudeArgv(spec: WorkerSpec, session: BoxSession): [string, .
     "--permission-mode",
     "bypassPermissions",
     "--tools",
-    spec.tools.allow.join(","),
+    allowedTools(spec).join(","),
     // A reviewer loads nothing of the copy it reviews: only the box user's settings, and the copy
     // as a directory its read tools reach, never its working directory.
     ...(spec.kind === "review" ? ["--setting-sources", "user", "--add-dir", REVIEW_CODE_DIR] : []),

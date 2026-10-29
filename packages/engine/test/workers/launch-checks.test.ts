@@ -16,11 +16,11 @@ import type { Event } from "@dipsaus-orchestrator/contract";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { SoftwareStream } from "../../src/software-stream/stream";
-import { claudeLaunchChecks, prepareLaunch } from "../../src/workers/claude-cli/launch-checks";
+import { prepareLaunch, uncheckedTools } from "../../src/workers/claude-cli/launch-checks";
+import { allowedTools } from "../../src/workers/claude-cli/tools";
 import {
   CLAUDE_CLI_ADAPTER_ID,
   DEVELOPER_ON_MAC_REFUSED,
-  plan,
   REVIEWER_ON_MAC_REFUSED,
 } from "../../src/workers/claude-cli/plan";
 import {
@@ -167,19 +167,15 @@ describe("(engine) a developer or reviewer session is never planned on the Mac (
 });
 
 describe("(engine) roles with unchecked tools", () => {
-  it.each(["Agent", "Task", "Skill"])(
-    "refuses a role that allows %s before any check runs",
-    async (tool) => {
-      const { clock } = setup();
-      const { fake, deps } = reviewDeps(clock);
-      const launch = plan(sessionSpec(), context());
-      const outcome = await claudeLaunchChecks(
-        spec({ tools: { allow: ["Read", tool], deny: [] } }),
-        launch,
-        deps,
-      );
-      expect(outcome).toMatchObject({ ok: false, failures: [{ check: "tools", key: tool }] });
-      expect(fake.calls).toEqual([]);
-    },
-  );
+  it.each(["Agent", "Task", "Skill"])("finds %s among a role's tools as unchecked", (tool) => {
+    expect(uncheckedTools(["Read", tool])).toEqual([tool]);
+  });
+
+  it("gives no kind of session a tool that loads project agents or skills (DIPO-318)", () => {
+    for (const kind of ["implement", "review", "session"] as const) {
+      for (const web of [true, false]) {
+        expect(uncheckedTools(allowedTools({ kind, web }))).toEqual([]);
+      }
+    }
+  });
 });

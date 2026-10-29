@@ -1,6 +1,6 @@
 // Migration 37 (DIPO-164): the web calls of a run, counted by tool (0020 section 11b).
 //
-// `runs.web_searches` and `runs.web_fetches` count the run's WebSearch and WebFetch calls as the
+// `runs.web_searches` and `runs.web_fetches` count the run's web searches and fetches as the
 // worker's tool activity shows them, a call the PreToolUse hook refused included; they live on the
 // run so the retention tier of `runs` covers them. `run_outcomes.web_searches` and
 // `run_outcomes.web_fetches` copy them when the run ends, so retro reads how much research a story
