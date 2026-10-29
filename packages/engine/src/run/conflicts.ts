@@ -20,8 +20,8 @@
 //   while one is pending (`BoxPartsDeps.behind`): a part against that tip would undo the merge.
 // - One story, one branch. Records and hand-offs are read by the story and its branch across runs
 //   (`storyMerges`, `handOffState`): a re-claim of a kept branch is a new run, and its branch
-//   still holds what the earlier runs' merges left. The claim of a box run's reused branch merges
-//   nothing itself (`baseSync: "catch-up"`); the catch-up does, so its conflicts are hand-offs too.
+//   still holds what the earlier runs' merges left. The claim of a reused branch merges nothing
+//   (0010: it is reused at its kept tip); the sync at done does, so its conflicts are hand-offs too.
 // - At done (`StoryConflicts.atDone`, in the run's held turn of parts after the last part, before
 //   its end is claimed). First the check of what is left unresolved (`unresolvedAt`): a recorded
 //   content-conflicted path, or any path added or renamed since a conflicted merge, whose blob on
