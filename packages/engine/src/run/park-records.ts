@@ -6,7 +6,7 @@
 
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import { closeQuestion, openParkQuestions } from "../hooks/questions";
+import { closeQuestion, openParkQuestions } from "../questions/questions";
 import { workRefOf } from "../views/work";
 
 import type { StoredRun } from "./records";

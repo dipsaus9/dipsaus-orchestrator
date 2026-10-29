@@ -19,7 +19,7 @@ import type { StoredRun } from "./records";
 
 /**
  * The ms the run's worker questions waited live up to `now` (0020 section 7, DIPO-159, the
- * `questions` table of `hooks/questions.ts`): from each question's `asked_at` to the first of its
+ * `questions` table of `questions/questions.ts`): from each question's `asked_at` to the first of its
  * close, its park (the park's own time is the run's `parked_ms`), the end of its wait and `now`.
  * The minute cap leaves them out.
  */

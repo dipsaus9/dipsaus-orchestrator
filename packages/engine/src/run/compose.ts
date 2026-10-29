@@ -13,7 +13,7 @@ import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 import { BOX_RUN_FILE } from "../box/workers";
 import type { BoxWorkers } from "../box/workers";
 
-import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
+import { ABSENT, PermissionAsks, type Presence } from "../questions/permissions";
 import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
 import { currentProfile } from "../scan/store";
 import type { RunProfile } from "../scan/detect";

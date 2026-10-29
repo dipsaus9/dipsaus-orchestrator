@@ -47,7 +47,7 @@ import { BOX_INDEX_DIR, BoxWorkers, type RouteBoxIds } from "../box/workers";
 import { appendEntries } from "../changelog/log";
 import type { StateDatabase } from "../db/database";
 import type { EngineGit } from "../git/feature";
-import { PermissionAsks } from "../hooks/permissions";
+import { PermissionAsks } from "../questions/permissions";
 import type { IngestAdapter } from "../ingest/ingestor";
 import type { Logger } from "../log/logger";
 import type { MergeGatesDeps } from "../merge/commands";

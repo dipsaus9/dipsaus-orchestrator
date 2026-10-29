@@ -30,8 +30,8 @@ import {
   PermissionAsks,
   type QuestionParkResumer,
   workerAnswerText,
-} from "../../src/hooks/permissions";
-import { findQuestion, openQuestions } from "../../src/hooks/questions";
+} from "../../src/questions/permissions";
+import { findQuestion, openQuestions } from "../../src/questions/questions";
 import { type BranchPark, insertRun, RunControl } from "../../src/run";
 import { questionWaitMs, runTotals } from "../../src/run/caps";
 import { heldFeedback } from "../../src/run/feedback";

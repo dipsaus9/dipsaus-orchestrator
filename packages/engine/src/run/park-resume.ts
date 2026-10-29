@@ -78,7 +78,7 @@ import type { NewEntry } from "../changelog/log";
 import { CommandError } from "../commands/errors";
 import type { AsyncCommandContext, CommandOutcome } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
-import { closeQuestion, parkWorkerQuestion } from "../hooks/questions";
+import { closeQuestion, parkWorkerQuestion } from "../questions/questions";
 import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
 import { capNote } from "../prompts/handoff";
 import answerTemplate from "../prompts/feedback/answer.md" with { type: "text" };

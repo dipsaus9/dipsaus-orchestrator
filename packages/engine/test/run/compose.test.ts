@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import { StoryId } from "@dipsaus-orchestrator/contract";
 
-import { PermissionAsks } from "../../src/hooks/permissions";
+import { PermissionAsks } from "../../src/questions/permissions";
 import {
   activeSignals,
   composeRuns,

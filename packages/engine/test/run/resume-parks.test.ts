@@ -26,8 +26,8 @@ import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import type { AsyncCommandContext } from "../../src/commands/registry";
-import { workerAnswerText } from "../../src/hooks/permissions";
-import { closeQuestion, findQuestion, insertWorkerQuestion } from "../../src/hooks/questions";
+import { workerAnswerText } from "../../src/questions/permissions";
+import { closeQuestion, findQuestion, insertWorkerQuestion } from "../../src/questions/questions";
 import { HANDOFF_NOTE_MAX } from "../../src/prompts/handoff";
 import { recordReviewVerdict } from "../../src/review/store";
 import {

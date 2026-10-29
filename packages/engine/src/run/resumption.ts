@@ -16,7 +16,7 @@ import type { z } from "zod";
 import { CommandError } from "../commands/errors";
 import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
-import type { QuestionParkResumer } from "../hooks/permissions";
+import type { QuestionParkResumer } from "../questions/permissions";
 
 import { RunOutcomes, type OutcomeParts } from "./outcomes";
 import { openPark } from "./park";

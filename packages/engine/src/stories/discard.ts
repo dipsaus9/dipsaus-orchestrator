@@ -47,7 +47,7 @@ import type {
 } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
-import { closeQuestion, openQuestions } from "../hooks/questions";
+import { closeQuestion, openQuestions } from "../questions/questions";
 import { type CodeHost, CodeHostError } from "../platform/host";
 import type { ProcessProbe } from "../platform/process";
 import { openParkIds, resolvePark } from "../run/park";

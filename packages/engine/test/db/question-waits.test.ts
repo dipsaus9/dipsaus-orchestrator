@@ -1,6 +1,6 @@
 // Migration 50 (DIPO-159): `questions.wait_until`, the end of a worker question's live wait, and
 // the trigger that expires the questions a park carried once that park is resolved in any way. The
-// wait and the park's questions in use are tested in test/hooks/worker-questions.test.ts.
+// wait and the park's questions in use are tested in test/questions/worker-questions.test.ts.
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";

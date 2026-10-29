@@ -42,7 +42,7 @@ import type { OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
 import { branchTip, pushBranch } from "../git/write";
 import { recordBranchPush } from "../story-pr/records";
-import { insertWorkerQuestion, questionViewOf } from "../hooks/questions";
+import { insertWorkerQuestion, questionViewOf } from "../questions/questions";
 import { presetEndReasons } from "../runs/agents";
 import { TASK_FIELD_ERROR } from "../story-store/errors";
 import { parseFieldBlock } from "../story-store/fields/block";
