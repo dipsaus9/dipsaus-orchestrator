@@ -31,6 +31,7 @@ import {
   insertClaim,
   insertHost,
   insertJournal,
+  insertOpenPark,
   insertRun,
   insertProfile,
   insertPromptPart,
@@ -723,6 +724,68 @@ describe("run directories", () => {
         runFiles: { commonDir, keepRawEvents: true, summarised: () => true },
       });
       expect(existsSync(join(dir, "events.ndjson"))).toBe(true);
+    }));
+});
+
+describe("runs that may reopen", () => {
+  it("keeps a parked, an in-review and a reviewed run with a live claim, and one with an open park", () =>
+    withOffice(async (t, office, tmp) => {
+      const commonDir = join(tmp, "repo", ".git");
+      const day = (n: number) => t.clock.now() + n * DAY_MS;
+      const kept: string[] = [];
+      const make = (endKind: string) => {
+        const run = t.ids.next("run");
+        insertRun(office, run, day(0), endKind);
+        insertAgent(office, { run, agent: `agt-${run}`, startedAt: day(0), endedAt: day(0) });
+        insertHost(office, {
+          run,
+          agent: `agt-${run}`,
+          runDir: runDir(commonDir, run),
+          processed: 9,
+          final: 9,
+          endedAt: day(0),
+        });
+        return run;
+      };
+      for (const endKind of ["blocked", "in-review", "reviewed"]) {
+        const run = make(endKind);
+        insertClaim(office, run, null);
+        kept.push(run);
+      }
+      // A claim released, but its park still open: a resume brings the run back.
+      const parked = make("capped");
+      insertClaim(office, parked, day(0));
+      insertOpenPark(office, 1, parked);
+      kept.push(parked);
+      // Done, with its claim still live: it never reopens.
+      const done = make("done");
+      insertClaim(office, done, null);
+      t.clock.advanceTo(day(31));
+
+      const report = await runRetention({
+        office,
+        clock: t.clock,
+        days: DAYS,
+        pause: noPause,
+        runFiles: { commonDir, keepRawEvents: true, summarised: () => true },
+      });
+
+      const runs = (table: string) =>
+        office
+          .all<{ id: string }>(
+            `select distinct run_id as id from ${table} where office_id = $office_id order by 1`,
+          )
+          .map((row) => row.id);
+      const sorted = kept.toSorted();
+      for (const table of ["runs", "run_steps", "agents", "usage_totals", "worker_hosts"]) {
+        expect(runs(table)).toEqual(sorted);
+      }
+      expect(report.deleted).toMatchObject({ runs: 1, agents: 1, worker_hosts: 1 });
+      expect(report.runDirectories).toBe(1);
+      for (const run of kept) {
+        expect(existsSync(runDirectory(officeDirectory(commonDir), run))).toBe(true);
+      }
+      expect(existsSync(runDirectory(officeDirectory(commonDir), done))).toBe(false);
     }));
 });
 

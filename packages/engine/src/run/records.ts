@@ -23,6 +23,7 @@ import { finalizeRunAgents } from "../ingest/usage";
 
 import { runTotals } from "./caps";
 import { nextRunState, type RunEnd, type RunEvent, type RunState } from "./lifecycle";
+import { retiredRun } from "./retired";
 
 export type RunKind = "story" | "session";
 
@@ -770,13 +771,14 @@ export function runOutcome(office: OfficeHandle, runId: RunId): RunOutcome | nul
 }
 
 /**
- * Retention (0007): deletes at most `limit` runs that ended before `cutoff`, inside the caller's
- * transaction; returns how many it deleted. An active run is kept. Its outcome row is kept too.
+ * Retention (0007): deletes at most `limit` runs retired at `cutoff` (`retiredRun`), inside the
+ * caller's transaction; returns how many it deleted. An active run, and one a park or a live claim
+ * may reopen, is kept. Its outcome row is kept too.
  */
-export function deleteRunsEndedBefore(office: OfficeHandle, cutoff: number, limit: number): number {
+export function deleteRetiredRuns(office: OfficeHandle, cutoff: number, limit: number): number {
   return office.run(
     `delete from runs where rowid in (select rowid from runs
-       where office_id = $office_id and ended_at < $cutoff limit $limit)`,
+       where office_id = $office_id and ${retiredRun("runs")} limit $limit)`,
     { cutoff, limit },
   ).changes;
 }

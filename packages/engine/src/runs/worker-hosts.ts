@@ -46,6 +46,7 @@ import {
   type ProcessProbe,
   type SpawnDetached,
 } from "../platform/process";
+import { ofNoOpenRun } from "../run/retired";
 import type { ExitRecord, LaunchPlan } from "../workers/types";
 
 /** The host reads its run directory from this variable; its cwd is the run directory too. */
@@ -635,17 +636,14 @@ export async function verifyHostForSignal(
 }
 
 /**
- * Retention (0007): deletes at most `limit` worker host rows that ended before `cutoff`, inside
- * the caller's transaction; returns how many it deleted.
+ * Retention (0007): deletes at most `limit` worker host rows that ended before `cutoff` and whose
+ * run may not reopen (`ofNoOpenRun`), inside the caller's transaction; returns how many it deleted.
  */
-export function deleteHostsEndedBefore(
-  office: OfficeHandle,
-  cutoff: number,
-  limit: number,
-): number {
+export function deleteRetiredHosts(office: OfficeHandle, cutoff: number, limit: number): number {
   return office.run(
     `delete from worker_hosts where rowid in (select rowid from worker_hosts
-       where office_id = $office_id and ended_at < $cutoff limit $limit)`,
+       where office_id = $office_id and ended_at < $cutoff and ${ofNoOpenRun("worker_hosts")}
+       limit $limit)`,
     { cutoff, limit },
   ).changes;
 }

@@ -233,17 +233,22 @@ export function insertProfile(
 }
 
 /**
- * A session run with one step, ended at `endedAt` (active while null). An ended run has its
- * outcome row and a daily usage rollup row of its day.
+ * A session run with one step, ended at `endedAt` (active while null) as `endKind`. An ended run
+ * has its outcome row and a daily usage rollup row of its day.
  */
-export function insertRun(office: OfficeHandle, run: string, endedAt: number | null): void {
+export function insertRun(
+  office: OfficeHandle,
+  run: string,
+  endedAt: number | null,
+  endKind: string | null = null,
+): void {
   office.immediate(() => {
     office.run(
       `insert into runs (office_id, run_id, kind, role, model, budget_unit, budget_limit, loop_cap,
-         config_hash, started_at, ended_at)
+         config_hash, started_at, ended_at, end_kind)
        values ($office_id, $run, 'session', 'developer', 'sonnet', 'tokens', 1000, 3, 'h', 0,
-         $ended)`,
-      { run, ended: endedAt },
+         $ended, $kind)`,
+      { run, ended: endedAt, kind: endKind },
     );
     office.run(
       `insert into run_steps (office_id, run_id, step, kind, value, at)
@@ -259,8 +264,20 @@ export function insertRun(office: OfficeHandle, run: string, endedAt: number | n
     );
     office.run(
       `insert into usage_daily (office_id, day, role, tier, model, input, runs, cost_micros)
-       values ($office_id, $day, 'developer', 'M', 'sonnet', 10, 1, 42)`,
+       values ($office_id, $day, 'developer', 'M', 'sonnet', 10, 1, 42)
+       on conflict (office_id, day, role, tier, model) do update set runs = runs + 1`,
       { day: new Date(endedAt).toISOString().slice(0, 10) },
     );
   });
+}
+
+/** An open park of `run`. */
+export function insertOpenPark(office: OfficeHandle, park: number, run: string): void {
+  office.immediate(() =>
+    office.run(
+      `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, at)
+       values ($office_id, $park, $key, 'DIPO-1', $run, 'blocked', 'd', 0)`,
+      { park, key: `sto-${run}`, run },
+    ),
+  );
 }

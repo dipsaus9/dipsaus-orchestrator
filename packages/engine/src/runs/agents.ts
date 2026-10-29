@@ -8,6 +8,8 @@
 import type { OfficeHandle } from "../db/office";
 import { finalizeAgentUsage } from "../ingest/usage";
 
+import { ofNoOpenRun } from "../run/retired";
+
 import { endHostRow } from "./worker-hosts";
 
 /** An agent row as a session start records it. */
@@ -150,17 +152,14 @@ export function recordCrashedEnd(
 }
 
 /**
- * Retention (0007): deletes at most `limit` agents that ended before `cutoff`, inside the caller's
- * transaction; returns how many it deleted.
+ * Retention (0007): deletes at most `limit` agents that ended before `cutoff` and whose run may not
+ * reopen (`ofNoOpenRun`), inside the caller's transaction; returns how many it deleted.
  */
-export function deleteAgentsEndedBefore(
-  office: OfficeHandle,
-  cutoff: number,
-  limit: number,
-): number {
+export function deleteRetiredAgents(office: OfficeHandle, cutoff: number, limit: number): number {
   return office.run(
     `delete from agents where rowid in (select rowid from agents
-       where office_id = $office_id and ended_at < $cutoff limit $limit)`,
+       where office_id = $office_id and ended_at < $cutoff and ${ofNoOpenRun("agents")}
+       limit $limit)`,
     { cutoff, limit },
   ).changes;
 }

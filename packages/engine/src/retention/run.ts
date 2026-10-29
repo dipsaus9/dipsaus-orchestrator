@@ -1,5 +1,7 @@
 // The one retention rule (0007): one pass over one office's rows deletes everything about a run
-// that ended more than `retention.days` ago, and every other row of run detail older than that:
+// that ended more than `retention.days` ago and that no live claim or open park may reopen
+// (`run/retired.ts`: a parked or In Review run also has an end time), and every other row of run
+// detail older than that:
 // change-log entries, output, usage messages, steps, verdicts, feedback and the rest. The run's
 // outcome row and the daily usage rollup are kept, and so are the office's own facts (story
 // identity, the backlog cache, run profiles, confirmations). Each delete is a batch of at most
@@ -16,9 +18,10 @@ import { REQUEST_TTL_MS } from "../commands/requests";
 import type { OfficeHandle } from "../db/office";
 import type { SqlParams } from "../platform/sqlite";
 import { deleteParksResolvedBefore } from "../run/park-records";
-import { deleteRunsEndedBefore } from "../run/records";
-import { deleteAgentsEndedBefore } from "../runs/agents";
-import { deleteHostsEndedBefore } from "../runs/worker-hosts";
+import { deleteRetiredRuns } from "../run/records";
+import { ofNoOpenRun, retiredRun } from "../run/retired";
+import { deleteRetiredAgents } from "../runs/agents";
+import { deleteRetiredHosts } from "../runs/worker-hosts";
 
 import { cleanRunDirectories, runSummaryExists, type SummaryCheck } from "./run-files";
 import { Slicer, type SliceOptions } from "./slices";
@@ -50,13 +53,14 @@ export interface RetentionReport {
 }
 
 const CLOSED_JOURNAL = "state in ('merged', 'dropped', 'withdrawn')";
-const ENDED_AGENT =
-  "agent_id in (select agent_id from agents where office_id = $office_id and ended_at < $cutoff)";
+/** The rows of agents that ended before the cutoff, of a run that may not reopen. */
+const ENDED_AGENT = `agent_id in (select agent_id from agents where office_id = $office_id
+  and ended_at < $cutoff and ${ofNoOpenRun("agents")})`;
 
-/** The rows of `table` whose run ended before the cutoff. */
+/** The rows of `table` whose run is retired (`retiredRun`): a parked or In Review run stays. */
 const endedRun = (table: string): string =>
   `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = ${table}.run_id
-     and r.ended_at < $cutoff)`;
+     and ${retiredRun("r")})`;
 
 /** Tables whose rows go with their run. */
 const RUN_DETAIL = [
@@ -163,9 +167,8 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
   await rows("change_log", "at < $cutoff");
   await rows("output_chunks", "at < $cutoff");
   await rows("prompt_texts", "recorded_at < $cutoff");
-  await rows("usage_messages", "at < $cutoff");
-  await rows("ingest_cursors", "ended_at < $cutoff");
-  // The agents that ended before the cutoff, their rows first.
+  // The agents that ended before the cutoff, of runs that may not reopen, their rows first: a
+  // parked run keeps its usage for its caps when it resumes.
   await rows("usage_messages", ENDED_AGENT);
   await rows("ingest_cursors", ENDED_AGENT);
   await rows("usage_totals", ENDED_AGENT);
@@ -174,13 +177,13 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
   await rows(
     "prompt_parts",
     `recorded_at < $cutoff and not exists (select 1 from agents a where a.office_id = $office_id
-       and a.run_id = prompt_parts.run_id and a.ended_at is null)`,
+       and a.run_id = prompt_parts.run_id and a.ended_at is null) and ${ofNoOpenRun("prompt_parts")}`,
   );
-  await batches("agents", (limit) => deleteAgentsEndedBefore(office, cutoff, limit));
-  // The runs that ended before the cutoff, their rows first; their outcome rows stay.
+  await batches("agents", (limit) => deleteRetiredAgents(office, cutoff, limit));
+  // The retired runs, their rows first; their outcome rows stay.
   for (const table of RUN_DETAIL) await rows(table, endedRun(table));
   await rows("acceptance_tests", `ended_at is not null and ${endedRun("acceptance_tests")}`);
-  await batches("runs", (limit) => deleteRunsEndedBefore(office, cutoff, limit));
+  await batches("runs", (limit) => deleteRetiredRuns(office, cutoff, limit));
   // What the maintainer decided; an open note, proposal or park is kept.
   await rows("decision_notes", "state <> 'open' and updated_at < $cutoff");
   await rows("proposals", "state <> 'open' and updated_at < $cutoff");
@@ -215,7 +218,7 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
     for (const table of PROFILE_CHILDREN) await rows(table, older, kept);
     await rows("run_profiles", older, kept);
   }
-  await batches("worker_hosts", (limit) => deleteHostsEndedBefore(office, cutoff, limit));
+  await batches("worker_hosts", (limit) => deleteRetiredHosts(office, cutoff, limit));
   await rows("backlog_journal", `${CLOSED_JOURNAL} and closed_at < $cutoff`);
   // Backlog and story PRs merged or closed, and blocks a later backlog PR cleared; an open PR or
   // a block in force is kept.
