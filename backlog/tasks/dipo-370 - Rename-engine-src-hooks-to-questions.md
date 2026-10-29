@@ -1,10 +1,10 @@
 ---
 id: DIPO-370
 title: Rename engine/src/hooks to questions
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-29 08:06'
-updated_date: '2026-10-29 08:09'
+updated_date: '2026-10-29 08:38'
 labels:
   - 'tier:S'
   - 'slice:prune'
