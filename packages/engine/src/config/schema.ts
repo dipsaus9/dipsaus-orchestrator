@@ -325,7 +325,7 @@ const Sha256 = text().regex(/^[0-9a-f]{64}$/, "must be a sha256 in lower-case he
 const DebianRelease = text()
   .regex(/^[a-z0-9][a-z0-9.]*$/, "must be a Debian release such as trixie, bookworm or 13")
   .describe(
-    "The Debian release of the box image. dipo builds on its slim image, docker.io/library/debian:<release>-slim.",
+    "The Debian release of the box image. dipo builds on its slim image, docker.io/library/debian:<release>-slim, pinned by digest for trixie, dipo's default; another release is pulled by its tag alone.",
   );
 const BoxToolchain = z
   .strictObject({

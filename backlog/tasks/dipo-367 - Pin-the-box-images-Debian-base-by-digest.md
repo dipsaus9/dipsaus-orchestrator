@@ -4,7 +4,7 @@ title: Pin the box images' Debian base by digest
 status: Refined
 assignee: []
 created_date: '2026-10-28 15:04'
-updated_date: '2026-10-28 15:07'
+updated_date: '2026-10-29 20:20'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -40,8 +40,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The default Debian base of the office images and the Safe-Chain image is a tag with a pinned sha256 digest, kept in one place, and the image tag hash includes it
-- [ ] #2 An office that sets its own debian release keeps working, and the image description says whether its base is pinned
+- [x] #1 The default Debian base of the office images and the Safe-Chain image is a tag with a pinned sha256 digest, kept in one place, and the image tag hash includes it
+- [x] #2 An office that sets its own debian release keeps working, and the image description says whether its base is pinned
 - [ ] #3 tools/box-probe/probe.sh passes for a developer box and the Safe-Chain box built from the pinned base, recorded in tools/box-probe/RESULTS.md
 - [ ] #4 The image-base check (packages/engine/test/box/args.test.ts and the code it tests) accepts debian:<release>-slim@sha256:<digest> and still refuses other forms, and the Apple container pull of a digest-pinned base is tested
 <!-- AC:END -->

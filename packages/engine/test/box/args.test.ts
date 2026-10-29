@@ -292,7 +292,11 @@ const COMMANDS: (readonly [string, ...string[]])[] = [
 ];
 /** Box image tags (DIPO-266) and the base images a build pulls (DIPO-281). */
 const TAGS = [`dipo-box:${"0".repeat(64)}`, `dipo-box:${"ab12".repeat(16)}`];
-const BASES = ["docker.io/library/debian:trixie-slim", "docker.io/library/debian:13.1-slim"];
+const BASES = [
+  "docker.io/library/debian:trixie-slim",
+  "docker.io/library/debian:13.1-slim",
+  `docker.io/library/debian:trixie-slim@sha256:${"0a".repeat(32)}`,
+];
 const ENVS = [undefined, {}, { HTTPS_PROXY: "http://proxy:1", NO_PROXY: "a,b" }];
 const CWDS = [undefined, "/work"];
 
@@ -691,13 +695,10 @@ describe("the Apple container argument builder", () => {
     for (const name of NAMES) refused(() => builders.commitArgs(name, tag));
     refused(() => builders.commitArgs("dipo-build-", tag));
     refused(() => builders.commitArgs(BUILD_NAME, "alpine"));
-    expect(builders.imagePullArgs(BASES[0]!)).toEqual([
-      "image",
-      "pull",
-      "--progress",
-      "none",
-      BASES[0]!,
-    ]);
+    for (const base of BASES) {
+      expect(builders.imagePullArgs(base)).toEqual(["image", "pull", "--progress", "none", base]);
+    }
+    const sum = "0a".repeat(32);
     for (const reference of [
       "alpine",
       "docker.io/library/debian:trixie",
@@ -705,6 +706,18 @@ describe("the Apple container argument builder", () => {
       "--ssh",
       "docker.io/library/debian:trixie-slim --ssh",
       "",
+      // DIPO-367: a digest only after the slim tag, a lower-case sha256 of 64 digits, nothing after.
+      `docker.io/library/debian@sha256:${sum}`,
+      `docker.io/library/debian:trixie@sha256:${sum}`,
+      `docker.io/evil/debian:trixie-slim@sha256:${sum}`,
+      `docker.io/library/debian:trixie-slim@sha256:${sum.toUpperCase()}`,
+      `docker.io/library/debian:trixie-slim@sha256:${sum.slice(2)}`,
+      `docker.io/library/debian:trixie-slim@sha256:${sum}0a`,
+      `docker.io/library/debian:trixie-slim@sha512:${sum}${sum}`,
+      `docker.io/library/debian:trixie-slim@${sum}`,
+      `docker.io/library/debian:trixie-slim@sha256:${sum} --ssh`,
+      `docker.io/library/debian:trixie-slim@sha256:${sum}\n`,
+      `docker.io/library/debian:trixie-slim@sha256:${sum}@sha256:${sum}`,
     ]) {
       refused(() => builders.imagePullArgs(reference));
     }

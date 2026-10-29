@@ -452,8 +452,11 @@ export function imageDeleteArgs(tag: string): string[] {
   return ["image", "delete", checkedImageTag(tag)];
 }
 
-/** The base image of a build: Debian's slim image of one release (DIPO-266, DIPO-281). */
-const BASE_IMAGE = /^docker\.io\/library\/debian:[a-z0-9][a-z0-9.]*-slim$/;
+/**
+ * The base image of a build: Debian's slim image of one release (DIPO-266, DIPO-281), by its tag
+ * alone or by its tag and a sha256 digest (DIPO-367).
+ */
+const BASE_IMAGE = /^docker\.io\/library\/debian:[a-z0-9][a-z0-9.]*-slim(?:@sha256:[0-9a-f]{64})?$/;
 
 /** Pulls the base image of a build (DIPO-281): only Debian's slim image of a release. */
 export function imagePullArgs(reference: string): string[] {

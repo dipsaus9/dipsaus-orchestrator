@@ -8,6 +8,9 @@
 //   change its own box; `readBaseBox` also reads the files the toolchain detection needs from that
 //   same commit.
 // - The Node.js tarball is checked against a sha256 dipo pins per version (`NODE_TARBALL_SHA256`).
+// - The base is Debian's slim image of the release (`debianBase`), pinned by digest for dipo's
+//   default release (`BOX_DEFAULTS.debianSha256`, DIPO-367). Another release is the tag alone; the
+//   description's `debianSha256` says which.
 // - Every image has git from Debian's archive, for the box's own local repository (0008): the
 //   build checks that it runs. And socat, for the relay of a test box whose `dev` listens only on
 //   the box's loopback (DIPO-309, `test-box.ts`).
@@ -48,6 +51,15 @@ import { BOX_NPM_PREFIX, BOX_ROOT_DIRS, BOX_USER_DIRS, BOX_USER_HOME, BOX_USER_N
 export const BOX_DEFAULTS = {
   /** Debian 13. */
   debian: "trixie",
+  /**
+   * The sha256 of the multi-arch image index of `docker.io/library/debian:trixie-slim`, so a moved
+   * tag never changes what a box runs (DIPO-367). Read on 2026-10-29 from the
+   * `Docker-Content-Digest` of `https://registry-1.docker.io/v2/library/debian/manifests/trixie-slim`
+   * (anonymous pull token from auth.docker.io, `Accept: application/vnd.oci.image.index.v1+json`),
+   * and the same as `container image inspect docker.io/library/debian:trixie-slim` showed for the
+   * pulled image. Moving it changes every image tag, so the escape probe runs again (0008).
+   */
+  debianSha256: "f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4",
   /** The Claude Code release the escape probe ran from npm (tools/box-probe/RESULTS.md). */
   claudeCode: "2.1.303",
   toolchain: {
@@ -84,6 +96,11 @@ export type BoxToolchain = { readonly node: string } & Partial<
 /** What the image is built from; its build file, and so its tag, depend on nothing else. */
 export interface BoxImageDescription {
   readonly debian: string;
+  /**
+   * The pinned digest of the release's slim image (`BOX_DEFAULTS.debianSha256` for the default
+   * release), or null when dipo pins none for the release: the base is then the tag alone.
+   */
+  readonly debianSha256: string | null;
   readonly toolchain: BoxToolchain;
   /** The Node.js tarball's sha256 per architecture; the build refuses an architecture without one. */
   readonly nodeSha256: NodeSha256;
@@ -142,9 +159,11 @@ export function describeBox(
     else if (detected[tool] !== undefined) toolchain[tool] = BOX_DEFAULTS.toolchain[tool];
   }
   const pinned = committed.nodeSha256;
+  const debian = section?.debian ?? BOX_DEFAULTS.debian;
   return {
     image: {
-      debian: section?.debian ?? BOX_DEFAULTS.debian,
+      debian,
+      debianSha256: debian === BOX_DEFAULTS.debian ? BOX_DEFAULTS.debianSha256 : null,
       toolchain: toolchain as BoxToolchain,
       nodeSha256:
         pinned !== undefined && Object.keys(pinned).length > 0
@@ -175,6 +194,9 @@ function refuse(message: string, details: Readonly<Record<string, unknown>>): ne
  */
 export function checkImageDescription(image: BoxImageDescription): BoxImageDescription {
   if (!DEBIAN.test(image.debian)) refuse("the Debian release is not a release name.", { ...image });
+  if (image.debianSha256 !== null && !SHA256.test(image.debianSha256)) {
+    refuse("the Debian base's digest is not a sha256.", { debianSha256: image.debianSha256 });
+  }
   if (!EXACT.test(image.claudeCode)) {
     refuse("the Claude Code version is not an exact version.", { claudeCode: image.claudeCode });
   }
@@ -207,6 +229,15 @@ export function checkImageDescription(image: BoxImageDescription): BoxImageDescr
     }
   }
   return image;
+}
+
+/**
+ * Debian's slim image of `release` (DIPO-266): pinned by its sha256 when `sha256` is one
+ * (DIPO-367), otherwise the tag alone. The base of the office images and of the Safe-Chain image.
+ */
+export function debianBase(release: string, sha256: string | null): string {
+  const tag = `docker.io/library/debian:${release}-slim`;
+  return sha256 === null ? tag : `${tag}@sha256:${sha256}`;
 }
 
 /**
@@ -275,7 +306,7 @@ export function script(comment: readonly string[], lines: readonly string[]): st
 
 /** What an office image is built from: the base image and dipo's three scripts. */
 export interface BoxBuildScripts {
-  /** Debian's slim image of the release, pulled on the Mac. */
+  /** Debian's slim image of the release (`debianBase`), pulled on the Mac. */
   readonly base: string;
   /**
    * The first step, with the build box's capabilities and before any package's install script
@@ -341,7 +372,8 @@ export function bootstrapLines(): string[] {
  * description always gives the same text, so the image tag (`boxImageTag`) is a hash of it.
  */
 export function boxBuildScripts(image: BoxImageDescription): BoxBuildScripts {
-  const { debian, toolchain, nodeSha256, packages, claudeCode } = checkImageDescription(image);
+  const { debian, debianSha256, toolchain, nodeSha256, packages, claudeCode } =
+    checkImageDescription(image);
   const node = toolchain.node;
   // One case per architecture: its pinned sum, or a refusal when the description has none.
   const nodeCases = NODE_ARCHES.map((arch) => {
@@ -412,7 +444,7 @@ export function boxBuildScripts(image: BoxImageDescription): BoxBuildScripts {
       'rm -rf "$HOME/.npm"',
     ],
   );
-  return { base: `docker.io/library/debian:${debian}-slim`, bootstrap, system, build };
+  return { base: debianBase(debian, debianSha256), bootstrap, system, build };
 }
 
 /**

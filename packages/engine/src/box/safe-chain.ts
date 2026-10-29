@@ -18,9 +18,9 @@
 // - The packaged binary takes its install directory from its own path, so a copy at
 //   `<dir>/bin/safe-chain` keeps its CA, certificates and caches in `<dir>`: a fresh CA in each
 //   box, which lives as long as dipo's web route.
-// - The image is one for the whole machine, built from Debian's slim image, the box network tools
-//   and the official release binary pinned by sha256, with no npm install: building it needs no
-//   Safe-Chain, while building an office image does.
+// - The image is one for the whole machine, built from Debian's slim image pinned by digest
+//   (`debianBase`), the box network tools and the official release binary pinned by sha256, with
+//   no npm install: building it needs no Safe-Chain, while building an office image does.
 
 import { createHash } from "node:crypto";
 
@@ -33,6 +33,7 @@ import {
   BUILD_SYSTEM_SCRIPT,
   bootstrapLines,
   boxUserLines,
+  debianBase,
   script,
 } from "./image";
 import { BOX_IMAGE_REPOSITORY } from "./port";
@@ -259,7 +260,7 @@ export function safeChainBuildPlan(): SafeChainBuildPlan {
     ],
   );
   return {
-    base: `docker.io/library/debian:${BOX_DEFAULTS.debian}-slim`,
+    base: debianBase(BOX_DEFAULTS.debian, BOX_DEFAULTS.debianSha256),
     files: {
       [BUILD_BOOTSTRAP_SCRIPT]: bootstrap,
       [BUILD_SYSTEM_SCRIPT]: system,

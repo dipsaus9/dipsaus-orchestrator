@@ -24,7 +24,7 @@ import {
 
 import { OFFICE_DEFAULTS } from "../../src/config";
 import type { BaseBox, BoxImageDescription } from "../../src/box/image";
-import { boxImageTag, NODE_TARBALL_SHA256 } from "../../src/box/image";
+import { BOX_DEFAULTS, boxImageTag, NODE_TARBALL_SHA256 } from "../../src/box/image";
 import {
   BoxLifetime,
   boxEndedOf,
@@ -66,6 +66,7 @@ const CA =
   "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIBATAKBggqhkjOPQQDAjA=\n-----END CERTIFICATE-----\n";
 const IMAGE: BoxImageDescription = {
   debian: "trixie",
+  debianSha256: BOX_DEFAULTS.debianSha256,
   toolchain: { node: "24.22.1" },
   nodeSha256: NODE_TARBALL_SHA256["24.22.1"]!,
   packages: [],
