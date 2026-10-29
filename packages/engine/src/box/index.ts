@@ -245,6 +245,8 @@ export {
   BOX_USER_GID,
   BOX_USER_UID,
   boundingSet,
+  BUILD_ROOT_CAPABILITIES,
+  buildRootStepCommand,
   checkFirewallListing,
   CONTAINED_KEEPALIVE,
   containedCommand,

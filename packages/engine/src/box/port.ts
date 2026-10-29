@@ -144,8 +144,9 @@ export interface BoxExecOptions {
    */
   readonly fullPrivilege?: true;
   /**
-   * Runs the command as one of dipo's root steps (DIPO-334, `rootStepCommand`): root, with the
-   * root allow list of capabilities. A build box takes any; every other box only `isRootStep`.
+   * Runs the command as one of dipo's root steps (DIPO-334): root, with an allow list of
+   * capabilities. A build box takes any, with its own list (`buildRootStepCommand`); every other
+   * box only `isRootStep`, with the fixed steps' smaller list (`rootStepCommand`, DIPO-336).
    */
   readonly rootStep?: true;
 }

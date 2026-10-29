@@ -19,15 +19,18 @@ import {
 } from "../../src/box/apple-args";
 import {
   BOX_NET_TOOLS_PATH,
+  buildRootStepCommand,
   CONTAINED_KEEPALIVE,
   containedCommand,
   firewallCommand,
   firewallListCommand,
+  netToolCommand,
   rootStepCommand,
 } from "../../src/box/firewall";
 import { BOX_PACKAGE_CACHE_PATH, BoxError } from "../../src/box/port";
 import {
   BOX_USER_ENV,
+  DIPO_PART_PATH,
   newStagePath,
   partModeCommand,
   stageCopyCommand,
@@ -586,7 +589,7 @@ describe("the Apple container argument builder", () => {
     expect(user.slice(user.indexOf(BUILD_NAME) + 1)).toEqual(containedCommand(["/bin/sh", "x"]));
   });
 
-  it("runs dipo's root steps as root with the allow list: any in a build box, only the fixed ones elsewhere (DIPO-334)", () => {
+  it("runs dipo's root steps as root: only the fixed ones, with their own list, outside a build box (DIPO-334, DIPO-336)", () => {
     const stage = newStagePath();
     const steps = [
       stageMakeCommand(stage),
@@ -594,10 +597,25 @@ describe("the Apple container argument builder", () => {
       stageRemoveCommand(stage),
       partModeCommand(),
     ];
-    for (const name of NAMES) {
+    // Every box that is no build box: run boxes, a test box, a reviewer box, the Safe-Chain box,
+    // and names that only look like a build box's.
+    const others = [
+      ...NAMES,
+      "dipo-tst_01J9ZK5Q8W3V4X6Y7Z00000001",
+      "dipo-review-0123456789abcdef",
+      "dipo-safe-chain-0123456789abcdef",
+      "dipo-build-",
+      "dipo-xbuild-0123456789abcdef",
+      "dipo-tst_build-0123456789abcdef",
+      "dipo-run_build-1",
+    ];
+    for (const name of others) {
       for (const command of steps) {
         const args = execArgs({ name, command, rootStep: true });
+        // The fixed steps' list (chown, dac_override, fowner), never the build box's.
         expect(args.slice(args.indexOf(name) + 1)).toEqual(rootStepCommand(command));
+        expect(args).toContain("--bounding-set=-all,+chown,+dac_override,+fowner");
+        expect(args).not.toContain(buildRootStepCommand(command)[6]);
         // A root step gets no box user environment.
         expect(args.slice(0, args.indexOf(name))).toEqual(["exec"]);
       }
@@ -613,21 +631,58 @@ describe("the Apple container argument builder", () => {
         ["/bin/chown", "-R", "-h", "1000:1000", "--", `${stage}/x`],
         [...stageRemoveCommand(stage), "/etc"],
         ["/bin/sh", "-c", `rm -rf ${stage}`],
+        // Wrappers: a fixed step behind env, sh, setpriv or the tools' loader.
+        ["/usr/bin/env", ...partModeCommand()],
+        ["env", "LD_PRELOAD=/tmp/x.so", ...partModeCommand()],
+        ["/bin/sh", "-c", partModeCommand().join(" ")],
+        ["/bin/bash", "-c", `${stageMakeCommand(stage).join(" ")} && id`],
+        rootStepCommand(partModeCommand()),
+        buildRootStepCommand(partModeCommand()),
+        netToolCommand("setpriv", ["--bounding-set=+setuid", "--", ...partModeCommand()]),
+        // Arguments that would ask for a capability, quoted or chained into a fixed step.
+        ["/bin/chmod", "--bounding-set=+setuid", "0755", DIPO_PART_PATH],
+        ["/bin/chmod", "0755", DIPO_PART_PATH, "--bounding-set=+setuid"],
+        ["/bin/chmod", "4755", DIPO_PART_PATH],
+        ["/bin/chmod", "0755", `${DIPO_PART_PATH};id`],
+        ["/bin/chmod", "0755", `${DIPO_PART_PATH} && id`],
+        ["/bin/mkdir", "-m", "4777", "--", stage],
+        ["/bin/mkdir", "-m", "0700", "--", `${stage},+setuid`],
+        ["/bin/mkdir", "-m", "0700", "--", `'${stage}'`],
+        ["/bin/chown", "-R", "-h", "0:0", "--", stage],
+        ["/bin/rm", "-rf", "--", `${stage}\n/etc`],
+        ["chmod", "0755", DIPO_PART_PATH],
+        ["/usr/bin/chmod", "0755", DIPO_PART_PATH],
       ] as (readonly [string, ...string[]])[]) {
         refused(() => execArgs({ name, command, rootStep: true }));
       }
       refused(() =>
         execArgs({ name, command: partModeCommand(), rootStep: true, fullPrivilege: true }),
       );
+      // A fixed step with an environment or a working directory: the tools' loader would read
+      // LD_PRELOAD as the box's root before setpriv drops anything.
+      for (const command of steps) {
+        for (const env of [
+          { LD_PRELOAD: "/work/x.so" },
+          { LD_LIBRARY_PATH: "/work" },
+          { PATH: "/work" },
+          {},
+        ]) {
+          refused(() => execArgs({ name, command, rootStep: true, env }));
+        }
+        for (const cwd of ["/work", "/"]) {
+          refused(() => execArgs({ name, command, rootStep: true, cwd }));
+        }
+      }
     }
-    const system = execArgs({
-      name: BUILD_NAME,
-      command: ["/bin/sh", "/dipo-build/system.sh"],
-      rootStep: true,
-    });
-    expect(system.slice(system.indexOf(BUILD_NAME) + 1)).toEqual(
-      rootStepCommand(["/bin/sh", "/dipo-build/system.sh"]),
-    );
+    // A build box keeps its own list, for any root step, the fixed ones among them.
+    for (const command of [
+      ["/bin/sh", "/dipo-build/system.sh"] as [string, ...string[]],
+      ...steps,
+    ]) {
+      const args = execArgs({ name: BUILD_NAME, command, rootStep: true });
+      expect(args.slice(args.indexOf(BUILD_NAME) + 1)).toEqual(buildRootStepCommand(command));
+      expect(args).not.toContain("--bounding-set=-all,+chown,+dac_override,+fowner");
+    }
   });
 
   it("commits only a build box, to a dipo box image tag, and pulls only Debian's slim base", () => {

@@ -25,9 +25,11 @@
 //   and no new privileges, inherited by everything it starts and never regained. The worker's
 //   session and its commands, the office install, the package cache fill and every npm install of
 //   an image build run so. dipo's own fixed steps that must be root (`rootStepCommand`) keep only
-//   the allow list `ROOT_STEP_CAPABILITIES`, never `net_admin` or `net_raw`. Only the rule itself,
-//   and a build box's first step before any install script ran, run with all of the box's
-//   capabilities. The box's keepalive process is the mounted `tail`.
+//   the allow list `ROOT_STEP_CAPABILITIES` (owners and modes of files, DIPO-336); a build box's
+//   root steps (`buildRootStepCommand`) keep their own, `BUILD_ROOT_CAPABILITIES`. Neither ever
+//   holds `net_admin` or `net_raw`. Only the rule itself, and a build box's first step before any
+//   install script ran, run with all of the box's capabilities. The box's keepalive process is the
+//   mounted `tail`.
 // - The tools folder sits directly under `/`: a folder of `/` cannot be renamed by the box user,
 //   and a mount point cannot be renamed at all, so no planted loader takes its place; `/etc`,
 //   `/usr`, `/lib` and `/opt` belong to root, so neither `/etc/ld.so.preload` nor an NSS module
@@ -86,12 +88,19 @@ export const BOX_ENV_PROGRAM = "/usr/bin/env";
 export const USER_CAPABILITIES: readonly string[] = [];
 
 /**
- * The capabilities one of dipo's root steps keeps (`rootStepCommand`), an allow list: owners and
- * modes of files (`chown`, `dac_override`, `dac_read_search`, `fowner`, `fsetid`), the user
+ * The capabilities one of dipo's fixed root steps outside a build box keeps (`rootStepCommand`,
+ * DIPO-336), an allow list: what a stage folder's make, hand-over and removal and the mode of
+ * `dipo-part` need, the owners and modes of files (`chown`, `dac_override`, `fowner`).
+ */
+export const ROOT_STEP_CAPABILITIES: readonly string[] = ["chown", "dac_override", "fowner"];
+
+/**
+ * The capabilities a build box's root steps keep (`buildRootStepCommand`), an allow list: owners
+ * and modes of files (`chown`, `dac_override`, `dac_read_search`, `fowner`, `fsetid`), the user
  * switches of apt and of Debian's package scripts (`setuid`, `setgid`, `kill`, `sys_chroot`,
  * `audit_write`). Never the network (`net_admin`, `net_raw`), mounts or tracing.
  */
-export const ROOT_STEP_CAPABILITIES: readonly string[] = [
+export const BUILD_ROOT_CAPABILITIES: readonly string[] = [
   "audit_write",
   "chown",
   "dac_override",
@@ -134,13 +143,10 @@ const CONTAINED_OPTIONS: readonly string[] = [
   "--no-new-privs",
 ];
 
-/** The setpriv options of a root step: root, with `ROOT_STEP_CAPABILITIES` only. */
-const ROOT_STEP_OPTIONS: readonly string[] = [
-  "--inh-caps=-all",
-  "--ambient-caps=-all",
-  boundingSet(ROOT_STEP_CAPABILITIES),
-  "--no-new-privs",
-];
+/** The setpriv options of a root step: root, with `allowed` only. */
+function rootOptions(allowed: readonly string[]): readonly string[] {
+  return ["--inh-caps=-all", "--ambient-caps=-all", boundingSet(allowed), "--no-new-privs"];
+}
 
 /**
  * `command` behind the image's `env` with the box user's environment: each key of
@@ -186,9 +192,16 @@ function withoutUserEnv(command: readonly string[]): readonly string[] | null {
   return fits ? command.slice(length) : null;
 }
 
-/** `command` as one of dipo's root steps: root, with `ROOT_STEP_CAPABILITIES` only. */
+/** `command` as one of dipo's fixed root steps: root, with `ROOT_STEP_CAPABILITIES` only. */
 export function rootStepCommand(command: readonly [string, ...string[]]): [string, ...string[]] {
-  return netToolCommand("setpriv", [...ROOT_STEP_OPTIONS, "--", ...command]);
+  return netToolCommand("setpriv", [...rootOptions(ROOT_STEP_CAPABILITIES), "--", ...command]);
+}
+
+/** `command` as one of a build box's root steps: root, with `BUILD_ROOT_CAPABILITIES` only. */
+export function buildRootStepCommand(
+  command: readonly [string, ...string[]],
+): [string, ...string[]] {
+  return netToolCommand("setpriv", [...rootOptions(BUILD_ROOT_CAPABILITIES), "--", ...command]);
 }
 
 /** `command` without the prefix that `wrap` adds, or null when it has none. */
@@ -207,12 +220,14 @@ export function uncontained(command: readonly string[]): readonly string[] | nul
     netToolCommand("setpriv", [...CONTAINED_OPTIONS, "--", ...inner]),
   );
   if (user !== null) return withoutUserEnv(user);
-  return unwrap(command, rootStepCommand);
+  return unwrap(command, rootStepCommand) ?? unwrap(command, buildRootStepCommand);
 }
 
-/** True when `command` runs as one of dipo's root steps (`rootStepCommand`). */
+/** True when `command` runs as one of dipo's root steps, of either list. */
 export function isRootStepWrapped(command: readonly string[]): boolean {
-  return unwrap(command, rootStepCommand) !== null;
+  return (
+    unwrap(command, rootStepCommand) !== null || unwrap(command, buildRootStepCommand) !== null
+  );
 }
 
 /** The box's keepalive process: the mounted `tail`, so nothing of the box's own runs as it. */

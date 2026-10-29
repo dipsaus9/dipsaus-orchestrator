@@ -20,6 +20,8 @@ import {
   BOX_USER_ENV,
   BOX_USER_HOME,
   boundingSet,
+  BUILD_ROOT_CAPABILITIES,
+  buildRootStepCommand,
   checkFirewallListing,
   CONTAINED_KEEPALIVE,
   containedCommand,
@@ -279,39 +281,93 @@ describe("what runs with a box's capabilities", () => {
     expect(uncontained(netToolCommand("setpriv", ["--", "/usr/bin/env", "claude"]))).toBeNull();
   });
 
-  it("runs dipo's root steps as root with an allow list that never holds the network (DIPO-334)", () => {
+  it("runs dipo's fixed root steps as root with chown, dac_override and fowner only (DIPO-334, DIPO-336)", () => {
     const command = rootStepCommand(["/bin/chmod", "0755", "/usr/local/bin/dipo-part"]);
     expect(command.slice(0, 4)).toEqual(netToolCommand("setpriv", []));
     const options = command.slice(4, command.indexOf("--"));
     expect(options).toEqual([
       "--inh-caps=-all",
       "--ambient-caps=-all",
-      boundingSet(ROOT_STEP_CAPABILITIES),
+      "--bounding-set=-all,+chown,+dac_override,+fowner",
       "--no-new-privs",
     ]);
     expect(options.some((option) => option.startsWith("--reuid"))).toBe(false);
     // An allow list: everything is dropped first, then only the listed ones kept.
+    expect(ROOT_STEP_CAPABILITIES).toEqual(["chown", "dac_override", "fowner"]);
     expect(boundingSet(ROOT_STEP_CAPABILITIES)).toBe(
-      "--bounding-set=-all,+audit_write,+chown,+dac_override,+dac_read_search,+fowner,+fsetid,+kill,+setgid,+setuid,+sys_chroot",
+      "--bounding-set=-all,+chown,+dac_override,+fowner",
     );
+    // What the old shared list gave the fixed steps and they no longer get.
     for (const cap of [
-      "net_admin",
-      "net_raw",
-      "sys_admin",
-      "sys_module",
-      "sys_ptrace",
-      "sys_rawio",
-      "setpcap",
-      "setfcap",
-      "mknod",
+      "dac_read_search",
+      "fsetid",
+      "setuid",
+      "setgid",
+      "kill",
+      "sys_chroot",
+      "audit_write",
+      ...NEVER_ROOT,
     ]) {
       expect(ROOT_STEP_CAPABILITIES).not.toContain(cap);
     }
     expect(uncontained(command)).toEqual(["/bin/chmod", "0755", "/usr/local/bin/dipo-part"]);
     expect(isRootStepWrapped(command)).toBe(true);
     expect(isFirewallCommand(command)).toBe(false);
+    // The command comes after setpriv's `--`: an argument that looks like an option of setpriv is
+    // the command's own, never one that adds a capability.
+    const asked = rootStepCommand(["/bin/chmod", "--bounding-set=+setuid", "/x"]);
+    expect(asked.slice(4, asked.indexOf("--"))).toEqual(options);
+    expect(asked.slice(asked.indexOf("--") + 1)).toEqual([
+      "/bin/chmod",
+      "--bounding-set=+setuid",
+      "/x",
+    ]);
+  });
+
+  it("runs a build box's root steps with the build box's own list, never the network (DIPO-334, DIPO-336)", () => {
+    const command = buildRootStepCommand(["/bin/sh", "/dipo-build/system.sh"]);
+    expect(command.slice(0, 4)).toEqual(netToolCommand("setpriv", []));
+    expect(command.slice(4, command.indexOf("--"))).toEqual([
+      "--inh-caps=-all",
+      "--ambient-caps=-all",
+      "--bounding-set=-all,+audit_write,+chown,+dac_override,+dac_read_search,+fowner,+fsetid,+kill,+setgid,+setuid,+sys_chroot",
+      "--no-new-privs",
+    ]);
+    expect(BUILD_ROOT_CAPABILITIES).toEqual([
+      "audit_write",
+      "chown",
+      "dac_override",
+      "dac_read_search",
+      "fowner",
+      "fsetid",
+      "kill",
+      "setgid",
+      "setuid",
+      "sys_chroot",
+    ]);
+    for (const cap of NEVER_ROOT) expect(BUILD_ROOT_CAPABILITIES).not.toContain(cap);
+    // The fixed steps' list is a strict part of the build box's.
+    for (const cap of ROOT_STEP_CAPABILITIES) expect(BUILD_ROOT_CAPABILITIES).toContain(cap);
+    expect(uncontained(command)).toEqual(["/bin/sh", "/dipo-build/system.sh"]);
+    expect(isRootStepWrapped(command)).toBe(true);
+    expect(isFirewallCommand(command)).toBe(false);
+    // The two wrappers differ, so a fixed step is never run with the build box's list unseen.
+    expect(rootStepCommand(["/bin/sh"])).not.toEqual(buildRootStepCommand(["/bin/sh"]));
   });
 });
+
+/** Capabilities no root step of any box keeps: the network, mounts, tracing and the rest. */
+const NEVER_ROOT: readonly string[] = [
+  "net_admin",
+  "net_raw",
+  "sys_admin",
+  "sys_module",
+  "sys_ptrace",
+  "sys_rawio",
+  "setpcap",
+  "setfcap",
+  "mknod",
+];
 
 /** A tools folder holding each tool, under `root`. */
 function tools(root: string): string {

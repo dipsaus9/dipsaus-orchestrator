@@ -17,9 +17,9 @@
 //    not the Mac's other services, the local network, or a registry but through Safe-Chain.
 // 6. The tools are streamed out of the box and extracted into dipo's tools folder of the image
 //    (`netToolsDir`), with links refused; every later box of the image mounts them read-only.
-// 7. Behind the firewall (DIPO-334): the system script as one of dipo's root steps, with the root
-//    allow list (Debian's signed packages, the pinned Node.js tarball, the box user and its
-//    folders); then the build script as the box user, so no npm install script of the package
+// 7. Behind the firewall (DIPO-334): the system script as one of dipo's root steps, with the build
+//    box's root allow list (Debian's signed packages, the pinned Node.js tarball, the box user and
+//    its folders); then the build script as the box user, so no npm install script of the package
 //    managers or Claude Code can write `/etc`, `/usr`, `/opt` or the tools; then dipo's cleanup,
 //    a root step, removes the build folder and the tools' copy.
 // 8. The box is stopped and committed to the image's tag (an older image of the tag is deleted
@@ -310,8 +310,8 @@ async function buildInBox(
     );
     netTools = await copyToolsOut(deps, name, tag, work);
     await deps.beforeInstall?.(name, route.url);
-    // Every install step behind the firewall: Debian's and Node.js as a root step with the root
-    // allow list, npm's as the box user (DIPO-334), then the cleanup as a root step.
+    // Every install step behind the firewall: Debian's and Node.js as a root step with the build
+    // box's root allow list, npm's as the box user (DIPO-334), then the cleanup as a root step.
     await step(deps, name, BUILD_SYSTEM_SCRIPT, route.url, "root");
     await step(deps, name, BUILD_STEPS_SCRIPT, route.url, "user");
     await step(deps, name, CLEANUP_STEP, route.url, "root");

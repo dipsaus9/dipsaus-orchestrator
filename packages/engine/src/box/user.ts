@@ -14,8 +14,9 @@
 //   (`copyInAsUser`) goes into a fresh folder under the root-only `BOX_STAGE_ROOT`, is given to
 //   the box user there, where nothing of the worker's can be, and the box user copies it on.
 // - dipo's root steps outside a build box are only the fixed commands of `isRootStep`, each run
-//   with the root allow list (`rootStepCommand`); a build box's root steps are its bootstrap,
-//   the Debian packages from Debian's signed archive, and its cleanup.
+//   with the fixed steps' allow list (`rootStepCommand`: chown, dac_override and fowner,
+//   DIPO-336); a build box's root steps, with its own list, are the Debian packages from Debian's
+//   signed archive and its cleanup.
 
 import { randomUUID } from "node:crypto";
 
