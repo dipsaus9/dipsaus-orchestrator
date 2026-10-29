@@ -141,12 +141,7 @@ export interface RunReattacherDeps {
   /** Liveness by PID and start time (DIPO-23). */
   readonly probe: ProcessProbe;
   /** Connects to a host's socket and handshakes; `connectHost` with the connect timeout by default. */
-  readonly connect?: (
-    socketPath: string,
-    runId: string,
-    /** The engine's token for the host (`worker_hosts.engine_token`, DIPO-59). */
-    token: string | null,
-  ) => Promise<ConnectHostResult>;
+  readonly connect?: (socketPath: string, runId: string) => Promise<ConnectHostResult>;
   /** Ingestion (`OfficeIngest`). */
   readonly ingest: {
     attach(
@@ -503,11 +498,9 @@ export class RunReattacher {
     });
 
     if (alive) {
-      // As the engine (DIPO-59): only a connection with the token answers the run's hook calls.
       const connected = await (deps.connect ?? this.#connect.bind(this))(
         host.socketPath,
         run.runId,
-        host.engineToken,
       );
       if (connected.ok) {
         this.#setMode(office, host, "steer");
@@ -729,12 +722,11 @@ export class RunReattacher {
     this.#followTimers.clear();
   }
 
-  #connect(socketPath: string, runId: string, token: string | null): Promise<ConnectHostResult> {
+  #connect(socketPath: string, runId: string): Promise<ConnectHostResult> {
     return connectHost(socketPath, {
       runId,
       clock: this.#deps.clock,
       timeoutMs: HOST_CONNECT_TIMEOUT_MS,
-      token,
     });
   }
 

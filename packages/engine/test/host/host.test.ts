@@ -333,6 +333,34 @@ describe("worker host in-process", () => {
       await host.done;
     }));
 
+  it("reattaches a host an earlier binary started: the engine token its hello still carries is ignored (DIPO-369)", () =>
+    withTempDir(async (dir) => {
+      const { runDir, socket } = setup(dir);
+      const clock = new ManualClock();
+      const { spawn, open } = gated(fakeSpawn(loadRecording("success-single"), clock).spawn);
+      const host = WorkerHost.start({
+        runId: RUN,
+        runDir,
+        clock,
+        spawn,
+        killGroup: () => {},
+        pid: 779,
+      });
+      const frames: string[] = [];
+      let closed!: () => void;
+      const gone = new Promise<void>((resolve) => {
+        closed = resolve;
+      });
+      const raw = await connectLineSocket(socket, { line: (t) => frames.push(t), closed });
+      raw?.send(JSON.stringify({ kind: "hello", versions: [2], run: RUN, token: "e".repeat(64) }));
+      await Bun.sleep(50);
+      expect(JSON.parse(frames[0] ?? "{}")).toMatchObject({ kind: "hello", version: 2, run: RUN });
+      raw?.close();
+      await gone;
+      open();
+      await host.done;
+    }));
+
   it("writes exit.json with the start error when the worker cannot be spawned", () =>
     withTempDir(async (dir) => {
       const { runDir } = setup(dir);

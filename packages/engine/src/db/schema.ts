@@ -68,6 +68,7 @@ import { acceptanceTests } from "./migrations/0064-acceptance-tests";
 import { noStoryWorktree } from "./migrations/0065-no-story-worktree";
 import { fiveHealthStates } from "./migrations/0066-five-health-states";
 import { threeRunEndings } from "./migrations/0067-three-run-endings";
+import { dropEngineToken } from "./migrations/0068-drop-engine-token";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -171,4 +172,5 @@ create table offices (
   noStoryWorktree,
   fiveHealthStates,
   threeRunEndings,
+  dropEngineToken,
 ];

@@ -61,7 +61,6 @@ function pendingRow(): WorkerHostRow {
       protocolVersion: 2,
       runDir,
       eventFile: join(runDir, "events.ndjson"),
-      engineToken: "e".repeat(64),
     },
     t.clock,
     120,
@@ -88,7 +87,7 @@ function launchOptions(spawn: (options: DetachedSpawnOptions) => { pid: number }
 describe("the pending host row (AC #3)", () => {
   it("is written before the spawn and completed after it", async () => {
     let atSpawn: WorkerHostRow[] = [];
-    const host = await startWorkerHost(
+    await startWorkerHost(
       office,
       t.clock,
       launchOptions(() => {
@@ -104,7 +103,6 @@ describe("the pending host row (AC #3)", () => {
       startTimeMs: 0,
       processedOffset: 64,
       signalStop: true,
-      engineToken: host.engineToken ?? "",
     });
     const rows = workerHostsOf(office, RUN);
     expect(rows).toHaveLength(1);

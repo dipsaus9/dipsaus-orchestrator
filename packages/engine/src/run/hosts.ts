@@ -261,8 +261,6 @@ export class OfficeIngest implements RunIngest {
         clock,
         // A host that binds late still gets a full second for its hello.
         timeoutMs: Math.max(HOST_HELLO_MIN_MS, left),
-        // The engine's watch: only it may answer hook calls and count as the daemon being up.
-        token: host.engineToken ?? null,
       });
       if (connected.ok || connected.reason !== "unreachable" || this.#closed) return connected;
       if (deadline - clock.now() <= HOST_CONNECT_RETRY_MS) return connected;
@@ -385,7 +383,6 @@ export function hostSocketSteering(options: HostSocketSteeringOptions): RunSteer
         runId,
         clock: options.clock,
         timeoutMs: options.timeoutMs ?? STEER_TIMEOUT_MS,
-        token: host.engineToken,
       });
       if (!connected.ok) {
         const why = connected.error === undefined ? "" : ` (${connected.error.message})`;

@@ -13,7 +13,6 @@
 // This module is the one writer of `worker_hosts` (0001): every insert, update and delete of a
 // host row goes through it, and `test/run/one-writer.test.ts` fails on one anywhere else.
 
-import { randomBytes } from "node:crypto";
 import { readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -79,8 +78,6 @@ export interface LaunchedHost extends ProcessIdentity {
   readonly protocolVersion: number;
   readonly runDir: string;
   readonly eventFile: string;
-  /** The secret in `launch.json` that marks the engine's connections (DIPO-59); absent in old rows. */
-  readonly engineToken?: string | null;
 }
 
 export class HostStartError extends Error {
@@ -110,15 +107,12 @@ export async function launchWorkerHost(
   ensurePrivateDir(runDir);
   ensurePrivateDir(join(options.runtimeDir, HOSTS_DIR));
   const socketPath = hostSocketPath(options.runtimeDir, options.runId);
-  // The engine's secret for this host (DIPO-59): random, not an id, so not from the IdSource.
-  const engineToken = randomBytes(32).toString("hex");
   const launch: HostLaunch = {
     version: 1,
     run: options.runId,
     agent: options.agentId,
     socket: socketPath,
     plan: options.plan,
-    token: engineToken,
   };
   hooks.beforeSpawn?.({
     runId: options.runId,
@@ -127,7 +121,6 @@ export async function launchWorkerHost(
     protocolVersion: HOST_PROTOCOL_VERSION,
     runDir,
     eventFile: join(runDir, EVENTS_FILE),
-    engineToken,
   });
   const launchPath = join(runDir, LAUNCH_FILE);
   writeFileSync(`${launchPath}.tmp`, JSON.stringify(launch), { mode: 0o600 });
@@ -162,7 +155,6 @@ export async function launchWorkerHost(
     protocolVersion: HOST_PROTOCOL_VERSION,
     runDir,
     eventFile: join(runDir, EVENTS_FILE),
-    engineToken,
   };
 }
 
@@ -188,15 +180,14 @@ export function recordWorkerHost(
   office.immediate(() => {
     office.run(
       `insert into worker_hosts (office_id, run_id, agent_id, pid, start_time_ms, socket_path,
-         protocol_version, run_dir, event_file, processed_offset, started_at, engine_token,
-         signal_stop)
+         protocol_version, run_dir, event_file, processed_offset, started_at, signal_stop)
        values ($office_id, $run, $agent, $pid, $start, $socket, $protocol, $dir, $events,
-         $offset, $now, $token, 1)
+         $offset, $now, 1)
        on conflict (office_id, run_id, agent_id) do update set pid = excluded.pid,
          start_time_ms = excluded.start_time_ms, socket_path = excluded.socket_path,
          protocol_version = excluded.protocol_version, run_dir = excluded.run_dir,
          event_file = excluded.event_file, processed_offset = excluded.processed_offset,
-         engine_token = excluded.engine_token, signal_stop = 1, pending = 0`,
+         signal_stop = 1, pending = 0`,
       {
         run: host.runId,
         agent: host.agentId,
@@ -208,7 +199,6 @@ export function recordWorkerHost(
         events: host.eventFile,
         offset: extras.processedOffset ?? 0,
         now: clock.now(),
-        token: host.engineToken ?? null,
       },
     );
     extras.record?.();
@@ -229,10 +219,9 @@ export function recordPendingHost(
   office.immediate(() =>
     office.run(
       `insert into worker_hosts (office_id, run_id, agent_id, pid, start_time_ms, socket_path,
-         protocol_version, run_dir, event_file, processed_offset, started_at, engine_token,
-         signal_stop, pending)
+         protocol_version, run_dir, event_file, processed_offset, started_at, signal_stop, pending)
        values ($office_id, $run, $agent, 0, 0, $socket, $protocol, $dir, $events, $offset, $now,
-         $token, 1, 1)`,
+         1, 1)`,
       {
         run: host.runId,
         agent: host.agentId,
@@ -242,7 +231,6 @@ export function recordPendingHost(
         events: host.eventFile,
         offset: processedOffset,
         now: clock.now(),
-        token: host.engineToken ?? null,
       },
     ),
   );
@@ -303,8 +291,6 @@ export interface WorkerHostRow extends ProcessIdentity {
   readonly endedAt: number | null;
   readonly mode: "steer" | "follow";
   readonly startedAt: number;
-  /** The engine's secret for this host; null for a host started before DIPO-59. */
-  readonly engineToken: string | null;
   /** Written before its spawn; PID and start time are 0 until it is recorded (DIPO-93). */
   readonly pending: boolean;
   /** The host stops its worker on SIGTERM; false for a host an older binary started (DIPO-93). */
@@ -328,7 +314,6 @@ interface RawRow {
   ended_at: number | null;
   mode: "steer" | "follow";
   started_at: number;
-  engine_token: string | null;
   pending: number;
   signal_stop: number;
 }
@@ -357,7 +342,6 @@ export function workerHostsOf(office: OfficeHandle, runId: string): WorkerHostRo
       endedAt: row.ended_at,
       mode: row.mode,
       startedAt: row.started_at,
-      engineToken: row.engine_token,
       pending: row.pending === 1,
       signalStop: row.signal_stop === 1,
     }));
