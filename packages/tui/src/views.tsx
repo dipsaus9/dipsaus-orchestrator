@@ -61,13 +61,18 @@ export function clockTime(ms: number): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** The connection as one word for the header. */
+/**
+ * The connection as one word for the header; a stream the daemon ended with an error that does
+ * not retry says so with its code and message, since it no longer catches up (DIPO-327).
+ */
 function connectionWord(state: OfficeStoreState, ascii: boolean): string {
   if (state.connection === "idle" || state.connection === "connecting") {
     return `connecting${glyphs(ascii).ellipsis}`;
   }
-  if (state.offlineSince !== null && state.connection === "open") return "catching up";
   if (state.connection !== "open") return "offline";
+  const ended = state.streamError;
+  if (ended !== null) return `stream ended: ${ended.code}: ${ended.message}`;
+  if (state.offlineSince !== null) return "catching up";
   return state.live ? "live" : "catching up";
 }
 

@@ -1,7 +1,9 @@
 // The live agent detail (DIPO-55 test plan): the detail frame from the golden event log and the
 // golden output log, live `work.output`, `w` and `v`, scrolling back through `work.outputRange`
 // and End back to the tail, the follow-only tag, the `now` line, a run that ends, and Esc back to
-// the view it came from. Frames are asserted with ANSI stripped.
+// the view it came from. Across a daemon restart the header shows a stream error that does not
+// retry, and the detail updates again once the daemon runs (DIPO-327). Frames are asserted with
+// ANSI stripped.
 
 import { afterEach, describe, expect, it } from "bun:test";
 
@@ -644,5 +646,77 @@ describe("prompt pane text (DIPO-313)", () => {
         ["* system file", "Be careful", "", "* first message", "Do it\tnow", "next"],
       ]);
     }
+  });
+});
+
+/** The office stream as the client reports it ended: inactive, then `onEnded`. */
+function endOffice(
+  session: Awaited<ReturnType<typeof openDetail>>["session"],
+  error: { code: string; message: string; retryable: boolean },
+) {
+  const subscription = session.active(STREAM);
+  if (subscription === undefined) throw new Error("no office subscription");
+  subscription.active = false;
+  subscription.options.onEnded?.(error);
+}
+
+describe("the detail across a daemon restart (DIPO-327)", () => {
+  const RECOVERING = {
+    code: "engine.recovering",
+    message: "The daemon is recovering its offices.",
+    retryable: true,
+  };
+
+  it("shows a stream error that does not retry in the header until a reconnect", async () => {
+    const { ui, session } = await openDetail();
+    endOffice(session, { code: "internal", message: "the stream broke", retryable: false });
+    const frame = await ui.waitFor("stream ended");
+    expect(lines(frame)[0]).toBe(
+      " dipsaus-orchestrator · daemon running · stream ended: internal: the stream broke",
+    );
+    session.setState("reconnecting");
+    await ui.waitFor("OFFLINE since");
+    session.setState("open");
+    await ui.waitFor("daemon running · live");
+    expect(ui.frame()).not.toContain("stream ended");
+  });
+
+  it("follows the run again once the restarted daemon runs, and updates", async () => {
+    const { ui, session, store } = await openDetail();
+    const last = store.state.cursor;
+    session.setState("reconnecting");
+    await ui.waitFor("OFFLINE since");
+    // The new daemon answers engine.hello while it recovers and refuses the re-sent subscription,
+    // and every retry on the backoff, until it runs.
+    session.hello = { ...goldenHello, daemon: "recovering" };
+    session.refuseOffice = RECOVERING;
+    session.setState("open");
+    await Promise.resolve();
+    endOffice(session, RECOVERING);
+    await ui.waitFor("daemon recovering · catching up");
+    expect(ui.frame()).not.toContain("stream ended");
+
+    // daemon.state on the software stream subscribes again at once, after the last cursor.
+    session.refuseOffice = null;
+    session.active("software")?.options.onEvent({
+      cursor: { stream: "software", epoch: "e1", seq: 50 },
+      at: "2026-10-14T10:05:00.000Z",
+      type: "daemon.state",
+      data: { from: "recovering", to: "running" },
+    } as Event);
+    await ui.waitFor("daemon running · live");
+    expect(session.active(STREAM)?.after).toEqual(last);
+
+    const build: WorkView = { ...golden24(), phase: "build", health: "busy" };
+    session.active(STREAM)?.options.onEvent(
+      event(8, "work.phase", {
+        work: build.work,
+        phase: "build",
+        progress: build.progress,
+        view: build,
+      }),
+    );
+    const frame = await ui.waitFor("now  busy > · build");
+    expect(frame).toContain(" phase    build");
   });
 });
