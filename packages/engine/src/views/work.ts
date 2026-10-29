@@ -1,5 +1,5 @@
 // The work view (0005 sections 5 and 6, 0009 section 3): who works on a run, its phase, progress,
-// usage with its budget share, the watchdog signals in effect and the health derived from them.
+// usage with its budget share and the health derived from the watchdog facts in effect.
 // Derived from facts (`runs`, `agents`, `run_steps`, `run_signals`, usage, stored output and the
 // mirror's acceptance criteria, with the run's own criteria facts from its worker reports, DIPO-85)
 // whenever it is needed, and written as the `view` of each work change-log entry; never stored as
@@ -31,29 +31,27 @@ import { activeSignals } from "../run/signals";
 /** The phase a run is in before any phase step is recorded. */
 const FIRST_PHASE: Phase = "setup";
 
-/** The facts health is derived from (0009 section 3). */
+/** The facts health is derived from (0009). */
 export interface HealthFacts {
-  /** The watchdog signals in effect. */
+  /** The watchdog facts in effect: the evidence of `work.observed`. */
   readonly signals: readonly WatchdogSignal[];
+  /** The `no-output` in effect lasted past the stall wait (`timeouts.workerStallMinutes`). */
+  readonly stuck: boolean;
   /** The worker exited and the engine has not processed the exit (the run has not ended). */
   readonly exitUnprocessed: boolean;
-  /** An open question or a gate waiting on the maintainer for this run (none in M0). */
-  readonly asking?: boolean;
   readonly loop: number;
   readonly loopCap: number;
 }
 
 /**
- * Health in the 0009 precedence: `lost`, `asking`, `looping`, `stuck`, `quiet`, `busy`. The
- * first rule that holds wins.
+ * Health in the 0009 precedence: `lost`, `looping`, `stuck`, `quiet`, `busy`. The first rule that
+ * holds wins.
  */
 export function deriveHealth(facts: HealthFacts): Health {
   const has = (signal: WatchdogSignal) => facts.signals.includes(signal);
   if (has("host-lost") || facts.exitUnprocessed) return "lost";
-  if (facts.asking === true || has("input-wait")) return "asking";
   if (has("same-failure") || (facts.loopCap > 0 && facts.loop >= facts.loopCap)) return "looping";
-  if (has("no-output")) return "stuck";
-  if (has("quiet")) return "quiet";
+  if (has("no-output")) return facts.stuck ? "stuck" : "quiet";
   return "busy";
 }
 
@@ -183,6 +181,7 @@ function viewOf(office: OfficeHandle, run: StoredRun): WorkView | null {
   const waiting = run.waiting != null;
   const health = deriveHealth({
     signals: signals.map((signal) => signal.signal),
+    stuck: signals.some((signal) => signal.signal === "no-output" && signal.stuckAt !== null),
     exitUnprocessed: agent.ended_at !== null && run.endedAt === null && !waiting,
     loop: progress.loop,
     loopCap: progress.loopCap,
@@ -200,7 +199,6 @@ function viewOf(office: OfficeHandle, run: StoredRun): WorkView | null {
       budgetLimit: runCaps(office, run).budgetTokens,
     }),
     health,
-    signals: signals.map((signal) => ({ signal: signal.signal, since: iso(signal.since) })),
     ...(output === null ? {} : { lastOutputAt: iso(output) }),
     startedAt: iso(run.startedAt),
   };

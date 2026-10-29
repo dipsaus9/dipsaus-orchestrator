@@ -1432,7 +1432,7 @@ describe("two resumes of one park (DIPO-155 review)", () => {
     expect(grants()).toHaveLength(1);
   });
 
-  it("writes nothing, starts nothing and answers story.notPausedOrParked when the park changed during the lift", async () => {
+  it("writes nothing, starts nothing and answers story.notParked when the park changed during the lift", async () => {
     steps("loop", 3);
     const parkId = park("verify-failing");
     // Something else resolves the park while the lift runs (a drop, a hand edit picked up).
@@ -1449,7 +1449,7 @@ describe("two resumes of one park (DIPO-155 review)", () => {
     });
     const error = await refusal(resuming, { note: "late" }, ctx(false, "req_late"));
     await resuming.idle();
-    expect(error.error.code).toBe("story.notPausedOrParked");
+    expect(error.error.code).toBe("story.notParked");
     expect(error.message).toContain("no longer parked as it was");
     expect(w.sessions).toEqual([]);
     expect(grants()).toEqual([]);
@@ -1460,7 +1460,7 @@ describe("two resumes of one park (DIPO-155 review)", () => {
     expect(resumes.map((intent) => intent.outcome)).toEqual(["abandoned"]);
     // A retry of the same request checks again, and finds nothing parked to resume.
     const again = await refusal(resuming, { note: "late" }, ctx(false, "req_late"));
-    expect(again.error.code).toBe("story.notPausedOrParked");
+    expect(again.error.code).toBe("story.notParked");
     expect(w.lifts).toHaveLength(1);
   });
 });

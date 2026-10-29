@@ -195,11 +195,6 @@
           "minimum": 0,
           "maximum": 9007199254740991
         },
-        "onHold": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
-        },
         "waitingOnMaintainer": {
           "type": "integer",
           "minimum": 0,
@@ -303,7 +298,7 @@
           }
         }
       },
-      "required": ["office", "name", "path", "running", "parked", "onHold", "waitingOnMaintainer"]
+      "required": ["office", "name", "path", "running", "parked", "waitingOnMaintainer"]
     },
     "CommandRequest": {
       "type": "object",

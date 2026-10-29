@@ -194,7 +194,7 @@ export {
 export type { OfficeIngestOptions, OfficeRunListener, SystemHostStarterOptions } from "./hosts";
 export { Watchdog, WATCHDOG_DEFAULTS } from "./watchdog";
 export type { WatchdogOptions, WatchdogTimeouts } from "./watchdog";
-export { activeSignals, clearSignals, LIVENESS_SIGNALS, raiseSignal } from "./signals";
+export { activeSignals, clearSignals, LIVENESS_SIGNALS, markStuck, raiseSignal } from "./signals";
 export type { StoredSignal } from "./signals";
 // Caps, parks and `story.park` of a story with a run (DIPO-50).
 export {
@@ -393,7 +393,7 @@ export {
 export type { ProposalCommandsDeps, StoredProposal } from "./proposals";
 export type { HoldResumer } from "./work-resume";
 // Park resume and `work.resume` in one module (DIPO-138).
-export { createRunOutcomes, NOT_PAUSED_OR_PARKED, Resumption, RUN_HOST_ALIVE } from "./resumption";
+export { createRunOutcomes, NOT_PARKED, Resumption, RUN_HOST_ALIVE } from "./resumption";
 export type { ResumptionOptions } from "./resumption";
 // The resume of every parked story by the 0020 table (DIPO-155, DIPO-344).
 export { MAINTAINER_RESUME_TAG, PARK_RESUME_NOTICES, RESUME_ERRORS } from "./park-resume";

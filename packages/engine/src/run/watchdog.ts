@@ -1,24 +1,18 @@
-// The engine watchdog (0008 section 3, 0009 section 3): for each running worker it writes the fact
-// `work.observed quiet` when no line arrived for `timeouts.workerQuietMinutes` and `no-output`
-// after `timeouts.workerStallMinutes`, on the injected clock. Any line (ingestion calls
-// `lineSeen`) starts both waits again; the ingestion pass that read the line clears the two
-// signals in its own transaction. Health is derived from the signals in effect, so it changes
-// only through events (`views/work.ts`).
+// The engine watchdog (0008, 0009): for each running worker it writes the fact `no-output` with its
+// `work.observed` when no line arrived for `timeouts.workerQuietMinutes` (health `quiet`), and marks
+// it stuck with another `work.observed no-output` after `timeouts.workerStallMinutes` (health
+// `stuck`), on the injected clock. Any line (ingestion calls `lineSeen`) starts both waits again;
+// the ingestion pass that read the line clears the fact in its own transaction. Health is derived
+// from the facts in effect, so it changes only through events (`views/work.ts`).
 
-import type {
-  Clock,
-  OfficeId,
-  RunId,
-  TimerHandle,
-  WatchdogSignal,
-} from "@dipsaus-orchestrator/contract";
+import type { Clock, OfficeId, RunId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { withWorkViews, workRefOf } from "../views/work";
 
 import { findRun } from "./records";
-import { raiseSignal } from "./signals";
+import { markStuck, raiseSignal, type StoredSignal } from "./signals";
 
 const MINUTE_MS = 60_000;
 
@@ -97,11 +91,11 @@ export class Watchdog {
     const { clock } = this.#options;
     watched.quiet = clock.setTimeout(() => {
       watched.quiet = null;
-      this.#raise(watched, "quiet");
+      this.#raise(watched, false);
     }, timeouts.workerQuietMinutes * MINUTE_MS);
     watched.stall = clock.setTimeout(() => {
       watched.stall = null;
-      this.#raise(watched, "no-output");
+      this.#raise(watched, true);
     }, timeouts.workerStallMinutes * MINUTE_MS);
   }
 
@@ -113,8 +107,11 @@ export class Watchdog {
     watched.stall = null;
   }
 
-  /** Writes the signal and its `work.observed` once; a run that ended is no longer watched. */
-  #raise(watched: Watched, signal: WatchdogSignal): void {
+  /**
+   * Writes `no-output`, or marks it stuck when `stuck`, with its `work.observed`, once each; a run
+   * that ended is no longer watched.
+   */
+  #raise(watched: Watched, stuck: boolean): void {
     const { office, run } = watched;
     const at = this.#options.clock.now();
     const written = office.immediate(() => {
@@ -122,7 +119,10 @@ export class Watchdog {
       if (stored === null || stored.endedAt !== null) return "ended";
       const work = workRefOf(office, run);
       if (work === null) return "none";
-      if (raiseSignal(office, run, signal, at) === null) return "none";
+      const fact: StoredSignal | null = stuck
+        ? markStuck(office, run, at)
+        : raiseSignal(office, run, "no-output", at);
+      if (fact === null) return "none";
       appendEntries(
         office,
         withWorkViews(office, [
@@ -130,7 +130,7 @@ export class Watchdog {
             type: "work.observed",
             key: work.key,
             run,
-            delta: { work, signal, since: new Date(at).toISOString() },
+            delta: { work, signal: fact.signal, since: new Date(fact.since).toISOString() },
           },
         ]),
         { at },

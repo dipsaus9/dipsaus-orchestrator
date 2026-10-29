@@ -533,11 +533,9 @@ describe("work.resume of a story parked with no run", () => {
     expect(reply).toMatchObject({ ok: true, result: { to: "Refined" } });
   });
 
-  it("still answers story.notPausedOrParked for a story that is not parked", async () => {
+  it("still answers story.notParked for a story that is not parked", async () => {
     story("DIPO-7", { status: "Ready" });
-    expect(errorOf(await send("work.resume", { story: "DIPO-7" })).code).toBe(
-      "story.notPausedOrParked",
-    );
+    expect(errorOf(await send("work.resume", { story: "DIPO-7" })).code).toBe("story.notParked");
   });
 });
 

@@ -46,7 +46,6 @@ function summary(office: OfficeId, name: string, running = 0): OfficeSummary {
     path: `/work/${name}`,
     running,
     parked: 0,
-    onHold: 0,
     waitingOnMaintainer: 0,
   };
 }
@@ -122,7 +121,6 @@ function work(health: string, phase = "build"): WorkView {
       budgetShare: 0.02,
     },
     health,
-    signals: [],
     startedAt: AT,
   } as WorkView;
 }

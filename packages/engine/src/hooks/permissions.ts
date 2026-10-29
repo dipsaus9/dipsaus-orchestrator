@@ -10,9 +10,10 @@
 //   hands a blocked report's question to `askWorker`, before it parks:
 //   - With a TUI connected at that moment (`questionRoute`, DIPO-279), the run not being ended and
 //     a wait above zero, the question is live: a question of kind `question` is stored with the end
-//     of its wait (`asked_at` plus `timeouts.questionWaitMinutes`), and `question.asked` and
-//     `work.observed input-wait` are emitted. The worker's turn has ended and it waits on stdin,
-//     holding the worker place; the wait is left out of the run's minute cap (`questionWaitMs`).
+//     of its wait (`asked_at` plus `timeouts.questionWaitMinutes`), and `question.asked` is emitted;
+//     the run shows no health of its own for it (0009). The worker's turn has ended and it waits
+//     on stdin, holding the worker place; the wait is left out of the run's minute cap
+//     (`questionWaitMs`).
 //     `work.answer` with text sends the answer as its next user message (`answer`, delivered
 //     `now`), and the question closes `answered`.
 //   - Otherwise `askWorker` returns false and run control parks the story `ambiguous-spec`; the
@@ -55,7 +56,6 @@ import { type LiveQuestions, type Presence, questionRoute } from "../run/live-qu
 import { sendFeedback } from "../run/feedback";
 import { openPark } from "../run/park";
 import { findRun, type StoredRun } from "../run/records";
-import { activeSignals, clearSignals, raiseSignal } from "../run/signals";
 import { withWorkViews, workRefOf } from "../views/work";
 import type { HostOp, SteerOp } from "../workers/types";
 
@@ -238,7 +238,7 @@ export class PermissionAsks implements LiveQuestions {
 
   /**
    * Lets the live questions `ids` go (their wait ended, or the last TUI closed): each stays open,
-   * its `input-wait` clears, and its story parks with it (`parkQuestion`), whose park carries it.
+   * and its story parks with it (`parkQuestion`), whose park carries it.
    * A run being ended already parks: that park carries it.
    */
   #letGo(ids: readonly string[]): void {
@@ -248,26 +248,8 @@ export class PermissionAsks implements LiveQuestions {
       if (this.#deps.ending?.(live.run) === true) continue;
       const office = this.#deps.offices.get(live.office);
       if (office === undefined) continue;
-      let question: StoredQuestion | null;
-      try {
-        question = findQuestion(office, questionId);
-        if (question === null || question.closedAt !== null) continue;
-        const now = this.#deps.clock.now();
-        const appended = office.immediate(() => {
-          const ready = withWorkViews(office, this.#inputWaitCleared(office, live.run, now));
-          appendEntries(office, ready, { at: now });
-          return ready.length;
-        });
-        if (appended > 0) this.#deps.onChanged?.(live.office);
-      } catch (error) {
-        this.#deps.warn?.("letting a live worker question go failed; its story parks", {
-          office: live.office,
-          question: questionId,
-          ...failureFields(error),
-        });
-        question = findQuestion(office, questionId);
-        if (question === null || question.closedAt !== null) continue;
-      }
+      const question = findQuestion(office, questionId);
+      if (question === null || question.closedAt !== null) continue;
       this.#deps.parkQuestion?.(live.office, live.run, question.text);
     }
   }
@@ -312,15 +294,6 @@ export class PermissionAsks implements LiveQuestions {
         const entries: NewEntry[] = [];
         if (view !== null)
           entries.push({ type: "question.asked", key: work.key, run, delta: view });
-        const raised = raiseSignal(office, run, "input-wait", now);
-        if (raised !== null) {
-          entries.push({
-            type: "work.observed",
-            key: work.key,
-            run,
-            delta: { work, signal: "input-wait", since: new Date(now).toISOString() },
-          });
-        }
         const ready = withWorkViews(office, entries);
         appendEntries(office, ready, { at: now });
         return ready.length;
@@ -367,7 +340,7 @@ export class PermissionAsks implements LiveQuestions {
         { source: "answer", text: workerAnswerText(text) },
         { at: now },
       );
-      return this.#closingEntries(office, question, now, text);
+      return this.#closingEntries(office, question, text);
     });
     if (!closed) {
       throw new CommandError(
@@ -398,7 +371,7 @@ export class PermissionAsks implements LiveQuestions {
     if (run === null || park === null || park.parkId !== question.parkId) {
       ctx.commit(() =>
         closeQuestion(office, question.questionId, "expired", now)
-          ? this.#closingEntries(office, question, now)
+          ? this.#closingEntries(office, question)
           : [],
       );
       throw new CommandError(
@@ -437,7 +410,7 @@ export class PermissionAsks implements LiveQuestions {
         decision: null,
         delivered: "now",
       });
-      return closed ? this.#closingEntries(office, question, now, text) : [];
+      return closed ? this.#closingEntries(office, question, text) : [];
     });
     if (!closed) {
       throw new CommandError(
@@ -586,7 +559,7 @@ export class PermissionAsks implements LiveQuestions {
       for (const question of questions) {
         if (!closeQuestion(office, question.questionId, how, now)) continue;
         closed.push(question);
-        entries.push(...this.#closingEntries(office, question, now));
+        entries.push(...this.#closingEntries(office, question));
       }
       const ready = withWorkViews(office, entries);
       appendEntries(office, ready, { at: now });
@@ -597,43 +570,10 @@ export class PermissionAsks implements LiveQuestions {
   }
 
   /**
-   * `work.observed input-wait` cleared for `run` once no live worker question of it waits any more
-   * (`except` is the one being closed or let go). Runs inside the caller's transaction.
+   * `question.closed` of a closed question. Runs inside the caller's transaction, after the question
+   * was closed.
    */
-  #inputWaitCleared(office: OfficeHandle, run: RunId, at: number, except?: string): NewEntry[] {
-    const waiting = [...this.#workerQuestions].some(
-      ([questionId, live]) => live.run === run && questionId !== except,
-    );
-    if (waiting || !activeSignals(office, run).some((s) => s.signal === "input-wait")) return [];
-    const work = workRefOf(office, run);
-    const entries: NewEntry[] = [];
-    for (const cleared of clearSignals(office, run, ["input-wait"], at)) {
-      if (work === null) continue;
-      entries.push({
-        type: "work.observed",
-        key: work.key,
-        run,
-        delta: {
-          work,
-          signal: cleared.signal,
-          since: new Date(cleared.since).toISOString(),
-          clearedAt: new Date(at).toISOString(),
-        },
-      });
-    }
-    return entries;
-  }
-
-  /**
-   * `question.closed`, and `work.observed input-wait` cleared once no live worker question of the
-   * run waits any more. Runs inside the caller's transaction, after the question was closed.
-   */
-  #closingEntries(
-    office: OfficeHandle,
-    question: StoredQuestion,
-    at: number,
-    answer?: string,
-  ): NewEntry[] {
+  #closingEntries(office: OfficeHandle, question: StoredQuestion, answer?: string): NewEntry[] {
     const run = question.runId as RunId;
     const work = workRefOf(office, run);
     return [
@@ -643,7 +583,6 @@ export class PermissionAsks implements LiveQuestions {
         run,
         delta: { question: question.questionId, ...(answer === undefined ? {} : { answer }) },
       },
-      ...this.#inputWaitCleared(office, run, at, question.questionId),
     ];
   }
 }

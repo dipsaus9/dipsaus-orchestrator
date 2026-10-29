@@ -78,7 +78,9 @@ export const SOFTWARE_ERROR_CODES = [
 // still reached, naming the smallest share that clears it), `resume.noteRequired` (a reason whose
 // resume needs a note), `resume.notResumable` (a park with no way back, `scope-violation`, naming
 // `dipo discard`) and `resume.capReached` (what remains of the run's caps is zero, naming
-// `--budget`).
+// `--budget`). `story.notParked`, not retryable, when `work.resume` names a story that is
+// neither parked nor running, or whose park changed while the resume ran (DIPO-352); a running
+// story answers `changed: false` (0005).
 // Since minor 1 (DIPO-310, 0013 section 6), not retryable, from `office.infer` and `office.confirm`:
 // `scan.noProfile` (the office has no run profile yet), `scan.noProposal` (no pending proposal to
 // accept, edit or reject), `scan.resolvedByCode` (code resolves the capability: change the script
@@ -105,6 +107,7 @@ export const OFFICE_ERROR_CODES = [
   "resume.noteRequired",
   "resume.notResumable",
   "resume.capReached",
+  "story.notParked",
   "scan.noProfile",
   "scan.noProposal",
   "scan.resolvedByCode",

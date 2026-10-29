@@ -1,12 +1,13 @@
-// Phase markers in the worker output (DIPO-83). Every phase a run enters (setup, build, verify,
-// build again after a failed verify) and the run's end are stored as one engine-written line in
-// the run's worker output, so a reader of the output, live or later, sees where each phase began:
+// Phase markers in the worker output (DIPO-83). Every phase a run enters (setup, build, review,
+// test, merge, build again for a fix round) and the run's end are stored as one engine-written
+// line in the run's worker output, so a reader of the output, live or later, sees where each
+// phase began:
 //
-//   [dipo] 2026-10-15T12:04:31.000Z phase verify
+//   [dipo] 2026-10-15T12:04:31.000Z phase review
 //   [dipo] 2026-10-15T12:09:02.000Z ended in-review
 //
 // The line is code-made from facts the engine already keeps (`run_steps`, `runs.end_kind`), so it
-// holds nothing private. Clients render it (the TUI as `── 12:04:31 phase: verify ──`).
+// holds nothing private. Clients render it (the TUI as `── 12:04:31 phase: review ──`).
 //
 // Clients know a marker by its flag, never by its text (DIPO-95): the marker's own `work.output`
 // carries `markers`, and `work.outputRange` flags each marker in the range. In the store a marker
@@ -32,7 +33,7 @@ import { appendRunStep, endRun } from "./records";
 /** The prefix of an engine-written marker line in the worker output. */
 export const MARKER_PREFIX = "[dipo]";
 
-/** The marker line: `[dipo] <ISO time> phase verify` or `[dipo] <ISO time> ended in-review`. */
+/** The marker line: `[dipo] <ISO time> phase review` or `[dipo] <ISO time> ended in-review`. */
 export function markerLine(kind: MarkerKind, value: string, at: number): string {
   return `${MARKER_PREFIX} ${new Date(at).toISOString()} ${kind} ${value}\n`;
 }

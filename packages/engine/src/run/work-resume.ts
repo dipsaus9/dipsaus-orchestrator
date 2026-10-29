@@ -2,8 +2,9 @@
 // resumption module. A parked story with a run goes to the one resume path (`ParkResumes`,
 // `park-resume.ts`), which follows the 0020 table of its reason, refusals included; one parked with
 // no run (parked from Refined or Ready) gets its status back through the planning lane
-// (`HoldResumer`), and the next `work.run` picks it up through the pickup check. A story that is
-// not parked answers `story.notPausedOrParked`.
+// (`HoldResumer`), and the next `work.run` picks it up through the pickup check. A resume is a
+// target state (0005): a story that already runs (In Progress or In Review) answers `changed: false`
+// and changes nothing; any other story that is not parked answers `story.notParked`.
 
 import { type Lifecycle, workResume } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
@@ -16,13 +17,18 @@ import type {
   FeatureRegistry,
 } from "../commands/registry";
 import type { StoryIdentity } from "../stories/keys";
+import { storyView } from "../views/story";
 
 import { openPark } from "./park";
 import { notResumable } from "./park-resume";
 import { parkResumeNeed } from "./resume-policy";
 
-/** `work.resume` on a story with no park (0005). */
-export const NOT_PAUSED_OR_PARKED = "story.notPausedOrParked";
+/** `work.resume` on a story that is neither parked nor running (0005). */
+export const NOT_PARKED = "story.notParked";
+
+/** The states of a story that already runs: a resume of it changes nothing (0005). */
+const RUNNING: ReadonlySet<Lifecycle> = new Set<Lifecycle>(["In Progress", "In Review"]);
+
 /** `work.resume` while the run's last worker has not exited (0005, retryable). */
 export const RUN_HOST_ALIVE = "run.hostAlive";
 
@@ -95,8 +101,20 @@ export class WorkResumeCommand {
     if (replayed != null) return replayed;
     const park = openPark(handle, identity.key);
     if (park === null) {
+      const now = storyView(handle, identity.key);
+      if (now !== null && RUNNING.has(now.lifecycle)) {
+        return {
+          result: {
+            story: identity.story,
+            key: identity.key,
+            to: now.lifecycle,
+            ...(now.work === undefined ? {} : { run: now.work.run }),
+          },
+          changed: false,
+        };
+      }
       throw new CommandError(
-        NOT_PAUSED_OR_PARKED,
+        NOT_PARKED,
         `${identity.story} is not parked, so there is nothing to resume.`,
         { story: identity.story },
       );

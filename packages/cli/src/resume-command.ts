@@ -5,7 +5,8 @@
 // declares `confirmWhen: ["budget"]` in the contract, so the CLI first sends it unconfirmed, shows
 // the caps before and after from the engine's `confirmation.required` and asks yes or no; `--yes`
 // answers for a script, and without a terminal a top-up refuses instead of asking. The reply says
-// where the story went, which grants were recorded and whether its session waits for its place.
+// where the story went, which grants were recorded and whether its session waits for its place; a
+// story that already runs answers `changed: false` (0005), and the CLI says nothing was resumed.
 
 import {
   type ResumeBudget,
@@ -172,6 +173,13 @@ export async function resumeCommand(
           return engineFailure(deps, outcome.error);
         }
         const { result } = outcome;
+        // A story that already runs: the resume changed nothing (0005).
+        if (!outcome.changed) {
+          deps.writeLine(
+            `${story} already runs${result.run === undefined ? "" : ` (run ${result.run})`}; it is ${result.to}, nothing to resume`,
+          );
+          return 0;
+        }
         const where =
           result.queued === true
             ? `it is ${result.to}; its session starts when the office's place frees`

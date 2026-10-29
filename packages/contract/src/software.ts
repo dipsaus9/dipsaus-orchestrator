@@ -50,8 +50,7 @@ export const OfficeSummary = z.object({
   path: z.string(),
   running: Count,
   parked: Count, // includes the stories parked by the maintainer
-  onHold: Count, // subset of parked: parked `by-maintainer`
-  waitingOnMaintainer: Count, // open gates, questions, tests, parked other than by-maintainer
+  waitingOnMaintainer: Count, // open gates, questions, tests and parked stories
   // Since minor 1 (DIPO-81): the stories in the `ready` column, engine-derived, so the office
   // switcher shows Ready for offices that are not open. A minor-1 engine always sends it.
   ready: Count.optional(),

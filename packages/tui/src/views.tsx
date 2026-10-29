@@ -17,10 +17,9 @@ export function glyphs(ascii: boolean) {
   return { dot: ascii ? "-" : "·", dash: ascii ? "-" : "–", ellipsis: ascii ? "..." : "…" };
 }
 
-/** Health words and glyphs (0009 section 3); an unknown state shows as its plain word. */
+/** The five health words and glyphs of 0009; an unknown state shows as its plain word. */
 const HEALTH_LABEL: Readonly<Record<string, string>> = {
   lost: "LOST !!",
-  asking: "ASKING ?",
   looping: "looping @",
   stuck: "stuck ~",
   quiet: "quiet .",
@@ -172,8 +171,8 @@ export function Banners(props: { state: OfficeStoreState; display: Display }) {
   );
 }
 
-/** The switcher's column titles (0009 section 4 as amended by DIPO-81). */
-const SWITCHER_TITLES = ["OFFICE", "RUNNING", "NEEDS YOU", "READY", "HELD", "TODAY"];
+/** The switcher's column titles (0009): running, needs you, Ready and today's tokens. */
+const SWITCHER_TITLES = ["OFFICE", "RUNNING", "NEEDS YOU", "READY", "TODAY"];
 
 /**
  * One office's cells under the switcher titles, from its `OfficeSummary`; `?` before the first
@@ -182,7 +181,7 @@ const SWITCHER_TITLES = ["OFFICE", "RUNNING", "NEEDS YOU", "READY", "HELD", "TOD
  */
 export function switcherCells(entry: OfficeEntry, full: boolean): string[] {
   const summary = entry.summary;
-  if (summary === undefined) return [entry.name, "?", "?", "?", "?", ""];
+  if (summary === undefined) return [entry.name, "?", "?", "?", ""];
   const day = summary.dayUsage;
   const share = day?.share === undefined ? "" : `${Math.round(day.share * 100)}%`;
   const alert = day?.alert === true ? (full ? "  ALERT day usage" : " !") : "";
@@ -191,7 +190,6 @@ export function switcherCells(entry: OfficeEntry, full: boolean): string[] {
     String(summary.running),
     String(summary.waitingOnMaintainer),
     summary.ready === undefined ? "?" : String(summary.ready),
-    String(summary.onHold),
     `${share}${alert}`.trim(),
   ];
 }

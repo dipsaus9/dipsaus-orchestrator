@@ -27,7 +27,7 @@ import type { StoredRun } from "./records";
 import type { LiftedPark, LiftedResume } from "./starts-paused";
 import { type HoldResumer, WorkResumeCommand } from "./work-resume";
 
-export { NOT_PAUSED_OR_PARKED, RUN_HOST_ALIVE, WorkResumeCommand } from "./work-resume";
+export { NOT_PARKED, RUN_HOST_ALIVE, WorkResumeCommand } from "./work-resume";
 
 /**
  * The refusals of a resume after starts paused lifted that pass by themselves, so the resume is

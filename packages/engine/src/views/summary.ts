@@ -122,12 +122,11 @@ export function summarySettings(
 }
 
 /**
- * The summary of one office: `running` counts active runs, `parked` the stories in the `desk` and
- * `held` columns, `onHold` those in `held`, and `waitingOnMaintainer` the parked stories other than
- * on-hold, the open gates waiting on the maintainer and the open questions (DIPO-59; tests count
- * from M1), `ready` the stories in the `ready` column (DIPO-81), `optIns` the privacy opt-ins that
- * are on (0007 section 8, DIPO-83) and `outputRetentionDays` the stored-output retention period
- * (0007 section 7, DIPO-97).
+ * The summary of one office: `running` counts active runs, `parked` the stories in the `desk`
+ * column, and `waitingOnMaintainer` the parked stories, the open gates waiting on the maintainer and
+ * the open questions (DIPO-59; tests count from M1), `ready` the stories in the `ready` column
+ * (DIPO-81), `optIns` the privacy opt-ins that are on (0007 section 8, DIPO-83) and
+ * `outputRetentionDays` the stored-output retention period (0007 section 7, DIPO-97).
  */
 export function deriveOfficeSummary(
   identity: OfficeIdentity,
@@ -137,15 +136,13 @@ export function deriveOfficeSummary(
   const { optIns, outputRetentionDays, privacy, usage } = settings;
   const counts = columnCounts(office);
   const desk = counts.desk ?? 0;
-  const held = counts.held ?? 0;
   const gates = openGateViews(office).filter((gate) => gate.waitingOn === "maintainer").length;
   return {
     office: identity.office,
     name: identity.name,
     path: identity.path,
     running: activeRunCount(office),
-    parked: desk + held,
-    onHold: held,
+    parked: desk,
     waitingOnMaintainer: desk + gates + openQuestions(office).length,
     ready: counts.ready ?? 0,
     ...(optIns.length === 0 ? {} : { optIns: [...optIns] }),

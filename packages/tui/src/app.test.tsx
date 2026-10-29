@@ -40,10 +40,10 @@ describe("office switcher", () => {
     expect(frame).toContain("Offices");
     expect(frame).toContain(
       [
-        "   OFFICE                RUNNING  NEEDS YOU  READY  HELD  TODAY",
-        " > dipsaus-orchestrator  3        2          2      1            (open)",
-        "   couchcade             0        0          1      0",
-        "   slaydoku              1        1          0      0     84% !",
+        "   OFFICE                RUNNING  NEEDS YOU  READY  TODAY",
+        " > dipsaus-orchestrator  3        2          2" + " ".repeat(13) + "(open)",
+        "   couchcade             0        0          1",
+        "   slaydoku              1        1          0      84% !",
       ].join("\n"),
     );
     expect(frame).toContain("[Enter] open  [n] open new repo path");
@@ -83,10 +83,10 @@ describe("office switcher", () => {
     const frame = await ui.waitFor("slaydoku");
     expect(frame).toContain(
       [
-        "   OFFICE                RUNNING  NEEDS YOU  READY  HELD  TODAY",
-        " > dipsaus-orchestrator  3        2          2      1                           (open)",
-        "   couchcade             0        0          1      0",
-        "   slaydoku              1        1          0      0     84%  ALERT day usage",
+        "   OFFICE                RUNNING  NEEDS YOU  READY  TODAY",
+        " > dipsaus-orchestrator  3        2          2" + " ".repeat(28) + "(open)",
+        "   couchcade             0        0          1",
+        "   slaydoku              1        1          0      84%  ALERT day usage",
       ].join("\n"),
     );
   });
@@ -105,12 +105,11 @@ describe("office switcher", () => {
           path: "/work/couchcade",
           running: 0,
           parked: 0,
-          onHold: 0,
           waitingOnMaintainer: 0,
         },
       } as Event);
       await ui.press("o");
-      const frame = await ui.waitFor("   couchcade             0        0          ?      0");
+      const frame = await ui.waitFor("   couchcade             0        0          ?");
       expect(frame.split("\n").at(-1)).toContain("[q] quit");
       for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(columns);
     }

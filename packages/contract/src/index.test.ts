@@ -224,6 +224,7 @@ describe("errors", () => {
       "resume.noteRequired",
       "resume.notResumable",
       "resume.capReached",
+      "story.notParked",
       "scan.noProfile",
       "scan.noProposal",
       "scan.resolvedByCode",

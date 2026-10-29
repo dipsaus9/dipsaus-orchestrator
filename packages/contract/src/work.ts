@@ -73,26 +73,28 @@ export const KNOWN_SKIP_REASONS = [
 export const SkipReason = openEnum(KNOWN_SKIP_REASONS);
 export type SkipReason = z.infer<typeof SkipReason>;
 
-// 0009 section 3, replacing the provisional names of 0005. `test` waits for the maintainer's test.
-export const KNOWN_PHASES = ["setup", "build", "verify", "review", "test", "merge"] as const;
+// The phases of 0009. `test` waits for the maintainer's test. Verify runs in the box at the end of
+// `build`, so it has no phase of its own (0002).
+export const KNOWN_PHASES = ["setup", "build", "review", "test", "merge"] as const;
 export const Phase = openEnum(KNOWN_PHASES);
 export type Phase = z.infer<typeof Phase>;
 
-// Watchdog signals of `work.observed` (0009 section 3).
+// The watchdog facts behind health (0009): the evidence of a `work.observed` event, never a second
+// health vocabulary. `no-output` stands behind `quiet` and `stuck`, `same-failure` behind
+// `looping`, `host-lost` behind `lost`. `follow-only` marks a host re-attached in follow-only mode
+// until that mode goes (0005).
 export const KNOWN_WATCHDOG_SIGNALS = [
-  "quiet",
   "no-output",
   "same-failure",
-  "input-wait",
   "host-lost",
   "follow-only",
 ] as const;
 export const WatchdogSignal = openEnum(KNOWN_WATCHDOG_SIGNALS);
 export type WatchdogSignal = z.infer<typeof WatchdogSignal>;
 
-// The health states of 0009 section 3, in the engine's precedence order. A plan limit pauses the
-// office's starts and parks the session's story (0020), so no run shows `limited` or `paused`.
-export const KNOWN_HEALTH = ["lost", "asking", "looping", "stuck", "quiet", "busy"] as const;
+// The five health states of 0009, in the engine's precedence order. A question parks and a plan
+// limit pauses the office's starts (0020), so no run shows `asking`, `limited` or `paused`.
+export const KNOWN_HEALTH = ["lost", "looping", "stuck", "quiet", "busy"] as const;
 export const Health = openEnum(KNOWN_HEALTH);
 export type Health = z.infer<typeof Health>;
 
@@ -313,16 +315,14 @@ export const StoryView = z.object({
 });
 export type StoryView = z.infer<typeof StoryView>;
 
-export const ActiveSignal = z.object({ signal: WatchdogSignal, since: Timestamp });
-export type ActiveSignal = z.infer<typeof ActiveSignal>;
-
+// The view of a running session. Its one health value is engine-derived; the watchdog facts behind
+// it travel only as the evidence of `work.observed` (0009).
 export const WorkView = z.object({
   work: WorkRef,
   phase: Phase,
   progress: Progress,
   usage: Usage,
   health: Health,
-  signals: z.array(ActiveSignal), // watchdog signals in effect
   lastOutputAt: Timestamp.optional(), // display only
   startedAt: Timestamp,
   evidence: EvidenceMap.optional(),
@@ -406,7 +406,7 @@ export const OutputMarkerKind = openEnum(KNOWN_OUTPUT_MARKER_KINDS);
 export type OutputMarkerKind = z.infer<typeof OutputMarkerKind>;
 
 // An engine-written marker in the stored worker output (DIPO-83), flagged as such since minor 1
-// (DIPO-95): the byte range of its line, what it marks (`phase verify`, `ended in-review`) and
+// (DIPO-95): the byte range of its line, what it marks (`phase build`, `ended in-review`) and
 // when. Only the engine sets it; worker text that reads like a marker carries no flag, so clients
 // show it as text.
 export const OutputMarker = z.object({

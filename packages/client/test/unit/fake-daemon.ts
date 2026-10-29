@@ -323,7 +323,6 @@ export class FakeDaemon implements Transport {
       path: "/work/alpha",
       running: this.work.length,
       parked: 0,
-      onHold: 0,
       waitingOnMaintainer: 0,
     });
   }

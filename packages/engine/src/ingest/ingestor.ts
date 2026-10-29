@@ -647,7 +647,7 @@ export class Ingestor {
         entries.push(...this.#usageEntries(target));
         usageSent = true;
       }
-      // A line clears `quiet` and `no-output` (0009 section 3, DIPO-52).
+      // A line clears `no-output` (0009, DIPO-52).
       for (const cleared of clearSignals(this.#office, run, LIVENESS_SIGNALS, now)) {
         if (target.work === undefined) continue;
         entries.push({

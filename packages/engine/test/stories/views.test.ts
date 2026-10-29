@@ -154,7 +154,6 @@ describe("office summary", () => {
         path: "/repos/demo",
         running: 1,
         parked: 1,
-        onHold: 0,
         waitingOnMaintainer: 1,
         ready: 0,
       });
