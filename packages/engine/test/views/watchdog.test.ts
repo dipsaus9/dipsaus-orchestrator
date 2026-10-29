@@ -40,27 +40,24 @@ interface Rendered {
 
 /** The office's events after `afterSeq`, rendered with their stored views. */
 function eventsAfter(office: OfficeHandle, afterSeq: number): Rendered[] {
-  const epoch = readLogState(office).epoch;
   const renderer = new Renderer();
   return office
     .all<{
       seq: number;
       at: number;
       type: string;
-      tier: "S" | "R";
       delta: string;
       view: string | null;
     }>(
-      `select seq, at, type, tier, delta, view from change_log
+      `select seq, at, type, delta, view from change_log
         where office_id = $office_id and seq > $after order by seq`,
       { after: afterSeq },
     )
     .map((row) => {
-      const event = renderer.render(office.officeId as OfficeId, epoch, {
+      const event = renderer.render(office.officeId as OfficeId, {
         seq: row.seq,
         at: row.at,
         type: row.type,
-        tier: row.tier,
         delta: JSON.parse(row.delta) as unknown,
         ...(row.view === null ? {} : { view: JSON.parse(row.view) as unknown }),
       });
@@ -96,7 +93,6 @@ describe("watchdog", () => {
         const ingestor = new Ingestor({
           office,
           clock: t.clock,
-          pricing: null,
           hooks: {
             onLines: (run) => watchdog.lineSeen(run),
             onAppended: () => {

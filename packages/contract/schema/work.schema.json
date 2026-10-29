@@ -1046,17 +1046,13 @@
               "type": "string",
               "pattern": "^(software|office:off_[0-7][0-9A-HJKMNP-TV-Z]{25})$"
             },
-            "epoch": {
-              "type": "string",
-              "minLength": 1
-            },
             "seq": {
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
             }
           },
-          "required": ["stream", "epoch", "seq"]
+          "required": ["stream", "seq"]
         },
         "stories": {
           "type": "array",

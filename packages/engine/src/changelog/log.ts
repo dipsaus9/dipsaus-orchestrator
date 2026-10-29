@@ -1,4 +1,4 @@
-// The office change log (0005 section 6, 0007 sections 3 and 4): an outbox of stored entries, one
+// The office change log (0005, 0007): an outbox of stored entries, one
 // per fact, appended in the same transaction as the fact. Seq is gap-free per office because
 // `offices.next_seq` advances in that transaction too, so a rollback consumes no seq.
 
@@ -11,26 +11,10 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
-import { cryptoFill, type RandomFill } from "../platform/ids";
 import { cursorAt } from "./cursor";
 import { renderProblem } from "./render";
 
 export { cursorAt, officeStream } from "./cursor";
-
-/** Retention tier of an entry (0007 section 7): S state, R short. */
-export type LogTier = "S" | "R";
-
-/** Event types kept only for the short tier (0007 section 7); every other type is state. */
-export const SHORT_TIER_TYPES: ReadonlySet<string> = new Set([
-  "work.output",
-  "work.progress",
-  "usage.updated",
-  "work.observed",
-]);
-
-export function tierOf(type: string): LogTier {
-  return SHORT_TIER_TYPES.has(type) ? "R" : "S";
-}
 
 /** What a writer appends: the fact delta and the view it computed at that moment. */
 export interface NewEntry {
@@ -46,7 +30,6 @@ export interface StoredEntry {
   readonly seq: number;
   readonly at: number;
   readonly type: string;
-  readonly tier: LogTier;
   readonly key?: StoryKey;
   readonly run?: RunId;
   readonly causedBy?: RequestId;
@@ -54,52 +37,24 @@ export interface StoredEntry {
   readonly view?: unknown;
 }
 
-/** The office's log position (0007 section 3). */
+/** The office's log position (0007): the seq the next entry gets, so the last written entry has
+ * `nextSeq - 1`. A new office starts at 1, so a cursor at seq 0 means "before anything". */
 export interface LogState {
-  readonly epoch: string;
-  /** The seq the next entry gets; the last written entry has `nextSeq - 1`. */
   readonly nextSeq: number;
-  /** Replay from a cursor below this seq needs a reset (0007 section 7). */
-  readonly replayFloorSeq: number;
 }
 
-/**
- * A new random epoch for an office's change log (0005 section 2). Each office gets one when it is
- * registered and a new one when its state is restored, so old cursors never match new positions.
- */
-export function newEpoch(fill: RandomFill = cryptoFill): string {
-  const bytes = new Uint8Array(16);
-  fill(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-/**
- * The log columns of a new `offices` row: a random epoch, the first entry gets seq 1 (so a
- * cursor at seq 0 means "before anything"), and nothing has been trimmed yet.
- */
-export function newLogState(fill?: RandomFill): LogState {
-  return { epoch: newEpoch(fill), nextSeq: 1, replayFloorSeq: 0 };
-}
-
-interface OfficeLogRow {
-  epoch: string;
-  next_seq: number;
-  replay_floor_seq: number;
-}
-
-/** The office's epoch, next seq and replay floor; throws when the office has no row. */
+/** The office's next seq; throws when the office has no row. */
 export function readLogState(office: OfficeHandle): LogState {
-  const row = office.get<OfficeLogRow>(
-    "select epoch, next_seq, replay_floor_seq from offices where office_id = $office_id",
+  const row = office.get<{ next_seq: number }>(
+    "select next_seq from offices where office_id = $office_id",
   );
   if (row === null) throw new Error(`Office ${office.officeId} has no offices row.`);
-  return { epoch: row.epoch, nextSeq: row.next_seq, replayFloorSeq: row.replay_floor_seq };
+  return { nextSeq: row.next_seq };
 }
 
 /** The cursor of the last entry written (seq `nextSeq - 1`; 0 before the first entry). */
 export function headCursor(office: OfficeHandle): Cursor {
-  const state = readLogState(office);
-  return cursorAt(office.officeId, state.epoch, state.nextSeq - 1);
+  return cursorAt(office.officeId, readLogState(office).nextSeq - 1);
 }
 
 /** Throws unless `type` is a stored (not derived) event of the office stream. */
@@ -158,13 +113,12 @@ export function appendEntries(
   let seq = state.nextSeq;
   for (const { entry, delta, view } of encoded) {
     office.run(
-      `insert into change_log (office_id, seq, at, type, tier, key, run_id, caused_by, delta, view)
-       values ($office_id, $seq, $at, $type, $tier, $key, $run, $caused_by, $delta, $view)`,
+      `insert into change_log (office_id, seq, at, type, key, run_id, caused_by, delta, view)
+       values ($office_id, $seq, $at, $type, $key, $run, $caused_by, $delta, $view)`,
       {
         seq,
         at: options.at,
         type: entry.type,
-        tier: tierOf(entry.type),
         key: entry.key ?? null,
         run: entry.run ?? null,
         caused_by: options.causedBy ?? null,
@@ -175,5 +129,5 @@ export function appendEntries(
     seq += 1;
   }
   office.run("update offices set next_seq = $next where office_id = $office_id", { next: seq });
-  return cursorAt(office.officeId, state.epoch, seq - 1);
+  return cursorAt(office.officeId, seq - 1);
 }

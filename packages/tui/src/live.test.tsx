@@ -14,7 +14,7 @@ import { mount } from "../test/support/setup";
 
 const mounted: { unmount(): Promise<void> }[] = [];
 const STREAM = `office:${OFFICES.dipsaus}`;
-const LAST = { stream: STREAM, epoch: "e2", seq: 7 };
+const LAST = { stream: STREAM, seq: 7 };
 const KEY_24 = "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C24";
 const KEY_30 = "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C02";
 
@@ -30,7 +30,7 @@ const RECOVERING: EngineError = {
 
 function officeEvent(seq: number, type: string, data: unknown): Event {
   return {
-    cursor: { stream: STREAM, epoch: "e2", seq },
+    cursor: { stream: STREAM, seq },
     at: "2026-10-14T10:05:00.000Z",
     type,
     data,
@@ -60,7 +60,7 @@ async function restart(session: FakeSession, ui: { waitFor(text: string): Promis
   office.options.onEnded?.(RECOVERING);
   await ui.waitFor("catching up");
   session.active("software")?.options.onEvent({
-    cursor: { stream: "software", epoch: "e1", seq: 50 },
+    cursor: { stream: "software", seq: 50 },
     at: "2026-10-14T10:05:00.000Z",
     type: "daemon.state",
     data: { from: "recovering", to: "running" },

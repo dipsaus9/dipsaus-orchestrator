@@ -34,7 +34,7 @@ import { context, reviewSpec, scriptedClaude, sessionSpec, spec } from "./launch
 
 function setup() {
   const clock = new ManualClock();
-  const stream = new SoftwareStream({ clock, fill: (bytes) => bytes.fill(1) });
+  const stream = new SoftwareStream({ clock });
   const notices: Event[] = [];
   stream.onAppend((event) => notices.push(event));
   const holds = new AdapterHolds({

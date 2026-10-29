@@ -83,7 +83,7 @@ class FakeDaemon implements Transport {
 
   #reply(frame: Request): Answer {
     if (frame.name === "engine.hello") {
-      const cursor = { stream: "software", epoch: "ep1", seq: 0 };
+      const cursor = { stream: "software", seq: 0 };
       const result = { engine: "0.0.0-test", contract: CONTRACT_VERSION, capabilities: [] };
       return { ok: true, result: { ...result, daemon: "recovering", offices: [], cursor } };
     }
@@ -350,7 +350,7 @@ function subscribeSession() {
 }
 
 describe("subscribe while the daemon recovers (DIPO-325)", () => {
-  const cursor = { stream: "office:x", epoch: "e1", seq: 4 } as Cursor;
+  const cursor = { stream: "office:x", seq: 4 } as Cursor;
   const stream = "office:x" as StreamName;
 
   it("sends a refused subscription again after a poll from its last cursor, and ends with a closed stream", async () => {

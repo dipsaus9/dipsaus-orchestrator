@@ -10,7 +10,7 @@ import type { ConfigError, OfficeId } from "@dipsaus-orchestrator/contract";
 import { withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { replay } from "../../src/changelog/replay";
-import { cursorAt, readLogState } from "../../src/changelog/log";
+import { cursorAt } from "../../src/changelog/log";
 import { EngineGit } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import { BACKLOG_FIXTURE, officeSetup, resultOf, send, type OfficeSetup } from "./helpers";
@@ -41,8 +41,7 @@ async function reload(
 
 function notices(s: OfficeSetup, office: OfficeId): unknown[] {
   const handle = s.state.office(office);
-  const { epoch } = readLogState(handle);
-  const result = replay(handle, cursorAt(office, epoch, 0));
+  const result = replay(handle, cursorAt(office, 0));
   if (!result.ok) throw new Error(result.error.message);
   return result.entries
     .filter((entry) => entry.type === "engine.notice")

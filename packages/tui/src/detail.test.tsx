@@ -51,7 +51,7 @@ function story24(): StoryView {
 
 function event(seq: number, type: string, data: unknown): Event {
   return {
-    cursor: { stream: STREAM, epoch: "e2", seq },
+    cursor: { stream: STREAM, seq },
     at: "2026-10-14T10:05:00.000Z",
     type,
     data,
@@ -514,7 +514,7 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
     expect(ui.frame()).not.toContain("stores");
     const summary = goldenHello.offices.find((entry) => entry.office === OFFICES.dipsaus);
     session.active("software")?.options.onEvent({
-      cursor: { stream: "software", epoch: "e1", seq: 90 },
+      cursor: { stream: "software", seq: 90 },
       at: "2026-10-14T10:04:00.000Z",
       type: "office.summary",
       data: { ...summary, optIns: ["privacy.storeCommandBodies"] },

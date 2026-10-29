@@ -69,6 +69,7 @@ import { noStoryWorktree } from "./migrations/0065-no-story-worktree";
 import { fiveHealthStates } from "./migrations/0066-five-health-states";
 import { threeRunEndings } from "./migrations/0067-three-run-endings";
 import { dropEngineToken } from "./migrations/0068-drop-engine-token";
+import { oneRetentionRule } from "./migrations/0069-one-retention-rule";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -77,8 +78,6 @@ import { dropEngineToken } from "./migrations/0068-drop-engine-token";
 export const SOFTWARE_TABLES: ReadonlySet<string> = new Set([
   "offices",
   "schema_migrations",
-  "pricing_catalogs",
-  "pricing_rates",
 ]);
 
 export const MIGRATIONS: readonly Migration[] = [
@@ -173,4 +172,5 @@ create table offices (
   fiveHealthStates,
   threeRunEndings,
   dropEngineToken,
+  oneRetentionRule,
 ];

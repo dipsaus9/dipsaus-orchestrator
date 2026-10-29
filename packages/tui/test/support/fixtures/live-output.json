@@ -56,7 +56,6 @@
     {
       "cursor": {
         "stream": "office:off_01J9ZK5Q8W3V4X6Y7Z8A9B0CAA",
-        "epoch": "e2",
         "seq": 8
       },
       "at": "2026-10-14T10:05:00.000Z",
@@ -80,7 +79,6 @@
     {
       "cursor": {
         "stream": "office:off_01J9ZK5Q8W3V4X6Y7Z8A9B0CAA",
-        "epoch": "e2",
         "seq": 9
       },
       "at": "2026-10-14T10:05:00.000Z",

@@ -140,8 +140,8 @@ export interface OfficeStoreState {
   readonly cursor: Cursor | null;
   /**
    * How many office snapshots the store has applied (opens, switches and re-reads after a history
-   * gap). A client waiting for its own write counts a re-read after the reply as caught up,
-   * whatever the epoch (read-your-writes, 0009 section 5).
+   * gap). A client waiting for its own write counts a re-read after the reply as caught up
+   * (read-your-writes, 0009).
    */
   readonly snapshots: number;
   /** A one-time message, such as `RELOADED_NOTICE`; cleared by `dismissNotice`. */
@@ -197,20 +197,18 @@ const EMPTY_OFFICE = {
 /** Event types whose data carries `work` and an optional engine-derived `view` of that run. */
 const WORK_EVENTS = [workAssigned, workPhase, workProgress, workOutput, workObserved, usageUpdated];
 
-/** True when `cursor` was delivered already: same epoch, not past the last one (0005 section 8). */
+/** True when `cursor` was delivered already: not past the last one (0005). */
 function seen(last: Cursor | undefined, cursor: Cursor): boolean {
-  return last !== undefined && last.epoch === cursor.epoch && cursor.seq <= last.seq;
+  return last !== undefined && cursor.seq <= last.seq;
 }
 
 /**
  * True when `current`, the store's office cursor, is at or past `target`, a command reply cursor
- * of the same office stream (read-your-writes, 0009 section 5). A reply from another epoch counts
- * only once the store itself is on that epoch, that is after it read the stream again; epochs have
- * no order, so a store still on the old one has not seen the write.
+ * of the same office stream (read-your-writes, 0009).
  */
 export function cursorReached(current: Cursor | null, target: Cursor): boolean {
   if (current === null || current.stream !== target.stream) return false;
-  return current.epoch === target.epoch && current.seq >= target.seq;
+  return current.seq >= target.seq;
 }
 
 export class OfficeStore {

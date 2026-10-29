@@ -24,7 +24,7 @@ afterEach(async () => {
 
 function daemonState(to: string, seq: number): Event {
   return {
-    cursor: { stream: "software", epoch: "e1", seq },
+    cursor: { stream: "software", seq },
     at: "2026-10-14T10:05:00.000Z",
     type: "daemon.state",
     data: { from: "running", to },
@@ -69,7 +69,6 @@ describe("office switcher", () => {
     expect(session.active(`office:${OFFICES.dipsaus}`)).toBeUndefined();
     expect(session.active(`office:${OFFICES.slaydoku}`)?.after).toEqual({
       stream: `office:${OFFICES.slaydoku}`,
-      epoch: "e4",
       seq: 12,
     });
     expect(store.state.office).toBe(OFFICES.slaydoku);
@@ -96,7 +95,7 @@ describe("office switcher", () => {
       const { ui, session } = await open({ columns, rows: 30 });
       await ui.waitFor("· live");
       session.active("software")?.options.onEvent({
-        cursor: { stream: "software", epoch: "e1", seq: 60 },
+        cursor: { stream: "software", seq: 60 },
         at: "2026-10-14T10:05:00.000Z",
         type: "office.summary",
         data: {

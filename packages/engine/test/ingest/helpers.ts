@@ -15,7 +15,7 @@ import {
 import { type Recording, stdoutText } from "@dipsaus-orchestrator/testkit";
 
 import { Renderer } from "../../src/changelog/render";
-import { readLogState, type StoredEntry } from "../../src/changelog/log";
+import type { StoredEntry } from "../../src/changelog/log";
 import type { OfficeHandle } from "../../src/db/office";
 import { recordWorkerHost } from "../../src/runs/worker-hosts";
 import type { HostLine, ParseState } from "../../src/workers/types";
@@ -117,24 +117,19 @@ export function loggedEvents(office: OfficeHandle): { type: string; data: unknow
     seq: number;
     at: number;
     type: string;
-    tier: "S" | "R";
     delta: string;
     view: string | null;
-  }>(
-    "select seq, at, type, tier, delta, view from change_log where office_id = $office_id order by seq",
-  );
-  const epoch = readLogState(office).epoch;
+  }>("select seq, at, type, delta, view from change_log where office_id = $office_id order by seq");
   const renderer = new Renderer();
   return rows.map((row) => {
     const entry: StoredEntry = {
       seq: row.seq,
       at: row.at,
       type: row.type,
-      tier: row.tier,
       delta: JSON.parse(row.delta) as unknown,
       ...(row.view === null ? {} : { view: JSON.parse(row.view) as unknown }),
     };
-    const event = renderer.render(office.officeId as OfficeId, epoch, entry);
+    const event = renderer.render(office.officeId as OfficeId, entry);
     return { type: event.type, data: event.data };
   });
 }

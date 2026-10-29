@@ -157,7 +157,7 @@ function lines(frame: string): string[] {
 
 function event(seq: number, type: string, data: unknown): Event {
   return {
-    cursor: { stream: STREAM, epoch: "e2", seq },
+    cursor: { stream: STREAM, seq },
     at: "2026-10-14T10:05:00.000Z",
     type,
     data,
@@ -811,7 +811,7 @@ describe("answers, closed prompts, read-your-writes and retry", () => {
             ok: true,
             result: { proposal: PROPOSAL, state: "accepted" },
             changed: true,
-            cursor: { stream: STREAM, epoch: "e2", seq: 20 },
+            cursor: { stream: STREAM, seq: 20 },
           }
         : undefined;
     await selectRow(ui, "DIPO-21");

@@ -71,9 +71,9 @@ export function renderProblem(entry: RenderInput): string | undefined {
 }
 
 /** The `engine.notice` sent in place of a stored entry that does not render (DIPO-124). */
-export function unrenderableNotice(office: OfficeId, epoch: string, entry: StoredEntry): Event {
+export function unrenderableNotice(office: OfficeId, entry: StoredEntry): Event {
   return {
-    cursor: cursorAt(office, epoch, entry.seq),
+    cursor: cursorAt(office, entry.seq),
     at: new Date(entry.at).toISOString(),
     type: "engine.notice",
     data: {
@@ -93,11 +93,11 @@ export class Renderer {
   }
 
   /** One event for one entry of `office`'s log; throws `RenderError` if it does not parse. */
-  render(office: OfficeId, epoch: string, entry: StoredEntry): Event {
+  render(office: OfficeId, entry: StoredEntry): Event {
     const render = this.#overrides.get(entry.type) ?? renderDelta;
     const parsed = parseData(entry.type, render(entry));
     if (!parsed.ok) throw new RenderError(entry.type, entry.seq, parsed.detail);
-    const cursor: Cursor = cursorAt(office, epoch, entry.seq);
+    const cursor: Cursor = cursorAt(office, entry.seq);
     return {
       cursor,
       at: new Date(entry.at).toISOString(),
@@ -107,8 +107,8 @@ export class Renderer {
     };
   }
 
-  renderAll(office: OfficeId, epoch: string, entries: readonly StoredEntry[]): Event[] {
-    return entries.map((entry) => this.render(office, epoch, entry));
+  renderAll(office: OfficeId, entries: readonly StoredEntry[]): Event[] {
+    return entries.map((entry) => this.render(office, entry));
   }
 
   /**
@@ -119,17 +119,16 @@ export class Renderer {
    */
   renderForStream(
     office: OfficeId,
-    epoch: string,
     entries: readonly StoredEntry[],
     onUnrenderable: (error: RenderError, entry: StoredEntry) => void,
   ): Event[] {
     return entries.map((entry) => {
       try {
-        return this.render(office, epoch, entry);
+        return this.render(office, entry);
       } catch (error) {
         if (!(error instanceof RenderError)) throw error;
         onUnrenderable(error, entry);
-        return unrenderableNotice(office, epoch, entry);
+        return unrenderableNotice(office, entry);
       }
     });
   }
