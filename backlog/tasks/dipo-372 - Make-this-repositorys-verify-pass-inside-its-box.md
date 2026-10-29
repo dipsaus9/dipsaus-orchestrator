@@ -1,10 +1,10 @@
 ---
 id: DIPO-372
 title: Make this repository's verify pass inside its box
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-29 09:28'
-updated_date: '2026-10-29 10:05'
+updated_date: '2026-10-29 20:14'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -42,7 +42,7 @@ test_plan:
 <!-- AC:BEGIN -->
 - [x] #1 Each of the 10 tests has its cause named in the PR, with the fix: an image package in .dipo/office.yaml, a test that no longer assumes the Mac or a CI runner, or code that works in the box
 - [x] #2 No test is skipped in the box without a written reason, and none of the fixes weakens the box firewall or the box user
-- [ ] #3 bun run verify passes inside a developer box built from this repository's office image on a clean main, shown by a real-box run recorded in the PR
+- [x] #3 bun run verify passes inside a developer box built from this repository's office image on a clean main, shown by a real-box run recorded in the PR
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -50,3 +50,9 @@ test_plan:
 <!-- SECTION:NOTES:BEGIN -->
 Merged with criterion 3 open: the cutover run of DIPO-366 in a real dipo box on the merged main is the proof; Done after it.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Each of the ten red tests in the box has its cause and fix named in #430. AC3 is shown by the DIPO-351 cutover run: dipo ran DIPO-366 in a developer box built from this repository's office image on a clean main, verify passed inside the box, and dipo merged PR #442 with no hand step.
+<!-- SECTION:FINAL_SUMMARY:END -->

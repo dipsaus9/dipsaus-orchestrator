@@ -4,7 +4,7 @@ Open source, code-driven orchestration product: the maintainer and a model run t
 
 ## Status
 
-M0 is done. M1 is paused since 2026-10-24 while the code is pruned toward the rewritten ADRs (`docs/research/2026-10-24-simplification-audit.md`). The ADRs describe that target; where the code still differs, the prune plan closes the gap. Stack (0004): TypeScript on Bun, single binary `dipo`, macOS on Apple silicon.
+M0 is done. M1 is paused since 2026-10-24 while the code is pruned toward the rewritten ADRs (`docs/research/2026-10-24-simplification-audit.md`). The ADRs describe that target; where the code still differs, the prune plan closes the gap. The cutover gate (DIPO-351) passed on 2026-10-29: dipo delivered DIPO-366 end to end in a box, so dipo builds Track 2's small stories (0003). Stack (0004): TypeScript on Bun, single binary `dipo`, macOS on Apple silicon.
 
 The repository is a Bun workspace (`packages/*`) with the packages `contract`, `engine`, `daemon`, `client`, `tui`, `cli` and the private test helpers `testkit`, all scoped `@dipsaus-orchestrator/*`. Import boundaries (0004) are oxlint rules in `.oxlintrc.json`, proven by `test/lint-boundaries/`.
 
