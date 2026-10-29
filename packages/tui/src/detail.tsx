@@ -1,6 +1,6 @@
 // The live agent detail (`Enter` on a running story, 0009 sections 4, 6 and 9). It answers "what is
 // the worker doing right now" first: under the story header a `now` line shows the health, the
-// phase and the newest output line (a tool call such as `[tool] Edit src/app.ts`, or the agent's
+// phase and the newest output line (a tool call such as `[tool] <tool> src/app.ts`, or the agent's
 // words) with its age. Under it the story's open questions show with their kind, age and text and
 // how to answer them (`dipo answer`, DIPO-83). Facts sit on the left (phase, health, loop over
 // cap, verify, criteria, usage in, out, cache writes, cache reads and turns, budget bar) and the

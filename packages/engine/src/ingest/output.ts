@@ -3,7 +3,7 @@
 //
 // `privacy.storeCommandBodies` (0007 section 8, DIPO-83) is on by default: its default in the
 // office configuration is true (`OFFICE_DEFAULTS` in `config/schema.ts`; DIPO-135, DIPO-137), so
-// the tool line also holds the call's input as one line: `[tool] Bash bun test`. Set to false, the
+// the tool line also holds the call's input as one line: `[tool] <tool> bun test`. Set to false, the
 // line holds the tool name and path only. `DEFAULT_OUTPUT_PRIVACY` (inputs off) applies only where
 // ingestion is given no configuration. Line breaks and other control characters become spaces, and
 // an input longer than `INPUT_MAX_CHARS` is cut with a marker that says how much was left out.
@@ -59,8 +59,8 @@ export function oneLineInput(input: string): string {
 }
 
 /**
- * The line stored for one tool call: `[tool] Read src/greet.ts`, `[tool] Bash`, or with the input
- * `[tool] Bash bun test`; credential-shaped values are `[redacted]`.
+ * The line stored for one tool call: `[tool] <tool> src/greet.ts`, `[tool] <tool>`, or with the
+ * input `[tool] <tool> bun test`; credential-shaped values are `[redacted]`.
  */
 export function toolLine(tool: string, path?: string, input?: string): string {
   const parts = [`[tool] ${redactSecretText(tool)}`];
