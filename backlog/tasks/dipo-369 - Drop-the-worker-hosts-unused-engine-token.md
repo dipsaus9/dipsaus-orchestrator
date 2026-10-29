@@ -1,10 +1,10 @@
 ---
 id: DIPO-369
 title: Drop the worker host's unused engine token
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-29 08:06'
-updated_date: '2026-10-29 08:38'
+updated_date: '2026-10-29 21:31'
 labels:
   - 'tier:S'
   - 'slice:prune'
