@@ -1069,12 +1069,14 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     ...(options.mergeReentry === undefined ? {} : { mergeReentry: options.mergeReentry }),
     // A resumed conflict park merges in its live run's box (DIPO-324), and a story resumed to wait
     // In Review again gets a new story PR when its PR was closed (0002).
-    conflictMerge: conflictMergeOf({
-      run: (runId) => partRun?.(runId) ?? null,
-      collisions: () => collisions,
-      warn: (message, fields) => options.logger.warn(message, fields),
-    }),
-    stories: options.storyStore,
+    conflictResume: {
+      merge: conflictMergeOf({
+        run: (runId) => partRun?.(runId) ?? null,
+        collisions: () => collisions,
+        warn: (message, fields) => options.logger.warn(message, fields),
+      }),
+      stories: options.storyStore,
+    },
     ...(options.storyPr?.replace === undefined
       ? {}
       : {
