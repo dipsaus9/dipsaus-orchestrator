@@ -22,7 +22,7 @@ interface WorkerAdapter {
   result(state: ParseState, exit: ExitRecord): WorkerResult;                                    // pure
 }
 WorkerSpec = { run, agent, kind: "implement" | "review" | "session", place: Box | ReadOnlyCopy | None,
-               model, effort, caps: Caps, systemFile, taskMessage, tools, sessionId, reportSchema }
+               model, effort, caps: Caps, systemFile, taskMessage, web, sessionId, reportSchema }
 Caps = { budgetTokens: number, maxTurns: number, maxMinutes: number }   // loops and rounds stay in the engine
 SteerOp = { kind: "message", text } | { kind: "stop" | "kill" }
 WorkerEvent = started | activity | output | usage | turn | limit | compacted | modelSwitched | drift
@@ -190,3 +190,4 @@ An adapter implements section 1. An Agent SDK adapter would share `interpret`, b
 - No git in the box at all (2026-10-21). Replaced by a box-local repository that shares nothing with yours (2026-10-24), because many test suites need git.
 - A test box reached through a forwarder inside it on the box's address (2026-10-22). Replaced by a forwarder on the Mac's loopback (2026-10-28), because a VPN on the Mac routes the box network's range away from the box bridge.
 - The reviewer on the Mac with a `PreToolUse` web-gate hook and its relay through the worker host (2026-10-17). Replaced by a read-only reviewer box (2026-10-24); no session has hooks.
+- `WorkerSpec.tools`, the tool names of each role picked by the engine (2026-10-10). Replaced by `web`: the adapter names each kind's tools, so Claude's tool names stay in it (2026-10-29).
