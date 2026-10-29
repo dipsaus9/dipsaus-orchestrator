@@ -66,6 +66,7 @@ import { dropMergeSlot } from "./migrations/0062-drop-merge-slot";
 import { heldFixRounds } from "./migrations/0063-held-fix-rounds";
 import { acceptanceTests } from "./migrations/0064-acceptance-tests";
 import { noStoryWorktree } from "./migrations/0065-no-story-worktree";
+import { fiveHealthStates } from "./migrations/0066-five-health-states";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -167,4 +168,5 @@ create table offices (
   heldFixRounds,
   acceptanceTests,
   noStoryWorktree,
+  fiveHealthStates,
 ];

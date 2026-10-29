@@ -399,7 +399,7 @@ export function App(props: AppProps) {
       );
     } else if (!viewKeys("detail", state.capabilities).some((entry) => entry.id === id)) {
       setMessage(`this daemon cannot ${id} a worker (capability ${binding(id).flag})`);
-    } else if (id === "steer" && live.signals.some((signal) => signal.signal === "follow-only")) {
+    } else if (id === "steer" && live.followOnly === true) {
       setMessage("this run is followed only; it cannot be steered");
     } else {
       act(id, { story: String(live.work.story) });
@@ -872,9 +872,7 @@ export function App(props: AppProps) {
   const rowHintList: Hint[] = [];
   if (inDetail) {
     if (detail !== null && asks(detail.target.run)) rowHintList.push(["[a]nswer", 85]);
-    const followOnly =
-      detailRun?.signals.some((signal) => signal.signal === "follow-only") === true;
-    if (detailLive && !followOnly) {
+    if (detailLive && detailRun?.followOnly !== true) {
       for (const entry of viewKeys("detail", state.capabilities)) {
         rowHintList.push([entry.hint, 72]);
       }

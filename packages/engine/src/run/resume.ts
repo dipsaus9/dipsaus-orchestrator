@@ -132,8 +132,11 @@ export const RESUME_POLICY = { maxContextShare: 0.6, rereadFactor: 3 } as const;
 export const HOST_EXIT_WAIT_MS = 30_000;
 const HOST_EXIT_POLL_MS = 250;
 
-/** The signals a run's new session clears: what a restart observed of the old host (DIPO-57). */
-const HOST_SIGNALS = ["host-lost", "follow-only"] as const;
+/**
+ * The facts a run's new session clears: what a restart observed of the old host (DIPO-57), and the
+ * old session's silence, so a resumed run is not stuck before its first line (DIPO-352).
+ */
+const HOST_SIGNALS = ["host-lost", "follow-only", "no-output"] as const;
 
 /** `engine.notice` codes of a run's next session. */
 export const RESUME_NOTICES = {

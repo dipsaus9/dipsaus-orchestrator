@@ -1,12 +1,12 @@
 // `dipo watch`: follows one story or the whole office from the terminal without the TUI and shows
 // what the engine does, in plain text without Ink. It reads `office.snapshot` (and `story.detail`
-// for a story), prints
-// the state of each running story (phase, health, loop, verify, criteria, budget share, usage),
-// then subscribes after the snapshot's cursor and prints one readable line per event as it comes:
-// run start, phases, worker output, usage and turns, health changes and watchdog signals, notices,
-// parks and story moves. A run's end comes from `story.detail` (`endedAt`, `outcome`), which it
-// reads again after every event that may end a run and on idle stream marks, because a run can end
-// without a closing work event (a failed host start ends it with only a notice).
+// for a story), prints the state of each running story (phase, health, loop, verify, criteria,
+// budget share, usage), then subscribes after the snapshot's cursor and prints one readable line
+// per event as it comes: run start, phases, worker output, usage and turns, health changes and the
+// watchdog facts behind them, notices, parks and story moves. A run's end comes from
+// `story.detail` (`endedAt`, `outcome`), which it reads again after every event that may end a run
+// and on idle stream marks, because a run can end without a closing work event (a failed host
+// start ends it with only a notice).
 //
 // It runs until it is stopped (Ctrl-C). A history gap (`stream.resetRequired`) reads the snapshot
 // again and says so. The client reconnects on its own after a lost or hung connection.
@@ -84,16 +84,13 @@ const HEALTH_MEANING: Readonly<Record<string, string>> = {
   quiet: "no output for a few minutes (timeouts.workerQuietMinutes)",
   stuck: "no output for a long time (timeouts.workerStallMinutes); the worker may hang",
   looping: "the same failure repeats, or the worker is on its last allowed loop",
-  asking: "waiting for your answer",
   lost: "the worker exited or its host is gone, and dipo has not processed that yet",
 };
 
-/** What each watchdog signal means when it is raised. */
+/** What each watchdog fact means when it is raised: the evidence behind a health value (0009). */
 const SIGNAL_MEANING: Readonly<Record<string, string>> = {
-  quiet: "no output line for timeouts.workerQuietMinutes",
-  "no-output": "no output line for timeouts.workerStallMinutes",
+  "no-output": "no output line since then",
   "same-failure": "the same failure twice in a row",
-  "input-wait": "the worker waits for a permission or input",
   "host-lost": "the worker host died without an exit file",
   "follow-only": "the worker can be followed but not steered",
 };
@@ -108,17 +105,10 @@ export function usageLine(value: Usage): string {
 /** The state of one run, as the lines under its story in the header. */
 export function workLines(view: WorkView): string[] {
   const { work, progress } = view;
-  const signals =
-    view.signals.length === 0
-      ? []
-      : [
-          `  signals: ${view.signals.map((s) => `${s.signal} since ${clockTime(s.since)}`).join(", ")}`,
-        ];
   return [
     `  run ${work.run} · ${work.role} · tier ${work.tier} · model ${work.model} · started ${clockTime(view.startedAt)}`,
     `  phase ${view.phase} · health ${view.health} · loop ${progress.loop}/${progress.loopCap} · verify ${progress.verify} · criteria ${progress.criteriaMet}/${progress.criteriaTotal} · budget ${percent(view.usage.budgetShare)} of ${count(view.usage.budget.limit)} tokens`,
     `  ${usageLine(view.usage)}`,
-    ...signals,
     ...(view.lastOutputAt === undefined ? [] : [`  last output ${clockTime(view.lastOutputAt)}`]),
   ];
 }
@@ -387,14 +377,18 @@ class Watch {
       case workObserved.type: {
         const data = workObserved.data.safeParse(event.data);
         if (!data.success) break;
-        const { work, signal, since, clearedAt } = data.data;
+        const { work, signal, since, clearedAt, view } = data.data;
+        // The same `no-output` fact is observed again once it is stuck; the carried view says so.
+        const stuck = signal === "no-output" && view?.health === "stuck";
         this.#event(
           event,
           work.story,
           "signal",
-          clearedAt === undefined
-            ? `${signal} since ${clockTime(since)}: ${SIGNAL_MEANING[signal] ?? signal}`
-            : `${signal} cleared: output resumed (it began ${clockTime(since)})`,
+          clearedAt !== undefined
+            ? `${signal} cleared: output resumed (it began ${clockTime(since)})`
+            : stuck
+              ? `${signal} since ${clockTime(since)}, stuck: no output line past timeouts.workerStallMinutes`
+              : `${signal} since ${clockTime(since)}: ${SIGNAL_MEANING[signal] ?? signal}`,
         );
         this.#view(event, work, data.data.view);
         break;

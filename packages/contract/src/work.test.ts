@@ -83,9 +83,9 @@ describe("open enums", () => {
     { name: "Tier", schema: Tier, known: KNOWN_TIERS, size: 3 },
     { name: "ParkReason", schema: ParkReason, known: KNOWN_PARK_REASONS, size: 8 },
     { name: "SkipReason", schema: SkipReason, known: KNOWN_SKIP_REASONS, size: 7 },
-    { name: "Phase", schema: Phase, known: KNOWN_PHASES, size: 6 },
-    { name: "WatchdogSignal", schema: WatchdogSignal, known: KNOWN_WATCHDOG_SIGNALS, size: 6 },
-    { name: "Health", schema: Health, known: KNOWN_HEALTH, size: 6 },
+    { name: "Phase", schema: Phase, known: KNOWN_PHASES, size: 5 },
+    { name: "WatchdogSignal", schema: WatchdogSignal, known: KNOWN_WATCHDOG_SIGNALS, size: 4 },
+    { name: "Health", schema: Health, known: KNOWN_HEALTH, size: 5 },
   ];
 
   for (const { name, schema, known, size } of cases) {
@@ -110,9 +110,25 @@ describe("open enums", () => {
     ]);
   });
 
-  it("names the phases and health states of 0009", () => {
-    expect([...KNOWN_PHASES]).toEqual(["setup", "build", "verify", "review", "test", "merge"]);
-    expect([...KNOWN_HEALTH]).toEqual(["lost", "asking", "looping", "stuck", "quiet", "busy"]);
+  it("names the five phases and five health states of 0009", () => {
+    expect([...KNOWN_PHASES]).toEqual(["setup", "build", "review", "test", "merge"]);
+    expect([...KNOWN_HEALTH]).toEqual(["lost", "looping", "stuck", "quiet", "busy"]);
+  });
+
+  it("keeps the watchdog facts as evidence only, not as health words (0009)", () => {
+    expect([...KNOWN_WATCHDOG_SIGNALS]).toEqual([
+      "no-output",
+      "same-failure",
+      "host-lost",
+      "follow-only",
+    ]);
+    for (const word of ["asking", "limited", "paused"]) {
+      expect(KNOWN_HEALTH as readonly string[]).not.toContain(word);
+    }
+    for (const word of ["quiet", "input-wait", "plan-limit"]) {
+      expect(KNOWN_WATCHDOG_SIGNALS as readonly string[]).not.toContain(word);
+    }
+    expect(Object.keys(WorkView.shape)).not.toContain("signals");
   });
 
   it("queue columns and gate kinds are open too", () => {

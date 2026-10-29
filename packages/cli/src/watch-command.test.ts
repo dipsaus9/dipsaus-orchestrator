@@ -1,5 +1,5 @@
 // `dipo watch [ID]` (DIPO-52; 0009 section 9): the state of each running story from the snapshot,
-// then one plain line per event after its cursor: output, usage, signals and health, notices,
+// then one plain line per event after its cursor: output, usage, health and its evidence, notices,
 // parks and the end of a run read from `story.detail`.
 
 import { describe, expect, it } from "bun:test";
@@ -65,8 +65,8 @@ const progress = {
   verify: "none",
   reviewRound: 0,
 };
-function view(health: string, signals: { signal: string; since: string }[] = []) {
-  return { work, phase: "build", progress, usage, health, signals, startedAt: AT };
+function view(health: string) {
+  return { work, phase: "build", progress, usage, health, startedAt: AT };
 }
 const story = {
   key: KEY,
@@ -187,7 +187,7 @@ describe("dipo watch without a daemon (DIPO-187)", () => {
 });
 
 describe("dipo watch", () => {
-  it("prints the running story's state, then output, usage, signals, health, notices, parks and the run's end", async () => {
+  it("prints the running story's state, then output, usage, health with its evidence, notices, parks and the run's end", async () => {
     let ended = false;
     const ctx = fake({ running: true, ended: () => ended });
     const done = main(["watch", "task-1"], ctx.deps);
@@ -214,11 +214,11 @@ describe("dipo watch", () => {
     ctx.emit("work.output", { work, source: "worker", from: 30, to: 40, text: " run tests\n" });
     ctx.emit("usage.updated", { work, usage, view: view("busy") });
     ctx.emit("usage.updated", { work, usage, view: view("busy") });
-    const quiet = [{ signal: "quiet", since: AT }];
-    ctx.emit("work.observed", { work, signal: "quiet", since: AT, view: view("quiet", quiet) });
+    ctx.emit("work.observed", { work, signal: "no-output", since: AT, view: view("quiet") });
+    ctx.emit("work.observed", { work, signal: "no-output", since: AT, view: view("stuck") });
     ctx.emit("work.observed", {
       work,
-      signal: "quiet",
+      signal: "no-output",
       since: AT,
       clearedAt: AT,
       view: view("busy"),
@@ -242,9 +242,11 @@ describe("dipo watch", () => {
       `${T} TASK-1 out    [tool] Edit src/greet.ts`,
       `${T} TASK-1 out    I will now run tests`,
       `${T} TASK-1 usage  2,000 of 400,000 tokens (0.5% of budget) · in 1,200 out 300 cache write 500 cache read 9,000 · 2 turns`,
-      `${T} TASK-1 signal quiet since ${T}: no output line for timeouts.workerQuietMinutes`,
+      `${T} TASK-1 signal no-output since ${T}: no output line since then`,
       `${T} TASK-1 health quiet: no output for a few minutes (timeouts.workerQuietMinutes)`,
-      `${T} TASK-1 signal quiet cleared: output resumed (it began ${T})`,
+      `${T} TASK-1 signal no-output since ${T}, stuck: no output line past timeouts.workerStallMinutes`,
+      `${T} TASK-1 health stuck: no output for a long time (timeouts.workerStallMinutes); the worker may hang`,
+      `${T} TASK-1 signal no-output cleared: output resumed (it began ${T})`,
       `${T} TASK-1 health busy: the worker is producing output`,
       `${T} notice error run.startFailed: TASK-1 was claimed but not started: the worker host did not start.`,
       `${T} TASK-1 parked stopped (from In Progress): stopped by you`,

@@ -819,7 +819,7 @@ export class ParkResumes {
           ? `it is ${now?.lifecycle ?? "no longer Parked"} now`
           : `it is parked as ${park.reason} now`;
       throw new CommandError(
-        "story.notPausedOrParked",
+        "story.notParked",
         `${run.story ?? run.runId} is no longer parked as it was when work.resume checked it; ${state}.`,
         { story: run.story ?? run.runId },
       );

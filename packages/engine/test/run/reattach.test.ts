@@ -61,7 +61,8 @@ import {
   STOP_AGAIN_DETAIL,
 } from "../../src/run";
 import { markIntentSent, recordIntent } from "../../src/run/intents";
-import { activeSignals, raiseSignal } from "../../src/run/signals";
+import { activeSignals, markStuck, raiseSignal } from "../../src/run/signals";
+import { workView } from "../../src/views/work";
 import { promptPartsOf, promptTextsOf } from "../../src/prompts/parts";
 import { recordWorkerHost, workerHostsOf } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
@@ -420,6 +421,11 @@ describe("re-attach (0006 decision 8)", () => {
     expect(hostRow().mode).toBe("follow");
     expect(signals()).toEqual(["follow-only"]);
     expect(observed()).toEqual(["follow-only"]);
+    // The work view says so, so a client can refuse a steer before any text is typed (DIPO-352).
+    expect(workView(w.f.office, w.f.run)?.followOnly).toBe(true);
+    const carried = loggedEvents(w.f.office).find((event) => event.type === "work.observed");
+    const data = carried?.data as { view?: { followOnly?: boolean } } | undefined;
+    expect(data?.view?.followOnly).toBe(true);
     const notice = loggedEvents(w.f.office).find((event) => event.type === "engine.notice");
     expect((notice?.data as { code: string } | undefined)?.code).toBe("run.followOnly");
     const sent = await hostSocketSteering({ clock: w.f.t.clock }).send(w.f.office, w.f.run, [
@@ -1072,6 +1078,52 @@ describe("restart windows of DIPO-51's review", () => {
       .filter((event) => event.type === "work.observed")
       .map((event) => (event.data as { signal: string }).signal);
     expect(cleared).toEqual(["follow-only"]);
+  });
+
+  it("a new session clears the old session's no-output, so a resumed run is not stuck before its first line (DIPO-352)", async () => {
+    beforeRestart("terminated", 0);
+    w.f.office.immediate(() => {
+      w.f.office.run(
+        `update agents set ended_at = 1, end_reason = 'exited', session_id = 'session-1'
+          where office_id = $office_id and agent_id = $agent`,
+        { agent: w.f.agent },
+      );
+      // The old session went silent past the stall wait.
+      markStuck(w.f.office, w.f.run, 1);
+    });
+    expect(signals()).toEqual(["no-output"]);
+    const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
+    mkdirSync(runDir, { recursive: true });
+    copyFileSync(w.f.eventFile, join(runDir, "events.ndjson"));
+    const resumer = realResumer(
+      {
+        start: async (office, options) => {
+          const host = {
+            pid: 4243,
+            startTimeMs: 0,
+            runId: options.runId,
+            agentId: options.agentId,
+            socketPath: join(w.dir, "host.sock"),
+            protocolVersion: 1,
+            runDir,
+            eventFile: join(runDir, "events.ndjson"),
+          };
+          recordWorkerHost(office, host, w.f.t.clock, {
+            ...(options.processedOffset === undefined
+              ? {}
+              : { processedOffset: options.processedOffset }),
+            ...(options.record === undefined ? {} : { record: options.record }),
+          });
+          return host;
+        },
+      },
+      { probe: async () => null, ingest: { start: () => {} } },
+    );
+    const outcome = await resumer.next(nextRequest());
+    expect(outcome.kind).toBe("started");
+    expect(signals()).toEqual([]);
+    expect(observed()).toEqual(["no-output"]);
+    expect(workView(w.f.office, w.f.run)?.health).not.toBe("stuck");
   });
 
   it("the resume check gets the previous session's version from agents.adapter_version (DIPO-101)", async () => {

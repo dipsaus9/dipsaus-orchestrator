@@ -15,7 +15,6 @@
         "path": "/work/dipsaus-orchestrator",
         "running": 3,
         "parked": 1,
-        "onHold": 1,
         "waitingOnMaintainer": 2,
         "ready": 2,
         "outputRetentionDays": 7
@@ -70,7 +69,6 @@
         "path": "/work/couchcade",
         "running": 0,
         "parked": 0,
-        "onHold": 0,
         "waitingOnMaintainer": 0,
         "ready": 1
       }
@@ -89,7 +87,6 @@
         "path": "/work/slaydoku",
         "running": 1,
         "parked": 1,
-        "onHold": 0,
         "waitingOnMaintainer": 1,
         "ready": 0,
         "dayUsage": {
@@ -306,7 +303,6 @@
             "budgetShare": 0.52
           },
           "health": "busy",
-          "signals": [],
           "startedAt": "2026-10-14T09:22:00.000Z"
         },
         {
@@ -319,7 +315,7 @@
             "tier": "S",
             "model": "claude-sonnet"
           },
-          "phase": "verify",
+          "phase": "build",
           "progress": {
             "criteriaMet": 2,
             "criteriaTotal": 3,
@@ -353,7 +349,6 @@
             "budgetShare": 0.78
           },
           "health": "looping",
-          "signals": [],
           "startedAt": "2026-10-14T09:42:00.000Z",
           "evidence": {
             "progress.criteriaMet": "claimed",
@@ -403,8 +398,7 @@
             },
             "budgetShare": 0.18
           },
-          "health": "asking",
-          "signals": [],
+          "health": "quiet",
           "startedAt": "2026-10-14T08:59:00.000Z",
           "evidence": {
             "progress.criteriaMet": "claimed",
@@ -475,7 +469,7 @@
             "tier": "S",
             "model": "claude-sonnet"
           },
-          "phase": "verify",
+          "phase": "build",
           "progress": {
             "criteriaMet": 2,
             "criteriaTotal": 3,
@@ -509,7 +503,6 @@
             "budgetShare": 0.011
           },
           "health": "looping",
-          "signals": [],
           "startedAt": "2026-10-14T09:50:00.000Z"
         }
       ],

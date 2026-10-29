@@ -439,6 +439,12 @@ export function setProcessedOffset(
   );
 }
 
+/** The run's newest worker host is alive and only followed after a daemon restart (0005). */
+export function followedOnly(office: OfficeHandle, runId: string): boolean {
+  const newest = workerHostsOf(office, runId).at(-1);
+  return newest !== undefined && newest.endedAt === null && newest.mode === "follow";
+}
+
 /** Inside the caller's transaction: dipo steers the host, or only follows its output (0006). */
 export function setHostMode(
   office: OfficeHandle,

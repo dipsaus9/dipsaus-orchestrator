@@ -3,15 +3,14 @@
 // phase and the newest output line (a tool call such as `[tool] Edit src/app.ts`, or the agent's
 // words) with its age. Under it the story's open questions show with their kind, age and text and
 // how to answer them (`dipo answer`, DIPO-83). Facts sit on the left (phase, health, loop over
-// cap, verify, criteria, usage in, out, cache writes, cache reads and turns, budget bar, active
-// signals with their start time) and the output of the selected source on the right; below 100
-// columns they stack.
+// cap, verify, criteria, usage in, out, cache writes, cache reads and turns, budget bar) and the
+// output of the selected source on the right; below 100 columns they stack.
 //
 // The output pane shows `work.output` of the worker (`w`) or of verify (`v`) and follows the tail.
 // The key `i` swaps it for the prompt dipo sent the selected agent's session (`work.prompt`,
 // DIPO-137): the system file and the first message, read from the top with the same scroll keys,
 // or a line saying none is stored. `p` stays pause (0009 section 5).
-// The engine's phase markers in the worker output read `── 12:04:31 phase: verify ──` (DIPO-83).
+// The engine's phase markers in the worker output read `── 12:04:31 phase: review ──` (DIPO-83).
 // `k`/`j`, arrows and PageUp/PageDown scroll; scrolling past the text held reads earlier text with
 // `work.outputRange`, and End returns to following. The text lives in an `OutputFeed` outside
 // React; the render keeps only the rows on screen. When the run ends the detail keeps its last
@@ -51,7 +50,7 @@ import {
   visibleRows,
   wrapLines,
 } from "./output";
-import { clockTime, glyphs, healthLabel, officeOptIns, storedLabel } from "./views";
+import { glyphs, healthLabel, officeOptIns, storedLabel } from "./views";
 
 // The `now` line is shared with the overview (DIPO-81).
 export { nowLine, shortAge } from "./now";
@@ -128,12 +127,10 @@ export const MAX_QUESTIONS = 3;
 /** The opt-in that puts tool inputs into the worker output (0007 section 8). */
 const COMMAND_BODIES = "privacy.storeCommandBodies";
 
-/** A follow-only run (host alive, socket gone) cannot be steered (0006 decision 8). */
-function signalFollowOnly(view: WorkView): boolean {
-  return view.signals.some((signal) => signal.signal === "follow-only");
-}
-
-/** `DIPO-24 Add verify retry · developer · S · claude-sonnet · run_01J…  [follow]` (AC 1). */
+/**
+ * `DIPO-24 Add verify retry · developer · S · claude-sonnet · run_01J…  [follow]` (AC 1); `[follow]`
+ * when the engine says the run's host is followed only, so it takes no steer (0005).
+ */
 export function headerLine(view: WorkView, story: StoryView | undefined, dot: string): string {
   const { work } = view;
   const parts = [
@@ -143,7 +140,7 @@ export function headerLine(view: WorkView, story: StoryView | undefined, dot: st
     work.model,
     String(work.run),
   ];
-  return `${parts.join(` ${dot} `)}${signalFollowOnly(view) ? "  [follow]" : ""}`;
+  return `${parts.join(` ${dot} `)}${view.followOnly === true ? "  [follow]" : ""}`;
 }
 
 /** How to answer a question from a shell: `dipo answer <id> allow|deny` or `<text>` (DIPO-59). */
@@ -206,9 +203,6 @@ function facts(view: WorkView, evidence: boolean) {
     // Dollars are always an estimate from the pricing catalog (0009 section 8).
     cost: run.estimatedCost === undefined ? "" : `~$${run.estimatedCost.toFixed(2)}`,
     budget: `${budgetBar(usage)} ${mark(percent(usage.budgetShare), "usage.budgetShare")} of ${tokens(usage.budget.limit)}`,
-    signals: view.signals.map(
-      (signal) => `${signal.signal} since ${clockTime(Date.parse(signal.since))}`,
-    ),
   };
 }
 
@@ -230,8 +224,6 @@ export function factLines(view: WorkView, evidence: boolean): string[] {
     `         ${f.turns}${f.cost === "" ? "" : `  ${f.cost}`}`,
     `budget   ${f.budget}`,
   );
-  if (f.signals.length === 0) lines.push("signals  none");
-  f.signals.forEach((signal, i) => lines.push(`${i === 0 ? "signals  " : "         "}${signal}`));
   return lines;
 }
 
@@ -243,7 +235,6 @@ export function compactFactLines(view: WorkView, evidence: boolean): string[] {
     `phase ${f.phase}  health ${f.health}  loop ${f.loop}  verify ${f.verify}  review ${f.review}`,
     `criteria ${f.criteria}${f.boxes === "" ? "" : `  ${f.boxes}`}`,
     `usage ${f.input} ${f.output} ${f.cacheWrite} ${f.cacheRead} ${f.turns}${cost}  budget ${f.budget}`,
-    `signals: ${f.signals.length === 0 ? "none" : f.signals.join(", ")}`,
   ];
 }
 
@@ -490,7 +481,6 @@ export function Detail(props: DetailProps) {
           view,
           ended,
           worker: lastLine(worker.feed.lines),
-          verify: lastLine(verify.feed.lines),
           now: clock.now(),
           dot,
         });

@@ -5,6 +5,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   type Health,
+  KNOWN_HEALTH,
   type Lifecycle,
   type QueueColumn,
   StoryId,
@@ -16,7 +17,7 @@ import {
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { storeGateDecision } from "../../src/gate/store/decisions";
-import { raiseSignal } from "../../src/run/signals";
+import { markStuck, raiseSignal } from "../../src/run/signals";
 import { activeStoryViews, deriveColumn, deriveStoryView, storyView } from "../../src/views/story";
 import { deriveHealth, workView } from "../../src/views/work";
 import { addOffice, openTestState } from "../commands/helpers";
@@ -156,28 +157,37 @@ describe("story view", () => {
 });
 
 describe("health precedence", () => {
-  const base = { signals: [] as WatchdogSignal[], exitUnprocessed: false, loop: 0, loopCap: 3 };
+  const base = {
+    signals: [] as WatchdogSignal[],
+    stuck: false,
+    exitUnprocessed: false,
+    loop: 0,
+    loopCap: 3,
+  };
   const cases: [string, Parameters<typeof deriveHealth>[0], Health][] = [
-    ["no signal", base, "busy"],
-    ["quiet", { ...base, signals: ["quiet"] }, "quiet"],
-    ["no-output over quiet", { ...base, signals: ["quiet", "no-output"] }, "stuck"],
+    ["no fact", base, "busy"],
+    ["no-output within the stall wait", { ...base, signals: ["no-output"] }, "quiet"],
+    ["no-output past the stall wait", { ...base, signals: ["no-output"], stuck: true }, "stuck"],
     ["same-failure over no-output", { ...base, signals: ["no-output", "same-failure"] }, "looping"],
     ["the last allowed loop", { ...base, loop: 3, loopCap: 3 }, "looping"],
     ["a loop below the cap", { ...base, loop: 2, loopCap: 3 }, "busy"],
     ["no loop cap", { ...base, loop: 0, loopCap: 0 }, "busy"],
-    ["input-wait over looping", { ...base, signals: ["same-failure", "input-wait"] }, "asking"],
-    // A plan limit pauses the office's starts and parks the story (0020): no health of its own.
-    ["a plan-limit signal from before 0020", { ...base, signals: ["plan-limit"] }, "busy"],
-    ["host-lost over everything", { ...base, signals: ["input-wait", "host-lost"] }, "lost"],
-    ["an unprocessed exit", { ...base, exitUnprocessed: true, signals: ["quiet"] }, "lost"],
+    // A question parks and a plan limit pauses the office's starts (0020): no health of their own.
+    ["a plan-limit fact from before 0020", { ...base, signals: ["plan-limit"] }, "busy"],
+    ["host-lost over everything", { ...base, signals: ["same-failure", "host-lost"] }, "lost"],
+    ["an unprocessed exit", { ...base, exitUnprocessed: true, signals: ["no-output"] }, "lost"],
   ];
+  it("derives only the five health states of 0009", () => {
+    const all = new Set(cases.map((entry) => deriveHealth(entry[1])));
+    for (const health of all) expect(KNOWN_HEALTH as readonly string[]).toContain(health);
+  });
   for (const [name, facts, health] of cases) {
     it(`${name} is ${health}`, () => expect(deriveHealth(facts)).toBe(health));
   }
 });
 
 describe("work view", () => {
-  it("derives phase, progress, signals, health and the budget share from the run's facts", () =>
+  it("derives phase, progress, health and the budget share from the run's facts", () =>
     withTempDir(async (dir) => {
       const t = await openTestState(dir);
       try {
@@ -193,7 +203,7 @@ describe("work view", () => {
              values ($office_id, $run, $agent, 'haiku', 'developer', 'S', 100, 50, 100, 100, 900, 2, 0)`,
             { run: started.run, agent: started.agent },
           );
-          raiseSignal(office, started.run, "quiet", t.clock.now());
+          raiseSignal(office, started.run, "no-output", t.clock.now());
         });
         const view = workView(office, started.run);
         expect(view).not.toBeNull();
@@ -203,7 +213,6 @@ describe("work view", () => {
           phase: "setup",
           progress: { criteriaMet: 1, criteriaTotal: 4, loop: 0, loopCap: 3, verify: "none" },
           health: "quiet",
-          signals: [{ signal: "quiet" }],
           startedAt: new Date(t.clock.now()).toISOString(),
         });
         // Budget: input + output + cache creation over the limit; cache reads do not count.
@@ -212,6 +221,14 @@ describe("work view", () => {
         expect(view?.usage.run.turns).toBe(2);
         // The story view names who works on it.
         expect(storyView(office, started.key)?.work).toEqual(started.work);
+        // Past the stall wait the same `no-output` fact is stuck: one fact, two health values.
+        office.immediate(() => markStuck(office, started.run, t.clock.now()));
+        expect(workView(office, started.run)?.health).toBe("stuck");
+        expect(
+          office.all(
+            "select signal from run_signals where office_id = $office_id and cleared_at is null",
+          ),
+        ).toEqual([{ signal: "no-output" }]);
       } finally {
         t.state.close();
       }

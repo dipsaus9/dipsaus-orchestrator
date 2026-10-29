@@ -1,10 +1,10 @@
 ---
 id: DIPO-352
 title: Cut the run vocabulary to five health states and three run endings
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-25 09:51'
-updated_date: '2026-10-28 07:24'
+updated_date: '2026-10-29 09:54'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -42,9 +42,20 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Health is lost, looping, stuck, quiet or busy; asking, limited and paused are removed, and the signals travel only as evidence on work.observed
-- [ ] #2 The phases are setup, build, review, test and merge
-- [ ] #3 A run ends done, parked with its reason, or dropped; endKind strings, worker outcomes and park causes no longer describe an ending
-- [ ] #4 The TUI, dipo watch and dipo desk show the new values
-- [ ] #5 dipo resume of a story that already runs answers changed: false (0005), the error story.notPausedOrParked is renamed now that pause is gone, and the always-zero onHold count of views/summary.ts is removed (from the review of DIPO-344)
+- [x] #1 Health is lost, looping, stuck, quiet or busy; asking, limited and paused are removed, and the signals travel only as evidence on work.observed
+- [x] #2 The phases are setup, build, review, test and merge
+- [x] #3 The TUI, dipo watch and dipo desk show the new values
+- [x] #4 dipo resume of a story that already runs answers changed: false (0005), the error story.notPausedOrParked is renamed now that pause is gone, and the always-zero onHold count of views/summary.ts is removed (from the review of DIPO-344)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Criterion 3 of the plan (a run ends done, parked or dropped) moved to DIPO-373 on 2026-10-29.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Health is lost, looping, stuck, quiet or busy, derived from stored rows; one no-output fact with run_signals.stuck_at gives quiet or stuck, and the watchdog facts reach clients only on work.observed. The verify phase is gone (migration 66 turns stored verify steps into build). The TUI, dipo watch and dipo resume show the new values, with the [follow] tag from WorkView.followOnly. Resume of a running story answers changed: false, story.notPausedOrParked is story.notParked, and onHold is removed. The run endings went to DIPO-373.
+<!-- SECTION:FINAL_SUMMARY:END -->

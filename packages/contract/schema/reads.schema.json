@@ -94,11 +94,6 @@
                 "minimum": 0,
                 "maximum": 9007199254740991
               },
-              "onHold": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9007199254740991
-              },
               "waitingOnMaintainer": {
                 "type": "integer",
                 "minimum": 0,
@@ -202,15 +197,7 @@
                 }
               }
             },
-            "required": [
-              "office",
-              "name",
-              "path",
-              "running",
-              "parked",
-              "onHold",
-              "waitingOnMaintainer"
-            ]
+            "required": ["office", "name", "path", "running", "parked", "waitingOnMaintainer"]
           }
         },
         "cursor": {
@@ -755,7 +742,7 @@
                 "anyOf": [
                   {
                     "type": "string",
-                    "enum": ["setup", "build", "verify", "review", "test", "merge"]
+                    "enum": ["setup", "build", "review", "test", "merge"]
                   },
                   {
                     "type": "string"
@@ -940,44 +927,16 @@
                 "anyOf": [
                   {
                     "type": "string",
-                    "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
+                    "enum": ["lost", "looping", "stuck", "quiet", "busy"]
                   },
                   {
                     "type": "string"
                   }
                 ]
               },
-              "signals": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "signal": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "quiet",
-                            "no-output",
-                            "same-failure",
-                            "input-wait",
-                            "host-lost",
-                            "follow-only"
-                          ]
-                        },
-                        {
-                          "type": "string"
-                        }
-                      ]
-                    },
-                    "since": {
-                      "type": "string",
-                      "format": "date-time",
-                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-                    }
-                  },
-                  "required": ["signal", "since"]
-                }
+              "followOnly": {
+                "type": "boolean",
+                "const": true
               },
               "lastOutputAt": {
                 "type": "string",
@@ -1000,7 +959,7 @@
                 }
               }
             },
-            "required": ["work", "phase", "progress", "usage", "health", "signals", "startedAt"]
+            "required": ["work", "phase", "progress", "usage", "health", "startedAt"]
           }
         },
         "gates": {
@@ -1497,7 +1456,7 @@
                 "anyOf": [
                   {
                     "type": "string",
-                    "enum": ["setup", "build", "verify", "review", "test", "merge"]
+                    "enum": ["setup", "build", "review", "test", "merge"]
                   },
                   {
                     "type": "string"
@@ -1682,44 +1641,16 @@
                 "anyOf": [
                   {
                     "type": "string",
-                    "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
+                    "enum": ["lost", "looping", "stuck", "quiet", "busy"]
                   },
                   {
                     "type": "string"
                   }
                 ]
               },
-              "signals": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "signal": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "quiet",
-                            "no-output",
-                            "same-failure",
-                            "input-wait",
-                            "host-lost",
-                            "follow-only"
-                          ]
-                        },
-                        {
-                          "type": "string"
-                        }
-                      ]
-                    },
-                    "since": {
-                      "type": "string",
-                      "format": "date-time",
-                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-                    }
-                  },
-                  "required": ["signal", "since"]
-                }
+              "followOnly": {
+                "type": "boolean",
+                "const": true
               },
               "lastOutputAt": {
                 "type": "string",
@@ -1742,7 +1673,7 @@
                 }
               }
             },
-            "required": ["work", "phase", "progress", "usage", "health", "signals", "startedAt"]
+            "required": ["work", "phase", "progress", "usage", "health", "startedAt"]
           }
         },
         "gates": {
@@ -2227,7 +2158,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": ["setup", "build", "verify", "review", "test", "merge"]
+                  "enum": ["setup", "build", "review", "test", "merge"]
                 },
                 {
                   "type": "string"
@@ -2412,44 +2343,16 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
+                  "enum": ["lost", "looping", "stuck", "quiet", "busy"]
                 },
                 {
                   "type": "string"
                 }
               ]
             },
-            "signals": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "signal": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "quiet",
-                          "no-output",
-                          "same-failure",
-                          "input-wait",
-                          "host-lost",
-                          "follow-only"
-                        ]
-                      },
-                      {
-                        "type": "string"
-                      }
-                    ]
-                  },
-                  "since": {
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-                  }
-                },
-                "required": ["signal", "since"]
-              }
+            "followOnly": {
+              "type": "boolean",
+              "const": true
             },
             "lastOutputAt": {
               "type": "string",
@@ -2472,7 +2375,7 @@
               }
             }
           },
-          "required": ["work", "phase", "progress", "usage", "health", "signals", "startedAt"]
+          "required": ["work", "phase", "progress", "usage", "health", "startedAt"]
         },
         "runs": {
           "type": "array",

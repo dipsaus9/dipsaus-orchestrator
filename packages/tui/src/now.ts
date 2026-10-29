@@ -1,7 +1,7 @@
 // What a running worker is doing now, in words (0009 sections 4 and 6, DIPO-81): the line the live
 // agent detail shows under its header, and the `now:` line under each running row of the overview.
-// Both take the newest stored worker line (the newest verify line in the verify phase) as stored,
-// and its age from the engine's `lastOutputAt`. Nothing here parses adapter output.
+// Both take the newest stored worker line as stored, and its age from the engine's `lastOutputAt`.
+// Nothing here parses adapter output.
 
 import type { QuestionView, StoryView, WorkView } from "@dipsaus-orchestrator/contract";
 
@@ -16,16 +16,6 @@ export function shortAge(ms: number): string {
   return `${Math.floor(minutes / 60)}h`;
 }
 
-/** The newest output line to show: the newest verify line in the verify phase, else the worker's. */
-export function newestOutput(
-  view: WorkView,
-  worker: string | null,
-  verify: string | null,
-): { readonly source: "worker" | "verify"; readonly text: string } | null {
-  if (view.phase === "verify" && verify !== null) return { source: "verify", text: verify };
-  return worker === null ? null : { source: "worker", text: worker };
-}
-
 /** `12s ago` from the engine's `lastOutputAt`, or null before any output. */
 export function outputAge(view: WorkView, now: number): string | null {
   if (view.lastOutputAt === undefined) return null;
@@ -36,7 +26,6 @@ export function outputAge(view: WorkView, now: number): string | null {
 const PHASE_WORDS: Readonly<Record<string, string>> = {
   setup: "setting up",
   build: "building",
-  verify: "running verify",
   review: "reviewing",
   test: "testing",
   merge: "merging",
@@ -54,55 +43,42 @@ export function endedLine(ended: StoryView | null, dot: string): string {
 }
 
 /**
- * What the worker is doing right now: health, phase, the newest output line and its age. While the
- * phase is verify the newest verify line leads. `ended` set means the run ended (null: the story
- * left the office).
+ * What the worker is doing right now: health, phase, the newest output line and its age. `ended`
+ * set means the run ended (null: the story left the office).
  */
 export function nowLine(options: {
   view: WorkView;
   ended: StoryView | null | undefined;
   worker: string | null;
-  verify: string | null;
   now: number;
   dot: string;
 }): string {
-  const { view, ended, worker, verify, now, dot } = options;
+  const { view, ended, worker, now, dot } = options;
   if (ended !== undefined) return endedLine(ended, dot);
-  const parts = [`now  ${healthLabel(view.health)}`, view.phase];
-  const newest = newestOutput(view, worker, verify);
-  if (newest !== null) {
-    parts.push(newest.source === "verify" ? `verify: ${newest.text}` : newest.text);
-  } else if (view.phase !== "verify") {
-    parts.push("no output yet");
-  }
+  const parts = [`now  ${healthLabel(view.health)}`, view.phase, worker ?? "no output yet"];
   const age = outputAge(view, now);
   if (age !== null) parts.push(age);
   return parts.join(` ${dot} `);
 }
 
 /**
- * The overview's `now:` text of a running row: `running verify · FAIL test/retry.test.ts · 12s
- * ago`. A run that asks the maintainer says `asking you` with the open question.
+ * The overview's `now:` text of a running row: `building · [tool] Edit src/app.ts · 12s ago`. A
+ * run with an open question says `asking you` with the question.
  */
 export function boardNow(options: {
   view: WorkView;
   worker: string | null;
-  verify: string | null;
   question: QuestionView | undefined;
   now: number;
   dot: string;
 }): string {
-  const { view, worker, verify, question, now, dot } = options;
+  const { view, worker, question, now, dot } = options;
   const age = outputAge(view, now);
-  if (view.health === "asking") {
-    const parts = ["asking you"];
-    if (question !== undefined) {
-      parts.push(question.kind === "permission" ? `permission: ${question.text}` : question.text);
-    }
-    return parts.join(` ${dot} `);
+  if (question !== undefined) {
+    const text = question.kind === "permission" ? `permission: ${question.text}` : question.text;
+    return ["asking you", text].join(` ${dot} `);
   }
-  const newest = newestOutput(view, worker, verify);
-  const parts = [phaseWord(view.phase), newest?.text ?? "no output yet"];
+  const parts = [phaseWord(view.phase), worker ?? "no output yet"];
   if (age !== null) parts.push(age);
   return parts.join(` ${dot} `);
 }

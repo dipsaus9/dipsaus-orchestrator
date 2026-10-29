@@ -1,34 +1,43 @@
-// Watchdog signals of a run (0009 section 3, 0008 section 3): `run_signals` rows, one per signal
-// raised, cleared when the condition ends. A signal is in effect while its row has no
-// `cleared_at`. The writers run inside the caller's immediate transaction; health is derived from
-// the signals in effect (`views/work.ts`), never stored.
+// The watchdog facts of a run (0009, 0008): `run_signals` rows, one per fact raised, cleared when
+// the condition ends. A fact is in effect while its row has no `cleared_at`. The words are the
+// evidence of `work.observed` (`no-output`, `same-failure`, `host-lost`, and `follow-only` while
+// that mode lasts); `stuck_at` marks a `no-output` that lasted past the stall wait. The writers run
+// inside the caller's immediate transaction; health is derived from the facts in effect
+// (`views/work.ts`), never stored.
 
 import type { RunId, WatchdogSignal } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
 
-/** One signal of a run as stored. */
+/** One fact of a run as stored. */
 export interface StoredSignal {
   readonly signal: WatchdogSignal;
   readonly since: number;
   readonly clearedAt: number | null;
+  /** For `no-output`: when the stall wait passed; null while the run is only quiet. */
+  readonly stuckAt: number | null;
 }
 
-/** The signals of `runId` in effect, oldest first. */
+/** The facts of `runId` in effect, oldest first. */
 export function activeSignals(office: OfficeHandle, runId: string): StoredSignal[] {
   return office
-    .all<{ signal: string; since: number }>(
-      `select signal, since from run_signals
+    .all<{ signal: string; since: number; stuck_at: number | null }>(
+      `select signal, since, stuck_at from run_signals
         where office_id = $office_id and run_id = $run and cleared_at is null
         order by since, signal`,
       { run: runId },
     )
-    .map((row) => ({ signal: row.signal, since: row.since, clearedAt: null }));
+    .map((row) => ({
+      signal: row.signal,
+      since: row.since,
+      clearedAt: null,
+      stuckAt: row.stuck_at,
+    }));
 }
 
 /**
- * Raises `signal` for the run at `at`, unless it is already in effect. Returns the stored signal,
- * or null when it was in effect already.
+ * Raises `signal` for the run at `at`, unless it is already in effect. Returns the stored fact, or
+ * null when it was in effect already.
  */
 export function raiseSignal(
   office: OfficeHandle,
@@ -41,10 +50,27 @@ export function raiseSignal(
     `insert into run_signals (office_id, run_id, signal, since) values ($office_id, $run, $signal, $at)`,
     { run: runId, signal, at },
   );
-  return { signal, since: at, clearedAt: null };
+  return { signal, since: at, clearedAt: null, stuckAt: null };
 }
 
-/** Clears the run's signals in `signals` that are in effect, at `at`; returns those it cleared. */
+/**
+ * Marks the run's `no-output` in effect stuck at `at`, raising it first when none is in effect.
+ * Returns the fact, or null when it was stuck already.
+ */
+export function markStuck(office: OfficeHandle, runId: RunId, at: number): StoredSignal | null {
+  const active =
+    activeSignals(office, runId).find((fact) => fact.signal === "no-output") ??
+    raiseSignal(office, runId, "no-output", at);
+  if (active === null || active.stuckAt !== null) return null;
+  office.run(
+    `update run_signals set stuck_at = $at
+      where office_id = $office_id and run_id = $run and signal = 'no-output' and since = $since`,
+    { run: runId, since: active.since, at },
+  );
+  return { ...active, stuckAt: at };
+}
+
+/** Clears the run's facts in `signals` that are in effect, at `at`; returns those it cleared. */
 export function clearSignals(
   office: OfficeHandle,
   runId: string,
@@ -62,5 +88,5 @@ export function clearSignals(
   return cleared.map((active) => ({ ...active, clearedAt: at }));
 }
 
-/** The signals the next line from the worker clears (0009 section 3). */
-export const LIVENESS_SIGNALS: readonly WatchdogSignal[] = ["quiet", "no-output"];
+/** The facts the next line from the worker clears (0009). */
+export const LIVENESS_SIGNALS: readonly WatchdogSignal[] = ["no-output"];

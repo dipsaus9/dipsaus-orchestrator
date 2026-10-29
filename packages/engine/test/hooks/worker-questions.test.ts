@@ -291,7 +291,7 @@ async function pass(ms: number): Promise<void> {
 }
 
 describe("a worker's question with a TUI connected (AC #1 and #2)", () => {
-  it("is asked live with its wait: a question linked to the run, question.asked and input-wait, and nothing parks", async () => {
+  it("is asked live with its wait: a question linked to the run and question.asked, no health of its own (0009), and nothing parks", async () => {
     const asked = w.f.t.clock.now();
     await blockedQuestion();
     expect(parks()).toEqual([]);
@@ -307,9 +307,8 @@ describe("a worker's question with a TUI connected (AC #1 and #2)", () => {
       waitUntil: asked + WAIT_MINUTES * MINUTE,
     });
     expect(types()).toContain("question.asked");
-    expect(activeSignals(w.f.office, w.f.run).map((signal) => signal.signal)).toEqual([
-      "input-wait",
-    ]);
+    expect(activeSignals(w.f.office, w.f.run)).toEqual([]);
+    expect(types()).not.toContain("work.observed");
   });
 
   it("sends an answer within the wait to the waiting worker as its next message and closes the question", async () => {

@@ -2,8 +2,8 @@
 // at the top (running, needs you, in review, Ready, waiting, and today at 120 columns), then
 // the sections RUNNING, NEEDS YOU, IN REVIEW and READY with the story title on every row; empty
 // sections are hidden. Each running row has a `now:` line: a phase word, the newest stored worker
-// line (the newest verify line in the verify phase) as stored, and its age. With nothing running
-// one line says why, from the stories the engine sent (dependencies, Ready gate rules, parks).
+// line as stored, and its age. With nothing running one line says why, from the stories the engine
+// sent (dependencies, Ready gate rules, parks).
 //
 // At 120 columns or more a running row shows role, tier, phase, health, criteria, loop, budget bar
 // with its share, elapsed time and model; from 80 to 119 phase, health, criteria and budget; from
@@ -297,7 +297,6 @@ function sections(options: {
     const nowText = boardNow({
       view,
       worker: latest?.line(view.work.run, "worker") ?? null,
-      verify: latest?.line(view.work.run, "verify") ?? null,
       question: state.questions.find((question) => question.work.run === view.work.run),
       now,
       dot,

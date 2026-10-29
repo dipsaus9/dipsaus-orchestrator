@@ -41,7 +41,7 @@ function golden(): OfficeSnapshot {
 
 /**
  * The approved proposal's scenario on top of the golden office: DIPO-26 parked on a permission,
- * DIPO-28 In Review, DIPO-19 asking a question, and DIPO-24's last output 12 s before the test
+ * DIPO-28 In Review, DIPO-19 quiet with an open question, and DIPO-24's last output 12 s before the test
  * clock (10:04:00).
  */
 function boardSnapshot(): OfficeSnapshot {
@@ -144,16 +144,16 @@ function outputEvent(seq: number, run: string, source: string, from: number, tex
 describe("office overview board", () => {
   it("shows the approved layout at 120 columns", async () => {
     const { ui } = await open(120, 30, boardSnapshot());
-    const frame = await ui.waitFor("running verify · expected 3, received 4");
+    const frame = await ui.waitFor("building · Step 39");
     expect(lines(frame)).toEqual([
       " dipsaus-orchestrator · daemon running · live",
       " 3 running · 2 needs you · 1 in review · Ready 2 · waiting 1",
       " RUNNING (3)",
       ">DIPO-21 Stream worker events to th… developer M  build   busy >     AC 4/7  loop 2/5  [####----] 52% 38m  claude-sonnet",
       "     now: building · no output yet",
-      " DIPO-24 Add verify retry            developer S  verify  looping @  AC 2/3  loop 2/3  [######--] 78% 22m  claude-sonnet",
-      "     now: running verify · expected 3, received 4 · 12s ago",
-      " DIPO-19 Review the merge slot       reviewer L   review  ASKING ?   AC 9/9  loop 1/8  [#-------] 18% 1h05 claude-opus",
+      " DIPO-24 Add verify retry            developer S  build   looping @  AC 2/3  loop 2/3  [######--] 78% 22m  claude-sonnet",
+      "     now: building · Step 39: retries now stop at the cap in src/notice.ts. · 12s ago",
+      " DIPO-19 Review the merge slot       reviewer L   review  quiet .    AC 9/9  loop 1/8  [#-------] 18% 1h05 claude-opus",
       "     now: asking you · Keep the old merge slot?",
       " NEEDS YOU (2)",
       " DIPO-29 Web client shell             parked 3d · by maintainer: after M2",
@@ -169,16 +169,16 @@ describe("office overview board", () => {
 
   it("drops role, loop and model from 80 to 119 columns", async () => {
     const { ui } = await open(80, 30, boardSnapshot());
-    const frame = await ui.waitFor("running verify · expected 3, received 4");
+    const frame = await ui.waitFor("building · Step 39");
     expect(lines(frame)).toEqual([
       " dipsaus-orchestrator · daemon running · live",
       " 3 running · 2 needs you · 1 in review · Ready 2 · waiting 1",
       " RUNNING (3)",
       ">DIPO-21 Stream worker events … build  busy >    AC 4/7 [####----] 52% 38m",
       "     now: building · no output yet",
-      " DIPO-24 Add verify retry       verify looping @ AC 2/3 [######--] 78% 22m",
-      "     now: running verify · expected 3, received 4 · 12s ago",
-      " DIPO-19 Review the merge slot  review ASKING ?  AC 9/9 [#-------] 18% 1h05",
+      " DIPO-24 Add verify retry       build  looping @ AC 2/3 [######--] 78% 22m",
+      "     now: building · Step 39: retries now stop at the cap in src/notice.ts. · 1…",
+      " DIPO-19 Review the merge slot  review quiet .   AC 9/9 [#-------] 18% 1h05",
       "     now: asking you · Keep the old merge slot?",
       " NEEDS YOU (2)",
       " DIPO-29 Web client shell        parked 3d · by maintainer: after M2",
@@ -194,9 +194,9 @@ describe("office overview board", () => {
 
   it("shows two-line cards from 60 to 79 columns with the now text on the second line", async () => {
     const { ui } = await open(70, 30, boardSnapshot());
-    const frame = await ui.waitFor("running verify · expected 3, received 4");
+    const frame = await ui.waitFor("building · Step 39");
     expect(frame).toContain(
-      " DIPO-24  looping @  verify  AC 2/3  loop 2/3  [######--] 78%  Add ve…\n   now: running verify · expected 3, received 4 · 12s ago",
+      " DIPO-24  looping @  build  AC 2/3  loop 2/3  [######--] 78%  Add ver…\n   now: building · Step 39: retries now stop at the cap in src/notice…",
     );
     expect(frame).toContain(" NEEDS YOU (2)");
     expect(frame).not.toContain("STORY");
@@ -248,28 +248,31 @@ describe("office overview board", () => {
 
   it("follows live output on the now line, and its age moves with the clock", async () => {
     const { ui, session, clock } = await open(120, 30, boardSnapshot());
-    await ui.waitFor("running verify · expected 3, received 4 · 12s ago");
+    await ui.waitFor("building · Step 39: retries now stop at the cap in src/notice.ts. · 12s ago");
     session.storeOutput(outputEvent(8, RUN_21, "worker", 0, "[tool] Edit src/stream.ts\n"));
     await ui.waitFor("now: building · [tool] Edit src/stream.ts");
     session.storeOutput(outputEvent(9, RUN_21, "worker", 26, "Streaming now works.\n"));
     await ui.waitFor("now: building · Streaming now works.");
-    // Verify output leads in the verify phase.
+    // Verify output no longer leads: verify runs in the box at the end of build (0002).
     const run24 = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24";
     const stored = session.output.get(`${run24}:verify`)!.length;
     session.storeOutput(outputEvent(10, run24, "verify", stored, "PASS test/retry.test.ts\n"));
-    await ui.waitFor("now: running verify · PASS test/retry.test.ts · 12s ago");
+    const worker = session.output.get(`${run24}:worker`)!.length;
+    session.storeOutput(outputEvent(11, run24, "worker", worker, "All checks pass.\n"));
+    await ui.waitFor("now: building · All checks pass. · 12s ago");
+    expect(ui.frame()).not.toContain("PASS test/retry.test.ts");
     clock.advance(60_000);
-    await ui.waitFor("now: running verify · PASS test/retry.test.ts · 1m ago", 2_000);
+    await ui.waitFor("now: building · All checks pass. · 1m ago", 2_000);
   });
 
   it("reads the stored tails once when the office opens, not on every render", async () => {
     const { ui, session } = await open(120, 30, boardSnapshot());
-    await ui.waitFor("expected 3, received 4");
+    await ui.waitFor("building · Step 39");
     const reads = () => session.reads.filter((read) => read.name === "work.outputRange").length;
     const before = reads();
-    // Three runs, worker and verify each: a read to the end and at most one empty read after it.
-    expect(before).toBeGreaterThanOrEqual(6);
-    expect(before).toBeLessThanOrEqual(12);
+    // Three runs, their worker output each: a read to the end and at most one empty read after it.
+    expect(before).toBeGreaterThanOrEqual(3);
+    expect(before).toBeLessThanOrEqual(6);
     await ui.press("j");
     await ui.press("k");
     await Bun.sleep(150);
@@ -279,7 +282,7 @@ describe("office overview board", () => {
   it("marks claimed values and shows the legend with the evidence capability", async () => {
     const { ui } = await open(120, 30, null, ["evidence"]);
     const frame = ui.frame();
-    expect(frame).toContain("verify  looping @  AC 2/3*  loop 2/3  [######--] 78%* 22m");
+    expect(frame).toContain("build   looping @  AC 2/3*  loop 2/3  [######--] 78%* 22m");
     expect(frame).toContain("* claimed ~ estimated ? none");
     for (const line of lines(frame)) expect(line.length).toBeLessThanOrEqual(120);
   });
@@ -558,7 +561,6 @@ describe("usage on the count line and in the switcher (DIPO-311)", () => {
     path: "/o",
     running: 0,
     parked: 0,
-    onHold: 0,
     waitingOnMaintainer: 0,
   };
 

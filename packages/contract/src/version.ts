@@ -99,4 +99,9 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // DIPO-349 removes the story worktree: `worktree` of `WorkerLaunchPreview`, `files` and `kept` of
 // the `story.losses` result, the office code `story.dirtyWorktree` and the `run.refused` check
 // `slots` go, and the desk kind `LEFTOVER WORKTREE` is added, in the same, still unreleased, minor.
+// DIPO-352 cuts health to the five states of 0009 (`asking` goes), the phase `verify` and the
+// watchdog signals `quiet` and `input-wait` (`no-output` stands behind both `quiet` and `stuck`),
+// removes `WorkView.signals` and `OfficeSummary.onHold`, adds `WorkView.followOnly` (until
+// DIPO-355), and renames the office code `story.notPausedOrParked` to `story.notParked`, in the same,
+// still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

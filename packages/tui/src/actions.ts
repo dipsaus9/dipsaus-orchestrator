@@ -16,7 +16,9 @@
 // the store read the office again after the reply, or once the maintainer switched office. An
 // error shows in the footer with the engine's message, so a prompt whose question or gate closed
 // meanwhile ends with `question.closed` or the gate's code; a retryable error offers Ctrl-R, which
-// sends the same request again with the same request id (0005 section 9).
+// sends the same request again with the same request id (0005 section 9). A reply with
+// `changed: false` ends at once with "already so; nothing changed", such as a resume of a story
+// that already runs.
 
 import { cursorReached, type OfficeStore } from "@dipsaus-orchestrator/client";
 import {
@@ -125,6 +127,8 @@ export interface ActionState {
   readonly error?: EngineError;
   /** What the reply adds to the done line, such as a test checkout. */
   readonly note?: string;
+  /** The reply said `changed: false`: the state already matched, and nothing was written (0005). */
+  readonly unchanged?: boolean;
 }
 
 /** The verb of each action in its label. */
@@ -358,6 +362,12 @@ export function useActions(deps: ActionDeps) {
         setAction({ label: sent.label, request, status: "failed", error: outcome.error });
         return;
       }
+      // `changed: false`: the state already matched and nothing was written, so there is no write to
+      // wait for (0005, 0009).
+      if (!outcome.changed) {
+        setAction({ label: sent.label, request, status: "done", unchanged: true });
+        return;
+      }
       const note = replyNote(sent, outcome.result);
       setAction({
         label: sent.label,
@@ -585,6 +595,7 @@ export function useActions(deps: ActionDeps) {
       case "syncing":
         return `${action.label}: answered, waiting for the office stream${ellipsis}`;
       case "done":
+        if (action.unchanged === true) return `${action.label}: already so; nothing changed`;
         return `${action.label}: done${action.note === undefined ? "" : `; ${action.note}`}`;
       case "failed":
         return `${action.label}: ${action.error?.code}: ${action.error?.message}`;

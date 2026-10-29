@@ -46,7 +46,6 @@ function summary(office: OfficeId, name: string, running = 0): OfficeSummary {
     path: `/work/${name}`,
     running,
     parked: 0,
-    onHold: 0,
     waitingOnMaintainer: 0,
   };
 }
@@ -122,7 +121,6 @@ function work(health: string, phase = "build"): WorkView {
       budgetShare: 0.02,
     },
     health,
-    signals: [],
     startedAt: AT,
   } as WorkView;
 }
@@ -178,12 +176,12 @@ describe("OfficeStore", () => {
     expect(client.active(stream).after).toEqual(cursor(stream, 5));
     expect(store.state.work.map((view) => view.health)).toEqual(["busy"]);
 
-    const phase = work("looping", "verify");
+    const phase = work("looping", "review");
     client.emit(
       stream,
       event(stream, 6, "work.phase", {
         work: phase.work,
-        phase: "verify",
+        phase: "review",
         progress: phase.progress,
         view: phase,
       }),

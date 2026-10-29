@@ -1,7 +1,7 @@
-// The watchdog (DIPO-52; 0008 section 3, 0009 section 3): the `stall` recording replayed through
-// ingestion on the manual clock writes `work.observed quiet` after `workerQuietMinutes` and
-// `no-output` after `workerStallMinutes`, health goes `quiet` then `stuck`, and the next line
-// clears both signals.
+// The watchdog (DIPO-52, DIPO-352; 0008, 0009): the `stall` recording replayed through ingestion on
+// the manual clock writes `work.observed no-output` after `workerQuietMinutes` and again, stuck,
+// after `workerStallMinutes`; health goes `quiet` then `stuck` on the one fact, and the next line
+// clears it.
 
 import { describe, expect, it } from "bun:test";
 
@@ -69,7 +69,7 @@ function eventsAfter(office: OfficeHandle, afterSeq: number): Rendered[] {
 }
 
 describe("watchdog", () => {
-  it("replays stall: quiet, then no-output and stuck, cleared by the next line", () =>
+  it("replays stall: no-output as quiet, then as stuck, cleared by the next line", () =>
     withTempDir(async (dir) => {
       const t = await openTestState(dir);
       try {
@@ -131,12 +131,14 @@ describe("watchdog", () => {
         t.clock.advance(17 * MINUTE);
         const stuck = workView(office, started.run);
         expect(stuck?.health).toBe("stuck");
-        expect(stuck?.signals.map((signal) => signal.signal)).toEqual(["quiet", "no-output"]);
+        expect(
+          activeSignals(office, started.run).map((fact) => [fact.signal, fact.stuckAt !== null]),
+        ).toEqual([["no-output", true]]);
         expect(appended).toBe(2);
 
         const observed = eventsAfter(office, seq).filter((event) => event.type === "work.observed");
         expect(observed.map((event) => [event.data["signal"], event.data["clearedAt"]])).toEqual([
-          ["quiet", undefined],
+          ["no-output", undefined],
           ["no-output", undefined],
         ]);
         // Each carries the work view at that moment, so a client never derives health.
@@ -145,7 +147,7 @@ describe("watchdog", () => {
           "stuck",
         ]);
 
-        // The next line clears both, in the pass that read it.
+        // The next line clears it, in the pass that read it.
         const before = readLogState(office).nextSeq - 1;
         appendLines(started.eventFile, lines.slice(gap, gap + 1));
         ingestor.pass(started.run, started.agent);
@@ -153,7 +155,7 @@ describe("watchdog", () => {
         const cleared = eventsAfter(office, before).filter(
           (event) => event.type === "work.observed",
         );
-        expect(cleared.map((event) => event.data["signal"])).toEqual(["quiet", "no-output"]);
+        expect(cleared.map((event) => event.data["signal"])).toEqual(["no-output"]);
         for (const event of cleared) {
           expect(event.data["clearedAt"]).toBe(new Date(t.clock.now()).toISOString());
           expect(WorkView.parse(event.data["view"]).health).toBe("busy");

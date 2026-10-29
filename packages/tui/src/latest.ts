@@ -1,4 +1,4 @@
-// The newest worker and verify line of every running run of the open office, for the overview's
+// The newest worker line of every running run of the open office, for the overview's
 // `now:` lines (DIPO-81). Each run and source has a small `OutputFeed` outside React: on open it
 // reads the stored tail with `work.outputRange`, as the live agent detail does, then follows the
 // store's `work.output` listener. Only the last few kilobytes are held; React keeps a version
@@ -15,7 +15,7 @@ import { lastLine, OutputFeed } from "./output";
 /** The bytes each feed keeps: enough for the last line. */
 export const NOW_TAIL_BYTES = 4 * 1024;
 
-const SOURCES: readonly OutputSource[] = ["worker", "verify"];
+const SOURCES: readonly OutputSource[] = ["worker"];
 
 export class LatestLines {
   readonly #read: ReadOutput;
@@ -37,7 +37,7 @@ export class LatestLines {
     this.#tailBytes = tailBytes;
   }
 
-  /** Follows exactly `runs`: a new run's tails are read, a run that left is dropped. */
+  /** Follows exactly `runs`: a new run's tail is read, a run that left is dropped. */
   follow(runs: readonly RunId[]): void {
     if (this.#closed) return;
     const wanted = new Set(runs.flatMap((run) => SOURCES.map((source) => `${run}:${source}`)));

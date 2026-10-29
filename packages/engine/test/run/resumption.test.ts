@@ -1,8 +1,9 @@
 // `work.resume` of `resumption.ts` (DIPO-138, DIPO-344, DIPO-359): a story parked with no run gets
 // its status back through the planning lane, every park with a run goes to the one resume path
-// (test/run/resume-parks.test.ts), and a story that is not parked answers story.notPausedOrParked,
-// also when a plan limit held its run before dipo paused starts instead. Driven on a migrated state
-// database with one story run, a fake planning lane, a fake unpark writer and a fake next session.
+// (test/run/resume-parks.test.ts), a story that already runs answers `changed: false` (0005), and
+// any other story that is not parked answers story.notParked, also when a plan limit held its run
+// before dipo paused starts instead. Driven on a migrated state database with one story run, a fake
+// planning lane, a fake unpark writer and a fake next session.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -10,7 +11,7 @@ import { join } from "node:path";
 
 import { type Lifecycle, StoryId, type StoryKey } from "@dipsaus-orchestrator/contract";
 
-import { insertPark } from "./park-fixture";
+import { insertPark, mirrorStory } from "./park-fixture";
 import { CommandError } from "../../src/commands/errors";
 import type { AsyncCommandContext } from "../../src/commands/registry";
 import {
@@ -199,9 +200,38 @@ describe("work.resume", () => {
     expect(w.sessions).toEqual([]);
   });
 
-  it("answers story.notPausedOrParked for a story that is not parked", async () => {
+  for (const status of ["In Progress", "In Review"] as const) {
+    it(`answers changed: false and changes nothing for a story that already runs (${status})`, async () => {
+      const { office } = w.f;
+      office.immediate(() => mirrorStory(office, { key: w.key, story: "DIPO-1", status }));
+      const before = office.get<{ seq: number }>(
+        "select max(seq) as seq from change_log where office_id = $office_id",
+      );
+      const reply = await resumption().resumeCommand(ctx(), { story: StoryId.parse("DIPO-1") });
+      expect(reply.changed).toBe(false);
+      expect(reply.result).toEqual({ story: "DIPO-1", key: w.key, to: status, run: w.f.run });
+      expect(
+        office.get<{ seq: number }>(
+          "select max(seq) as seq from change_log where office_id = $office_id",
+        ),
+      ).toEqual(before);
+      expect(w.sessions).toEqual([]);
+      expect(w.lifts).toEqual([]);
+      expect(w.holds).toEqual([]);
+    });
+  }
+
+  it("answers story.notParked for a Ready story", async () => {
+    w.f.office.immediate(() =>
+      mirrorStory(w.f.office, { key: w.key, story: "DIPO-1", status: "Ready" }),
+    );
     const error = await refusal(resumption());
-    expect(error?.error.code).toBe("story.notPausedOrParked");
+    expect(error?.error.code).toBe("story.notParked");
+  });
+
+  it("answers story.notParked for a story that is not parked", async () => {
+    const error = await refusal(resumption());
+    expect(error?.error.code).toBe("story.notParked");
     expect(error?.error.message).toBe("DIPO-1 is not parked, so there is nothing to resume.");
     expect(error?.error.details).toEqual({ story: "DIPO-1" });
   });
@@ -209,7 +239,7 @@ describe("work.resume", () => {
   it("no longer continues a run a plan limit held: work.resume resumes only parks (0020)", async () => {
     legacyHold();
     const error = await refusal(resumption());
-    expect(error?.error.code).toBe("story.notPausedOrParked");
+    expect(error?.error.code).toBe("story.notParked");
     expect(w.sessions).toEqual([]);
     expect(w.lifts).toEqual([]);
   });

@@ -83,7 +83,6 @@ function view(phase: string, criteriaMet: number): WorkView {
       budgetShare: 0.02,
     },
     health: "busy",
-    signals: [],
     startedAt: AT,
   });
 }

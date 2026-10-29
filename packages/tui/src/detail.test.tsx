@@ -85,8 +85,8 @@ describe("live agent detail", () => {
     expect(lines(ui.frame())).toEqual([
       " dipsaus-orchestrator · daemon running · live",
       " DIPO-24 Add verify retry · developer · S · claude-sonnet · run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
-      " now  looping @ · verify · verify: expected 3, received 4",
-      " phase    verify                     │ output (worker) [w]orker* [v]erify [i] prompt",
+      " now  looping @ · build · [tool] Edit src/retry.ts (live)",
+      " phase    build                      │ output (worker) [w]orker* [v]erify [i] prompt",
       " health   looping @                  │ [tool] Read src/retry.ts (step 25)",
       " loop     2/3                        │ [tool] Edit src/verify.ts (step 26)",
       " verify   failing                    │ Step 27: retries now stop at the cap in test/retry.test.ts.",
@@ -97,7 +97,7 @@ describe("live agent detail", () => {
       "          cw 0 cr 0                  │ [tool] Edit test/retry.test.ts (step 32)",
       "          turns 22                   │ Step 33: retries now stop at the cap in src/log.ts.",
       " budget   [######--] 78% of 300k     │ [tool] Read src/notice.ts (step 34)",
-      " signals  none                       │ [tool] Edit src/retry.ts (step 35)",
+      "                                     │ [tool] Edit src/retry.ts (step 35)",
       "                                     │ Step 36: retries now stop at the cap in src/verify.ts.",
       "                                     │ [tool] Read test/retry.test.ts (step 37)",
       "                                     │ [tool] Edit src/log.ts (step 38)",
@@ -118,15 +118,15 @@ describe("live agent detail", () => {
     for (const columns of [99, 80, 60]) {
       const { ui } = await openDetail({ columns });
       const frame = ui.frame();
-      expect(frame).toContain(" phase verify  health looping @  loop 2/3  verify failing");
+      expect(frame).toContain(" phase build  health looping @  loop 2/3  verify failing");
       expect(frame).toContain(" criteria 2/3  [x][x][ ]");
-      expect(frame).toContain(" signals: none");
+      expect(frame).not.toContain("signals");
       expect(frame).toContain(" output (worker)");
       for (const line of lines(frame)) expect(line.length).toBeLessThanOrEqual(columns);
     }
   });
 
-  it("shows usage, the budget bar, signals with their start time and evidence markers", async () => {
+  it("shows usage, the budget bar, health without a signals list and evidence markers", async () => {
     const view = await mount({ columns: 120, rows: 30, capabilities: ["evidence"] });
     mounted.push(view.ui);
     const { ui, session } = view;
@@ -138,19 +138,18 @@ describe("live agent detail", () => {
     const updated: WorkView = {
       ...base,
       health: "quiet",
-      signals: [{ signal: "quiet", since }],
       usage: { ...base.usage, run: { ...base.usage.run, estimatedCost: 0.84 } },
       evidence: { "usage.run.inputTokens": "claimed", "usage.run.estimatedCost": "estimated" },
     };
     session
       .active(STREAM)
       ?.options.onEvent(
-        event(8, "work.observed", { work: base.work, signal: "quiet", since, view: updated }),
+        event(8, "work.observed", { work: base.work, signal: "no-output", since, view: updated }),
       );
-    const frame = await ui.waitFor("quiet since");
-    const local = new Date(Date.parse(since));
-    const hhmm = `${String(local.getHours()).padStart(2, "0")}:${String(local.getMinutes()).padStart(2, "0")}`;
-    expect(frame).toContain(`signals  quiet since ${hhmm}`);
+    const frame = await ui.waitFor("health   quiet .");
+    // The watchdog fact is evidence on work.observed only; the detail shows the one health value.
+    expect(frame).not.toContain("signals");
+    expect(frame).not.toContain("no-output");
     expect(frame).toContain(" usage    in 210k* out 18k");
     expect(frame).toContain("          cw 6k cr 1.1M");
     expect(frame).toContain("          turns 31  ~$0.84");
@@ -204,7 +203,7 @@ describe("live agent detail", () => {
     await ui.press("k");
     let frame = await ui.waitFor("[End] follow tail");
     expect(frame).toContain("1 rows below");
-    expect(frame).not.toContain("Step 39:");
+    expect(frame).not.toContain("│ Step 39:");
     // No read yet: the pane still holds text above.
     expect(rangeReads(session)).toHaveLength(before);
 
@@ -287,20 +286,6 @@ describe("live agent detail", () => {
     await ui.press("later");
     await ui.press("enter");
     await ui.waitFor("park DIPO-24: story.notParkable: DIPO-24 is Done");
-  });
-
-  it("tags a follow-only run with [follow]", async () => {
-    const { ui, session } = await openDetail();
-    const base = golden24();
-    const since = "2026-10-14T10:03:00.000Z";
-    const view: WorkView = { ...base, signals: [{ signal: "follow-only", since }] };
-    session
-      .active(STREAM)
-      ?.options.onEvent(
-        event(8, "work.observed", { work: base.work, signal: "follow-only", since, view }),
-      );
-    const frame = await ui.waitFor("[follow]");
-    expect(frame).toMatch(/run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24 {2}\[follow\]$/m);
   });
 
   it("keeps the last view and output when the run ends, and says where the story went", async () => {
@@ -484,7 +469,7 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
     }
     const frame = await ui.waitFor("allow|deny");
     expect(lines(frame).slice(2, 7)).toEqual([
-      " now  looping @ · verify · verify: expected 3, received 4",
+      " now  looping @ · build · Step 39: retries now stop at the cap in src/notice.ts.",
       " ? question 4m ago · Which greeting should the CLI print?",
       `   answer: dipo answer ${Q1} <text>`,
       " ? permission 30s ago · Bash: rm -rf build",
