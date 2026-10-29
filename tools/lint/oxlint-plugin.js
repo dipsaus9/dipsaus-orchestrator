@@ -2,10 +2,10 @@
 // oxlint has no `no-restricted-syntax`, so `new Date()` without arguments needs its own rule;
 // `new Date(value)` stays allowed because it reads no clock.
 //
-// The engine seams (0004, 0008 section 1; DIPO-113) are rules of their own, not
-// `no-restricted-imports` patterns: an override replaces a rule's whole option list, so a ban
-// added to that rule would have to be repeated in every engine override. They are scoped by
-// `.oxlintrc.json` overrides: on for `packages/engine/src/**` (the Bun rules also for
+// The engine seams (0004, 0008 section 1; DIPO-113) and the StoryStore seam (0010) are rules of
+// their own, not `no-restricted-imports` patterns: an override replaces a rule's whole option
+// list, so a ban added to that rule would have to be repeated in every engine override. They are
+// scoped by `.oxlintrc.json` overrides: on for `packages/engine/src/**` (the Bun rules also for
 // `packages/daemon/src/**`), off where the seam allows the import.
 
 import { dirname, resolve } from "node:path";
@@ -21,6 +21,12 @@ const ENGINE_ENTRY = /\/packages\/engine\/src(\/index(\.[cm]?[jt]s)?)?$/;
 
 /** The engine package's own name; its entry re-exports the adapter. */
 const ENGINE_PACKAGE = "@dipsaus-orchestrator/engine";
+
+/** The Backlog.md StoryStore directory, as an absolute path a relative import resolves to. */
+const BACKLOG_DIR = /\/packages\/engine\/src\/backlog(\/|$)/;
+
+/** The Backlog.md directory as a deep path into the engine package. */
+const BACKLOG_DEEP = /^@dipsaus-orchestrator\/engine\/src\/backlog(\/|$)/;
 
 /** `bun` and every `bun:*` module but the test runner (0004 lists `bun:test` as a touchpoint). */
 const BUN = /^bun(:(?!test$).+)?$/;
@@ -87,6 +93,18 @@ function claudeCliMessage(specifier, filename) {
   }
   if (specifier === ENGINE_PACKAGE) return ENGINE_ENTRY_MESSAGE;
   return CLAUDE_CLI.test(specifier) ? CLAUDE_CLI_MESSAGE : null;
+}
+
+const BACKLOG_MESSAGE =
+  "The engine reads and writes stories only through the StoryStore (0010): import packages/engine/src/story-store and take the store as a dependency. Only the Backlog.md implementation in packages/engine/src/backlog and the composition root import backlog/.";
+
+/** A path into `engine/src/backlog`; relative paths are resolved from the importing file. */
+function backlogMessage(specifier, filename) {
+  if (specifier.startsWith(".")) {
+    const target = resolve(dirname(filename), specifier).replaceAll("\\", "/");
+    return BACKLOG_DIR.test(target) ? BACKLOG_MESSAGE : null;
+  }
+  return BACKLOG_DEEP.test(specifier) ? BACKLOG_MESSAGE : null;
 }
 
 const BUN_MESSAGE =
@@ -510,6 +528,10 @@ export default {
     "no-claude-cli-import": importRule(
       "Ban imports of the Claude CLI adapter, directly or through the engine entry, outside it and the entry.",
       claudeCliMessage,
+    ),
+    "no-backlog-import": importRule(
+      "Ban imports of the Backlog.md StoryStore implementation outside it and the composition root.",
+      backlogMessage,
     ),
     "no-bun-import": importRule(
       "Ban `bun` and `bun:*` imports (but `bun:test`) outside engine/src/platform.",
