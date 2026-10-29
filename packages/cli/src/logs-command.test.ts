@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import type { DaemonControl } from "./daemon-commands";
-import { fakeWorkspace } from "./fake-workspace";
+import { fakeWorkspace } from "../test/support/fake-workspace";
 import { main, type CliDeps } from "./index";
 import { LOGS_USAGE, parseLogsArgs } from "./logs-command";
 

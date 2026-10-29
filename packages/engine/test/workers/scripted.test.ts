@@ -5,7 +5,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { ClaudeWorkerEventSchema } from "../../src/workers/claude-cli/schema";
-import { ScriptedWorker, ScriptError, scriptProblems } from "../../src/workers/scripted";
+import { ScriptedWorker, ScriptError, scriptProblems } from "./scripted-worker";
 import type { ParseState, WorkerEvent, WorkerSpec } from "../../src/workers/types";
 import { scriptedWorker, SCRIPTS } from "./scripts";
 

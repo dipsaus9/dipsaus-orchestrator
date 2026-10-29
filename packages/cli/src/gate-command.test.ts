@@ -14,7 +14,7 @@ import {
   REPLY_TIMEOUT_MS,
   START_HINT,
 } from "./daemon-commands";
-import { type FakeWorkspaceOptions, fakeWorkspace } from "./fake-workspace";
+import { type FakeWorkspaceOptions, fakeWorkspace } from "../test/support/fake-workspace";
 import { GATE_TIMEOUT_MS } from "./gate-command";
 import { main, type CliDeps } from "./index";
 

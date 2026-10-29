@@ -4,9 +4,9 @@
 import { describe, expect, it } from "bun:test";
 
 import { NO_TTY_MESSAGE, runTui, type TuiDeps, type TuiSession } from "./run";
-import { FakeSession, OFFICES } from "./testing/fake-session";
-import { fakeTerminal, type FakeTerminal, stripAnsi } from "./testing/harness";
-import { TestClock } from "./testing/setup";
+import { FakeSession, OFFICES } from "../test/support/fake-session";
+import { fakeTerminal, type FakeTerminal, stripAnsi } from "../test/support/harness";
+import { TestClock } from "../test/support/setup";
 
 const ENTER_ALT = "\u001b[?1049h";
 const LEAVE_ALT = "\u001b[?1049l";

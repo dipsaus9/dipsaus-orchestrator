@@ -5,7 +5,7 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
 import { main } from "./index";
 import { connectFailure, releaseStdin, resolveTypedPath, workspaceOffice } from "./tui-command";
-import { fakeWorkspace } from "./fake-workspace";
+import { fakeWorkspace } from "../test/support/fake-workspace";
 
 describe("dipo tui", () => {
   it("hands its arguments to the TUI", async () => {

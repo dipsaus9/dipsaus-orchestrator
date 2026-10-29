@@ -15,7 +15,7 @@ import {
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import type { DaemonControl, DaemonSession } from "./daemon-commands";
-import { fakeWorkspace } from "./fake-workspace";
+import { fakeWorkspace } from "../test/support/fake-workspace";
 import { main, type CliDeps } from "./index";
 import { formatProfile, parseConfirm, splitCommands } from "./profile-commands";
 

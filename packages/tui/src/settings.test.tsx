@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 
 import type { Event } from "@dipsaus-orchestrator/contract";
 
-import { goldenHello, OFFICES } from "./testing/fake-session";
-import { mount } from "./testing/setup";
+import { goldenHello, OFFICES } from "../test/support/fake-session";
+import { mount } from "../test/support/setup";
 
 const mounted: { unmount(): Promise<void> }[] = [];
 

@@ -15,7 +15,7 @@ import { makeTempDir, ManualClock, removeTempDir } from "../../packages/testkit/
 import { DipoClient } from "../../packages/client/src/index";
 import { systemClock, unixSocketTransport } from "../../packages/client/src/node/index";
 import type { DaemonControl } from "../../packages/cli/src/daemon-commands";
-import { fakeWorkspace } from "../../packages/cli/src/fake-workspace";
+import { fakeWorkspace } from "../../packages/cli/test/support/fake-workspace";
 import { main, type CliDeps } from "../../packages/cli/src/index";
 import {
   FakeSurface,

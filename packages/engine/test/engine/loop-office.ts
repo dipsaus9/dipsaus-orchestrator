@@ -85,7 +85,7 @@ import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-che
 import { AdapterHolds } from "../../src/workers/hold";
 import type { WorkerPort } from "../../src/workers/port";
 import { stubReviewBoxes } from "../run/review-boxes";
-import { scriptProblems } from "../../src/workers/scripted";
+import { scriptProblems } from "../workers/scripted-worker";
 import type {
   ExitRecord,
   ParseState,

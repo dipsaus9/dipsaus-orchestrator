@@ -8,9 +8,9 @@ import { afterEach, describe, expect, it } from "bun:test";
 
 import type { EngineError, Event, StoryView } from "@dipsaus-orchestrator/contract";
 
-import { goldenSnapshots, OFFICES } from "./testing/fake-session";
-import type { FakeSession } from "./testing/fake-session";
-import { mount } from "./testing/setup";
+import { goldenSnapshots, OFFICES } from "../test/support/fake-session";
+import type { FakeSession } from "../test/support/fake-session";
+import { mount } from "../test/support/setup";
 
 const mounted: { unmount(): Promise<void> }[] = [];
 const STREAM = `office:${OFFICES.dipsaus}`;

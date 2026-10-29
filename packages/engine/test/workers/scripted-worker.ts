@@ -20,7 +20,7 @@ import type {
   WorkerEvent,
   WorkerResult,
   WorkerSpec,
-} from "./types";
+} from "../../src/workers/types";
 
 /** Anything with a zod-like `safeParse`; keeps this file free of adapter imports. */
 export interface EventSchema {

@@ -9,7 +9,7 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import type { DaemonControl, DaemonSession } from "./daemon-commands";
-import { fakeWorkspace } from "./fake-workspace";
+import { fakeWorkspace } from "../test/support/fake-workspace";
 import { main, type CliDeps } from "./index";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D" as OfficeId;

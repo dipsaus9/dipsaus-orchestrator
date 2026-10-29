@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
-import { fakeWorkspace } from "./fake-workspace";
+import { fakeWorkspace } from "../test/support/fake-workspace";
 import {
   connectFor,
   type ConnectWays,

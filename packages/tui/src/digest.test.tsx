@@ -5,8 +5,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
 import { digestLine } from "./digest";
-import { OFFICES } from "./testing/fake-session";
-import { mount } from "./testing/setup";
+import { OFFICES } from "../test/support/fake-session";
+import { mount } from "../test/support/setup";
 import { clockTime } from "./views";
 
 const mounted: { unmount(): Promise<void> }[] = [];
