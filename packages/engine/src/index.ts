@@ -8,7 +8,7 @@ export const packageName = "@dipsaus-orchestrator/engine";
 // The one factory and the engine it gives (0005).
 export { createEngine } from "./create/create-engine";
 export type { DaemonFacts, DatabaseCheck, Engine, EngineDeps, EnginePaths } from "./create/deps";
-export type { EngineSurface, OfficePage, Subscribed, SurfaceParts } from "./create/surface";
+export type { EngineSurface, OfficePage, Subscribed } from "./create/surface";
 export type { DrainCaps, DrainRequest, DrainResult } from "./create/drain";
 export type { RecoveryContext, RecoveryStep } from "./create/recovery";
 
@@ -27,22 +27,3 @@ export type { HostStarter } from "./run/launch";
 export type { Presence } from "./run/live-question";
 export type { PreparedWorker, RunLaunchPaths, SessionFacts, WorkerPort } from "./workers/port";
 export type { LaunchPlan, WorkerSpec } from "./workers/types";
-
-// For the daemon's tests, which build a surface from fixture parts over a socket and prepare state
-// files; `dipo/daemon-engine-imports` keeps the daemon's source from them.
-export { engineSurface } from "./create/surface";
-export { controlFeature, emitDaemonStates } from "./create/control";
-export { DaemonLifecycle } from "./create/lifecycle";
-export { OfficeChanges } from "./create/notify";
-export { newLogState } from "./changelog/log";
-export { renderDelta, Renderer } from "./changelog/render";
-export { stateOfficeDirectory } from "./commands/offices";
-export { MemoryRequestTable } from "./commands/requests";
-export { openStateDatabase, type StateDatabase } from "./db/database";
-export { engineRegistry, FEATURES } from "./features";
-export { createSystemIds } from "./platform/ids";
-export { helloFeature, noOfficeSummaries } from "./reads/hello";
-export { prepareRunTempDir, runTempOwner } from "./run/temp-dirs";
-export { SoftwareStream } from "./software-stream";
-export { recordTuiLeft } from "./views/digest";
-export { officeSummaryOfSource, officeSummarySource } from "./views/summary";

@@ -21,9 +21,6 @@ import type { RandomFill } from "../platform/ids";
 /** How many entries the software stream keeps (0006 decision 9). */
 export const SOFTWARE_STREAM_CAPACITY = 1000;
 
-// The stream name lives in the contract; the engine keeps its name for it.
-export { SOFTWARE_STREAM };
-
 export type SoftwareReplay =
   | { readonly ok: true; readonly events: readonly Event[]; readonly head: Cursor }
   | { readonly ok: false; readonly error: EngineError };

@@ -1,5 +1,4 @@
 export {
-  SOFTWARE_STREAM,
   SOFTWARE_STREAM_CAPACITY,
   SoftwareStream,
   type SoftwareListener,

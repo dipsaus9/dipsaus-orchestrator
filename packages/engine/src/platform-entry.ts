@@ -11,7 +11,6 @@
 export {
   acquireLock,
   helloHandshake,
-  PID_FILE,
   type HeldLock,
   type LockOutcome,
   type PidRecord,
@@ -23,7 +22,6 @@ export {
   passwdHome,
   readRuntimeRecord,
   resolveSoftwareDirs,
-  RuntimeDirError,
   runtimeCandidates,
   SOCKET_FILE,
   SoftwareDirError,
@@ -49,7 +47,6 @@ export {
   systemProcessProbe,
   systemSpawn,
   systemSpawnDetached,
-  type DetachedSpawnOptions,
   type ProcessIdentity,
   type SpawnDetached,
 } from "./platform/process";
@@ -81,9 +78,7 @@ export { LAUNCH_FILE, RUN_ID_PATTERN } from "./host/protocol";
 export { RUN_DIR_ENV } from "./runs/worker-hosts";
 export { BackupRestoreError, restoreBackup } from "./backup/restore";
 export {
-  SECURITY_CLI,
   storeBoxToken,
-  storeTokenArgs,
   TOKEN_KEYCHAIN_ACCOUNT,
   TOKEN_KEYCHAIN_SERVICE,
   type SpawnInteractive,

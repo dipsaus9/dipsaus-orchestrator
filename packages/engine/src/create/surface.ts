@@ -17,6 +17,7 @@ import {
   type OfficeSummary,
   type ReadReply,
   type ReadRequest,
+  SOFTWARE_STREAM,
   type StreamName,
 } from "@dipsaus-orchestrator/contract";
 
@@ -30,7 +31,7 @@ import type { MemoryRequestTable } from "../commands/requests";
 import type { Logger } from "../log/logger";
 import { executeRead } from "../reads/execute";
 import { contractUnsupported, type OfficeSummarySource } from "../reads/hello";
-import { SOFTWARE_STREAM, type SoftwareStream } from "../software-stream";
+import type { SoftwareStream } from "../software-stream";
 import type { DaemonLifecycle } from "./lifecycle";
 import type { OfficeChanges } from "./notify";
 
