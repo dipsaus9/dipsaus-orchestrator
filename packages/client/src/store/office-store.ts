@@ -6,7 +6,9 @@
 // `work.output` text is passed to `onOutput` listeners and never kept in the state (DIPO-55).
 // A stream the daemon ends with any other error than `stream.resetRequired` (such as
 // `engine.recovering` right after a daemon restart) is subscribed again after the store's last
-// cursor, so an open view keeps following (DIPO-322).
+// cursor, so an open view keeps following (DIPO-322): while the error is retryable on a backoff
+// from 250 ms doubling to 5 s, and at once when the daemon runs again or the client reconnected.
+// An error that does not retry stays in `streamError` until then (DIPO-327).
 //
 // Runtime-free like the rest of the client core: time comes from the injected clock.
 
@@ -62,6 +64,7 @@ import type { z } from "zod";
 import {
   ClientError,
   type ConnectionState,
+  RECONNECT_MAX_MS,
   type DipoClient,
   type HelloResult,
   type ReadOutcome,
@@ -76,6 +79,17 @@ export type StoreClient = Pick<DipoClient, "state" | "hello" | "onState" | "read
 export const RELOADED_NOTICE = "view reloaded (history gap)";
 
 const SOFTWARE = StreamName.parse("software");
+
+/** The longest wait before a stream ended with a retryable error is subscribed again (DIPO-327). */
+export const STREAM_RETRY_MAX_MS = RECONNECT_MAX_MS;
+
+/**
+ * The wait before stream retry `attempt` (0 for the first after the daemon ran again or the
+ * client reconnected): `RECOVERY_POLL_MS`, doubling to `STREAM_RETRY_MAX_MS` (DIPO-327).
+ */
+export function streamRetryDelay(attempt: number): number {
+  return Math.min(STREAM_RETRY_MAX_MS, RECOVERY_POLL_MS * 2 ** Math.max(0, attempt));
+}
 
 /**
  * One registered office. `summary` is the engine's `OfficeSummary`; it is absent for an office
@@ -134,6 +148,12 @@ export interface OfficeStoreState {
   readonly notice: string | null;
   /** The last failed read or ended subscription, until the next success. */
   readonly error: EngineError | null;
+  /**
+   * The error of a stream the daemon ended that is not subscribed again on the backoff, because
+   * the error does not retry (DIPO-327); null otherwise. A reconnect or a change of the daemon
+   * state subscribes it again and clears it.
+   */
+  readonly streamError: EngineError | null;
   /**
    * Why the daemon's state database is unavailable (DIPO-111), from a `database.unavailable` answer;
    * null otherwise. Kept across office switches; cleared by `draining` and by a fresh `engine.hello`
@@ -203,8 +223,8 @@ export class OfficeStore {
   #state: OfficeStoreState;
 
   #software: Subscription | null = null;
-  /** The software stream ended with an error other than `stream.resetRequired`; see `#resume`. */
-  #softwareEnded = false;
+  /** The error the software stream ended with, other than `stream.resetRequired`; see `#resume`. */
+  #softwareEnded: EngineError | null = null;
   #officeSub: Subscription | null = null;
   /**
    * Identifies the current office subscription: its callbacks act only while it is this one. A
@@ -215,11 +235,14 @@ export class OfficeStore {
    * The selected office's stream, ended by the daemon with an error other than
    * `stream.resetRequired` (DIPO-322). A daemon that restarts answers the client's re-sent
    * subscription with `engine.recovering` until it has recovered its offices; the store then
-   * subscribes again after its last cursor every `RECOVERY_POLL_MS` while the error is
-   * retryable, at once when the daemon leaves `recovering`, and after every reconnect.
+   * subscribes again after its last cursor on the backoff while the error is retryable, at once
+   * when the daemon leaves `recovering`, and after every reconnect.
    */
   #ended: { readonly office: OfficeId; readonly error: EngineError } | null = null;
+  /** The one retry timer of both streams (DIPO-327). */
   #resubscribeTimer: TimerHandle | null = null;
+  /** Stream retries since the daemon last ran again or the client reconnected (DIPO-327). */
+  #retries = 0;
   /** The last stored cursor applied, per stream. */
   readonly #last = new Map<StreamName, Cursor>();
   /** Bumped on every office change; replies for an older one are dropped. */
@@ -252,6 +275,7 @@ export class OfficeStore {
       notice: null,
       snapshots: 0,
       error: null,
+      streamError: null,
       database: null,
     };
   }
@@ -436,7 +460,6 @@ export class OfficeStore {
     this.#officeSub = null;
     this.#officeToken = null;
     this.#ended = null;
-    this.#clearResubscribeTimer();
     previous?.unsubscribe();
     const stream = StreamName.parse(`office:${office}`);
     for (const key of this.#last.keys()) if (key !== SOFTWARE) this.#last.delete(key);
@@ -493,7 +516,7 @@ export class OfficeStore {
    * The daemon ended the office stream (DIPO-322): the view says it is no longer live and the
    * store subscribes again later, so an open view keeps following once the daemon serves it. A
    * repeated refusal with the same error publishes nothing, so a daemon that stays in
-   * `recovering` does not make listeners render every `RECOVERY_POLL_MS`.
+   * `recovering` does not make listeners render on every retry.
    */
   #officeEnded(office: OfficeId, error: EngineError): void {
     const unchanged =
@@ -503,30 +526,60 @@ export class OfficeStore {
     if (!unchanged) {
       this.#update({ error, live: false, ...(database === undefined ? {} : { database }) });
     }
-    if (error.retryable) {
-      this.#clearResubscribeTimer();
-      this.#resubscribeTimer = this.#clock.setTimeout(() => {
-        this.#resubscribeTimer = null;
-        this.#resume();
-      }, RECOVERY_POLL_MS);
+    if (error.retryable) this.#scheduleRetry();
+  }
+
+  /**
+   * Subscribes again to what the daemon ended with a retryable error after the backoff:
+   * `streamRetryDelay` of the retries so far (DIPO-327). One timer serves both streams; a retry
+   * that already waits is left as it is, so two streams ended together advance the backoff once.
+   */
+  #scheduleRetry(): void {
+    if (this.#closed || this.#resubscribeTimer !== null) return;
+    const delay = streamRetryDelay(this.#retries);
+    this.#retries += 1;
+    this.#resubscribeTimer = this.#clock.setTimeout(() => {
+      this.#resubscribeTimer = null;
+      this.#resume(true);
+    }, delay);
+  }
+
+  /** The daemon runs again or the client reconnected: subscribe again now, the backoff starts over. */
+  #resumeNow(): void {
+    this.#retries = 0;
+    this.#resume();
+  }
+
+  /** The error of an ended stream that is not subscribed again on the backoff (DIPO-327). */
+  #streamError(): EngineError | null {
+    for (const error of [this.#softwareEnded, this.#ended?.error ?? null]) {
+      if (error !== null && !error.retryable) return error;
     }
+    return null;
   }
 
   /**
    * Subscribes again to what the daemon ended: the selected office's stream after its last
-   * cursor (DIPO-322), and the software stream after its own. A no-op while nothing ended.
+   * cursor (DIPO-322), and the software stream after its own. A no-op while nothing ended. The
+   * backoff timer passes `retryableOnly`: a stream whose error does not retry stays ended.
    */
-  #resume(): void {
+  #resume(retryableOnly = false): void {
     if (this.#closed || this.#client.state === "closed") return;
-    if (this.#softwareEnded && this.#software === null) {
-      this.#softwareEnded = false;
-      this.#subscribeSoftware(this.#last.get(SOFTWARE));
+    this.#clearResubscribeTimer();
+    const shown = this.#state.streamError;
+    const due = (error: EngineError) => !retryableOnly || error.retryable;
+    const softwareEnded = this.#softwareEnded;
+    if (softwareEnded !== null && due(softwareEnded) && this.#software === null) {
+      this.#softwareEnded = null;
+      this.#subscribeSoftware(this.#last.get(SOFTWARE), softwareEnded);
     }
     const ended = this.#ended;
-    if (ended === null || this.#officeSub !== null) return;
-    this.#ended = null;
-    this.#clearResubscribeTimer();
-    if (this.#state.office === ended.office) this.#follow(ended.office);
+    if (ended !== null && due(ended.error) && this.#officeSub === null) {
+      this.#ended = null;
+      if (this.#state.office === ended.office) this.#follow(ended.office);
+    }
+    // A stream error the header showed is gone once its stream is subscribed again.
+    if (shown !== null && this.#streamError() === null) this.#update({});
   }
 
   #clearResubscribeTimer(): void {
@@ -551,23 +604,36 @@ export class OfficeStore {
 
   // The software stream
 
-  #subscribeSoftware(after: Cursor | undefined): void {
+  /** `ended` is the error the ended subscription left; it is cleared once this one caught up. */
+  #subscribeSoftware(after: Cursor | undefined, ended: EngineError | null = null): void {
     if (after !== undefined) this.#last.set(SOFTWARE, after);
     this.#software = this.#client.subscribe(SOFTWARE, {
       ...(after === undefined ? {} : { after }),
       onEvent: (event) => this.apply(event),
       onCaughtUp: () => {
-        if (this.#state.office === null) this.#update({ live: true, offlineSince: null });
+        const cleared = ended !== null && this.#state.error === ended;
+        if (this.#state.office === null) {
+          this.#update({ live: true, offlineSince: null, ...(cleared ? { error: null } : {}) });
+        } else if (cleared) this.#update({ error: null });
       },
       onEnded: (error) => {
         this.#software = null;
         if (error.code === "stream.resetRequired") void this.#reloadSoftware();
-        else {
-          this.#softwareEnded = true;
-          this.#update({ error });
-        }
+        else this.#softwareEndedWith(error);
       },
     });
+  }
+
+  /**
+   * The daemon ended the software stream with `error` (DIPO-327): subscribed again on the
+   * backoff while it is retryable, like the office stream. A repeated refusal with the same error
+   * publishes nothing.
+   */
+  #softwareEndedWith(error: EngineError): void {
+    const unchanged = JSON.stringify(this.#state.error) === JSON.stringify(error);
+    this.#softwareEnded = error;
+    if (!unchanged) this.#update({ error });
+    if (error.retryable) this.#scheduleRetry();
   }
 
   async #reloadSoftware(): Promise<void> {
@@ -577,8 +643,7 @@ export class OfficeStore {
     });
     if (this.#closed) return;
     if (!hello.ok) {
-      this.#softwareEnded = true;
-      this.#update({ error: hello.error });
+      this.#softwareEndedWith(hello.error);
       return;
     }
     this.#last.delete(SOFTWARE);
@@ -646,7 +711,7 @@ export class OfficeStore {
         const retry = this.#retry;
         if (to === "running" && retry !== null) void this.#load(retry.office, retry.read);
         // Out of `recovering`, the daemon serves office streams again (DIPO-322).
-        if (to === "running" || to === "safe") this.#resume();
+        if (to === "running" || to === "safe") this.#resumeNow();
         if (to === "recovering" && this.#state.office === null) void this.#probeDatabase();
         return;
       }
@@ -795,7 +860,8 @@ export class OfficeStore {
       const hello = this.#client.hello;
       if (hello !== null) this.#applyHello(hello);
       // After the client re-sent its subscriptions on the new connection: what the daemon ended
-      // is no longer among them (DIPO-322).
+      // is no longer among them (DIPO-322). The backoff starts over at once (DIPO-327).
+      this.#retries = 0;
       queueMicrotask(() => this.#resume());
     }
     this.#update({ connection });
@@ -803,7 +869,8 @@ export class OfficeStore {
 
   #update(patch: Partial<OfficeStoreState>): void {
     if (this.#closed) return;
-    this.#state = { ...this.#state, ...patch };
+    // `streamError` follows the ended streams; it is never patched on its own.
+    this.#state = { ...this.#state, ...patch, streamError: this.#streamError() };
     for (const listener of this.#listeners) listener();
   }
 }

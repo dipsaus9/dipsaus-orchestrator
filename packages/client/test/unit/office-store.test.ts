@@ -1,7 +1,10 @@
 // The `OfficeStore` (DIPO-53, 0009 sections 2 and 7): snapshot then events by subject, duplicate
 // cursors dropped, views replaced and never derived, `stream.resetRequired` reloads once, and
 // `office.switch` replaces the office and its stream. A read refused with `engine.recovering` is
-// sent again on a timer, so a daemon held without its state database ends it (DIPO-111).
+// sent again on a timer, so a daemon held without its state database ends it (DIPO-111). A stream
+// ended with a retryable error is subscribed again on a backoff from 250 ms to 5 s that starts
+// over when the daemon runs or the client reconnects; one that does not retry stays in
+// `streamError` (DIPO-327).
 
 import { describe, expect, it } from "bun:test";
 
@@ -24,6 +27,8 @@ import {
   OfficeStore,
   RECOVERY_POLL_MS,
   RELOADED_NOTICE,
+  STREAM_RETRY_MAX_MS,
+  streamRetryDelay,
 } from "../../src/index";
 import { FakeStoreClient, settle } from "./fake-store-client";
 
@@ -629,5 +634,141 @@ describe("OfficeStore database line (DIPO-120)", () => {
     await settle();
     expect(store.state.daemon).toBe("running");
     expect(store.state.database).toBeNull();
+  });
+});
+
+/** How many subscriptions to `stream` the store made. */
+function subscribes(client: FakeStoreClient, stream: string): number {
+  return client.subscriptions.filter((subscription) => subscription.stream === stream).length;
+}
+
+describe("OfficeStore stream retry backoff (DIPO-327)", () => {
+  const recovering = { code: "engine.recovering", message: "wait", retryable: true };
+  const internal = { code: "internal", message: "the stream broke", retryable: false };
+  const OFFICE_STREAM = `office:${A}`;
+
+  /**
+   * Ends `stream` with `error` `times` times and returns the wait before each new subscription,
+   * stepping the manual clock 50 ms at a time.
+   */
+  function delays(
+    client: FakeStoreClient,
+    clock: ManualClock,
+    stream: string,
+    times: number,
+    error = recovering,
+  ): number[] {
+    const waited: number[] = [];
+    for (let i = 0; i < times; i++) {
+      const before = subscribes(client, stream);
+      client.end(stream, error);
+      let ms = 0;
+      while (subscribes(client, stream) === before) {
+        if (ms > 60_000) throw new Error(`${stream} was not subscribed again`);
+        clock.advance(50);
+        ms += 50;
+      }
+      waited.push(ms);
+    }
+    return waited;
+  }
+
+  it("waits 250 ms, doubling to at most 5 s", () => {
+    expect([0, 1, 2, 3, 4, 5, 6, 30].map(streamRetryDelay)).toEqual([
+      250, 500, 1_000, 2_000, 4_000, 5_000, 5_000, 5_000,
+    ]);
+    expect(STREAM_RETRY_MAX_MS).toBe(5_000);
+  });
+
+  it("subscribes the office stream again after its last cursor on the backoff", async () => {
+    const { client, clock, store } = await setup();
+    client.emit(OFFICE_STREAM, event(OFFICE_STREAM, 6, "question.closed", { question: "q" }));
+    expect(delays(client, clock, OFFICE_STREAM, 7)).toEqual([
+      250, 500, 1_000, 2_000, 4_000, 5_000, 5_000,
+    ]);
+    expect(client.active(OFFICE_STREAM).after).toEqual(cursor(OFFICE_STREAM, 6));
+    expect(store.state.streamError).toBeNull();
+  });
+
+  it("starts over at 250 ms once the daemon runs again, which subscribes at once", async () => {
+    const { client, clock } = await setup();
+    expect(delays(client, clock, OFFICE_STREAM, 4)).toEqual([250, 500, 1_000, 2_000]);
+    client.end(OFFICE_STREAM, recovering);
+    const before = subscribes(client, OFFICE_STREAM);
+    client.emit(
+      "software",
+      event("software", 11, "daemon.state", { from: "recovering", to: "running" }),
+    );
+    expect(subscribes(client, OFFICE_STREAM)).toBe(before + 1);
+    // The 4 s retry that was waiting is gone: nothing more subscribes.
+    clock.advance(10_000);
+    expect(subscribes(client, OFFICE_STREAM)).toBe(before + 1);
+    expect(delays(client, clock, OFFICE_STREAM, 2)).toEqual([250, 500]);
+  });
+
+  it("starts over at 250 ms after a reconnect, which subscribes at once", async () => {
+    const { client, clock } = await setup();
+    expect(delays(client, clock, OFFICE_STREAM, 4)).toEqual([250, 500, 1_000, 2_000]);
+    client.end(OFFICE_STREAM, recovering);
+    const before = subscribes(client, OFFICE_STREAM);
+    client.setState("reconnecting");
+    client.setState("open");
+    await settle();
+    expect(subscribes(client, OFFICE_STREAM)).toBe(before + 1);
+    expect(delays(client, clock, OFFICE_STREAM, 2)).toEqual([250, 500]);
+  });
+
+  it("subscribes the software stream again after its last cursor on the same backoff", async () => {
+    const { client, clock, store } = await setup();
+    client.emit("software", event("software", 12, "office.forgotten", { office: B }));
+    expect(delays(client, clock, "software", 4)).toEqual([250, 500, 1_000, 2_000]);
+    expect(client.active("software").after).toEqual(cursor("software", 12));
+    expect(store.state.error?.code).toBe("engine.recovering");
+    client.active("software").options.onCaughtUp?.(cursor("software", 12));
+    expect(store.state.error).toBeNull();
+  });
+
+  it("subscribes both streams again on one timer when they end together", async () => {
+    const { client, clock } = await setup();
+    client.end("software", recovering);
+    client.end(OFFICE_STREAM, recovering);
+    expect(clock.pendingTimers).toBe(1);
+    clock.advance(250);
+    expect(subscribes(client, "software")).toBe(2);
+    expect(subscribes(client, OFFICE_STREAM)).toBe(2);
+  });
+
+  it("keeps a stream error that does not retry in streamError until a reconnect", async () => {
+    const { client, clock, store } = await setup();
+    client.end(OFFICE_STREAM, internal);
+    expect(store.state.streamError).toEqual(internal);
+    expect(store.state.live).toBe(false);
+    clock.advance(60_000);
+    expect(subscribes(client, OFFICE_STREAM)).toBe(1);
+    // A retryable end of the other stream does not take the office stream along on its timer.
+    client.end("software", recovering);
+    clock.advance(250);
+    expect(subscribes(client, "software")).toBe(2);
+    expect(subscribes(client, OFFICE_STREAM)).toBe(1);
+    expect(store.state.streamError).toEqual(internal);
+
+    client.setState("reconnecting");
+    client.setState("open");
+    await settle();
+    expect(subscribes(client, OFFICE_STREAM)).toBe(2);
+    expect(store.state.streamError).toBeNull();
+  });
+
+  it("keeps a software stream error that does not retry until a reconnect", async () => {
+    const { client, clock, store } = await setup();
+    client.end("software", internal);
+    expect(store.state.streamError).toEqual(internal);
+    clock.advance(60_000);
+    expect(subscribes(client, "software")).toBe(1);
+    client.setState("reconnecting");
+    client.setState("open");
+    await settle();
+    expect(subscribes(client, "software")).toBe(2);
+    expect(store.state.streamError).toBeNull();
   });
 });
