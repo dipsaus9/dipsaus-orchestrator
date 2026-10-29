@@ -35,6 +35,8 @@ WorkerResult = { exit: "normal" | "capped" | "plan-limit" | "crashed" | "start-f
 
 The adapter reports facts. The engine decides phase, feedback, commits and parks, and maps a result to how the run ends (0020).
 
+The engine names no tools. The adapter names each kind's tools: the developer's, plus web search and fetch when `web` is on; the reviewer's read and web tools; none for a session. `web` is the developer's switch: the adapter refuses it on a review or session spec, and refuses a kind it names no tools for.
+
 ## 2. The box
 
 **Technology.** Apple `container`: each box is its own VM with its own kernel. The engine reaches it through one box interface (`engine/src/box/`), so another backend can be added later without changing this design. Every call except the live session has a deadline.

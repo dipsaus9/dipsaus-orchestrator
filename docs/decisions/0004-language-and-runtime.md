@@ -43,12 +43,12 @@ These are lint rules in `.oxlintrc.json` and `tools/lint/`, proven by `test/lint
 
 - Each package imports only the packages the table above allows, and `testkit` only from tests. The bans hold for every import form: static, type-only, a dynamic `import()`, `require` and `import.meta.require`. One rule holds the list.
 - `tui`, `client` and `cli` never import `engine`. `cli` reaches the daemon only through `runDaemon`, and loads `daemon` and `tui` only in the subcommands that use them.
-- No package imports another package's internals (`@dipsaus-orchestrator/*/src/*`), by package specifier or by relative path. The repository's cross-package tests in `test/` and its tools in `tools/` are no package and may read package files by path.
+- No file imports a package's internals by package specifier (`@dipsaus-orchestrator/*/src/*`), and no package reaches another package's files by relative path. Outside the packages, only the cross-package tests in `test/`, the tools in `tools/` and the CI scripts in `scripts/` read package files by relative path; none of them is shipped.
 - `contract` imports nothing but zod, in every source file.
 - `engine` never imports `daemon`, `client`, `tui` or `cli`, and finds no file of theirs by path.
 - Inside `engine`, a file imports values only from its own layer or a lower one: the base (platform, git, config, log and the other directories nothing in the engine sits below), the domain, and the composition root (`create/` and the entries). The layers are listed once, in the lint plugin.
 - Inside `engine` and `daemon`, only `engine/src/platform/**` touches `bun`, `bun:*` (except `bun:test`) or the global `Bun`.
-- Inside `engine`, only `workers/claude-cli/**` imports the Claude adapter or names Claude's tools and model aliases. The office configuration's model defaults are the one exception.
+- Inside `engine`, only `workers/claude-cli/**` imports the Claude adapter. No other source file of any package names Claude's tools or model aliases, in code or in prose; the office configuration's model defaults are the one exception.
 - `daemon` imports from `engine` only `createEngine`, types and the engine's platform entry (0005).
 - `client`'s main entry uses no Bun or Node API.
 - No runtime import cycles (`import/no-cycle`, type-only cycles allowed).
