@@ -193,7 +193,7 @@ describe("databaseFailure", () => {
       );
       expect(failure.details).toEqual({ reason: "migration", backup });
       expect(failure.text).toBe(
-        `Migration 30 of the state database failed and was rolled back (no such table: agents), so dipo.db was left as it was. No office is loaded. This dipo cannot migrate it: run \`dipo daemon stop\`, then go back to the previous dipo version or upgrade to a release with a fixed migration, and start the daemon again. Copy the backup ${backup} over dipo.db only if dipo.db itself is suspect.`,
+        `Migration 30 of the state database failed and was rolled back (no such table: agents), so dipo.db was left as it was. No office is loaded. This dipo cannot migrate it: run \`dipo daemon stop\`, then go back to the previous dipo version or upgrade to a release with a fixed migration, and start the daemon again. Copy the backup ${backup} over dipo.db, after deleting dipo.db-wal and dipo.db-shm, only if dipo.db itself is suspect.`,
       );
       rmSync(backup);
       expect(
@@ -212,7 +212,7 @@ describe("databaseFailure", () => {
       );
       expect(checked.details).toEqual({ reason: "damaged", backup });
       expect(checked.text).toBe(
-        `The state database is damaged (PRAGMA quick_check reported: Tree 5 page 5: btreeInitPage error 11). No office is loaded. Run \`dipo daemon stop\`, move ${join(dir, "dipo.db")} away or copy ${backup} over it, then start the daemon again.`,
+        `The state database is damaged (PRAGMA quick_check reported: Tree 5 page 5: btreeInitPage error 11). No office is loaded. Run \`dipo daemon stop\`, move ${join(dir, "dipo.db")} and its -wal and -shm files away, or delete those two files and copy ${backup} over ${join(dir, "dipo.db")}, then start the daemon again.`,
       );
       const notADatabase = Object.assign(new Error("file is not a database"), {
         code: "SQLITE_NOTADB",
@@ -231,7 +231,7 @@ describe("databaseFailure", () => {
       const failure = databaseFailure(new IntegrityCheckError(join(dir, "dipo.db"), ["x"]), dir);
       expect(failure.details).toEqual({ reason: "damaged" });
       expect(failure.text).toContain(
-        `Run \`dipo daemon stop\`, move ${join(dir, "dipo.db")} away (${join(dir, "backups")} holds no backup), then start the daemon again; \`dipo office open\` registers each repository again.`,
+        `Run \`dipo daemon stop\`, move ${join(dir, "dipo.db")} and its -wal and -shm files away (${join(dir, "backups")} holds no backup), then start the daemon again; \`dipo office open\` registers each repository again.`,
       );
     }));
 
@@ -266,7 +266,7 @@ describe("databaseFailure", () => {
       const other = databaseFailure(new Error("EACCES: permission denied"), dir);
       expect(other.details).toEqual({ reason: "open", backup });
       expect(other.text).toBe(
-        `The state database could not be opened (EACCES: permission denied). No office is loaded. Run \`dipo daemon stop\`, move ${join(dir, "dipo.db")} away or copy ${backup} over it, then start the daemon again.`,
+        `The state database could not be opened (EACCES: permission denied). No office is loaded. Run \`dipo daemon stop\`, move ${join(dir, "dipo.db")} and its -wal and -shm files away, or delete those two files and copy ${backup} over ${join(dir, "dipo.db")}, then start the daemon again.`,
       );
     }));
 });

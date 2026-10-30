@@ -341,7 +341,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               "go back to the previous dipo version or upgrade to a release with a fixed migration",
             );
             expect(status.stateReason).toContain(
-              `Copy the backup ${backup} over dipo.db only if dipo.db itself is suspect.`,
+              `Copy the backup ${backup} over dipo.db, after deleting dipo.db-wal and dipo.db-shm, only if dipo.db itself is suspect.`,
             );
             expect(await stopOverSocket(dir, failing)).toBe(0);
           } finally {
@@ -402,7 +402,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               "The state database is damaged (PRAGMA quick_check reported: ",
             );
             expect(status.stateReason).toContain(
-              `Run \`dipo daemon stop\`, move ${join(dir, "state", "dipo.db")} away or copy ${backup} over it, then start the daemon again.`,
+              `Run \`dipo daemon stop\`, move ${join(dir, "state", "dipo.db")} and its -wal and -shm files away, or delete those two files and copy ${backup} over ${join(dir, "state", "dipo.db")}, then start the daemon again.`,
             );
             expect(await stopOverSocket(dir, damaged)).toBe(0);
           } finally {

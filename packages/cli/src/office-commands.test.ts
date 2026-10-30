@@ -620,7 +620,7 @@ describe("a command against a recovering daemon", () => {
     const unavailable = {
       code: "database.unavailable",
       message:
-        "The state database is damaged. No office is loaded. Run `dipo daemon stop`, move /s/dipo.db away or copy /s/backups/pre-v3-20261015T090000.db over it, then start the daemon again.",
+        "The state database is damaged. No office is loaded. Run `dipo daemon stop`, move /s/dipo.db and its -wal and -shm files away, or delete those two files and copy /s/backups/pre-v3-20261015T090000.db over /s/dipo.db, then start the daemon again.",
       retryable: false,
       details: { reason: "damaged", backup: "/s/backups/pre-v3-20261015T090000.db" },
     };

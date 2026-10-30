@@ -172,6 +172,18 @@ describe("validation", () => {
     expect(moved[0]?.message).toEndWith(NEWER_DIPO);
   });
 
+  it("refuses a retention tier key in a version 14 local file and says why it is gone", () => {
+    const [error, ...rest] = errors(
+      resolveOfficeConfig({ local: "version: 14\nretention: { shortDays: 3 }\n" }),
+    );
+    expect(rest).toEqual([]);
+    expect(error?.file).toBe(".dipo/office.local.yaml");
+    expect(error?.path).toBe("retention.shortDays");
+    expect(error?.message).toBe(
+      ".dipo/office.local.yaml: retention.shortDays: unknown key; version 14 removed retention.shortDays, because one retention rule, retention.days, replaced the two tiers (0007). Delete it",
+    );
+  });
+
   it("names the expected type of a wrong type", () => {
     expect(
       errors(

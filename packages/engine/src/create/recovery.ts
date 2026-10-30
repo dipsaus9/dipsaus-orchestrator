@@ -154,14 +154,15 @@ function messageOf(error: unknown): string {
 
 /**
  * Recovery by hand (0007): stop the daemon, move `dipo.db` away or copy the pre-migration backup in,
- * then start. Losing the file loses run history only; the next start rebuilds the rest.
+ * then start. Its `-wal` and `-shm` files go too, so a stale log is never replayed over the copy.
+ * Losing the file loses run history only; the next start rebuilds the rest.
  */
 function restoreSteps(stateDir: string, backup: string | null): string {
   const db = join(stateDir, "dipo.db");
   if (backup !== null) {
-    return `Run \`dipo daemon stop\`, move ${db} away or copy ${backup} over it, then start the daemon again.`;
+    return `Run \`dipo daemon stop\`, move ${db} and its -wal and -shm files away, or delete those two files and copy ${backup} over ${db}, then start the daemon again.`;
   }
-  return `Run \`dipo daemon stop\`, move ${db} away (${backupsDirectory(db)} holds no backup), then start the daemon again; \`dipo office open\` registers each repository again.`;
+  return `Run \`dipo daemon stop\`, move ${db} and its -wal and -shm files away (${backupsDirectory(db)} holds no backup), then start the daemon again; \`dipo office open\` registers each repository again.`;
 }
 
 /** `problem` says what failed, `action` what to do; both are whole sentences. */
@@ -225,7 +226,7 @@ export function databaseFailure(error: unknown, stateDir: string): DatabaseFailu
     const suspect =
       backup === null
         ? `Move dipo.db away only if it is itself suspect; ${dir} holds no backup.`
-        : `Copy the backup ${backup} over dipo.db only if dipo.db itself is suspect.`;
+        : `Copy the backup ${backup} over dipo.db, after deleting dipo.db-wal and dipo.db-shm, only if dipo.db itself is suspect.`;
     return failure(
       "migration",
       `Migration ${error.version} of the state database failed and was rolled back (${messageOf(error.cause)}), so dipo.db was left as it was.`,

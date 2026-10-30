@@ -10,6 +10,8 @@ import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { backupsDirectory, prunePreMigrationBackups } from "../../src/backup/files";
 import { openStateDatabase } from "../../src/db/database";
+import { DatabaseTooNewError } from "../../src/db/migrations";
+import { MIGRATIONS } from "../../src/db/schema";
 import { runMaintenance } from "../../src/backup/maintenance";
 import { MaintenanceScheduler } from "../../src/backup/scheduler";
 import { yieldToEventLoop } from "../../src/platform/clock";
@@ -65,6 +67,26 @@ describe("daily copies of an earlier dipo", () => {
       state.close();
       expect(files(backups)).toEqual(["notes.txt", "pre-v7-20251215T120000.db"]);
       expect(logger.lines.map((line) => line.message)).toContain("removed daily backups");
+    }));
+
+  it("stay when the open is refused, so the maintainer still has them", () =>
+    withTempDir(async (dir) => {
+      const stateDir = join(dir, "state");
+      const open = (migrations?: typeof MIGRATIONS) =>
+        openStateDatabase({
+          stateDir,
+          logger: memoryLogger(),
+          readMounts: localMounts,
+          clock: new ManualClock(),
+          engineVersion: "0.0.0-test",
+          ...(migrations === undefined ? {} : { migrations }),
+        });
+      (await open()).close();
+      const backups = join(stateDir, "backups");
+      seed(backups, ["dipo-20251230.db"]);
+      // A binary that knows fewer migrations than the file has: the database is too new.
+      await expect(open(MIGRATIONS.slice(0, 1))).rejects.toThrow(DatabaseTooNewError);
+      expect(files(backups)).toEqual(["dipo-20251230.db"]);
     }));
 });
 

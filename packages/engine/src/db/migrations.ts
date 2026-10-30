@@ -216,6 +216,15 @@ function applyStep(db: SqliteConnection, step: Migration, options: MigrateOption
 }
 
 /**
+ * Deletes the daily copies an earlier dipo wrote, once this dipo opened the database: a refused or
+ * failed open leaves them for the maintainer (0007).
+ */
+function removeOldDailyBackups(db: SqliteConnection, logger: DbLogger): void {
+  const removed = removeDailyBackups(join(dirname(db.path), BACKUPS_DIR));
+  if (removed.length > 0) logger.info("removed daily backups", { removed });
+}
+
+/**
  * Brings the database to the head of `migrations`. Refuses a database newer than the binary and
  * one whose recorded steps differ from the binary's; writes `backups/pre-v<N>-<time>.db` before
  * applying anything. A new database (version 0, no user tables) has nothing to copy, so it gets no
@@ -227,14 +236,14 @@ export async function migrate(
 ): Promise<MigrateResult> {
   const { migrations, logger } = options;
   assertMigrationOrder(migrations);
-  // The daily copies of an earlier dipo go at the first open of this one (0007).
-  const daily = removeDailyBackups(join(dirname(db.path), BACKUPS_DIR));
-  if (daily.length > 0) logger.info("removed daily backups", { removed: daily });
   const head = migrations.length;
   const from = userVersion(db);
   if (from > head) throw new DatabaseTooNewError(from, head);
   verifyApplied(migrations, readApplied(db), from);
-  if (from === head) return { from, to: head, backup: null };
+  if (from === head) {
+    removeOldDailyBackups(db, logger);
+    return { from, to: head, backup: null };
+  }
 
   const fresh = from === 0 && !holdsUserTables(db);
   const backup = fresh ? null : backupPath(db.path, head, options.clock.now());
@@ -254,5 +263,6 @@ export async function migrate(
     }
     logger.info("applied migration", { version: step.version, name: step.name });
   }
+  removeOldDailyBackups(db, logger);
   return { from, to: head, backup };
 }
