@@ -1,10 +1,10 @@
 ---
 id: DIPO-376
 title: Name Safe-Chain when it refuses a package in a box
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-29 09:29'
-updated_date: '2026-10-30 09:39'
+updated_date: '2026-10-30 09:46'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -42,8 +42,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A package Safe-Chain refuses gives an error the install command prints that names Safe-Chain and the reason, or dipo adds that fact to the worker's next turn from the Safe-Chain box's log
-- [ ] #2 The reviewer's context names each refusal of the run, with a test
+- [x] #1 A package Safe-Chain refuses gives an error the install command prints that names Safe-Chain and the reason, or dipo adds that fact to the worker's next turn from the Safe-Chain box's log
+- [x] #2 The reviewer's context names each refusal of the run, with a test
 <!-- AC:END -->
 
 ## Implementation Notes
