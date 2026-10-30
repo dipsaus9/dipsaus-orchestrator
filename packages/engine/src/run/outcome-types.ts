@@ -190,16 +190,6 @@ export interface RunOutcomesPort {
    */
   onReview?(view: RunView, report: ReviewReport): Promise<void>;
   onExit(exit: ExitContext): Promise<void>;
-  /** The run's host died without an exit file or an exit line (DIPO-57). */
-  onHostLost?(lost: HostLostContext): Promise<void>;
-}
-
-/** A host found dead without `exit.json` after a restart, as run control hands it over. */
-export interface HostLostContext {
-  readonly view: RunView;
-  readonly agent: string;
-  /** A decision on the run under way (from its caught-up turns), or null. */
-  readonly ending: Promise<unknown> | null;
 }
 
 /**

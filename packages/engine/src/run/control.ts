@@ -214,31 +214,6 @@ export class RunControl implements RunEnder {
     return this.#checkCaps(tracked);
   }
 
-  /**
-   * The run's host was found dead without an exit file after a restart (DIPO-57): like an exit,
-   * the turns caught up before it are handled first, then the run is untracked and its outcomes
-   * decide (`RunOutcomesPort.onHostLost`).
-   */
-  onHostLost(run: string, agent: string): void {
-    const tracked = this.#tracked.get(run);
-    if (tracked === undefined) return;
-    disarm(this.#deps.clock, tracked);
-    const outcomes = this.#deps.outcomes?.();
-    background(
-      async () => {
-        await tracked.turns.catch(() => undefined);
-        if (this.#tracked.get(run) === tracked) this.#tracked.delete(run);
-        await outcomes?.onHostLost?.({ view: viewOf(tracked), agent, ending: tracked.ending });
-      },
-      {
-        failed: "deciding a lost worker host failed",
-        fields: { run },
-        log: this.#deps.warn,
-        inflight: this.#inflight,
-      },
-    );
-  }
-
   /** Starts tracking a started run; call it before ingestion starts, so no event is missed. */
   track(office: OfficeId, run: TrackedRun): void {
     if (this.#tracked.has(run.runId)) return;

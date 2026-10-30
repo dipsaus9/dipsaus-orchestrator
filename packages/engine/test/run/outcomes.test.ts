@@ -1036,42 +1036,6 @@ describe("usage on resume (AC #9)", () => {
   });
 });
 
-describe("a lost host finalizes usage (DIPO-364)", () => {
-  it("a host lost with no resume left parks, and the lost agent's usage is final", async () => {
-    earlierAgent("crashed");
-    track();
-    // The host died mid-turn: no result and no exit line reach the event file.
-    const lines = hostLines(readRecording(join(RECORDINGS_DIR, "success-single")));
-    const result = lines.findIndex(
-      (line) => line.ch === "stdout" && line.data.includes('"type":"result"'),
-    );
-    appendLines(w.f.eventFile, lines.slice(0, result));
-    const ingestor = new Ingestor({ office: w.f.office, clock: w.f.t.clock });
-    w.ingestor = ingestor;
-    ingestor.track(
-      target(w.f, claude, initialState({ plannedModel: "haiku" }) as unknown as ParseState),
-    );
-    const open = () =>
-      w.f.office.get<{ n: number }>(
-        `select count(*) as n from usage_totals
-          where office_id = $office_id and agent_id = $agent and final = 0`,
-        { agent: w.f.agent },
-      )?.n;
-    expect(open()).toBeGreaterThan(0);
-    w.control.onHostLost(w.f.run, w.f.agent);
-    await w.control.idle();
-    expect(parks().map(([reason]) => reason)).toEqual(["worker-failed"]);
-    expect(endReason()).toBe("host-lost");
-    expectEnded("parked");
-    // Final, so the park's `endRun` did not skip it for its ended cursor.
-    expect(open()).toBe(0);
-    const daily = w.f.office.get<{ input: number | null }>(
-      "select sum(input) as input from usage_daily where office_id = $office_id",
-    );
-    expect(daily?.input).toBeGreaterThan(0);
-  });
-});
-
 describe("endRun finalizes usage (AC #10)", () => {
   it("a run that ends before its exit is ingested reaches usage_daily, and later usage only adds its change", async () => {
     const lines = hostLines(readRecording(join(RECORDINGS_DIR, "success-single")));

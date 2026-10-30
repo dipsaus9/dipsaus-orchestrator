@@ -526,37 +526,39 @@ describe("re-attach (0005)", () => {
     ]);
   });
 
-  it("a dead host without exit.json: host-lost, usage finalized, then one resume (AC #4, AC #9)", async () => {
+  it("a dead host without exit.json: host-lost, usage finalized, the story parks with no resume (AC #4, AC #9)", async () => {
+    // A real process that has exited: its PID is the host's, and the probe finds nothing for it.
+    const exited = Bun.spawn(["true"]);
+    await exited.exited;
     w.alive = false;
     beforeRestart("success-single", 6, 20);
-    let finalAtNext: number[] = [];
-    w.onNext = () => {
-      finalAtNext = w.f.office
-        .all<{ final: number }>(
-          "select final from usage_totals where office_id = $office_id and agent_id = $agent",
-          { agent: w.f.agent },
-        )
-        .map((row) => row.final);
-    };
+    w.f.office.immediate(() =>
+      w.f.office.run("update worker_hosts set pid = $pid where office_id = $office_id", {
+        pid: exited.pid,
+      }),
+    );
     const d = daemon();
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
       { run: w.f.run, agent: w.f.agent, outcome: "hostLost" },
     ]);
     await d.control.idle();
-    expect(observed()).toEqual(["host-lost"]);
     expect(agentRow()?.end_reason).toBe("host-lost");
-    expect(w.next).toHaveLength(1);
-    expect(w.next[0]?.mode).toBe("resume");
-    expect(w.next[0]?.requireResume).toBe(true);
-    expect(w.next[0]?.why).toBe(HOST_LOST_WHY);
-    // The dead agent's usage was final before the resumed session started.
-    expect(finalAtNext.length).toBeGreaterThan(0);
-    expect(finalAtNext.every((final) => final === 1)).toBe(true);
+    expect(w.next).toEqual([]);
+    expect(parks()).toEqual([["worker-failed", HOST_LOST_WHY]]);
+    expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
+    // The dead agent's usage is final once it ends.
+    expect(
+      w.f.office
+        .all<{ final: number }>(
+          "select final from usage_totals where office_id = $office_id and agent_id = $agent",
+          { agent: w.f.agent },
+        )
+        .every((row) => row.final === 1),
+    ).toBe(true);
     expect(countDaily()).toBeGreaterThan(0);
-    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
   });
 
-  it("a reattached run with an old transcript cursor resumes and counts usage from host events only", async () => {
+  it("a reattached run with an old transcript cursor parks and counts usage from host events only", async () => {
     w.alive = false;
     beforeRestart("success-single", 6, 20);
     const transcript = join(w.dir, "session.jsonl");
@@ -566,7 +568,7 @@ describe("re-attach (0005)", () => {
     await d.reattacher.reattach(w.f.office.officeId);
     await d.control.idle();
     expect(agentRow()?.end_reason).toBe("host-lost");
-    expect(w.next).toHaveLength(1);
+    expect(w.next).toEqual([]);
     // The transcript's message is not counted; the totals are the host events' usage alone.
     const streamed = w.f.office.get<{ input: number; output: number }>(
       `select coalesce(sum(input), 0) as input, coalesce(sum(output), 0) as output
@@ -605,20 +607,7 @@ describe("re-attach (0005)", () => {
     expectOutputSentOnce();
   });
 
-  it("a dead host whose session cannot be resumed parks worker-failed (AC #4)", async () => {
-    w.alive = false;
-    w.nextOutcome = { kind: "notResumed", reason: "the transcript is gone" };
-    beforeRestart("success-single", 6, 20);
-    const d = daemon();
-    await d.reattacher.reattach(w.f.office.officeId);
-    await d.control.idle();
-    expect(parks()).toEqual([
-      ["worker-failed", `${HOST_LOST_WHY}; its session cannot be resumed: the transcript is gone`],
-    ]);
-    expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
-  });
-
-  it("a dead host after the run's one resume parks worker-failed without another (AC #4)", async () => {
+  it("a dead host after an earlier crash parks worker-failed without a resume (AC #4)", async () => {
     w.alive = false;
     w.f.office.immediate(() =>
       w.f.office.run(
@@ -633,11 +622,10 @@ describe("re-attach (0005)", () => {
     await d.reattacher.reattach(w.f.office.officeId);
     await d.control.idle();
     expect(w.next).toEqual([]);
-    expect(parks()[0]?.[0]).toBe("worker-failed");
-    expect(parks()[0]?.[1]).toContain("one resume after a crash was used");
+    expect(parks()).toEqual([["worker-failed", HOST_LOST_WHY]]);
   });
 
-  it("a restart while a lost host is decided decides it again (AC #4)", async () => {
+  it("a restart while a lost host is decided parks it again (AC #4)", async () => {
     w.alive = false;
     beforeRestart("success-single", 6, 20);
     // The previous daemon recorded the loss but stopped before the resume started.
@@ -651,7 +639,8 @@ describe("re-attach (0005)", () => {
     const d = daemon();
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([]);
     expect(await d.outcomes.redispatch(w.f.office.officeId)).toBe(1);
-    expect(w.next.map((request) => request.requireResume)).toEqual([true]);
+    expect(w.next).toEqual([]);
+    expect(parks()).toEqual([["worker-failed", HOST_LOST_WHY]]);
   });
 
   it("never starts a session next to a living host, and checks the caps after the catch-up (AC #5, AC #6)", async () => {
@@ -1235,17 +1224,6 @@ describe("restart windows of DIPO-51's review", () => {
       pid: 4242,
     });
     expect(starts).toBe(0);
-  });
-
-  it("worker outcomes park a session refused with run.hostAlive, naming the code", async () => {
-    w.alive = false;
-    w.nextOutcome = { kind: "hostAlive", code: "run.hostAlive", pid: 4242 };
-    beforeRestart("success-single", 6, 20);
-    const d = daemon();
-    await d.reattacher.reattach(w.f.office.officeId);
-    await d.control.idle();
-    expect(parks()[0]?.[0]).toBe("worker-failed");
-    expect(parks()[0]?.[1]).toContain("run.hostAlive");
   });
 
   it("a host recorded without its agent (an older binary) is left to re-attach, never a second session (window 1)", async () => {

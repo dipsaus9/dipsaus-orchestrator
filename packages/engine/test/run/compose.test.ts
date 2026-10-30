@@ -12,7 +12,6 @@ import { StoryId } from "@dipsaus-orchestrator/contract";
 
 import { PermissionAsks } from "../../src/questions/permissions";
 import {
-  activeSignals,
   composeRuns,
   FixRounds,
   insertRun,
@@ -147,21 +146,6 @@ function storeRun(reviewRoundCap: number | null = null): void {
   f = { ...f, work: { ...f.work, key } };
 }
 
-/** Tracks the stored run in `control` and reports its host lost, as re-attach does. */
-async function loseHost(composed: ReturnType<typeof compose>): Promise<void> {
-  const control = composed.control;
-  if (control === null) throw new Error("run control was not built");
-  control.track(f.office.officeId, {
-    runId: f.run,
-    work: f.work,
-    caps: ROOMY,
-    startedAt: f.t.clock.now(),
-  });
-  control.onHostLost(f.run, f.agent);
-  await control.idle();
-  await composed.resumption?.idle();
-}
-
 describe("composeRuns", () => {
   test("without control builds only ingestion, the live question rule and the launcher", () => {
     const composed = compose({ outcomes: {}, startsPaused: {}, reattach: REATTACH });
@@ -194,52 +178,6 @@ describe("composeRuns", () => {
     const all = compose({ control: CONTROL, outcomes: {}, startsPaused: {}, reattach: REATTACH });
     expect(all.startsPaused).toBeInstanceOf(StartsPaused);
     expect(all.reattacher).toBeInstanceOf(RunReattacher);
-  });
-
-  test("a lost worker host reaches worker outcomes, then afterExit", async () => {
-    storeRun();
-    // The signals worker outcomes had raised on the run when `afterExit` ran.
-    const atAfterExit: string[][] = [];
-    const composed = compose({
-      control: CONTROL,
-      outcomes: {},
-      afterExit: () => {
-        atAfterExit.push(activeSignals(f.office, f.run).map((s) => s.signal));
-      },
-    });
-
-    await loseHost(composed);
-
-    // Outcomes raised `host-lost` before `afterExit` ran, and it ran once.
-    expect(atAfterExit).toEqual([["host-lost"]]);
-  });
-
-  test("keeps the session's Safe-Chain refusals before worker outcomes decide its end (DIPO-376)", async () => {
-    storeRun();
-    const order: string[] = [];
-    const composed = compose({
-      control: CONTROL,
-      outcomes: {},
-      beforeExit: async (runId) => {
-        // Outcomes have decided nothing yet: no signal is raised on the run.
-        order.push(
-          `beforeExit ${runId} [${activeSignals(f.office, f.run)
-            .map((s) => s.signal)
-            .join(",")}]`,
-        );
-      },
-      afterExit: () => {
-        order.push(
-          `afterExit [${activeSignals(f.office, f.run)
-            .map((s) => s.signal)
-            .join(",")}]`,
-        );
-      },
-    });
-
-    await loseHost(composed);
-
-    expect(order).toEqual([`beforeExit ${f.run} []`, "afterExit [host-lost]"]);
   });
 
   test("feeds the pending reviews to the review starter in the reviewer place (DIPO-219)", async () => {
@@ -275,15 +213,6 @@ describe("composeRuns", () => {
     expect(await composed.places?.drain(office.officeId)).toBe(0);
     expect(warned).toContain("reading a story before its review failed; the review waits");
     composed.places?.close();
-  });
-
-  test("without outcomes a lost host decides nothing", async () => {
-    storeRun();
-    const composed = compose({ control: CONTROL });
-
-    await loseHost(composed);
-
-    expect(activeSignals(f.office, f.run)).toEqual([]);
   });
 });
 

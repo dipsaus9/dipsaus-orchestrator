@@ -59,7 +59,6 @@ import { OutcomeSupport } from "./outcome-support";
 import { TurnOutcomes } from "./outcome-turns";
 import type {
   ExitContext,
-  HostLostContext,
   PlanLimitHit,
   RunOutcomesDeps,
   RunOutcomesPort,
@@ -110,12 +109,7 @@ export class RunOutcomes implements RunOutcomesPort {
     return this.#exits.onExit(exit);
   }
 
-  /** A host found dead after a restart, with no exit file or exit line (DIPO-57). */
-  onHostLost(lost: HostLostContext): Promise<void> {
-    return this.#exits.onHostLost(lost);
-  }
-
-  /** True while an exit or a lost host of the run is being decided here (DIPO-57). */
+  /** True while an exit of the run is being decided here (DIPO-57). */
   busy(runId: string): boolean {
     return this.#support.guard.busy(runId);
   }

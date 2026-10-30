@@ -941,16 +941,6 @@ describe("the failure table (0019 section 4)", () => {
     expect(notices).toContain("stays In Review and its review waits");
   });
 
-  it("removes a session's read-only copy when its host is found lost, then starts one fresh session", async () => {
-    const s = inReview("DIPO-1", "tree-1");
-    heads.set(s.run, "tree-1");
-    const session = await reviewStarts(s);
-    x.control.onHostLost(session.run, session.agent);
-    await x.control.idle();
-    expect(x.finished).toEqual([session.agent]);
-    expect(x.sessions).toHaveLength(2);
-  });
-
   it("ends a session whose turn failed as a crash and starts one fresh session", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
@@ -1324,33 +1314,6 @@ describe("a refused reviewer launch plan (DIPO-247)", () => {
 });
 
 describe("a reviewer that ends without a verdict (0019 section 4)", () => {
-  it("parks worker-failed when its host is lost twice in the round, with no review-failed step", async () => {
-    const s = inReview("DIPO-1", "tree-1");
-    heads.set(s.run, "tree-1");
-    const first = await reviewStarts(s);
-    x.control.onHostLost(first.run, first.agent);
-    await x.control.idle();
-    expect(x.sessions).toHaveLength(2);
-    expect(parksOf()).toEqual([]);
-    const second = x.sessions[1]!;
-    x.control.onHostLost(second.run, second.agent);
-    await x.control.idle();
-    expect(x.sessions).toHaveLength(2);
-    expect(parksOf()).toEqual([
-      {
-        story_id: "DIPO-1",
-        reason: "worker-failed",
-        detail:
-          "the reviewer failed twice in review round 1: the reviewer host died while the daemon was down",
-      },
-    ]);
-    expect(stepsOf(s.run, "review-failed")).toEqual([]);
-    expect(stepsOf(s.run, "review")).toHaveLength(1);
-    expect(events("story.state").at(-1)).toMatchObject({
-      data: { story: "DIPO-1", from: "In Review", to: "Parked" },
-    });
-  });
-
   it("parks worker-failed past the reviewer's minute cap, with no review-failed step", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");

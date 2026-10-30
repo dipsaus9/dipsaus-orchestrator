@@ -327,7 +327,6 @@ export {
 } from "./outcomes";
 export type {
   ExitContext,
-  HostLostContext,
   RunAct,
   RunEnder,
   RunOutcomesDeps,

@@ -6,7 +6,7 @@
 // the directory to that run only when the name is that run's hash. Once the run has ended (done,
 // failed, stopped, parked) and its worker hosts have exited, both directories go:
 //
-// - `sweep("ended")` runs when a session's exit is ingested and after the exit or a lost host is
+// - `sweep("ended")` runs when a session's exit is ingested and after the exit is
 //   decided (`afterRunExits`), so a run that ends before or after its worker exits loses its
 //   directory then. Only runs this daemon's database knows to have ended are touched.
 // - `sweep("recovery")` runs once at daemon start, after reconcile and re-attach. It also removes
@@ -438,7 +438,7 @@ export class RunTempDirs {
 }
 
 /**
- * `port` with `after` called once each exit or lost host is decided, with the run's view: the run
+ * `port` with `after` called once each exit is decided, with the run's view: the run
  * may have ended there, after its worker exited (DIPO-102).
  */
 export function afterRunExits(
@@ -463,16 +463,5 @@ export function afterRunExits(
     ...(port.onReview === undefined
       ? {}
       : { onReview: (view, report) => port.onReview?.(view, report) ?? Promise.resolve() }),
-    ...(port.onHostLost === undefined
-      ? {}
-      : {
-          onHostLost: async (lost) => {
-            try {
-              await port.onHostLost?.(lost);
-            } finally {
-              after(lost.view);
-            }
-          },
-        }),
   };
 }
