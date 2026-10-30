@@ -24,7 +24,7 @@ export type DaemonIo = {
   readonly buildCommit?: string;
   /** Calls `handler` once on SIGTERM or SIGINT; returns a function that removes the handler. */
   readonly onShutdownSignal: (handler: (signal: string) => void) => () => void;
-  /** Time and timers for the daemon: the drain cap, the minute lock check, the crash counter. */
+  /** Time and timers for the daemon: the drain cap and the upgrade check. */
   readonly clock: Clock;
   /**
    * Where `--foreground` hears of errors no code caught (DIPO-117); `process` by default. Tests

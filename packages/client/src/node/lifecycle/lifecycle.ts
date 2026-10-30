@@ -256,8 +256,8 @@ async function cleanLeftovers(deps: LifecycleDeps, pidFile: ReturnType<typeof re
   const cleaned: string[] = [];
   if (pidFile !== null && removeIfUnchanged(pidFile)) cleaned.push(pidFile.path);
   // `runtime.json` is stale when `dipo.pid` is missing or failed the check. It is removed unless
-  // the process it names is alive with the same start time: a daemon that lost its lock file
-  // recreates it within a minute (0006 decision 6), and its socket must stay findable.
+  // the process it names is alive with the same start time: a live daemon's socket must stay
+  // findable even when its lock file went missing.
   const runtimeFile = readRaw(runtimeFilePath(state));
   if (runtimeFile !== null) {
     const identity = runtimeIdentity(runtimeFile.raw);
