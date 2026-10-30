@@ -11,7 +11,7 @@
 // kind only checks the target's shape and writes it. The draft id the CLI gave is recorded on the
 // proposal's row; Backlog.md reuses draft ids, so the marker and title, not the id, find the draft.
 
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { z } from "zod";
@@ -122,6 +122,9 @@ export const proposeKind: LaneOpKind = {
       if (ctx.office !== undefined) recordDraftId(ctx.office, target.proposal, found);
       return { applies: true };
     }
+    // Backlog.md 1.53's `draft create` fails (ENOENT) without its drafts folder, which git does
+    // not keep while it is empty, so a repository with no draft has none (DIPO-401).
+    mkdirSync(join(ctx.cwd, DRAFTS), { recursive: true });
     await runBacklog(ctx.cli, ctx.cwd, [
       "draft",
       "create",
