@@ -1,10 +1,10 @@
 ---
 id: DIPO-388
 title: 'Report a resume that resolved a park as resumed, not as already running'
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-30 11:14'
-updated_date: '2026-10-30 11:18'
+updated_date: '2026-10-30 18:21'
 labels:
   - 'tier:S'
   - 'slice:prune'

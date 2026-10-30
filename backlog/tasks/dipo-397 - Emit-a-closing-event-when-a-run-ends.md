@@ -1,10 +1,10 @@
 ---
 id: DIPO-397
 title: Emit a closing event when a run ends
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-30 16:01'
-updated_date: '2026-10-30 16:03'
+updated_date: '2026-10-30 18:21'
 labels:
   - 'tier:S'
   - 'slice:prune'
