@@ -1,10 +1,10 @@
 ---
 id: DIPO-377
 title: Fix the flake in the backlog PR check test
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-29 09:29'
-updated_date: '2026-10-30 11:13'
+updated_date: '2026-10-30 11:16'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -43,6 +43,10 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(unit) scripts/check-backlog-pr.test.ts passes 30 runs in a row on macOS"
+park:
+  reason: "budget-exceeded"
+  from: "In Progress"
+  note: "Your report says done, but these automated test-plan entries are not done:\n- #1 (reported manual): (unit) scripts/check-backlog-pr.test.ts passes 30 runs in a row on macOS\nWrite the tests they ask for and run them. Then report done again with one testPlan entry for each entry of the test plan: its number, done, not-done or manual, and the evidence. If an entry cannot be done in this story, report blocked and say why."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -89,4 +93,13 @@ Parked 2026-10-30 11:12 UTC: ambiguous-spec
 - Last good commit: 3998bd5d31f0a923c7baaf82e554c7115b3644eb
 
 Resumed 2026-10-30 11:13 UTC; grants: none; note: Yes. Report the macOS 30-run entry as manual: the orchestrating session runs it on the Mac against the pushed head and records the result on the PR. No macOS runner. Finish the done report and push f…
+
+Parked 2026-10-30 11:16 UTC: budget-exceeded
+- Detail: Your report says done, but these automated test-plan entries are not done:
+- Run: run_01M666Y0TK02BQ9TXAZ667ZB2Q
+- Criteria met: 1 of 2 (as the worker reported them)
+- Loops: 1 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 223,286 of 300,000 tokens; 90 of 90 turns; 23 of 45 minutes
+- Last good commit: 142cfa48039b3f1b6d40e34109cd38fe32cd1d44
 <!-- SECTION:NOTES:END -->
