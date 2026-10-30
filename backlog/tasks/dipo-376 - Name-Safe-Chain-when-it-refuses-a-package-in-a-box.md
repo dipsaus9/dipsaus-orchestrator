@@ -1,10 +1,10 @@
 ---
 id: DIPO-376
 title: Name Safe-Chain when it refuses a package in a box
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-10-29 09:29'
-updated_date: '2026-10-30 09:38'
+updated_date: '2026-10-30 09:39'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -37,10 +37,6 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(unit) a Safe-Chain refusal reaches the worker's context and the review context with Safe-Chain named"
-park:
-  reason: "budget-exceeded"
-  from: "In Progress"
-  note: "turn cap (--max-turns) after 35 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -72,4 +68,6 @@ Parked 2026-10-30 09:38 UTC: budget-exceeded
 - Review rounds: 0, failed 0 of 3
 - Budget used: 252,303 of 300,000 tokens; 91 of 90 turns; 8 of 45 minutes
 - Last good commit: 59ce2f077d47b5ecfdc02e9c6ae900ad65488590
+
+Resumed 2026-10-30 09:39 UTC; grants: budget +150,000 tokens, +45 turns, +23 minutes; note: The answer to the storage question widened the work to db/, run/ and box/workers.ts with a migration, more than a tier:S turn cap covers.
 <!-- SECTION:NOTES:END -->
