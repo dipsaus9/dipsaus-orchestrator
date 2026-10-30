@@ -4,6 +4,7 @@ title: Flush the planning lane again and say when it cannot
 status: Refined
 assignee: []
 created_date: '2026-10-30 22:38'
+updated_date: '2026-10-30 22:40'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -38,8 +39,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The PR names the cause of the stall, reproduced with fixtures against a real git remote
-- [ ] #2 Pending operations flush into one backlog PR again, and an operation that cannot apply (for example a discard of a story that is already Done) is closed with a notice instead of blocking the others
-- [ ] #3 Every early return or failure of a flush writes an info or warn log line with the reason, and a desk item tells the maintainer when operations stay pending past a bounded time
-- [ ] #4 Tests cover the cause, the fix, the closed operation and the stuck-lane desk item, against real git under DIPO_TMP
+- [ ] #1 The PR names the cause of the stall, reproduced with fixtures against a real git remote; the silent path is named among the early returns of flush (#heldReport and held, no remote or a failed fetch, a swallowed #onFlushed error) or wherever it is, since #failed already writes an engine.notice
+- [ ] #2 Pending operations flush into one backlog PR again, and an operation that cannot apply (for example a discard of a story that is already Done) is closed in the journal with a state of its own and an engine.notice, instead of blocking the others
+- [ ] #3 Every early return of a flush writes an info or warn log line with the reason; when an operation stays pending for more than 30 minutes of the engine clock, a desk item names the lane and the reason, and it clears once the lane flushes
+- [ ] #4 dipo propose accept reports what happened to the flush (opened or updated the backlog PR, or held or failed with the reason) instead of always promising a PR, and its CLI text and test follow
+- [ ] #5 Tests cover the cause, the fix, the closed operation, the stuck-lane desk item and its clearing, and the accept report, against real git under DIPO_TMP
 <!-- AC:END -->
