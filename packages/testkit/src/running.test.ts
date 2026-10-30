@@ -44,7 +44,8 @@ describe("processRunning and groupRunning", () => {
       const zombie = Number(new TextDecoder().decode(value).trim());
       for (let i = 0; i < 100 && !isZombie(zombie); i++) await Bun.sleep(20);
       expect(isZombie(zombie)).toBe(true);
-      // kill(pid, 0) still finds it, as it finds a zombie the box's PID 1 never reaps.
+      // kill(pid, 0) still finds it, as it finds a zombie that PID 1 of a box made before DIPO-378
+      // never reaps.
       expect(() => process.kill(zombie, 0)).not.toThrow();
       expect(() => process.kill(-zombie, 0)).not.toThrow();
       expect(processRunning(zombie)).toBe(false);

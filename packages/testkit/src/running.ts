@@ -1,9 +1,12 @@
 // Whether a killed process still runs, for the tests that kill a process group (DIPO-372).
 //
 // A killed process whose parent is gone becomes a child of PID 1. On the Mac and on a CI runner
-// PID 1 reaps it at once; in a box PID 1 is the box's keepalive `tail` (0008), which reaps
-// nothing, so the dead process stays a zombie and `kill(pid, 0)` still finds it. These checks
-// count a zombie as gone. Without `/proc` (macOS) a process that `kill(pid, 0)` finds runs.
+// PID 1 reaps it at once. A box dipo starts now has Apple container's init as PID 1, which reaps
+// too (DIPO-378); in a box made before that, PID 1 is the box's keepalive `tail`, which reaps
+// nothing, so the dead process stays a zombie and `kill(pid, 0)` still finds it. Such boxes still
+// run this repository's verify: the pinned dipo binary makes them until it is pinned past DIPO-378,
+// and a story's box lives until its PR merges. So these checks count a zombie as gone until no box
+// without the init is left. Without `/proc` (macOS) a process that `kill(pid, 0)` finds runs.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 

@@ -78,6 +78,8 @@ const SHAPES: Readonly<Record<string, Shape>> = {
       "--cpus": 1,
       "--cap-add": 1,
       "--mount": 1,
+      // DIPO-378: Apple container's init as PID 1; `--init-image` is not listed.
+      "--init": 0,
       "--entrypoint": 1,
     },
     positionals: 1,
@@ -374,7 +376,14 @@ describe("the Apple container argument builder", () => {
       expect(() => readFlags(bad, exec)).toThrow();
     }
     const create = SHAPES["createArgs"]!;
-    for (const flag of ["--publish", "-p", "--publish-socket", "--virtualization", "--rosetta"]) {
+    for (const flag of [
+      "--publish",
+      "-p",
+      "--publish-socket",
+      "--virtualization",
+      "--rosetta",
+      "--init-image",
+    ]) {
       expect(() => readFlags(["create", flag, "x", "alpine"], create)).toThrow();
     }
     expect(() => readFlags(["list", "--all", "-q"], SHAPES["listArgs"]!)).toThrow();
@@ -410,6 +419,8 @@ describe("the Apple container argument builder", () => {
       const build = input.runId === BUILD_RUN_ID;
       const keepalive = build ? BOX_KEEPALIVE : CONTAINED_KEEPALIVE;
       expect(once("--entrypoint")).toEqual([keepalive[0]]);
+      // Every box starts with the init (DIPO-378), once.
+      expect(once("--init")).toEqual([null]);
       expect(mounts(flags)).toEqual([
         ...(input.packageCache === undefined
           ? []
@@ -760,5 +771,103 @@ describe("the Apple container argument builder", () => {
       refused(() => builders.imageDeleteArgs(tag));
       refused(() => builders.commitArgs(BUILD_NAME, tag));
     }
+  });
+});
+
+// What a box's start keeps (DIPO-378): the whole `create` argv of a box with both mounts and of a
+// build box, so any flag added to a box's start shows here.
+describe("a box's start", () => {
+  const cache = `${HOME}/Library/Caches/dipo/offices/off_1/packages`;
+  const tools = TOOLS[0]![0]!;
+
+  it("keeps the one capability, the two read-only mounts and the mounted tail of a box", () => {
+    expect(createArgs({ ...VALID, packageCache: cache })).toEqual([
+      "create",
+      "--name",
+      `dipo-${VALID.runId}`,
+      "--label",
+      `dipo=${VALID.runId}`,
+      "--network",
+      BOX_NETWORK_NAME,
+      "--memory",
+      "8192M",
+      "--cpus",
+      "8",
+      "--cap-add",
+      "CAP_NET_ADMIN",
+      "--mount",
+      `type=bind,source=${cache},target=${BOX_PACKAGE_CACHE_PATH},readonly`,
+      "--mount",
+      `type=bind,source=${tools},target=${BOX_NET_TOOLS_PATH},readonly`,
+      "--init",
+      "--entrypoint",
+      CONTAINED_KEEPALIVE[0],
+      VALID.image,
+      ...CONTAINED_KEEPALIVE.slice(1),
+    ]);
+    expect(CONTAINED_KEEPALIVE).toEqual(netToolCommand("tail", ["-f", "/dev/null"]));
+  });
+
+  it("keeps the one capability, no mount and the image's own tail of a build box", () => {
+    const base = "docker.io/library/debian:trixie-slim";
+    expect(
+      createArgs({
+        runId: BUILD_RUN_ID,
+        image: base,
+        network: VALID.network,
+        host: VALID.host,
+        home: HOME,
+      }),
+    ).toEqual([
+      "create",
+      "--name",
+      BUILD_NAME,
+      "--label",
+      `dipo=${BUILD_RUN_ID}`,
+      "--network",
+      BOX_NETWORK_NAME,
+      "--memory",
+      "8192M",
+      "--cpus",
+      "8",
+      "--cap-add",
+      "CAP_NET_ADMIN",
+      "--init",
+      "--entrypoint",
+      "tail",
+      base,
+      "-f",
+      "/dev/null",
+    ]);
+    expect(BOX_KEEPALIVE).toEqual(["tail", "-f", "/dev/null"]);
+  });
+
+  it("starts every box with the init, which no input drops or replaces (DIPO-378)", () => {
+    for (const [input, ok] of createCases()) {
+      if (!ok) continue;
+      const args = createArgs(input);
+      // Once, among `container`'s options before the image: never the box's own command.
+      expect(args.filter((arg) => arg === "--init")).toHaveLength(1);
+      expect(args.indexOf("--init")).toBeLessThan(args.indexOf(input.image));
+      expect(args.some((arg) => arg.startsWith("--init-") || arg.startsWith("--init="))).toBe(
+        false,
+      );
+    }
+    // Words an office config or a caller could hand in are not read: the argv stays the same.
+    const asked = {
+      ...VALID,
+      init: false,
+      initImage: "docker.io/library/alpine:3.20",
+      entrypoint: "/bin/sh",
+      args: ["--init-image", "x"],
+      flags: ["--no-init"],
+    } as CreateInput;
+    expect(createArgs(asked)).toEqual(createArgs(VALID));
+    // Nor can the image or the run id carry a flag in.
+    for (const image of ["--init-image", "alpine --init-image=x", "--no-init"]) {
+      refused(() => createArgs({ ...VALID, image }));
+    }
+    for (const runId of ["--init-image", "x --init"])
+      refused(() => createArgs({ ...VALID, runId }));
   });
 });
