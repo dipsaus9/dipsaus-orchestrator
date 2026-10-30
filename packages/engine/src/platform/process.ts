@@ -78,7 +78,7 @@ export function isWorkerHostArgv(argv: readonly string[] | undefined, runId: str
   if (program.length === 1) return first.endsWith("/dipo");
   return (
     program.length === 2 &&
-    first.endsWith("/bun") &&
+    /\/bun(\.exe)?$/.test(first) &&
     script.startsWith("/") &&
     script.endsWith(SOURCE_ENTRY)
   );

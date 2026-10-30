@@ -425,6 +425,18 @@ describe("isWorkerHostArgv (DIPO-93, DIPO-386)", () => {
     );
   });
 
+  it("matches Bun installed as bun.exe, the name the engine starts it under on some installs", () => {
+    expect(
+      isWorkerHostArgv(
+        ["/home/dipo/.local/lib/bun/bin/bun.exe", "/repo/cli/src/main.ts", ...HOST],
+        RUN,
+      ),
+    ).toBe(true);
+    expect(isWorkerHostArgv(["/opt/bun.exe.d/tool", "/repo/cli/src/main.ts", ...HOST], RUN)).toBe(
+      false,
+    );
+  });
+
   it("matches a binary or script path with spaces: each argument stays one string", () => {
     expect(isWorkerHostArgv(["/Users/m/My Tools/dipo", ...HOST], RUN)).toBe(true);
     expect(isWorkerHostArgv(["/Users/m/.local/bin/dipo", ...HOST], RUN)).toBe(true);
