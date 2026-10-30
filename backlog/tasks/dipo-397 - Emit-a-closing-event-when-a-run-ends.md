@@ -1,10 +1,10 @@
 ---
 id: DIPO-397
 title: Emit a closing event when a run ends
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-10-30 16:01'
-updated_date: '2026-10-30 20:48'
+updated_date: '2026-10-30 21:13'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -32,15 +32,14 @@ Gap G13, found by the review of PR #468 (DIPO-320): a run can end without a clos
 
 ```dipo
 branch: "DIPO-397/run-end-event"
-unknowns: []
+unknowns:
+  - q: "May DIPO-397 add a new office-stream event `run.ended` (run id, kind, ending, endedAt, and the story's key and story id when the run has one), written by `endRun` in packages/engine/src/run/records.ts for every run end, and list it in the event catalog of docs/decisions/0005-command-and-event-model.md? That event is what lets scan session runs and runs with no agent reach the stream, and it is what would let watch drop its idle check."
+    status: "resolved"
+    answer: "Yes, the maintainer approved it (2026-10-30). Add the office-stream event run.ended (run id, kind, ending, endedAt, and the story's key and story id when the run has one), written by endRun for every run end and only there, so no end is emitted twice and the existing endRunMarked marker stays as it is unless it then duplicates the end (say which in the done report). List it in 0005's event catalogue and quote the added 0005 text in your done report and the PR body; the maintainer approves the wording at merge. Then let dipo watch print run ends from run.ended and drop its idle check."
 test_plan:
   entries:
     - kind: "automated"
       check: "(engine) every run end path emits one closing event on the office stream"
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "May DIPO-397 add a new office-stream event `run.ended` (run id, kind, ending, endedAt, and the story's key and story id when the run has one), written by `endRun` in packages/engine/src/run/records.ts for every run end, and list it in the event catalog of docs/decisions/0005-command-and-event-model.md? That event is what lets scan session runs and runs with no agent reach the stream, and it is what would let watch drop its idle check."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -63,4 +62,6 @@ Parked 2026-10-30 20:48 UTC: ambiguous-spec
 - Review rounds: 0, failed 0 of 3
 - Budget used: 56,321 of 300,000 tokens; 14 of 90 turns; 1 of 45 minutes
 - Last good commit: 1aee7583f3f7481ee179fe48093eb2e7ff37a9ed
+
+Resumed 2026-10-30 21:13 UTC; grants: none; note: Yes, the maintainer approved it (2026-10-30). Add the office-stream event run.ended (run id, kind, ending, endedAt, and the story's key and story id when the run has one), written by endRun for every…
 <!-- SECTION:NOTES:END -->
