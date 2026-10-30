@@ -28,7 +28,6 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // `question.closed` to the same, still unreleased, minor.
 // DIPO-61 ships the command `work.resume` (for runs held by a plan limit) in the same, still
 // unreleased, minor.
-// DIPO-76 ships the command `office.purge` in the same, still unreleased, minor.
 // DIPO-75 adds the optional `run` of the `work.answer` result (the run an answer to a
 // `needs-permission` park resumed) to the same, still unreleased, minor.
 // DIPO-81 adds `OfficeSummary.ready` to the same, still unreleased, minor.

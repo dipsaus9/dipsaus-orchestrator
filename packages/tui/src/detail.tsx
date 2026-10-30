@@ -200,7 +200,7 @@ function facts(view: WorkView, evidence: boolean) {
     cacheWrite: `cw ${mark(tokens(run.cacheCreateTokens), "usage.run.cacheCreateTokens")}`,
     cacheRead: `cr ${mark(tokens(run.cacheReadTokens), "usage.run.cacheReadTokens")}`,
     turns: `turns ${mark(String(run.turns), "usage.run.turns")}`,
-    // Dollars are always an estimate from the pricing catalog (0009 section 8).
+    // Dollars are the cost the worker CLI reports, itself an estimate (0008).
     cost: run.estimatedCost === undefined ? "" : `~$${run.estimatedCost.toFixed(2)}`,
     budget: `${budgetBar(usage)} ${mark(percent(usage.budgetShare), "usage.budgetShare")} of ${tokens(usage.budget.limit)}`,
   };

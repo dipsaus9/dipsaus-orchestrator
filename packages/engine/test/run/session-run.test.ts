@@ -192,7 +192,6 @@ function world(t: TestState, dir: string): World {
         return { ok: true };
       },
     },
-    pricing: () => null,
     runtimeDir: join(dir, "runtime"),
     tmpRoot,
   });

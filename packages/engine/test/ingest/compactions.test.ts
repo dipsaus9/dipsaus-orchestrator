@@ -75,7 +75,7 @@ function withLinesBeforeResult(lines: (t: number) => RecordedLine[]): Recording 
 }
 
 function newIngestor(f: IngestFixture): Ingestor {
-  return new Ingestor({ office: f.office, clock: f.t.clock, pricing: f.t.state.pricing });
+  return new Ingestor({ office: f.office, clock: f.t.clock });
 }
 
 function targetOf(f: IngestFixture, recording: Recording) {
@@ -260,7 +260,7 @@ describe("a compaction of a replayed session (DIPO-106)", () => {
         const report = await runRetention({
           office,
           clock: t.clock,
-          periods: { shortDays: 7, stateDays: 365 },
+          days: 30,
           pause: async () => {},
         });
         expect(report.deleted["compactions"]).toBe(1);

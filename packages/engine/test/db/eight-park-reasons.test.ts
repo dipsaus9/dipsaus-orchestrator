@@ -140,8 +140,8 @@ describe("migration 57 (DIPO-344)", () => {
       try {
         const db = state.connection;
         db.immediate(() =>
-          db.exec(`insert into offices (office_id, path, display_name, added_at, epoch, next_seq,
-              replay_floor_seq) values ('off-1', '/repo', 'repo', 0, 'e', 1, 0);
+          db.exec(`insert into offices (office_id, path, display_name, added_at, next_seq)
+              values ('off-1', '/repo', 'repo', 0, 1);
             insert into stories (office_id, key, story_id, provisional, first_seen_at)
               values ('off-1', 'stk_1', 'DIPO-1', 0, 0);
             insert into runs (office_id, run_id, kind, role, model, budget_unit, budget_limit,

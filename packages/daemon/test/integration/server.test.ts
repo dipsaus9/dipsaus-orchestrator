@@ -212,7 +212,8 @@ describe("software stream", () => {
     const events = client.events("software");
     expect(types(events)).toEqual(["daemon.state", "daemon.state", "stream.mark", "daemon.state"]);
     expect(events[2]?.data).toEqual({ caughtUp: true });
-    expect(events.map((e) => e.cursor.seq)).toEqual([1, 2, 2, 3]);
+    const at = (n: number) => from.seq + n;
+    expect(events.map((e) => e.cursor.seq)).toEqual([at(1), at(2), at(2), at(3)]);
     // The subscribe reply came before the replay.
     const replyIndex = client.frames.findIndex(
       (f) =>
@@ -228,7 +229,7 @@ describe("software stream", () => {
   it("passes a cursor the engine cannot replay back as its error", async () => {
     const h = await start();
     const client = await connect(h);
-    const old = { stream: "software", epoch: "an-earlier-daemon", seq: 0 };
+    const old = { stream: "software", seq: 0 };
     const reset = await client.subscribe("software", old as Cursor);
     if (reset.ok) throw new Error("expected stream.resetRequired");
     expect(reset.error.code).toBe("stream.resetRequired");
@@ -264,16 +265,15 @@ describe("office streams", () => {
       expect(await writer.command("fixture.scan", {}, { office })).toMatchObject({ ok: true });
     }
     const stream = `office:${office}`;
-    const { epoch } = h.engine.officeHead(office);
 
     const reader = await connect(h);
     const subscribed = okResult<{ from: Cursor }>(
-      await reader.subscribe(stream, { stream, epoch, seq: 1 } as Cursor),
+      await reader.subscribe(stream, { stream, seq: 1 } as Cursor),
     );
-    expect(subscribed.from).toEqual({ stream, epoch, seq: 1 } as Cursor);
+    expect(subscribed.from).toEqual({ stream, seq: 1 } as Cursor);
     await reader.waitForEvent(stream, (e) => e.type === "stream.mark", "catch-up mark");
     const live = await writer.command("fixture.scan", {}, { office });
-    expect(live).toMatchObject({ ok: true, cursor: { stream, epoch, seq: 4 } });
+    expect(live).toMatchObject({ ok: true, cursor: { stream, seq: 4 } });
     await reader.waitForEvent(
       stream,
       (e) => e.cursor.seq === 4 && e.type === "scan.finished",
@@ -317,8 +317,7 @@ describe("office streams", () => {
     const client = await connect(h);
     await client.command("fixture.scan", {}, { office });
     const stream = `office:${office}`;
-    const { epoch } = h.engine.officeHead(office);
-    okResult(await client.subscribe(stream, { stream, epoch, seq: 0 } as Cursor, ["scan."]));
+    okResult(await client.subscribe(stream, { stream, seq: 0 } as Cursor, ["scan."]));
     await client.waitForEvent(stream, (e) => e.type === "stream.mark", "catch-up mark");
     await client.command("fixture.scan", {}, { office });
     await settle();
@@ -332,11 +331,8 @@ describe("office streams", () => {
     const office = h.addOffice();
     const client = await connect(h);
     const stream = `office:${office}`;
-    const reset = await client.subscribe(stream, {
-      stream,
-      epoch: "restored-elsewhere",
-      seq: 0,
-    } as Cursor);
+    // Beyond the last entry: a log that was lost and started again.
+    const reset = await client.subscribe(stream, { stream, seq: 7 } as Cursor);
     expect(errorCode(reset)).toBe("stream.resetRequired");
     h.engine.forget(office);
     expect(errorCode(await client.subscribe(stream))).toBe("office.unknown");
@@ -365,10 +361,9 @@ describe("office streams", () => {
     const writer = await connect(h);
     await writer.command("fixture.scan", {}, { office });
     const stream = `office:${office}`;
-    const { epoch } = h.engine.officeHead(office);
     h.engine.broken.add(office);
     const reader = await connect(h);
-    okResult(await reader.subscribe(stream, { stream, epoch, seq: 0 } as Cursor));
+    okResult(await reader.subscribe(stream, { stream, seq: 0 } as Cursor));
     expect((await reader.closed).code).toBe(1008);
     expect(reader.events(stream)).toEqual([]);
   });

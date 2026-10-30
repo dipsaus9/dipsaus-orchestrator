@@ -83,7 +83,7 @@ function portsOf(extra: Partial<RunPorts> = {}): RunPorts {
     runtimeDir: join(dir, "rt"),
     tmpRoot: join(dir, "tmp"),
     release: async () => undefined,
-    ingest: { pricing: () => null },
+    ingest: {},
     ...extra,
   };
 }

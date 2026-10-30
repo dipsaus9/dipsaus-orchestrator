@@ -7,7 +7,7 @@
 // what to do. After an unclean exit it runs `PRAGMA quick_check` and reports damage the same way;
 // the check stays pending across a clean exit until a check passes.
 // From the kept-up state, `daemon.stop` (what `dipo daemon stop` sends without a supervisor) and
-// then `dipo restore` with the named backup bring it back. State, runtime directory and temp files
+// then copying the named pre-migration backup over `dipo.db` by hand (0007) bring it back. State, runtime directory and temp files
 // stay under the test's temp directory, and every daemon is stopped in a `finally`.
 
 import { Database } from "bun:sqlite";
@@ -19,6 +19,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  rmSync,
   writeSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
@@ -237,6 +238,13 @@ function crashMarker(dir: string): unknown {
   ).running;
 }
 
+/** Recovery by hand (0007): the backup copied over `dipo.db`, its sidecars gone. */
+function restoreByHand(dir: string, backup: string): void {
+  const db = join(dir, "state", "dipo.db");
+  for (const suffix of ["-wal", "-shm"]) rmSync(`${db}${suffix}`, { force: true });
+  copyFileSync(backup, db);
+}
+
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("dipo daemon --foreground with an unavailable state database", () => {
     it(
@@ -265,9 +273,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               const hello = await client.hello();
               if (!hello.ok) throw new Error(hello.error.message);
               const { cursor } = hello.result as { cursor: { seq: number } };
-              expect((await client.subscribe("software", { ...cursor, seq: 0 } as never)).ok).toBe(
-                true,
-              );
+              // The stream's seqs start at the daemon's start time: subscribe from its oldest.
+              const reset = await client.subscribe("software", { ...cursor, seq: 0 } as never);
+              const oldest = reset.ok ? undefined : (reset.error.details as { oldest?: unknown });
+              expect((await client.subscribe("software", oldest?.oldest as never)).ok).toBe(true);
               const notice = await client.waitForEvent(
                 "software",
                 (e) => e.type === "engine.notice",
@@ -307,7 +316,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     );
 
     it(
-      "stays up after a failed migration, names the backup, and dipo restore brings it back",
+      "stays up after a failed migration, names the backup, and copying it in brings it back",
       async () => {
         await withDaemonTempDir(async (dir) => {
           const env = daemonTestEnv(dir);
@@ -332,19 +341,14 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               "go back to the previous dipo version or upgrade to a release with a fixed migration",
             );
             expect(status.stateReason).toContain(
-              `Restore the backup only if dipo.db itself is suspect: \`dipo restore ${backup}\`.`,
+              `Copy the backup ${backup} over dipo.db, after deleting dipo.db-wal and dipo.db-shm, only if dipo.db itself is suspect.`,
             );
             expect(await stopOverSocket(dir, failing)).toBe(0);
           } finally {
             await kill(failing);
           }
 
-          const restored = await dipo(env, ["restore", backup]);
-          expect(restored.err).toBe("");
-          expect(restored.code).toBe(0);
-          expect(restored.out).toContain(
-            `restored ${backup} into ${join(dir, "state", "dipo.db")}`,
-          );
+          restoreByHand(dir, backup);
 
           const daemon = start(env);
           try {
@@ -359,13 +363,13 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     );
 
     it(
-      "runs quick_check after an unclean exit, reports damage, and dipo restore brings it back",
+      "runs quick_check after an unclean exit, reports damage, and copying the backup in brings it back",
       async () => {
         await withDaemonTempDir(async (dir) => {
           const env = daemonTestEnv(dir);
           const live = await headDatabase(dir);
-          // A copy of a cleanly closed file is consistent: it stands in for the daily backup.
-          const backup = join(dir, "state", "backups", "dipo-20261016.db");
+          // A copy of a cleanly closed file is consistent: it stands in for a pre-migration backup.
+          const backup = join(dir, "state", "backups", "pre-v1-20261016T000000.db");
           mkdirSync(join(dir, "state", "backups"), { recursive: true });
           copyFileSync(live, backup);
 
@@ -398,7 +402,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               "The state database is damaged (PRAGMA quick_check reported: ",
             );
             expect(status.stateReason).toContain(
-              `Run \`dipo daemon stop\`, then \`dipo restore ${backup}\`.`,
+              `Run \`dipo daemon stop\`, move ${join(dir, "state", "dipo.db")} and its -wal and -shm files away, or delete those two files and copy ${backup} over ${join(dir, "state", "dipo.db")}, then start the daemon again.`,
             );
             expect(await stopOverSocket(dir, damaged)).toBe(0);
           } finally {
@@ -406,7 +410,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           }
 
           // A clean exit while held for damage keeps the check pending: a restart (or an upgrade
-          // restart) without a restore checks the file again and stays held.
+          // restart) without a new file checks the file again and stays held.
           expect(crashFile(dir)).toMatchObject({ running: null, needsCheck: true });
           const again = start(env);
           try {
@@ -417,11 +421,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             await kill(again);
           }
 
-          const restored = await dipo(env, ["restore", backup]);
-          expect(restored.err).toBe("");
-          expect(restored.code).toBe(0);
+          restoreByHand(dir, backup);
 
-          // The restored file passes the pending check, which clears it.
+          // The copied file passes the pending check, which clears it.
           const daemon = start(env);
           try {
             await waitForStatus(dir, daemon, running);

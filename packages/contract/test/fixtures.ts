@@ -17,8 +17,8 @@ export const ids = {
   proposal: "3f".repeat(32),
 };
 
-export const softwareCursor = { stream: "software", epoch: "e1", seq: 42 };
-export const officeCursor = { stream: `office:${ids.office}`, epoch: "e2", seq: 7 };
+export const softwareCursor = { stream: "software", seq: 42 };
+export const officeCursor = { stream: `office:${ids.office}`, seq: 7 };
 
 export const officeSummary = {
   office: ids.office,
@@ -590,15 +590,6 @@ export const commandFixtures: Record<string, { args: unknown; result: unknown }>
       leftAlone: ["DIPO-36"],
     },
   },
-  "office.purge": {
-    args: { office: ids.office, from: "/Users/me/Projects/demo" },
-    result: {
-      office: ids.office,
-      path: "/Users/me/Projects/demo",
-      rows: 1284,
-      directory: "/Users/me/Projects/demo/.git/dipo",
-    },
-  },
   "office.rescan": { args: {}, result: { scan: "started" } },
   "office.reloadConfig": {
     args: { office: ids.office },
@@ -650,7 +641,7 @@ export const readFixtures: Record<string, { args: unknown; result: unknown }> = 
     result: {
       commands: [
         {
-          name: "office.purge",
+          name: "office.forget",
           args: {
             type: "object",
             properties: { office: { type: "string" }, from: { type: "string" } },
@@ -660,7 +651,7 @@ export const readFixtures: Record<string, { args: unknown; result: unknown }> = 
           since: 1,
           level: "software",
           confirm: true,
-          irreversible: true,
+          irreversible: false,
         },
       ],
       reads: [

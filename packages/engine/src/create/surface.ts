@@ -230,17 +230,13 @@ function pageOf(
   if (handle === undefined) return { kind: "gone" };
   const replayed = replay(handle, position, { limit });
   if (!replayed.ok) throw new Error(replayed.error.message);
-  const events = renderer.renderForStream(
-    office,
-    replayed.head.epoch,
-    replayed.entries,
-    (error, entry) =>
-      parts.logger.error("office change-log entry does not render", {
-        office,
-        seq: entry.seq,
-        type: entry.type,
-        error,
-      }),
+  const events = renderer.renderForStream(office, replayed.entries, (error, entry) =>
+    parts.logger.error("office change-log entry does not render", {
+      office,
+      seq: entry.seq,
+      type: entry.type,
+      error,
+    }),
   );
   return { kind: "page", events, last: replayed.entries.length < limit };
 }

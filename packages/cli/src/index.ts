@@ -52,7 +52,7 @@ import {
   type BuildStamp,
   type Runtime,
 } from "./version";
-import { absolute, systemWorkspace, type Workspace } from "./workspace";
+import { systemWorkspace, type Workspace } from "./workspace";
 
 export const packageName = "@dipsaus-orchestrator/cli";
 
@@ -123,10 +123,6 @@ Usage:
                     prepare the office's Backlog.md settings for dipo's lifecycle
                     and move To Do stories to Refined, through one backlog PR
                     that dipo opens and merges once its checks pass
-  dipo office purge [--office <id>] [--yes]
-                    delete the office's rows from the state database and its
-                    <git-common-dir>/dipo/ directory after asking; this cannot
-                    be undone
   dipo office reload-config [--office <id>]
                     read the office configuration again; an invalid file keeps
                     the previous one and refuses new runs
@@ -237,11 +233,7 @@ Usage:
                     product with nothing to start
   dipo stats [--office <id>]
                     print the rows and approximate bytes of each table of the
-                    office, to tune retention.shortDays and retention.stateDays
-  dipo restore <file>
-                    replace the state database with a backup from
-                    <state>/backups while the daemon is stopped; clients reset
-                    and the next start reconciles every office
+                    office, to tune retention.days
   dipo login box
                     set or replace the subscription token that boxes reach the
                     model with: paste a token from claude setup-token at the
@@ -402,15 +394,6 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "login") return deps.runDaemon(args);
   // Rewrites the office files of this repository at version 14 (0017): daemon-side code, no daemon.
   if (args[0] === "config") return configMigrate(args.slice(1), deps);
-  // Offline maintenance outside the contract (0006 amendment of 2026-10-12): daemon-side code.
-  if (args[0] === "restore") {
-    const [file, ...rest] = args.slice(1);
-    const resolved =
-      file === undefined || file.startsWith("-") || rest.length > 0
-        ? args.slice(1)
-        : [absolute(deps.workspace, file)];
-    return deps.runDaemon(["restore", ...resolved]);
-  }
   const subcommand = args[0] === "daemon" ? DAEMON_SUBCOMMANDS.get(args[1] ?? "") : undefined;
   if (subcommand !== undefined) {
     const { version } = versionInfo(deps.stamp, deps.runtime);

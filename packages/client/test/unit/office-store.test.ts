@@ -50,8 +50,8 @@ function summary(office: OfficeId, name: string, running = 0): OfficeSummary {
   };
 }
 
-function cursor(stream: string, seq: number, epoch = "e1"): Cursor {
-  return { stream, epoch, seq } as Cursor;
+function cursor(stream: string, seq: number): Cursor {
+  return { stream, seq } as Cursor;
 }
 
 function hello(seq = 10): HelloResult {
@@ -136,8 +136,8 @@ function snapshot(office: OfficeId, seq: number, stories: StoryView[], runs: Wor
   } as OfficeSnapshot;
 }
 
-function event(stream: string, seq: number, type: string, data: unknown, epoch = "e1"): Event {
-  return { cursor: cursor(stream, seq, epoch), at: AT, type, data } as Event;
+function event(stream: string, seq: number, type: string, data: unknown): Event {
+  return { cursor: cursor(stream, seq), at: AT, type, data } as Event;
 }
 
 async function setup() {
@@ -501,11 +501,8 @@ describe("OfficeStore", () => {
     );
     expect(store.state.cursor).toEqual(reply);
     expect(cursorReached(store.state.cursor, reply)).toBe(true);
-    // A reply from a newer epoch is not reached while the store is on the old one, only after it
-    // read the stream again on that epoch.
-    expect(cursorReached(store.state.cursor, cursor(stream, 3, "e2"))).toBe(false);
-    expect(cursorReached(cursor(stream, 3, "e2"), cursor(stream, 3, "e2"))).toBe(true);
-    expect(cursorReached(cursor(stream, 2, "e2"), cursor(stream, 3, "e2"))).toBe(false);
+    expect(cursorReached(store.state.cursor, cursor(stream, 3))).toBe(true);
+    expect(cursorReached(cursor(stream, 2), cursor(stream, 3))).toBe(false);
     expect(cursorReached(store.state.cursor, cursor(`office:${B}`, 1))).toBe(false);
     expect(cursorReached(null, reply)).toBe(false);
   });

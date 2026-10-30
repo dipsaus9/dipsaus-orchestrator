@@ -341,8 +341,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             const hello = await client.hello();
             if (!hello.ok) throw new Error(hello.error.message);
             const { cursor } = hello.result as { cursor: { seq: number } };
-            expect(cursor.seq).toBe(2);
-            const subscribed = await client.subscribe("software", { ...cursor, seq: 0 } as never);
+            // Two entries (starting -> recovering -> running) after the stream's start seq.
+            const subscribed = await client.subscribe("software", {
+              ...cursor,
+              seq: cursor.seq - 2,
+            } as never);
             expect(subscribed.ok).toBe(true);
             await client.waitForEvent("software", (e) => e.type === "stream.mark", "catch-up");
             daemon.kill("SIGTERM");

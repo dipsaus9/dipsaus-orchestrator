@@ -23,7 +23,7 @@ import { insertEntry } from "../../src/backlog/lane/journal";
 import { type OfficeLane, planningLane } from "../../src/backlog/lane";
 import { backlogLayout } from "../story-store/backlog";
 import type { PlainTask } from "../../src/story-store/story";
-import { cursorAt, readLogState } from "../../src/changelog/log";
+import { cursorAt } from "../../src/changelog/log";
 import { replay } from "../../src/changelog/replay";
 import { executeCommand, type ExecutorDeps } from "../../src/commands/execute";
 import { CRASH, crashAfterHandler } from "../commands/crash";
@@ -378,8 +378,7 @@ function resultOf(reply: CommandReply): RunResult {
 }
 
 function entries(): { type: string; delta: unknown; view?: unknown }[] {
-  const { epoch } = readLogState(world.office);
-  const result = replay(world.office, cursorAt(world.officeId, epoch, 0));
+  const result = replay(world.office, cursorAt(world.officeId, 0));
   if (!result.ok) throw new Error(result.error.message);
   return result.entries.map(({ type, delta, view }) => ({ type, delta, view }));
 }

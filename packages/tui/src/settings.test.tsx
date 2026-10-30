@@ -21,7 +21,7 @@ async function open() {
   await view.ui.waitFor("daemon");
   const summary = goldenHello.offices.find((entry) => entry.office === OFFICES.dipsaus);
   view.session.active("software")?.options.onEvent({
-    cursor: { stream: "software", epoch: "e1", seq: 90 },
+    cursor: { stream: "software", seq: 90 },
     at: "2026-10-14T10:04:00.000Z",
     type: "office.summary",
     data: {

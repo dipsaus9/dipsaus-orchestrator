@@ -80,8 +80,8 @@ describe("readWorkActivity", () => {
         db.immediate(() => {
           for (const id of [OFFICE_A, OFFICE_B]) {
             db.run(
-              `insert into offices (office_id, path, display_name, added_at, epoch, next_seq, replay_floor_seq)
-               values ($id, $path, 'repo', 0, 'e', 1, 0)`,
+              `insert into offices (office_id, path, display_name, added_at, next_seq)
+               values ($id, $path, 'repo', 0, 1)`,
               { id, path: `/repo/${id}` },
             );
           }

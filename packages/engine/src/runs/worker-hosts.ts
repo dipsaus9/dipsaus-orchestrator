@@ -46,6 +46,7 @@ import {
   type ProcessProbe,
   type SpawnDetached,
 } from "../platform/process";
+import { ofNoOpenRun } from "../run/retired";
 import type { ExitRecord, LaunchPlan } from "../workers/types";
 
 /** The host reads its run directory from this variable; its cwd is the run directory too. */
@@ -368,25 +369,29 @@ export function recordHostExit(office: OfficeHandle, agentId: string, exit: Host
 }
 
 /**
- * Inside the caller's transaction: the exit an ingested exit line reports, on the host's row,
- * where `exit.json` did not record one first.
+ * Inside the caller's transaction: the exit an ingested exit line reports, and the offset the
+ * line ends at as the host's final offset, on the host's row, where `exit.json` did not record
+ * them first.
  */
 export function recordExitLine(
   office: OfficeHandle,
   runId: string,
   agentId: string,
   exit: ExitRecord,
+  finalOffset: number,
 ): void {
   office.run(
     `update worker_hosts set exit_code = coalesce(exit_code, $code),
        exit_signal = coalesce(exit_signal, $signal),
        exit_signal_inferred = case when exit_signal is null then $inferred
-         else exit_signal_inferred end
+         else exit_signal_inferred end,
+       final_offset = coalesce(final_offset, $final)
      where office_id = $office_id and run_id = $run and agent_id = $agent`,
     {
       code: exit.code,
       signal: exit.signal,
       inferred: exit.signalInferred === true ? 1 : 0,
+      final: finalOffset,
       run: runId,
       agent: agentId,
     },
@@ -628,4 +633,17 @@ export async function verifyHostForSignal(
     return no(`the process does not run \`dipo daemon worker-host ${host.runId}\``);
   }
   return { ok: true };
+}
+
+/**
+ * Retention (0007): deletes at most `limit` worker host rows that ended before `cutoff` and whose
+ * run may not reopen (`ofNoOpenRun`), inside the caller's transaction; returns how many it deleted.
+ */
+export function deleteRetiredHosts(office: OfficeHandle, cutoff: number, limit: number): number {
+  return office.run(
+    `delete from worker_hosts where rowid in (select rowid from worker_hosts
+       where office_id = $office_id and ended_at < $cutoff and ${ofNoOpenRun("worker_hosts")}
+       limit $limit)`,
+    { cutoff, limit },
+  ).changes;
 }

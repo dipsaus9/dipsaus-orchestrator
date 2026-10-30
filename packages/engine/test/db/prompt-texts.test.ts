@@ -26,7 +26,7 @@ describe("migration 33: prompt texts", () => {
           .all<{ name: string }>("select name from pragma_table_info('prompt_texts')")
           .map((row) => row.name);
         expect(columns).toEqual(["office_id", "run_id", "agent_id", "part", "text", "recorded_at"]);
-        expect(TABLE_RETENTION.prompt_texts?.tier).toBe("R");
+        expect(TABLE_RETENTION.prompt_texts?.aged).toBe(true);
       } finally {
         state.close();
       }

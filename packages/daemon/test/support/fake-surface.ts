@@ -37,7 +37,6 @@ export interface Heard {
 export type FakeCommand = (request: CommandRequest, fake: FakeSurface) => CommandReply;
 
 interface FakeOffice {
-  readonly epoch: string;
   readonly entries: Event[];
 }
 
@@ -57,7 +56,8 @@ export class FakeSurface implements EngineSurface {
   readonly broken = new Set<OfficeId>();
   readonly #offices = new Map<OfficeId, FakeOffice>();
   readonly #software: Event[] = [];
-  readonly #softwareEpoch = "fake-software-epoch";
+  /** The software stream's seq before its first entry: the real one starts at the start time. */
+  readonly #softwareStart = 1_000;
   readonly #softwareListeners = new Set<(event: Event) => void>();
   readonly #officeListeners = new Set<(office: OfficeId) => void>();
   #now = 0;
@@ -75,8 +75,8 @@ export class FakeSurface implements EngineSurface {
   // The fake's own streams.
 
   /** Adds an office with an empty change log. */
-  addOffice(office: OfficeId, epoch = `epoch-${office}`): void {
-    this.#offices.set(office, { epoch, entries: [] });
+  addOffice(office: OfficeId): void {
+    this.#offices.set(office, { entries: [] });
   }
 
   /** Forgets an office: a subscribe gets office.unknown, a page finds it gone. */
@@ -87,14 +87,14 @@ export class FakeSurface implements EngineSurface {
   /** The head cursor of `office`'s change log. */
   officeHead(office: OfficeId): Cursor {
     const log = this.#office(office);
-    return { stream: this.#stream(office), epoch: log.epoch, seq: log.entries.length } as Cursor;
+    return { stream: this.#stream(office), seq: log.entries.length } as Cursor;
   }
 
   /** Appends one entry to `office`'s change log; `notifyOffice` tells the subscribers. */
   appendOffice(office: OfficeId, type: string, data: unknown, causedBy?: RequestId): Event {
     const log = this.#office(office);
     const event: Event = {
-      cursor: { stream: this.#stream(office), epoch: log.epoch, seq: log.entries.length + 1 },
+      cursor: { stream: this.#stream(office), seq: log.entries.length + 1 },
       at: iso(this.#now),
       type,
       data,
@@ -110,17 +110,13 @@ export class FakeSurface implements EngineSurface {
   }
 
   softwareHead(): Cursor {
-    return { stream: SOFTWARE_STREAM, epoch: this.#softwareEpoch, seq: this.#software.length };
+    return { stream: SOFTWARE_STREAM, seq: this.#softwareStart + this.#software.length };
   }
 
   /** Appends a software event and sends it to every live subscriber. */
   appendSoftware(type: string, data: unknown): Event {
     const event = {
-      cursor: {
-        stream: SOFTWARE_STREAM,
-        epoch: this.#softwareEpoch,
-        seq: this.#software.length + 1,
-      },
+      cursor: { stream: SOFTWARE_STREAM, seq: this.softwareHead().seq + 1 },
       at: iso(this.#now),
       type,
       data,
@@ -197,11 +193,12 @@ export class FakeSurface implements EngineSurface {
   async subscribe(stream: StreamName, after: Cursor | undefined): Promise<Subscribed> {
     if (stream === SOFTWARE_STREAM) {
       const from = after ?? this.softwareHead();
-      if (from.epoch !== this.#softwareEpoch) {
+      // A cursor of an earlier daemon is older than this one's start.
+      if (from.seq < this.#softwareStart || from.seq > this.softwareHead().seq) {
         return {
           ok: false,
           error: engineError("stream.resetRequired", "subscribe again", {
-            oldest: { ...this.softwareHead(), seq: 0 },
+            oldest: { ...this.softwareHead(), seq: this.#softwareStart },
           }),
         };
       }
@@ -209,7 +206,7 @@ export class FakeSurface implements EngineSurface {
         ok: true,
         from,
         office: null,
-        events: this.#software.slice(from.seq),
+        events: this.#software.slice(from.seq - this.#softwareStart),
         head: this.softwareHead(),
       };
     }
@@ -219,7 +216,8 @@ export class FakeSurface implements EngineSurface {
       return { ok: false, error: engineError("office.unknown", `no office ${office}`) };
     }
     const from = after ?? this.officeHead(office);
-    if (from.epoch !== log.epoch) {
+    // Beyond the last entry: a log that was lost and started again.
+    if (from.seq > log.entries.length) {
       return {
         ok: false,
         error: engineError("stream.resetRequired", "subscribe again", {

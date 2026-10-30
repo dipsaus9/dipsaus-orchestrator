@@ -1,8 +1,8 @@
 // The daemon package's only export is `runDaemon(argv)` (0004, 0006 decision 2): every form of the
 // binary that runs daemon-side code calls it with the arguments after `daemon` (or `self-check`),
 // and it dispatches on the first one. The table below is the one place a form is added; later
-// stories add more. `restore` (DIPO-76) is reached as `dipo restore <file>`, `login` (DIPO-269) as
-// `dipo login box`, `config-migrate` as `dipo config migrate`.
+// stories add more. `login` (DIPO-269) is reached as `dipo login box`, `config-migrate` as
+// `dipo config migrate`.
 
 import { tmpdir } from "node:os";
 
@@ -11,7 +11,6 @@ import { platformSelfChecks, RUN_ID_PATTERN } from "@dipsaus-orchestrator/engine
 import { CONFIG_MIGRATE_USAGE, runConfigMigrateForm } from "./config-migrate";
 import { FOREGROUND_USAGE, runForeground } from "./foreground";
 import { LOGIN_USAGE, runLoginForm } from "./login";
-import { RESTORE_USAGE, runRestoreForm } from "./restore";
 import { defaultIo, type DaemonIo } from "./io";
 import { runSelfChecks } from "./self-check";
 import { runTestShellForm, TEST_SHELL_USAGE } from "./test-shell";
@@ -38,8 +37,6 @@ const FORMS: ReadonlyMap<string, Form> = new Map<string, Form>([
       },
     },
   ],
-  // Offline maintenance outside the contract (0006 amendment of 2026-10-12, DIPO-76).
-  ["restore", { usage: RESTORE_USAGE, run: (args, io) => runRestoreForm(args, io) }],
   // Sets the box login in the Keychain on the maintainer's terminal (DIPO-269), as `dipo login box`.
   ["login", { usage: LOGIN_USAGE, run: (args, io) => runLoginForm(args, io) }],
   // Rewrites the office files at version 14 (0017), as `dipo config migrate`.

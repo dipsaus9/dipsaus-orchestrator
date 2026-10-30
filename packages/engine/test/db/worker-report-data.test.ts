@@ -144,7 +144,7 @@ describe("migration 43", () => {
     }));
 
   it("lists each table in the retention policy with tier S", () => {
-    for (const table of TABLES) expect(TABLE_RETENTION[table]?.tier).toBe("S");
+    for (const table of TABLES) expect(TABLE_RETENTION[table]?.aged).toBe(true);
     expect(TABLE_RETENTION["proposals"]?.rule).toContain("an open proposal is kept");
     expect(TABLE_RETENTION["decision_notes"]?.rule).toContain("an open note is kept");
   });

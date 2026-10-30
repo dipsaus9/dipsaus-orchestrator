@@ -609,8 +609,8 @@ export class DipoClient {
     const derived = findEvent(event.type)?.derived ?? false;
     if (!derived) {
       const last = entry.last;
-      if (last !== undefined && last.epoch === event.cursor.epoch && event.cursor.seq <= last.seq) {
-        return; // already delivered: at-least-once delivery (0005 section 8)
+      if (last !== undefined && event.cursor.seq <= last.seq) {
+        return; // already delivered: at-least-once delivery (0005)
       }
       entry.last = event.cursor;
     }

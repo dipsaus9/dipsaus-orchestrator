@@ -2,9 +2,10 @@
 // `engine.hello`, `office.snapshot`, `office.switch` and one test-defined command, serves the
 // software stream and one office stream with replay after a cursor and `stream.mark { caughtUp }`,
 // and broadcasts each new office entry to every subscriber, whichever client wrote it. A restart
-// drops every connection, starts a new software epoch and comes back in `recovering`, where office
-// reads and office subscriptions are refused with `engine.recovering`, as the real lifecycle gate
-// does; the office log and its epoch survive, as the state database does. Frames go out in
+// drops every connection, starts the software stream again at a higher seq (the real one starts at
+// the daemon's start time) and comes back in `recovering`, where office reads and office
+// subscriptions are refused with `engine.recovering`, as the real lifecycle gate does; the office
+// log survives, as the state database does. Frames go out in
 // microtasks, so a client never sees a reply inside its own `send`.
 
 import {
@@ -62,9 +63,9 @@ export class FakeDaemon implements Transport {
     result: {},
   });
   readonly #officeStream: StreamName;
-  readonly #officeEpoch = "e1";
   readonly #officeLog: Event[] = [];
-  #softwareEpoch = 1;
+  /** The software stream's seq before its first entry, higher at every start. */
+  #softwareStart = 1_000_000;
   #softwareLog: Event[] = [];
   readonly #connections = new Set<Connection>();
   /** Every subscribe frame and its answer, for assertions. */
@@ -82,14 +83,13 @@ export class FakeDaemon implements Transport {
   }
 
   get officeHead(): Cursor {
-    return { stream: this.#officeStream, epoch: this.#officeEpoch, seq: this.#officeLog.length };
+    return { stream: this.#officeStream, seq: this.#officeLog.length };
   }
 
   get softwareHead(): Cursor {
     return {
       stream: StreamName.parse("software"),
-      epoch: `s${this.#softwareEpoch}`,
-      seq: this.#softwareLog.length,
+      seq: this.#softwareStart + this.#softwareLog.length,
     };
   }
 
@@ -124,11 +124,11 @@ export class FakeDaemon implements Transport {
     this.#connections.clear();
   }
 
-  /** Starts it again in `recovering` with a new software epoch; the office log is kept. */
+  /** Starts it again in `recovering` with a new software stream; the office log is kept. */
   start(): void {
     this.up = true;
     this.state = "recovering";
-    this.#softwareEpoch += 1;
+    this.#softwareStart += 1_000_000;
     this.#softwareLog = [];
   }
 
@@ -172,7 +172,7 @@ export class FakeDaemon implements Transport {
 
   #appendSoftware(type: string, data: unknown): void {
     const event = EventSchema.parse({
-      cursor: { ...this.softwareHead, seq: this.#softwareLog.length + 1 },
+      cursor: { ...this.softwareHead, seq: this.softwareHead.seq + 1 },
       at: AT,
       type,
       data,
@@ -268,13 +268,13 @@ export class FakeDaemon implements Transport {
     if (stream === "software") {
       const head = this.softwareHead;
       const after = frame.after ?? head;
-      if (after.epoch !== head.epoch) {
+      if (after.seq < this.#softwareStart || after.seq > head.seq) {
         record("stream.resetRequired");
         refuse({
           code: "stream.resetRequired",
           message: "the software stream restarted",
           retryable: false,
-          details: { oldest: { ...head, seq: 0 } },
+          details: { oldest: { ...head, seq: this.#softwareStart } },
         });
         return;
       }

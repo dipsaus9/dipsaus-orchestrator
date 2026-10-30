@@ -92,7 +92,6 @@ describe("executeCommand", () => {
         expect(reply.changed).toBe(true);
         expect(reply.cursor as unknown).toEqual({
           stream: `office:${s.office.officeId}`,
-          epoch: log.epoch,
           seq: 1,
         });
         expect(log.nextSeq).toBe(2);
@@ -105,7 +104,6 @@ describe("executeCommand", () => {
         expect(replayed.entries[0]).toMatchObject({
           seq: 1,
           type: "story.state",
-          tier: "S",
           key: story.key,
           causedBy: R1,
           delta: { story: "DIPO-7", key: story.key, from: "Refined", to: "Ready" },
@@ -238,7 +236,6 @@ describe("executeCommand", () => {
           seqs.push(reply.cursor.seq);
         }
         expect(seqs).toEqual([1, 1, 2, 2]);
-        expect(readLogState(s.office).epoch).not.toBe(readLogState(other).epoch);
       } finally {
         s.state.close();
       }

@@ -126,7 +126,6 @@ async function ingestWebCalls(
   appendLines(f.eventFile, hostLines(recording));
   new OfficeIngest({
     clock: f.t.clock,
-    pricing: () => null,
     redactOutput: (office, run, text) => guard.redactOutput(office, run, text),
   }).attach(
     f.office,

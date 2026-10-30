@@ -256,7 +256,7 @@ describe("dipo office rescan", () => {
     let listener: Options | null = null;
     let unsubscribed = 0;
     const event = (eventData: Record<string, unknown>) => ({
-      cursor: { stream: `office:${OFFICE}`, epoch: "e", seq: 1 },
+      cursor: { stream: `office:${OFFICE}`, seq: 1 },
       at: "2026-10-13T09:00:00Z",
       type: "scan.finished",
       data: eventData,
@@ -288,7 +288,7 @@ describe("dipo office rescan", () => {
           subscribe: ((stream, options) => {
             subscribed.push({ stream, filter: options.filter });
             listener = options;
-            queueMicrotask(() => options.onCaughtUp?.({ stream, epoch: "e", seq: 0 } as never));
+            queueMicrotask(() => options.onCaughtUp?.({ stream, seq: 0 } as never));
             return {
               stream,
               cursor: undefined,
@@ -392,7 +392,7 @@ describe("dipo office rescan", () => {
               options as never,
             );
             listener?.onEvent({
-              cursor: { stream: `office:${OFFICE}`, epoch: "e", seq: 1 },
+              cursor: { stream: `office:${OFFICE}`, seq: 1 },
               at: "2026-10-23T09:00:00Z",
               type: "scan.finished",
               data: { scripts: {}, warnings: [], trigger: "rescan", level: "partial" },
@@ -405,7 +405,7 @@ describe("dipo office rescan", () => {
               queueMicrotask(() => options.onEnded?.(refusal as never));
             } else {
               listener = options;
-              queueMicrotask(() => options.onCaughtUp?.({ stream, epoch: "e", seq: 0 } as never));
+              queueMicrotask(() => options.onCaughtUp?.({ stream, seq: 0 } as never));
             }
             return { stream, cursor: undefined, unsubscribe: () => undefined };
           }) as Subscribe,
@@ -500,106 +500,6 @@ describe("dipo office init", () => {
   });
 });
 
-describe("dipo office purge", () => {
-  const purged = ok({
-    office: OFFICE,
-    path: "/work/app",
-    rows: 42,
-    directory: "/work/app/.git/dipo",
-  });
-
-  it("asks at a terminal, says it cannot be undone, then purges the office of the repository", async () => {
-    const ctx = fake(() => purged, {
-      repository: { ...REPO, office: OFFICE, backlog: true },
-      interactive: true,
-      answers: ["yes"],
-    });
-    expect(await main(["office", "purge"], ctx.deps)).toBe(0);
-    expect(ctx.questions[0]).toMatch(/^Purge the office at \/work\/app\? /);
-    expect(ctx.questions[0]).toContain("This cannot be undone.");
-    expect(ctx.sent).toEqual([
-      { name: "office.purge", args: { office: OFFICE, from: "/work/app" } },
-    ]);
-    expect(ctx.out).toEqual([
-      `purged office ${OFFICE} at /work/app: 42 rows deleted`,
-      "removed /work/app/.git/dipo",
-    ]);
-  });
-
-  it("sends nothing when the answer is no, or in a script without --yes", async () => {
-    const declined = fake(() => purged, { interactive: true, answers: ["n"] });
-    expect(await main(["office", "purge", "--office", OFFICE], declined.deps)).toBe(1);
-    expect(declined.questions[0]).toMatch(new RegExp(`^Purge office ${OFFICE}\\? `));
-    expect(declined.out).toEqual(["nothing purged"]);
-    expect(declined.connections()).toBe(0);
-
-    const script = fake(() => purged);
-    expect(await main(["office", "purge", "--office", OFFICE], script.deps)).toBe(1);
-    expect(script.err).toEqual([
-      `dipo: purging office ${OFFICE} cannot be undone, so it needs confirmation; run it at a terminal or pass --yes.`,
-    ]);
-    expect(script.connections()).toBe(0);
-  });
-
-  it("purges a named office with --yes and says when there was no directory", async () => {
-    const ctx = fake(() => ok({ office: OTHER, path: "/gone", rows: 3 }));
-    expect(await main(["office", "purge", "--office", OTHER, "--yes"], ctx.deps)).toBe(0);
-    expect(ctx.sent).toEqual([{ name: "office.purge", args: { office: OTHER } }]);
-    expect(ctx.out).toEqual([
-      `purged office ${OTHER} at /gone: 3 rows deleted`,
-      "no .git/dipo directory of this office to remove (the path is missing or holds another office)",
-    ]);
-  });
-
-  it("sends the repository as from, also with --office, and reports a path mismatch", async () => {
-    const mismatch = {
-      ok: false,
-      error: {
-        code: "office.unknown",
-        message: `/work/app is not office ${OFFICE}, which is registered at /work/original.`,
-        retryable: false,
-        details: { office: OFFICE, from: "/work/app", reason: "path" },
-      },
-    };
-    // A copy: the marker names an office registered elsewhere.
-    const copy = fake(() => mismatch, { repository: { ...REPO, office: OFFICE, backlog: true } });
-    expect(await main(["office", "purge", "--yes"], copy.deps)).toBe(1);
-    expect(copy.sent).toEqual([
-      { name: "office.purge", args: { office: OFFICE, from: "/work/app" } },
-    ]);
-    expect(copy.err[0]).toBe(
-      `dipo: office.unknown: /work/app is not office ${OFFICE}, which is registered at /work/original.`,
-    );
-    expect(copy.err[1]).toContain("nothing purged");
-    expect(copy.questions).toEqual([]);
-
-    // --office inside a repository still sends that repository as from.
-    const named = fake(() => mismatch, { repository: { ...REPO, office: OTHER, backlog: true } });
-    expect(await main(["office", "purge", "--office", OFFICE, "--yes"], named.deps)).toBe(1);
-    expect(named.sent).toEqual([
-      { name: "office.purge", args: { office: OFFICE, from: "/work/app" } },
-    ]);
-  });
-
-  it("sends no from outside any repository", async () => {
-    const ctx = fake(() => ok({ office: OFFICE, path: "/work/app", rows: 2 }));
-    expect(await main(["office", "purge", "--office", OFFICE, "--yes"], ctx.deps)).toBe(0);
-    expect(ctx.sent).toEqual([{ name: "office.purge", args: { office: OFFICE } }]);
-  });
-
-  it("reports office.busy", async () => {
-    const ctx = fake(() => ({
-      ok: false,
-      error: { code: "office.busy", message: "has active work", retryable: false },
-    }));
-    expect(await main(["office", "purge", "--office", OFFICE, "--yes"], ctx.deps)).toBe(1);
-    expect(ctx.err).toEqual(["dipo: office.busy: has active work"]);
-  });
-});
-
-// DIPO-86: a command refused with `engine.recovering` polls `daemon.status` and goes again with the
-// same request id after every poll, inside the reply deadline. A daemon held in `recovering`
-// without its state database answers the repeat with `database.unavailable` (DIPO-111).
 describe("a command against a recovering daemon", () => {
   const RECOVERING = { code: "engine.recovering", message: "recovering", retryable: true };
 
@@ -720,9 +620,9 @@ describe("a command against a recovering daemon", () => {
     const unavailable = {
       code: "database.unavailable",
       message:
-        "The state database is damaged. No office is loaded. Run `dipo daemon stop`, then `dipo restore /s/backups/dipo-20261015.db`.",
+        "The state database is damaged. No office is loaded. Run `dipo daemon stop`, move /s/dipo.db and its -wal and -shm files away, or delete those two files and copy /s/backups/pre-v3-20261015T090000.db over /s/dipo.db, then start the daemon again.",
       retryable: false,
-      details: { reason: "damaged", backup: "/s/backups/dipo-20261015.db" },
+      details: { reason: "damaged", backup: "/s/backups/pre-v3-20261015T090000.db" },
     };
     const ctx = recovering(2, ["recovering"], { ok: false, error: unavailable }, undefined, true);
     const code = main(["office", "open"], ctx.deps);

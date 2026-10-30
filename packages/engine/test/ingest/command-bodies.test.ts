@@ -82,7 +82,6 @@ async function ingest(
   new Ingestor({
     office: f.office,
     clock: f.t.clock,
-    pricing: f.t.state.pricing,
     ...(storeCommandBodies === undefined ? {} : { privacy: () => ({ storeCommandBodies }) }),
   }).track(target(f, claude, initialState({ plannedModel: "haiku" }) as unknown as ParseState));
   return f;
@@ -148,7 +147,6 @@ describe("privacy.storeCommandBodies (DIPO-83)", () => {
       appendLines(f.eventFile, LINES.slice(1, 2));
       new OfficeIngest({
         clock: f.t.clock,
-        pricing: () => null,
         privacy: (office) => {
           asked.push(office);
           return { storeCommandBodies: true };
@@ -170,7 +168,6 @@ describe("privacy.storeCommandBodies (DIPO-83)", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
         privacy: () => ({ storeCommandBodies: on }),
       });
       appendLines(f.eventFile, LINES.slice(1, 2));

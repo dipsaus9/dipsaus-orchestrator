@@ -92,7 +92,7 @@ function keepAwakeOf(core: Core): KeepAwake {
 }
 
 /**
- * The daily backup and maintenance (DIPO-65, 0007). Idle means no engine step is running and no
+ * The daily database upkeep (DIPO-65, 0007). Idle means no engine step is running and no
  * loaded office reports active work.
  */
 function maintenanceOf(core: Core): MaintenanceScheduler {
@@ -126,7 +126,7 @@ export function buildOfficeServices(core: Core): OfficeServices {
   });
   return {
     // Retention (DIPO-65): a load step runs it when an office loads, then hourly while it stays
-    // loaded, with the `retention.*` periods of the configuration in force.
+    // loaded, with the `retention.days` of the configuration in force (0007).
     retention: new Retention({
       offices: core.offices,
       onOfficeChanged: core.onChanged,

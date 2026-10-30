@@ -3,7 +3,7 @@
 // the runtime and state directories, signals and process probes, the log, the settings file and the
 // tools on the PATH, and the system implementations of the engine's process ports (spawn, the worker
 // hosts, the test-box forwarders, the model proxy's listener, keep-awake). It also carries what the
-// daemon's other forms run: the worker host, `dipo restore`, `dipo login box`, the test shell and
+// daemon's other forms run: the worker host, `dipo login box`, the test shell and
 // `dipo config migrate`.
 // The daemon imports from the engine only this entry, `createEngine` and types
 // (`dipo/daemon-engine-imports`).
@@ -73,12 +73,11 @@ export { systemListenHttp, systemSpawnInteractive } from "./platform/box-host";
 export { systemSpawnKeepAwake, type SpawnKeepAwake } from "./platform/keepawake";
 export { systemPostNotification, type PostNotification } from "./platform/notify";
 
-// The daemon's other forms: the worker host (0006 decision 8), `dipo restore` (DIPO-76),
-// `dipo login box` (DIPO-269), the test shell (DIPO-309) and `dipo config migrate` (0017).
+// The daemon's other forms: the worker host (0006 decision 8), `dipo login box` (DIPO-269), the
+// test shell (DIPO-309) and `dipo config migrate` (0017).
 export { runWorkerHost } from "./host/main";
 export { LAUNCH_FILE, RUN_ID_PATTERN } from "./host/protocol";
 export { RUN_DIR_ENV } from "./runs/worker-hosts";
-export { BackupRestoreError, restoreBackup } from "./backup/restore";
 export {
   storeBoxToken,
   TOKEN_KEYCHAIN_ACCOUNT,

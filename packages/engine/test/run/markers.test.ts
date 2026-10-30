@@ -76,7 +76,6 @@ describe("phase markers (DIPO-83)", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
       });
 
       phase(f, "setup", T0);
@@ -172,7 +171,6 @@ describe("marker flags (DIPO-95)", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
       });
       phase(f, "build", T0);
       ingestor.track(target(f, scriptedWorker({ script }), { events: [] }));

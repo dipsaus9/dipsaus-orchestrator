@@ -66,7 +66,7 @@ async function setup(dir: string) {
   const started = startRun(t, office, "TASK-1", dir, {
     criteria: { known: [1, 2, 3], checked: [] },
   });
-  const ingestor = new Ingestor({ office, clock: t.clock, pricing: null });
+  const ingestor = new Ingestor({ office, clock: t.clock });
   return { t, office, started, ingestor };
 }
 
@@ -157,7 +157,7 @@ describe("criteria progress from the worker report", () => {
         const started = startRun(t, office, "TASK-1", dir, {
           criteria: { known: [1, 2, 3], checked: [1] },
         });
-        const ingestor = new Ingestor({ office, clock: t.clock, pricing: null });
+        const ingestor = new Ingestor({ office, clock: t.clock });
         // A report naming only the criterion checked already changes nothing shown: no event.
         writeReport(started, t, report([1]));
         track(ingestor, started);

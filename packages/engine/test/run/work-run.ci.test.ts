@@ -14,7 +14,7 @@ import { type CommandReply, type OfficeId, RequestId } from "@dipsaus-orchestrat
 import { type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
 import { BacklogLane } from "../../src/backlog/lane";
-import { cursorAt, readLogState } from "../../src/changelog/log";
+import { cursorAt } from "../../src/changelog/log";
 import { replay } from "../../src/changelog/replay";
 import { executeCommand } from "../../src/commands/execute";
 import type { OfficeHandle } from "../../src/db/office";
@@ -163,8 +163,7 @@ function workRunCommand(r: Running, stories?: string[]): Promise<CommandReply> {
 }
 
 function types(r: Running): { type: string; delta: unknown }[] {
-  const { epoch } = readLogState(r.office);
-  const result = replay(r.office, cursorAt(r.officeId, epoch, 0));
+  const result = replay(r.office, cursorAt(r.officeId, 0));
   if (!result.ok) throw new Error(result.error.message);
   return result.entries.map(({ type, delta }) => ({ type, delta }));
 }

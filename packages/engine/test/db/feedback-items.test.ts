@@ -56,7 +56,7 @@ describe("migration 44 on a database at version 43", () => {
       try {
         const db = state.connection;
         expect(MIGRATIONS.find((step) => step.version === 44)?.name).toBe("feedback items");
-        expect(TABLE_RETENTION["feedback_items"]?.tier).toBe("S");
+        expect(TABLE_RETENTION["feedback_items"]?.aged).toBe(true);
         expect(db.all("select run_id from runs")).toEqual([{ run_id: "run-1" }]);
         db.exec(insert(1));
         // The same signature on a later head is a row of its own: a repeat.

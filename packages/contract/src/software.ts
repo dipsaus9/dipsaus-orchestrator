@@ -62,7 +62,7 @@ export const OfficeSummary = z.object({
   // The privacy opt-ins on for the office, as full keys such as `privacy.storeCommandBodies`
   // (0007 section 8: the overview shows when one is on). Absent when none is on. Minor 1, DIPO-83.
   optIns: z.array(z.string().min(1)).optional(),
-  // The days stored output is kept (`retention.shortDays`, 0007 section 7), so a client can say
+  // The days stored output is kept (`retention.days`, 0007), so a client can say
   // that output was removed after this period. Absent when the office has no valid configuration.
   // Minor 1, DIPO-97.
   outputRetentionDays: z.int().positive().optional(),
@@ -139,29 +139,6 @@ export const officeInit = defineCommand({
   }),
   confirm: false,
   irreversible: false,
-  since: 1,
-});
-
-// Since minor 1 (DIPO-76): deletes the office's rows and its `<git-common-dir>/dipo/` directory,
-// `mcp.json` included (0007 section 3), forgotten or not. Its idempotency record lives in the
-// daemon's in-memory request table, because purge deletes the office's own `requests` rows (0005
-// amendment). `path` is the office's registered path and `rows` the number of rows deleted.
-// `directory` is the `<git-common-dir>/dipo/` it removed; it is absent when the path is missing or
-// its marker does not name this office.
-// `from` is checked as for `office.forget` (0005 amendment of 2026-10-14), so a copied repository
-// never purges the original.
-export const officePurge = defineCommand({
-  name: "office.purge",
-  level: "software",
-  args: OfficeTargetArgs,
-  result: z.object({
-    office: OfficeId,
-    path: z.string(),
-    rows: z.int().nonnegative(),
-    directory: z.string().optional(),
-  }),
-  confirm: true,
-  irreversible: true,
   since: 1,
 });
 
@@ -385,7 +362,6 @@ export const softwareCommands = [
   officeOpen,
   officeForget,
   officeInit,
-  officePurge,
   officeRescan,
   officeReloadConfig,
   officeSetPrivacy,

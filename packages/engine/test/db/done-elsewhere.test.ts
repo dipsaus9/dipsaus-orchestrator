@@ -98,6 +98,6 @@ describe("migration 45 on a database at version 44", () => {
     }));
 
   it("lists done_elsewhere in the retention policy as tier S", () => {
-    expect(TABLE_RETENTION["done_elsewhere"]?.tier).toBe("S");
+    expect(TABLE_RETENTION["done_elsewhere"]?.aged).toBe(true);
   });
 });

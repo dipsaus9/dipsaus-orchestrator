@@ -33,7 +33,7 @@ function lines(frame: string): string[] {
 
 function storyEvent(seq: number, view: StoryView, from: string): Event {
   return {
-    cursor: { stream: STREAM, epoch: "e2", seq },
+    cursor: { stream: STREAM, seq },
     at: "2026-10-14T10:05:00.000Z",
     type: "story.state",
     data: { story: view.story, key: view.key, from, to: view.lifecycle, view },
@@ -97,7 +97,7 @@ describe("u runs stories", () => {
         skipped: [],
       },
       changed: true,
-      cursor: { stream: STREAM, epoch: "e2", seq: 9 },
+      cursor: { stream: STREAM, seq: 9 },
     });
     const syncing = await ui.waitFor("waiting for the office stream");
     expect(syncing).toContain("started DIPO-30 (run_01J9ZK5Q8W3V4X6Y7Z8A9B0R30)");
@@ -115,7 +115,7 @@ describe("u runs stories", () => {
     expect(done).toContain("started DIPO-30");
   });
 
-  it("counts a re-read onto a newer epoch after the reply as caught up", async () => {
+  it("counts a re-read after the reply as caught up", async () => {
     const { ui, session } = await openQueue();
     session.runReply = () => ({
       ok: true,
@@ -124,41 +124,20 @@ describe("u runs stories", () => {
         skipped: [],
       },
       changed: true,
-      cursor: { stream: STREAM, epoch: "e2", seq: 9 },
+      cursor: { stream: STREAM, seq: 9 },
     });
     await ui.press("u");
     await ui.waitFor("waiting for the office stream");
-    // A history gap: the store reads the snapshot again, now on epoch e3, before seq 9 of e2 came.
+    // A history gap: the store reads the snapshot again, at seq 2, before seq 9 came.
     const base = goldenSnapshots.get(OFFICES.dipsaus)!;
     session.nextSnapshots.set(OFFICES.dipsaus, {
       ...base,
-      cursor: { stream: STREAM, epoch: "e3", seq: 2 },
+      cursor: { stream: STREAM, seq: 2 },
     } as typeof base);
     const stream = session.active(STREAM)!;
     stream.active = false;
     stream.options.onEnded?.({ code: "stream.resetRequired", message: "gap", retryable: false });
     await ui.waitFor("run next Ready story: done");
-  });
-
-  it("keeps waiting for a newer-epoch reply while the store is on the old epoch", async () => {
-    const { ui, session } = await openQueue();
-    session.runReply = () => ({
-      ok: true,
-      result: {
-        started: [{ story: "DIPO-30", key: KEY_30, run: "run_01J9ZK5Q8W3V4X6Y7Z8A9B0R30" }],
-        skipped: [],
-      },
-      changed: true,
-      cursor: { stream: STREAM, epoch: "e3", seq: 1 },
-    });
-    await ui.press("u");
-    await ui.waitFor("waiting for the office stream");
-    const running = { ...golden(KEY_30), lifecycle: "In Progress", column: "running" } as StoryView;
-    session.active(STREAM)?.options.onEvent(storyEvent(20, running, "Ready"));
-    await ui.waitFor("RUNNING (4)");
-    await Bun.sleep(150);
-    expect(ui.frame()).toContain("waiting for the office stream");
-    expect(ui.frame()).not.toContain("run next Ready story: done");
   });
 
   it("handles uu in one write: the first u sends, the second is refused, and the refusal clears when the run ends", async () => {
@@ -194,7 +173,7 @@ describe("u runs stories", () => {
         skipped: [],
       },
       changed: true,
-      cursor: { stream: STREAM, epoch: "e2", seq: 9 },
+      cursor: { stream: STREAM, seq: 9 },
     });
     await ui.press("u");
     await ui.waitFor("waiting for the office stream");

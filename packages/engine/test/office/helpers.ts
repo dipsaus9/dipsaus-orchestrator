@@ -26,7 +26,7 @@ import type { MountReader } from "../../src/platform/sqlite";
 import { systemSpawn } from "../../src/platform/process";
 import { SoftwareStream } from "../../src/software-stream";
 import { localMounts } from "../db/helpers";
-import { countingFill, openTestState } from "../commands/helpers";
+import { openTestState } from "../commands/helpers";
 
 /** The Backlog.md fixture project: copied into a temp repository it gives `backlog/config.yml`. */
 export const BACKLOG_FIXTURE = join(import.meta.dir, "..", "fixtures", "backlog");
@@ -73,7 +73,7 @@ export async function officeSetup(
   options: OfficeSetupOptions = {},
 ): Promise<OfficeSetup> {
   const t = await openTestState(dir);
-  const software = new SoftwareStream({ clock: t.clock, fill: countingFill() });
+  const software = new SoftwareStream({ clock: t.clock });
   const events: Event[] = [];
   software.onAppend((event) => events.push(event));
   const changed: OfficeId[] = [];
@@ -90,7 +90,6 @@ export async function officeSetup(
     git: { spawn: systemSpawn, env: isolatedEnv(join(dir, "home")) },
     logger: createLogger({ clock: t.clock, sinks: [], component: "office", level: "error" }),
     readMounts: options.readMounts ?? localMounts,
-    fill: t.fill,
     onOfficeChanged: (office) => changed.push(office),
   });
   const features =

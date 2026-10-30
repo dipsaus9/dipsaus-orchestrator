@@ -15,7 +15,7 @@ import {
   withTempRepo,
 } from "@dipsaus-orchestrator/testkit";
 
-import { cursorAt, readLogState } from "../../src/changelog/log";
+import { cursorAt } from "../../src/changelog/log";
 import { replay } from "../../src/changelog/replay";
 import {
   buildRegistry,
@@ -115,7 +115,7 @@ describe("lazy office loading", () => {
         const reply = await send(s, "fixture.ping", {}, office);
         expect(errorOf(reply)).toBe("office.pathMissing");
         expect(noticeText(s.events.at(-1))).toContain(
-          "path missing; `dipo office open` the new path, or `dipo office purge`",
+          "path missing; `dipo office open` the new path, or `dipo office forget` it",
         );
         rmSync(join(repo.root, "elsewhere"), { recursive: true });
       },
@@ -287,7 +287,7 @@ function withPolledOffice(fn: (o: Polled) => Promise<void>): Promise<void> {
 
 function officeNotices(s: OfficeSetup, office: OfficeId, code: string): unknown[] {
   const handle = s.state.office(office);
-  const result = replay(handle, cursorAt(office, readLogState(handle).epoch, 0));
+  const result = replay(handle, cursorAt(office, 0));
   if (!result.ok) throw new Error(result.error.message);
   return result.entries
     .filter((entry) => entry.type === "engine.notice")

@@ -77,7 +77,7 @@ const story = {
   column: "running",
   work,
 };
-const cursor = { stream: `office:${OFFICE}`, epoch: "e1", seq: 4 };
+const cursor = { stream: `office:${OFFICE}`, seq: 4 };
 
 function fake(options: {
   readonly running: boolean;

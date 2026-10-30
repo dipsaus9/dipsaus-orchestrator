@@ -64,7 +64,7 @@ function dyingSession(f: IngestFixture, hooks: boolean = true): Ingestor {
   const recording = loadRecording(RECORDING);
   const lines = untilFirstAssistant(recording);
   appendLines(f.eventFile, lines);
-  const ingestor = new Ingestor({ office: f.office, clock: f.t.clock, pricing: f.t.state.pricing });
+  const ingestor = new Ingestor({ office: f.office, clock: f.t.clock });
   const state = initialState({ plannedModel: plannedModel(recording) }) as unknown as ParseState;
   expect(ingestor.track(target(f, claude, state)).status).toBe("ingested");
   if (hooks) {
@@ -111,7 +111,6 @@ function recover(f: IngestFixture, mode: "lost" | "detail") {
     office: f.office,
     scope: scopeOf(f),
     read: readTranscript,
-    pricing: f.t.state.pricing,
     mode,
     at: f.t.clock.now(),
   });
@@ -345,7 +344,6 @@ describe("a resumed session (DIPO-134)", () => {
         office: f.office,
         scope: { ...scopeOf(f), agent: resumed },
         read: readTranscript,
-        pricing: f.t.state.pricing,
         mode: "lost",
         at,
       });
@@ -418,7 +416,7 @@ function dyingSessionAt(f: IngestFixture, path: string): Ingestor {
   const recording = loadRecording(RECORDING);
   const lines = untilFirstAssistant(recording);
   appendLines(f.eventFile, lines);
-  const ingestor = new Ingestor({ office: f.office, clock: f.t.clock, pricing: f.t.state.pricing });
+  const ingestor = new Ingestor({ office: f.office, clock: f.t.clock });
   const state = initialState({ plannedModel: plannedModel(recording) }) as unknown as ParseState;
   ingestor.track(target(f, claude, state));
   seedTranscriptCursor(f.office, { run: f.run, agent: f.agent }, { path }, f.t.clock.now());

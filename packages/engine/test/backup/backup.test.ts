@@ -1,22 +1,23 @@
-// Daily backups and maintenance (DIPO-65; 0007 sections 1, 7 and 10): a `VACUUM INTO` copy written
-// from a Bun Worker and checked with `quick_check`, 3 daily and 2 pre-migration copies kept, and
-// maintenance only while no office has active work. A failed timer check is logged and the next one
-// still comes (DIPO-119).
+// The one backup and the daily upkeep (DIPO-65, DIPO-354; 0007): the pre-migration copies beyond
+// the two newest are deleted, and maintenance runs once per UTC day, only while no office has
+// active work. A failed timer check is logged and the next one still comes (DIPO-119).
 
-import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
 import { mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { withTempDir } from "@dipsaus-orchestrator/testkit";
+import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { writeDailyBackup } from "../../src/backup/daily";
-import { backupsDirectory, dailyBackupName, pruneBackups } from "../../src/backup/files";
+import { backupsDirectory, prunePreMigrationBackups } from "../../src/backup/files";
+import { openStateDatabase } from "../../src/db/database";
+import { DatabaseTooNewError } from "../../src/db/migrations";
+import { MIGRATIONS } from "../../src/db/schema";
 import { runMaintenance } from "../../src/backup/maintenance";
 import { MaintenanceScheduler } from "../../src/backup/scheduler";
 import { yieldToEventLoop } from "../../src/platform/clock";
 import { DAY_MS } from "../../src/retention/run";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
+import { localMounts, memoryLogger } from "../db/helpers";
 import { watchRejections } from "../platform/rejections";
 import { insertRequests } from "../retention/helpers";
 
@@ -26,7 +27,7 @@ async function withState(fn: (t: TestState, backups: string) => Promise<void>) {
   return withTempDir(async (dir) => {
     const t = await openTestState(dir);
     try {
-      // A new database has no backups directory yet: the migration no longer writes a copy (DIPO-122).
+      // A new database has no backups directory yet: the migration writes no copy (DIPO-122).
       const backups = backupsDirectory(t.state.connection.path);
       mkdirSync(backups, { recursive: true });
       await fn(t, backups);
@@ -41,113 +42,87 @@ function seed(dir: string, names: readonly string[]): void {
   for (const name of names) writeFileSync(join(dir, name), "");
 }
 
-async function copied(_source: string, target: string): Promise<void> {
-  writeFileSync(target, "copy");
-}
-
-async function failing(_source: string, target: string): Promise<void> {
-  writeFileSync(target, "half a copy");
-  throw new Error("quick_check: page 3 is never used");
-}
-
 const files = (dir: string) => readdirSync(dir).toSorted();
 
-function quickCheck(path: string): string {
-  const db = new Database(path, { readonly: true });
-  try {
-    return String(Object.values(db.query("pragma quick_check").get() as object)[0]);
-  } finally {
-    db.close();
-  }
-}
-
-describe("daily backup", () => {
-  it("is written from a Worker, passes quick_check, and the oldest copy beyond three is deleted", () =>
-    withState(async (t, backups) => {
-      insertRequests(addOffice(t), 10, t.clock.now());
+describe("daily copies of an earlier dipo", () => {
+  it("are deleted when the state database opens, and the pre-migration copies stay", () =>
+    withTempDir(async (dir) => {
+      const stateDir = join(dir, "state");
+      const backups = join(stateDir, "backups");
       seed(backups, [
-        "dipo-20251228.db",
-        "dipo-20251229.db",
         "dipo-20251230.db",
+        "dipo-20251231.db",
+        "dipo-20260101.db.partial",
+        "pre-v7-20251215T120000.db",
+        "notes.txt",
+      ]);
+      const logger = memoryLogger();
+      const state = await openStateDatabase({
+        stateDir,
+        logger,
+        readMounts: localMounts,
+        clock: new ManualClock(),
+        engineVersion: "0.0.0-test",
+      });
+      state.close();
+      expect(files(backups)).toEqual(["notes.txt", "pre-v7-20251215T120000.db"]);
+      expect(logger.lines.map((line) => line.message)).toContain("removed daily backups");
+    }));
+
+  it("stay when the open is refused, so the maintainer still has them", () =>
+    withTempDir(async (dir) => {
+      const stateDir = join(dir, "state");
+      const open = (migrations?: typeof MIGRATIONS) =>
+        openStateDatabase({
+          stateDir,
+          logger: memoryLogger(),
+          readMounts: localMounts,
+          clock: new ManualClock(),
+          engineVersion: "0.0.0-test",
+          ...(migrations === undefined ? {} : { migrations }),
+        });
+      (await open()).close();
+      const backups = join(stateDir, "backups");
+      seed(backups, ["dipo-20251230.db"]);
+      // A binary that knows fewer migrations than the file has: the database is too new.
+      await expect(open(MIGRATIONS.slice(0, 1))).rejects.toThrow(DatabaseTooNewError);
+      expect(files(backups)).toEqual(["dipo-20251230.db"]);
+    }));
+});
+
+describe("pre-migration backups", () => {
+  it("keeps the two newest and leaves other files alone", () =>
+    withTempDir((dir) => {
+      seed(dir, [
         "pre-v6-20251201T000000.db",
         "pre-v7-20251215T120000.db",
         "pre-v7-20251215T120000-2.db",
+        "dipo-20251230.db",
+        "other.db",
       ]);
-
-      // Opening a new test database writes no pre-migration copy (DIPO-122).
-      expect(t.state.migration.backup).toBeNull();
-
-      const result = await writeDailyBackup({
-        dbPath: t.state.connection.path,
-        now: t.clock.now(),
-      });
-
-      expect(result.written).toBe(true);
-      expect(result.path).toBe(join(backups, "dipo-20260101.db"));
-      expect(result.removed.toSorted()).toEqual(["dipo-20251228.db", "pre-v6-20251201T000000.db"]);
-      expect(files(backups)).toEqual(
+      expect(prunePreMigrationBackups(dir)).toEqual(["pre-v6-20251201T000000.db"]);
+      expect(files(dir)).toEqual(
         [
-          "dipo-20251229.db",
           "dipo-20251230.db",
-          "dipo-20260101.db",
+          "other.db",
           "pre-v7-20251215T120000-2.db",
           "pre-v7-20251215T120000.db",
         ].toSorted(),
       );
-      expect(quickCheck(result.path)).toBe("ok");
-      const copy = new Database(result.path, { readonly: true });
-      try {
-        expect(copy.query("select count(*) as n from requests").get()).toEqual({ n: 10 });
-      } finally {
-        copy.close();
-      }
-      expect(statSync(result.path).mode & 0o777).toBe(0o600);
-      expect(statSync(result.path).mtimeMs).toBe(t.clock.now());
-    }));
-
-  it("leaves no copy when the snapshot or its check fails, and skips a day already written", () =>
-    withState(async (t, backups) => {
-      const dbPath = t.state.connection.path;
-      await expect(
-        writeDailyBackup({ dbPath, now: t.clock.now(), vacuum: failing }),
-      ).rejects.toThrow("quick_check");
-      expect(files(backups).filter((name) => name.startsWith("dipo-"))).toEqual([]);
-
-      seed(backups, [dailyBackupName(t.clock.now())]);
-      const again = await writeDailyBackup({ dbPath, now: t.clock.now(), vacuum: failing });
-      expect(again).toEqual({
-        path: join(backups, dailyBackupName(t.clock.now())),
-        written: false,
-        removed: [],
-      });
     }));
 
   it("never deletes the copy just written, also after the clock went back", () =>
-    withState(async (t, backups) => {
-      // Newer copies than today's: the clock was set back since they were written.
-      seed(backups, ["dipo-20260105.db", "dipo-20260106.db", "dipo-20260107.db"]);
-      const result = await writeDailyBackup({
-        dbPath: t.state.connection.path,
-        now: t.clock.now(),
-        vacuum: copied,
-      });
-      expect(result.path).toBe(join(backups, "dipo-20260101.db"));
-      expect(result.removed).toEqual(["dipo-20260105.db"]);
-      expect(files(backups).filter((name) => name.startsWith("dipo-"))).toEqual([
-        "dipo-20260101.db",
-        "dipo-20260106.db",
-        "dipo-20260107.db",
-      ]);
-    }));
-
-  it("prunes with configurable counts", () =>
     withTempDir((dir) => {
-      seed(dir, ["dipo-20260101.db", "dipo-20260102.db", "pre-v1-20260101T000000.db", "other.db"]);
-      expect(pruneBackups(dir, { daily: 1, preMigration: 0 }).toSorted()).toEqual([
-        "dipo-20260101.db",
-        "pre-v1-20260101T000000.db",
+      // Newer copies than the one just written: the clock was set back since they were written.
+      seed(dir, [
+        "pre-v9-20260101T000000.db",
+        "pre-v8-20260105T000000.db",
+        "pre-v7-20260106T000000.db",
       ]);
-      expect(files(dir)).toEqual(["dipo-20260102.db", "other.db"]);
+      expect(prunePreMigrationBackups(dir, new Set(["pre-v9-20260101T000000.db"]))).toEqual([
+        "pre-v8-20260105T000000.db",
+      ]);
+      expect(files(dir)).toEqual(["pre-v7-20260106T000000.db", "pre-v9-20260101T000000.db"]);
     }));
 });
 
@@ -210,7 +185,6 @@ describe("maintenance", () => {
 });
 
 function scheduler(t: TestState, idle: { value: boolean }) {
-  const written: string[] = [];
   const logs: string[] = [];
   const s = new MaintenanceScheduler({
     database: () => t.state,
@@ -222,62 +196,46 @@ function scheduler(t: TestState, idle: { value: boolean }) {
       error: (message) => logs.push(message),
     },
     pause: noPause,
-    vacuum: async (_source, target) => {
-      writeFileSync(target, "copy");
-      written.push(target);
-    },
   });
-  return { s, written, logs };
+  return { s, logs };
 }
 
 describe("maintenance scheduler", () => {
-  it("backs up once per day while idle and at the latest after 24 hours while busy", () =>
-    withState(async (t, backups) => {
+  it("runs maintenance once per UTC day, only while idle", () =>
+    withState(async (t) => {
       const idle = { value: true };
-      const { s, written } = scheduler(t, idle);
-      const first = await s.check();
-      expect(first.backup?.path).toBe(join(backups, "dipo-20260101.db"));
-      expect(first.maintenance?.interrupted).toBe(false);
+      const { s } = scheduler(t, idle);
+      expect((await s.check())?.interrupted).toBe(false);
 
       t.clock.advance(60 * 60 * 1000);
-      const second = await s.check();
-      expect(second).toEqual({ backup: null, maintenance: null });
+      expect(await s.check()).toBeNull();
 
-      // A new day while busy: no copy until 24 hours after the last one.
+      // A new day while busy: nothing until no office has active work.
       idle.value = false;
-      t.clock.advance(DAY_MS - 2 * 60 * 60 * 1000);
-      expect((await s.check()).backup).toBeNull();
-      t.clock.advance(60 * 60 * 1000);
-      const forced = await s.check();
-      expect(forced.backup?.path).toBe(join(backups, "dipo-20260102.db"));
-      expect(forced.maintenance).toBeNull();
-      expect(written).toHaveLength(2);
-
-      // Idle again on the same day: maintenance runs once, no second copy.
+      t.clock.advance(DAY_MS);
+      expect(await s.check()).toBeNull();
       idle.value = true;
-      const later = await s.check();
-      expect(later.backup).toBeNull();
-      expect(later.maintenance?.interrupted).toBe(false);
-      expect((await s.check()).maintenance).toBeNull();
+      expect((await s.check())?.interrupted).toBe(false);
+      expect(await s.check()).toBeNull();
     }));
 
   it("checks on its timer and stops", () =>
     withState(async (t) => {
-      const { s, written } = scheduler(t, { value: true });
+      const { s, logs } = scheduler(t, { value: true });
       s.start();
       t.clock.advance(60 * 1000);
+      await settledUntil(() => logs.includes("database maintenance"));
       await s.stop();
-      expect(written).toHaveLength(1);
       expect(t.clock.pendingTimers).toBe(0);
     }));
 
   it("logs a failed timer check once and arms the next one (DIPO-119)", () =>
     withState(async (t) => {
-      const written: string[] = [];
+      const logs: string[] = [];
       const warnings: { message: string; fields: Readonly<Record<string, unknown>> }[] = [];
       let broken = true;
       const s = new MaintenanceScheduler({
-        // The first check finds the database failing, outside the backup and the maintenance.
+        // The first check finds the database failing, outside the maintenance itself.
         database: () => {
           if (broken) {
             broken = false;
@@ -288,15 +246,11 @@ describe("maintenance scheduler", () => {
         clock: t.clock,
         idle: () => true,
         logger: {
-          info: () => {},
+          info: (message) => logs.push(message),
           warn: (message, fields) => warnings.push({ message, fields: fields ?? {} }),
           error: (message, fields) => warnings.push({ message, fields: fields ?? {} }),
         },
         pause: noPause,
-        vacuum: async (_source, target) => {
-          writeFileSync(target, "copy");
-          written.push(target);
-        },
       });
       const watch = watchRejections();
       s.start();
@@ -305,14 +259,16 @@ describe("maintenance scheduler", () => {
       expect(await watch.stop()).toEqual([]);
       expect(warnings).toEqual([
         {
-          message: "the backup and maintenance check failed",
+          message: "the database maintenance check failed",
           fields: { reason: "disk I/O error", errorCode: "SQLITE_IOERR" },
         },
       ]);
-      expect(written).toEqual([]);
-      // The next check comes on the hourly timer and backs up as usual.
+      expect(logs).toEqual([]);
+      // The next check comes on the hourly timer and maintains as usual.
       t.clock.advance(60 * 60 * 1000);
-      await settledUntil(() => written.length === 1 && t.clock.pendingTimers === 1);
+      await settledUntil(
+        () => logs.includes("database maintenance") && t.clock.pendingTimers === 1,
+      );
       await s.stop();
       expect(warnings).toHaveLength(1);
       expect(t.clock.pendingTimers).toBe(0);

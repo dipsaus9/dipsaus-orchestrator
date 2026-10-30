@@ -96,21 +96,6 @@ describe("cli", () => {
     }
   });
 
-  it("runs restore through runDaemon with the file made absolute (DIPO-76)", async () => {
-    const { deps, captured } = fakeDeps({ daemonCode: 1 });
-    expect(await main(["restore", "backups/dipo-20261014.db"], deps)).toBe(1);
-    expect(await main(["restore", "/abs/dipo.db"], deps)).toBe(1);
-    // A usage problem goes as given; the daemon form prints the usage.
-    expect(await main(["restore"], deps)).toBe(1);
-    expect(captured.daemonCalls).toEqual([
-      ["restore", "/work/backups/dipo-20261014.db"],
-      ["restore", "/abs/dipo.db"],
-      ["restore"],
-    ]);
-    expect(HELP).toContain("dipo restore <file>");
-    expect(HELP).toContain("dipo office purge [--office <id>] [--yes]");
-  });
-
   it("runs login through runDaemon as given, without a daemon (DIPO-269)", async () => {
     const { deps, captured } = fakeDeps({ daemonCode: 2 });
     expect(await main(["login", "box"], deps)).toBe(2);
@@ -237,7 +222,6 @@ describe("an unusable DIPO_HOME or DIPO_RUNTIME_DIR", () => {
       ["daemon", "start"],
       ["office", "list"],
       ["run", "--dry-run"],
-      ["restore", "backup.db"],
       ["login", "box"],
       ["self-check"],
     ]) {

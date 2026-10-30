@@ -30,8 +30,8 @@ import { type FakeConnection, FakeTransport } from "./fake-transport";
 
 const SOFTWARE = "software" as StreamName;
 
-function cursor(seq: number, epoch = "ep1"): Cursor {
-  return { stream: SOFTWARE, epoch, seq };
+function cursor(seq: number): Cursor {
+  return { stream: SOFTWARE, seq };
 }
 
 function hello(daemon: "running" | "safe" = "running", seq = 0) {
@@ -66,8 +66,8 @@ function errorReply(requestId: string, code: string, message = "refused"): Serve
   };
 }
 
-function event(seq: number, type: string, data: unknown, epoch = "ep1"): Event {
-  return { cursor: cursor(seq, epoch), at: "2026-01-01T00:00:00.000Z", type, data };
+function event(seq: number, type: string, data: unknown): Event {
+  return { cursor: cursor(seq), at: "2026-01-01T00:00:00.000Z", type, data };
 }
 
 function requestIdOf(connection: FakeConnection, index = -1): string {
@@ -362,7 +362,7 @@ describe("DipoClient reconnect", () => {
   it("moves past an entry the daemon could not render, so a reconnect never asks for it again (DIPO-124)", async () => {
     const { clock, transport, client } = await connected();
     const office = "office:off_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D" as StreamName;
-    const at = (seq: number): Cursor => ({ stream: office, epoch: "ep1", seq });
+    const at = (seq: number): Cursor => ({ stream: office, seq });
     const seen: string[] = [];
     const subscription = client.subscribe(office, {
       after: at(1),
@@ -413,10 +413,11 @@ describe("DipoClient reconnect", () => {
     );
     transport.current.drop();
     clock.advance(500);
-    const second = accept(transport, { ...hello(), cursor: cursor(0, "ep2") });
+    // The daemon restarted: its software stream starts at a higher seq.
+    const second = accept(transport, { ...hello(), cursor: cursor(9_000) });
     second.deliver(errorReply(requestIdOf(second), "stream.resetRequired"));
     expect(ended).toEqual(["stream.resetRequired"]);
-    expect(client.hello?.cursor.epoch).toBe("ep2");
+    expect(client.hello?.cursor.seq).toBe(9_000);
     // Not re-sent on the next reconnect.
     second.drop();
     clock.advance(500);

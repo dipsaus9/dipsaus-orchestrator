@@ -94,7 +94,7 @@ async function runWorker(dir: string, script: string, stop: boolean): Promise<En
 
   // Ingestion copies the exit line onto the host's row, as the daemon does.
   const adapter = scriptedWorker({ script: [] });
-  const ingestor = new Ingestor({ office: f.office, clock: f.t.clock, pricing: f.t.state.pricing });
+  const ingestor = new Ingestor({ office: f.office, clock: f.t.clock });
   expect(ingestor.track(target(f, adapter, { events: [] }, { work: false })).status).toBe("ended");
   const row = f.office.get(
     `select exit_code, exit_signal, exit_signal_inferred from worker_hosts

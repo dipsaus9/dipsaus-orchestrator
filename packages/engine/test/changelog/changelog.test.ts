@@ -1,4 +1,4 @@
-// The office change log (DIPO-22; 0005 sections 6 and 8, 0007 sections 3, 4 and 7): migration,
+// The office change log (DIPO-22; 0005, 0007): migration,
 // gap-free append, replay from a cursor, and rendering into contract events.
 
 import { describe, expect, it } from "bun:test";
@@ -12,14 +12,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import {
-  appendEntries,
-  headCursor,
-  newEpoch,
-  newLogState,
-  readLogState,
-  tierOf,
-} from "../../src/changelog/log";
+import { appendEntries, headCursor, readLogState } from "../../src/changelog/log";
 import {
   Renderer,
   RenderError,
@@ -29,13 +22,7 @@ import {
 } from "../../src/changelog/render";
 import { replay } from "../../src/changelog/replay";
 import type { OfficeHandle } from "../../src/db/office";
-import {
-  addOffice,
-  countingFill,
-  countRows,
-  openTestState,
-  type TestState,
-} from "../commands/helpers";
+import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
 import { fixtureView } from "../commands/fixtures";
 
 async function withOffice(fn: (t: TestState, office: OfficeHandle) => void | Promise<void>) {
@@ -74,9 +61,9 @@ function storeAsOlderBinary(office: OfficeHandle, type: string, delta: unknown):
   return office.immediate(() => {
     const seq = readLogState(office).nextSeq;
     office.run(
-      `insert into change_log (office_id, seq, at, type, tier, key, run_id, caused_by, delta, view)
-       values ($office_id, $seq, 1, $type, $tier, null, null, null, $delta, null)`,
-      { seq, type, tier: tierOf(type), delta: JSON.stringify(delta) },
+      `insert into change_log (office_id, seq, at, type, key, run_id, caused_by, delta, view)
+       values ($office_id, $seq, 1, $type, null, null, null, $delta, null)`,
+      { seq, type, delta: JSON.stringify(delta) },
     );
     office.run("update offices set next_seq = $next where office_id = $office_id", {
       next: seq + 1,
@@ -108,7 +95,6 @@ describe("change log", () => {
           "seq",
           "at",
           "type",
-          "tier",
           "key",
           "run_id",
           "caused_by",
@@ -127,19 +113,6 @@ describe("change log", () => {
         t.state.close();
       }
     }));
-
-  it("gives each office a random epoch", () => {
-    const a = newEpoch();
-    const b = newEpoch();
-    expect(a).toMatch(/^[0-9a-f]{32}$/);
-    expect(a).not.toBe(b);
-    const fill = countingFill();
-    expect(newLogState(fill)).toEqual({
-      epoch: "000102030405060708090a0b0c0d0e0f",
-      nextSeq: 1,
-      replayFloorSeq: 0,
-    });
-  });
 
   it("appends gap-free and advances next_seq in the same transaction", () =>
     withOffice((t, office) => {
@@ -168,11 +141,8 @@ describe("change log", () => {
       expect(office.immediate(() => appendEntries(office, [], { at: 4 }))).toBeUndefined();
     }));
 
-  it("stores each entry with its tier and refuses derived, software and unknown types", () =>
-    withOffice((t, office) => {
-      expect(tierOf("work.output")).toBe("R");
-      expect(tierOf("usage.updated")).toBe("R");
-      expect(tierOf("story.state")).toBe("S");
+  it("refuses derived, software and unknown types", () =>
+    withOffice((_t, office) => {
       const append = (type: string) =>
         office.immediate(() => appendEntries(office, [{ type, delta: {} }], { at: 1 }));
       expect(() => append("stream.mark")).toThrow("derived");
@@ -197,34 +167,36 @@ describe("change log", () => {
       expect(none.ok && none.entries).toEqual([]);
     }));
 
-  it("asks for a reset when the cursor has another epoch or is below the replay floor", () =>
+  it("asks for a reset when the cursor is older than the oldest entry or beyond the last", () =>
     withOffice((t, office) => {
       office.immediate(() =>
         appendEntries(office, [notice("1"), notice("2"), notice("3")], { at: 7 }),
       );
       const head = headCursor(office);
-      t.state.connection.immediate(() =>
-        t.state.connection.run(
-          "update offices set replay_floor_seq = 2 where office_id = $office",
-          { office: office.officeId },
-        ),
+      // Retention deleted the oldest entry: replay after seq 1 is still complete.
+      office.immediate(() =>
+        office.run("delete from change_log where office_id = $office_id and seq = 1"),
       );
-      const oldest = { ...head, seq: 2 };
-      const expectReset = (after: typeof head) => {
+      const oldest = { ...head, seq: 1 };
+      const expectReset = (after: typeof head, expected = oldest) => {
         const result = replay(office, after);
         expect(result.ok).toBe(false);
         if (result.ok) return;
         expect(result.error.code).toBe("stream.resetRequired");
         expect(result.error.retryable).toBe(false);
-        expect(result.error.details).toEqual({ oldest });
+        expect(result.error.details).toEqual({ oldest: expected });
       };
-      expectReset({ ...head, epoch: "another-epoch" });
-      expectReset({ ...head, seq: 1 });
+      expectReset({ ...head, seq: 0 });
       expectReset({ ...head, seq: 4 });
       const other = addOffice(t, "other");
       expectReset({ ...headCursor(other), seq: 2 });
-      const atFloor = replay(office, oldest);
-      expect(atFloor.ok && atFloor.entries.map((e) => e.seq)).toEqual([3]);
+      const atOldest = replay(office, oldest);
+      expect(atOldest.ok && atOldest.entries.map((e) => e.seq)).toEqual([2, 3]);
+      // Every entry deleted: only the head itself can still be replayed.
+      office.immediate(() => office.run("delete from change_log where office_id = $office_id"));
+      expectReset({ ...head, seq: 2 }, head);
+      const atHead = replay(office, head);
+      expect(atHead.ok && atHead.entries).toEqual([]);
     }));
 
   it("renders stored entries into contract events with the view stored on each entry", () =>
@@ -233,17 +205,16 @@ describe("change log", () => {
       office.immediate(() =>
         appendEntries(office, [entry, notice("hello")], { at: 1_767_225_600_000, causedBy: CAUSE }),
       );
-      const { epoch } = readLogState(office);
       const replayed = replay(office, { ...headCursor(office), seq: 0 });
       if (!replayed.ok) throw new Error(replayed.error.message);
-      const events = new Renderer().renderAll(office.officeId, epoch, replayed.entries);
+      const events = new Renderer().renderAll(office.officeId, replayed.entries);
 
       for (const event of events) {
         expect(Event.parse(event)).toEqual(event);
         expect(findEvent(event.type)?.data.safeParse(event.data).success).toBe(true);
       }
       expect(events[0] as unknown).toEqual({
-        cursor: { stream: `office:${office.officeId}`, epoch, seq: 1 },
+        cursor: { stream: `office:${office.officeId}`, seq: 1 },
         at: "2026-01-01T00:00:00.000Z",
         type: "story.state",
         causedBy: CAUSE,
@@ -256,17 +227,16 @@ describe("change log", () => {
     withOffice((t, office) => {
       office.immediate(() => appendEntries(office, [notice("x")], { at: 1 }));
       storeAsOlderBinary(office, "story.state", { story: "DIPO-1" });
-      const { epoch } = readLogState(office);
       const replayed = replay(office, { ...headCursor(office), seq: 0 });
       if (!replayed.ok) throw new Error(replayed.error.message);
       const [first, broken] = replayed.entries;
       const renderer = new Renderer({
         "engine.notice": (e) => ({ ...(e.delta as object), text: "rewritten" }),
       });
-      expect(renderer.render(office.officeId, epoch, first!).data).toMatchObject({
+      expect(renderer.render(office.officeId, first!).data).toMatchObject({
         text: "rewritten",
       });
-      expect(() => renderer.render(office.officeId, epoch, broken!)).toThrow(RenderError);
+      expect(() => renderer.render(office.officeId, broken!)).toThrow(RenderError);
     }));
 });
 
@@ -279,12 +249,19 @@ describe("the write check (DIPO-124)", () => {
       expect(() =>
         office.immediate(() => {
           // A fact written earlier in the same transaction rolls back with the entry.
-          office.run("update offices set replay_floor_seq = 1 where office_id = $office_id");
+          office.run("update offices set display_name = $name where office_id = $office_id", {
+            name: "renamed",
+          });
           appendEntries(office, [notice("fine"), malformed], { at: 2, causedBy: CAUSE });
         }),
       ).toThrow("A engine.notice change-log entry would not render");
       expect(headCursor(office)).toEqual(before);
-      expect(readLogState(office)).toMatchObject({ nextSeq: 2, replayFloorSeq: 0 });
+      expect(readLogState(office)).toEqual({ nextSeq: 2 });
+      expect(
+        office.get<{ display_name: string }>(
+          "select display_name from offices where office_id = $office_id",
+        )?.display_name,
+      ).toBe("demo");
       expect(countRows(office, "change_log")).toBe(1);
     }));
 
@@ -316,10 +293,9 @@ describe("the write check (DIPO-124)", () => {
   it("still replays and renders entries stored before the check", () =>
     withOffice((t, office) => {
       const seq = storeAsOlderBinary(office, "engine.notice", notice("old").delta);
-      const { epoch } = readLogState(office);
       const replayed = replay(office, { ...headCursor(office), seq: 0 });
       if (!replayed.ok) throw new Error(replayed.error.message);
-      const [event] = new Renderer().renderAll(office.officeId, epoch, replayed.entries);
+      const [event] = new Renderer().renderAll(office.officeId, replayed.entries);
       expect(event?.cursor.seq).toBe(seq);
       expect(event?.data).toEqual(notice("old").delta);
     }));
@@ -329,13 +305,11 @@ describe("the write check (DIPO-124)", () => {
       office.immediate(() => appendEntries(office, [notice("1")], { at: 1 }));
       const bad = storeAsOlderBinary(office, "story.state", { story: "DIPO-1" });
       office.immediate(() => appendEntries(office, [notice("3")], { at: 3 }));
-      const { epoch } = readLogState(office);
       const replayed = replay(office, { ...headCursor(office), seq: 0 });
       if (!replayed.ok) throw new Error(replayed.error.message);
       const heard: { error: unknown; seq: number }[] = [];
       const events = new Renderer().renderForStream(
         office.officeId,
-        epoch,
         replayed.entries,
         (error, entry) => heard.push({ error, seq: entry.seq }),
       );
@@ -346,7 +320,7 @@ describe("the write check (DIPO-124)", () => {
       ]);
       for (const event of events) expect(Event.parse(event)).toEqual(event);
       expect(events[1]?.data).toMatchObject({ level: "error", code: UNRENDERABLE_NOTICE_CODE });
-      expect(events[1]).toEqual(unrenderableNotice(office.officeId, epoch, replayed.entries[1]!));
+      expect(events[1]).toEqual(unrenderableNotice(office.officeId, replayed.entries[1]!));
       expect(heard).toHaveLength(1);
       expect(heard[0]?.seq).toBe(bad);
       expect(heard[0]?.error).toBeInstanceOf(RenderError);
@@ -358,7 +332,6 @@ describe("the write check (DIPO-124)", () => {
   it("throws an error that is not a RenderError instead of sending a notice", () =>
     withOffice((t, office) => {
       office.immediate(() => appendEntries(office, [notice("1")], { at: 1 }));
-      const { epoch } = readLogState(office);
       const replayed = replay(office, { ...headCursor(office), seq: 0 });
       if (!replayed.ok) throw new Error(replayed.error.message);
       const heard: unknown[] = [];
@@ -368,9 +341,7 @@ describe("the write check (DIPO-124)", () => {
         },
       });
       expect(() =>
-        renderer.renderForStream(office.officeId, epoch, replayed.entries, (error) =>
-          heard.push(error),
-        ),
+        renderer.renderForStream(office.officeId, replayed.entries, (error) => heard.push(error)),
       ).toThrow("the renderer broke");
       expect(heard).toEqual([]);
     }));

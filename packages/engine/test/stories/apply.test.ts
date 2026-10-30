@@ -131,7 +131,7 @@ describe("story index pass", () => {
       expect(entry?.delta).toEqual({ story: "TASK-2", key, from: "Refined", to: "Ready" });
       expect(entry?.view).toMatchObject({ lifecycle: "Ready", column: "ready" });
       const event = Event.parse({
-        cursor: { stream: `office:${office.officeId}`, epoch: "e", seq: 1 },
+        cursor: { stream: `office:${office.officeId}`, seq: 1 },
         at: new Date(0).toISOString(),
         type: "story.state",
         data: { ...entry?.delta, view: entry?.view },

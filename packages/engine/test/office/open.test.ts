@@ -67,12 +67,11 @@ describe("office.open", () => {
             forgotten_at: null,
           },
         ]);
-        const epoch = s.state.connection.get<{ epoch: string; next_seq: number }>(
-          "select epoch, next_seq from offices where office_id = $office",
+        const log = s.state.connection.get<{ next_seq: number }>(
+          "select next_seq from offices where office_id = $office",
           { office: first.opened.office },
         );
-        expect(epoch?.epoch).toMatch(/^[0-9a-f]{32}$/);
-        expect(epoch?.next_seq).toBe(1);
+        expect(log?.next_seq).toBe(1);
         expect(s.events.map((event) => [event.type, event.data])).toEqual([
           ["office.registered", { office: first.opened.office, path: repo.dir, name: "repo" }],
         ]);

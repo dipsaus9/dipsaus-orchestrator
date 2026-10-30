@@ -44,7 +44,7 @@ function logLevelFeature(definition: CommandDefinition): FeatureModule {
 const hello = helloFeature({
   engineVersion: "1.2.3",
   daemonState: () => "running",
-  softwareCursor: () => ({ stream: StreamName.parse("software"), epoch: "e", seq: 7 }),
+  softwareCursor: () => ({ stream: StreamName.parse("software"), seq: 7 }),
   officeSummaries: () => [],
 });
 
@@ -86,7 +86,7 @@ describe("engine.hello", () => {
         capabilities: ["replay", "usage.alerts"],
         daemon: "running",
         offices: [],
-        cursor: { stream: "software", epoch: "e", seq: 7 },
+        cursor: { stream: "software", seq: 7 },
       },
     });
   });

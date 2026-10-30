@@ -138,7 +138,7 @@ function workOutputText(f: IngestFixture): string {
 }
 
 function ingestor(f: IngestFixture): Ingestor {
-  return new Ingestor({ office: f.office, clock: f.t.clock, pricing: f.t.state.pricing });
+  return new Ingestor({ office: f.office, clock: f.t.clock });
 }
 
 function stateFor(name: string): ParseState {

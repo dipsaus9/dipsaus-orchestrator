@@ -1,10 +1,10 @@
 ---
 id: DIPO-377
 title: Fix the flake in the backlog PR check test
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-29 09:29'
-updated_date: '2026-10-29 12:47'
+updated_date: '2026-10-30 07:58'
 labels:
   - 'tier:S'
   - 'slice:prune'

@@ -17,7 +17,7 @@ import { describe, expect, it } from "bun:test";
 
 import { type CommandReply, type ReadReply, RequestId } from "@dipsaus-orchestrator/contract";
 
-import { cursorAt, readLogState } from "../../src/changelog/log";
+import { cursorAt } from "../../src/changelog/log";
 import { replay } from "../../src/changelog/replay";
 import { executeCommand } from "../../src/commands/execute";
 import { createSystemIds } from "../../src/platform/ids";
@@ -57,8 +57,7 @@ function workPreview(r: Running): Promise<ReadReply> {
 }
 
 function events(r: Running): { type: string; delta: Record<string, unknown> }[] {
-  const { epoch } = readLogState(r.office);
-  const result = replay(r.office, cursorAt(r.officeId, epoch, 0));
+  const result = replay(r.office, cursorAt(r.officeId, 0));
   if (!result.ok) throw new Error(result.error.message);
   return result.entries.map(({ type, delta }) => ({
     type,
