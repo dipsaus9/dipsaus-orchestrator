@@ -1,10 +1,10 @@
 ---
 id: DIPO-397
 title: Emit a closing event when a run ends
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-30 16:01'
-updated_date: '2026-10-30 21:13'
+updated_date: '2026-10-30 21:21'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -40,6 +40,10 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(engine) every run end path emits one closing event on the office stream"
+park:
+  reason: "budget-exceeded"
+  from: "In Progress"
+  note: "turn cap (--max-turns) after 77 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -64,4 +68,13 @@ Parked 2026-10-30 20:48 UTC: ambiguous-spec
 - Last good commit: 1aee7583f3f7481ee179fe48093eb2e7ff37a9ed
 
 Resumed 2026-10-30 21:13 UTC; grants: none; note: Yes, the maintainer approved it (2026-10-30). Add the office-stream event run.ended (run id, kind, ending, endedAt, and the story's key and story id when the run has one), written by endRun for every…
+
+Parked 2026-10-30 21:21 UTC: budget-exceeded
+- Detail: turn cap (--max-turns) after 77 turns
+- Run: run_01M6792FJEXJMN6E62KBT99PSA
+- Criteria met: 0 of 4 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 279,451 of 300,000 tokens; 91 of 90 turns; 9 of 45 minutes
+- Last good commit: 826f3a6100033714772e48c4751795295c27d9b5
 <!-- SECTION:NOTES:END -->
