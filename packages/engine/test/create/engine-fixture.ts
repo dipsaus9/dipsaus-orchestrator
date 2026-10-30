@@ -84,6 +84,8 @@ export interface FakeOptions {
   readonly tools?: EngineDeps["tools"];
   readonly renderer?: Renderer;
   readonly recoverySteps?: readonly RecoveryStep[];
+  /** Receives every log line the engine writes; none are kept by default. */
+  readonly logSink?: (line: string) => void;
 }
 
 export interface FakeDeps {
@@ -109,7 +111,11 @@ export function fakeDeps(root: string, home: string, options: FakeOptions = {}):
     upgrade,
     deps: {
       clock,
-      logger: createLogger({ clock, sinks: [], component: "test" }),
+      logger: createLogger({
+        clock,
+        sinks: options.logSink === undefined ? [] : [options.logSink],
+        component: "test",
+      }),
       spawn,
       probe: async () => null,
       spawnKeepAwake: () => {

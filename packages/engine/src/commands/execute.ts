@@ -11,6 +11,8 @@
 //
 // A story reference the office does not know first runs the registered story refreshes once
 // (DIPO-104), so a story merged to the base since the last poll resolves.
+//
+// Each command writes one log line with its outcome and duration (DIPO-320, `request-log.ts`).
 
 import {
   argsInvalid,
@@ -28,6 +30,7 @@ import {
 
 import { appendEntries, headCursor, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
+import type { Logger } from "../log/logger";
 import { canonicalPath } from "../office/repository";
 
 import { errorFromThrown } from "./errors";
@@ -46,6 +49,7 @@ import {
   type RequestRecord,
   saveOfficeRequest,
 } from "./requests";
+import { answerAndLog, officeInArgs } from "./request-log";
 import { findStoryRefFields, resolveStoryRefs } from "./story-refs";
 
 /**
@@ -61,6 +65,8 @@ export interface ExecutorDeps {
   readonly ids: IdSource;
   /** Idempotency records of software-level commands, kept for the daemon's lifetime. */
   readonly softwareRequests: MemoryRequestTable;
+  /** Where each command's line goes; none in tests that do not read it. */
+  readonly logger?: Logger;
 }
 
 function failure(requestId: RequestId, error: EngineError): CommandReply {
@@ -410,17 +416,37 @@ async function refreshUnknownStories(
 }
 
 /**
- * Runs one command and returns its one reply. Unknown or unbuilt commands fail with
- * `capability.missing`; a conversation command without `confirmed` with `confirmation.required`;
- * bad args with `args.invalid` and the zod issues; an office-level command without `office` with
- * `args.invalid`, with an unknown or forgotten office with `office.unknown`, and with an office
- * whose engine instance would not load with that refusal (`office.refused`, `office.pathMissing`).
+ * Runs one command, writes its log line and returns its one reply. Unknown or unbuilt commands
+ * fail with `capability.missing`; a conversation command without `confirmed` with
+ * `confirmation.required`; bad args with `args.invalid` and the zod issues; an office-level
+ * command without `office` with `args.invalid`, with an unknown or forgotten office with
+ * `office.unknown`, and with an office whose engine instance would not load with that refusal
+ * (`office.refused`, `office.pathMissing`).
  */
-export async function executeCommand(
+export function executeCommand(
   deps: ExecutorDeps,
   request: CommandRequest,
   /** What the connection that sent it said in `engine.hello` (the client name, DIPO-155). */
   connection: Connection = {},
+): Promise<CommandReply> {
+  const entry = {
+    kind: "command",
+    name: request.name,
+    requestId: request.requestId,
+    office: request.office ?? officeInArgs(request.args),
+  } as const;
+  return answerAndLog(
+    deps.logger,
+    () => deps.clock.now(),
+    entry,
+    () => answerCommand(deps, request, connection),
+  );
+}
+
+async function answerCommand(
+  deps: ExecutorDeps,
+  request: CommandRequest,
+  connection: Connection,
 ): Promise<CommandReply> {
   const { requestId } = request;
   const command = deps.registry.command(request.name);

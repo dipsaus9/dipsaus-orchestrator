@@ -238,6 +238,39 @@ async function expectRecovering(f: EngineFixture): Promise<void> {
 
 describe("lifecycle checks", () => {
   it(
+    "writes one log line for a command and a read the lifecycle checks refuse",
+    () => {
+      const lines: Record<string, unknown>[] = [];
+      return withEngine(
+        async (f) => {
+          const office = "off_01J9ZK5Q8W3V4X6Y7Z00000001" as OfficeId;
+          await f.command("fixture.scan", {}, office);
+          await f.read("fixture.echo", { office });
+          const answered = lines.filter((line) => String(line["msg"]).endsWith(" answered"));
+          expect(answered).toEqual([
+            expect.objectContaining({
+              msg: "command answered",
+              component: "server",
+              name: "fixture.scan",
+              office,
+              outcome: "engine.recovering",
+              ms: 0,
+            }),
+            expect.objectContaining({
+              msg: "read answered",
+              name: "fixture.echo",
+              office,
+              outcome: "engine.recovering",
+            }),
+          ]);
+        },
+        { logSink: (line) => lines.push(JSON.parse(line) as Record<string, unknown>) },
+      );
+    },
+    TIMEOUT_MS,
+  );
+
+  it(
     "answers office commands and reads with engine.recovering while starting",
     () =>
       withEngine(async (f) => {

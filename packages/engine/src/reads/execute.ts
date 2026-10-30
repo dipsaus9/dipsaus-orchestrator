@@ -2,13 +2,13 @@
 // a read whose args name an `office` gets that office's handle and runs in one deferred
 // transaction, so a snapshot and its cursor match; story references resolve as for commands. A
 // waiting read (DIPO-71) resolves its references in that transaction and runs its handler after it.
+// Each read writes one log line with its outcome and duration (DIPO-320).
 
 import {
   argsInvalid,
   type Clock,
   engineError,
   type EngineError,
-  OfficeId,
   type ReadReply,
   type ReadRequest,
   type RequestId,
@@ -17,23 +17,21 @@ import {
 import { errorFromThrown } from "../commands/errors";
 import type { OfficeDirectory } from "../commands/offices";
 import type { ReadContext, RegisteredRead, Registry } from "../commands/registry";
+import { answerAndLog, officeInArgs } from "../commands/request-log";
 import { findStoryRefFields, resolveStoryRefs } from "../commands/story-refs";
 import type { OfficeHandle } from "../db/office";
+import type { Logger } from "../log/logger";
 
 export interface ReadDeps {
   readonly registry: Registry;
   readonly offices: OfficeDirectory;
   readonly clock: Clock;
+  /** Where each read's line goes; none in tests that do not read it. */
+  readonly logger?: Logger;
 }
 
 function failure(requestId: RequestId, error: EngineError): ReadReply {
   return { ok: false, requestId, error };
-}
-
-function officeOf(args: unknown): OfficeId | undefined {
-  if (typeof args !== "object" || args === null) return undefined;
-  const parsed = OfficeId.safeParse((args as { office?: unknown }).office);
-  return parsed.success ? parsed.data : undefined;
 }
 
 type Prepared =
@@ -107,10 +105,26 @@ async function runWaiting(
 }
 
 /**
- * Runs one read. Unknown or unbuilt reads fail with `capability.missing`, bad args with
- * `args.invalid`, and args naming an unknown or forgotten office with `office.unknown`.
+ * Runs one read and writes its log line. Unknown or unbuilt reads fail with `capability.missing`,
+ * bad args with `args.invalid`, and args naming an unknown or forgotten office with
+ * `office.unknown`.
  */
-export async function executeRead(deps: ReadDeps, request: ReadRequest): Promise<ReadReply> {
+export function executeRead(deps: ReadDeps, request: ReadRequest): Promise<ReadReply> {
+  const entry = {
+    kind: "read",
+    name: request.name,
+    requestId: request.requestId,
+    office: officeInArgs(request.args),
+  } as const;
+  return answerAndLog(
+    deps.logger,
+    () => deps.clock.now(),
+    entry,
+    () => answerRead(deps, request),
+  );
+}
+
+async function answerRead(deps: ReadDeps, request: ReadRequest): Promise<ReadReply> {
   const { requestId } = request;
   const read = deps.registry.read(request.name);
   if (read === undefined) {
@@ -128,7 +142,7 @@ export async function executeRead(deps: ReadDeps, request: ReadRequest): Promise
       argsInvalid(`The arguments of ${request.name} are not valid.`, parsed.error.issues),
     );
   }
-  const officeId = officeOf(parsed.data);
+  const officeId = officeInArgs(parsed.data);
   try {
     let office: OfficeHandle | undefined;
     if (officeId !== undefined) {
