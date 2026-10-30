@@ -132,8 +132,9 @@ describe("an approved merge gate", () => {
   it("commits the close-out, pushes, and runs gh pr merge --auto with exactly that head", async () => {
     s = await storyWorld();
     await toArmed();
-    // The base is fetched before the release path is read again for the head that merges.
-    expect(s.git.calls).toEqual([`closeOut ${BRANCH}`, `push ${BRANCH}`, "fetch"]);
+    // The base is fetched and the release path read before the close-out (DIPO-382), and again for
+    // the head that merges.
+    expect(s.git.calls).toEqual(["fetch", `closeOut ${BRANCH}`, `push ${BRANCH}`, "fetch"]);
     expect(s.prSyncs).toEqual([s.run]);
     expect(findStoryPr(s.w.office, s.run)?.headSha).toBe(C1);
     expect(s.host.calls).toContain(`auto-merge on o/r #${PR} at ${C1}`);
@@ -147,7 +148,7 @@ describe("an approved merge gate", () => {
     await s.tick();
     expect(s.host.armedAt).toHaveLength(1);
     expect(s.host.disarmed).toEqual([]);
-    expect(s.git.calls).toHaveLength(3);
+    expect(s.git.calls).toHaveLength(4);
   });
 
   it("does not turn auto-merge on when the push failed, and says why", async () => {
@@ -446,7 +447,7 @@ describe("PRs changed on GitHub", () => {
     s.host.githubMerges(PR);
     await s.tick();
     expect(s.host.disarmed).toEqual([]);
-    expect(s.git.calls).toHaveLength(3);
+    expect(s.git.calls).toHaveLength(4);
   });
 });
 
@@ -1221,9 +1222,90 @@ describe("a merge gate that waits for the maintainer", () => {
       }
       path.decide(gate!.gate);
       await s.tick();
-      expect(s.git.calls[0]).toBe(`closeOut ${BRANCH}`);
+      expect(s.git.calls.slice(0, 2)).toEqual(["fetch", `closeOut ${BRANCH}`]);
       expect(s.git.task.status).toBe("Done");
       expect(s.host.armedAt).toEqual([{ number: PR, head: C1 }]);
     });
   }
+});
+
+// The DIPO-382 review's fix round: what still holds a by-rule close-out, and what a later hold does.
+describe("the by-rule path's holds", () => {
+  it("a hold label after the close-out, while its checks run, turns auto-merge off and waits for the maintainer and green", async () => {
+    s = await storyWorld();
+    s.config = { ...OFFICE_DEFAULTS, merge: HOLD };
+    s.ci.set(s.run, { kind: "pending", head: H1 });
+    await toArmed();
+    s.ci.set(s.run, { kind: "pending", head: C1 });
+    s.host.prLabelsOf.set(PR, ["hold"]);
+    await s.tick();
+    expect(s.host.disarmed).toEqual([PR]);
+    const reopened = gates().at(-1);
+    expect(reopened).toMatchObject({ head: C1, waitingOn: "maintainer", decision: null });
+    // The closed-out head's Done stands on the branch while the gate waits (0002).
+    expect(s.git.task.status).toBe("Done");
+    // The maintainer approves and the label goes: nothing turns auto-merge on before green.
+    approve(reopened!.gate);
+    s.host.prLabelsOf.set(PR, []);
+    await s.tick();
+    await s.tick();
+    expect(s.host.armedAt).toHaveLength(1);
+    expect(s.host.prs.get(PR)?.state).toBe("open");
+    s.ci.set(s.run, { kind: "green", head: C1 });
+    await s.tick();
+    expect(s.host.armedAt).toEqual([
+      { number: PR, head: C1 },
+      { number: PR, head: C1 },
+    ]);
+  });
+
+  it("reads the release path on the fetched base before the close-out: a PR that became release-path gets no Done", async () => {
+    s = await storyWorld();
+    s.ci.set(s.run, { kind: "pending", head: H1 });
+    // The base's CODEOWNERS grew since the last fetch: the gate's read still sees none.
+    const fetch = s.git.fetch.bind(s.git);
+    s.git.fetch = async () => {
+      s.git.release.set(H1, ["install.sh"]);
+      return fetch();
+    };
+    await s.tick();
+    expect(s.git.calls).toEqual(["fetch"]);
+    expect(s.git.task.status).toBe("In Review");
+    expect(s.host.armedAt).toEqual([]);
+    // It now waits for green checks, then for the maintainer's merge by hand.
+    await s.tick();
+    expect(gates()).toHaveLength(1);
+    s.ci.set(s.run, { kind: "green", head: H1 });
+    await s.tick();
+    expect(gates().at(-1)).toMatchObject({ handMerge: "release-path", decision: null });
+    expect(s.git.calls).not.toContain(`closeOut ${BRANCH}`);
+    expect(s.git.task.status).toBe("In Review");
+  });
+
+  it("holds the gate while a required check already failed and others still run", async () => {
+    s = await storyWorld();
+    s.ci.set(s.run, { kind: "failing", head: H1 });
+    await s.tick();
+    expect(gates()).toEqual([]);
+    expect(s.git.calls).toEqual([]);
+    expect(s.git.task.status).toBe("In Review");
+  });
+
+  it("keeps a flagged story waiting for green checks even with a pass recorded while it was reviewed", async () => {
+    s = await storyWorld();
+    flag();
+    tested(H1, "pass");
+    s.ci.set(s.run, { kind: "pending", head: H1 });
+    await s.tick();
+    await s.tick();
+    expect(gates()).toEqual([]);
+    expect(s.git.calls).toEqual([]);
+    expect(s.git.task.status).toBe("In Review");
+    // Green: the pass is the maintainer's decision, so the gate is decided and the close-out follows.
+    s.ci.set(s.run, { kind: "green", head: H1 });
+    await s.tick();
+    expect(gates()[0]).toMatchObject({ head: H1, decision: { decision: "approved" } });
+    expect(s.git.task.status).toBe("Done");
+    expect(s.host.armedAt).toEqual([{ number: PR, head: C1 }]);
+  });
 });

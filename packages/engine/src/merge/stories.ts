@@ -8,13 +8,17 @@
 //   waiting for the maintainer. Two paths (0002):
 //   - By rule (nothing makes the gate wait): the gate opens on the verdict alone, without waiting
 //     for the head's checks, so CI runs once, on the close-out head, and GitHub's auto-merge waits
-//     for it. Only checks already red on the head hold it: the CI path's fix round takes those.
+//     for it. Only checks already red on the head hold it, or a required check that already failed
+//     while others still run (`failing`): the CI path's fix round takes those once they are final.
 //   - Waiting for the maintainer: the gate opens, and an approved one goes on to the close-out,
 //     only once the required checks are green on the head (`StoryPrs.ciState`, or no CI ran for a
 //     box run's head), so the maintainer only ever approves something that can merge, and no task
-//     file reads Done on a PR that waits for them. The reasons that need no host read (`#waits`
-//     without labels and release paths) are checked first, so a waiting gate's PR is not read for
-//     its labels while its checks run.
+//     file reads Done on a gate as it is first decided. The reasons that need no host read (`#waits`
+//     without labels and release paths, and the test-before-merge flag even when a pass was
+//     recorded for the head while it was reviewed) are checked first, so a waiting gate's PR is not
+//     read for its labels while its checks run. A hold label, or a release-path change, that comes
+//     after a by-rule close-out reopens the gate on the closed-out head (`#watch`), whose Done
+//     stands on the branch until the merge or a fix round; the merge still waits for green.
 //   Each story parked `review-blocked` gets its override gate here too.
 // - The release path. Before a gate opens, the release paths the head changes are read from git
 //   (`StoryMergeGit.releasePaths`: the base's CODEOWNERS, the PR's diff). A PR that changes one gets
@@ -22,8 +26,10 @@
 //   head was approved, and never gets auto-merge; dipo never passes `--admin`. When git cannot tell,
 //   nothing happens this round.
 // - Turning auto-merge on (`#arm`), for a PR whose gate is approved, that carries no hold label and
-//   that GitHub does not report as conflicting: the close-out commit (final summary, modified files,
-//   status Done), one push, never forced, the story PR updated to the pushed head, the approval and
+//   that GitHub does not report as conflicting: the base fetched and the release path read for the
+//   reviewed head first, so a PR whose diff became a release-path change (CODEOWNERS grew) gets no
+//   Done close-out and its gate waits for the maintainer; then the close-out commit (final summary,
+//   modified files, status Done), one push, never forced, the story PR updated to the pushed head, the approval and
 //   the release path checked again for exactly that head, and then
 //   `gh pr merge --auto --squash --match-head-commit <that head>`. GitHub merges once its required
 //   checks pass on that head, and the Done poll sees the merge. The close-out push cancels the
@@ -408,9 +414,7 @@ export class StoryMerges {
     const checks = this.#checksOf(ctx, run, head);
     if (checks === "red") return false;
     const green = checks === "green";
-    // A gate that waits for the maintainer waits for green checks first; these reasons need no read.
-    const unread = { head, verdict, held: [], release: [] };
-    if (!green && this.#waits(ctx, run, unread).length > 0) return false;
+    if (!green && this.#waitsForGreen(ctx, run, head, verdict)) return false;
     const held = await this.#held(ctx, pr);
     if (!green && held.length > 0) return false;
     const release = await this.#releasePaths(ctx, run, head);
@@ -419,6 +423,22 @@ export class StoryMerges {
     if (gate?.decision?.decision !== "approved") return false;
     if (!green && gate.waitingOn === "maintainer") return false;
     return !this.#heldBack(ctx, run, { number: stored.number, head, held, release });
+  }
+
+  /**
+   * True when the head's gate waits for the maintainer for a reason that needs no host read, so it
+   * waits for green checks first. A story flagged test-before-merge counts even with a pass already
+   * recorded for the head (one recorded while it was reviewed): green checks, then the maintainer's
+   * test, then the close-out.
+   */
+  #waitsForGreen(
+    ctx: StoryMergeContext,
+    run: StoredRun,
+    head: string,
+    verdict: StoredReviewVerdict,
+  ): boolean {
+    if (mirrorFlagged(ctx.office, run.key as StoryKey)) return true;
+    return this.#waits(ctx, run, { head, verdict, held: [], release: [] }).length > 0;
   }
 
   /** The verdict of the head's code tree when it is approved or overridden, else null. */
@@ -434,13 +454,15 @@ export class StoryMerges {
 
   /**
    * The required checks of `head` as the PR poll last saw them (`StoryPrs.ciState`): `green` when
-   * they passed or no CI ran for a box run's head, `red` once a failed head was handled, `open`
-   * otherwise (pending, stuck, another head watched, or none watched yet).
+   * they passed or no CI ran for a box run's head, `red` once a failed head was handled or while
+   * a required check already failed and others still run (it cannot pass, and a close-out push
+   * would cancel the run before the failure is counted), `open` otherwise (pending, stuck,
+   * another head watched, or none watched yet).
    */
   #checksOf(ctx: StoryMergeContext, run: StoredRun, head: string): "green" | "red" | "open" {
     const ci = this.#deps.ci(ctx.officeId, run.runId);
     if (ci === null || ci.head !== head) return "open";
-    if (ci.kind === "red") return "red";
+    if (ci.kind === "red" || ci.kind === "failing") return "red";
     return ci.kind === "green" || ci.kind === "none" ? "green" : "open";
   }
 
@@ -762,6 +784,9 @@ export class StoryMerges {
     const { run, repo } = pr;
     const git = this.#deps.git;
     const branch = run.branch as string;
+    // The base as it is now, before anything reaches the branch: CODEOWNERS may have grown since
+    // the gate's read, and a PR that changes the release path gets no Done close-out.
+    if (!(await this.#releaseClear(ctx, run, pr.stored.headSha))) return;
     await git.closeOut(ctx.officeId, this.#mergeRun(ctx, run), (story) =>
       this.#deps.summary(story, ctx.office, run.key as string, ctx.clock.now()),
     );
@@ -775,13 +800,8 @@ export class StoryMerges {
       this.#unapproved(ctx, run, head);
       return;
     }
-    // The base as it is now: CODEOWNERS may have grown since the gate's read.
-    if (!(await git.fetch(ctx.officeId))) {
-      this.#releaseUnknownNotice(ctx, run, head, "the fetch of the base failed");
-      return;
-    }
-    const release = await this.#releasePaths(ctx, run, head);
-    if (release === null || release.length > 0) return;
+    // Read again for exactly the head that merges.
+    if (!(await this.#releaseClear(ctx, run, head))) return;
     try {
       await this.#deps.host.enableAutoMerge(repo, stored.number, {
         headSha: head,
@@ -810,6 +830,19 @@ export class StoryMerges {
         run.runId,
       ),
     ]);
+  }
+
+  /**
+   * True when `head` changes no release path on the base as it is now (fetched first); false, with
+   * a notice when git cannot tell, otherwise.
+   */
+  async #releaseClear(ctx: StoryMergeContext, run: StoredRun, head: string): Promise<boolean> {
+    if (!(await this.#deps.git.fetch(ctx.officeId))) {
+      this.#releaseUnknownNotice(ctx, run, head, "the fetch of the base failed");
+      return false;
+    }
+    const release = await this.#releasePaths(ctx, run, head);
+    return release !== null && release.length === 0;
   }
 
   #unapproved(ctx: StoryMergeContext, run: StoredRun, head: string): void {
