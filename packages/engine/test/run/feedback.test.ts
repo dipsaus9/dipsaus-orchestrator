@@ -19,7 +19,9 @@ import {
   parseFeedback,
   sendFeedback,
 } from "../../src/run/feedback";
-import { insertRun } from "../../src/run";
+import { safeChainStoreOf } from "../../src/create/runs";
+import type { OfficeManager } from "../../src/office/manager";
+import { findRun, insertRun } from "../../src/run";
 import { runIntents } from "../../src/run/intents";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -209,5 +211,55 @@ describe("the stored message", () => {
     expect(parseFeedback("fix-round {}")).toBeNull();
     expect(parseFeedback("feedback report")).toBeNull();
     expect(parseFeedback("feedback report agt_1 Return the report.")).toBeNull();
+  });
+});
+
+describe("Safe-Chain's refusals of a session (DIPO-376)", () => {
+  it("are kept on the run and held for its next developer session, naming Safe-Chain", () => {
+    const store = safeChainStoreOf({
+      offices: {
+        loadedOffices: () => ["off_one"],
+        get: () => f.office,
+      } as unknown as OfficeManager,
+      clock: f.t.clock,
+    });
+    const refusal = {
+      ecosystem: "npm",
+      package: "safe-chain-test@0.0.1-security",
+      reason: "Aikido's malware list marks it MALWARE",
+    } as const;
+    const unknown = { ecosystem: "pypi", why: "the Safe-Chain box it ran with is gone" } as const;
+    // The mark a session starts with holds nothing for the worker.
+    const mark = { box: "dipo-safe-chain-1", lines: { npm: 2, pypi: 0 } };
+    store.store(f.run, { refusals: [], unknown: [], mark }, { refusals: [], unknown: [] });
+    expect(store.of(f.run)).toEqual({ refusals: [], unknown: [], mark });
+    expect(heldFeedback(f.office, f.run).texts).toEqual([]);
+
+    const record = { refusals: [refusal], unknown: [unknown], mark: null };
+    store.store(f.run, record, { refusals: [refusal], unknown: [unknown] });
+    expect(findRun(f.office, f.run)?.safeChain).toEqual(record);
+    expect(feedbackIntents(f.office, f.run).map((item) => [item.source, item.via])).toEqual([
+      ["safe-chain", "next"],
+    ]);
+    expect(heldFeedback(f.office, f.run).texts).toEqual([
+      [
+        "Safe-Chain checks every package the box installs. Its log says this about your last session. An install of a package it refused fails with a 403 from the registry, but Safe-Chain refused it, not the registry:",
+        "- npm: safe-chain-test@0.0.1-security, refused by Safe-Chain: Aikido's malware list marks it MALWARE",
+        "- pypi: what Safe-Chain refused is unknown, because the Safe-Chain box it ran with is gone",
+        "Do not retry an install of a refused package unchanged. If the story needs one, say so in your report.",
+      ].join("\n"),
+    ]);
+    // A run no loaded office knows is left alone.
+    const elsewhere = safeChainStoreOf({
+      offices: { loadedOffices: () => [], get: () => undefined } as unknown as OfficeManager,
+      clock: f.t.clock,
+    });
+    expect(elsewhere.of(f.run)).toBeNull();
+    elsewhere.store(
+      f.run,
+      { refusals: [], unknown: [], mark: null },
+      { refusals: [refusal], unknown: [] },
+    );
+    expect(findRun(f.office, f.run)?.safeChain).toEqual(record);
   });
 });

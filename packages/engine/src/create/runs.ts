@@ -43,7 +43,12 @@ import { BoxParts, partStageRoot, type BoxPartsDeps, type PartRun } from "../box
 import { boxName, type BoxNetwork, type BoxPort } from "../box/port";
 import { startBoxWebRoute } from "../box/safe-chain-box";
 import { TestBoxes, type TestBoxesDeps } from "../box/test-box";
-import { BOX_INDEX_DIR, BoxWorkers, type RouteBoxIds } from "../box/workers";
+import {
+  BOX_INDEX_DIR,
+  type BoxSafeChainStore,
+  BoxWorkers,
+  type RouteBoxIds,
+} from "../box/workers";
 import { appendEntries } from "../changelog/log";
 import type { StateDatabase } from "../db/database";
 import type { EngineGit } from "../git/feature";
@@ -55,6 +60,7 @@ import { guardedParkWriter, guardedUnparkWriter, type AutoMergeGuard } from "../
 import type { StoryMergeDeps } from "../merge/stories";
 import type { OfficeManager } from "../office/manager";
 import { ensurePrivateDir } from "../platform/paths";
+import { safeChainFeedback } from "../prompts/feedback";
 import { signalProcess, systemSpawn, type ProcessProbe } from "../platform/process";
 import { runCaps } from "../run/caps";
 import {
@@ -91,7 +97,8 @@ import { gitParkWriter, gitUnparkWriter, type UnparkWriter, type ParkWriter } fr
 import type { MergeReentry } from "../run/park-resume";
 import type { Places } from "../run/places";
 import { RunReattacher } from "../run/reattach";
-import { findRun, type StoredRun } from "../run/records";
+import { sendFeedback } from "../run/feedback";
+import { findRun, recordSafeChain, type StoredRun } from "../run/records";
 import { baseStoryFacts } from "../run/resume";
 import type { Resumption } from "../run/resumption";
 import { sweepOldReviewFolders } from "../run/review-launch";
@@ -468,6 +475,9 @@ function engineBoxWorkers(
     treeCheck: (run) => delivery.changedSinceStart(run),
     // Each box gets its office's package cache, filled or reused before it is made (DIPO-295).
     packageCache: boxPackageCache(options.stateDir),
+    // What Safe-Chain refused in each session is kept on its run, for its next session and its
+    // reviewer (DIPO-376).
+    safeChain: safeChainStoreOf(options),
     scratchRoot: (() => {
       ensurePrivateDir(scratchRoot);
       return scratchRoot;
@@ -477,6 +487,31 @@ function engineBoxWorkers(
     info: (message, fields) => options.logger.info(message, fields),
   });
   return { workers, parts: delivery, boxes: backend };
+}
+
+/**
+ * Each run's Safe-Chain record in its office (DIPO-376): kept on the run row, and what a session's
+ * read found held for the run's next developer session through the one feedback path, in one
+ * transaction.
+ */
+export function safeChainStoreOf(
+  options: Pick<RunsOptions, "offices" | "clock">,
+): BoxSafeChainStore {
+  return {
+    of: (runId) => loadedRun(options, runId)?.run.safeChain ?? null,
+    store: (runId, record, found) => {
+      const loaded = loadedRun(options, runId);
+      const handle = loaded === null ? undefined : options.offices.get(loaded.office);
+      if (loaded === null || handle === undefined) return;
+      const text = safeChainFeedback(found);
+      const at = options.clock.now();
+      handle.immediate(() => {
+        recordSafeChain(handle, loaded.run.runId, record);
+        if (text !== null)
+          sendFeedback(handle, loaded.run.runId, { source: "safe-chain", text }, { at });
+      });
+    },
+  };
 }
 
 /** Raises an `engine.notice` of a box run for the maintainer (DIPO-277, DIPO-290). */
@@ -621,7 +656,7 @@ interface RunPaths {
 
 /** The loaded office that knows `runId`, with the run; null when none does. */
 function loadedRun(
-  options: RunsOptions,
+  options: Pick<RunsOptions, "offices">,
   runId: string,
 ): { readonly office: OfficeId; readonly run: StoredRun } | null {
   for (const office of options.offices.loadedOffices()) {
@@ -987,6 +1022,10 @@ function boxRunPorts(options: RunsOptions, parts: RunPortParts): Partial<RunPort
       void parts.sweeps.boxes();
     },
     ...(boxWorkers === null ? {} : { boxes: boxWorkers }),
+    // What Safe-Chain refused in a developer session is kept before its exit is decided (DIPO-376).
+    ...(boxWorkers === null
+      ? {}
+      : { beforeExit: (runId: string) => boxWorkers.sessionEnded(runId) }),
     // Each review session runs in a read-only box of its own (0002).
     ...(boxWorkers === null ? {} : { reviewBoxes: boxWorkers }),
     // The merges dipo made on a box run's branch outside the box reach its box before the worker's

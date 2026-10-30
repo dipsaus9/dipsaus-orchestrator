@@ -17,6 +17,7 @@
 import { createHash } from "node:crypto";
 import { isAbsolute, relative, sep } from "node:path";
 
+import type { SafeChainFound } from "../box/safe-chain";
 import { formatCount } from "../context/truncate";
 import { budgetLine, withBudgetLine, type BudgetFacts } from "./budget";
 import { cutHead, cutTailLines } from "./cut";
@@ -29,6 +30,7 @@ import reviewCriterionTemplate from "./feedback/review-criterion.md" with { type
 import reviewEvidenceTemplate from "./feedback/review-evidence.md" with { type: "text" };
 import reviewFindingTemplate from "./feedback/review-finding.md" with { type: "text" };
 import reviewReportTemplate from "./feedback/review-report.md" with { type: "text" };
+import safeChainTemplate from "./feedback/safe-chain.md" with { type: "text" };
 import testPlanTemplate from "./feedback/test-plan.md" with { type: "text" };
 import { FEEDBACK_TEMPLATES, neutraliseTags, rendered, renderTemplate } from "./templates";
 
@@ -83,6 +85,35 @@ export function decisionNoteFeedback(
       )
       .join("\n"),
   });
+}
+
+/**
+ * The lines of what Safe-Chain refused in a run's box (DIPO-376), as the worker and the reviewer
+ * read them: each refusal with its ecosystem, package and Safe-Chain's reason, then each session
+ * log dipo could not read, whose refusals are unknown. Its words are data: their tags are
+ * neutralised where the lines are rendered.
+ */
+export function safeChainLines(found: SafeChainFound): string[] {
+  return [
+    ...found.refusals.map(
+      (refusal) =>
+        `- ${refusal.ecosystem}: ${refusal.package}, refused by Safe-Chain: ${refusal.reason}`,
+    ),
+    ...found.unknown.map(
+      (log) => `- ${log.ecosystem}: what Safe-Chain refused is unknown, because ${log.why}`,
+    ),
+  ];
+}
+
+/**
+ * The held message for the worker's next session about what Safe-Chain refused in its last one
+ * (DIPO-376); null when the session met no refusal and every log could be read.
+ */
+export function safeChainFeedback(found: SafeChainFound): string | null {
+  const lines = safeChainLines(found);
+  return lines.length === 0
+    ? null
+    : renderTemplate(safeChainTemplate, { refusals: lines.join("\n") });
 }
 
 /** The reviewer's correction turn for a report missing or invalid against its schema. */

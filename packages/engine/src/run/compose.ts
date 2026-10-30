@@ -68,6 +68,12 @@ export interface RunPorts {
   readonly release: RunLauncherDeps["release"];
   /** Runs after each worker exit decision of worker outcomes (the run temp directory sweep). */
   readonly afterExit?: () => void;
+  /**
+   * Runs before each developer exit, or host found dead, is decided (DIPO-376): the box workers
+   * keep what Safe-Chain refused in the session (`BoxWorkers.sessionEnded`), so the run's next
+   * session is told. Never rejects.
+   */
+  readonly beforeExit?: (runId: string) => Promise<void>;
   /** Whether the maintainer is at a client, for the permission wait (DIPO-59); absent by default. */
   readonly presence?: Presence;
   /** False while no work is scheduled: the permission wait and the office's starts paused. */
@@ -617,11 +623,43 @@ function exitPortOf(
   if (built === null) return null;
   const { outcomes, places, reviews } = built;
   const afterExit = ports.afterExit;
-  return afterRunExits(reviews.route(outcomes), (view) => {
+  // Only the developer's exits: a reviewer's go to the review rounds (`reviews.route`).
+  const developer =
+    ports.beforeExit === undefined ? outcomes : beforeRunExits(outcomes, ports.beforeExit);
+  return afterRunExits(reviews.route(developer), (view) => {
     permissions.afterExit(view.office, view.runId);
     places.drainAll();
     afterExit?.();
   });
+}
+
+/** `port` with `before` awaited for the run before each exit or lost host is decided (DIPO-376). */
+function beforeRunExits(
+  port: RunOutcomesPort,
+  before: (runId: string) => Promise<void>,
+): RunOutcomesPort {
+  const onHostLost = port.onHostLost?.bind(port);
+  return {
+    onTurnProblem: (view, problem) => port.onTurnProblem(view, problem),
+    onPlanLimit: (view, limit) => port.onPlanLimit(view, limit),
+    onModelSwitched: (view, model) => port.onModelSwitched(view, model),
+    answered: (view) => port.answered(view),
+    ...(port.onReview === undefined
+      ? {}
+      : { onReview: (view, report) => port.onReview?.(view, report) ?? Promise.resolve() }),
+    onExit: async (exit) => {
+      await before(exit.view.runId);
+      await port.onExit(exit);
+    },
+    ...(onHostLost === undefined
+      ? {}
+      : {
+          onHostLost: async (lost) => {
+            await before(lost.view.runId);
+            await onHostLost(lost);
+          },
+        }),
+  };
 }
 
 /**

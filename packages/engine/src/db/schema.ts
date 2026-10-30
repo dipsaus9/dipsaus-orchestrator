@@ -70,6 +70,7 @@ import { fiveHealthStates } from "./migrations/0066-five-health-states";
 import { threeRunEndings } from "./migrations/0067-three-run-endings";
 import { dropEngineToken } from "./migrations/0068-drop-engine-token";
 import { oneRetentionRule } from "./migrations/0069-one-retention-rule";
+import { safeChainRefusals } from "./migrations/0070-safe-chain-refusals";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -170,4 +171,5 @@ create table offices (
   threeRunEndings,
   dropEngineToken,
   oneRetentionRule,
+  safeChainRefusals,
 ];

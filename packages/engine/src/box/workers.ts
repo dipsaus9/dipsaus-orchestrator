@@ -28,6 +28,11 @@
 //   earlier session's claude (a host killed with SIGKILL, or one that crashed, never ran its stop
 //   command), so it is stopped and started again first; only a box `create` just made is not. It returns how the worker host runs a command in the box and stops it.
 //   With `door`, the box's part queue is read while the session runs (`BoxDoor`, DIPO-272).
+// - Safe-Chain's refusals (DIPO-376, with `safeChain`): each session marks where it starts in the
+//   Safe-Chain box's logs (`markSafeChain`), and when it ends (`sessionEnded`, before its exit is
+//   decided; else at its rest or finish, whichever is first) the lines since are read
+//   (`readSafeChain`) and kept on the run, so they outlive the Safe-Chain box. A log that cannot be
+//   read is kept as unknown, never as no refusals.
 // - `rest` (the story waits, DIPO-278): the box stopped and started again (so no earlier claude
 //   outlives its host into the check), the post-run token check, then the box stopped with its
 //   files and its routes released; the record says it rests until the next session. A session
@@ -114,7 +119,13 @@ import {
 import type { PartRun, StartTreeCheck } from "./parts";
 import { type BoxTokenCheck, checkBoxAfterRun, tokenCheckFailure } from "./token-check";
 import { copyInAsUser } from "./user";
-import { SAFE_CHAIN_BOX_RUN_PREFIX } from "./safe-chain";
+import {
+  EMPTY_SAFE_CHAIN_RECORD,
+  SAFE_CHAIN_BOX_RUN_PREFIX,
+  type SafeChainFound,
+  type SafeChainRecord,
+} from "./safe-chain";
+import { markSafeChain, readSafeChain } from "./safe-chain-box";
 import { type BoxInstallResult, type BoxVerifyResult, runBoxInstall, runBoxVerify } from "./verify";
 import { BoxWebRoute, type BoxWebRouteStart, type RunningBoxWebRoute } from "./web-proxy";
 
@@ -225,6 +236,17 @@ export interface BoxPassOptions {
    * its index entry again, so its rest and finish find the run's record.
    */
   readonly runDirOf?: (runId: string) => string | null;
+}
+
+/** Where each run's Safe-Chain record is kept (DIPO-376): the run's row in its office. */
+export interface BoxSafeChainStore {
+  /** The run's record; null for a run no session marked yet, or no loaded office knows. */
+  readonly of: (runId: string) => SafeChainRecord | null;
+  /**
+   * Keeps `record` on the run; `found` is what this read of a session's logs added to it, which
+   * the worker's next session is told. Empty for the mark a session starts with.
+   */
+  readonly store: (runId: string, record: SafeChainRecord, found: SafeChainFound) => void;
 }
 
 /** One developer session's box: how the worker host runs claude in it and stops it. */
@@ -347,6 +369,11 @@ export interface BoxWorkersDeps {
    * check is not known, which stops the launch.
    */
   readonly treeCheck?: (run: PartRun) => Promise<StartTreeCheck>;
+  /**
+   * Where each run's Safe-Chain refusals are kept (DIPO-376): read from the Safe-Chain box's logs
+   * when a session ends. Without it none is read.
+   */
+  readonly safeChain?: BoxSafeChainStore;
   /** Overrides `BOX_FINISH_WAIT_MS`. */
   readonly finishWaitMs?: number;
   /** Overrides `BOX_SESSION_REST_WAIT_MS`. */
@@ -489,6 +516,10 @@ export class BoxWorkers {
   >();
   /** The `finishEnded` pass that runs or ran last; the next waits for it. */
   #pass: Promise<unknown> = Promise.resolve();
+  /** The Safe-Chain box of the running web route, whose logs hold the refusals (DIPO-376). */
+  #safeChainBox: string | null = null;
+  /** Per run, its Safe-Chain mark or read in flight; the next waits for it (DIPO-376). */
+  readonly #safeChainReads = new Map<string, Promise<void>>();
 
   constructor(deps: BoxWorkersDeps) {
     this.#deps = deps;
@@ -516,11 +547,13 @@ export class BoxWorkers {
   async #startWebRoute(): Promise<RunningBoxWebRoute> {
     ensurePrivateDir(this.#index);
     const named: string[] = [];
+    let safeChainBox: string | null = null;
     const id = (prefix: string) => () => {
       const value = randomUUID().replaceAll("-", "").slice(0, 16);
       const name = boxName(`${prefix}${value}`);
       named.push(name);
       this.#filling.add(name);
+      if (prefix === SAFE_CHAIN_BOX_RUN_PREFIX) safeChainBox = name;
       return value;
     };
     const forget = () => {
@@ -543,9 +576,12 @@ export class BoxWorkers {
       throw new BoxError("box.routeFailed", `the box web route did not start: ${started.reason}`);
     }
     const route = started.route;
+    // Its logs hold the refusals of the sessions while the route runs (DIPO-376).
+    this.#safeChainBox = safeChainBox;
     return {
       ...route,
       stop: async () => {
+        if (this.#safeChainBox === safeChainBox) this.#safeChainBox = null;
         try {
           await route.stop();
         } finally {
@@ -1050,6 +1086,8 @@ export class BoxWorkers {
     const proxy = web.admit(name, record.localPorts ?? []);
     const modelEnv = boxModelEnvironment(model);
     const env = { ...BOX_IMAGE_ENV, ...modelEnv, ...boxRouteEnv(proxy, [modelEnv.NO_PROXY]) };
+    // Last, with the route running: where this session starts in Safe-Chain's logs (DIPO-376).
+    await this.#markSafeChain(input.runId);
     return {
       box: name,
       workdir: BOX_WORKDIR,
@@ -1100,6 +1138,70 @@ export class BoxWorkers {
   }
 
   /**
+   * The developer session of `runId` ended (DIPO-376): the refusals Safe-Chain's logs gained since
+   * the session's mark are kept on the run, with each log that could not be read as unknown, and
+   * the mark is cleared, so a second call reads nothing. Called before the exit is decided, so the
+   * worker's next session is told; a rest or finish calls it too. Never rejects.
+   */
+  sessionEnded(runId: string): Promise<void> {
+    return this.#safeChainStep(runId, () => this.#keepSafeChain(runId));
+  }
+
+  /** Runs `step` after the run's Safe-Chain step in flight; never rejects. */
+  #safeChainStep(runId: string, step: () => Promise<void>): Promise<void> {
+    const before = this.#safeChainReads.get(runId) ?? Promise.resolve();
+    const next = before.then(step).catch((error: unknown) => {
+      this.#deps.warn?.("keeping the Safe-Chain refusals of a session failed", {
+        run: runId,
+        reason: messageOf(error),
+      });
+    });
+    this.#safeChainReads.set(runId, next);
+    void next.finally(() => {
+      if (this.#safeChainReads.get(runId) === next) this.#safeChainReads.delete(runId);
+    });
+    return next;
+  }
+
+  /** The read `sessionEnded` makes, when the run has a session's mark. */
+  async #keepSafeChain(runId: string): Promise<void> {
+    const store = this.#deps.safeChain;
+    const stored = store?.of(runId) ?? null;
+    if (store === undefined || stored === null || stored.mark === null) return;
+    const found = await readSafeChain(this.#deps.boxes, this.#safeChainBox, stored.mark);
+    store.store(
+      runId,
+      {
+        refusals: [...stored.refusals, ...found.refusals],
+        unknown: [...stored.unknown, ...found.unknown],
+        mark: null,
+      },
+      found,
+    );
+    if (found.unknown.length > 0) {
+      this.#deps.info?.("the Safe-Chain refusals of a session are unknown", {
+        run: runId,
+        why: found.unknown.map((log) => `${log.ecosystem}: ${log.why}`).join("; "),
+      });
+    }
+  }
+
+  /**
+   * Where the session of `runId` starts in Safe-Chain's logs (DIPO-376); a session before it whose
+   * end was not read is read first. Never rejects.
+   */
+  #markSafeChain(runId: string): Promise<void> {
+    return this.#safeChainStep(runId, async () => {
+      const store = this.#deps.safeChain;
+      if (store === undefined) return;
+      await this.#keepSafeChain(runId);
+      const mark = await markSafeChain(this.#deps.boxes, this.#safeChainBox);
+      const stored = store.of(runId) ?? EMPTY_SAFE_CHAIN_RECORD;
+      store.store(runId, { ...stored, mark }, { refusals: [], unknown: [] });
+    });
+  }
+
+  /**
    * The end of a box run's box (its claim ended: merge, drop, discard): the post-run token check
    * unless the box was stopped and checked after its last session (`BoxRunRecord.waiting`), then
    * the box deleted and its routes released. Never rejects; once per run (a second call waits for
@@ -1125,6 +1227,8 @@ export class BoxWorkers {
     // runs in its box, so a mark still set then means no session ran since the last check; one
     // that cleared it gets a fresh token check before its box is deleted.
     const rested = (): boolean => runDir !== undefined && readBoxRun(runDir)?.waiting === true;
+    // A session whose end was not read yet is read while the route still runs (DIPO-376).
+    await this.sessionEnded(runId);
     const outcome = await this.#checked(runId, name, { skipCheck: rested }, (box) =>
       this.#deps.boxes.delete(box),
     );
@@ -1159,6 +1263,8 @@ export class BoxWorkers {
     // A session that is making the box ready now keeps it; its run is not waiting any more.
     if (this.#starting.has(runId)) return { kind: "skipped" };
     this.#door?.stop(runId);
+    // A session whose end was not read yet is read while the route still runs (DIPO-376).
+    await this.sessionEnded(runId);
     const epoch = this.#epochs.get(runId) ?? 0;
     const moved = (): boolean => (this.#epochs.get(runId) ?? 0) !== epoch;
     // The box restarts first, as before a session, so no earlier claude runs during the check.
