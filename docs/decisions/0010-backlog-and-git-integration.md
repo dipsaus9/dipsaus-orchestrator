@@ -9,7 +9,7 @@ Every backlog change is a commit in a pull request, so it reaches a protected ba
 ## 1. The Backlog CLI
 
 - **Version.** dipo supports Backlog.md **1.53.x**, pinned in `CLAUDE.md`. It checks `backlog --version` at office load and refuses any other version. A new minor is adopted by recording its `--plain` output as fixtures and passing the parser tests.
-- **Only through the CLI.** dipo runs `backlog … --plain` through the platform module and never edits a task file by hand. It reads the CLI's output from a file, never from a pipe. The only files it reads directly are `backlog/config.yml`, for the status list, and a root `backlog.config.yml`, for the folders the StoryStore keeps its stories in.
+- **Only through the CLI.** dipo runs `backlog … --plain` through the platform module and never edits a task file by hand. It reads the CLI's output from a file, never from a pipe. The only files it reads directly are `backlog/config.yml`, for the status list, a root `backlog.config.yml`, for the folders the StoryStore keeps its stories in, and, in the check before each CLI call, the files of those folders the CLI could read: each folder's `config.yml` and the task files.
 - **Never run:** `task complete`, `cleanup`, `task demote`, `doctor --fix`, `config set statuses`, and any edit to the status `Draft`.
 - **Refused inputs.** dipo refuses to run the CLI on a folder whose files it cannot check (0008).
 - **The parser.** One parser covers `task view`, `draft view`, `task list` and `draft list`, and is tested against recorded output.

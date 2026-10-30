@@ -24,9 +24,9 @@ export function foldName(text: string): string {
  */
 export function repoPathOf(path: string): string | null {
   const rooted = path.replace(/^\/+/, "");
-  const normal = posix.normalize(rooted === "" ? "." : rooted);
+  const normal = posix.normalize(rooted === "" ? "." : rooted).replace(/\/+$/, "");
   if (normal === ".." || normal.startsWith("../")) return null;
-  return normal === "." ? "" : normal.replace(/\/+$/, "");
+  return normal === "." || normal === "" ? "" : normal;
 }
 
 /** The segments of `path` as compared: normalised (`repoPathOf`), folded (`foldName`). */

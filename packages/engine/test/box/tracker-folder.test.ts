@@ -18,12 +18,13 @@ import { ManualClock, type TempRepo, withTempRepo } from "@dipsaus-orchestrator/
 
 import { BacklogFolderError } from "../../src/backlog/folder";
 import {
+  BoxCollisions,
   boxChangesOf,
   MERGE_REFUSED,
   parseBoxChanges,
   storyChangedFiles,
 } from "../../src/box/collisions";
-import { protectedHits, protectedKind } from "../../src/box/parts";
+import { type PartRun, protectedHits, protectedKind } from "../../src/box/parts";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import type { RepoFileRead } from "../../src/story-store/folder";
@@ -289,6 +290,10 @@ describe("the collisions guard leaves out the bypass forms", () => {
         ["docs/tasks", "../backlog/tasks"],
         ["docs/hidden", "../.Backlog"],
         ["docs/deep", "./../backlog/../backlog/drafts/"],
+        // A folder above a story folder: a write below it reaches the folder too.
+        ["docs/up", ".."],
+        ["docs/root", "../"],
+        ["here", "."],
       ] as const) {
         await repo.git("checkout", "--quiet", "-B", "DIPO-1/story", start);
         mkdirSync(join(repo.dir, "docs"), { recursive: true });
@@ -311,6 +316,31 @@ describe("the collisions guard leaves out the bypass forms", () => {
       const tip = await repo.commitAll("link elsewhere");
       const box = await git.run((session) => boxChangesOf(session, start, tip, backlogLayout));
       expect(box.written).toEqual(["a-link", "b-link", "c-link"]);
+    }));
+
+  it("on real git: a chain of symlinks into the folder, or a loop, refuses the copy", () =>
+    inRepo(async ({ repo, git }) => {
+      mkdirSync(join(repo.dir, "docs"), { recursive: true });
+      symlinkSync("../backlog", join(repo.dir, "docs/hop"));
+      symlinkSync("loop-b", join(repo.dir, "loop-a"));
+      symlinkSync("loop-a", join(repo.dir, "loop-b"));
+      const start = await commit(repo, { "src/a.ts": "a\n", "backlog/config.yml": "x: 1\n" });
+      for (const [link, target] of [
+        ["next", "docs/hop"],
+        ["deeper", "docs/hop/tasks"],
+        ["round", "loop-a"],
+      ] as const) {
+        await repo.git("checkout", "--quiet", "-B", "DIPO-1/story", start);
+        symlinkSync(target, join(repo.dir, link));
+        const tip = await repo.commitAll(`link ${link}`);
+        const refused = await git
+          .run((session) => boxChangesOf(session, start, tip, backlogLayout))
+          .then(
+            () => null,
+            (error: unknown) => error,
+          );
+        expect([link, (refused as { code?: string } | null)?.code]).toEqual([link, MERGE_REFUSED]);
+      }
     }));
 
   it("the folders another store names: a fake store with its own folder", () =>
@@ -372,6 +402,64 @@ describe("with the real Backlog.md store whose folder lookup fails", () => {
           }),
         ),
       ).rejects.toBeInstanceOf(BacklogFolderError);
+    }));
+
+  it("on real git: the overlap check leaves out only the run whose lookup refuses", () =>
+    inRepo(async ({ repo, git }) => {
+      const start = await commit(repo, {
+        "src/shared.ts": "one\n",
+        "backlog/config.yml": "x: 1\n",
+      });
+      const runs: PartRun[] = [];
+      for (const [n, files] of [
+        // The refusing run changes the same file as the others.
+        [1, { "backlog.config.yml": UNRESOLVED[0]!, "src/shared.ts": "a\n" }],
+        [2, { "src/shared.ts": "b\n" }],
+        [3, { "src/shared.ts": "c\n" }],
+      ] as const) {
+        const branch = `DIPO-${n}/story`;
+        await repo.git("checkout", "--quiet", "-B", branch, start);
+        await commit(repo, files);
+        runs.push({
+          runId: `run_${n}`,
+          office: OFFICE,
+          story: `DIPO-${n}`,
+          branch,
+          startSha: start,
+          box: `b${n}`,
+        });
+      }
+      await repo.git("checkout", "--quiet", "main");
+      const notices: string[] = [];
+      const told: string[] = [];
+      const warned: { message: string; run?: unknown }[] = [];
+      const collisions = new BoxCollisions({
+        stories: backlogLayout,
+        boxes: { copyIn: async () => {}, exec: async () => ({ code: 0, stdout: "", stderr: "" }) },
+        code: { spawn: systemSpawn, clock: new ManualClock() },
+        tmpRoot: realpathSync(repo.root),
+        runs: () => runs,
+        git: (office) => (office === OFFICE ? git : undefined),
+        live: () => true,
+        parts: {} as never,
+        park: () => true,
+        tell: async (runId) => {
+          told.push(runId);
+        },
+        notice: (_office, _runId, notice) => notices.push(notice.text),
+        warn: (message, fields) => warned.push({ message, run: fields["run"] }),
+      });
+      await collisions.check();
+      // The two runs dipo can read are told of each other; the refusing one is in no overlap.
+      expect(notices).toHaveLength(1);
+      expect(notices[0]).toContain("DIPO-2");
+      expect(notices[0]).toContain("DIPO-3");
+      expect(notices[0]).not.toContain("DIPO-1");
+      expect(told.toSorted()).toEqual(["run_2", "run_3"]);
+      expect(warned.filter((w) => w.run === "run_1").map((w) => w.message)).toContain(
+        "a box run's changed files could not be read for the overlap check",
+      );
+      expect(warned.some((w) => w.message.startsWith("comparing the box runs"))).toBe(false);
     }));
 
   it("on real git: a root configuration that is a symlink refuses too", () =>

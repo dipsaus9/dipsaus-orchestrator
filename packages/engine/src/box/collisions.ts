@@ -935,18 +935,58 @@ export async function boxChangesOf(
     throw new GitError("git.failed", "the merge holds a path dipo does not copy into a box.");
   }
   for (const path of changes.written) {
-    const entry = entries.get(path);
-    if (entry?.mode !== "120000") continue;
-    const target = await session.ok(session.repository, ["cat-file", "blob", entry.id]);
-    const into = linkTargetOf(path, target);
-    if (into !== null && inStoryFolder(into, folders)) {
+    if (entries.get(path)?.mode !== "120000") continue;
+    const into = await resolveLink(session, entries, path);
+    // Into a story folder, or to a folder above one (the root included): a write through it lands
+    // in the folder. A chain too long to follow refuses as well.
+    if (
+      into === "loop" ||
+      (into !== null &&
+        (into === "" ||
+          inStoryFolder(into, folders) ||
+          folders.some((folder) => inStoryFolder(folder, [into]))))
+    ) {
       throw new BoxError(
         MERGE_REFUSED,
-        `the merge writes the symlink ${path}, which points into a story folder; dipo does not copy it into a box.`,
+        `the merge writes the symlink ${path}, which leads into a story folder; dipo does not copy it into a box.`,
       );
     }
   }
   return changes;
+}
+
+/** The most links `resolveLink` follows before it gives up. */
+const LINK_HOPS_MAX = 40;
+
+/**
+ * Where the path `path` of the tree `entries` leads once every symlink on it is followed, the
+ * symlinks the tree holds on its way (`a` -> `b`, `b` -> `backlog`) and its own: a repo-relative
+ * path (`""` for the root), null when it leaves the repository, `"loop"` past `LINK_HOPS_MAX`.
+ */
+async function resolveLink(
+  session: GitSession,
+  entries: ReadonlyMap<string, { readonly mode: string; readonly id: string }>,
+  path: string,
+): Promise<string | null | "loop"> {
+  let rest = path.split("/");
+  let done: string[] = [];
+  for (let hops = 0; rest.length > 0;) {
+    const here = [...done, rest[0]!].join("/");
+    rest = rest.slice(1);
+    const entry = entries.get(here);
+    if (entry?.mode !== "120000") {
+      done = here.split("/");
+      continue;
+    }
+    hops += 1;
+    if (hops > LINK_HOPS_MAX) return "loop";
+    const target = await session.ok(session.repository, ["cat-file", "blob", entry.id]);
+    const into = linkTargetOf(here, target);
+    if (into === null) return null;
+    rest = [...(into === "" ? [] : into.split("/")), ...rest];
+    done = [];
+  }
+  return done.join("/");
 }
 
 /** True when `error` refuses a catch-up for good: a merge dipo does not copy, or no story folders. */
@@ -1419,11 +1459,21 @@ export class BoxCollisions {
       const base = await baseRefOf(git, session);
       const out: StoryChanges[] = [];
       for (const run of runs) {
+        // A branch whose story folders the store refuses to tell has no changed files dipo can
+        // trust: it is left out of this pass, so it is told no overlap and counted as none, and
+        // the other runs of the office are still compared.
         const changed = await storyChangedFiles(session, {
           stories: this.#deps.stories,
           branch: run.branch,
           startSha: run.startSha,
           baseRef: base?.ref ?? null,
+        }).catch((error: unknown) => {
+          if (!folderLookupRefused(error)) throw error;
+          this.#deps.warn?.("a box run's changed files could not be read for the overlap check", {
+            run: run.runId,
+            reason: messageOf(error),
+          });
+          return null;
         });
         if (changed !== null)
           out.push({ runId: run.runId, story: run.story, files: changed.files });

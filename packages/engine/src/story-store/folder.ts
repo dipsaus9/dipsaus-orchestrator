@@ -3,7 +3,8 @@
 // from git objects, and how a guard tells a lookup that refuses. The comparison of a path with the
 // folders is `paths.ts`.
 
-import { readFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { GitSession } from "../git/office";
@@ -20,19 +21,39 @@ import { foldName, repoPathOf } from "./paths";
 export type RepoFileRead = (path: string) => Promise<string | null>;
 
 /**
- * Reads the files of the checkout at `dir`: a missing file is null; any other failure throws, so a
+ * Reads the files of the checkout at `dir`, as `treeFiles` reads a tree: a missing file is null; a
+ * path through a link (the file itself or a folder on its way), anything but a regular file, or a
+ * file over `TREE_FILE_MAX` refuses (`StoryFileRefusedError`), and any other failure throws, so a
  * lookup through it refuses.
  */
 export function checkoutFiles(dir: string): RepoFileRead {
   return async (path) => {
     const inside = repoPathOf(path);
-    if (inside === null || inside === "")
+    if (inside === null || inside === "") {
       throw new StoryFileRefusedError(path, "is no file of the repository");
+    }
+    const segments = inside.split("/");
+    for (let at = 1; at <= segments.length; at += 1) {
+      const info = await lstat(join(dir, ...segments.slice(0, at))).catch((error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw error;
+      });
+      if (info === null) return null;
+      if (info.isSymbolicLink()) throw new StoryFileRefusedError(path, "goes through a link");
+      if (at < segments.length && !info.isDirectory()) return null;
+      if (at === segments.length && !info.isFile()) {
+        throw new StoryFileRefusedError(path, "is not a regular file");
+      }
+    }
+    const file = await open(join(dir, inside), constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
-      return await readFile(join(dir, inside), "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-      throw error;
+      const { size } = await file.stat();
+      if (!(size <= TREE_FILE_MAX)) {
+        throw new StoryFileRefusedError(path, `is larger than ${TREE_FILE_MAX} bytes`);
+      }
+      return await file.readFile("utf8");
+    } finally {
+      await file.close();
     }
   };
 }

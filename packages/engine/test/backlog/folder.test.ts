@@ -1,7 +1,7 @@
 // Where Backlog.md keeps a repository's stories (DIPO-379, 0010): the StoryStore's `storyFolders`
 // and `isProject` on the Backlog.md store, read through a repository's files.
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
@@ -9,7 +9,12 @@ import { describe, expect, it } from "bun:test";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { BacklogFolderError } from "../../src/backlog/folder";
-import { checkoutFiles, type RepoFileRead } from "../../src/story-store/folder";
+import {
+  checkoutFiles,
+  type RepoFileRead,
+  StoryFileRefusedError,
+  TREE_FILE_MAX,
+} from "../../src/story-store/folder";
 import { backlogLayout } from "../story-store/backlog";
 
 /** A repository holding only `files`, read by path. */
@@ -81,6 +86,33 @@ describe("a Backlog.md project", () => {
       writeFileSync(join(dir, "backlog.config.yml"), "backlog_directory: ../x\n");
       await expect(backlogLayout.isProject(checkoutFiles(dir))).rejects.toBeInstanceOf(
         BacklogFolderError,
+      );
+    }));
+
+  it("is refused through a checkout whose configuration is a link or too large", () =>
+    withTempDir(async (dir) => {
+      mkdirSync(join(dir, "real"));
+      writeFileSync(join(dir, "real", "config.yml"), "project_name: x\n");
+      writeFileSync(join(dir, "pointer.yml"), "backlog_directory: planning\n");
+      const repo = join(dir, "repo");
+      mkdirSync(repo);
+      // A linked root configuration, and a project folder that is a link.
+      symlinkSync(join(dir, "pointer.yml"), join(repo, "backlog.config.yml"));
+      await expect(backlogLayout.storyFolders(checkoutFiles(repo))).rejects.toBeInstanceOf(
+        StoryFileRefusedError,
+      );
+      await expect(backlogLayout.isProject(checkoutFiles(repo))).rejects.toThrow("through a link");
+      rmSync(join(repo, "backlog.config.yml"));
+      symlinkSync(join(dir, "real"), join(repo, "backlog"));
+      await expect(backlogLayout.isProject(checkoutFiles(repo))).rejects.toThrow("through a link");
+      rmSync(join(repo, "backlog"));
+      // A root configuration over the size cap, and one that is a folder.
+      writeFileSync(join(repo, "backlog.config.yml"), `# ${"x".repeat(TREE_FILE_MAX)}\n`);
+      await expect(backlogLayout.storyFolders(checkoutFiles(repo))).rejects.toThrow("larger than");
+      rmSync(join(repo, "backlog.config.yml"));
+      mkdirSync(join(repo, "backlog.config.yml"));
+      await expect(backlogLayout.storyFolders(checkoutFiles(repo))).rejects.toThrow(
+        "not a regular file",
       );
     }));
 
