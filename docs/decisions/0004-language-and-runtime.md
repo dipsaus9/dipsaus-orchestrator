@@ -46,7 +46,7 @@ These are lint rules in `.oxlintrc.json` and `tools/lint/`, proven by `test/lint
 - No file imports a package's internals by package specifier (`@dipsaus-orchestrator/*/src/*`), and no package reaches another package's files by relative path. Outside the packages, only the cross-package tests in `test/`, the tools in `tools/` and the CI scripts in `scripts/` read package files by relative path; none of them is shipped.
 - `contract` imports nothing but zod, in every source file.
 - `engine` never imports `daemon`, `client`, `tui` or `cli`, and finds no file of theirs by path.
-- Inside `engine`, a file imports values only from its own directory and from lower layers (see Engine layers). Types may cross. The layers are listed once, in the lint plugin.
+- Inside `engine`, the directories form no import cycle, and no directory imports a value from a directory in a higher band or a higher layer of the plugin's order (see Engine layers). Types may cross.
 - Inside `engine` and `daemon`, only `engine/src/platform/**` touches `bun`, `bun:*` (except `bun:test`) or the global `Bun`.
 - Inside `engine`, only `workers/claude-cli/**` imports the Claude adapter. No other source file of any package names Claude's tools or model aliases, in code or in prose; the office configuration's model defaults are the one exception.
 - `daemon` imports from `engine` only `createEngine`, types and the engine's platform entry (0005).
@@ -56,30 +56,27 @@ These are lint rules in `.oxlintrc.json` and `tools/lint/`, proven by `test/lint
 
 ## Engine layers
 
-The engine's directories sit in sixteen layers, lowest first. A file imports values only from its own directory and from lower layers, and two directories of one layer never import each other's values, so the directories form no cycle. Type-only imports may cross. An entry is a directory of `packages/engine/src`, a file at its top, or a listed subdirectory, which then counts apart from its parent. `bun scripts/engine-graph.ts` measures the import graph against the list.
+The engine's directories sit in six bands, lowest first. Two rules hold:
 
-The order follows a fact through the engine (0005): facts are stored and read, views are derived from them, writers store new facts with their change-log entries and views, the run and the services act through the writers, and the composition root wires them together.
+- **No directory cycles.** No chain of value imports leads from a directory back to itself.
+- **Nothing imports upward.** No directory imports a value from a directory in a higher band.
 
-| Layer | Entries | Why there |
+Type-only imports may cross both rules. Inside a band, one directory may import another as long as the import closes no cycle; such an import needs no change to this ADR.
+
+| Band | Directories | Why there |
 |---|---|---|
-| 1 | `platform` | The only code that touches Bun (above). It imports nothing else of the engine. |
-| 2 | `changelog`, `config`, `context`, `git`, `keepawake`, `software-stream`, `story-store`, `wiring`, `workers` | Each needs at most the platform. `git` is the one git module, office discovery included. `story-store` is the StoryStore seam (0010). `workers` is the WorkerPort with its types and holds, not the adapter. |
-| 3 | `gate`, `log`, `scan/detect` | Pure checks: the Ready gate's rules and content hash, and repository detection over git. The log redacts with `context`. |
-| 4 | `host`, `prompts` | Prompt templates and assembly, which quote the gate's text limits; the engine side of the worker host's socket, which logs. |
-| 5 | `box`, `db`, `records` | `records` holds the stored facts the services read and write without a change-log entry: runs, agents, worker hosts, signals, caps, park state, usage, story keys and story PR records. `db` is the schema and its migrations; two migrations render prompt texts, so it sits above `prompts`. `box` is the box backend; it reads repository detection and renders conflict texts. |
-| 6 | `commands`, `review`, `views` | `views` derives the work, story and usage views from the facts (0005). `commands` holds command errors, requests and the registry. `review` stores and checks verdicts. |
-| 7 | `ingest`, `office`, `reads`, `scan` | `ingest` turns worker output into facts with their entries and views, phase markers included. `office` opens and manages offices, and reads the office file at a commit with the box image code. `reads` runs reads. `scan` builds the repository profile and its AI fallback. |
-| 8 | `run-state`, `workers/claude-cli` | `run-state` holds the writes the run, claims, merges and reconcile share: phase and rounds, places, park records, questions and merge gates, each with its change-log entry. The Claude adapter needs the box and ingest. |
-| 9 | `worktree` | Story claims, the Done check and teardown, which end runs and resolve parks through `run-state`. |
-| 10 | `stories` | The story index, which mirrors Backlog.md and reads claims. |
-| 11 | `gate/store`, `retention`, `run` | `run` drives a story's run from launch to its end, with park, resume, discard and tests. `gate/store` keeps gate decisions and reads stories. `retention` deletes old run facts. |
-| 12 | `backup`, `merge`, `overview`, `questions`, `reconcile`, `story-pr` | The services that act on runs: the merge slot, `work.answer`, the story PR, reconcile at start, and backups with the daily file maintenance, which work in retention's time slices. `overview` holds the reads the maintainer sees: the snapshot, the desk, the digest and the summary. |
-| 13 | `backlog` | The StoryStore's Backlog.md implementation and the planning lane, which use merges, gates and the desk. |
-| 14 | `features.ts` | The list of feature modules. |
-| 15 | `create` | The composition root, with the run's wiring. |
-| 16 | `index.ts`, `platform-entry.ts` | The engine's two entries. |
+| 1. Base | `platform`, `changelog`, `config`, `context`, `git`, `host`, `keepawake`, `log`, `software-stream`, `story-store`, `wiring`, `workers` | They need nothing but each other: the Bun seam (above), the change log, configuration, the one git module, the worker host's socket client, logging, the StoryStore seam (0010) and the WorkerPort with its types. The Claude adapter is not here. |
+| 2. Checks and texts | `gate`, `scan/detect`, `prompts` | Pure functions over stories and repositories: the Ready gate's rules and content hash, repository detection, and the prompt templates, which quote the gate's text limits. |
+| 3. Facts and boxes | `db`, `records`, `box` | What every service reads or runs in. `records` holds the stored facts that are read and written without a change-log entry: runs, agents, worker hosts, signals, caps, park state, usage, story keys and story PR rows. `db` holds the schema and migrations; two migrations render prompt texts. `box` is the box backend, which reads detection and renders conflict texts. |
+| 4. Views and writers | `views`, `commands`, `review`, `reads`, `ingest`, `office`, `scan`, `run-state`, `workers/claude-cli`, `worktree`, `stories` | Views are derived from the facts (0005), and every writer stores a fact with its change-log entry and the derived view, so the views sit first. Then come ingest of worker output with its phase markers, offices, the repository profile, the run-state writes shared by the run, claims, merges and reconcile (phases, places, parks, questions, merge gates), the Claude adapter, claims and the story index. |
+| 5. Run and services | `run`, `gate-decisions`, `retention`, `backup`, `merge`, `overview`, `questions`, `reconcile`, `story-pr`, `backlog` | They act through the writers. `run` drives a story's run with park, resume, discard and tests. Around it sit stored gate decisions, retention and backups, the merge slot, `work.answer`, the story PR, reconcile at start, the Backlog.md implementation of the StoryStore, and `overview`, the reads the maintainer sees (snapshot, desk, digest, summary). |
+| 6. Composition | `features.ts`, `create`, `index.ts`, `platform-entry.ts` | The feature list, the composition root with the run's wiring, and the engine's two entries. |
 
-Until the moves of DIPO-389 to DIPO-394 land, the lint rule holds three coarse layers: the base, one domain layer, and the composition root.
+**The fine order.** The lint plugin holds one list, a finer order of layers inside the bands. `dipo/engine-layers` refuses a value import into a higher layer of that list. Directory cycles are found by `bun scripts/engine-graph.ts --check`, which `bun run verify` runs.
+
+- When a new import inside a band goes against that order, the fine order changes in the plugin; this ADR does not.
+- An entry of the list is a directory, a file at the top of `packages/engine/src`, or a listed subdirectory such as `workers/claude-cli`, which then counts apart from its parent.
+- Until DIPO-395, the plugin holds the coarse layers (the base, one domain layer and the composition root), and verify runs no cycle check yet. The target order waits in `scripts/engine-layers-target.json`, a temporary file that DIPO-395 moves into the plugin and deletes.
 
 ## Tooling
 
@@ -115,4 +112,4 @@ bun run verify   # format:check, lint, typecheck, test; stops at the first failu
 - `srt` (`@anthropic-ai/sandbox-runtime`) bundled behind `dipo daemon sandbox-exec`, and the `safe-chain-gate` form (2026-10-24). The box is the only sandbox technology now (0008).
 - A planned browser, web, desktop or 3D client, served by the daemon (2026-10-24). It is listed under Later in 0003 and gets an ADR when it is planned.
 - `dipo hook <event>` and its versioned handshake with the worker host (2026-10-12). Removed (2026-10-24): no session has hooks (0008).
-- One domain layer holding every orchestration directory of the engine (2026-10-29), while those directories still imported each other both ways. Replaced by the sixteen engine layers above (2026-10-30, DIPO-381).
+- One domain layer holding every orchestration directory of the engine (2026-10-29), while those directories still imported each other both ways. Replaced by six bands, a fine layer order in the lint plugin and no directory cycles (2026-10-30, DIPO-381).

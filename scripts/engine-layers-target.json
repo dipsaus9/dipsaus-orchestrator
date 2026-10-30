@@ -19,7 +19,7 @@
   ["run-state", "workers/claude-cli"],
   ["worktree"],
   ["stories"],
-  ["gate/store", "retention", "run"],
+  ["gate-decisions", "gate/store", "retention", "run"],
   ["backup", "merge", "overview", "questions", "reconcile", "story-pr"],
   ["backlog"],
   ["features.ts"],
