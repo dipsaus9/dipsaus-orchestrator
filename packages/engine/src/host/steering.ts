@@ -17,8 +17,8 @@ function failed(code: HostError["code"], message: string): SteerResult {
 }
 
 /**
- * The host op a steering frame carries; null for `status` and `watch`, which are not steering: the
- * host handles them itself.
+ * The host op a steering frame carries; null for `status`, `watch` and `claim`, which are not
+ * steering: the host handles them itself.
  */
 export function hostOpOf(frame: OpFrame): HostOp | null {
   switch (frame.op) {
@@ -32,6 +32,7 @@ export function hostOpOf(frame: OpFrame): HostOp | null {
       return { closeStdin: true };
     case "status":
     case "watch":
+    case "claim":
       return null;
   }
 }

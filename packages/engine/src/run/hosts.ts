@@ -12,6 +12,7 @@ import {
   type HostClient,
   type HostRequest,
 } from "../host/client";
+import { OP_SINCE } from "../host/protocol";
 import { Ingestor, type IngestHooks, type IngestTarget, type PassResult } from "../ingest/ingestor";
 import type { OutputPrivacy } from "../ingest/output";
 import type { Env } from "../platform/paths";
@@ -23,8 +24,39 @@ import type { RunSteering } from "./control";
 import type { HostStarter, RunIngest } from "./launch";
 import type { Watchdog } from "./watchdog";
 
-/** How long the engine waits for a new host's socket before it relies on the poll alone. */
+/** How long one ask of a host's socket for its handshake takes at most: the PID ask of re-attach. */
 export const HOST_CONNECT_TIMEOUT_MS = 5_000;
+
+/**
+ * How long a new worker host has to be claimed by a daemon's handshake, counted from its
+ * `worker_hosts` row (DIPO-386, 0008). Its launch file carries the deadline; a host no daemon
+ * claimed by then stops its worker and refuses a later handshake. Until then the daemon that
+ * started it keeps connecting, and a restart asks a pending row's socket again. Longer than
+ * `HOST_CONNECT_TIMEOUT_MS`, so a host that binds its socket late is still claimed.
+ */
+export const HOST_LAUNCH_DEADLINE_MS = 30_000;
+
+/** The launch deadline of a host whose row was written at `startedAt`: one value for both sides. */
+export function hostLaunchDeadline(startedAt: number): number {
+  return startedAt + HOST_LAUNCH_DEADLINE_MS;
+}
+
+/**
+ * Claims a host (DIPO-386, 0008): the `claim` op, sent only by a daemon that holds the host's
+ * verified PID in its `worker_hosts` row and follows its run, and only when the handshake named
+ * that PID. A handshake alone claims nothing, and a host no daemon claimed by its launch deadline
+ * stops itself. A host that speaks no `claim` (an earlier binary's, with no launch deadline) needs
+ * none. Returns why the host was not claimed, or null.
+ */
+export async function claimHost(client: HostClient, recordedPid: number): Promise<string | null> {
+  if (client.hostPid !== recordedPid) {
+    return `its handshake named pid ${client.hostPid}, not the recorded ${recordedPid}`;
+  }
+  if (client.version < OP_SINCE.claim) return null;
+  const reply = await client.request({ op: "claim" });
+  if (reply === null) return "it did not answer the claim";
+  return reply.ok ? null : `${reply.error.code}: ${reply.error.message}`;
+}
 
 /** How long the engine waits between connection attempts while a new host has not bound its socket. */
 export const HOST_CONNECT_RETRY_MS = 25;
@@ -43,11 +75,39 @@ export interface SystemHostStarterOptions {
   readonly spawnDetached?: SpawnDetached;
 }
 
+/**
+ * Connects to a host this daemon just started, trying again until it is bound. The caller runs
+ * right after the detached host was spawned, and the host binds its socket a moment later
+ * (DIPO-181). The caller then claims the host (`claimHost`), which stops its worker when no daemon
+ * claimed it by its launch deadline (DIPO-386), so "unreachable" is retried up to that deadline; a
+ * refusal, a silent socket or `stopped` ends it.
+ */
+export async function connectWhenBound(
+  host: Pick<LaunchedHost, "socketPath" | "runId" | "launchDeadline">,
+  clock: Clock,
+  stopped: () => boolean,
+): Promise<ConnectHostResult> {
+  const deadline = host.launchDeadline;
+  for (;;) {
+    const left = deadline - clock.now();
+    const connected = await connectHost(host.socketPath, {
+      runId: host.runId,
+      clock,
+      // A host that binds late still gets a full second for its hello.
+      timeoutMs: Math.max(HOST_HELLO_MIN_MS, left),
+    });
+    if (connected.ok || connected.reason !== "unreachable" || stopped()) return connected;
+    if (deadline - clock.now() <= HOST_CONNECT_RETRY_MS) return connected;
+    await new Promise<void>((resolve) => clock.setTimeout(resolve, HOST_CONNECT_RETRY_MS));
+  }
+}
+
 /** Starts worker hosts as detached `dipo daemon worker-host <run-id>` processes. */
 export function systemHostStarter(options: SystemHostStarterOptions): HostStarter {
   return {
-    start: (office, run) =>
-      startWorkerHost(
+    start: (office, run) => {
+      const startedAt = options.clock.now();
+      return startWorkerHost(
         office,
         options.clock,
         {
@@ -57,6 +117,8 @@ export function systemHostStarter(options: SystemHostStarterOptions): HostStarte
           runtimeDir: options.runtimeDir,
           plan: run.plan,
           dipoCommand: options.dipoCommand,
+          startedAt,
+          launchDeadline: hostLaunchDeadline(startedAt),
           env: options.env,
           probe: options.probe,
           ...(options.spawnDetached === undefined ? {} : { spawnDetached: options.spawnDetached }),
@@ -65,7 +127,8 @@ export function systemHostStarter(options: SystemHostStarterOptions): HostStarte
           ...(run.processedOffset === undefined ? {} : { processedOffset: run.processedOffset }),
           ...(run.record === undefined ? {} : { record: run.record }),
         },
-      ),
+      );
+    },
   };
 }
 
@@ -203,13 +266,21 @@ export class OfficeIngest implements RunIngest {
     const ingestor = this.#ingestor(office);
     if (target.work !== undefined) this.#options.watchdog?.track(office, host.runId as RunId);
     ingestor.track(target);
-    void this.#connectWhenBound(host)
+    void connectWhenBound(host, this.#options.clock, () => this.#closed)
       .then(async (connected) => {
         if (connected.ok && this.#closed) {
           connected.client.close();
           return;
         }
         if (connected.ok) {
+          // The host is recorded and its run followed: claim it, so it keeps its worker (DIPO-386).
+          const unclaimed = await claimHost(connected.client, host.pid);
+          if (unclaimed !== null) {
+            this.#options.warn?.(
+              "the worker host was not claimed; it stops its worker at its launch deadline",
+              { run: host.runId, reason: unclaimed },
+            );
+          }
           await ingestor.watch(host.runId, host.agentId, connected.client);
           return;
         }
@@ -228,30 +299,6 @@ export class OfficeIngest implements RunIngest {
           reason: error instanceof Error ? error.message : String(error),
         });
       });
-  }
-
-  /**
-   * Connects to a new host's socket, trying again until it is bound. `start` runs right after the
-   * detached host was spawned, and the host binds its socket a moment later (DIPO-181): one attempt
-   * made then found no socket ("unreachable"), the engine never watched the host, and the host
-   * answered every waiting PermissionRequest call at once with no decision. Only "unreachable"
-   * is retried, up to `HOST_CONNECT_TIMEOUT_MS`; a refusal or a silent socket ends it.
-   */
-  async #connectWhenBound(host: LaunchedHost): Promise<ConnectHostResult> {
-    const { clock } = this.#options;
-    const deadline = clock.now() + HOST_CONNECT_TIMEOUT_MS;
-    for (;;) {
-      const left = deadline - clock.now();
-      const connected = await connectHost(host.socketPath, {
-        runId: host.runId,
-        clock,
-        // A host that binds late still gets a full second for its hello.
-        timeoutMs: Math.max(HOST_HELLO_MIN_MS, left),
-      });
-      if (connected.ok || connected.reason !== "unreachable" || this.#closed) return connected;
-      if (deadline - clock.now() <= HOST_CONNECT_RETRY_MS) return connected;
-      await new Promise<void>((resolve) => clock.setTimeout(resolve, HOST_CONNECT_RETRY_MS));
-    }
   }
 
   /** Writes the run's pending `work.output` now, before a state change of the run (0005 section 6). */

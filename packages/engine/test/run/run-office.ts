@@ -20,6 +20,8 @@ import {
   withBareRemote,
 } from "@dipsaus-orchestrator/testkit";
 
+import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
+import { systemClock } from "../../src/platform/clock";
 import { BacklogLane } from "../../src/backlog/lane";
 import type { OfficeHandle } from "../../src/db/office";
 import { GateStore } from "../../src/gate";
@@ -348,6 +350,7 @@ export async function withRunOffice(
             protocolVersion: 1,
             runDir,
             eventFile: join(runDir, EVENTS_FILE),
+            launchDeadline: loaded().clock.now() + HOST_LAUNCH_DEADLINE_MS,
           };
           if (options.host === "replay") {
             // The DIPO-44 host in this process, its worker a FakeProcess replaying the recording.
@@ -360,6 +363,7 @@ export async function withRunOffice(
                 run: run.runId,
                 agent: run.agentId,
                 socket: socketPath,
+                deadline: systemClock.now() + 3_600_000,
                 plan: run.plan,
               }),
               { mode: 0o600 },

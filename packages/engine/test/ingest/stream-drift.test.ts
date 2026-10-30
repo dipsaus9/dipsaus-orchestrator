@@ -8,6 +8,7 @@ import { describe, expect, it } from "bun:test";
 import { AgentId } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import {
   type IngestAdapter,
   type IngestHooks,
@@ -127,6 +128,7 @@ describe("the stream drift count (DIPO-315)", () => {
           protocolVersion: 1,
           runDir: dir,
           eventFile: file,
+          launchDeadline: f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
         },
         f.t.clock,
       );
@@ -194,6 +196,7 @@ describe("a worker newer than the checked version (DIPO-315)", () => {
             protocolVersion: 1,
             runDir: dir,
             eventFile: file,
+            launchDeadline: f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
           },
           f.t.clock,
         );

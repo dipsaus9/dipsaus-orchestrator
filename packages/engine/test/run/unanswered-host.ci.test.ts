@@ -18,6 +18,7 @@ import { join, resolve } from "node:path";
 
 import { cleanEnv, withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { systemClock } from "../../src/platform/clock";
 import { EXIT_FILE, type HostExitFile } from "../../src/host/protocol";
 import { currentPlatform } from "../../src/platform/paths";
 import { pidExists, signalProcess, systemProcessProbe } from "../../src/platform/process";
@@ -91,6 +92,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
                   stdin: ['"first"\n'],
                 },
                 dipoCommand: [process.execPath, CLI_MAIN],
+                startedAt: t.clock.now(),
+                launchDeadline: systemClock.now() + 3_600_000,
                 env: { ...env, DIPO_HOME: join(dir, "state"), DIPO_TMP: dir },
                 probe,
               });

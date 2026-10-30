@@ -24,6 +24,7 @@ import { join } from "node:path";
 import type { RunId } from "@dipsaus-orchestrator/contract";
 import { MAX_TEMP_ROOT_BYTES, ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import type { OfficeHandle } from "../../src/db/office";
 import { OUTPUT_DIR_PREFIX, OUTPUT_SWEEP_AGE_MS } from "../../src/platform/output-files";
 import type { ProcessInfo, ProcessProbe } from "../../src/platform/process";
@@ -115,6 +116,7 @@ async function fixture(dir: string): Promise<Fixture> {
           protocolVersion: 1,
           runDir: join(dir, "runs", run),
           eventFile: join(dir, "runs", run, "events.ndjson"),
+          launchDeadline: t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
         },
         t.clock,
       );

@@ -47,6 +47,7 @@ async function runWorker(dir: string, script: string, stop: boolean): Promise<En
     run: f.run,
     agent: f.agent,
     socket: hostSocketPath(join(dir, "rt"), f.run),
+    deadline: systemClock.now() + 3_600_000,
     plan: {
       argv: ["/bin/sh", "-c", script],
       env: { PATH: "/usr/bin:/bin" },
