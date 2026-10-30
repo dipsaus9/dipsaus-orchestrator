@@ -1,10 +1,10 @@
 ---
 id: DIPO-380
 title: Answer dipo desk while an office is loading
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-29 12:45'
-updated_date: '2026-10-30 19:28'
+updated_date: '2026-10-30 19:34'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -40,8 +40,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The desk read does not wait for an office's load; an office that is still loading appears on the desk as loading
-- [ ] #2 A test opens an office whose load is held, and `desk` answers within the read deadline with that office marked loading
+- [x] #1 The desk read does not wait for an office's load; an office that is still loading appears on the desk as loading
+- [x] #2 A test opens an office whose load is held, and `desk` answers within the read deadline with that office marked loading
 <!-- AC:END -->
 
 ## Implementation Notes
