@@ -1,10 +1,10 @@
 ---
 id: DIPO-388
 title: 'Report a resume that resolved a park as resumed, not as already running'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-30 11:14'
-updated_date: '2026-10-30 20:22'
+updated_date: '2026-10-30 20:26'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -41,7 +41,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A resume that resolves a park, through #resumeHold or parks.resume, sets changed true explicitly (with or without a note or a budget top-up); changed false stays for a story that was not parked and for a replayed request
-- [ ] #2 The CLI prints "resumed <story> ..." for a resolved park and "already runs" only when nothing was parked; a test for each
-- [ ] #3 A test reproduces the 2026-10-30 case: a story parked ambiguous-spec, resumed with a note, reports resumed, and the note is on the park
+- [x] #1 A resume that resolves a park, through #resumeHold or parks.resume, sets changed true explicitly (with or without a note or a budget top-up); changed false stays for a story that was not parked and for a replayed request
+- [x] #2 The CLI prints "resumed <story> ..." for a resolved park and "already runs" only when nothing was parked; a test for each
+- [x] #3 A test reproduces the 2026-10-30 case: a story parked ambiguous-spec, resumed with a note, reports resumed, and the note is on the park
 <!-- AC:END -->
