@@ -1,10 +1,10 @@
 ---
 id: DIPO-397
 title: Emit a closing event when a run ends
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-30 16:01'
-updated_date: '2026-10-30 21:21'
+updated_date: '2026-10-30 21:31'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -45,10 +45,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The two run-end paths with no event, run/session-run.ts #end (scan session runs, bare endRun) and scan/fallback.ts endLostScanSessions (dropped at office load, bare endRun), write a change-log entry that reaches the office stream, like endRunMarked does; a test for each
-- [ ] #2 Every endRunMarked path (park, review done, reconcile, control reconcile, and the claim release and record paths in worktree/claim.ts and worktree/records.ts) is shown by a test to reach the office stream as an event dipo watch can read as a run end, and the PR says what if anything was still missing there
-- [ ] #3 dipo watch drops its idle check (#armIdle and the idle #recheck) and still prints every run end, with a test that a run ending at recovery and a scan session end are printed
-- [ ] #4 No event is emitted twice for one end
+- [x] #1 The two run-end paths with no event, run/session-run.ts #end (scan session runs, bare endRun) and scan/fallback.ts endLostScanSessions (dropped at office load, bare endRun), write a change-log entry that reaches the office stream, like endRunMarked does; a test for each
+- [x] #2 Every endRunMarked path (park, review done, reconcile, control reconcile, and the claim release and record paths in worktree/claim.ts and worktree/records.ts) is shown by a test to reach the office stream as an event dipo watch can read as a run end, and the PR says what if anything was still missing there
+- [x] #3 dipo watch drops its idle check (#armIdle and the idle #recheck) and still prints every run end, with a test that a run ending at recovery and a scan session end are printed
+- [x] #4 No event is emitted twice for one end
 <!-- AC:END -->
 
 ## Implementation Notes
