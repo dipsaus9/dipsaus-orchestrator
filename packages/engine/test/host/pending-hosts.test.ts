@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import type { OfficeHandle } from "../../src/db/office";
 import { EXIT_FILE } from "../../src/host/protocol";
 import type { DetachedSpawnOptions, ProcessInfo, ProcessProbe } from "../../src/platform/process";
@@ -44,12 +45,14 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+/** A probe reading `info` over the host's; the arguments are the command's words (no spaces). */
 const probeOf =
   (info: Partial<ProcessInfo> | null): ProcessProbe =>
-  async (pid) =>
-    info === null
-      ? null
-      : { pid, startTimeMs: t.clock.now(), zombie: false, command: HOST_COMMAND, ...info };
+  async (pid) => {
+    if (info === null) return null;
+    const read = { pid, startTimeMs: t.clock.now(), zombie: false, command: HOST_COMMAND, ...info };
+    return { ...read, argv: read.argv ?? read.command.split(" ") };
+  };
 
 function pendingRow(): WorkerHostRow {
   recordPendingHost(
@@ -61,8 +64,9 @@ function pendingRow(): WorkerHostRow {
       protocolVersion: 2,
       runDir,
       eventFile: join(runDir, "events.ndjson"),
+      startedAt: t.clock.now(),
+      launchDeadline: t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
     },
-    t.clock,
     120,
   );
   const row = workerHostsOf(office, RUN)[0];
@@ -78,6 +82,8 @@ function launchOptions(spawn: (options: DetachedSpawnOptions) => { pid: number }
     runtimeDir: join(dir, "rt"),
     plan: { argv: ["/bin/true"] as [string], env: {}, cwd: dir, files: [], stdin: [] },
     dipoCommand: ["/opt/dipo"] as [string],
+    startedAt: t.clock.now(),
+    launchDeadline: t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
     env: {},
     probe: probeOf({}),
     spawnDetached: spawn,
@@ -177,6 +183,7 @@ function recorded(overrides: Partial<{ signalStop: boolean }> = {}): WorkerHostR
       protocolVersion: 2,
       runDir,
       eventFile: join(runDir, "events.ndjson"),
+      launchDeadline: t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
     },
     t.clock,
   );

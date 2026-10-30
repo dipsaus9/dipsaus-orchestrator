@@ -19,7 +19,8 @@ export type HostRequest =
   | { readonly op: "signal"; readonly signal: HostSignalName; readonly afterMs?: number }
   | { readonly op: "closeStdin" }
   | { readonly op: "status" }
-  | { readonly op: "watch" };
+  | { readonly op: "watch" }
+  | { readonly op: "claim" };
 
 export type HostReply =
   | { readonly ok: true; readonly result?: unknown }

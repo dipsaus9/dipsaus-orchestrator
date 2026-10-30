@@ -9,6 +9,7 @@ import { join } from "node:path";
 import type { ChildProcess, Spawn, SpawnOptions } from "@dipsaus-orchestrator/contract";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { detachedEnv, type DetachedSpawnOptions } from "../../src/platform/process";
 import {
   bootoutOwnLaunchdJob,
@@ -65,6 +66,8 @@ describe("worker host command", () => {
         runtimeDir: join(dir, "rt"),
         plan: { argv: ["claude"], env: {}, cwd: dir, files: [], stdin: [] },
         dipoCommand: ["/opt/dipo"],
+        startedAt: 0,
+        launchDeadline: HOST_LAUNCH_DEADLINE_MS,
         env: {},
         probe: async (pid) => ({ pid, startTimeMs: 0, zombie: false, command: "dipo" }),
         spawnDetached: (options) => {

@@ -37,7 +37,8 @@ import { ensurePrivateDir, type Env } from "../platform/paths";
 import {
   detachedEnv,
   isSameProcess,
-  isWorkerHostCommand,
+  isWorkerHostArgv,
+  START_TIME_TOLERANCE_MS,
   systemSpawnDetached,
   type ProcessIdentity,
   type ProcessProbe,
@@ -64,6 +65,13 @@ export interface LaunchWorkerHostOptions {
   readonly plan: LaunchPlan;
   /** How to run `dipo` (`selfCommand()`): the binary, or Bun with the entry script. */
   readonly dipoCommand: readonly [string, ...string[]];
+  /** When the host's `worker_hosts` row is written, epoch ms; its launch deadline counts from it. */
+  readonly startedAt: number;
+  /**
+   * Epoch ms by which a daemon's handshake must claim the host (`hostLaunchDeadline(startedAt)`,
+   * DIPO-386), written to `launch.json`.
+   */
+  readonly launchDeadline: number;
   /** The daemon's environment; `BUN_OPTIONS` is removed before the host gets it. */
   readonly env: Env;
   readonly probe: ProcessProbe;
@@ -77,14 +85,21 @@ export interface LaunchedHost extends ProcessIdentity {
   readonly protocolVersion: number;
   readonly runDir: string;
   readonly eventFile: string;
+  /** Epoch ms by which a daemon's handshake must claim the host, else it stops (DIPO-386). */
+  readonly launchDeadline: number;
 }
 
 export class HostStartError extends Error {
   override readonly name = "HostStartError";
 }
 
-/** A host about to be spawned: everything but its PID and start time (DIPO-93). */
-export type PendingHost = Omit<LaunchedHost, "pid" | "startTimeMs">;
+/**
+ * A host about to be spawned: everything but its PID and start time (DIPO-93), with the time its
+ * row is written, from which its launch deadline counts (DIPO-386).
+ */
+export type PendingHost = Omit<LaunchedHost, "pid" | "startTimeMs"> & {
+  readonly startedAt: number;
+};
 
 export interface LaunchHooks {
   /**
@@ -111,6 +126,7 @@ export async function launchWorkerHost(
     run: options.runId,
     agent: options.agentId,
     socket: socketPath,
+    deadline: options.launchDeadline,
     plan: options.plan,
   };
   hooks.beforeSpawn?.({
@@ -120,6 +136,8 @@ export async function launchWorkerHost(
     protocolVersion: HOST_PROTOCOL_VERSION,
     runDir,
     eventFile: join(runDir, EVENTS_FILE),
+    launchDeadline: options.launchDeadline,
+    startedAt: options.startedAt,
   });
   const launchPath = join(runDir, LAUNCH_FILE);
   writeFileSync(`${launchPath}.tmp`, JSON.stringify(launch), { mode: 0o600 });
@@ -154,6 +172,7 @@ export async function launchWorkerHost(
     protocolVersion: HOST_PROTOCOL_VERSION,
     runDir,
     eventFile: join(runDir, EVENTS_FILE),
+    launchDeadline: options.launchDeadline,
   };
 }
 
@@ -208,12 +227,13 @@ export function recordWorkerHost(
  * Records a host before it is spawned (DIPO-93): a `worker_hosts` row with `pending` set and PID
  * and start time 0. Ingestion, steering and re-attach read it as the run's newest host, so a
  * restart between the spawn and `recordWorkerHost` finds it: re-attach records the host its socket
- * names, or parks the story when no live host matches (0005); it never starts a second one.
+ * names, or parks the story when no live host matches by its launch deadline (0005, DIPO-386); it
+ * never starts a second one. Its `started_at` is the host's `startedAt`, so the launch deadline in
+ * `launch.json` and the one re-attach reads from the row are one value.
  */
 export function recordPendingHost(
   office: OfficeHandle,
   host: PendingHost,
-  clock: Clock,
   processedOffset = 0,
 ): void {
   office.immediate(() =>
@@ -230,7 +250,7 @@ export function recordPendingHost(
         dir: host.runDir,
         events: host.eventFile,
         offset: processedOffset,
-        now: clock.now(),
+        now: host.startedAt,
       },
     ),
   );
@@ -262,7 +282,7 @@ export async function startWorkerHost(
   try {
     host = await launchWorkerHost(options, {
       beforeSpawn: (about) => {
-        recordPendingHost(office, about, clock, extras.processedOffset ?? 0);
+        recordPendingHost(office, about, extras.processedOffset ?? 0);
         pending = true;
       },
     });
@@ -479,8 +499,9 @@ const no = (reason: string): SignalCheck => ({ ok: false, reason });
  * The checks before the engine signals a host whose socket did not answer after a restart (0005):
  * the row is recorded (not pending) and not ended, the host stops its worker on SIGTERM
  * (`signal_stop`), no `exit.json` past the processed offset says it exited, and the PID is
- * alive with the recorded start time and runs `dipo daemon worker-host <run>`. Any doubt refuses:
- * an unverified PID is never signalled.
+ * alive with the recorded start time, did not start before its row was written, and runs
+ * `dipo daemon worker-host <run>` (`isWorkerHostArgv`). Any doubt refuses: an unverified PID is
+ * never signalled.
  */
 export async function verifyHostForSignal(
   host: WorkerHostRow,
@@ -498,7 +519,10 @@ export async function verifyHostForSignal(
   if (!isSameProcess(host, info)) {
     return no("the process has another start time or is a zombie (the PID may have been reused)");
   }
-  if (!isWorkerHostCommand(info.command, host.runId)) {
+  if (info.startTimeMs < host.startedAt - START_TIME_TOLERANCE_MS) {
+    return no("the process started before its row was written, so it is not the host dipo started");
+  }
+  if (!isWorkerHostArgv(info.argv, host.runId)) {
     return no(`the process does not run \`dipo daemon worker-host ${host.runId}\``);
   }
   return { ok: true };

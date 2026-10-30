@@ -10,6 +10,7 @@ import { AgentId } from "@dipsaus-orchestrator/contract";
 
 import { withTempDir, type RecordedLine, type Recording } from "@dipsaus-orchestrator/testkit";
 
+import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { runRetention, DAY_MS } from "../../src/retention/run";
 import { Ingestor, type IngestAdapter } from "../../src/ingest/ingestor";
 import { readCompactions, type UsageScope } from "../../src/ingest/usage";
@@ -104,6 +105,7 @@ function ingestSecondAgent(f: IngestFixture, dir: string, recording: Recording):
       protocolVersion: 1,
       runDir: dir,
       eventFile,
+      launchDeadline: f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
     },
     f.t.clock,
   );

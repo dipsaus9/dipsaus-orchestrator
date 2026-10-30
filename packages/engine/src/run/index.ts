@@ -191,6 +191,8 @@ export {
 export type { RunTempDirsDeps, RunTempSweep } from "./temp-dirs";
 export {
   HOST_CONNECT_TIMEOUT_MS,
+  HOST_LAUNCH_DEADLINE_MS,
+  hostLaunchDeadline,
   hostRequestOf,
   hostSocketSteering,
   OfficeIngest,

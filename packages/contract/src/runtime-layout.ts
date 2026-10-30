@@ -274,8 +274,13 @@ export interface ProcessInfo {
   /** Start time in milliseconds since the Unix epoch, whole-second precision. */
   readonly startTimeMs: number;
   readonly zombie: boolean;
-  /** The command line, arguments joined by spaces. */
+  /** The command line, arguments joined by spaces: for display, and for checks on its words. */
   readonly command: string;
+  /**
+   * The arguments as the system keeps them, one string each, so an argument with spaces stays one
+   * (DIPO-386). Absent when they cannot be read: a zombie, or a read the system refused.
+   */
+  readonly argv?: readonly string[];
 }
 
 /** Reads one PID; null when no such process exists. Injectable so tests use fixtures. */
@@ -349,10 +354,10 @@ export function parseKinfoProc(buffer: Uint8Array): KinfoProc | null {
 
 /**
  * Parses `kern.procargs2.<pid>`: `argc` as an int32, the executable path, NUL padding, then the
- * `argc` arguments, each NUL-terminated, then the environment. Returns the arguments joined by
- * spaces, as `ps -o command=` shows them; null when the buffer is malformed.
+ * `argc` arguments, each NUL-terminated, then the environment. Returns the arguments, one string
+ * each; null when the buffer is malformed.
  */
-export function parseProcArgs(buffer: Uint8Array): string | null {
+export function parseProcArgs(buffer: Uint8Array): string[] | null {
   if (buffer.byteLength < 4) return null;
   const argc = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength).getInt32(0, true);
   if (argc <= 0) return null;
@@ -366,16 +371,23 @@ export function parseProcArgs(buffer: Uint8Array): string | null {
     args.push(textDecoder.decode(buffer.subarray(at, stop)));
     at = stop + 1;
   }
-  return args.length === argc ? args.join(" ") : null;
+  return args.length === argc ? args : null;
 }
 
 /**
  * One process from its `kinfo_proc` and, when readable, its arguments. The command follows
- * `ps -o command=`: `<defunct>` for a zombie, `(comm)` when the arguments cannot be read.
+ * `ps -o command=`: `<defunct>` for a zombie, `(comm)` when the arguments cannot be read; `argv`
+ * is there only when they can.
  */
-export function darwinProcessInfo(pid: number, kinfo: KinfoProc, args: string | null): ProcessInfo {
-  const command = kinfo.zombie ? "<defunct>" : (args ?? `(${kinfo.comm})`);
-  return { pid, startTimeMs: kinfo.startSeconds * 1000, zombie: kinfo.zombie, command };
+export function darwinProcessInfo(
+  pid: number,
+  kinfo: KinfoProc,
+  args: readonly string[] | null,
+): ProcessInfo {
+  const base = { pid, startTimeMs: kinfo.startSeconds * 1000, zombie: kinfo.zombie };
+  if (kinfo.zombie) return { ...base, command: "<defunct>" };
+  if (args === null) return { ...base, command: `(${kinfo.comm})` };
+  return { ...base, command: args.join(" "), argv: args };
 }
 
 /**
@@ -419,7 +431,7 @@ export function darwinProcess(sysctl: Sysctl, pid: number): ProcessInfo | null {
   const raw = sysctl.read([CTL_KERN, KERN_PROC, KERN_PROC_PID, pid], KINFO_PROC_SIZE);
   const kinfo = kinfoOutcome(pid, raw.code, raw.buffer);
   if (kinfo === null) return null;
-  let args: string | null = null;
+  let args: string[] | null = null;
   if (!kinfo.zombie) {
     // A zombie has no arguments left. Another user's process, or one outside this process's
     // sandbox, refuses them too, and the command falls back to `(comm)`. Here this probe differs
@@ -477,11 +489,16 @@ export function linuxProcess(
   const parsed = parseProcStat(stat);
   const bootTime = parseBootTime(procStat);
   if (parsed === null || bootTime === null) return null;
+  // Each argument ends in a NUL; a zombie's cmdline is empty.
+  const argv = cmdline.split("\0");
+  if (argv.at(-1) === "") argv.pop();
+  const zombie = parsed.state === "Z";
   return {
     pid,
     startTimeMs: procStartTimeMs(bootTime, parsed.startTicks),
-    zombie: parsed.state === "Z",
-    command: cmdline.split("\0").filter(Boolean).join(" "),
+    zombie,
+    command: argv.filter(Boolean).join(" "),
+    ...(zombie || argv.length === 0 ? {} : { argv }),
   };
 }
 

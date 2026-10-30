@@ -15,9 +15,9 @@ import { z } from "zod";
 import type { LaunchPlan } from "../workers/types";
 
 /** The host protocol version this binary speaks; recorded in `worker_hosts`. */
-export const HOST_PROTOCOL_VERSION = 2;
+export const HOST_PROTOCOL_VERSION = 3;
 /** Every host protocol version this binary can serve or speak, oldest first. */
-export const HOST_PROTOCOL_VERSIONS: readonly number[] = [1, 2];
+export const HOST_PROTOCOL_VERSIONS: readonly number[] = [1, 2, 3];
 /** Files in `<git-common-dir>/dipo/runs/<run-id>/` (0007 section 2). */
 export const EVENTS_FILE = "events.ndjson";
 export const EXIT_FILE = "exit.json";
@@ -95,6 +95,8 @@ export const HostLaunchSchema = z.object({
   run: z.string().regex(RUN_ID_PATTERN),
   agent: z.string().min(1),
   socket: z.string().startsWith("/"),
+  /** Epoch ms by which a daemon's handshake must claim the host, else it stops (DIPO-386). */
+  deadline: z.number().int().positive(),
   plan: LaunchPlanSchema,
 });
 
@@ -103,6 +105,7 @@ export interface HostLaunch {
   readonly run: string;
   readonly agent: string;
   readonly socket: string;
+  readonly deadline: number;
   readonly plan: LaunchPlan;
 }
 
@@ -150,7 +153,7 @@ export type HelloFrame = z.infer<typeof HelloFrame>;
 const RequestId = z.number().int().nonnegative();
 
 /** The only ops a host accepts (DIPO-44). */
-export const HOST_OPS = ["write", "signal", "closeStdin", "status", "watch"] as const;
+export const HOST_OPS = ["write", "signal", "closeStdin", "status", "watch", "claim"] as const;
 export type HostOpName = (typeof HOST_OPS)[number];
 
 /** The protocol version that introduced each op. */
@@ -160,6 +163,8 @@ export const OP_SINCE: Readonly<Record<HostOpName, number>> = {
   closeStdin: 1,
   status: 1,
   watch: 1,
+  // The daemon's claim of a host it has recorded (DIPO-386).
+  claim: 3,
 };
 
 export const OpFrame = z.discriminatedUnion("op", [
@@ -174,6 +179,7 @@ export const OpFrame = z.discriminatedUnion("op", [
   z.object({ kind: z.literal("op"), id: RequestId, op: z.literal("closeStdin") }),
   z.object({ kind: z.literal("op"), id: RequestId, op: z.literal("status") }),
   z.object({ kind: z.literal("op"), id: RequestId, op: z.literal("watch") }),
+  z.object({ kind: z.literal("op"), id: RequestId, op: z.literal("claim") }),
 ]);
 export type OpFrame = z.infer<typeof OpFrame>;
 
@@ -196,6 +202,7 @@ export interface HostStatus {
 export type HostErrorCode =
   | "protocol.unsupported"
   | "run.mismatch"
+  | "host.unclaimed"
   | "frame.invalid"
   | "op.unknown"
   | "not.permitted"

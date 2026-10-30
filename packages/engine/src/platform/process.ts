@@ -55,18 +55,32 @@ export {
   SUPERVISOR_VARIABLES,
 } from "@dipsaus-orchestrator/contract";
 
+/** The entry script of `dipo` run from source (`selfCommand()`): the CLI package's main. */
+const SOURCE_ENTRY = "/cli/src/main.ts";
+
 /**
- * True when the command line is `dipo daemon worker-host <runId>`, from the binary or from source
- * (DIPO-93). The last three arguments are compared, so a binary path with spaces still matches,
- * and the run id must be the last argument exactly.
+ * True when a process's arguments, one string each as the system keeps them (`ProcessInfo.argv`),
+ * are `dipo daemon worker-host <runId>` in one of the two forms the engine starts it with
+ * (`selfCommand()`, DIPO-93): exactly `[<abs>/dipo, "daemon", "worker-host", runId]`, or
+ * `[<abs>/bun, <abs>/cli/src/main.ts, "daemon", "worker-host", runId]`. A path may hold spaces,
+ * since each argument stays one string. Anything else is refused (DIPO-386): another program or
+ * script, a wrapper (`sh -c`, `env`, `nohup`), an option, an extra argument, and arguments that
+ * could not be read. Refusing fails closed: such a host is never signalled.
  */
-export function isWorkerHostCommand(command: string, runId: string): boolean {
-  const args = command.trim().split(/\s+/);
+export function isWorkerHostArgv(argv: readonly string[] | undefined, runId: string): boolean {
+  if (argv === undefined) return false;
+  const words = argv.slice(-3);
+  if (words.length !== 3 || words[0] !== "daemon" || words[1] !== "worker-host") return false;
+  if (words[2] !== runId) return false;
+  const program = argv.slice(0, -3);
+  const [first = "", script = ""] = program;
+  if (!first.startsWith("/")) return false;
+  if (program.length === 1) return first.endsWith("/dipo");
   return (
-    args.length >= 4 &&
-    args.at(-1) === runId &&
-    args.at(-2) === "worker-host" &&
-    args.at(-3) === "daemon"
+    program.length === 2 &&
+    first.endsWith("/bun") &&
+    script.startsWith("/") &&
+    script.endsWith(SOURCE_ENTRY)
   );
 }
 

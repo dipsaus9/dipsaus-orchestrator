@@ -35,6 +35,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import { type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
+import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { BacklogLane } from "../../src/backlog/lane";
 import { executeCommand } from "../../src/commands/execute";
 import type { OfficeHandle } from "../../src/db/office";
@@ -496,6 +497,7 @@ export async function withLoopOffice(
             protocolVersion: 1,
             runDir,
             eventFile,
+            launchDeadline: world.d.s.clock.now() + HOST_LAUNCH_DEADLINE_MS,
           };
           recordWorkerHost(office, launched, world.d.s.clock, {
             ...(run.processedOffset === undefined ? {} : { processedOffset: run.processedOffset }),

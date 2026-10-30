@@ -71,6 +71,7 @@ function setup(dir: string, lineScrub?: LineScrub): Setup {
     run: RUN,
     agent: "agt_01JZ0000000000000000000001",
     socket,
+    deadline: systemClock.now() + 3_600_000,
     plan: {
       argv: ["/usr/local/bin/claude", "-p"],
       env: { PATH: "/usr/bin:/bin" },
@@ -137,6 +138,20 @@ async function connect(socket: string): Promise<HostClient> {
   return connected.client;
 }
 
+/** A host on `clock` whose launch deadline is `afterMs` away, its worker held running. */
+function unclaimedHost(dir: string, clock: ManualClock, afterMs: number, pid: number) {
+  const { runDir, socket, launch } = setup(dir);
+  writeFileSync(
+    join(runDir, LAUNCH_FILE),
+    JSON.stringify({ ...launch, deadline: clock.now() + afterMs }),
+    { mode: 0o600 },
+  );
+  const fake = fakeSpawn(loadRecording("success-single"), clock);
+  const { spawn, open } = gated(fake.spawn);
+  const host = WorkerHost.start({ runId: RUN, runDir, clock, spawn, killGroup: () => {}, pid });
+  return { host, socket, open, child: () => fake.processes[0] as FakeProcess };
+}
+
 describe("worker host in-process", () => {
   it("replays a recording into events.ndjson and exit.json, telling a watcher each offset", () =>
     withTempDir(async (dir) => {
@@ -157,7 +172,7 @@ describe("worker host in-process", () => {
       expect(host.socketPath).toBe(socket);
 
       const client = await connect(socket);
-      expect(client.version).toBe(2);
+      expect(client.version).toBe(3);
       expect(client.hostPid).toBe(777);
       const advanced: number[] = [];
       expect(await client.watch((offset) => advanced.push(offset))).toBe(0);
@@ -309,7 +324,7 @@ describe("worker host in-process", () => {
         runId: RUN,
         clock: systemClock,
         timeoutMs: 2000,
-        versions: [1, 3],
+        versions: [1, 4],
       });
       expect(mixed.ok && mixed.client.version).toBe(1);
       if (mixed.ok) mixed.client.close();
@@ -325,7 +340,7 @@ describe("worker host in-process", () => {
       expect(JSON.parse(frames[0] ?? "{}")).toMatchObject({
         kind: "refused",
         error: { code: "frame.invalid" },
-        versions: [1, 2],
+        versions: [1, 2, 3],
       });
       open();
       await host.done;
@@ -668,6 +683,94 @@ describe("worker host launch and SIGTERM (DIPO-93, 0005)", () => {
       ).toThrow();
       expect(spawned).toBe(false);
       expect(existsSync(join(runDir, EVENTS_FILE))).toBe(false);
+    }));
+
+  it("stops its worker at the launch deadline when no daemon claimed it, and not before (DIPO-386)", () =>
+    withTempDir(async (dir) => {
+      const clock = new ManualClock();
+      const { host, socket, open, child } = unclaimedHost(dir, clock, 1_000, 793);
+      clock.advance(999);
+      expect(child().stdinClosed).toBe(false);
+      expect(child().signals).toEqual([]);
+      clock.advance(1);
+      // As on SIGTERM: stdin closed, then SIGTERM.
+      expect(child().stdinClosed).toBe(true);
+      expect(child().signals).toEqual(["SIGTERM"]);
+      // A daemon's handshake after the deadline is refused: no daemon follows a host that gave up.
+      const late = await connectHost(socket, { runId: RUN, clock: systemClock, timeoutMs: 2000 });
+      expect(late).toMatchObject({
+        ok: false,
+        reason: "refused",
+        error: { code: "host.unclaimed" },
+      });
+      open();
+      await host.done;
+    }));
+
+  it("a handshake alone claims nothing: the host still stops at its deadline (DIPO-386)", () =>
+    withTempDir(async (dir) => {
+      const clock = new ManualClock();
+      const { host, socket, open, child } = unclaimedHost(dir, clock, 1_000, 796);
+      // A daemon that asked, but never recorded the host and so never claimed it.
+      const client = await connect(socket);
+      expect(await client.status()).toMatchObject({ hostPid: 796 });
+      clock.advance(1_000);
+      expect(child().stdinClosed).toBe(true);
+      expect(child().signals).toEqual(["SIGTERM"]);
+      // A claim after the deadline is refused, on a connection made before it too.
+      expect(await client.request({ op: "claim" })).toMatchObject({
+        ok: false,
+        error: { code: "host.unclaimed" },
+      });
+      client.close();
+      open();
+      await host.done;
+    }));
+
+  it("keeps its worker past the launch deadline once a daemon claimed it (DIPO-386)", () =>
+    withTempDir(async (dir) => {
+      const clock = new ManualClock();
+      const { host, socket, open, child } = unclaimedHost(dir, clock, 1_000, 794);
+      // The claim comes late, but before the deadline.
+      clock.advance(900);
+      const client = await connect(socket);
+      expect(client.hostPid).toBe(794);
+      expect(await client.request({ op: "claim" })).toEqual({ ok: true });
+      client.close();
+      clock.advance(60_000);
+      expect(child().stdinClosed).toBe(false);
+      expect(child().signals).toEqual([]);
+      // A restarted daemon's handshake and claim still answer.
+      const again = await connect(socket);
+      expect(await again.request({ op: "claim" })).toEqual({ ok: true });
+      again.close();
+      open();
+      expect((await host.done).code).toBe(0);
+    }));
+
+  it("starts no worker when it reads its launch after the deadline (DIPO-386)", () =>
+    withTempDir(async (dir) => {
+      const { runDir, launch } = setup(dir);
+      const clock = new ManualClock();
+      writeFileSync(
+        join(runDir, LAUNCH_FILE),
+        JSON.stringify({ ...launch, deadline: clock.now() }),
+      );
+      let spawned = false;
+      const host = WorkerHost.start({
+        runId: RUN,
+        runDir,
+        clock,
+        spawn: () => {
+          spawned = true;
+          throw new Error("not reached");
+        },
+        killGroup: () => {},
+        pid: 795,
+      });
+      const exit = await host.done;
+      expect(spawned).toBe(false);
+      expect(exit.startError).toContain("no daemon claimed the worker host by its launch deadline");
     }));
 
   it("on SIGTERM closes the worker's stdin, sends it SIGTERM, SIGKILL 20 s later, then ends as always", () =>

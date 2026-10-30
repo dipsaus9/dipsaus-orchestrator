@@ -12,9 +12,14 @@ import { describe, expect, it } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { OfficeId } from "@dipsaus-orchestrator/contract";
+import { type ChildExit, type ChildProcess, OfficeId } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { WorkerHost } from "../../src/host/main";
+import { HOST_PROTOCOL_VERSION, hostSocketPath, LAUNCH_FILE } from "../../src/host/protocol";
+import type { HostStarter } from "../../src/run/launch";
+
+import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import type { OfficeGit } from "../../src/git/office";
@@ -109,6 +114,8 @@ interface World {
   /** What it appends when it receives a stop. */
   onStop: string;
   eventFile: string;
+  /** Starts the host instead of the scripted one. */
+  startHost?: HostStarter["start"];
 }
 
 function world(t: TestState, dir: string): World {
@@ -165,6 +172,7 @@ function world(t: TestState, dir: string): World {
     git: () => git,
     hosts: {
       start: async (handle, started) => {
+        if (w.startHost !== undefined) return w.startHost(handle, started);
         w.plans.push(started.plan);
         const runDir = join(started.officeDir, "runs", started.runId);
         const eventFile = join(runDir, "events.ndjson");
@@ -180,6 +188,7 @@ function world(t: TestState, dir: string): World {
           protocolVersion: 1,
           runDir,
           eventFile,
+          launchDeadline: t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
         };
         recordWorkerHost(handle, host, t.clock);
         handle.immediate(() => started.record?.());
@@ -369,5 +378,96 @@ describe("a scan session run", () => {
       expect(outcome.kind === "failed" && outcome.reason).toBe(
         "dipo stopped it: its time cap of 1 minutes was reached",
       );
+    }));
+
+  it("claims its host, so a session that outlives the host's launch deadline keeps running (DIPO-386)", () =>
+    withWorld(async (w, dir) => {
+      // A real worker host in this process on the test clock, with a 1 s launch deadline, and a
+      // worker that runs until it is stopped.
+      const worker = { stdinClosed: false, signals: [] as string[] };
+      const { promise: exited, resolve: exit } = Promise.withResolvers<ChildExit>();
+      const closers: (() => void)[] = [];
+      const open = () =>
+        new ReadableStream<Uint8Array>({
+          start: (controller) => {
+            closers.push(() => controller.close());
+          },
+        });
+      const child: ChildProcess = {
+        pid: 9001,
+        stdin: {
+          write: () => {},
+          end: () => {
+            worker.stdinClosed = true;
+          },
+        },
+        stdout: open(),
+        stderr: open(),
+        exited,
+        kill: (signal) => {
+          worker.signals.push(signal ?? "SIGTERM");
+        },
+      };
+      let host: WorkerHost | null = null;
+      w.startHost = async (handle, started) => {
+        const runDir = join(started.officeDir, "runs", started.runId);
+        mkdirSync(runDir, { recursive: true });
+        const socket = hostSocketPath(join(dir, "rt"), started.runId);
+        const launchDeadline = w.t.clock.now() + 1_000;
+        writeFileSync(
+          join(runDir, LAUNCH_FILE),
+          JSON.stringify({
+            version: 1,
+            run: started.runId,
+            agent: started.agentId,
+            socket,
+            deadline: launchDeadline,
+            plan: { ...started.plan, stdin: [] },
+          }),
+          { mode: 0o600 },
+        );
+        host = WorkerHost.start({
+          runId: started.runId,
+          runDir,
+          clock: w.t.clock,
+          spawn: () => child,
+          killGroup: () => {},
+          pid: 4242,
+        });
+        const launched: LaunchedHost = {
+          pid: 4242,
+          startTimeMs: 0,
+          runId: started.runId,
+          agentId: started.agentId,
+          socketPath: socket,
+          protocolVersion: HOST_PROTOCOL_VERSION,
+          runDir,
+          eventFile: join(runDir, "events.ndjson"),
+          launchDeadline,
+        };
+        recordWorkerHost(handle, launched, w.t.clock);
+        handle.immediate(() => started.record?.());
+        w.eventFile = launched.eventFile;
+        return launched;
+      };
+      w.onStop = exitLine(143);
+      const pending = w.runs.run(request(w));
+      await until(() => w.runs.liveRuns().length === 1);
+      // The daemon's claim reaches the host over its socket, before the deadline.
+      await Bun.sleep(50);
+      for (let i = 0; i < 80; i += 1) {
+        w.t.clock.advance(25);
+        await Bun.sleep(1);
+      }
+      // Two seconds on, past the deadline: the session's worker still runs.
+      expect(worker.stdinClosed).toBe(false);
+      expect(worker.signals).toEqual([]);
+      expect(w.runs.liveRuns()).toHaveLength(1);
+      await w.runs.stopAll();
+      w.t.clock.advance(1_000);
+      expect(await pending).toMatchObject({ kind: "failed" });
+      for (const close of closers) close();
+      exit({ code: 0, signal: null });
+      await (host as WorkerHost | null)?.done;
     }));
 });
