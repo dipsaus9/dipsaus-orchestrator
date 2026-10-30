@@ -1,10 +1,10 @@
 ---
 id: DIPO-386
 title: Keep tracking a worker host that binds its socket late
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-30 09:31'
-updated_date: '2026-10-30 18:55'
+updated_date: '2026-10-30 18:56'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -37,6 +37,10 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(engine) a pending host that binds after the ask times out is found and stopped or re-attached"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "Blocked; no code changed this session. About 6 turns and 38 minutes were left, too little to implement and verify both blocking fixes. Item 1 and item 3 (reattach.ts:242): a waiting run is skipped and nothing re-runs #settlePending during the daemon's life; the fix is a timer re-check of waiting rows until their deadline. Item 4 (main.ts:289): a host that binds more than 5 s late gets no hello, so its claim timer stops it at the 30 s deadline while the daemon still tracks it by poll; this needs the maintainer's answer to the question. Items 2 and 7 (criterion #4 tests and wrapper rules) are not written. The CI failures (items 5 to 7) have no log text, and verify was not re-run. The working tree still holds the previous session's uncommitted changes."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -73,4 +77,13 @@ Parked 2026-10-30 18:31 UTC: budget-exceeded
 - Last good commit: 9ed2ef3f0c99e696d15dc4f37985a5fbc7a81294
 
 Resumed 2026-10-30 18:32 UTC; grants: budget +150,000 tokens, +45 turns, +23 minutes; note: Top-up for the real-process tests and the 0008 sentence asked in the answer; finish them, report done.
+
+Parked 2026-10-30 18:56 UTC: ambiguous-spec
+- Detail: Blocked; no code changed this session. About 6 turns and 38 minutes were left, too little to implement and verify both blocking fixes. Item 1 and item 3 (reattach.ts:242): a waiting run is skipped an…
+- Run: run_01M670NFA73EJSYZP05FVTH9TC
+- Criteria met: 1 of 5 (as the worker reported them)
+- Loops: 1 of 3; CI attempts: 1 of 2
+- Review rounds: 1, failed 1 of 3
+- Budget used: 391,649 of 450,000 tokens; 133 of 135 turns; 19 of 68 minutes
+- Last good commit: 1b093d4595672fad19353c641d77b635c0941d50
 <!-- SECTION:NOTES:END -->
