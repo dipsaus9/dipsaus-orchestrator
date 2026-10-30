@@ -1,10 +1,10 @@
 ---
 id: DIPO-376
 title: Name Safe-Chain when it refuses a package in a box
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-29 09:29'
-updated_date: '2026-10-30 09:35'
+updated_date: '2026-10-30 09:38'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -37,6 +37,10 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(unit) a Safe-Chain refusal reaches the worker's context and the review context with Safe-Chain named"
+park:
+  reason: "budget-exceeded"
+  from: "In Progress"
+  note: "turn cap (--max-turns) after 35 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -59,4 +63,13 @@ Parked 2026-10-30 09:34 UTC: ambiguous-spec
 - Last good commit: d1b5c174c3d81f103b722a47207e90e0e07e914a
 
 Resumed 2026-10-30 09:35 UTC; grants: none; note: Option B. When a session ends, the box workers read the Safe-Chain refusals of that session from the Safe-Chain box's logs and store them on the run (one migration, numbered after the latest on main)…
+
+Parked 2026-10-30 09:38 UTC: budget-exceeded
+- Detail: turn cap (--max-turns) after 35 turns
+- Run: run_01M6629HFME12CQFGW513K46VD
+- Criteria met: 0 of 2 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 252,303 of 300,000 tokens; 91 of 90 turns; 8 of 45 minutes
+- Last good commit: 59ce2f077d47b5ecfdc02e9c6ae900ad65488590
 <!-- SECTION:NOTES:END -->
