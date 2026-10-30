@@ -61,9 +61,9 @@ const StoryResult = z.object({ story: StoryId, key: StoryKey });
 export const workRun = defineCommand({
   name: "work.run",
   level: "office",
-  // Omit `stories` and the engine picks from the Ready queue. Since minor 1 (DIPO-48): `from` is
+  // Omit `stories` and the engine picks from the Ready queue. (DIPO-48): `from` is
   // the main worktree a client resolved the office from (its current directory); the daemon
-  // answers `office.unknown` when it is not the office's registered path. Since minor 1
+  // answers `office.unknown` when it is not the office's registered path.
   // (DIPO-271): `box` asked for a box run (0021); since DIPO-240 every run is a box run, so it is
   // accepted and changes nothing.
   args: z.object({
@@ -99,7 +99,7 @@ export const workAnswer = defineCommand({
   irreversible: false,
 });
 
-// Since minor 1 (DIPO-163, 0020): a running worker gets the text as its next user message
+// (DIPO-163, 0020): a running worker gets the text as its next user message
 // (`next-turn`); a steer to a parked story is stored once and sent with the first message on
 // resume (`on-resume`). A story whose live session is its reviewer, or whose host is followed
 // only, answers `story.notSteerable`.
@@ -173,7 +173,7 @@ export const workResume = defineCommand({
 });
 
 // Ends the run, deletes the story branch and returns the story to Refined
-// (0020 section 8). Since minor 1 (DIPO-161), on the waiting command path. Clients list what is
+// (0020 section 8). (DIPO-161), on the waiting command path. Clients list what is
 // lost (`story.losses`) and ask for the story id typed out. Also discards the leftovers of a story
 // Done on the base through another branch, with no backlog write. Errors: `story.prMerged`,
 // `story.notDiscardable`, `story.prNotClosed`, and the retryable `run.hostAlive` while a worker
@@ -203,7 +203,7 @@ export const storyPark = defineCommand({
 });
 
 // Archives the story through the planning lane and releases its claim; deletes its branch only
-// when asked (0020 section 8). Since minor 1 (DIPO-160). Clients ask for typed confirmation when
+// when asked (0020 section 8). (DIPO-160). Clients ask for typed confirmation when
 // `deleteBranch` is true (0009 section 5); `irreversibleWhen` says so in `commands.describe`.
 // Errors: `story.active` (In Progress or In Review), `story.hasDependents`, and `run.hostAlive` while a worker host of the parked run still runs (0020 section 8, DIPO-227).
 export const storyDrop = defineCommand({
@@ -216,7 +216,7 @@ export const storyDrop = defineCommand({
   irreversibleWhen: ["deleteBranch"],
 });
 
-// Since minor 1 (DIPO-140): the maintainer's decision on a gate, such as a merge gate that waits
+// (DIPO-140): the maintainer's decision on a gate, such as a merge gate that waits
 // for the maintainer (0019 section 11).
 export const gateApprove = defineCommand({
   name: "gate.approve",
@@ -245,7 +245,7 @@ export const ProposalRef = z
   .string()
   .regex(/^[0-9a-f]{8,64}$/, "expected a proposal id, or at least its first 8 characters");
 
-// Since minor 1 (DIPO-166; 0020 sections 11c and 14) [`proposals`]: files an open follow-up, spike
+// (DIPO-166; 0020 sections 11c and 14) [`proposals`]: files an open follow-up, spike
 // or tool proposal of a worker as a Backlog draft through the planning lane, with the title, the
 // outcome line, the paths as references and the source story in the description, the worker's
 // text marked as the worker's words. `draft` is the draft's id once the lane created it; draft ids
@@ -265,7 +265,7 @@ export const proposalAccept = defineCommand({
   irreversible: false,
 });
 
-// Since minor 1 (DIPO-166) [`proposals`]: closes an open proposal without filing anything.
+// (DIPO-166) [`proposals`]: closes an open proposal without filing anything.
 // Dismissing a dismissed proposal changes nothing. Errors as `proposal.accept`; `proposal.notOpen`
 // when it was accepted already.
 export const proposalDismiss = defineCommand({
@@ -277,7 +277,7 @@ export const proposalDismiss = defineCommand({
   irreversible: false,
 });
 
-// Since minor 1 (DIPO-309, 0002) [`test.sessions`]: runs the story's pushed head in a new test box
+// (DIPO-309, 0002) [`test.sessions`]: runs the story's pushed head in a new test box
 // and replies once the product runs: the test id, the head, the manual steps in order, `checkout`
 // (the test box's name), and the optional `url` (http://localhost:<port> on the Mac) and `shell`
 // (the `dipo test shell <ID>` line). A story with an open test for its head gets that test back
@@ -301,7 +301,7 @@ export const testStart = defineCommand({
   irreversible: false,
 });
 
-// Since minor 1 (DIPO-309, 0002) [`test.sessions`]: records the open test's result for the head
+// (DIPO-309, 0002) [`test.sessions`]: records the open test's result for the head
 // it tested and closes its box. A pass decides the story's test gate for that head; a fail needs a
 // note and sends it to the same builder as a fix round item. Error: `test.closed` for a test that
 // is no longer open, or whose head is older than the story's current head.
@@ -342,7 +342,7 @@ export const officeSnapshot = defineRead({
 
 // Switching offices changes no engine fact, so it is a read (0005 sections 4 and 7, 0009 section 4):
 // the same args and result as `office.snapshot`. The client keeps the chosen office and sends it on
-// every command. Since minor 1 (DIPO-52).
+// every command (DIPO-52).
 export const officeSwitch = defineRead({
   name: "office.switch",
   args: OfficeArgs,
@@ -377,11 +377,11 @@ export const RunRecord = z.object({
   startedAt: Timestamp,
   endedAt: Timestamp.optional(),
   outcome: z.string().optional(), // how the run ended (done, parked, dropped), absent while open
-  // Since minor 1 (DIPO-373): a run open at In Review, with no session, since its active period
+  // (DIPO-373): a run open at In Review, with no session, since its active period
   // ended; absent once it ended or while a session works.
   inReviewSince: Timestamp.optional(),
   usage: UsageTotals,
-  // Since minor 1 (DIPO-152): the notes and proposals of the done report that ended the run.
+  // (DIPO-152): the notes and proposals of the done report that ended the run.
   doneReport: DoneReport.optional(),
 });
 export type RunRecord = z.infer<typeof RunRecord>;
@@ -398,7 +398,7 @@ export const Verdict = z.object({
   note: z.string().optional(),
   failures: z.array(z.string()).optional(),
   at: Timestamp,
-  // Since minor 1 (DIPO-140): the review round of a review gate (0019 section 14).
+  // (DIPO-140): the review round of a review gate (0019 section 14).
   review: ReviewVerdict.optional(),
 });
 export type Verdict = z.infer<typeof Verdict>;
@@ -411,9 +411,9 @@ export const storyDetail = defineRead({
     work: WorkView.optional(), // the active run, if any
     runs: z.array(RunRecord), // oldest first
     verdicts: z.array(Verdict),
-    // The story's open questions (DIPO-59, minor 1), oldest first.
+    // The story's open questions (DIPO-59), oldest first.
     questions: z.array(QuestionView).optional(),
-    // A conflict with the base found while the story is In Review (DIPO-149, minor 1; 0019 section
+    // A conflict with the base found while the story is In Review (DIPO-149; 0019 section
     // 10): the base, the base commit and the conflicted paths. Absent once a merge handled it.
     baseConflict: z
       .object({
@@ -423,7 +423,7 @@ export const storyDetail = defineRead({
         at: Timestamp,
       })
       .optional(),
-    // The story's open gates that wait for the maintainer, oldest first (DIPO-150, minor 1; 0019
+    // The story's open gates that wait for the maintainer, oldest first" (DIPO-150; "0019
     // section 11): `dipo approve` and `dipo reject` send the newest one's id.
     gates: z.array(GateView).optional(),
   }),
@@ -445,7 +445,7 @@ export const workOutputRange = defineRead({
     from: Offset,
     to: Offset,
     text: z.string(),
-    // The engine markers that overlap the range (DIPO-95, minor 1), oldest first; absent when none.
+    // The engine markers that overlap the range (DIPO-95), oldest first; absent when none.
     markers: z.array(OutputMarker).optional(),
   }),
 });
@@ -475,9 +475,9 @@ export type GateDependency = z.infer<typeof GateDependency>;
 
 // The Ready gate of one story in `ready` mode, evaluated on the office's base and not stored
 // (M0 breakdown decision D3, DIPO-71). It passes only with no failures; failures are in rule order.
-// Since minor 1 (DIPO-179): `waitingOn` lists the dependencies that are not Done, absent when none
+// (DIPO-179): `waitingOn` lists the dependencies that are not Done, absent when none
 // are open. The verdict does not depend on it: a passing story can still wait before pickup.
-// Since minor 1 (DIPO-251): `warnings` lists the rules that only warn (R29, test plan names no
+// (DIPO-251): `warnings` lists the rules that only warn (R29, test plan names no
 // Reference covers), each `ready <ID> warning <rule>: <message>`, absent when none. They do not
 // change `passed`.
 export const storyGate = defineRead({
@@ -572,7 +572,7 @@ export const workPreview = defineRead({
   }),
 });
 
-// Code-built "since you left" counts and lines (0009 section 8) [`digest`]. Since minor 1
+// Code-built "since you left" counts and lines (0009 section 8) [`digest`].
 // (DIPO-308): `since` is optional; without it the engine counts from when the office's last TUI
 // client disconnected, which it stores per office, or from the time of the read when no TUI has
 // left it yet. The result's `since` is the time it counted from.
@@ -598,7 +598,7 @@ export const TableStats = z.object({
 export type TableStats = z.infer<typeof TableStats>;
 
 // Row count and approximate bytes of each office-scoped table of the office, by table name
-// (minor 1, DIPO-65) [`dipo stats`].
+// (DIPO-65) [`dipo stats`].
 export const officeStats = defineRead({
   name: "office.stats",
   args: OfficeArgs,
@@ -669,7 +669,7 @@ export type DeskItem = z.infer<typeof DeskItem>;
 // What waits on the maintainer, in the order of 0020: the office's starts paused (DIPO-359),
 // questions with a waiting worker, merge
 // gates, parks by reason with the stories parked by the maintainer last, hand actions and
-// proposals; within a group the items blocking the most stories first, then the oldest. Changes nothing. Since minor 1
+// proposals; within a group the items blocking the most stories first, then the oldest. Changes nothing.
 // (DIPO-158) [`desk`].
 export const officeDesk = defineRead({
   name: "office.desk",
@@ -706,7 +706,7 @@ export const storyRenumbered = defineEvent({
   }),
 });
 
-// The work events below carry, since minor 1 (DIPO-52), the optional `view`: the `WorkView` the
+// The work events below carry the optional `view` (DIPO-52): the `WorkView` the
 // engine derived when it stored the fact (0005 section 6), so a client replaces the run's view
 // and never derives health or phase itself.
 
@@ -744,7 +744,7 @@ export const workOutput = defineEvent({
     from: Offset,
     to: Offset,
     text: z.string(),
-    // The engine markers in the range (DIPO-95, minor 1); absent when none. A range the engine
+    // The engine markers in the range (DIPO-95); absent when none. A range the engine
     // writes for a marker holds exactly that marker.
     markers: z.array(OutputMarker).optional(),
     view: WorkView.optional(),
@@ -790,7 +790,7 @@ export const gateDecided = defineEvent({
     decision: GateDecision,
     by: DecidedBy,
     note: z.string().optional(),
-    // Since minor 1 (DIPO-140): the review summary of a review gate.
+    // (DIPO-140): the review summary of a review gate.
     review: ReviewSummary.optional(),
   }),
 });
@@ -829,7 +829,7 @@ export const storyParked = defineEvent({
   }),
 });
 
-// Sent when a story's PR opens, changes state or gets a new head (0019 section 14). Since minor 1
+// Sent when a story's PR opens, changes state or gets a new head (0019 section 14).
 // (DIPO-140).
 export const storyPr = defineEvent({
   type: "story.pr",
@@ -838,7 +838,7 @@ export const storyPr = defineEvent({
   data: z.object({ story: StoryId, key: StoryKey, pr: StoryPr }),
 });
 
-// Since minor 1 (DIPO-166; 0020 section 14) [`proposals`]: a worker report's proposal was stored for
+// (DIPO-166; 0020 section 14) [`proposals`]: a worker report's proposal was stored for
 // the maintainer, once per proposal (a later report with the same title and paths files none).
 // `title` is the worker's words, cleaned of terminal control characters and on one line.
 export const proposalFiled = defineEvent({
@@ -855,7 +855,7 @@ export const proposalFiled = defineEvent({
   }),
 });
 
-// Since minor 1 (DIPO-166) [`proposals`]: the maintainer accepted (filed as a Backlog draft through
+// (DIPO-166) [`proposals`]: the maintainer accepted (filed as a Backlog draft through
 // the planning lane) or dismissed a proposal.
 export const proposalClosed = defineEvent({
   type: "proposal.closed",
@@ -888,7 +888,7 @@ export const testRecorded = defineEvent({
   }),
 });
 
-// Since minor 1 (DIPO-309): an open test closed without a record, and its test box deleted: a new
+// (DIPO-309): an open test closed without a record, and its test box deleted: a new
 // head, the idle timeout, the story dropped, discarded, merged or out of review, its box lost, or
 // a start that failed. A client drops the test from its view.
 export const testEnded = defineEvent({
