@@ -3,7 +3,13 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { RequestId, StoryId } from "@dipsaus-orchestrator/contract";
+import {
+  type EngineError,
+  engineError,
+  REQUEST_TIMED_OUT,
+  RequestId,
+  StoryId,
+} from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { executeCommand, type ExecutorDeps } from "../../src/commands/execute";
@@ -145,6 +151,53 @@ describe("the request log line", () => {
             requestId: R2,
             outcome: "capability.missing",
           }),
+        ]);
+      } finally {
+        t.state.close();
+      }
+    }));
+
+  it("writes no line for the engine's own read", () =>
+    withTempDir(async (dir) => {
+      const { t, office, deps, lines } = await setup(dir);
+      try {
+        const reply = await executeRead(
+          deps,
+          {
+            requestId: R1,
+            name: "fixture.detail",
+            args: { office: office.officeId, story: "DIPO-7" },
+          },
+          { internal: true },
+        );
+        expect(reply.ok).toBe(true);
+        expect(lines).toEqual([]);
+      } finally {
+        t.state.close();
+      }
+    }));
+
+  it("names the error the client got when the daemon answered first, and nothing for the late reply", () =>
+    withTempDir(async (dir) => {
+      const { t, office, deps, lines } = await setup(dir);
+      try {
+        const answeredWithout = Promise.withResolvers<EngineError>();
+        const timedOut = engineError(REQUEST_TIMED_OUT, "past its deadline");
+        // The client was answered before the engine's reply came back.
+        answeredWithout.resolve(timedOut);
+        await Promise.resolve();
+        const reply = await executeRead(
+          deps,
+          {
+            requestId: R1,
+            name: "fixture.detail",
+            args: { office: office.officeId, story: "DIPO-7" },
+          },
+          { answeredWithout: answeredWithout.promise },
+        );
+        expect(reply.ok).toBe(true);
+        expect(lines).toEqual([
+          expect.objectContaining({ requestId: R1, outcome: "request.timedOut" }),
         ]);
       } finally {
         t.state.close();

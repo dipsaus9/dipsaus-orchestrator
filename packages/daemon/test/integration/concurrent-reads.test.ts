@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import {
   type CommandReply,
+  type OfficeId,
   type ReadReply,
   type ReadRequest,
   type ServerFrame,
@@ -50,7 +51,10 @@ async function connect(h: Harness): Promise<TestClient> {
 }
 
 /** A read the test answers by hand: `fixture.slow` waits until `release` is called. */
-function slowRead(h: Harness, name = "fixture.slow"): { release(): void; started: () => number } {
+function slowRead(
+  h: Harness,
+  name = "fixture.slow",
+): { release(): void; releaseOne(): void; started: () => number } {
   const waiting: (() => void)[] = [];
   let started = 0;
   h.engine.reads.set(name, (request: ReadRequest) => {
@@ -63,6 +67,7 @@ function slowRead(h: Harness, name = "fixture.slow"): { release(): void; started
     release: () => {
       for (const done of waiting.splice(0)) done();
     },
+    releaseOne: () => waiting.shift()?.(),
     started: () => started,
   };
 }
@@ -85,6 +90,18 @@ async function waitForReply(client: TestClient, id: string) {
   );
   if (frame.kind !== "reply") throw new Error("unreachable");
   return frame.reply;
+}
+
+/** Appends an entry to `office`, tells the subscribers, and lets a later reply flush the socket. */
+async function change(h: Harness, client: TestClient, office: OfficeId): Promise<void> {
+  h.engine.appendOffice(office, "scan.finished", { scripts: {}, warnings: [] });
+  h.engine.notifyOffice(office);
+  expect((await client.read("daemon.status")).ok).toBe(true);
+  await settle();
+}
+
+function scans(client: TestClient, stream: string) {
+  return client.events(stream).filter((event) => event.type === "scan.finished");
 }
 
 describe("reads side by side", () => {
@@ -240,8 +257,9 @@ describe("subscribes", () => {
     const h = await start();
     const office = h.addOffice();
     const stream = StreamName.parse(`office:${office}`);
+    // Only the first subscribe is held: without the stream's order the second would answer first.
     const hold = Promise.withResolvers<void>();
-    h.engine.subscribeHolds.set(stream, hold.promise);
+    h.engine.subscribeHolds.set(stream, [hold.promise]);
     const client = await connect(h);
     const first = requestId();
     const second = requestId();
@@ -249,9 +267,9 @@ describe("subscribes", () => {
     client.sendRaw({ kind: "subscribe", requestId: second, stream });
     const software = await client.subscribe(SOFTWARE_STREAM);
     expect(software.ok).toBe(true);
+    await settle();
     expect(replyCount(client, first) + replyCount(client, second)).toBe(0);
 
-    h.engine.subscribeHolds.delete(stream);
     hold.resolve();
     await waitForReply(client, second);
     const order = replyOrder(client);
@@ -264,7 +282,7 @@ describe("subscribes", () => {
     const office = h.addOffice();
     const stream = StreamName.parse(`office:${office}`);
     const hold = Promise.withResolvers<void>();
-    h.engine.subscribeHolds.set(stream, hold.promise);
+    h.engine.subscribeHolds.set(stream, [hold.promise]);
     const client = await connect(h);
     const id = requestId();
     client.sendRaw({ kind: "subscribe", requestId: id, stream });
@@ -275,7 +293,6 @@ describe("subscribes", () => {
       error: { code: "request.timedOut" },
     });
 
-    h.engine.subscribeHolds.delete(stream);
     hold.resolve();
     await settle();
     h.engine.appendOffice(office, "scan.finished", { scripts: {}, warnings: [] });
@@ -289,5 +306,115 @@ describe("subscribes", () => {
     const again = await client.subscribe(stream);
     expect(again.ok).toBe(true);
     await client.waitForEvent(stream, (event) => event.type === "stream.mark", "the catch-up mark");
+  });
+
+  it("applies an unsubscribe sent behind a held subscribe of its stream after that subscribe", async () => {
+    const h = await start();
+    const office = h.addOffice();
+    const stream = StreamName.parse(`office:${office}`);
+    const hold = Promise.withResolvers<void>();
+    h.engine.subscribeHolds.set(stream, [hold.promise]);
+    const client = await connect(h);
+    const id = requestId();
+    client.sendRaw({ kind: "subscribe", requestId: id, stream });
+    client.sendRaw({ kind: "unsubscribe", stream });
+    await settle();
+    hold.resolve();
+    expect(await waitForReply(client, id)).toMatchObject({ ok: true });
+    await change(h, client, office);
+    expect(scans(client, stream)).toEqual([]);
+  });
+
+  it("applies an unsubscribe sent during engine.hello after the subscribe before it", async () => {
+    const h = await start();
+    const office = h.addOffice();
+    const stream = StreamName.parse(`office:${office}`);
+    const hello = slowRead(h, "engine.hello");
+    const client = await TestClient.connect(h.socketPath);
+    clients.push(client);
+    const helloId = requestId();
+    const id = requestId();
+    client.sendRaw({
+      kind: "read",
+      requestId: helloId,
+      name: "engine.hello",
+      args: { client: { name: "test", version: "0" } },
+    });
+    client.sendRaw({ kind: "subscribe", requestId: id, stream });
+    client.sendRaw({ kind: "unsubscribe", stream });
+    await settle();
+    h.engine.reads.delete("engine.hello");
+    hello.release();
+    expect(await waitForReply(client, id)).toMatchObject({ ok: true });
+    await change(h, client, office);
+    expect(scans(client, stream)).toEqual([]);
+  });
+});
+
+describe("the cap on reads and subscribes in flight", () => {
+  it("lets a read past the cap wait its turn, and starts it when one ends", async () => {
+    const h = await start({ maxInFlight: 2 });
+    const slow = slowRead(h);
+    const client = await connect(h);
+    const ids = [requestId(), requestId(), requestId()];
+    for (const id of ids)
+      client.sendRaw({ kind: "read", requestId: id, name: "fixture.slow", args: {} });
+    const status = requestId();
+    client.sendRaw({ kind: "read", requestId: status, name: "daemon.status", args: {} });
+    await settle();
+    expect(slow.started()).toBe(2);
+    expect(ids.map((id) => replyCount(client, id))).toEqual([0, 0, 0]);
+    expect(replyCount(client, status)).toBe(0);
+
+    slow.releaseOne();
+    await waitForReply(client, ids[0] ?? "");
+    await settle();
+    // The third slow read took the free slot; the status read still waits behind it.
+    expect(slow.started()).toBe(3);
+    expect(replyCount(client, status)).toBe(0);
+
+    slow.releaseOne();
+    expect(await waitForReply(client, status)).toMatchObject({ ok: true });
+    slow.release();
+    await waitForReply(client, ids[2] ?? "");
+  });
+
+  it("keeps a timed-out read's slot until the engine's work ends", async () => {
+    const h = await start({ maxInFlight: 1 });
+    const slow = slowRead(h);
+    const client = await connect(h);
+    const id = requestId();
+    client.sendRaw({ kind: "read", requestId: id, name: "fixture.slow", args: {} });
+    await settle();
+    h.clock.advance(READ_DEADLINE_MS);
+    await waitForReply(client, id);
+    const status = requestId();
+    client.sendRaw({ kind: "read", requestId: status, name: "daemon.status", args: {} });
+    await settle();
+    expect(replyCount(client, status)).toBe(0);
+    slow.release();
+    expect(await waitForReply(client, status)).toMatchObject({ ok: true });
+  });
+});
+
+describe("the request line of a timed-out read", () => {
+  it("tells the engine the error the client got instead", async () => {
+    const h = await start();
+    slowRead(h);
+    const client = await connect(h);
+    const id = requestId();
+    client.sendRaw({ kind: "read", requestId: id, name: "fixture.slow", args: {} });
+    await settle();
+    const options = h.engine.readOptions.at(-1);
+    let told: unknown = null;
+    void options?.answeredWithout?.then((error) => {
+      told = error;
+    });
+    await settle();
+    expect(told).toBeNull();
+    h.clock.advance(READ_DEADLINE_MS);
+    await waitForReply(client, id);
+    await settle();
+    expect(told).toMatchObject({ code: "request.timedOut" });
   });
 });

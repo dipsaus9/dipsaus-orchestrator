@@ -17,6 +17,9 @@ export type EngineError = z.infer<typeof EngineError>;
 // not retryable, while the daemon cannot open or migrate its state database (0007 sections 9 and
 // 10): it stays in `recovering` and serves only `engine.hello`, `commands.describe` and
 // `daemon.*`; the message says what to do, and `details` are `DatabaseUnavailableDetails`.
+// `request.timedOut` (DIPO-320), not retryable: the daemon did not answer a read or subscribe
+// within its deadline (`details`: `{ name, deadlineMs }`). `request.reused` on a read or subscribe:
+// another request with that id is still running on the connection.
 export const GENERIC_ERROR_CODES = [
   "args.invalid",
   "office.unknown",
@@ -24,6 +27,7 @@ export const GENERIC_ERROR_CODES = [
   "story.ambiguous",
   "capability.missing",
   "request.reused",
+  "request.timedOut",
   "confirmation.required",
   "not.permitted",
   "stream.resetRequired",
@@ -118,6 +122,9 @@ export const OFFICE_ERROR_CODES = [
 ] as const;
 
 export type GenericErrorCode = (typeof GENERIC_ERROR_CODES)[number];
+
+/** A read or subscribe the daemon did not answer within its deadline (DIPO-320). */
+export const REQUEST_TIMED_OUT: GenericErrorCode = "request.timedOut";
 export type RetryableErrorCode = (typeof RETRYABLE_ERROR_CODES)[number];
 export type SoftwareErrorCode = (typeof SOFTWARE_ERROR_CODES)[number];
 export type OfficeErrorCode = (typeof OFFICE_ERROR_CODES)[number];

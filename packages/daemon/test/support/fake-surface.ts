@@ -22,6 +22,9 @@ import type { EngineSurface, OfficePage, Subscribed } from "@dipsaus-orchestrato
 
 export const TEST_VERSION = "0.0.0-test";
 
+/** How the server asks a read (the engine's `ReadOptions`). */
+type ReadOptions = NonNullable<Parameters<EngineSurface["executeRead"]>[1]>;
+
 /** One command or read as the fake heard it, with the connection's client name. */
 export interface Heard {
   readonly kind: "command" | "read";
@@ -50,8 +53,10 @@ export class FakeSurface implements EngineSurface {
   readonly commands = new Map<string, FakeCommand>();
   /** Reads answered by a test's own handler, before the built-in ones. */
   readonly reads = new Map<string, FakeRead>();
-  /** Streams whose subscribes wait for the promise before they answer. */
-  readonly subscribeHolds = new Map<StreamName, Promise<void>>();
+  /** Per stream, the holds of its next subscribes: each subscribe waits for the first left. */
+  readonly subscribeHolds = new Map<StreamName, Promise<void>[]>();
+  /** The options each read was asked with, in order. */
+  readonly readOptions: ReadOptions[] = [];
   /** The summaries `officeSummaries` and `officeSummary` give; tests change them. */
   summaries: OfficeSummary[] = [];
   /** Office pages read, counted by entry; backpressure tests read it. */
@@ -159,8 +164,9 @@ export class FakeSurface implements EngineSurface {
     return reply;
   }
 
-  async executeRead(request: ReadRequest): Promise<ReadReply> {
+  async executeRead(request: ReadRequest, options: ReadOptions = {}): Promise<ReadReply> {
     this.heard.push({ kind: "read", name: request.name });
+    this.readOptions.push(options);
     const { requestId } = request;
     const own = this.reads.get(request.name);
     if (own !== undefined) return own(request);
@@ -191,7 +197,7 @@ export class FakeSurface implements EngineSurface {
   }
 
   async subscribe(stream: StreamName, after: Cursor | undefined): Promise<Subscribed> {
-    const hold = this.subscribeHolds.get(stream);
+    const hold = this.subscribeHolds.get(stream)?.shift();
     if (hold !== undefined) await hold;
     if (stream === SOFTWARE_STREAM) {
       const from = after ?? this.softwareHead();

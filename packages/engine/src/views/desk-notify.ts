@@ -94,11 +94,11 @@ export function watchDesk(deps: {
   const { surface, notifier, logger, nextId } = deps;
   return surface.onOfficeChanged((office) => {
     void (async () => {
-      const reply = await surface.executeRead({
-        requestId: RequestId.parse(nextId()),
-        name: officeDesk.name,
-        args: { office },
-      });
+      // The engine's own read: no client asked it, so it writes no request line (DIPO-320).
+      const reply = await surface.executeRead(
+        { requestId: RequestId.parse(nextId()), name: officeDesk.name, args: { office } },
+        { internal: true },
+      );
       if (!reply.ok) return;
       const parsed = officeDesk.result.safeParse(reply.result);
       if (!parsed.success) {

@@ -104,12 +104,27 @@ async function runWaiting(
   return reply(read, request, await read.handle(prepared.ctx, prepared.args));
 }
 
+/** How a read is asked: by a client (the default) or by the engine itself. */
+export interface ReadOptions {
+  /** The engine's own read, such as the desk notification's: it writes no request line. */
+  readonly internal?: boolean;
+  /**
+   * Settles when the caller answered the client without this read's reply (the daemon's read
+   * deadline, DIPO-320): the request line names that error, and the late reply writes none.
+   */
+  readonly answeredWithout?: Promise<EngineError>;
+}
+
 /**
  * Runs one read and writes its log line. Unknown or unbuilt reads fail with `capability.missing`,
  * bad args with `args.invalid`, and args naming an unknown or forgotten office with
  * `office.unknown`.
  */
-export function executeRead(deps: ReadDeps, request: ReadRequest): Promise<ReadReply> {
+export function executeRead(
+  deps: ReadDeps,
+  request: ReadRequest,
+  options: ReadOptions = {},
+): Promise<ReadReply> {
   const entry = {
     kind: "read",
     name: request.name,
@@ -117,10 +132,11 @@ export function executeRead(deps: ReadDeps, request: ReadRequest): Promise<ReadR
     office: officeInArgs(request.args),
   } as const;
   return answerAndLog(
-    deps.logger,
+    options.internal === true ? undefined : deps.logger,
     () => deps.clock.now(),
     entry,
     () => answerRead(deps, request),
+    options.answeredWithout,
   );
 }
 

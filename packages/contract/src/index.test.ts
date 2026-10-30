@@ -187,6 +187,7 @@ describe("errors", () => {
         "not.permitted",
         "office.unknown",
         "request.reused",
+        "request.timedOut",
         "story.ambiguous",
         "story.unknown",
         "stream.resetRequired",
