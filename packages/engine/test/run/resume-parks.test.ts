@@ -1777,3 +1777,51 @@ describe("the resume after the office's starts paused lifted (0020)", () => {
     expect(parkRow(parkId)?.resolved_how).toBeNull();
   });
 });
+
+describe("a resume that resolves a park reports changed (DIPO-388)", () => {
+  it("reports changed for an ambiguous-spec park resumed with a note, and keeps the note on the park", async () => {
+    const parkId = park(
+      "ambiguous-spec",
+      "In Progress",
+      "CLAUDE.md forbids the flag the story asks for",
+    );
+    const reply = await resume(resumption(), { note: "Keep the flag; the story wins." });
+    expect(reply.changed).toBe(true);
+    expect(reply.result).toMatchObject({ story: "DIPO-1", to: "In Progress", run: w.f.run });
+    expect(parkRow(parkId)).toEqual({
+      resolved_how: "resume",
+      resolved_note: "Keep the flag; the story wins.",
+    });
+  });
+
+  it("reports changed for a park with no run resumed through the planning lane", async () => {
+    const parkId = park("by-maintainer", "Ready", "held by hand");
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        "update parks set run_id = null where office_id = $office_id and park_id = $park",
+        {
+          park: parkId,
+        },
+      ),
+    );
+    const reply = await resume(
+      resumption({
+        holds: () => ({
+          resumeHold: async () => "Ready",
+        }),
+      }),
+    );
+    expect(reply.changed).toBe(true);
+    expect(reply.result).toMatchObject({ story: "DIPO-1", to: "Ready" });
+  });
+
+  it("reports changed false for a retry of a resume that already resolved the park", async () => {
+    steps("loop", 3);
+    park("verify-failing");
+    const resuming = resumption();
+    const once = await resume(resuming, { note: "again" }, ctx(false, "req_retry_388"));
+    expect(once.changed).toBe(true);
+    const second = await resume(resuming, { note: "again" }, ctx(false, "req_retry_388"));
+    expect(second.changed).toBe(false);
+  });
+});

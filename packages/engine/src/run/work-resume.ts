@@ -152,6 +152,6 @@ export class WorkResumeCommand {
       );
     }
     const to = await holds.resumeHold(ctx, identity, park, note);
-    return { result: { story: identity.story, key: identity.key, to } };
+    return { result: { story: identity.story, key: identity.key, to }, changed: true };
   }
 }
