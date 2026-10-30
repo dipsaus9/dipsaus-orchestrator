@@ -1,10 +1,10 @@
 ---
 id: DIPO-377
 title: Fix the flake in the backlog PR check test
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-29 09:29'
-updated_date: '2026-10-30 11:20'
+updated_date: '2026-10-30 11:25'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -48,8 +48,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The cause of the failure is named in the PR (timing, a temp path, git config or the Backlog CLI), and the test no longer depends on it
-- [ ] #2 The test passes 30 runs in a row on macOS and on Linux
+- [x] #1 The cause of the failure is named in the PR (timing, a temp path, git config or the Backlog CLI), and the test no longer depends on it
+- [x] #2 The test passes 30 runs in a row on macOS and on Linux
 <!-- AC:END -->
 
 ## Implementation Notes
