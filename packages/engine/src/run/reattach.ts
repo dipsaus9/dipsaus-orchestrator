@@ -53,7 +53,7 @@ import {
 import { appendEntries } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { connectHost, type ConnectHostResult } from "../host/client";
-import { LAUNCH_FILE, type HostExitFile } from "../host/protocol";
+import { LAUNCH_FILE, OP_SINCE, type HostExitFile } from "../host/protocol";
 import type { IngestAdapter, IngestedExit, IngestTarget, PassResult } from "../ingest/ingestor";
 import {
   isWorkerHostArgv,
@@ -217,6 +217,11 @@ type PendingAsk =
   /** A host answered, but its PID failed the identity check. */
   | { readonly kind: "refused" };
 
+/** True when the row's host carries a launch deadline: one this binary's protocol started. */
+function hasLaunchDeadline(host: Pick<WorkerHostRow, "protocolVersion">): boolean {
+  return host.protocolVersion >= OP_SINCE.claim;
+}
+
 /** How a pending row was settled by one ask (DIPO-386). */
 type Settled = "matched" | "waiting" | "refused" | "unmatched";
 
@@ -256,8 +261,13 @@ export class RunReattacher {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined) return [];
     const done: ReattachedRun[] = [];
-    const { unmatched, waiting } = await this.#settlePending(office);
-    for (const run of activeRuns(office)) {
+    const { unmatched, waiting, matched } = await this.#settlePending(office);
+    // A host matched to its pending row is claimed when its run is re-attached, before its launch
+    // deadline: those runs go first, so other runs' re-attach cannot push a claim past it.
+    const runs = activeRuns(office).toSorted(
+      (a, b) => Number(matched.has(b.runId)) - Number(matched.has(a.runId)),
+    );
+    for (const run of runs) {
       if (run.kind !== "story" || waiting.has(run.runId)) continue;
       try {
         const outcome = await this.#reattachRun(office, run, unmatched.get(run.runId));
@@ -281,9 +291,10 @@ export class RunReattacher {
    */
   async #settlePending(
     office: OfficeHandle,
-  ): Promise<{ unmatched: Map<string, string>; waiting: Set<string> }> {
+  ): Promise<{ unmatched: Map<string, string>; waiting: Set<string>; matched: Set<string> }> {
     const unmatched = new Map<string, string>();
     const waiting = new Set<string>();
+    const matched = new Set<string>();
     const rows = office.all<{ run_id: string; agent_id: string }>(
       `select run_id, agent_id from worker_hosts where office_id = $office_id and pending = 1
         order by started_at, rowid`,
@@ -298,6 +309,7 @@ export class RunReattacher {
       try {
         const settled = await this.#settleOne(office, host);
         if (settled === "unmatched") unmatched.set(row.run_id, row.agent_id);
+        if (settled === "matched") matched.add(row.run_id);
         if (settled === "waiting" || settled === "refused") {
           waiting.add(row.run_id);
           this.#waitPending(office, host, settled);
@@ -316,7 +328,7 @@ export class RunReattacher {
         });
       }
     }
-    return { unmatched, waiting };
+    return { unmatched, waiting, matched };
   }
 
   /**
@@ -328,7 +340,11 @@ export class RunReattacher {
    * verify or keep stops itself at its deadline.
    */
   async #settleOne(office: OfficeHandle, host: WorkerHostRow): Promise<Settled> {
-    const deadline = hostLaunchDeadline(host.startedAt);
+    // A host an earlier binary started (protocol before the claim) has no launch deadline and never
+    // stops itself: it is asked once, as before, and its row goes when it does not match.
+    const deadline = hasLaunchDeadline(host)
+      ? hostLaunchDeadline(host.startedAt)
+      : this.#deps.clock.now() + HOST_CONNECT_TIMEOUT_MS;
     const asked = await this.#pendingHost(host, deadline);
     if (asked.kind === "live") {
       // A daemon that stops, or a run that ended, during the ask keeps nothing: no record, so no
@@ -338,7 +354,7 @@ export class RunReattacher {
       recordPendingPid(office, host, asked.pid, asked.startTimeMs);
       return "matched";
     }
-    if (this.#deps.clock.now() < deadline) return asked.kind;
+    if (hasLaunchDeadline(host) && this.#deps.clock.now() < deadline) return asked.kind;
     deletePendingHost(office, host.runId, host.agentId);
     return "unmatched";
   }

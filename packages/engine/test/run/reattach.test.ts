@@ -38,7 +38,12 @@ import { currentPlatform } from "../../src/platform/paths";
 import { systemProcessProbe } from "../../src/platform/process";
 import { type ConnectHostResult, connectHost, type HostClient } from "../../src/host/client";
 import { systemClock } from "../../src/platform/clock";
-import { EXIT_FILE, type HostExitFile, LAUNCH_FILE } from "../../src/host/protocol";
+import {
+  EXIT_FILE,
+  HOST_PROTOCOL_VERSION,
+  type HostExitFile,
+  LAUNCH_FILE,
+} from "../../src/host/protocol";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
 import {
   type BranchPark,
@@ -1328,13 +1333,17 @@ describe("restart windows of DIPO-51's review", () => {
   });
 });
 
-/** The previous daemon stopped between writing the host row and recording the spawned host. */
-function makePending(): void {
+/**
+ * The previous daemon stopped between writing the host row and recording the spawned host; the
+ * row names host protocol `protocol`, this binary's by default, whose hosts carry a launch
+ * deadline.
+ */
+function makePending(protocol: number = HOST_PROTOCOL_VERSION): void {
   w.f.office.immediate(() =>
     w.f.office.run(
-      `update worker_hosts set pending = 1, pid = 0, start_time_ms = 0
+      `update worker_hosts set pending = 1, pid = 0, start_time_ms = 0, protocol_version = $protocol
         where office_id = $office_id and run_id = $run`,
-      { run: w.f.run },
+      { run: w.f.run, protocol },
     ),
   );
 }
@@ -1455,6 +1464,43 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
       { run: w.f.run, agent: w.f.agent, outcome: "neverStarted" },
     ]);
     expect(asked).toBe(0);
+    expect(w.signals).toEqual([]);
+  });
+
+  it("asks a pending row of an earlier binary's host (protocol 2, no launch deadline) once, also past the deadline, and re-attaches it (DIPO-386)", async () => {
+    beforeRestart("success-single", 6, 20);
+    makePending(2);
+    w.f.t.clock.advance(HOST_LAUNCH_DEADLINE_MS);
+    w.hostPid = 4343;
+    w.hostVersion = 2;
+    w.startTimeMs = w.f.t.clock.now();
+    let asked = 0;
+    const d = daemon({
+      connect: async () => {
+        asked += 1;
+        return { ok: true, client: fakeClient() };
+      },
+    });
+    expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([
+      { run: w.f.run, agent: w.f.agent, outcome: "steer" },
+    ]);
+    // Asked for its PID, then the handshake that follows it; such a host takes no claim.
+    expect(asked).toBe(2);
+    expect(hostRow()).toMatchObject({ pending: false, pid: 4343 });
+    expect(w.ops).toEqual([]);
+    expect(w.signals).toEqual([]);
+  });
+
+  it("removes a pending row of an earlier binary's host that does not answer at once, as before: it parks, with no signal (DIPO-386)", async () => {
+    makePending(2);
+    w.answers = false;
+    const startedAt = hostRow().startedAt;
+    const d = daemon();
+    expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([
+      { run: w.f.run, agent: w.f.agent, outcome: "neverStarted" },
+    ]);
+    expect(w.f.t.clock.now()).toBeLessThan(hostLaunchDeadline(startedAt));
+    expect(workerHostsOf(w.f.office, w.f.run)).toEqual([]);
     expect(w.signals).toEqual([]);
   });
 
