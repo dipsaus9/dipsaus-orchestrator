@@ -4,6 +4,7 @@ title: Keep tracking a worker host that binds its socket late
 status: Refined
 assignee: []
 created_date: '2026-10-30 09:31'
+updated_date: '2026-10-30 09:32'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -38,7 +39,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A host that binds its socket after the PID ask timed out is never left running without a row: it is re-attached, or it is stopped with one verified SIGTERM and its story parks worker-failed
-- [ ] #2 A test with a real process that binds late shows the outcome and that no process is left running
-- [ ] #3 A process that is not that run's worker host is never signalled (the same checks as verifyHostForSignal)
+- [ ] #1 dipo never signals a worker host whose PID it has not verified through the host's own handshake and verifyHostForSignal; a pending row whose socket did not answer is kept, not deleted, and asked again on each later recovery pass until the host's launch deadline has passed
+- [ ] #2 A worker host that no daemon has claimed by its launch deadline exits on its own (a host-side timeout), so a host that never answers is not left running; the story then parks worker-failed and its pending row goes
+- [ ] #3 Tests with real processes: a host that binds after the first ask is re-attached on the next pass; a host that never binds exits by itself at its deadline and the story parks; no process is signalled in either case
+- [ ] #4 A process that is not that run's worker host (a reused PID, a command that only mentions the run id, a wrapper such as sh -c or env, a start time before the row, a zombie) is never signalled, shown by tests against verifyHostForSignal on the real path
 <!-- AC:END -->

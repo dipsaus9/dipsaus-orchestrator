@@ -4,6 +4,7 @@ title: 'Park a worker host found dead at recovery, as 0005 and 0008 say'
 status: Refined
 assignee: []
 created_date: '2026-10-30 09:30'
+updated_date: '2026-10-30 09:32'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -40,6 +41,6 @@ test_plan:
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 A host found dead at recovery without exit.json parks its story worker-failed with no automatic resume, shown by a test with a real exited process
-- [ ] #2 The one-resume path for a lost host (onHostLost) is removed, and nothing else calls it
+- [ ] #2 The one-resume path for a lost host is removed: RunOutcomesPort.onHostLost, its control callers, temp-dirs.ts and the tests that call it; the host-lost signal and HOST_LOST_END stay only as far as the park needs them, and the PR says which
 - [ ] #3 0005 and 0008 stay true to the code; any sentence that mentions a resume for a lost host is corrected
 <!-- AC:END -->
