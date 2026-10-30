@@ -1,4 +1,12 @@
-# Box probe results (DIPO-264, DIPO-343, DIPO-367, DIPO-383, DIPO-376)
+# Box probe results (DIPO-264, DIPO-343, DIPO-367, DIPO-383, DIPO-376, DIPO-378)
+
+## Run of 2026-10-30: Apple container's init as PID 1 (DIPO-378)
+
+DIPO-378 starts every box dipo makes with `--init`, so PID 1 is `/.cz-init -- <keepalive>` and the box gains one read-only file mount, `/.cz-init`, from the VM's own root. A new mount and a new PID 1 run the probe again (0008). It ran on macOS 26.6.2 (Apple silicon) with Apple `container` 1.6.0, by the maintainer's orchestrating session, against `c77111e5`, the DIPO-378 branch. The Mac's services were two stand-ins, one on all interfaces and one on loopback.
+
+The probe's own developer box is plain Alpine started by the probe, not through dipo's `createArgs`, so it does not carry `--init`. The Safe-Chain box it starts through dipo's web route does, and so does the developer box of the office image in `packages/engine/test/box/safe-chain-box.ci.test.ts`, which ran right after on the same head: 1 pass, 0 fail. The PR's own real-box test (`init.box.test.ts`) runs criteria 5 to 7 as the box user on a run box and a build box.
+
+**Every line passes, as in the earlier runs of 2026-10-30.** Behind dipo's firewall the developer box reaches nothing of the Mac, the local network or the Safe-Chain box. Through the web proxy every refused try is refused and the internet works. An install through Safe-Chain works and Safe-Chain's test package is refused (`blocked by safe-chain`). A changed proxy setting fails. The user cannot flush the rules, and after a root flush only the Mac's own local-network address answers (the accepted risk). The Safe-Chain box sees no files of the Mac and reaches nothing but its upstream listener, which reaches only the registries and the malware lists. The Safe-Chain box is gone with the route. The boxes listed before and after differ only by boxes of the cutover daemon's own runs (a scratch run ended and a story run started during the probe).
 
 ## Run of 2026-10-30: the Safe-Chain start script of DIPO-383 and DIPO-376
 

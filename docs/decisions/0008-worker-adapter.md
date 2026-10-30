@@ -53,6 +53,7 @@ The engine names no tools. The adapter names each kind's tools: the developer's,
 - The Mac's own ports listed in `box.localPorts` are reached only through the web proxy, by a box dipo admitted.
 - **An in-box firewall** allows output only to loopback and to dipo's proxies. dipo sets it before the first install and checks it at every session. A test box's firewall (below) also answers connections that the Mac's address on the box network opened to its dev port, and lets nothing else in.
 - **Every command dipo starts in a box runs as the box user** (uid 1000, no capabilities, no new privileges), so a worker cannot undo the firewall. Only fixed dipo steps run as root, from an allow list without network capabilities.
+- **Every box starts with Apple container's init as PID 1**, which adds one read-only file mount, `/.cz-init`, from the VM's root; the keepalive runs as its child, and the init reaps orphaned processes.
 
 **The login.** Claude Code in the box sends model requests to dipo's **model proxy** on the Mac. The proxy passes only the model endpoints and adds the maintainer's subscription login on the way out. The token never enters the box.
 
@@ -193,3 +194,4 @@ An adapter implements section 1. An Agent SDK adapter would share `interpret`, b
 - A test box reached through a forwarder inside it on the box's address (2026-10-22). Replaced by a forwarder on the Mac's loopback (2026-10-28), because a VPN on the Mac routes the box network's range away from the box bridge.
 - The reviewer on the Mac with a `PreToolUse` web-gate hook and its relay through the worker host (2026-10-17). Replaced by a read-only reviewer box (2026-10-24); no session has hooks.
 - `WorkerSpec.tools`, the tool names of each role picked by the engine (2026-10-10). Replaced by `web`: the adapter names each kind's tools, so Claude's tool names stay in it (2026-10-29).
+- The keepalive as the box's PID 1 (2026-10-22), which never reaped orphans, so zombies piled up in a long-lived box. Replaced by Apple container's init as PID 1 with the keepalive as its child (2026-10-30, DIPO-378).
