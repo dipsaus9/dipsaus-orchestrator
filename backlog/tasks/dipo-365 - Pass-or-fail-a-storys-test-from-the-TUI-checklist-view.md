@@ -1,10 +1,10 @@
 ---
 id: DIPO-365
 title: Pass or fail a story's test from the TUI checklist view
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-28 13:44'
-updated_date: '2026-10-30 07:54'
+updated_date: '2026-10-30 08:10'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -15,6 +15,12 @@ dependencies:
   - DIPO-351
 references:
   - packages/tui/src/
+modified_files:
+  - packages/tui/src/actions.ts
+  - packages/tui/src/app.tsx
+  - packages/tui/src/checklist.test.tsx
+  - packages/tui/src/checklist.tsx
+  - packages/tui/src/keys.ts
 priority: medium
 type: feature
 ordinal: 345000
@@ -41,3 +47,18 @@ test_plan:
 <!-- AC:BEGIN -->
 - [x] #1 The TUI checklist view `4` (and `t` on a desk row) shows the steps with local ticks, `P` passes, `F` fails with the note pre-filled with the first unticked step, and Esc leaves the test open
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-10-30 08:10 UTC
+- Criteria met: 1 of 1 (as the worker reported them)
+- Loops: 0; CI attempts: 0
+- Review rounds: 1, failed 0
+- Budget used: 142,571 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
