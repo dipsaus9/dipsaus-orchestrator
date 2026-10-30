@@ -554,6 +554,9 @@
             },
             "required": ["kind"]
           }
+        },
+        "dismissed": {
+          "type": "boolean"
         }
       },
       "required": ["story", "key", "to"]

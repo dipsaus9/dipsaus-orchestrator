@@ -166,6 +166,9 @@ export const workResume = defineCommand({
     run: RunId.optional(),
     queued: z.boolean().optional(),
     grants: z.array(ResumeGrant).optional(),
+    // (DIPO-401) True when the story was not parked but held by a park that failed to write: the
+    // resume dismissed that park, and pickup may take the story again.
+    dismissed: z.boolean().optional(),
   }),
   confirm: false,
   confirmWhen: ["budget"],

@@ -165,6 +165,13 @@ export async function resumeCommand(
           return engineFailure(deps, outcome.error);
         }
         const { result } = outcome;
+        // A park that failed to write, dismissed: nothing was parked (DIPO-401).
+        if (result.dismissed === true) {
+          deps.writeLine(
+            `dismissed the park of ${story} that failed to write; the story can be picked up again (it is ${result.to})`,
+          );
+          return 0;
+        }
         // A story that already runs: the resume changed nothing (0005).
         if (!outcome.changed) {
           deps.writeLine(

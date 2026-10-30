@@ -140,6 +140,18 @@ describe("dipo resume", () => {
     expect(ctx.out).toEqual(["resumed DIPO-7; it is Ready"]);
   });
 
+  it("says a park that failed to write was dismissed, not resumed (DIPO-401)", async () => {
+    const ctx = fake(() => ({
+      ok: true,
+      changed: true,
+      result: { story: "DIPO-7", key: KEY, to: "Ready", dismissed: true },
+    }));
+    expect(await main(["resume", "DIPO-7"], ctx.deps)).toBe(0);
+    expect(ctx.out).toEqual([
+      "dismissed the park of DIPO-7 that failed to write; the story can be picked up again (it is Ready)",
+    ]);
+  });
+
   it("prints already runs, and changes nothing, for a story that was not parked and runs", async () => {
     const ctx = fake(() => ({
       ok: true,

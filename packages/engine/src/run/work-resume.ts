@@ -117,6 +117,15 @@ export class WorkResumeCommand {
     if (replayed != null) return replayed;
     const park = openPark(this.#stories, handle, identity.key);
     if (park === null) {
+      // A park that failed to write holds the story from pickup, whatever its status (a hand edit
+      // may have set In Progress); resume dismisses it first (DIPO-401).
+      const dismissed = await this.#holds()?.dismissFailedHold?.(ctx, identity, args.note);
+      if (dismissed != null) {
+        return {
+          result: { story: identity.story, key: identity.key, to: dismissed, dismissed: true },
+          changed: true,
+        };
+      }
       const now = storyView(handle, identity.key);
       if (now !== null && RUNNING.has(now.lifecycle)) {
         return {
@@ -127,14 +136,6 @@ export class WorkResumeCommand {
             ...(now.work === undefined ? {} : { run: now.work.run }),
           },
           changed: false,
-        };
-      }
-      // A park that failed to write holds the story from pickup; resume dismisses it (DIPO-401).
-      const dismissed = await this.#holds()?.dismissFailedHold?.(ctx, identity, args.note);
-      if (dismissed != null) {
-        return {
-          result: { story: identity.story, key: identity.key, to: dismissed },
-          changed: true,
         };
       }
       throw new CommandError(
