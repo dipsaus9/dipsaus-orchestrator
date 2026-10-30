@@ -95,6 +95,8 @@ export const HostLaunchSchema = z.object({
   run: z.string().regex(RUN_ID_PATTERN),
   agent: z.string().min(1),
   socket: z.string().startsWith("/"),
+  /** Epoch ms by which a daemon's handshake must claim the host, else it stops (DIPO-386). */
+  deadline: z.number().int().positive(),
   plan: LaunchPlanSchema,
 });
 
@@ -103,6 +105,7 @@ export interface HostLaunch {
   readonly run: string;
   readonly agent: string;
   readonly socket: string;
+  readonly deadline: number;
   readonly plan: LaunchPlan;
 }
 
@@ -196,6 +199,7 @@ export interface HostStatus {
 export type HostErrorCode =
   | "protocol.unsupported"
   | "run.mismatch"
+  | "host.unclaimed"
   | "frame.invalid"
   | "op.unknown"
   | "not.permitted"

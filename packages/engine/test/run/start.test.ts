@@ -19,6 +19,7 @@ import {
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
 
+import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import type { PlainTask } from "../../src/story-store/story";
 import { cursorAt } from "../../src/changelog/log";
 import { replay } from "../../src/changelog/replay";
@@ -305,6 +306,7 @@ beforeEach(async () => {
         protocolVersion: 1,
         runDir: join(started.officeDir, "runs", started.runId),
         eventFile: join(started.officeDir, "runs", started.runId, "events.ndjson"),
+        launchDeadline: t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
       };
       recordWorkerHost(handle, host, t.clock);
       return host;

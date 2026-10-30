@@ -155,6 +155,8 @@ The task message is the first stdin line, never on argv. The box's environment h
 | Login, billing, start-up or box token failure | The office's starts paused, with a notice. The story stays where it was |
 | `apiKeySource` not `none` | Stops the session and pauses starts in every office |
 
+**The worker host's launch deadline.** A daemon claims a worker host with its first handshake on the host's socket. The host must be claimed by its launch deadline, `HOST_LAUNCH_DEADLINE_MS` (30 s) after its `worker_hosts` row was written, which `launch.json` carries. A host no daemon claimed by then stops its worker as on SIGTERM and refuses a later handshake. Until then the daemon that started the host keeps connecting, and a restarted daemon keeps a pending row and asks its socket again, so a host that binds its socket late is still re-attached. At the deadline a pending row no host answered for goes, and its story parks `worker-failed`. dipo never signals a pending host, whose PID is known only from its own handshake.
+
 **Resume.** Every session starts with an engine-made session id. A developer resume is always a new session in the story's box with a handoff (0014). The reviewer is never resumed.
 
 ## 7. Usage and cost

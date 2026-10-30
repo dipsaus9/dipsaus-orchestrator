@@ -23,8 +23,22 @@ import type { RunSteering } from "./control";
 import type { HostStarter, RunIngest } from "./launch";
 import type { Watchdog } from "./watchdog";
 
-/** How long the engine waits for a new host's socket before it relies on the poll alone. */
+/** How long one ask of a host's socket for its handshake takes at most: the PID ask of re-attach. */
 export const HOST_CONNECT_TIMEOUT_MS = 5_000;
+
+/**
+ * How long a new worker host has to be claimed by a daemon's handshake, counted from its
+ * `worker_hosts` row (DIPO-386, 0008). Its launch file carries the deadline; a host no daemon
+ * claimed by then stops its worker and refuses a later handshake. Until then the daemon that
+ * started it keeps connecting, and a restart asks a pending row's socket again. Longer than
+ * `HOST_CONNECT_TIMEOUT_MS`, so a host that binds its socket late is still claimed.
+ */
+export const HOST_LAUNCH_DEADLINE_MS = 30_000;
+
+/** The launch deadline of a host whose row was written at `startedAt`: one value for both sides. */
+export function hostLaunchDeadline(startedAt: number): number {
+  return startedAt + HOST_LAUNCH_DEADLINE_MS;
+}
 
 /** How long the engine waits between connection attempts while a new host has not bound its socket. */
 export const HOST_CONNECT_RETRY_MS = 25;
@@ -46,8 +60,9 @@ export interface SystemHostStarterOptions {
 /** Starts worker hosts as detached `dipo daemon worker-host <run-id>` processes. */
 export function systemHostStarter(options: SystemHostStarterOptions): HostStarter {
   return {
-    start: (office, run) =>
-      startWorkerHost(
+    start: (office, run) => {
+      const startedAt = options.clock.now();
+      return startWorkerHost(
         office,
         options.clock,
         {
@@ -57,6 +72,8 @@ export function systemHostStarter(options: SystemHostStarterOptions): HostStarte
           runtimeDir: options.runtimeDir,
           plan: run.plan,
           dipoCommand: options.dipoCommand,
+          startedAt,
+          launchDeadline: hostLaunchDeadline(startedAt),
           env: options.env,
           probe: options.probe,
           ...(options.spawnDetached === undefined ? {} : { spawnDetached: options.spawnDetached }),
@@ -65,7 +82,8 @@ export function systemHostStarter(options: SystemHostStarterOptions): HostStarte
           ...(run.processedOffset === undefined ? {} : { processedOffset: run.processedOffset }),
           ...(run.record === undefined ? {} : { record: run.record }),
         },
-      ),
+      );
+    },
   };
 }
 
@@ -232,14 +250,14 @@ export class OfficeIngest implements RunIngest {
 
   /**
    * Connects to a new host's socket, trying again until it is bound. `start` runs right after the
-   * detached host was spawned, and the host binds its socket a moment later (DIPO-181): one attempt
-   * made then found no socket ("unreachable"), the engine never watched the host, and the host
-   * answered every waiting PermissionRequest call at once with no decision. Only "unreachable"
-   * is retried, up to `HOST_CONNECT_TIMEOUT_MS`; a refusal or a silent socket ends it.
+   * detached host was spawned, and the host binds its socket a moment later (DIPO-181). The
+   * handshake claims the host, which stops its worker when no daemon claimed it by its launch
+   * deadline (DIPO-386), so "unreachable" is retried up to that deadline; a refusal or a silent
+   * socket ends it.
    */
   async #connectWhenBound(host: LaunchedHost): Promise<ConnectHostResult> {
     const { clock } = this.#options;
-    const deadline = clock.now() + HOST_CONNECT_TIMEOUT_MS;
+    const deadline = host.launchDeadline;
     for (;;) {
       const left = deadline - clock.now();
       const connected = await connectHost(host.socketPath, {

@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { OfficeId } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import type { OfficeGit } from "../../src/git/office";
@@ -179,6 +180,7 @@ function world(t: TestState, dir: string): World {
           protocolVersion: 1,
           runDir,
           eventFile,
+          launchDeadline: t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
         };
         recordWorkerHost(handle, host, t.clock);
         handle.immediate(() => started.record?.());

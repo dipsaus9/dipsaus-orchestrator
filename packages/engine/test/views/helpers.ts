@@ -13,6 +13,7 @@ import {
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
+import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import type { OfficeHandle } from "../../src/db/office";
 import { type RunCriteria, recordRunCriteria } from "../../src/run/criteria";
 import { appendRunStep, insertRun } from "../../src/run/records";
@@ -100,6 +101,7 @@ export function startRun(
       protocolVersion: 1,
       runDir: dir,
       eventFile,
+      launchDeadline: t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
     },
     t.clock,
   );

@@ -23,11 +23,14 @@
 //   changed".
 //
 // Before the active runs, `worker_hosts` rows left pending (written before their spawn) are
-// settled: a host that answers on the row's socket with its PID, running `dipo daemon worker-host
-// <run>` and started after the row, is recorded; otherwise no live process matches the row, its
-// `launch.json` is removed so a late host starts nothing, the row goes, and the story parks
-// `worker-failed`. After them, the open hosts of runs that have ended are closed out when dead, or
-// sent one verified SIGTERM and closed out once they exit.
+// settled. Their `launch.json` is removed first, so a host that has not read it starts nothing. A
+// host that answers on the row's socket with its PID, running `dipo daemon worker-host <run>` and
+// started after the row, is recorded and re-attached. A pending host is never signalled: until its
+// launch deadline (`hostLaunchDeadline` of the row, the value its `launch.json` carried) the row
+// stays and its socket is asked again, in the background, so a host that binds late is still
+// re-attached; a host no daemon claimed by then stops itself (DIPO-386). At the deadline the row
+// goes and the story parks `worker-failed`. After them, the open hosts of runs that have ended are
+// closed out when dead, or sent one verified SIGTERM and closed out once they exit.
 //
 // Exits ingested but not decided before the stop are `run-outcomes/redispatch`'s; runs whose host
 // has an ended agent are left to it.
@@ -76,7 +79,7 @@ import type { Caps, ParseState } from "../workers/types";
 
 import { REVIEWER_ROLE, runCaps } from "./caps";
 import { CAP_TICK_MS, type RunEnding, type TrackedRun } from "./control";
-import { HOST_CONNECT_RETRY_MS, HOST_CONNECT_TIMEOUT_MS } from "./hosts";
+import { HOST_CONNECT_RETRY_MS, HOST_CONNECT_TIMEOUT_MS, hostLaunchDeadline } from "./hosts";
 import { HOST_LOST_WHY } from "./outcome-types";
 import { HOST_LOST_END } from "./outcomes";
 import type { ParkOutcome } from "./park";
@@ -221,6 +224,8 @@ function sleep(clock: Clock, ms: number): Promise<void> {
 export class RunReattacher {
   readonly #deps: RunReattacherDeps;
   readonly #exitTimers = new Map<string, TimerHandle>();
+  /** Pending rows whose socket is asked again until their launch deadline, by `run agent`. */
+  readonly #waiting = new Set<string>();
   #closed = false;
 
   constructor(deps: RunReattacherDeps) {
@@ -235,9 +240,9 @@ export class RunReattacher {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined) return [];
     const done: ReattachedRun[] = [];
-    const unmatched = await this.#settlePending(office);
+    const { unmatched, waiting } = await this.#settlePending(office);
     for (const run of activeRuns(office)) {
-      if (run.kind !== "story") continue;
+      if (run.kind !== "story" || waiting.has(run.runId)) continue;
       try {
         const outcome = await this.#reattachRun(office, run, unmatched.get(run.runId));
         if (outcome !== null) done.push(outcome);
@@ -256,10 +261,13 @@ export class RunReattacher {
   /**
    * Settles every `worker_hosts` row the previous daemon left pending between writing it and
    * recording the spawned host (0005). Returns the agent of each run whose pending row matched no
-   * live process.
+   * live process by its launch deadline, and the runs whose row is still asked (DIPO-386).
    */
-  async #settlePending(office: OfficeHandle): Promise<Map<string, string>> {
+  async #settlePending(
+    office: OfficeHandle,
+  ): Promise<{ unmatched: Map<string, string>; waiting: Set<string> }> {
     const unmatched = new Map<string, string>();
+    const waiting = new Set<string>();
     const rows = office.all<{ run_id: string; agent_id: string }>(
       `select run_id, agent_id from worker_hosts where office_id = $office_id and pending = 1
         order by started_at, rowid`,
@@ -267,18 +275,22 @@ export class RunReattacher {
     for (const row of rows) {
       const host = workerHostsOf(office, row.run_id).find((h) => h.agentId === row.agent_id);
       if (host === undefined) continue;
+      if (this.#waiting.has(`${row.run_id} ${row.agent_id}`)) {
+        waiting.add(row.run_id);
+        continue;
+      }
       try {
-        const live = await this.#pendingHost(host);
-        if (live === null) {
-          unmatched.set(row.run_id, row.agent_id);
-          deletePendingHost(office, row.run_id, row.agent_id);
-        } else {
-          recordPendingPid(office, host, live.pid, live.startTimeMs);
+        const settled = await this.#settleOne(office, host);
+        if (settled === "unmatched") unmatched.set(row.run_id, row.agent_id);
+        if (settled === "waiting") {
+          waiting.add(row.run_id);
+          this.#waitPending(office, host);
         }
         this.#deps.warn?.("a worker host was still pending at the restart", {
           run: row.run_id,
           agent: row.agent_id,
-          ...(live === null ? { matched: false } : { matched: true, pid: live.pid }),
+          settled,
+          deadline: hostLaunchDeadline(host.startedAt),
         });
       } catch (error) {
         this.#deps.warn?.("settling a pending worker host failed", {
@@ -288,23 +300,98 @@ export class RunReattacher {
         });
       }
     }
-    return unmatched;
+    return { unmatched, waiting };
+  }
+
+  /**
+   * Asks a pending row's host once: records the live host it names ("matched"), keeps the row
+   * while its launch deadline has not passed ("waiting"), or removes it ("unmatched"). Nothing is
+   * signalled: the PID of a pending host is known only from its own handshake.
+   */
+  async #settleOne(
+    office: OfficeHandle,
+    host: WorkerHostRow,
+  ): Promise<"matched" | "waiting" | "unmatched"> {
+    const deadline = hostLaunchDeadline(host.startedAt);
+    const live = await this.#pendingHost(host, deadline);
+    if (live !== null) {
+      recordPendingPid(office, host, live.pid, live.startTimeMs);
+      return "matched";
+    }
+    if (this.#deps.clock.now() < deadline) return "waiting";
+    deletePendingHost(office, host.runId, host.agentId);
+    return "unmatched";
+  }
+
+  /**
+   * Asks a pending row's socket again, in the background, until its launch deadline (DIPO-386),
+   * then re-attaches the run whose host answered, or parks it as never started. A run that ended
+   * meanwhile gets no handshake: its row goes, and its unclaimed host stops itself.
+   */
+  #waitPending(office: OfficeHandle, host: WorkerHostRow): void {
+    const key = `${host.runId} ${host.agentId}`;
+    if (this.#waiting.has(key)) return;
+    this.#waiting.add(key);
+    void this.#askUntilDeadline(office, host)
+      .catch((error: unknown) => {
+        this.#deps.warn?.("asking a pending worker host again failed", {
+          run: host.runId,
+          agent: host.agentId,
+          reason: messageOf(error),
+        });
+      })
+      .finally(() => this.#waiting.delete(key));
+  }
+
+  async #askUntilDeadline(office: OfficeHandle, pending: WorkerHostRow): Promise<void> {
+    const { clock } = this.#deps;
+    let settled: "matched" | "waiting" | "unmatched" = "waiting";
+    while (settled === "waiting") {
+      await sleep(clock, HOST_CONNECT_RETRY_MS);
+      if (this.#closed) return;
+      const host = workerHostsOf(office, pending.runId).find((h) => h.agentId === pending.agentId);
+      // Settled by another pass.
+      if (host === undefined || !host.pending) return;
+      const run = findRun(office, pending.runId as RunId);
+      if (run === null || run.endedAt !== null) {
+        deletePendingHost(office, host.runId, host.agentId);
+        return;
+      }
+      settled = await this.#settleOne(office, host);
+    }
+    const run = findRun(office, pending.runId as RunId);
+    if (run === null || run.endedAt !== null || run.kind !== "story" || this.#closed) return;
+    const outcome = await this.#reattachRun(
+      office,
+      run,
+      settled === "unmatched" ? pending.agentId : undefined,
+    );
+    this.#deps.warn?.("a pending worker host was settled at its launch deadline or before", {
+      run: pending.runId,
+      agent: pending.agentId,
+      settled,
+      outcome: outcome?.outcome ?? null,
+    });
   }
 
   /**
    * The live host a pending row stands for, with its start time, or null. Its `launch.json` goes
    * first, so a host that has not read it yet starts nothing; a host that has read it binds its
-   * socket at once, so the socket is asked until the connect timeout. The PID it names counts only
-   * when the process runs `dipo daemon worker-host <run>` and started after the row was written.
+   * socket, so the socket is asked until the connect timeout, never past the launch deadline. The
+   * PID it names counts only when the process runs `dipo daemon worker-host <run>` and started
+   * after the row was written.
    */
   async #pendingHost(
     host: WorkerHostRow,
+    launchDeadline: number,
   ): Promise<{ readonly pid: number; readonly startTimeMs: number } | null> {
     const { clock, probe } = this.#deps;
     for (const name of [LAUNCH_FILE, `${LAUNCH_FILE}.tmp`]) {
       rmSync(join(host.runDir, name), { force: true });
     }
-    const deadline = clock.now() + HOST_CONNECT_TIMEOUT_MS;
+    // Past the deadline the host has stopped itself and refuses a handshake.
+    if (clock.now() >= launchDeadline) return null;
+    const deadline = Math.min(clock.now() + HOST_CONNECT_TIMEOUT_MS, launchDeadline);
     let connected: ConnectHostResult;
     for (;;) {
       connected = await (this.#deps.connect ?? this.#connect.bind(this))(
@@ -758,6 +845,7 @@ export class RunReattacher {
   /** Stops the liveness checks of signalled hosts. */
   close(): void {
     this.#closed = true;
+    this.#waiting.clear();
     for (const timer of this.#exitTimers.values()) this.#deps.clock.clearTimeout(timer);
     this.#exitTimers.clear();
   }

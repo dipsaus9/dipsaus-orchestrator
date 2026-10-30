@@ -10,6 +10,7 @@ import { join } from "node:path";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { openStateDatabase } from "../../src/db/database";
 import {
   HOST_PROTOCOL_VERSION,
@@ -62,6 +63,9 @@ function launchOptions(dir: string, calls: DetachedSpawnOptions[]) {
     runtimeDir: join(dir, "rt"),
     plan: PLAN,
     dipoCommand: ["/opt/dipo"] as [string],
+    // The row's time, the manual clock's start: the launch deadline counts from it (DIPO-386).
+    startedAt: START,
+    launchDeadline: START + HOST_LAUNCH_DEADLINE_MS,
     env: {
       HOME: "/home/m",
       BUN_OPTIONS: "--no-orphans",
@@ -99,6 +103,7 @@ describe("launchWorkerHost", () => {
         protocolVersion: HOST_PROTOCOL_VERSION,
         runDir,
         eventFile: join(runDir, "events.ndjson"),
+        launchDeadline: START + HOST_LAUNCH_DEADLINE_MS,
       });
       expect(statSync(runDir).mode & 0o777).toBe(0o700);
       expect(statSync(join(dir, "rt", "hosts")).mode & 0o777).toBe(0o700);
@@ -111,6 +116,7 @@ describe("launchWorkerHost", () => {
         run: RUN,
         agent: AGENT,
         socket: host.socketPath,
+        deadline: START + HOST_LAUNCH_DEADLINE_MS,
         plan: PLAN,
       });
     }));

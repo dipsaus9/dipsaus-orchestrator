@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import type { OfficeHandle } from "../../src/db/office";
 import { EXIT_FILE } from "../../src/host/protocol";
 import type { DetachedSpawnOptions, ProcessInfo, ProcessProbe } from "../../src/platform/process";
@@ -61,8 +62,9 @@ function pendingRow(): WorkerHostRow {
       protocolVersion: 2,
       runDir,
       eventFile: join(runDir, "events.ndjson"),
+      startedAt: t.clock.now(),
+      launchDeadline: t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
     },
-    t.clock,
     120,
   );
   const row = workerHostsOf(office, RUN)[0];
@@ -78,6 +80,8 @@ function launchOptions(spawn: (options: DetachedSpawnOptions) => { pid: number }
     runtimeDir: join(dir, "rt"),
     plan: { argv: ["/bin/true"] as [string], env: {}, cwd: dir, files: [], stdin: [] },
     dipoCommand: ["/opt/dipo"] as [string],
+    startedAt: t.clock.now(),
+    launchDeadline: t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
     env: {},
     probe: probeOf({}),
     spawnDetached: spawn,
@@ -177,6 +181,7 @@ function recorded(overrides: Partial<{ signalStop: boolean }> = {}): WorkerHostR
       protocolVersion: 2,
       runDir,
       eventFile: join(runDir, "events.ndjson"),
+      launchDeadline: t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
     },
     t.clock,
   );

@@ -19,10 +19,10 @@ import {
   truncateSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { type OfficeId, StoryId, type WorkRef } from "@dipsaus-orchestrator/contract";
-import { readRecording } from "@dipsaus-orchestrator/testkit";
+import { cleanEnv, readRecording } from "@dipsaus-orchestrator/testkit";
 
 import type { RunBoxes } from "../../src/box/lifetime";
 import { BOX_RUN_FILE } from "../../src/box/workers";
@@ -35,7 +35,8 @@ import { parseFieldBlock } from "../../src/story-store/fields/block";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config/schema";
 import { currentPlatform } from "../../src/platform/paths";
 import { systemProcessProbe } from "../../src/platform/process";
-import type { HostClient } from "../../src/host/client";
+import { connectHost, type HostClient } from "../../src/host/client";
+import { systemClock } from "../../src/platform/clock";
 import { EXIT_FILE, type HostExitFile, LAUNCH_FILE } from "../../src/host/protocol";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
 import {
@@ -44,7 +45,10 @@ import {
   EXIT_CHECK_MS,
   findRun,
   HOST_LOST_WHY,
+  HOST_CONNECT_TIMEOUT_MS,
+  HOST_LAUNCH_DEADLINE_MS,
   HOST_NEVER_STARTED,
+  hostLaunchDeadline,
   hostStoppedDetail,
   insertRun,
   macSessionText,
@@ -64,7 +68,7 @@ import {
 import { activeSignals, markStuck, raiseSignal } from "../../src/run/signals";
 import { workView } from "../../src/views/work";
 import { promptPartsOf, promptTextsOf } from "../../src/prompts/parts";
-import { recordWorkerHost, workerHostsOf } from "../../src/runs/worker-hosts";
+import { launchWorkerHost, recordWorkerHost, workerHostsOf } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
@@ -163,7 +167,7 @@ function daemon(
   options: Partial<
     Pick<
       ConstructorParameters<typeof RunReattacher>[0],
-      "exitCheckMs" | "boxRecord" | "adapter" | "signal" | "probe"
+      "exitCheckMs" | "boxRecord" | "adapter" | "signal" | "probe" | "connect" | "clock"
     >
   > = {},
 ): Daemon {
@@ -961,6 +965,7 @@ describe("restart windows of DIPO-51's review", () => {
             protocolVersion: 1,
             runDir,
             eventFile: join(runDir, "events.ndjson"),
+            launchDeadline: w.f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
           },
           w.f.t.clock,
           {
@@ -1019,6 +1024,7 @@ describe("restart windows of DIPO-51's review", () => {
             protocolVersion: 1,
             runDir,
             eventFile: join(runDir, "events.ndjson"),
+            launchDeadline: w.f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
           };
           recordWorkerHost(office, host, w.f.t.clock, {
             ...(options.processedOffset === undefined
@@ -1075,6 +1081,7 @@ describe("restart windows of DIPO-51's review", () => {
             protocolVersion: 1,
             runDir,
             eventFile: join(runDir, "events.ndjson"),
+            launchDeadline: w.f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
           };
           recordWorkerHost(office, host, w.f.t.clock, {
             ...(options.processedOffset === undefined
@@ -1120,6 +1127,7 @@ describe("restart windows of DIPO-51's review", () => {
             protocolVersion: 1,
             runDir,
             eventFile: join(runDir, "events.ndjson"),
+            launchDeadline: w.f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
           };
           recordWorkerHost(office, host, w.f.t.clock, {
             ...(options.processedOffset === undefined
@@ -1181,6 +1189,7 @@ describe("restart windows of DIPO-51's review", () => {
             protocolVersion: 1,
             runDir,
             eventFile: join(runDir, "events.ndjson"),
+            launchDeadline: w.f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
           };
           recordWorkerHost(office, host, w.f.t.clock, {
             ...(options.processedOffset === undefined
@@ -1250,6 +1259,7 @@ describe("restart windows of DIPO-51's review", () => {
         protocolVersion: 1,
         runDir: w.dir,
         eventFile: w.f.eventFile,
+        launchDeadline: w.f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
       },
       w.f.t.clock,
     );
@@ -1328,6 +1338,15 @@ function stopDaemon(d: Daemon): void {
   d.reattacher.close();
 }
 
+/** Advances the clock in `stepMs` steps, letting real I/O run between them, until `done`. */
+async function advanceUntil(done: () => boolean, stepMs = 25): Promise<void> {
+  for (let i = 0; i < 2_000 && !done(); i += 1) {
+    w.f.t.clock.advance(stepMs);
+    await Bun.sleep(1);
+  }
+  expect(done()).toBe(true);
+}
+
 /** Advances the clock in connect-retry steps until `promise` settles. */
 async function settled<T>(promise: Promise<T>): Promise<T> {
   const state = { done: false };
@@ -1358,17 +1377,43 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
     expect(parks()).toEqual([]);
   });
 
-  it("removes the launch of a pending row no live host answers for: the row goes, the story parks worker-failed", async () => {
+  it("asks a pending row whose socket did not answer again until it does: then re-attaches it, with no signal (DIPO-386)", async () => {
+    beforeRestart("success-single", 6, 20);
+    makePending();
+    w.answers = false;
+    w.hostPid = 4343;
+    w.startTimeMs = w.f.t.clock.now();
+    const d = daemon();
+    // The first ask times out: the row stays pending and the run waits, neither parked nor stopped.
+    expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([]);
+    expect(hostRow()).toMatchObject({ pending: true, pid: 0 });
+    expect(d.control.isTracked(w.f.run)).toBe(false);
+    // The host binds its socket later, before its launch deadline; no second restart is needed.
+    w.answers = true;
+    await advanceUntil(() => d.control.isTracked(w.f.run));
+    expect(w.f.t.clock.now()).toBeLessThan(hostLaunchDeadline(hostRow().startedAt));
+    expect(hostRow()).toMatchObject({ pending: false, pid: 4343, startTimeMs: w.startTimeMs });
+    expect(w.signals).toEqual([]);
+    expect(parks()).toEqual([]);
+    expect(w.next).toEqual([]);
+  });
+
+  it("keeps a pending row no live host answers for until its launch deadline: then the row goes and the story parks worker-failed (DIPO-386)", async () => {
     makePending();
     w.answers = false;
     writeFileSync(join(w.dir, LAUNCH_FILE), JSON.stringify({ run: w.f.run, agent: w.f.agent }));
+    const deadline = hostLaunchDeadline(hostRow().startedAt);
     const d = daemon();
-    expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "neverStarted" },
-    ]);
+    // The launch goes at once, so a host that has not read it starts nothing; the row stays.
+    expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([]);
+    expect(existsSync(join(w.dir, LAUNCH_FILE))).toBe(false);
+    expect(workerHostsOf(w.f.office, w.f.run)).toHaveLength(1);
+    expect(parks()).toEqual([]);
+    await advanceUntil(() => parks().length > 0, 250);
+    // Parked at the launch deadline the host itself stops at, not before.
+    expect(w.f.t.clock.now()).toBeGreaterThanOrEqual(deadline);
     await d.control.idle();
     expect(workerHostsOf(w.f.office, w.f.run)).toEqual([]);
-    expect(existsSync(join(w.dir, LAUNCH_FILE))).toBe(false);
     expect(parks()).toEqual([["worker-failed", HOST_NEVER_STARTED]]);
     // Nothing to stop and no next session.
     expect(w.sent).toEqual([]);
@@ -1376,13 +1421,42 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
     expect(w.next).toEqual([]);
   });
 
-  it("never takes a process that is not this run's host for a pending row: it parks", async () => {
+  it("parks a pending row found after its launch deadline at once, without asking its socket (DIPO-386)", async () => {
     makePending();
-    w.command = "/usr/bin/vim notes.txt";
-    const d = daemon();
+    w.f.t.clock.advance(HOST_LAUNCH_DEADLINE_MS);
+    let asked = 0;
+    const d = daemon({
+      connect: async () => {
+        asked += 1;
+        return { ok: true, client: fakeClient() };
+      },
+    });
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
       { run: w.f.run, agent: w.f.agent, outcome: "neverStarted" },
     ]);
+    expect(asked).toBe(0);
+    expect(w.signals).toEqual([]);
+  });
+
+  it("never takes a process that is not this run's host for a pending row: it parks at the deadline, with no signal", async () => {
+    makePending();
+    w.command = "/usr/bin/vim notes.txt";
+    const d = daemon();
+    expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([]);
+    await advanceUntil(() => parks().length > 0, 250);
+    expect(parks()).toEqual([["worker-failed", HOST_NEVER_STARTED]]);
+    expect(w.signals).toEqual([]);
+  });
+
+  it("stops asking a pending row once its run ended meanwhile: the row goes, nothing is claimed or signalled (DIPO-386)", async () => {
+    makePending();
+    w.answers = false;
+    const d = daemon();
+    expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([]);
+    endRunByHand();
+    w.answers = true;
+    await advanceUntil(() => workerHostsOf(w.f.office, w.f.run).length === 0);
+    expect(d.control.isTracked(w.f.run)).toBe(false);
     expect(w.signals).toEqual([]);
   });
 
@@ -1500,6 +1574,7 @@ const hosts: Parameters<typeof realResumer>[0] = {
       protocolVersion: 1,
       runDir,
       eventFile: join(runDir, "events.ndjson"),
+      launchDeadline: w.f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
     };
     recordWorkerHost(office, host, w.f.t.clock, {
       ...(options.processedOffset === undefined
@@ -1510,6 +1585,121 @@ const hosts: Parameters<typeof realResumer>[0] = {
     return host;
   },
 };
+
+const LATE_HOST = resolve(import.meta.dir, "../host/fixtures/late-host.ts");
+const CLI_MAIN = resolve(import.meta.dir, "../../../cli/src/main.ts");
+const realProbe = systemProcessProbe(currentPlatform());
+
+/** Whether a real process runs: a zombie or a PID that is gone does not. */
+async function running(pid: number): Promise<boolean> {
+  const info = await realProbe(pid);
+  return info !== null && !info.zombie;
+}
+
+describe("re-attach of real worker host processes left pending (DIPO-386)", () => {
+  it("re-attaches a real host that binds its socket after the first ask timed out, at a later ask, with no signal", async () => {
+    beforeRestart("success-single", 6, 20);
+    makePending();
+    const socket = hostRow().socketPath;
+    mkdirSync(dirname(socket), { recursive: true });
+    const gate = join(w.dir, "bind-now");
+    const host = Bun.spawn([process.execPath, LATE_HOST, "daemon", "worker-host", w.f.run], {
+      env: { ...process.env, LATE_HOST_SOCKET: socket, LATE_HOST_GATE: gate },
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    try {
+      const d = daemon({
+        probe: realProbe,
+        connect: (path, runId) =>
+          connectHost(path, { runId, clock: w.f.t.clock, timeoutMs: HOST_CONNECT_TIMEOUT_MS }),
+      });
+      // The first ask finds no socket for the whole connect timeout: the row stays pending.
+      expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([]);
+      expect(hostRow()).toMatchObject({ pending: true, pid: 0 });
+      // The host binds now, before its launch deadline, and a later ask of the same daemon finds it.
+      writeFileSync(gate, "");
+      await advanceUntil(() => d.control.isTracked(w.f.run));
+      expect(w.f.t.clock.now()).toBeLessThan(hostLaunchDeadline(hostRow().startedAt));
+      expect(hostRow()).toMatchObject({ pending: false, pid: host.pid });
+      expect(await running(host.pid)).toBe(true);
+      expect(w.signals).toEqual([]);
+      expect(parks()).toEqual([]);
+      stopDaemon(d);
+    } finally {
+      host.kill();
+    }
+  });
+
+  it("a real host that never binds where its row says exits by itself at its launch deadline; the story parks worker-failed, with no signal", async () => {
+    makePending();
+    // The row was written a little under the launch deadline ago, so the deadline is 1.5 s away.
+    const startedAt = systemClock.now() - HOST_LAUNCH_DEADLINE_MS + 1_500;
+    w.f.office.immediate(() =>
+      w.f.office.run("update worker_hosts set started_at = $at where office_id = $office_id", {
+        at: startedAt,
+      }),
+    );
+    const deadline = hostLaunchDeadline(startedAt);
+    // A real `dipo daemon worker-host`, its deadline the row's; its socket is not the row's.
+    const real = join(w.dir, "real");
+    const env = cleanEnv();
+    delete env["BUN_OPTIONS"];
+    delete env["BUN_FEATURE_FLAG_NO_ORPHANS"];
+    const host = await launchWorkerHost({
+      runId: w.f.run,
+      agentId: w.f.agent,
+      officeDir: join(real, "office"),
+      runtimeDir: join(real, "rt"),
+      plan: {
+        argv: ["/bin/sleep", "600"],
+        env: { PATH: "/usr/bin:/bin" },
+        cwd: real,
+        files: [],
+        stdin: [],
+      },
+      dipoCommand: [process.execPath, CLI_MAIN],
+      startedAt,
+      launchDeadline: deadline,
+      env: { ...env, DIPO_HOME: join(real, "state"), DIPO_TMP: real },
+      probe: realProbe,
+    });
+    try {
+      // The host has read its launch and runs its worker before the daemon asks.
+      for (let i = 0; i < 200 && !existsSync(host.socketPath); i += 1) await Bun.sleep(10);
+      expect(existsSync(host.socketPath)).toBe(true);
+      expect(host.socketPath).not.toBe(hostRow().socketPath);
+      const d = daemon({
+        clock: systemClock,
+        probe: realProbe,
+        connect: (path, runId) =>
+          connectHost(path, { runId, clock: systemClock, timeoutMs: HOST_CONNECT_TIMEOUT_MS }),
+      });
+      // The daemon asks the row's socket until the deadline: the recovery step parks the story, or
+      // returns while the row still waits and the later ask parks it, by how the timers fall.
+      const first = await d.reattacher.reattach(w.f.office.officeId);
+      expect(first.filter((done) => done.outcome !== "neverStarted")).toEqual([]);
+      for (let i = 0; i < 300 && parks().length === 0; i += 1) await Bun.sleep(10);
+      // Parked only once the launch deadline passed.
+      expect(systemClock.now()).toBeGreaterThanOrEqual(deadline);
+      await d.control.idle();
+      expect(workerHostsOf(w.f.office, w.f.run)).toEqual([]);
+      expect(parks()).toEqual([["worker-failed", HOST_NEVER_STARTED]]);
+      // The host stopped its worker and exited by itself; dipo signalled nothing.
+      for (let i = 0; i < 300 && (await running(host.pid)); i += 1) await Bun.sleep(20);
+      expect(await running(host.pid)).toBe(false);
+      expect(JSON.parse(readFileSync(join(host.runDir, EXIT_FILE), "utf8"))).toMatchObject({
+        signal: "SIGTERM",
+      });
+      expect(readFileSync(join(host.runDir, "host.log"), "utf8")).toContain(
+        "no daemon claimed the worker host by its launch deadline",
+      );
+      expect(w.signals).toEqual([]);
+      expect(w.sent).toEqual([]);
+    } finally {
+      if (await running(host.pid)) process.kill(host.pid, "SIGKILL");
+    }
+  });
+});
 
 describe("the next session's caps (DIPO-143)", () => {
   it("counts a budget grant in what remains of the run's tokens, turns and minutes", async () => {
@@ -1890,6 +2080,7 @@ describe("a later session keeps the model and effort its run started with (DIPO-
             protocolVersion: 1,
             runDir,
             eventFile: join(runDir, "events.ndjson"),
+            launchDeadline: w.f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
           };
           recordWorkerHost(office, host, w.f.t.clock, {
             ...(options.processedOffset === undefined

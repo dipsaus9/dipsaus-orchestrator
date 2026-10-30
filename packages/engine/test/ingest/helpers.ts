@@ -14,6 +14,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import { type Recording, stdoutText } from "@dipsaus-orchestrator/testkit";
 
+import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { Renderer } from "../../src/changelog/render";
 import type { StoredEntry } from "../../src/changelog/log";
 import type { OfficeHandle } from "../../src/db/office";
@@ -49,6 +50,7 @@ export async function ingestFixture(dir: string): Promise<IngestFixture> {
       protocolVersion: 1,
       runDir: dir,
       eventFile,
+      launchDeadline: t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
     },
     t.clock,
   );

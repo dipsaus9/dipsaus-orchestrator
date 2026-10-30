@@ -19,6 +19,8 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import { fakeSpawn, ManualClock, readRecording } from "@dipsaus-orchestrator/testkit";
 
+import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
+import { systemClock } from "../../src/platform/clock";
 import { WorkerHost } from "../../src/host/main";
 import { LAUNCH_FILE } from "../../src/host/protocol";
 import type { IngestAdapter } from "../../src/ingest/ingestor";
@@ -230,6 +232,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           run: f.run,
           agent: f.agent,
           socket,
+          deadline: systemClock.now() + 3_600_000,
           plan: { argv: ["/bin/claude"], env: {}, cwd: dir, files: [], stdin: [] },
         }),
       );
@@ -277,6 +280,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           protocolVersion: 1,
           runDir: dir,
           eventFile: f.eventFile,
+          launchDeadline: f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
         },
         target,
       );

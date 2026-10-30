@@ -16,6 +16,7 @@ import {
   readRecording,
 } from "@dipsaus-orchestrator/testkit";
 
+import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { appendEntries } from "../../src/changelog/log";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
@@ -554,6 +555,7 @@ describe("a crash (AC #3)", () => {
           protocolVersion: 1,
           runDir: w.dir,
           eventFile: w.f.eventFile,
+          launchDeadline: w.f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
         },
         w.f.t.clock,
       );
@@ -997,6 +999,7 @@ describe("usage on resume (AC #9)", () => {
         protocolVersion: 1,
         runDir: w.dir,
         eventFile: w.f.eventFile,
+        launchDeadline: w.f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
       },
       w.f.t.clock,
     );
