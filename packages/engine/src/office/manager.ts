@@ -270,9 +270,18 @@ export class OfficeManager implements OfficeDirectory {
     if (loaded !== undefined) return Promise.resolve({ ok: true, office: loaded.office });
     const pending = this.#loading.get(office);
     if (pending !== undefined) return pending;
+    // Only an office that can load counts as loading: an unknown or forgotten one is refused at once.
+    if (!this.#canLoad(office)) return this.#load(office);
     const loading = this.#load(office).finally(() => this.#loading.delete(office));
     this.#loading.set(office, loading);
     return loading;
+  }
+
+  #canLoad(office: OfficeId): boolean {
+    const db = this.#deps.database();
+    if (db === null) return false;
+    const row = this.#row(db, office);
+    return row !== null && row.forgotten_at === null;
   }
 
   async #load(officeId: OfficeId): Promise<OfficeAccess> {

@@ -17,12 +17,17 @@ describe("office.desk while the office loads", () => {
   test("answers at once with the office marked loading while its load is held", async () => {
     const registry = new Registry();
     registry.load({ name: "views/desk", register: (r) => registerDesk(r, {} as DeskSources) });
-    // The load never settles: the held load of the office.
+    // The load starts with the read and never settles: the held load of the office, as the
+    // directory reports it while the load runs.
     const held = new Promise<OfficeAccess>(() => {});
+    let started = false;
     const offices: OfficeDirectory = {
-      load: () => held,
+      load: () => {
+        started = true;
+        return held;
+      },
       get: () => undefined,
-      loading: (office) => office === OFFICE,
+      loading: (office) => started && office === OFFICE,
     };
 
     const reply = await executeRead(
@@ -34,6 +39,7 @@ describe("office.desk while the office loads", () => {
       },
     );
 
+    expect(started).toBe(true);
     expect(reply.ok).toBe(true);
     if (!reply.ok) return;
     expect(reply.result).toEqual([
