@@ -48,7 +48,12 @@ import { checkoutFiles } from "../story-store/folder";
 import type { StoryStore } from "../story-store/store";
 
 import { type OfficeMarker, readMarker, writeMarker } from "./marker";
-import { type GitRunner, networkFsType, type Repository, resolveRepository } from "./repository";
+import {
+  type GitRunner,
+  networkFsType,
+  type Repository,
+  resolveRepository,
+} from "../git/repository";
 import type { LoadStepResult, OfficeLoadContext } from "./steps";
 
 export interface OfficeManagerDeps {

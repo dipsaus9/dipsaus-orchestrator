@@ -11,8 +11,6 @@ export {
   writeMarker,
 } from "./marker";
 export type { MarkerRead } from "./marker";
-export { canonicalPath, mainWorktreeOf, networkFsType, resolveRepository } from "./repository";
-export type { GitRunner, Repository, ResolveResult } from "./repository";
 export type {
   ActiveWorkCheck,
   LoadStep,

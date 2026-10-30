@@ -15,7 +15,7 @@ import {
   type Spawn,
 } from "@dipsaus-orchestrator/contract";
 
-import { clockSleep, runGitStep, spawnGitExec } from "../git/runner";
+import { clockSleep, runGitStep, spawnGitExec } from "./runner";
 import { systemClock } from "../platform/clock";
 import { isNetworkFsType, mountFor, type MountReader, readSystemMounts } from "../platform/sqlite";
 

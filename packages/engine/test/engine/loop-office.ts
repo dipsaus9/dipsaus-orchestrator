@@ -39,7 +39,7 @@ import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { BacklogLane } from "../../src/backlog/lane";
 import { executeCommand } from "../../src/commands/execute";
 import type { OfficeHandle } from "../../src/db/office";
-import { GateStore } from "../../src/gate";
+import { GateStore } from "../../src/gate-decisions";
 import { EngineGit } from "../../src/git";
 import { EVENTS_FILE, EXIT_FILE, hostSocketPath } from "../../src/host/protocol";
 import {

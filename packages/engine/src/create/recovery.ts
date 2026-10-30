@@ -13,7 +13,7 @@ import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Clock, DatabaseUnavailableReason } from "@dipsaus-orchestrator/contract";
-import { backupsDirectory, preMigrationBackups } from "../backup/files";
+import { backupsDirectory, preMigrationBackups } from "../db/backup-files";
 import {
   DatabaseTooNewError,
   MigrationChecksumError,

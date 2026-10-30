@@ -18,7 +18,7 @@ import { cursorAt } from "../../src/changelog/log";
 import { replay } from "../../src/changelog/replay";
 import { executeCommand } from "../../src/commands/execute";
 import type { OfficeHandle } from "../../src/db/office";
-import { GateStore } from "../../src/gate";
+import { GateStore } from "../../src/gate-decisions";
 import { EngineGit } from "../../src/git";
 import { officeStatusesReady } from "../../src/backlog/init";
 import { storyRunBase, findRun, WorkRun } from "../../src/run";

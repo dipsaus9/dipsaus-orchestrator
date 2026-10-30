@@ -72,7 +72,7 @@ const violations: Case[] = [
   },
   {
     fixture: "backlog-import-nested.ts",
-    target: `${ENGINE}/gate/store/leak.ts`,
+    target: `${ENGINE}/scan/detect/leak.ts`,
     rules: [RULE, RULE, DEEP],
   },
 ];

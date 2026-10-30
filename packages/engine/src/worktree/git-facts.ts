@@ -13,7 +13,7 @@ import { existsSync } from "node:fs";
 import type { GitSession, OfficeGit } from "../git/office";
 import { canonicalFuturePath } from "../git/paths";
 import { findStoryPr } from "../story-pr/records";
-import type { ClaimRecord } from "../worktree/records";
+import type { ClaimRecord } from "./records";
 import type { OfficeHandle } from "../db/office";
 
 /** One entry of `git worktree list --porcelain -z`. */

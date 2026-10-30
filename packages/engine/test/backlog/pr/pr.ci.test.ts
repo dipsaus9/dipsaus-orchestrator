@@ -19,7 +19,8 @@ import {
   PR_NOTICES,
 } from "../../../src/backlog/pr";
 import { gateStoryFromView } from "../../../src/gate/input";
-import { gateContentHash, storeGateDecision } from "../../../src/gate/store";
+import { gateContentHash } from "../../../src/gate";
+import { storeGateDecision } from "../../../src/gate-decisions";
 import { addStory } from "../../../src/stories/keys";
 import { BACKLOG_FIXTURE, notices, publish, squashMergeOnRemote } from "../lane/helpers";
 

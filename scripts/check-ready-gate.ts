@@ -16,14 +16,14 @@ import { loadOfficeConfig } from "../packages/engine/src/config/load";
 import type { BacklogCli } from "../packages/engine/src/backlog/runner";
 import { backlogStoryStore } from "../packages/engine/src/backlog/store";
 import { evaluateGate } from "../packages/engine/src/gate/evaluate";
-import { gateConfigOf } from "../packages/engine/src/gate/store/feature";
+import { gateConfigOf } from "../packages/engine/src/gate-decisions/feature";
 import {
   gateInputOf,
   gateTasksOf,
   listTasks,
   viewListedTasks,
-} from "../packages/engine/src/gate/store/read";
-import { treePaths } from "../packages/engine/src/gate/store/tree";
+} from "../packages/engine/src/gate-decisions/read";
+import { treePaths } from "../packages/engine/src/gate-decisions/tree";
 import { systemSpawn } from "../packages/engine/src/platform/process";
 import { checkoutFiles } from "../packages/engine/src/story-store/folder";
 

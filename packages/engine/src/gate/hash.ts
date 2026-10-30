@@ -10,10 +10,10 @@
 
 import { createHash } from "node:crypto";
 
-import { canonicalJson } from "../../config/merge";
-import { FieldBlockError, parseFieldBlock } from "../../story-store/fields/block";
-import { outcomeLines } from "../rules";
-import type { GateStory } from "../types";
+import { canonicalJson } from "../config/merge";
+import { FieldBlockError, parseFieldBlock } from "../story-store/fields/block";
+import { outcomeLines } from "./rules";
+import type { GateStory } from "./types";
 
 function fieldBlockOf(description: string): unknown {
   try {

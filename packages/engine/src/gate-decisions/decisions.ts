@@ -5,8 +5,8 @@
 
 import type { GateId, IdSource, StoryKey } from "@dipsaus-orchestrator/contract";
 
-import type { OfficeHandle } from "../../db/office";
-import { GATE_RULES, type GateMode, type GateResult, type GateRule } from "../types";
+import type { OfficeHandle } from "../db/office";
+import { GATE_RULES, type GateMode, type GateResult, type GateRule } from "../gate/types";
 
 /**
  * One rule's result as stored: passed, or failed with every message it gave. A rule that only

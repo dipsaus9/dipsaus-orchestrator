@@ -9,7 +9,8 @@ import type { Spawn } from "@dipsaus-orchestrator/contract";
 
 import { BacklogListIncompleteError } from "../../src/backlog/list";
 import { BacklogCommandError, type BacklogCli } from "../../src/backlog/runner";
-import { evaluateGate, readGateInput } from "../../src/gate";
+import { evaluateGate } from "../../src/gate";
+import { readGateInput } from "../../src/gate-decisions";
 import { DEFAULT_CONFIG } from "./fixtures";
 import { backlogStoryStore } from "../../src/backlog/store";
 

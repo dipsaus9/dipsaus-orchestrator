@@ -27,7 +27,7 @@ import type { Clock, OfficeId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries, type NewEntry } from "../../changelog/log";
 import type { OfficeHandle } from "../../db/office";
-import { gateDecisionsOf } from "../../gate/store/decisions";
+import { gateDecisionsOf } from "../../gate-decisions/decisions";
 import type { GitSession } from "../../git/office";
 import { GitError } from "../../git/runner";
 import {

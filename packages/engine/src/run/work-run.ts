@@ -70,7 +70,7 @@ import type {
 import type { OfficeConfig } from "../config";
 import { recordContextPack } from "../context/pack";
 import type { OfficeHandle } from "../db/office";
-import type { BaseCheckout } from "../gate/store/feature";
+import type { BaseCheckout } from "../gate-decisions/feature";
 import type { GateMode, GateResult } from "../gate/types";
 import type { GitSession, OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";

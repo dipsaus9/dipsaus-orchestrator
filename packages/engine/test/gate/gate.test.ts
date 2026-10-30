@@ -769,6 +769,9 @@ describe("purity", () => {
     /^\.\.\/story-store\/story$/,
     /^\.\.\/story-store\/paths$/,
     /^\.\.\/config\/schema$/,
+    // The content hash (`hash.ts`): a sha256 over canonical JSON, both pure.
+    /^\.\.\/config\/merge$/,
+    /^node:crypto$/,
     /^@dipsaus-orchestrator\/contract$/,
   ];
 

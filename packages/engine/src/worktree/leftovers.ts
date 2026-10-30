@@ -41,7 +41,7 @@ import { BASE_CHECKOUT_CONFIG, BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 import { canonicalFuturePath } from "../git/paths";
 import { removeLeftoverWorktree } from "../git/write";
-import { type ListedWorktree, parseWorktreeList } from "../reconcile/git-facts";
+import { type ListedWorktree, parseWorktreeList } from "./git-facts";
 
 /** The desk kind of a leftover worktree dipo kept (0020 section 12). */
 export const LEFTOVER_WORKTREE_DESK = "LEFTOVER WORKTREE";

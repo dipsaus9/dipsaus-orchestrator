@@ -18,21 +18,21 @@ import {
   storyGate,
 } from "@dipsaus-orchestrator/contract";
 
-import { CommandError } from "../../commands/errors";
-import type { FeatureModule } from "../../commands/registry";
-import type { OfficeConfig } from "../../config";
-import type { OfficeHandle } from "../../db/office";
-import type { GitSession, OfficeGit } from "../../git/office";
-import type { IndexResult } from "../../stories/index-stories";
-import { findStoryByKey } from "../../stories/keys";
-import { StoryStoreError } from "../../story-store/errors";
-import type { StoryStore } from "../../story-store/store";
-import { evaluateGate } from "../evaluate";
-import type { GateConfig, GateMode, GateResult, GateTask } from "../types";
+import { CommandError } from "../commands/errors";
+import type { FeatureModule } from "../commands/registry";
+import type { OfficeConfig } from "../config";
+import type { OfficeHandle } from "../db/office";
+import type { GitSession, OfficeGit } from "../git/office";
+import type { IndexResult } from "../stories/index-stories";
+import { findStoryByKey } from "../stories/keys";
+import { StoryStoreError } from "../story-store/errors";
+import type { StoryStore } from "../story-store/store";
+import { evaluateGate } from "../gate/evaluate";
+import type { GateConfig, GateMode, GateResult, GateTask } from "../gate/types";
 
 import { baseSha, cachedGateTasks } from "./cache";
 import { type GateDecisionRecord, storeGateDecision } from "./decisions";
-import { gateContentHash } from "./hash";
+import { gateContentHash } from "../gate/hash";
 import { readGateInput, StoryNotFoundError } from "./read";
 import { BaseTreeCache, listTreeFiles } from "./tree";
 

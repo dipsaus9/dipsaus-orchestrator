@@ -1,9 +1,3 @@
-export {
-  backupsDirectory,
-  PRE_MIGRATION_KEPT,
-  preMigrationBackups,
-  prunePreMigrationBackups,
-} from "./files";
 export { ANALYSIS_LIMIT, runMaintenance, VACUUM_STEP_PAGES } from "./maintenance";
 export type { MaintenanceOptions, MaintenanceReport } from "./maintenance";
 export {

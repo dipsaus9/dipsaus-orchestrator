@@ -16,7 +16,7 @@ import { replay } from "../../src/changelog/replay";
 import { buildRegistry } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
-import { storeGateDecision } from "../../src/gate";
+import { storeGateDecision } from "../../src/gate-decisions";
 import { officeDirectory } from "../../src/office/marker";
 import { Retention, RETENTION_INTERVAL_MS, RETENTION_STEP } from "../../src/retention/feature";
 import { DAY_MS, runRetention } from "../../src/retention/run";

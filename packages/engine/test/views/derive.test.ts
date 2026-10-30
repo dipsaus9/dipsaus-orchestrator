@@ -16,7 +16,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { storeGateDecision } from "../../src/gate/store/decisions";
+import { storeGateDecision } from "../../src/gate-decisions/decisions";
 import { markStuck, raiseSignal } from "../../src/run/signals";
 import { activeStoryViews, deriveColumn, deriveStoryView, storyView } from "../../src/views/story";
 import { deriveHealth, workView } from "../../src/views/work";

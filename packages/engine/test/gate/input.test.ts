@@ -4,7 +4,8 @@ import { describe, expect, it } from "bun:test";
 
 import { parseView } from "../../src/backlog/plain";
 import { type DependencyEntry } from "../../src/story-store/story";
-import { gateStoryFromView, gateTaskFromView, waitingOnOf } from "../../src/gate";
+import { gateStoryFromView, gateTaskFromView } from "../../src/gate";
+import { waitingOnOf } from "../../src/gate-decisions";
 import { recorded } from "../backlog/helpers";
 
 describe("gate inputs from a parsed view", () => {

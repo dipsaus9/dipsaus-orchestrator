@@ -43,6 +43,8 @@ export {
   resolveWorktreeRoot,
 } from "./paths";
 export { GitQueue } from "./queue";
+export { canonicalPath, mainWorktreeOf, networkFsType, resolveRepository } from "./repository";
+export type { GitRunner, Repository, ResolveResult } from "./repository";
 
 export {
   clockSleep,

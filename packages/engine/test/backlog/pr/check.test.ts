@@ -15,7 +15,7 @@ import {
 import { parseRawDiff, taskOfPath } from "../../../src/backlog/pr/diff";
 import type { PlainTask } from "../../../src/story-store/story";
 import { gateStoryFromView } from "../../../src/gate/input";
-import { gateContentHash } from "../../../src/gate/store/hash";
+import { gateContentHash } from "../../../src/gate/hash";
 
 const K1 = StoryKey.parse("sto_01HZZZZZZZZZZZZZZZZZZZZZZ1");
 const K2 = StoryKey.parse("sto_01HZZZZZZZZZZZZZZZZZZZZZZ2");

@@ -20,7 +20,7 @@ import { replay } from "../../src/changelog/replay";
 import type { OfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import type { OfficeHandle } from "../../src/db/office";
-import { storeGateDecision } from "../../src/gate/store/decisions";
+import { storeGateDecision } from "../../src/gate-decisions/decisions";
 import { recordPromptTexts } from "../../src/prompts/parts";
 import { executeRead } from "../../src/reads/execute";
 import { endRun } from "../../src/run/records";
