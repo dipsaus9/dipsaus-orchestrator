@@ -82,7 +82,8 @@ describe("launchWorkerHost", () => {
   it("starts the host detached with stdio on host.log and the Bun flags removed", () =>
     withTempDir(async (dir) => {
       const calls: DetachedSpawnOptions[] = [];
-      const host = await launchWorkerHost(launchOptions(dir, calls));
+      const options = launchOptions(dir, calls);
+      const host = await launchWorkerHost(options);
       const runDir = runDirectory(join(dir, "repo", ".git", "dipo"), RUN);
       expect(calls).toEqual([
         {
@@ -113,7 +114,7 @@ describe("launchWorkerHost", () => {
         run: RUN,
         agent: AGENT,
         socket: host.socketPath,
-        deadline: systemClock.now() + 60_000,
+        deadline: options.launchDeadline,
         plan: PLAN,
       });
     }));
