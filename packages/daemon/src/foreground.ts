@@ -1,4 +1,4 @@
-// `dipo daemon --foreground` (0005): take the PID lock, choose the runtime directory and bind the
+// `dipo daemon --foreground` (0005): take the daemon lock, choose the runtime directory and bind the
 // socket in `starting`; open and migrate the state database as the first recovery step in
 // `recovering` (0007); then `running`. A database it cannot open or migrate keeps it in
 // `recovering`, serving software commands with a notice that says what to do. SIGTERM or SIGINT
@@ -377,6 +377,16 @@ async function runWithLog(run: Run): Promise<number> {
     );
     return 1;
   }
+  if (outcome.kind === "held") {
+    logger.error("another process holds the daemon lock, and dipo.pid names no live daemon", {
+      path: outcome.path,
+      pid: outcome.record?.pid ?? null,
+    });
+    io.writeError(
+      `dipo: another process holds the daemon lock ${outcome.path}, and dipo.pid names no live daemon; not starting. \`lsof ${outcome.path}\` shows the holder.`,
+    );
+    return 1;
+  }
   return serve(run, outcome.lock);
 }
 
@@ -389,15 +399,8 @@ interface Place {
   readonly socketPath: string;
 }
 
-/**
- * Chooses the runtime directory and the socket path in it, once the lock is held (0005). Null when
- * the lock no longer holds this process: a starter that lost the race leaves the winner's socket
- * alone. Exported for its test.
- */
-export function choosePlace(
-  run: Pick<Run, "io" | "logger">,
-  lock: Pick<HeldLock, "holds" | "setRuntimeDir" | "path">,
-): Place | null {
+/** Chooses the runtime directory and the socket path in it, once the lock is held (0005). */
+function choosePlace(run: Run, lock: HeldLock): Place {
   const { io, logger } = run;
   const uid = process.getuid?.() ?? -1;
   const tmpRoot = io.env["DIPO_TMP"] || "/tmp";
@@ -411,7 +414,6 @@ export function choosePlace(
     logger.warn("runtime directory candidate rejected", { ...rejected });
   }
   logger.info("runtime directory chosen", { path: choice.path, source: choice.source });
-  if (!lock.holds()) return null;
   lock.setRuntimeDir(choice.path);
   const socketPath = join(choice.path, SOCKET_FILE);
   removeSocketFile(socketPath);
@@ -429,12 +431,8 @@ function daemonTools(run: Run): ToolPaths {
   return tools.paths;
 }
 
-/**
- * The upgrade check (0005): every minute, until a stop is requested. The same tick checks that
- * `dipo.pid` still holds this daemon's record; a daemon that lost it drains and exits 1, so two
- * daemons never keep running on one `dipo.db`.
- */
-function upgradeWatcher(run: Run, lock: HeldLock, lost: { lockLost: boolean }): UpgradeWatcher {
+/** The upgrade check (0005): every minute, until a stop is requested. */
+function upgradeWatcher(run: Run): UpgradeWatcher {
   const { io, logger, stops, options } = run;
   const command = selfCommand();
   const watcher = new UpgradeWatcher({
@@ -442,12 +440,6 @@ function upgradeWatcher(run: Run, lock: HeldLock, lost: { lockLost: boolean }): 
     logger,
     executable: command[command.length - 1] ?? process.execPath,
     readStamp: options.readExecutableStamp ?? systemExecutableStamp,
-    onTick: () => {
-      if (stops.requested !== null || lock.holds()) return;
-      logger.error("dipo.pid no longer holds this daemon's record; draining", { path: lock.path });
-      lost.lockLost = true;
-      stops.request({ reason: "lock lost", stopWorkers: false });
-    },
   });
   void stops.promise.then(() => watcher.stop());
   return watcher;
@@ -542,8 +534,7 @@ interface Held {
 
 /**
  * Closes down in order: the upgrade check, the engine's services, the server, the socket, then the
- * database (0007) and the lock (0005). A socket path whose lock another daemon holds now is left
- * alone.
+ * database (0007) and the lock (0005).
  */
 async function closeDown(run: Run, held: Held): Promise<void> {
   const { logger, logFile } = run;
@@ -552,11 +543,10 @@ async function closeDown(run: Run, held: Held): Promise<void> {
   await held.engine?.stop();
   // No more debounced office summaries once the daemon stops.
   held.server?.close();
-  const ownsLock = lock.holds();
   try {
     if (held.socket !== null) {
-      await held.socket.stop({ removeFile: ownsLock });
-      logger.info("socket closed", { removed: ownsLock });
+      await held.socket.stop();
+      logger.info("socket closed");
     }
   } finally {
     // Last, after every engine service stopped and the connections closed (1001), so no request
@@ -564,7 +554,7 @@ async function closeDown(run: Run, held: Held): Promise<void> {
     held.engine?.closeDatabase();
   }
   lock.release();
-  if (ownsLock) logger.info("lock released", { path: lock.path });
+  logger.info("lock released", { path: lock.path });
   logger.info("daemon stopped", { log: logFile.path });
 }
 
@@ -572,15 +562,9 @@ async function closeDown(run: Run, held: Held): Promise<void> {
 async function serve(run: Run, lock: HeldLock): Promise<number> {
   const { io, logger, stops, options } = run;
   const held: Held = { lock, upgrade: null, engine: null, server: null, socket: null };
-  const lost = { lockLost: false };
   try {
     const place = choosePlace(run, lock);
-    if (place === null) {
-      logger.error("the daemon lock does not hold this process; exiting", { path: lock.path });
-      io.writeError("dipo: another daemon took the lock while this one started; exiting.");
-      return 1;
-    }
-    const upgrade = upgradeWatcher(run, lock, lost);
+    const upgrade = upgradeWatcher(run);
     held.upgrade = upgrade;
     const engine = startEngine(run, place, { lock, upgrade });
     held.engine = engine;
@@ -594,15 +578,6 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     held.server = server;
     server.onPresenceChanged(() => engine.setTuiPresent(server.presence.tuiConnected()));
     held.socket = serveUnixSocket(place.socketPath, (connection) => server.accept(connection));
-    // Once, after the bind and before any state is touched (0005): a starter that lost a race for
-    // the lock exits here and leaves the socket and the runtime record to the winner.
-    if (!lock.holds()) {
-      logger.error("the daemon lock does not hold this process after binding; exiting", {
-        path: lock.path,
-      });
-      io.writeError("dipo: another daemon took the lock while this one started; exiting.");
-      return 1;
-    }
     announcePlace(run, lock, place);
     upgrade.start();
     await recover(run, engine);
@@ -614,8 +589,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       logger.error("exiting 1 after an uncaught error", { reason: request.reason });
       return 1;
     }
-    // A daemon that lost its lock exits 1 too: another daemon owns the state now.
-    return lost.lockLost ? 1 : 0;
+    return 0;
   } finally {
     await closeDown(run, held);
   }

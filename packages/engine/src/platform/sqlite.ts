@@ -1,7 +1,8 @@
-// The platform SQLite module (0007 sections 1, 2 and 10): the only engine code that touches
-// `bun:sqlite`. It opens the one connection to `<state>/dipo.db` with the 0007 pragmas and file
-// modes, refuses a `<state>` on a network filesystem, and runs `VACUUM INTO` in a Bun Worker so a
-// snapshot never blocks the daemon's one JS thread.
+// The platform SQLite module (0007 sections 1, 2 and 10), the engine's `bun:sqlite` code for
+// `dipo.db` (the daemon lock in `lock.ts` holds a file of its own). It opens the one connection to
+// `<state>/dipo.db` with the 0007 pragmas and file modes, refuses a `<state>` on a network
+// filesystem, and runs `VACUUM INTO` in a Bun Worker so a snapshot never blocks the daemon's one JS
+// thread.
 
 import { constants, Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";

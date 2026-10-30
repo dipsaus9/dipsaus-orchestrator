@@ -1,22 +1,38 @@
-// The PID lock (0005): steps 1 to 3 with a fake process table on a real directory, and release.
+// The daemon lock (0005) on a real directory with real SQLite locks and a fake process table: who
+// holds it, what a starter that cannot take it reports, the symbolic link refusal, the fail-closed
+// cases, and release. One process holds two connections here; `lock-processes.test.ts` runs the
+// starters as separate processes.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
   acquireLock,
-  deleteStaleRecord,
   formatPidRecord,
-  LockBusyError,
+  LOCK_FILE,
+  LockFileError,
   parsePidRecord,
   PID_FILE,
   type AcquireLockOptions,
+  type HeldLock,
   type PidRecord,
 } from "../../src/platform/lock";
 import { systemClock } from "../../src/platform/clock";
+import { NetworkFileSystemError } from "../../src/platform/sqlite";
 import type { ProcessInfo } from "../../src/platform/process";
 
 const T0 = 1_791_535_923_000;
@@ -65,213 +81,300 @@ function options(
     log,
     waitMs: 60,
     pollMs: 10,
+    // A local disk; one test reads the system mount table.
+    readMounts: async () => null,
     ...overrides,
   };
 }
 
 const pidPath = (dir: string) => join(dir, PID_FILE);
+const lockPath = (dir: string) => join(dir, LOCK_FILE);
 const readRecord = (dir: string) => parsePidRecord(readFileSync(pidPath(dir), "utf8"));
 const writeRecord = (dir: string, record: PidRecord) =>
   writeFileSync(pidPath(dir), formatPidRecord(record));
+const readIfAny = (path: string) => (existsSync(path) ? readFileSync(path, "utf8") : null);
 
-describe("acquireLock", () => {
-  it("creates dipo.pid with mode 0600 when there is none", async () => {
-    await withTempDir(async (dir) => {
-      const outcome = await acquireLock(options(dir, new Map()));
-      expect(outcome.kind).toBe("acquired");
-      expect(readRecord(dir)).toEqual(SELF);
-      expect(statSync(pidPath(dir)).mode & 0o777).toBe(0o600);
-    });
-  });
-
-  it("reports a live daemon that answers its handshake (step 1)", async () => {
-    await withTempDir(async (dir) => {
-      writeRecord(dir, OTHER);
-      const table: Table = new Map([[OTHER.pid, daemonInfo(OTHER)]]);
-      const outcome = await acquireLock(options(dir, table, { handshake: async () => true }));
-      expect(outcome).toEqual({ kind: "running", record: OTHER });
-      expect(readRecord(dir)).toEqual(OTHER);
-    });
-  });
-
-  it("reports a live daemon that stays silent as unresponsive after the wait (step 1)", async () => {
-    await withTempDir(async (dir) => {
-      writeRecord(dir, OTHER);
-      const table: Table = new Map([[OTHER.pid, daemonInfo(OTHER)]]);
-      const started = performance.now();
-      const outcome = await acquireLock(options(dir, table, { waitMs: 80 }));
-      expect(outcome).toEqual({ kind: "unresponsive", record: OTHER });
-      expect(performance.now() - started).toBeGreaterThanOrEqual(75);
-      // Code never kills or removes a live daemon's record on a guess.
-      expect(readRecord(dir)).toEqual(OTHER);
-    });
-  });
-
-  it("reports a daemon that starts answering during the wait as running", async () => {
-    await withTempDir(async (dir) => {
-      writeRecord(dir, OTHER);
-      const table: Table = new Map([[OTHER.pid, daemonInfo(OTHER)]]);
-      let calls = 0;
-      const outcome = await acquireLock(
-        options(dir, table, { waitMs: 1000, handshake: async () => ++calls > 3 }),
-      );
-      expect(outcome.kind).toBe("running");
-    });
-  });
-
-  for (const [name, table] of [
-    ["a dead PID", new Map()],
-    ["a zombie", new Map([[OTHER.pid, daemonInfo(OTHER, { zombie: true })]])],
-    ["a reused PID", new Map([[OTHER.pid, daemonInfo(OTHER, { startTimeMs: T0 })]])],
-    ["another command", new Map([[OTHER.pid, daemonInfo(OTHER, { command: "/usr/bin/vim" })]])],
-  ] as const) {
-    it(`deletes a stale record with ${name} and takes the lock`, async () => {
-      await withTempDir(async (dir) => {
-        writeRecord(dir, OTHER);
-        const opts = options(dir, table as Table);
-        const outcome = await acquireLock(opts);
-        expect(outcome.kind).toBe("acquired");
-        expect(readRecord(dir)).toEqual(SELF);
-        expect(opts.log.lines.some((l) => l.message === "removed a stale daemon lock")).toBe(true);
-        expect(readdirSync(dir)).toEqual([PID_FILE]);
-      });
-    });
-  }
-
-  it("deletes an unparsable record that stays unparsable for one poll", async () => {
-    await withTempDir(async (dir) => {
-      writeFileSync(pidPath(dir), "");
-      const outcome = await acquireLock(options(dir, new Map()));
-      expect(outcome.kind).toBe("acquired");
-      expect(readRecord(dir)).toEqual(SELF);
-    });
-  });
-
-  it("goes back to step 1 once when another starter wins step 3, then reports it", async () => {
-    await withTempDir(async (dir) => {
-      writeRecord(dir, OTHER);
-      const table: Table = new Map();
-      let won = false;
-      const opts = options(dir, table, {
-        // The other starter answers once it holds the lock.
-        handshake: async (record) => record.pid === 3000,
-      });
-      const outcome = await acquireLock({
-        ...opts,
-        logger: {
-          info: opts.log.info,
-          warn: (message, fields) => {
-            opts.log.warn(message, fields);
-            if (won) return;
-            // Right after the stale record went, another starter creates its own.
-            won = true;
-            const winner = { ...OTHER, pid: 3000, startTimeMs: T0 };
-            writeRecord(dir, winner);
-            table.set(winner.pid, daemonInfo(winner));
-          },
-        },
-      });
-      expect(outcome).toEqual({
-        kind: "running",
-        record: { ...OTHER, pid: 3000, startTimeMs: T0 },
-      });
-    });
-  });
-
-  it("never deletes a record another starter created after this one judged the old one stale", async () => {
-    await withTempDir(async (dir) => {
-      writeRecord(dir, OTHER);
-      const winner: PidRecord = { ...OTHER, pid: 3000, startTimeMs: T0 };
-      const table: Table = new Map();
-      let swapped = false;
-      const opts = options(dir, table, {
-        // While this starter checks the dead PID, another one deletes the stale record and takes
-        // the lock: the file now holds the winner's record.
-        probe: async (pid) => {
-          if (!swapped && pid === OTHER.pid) {
-            swapped = true;
-            writeRecord(dir, winner);
-            table.set(winner.pid, daemonInfo(winner));
-            return null;
-          }
-          return table.get(pid) ?? null;
-        },
-        handshake: async (record) => record.pid === winner.pid,
-      });
-      expect(await acquireLock(opts)).toEqual({ kind: "running", record: winner });
-      expect(readRecord(dir)).toEqual(winner);
-      expect(opts.log.lines.some((l) => l.message === "removed a stale daemon lock")).toBe(false);
-    });
-  });
-
-  it("gives up when another starter wins step 3 twice", async () => {
-    await withTempDir(async (dir) => {
-      writeRecord(dir, OTHER);
-      let next = 3000;
-      const opts = options(dir, new Map());
-      // Another starter writes a new record of a dead process right after every delete.
-      const outcome = acquireLock({
-        ...opts,
-        logger: {
-          info: opts.log.info,
-          warn: (message, fields) => {
-            opts.log.warn(message, fields);
-            writeRecord(dir, { ...OTHER, pid: next++ });
-          },
-        },
-      });
-      await expect(outcome).rejects.toBeInstanceOf(LockBusyError);
-      expect(next).toBe(3002);
-    });
-  });
-});
-
-async function held(dir: string, table: Table = new Map()) {
-  const outcome = await acquireLock(options(dir, table));
+async function held(dir: string, self: PidRecord = SELF): Promise<HeldLock> {
+  const outcome = await acquireLock(options(dir, new Map(), { self }));
   if (outcome.kind !== "acquired") throw new Error(`expected acquired, got ${outcome.kind}`);
   return outcome.lock;
 }
 
-describe("held lock", () => {
-  it("records the runtime directory and still holds it", async () => {
+/** Runs `fn` with `OTHER` holding the lock on a second connection, as a running daemon would. */
+async function whileOtherHolds(dir: string, fn: () => Promise<void>): Promise<void> {
+  const other = await held(dir, OTHER);
+  try {
+    await fn();
+  } finally {
+    other.release();
+  }
+}
+
+describe("acquireLock", () => {
+  it("takes dipo.lock and writes dipo.pid with mode 0600, leaving no journal file", async () => {
     await withTempDir(async (dir) => {
       const lock = await held(dir);
-      lock.setRuntimeDir("/tmp/dipo-501");
-      expect(readRecord(dir)).toEqual({ ...SELF, runtimeDir: "/tmp/dipo-501" });
-      expect(lock.holds()).toBe(true);
+      expect(readRecord(dir)).toEqual(SELF);
+      expect(statSync(pidPath(dir)).mode & 0o777).toBe(0o600);
+      expect(readdirSync(dir).toSorted()).toEqual([LOCK_FILE, PID_FILE]);
+      lock.release();
     });
   });
 
-  it("leaves a record another process wrote alone on release", async () => {
+  it("overwrites an old record of a dead process without judging it: the lock is free", async () => {
     await withTempDir(async (dir) => {
-      const lock = await held(dir);
       writeRecord(dir, OTHER);
-      expect(lock.holds()).toBe(false);
-      lock.release();
-      expect(readRecord(dir)).toEqual(OTHER);
+      const opts = options(dir, new Map());
+      const outcome = await acquireLock(opts);
+      expect(outcome.kind).toBe("acquired");
+      expect(readRecord(dir)).toEqual(SELF);
+      expect(opts.log.lines.map((line) => line.message)).toEqual(["took the daemon lock"]);
+      if (outcome.kind === "acquired") outcome.lock.release();
     });
   });
 
-  it("removes only its own record on release", async () => {
+  it("reports a live daemon that holds the lock and answers its handshake", async () => {
+    await withTempDir((dir) =>
+      whileOtherHolds(dir, async () => {
+        const table: Table = new Map([[OTHER.pid, daemonInfo(OTHER)]]);
+        const outcome = await acquireLock(options(dir, table, { handshake: async () => true }));
+        expect(outcome).toEqual({ kind: "running", record: OTHER });
+        expect(readRecord(dir)).toEqual(OTHER);
+      }),
+    );
+  });
+
+  it("reports a live holder that stays silent as unresponsive after the wait, never taking it", async () => {
+    await withTempDir((dir) =>
+      whileOtherHolds(dir, async () => {
+        const table: Table = new Map([[OTHER.pid, daemonInfo(OTHER)]]);
+        const before = readFileSync(pidPath(dir), "utf8");
+        const started = performance.now();
+        const outcome = await acquireLock(options(dir, table, { waitMs: 80 }));
+        expect(outcome).toEqual({ kind: "unresponsive", record: OTHER });
+        expect(performance.now() - started).toBeGreaterThanOrEqual(75);
+        expect(readFileSync(pidPath(dir), "utf8")).toBe(before);
+      }),
+    );
+  });
+
+  it("reports a holder that starts answering during the wait as running", async () => {
+    await withTempDir((dir) =>
+      whileOtherHolds(dir, async () => {
+        const table: Table = new Map([[OTHER.pid, daemonInfo(OTHER)]]);
+        let calls = 0;
+        const outcome = await acquireLock(
+          options(dir, table, { waitMs: 1000, handshake: async () => ++calls > 3 }),
+        );
+        expect(outcome.kind).toBe("running");
+      }),
+    );
+  });
+
+  // dipo.pid deleted or replaced while a daemon runs: the lock still excludes the starter.
+  for (const [name, change] of [
+    ["deleted", (dir: string) => unlinkSync(pidPath(dir))],
+    ["replaced by a dead process's record", (dir: string) => writeRecord(dir, SELF)],
+    ["replaced by damage", (dir: string) => writeFileSync(pidPath(dir), "{")],
+  ] as const) {
+    it(`never takes a held lock when dipo.pid was ${name}`, async () => {
+      await withTempDir((dir) =>
+        whileOtherHolds(dir, async () => {
+          change(dir);
+          const before = readIfAny(pidPath(dir));
+          const outcome = await acquireLock(
+            options(dir, new Map(), { self: { ...SELF, pid: 3000 } }),
+          );
+          expect(outcome.kind).toBe("held");
+          if (outcome.kind === "held") expect(outcome.path).toBe(lockPath(dir));
+          expect(readIfAny(pidPath(dir))).toBe(before);
+        }),
+      );
+    });
+  }
+
+  // A daemon whose dipo.lock was removed or replaced, or one from before this lock, holds no lock
+  // on the file a starter opens: its live record still keeps the starter out.
+  it("lets the lock go when dipo.pid names a live daemon that holds no lock, and reports it running", async () => {
     await withTempDir(async (dir) => {
-      const lock = await held(dir);
+      writeRecord(dir, OTHER);
+      const before = readFileSync(pidPath(dir), "utf8");
+      const table: Table = new Map([[OTHER.pid, daemonInfo(OTHER)]]);
+      const opts = options(dir, table, { handshake: async (record) => record.pid === OTHER.pid });
+      expect(await acquireLock(opts)).toEqual({ kind: "running", record: OTHER });
+      expect(readFileSync(pidPath(dir), "utf8")).toBe(before);
+      expect(opts.log.lines.map((line) => line.message)).toEqual([
+        "dipo.pid names a live daemon that does not hold dipo.lock; not taking it",
+      ]);
+      // The starter let the lock go: once that daemon is gone, the next start takes it.
+      const next = await held(dir);
+      expect(readRecord(dir)).toEqual(SELF);
+      next.release();
+    });
+  });
+
+  it("reports a live daemon that holds no lock and does not answer as unresponsive", async () => {
+    await withTempDir(async (dir) => {
+      writeRecord(dir, OTHER);
+      const before = readFileSync(pidPath(dir), "utf8");
+      const table: Table = new Map([[OTHER.pid, daemonInfo(OTHER)]]);
+      expect(await acquireLock(options(dir, table))).toEqual({
+        kind: "unresponsive",
+        record: OTHER,
+      });
+      expect(readFileSync(pidPath(dir), "utf8")).toBe(before);
+    });
+  });
+
+  it("takes the lock over a record of a live process that is no dipo daemon", async () => {
+    await withTempDir(async (dir) => {
+      writeRecord(dir, OTHER);
+      const table: Table = new Map([[OTHER.pid, daemonInfo(OTHER, { command: "/usr/bin/vim" })]]);
+      const outcome = await acquireLock(options(dir, table));
+      expect(outcome.kind).toBe("acquired");
+      expect(readRecord(dir)).toEqual(SELF);
+      if (outcome.kind === "acquired") outcome.lock.release();
+    });
+  });
+
+  it("takes a lock that comes free during the wait", async () => {
+    await withTempDir(async (dir) => {
+      const other = await held(dir, OTHER);
+      const outcome = acquireLock(options(dir, new Map(), { waitMs: 2000 }));
+      await Bun.sleep(50);
+      other.release();
+      const taken = await outcome;
+      expect(taken.kind).toBe("acquired");
+      expect(readRecord(dir)).toEqual(SELF);
+      if (taken.kind === "acquired") taken.lock.release();
+    });
+  });
+
+  for (const [name, target] of [
+    ["an existing file", "target"],
+    ["a missing file", "missing"],
+  ] as const) {
+    it(`refuses a dipo.lock that is a symbolic link to ${name}`, async () => {
+      await withTempDir(async (dir) => {
+        if (target === "target") writeFileSync(join(dir, target), "");
+        symlinkSync(join(dir, target), lockPath(dir));
+        const outcome = acquireLock(options(dir, new Map()));
+        await expect(outcome).rejects.toBeInstanceOf(LockFileError);
+        await expect(outcome).rejects.toThrow("SQLITE_CANTOPEN");
+        expect(existsSync(pidPath(dir))).toBe(false);
+        expect(existsSync(join(dir, "missing"))).toBe(false);
+        if (target === "target") expect(statSync(join(dir, target)).size).toBe(0);
+      });
+    });
+  }
+
+  it("takes the lock through a state folder whose path holds a symbolic link", async () => {
+    await withTempDir(async (dir) => {
+      const real = join(dir, "real");
+      mkdirSync(real);
+      symlinkSync(real, join(dir, "state"));
+      const lock = await held(join(dir, "state"));
+      expect(existsSync(lockPath(real))).toBe(true);
       lock.release();
-      expect(existsSync(pidPath(dir))).toBe(false);
     });
   });
 });
 
-describe("deleteStaleRecord", () => {
-  it("deletes only the bytes judged stale", async () => {
-    await withTempDir((dir) => {
-      writeRecord(dir, OTHER);
-      const stale = formatPidRecord(OTHER);
-      writeRecord(dir, { ...OTHER, pid: 3000 });
-      expect(deleteStaleRecord(pidPath(dir), stale)).toBe(false);
-      expect(readRecord(dir)?.pid).toBe(3000);
-      expect(deleteStaleRecord(pidPath(dir), formatPidRecord({ ...OTHER, pid: 3000 }))).toBe(true);
+/** A start against `stateDir` that must fail closed: an error with `code`, and no `dipo.pid`. */
+async function expectRefused(stateDir: string, code: string): Promise<void> {
+  const outcome = acquireLock(options(stateDir, new Map()));
+  await expect(outcome).rejects.toBeInstanceOf(LockFileError);
+  await expect(outcome).rejects.toThrow(`(${code})`);
+  expect(existsSync(pidPath(stateDir))).toBe(false);
+}
+
+// Fail-closed (0005): a lock file that cannot be created or locked stops the start.
+describe("acquireLock when the lock file cannot be used", () => {
+  it("refuses a state folder on a network filesystem before it opens dipo.lock", async () => {
+    await withTempDir(async (dir) => {
+      const mounts = [
+        { mountPoint: "/", fsType: "apfs" },
+        { mountPoint: realpathSync(dir), fsType: "smbfs" },
+      ];
+      const outcome = acquireLock(options(dir, new Map(), { readMounts: async () => mounts }));
+      await expect(outcome).rejects.toBeInstanceOf(NetworkFileSystemError);
+      expect(readdirSync(dir)).toEqual([]);
+    });
+  });
+
+  it("takes the lock on a local disk, read from the system mount table", async () => {
+    await withTempDir(async (dir) => {
+      const { readMounts: _, ...rest } = options(dir, new Map());
+      const outcome = await acquireLock(rest);
+      expect(outcome.kind).toBe("acquired");
+      if (outcome.kind === "acquired") outcome.lock.release();
+    });
+  });
+
+  it("refuses a read-only state folder without a lock file", async () => {
+    await withTempDir(async (dir) => {
+      const state = join(dir, "state");
+      mkdirSync(state, { mode: 0o500 });
+      try {
+        await expectRefused(state, "SQLITE_CANTOPEN");
+      } finally {
+        chmodSync(state, 0o700);
+      }
+    });
+  });
+
+  it("refuses a read-only lock file, whose SQLite lock would exclude nobody", async () => {
+    await withTempDir(async (dir) => {
+      writeFileSync(lockPath(dir), "", { mode: 0o400 });
+      await expectRefused(dir, "SQLITE_READONLY");
+    });
+  });
+
+  it("refuses a folder at the lock file's path", async () => {
+    await withTempDir(async (dir) => {
+      mkdirSync(lockPath(dir));
+      await expectRefused(dir, "SQLITE_CANTOPEN");
+    });
+  });
+
+  it("refuses a lock file that is not a database", async () => {
+    await withTempDir(async (dir) => {
+      writeFileSync(lockPath(dir), "not a database, ".repeat(16));
+      await expectRefused(dir, "SQLITE_NOTADB");
+    });
+  });
+});
+
+describe("held lock", () => {
+  it("records the runtime directory in dipo.pid", async () => {
+    await withTempDir(async (dir) => {
+      const lock = await held(dir);
+      lock.setRuntimeDir("/tmp/dipo-501");
+      expect(readRecord(dir)).toEqual({ ...SELF, runtimeDir: "/tmp/dipo-501" });
+      expect(lock.record()).toEqual({ ...SELF, runtimeDir: "/tmp/dipo-501" });
+      expect(readdirSync(dir).toSorted()).toEqual([LOCK_FILE, PID_FILE]);
+      lock.release();
+    });
+  });
+
+  it("removes dipo.pid and frees the lock on release, keeping the lock file", async () => {
+    await withTempDir(async (dir) => {
+      const lock = await held(dir);
+      lock.release();
       expect(existsSync(pidPath(dir))).toBe(false);
-      expect(deleteStaleRecord(pidPath(dir), stale)).toBe(false);
+      expect(existsSync(lockPath(dir))).toBe(true);
+      const next = await held(dir, OTHER);
+      expect(readRecord(dir)).toEqual(OTHER);
+      next.release();
+    });
+  });
+
+  it("releases when dipo.pid is already gone", async () => {
+    await withTempDir(async (dir) => {
+      const lock = await held(dir);
+      unlinkSync(pidPath(dir));
+      lock.release();
+      (await held(dir)).release();
     });
   });
 });

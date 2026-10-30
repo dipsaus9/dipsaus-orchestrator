@@ -120,7 +120,7 @@ There is one daemon process per user. Inside it each office is its own engine in
 
 | Purpose | Path |
 |---|---|
-| State: `dipo.db`, `dipo.pid`, `runtime.json`, `config.yaml` | `~/Library/Application Support/dipo` |
+| State: `dipo.db`, `dipo.lock`, `dipo.pid`, `runtime.json`, `config.yaml` | `~/Library/Application Support/dipo` |
 | Logs | `~/Library/Logs/dipo` |
 | Runtime: `dipo.sock`, worker host sockets | `$TMPDIR/dipo`, else `/tmp/dipo-<uid>` |
 
@@ -137,15 +137,15 @@ There is one daemon process per user. Inside it each office is its own engine in
 
 ### 15. The lock
 
-`dipo.pid` holds the PID, the process start time and the version. On start:
+The lock is an exclusive SQLite lock on `<state>/dipo.lock`: `BEGIN EXCLUSIVE` and one write on a connection of its own, kept open for the daemon's whole life and never committed. SQLite takes it with `fcntl` locks, which belong to the process: the operating system drops them when the process exits, also on SIGKILL, so no code ever judges a lock stale. On start:
 
-1. If the PID in it is alive, has the same start time and runs `dipo daemon`, a daemon runs. Handshake with it, or report it unresponsive.
-2. Otherwise the record is stale. Delete it, unless the file changed since it was read: then another starter won.
-3. Create `dipo.pid` with `O_EXCL`. If that fails, another starter won, so go back to step 1 once. Only while it holds the lock does the daemon choose the runtime directory, remove a leftover socket there and bind, and it checks the lock once more right after the bind.
+1. Refuse a state directory on a network filesystem, where the lock may exclude nobody. Open `dipo.lock` in the real state directory, created when missing and refused when it is a symbolic link, and take the lock. The write fails on a file SQLite can only read, whose lock would exclude nobody. Any error other than "busy" stops the start: the daemon never runs without the lock.
+2. Taken: if `dipo.pid` still names another live process with the same start time that runs `dipo daemon`, that daemon holds no lock on this file: its `dipo.lock` was removed or replaced, or it predates this lock. Let the lock go and go on as in step 3; never run beside it. A record of a dead process does not count. Otherwise write `dipo.pid` with the PID, the process start time and the version, by write-to-temp then rename. Only while it holds the lock does the daemon choose the runtime directory, record it in `dipo.pid`, remove a leftover socket there and bind.
+3. Busy: if `dipo.pid` names a live process with the same start time that runs `dipo daemon`, handshake with it for up to 5 s, or report it unresponsive with the `dipo daemon stop --force` hint. Otherwise report that another process holds the lock. A starter never takes a held lock over, and it touches neither `dipo.pid` nor the socket.
 
-A running daemon checks at its minute upgrade check (section 19) that `dipo.pid` still holds its record. One that lost it drains, exits 1 and leaves the record and the socket path to the daemon that holds them, so two daemons never run on one database. Only a starting daemon deletes `dipo.pid`; a client reports a stale one.
+`dipo.pid` is the record clients read, not the lock. Only the lock holder writes it, and no code judges it stale to take the lock: a client reports a `dipo.pid` whose process is gone as stale and leaves it, and the next holder overwrites it. Nothing else in the daemon opens `dipo.lock`, because closing a second descriptor of it in the same process would drop the lock. dipo never removes the file.
 
-The start time comes from the `kern.proc` sysctls through `bun:ffi` on macOS, because sandboxed processes cannot run `/bin/ps`. On clean exit the daemon removes the socket, then `dipo.pid`.
+The start time comes from the `kern.proc` sysctls through `bun:ffi` on macOS, because sandboxed processes cannot run `/bin/ps`. On clean exit the daemon removes the socket, then `dipo.pid`, then releases the lock.
 
 ### 16. States and recovery
 
@@ -198,8 +198,9 @@ The daemon never owns a worker process. Each session gets a worker host, `dipo d
 - A `confirmed` flag for a conversation layer (2026-10-10). It returns with M5.
 - Story identity after a database loss matched by frozen branch, then created date (2026-10-10). Replaced by: a vanished id is Removed, a new id is a new story (2026-10-24).
 - `work.pause`, `work.reassign`, `work.stop`, `story.hold`, `office.purge`, `daemon.webBootstrap`, `office.usage` and the `office.switch` alias. Replaced by `story.park` (0020), or removed.
-- A crash-loop `safe` state, a held `recovering` state with crash markers and `needsCheck`, and a minute-by-minute lock self-check that recreated a missing record and took a foreign one back (2026-10-10 to 2026-10-16). Replaced by the plain states of section 16 (2026-10-24) and a check that only stops a daemon that lost its lock (section 15, 2026-10-30).
+- A crash-loop `safe` state, a held `recovering` state with crash markers and `needsCheck`, and a minute-by-minute lock self-check that recreated a missing record and took a foreign one back (2026-10-10 to 2026-10-16). Replaced by the plain states of section 16 (2026-10-24) and the SQLite lock of section 15, which no starter takes from a running daemon (2026-10-30).
 - A PID lock broken by rename-and-verify with a `link()` restore and a stale-break window re-check (2026-10-10). Replaced by the plain lock of section 15 (2026-10-24).
+- `dipo.pid` as the lock: created with `O_EXCL`, a stale record deleted only when unchanged, and lock checks after the bind and at the minute upgrade check (2026-10-24 to 2026-10-30). A starter paused between its re-read and its delete could still run beside another. Replaced by the SQLite lock of section 15, which the operating system releases (2026-10-30).
 - Follow-only worker hosts, a verified-SIGTERM protocol for them, and a `launch.json` claim and rename protocol for pending hosts (2026-10-15). Replaced by re-attach or park (2026-10-24).
 - Linux support: systemd units and scopes, `systemd-inhibit`, lingering checks (2026-10-10). macOS only (0004, 2026-10-24).
 - Auto-restart on upgrade (`daemon.autoRestartOnUpgrade`, default off). Removed; `dipo daemon restart` is the way (2026-10-24).

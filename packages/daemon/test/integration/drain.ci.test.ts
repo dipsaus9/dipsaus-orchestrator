@@ -103,7 +103,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(draining?.reason).toBe("SIGTERM");
             expect(messages).toContain("drained");
             expect(messages).not.toContain("the drain reached its cap");
-            expect(log.find((l) => l.msg === "socket closed")?.removed).toBe(true);
+            expect(log.some((l) => l.msg === "socket closed")).toBe(true);
             expect(messages.indexOf("drained")).toBeLessThan(messages.indexOf("socket closed"));
             expect(messages.indexOf("socket closed")).toBeLessThan(
               messages.indexOf("lock released"),
