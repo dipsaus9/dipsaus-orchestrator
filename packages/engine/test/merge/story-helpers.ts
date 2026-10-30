@@ -36,6 +36,7 @@ import {
 } from "../run/rounds-helpers";
 
 import { GREEN, MergeHost } from "./helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 export const H1 = "1".repeat(40);
 /** The close-out commit on top of H1 (a task-file commit: the same code tree). */
@@ -254,6 +255,7 @@ export async function storyWorld(
     },
     clock: w.t.clock,
     stories: {
+      stories: backlogLayout,
       git,
       ids: w.t.ids,
       labels: host,

@@ -445,7 +445,7 @@ export class StoryTeardown {
       );
       return "open";
     }
-    if (hasOpenPark(state.office, claim)) {
+    if (hasOpenPark(this.#deps.stories, state.office, claim)) {
       const text = movedPastParkedText(claim, pr);
       this.#tell(state, deps, claim, "warn", TEARDOWN_NOTICES.parked, text);
       return "kept";

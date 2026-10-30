@@ -12,7 +12,7 @@ import type { StoryEditor, StoryStore } from "../story-store/store";
 
 import { readOnBranch } from "./branch-read";
 import { appendImplementationNotes, setFinalSummary } from "./fields/summary";
-import { pendingLaneOp } from "./lane/journal";
+import { journaledPark, pendingLaneOp } from "./lane/journal";
 import { backlogCheckBlocked } from "./pr/records";
 import { type StoryTarget, viewStory, writeFields } from "./fields/write";
 import { listAll } from "./list";
@@ -121,5 +121,6 @@ export function backlogStoryStore(cli: BacklogCli): StoryStore {
       if (pendingLaneOp(office, key) !== null) return "pending";
       return backlogCheckBlocked(office, key) === null ? null : "checkFailed";
     },
+    plannedPark: journaledPark,
   };
 }

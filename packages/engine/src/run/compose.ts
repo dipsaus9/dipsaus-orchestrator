@@ -36,6 +36,7 @@ import { WebCalls } from "./web-calls";
 import { ConflictResumes, type ConflictResumesDeps } from "./conflicts";
 import { resolveIntent, runIntents } from "./intents";
 import type { MergeReentry, PrReplacement } from "./park-resume";
+import type { ParkStore } from "./park-state";
 import { workRefOf } from "../views/work";
 import type { HoldResumer } from "./work-resume";
 import { Partner } from "../wiring/partner";
@@ -44,6 +45,8 @@ import type { RunBase } from "./work-run";
 type Warn = (message: string, fields: Readonly<Record<string, unknown>>) => void;
 
 export interface RunPorts {
+  /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
+  readonly stories: ParkStore;
   readonly clock: Clock;
   readonly ids: IdSource;
   readonly offices: RunResumerDeps["offices"];
@@ -195,6 +198,7 @@ function buildControl(ports: RunPorts, partners: RunPartners): RunControl | null
   if (ports.control === undefined) return null;
   return new RunControl({
     ...ports.control,
+    stories: ports.stories,
     clock: ports.clock,
     offices: ports.offices,
     ids: ports.ids,
@@ -228,6 +232,7 @@ function buildRunListeners(
 ): RunListeners {
   const ending = (run: string) => control?.isEnding(run) ?? false;
   const permissions = new PermissionAsks({
+    stories: ports.stories,
     clock: ports.clock,
     ids: ports.ids,
     offices: ports.offices,
@@ -337,6 +342,7 @@ function buildOutcomes(
     {
       ...outcomePorts,
       startsPaused: () => partners.startsPaused.get() ?? undefined,
+      stories: ports.stories,
       clock: ports.clock,
       offices: ports.offices,
       steering: ports.steering,
@@ -386,6 +392,7 @@ function buildOutcomes(
         });
   // A fix round continues the developer's session through worker outcomes (DIPO-148).
   const fixRounds = new FixRounds({
+    stories: ports.stories,
     clock: ports.clock,
     offices: ports.offices,
     story: baseStoryFacts(ports.base),
@@ -519,6 +526,7 @@ function buildReviews(
     ...given("warn", ports.warn),
   });
   return new Reviews({
+    stories: ports.stories,
     clock: ports.clock,
     ids: ports.ids,
     offices: ports.offices,

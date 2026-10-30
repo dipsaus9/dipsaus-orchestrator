@@ -34,7 +34,7 @@ import { closeQuestion, openQuestions } from "../questions/questions";
 import { CodeHostError, type CodeHost } from "../platform/host";
 import { forgetWorkerNotes } from "../prompts/notes";
 import { openParkIds, resolvePark } from "../run/park-records";
-import { heldByPark } from "../run/park-state";
+import { heldByPark, type ParkStore } from "../run/park-state";
 import { findRun } from "../run/records";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
 import type { StoryStore } from "../story-store/store";
@@ -449,8 +449,12 @@ export function releaseDoneElsewhere(
 }
 
 /** True while the story of the claim is held by a park (DIPO-332; `heldByPark`, DIPO-360). */
-export function hasOpenPark(office: OfficeHandle, claim: Pick<ClaimRecord, "key">): boolean {
-  return heldByPark(office, claim.key);
+export function hasOpenPark(
+  stories: ParkStore,
+  office: OfficeHandle,
+  claim: Pick<ClaimRecord, "key">,
+): boolean {
+  return heldByPark(stories, office, claim.key);
 }
 
 /**

@@ -54,7 +54,11 @@ import { heldByPark } from "../../src/run/park-state";
 import { activeRuns, openAtInReview } from "../../src/run/records";
 import { placeHolders, waitingStarts } from "../../src/run/places";
 import { reopen } from "../../src/run/rounds";
-import { desk, PARK_NOT_WRITTEN as PARK_NOT_WRITTEN_DESK } from "../../src/views/desk";
+import {
+  desk,
+  PARK_NOT_WRITTEN as PARK_NOT_WRITTEN_DESK,
+  DESK_SOURCES,
+} from "../../src/views/desk";
 import { addStory } from "../../src/stories/keys";
 import { encode, STOP_MESSAGE } from "../../src/workers/claude-cli/encode";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
@@ -80,6 +84,7 @@ import {
 import { watchRejections } from "../platform/rejections";
 import { RECORDINGS_DIR } from "../workers/replay";
 import { SCRIPTS } from "../workers/scripts";
+import { backlogLayout } from "../story-store/backlog";
 
 const claude: IngestAdapter = {
   interpret: (line, state) =>
@@ -127,6 +132,7 @@ beforeEach(async () => {
     warnings: [],
   } as unknown as World;
   const control = new RunControl({
+    stories: backlogLayout,
     clock: f.t.clock,
     offices: { get: () => f.office },
     writer: {
@@ -606,13 +612,15 @@ describe("story.park of a running story", () => {
     // The stop was sent, so the run ended with its park recorded, unwritten and held.
     expect(parks().map((p) => [p.reason, p.detail])).toEqual([["by-maintainer", "Not now."]]);
     expect(findRun(w.f.office, w.f.run)?.endedAt).not.toBeNull();
-    expect(openPark(w.f.office, w.work.key)).toBeNull();
-    expect(heldByPark(w.f.office, w.work.key)).toBe(true);
+    expect(openPark(backlogLayout, w.f.office, w.work.key)).toBeNull();
+    expect(heldByPark(backlogLayout, w.f.office, w.work.key)).toBe(true);
     // The office's worker place is free, and a restart finds nothing to start for the run.
     expect(placeHolders(w.f.office).worker).toEqual([]);
     expect(activeRuns(w.f.office)).toEqual([]);
     expect(waitingStarts(w.f.office)).toEqual([]);
-    const [row] = desk(w.f.office, () => true).filter((item) => item.story === "DIPO-1");
+    const [row] = desk(w.f.office, () => true, { ...DESK_SOURCES, stories: backlogLayout }).filter(
+      (item) => item.story === "DIPO-1",
+    );
     expect(row).toMatchObject({ kind: PARK_NOT_WRITTEN_DESK });
     expect(row?.actions.map((action) => action.cli)).toContain('dipo park DIPO-1 --note "<why>"');
 
@@ -621,10 +629,14 @@ describe("story.park of a running story", () => {
     const retried = await stopCommand("DIPO-1", "Not now.");
     expect(retried.ok).toBe(true);
     expect(parks().map((p) => [p.reason, p.detail])).toEqual([["by-maintainer", "Not now."]]);
-    expect(openPark(w.f.office, w.work.key)).toMatchObject({ reason: "by-maintainer" });
-    expect(desk(w.f.office, () => true).map((item) => item.kind)).not.toContain(
-      PARK_NOT_WRITTEN_DESK,
-    );
+    expect(openPark(backlogLayout, w.f.office, w.work.key)).toMatchObject({
+      reason: "by-maintainer",
+    });
+    expect(
+      desk(w.f.office, () => true, { ...DESK_SOURCES, stories: backlogLayout }).map(
+        (item) => item.kind,
+      ),
+    ).not.toContain(PARK_NOT_WRITTEN_DESK);
   });
 
   it("records the stop intent, sends the stop sequence the fake process sees, and parks by-maintainer", async () => {
@@ -894,6 +906,7 @@ describe("the In Review commit (DIPO-49) and the story view (DIPO-56)", () => {
     const refreshed: string[] = [];
     const sent: HostOp[][] = [];
     const control = new RunControl({
+      stories: backlogLayout,
       clock: w.f.t.clock,
       offices: { get: () => w.f.office },
       writer: { write: async () => Promise.reject(new Error("no park expected")) },
@@ -940,6 +953,7 @@ describe("reconcile against after-turn work (DIPO-56)", () => {
     let claimed: boolean | undefined;
     const summaries: string[] = [];
     const control = new RunControl({
+      stories: backlogLayout,
       clock: w.f.t.clock,
       offices: { get: () => w.f.office },
       writer: { write: async () => Promise.reject(new Error("no park expected")) },
@@ -1202,6 +1216,7 @@ const capSteps = () =>
  */
 function continuing(throws = false): RunControl {
   const control = new RunControl({
+    stories: backlogLayout,
     clock: w.f.t.clock,
     offices: { get: () => w.f.office },
     writer: {

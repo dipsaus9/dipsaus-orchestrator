@@ -806,7 +806,7 @@ export class ParkResumes {
     const gone = (): never => {
       office.immediate(() => resolveIntent(office, run.runId, intentId, "abandoned", clock.now()));
       const now = run.key === null ? null : storyView(office, run.key as StoryKey);
-      const park = run.key === null ? null : openPark(office, run.key);
+      const park = run.key === null ? null : openPark(this.#s.deps.stories, office, run.key);
       const state =
         park === null
           ? `it is ${now?.lifecycle ?? "no longer Parked"} now`

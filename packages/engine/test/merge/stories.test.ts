@@ -56,6 +56,7 @@ import {
   storyWorld,
   TITLE,
 } from "./story-helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 let s: StoryWorld;
 
@@ -254,8 +255,8 @@ describe("while auto-merge is on", () => {
     s.host.set(PR, { mergeable: "conflicting" });
     await s.tick();
     expect(s.host.disarmed).toEqual([PR]);
-    expect(openPark(s.w.office, s.key)).toMatchObject({ reason: "conflict" });
-    expect(openPark(s.w.office, s.key)?.detail).toContain(".github/ci.yml");
+    expect(openPark(backlogLayout, s.w.office, s.key)).toMatchObject({ reason: "conflict" });
+    expect(openPark(backlogLayout, s.w.office, s.key)?.detail).toContain(".github/ci.yml");
     expect(s.conflicts).toEqual([]);
   });
 
@@ -425,7 +426,7 @@ describe("PRs changed on GitHub", () => {
     s = await storyWorld();
     s.host.prs.set(PR, hostPr(H1, "closed"));
     await s.tick();
-    expect(openPark(s.w.office, s.key)).toMatchObject({
+    expect(openPark(backlogLayout, s.w.office, s.key)).toMatchObject({
       reason: "by-maintainer",
       detail: `PR #${PR} closed on GitHub`,
     });
@@ -814,7 +815,7 @@ describe("a park through the composed writer, racing a round", () => {
       "by-maintainer",
     );
     expect(order).toEqual(["off", "write"]);
-    expect(openPark(s.w.office, s.key)).toMatchObject({ reason: "by-maintainer" });
+    expect(openPark(backlogLayout, s.w.office, s.key)).toMatchObject({ reason: "by-maintainer" });
     await s.tick();
     expect(s.host.armedAt).toHaveLength(1);
   });
@@ -880,7 +881,7 @@ describe("a park through the composed writer, racing a round", () => {
     held.open();
     await parked;
     await round;
-    expect(openPark(s.w.office, s.key)).toMatchObject({ reason: "by-maintainer" });
+    expect(openPark(backlogLayout, s.w.office, s.key)).toMatchObject({ reason: "by-maintainer" });
     expect(s.host.armedAt).toEqual([]);
     expect(s.git.calls).toEqual([]);
   });

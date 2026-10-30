@@ -52,6 +52,22 @@ if (process.env["DIPO_TEST_CI"] === "1") {
                     s.t.clock.now(),
                   ),
                 ),
+              plan: (key, park) =>
+                s.office.immediate(() =>
+                  insertEntry(
+                    s.office,
+                    {
+                      kind: EDIT_KIND,
+                      key,
+                      subject: "TASK-1",
+                      target:
+                        park === null
+                          ? { status: "Refined", unset: ["park"] }
+                          : { status: "Parked", fields: { park } },
+                    },
+                    s.t.clock.now(),
+                  ),
+                ),
               block: (key) =>
                 s.office.immediate(() =>
                   blockStories(s.office, 7, [{ key, failures: [] }], s.t.clock.now()),

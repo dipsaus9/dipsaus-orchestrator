@@ -21,6 +21,7 @@ import {
   type ReconcileOffice,
   withReconcileOffice,
 } from "./helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const DONE: readonly FakeTask[] = [
   { id: "TASK-1", status: "Done" },
@@ -40,7 +41,13 @@ function setupOf(o: ReconcileOffice): Setup {
       const pass = await o.index.indexStories(o.officeId);
       let reindexed = 0;
       const report = await reconcileOffice(
-        { officeId: o.officeId, office: o.office, git: git ?? real, clock: o.s.clock },
+        {
+          stories: backlogLayout,
+          officeId: o.officeId,
+          office: o.office,
+          git: git ?? real,
+          clock: o.s.clock,
+        },
         {
           trigger: "start",
           pass,
@@ -121,6 +128,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           active: false,
         });
         const deps = {
+          stories: backlogLayout,
           officeId: o.officeId,
           office: o.office,
           git: o.engineGit.forOffice(o.officeId) as OfficeGit,
@@ -161,6 +169,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           active: false,
         });
         const deps = {
+          stories: backlogLayout,
           officeId: o.officeId,
           office: o.office,
           git: o.engineGit.forOffice(o.officeId) as OfficeGit,

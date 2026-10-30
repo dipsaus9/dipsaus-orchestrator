@@ -9,6 +9,7 @@ import type { StoryKey } from "@dipsaus-orchestrator/contract";
 import type { OfficeHandle } from "../../src/db/office";
 import type { OfficeGit } from "../../src/git/office";
 import { parseFieldBlock } from "../../src/story-store/fields/block";
+import type { PlannedPark } from "../../src/story-store/planning";
 import type { StoryStore } from "../../src/story-store/store";
 
 /** The tasks every contract world holds: the Backlog fixture's. */
@@ -40,6 +41,11 @@ export interface ContractWorld {
   journal(key: StoryKey): void;
   /** Records that the office's merged backlog PR failed its check on the story `key`. */
   block(key: StoryKey): void;
+  /**
+   * Journals a planning change of the story `key` that parks it with `park`, or, with null,
+   * moves it back to Refined, the way the store's planning lane does.
+   */
+  plan(key: StoryKey, park: PlannedPark | null): void;
 }
 
 export type WithWorld = (fn: (world: ContractWorld) => Promise<void>) => Promise<void>;
@@ -177,6 +183,20 @@ export function storyStoreContract(name: string, withWorld: WithWorld, timeout?:
       expect(w.store.planningHold(w.office, KEY)).toBe("pending");
       w.journal(OTHER);
       expect(w.store.planningHold(w.office, OTHER)).toBe("pending");
+    });
+
+    test("names the park a journaled change writes, the newest first, and none without one", async (w) => {
+      const park: PlannedPark = {
+        reason: "by-maintainer",
+        from: "Ready",
+        note: "Waits on design.",
+      };
+      expect(w.store.plannedPark(w.office, KEY)).toBeUndefined();
+      w.plan(KEY, park);
+      expect(w.store.plannedPark(w.office, KEY)).toEqual(park);
+      expect(w.store.plannedPark(w.office, OTHER)).toBeUndefined();
+      w.plan(KEY, null);
+      expect(w.store.plannedPark(w.office, KEY)).toBeNull();
     });
   });
 }

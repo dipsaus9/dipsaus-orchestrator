@@ -24,6 +24,7 @@ import { findClaim, insertClaim, updateClaim } from "../../src/worktree/records"
 import type { TestState } from "../commands/helpers";
 import { loggedEvents } from "../ingest/helpers";
 import { pass, task, withOffice } from "../stories/helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const REPO = "o/r";
 const BRANCH = "DIPO-1/push-again";
@@ -153,6 +154,7 @@ async function inWorld(fn: (w: World) => Promise<void>): Promise<void> {
       push: FAILED,
       config: OFFICE_DEFAULTS,
       prs: new StoryPrs({
+        stories: backlogLayout,
         host,
         git: {
           read: async () => FACTS,
@@ -179,7 +181,7 @@ const noticesOf = (office: OfficeHandle, code: string) =>
     (event) => event.type === "engine.notice" && (event.data as { code: string }).code === code,
   );
 
-const pending = (w: World) => pendingReviews(w.office).map((start) => start.runId);
+const pending = (w: World) => pendingReviews(backlogLayout, w.office).map((start) => start.runId);
 
 describe("a failed In Review push (DIPO-315)", () => {
   it("is pushed again by the PR poll until it reaches the remote, with the review held till then", async () => {

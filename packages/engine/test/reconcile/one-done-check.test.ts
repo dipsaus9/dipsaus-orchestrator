@@ -19,6 +19,7 @@ import { StoryTeardown } from "../../src/worktree/done";
 import type { DoneAnswer } from "../../src/worktree/done-check";
 import { claim, fakeBacklog, keyOf, type ReconcileOffice, withReconcileOffice } from "./helpers";
 import { backlogStoryStore } from "../../src/backlog/store";
+import { backlogLayout } from "../story-store/backlog";
 
 const RECORDS = ["none", "open", "closed", "merged"] as const;
 const HOSTS = ["none", "merged", "no merged PR", "unreachable"] as const;
@@ -116,6 +117,7 @@ describe("the Done poll and reconcile ask the one Done check the same way (DIPO-
             teardown.stop();
             const byReconcile = await doneAnswerOf(
               {
+                stories: backlogLayout,
                 officeId,
                 office: o.office,
                 git: gitOf(o),

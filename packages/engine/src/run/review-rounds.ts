@@ -23,7 +23,7 @@ import type { OfficeHandle } from "../db/office";
 import { withWorkViews } from "../views/work";
 
 import { START_KINDS, type PlaceStart } from "./places";
-import { runHeldByPark } from "./park-state";
+import { type ParkStore, runHeldByPark } from "./park-state";
 import { appendRunStep, findRun, RUN_PHASE_SQL, type StoredRun } from "./records";
 import { enterPhase, phaseAfterVerdict, waitsForReview } from "./rounds";
 
@@ -124,7 +124,7 @@ export function failedReviewRounds(office: OfficeHandle, runId: RunId): number {
  * parked while it waits In Review gets no reviewer until it resumes, as the merge slot and fix
  * rounds skip it). Each waits from its In Review time.
  */
-export function pendingReviews(office: OfficeHandle): PlaceStart[] {
+export function pendingReviews(stories: ParkStore, office: OfficeHandle): PlaceStart[] {
   const rows = office.all<{ run_id: string; ended_at: number }>(
     `select r.run_id, r.ended_at from runs r
       where r.office_id = $office_id and r.kind = 'story' and r.ended_at is not null
@@ -135,7 +135,7 @@ export function pendingReviews(office: OfficeHandle): PlaceStart[] {
       order by r.ended_at, r.run_id`,
   );
   return rows
-    .filter((row) => !runHeldByPark(office, row.run_id))
+    .filter((row) => !runHeldByPark(stories, office, row.run_id))
     .map((row): PlaceStart => ({
       kind: START_KINDS.review,
       runId: row.run_id as RunId,

@@ -53,6 +53,7 @@ import type { WorkerReport } from "../../src/workers/types";
 import { insertClaim, updateClaim } from "../../src/worktree/records";
 import { loggedEvents } from "../ingest/helpers";
 import { pass, task, withOffice } from "../stories/helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const REPO = "o/r";
 const BRANCH = "DIPO-1/open-the-pr";
@@ -258,6 +259,7 @@ async function inWorld(
         return stored;
       },
       prs: new StoryPrs({
+        stories: backlogLayout,
         host,
         review: host,
         git: { read: async () => FACTS } satisfies StoryPrGit,

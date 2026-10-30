@@ -76,6 +76,7 @@ import {
 import { type HeldSession, heldFirstMessage, withHeld } from "./held-session";
 import { context, withInitPlugins } from "../workers/launch-fixtures";
 import { RECORDINGS_DIR } from "../workers/replay";
+import { backlogLayout } from "../story-store/backlog";
 
 const claude: IngestAdapter = {
   interpret: (line, state) =>
@@ -151,6 +152,7 @@ beforeEach(async () => {
   });
   Object.assign(world, { starts, adapterHolds });
   const control = new RunControl({
+    stories: backlogLayout,
     clock: f.t.clock,
     offices: { get: () => f.office },
     parkedToResume: (office) => starts.resumeLifted(office),
@@ -168,6 +170,7 @@ beforeEach(async () => {
     outcomes: () => outcomes ?? undefined,
   });
   outcomes = new RunOutcomes({
+    stories: backlogLayout,
     clock: f.t.clock,
     offices: { get: () => f.office },
     steering,

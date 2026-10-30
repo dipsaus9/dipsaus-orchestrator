@@ -55,7 +55,7 @@ import { cleanDoorText } from "../box/door";
 import type { FeatureRegistry, ReadContext, Registry } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import { openParkQuestions, openQuestions, type StoredQuestion } from "../questions/questions";
-import { heldParks, openPark } from "../run/park-state";
+import { heldParks, openPark, type ParkStore } from "../run/park-state";
 import { openTestOf } from "../run/test-records";
 import { parkResumeNeed, SUGGESTED_SHARE } from "../run/resume-policy";
 import { LIFT_COMMAND, type StartsPausedState } from "../run/starts-paused";
@@ -113,10 +113,15 @@ interface OpenMergeGate {
 
 /** The desk's seams for facts other stories add. */
 export interface DeskSources {
+  /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
+  readonly stories: ParkStore;
   /** True when the gate's PR is labelled `autorelease: pending` (0016 rule 12, DIPO-150). */
   readonly handMergeOnly: (office: OfficeHandle, gate: DeskGate) => boolean;
   /** Further hand-action items, in group 4. */
-  readonly handItems: readonly ((office: OfficeHandle) => readonly HandDeskItem[])[];
+  readonly handItems: readonly ((
+    office: OfficeHandle,
+    stories: ParkStore,
+  ) => readonly HandDeskItem[])[];
   /** Hand-action items of PRs no story owns, first in group 4; none without it. */
   readonly prItems?: (office: OfficeHandle) => readonly PrHandItem[];
   /** The office's starts paused (`StartsPaused.state`, 0020); none without it. */
@@ -128,7 +133,7 @@ export interface DeskSources {
  * (a live worker of a story Done on the base) and LEFTOVERS (what such a story left kept, with
  * `dipo discard <id> --note "<why>"`).
  */
-export const DESK_SOURCES: DeskSources = {
+export const DESK_SOURCES: Omit<DeskSources, "stories"> = {
   handMergeOnly: () => false,
   handItems: [doneElsewhereDeskItems, heldParkDeskItems],
 };
@@ -160,8 +165,8 @@ const RESCAN = { command: "office.rescan", cli: "dipo office rescan" } as const;
  *   retries (DIPO-362); `dipo drop` or `dipo discard` is the way out of one that never finishes;
  * - Backlog.md no longer holds it (lifted by hand): a rescan's reconcile closes it.
  */
-export function heldParkDeskItems(office: OfficeHandle): HandDeskItem[] {
-  return heldParks(office).map((park) => {
+export function heldParkDeskItems(office: OfficeHandle, stories: ParkStore): HandDeskItem[] {
+  return heldParks(stories, office).map((park) => {
     const base = { key: StoryKey.parse(park.key), story: park.story, since: park.at };
     switch (park.why) {
       case "unwritten":
@@ -522,7 +527,7 @@ class DeskBuilder {
         group by key order by min(at), min(park_id)`,
     );
     const parks = keys.flatMap(({ key, story_id }) => {
-      const open = openPark(this.#office, key);
+      const open = openPark(this.#sources.stories, this.#office, key);
       return open === null
         ? []
         : [
@@ -619,7 +624,7 @@ class DeskBuilder {
       });
     }
     for (const source of this.#sources.handItems) {
-      for (const hand of source(this.#office)) {
+      for (const hand of source(this.#office, this.#sources.stories)) {
         const story = StoryId.parse(hand.story);
         this.#add(GROUP.hand, 0, hand.since, {
           kind: hand.kind,
@@ -714,7 +719,7 @@ class DeskBuilder {
 export function desk(
   office: OfficeHandle,
   implemented: Implemented,
-  sources: DeskSources = DESK_SOURCES,
+  sources: DeskSources,
   now?: number,
 ): DeskItem[] {
   const builder = new DeskBuilder(office, sources, implemented, now);
@@ -727,7 +732,7 @@ export function desk(
 }
 
 /** Registers `office.desk`; `views/feature.ts` calls it with this engine's sources. */
-export function registerDesk(registry: FeatureRegistry, sources: DeskSources = DESK_SOURCES): void {
+export function registerDesk(registry: FeatureRegistry, sources: DeskSources): void {
   registry.addRead({
     definition: officeDesk,
     handle: (ctx: ReadContext) => {

@@ -54,6 +54,7 @@ import { type CodeHost, CodeHostError } from "../platform/host";
 import type { ProcessProbe } from "../platform/process";
 import { openPark, openParkIds, parkActions, resolvePark } from "../run/park";
 import { insertPark } from "../run/park-records";
+import type { ParkStore } from "../run/park-state";
 import { activeRuns } from "../run/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
@@ -82,6 +83,8 @@ export const PLANNING_NOTICES = {
 } as const;
 
 export interface StoryPlanningDeps {
+  /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
+  readonly stories: ParkStore;
   /** The office's planning lane (0010), through the StoryStore seam. */
   readonly lane: (office: OfficeHandle["officeId"]) => PlanningLane | undefined;
   readonly git: (office: OfficeHandle["officeId"]) => OfficeGit | undefined;
@@ -216,7 +219,9 @@ export class StoryPlanning {
     const view = storyView(office, key);
     const lifecycle = view?.lifecycle;
     // Parked already: the target state (0005).
-    if (lifecycle === "Parked" || openPark(office, key) !== null) return { result, changed: false };
+    if (lifecycle === "Parked" || openPark(this.#deps.stories, office, key) !== null) {
+      return { result, changed: false };
+    }
     const claim = liveClaimOf(office, key);
     const running = activeRuns(office).some((run) => run.kind === "story" && run.key === key);
     if (running || (claim !== null && (lifecycle === "In Progress" || lifecycle === "In Review"))) {

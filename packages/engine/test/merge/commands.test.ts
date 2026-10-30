@@ -34,6 +34,7 @@ import { findRun, runPhase, runSteps } from "../../src/run/records";
 import { CAPABILITY_FLAGS } from "../../src/reads/hello";
 
 import { APPROVED, C1, H1, PR, type StoryWorld, storyWorld } from "./story-helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 let s: StoryWorld;
 
@@ -59,6 +60,7 @@ function gatesOf(world: StoryWorld, extra: Partial<MergeGatesDeps> = {}): Gates 
   const lifts: UnparkBranchRequest[] = [];
   const entries: NewEntry[] = [];
   const gates = new MergeGates({
+    stories: backlogLayout,
     labels: world.host,
     unpark: {
       lift: async (_office, request) => {

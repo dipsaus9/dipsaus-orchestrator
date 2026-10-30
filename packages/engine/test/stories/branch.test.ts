@@ -25,6 +25,7 @@ import {
   withReconcileOffice,
 } from "../reconcile/helpers";
 import { lastSeq } from "./helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const PARK = 'park: { reason: "stopped", from: "In Progress", note: "Stopped by the maintainer." }';
 const PARK_NOW =
@@ -168,7 +169,7 @@ describe("a claimed story whose branch stops reading (DIPO-360)", () => {
       await setBranch(o, claimed, { id: "TASK-1", status: "Parked", fields: [PARK_NOW] });
       await o.index.indexStories(o.officeId);
       expect(storyView(o.office, key)?.lifecycle).toBe("Parked");
-      expect(backlogPark(o.office, key)?.reason).toBe("by-maintainer");
+      expect(backlogPark(backlogLayout, o.office, key)?.reason).toBe("by-maintainer");
 
       // The branch's task file now holds a field dipo does not know: the branch cannot be read.
       const path = editWorktree(claimed, { id: "TASK-1", status: "Parked", fields: [PARK_NOW] });
@@ -187,7 +188,7 @@ describe("a claimed story whose branch stops reading (DIPO-360)", () => {
       expect(pass.branchUnread.map((unread) => unread.story)).toEqual(["TASK-1"]);
       // Not the base's Ready: the last branch read stays, and the park with it.
       expect(storyView(o.office, key)?.lifecycle).toBe("Parked");
-      expect(backlogPark(o.office, key)?.reason).toBe("by-maintainer");
+      expect(backlogPark(backlogLayout, o.office, key)?.reason).toBe("by-maintainer");
       expect(mirrorSource(o, key)).not.toBe("base");
       await o.index.indexStories(o.officeId);
       expect(

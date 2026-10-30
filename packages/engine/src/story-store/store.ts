@@ -14,7 +14,7 @@ import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 
-import type { PlanningHold } from "./planning";
+import type { PlannedPark, PlanningHold } from "./planning";
 import type { PlainList, PlainTask, StoryKind } from "./story";
 
 /** A story's id, title and status as its list printed them. */
@@ -168,4 +168,11 @@ export interface StoryStore {
    * then a failed check of the office's backlog PR.
    */
   planningHold(office: OfficeHandle, key: StoryKey): PlanningHold | null;
+  /**
+   * The park the planning lane's newest journaled change of the story `key` writes, while it is
+   * not on the base yet (0010: a pending change wins): `undefined` when no such change sets the
+   * story's status or park, else its park record (null when it lifts the park, drops the story or
+   * moves it to a status other than Parked).
+   */
+  plannedPark(office: OfficeHandle, key: StoryKey | string): PlannedPark | null | undefined;
 }

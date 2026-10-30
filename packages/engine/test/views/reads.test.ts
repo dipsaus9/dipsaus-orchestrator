@@ -25,12 +25,8 @@ import { recordPromptTexts } from "../../src/prompts/parts";
 import { executeRead } from "../../src/reads/execute";
 import { endRun } from "../../src/run/records";
 import { stopAtInReview } from "../../src/run/rounds";
-import {
-  OUTPUT_RANGE_MAX_BYTES,
-  outputRange,
-  storedPrompt,
-  viewsFeature,
-} from "../../src/views/feature";
+import { OUTPUT_RANGE_MAX_BYTES, outputRange, storedPrompt } from "../../src/views/feature";
+import { viewsFeature } from "./views-feature";
 import { withWorkViews } from "../../src/views/work";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { pass, task } from "../stories/helpers";

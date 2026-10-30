@@ -1057,6 +1057,7 @@ function resumption(sessions: { count: number }): Resumption {
   const ender = { isTracked: () => false } as unknown as RunEnder;
   return createRunOutcomes(
     {
+      stories: backlogLayout,
       clock: world.t.clock,
       offices: { get: () => world.office },
       steering: { send: async () => ({ ok: true }) },

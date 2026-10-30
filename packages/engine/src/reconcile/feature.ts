@@ -23,6 +23,7 @@ import type { OfficeGit } from "../git/office";
 import type { CodeHost, PrStateHost } from "../platform/host";
 import type { Logger } from "../log/logger";
 import { readMarker } from "../office/marker";
+import type { ParkStore } from "../run/park-state";
 import type { IndexResult } from "../stories/index-stories";
 import type { ClaimRecord } from "../worktree/records";
 
@@ -40,6 +41,8 @@ export const RECONCILE_STEP = "reconcile";
 export interface ReconcilerDeps {
   /** The office's git, attached by the `git.version` load step. */
   readonly git: (office: OfficeId) => OfficeGit | undefined;
+  /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
+  readonly storyStore: ParkStore;
   /** The story index: its load pass, and a new pass when reconcile changed a claim. */
   readonly stories: {
     indexStories(office: OfficeId): Promise<IndexResult>;
@@ -169,6 +172,7 @@ export class Reconciler {
         {
           officeId: office,
           office: state.office,
+          stories: this.#deps.storyStore,
           git,
           clock: state.clock,
           ...(this.#deps.runs === undefined ? {} : { runs: this.#deps.runs }),

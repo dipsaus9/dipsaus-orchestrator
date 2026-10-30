@@ -20,10 +20,12 @@ import {
 } from "../../src/run/park";
 import { recordIntent } from "../../src/run/intents";
 import { heldByPark, MAINTAINER_RESUME_TAG, parkedRun } from "../../src/run/park-state";
-import { desk, PARK_HELD, PARK_NOT_WRITTEN } from "../../src/views/desk";
+import { desk, PARK_HELD, PARK_NOT_WRITTEN, DESK_SOURCES } from "../../src/views/desk";
 import { storyView } from "../../src/views/story";
+import { FakeStoryStore } from "../story-store/fake";
 import { insertPark, mirrorParked, mirrorStory } from "./park-fixture";
 import { type RoundsWorld, roundsWorld, type StoryRun, storyRun } from "./rounds-helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 let w: RoundsWorld;
 let s: StoryRun;
@@ -80,13 +82,13 @@ describe("a park (DIPO-360)", () => {
       detail: "round 3 blocked",
     });
     // Backlog.md's record, as the index holds it now: status Parked with reason and origin.
-    expect(backlogPark(w.office, s.key)).toEqual({
+    expect(backlogPark(backlogLayout, w.office, s.key)).toEqual({
       reason: "review-blocked",
       from: "In Review",
       note: "round 3 blocked",
     });
     expect(storyView(w.office, s.key)?.lifecycle).toBe("Parked");
-    expect(openPark(w.office, s.key)).toMatchObject({
+    expect(openPark(backlogLayout, w.office, s.key)).toMatchObject({
       reason: "review-blocked",
       from: "In Review",
       detail: "round 3 blocked",
@@ -104,9 +106,9 @@ describe("a park (DIPO-360)", () => {
       detail: "conflict in a.ts",
     });
     expect(parkRows()).toEqual([{ reason: "conflict", detail: "conflict in a.ts" }]);
-    expect(backlogPark(w.office, s.key)).toBeNull();
-    expect(openPark(w.office, s.key)).toBeNull();
-    expect(parkedRun(w.office, s.run)).toBe(false);
+    expect(backlogPark(backlogLayout, w.office, s.key)).toBeNull();
+    expect(openPark(backlogLayout, w.office, s.key)).toBeNull();
+    expect(parkedRun(backlogLayout, w.office, s.run)).toBe(false);
     expect(storyView(w.office, s.key)?.lifecycle).toBe("In Review");
   });
 });
@@ -133,9 +135,14 @@ describe("the current park's reason and origin (DIPO-360)", () => {
         at: 1,
       });
     });
-    expect(openPark(w.office, s.key)).toMatchObject({ reason: "by-maintainer", from: "In Review" });
+    expect(openPark(backlogLayout, w.office, s.key)).toMatchObject({
+      reason: "by-maintainer",
+      from: "In Review",
+    });
     expect(parkRows()[0]?.reason).toBe("conflict");
-    const [row] = desk(w.office, () => true).filter((item) => item.story === "DIPO-7");
+    const [row] = desk(w.office, () => true, { ...DESK_SOURCES, stories: backlogLayout }).filter(
+      (item) => item.story === "DIPO-7",
+    );
     expect(row).toMatchObject({ kind: "PARKED BY YOU", reason: "by-maintainer" });
   });
 
@@ -147,11 +154,13 @@ describe("the current park's reason and origin (DIPO-360)", () => {
         { key: s.key, run: s.run },
       ),
     );
-    expect(openPark(w.office, s.key)).toBeNull();
+    expect(openPark(backlogLayout, w.office, s.key)).toBeNull();
     // Not a PARKED row: a park dipo could not write, which holds the story's work (fail-closed).
-    const items = desk(w.office, () => true).filter((item) => item.story === "DIPO-7");
+    const items = desk(w.office, () => true, { ...DESK_SOURCES, stories: backlogLayout }).filter(
+      (item) => item.story === "DIPO-7",
+    );
     expect(items.map((item) => item.kind)).toEqual([PARK_NOT_WRITTEN]);
-    expect(heldByPark(w.office, s.key)).toBe(true);
+    expect(heldByPark(backlogLayout, w.office, s.key)).toBe(true);
   });
 
   it("shows a held park on the desk by why it is held, offering only what can act on it", () => {
@@ -168,7 +177,10 @@ describe("the current park's reason and origin (DIPO-360)", () => {
       }),
     );
     w.office.immediate(() => mirrorStory(w.office, { key: s.key, story: "DIPO-7" }));
-    const row = () => desk(w.office, () => true).find((item) => item.story === "DIPO-7");
+    const row = () =>
+      desk(w.office, () => true, { ...DESK_SOURCES, stories: backlogLayout }).find(
+        (item) => item.story === "DIPO-7",
+      );
     expect(row()).toMatchObject({ kind: PARK_HELD });
     expect(row()?.detail).toContain("Backlog.md no longer holds this park");
     expect(row()?.actions.map((action) => action.cli)).toEqual(["dipo office rescan"]);
@@ -223,7 +235,10 @@ describe("the current park's reason and origin (DIPO-360)", () => {
         1,
       );
     });
-    expect(openPark(w.office, s.key)).toMatchObject({ reason: "by-maintainer", from: "Ready" });
+    expect(openPark(backlogLayout, w.office, s.key)).toMatchObject({
+      reason: "by-maintainer",
+      from: "Ready",
+    });
     w.office.immediate(() =>
       insertEntry(
         w.office,
@@ -236,6 +251,34 @@ describe("the current park's reason and origin (DIPO-360)", () => {
         2,
       ),
     );
-    expect(openPark(w.office, s.key)).toBeNull();
+    expect(openPark(backlogLayout, w.office, s.key)).toBeNull();
+  });
+
+  it("asks the StoryStore for the park a pending planning change writes, never the journal (DIPO-379)", () => {
+    // No journal row at all: only the store knows of the pending change.
+    w.office.immediate(() =>
+      insertPark(w.office, {
+        key: s.key,
+        story: "DIPO-7",
+        reason: "verify-failing",
+        detail: "red",
+        at: 1,
+      }),
+    );
+    const store = new FakeStoryStore();
+    expect(backlogPark(store, w.office, s.key)).toMatchObject({ reason: "verify-failing" });
+    store.planned.set(s.key, { reason: "by-maintainer", from: "Ready", note: "later" });
+    expect(backlogPark(store, w.office, s.key)).toEqual({
+      reason: "by-maintainer",
+      from: "Ready",
+      note: "later",
+    });
+    expect(openPark(store, w.office, s.key)).toMatchObject({ reason: "by-maintainer" });
+    // A pending change that lifts the park wins over the index's Parked read.
+    store.planned.set(s.key, null);
+    expect(backlogPark(store, w.office, s.key)).toBeNull();
+    expect(openPark(store, w.office, s.key)).toBeNull();
+    // The open park row still holds the story's work until reconcile resolves it.
+    expect(heldByPark(store, w.office, s.key)).toBe(true);
   });
 });

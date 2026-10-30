@@ -15,6 +15,7 @@ import type { ClaimRecord } from "../worktree/records";
 import type { RunEnding, RunSteering } from "./control-types";
 import type { IntentKind } from "./intents";
 import { type ParkOutcome, type UnparkWriter } from "./park";
+import type { ParkStore } from "./park-state";
 import type { StoredRun } from "./records";
 import type { NextSession } from "./resume";
 import type { PlanLimitPause, StartsPausedState } from "./starts-paused";
@@ -225,6 +226,8 @@ export function initRejectedEnding(story: string, reason: string): RunEnding {
 }
 
 export interface RunOutcomesDeps {
+  /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
+  readonly stories: ParkStore;
   readonly clock: Clock;
   readonly offices: { get(office: OfficeId): OfficeHandle | undefined };
   readonly steering: RunSteering;

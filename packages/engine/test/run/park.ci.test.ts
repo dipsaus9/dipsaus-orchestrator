@@ -18,6 +18,7 @@ import { openPark } from "../../src/run/park";
 import { resultOf } from "../office/helpers";
 import { loadRecording } from "../workers/replay";
 import { BRANCH, type Running, withRunOffice } from "./run-office";
+import { backlogLayout } from "../story-store/backlog";
 
 let count = 0;
 function requestId(): RequestId {
@@ -57,7 +58,7 @@ function currentPark(r: Running): ReturnType<typeof openPark> {
   const key = r.office.get<{ key: string }>(
     "select key from stories where office_id = $office_id and story_id = 'TASK-1'",
   )?.key;
-  return key === undefined ? null : openPark(r.office, key);
+  return key === undefined ? null : openPark(backlogLayout, r.office, key);
 }
 
 async function tip(r: Running, ref: string): Promise<string> {

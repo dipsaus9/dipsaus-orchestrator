@@ -80,6 +80,7 @@ function claimsOf(core: Core): StoryClaims {
 function storyPrsOf(core: Core, partners: EnginePartners, guard: AutoMergeGuard): StoryPrs {
   const { host, gitOf } = core;
   return new StoryPrs({
+    stories: core.stories,
     host,
     prState: core.prState,
     git: gitStoryPrOps({ git: gitOf, stories: core.stories }),
@@ -201,6 +202,7 @@ function planningOf(core: Core, partners: EnginePartners, lane: BacklogLane): St
   return new StoryPlanning(
     storyPlanningDeps(
       {
+        stories: core.stories,
         lane: (office) => lane.planning(office),
         git: core.gitOf,
         host: core.host,

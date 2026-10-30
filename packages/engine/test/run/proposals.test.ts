@@ -41,7 +41,7 @@ import { capabilityFlags } from "../../src/reads/hello";
 import { ProposalCommands, proposalDraft, type StoredProposal } from "../../src/run/proposals";
 import { proposalHash, storeProposals } from "../../src/run/report-data";
 import { addStory } from "../../src/stories/keys";
-import { viewsFeature } from "../../src/views/feature";
+import { viewsFeature } from "../views/views-feature";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 
 const RUN = RunId.parse("run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D");

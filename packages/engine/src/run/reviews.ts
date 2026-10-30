@@ -91,7 +91,7 @@ import {
   type RunOutcomesPort,
   type RunView,
 } from "./outcome-types";
-import { heldByPark } from "./park-state";
+import { heldByPark, type ParkStore } from "./park-state";
 import { claimPlace, type PlaceStart, START_KINDS, waitForPlace } from "./places";
 import { LAUNCH_NOTICES, planRefusedText } from "./launch";
 import { endRunMarked } from "./markers";
@@ -135,6 +135,8 @@ export const REVIEW_NOTICES = {
 } as const;
 
 export interface ReviewsDeps {
+  /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
+  readonly stories: ParkStore;
   readonly clock: Clock;
   readonly ids: IdSource;
   readonly offices: {
@@ -223,7 +225,7 @@ export class Reviews {
 
   /** The office's pending reviews, oldest In Review first (`PlacesDeps.pending`). */
   pending(office: OfficeHandle): PlaceStart[] {
-    return pendingReviews(office);
+    return pendingReviews(this.#deps.stories, office);
   }
 
   /**
@@ -236,7 +238,7 @@ export class Reviews {
     if (office === undefined || run.branch === null || run.story === null) return false;
     if (run.ending !== null) return false;
     // A story parked since its start was queued waits for its resume (`pendingReviews`).
-    if (run.key !== null && heldByPark(office, run.key)) return false;
+    if (run.key !== null && heldByPark(this.#deps.stories, office, run.key)) return false;
     let facts: RunStoryFacts;
     let head: string;
     let tree: string;
@@ -289,7 +291,8 @@ export class Reviews {
         const current = findRun(office, run.runId);
         if (current === null) return { value: null, entries: [] };
         // A park that landed while the story was read (DIPO-346): no round, the run stays as is.
-        if (run.key !== null && heldByPark(office, run.key)) return { value: null, entries: [] };
+        if (run.key !== null && heldByPark(this.#deps.stories, office, run.key))
+          return { value: null, entries: [] };
         // A pending review reopens the run open at In Review; its wait counts from that time.
         const entries =
           current.endedAt === null
@@ -369,7 +372,7 @@ export class Reviews {
         run,
         taskMessage,
         head,
-        held: () => run.key !== null && heldByPark(office, run.key),
+        held: () => run.key !== null && heldByPark(this.#deps.stories, office, run.key),
       });
     } catch (error) {
       outcome = { kind: "failed" as const, reason: messageOf(error) };
@@ -401,7 +404,7 @@ export class Reviews {
    * its resume, whose round reads the branch again.
    */
   #parkedMeanwhile(office: OfficeHandle, run: StoredRun): boolean {
-    if (run.key === null || !heldByPark(office, run.key)) return false;
+    if (run.key === null || !heldByPark(this.#deps.stories, office, run.key)) return false;
     this.#deps.warn?.("the story parked while its review round was built; no reviewer starts", {
       run: run.runId,
     });

@@ -42,6 +42,7 @@ import {
   withReconcileOffice,
 } from "./helpers";
 import { backlogStoryStore } from "../../src/backlog/store";
+import { backlogLayout } from "../story-store/backlog";
 
 const DONE: readonly FakeTask[] = [{ id: "TASK-1", status: "Done" }];
 
@@ -79,6 +80,7 @@ async function reconcile(
   const pass = await o.index.indexStories(o.officeId);
   const report = await reconcileOffice(
     {
+      stories: backlogLayout,
       officeId: o.officeId,
       office: o.office,
       git: gitOf(o),

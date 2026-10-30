@@ -40,7 +40,7 @@ import type { OfficeHandle } from "../db/office";
 import type { CodeHost, PrReviewHost } from "../platform/host";
 import { recordReviewOverride } from "../review/store";
 import { openPark, type ParkWriter, resolvePark, type UnparkWriter } from "../run/park";
-import { mirrorUnpark } from "../run/park-state";
+import { mirrorUnpark, type ParkStore } from "../run/park-state";
 import { appendRunStep, findRun, type StoredRun, unparkRun } from "../run/records";
 import { enterPhase } from "../run/rounds";
 import { type BranchPush, findStoryPr, recordBranchPush } from "../story-pr/records";
@@ -54,6 +54,8 @@ type ApproveArgs = z.output<typeof gateApprove.args>;
 type RejectArgs = z.output<typeof gateReject.args>;
 
 export interface MergeGatesDeps {
+  /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
+  readonly stories: ParkStore;
   /** The PR's labels, for the `autorelease: pending` answer. */
   readonly labels: Pick<PrReviewHost, "prLabels">;
   /** The PR on GitHub, for the answer to a head dipo did not push; not read without it. */
@@ -262,7 +264,7 @@ export class MergeGates {
         { gate: gate.gate },
       );
     }
-    const park = openPark(office, run.key as string);
+    const park = openPark(this.#deps.stories, office, run.key as string);
     if (park === null || park.reason !== "review-blocked") {
       throw notWaiting(gate.gate, "its story is no longer parked review-blocked");
     }

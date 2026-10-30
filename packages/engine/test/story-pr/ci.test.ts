@@ -43,6 +43,7 @@ import { insertClaim, updateClaim } from "../../src/worktree/records";
 import type { TestState } from "../commands/helpers";
 import { loggedEvents } from "../ingest/helpers";
 import { pass, task, withOffice } from "../stories/helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const REPO = "o/r";
 const BRANCH = "DIPO-1/watch-ci";
@@ -239,6 +240,7 @@ async function inWorld(
     } as unknown as Logger;
     const poller = (): StoryPrs =>
       new StoryPrs({
+        stories: backlogLayout,
         host,
         review: host,
         park: {

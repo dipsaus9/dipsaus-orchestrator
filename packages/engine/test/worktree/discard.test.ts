@@ -43,6 +43,7 @@ import {
   withReconcileOffice,
 } from "../reconcile/helpers";
 import { backlogStoryStore } from "../../src/backlog/store";
+import { backlogLayout } from "../story-store/backlog";
 
 interface Closed {
   readonly repo: string;
@@ -111,6 +112,7 @@ function features(seen: Seen) {
       } as BacklogCli),
     });
     const planning = new StoryPlanning({
+      stories: backlogLayout,
       lane: () => planningLane(lane),
       git: (office) => engineGit.forOffice(office),
       host,

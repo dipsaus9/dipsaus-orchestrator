@@ -537,7 +537,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       inWorld(async (w) => {
         const office = w.f.office;
         atInReview(office, w.f.run, w.f.t.clock.now());
-        expect(inReviewRunIds(office)).toEqual([w.f.run as RunId]);
+        expect(inReviewRunIds(backlogLayout, office)).toEqual([w.f.run as RunId]);
         // Its PR merged on the host while the teardown of its worktree waits: Done on the base.
         office.immediate(() =>
           insertStoryPr(office, {
@@ -555,11 +555,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             closedAt: null,
           }),
         );
-        expect(inReviewRunIds(office)).toEqual([w.f.run as RunId]);
+        expect(inReviewRunIds(backlogLayout, office)).toEqual([w.f.run as RunId]);
         office.immediate(() =>
           setStoryPrState(office, w.f.run as RunId, { state: "merged", closedAt: 2 }),
         );
-        expect(inReviewRunIds(office)).toEqual([]);
+        expect(inReviewRunIds(backlogLayout, office)).toEqual([]);
         // Its status reads Done (the close-out on its branch, or the base's), the PR not yet seen merged.
         office.immediate(() =>
           setStoryPrState(office, w.f.run as RunId, { state: "open", closedAt: null }),
@@ -569,12 +569,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
          values ($office_id, $key, 'h', 'task', 'Done', 'One', '[]', 1, $branch)`,
           { key: w.key, branch: BRANCH },
         );
-        expect(inReviewRunIds(office)).toEqual([]);
+        expect(inReviewRunIds(backlogLayout, office)).toEqual([]);
         office.run(
           "update backlog_mirror set status = 'In Review' where office_id = $office_id",
           {},
         );
-        expect(inReviewRunIds(office)).toEqual([w.f.run as RunId]);
+        expect(inReviewRunIds(backlogLayout, office)).toEqual([w.f.run as RunId]);
       }));
   });
 
@@ -583,7 +583,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       inWorld(async (w) => {
         const office = w.f.office;
         atInReview(office, w.f.run, w.f.t.clock.now());
-        expect(inReviewRunIds(office)).toEqual([w.f.run as RunId]);
+        expect(inReviewRunIds(backlogLayout, office)).toEqual([w.f.run as RunId]);
         const found = {
           base: "main",
           onto: "d".repeat(40),

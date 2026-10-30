@@ -23,7 +23,7 @@ import {
 } from "../../src/review/store";
 import { validateReport } from "../../src/review/validate";
 import { judgeReview } from "../../src/review/verdict";
-import { viewsFeature } from "../../src/views/feature";
+import { viewsFeature } from "../views/views-feature";
 import type { ReviewFinding, ReviewReport } from "../../src/workers/types";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { pass, task } from "../stories/helpers";

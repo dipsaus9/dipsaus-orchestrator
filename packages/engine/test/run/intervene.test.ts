@@ -40,6 +40,7 @@ import type { Caps, HostOp } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
 import { ingestFixture, type IngestFixture } from "../ingest/helpers";
 import { type HeldSession, withHeld } from "./held-session";
+import { backlogLayout } from "../story-store/backlog";
 
 const CAPS: Caps = { budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 30 };
 
@@ -76,6 +77,7 @@ beforeEach(async () => {
     },
   };
   const control = new RunControl({
+    stories: backlogLayout,
     clock: f.t.clock,
     offices: { get: () => f.office },
     writer: { write: async () => Promise.reject(new Error("no park expected")) },
@@ -100,6 +102,7 @@ beforeEach(async () => {
   });
   const { outcomes, resumption } = createRunOutcomes(
     {
+      stories: backlogLayout,
       clock: f.t.clock,
       offices: { get: () => f.office },
       steering,

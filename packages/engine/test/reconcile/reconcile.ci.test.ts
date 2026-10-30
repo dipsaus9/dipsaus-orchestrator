@@ -25,7 +25,7 @@ import {
 } from "../../src/reconcile";
 import { endRun, findRun } from "../../src/run/records";
 import { openPark } from "../../src/run/park";
-import { desk } from "../../src/views/desk";
+import { desk, DESK_SOURCES } from "../../src/views/desk";
 import { storyView } from "../../src/views/story";
 import { runDirectory } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
@@ -43,6 +43,7 @@ import {
   setBranch,
   withReconcileOffice,
 } from "./helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const BY_YOU = 'park: { reason: "by-maintainer", from: "Ready", note: "Waiting for the export" }';
 const AMBIGUOUS = 'park: { reason: "ambiguous-spec", from: "In Progress", note: "Which flag?" }';
@@ -98,6 +99,7 @@ function withWorld(
       ...(base === undefined ? {} : { base }),
       features: ({ engineGit, index }): FeatureModule[] => {
         reconciler = new Reconciler({
+          storyStore: backlogLayout,
           git: (office) => engineGit.forOffice(office),
           stories: index,
           runs,
@@ -229,7 +231,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         // Backlog.md wins (DIPO-360): the story keeps the status it has there, and is not parked.
         expect(storyView(w.o.office, key)?.lifecycle).toBe(status);
         expect(w.o.tables.get(BASE)?.get("TASK-1")?.status).toBe(status);
-        expect(openPark(w.o.office, key)).toBeNull();
+        expect(openPark(backlogLayout, w.o.office, key)).toBeNull();
       }));
 
     it("records an F16 park with no park row as recorded by hand", () =>
@@ -272,7 +274,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect(stale[0]?.text).toContain("TASK-1 is Done");
           expect(stale[0]?.text).toContain("ambiguous-spec");
           // The desk shows the Parked story, never a PARKED row for the stale record (DIPO-158).
-          const parked = desk(w.o.office, () => true).filter((item) => item.kind === "PARKED");
+          const parked = desk(w.o.office, () => true, {
+            ...DESK_SOURCES,
+            stories: backlogLayout,
+          }).filter((item) => item.kind === "PARKED");
           expect(parked.map((item) => String(item.story))).toEqual(["TASK-3"]);
         },
       ));
@@ -405,6 +410,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const released: string[] = [];
         const report = await reconcileOffice(
           {
+            stories: backlogLayout,
             officeId: w.o.officeId,
             office: w.o.office,
             git,
@@ -434,6 +440,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         if (git === undefined) throw new Error("no git");
         const report = await reconcileOffice(
           {
+            stories: backlogLayout,
             officeId: w.o.officeId,
             office: w.o.office,
             git,
@@ -477,8 +484,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       return withReconcileOffice(
         {
           features: ({ engineGit, index }) => [
-            new Reconciler({ git: (office) => engineGit.forOffice(office), stories: index, runs })
-              .feature,
+            new Reconciler({
+              storyStore: backlogLayout,
+              git: (office) => engineGit.forOffice(office),
+              stories: index,
+              runs,
+            }).feature,
           ],
           beforeLoad: async (o, office) => {
             const { key } = office.immediate(() =>
@@ -510,7 +521,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             { id: "TASK-2", status: "In Progress" },
           ],
           features: ({ engineGit, index }) => {
-            reconciler = new Reconciler({ git: (o) => engineGit.forOffice(o), stories: index });
+            reconciler = new Reconciler({
+              storyStore: backlogLayout,
+              git: (o) => engineGit.forOffice(o),
+              stories: index,
+            });
             profiles = new RunProfiles({
               git: engineGit,
               stories: index,
@@ -540,6 +555,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         {
           features: ({ engineGit, index }) => {
             reconciler = new Reconciler({
+              storyStore: backlogLayout,
               git: (o) => engineGit.forOffice(o),
               stories: index,
               adoptBacklogPr: async (office) => {

@@ -42,6 +42,7 @@ import type { ParseState } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
 import { type IngestFixture, ingestFixture, loggedEvents, storedOutput } from "../ingest/helpers";
 import { RECORDINGS_DIR } from "../workers/replay";
+import { backlogLayout } from "../story-store/backlog";
 
 const claude: IngestAdapter = {
   interpret: (line, state) =>
@@ -63,6 +64,7 @@ function engine() {
   const steering = { send: async () => ({ ok: true as const }) };
   let outcomes: RunOutcomes | null = null;
   const control = new RunControl({
+    stories: backlogLayout,
     clock: f.t.clock,
     offices,
     writer: {
@@ -75,6 +77,7 @@ function engine() {
     outcomes: () => outcomes ?? undefined,
   });
   outcomes = new RunOutcomes({
+    stories: backlogLayout,
     clock: f.t.clock,
     offices,
     steering,

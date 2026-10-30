@@ -75,7 +75,7 @@ import { nextFixRound, planFeedback, sameFailureAgain, storeFeedbackItems } from
 import { resolveIntent, runIntents } from "./intents";
 import type { RunView } from "./outcome-types";
 import { type BranchUnpark, type UnparkWriter } from "./park";
-import { heldByPark } from "./park-state";
+import { heldByPark, type ParkStore } from "./park-state";
 import { recordBranchPush } from "../story-pr/records";
 import type { Places, PlaceStart } from "./places";
 import { findRun, openAtInReview, RUN_PHASE_SQL, type StoredRun } from "./records";
@@ -151,6 +151,8 @@ export interface FixSessions {
 }
 
 export interface FixRoundsDeps {
+  /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
+  readonly stories: ParkStore;
   readonly clock: Clock;
   readonly offices: {
     get(office: OfficeId): OfficeHandle | undefined;
@@ -596,7 +598,7 @@ export class FixRounds {
     if (!openAtInReview(run)) return false;
     const claim = findClaim(office, run.runId);
     if (claim === null || claim.releasedAt !== null) return false;
-    if (heldByPark(office, run.key)) return false;
+    if (heldByPark(this.#deps.stories, office, run.key)) return false;
     const live = office.get<{ found: number }>(
       `select 1 as found from agents where office_id = $office_id and run_id = $run
         and ended_at is null and agent_id is not $exited limit 1`,

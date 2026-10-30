@@ -75,7 +75,7 @@ import {
 import { runConfigOf } from "../run/config-snapshot";
 import { catchUpsOf } from "../run/conflicts";
 import { openPark, type ParkWriter, parkStory } from "../run/park";
-import { heldByPark } from "../run/park-state";
+import { heldByPark, type ParkStore } from "../run/park-state";
 import type { RunStoryFacts } from "../run/resume";
 import { findRun, openAtInReview, runRoundCounts, type StoredRun } from "../run/records";
 import type { CiHeadState } from "../story-pr/prs";
@@ -128,6 +128,8 @@ export const STORY_MERGE_NOTICES = {
 
 /** What the story PRs' auto-merge needs besides the poll's own reads and clock. */
 export interface StoryMergeDeps {
+  /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
+  readonly stories: ParkStore;
   readonly git: StoryMergeGit;
   readonly ids: IdSource;
   /** Turns GitHub's auto-merge on and off. */
@@ -374,7 +376,7 @@ export class StoryMerges {
     if (run.branch === null || run.startSha === null) return null;
     const claim = findClaim(office, runId);
     if (claim === null || claim.releasedAt !== null) return null;
-    if (heldByPark(office, run.key)) return null;
+    if (heldByPark(this.#deps.stories, office, run.key)) return null;
     return run;
   }
 
@@ -695,7 +697,7 @@ export class StoryMerges {
     for (const row of parked) {
       const run = findRun(office, row.run_id as RunId);
       if (run === null || run.key === null || run.story === null) continue;
-      const park = openPark(office, run.key);
+      const park = openPark(this.#deps.stories, office, run.key);
       if (park?.runId !== run.runId || park.reason !== "review-blocked") continue;
       const verdict = latestVerdictOfRun(office, run.runId);
       if (verdict === null || verdict.verdict !== "blocked" || verdict.override !== null) continue;
@@ -1055,7 +1057,8 @@ export class StoryMerges {
 
   async #prClosed(ctx: StoryMergeContext, run: StoredRun, stored: StoryPrRecord): Promise<void> {
     const office = ctx.office;
-    if (run.kind !== "story" || run.key === null || heldByPark(office, run.key)) return;
+    if (run.kind !== "story" || run.key === null || heldByPark(this.#deps.stories, office, run.key))
+      return;
     const since = stored.closedAt ?? stored.openedAt;
     const parkedFor = office.get(
       `select 1 as found from parks where office_id = $office_id and run_id = $run

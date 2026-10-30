@@ -35,6 +35,7 @@ import { releaseClaim } from "../../src/worktree/records";
 
 import { H1, type StoryWorld, storyWorld } from "../merge/story-helpers";
 import { MINUTE, storyRun } from "./rounds-helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const H2 = "2".repeat(40);
 const STEPS = [
@@ -145,6 +146,7 @@ async function world(
   const entries: NewEntry[] = [];
   const self = { config: OFFICE_DEFAULTS } as { config: OfficeConfig };
   const tests = new StoryTests({
+    stories: backlogLayout,
     offices: {
       get: (id) => (id === s.officeId ? office : undefined),
       config: () => self.config,

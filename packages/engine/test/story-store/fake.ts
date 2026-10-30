@@ -11,7 +11,7 @@ import {
   parseFieldBlock,
   spliceFieldBlock,
 } from "../../src/story-store/fields/block";
-import type { PlanningHold } from "../../src/story-store/planning";
+import type { PlannedPark, PlanningHold } from "../../src/story-store/planning";
 import type {
   ListedStory,
   StoryEditor,
@@ -61,6 +61,8 @@ export class FakeStoryStore implements StoryStore {
   /** The stories with a journaled planning change, and those a failed backlog PR check holds. */
   readonly pending = new Set<string>();
   readonly checkFailed = new Set<string>();
+  /** The park a journaled planning change writes, by story key; null for one that lifts it. */
+  readonly planned = new Map<string, PlannedPark | null>();
   /** Every story lane commit, in order. */
   readonly commits: { readonly branch: string; readonly message: string }[] = [];
   readonly #unparsed = new Map<string, ListedStory>();
@@ -225,5 +227,10 @@ export class FakeStoryStore implements StoryStore {
   planningHold(_office: unknown, key: string): PlanningHold | null {
     if (this.pending.has(key)) return "pending";
     return this.checkFailed.has(key) ? "checkFailed" : null;
+  }
+
+  /** The park a journaled change writes (`planned`); undefined while none is journaled. */
+  plannedPark(_office: unknown, key: string): PlannedPark | null | undefined {
+    return this.planned.get(key);
   }
 }

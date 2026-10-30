@@ -556,7 +556,7 @@ function boxCollisions(
       options.offices.loadedOffices().flatMap((office) => {
         const handle = options.offices.get(office);
         if (handle === undefined) return [];
-        return inReviewRunIds(handle).flatMap((runId) => {
+        return inReviewRunIds(options.storyStore, handle).flatMap((runId) => {
           const run = findRun(handle, runId);
           const part = run === null ? null : (partRun?.(runId) ?? null);
           return run !== null && part !== null && conflicts.isBoxRun(office, run) ? [part] : [];
@@ -926,6 +926,7 @@ function boxSyncOf(options: RunsOptions, parts: RunPortParts): NonNullable<RunPo
 function baseRunPorts(options: RunsOptions, parts: RunPortParts): Omit<RunPorts, "ingest"> {
   const refreshStory = options.stories;
   return {
+    stories: options.storyStore,
     clock: options.clock,
     ids: options.ids,
     offices: options.offices,

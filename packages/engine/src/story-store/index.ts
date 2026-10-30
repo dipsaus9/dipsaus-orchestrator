@@ -37,7 +37,6 @@ export {
   HOLD_KIND,
   OPEN_STATES,
   PENDING_LANE_NOTICE,
-  plannedPark,
   PROPOSE_KIND,
   RESUME_KIND,
 } from "./planning";
