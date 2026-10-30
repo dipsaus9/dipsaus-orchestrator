@@ -126,9 +126,9 @@ export interface PlanningLane {
   /** Gives a journaled change up before anything of it was applied. */
   withdraw(change: PlannedChange): void;
   /**
-   * The hold of the story `key` the store failed to write, while it is the story's newest change
-   * (DIPO-401), with the status it parked the story from; undefined otherwise. Withdrawing it
-   * dismisses it.
+   * The newest hold of the story `key` the store failed to write that is still in force (DIPO-401),
+   * with the status it parked the story from; undefined otherwise. Withdrawing every one dismisses
+   * them.
    */
   failedHold(key: StoryKey): (PlannedChange & { readonly from: Lifecycle | null }) | undefined;
   /**

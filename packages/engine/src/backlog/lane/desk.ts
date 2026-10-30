@@ -4,8 +4,8 @@
 // lane's last flush gave (`OfficeLane.stall`). The item is gone once a flush applies and pushes
 // them. The desk reads it through `DeskSources.officeItems`.
 //
-// A park the maintainer asked for whose hold the Backlog CLI failed to write (a `failed` hold, still
-// the story's newest operation) keeps the story out of pickup, fail closed; the desk shows it as
+// A park the maintainer asked for whose hold the Backlog CLI failed to write (a `failed` hold in force,
+// `retention/failed-holds.ts`) keeps the story out of pickup, fail closed; the desk shows it as
 // PARK NOT WRITTEN with `dipo park` (send it again) and `dipo resume` (dismiss it), through
 // `DeskSources.handItems`.
 

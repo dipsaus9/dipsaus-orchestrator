@@ -238,7 +238,8 @@ describe("a park whose hold the Backlog CLI fails on (DIPO-401)", () => {
         ["PARK NOT WRITTEN", "TASK-1"],
       ]);
 
-      // Sent again, it is pending; dismissed, nothing holds the story.
+      // Sent again, it is pending; given up, the failed hold holds the story again; dismissed
+      // (withdrawn), nothing holds it.
       const again = await planningLane(lane).hold(
         { key, story: "TASK-1" },
         { from: "Ready", note: "later" },
@@ -246,6 +247,8 @@ describe("a park whose hold the Backlog CLI fails on (DIPO-401)", () => {
       expect(again.opId).not.toBe(hold.opId);
       expect(backlogLayout.planningHold(s.office, key)).toBe("pending");
       planningLane(lane).withdraw(again);
+      expect(backlogLayout.planningHold(s.office, key)).toBe("holdFailed");
+      planningLane(lane).withdraw(hold);
       expect(backlogLayout.planningHold(s.office, key)).toBeNull();
     }, FIXTURE);
   });

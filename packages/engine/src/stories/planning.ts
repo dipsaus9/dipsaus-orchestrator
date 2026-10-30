@@ -383,7 +383,10 @@ export class StoryPlanning {
         : (failed.from ?? "Refined");
     const at = ctx.clock.now();
     ctx.commit((): NewEntry[] => {
-      lane.withdraw(failed);
+      // Every failed hold of the story in force goes, the older ones a resend did not lift too.
+      for (let hold = lane.failedHold(key); hold !== undefined; hold = lane.failedHold(key)) {
+        lane.withdraw(hold);
+      }
       const closed = openParkIds(office, key).flatMap((parkId) =>
         resolvePark(office, parkId, "resume", at, note ?? null),
       );
