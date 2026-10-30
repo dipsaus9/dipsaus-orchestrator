@@ -1,10 +1,10 @@
 ---
 id: DIPO-380
 title: Answer dipo desk while an office is loading
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-29 12:45'
-updated_date: '2026-10-30 19:55'
+updated_date: '2026-10-30 19:56'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -16,6 +16,17 @@ references:
   - packages/engine/src/reads/
   - packages/engine/src/office/
   - packages/daemon/src/
+modified_files:
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/engine/src/commands/offices.ts
+  - packages/engine/src/commands/registry.ts
+  - packages/engine/src/office/manager.ts
+  - packages/engine/src/reads/execute.test.ts
+  - packages/engine/src/reads/execute.ts
+  - packages/engine/src/views/desk-notify.ts
+  - packages/engine/src/views/desk.ts
 priority: medium
 type: bug
 ordinal: 360000
@@ -49,3 +60,18 @@ test_plan:
 <!-- SECTION:NOTES:BEGIN -->
 Mechanism to replace: a read for an office awaits `deps.offices.load(officeId)` (engine/src/reads/execute.ts), so the desk read waits for the whole office load (leftover sweep, image check) before it answers. That wait is removed for the desk: it answers from what is loaded and marks a loading office as loading. DIPO-320 adds read deadlines, which would turn this hang into a coded timedOut, not an answer, so the two stories are separate.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-10-30 19:56 UTC
+- Criteria met: 2 of 2 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 1
+- Budget used: 124,476 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->
