@@ -4,6 +4,7 @@ title: Remove the quick_check after an unclean exit
 status: Refined
 assignee: []
 created_date: '2026-10-30 07:04'
+updated_date: '2026-10-30 07:05'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -13,7 +14,14 @@ dependencies:
   - DIPO-354
 references:
   - packages/daemon/src/crash-counter.ts
-  - packages/engine/src/db/
+  - packages/daemon/src/foreground.ts
+  - packages/engine/src/platform/sqlite.ts
+  - packages/engine/src/create/deps.ts
+  - packages/engine/src/create/recovery.ts
+  - packages/engine/src/create/steps.ts
+  - packages/contract/src/errors.ts
+  - packages/daemon/test/integration/crash-loop.test.ts
+  - packages/engine/test/
   - docs/decisions/0007-state-database.md
 priority: low
 type: chore
@@ -40,6 +48,7 @@ test_plan:
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 crash-counter.ts keeps no needsCheck; a counter file that still has the field loads, and the field is dropped on the next write
-- [ ] #2 Opening the state database after an unclean exit runs no PRAGMA quick_check, and nothing holds the daemon for a check result
-- [ ] #3 No comment or message in the daemon or engine mentions dipo restore or a quick_check after an unclean exit
+- [ ] #2 Nothing runs PRAGMA quick_check at open: the check and its damaged error in platform/sqlite.ts, the databaseCheck/needsCheck deps in create/deps.ts, needsCheckAfter in create/recovery.ts, the check step and its log line in create/steps.ts, and the needsCheck decision and wiring in daemon/src/foreground.ts are removed, with the tests that asserted them (crash-loop, sqlite, recovery, lifecycle) updated
+- [ ] #3 A damaged or unreadable state database still ends in database.unavailable with the recovery-by-hand text (0007), shown by a test against the real open path with a corrupted fixture file
+- [ ] #4 No comment or message in the files this story touches mentions dipo restore or a quick_check after an unclean exit
 <!-- AC:END -->
