@@ -1,10 +1,10 @@
 ---
 id: DIPO-380
 title: Answer dipo desk while an office is loading
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-29 12:45'
-updated_date: '2026-10-29 12:47'
+updated_date: '2026-10-30 11:15'
 labels:
   - 'tier:S'
   - 'slice:prune'
