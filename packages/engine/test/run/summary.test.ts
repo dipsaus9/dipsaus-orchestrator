@@ -221,7 +221,8 @@ describe("the final summary", () => {
     expect(lines[0]).toBe(`Closed ${summaryDate(AT + 60 * 60_000)}`);
     expect(lines.slice(1, 6)).toEqual([
       "- Criteria met: 3 of 8 (as the worker reported them)",
-      "- Loops: 1; CI attempts: 1",
+      // A CI attempt is a red head, reviewed or closed out (0002); the close-out head's own checks run later.
+      "- Loops: 1; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)",
       "- Review rounds: 1, failed 1",
       "- Budget used: 412,000 of 450,000 tokens",
       "- Runs: 1; resumes: 1",
