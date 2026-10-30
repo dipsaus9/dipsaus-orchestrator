@@ -31,18 +31,19 @@ import {
   type OfficeStore,
   type OfficeStoreState,
 } from "@dipsaus-orchestrator/client";
-import type {
-  Clock,
-  Cursor,
-  DeskItem,
-  EngineError,
-  OfficeId,
-  RequestId,
-  RunRecord,
-  StoryKey,
-  StoryRefValue,
-  StoryView,
-  Verdict,
+import {
+  type Clock,
+  type Cursor,
+  type DeskItem,
+  type EngineError,
+  type OfficeId,
+  officeSetPrivacy,
+  type RequestId,
+  type RunRecord,
+  type StoryKey,
+  type StoryRefValue,
+  type StoryView,
+  type Verdict,
 } from "@dipsaus-orchestrator/contract";
 import { Box, type Key, Text, useInput, useWindowSize } from "ink";
 import { useEffect, useState } from "react";
@@ -269,6 +270,11 @@ function runLines(action: RunAction, state: OfficeStoreState, ellipsis: string):
     lines.push("  no Ready story to start");
   }
   return lines;
+}
+
+/** True for the keys that leave an overlay for a view: `1` to `4` and `o`. */
+function leavesOverlay(input: string): boolean {
+  return input === "1" || input === "2" || input === "3" || input === "4" || input === "o";
 }
 
 export function App(props: AppProps) {
@@ -588,148 +594,138 @@ export function App(props: AppProps) {
     if (run?.status !== "sending" && run?.status !== "syncing") setRefusal(null);
   }, [run?.status]);
 
-  const handleKey = (input: string, key: Key) => {
-    if (key.ctrl && input === "c") {
-      quit();
+  // Key handling, one handler per mode (DIPO-320): the typed repository path, the privacy
+  // confirmation, the office switcher, and home, where the live agent detail and a desk card take
+  // their keys first and then one handler per view does. `handleKey` only picks the handler.
+
+  /** True, with the footer saying so, while offline: the caller sends nothing. */
+  const refusedOffline = (): boolean => {
+    if (offline) setMessage("offline: actions are disabled");
+    return offline;
+  };
+
+  const onPathKey = (current: Extract<Mode, { kind: "path" }>, input: string, key: Key) => {
+    if (key.escape) {
+      setMode({ kind: "switcher", index: current.index });
+      setMessage(null);
+    } else if (key.return) {
+      const path = current.text.trim();
+      if (path === "" || refusedOffline()) return;
+      openPath(path, current.index);
+    } else if (key.backspace || key.delete) {
+      setMode({ ...current, text: current.text.slice(0, -1) });
+    } else if (!key.ctrl && !key.meta && input !== "") {
+      setMode({ ...current, text: current.text + input });
+    }
+  };
+
+  const onConfirmPrivacyKey = (
+    current: Extract<Mode, { kind: "confirm-privacy" }>,
+    input: string,
+  ) => {
+    setMode({ kind: "home" });
+    if (input !== "y" && input !== "Y") {
+      setMessage(`${settingName(current.key)} stays as it was`);
       return;
     }
-    setRefusal(null);
-    if (state.notice !== null) store.dismissNotice();
-    // An open action prompt takes every key (`actions.ts`).
-    if (acts.key(input, key)) return;
-    acts.setMessage(null);
+    if (refusedOffline()) return;
+    sendPrivacy(current.key, current.value);
+  };
 
-    if (mode.kind === "path") {
-      if (key.escape) {
-        setMode({ kind: "switcher", index: mode.index });
-        setMessage(null);
-      } else if (key.return) {
-        const path = mode.text.trim();
-        if (path === "") return;
-        if (offline) {
-          setMessage("offline: actions are disabled");
-          return;
-        }
-        openPath(path, mode.index);
-      } else if (key.backspace || key.delete) {
-        setMode({ ...mode, text: mode.text.slice(0, -1) });
-      } else if (!key.ctrl && !key.meta && input !== "") {
-        setMode({ ...mode, text: mode.text + input });
-      }
-      return;
-    }
-
-    if (mode.kind === "confirm-privacy") {
-      setMode({ kind: "home" });
-      if (input !== "y" && input !== "Y") {
-        setMessage(`${settingName(mode.key)} stays as it was`);
-        return;
-      }
-      if (offline) {
-        setMessage("offline: actions are disabled");
-        return;
-      }
-      sendPrivacy(mode.key, mode.value);
-      return;
-    }
-
+  /** `q` twice within the window quits; true when the key was `q`. */
+  const onQuitKey = (input: string): boolean => {
     if (input === "q") {
       const now = clock.now();
       if (quitArmedAt !== null && now - quitArmedAt <= QUIT_WINDOW_MS) {
         quit();
-        return;
+        return true;
       }
       setQuitArmedAt(now);
       setMessage("press q again to quit");
-      return;
+      return true;
     }
     if (quitArmedAt !== null) {
       setQuitArmedAt(null);
       setMessage(null);
     }
+    return false;
+  };
 
-    if (mode.kind === "switcher") {
-      const count = state.offices.length;
-      if (key.escape) {
-        if (state.office !== null) setMode({ kind: "home" });
-      } else if (key.downArrow || input === "j") {
-        setMode({ kind: "switcher", index: Math.min(Math.max(0, count - 1), mode.index + 1) });
-      } else if (key.upArrow || input === "k") {
-        setMode({ kind: "switcher", index: Math.max(0, mode.index - 1) });
-      } else if (key.return) {
-        const entry = state.offices[mode.index];
-        if (entry === undefined) return;
-        if (offline) {
-          setMessage("offline: actions are disabled");
-          return;
-        }
-        switchTo(entry.office, entry.name);
-      } else if (input === "n") {
-        if (offline) {
-          setMessage("offline: actions are disabled");
-          return;
-        }
-        setMessage(null);
-        setMode({ kind: "path", index: mode.index, text: "" });
-      }
-      return;
+  const onSwitcherKey = (current: Extract<Mode, { kind: "switcher" }>, input: string, key: Key) => {
+    const count = state.offices.length;
+    if (key.escape) {
+      if (state.office !== null) setMode({ kind: "home" });
+    } else if (key.downArrow || input === "j") {
+      setMode({ kind: "switcher", index: Math.min(Math.max(0, count - 1), current.index + 1) });
+    } else if (key.upArrow || input === "k") {
+      setMode({ kind: "switcher", index: Math.max(0, current.index - 1) });
+    } else if (key.return) {
+      const entry = state.offices[current.index];
+      if (entry === undefined || refusedOffline()) return;
+      switchTo(entry.office, entry.name);
+    } else if (input === "n") {
+      if (refusedOffline()) return;
+      setMessage(null);
+      setMode({ kind: "path", index: current.index, text: "" });
     }
+  };
 
-    // The live agent detail: Esc goes back; the pane takes its own keys.
-    if (detail !== null) {
-      if (key.escape) {
-        setDetail(null);
-        setView(detail.back);
-        setMessage(null);
-        return;
-      }
-      // The key table's actions on the run (DIPO-308): answer its question, steer, park.
-      if (input === "a") {
-        answerRun(detail.target.run);
-        return;
-      }
-      if (input === "s" || input === "P") {
-        steerOrPark(input === "s" ? "steer" : "park", detail.target.run);
-        return;
-      }
-      const leaves =
-        input === "1" || input === "2" || input === "3" || input === "4" || input === "o";
-      if (!leaves && !(key.ctrl && input === "r")) return;
-      if (leaves) setDetail(null);
+  /**
+   * The live agent detail: Esc goes back; the pane takes its own keys. True when the key ends
+   * here; a view key or Ctrl-R closes nothing or the detail and goes on to home.
+   */
+  const onDetailKey = (open: DetailState, input: string, key: Key): boolean => {
+    if (key.escape) {
+      setDetail(null);
+      setView(open.back);
+      setMessage(null);
+      return true;
     }
+    // The key table's actions on the run (DIPO-308): answer its question, steer, park.
+    if (input === "a") {
+      answerRun(open.target.run);
+      return true;
+    }
+    if (input === "s" || input === "P") {
+      steerOrPark(input === "s" ? "steer" : "park", open.target.run);
+      return true;
+    }
+    const leaves = leavesOverlay(input);
+    if (!leaves && !(key.ctrl && input === "r")) return true;
+    if (leaves) setDetail(null);
+    return false;
+  };
 
-    // Home: the overview, the queue, the desk or the settings.
-    if (key.ctrl && input === "r") {
-      if (acts.retry()) return;
-      if (run?.status !== "failed" || run.error?.retryable !== true) return;
-      if (offline) {
-        setMessage("offline: actions are disabled");
-        return;
-      }
-      // The same request id: the engine runs the command at most once (0005 section 9).
-      send(run.request, run.label);
-      return;
+  /** Ctrl-R sends a failed retryable action or `work.run` again with its request id. */
+  const onRetryKey = () => {
+    if (acts.retry()) return;
+    if (run?.status !== "failed" || run.error?.retryable !== true || refusedOffline()) return;
+    // The same request id: the engine runs the command at most once (0005 section 9).
+    send(run.request, run.label);
+  };
+
+  /** The story a desk row opened: Esc returns to the desk, `j`/`k` scroll, view keys leave it. */
+  const onCardKey = (open: CardState, input: string, key: Key): boolean => {
+    if (key.escape) {
+      setCard(null);
+      setMessage(null);
+      return true;
     }
-    // The story a desk row opened: Esc returns to the desk, `j`/`k` scroll, view keys leave it.
-    if (view === "desk" && card !== null) {
-      if (key.escape) {
-        setCard(null);
-        setMessage(null);
-        return;
-      }
-      if (key.downArrow || input === "j") {
-        setCard({ ...card, top: card.top + 1 });
-        return;
-      }
-      if (key.upArrow || input === "k") {
-        setCard({ ...card, top: Math.max(0, card.top - 1) });
-        return;
-      }
-      const leaves =
-        input === "1" || input === "2" || input === "3" || input === "4" || input === "o";
-      if (!leaves) return;
-      if (leaves) setCard(null);
+    if (key.downArrow || input === "j") {
+      setCard({ ...open, top: open.top + 1 });
+      return true;
     }
+    if (key.upArrow || input === "k") {
+      setCard({ ...open, top: Math.max(0, open.top - 1) });
+      return true;
+    }
+    if (!leavesOverlay(input)) return true;
+    setCard(null);
+    return false;
+  };
+
+  /** The keys every view shares: switch views, open the switcher or a checklist, Esc. */
+  const onSharedViewKey = (input: string, key: Key): boolean => {
     if (input === "1") {
       setView("overview");
     } else if (input === "2") {
@@ -751,103 +747,153 @@ export function App(props: AppProps) {
       if (view === "settings") setView("overview");
       // Esc leaves the test open: nothing is sent (DIPO-365).
       if (view === "checklist") setView(checklistBack);
-    } else if (view === "overview") {
-      const count = board.length;
-      const select = (index: number) => {
-        const entry = board[Math.max(0, Math.min(count - 1, index))];
-        setOverviewKey(entry === undefined ? null : String(entry.key));
-      };
-      if (input === "p") {
-        setMessage(null);
-        setView("settings");
-      } else if (key.downArrow || input === "j") {
-        select(overviewIndex + 1);
-      } else if (key.upArrow || input === "k") {
-        select(overviewIndex - 1);
-      } else if (key.return && overviewEntry !== null) {
-        setOverviewKey(String(overviewEntry.key));
-        if (overviewEntry.run !== null) openDetail(overviewEntry.run, "overview");
-        else openStory(overviewEntry.key, String(overviewEntry.story), "overview");
-      } else if (input === "a" && overviewEntry !== null) {
-        if (overviewEntry.run === null) setMessage("no question waits on this row");
-        else answerRun(overviewEntry.run);
-      }
-    } else if (view === "settings") {
-      const settings = privacySettings(state);
-      const index = Math.min(settingsIndex, Math.max(0, settings.length - 1));
-      if (key.downArrow || input === "j") {
-        setSettingsIndex(Math.min(Math.max(0, settings.length - 1), index + 1));
-      } else if (key.upArrow || input === "k") {
-        setSettingsIndex(Math.max(0, index - 1));
-      } else if ((key.return || input === " ") && settings[index] !== undefined) {
-        if (offline) {
-          setMessage("offline: actions are disabled");
-          return;
-        }
-        const setting = settings[index];
-        setMessage(null);
+    } else {
+      return false;
+    }
+    return true;
+  };
+
+  const onOverviewKey = (input: string, key: Key) => {
+    const count = board.length;
+    const select = (index: number) => {
+      const entry = board[Math.max(0, Math.min(count - 1, index))];
+      setOverviewKey(entry === undefined ? null : String(entry.key));
+    };
+    if (input === "p") {
+      setMessage(null);
+      setView("settings");
+    } else if (key.downArrow || input === "j") {
+      select(overviewIndex + 1);
+    } else if (key.upArrow || input === "k") {
+      select(overviewIndex - 1);
+    } else if (key.return && overviewEntry !== null) {
+      setOverviewKey(String(overviewEntry.key));
+      if (overviewEntry.run !== null) openDetail(overviewEntry.run, "overview");
+      else openStory(overviewEntry.key, String(overviewEntry.story), "overview");
+    } else if (input === "a" && overviewEntry !== null) {
+      if (overviewEntry.run === null) setMessage("no question waits on this row");
+      else answerRun(overviewEntry.run);
+    }
+  };
+
+  const onSettingsKey = (input: string, key: Key) => {
+    const settings = privacySettings(state);
+    const index = Math.min(settingsIndex, Math.max(0, settings.length - 1));
+    if (key.downArrow || input === "j") {
+      setSettingsIndex(Math.min(Math.max(0, settings.length - 1), index + 1));
+    } else if (key.upArrow || input === "k") {
+      setSettingsIndex(Math.max(0, index - 1));
+    } else if ((key.return || input === " ") && settings[index] !== undefined) {
+      if (refusedOffline()) return;
+      const setting = settings[index];
+      setMessage(null);
+      // `office.setPrivacy` asks first when its definition says `confirm`, as the CLI does.
+      if (officeSetPrivacy.confirm) {
         setMode({ kind: "confirm-privacy", key: setting.key, value: !setting.value });
-      }
-    } else if (view === "checklist") {
-      const steps = checklistTest?.steps.length ?? 0;
-      if (key.downArrow || input === "j") {
-        setChecklistStep(Math.min(Math.max(0, steps - 1), checklistStep + 1));
-      } else if (key.upArrow || input === "k") {
-        setChecklistStep(Math.max(0, checklistStep - 1));
-      } else if (input === " " && checklistTest !== null) {
-        const id = checklistTest.test;
-        const ticked = ticks[id] ?? [];
-        const next = ticked.includes(checklistStep)
-          ? ticked.filter((index) => index !== checklistStep)
-          : [...ticked, checklistStep];
-        setTicks({ ...ticks, [id]: next });
-      } else if (input === "P") {
-        recordTest("pass");
-      } else if (input === "F") {
-        recordTest("fail");
-      }
-    } else if (view === "queue") {
-      if (key.downArrow || input === "j") {
-        selectQueue(queueSelected + 1);
-      } else if (key.upArrow || input === "k") {
-        selectQueue(queueSelected - 1);
-      } else if (key.return) {
-        const row = queue[queueSelected];
-        if (row?.kind !== "story") return;
-        openStory(row.view.key, String(row.view.story), "queue");
-      } else if (input === ".") {
-        setShowDone(!showDone);
-      } else if (input === "u") {
-        if (offline) {
-          setMessage("offline: actions are disabled");
-          return;
-        }
-        runSelected();
-      } else if (input === "P" || input === "d") {
-        const row = queue[queueSelected];
-        if (row?.kind !== "story") {
-          setMessage("select a story to park or drop");
-          return;
-        }
-        act(input === "P" ? "park" : "drop", { story: String(row.view.story) });
-      }
-    } else if (view === "desk") {
-      if (key.downArrow || input === "j") {
-        selectDesk(deskIndex + 1);
-      } else if (key.upArrow || input === "k") {
-        selectDesk(deskIndex - 1);
-      } else if (key.return && deskItem !== null) {
-        openCard(deskItem);
-      } else if (deskItem !== null) {
-        const bound = rowKeys(deskItem).bound.find((entry) => entry.binding.key === input);
-        if (bound === undefined) return;
-        setDeskSelection({ id: deskRowId(deskItem), key: deskItem.key ?? null, index: deskIndex });
-        if (bound.binding.id === "test" && deskItem.key !== undefined) {
-          openChecklist(String(deskItem.key), "desk");
-        }
-        act(bound.binding.id, deskTarget(deskItem, bound.action.cli, bound.binding.id));
+      } else {
+        sendPrivacy(setting.key, !setting.value);
       }
     }
+  };
+
+  const onChecklistKey = (input: string, key: Key) => {
+    const steps = checklistTest?.steps.length ?? 0;
+    if (key.downArrow || input === "j") {
+      setChecklistStep(Math.min(Math.max(0, steps - 1), checklistStep + 1));
+    } else if (key.upArrow || input === "k") {
+      setChecklistStep(Math.max(0, checklistStep - 1));
+    } else if (input === " " && checklistTest !== null) {
+      const id = checklistTest.test;
+      const ticked = ticks[id] ?? [];
+      const next = ticked.includes(checklistStep)
+        ? ticked.filter((index) => index !== checklistStep)
+        : [...ticked, checklistStep];
+      setTicks({ ...ticks, [id]: next });
+    } else if (input === "P") {
+      recordTest("pass");
+    } else if (input === "F") {
+      recordTest("fail");
+    }
+  };
+
+  const onQueueKey = (input: string, key: Key) => {
+    if (key.downArrow || input === "j") {
+      selectQueue(queueSelected + 1);
+    } else if (key.upArrow || input === "k") {
+      selectQueue(queueSelected - 1);
+    } else if (key.return) {
+      const row = queue[queueSelected];
+      if (row?.kind !== "story") return;
+      openStory(row.view.key, String(row.view.story), "queue");
+    } else if (input === ".") {
+      setShowDone(!showDone);
+    } else if (input === "u") {
+      if (refusedOffline()) return;
+      runSelected();
+    } else if (input === "P" || input === "d") {
+      const row = queue[queueSelected];
+      if (row?.kind !== "story") {
+        setMessage("select a story to park or drop");
+        return;
+      }
+      act(input === "P" ? "park" : "drop", { story: String(row.view.story) });
+    }
+  };
+
+  const onDeskKey = (input: string, key: Key) => {
+    if (key.downArrow || input === "j") {
+      selectDesk(deskIndex + 1);
+    } else if (key.upArrow || input === "k") {
+      selectDesk(deskIndex - 1);
+    } else if (key.return && deskItem !== null) {
+      openCard(deskItem);
+    } else if (deskItem !== null) {
+      const bound = rowKeys(deskItem).bound.find((entry) => entry.binding.key === input);
+      if (bound === undefined) return;
+      setDeskSelection({ id: deskRowId(deskItem), key: deskItem.key ?? null, index: deskIndex });
+      if (bound.binding.id === "test" && deskItem.key !== undefined) {
+        openChecklist(String(deskItem.key), "desk");
+      }
+      act(bound.binding.id, deskTarget(deskItem, bound.action.cli, bound.binding.id));
+    }
+  };
+
+  /** The keys of each view after the shared ones. */
+  const onViewKey: Readonly<Record<View, (input: string, key: Key) => void>> = {
+    overview: onOverviewKey,
+    settings: onSettingsKey,
+    checklist: onChecklistKey,
+    queue: onQueueKey,
+    desk: onDeskKey,
+  };
+
+  /** Home: an open detail or card first, then Ctrl-R, the shared view keys and the view's own. */
+  const onHomeKey = (input: string, key: Key) => {
+    if (detail !== null && onDetailKey(detail, input, key)) return;
+    if (key.ctrl && input === "r") {
+      onRetryKey();
+      return;
+    }
+    if (view === "desk" && card !== null && onCardKey(card, input, key)) return;
+    if (onSharedViewKey(input, key)) return;
+    onViewKey[view](input, key);
+  };
+
+  const handleKey = (input: string, key: Key) => {
+    if (key.ctrl && input === "c") {
+      quit();
+      return;
+    }
+    setRefusal(null);
+    if (state.notice !== null) store.dismissNotice();
+    // An open action prompt takes every key (`actions.ts`).
+    if (acts.key(input, key)) return;
+    acts.setMessage(null);
+    if (mode.kind === "path") onPathKey(mode, input, key);
+    else if (mode.kind === "confirm-privacy") onConfirmPrivacyKey(mode, input);
+    else if (onQuitKey(input)) return;
+    else if (mode.kind === "switcher") onSwitcherKey(mode, input, key);
+    else onHomeKey(input, key);
   };
 
   useInput((input, key) => {

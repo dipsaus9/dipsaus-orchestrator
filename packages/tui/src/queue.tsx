@@ -12,6 +12,7 @@ import { memo } from "react";
 import { age, gateLine, truncate } from "./format";
 import type { Display } from "./options";
 import { glyphs } from "./views";
+import { Colored } from "./colour";
 
 /** Section order of the 0009 queue layout; an unknown column follows, then done when shown. */
 export const QUEUE_ORDER = ["ready", "waiting", "refined", "draft", "running", "review", "desk"];
@@ -116,12 +117,14 @@ const StoryRow = memo(
       glyphs(props.display.ascii).ellipsis,
       props.selected,
     );
-    return props.selected && props.display.color ? (
-      <Text color="cyan" wrap="truncate-end">
+    return (
+      <Colored
+        display={props.display}
+        color={props.selected ? "cyan" : undefined}
+        wrap="truncate-end"
+      >
         {text}
-      </Text>
-    ) : (
-      <Text wrap="truncate-end">{text}</Text>
+      </Colored>
     );
   },
   (prev, next) =>
@@ -161,14 +164,15 @@ export function Queue(props: {
         const index = start + offset;
         if (row.kind === "next") {
           const text = ` ${index === selected ? ">" : " "} next Ready story (the engine picks)`;
-          return index === selected && display.color ? (
-            <Text key="next" color="cyan" wrap="truncate-end">
+          return (
+            <Colored
+              key="next"
+              display={display}
+              color={index === selected ? "cyan" : undefined}
+              wrap="truncate-end"
+            >
               {text}
-            </Text>
-          ) : (
-            <Text key="next" wrap="truncate-end">
-              {text}
-            </Text>
+            </Colored>
           );
         }
         return (

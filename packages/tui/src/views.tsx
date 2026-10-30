@@ -10,9 +10,9 @@ import {
 } from "@dipsaus-orchestrator/client";
 import type { DatabaseUnavailableDetails } from "@dipsaus-orchestrator/contract";
 import { Box, Text } from "ink";
-import type { ReactNode } from "react";
 
 import type { Display } from "./options";
+import { Colored } from "./colour";
 
 /** Below either size the TUI shows one list (0009 section 9). */
 export const NARROW_COLUMNS = 60;
@@ -71,14 +71,6 @@ export function isOffline(state: OfficeStoreState): boolean {
   return state.connection === "reconnecting" || state.connection === "closed";
 }
 
-function Colored(props: { display: Display; color: string; children: ReactNode }) {
-  return props.display.color ? (
-    <Text color={props.color}>{props.children}</Text>
-  ) : (
-    <Text>{props.children}</Text>
-  );
-}
-
 export function officeName(state: OfficeStoreState): string | null {
   if (state.office === null) return null;
   return state.offices.find((entry) => entry.office === state.office)?.name ?? state.office;
@@ -91,10 +83,10 @@ export function Header(props: { state: OfficeStoreState; display: Display; title
   const offline = offlineBanner(state, display.ascii);
   // Disconnected, the daemon state is not known: the header says so instead (0009 section 7).
   if (offline !== null) {
-    return display.color ? (
-      <Text color="red" wrap="truncate-end">{` ${title} ${dot} ${offline}`}</Text>
-    ) : (
-      <Text wrap="truncate-end">{` ${title} ${dot} ${offline}`}</Text>
+    return (
+      <Colored display={display} color="red" wrap="truncate-end">
+        {` ${title} ${dot} ${offline}`}
+      </Colored>
     );
   }
   return (
@@ -232,17 +224,16 @@ export function SwitcherBody(props: {
       ) : (
         <>
           <Text wrap="truncate-end">{title}</Text>
-          {rows.map((text, i) =>
-            i === index && display.color ? (
-              <Text key={state.offices[i]?.office ?? i} color="cyan" wrap="truncate-end">
-                {text}
-              </Text>
-            ) : (
-              <Text key={state.offices[i]?.office ?? i} wrap="truncate-end">
-                {text}
-              </Text>
-            ),
-          )}
+          {rows.map((text, i) => (
+            <Colored
+              key={state.offices[i]?.office ?? i}
+              display={display}
+              color={i === index ? "cyan" : undefined}
+              wrap="truncate-end"
+            >
+              {text}
+            </Colored>
+          ))}
         </>
       )}
     </Box>

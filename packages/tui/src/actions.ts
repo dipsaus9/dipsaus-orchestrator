@@ -5,12 +5,15 @@
 // - Text prompts take Enter to send and Esc to cancel: the answer, the park, reject and discard
 //   notes, the steer text, and the resume note where the park needs one (the engine's command
 //   line for it names `--note`). A text prompt keeps its draft while offline and sends nothing.
-// - Reject asks yes or no first. A resume with a budget (the engine's line names `--budget`, which
-//   `work.resume` declares in `confirmWhen`) is sent unconfirmed; the engine answers with the caps
-//   before and after, which the prompt shows before it asks yes or no and sends it confirmed.
-// - Discard, and drop with branch deletion (`irreversible`, `irreversibleWhen`), read
-//   `story.losses`, list what is lost and ask for the story id typed out (0009 open question 4).
-//   Every other action is one key or yes or no.
+// - Which actions confirm comes from the command definitions, as in the CLI (DIPO-320,
+//   `confirmSteps`): a command with `confirm` asks yes or no (reject, first); an `irreversible`
+//   one, or one an `irreversibleWhen` argument makes so (drop with branch deletion), reads
+//   `story.losses`, lists what is lost and asks for the story id typed out (0009 open question 4).
+//   Drop first asks whether to keep the branch; that choice is its yes or no.
+// - A resume with a budget (the engine's line names `--budget`, which `work.resume` declares in
+//   `confirmWhen`) is sent unconfirmed; the engine answers with the caps before and after, which
+//   the prompt shows before it asks yes or no and sends it confirmed.
+// - Every other action is one key.
 //
 // An action is done only when the office stream passes its reply cursor (read-your-writes), when
 // the store read the office again after the reply, or once the maintainer switched office. An
@@ -24,6 +27,7 @@ import { cursorReached, type OfficeStore, storyRef } from "@dipsaus-orchestrator
 import {
   type Cursor,
   type EngineError,
+  type CommandDefinition,
   findCommand,
   type LostCommit,
   type OfficeId,
@@ -171,9 +175,65 @@ function needsNote(cli: string | undefined): boolean {
   return (cli ?? "").includes("--note");
 }
 
-/** The prompts of an action, in order. */
-function stepsOf(id: ActionId, target: ActionTarget): Step[] {
+/** The commands whose losses `story.losses` lists. */
+const LOSS_COMMANDS: readonly LossesRequest["command"][] = ["work.discard", "story.drop"];
+
+/** Where an action's command definition comes from; the contract's by default. */
+export type DefinitionLookup = (
+  name: string,
+) => Pick<CommandDefinition, "confirm" | "irreversible" | "irreversibleWhen"> | undefined;
+
+/** The yes-or-no question of an action whose command has `confirm`, where it says more. */
+const QUESTIONS: Partial<Record<ActionId, (story: string) => string>> = {
+  reject: (story) => `Reject the merge of ${story}? Its note goes to the worker as a fix item.`,
+};
+
+/**
+ * The confirmation the command of `id` asks for with `args`, read from its definition as the CLI
+ * reads it (0005, 0009): one that is `irreversible`, or that an argument in `irreversibleWhen`
+ * makes so, lists what is lost and asks for the story id typed out; one with `confirm` asks yes
+ * or no; any other asks nothing.
+ */
+export function confirmSteps(
+  id: ActionId,
+  story: string,
+  args: Readonly<Record<string, unknown>> = {},
+  lookup: DefinitionLookup = findCommand,
+): Step[] {
+  const command = binding(id).command;
+  const definition = lookup(command);
+  if (definition === undefined) return [];
+  const irreversible =
+    definition.irreversible ||
+    (definition.irreversibleWhen ?? []).some((field) => args[field] === true);
+  if (irreversible) {
+    const losses = LOSS_COMMANDS.find((candidate) => candidate === command);
+    return losses === undefined
+      ? [{ kind: "typed" }]
+      : [{ kind: "losses", command: losses }, { kind: "typed" }];
+  }
+  if (!definition.confirm) return [];
+  return [{ kind: "yesno", question: QUESTIONS[id]?.(story) ?? `${VERBS[id]} ${story}?` }];
+}
+
+/**
+ * The prompts of an action, in order: the confirmation its command's definition asks for
+ * (`confirmSteps`, for every action alike) around the prompts for its arguments. A yes or no comes
+ * first; a typed id comes last, after the arguments and the list of what is lost. Drop's first
+ * prompt, keep or delete the branch, is its yes or no.
+ */
+function stepsOf(id: ActionId, target: ActionTarget, lookup: DefinitionLookup): Step[] {
   const story = target.story ?? "the story";
+  const inputs = inputStepsOf(id, target, story);
+  const confirm = confirmSteps(id, story, {}, lookup);
+  const choosesItself = inputs.some((step) => step.kind === "drop");
+  const first = confirm.filter((step) => step.kind === "yesno" && !choosesItself);
+  const last = confirm.filter((step) => step.kind !== "yesno");
+  return [...first, ...inputs, ...last];
+}
+
+/** The prompts for an action's arguments, without its confirmation. */
+function inputStepsOf(id: ActionId, target: ActionTarget, story: string): Step[] {
   switch (id) {
     case "answer":
       return [{ kind: "text", field: "text", label: "answer" }];
@@ -182,22 +242,13 @@ function stepsOf(id: ActionId, target: ActionTarget): Step[] {
         ? [{ kind: "text", field: "note", label: "approve note (overrides the blocked review)" }]
         : [];
     case "reject":
-      return [
-        {
-          kind: "yesno",
-          question: `Reject the merge of ${story}? Its note goes to the worker as a fix item.`,
-        },
-        { kind: "text", field: "note", label: "reject note" },
-      ];
+      return [{ kind: "text", field: "note", label: "reject note" }];
     case "resume":
       return needsNote(target.cli) ? [{ kind: "text", field: "note", label: "resume note" }] : [];
     case "discard":
-      return [
-        { kind: "text", field: "note", label: "discard note" },
-        { kind: "losses", command: "work.discard" },
-        { kind: "typed" },
-      ];
+      return [{ kind: "text", field: "note", label: "discard note" }];
     case "drop":
+      // Keep or delete the branch; `deleteBranch` then decides the rest (`confirmSteps`).
       return [{ kind: "drop" }];
     case "park":
       return [{ kind: "text", field: "note", label: `park note for ${story}` }];
@@ -211,7 +262,12 @@ function stepsOf(id: ActionId, target: ActionTarget): Step[] {
 }
 
 /** A new flow for the action `id` on `target`. */
-export function startFlow(id: ActionId, office: OfficeId, target: ActionTarget): Flow {
+export function startFlow(
+  id: ActionId,
+  office: OfficeId,
+  target: ActionTarget,
+  lookup: DefinitionLookup = findCommand,
+): Flow {
   const budget = id === "resume" ? budgetOf(target.cli) : undefined;
   const subject = id === "accept" || id === "dismiss" ? "proposal" : (target.story ?? "");
   return {
@@ -219,7 +275,7 @@ export function startFlow(id: ActionId, office: OfficeId, target: ActionTarget):
     office,
     target,
     label: `${VERBS[id]} ${subject}`.trim(),
-    steps: stepsOf(id, target),
+    steps: stepsOf(id, target, lookup),
     at: 0,
     values: budget === undefined ? {} : { budget },
     draft: target.prefill ?? "",
@@ -513,9 +569,10 @@ export function useActions(deps: ActionDeps) {
         if (input === "y" || input === "Y") {
           advance({ ...flow, values: { ...flow.values, deleteBranch: false } });
         } else if (input === "D") {
+          const story = flow.target.story ?? "the story";
           advance({
             ...flow,
-            steps: [...flow.steps, { kind: "losses", command: "story.drop" }, { kind: "typed" }],
+            steps: [...flow.steps, ...confirmSteps(flow.id, story, { deleteBranch: true })],
             values: { ...flow.values, deleteBranch: true },
           });
         } else cancel(flow);
