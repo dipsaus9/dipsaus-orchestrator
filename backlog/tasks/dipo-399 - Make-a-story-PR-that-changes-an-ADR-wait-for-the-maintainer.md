@@ -1,10 +1,10 @@
 ---
 id: DIPO-399
 title: Make a story PR that changes an ADR wait for the maintainer
-status: In Review
+status: In Progress
 assignee: []
 created_date: '2026-10-30 21:55'
-updated_date: '2026-10-30 22:57'
+updated_date: '2026-10-30 23:14'
 labels:
   - 'tier:M'
   - 'slice:prune'
