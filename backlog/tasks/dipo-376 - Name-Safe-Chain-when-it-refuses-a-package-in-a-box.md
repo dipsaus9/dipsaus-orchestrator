@@ -1,10 +1,10 @@
 ---
 id: DIPO-376
 title: Name Safe-Chain when it refuses a package in a box
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-10-29 09:29'
-updated_date: '2026-10-30 09:34'
+updated_date: '2026-10-30 09:35'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -29,15 +29,14 @@ Found on 2026-10-29 by the scratch smoke run of TASK-5: `bun add safe-chain-test
 
 ```dipo
 branch: "DIPO-376/name-safe-chain-refusals"
-unknowns: []
+unknowns:
+  - q: "Where should the run keep Safe-Chain's refusals so the worker's next turn and the reviewer see this run's refusals only? Option A: read the two Safe-Chain logs from the box live when the next turn or review is built, and store a per-run line offset on the run (needs a migration and a route reader wired from BoxWorkers into run/). Option B: have the box workers store the refusals on the run when a session ends (a new runs column, also a migration). I recommend A, since the logs are the only copy of the refusal and the box lives with the route. Which do you want, and may I widen the work to db/, run/ and box/workers.ts?"
+    status: "resolved"
+    answer: "Option B. When a session ends, the box workers read the Safe-Chain refusals of that session from the Safe-Chain box's logs and store them on the run (one migration, numbered after the latest on main). The worker's next turn and the reviewer's task message name each stored refusal: the package, that Safe-Chain refused it, and Safe-Chain's reason. The box and its logs can be gone by review time, so the stored copy is the source; do not read the box logs live at review. You may widen the work to db/, run/ and box/workers.ts for this. Keep it fail-closed: a log that cannot be read is reported as unknown, never as no refusals."
 test_plan:
   entries:
     - kind: "automated"
       check: "(unit) a Safe-Chain refusal reaches the worker's context and the review context with Safe-Chain named"
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "Where should the run keep Safe-Chain's refusals so the worker's next turn and the reviewer see this run's refusals only? Option A: read the two Safe-Chain logs from the box live when the next turn or review is built, and store a per-run line offset on the run (needs a migration and a route reader wired from BoxWorkers into run/). Option B: have the box workers store the refusals on the run when a session ends (a new runs column, also a migration). I recommend A, since the logs are the only copy of the refusal and the box lives with the route. Which do you want, and may I widen the work to db/, run/ and box/workers.ts?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -58,4 +57,6 @@ Parked 2026-10-30 09:34 UTC: ambiguous-spec
 - Review rounds: 0, failed 0 of 3
 - Budget used: 143,395 of 300,000 tokens; 56 of 90 turns; 5 of 45 minutes
 - Last good commit: d1b5c174c3d81f103b722a47207e90e0e07e914a
+
+Resumed 2026-10-30 09:35 UTC; grants: none; note: Option B. When a session ends, the box workers read the Safe-Chain refusals of that session from the Safe-Chain box's logs and store them on the run (one migration, numbered after the latest on main)…
 <!-- SECTION:NOTES:END -->
