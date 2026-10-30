@@ -2,6 +2,7 @@
 // (detached, stdio on host.log, BUN_OPTIONS removed), writes the host's identity to
 // `<dir>/host.json` and waits to be killed.
 
+import { systemClock } from "../../../src/platform/clock";
 import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -25,6 +26,7 @@ const host = await launchWorkerHost({
     stdin: ['"first"\n'],
   },
   dipoCommand: [process.execPath, CLI_MAIN],
+  launchDeadline: systemClock.now() + 60_000,
   // The daemon never runs with --no-orphans (0006 decision 8), but its environment may carry the
   // flag variables; the host must not inherit them, or it would die with this process.
   env: { ...process.env, BUN_OPTIONS: "--no-orphans", BUN_FEATURE_FLAG_NO_ORPHANS: "1" },

@@ -71,6 +71,7 @@ function setup(dir: string, lineScrub?: LineScrub): Setup {
     run: RUN,
     agent: "agt_01JZ0000000000000000000001",
     socket,
+    deadline: systemClock.now() + 60_000,
     plan: {
       argv: ["/usr/local/bin/claude", "-p"],
       env: { PATH: "/usr/bin:/bin" },
@@ -646,6 +647,31 @@ describe("worker host launch and SIGTERM (DIPO-93, 0005)", () => {
       expect(filesAtSpawn.filter((name) => name.startsWith("host-pid."))).toEqual([]);
       expect(launch.run).toBe(RUN);
       await host.done;
+    }));
+
+  it("stops its worker at the launch deadline when no daemon claimed it, and not before (DIPO-386)", () =>
+    withTempDir(async (dir) => {
+      const { runDir, launch } = setup(dir);
+      const clock = new ManualClock();
+      const deadline = clock.now() + 1_000;
+      writeFileSync(join(runDir, LAUNCH_FILE), JSON.stringify({ ...launch, deadline }), {
+        mode: 0o600,
+      });
+      const fake = fakeSpawn(loadRecording("success-single"), clock);
+      const { spawn: gatedSpawn } = gated(fake.spawn);
+      WorkerHost.start({
+        runId: RUN,
+        runDir,
+        clock,
+        spawn: gatedSpawn,
+        killGroup: () => {},
+        pid: 793,
+      });
+      clock.advance(999);
+      const child = fake.processes[0] as FakeProcess;
+      expect(child.stdinClosed).toBe(false);
+      clock.advance(1);
+      expect(child.stdinClosed).toBe(true);
     }));
 
   it("starts nothing when re-attach removed its launch first (0005)", () =>

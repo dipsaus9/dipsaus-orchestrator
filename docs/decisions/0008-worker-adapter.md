@@ -155,6 +155,8 @@ The task message is the first stdin line, never on argv. The box's environment h
 | Login, billing, start-up or box token failure | The office's starts paused, with a notice. The story stays where it was |
 | `apiKeySource` not `none` | Stops the session and pauses starts in every office |
 
+**The worker host's launch deadline.** A new worker host has `HOST_LAUNCH_DEADLINE_MS` (30 s) from its launch file to be claimed by a daemon's handshake; the launch file carries that deadline, and the host exits on its own at it when no daemon claimed it, with its worker stopped. A recovery asks a pending host's socket at each pass, with the 5 s connect timeout, and keeps its row until the deadline, so no host runs untracked (DIPO-386).
+
 **Resume.** Every session starts with an engine-made session id. A developer resume is always a new session in the story's box with a handoff (0014). The reviewer is never resumed.
 
 ## 7. Usage and cost

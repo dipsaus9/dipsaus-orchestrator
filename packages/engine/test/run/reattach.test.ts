@@ -19,7 +19,7 @@ import {
   truncateSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { type OfficeId, StoryId, type WorkRef } from "@dipsaus-orchestrator/contract";
 import { readRecording } from "@dipsaus-orchestrator/testkit";
@@ -35,8 +35,10 @@ import { parseFieldBlock } from "../../src/story-store/fields/block";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config/schema";
 import { currentPlatform } from "../../src/platform/paths";
 import { systemProcessProbe } from "../../src/platform/process";
-import type { HostClient } from "../../src/host/client";
+import { connectHost, type HostClient } from "../../src/host/client";
 import { EXIT_FILE, type HostExitFile, LAUNCH_FILE } from "../../src/host/protocol";
+import { systemClock } from "../../src/platform/clock";
+import { HOST_CONNECT_TIMEOUT_MS, HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
 import {
   type BranchPark,
@@ -64,7 +66,7 @@ import {
 import { activeSignals, markStuck, raiseSignal } from "../../src/run/signals";
 import { workView } from "../../src/views/work";
 import { promptPartsOf, promptTextsOf } from "../../src/prompts/parts";
-import { recordWorkerHost, workerHostsOf } from "../../src/runs/worker-hosts";
+import { launchWorkerHost, recordWorkerHost, workerHostsOf } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
@@ -163,7 +165,7 @@ function daemon(
   options: Partial<
     Pick<
       ConstructorParameters<typeof RunReattacher>[0],
-      "exitCheckMs" | "boxRecord" | "adapter" | "signal" | "probe"
+      "exitCheckMs" | "boxRecord" | "adapter" | "signal" | "probe" | "connect"
     >
   > = {},
 ): Daemon {
@@ -1358,17 +1360,42 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
     expect(parks()).toEqual([]);
   });
 
-  it("removes the launch of a pending row no live host answers for: the row goes, the story parks worker-failed", async () => {
+  it("finds a pending host that binds its socket after the first ask: the next pass re-attaches it (DIPO-386)", async () => {
+    beforeRestart("success-single", 6, 20);
+    makePending();
+    w.answers = false;
+    w.hostPid = 4343;
+    w.startTimeMs = w.f.t.clock.now();
+    const d = daemon();
+    expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([]);
+    expect(hostRow()).toMatchObject({ pending: true, pid: 0 });
+    w.answers = true;
+    w.f.t.clock.advance(HOST_CONNECT_TIMEOUT_MS);
+    expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([
+      { run: w.f.run, agent: w.f.agent, outcome: "steer" },
+    ]);
+    expect(hostRow()).toMatchObject({ pending: false, pid: 4343, startTimeMs: w.startTimeMs });
+    expect(d.control.isTracked(w.f.run)).toBe(true);
+    expect(w.signals).toEqual([]);
+    expect(parks()).toEqual([]);
+  });
+
+  it("keeps the row of a pending host no live host answers for until its launch deadline: then the row goes and the story parks worker-failed", async () => {
     makePending();
     w.answers = false;
     writeFileSync(join(w.dir, LAUNCH_FILE), JSON.stringify({ run: w.f.run, agent: w.f.agent }));
     const d = daemon();
+    // Before the deadline the launch is removed, the row kept and the run left alone (DIPO-386).
+    expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([]);
+    expect(existsSync(join(w.dir, LAUNCH_FILE))).toBe(false);
+    expect(workerHostsOf(w.f.office, w.f.run)).toHaveLength(1);
+    expect(parks()).toEqual([]);
+    w.f.t.clock.advance(HOST_LAUNCH_DEADLINE_MS);
     expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([
       { run: w.f.run, agent: w.f.agent, outcome: "neverStarted" },
     ]);
     await d.control.idle();
     expect(workerHostsOf(w.f.office, w.f.run)).toEqual([]);
-    expect(existsSync(join(w.dir, LAUNCH_FILE))).toBe(false);
     expect(parks()).toEqual([["worker-failed", HOST_NEVER_STARTED]]);
     // Nothing to stop and no next session.
     expect(w.sent).toEqual([]);
@@ -1380,6 +1407,7 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
     makePending();
     w.command = "/usr/bin/vim notes.txt";
     const d = daemon();
+    w.f.t.clock.advance(HOST_LAUNCH_DEADLINE_MS);
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
       { run: w.f.run, agent: w.f.agent, outcome: "neverStarted" },
     ]);
@@ -1473,6 +1501,90 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
     expect(hostRow().exitCode).toBe(0);
     expect(agentRow()?.end_reason).toBe("exited");
     expect(w.next).toEqual([]);
+  });
+});
+
+const STAND_IN_HOST = resolve(import.meta.dir, "fixtures/stand-in-host.ts");
+const CLI_MAIN = resolve(import.meta.dir, "../../../cli/src/main.ts");
+
+const realConnect = (socketPath: string, runId: string) =>
+  connectHost(socketPath, { runId, clock: w.f.t.clock, timeoutMs: HOST_CONNECT_TIMEOUT_MS });
+
+/** Whether a process is alive: a zombie or a PID that is gone is not. */
+async function alive(pid: number): Promise<boolean> {
+  const info = await systemProcessProbe(currentPlatform())(pid);
+  return info !== null && !info.zombie;
+}
+
+describe("re-attach of real worker host processes (DIPO-386)", () => {
+  it("re-attaches a real host that binds its socket after the first ask, on the next pass, with no signal", async () => {
+    beforeRestart("success-single", 6, 20);
+    makePending();
+    const socket = hostRow().socketPath;
+    mkdirSync(dirname(socket), { recursive: true });
+    const gate = join(w.dir, "bind-now");
+    const host = Bun.spawn([process.execPath, STAND_IN_HOST, "daemon", "worker-host", w.f.run], {
+      env: { ...process.env, STAND_IN_SOCKET: socket, STAND_IN_GATE: gate },
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    try {
+      const d = daemon({ connect: realConnect, probe: systemProcessProbe(currentPlatform()) });
+      expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([]);
+      expect(hostRow()).toMatchObject({ pending: true, pid: 0 });
+      writeFileSync(gate, "");
+      for (let i = 0; i < 500 && !existsSync(socket); i += 1) await Bun.sleep(10);
+      expect(existsSync(socket)).toBe(true);
+      // The clock stays still while the real handshake runs: `settled` would advance it past the
+      // connect timeout before the host's reply arrives.
+      w.f.t.clock.advance(HOST_CONNECT_TIMEOUT_MS);
+      expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
+        { run: w.f.run, agent: w.f.agent, outcome: "steer" },
+      ]);
+      expect(hostRow()).toMatchObject({ pending: false, pid: host.pid });
+      expect(d.control.isTracked(w.f.run)).toBe(true);
+      expect(w.signals).toEqual([]);
+      expect(parks()).toEqual([]);
+      stopDaemon(d);
+    } finally {
+      host.kill();
+    }
+  });
+
+  it("a real host no daemon claims exits by itself at its launch deadline; the next pass parks its story worker-failed with no signal", async () => {
+    beforeRestart("success-single", 6, 20);
+    makePending();
+    // The host's socket lies under the runtime directory its row names.
+    const runtimeDir = dirname(dirname(hostRow().socketPath));
+    const started = await launchWorkerHost({
+      runId: w.f.run,
+      agentId: w.f.agent,
+      officeDir: join(w.dir, "git", "dipo"),
+      runtimeDir,
+      plan: {
+        argv: ["/bin/sleep", "600"],
+        env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
+        cwd: w.dir,
+        files: [],
+        stdin: [],
+      },
+      dipoCommand: [process.execPath, CLI_MAIN],
+      launchDeadline: systemClock.now() + 1_500,
+      env: { ...process.env },
+      probe: systemProcessProbe(currentPlatform()),
+    });
+    // Nobody claims the host, so it stops by itself once its deadline passes in real time.
+    for (let i = 0; i < 500 && (await alive(started.pid)); i += 1) await Bun.sleep(20);
+    expect(await alive(started.pid)).toBe(false);
+    w.f.t.clock.advance(HOST_LAUNCH_DEADLINE_MS);
+    const d = daemon({ connect: realConnect, probe: systemProcessProbe(currentPlatform()) });
+    expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([
+      { run: w.f.run, agent: w.f.agent, outcome: "neverStarted" },
+    ]);
+    await d.control.idle();
+    expect(workerHostsOf(w.f.office, w.f.run)).toEqual([]);
+    expect(parks()).toEqual([["worker-failed", HOST_NEVER_STARTED]]);
+    expect(w.signals).toEqual([]);
+    expect(w.sent).toEqual([]);
   });
 });
 

@@ -55,19 +55,41 @@ export {
   SUPERVISOR_VARIABLES,
 } from "@dipsaus-orchestrator/contract";
 
+/** Programs that run another command: a process behind one of them is not the worker host (DIPO-386). */
+const WRAPPER_PROGRAMS: ReadonlySet<string> = new Set([
+  "sh",
+  "bash",
+  "zsh",
+  "dash",
+  "env",
+  "exec",
+  "nohup",
+  "sudo",
+  "timeout",
+]);
+
 /**
  * True when the command line is `dipo daemon worker-host <runId>`, from the binary or from source
- * (DIPO-93). The last three arguments are compared, so a binary path with spaces still matches,
- * and the run id must be the last argument exactly.
+ * (DIPO-93). The last three arguments are compared, and the run id must be the last argument
+ * exactly. What runs before them is the binary, whose path may hold spaces, or Bun and its entry
+ * script; a wrapper such as `sh -c` or `env` in front of them is refused (DIPO-386).
  */
 export function isWorkerHostCommand(command: string, runId: string): boolean {
   const args = command.trim().split(/\s+/);
-  return (
-    args.length >= 4 &&
-    args.at(-1) === runId &&
-    args.at(-2) === "worker-host" &&
-    args.at(-3) === "daemon"
-  );
+  if (
+    args.length < 4 ||
+    args.at(-1) !== runId ||
+    args.at(-2) !== "worker-host" ||
+    args.at(-3) !== "daemon"
+  ) {
+    return false;
+  }
+  const program = args.slice(0, -3);
+  if (program.some((arg) => arg === "-c" || WRAPPER_PROGRAMS.has(arg.split("/").at(-1) ?? ""))) {
+    return false;
+  }
+  const programText = program.join(" ");
+  return /(^|\/)dipo$/.test(programText) || /^\S*\/bun(\.exe)? \S+$/.test(programText);
 }
 
 /** True unless `kill(pid, 0)` says the PID does not exist (EPERM means it does). */

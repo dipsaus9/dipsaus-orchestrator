@@ -26,6 +26,14 @@ import type { Watchdog } from "./watchdog";
 /** How long the engine waits for a new host's socket before it relies on the poll alone. */
 export const HOST_CONNECT_TIMEOUT_MS = 5_000;
 
+/**
+ * How long a new host has to be claimed by a daemon's handshake (DIPO-386): from its launch file
+ * on. The host exits on its own at this deadline when no daemon claimed it, and a restart asks
+ * a pending row's socket until then. Longer than `HOST_CONNECT_TIMEOUT_MS`, so a host that binds
+ * its socket late is still re-attached.
+ */
+export const HOST_LAUNCH_DEADLINE_MS = 30_000;
+
 /** How long the engine waits between connection attempts while a new host has not bound its socket. */
 export const HOST_CONNECT_RETRY_MS = 25;
 
@@ -57,6 +65,7 @@ export function systemHostStarter(options: SystemHostStarterOptions): HostStarte
           runtimeDir: options.runtimeDir,
           plan: run.plan,
           dipoCommand: options.dipoCommand,
+          launchDeadline: options.clock.now() + HOST_LAUNCH_DEADLINE_MS,
           env: options.env,
           probe: options.probe,
           ...(options.spawnDetached === undefined ? {} : { spawnDetached: options.spawnDetached }),

@@ -4,6 +4,7 @@
 // as one SIGTERM to the host PID: the host stops its worker and writes `exit.json`. A host whose
 // recorded start time does not match (a reused PID) is never signalled and keeps running.
 
+import { systemClock } from "../../src/platform/clock";
 import { describe, expect, it } from "bun:test";
 import {
   chmodSync,
@@ -91,6 +92,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
                   stdin: ['"first"\n'],
                 },
                 dipoCommand: [process.execPath, CLI_MAIN],
+                launchDeadline: systemClock.now() + 60_000,
                 env: { ...env, DIPO_HOME: join(dir, "state"), DIPO_TMP: dir },
                 probe,
               });

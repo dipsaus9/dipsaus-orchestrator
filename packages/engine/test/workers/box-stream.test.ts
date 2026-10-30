@@ -156,6 +156,7 @@ function boxHost(
     run: RUN,
     agent: "agt_01JZ0000000000000000000271",
     socket,
+    deadline: systemClock.now() + 60_000,
     plan,
   };
   writeFileSync(join(runDir, LAUNCH_FILE), JSON.stringify(launch), { mode: 0o600 });

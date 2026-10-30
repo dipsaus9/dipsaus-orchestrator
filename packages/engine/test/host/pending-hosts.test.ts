@@ -2,6 +2,7 @@
 // host it stands for (0005); a host whose socket does not answer after a restart is signalled only
 // after its PID, start time and command are verified, and then with one SIGTERM to its PID alone.
 
+import { systemClock } from "../../src/platform/clock";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -78,6 +79,7 @@ function launchOptions(spawn: (options: DetachedSpawnOptions) => { pid: number }
     runtimeDir: join(dir, "rt"),
     plan: { argv: ["/bin/true"] as [string], env: {}, cwd: dir, files: [], stdin: [] },
     dipoCommand: ["/opt/dipo"] as [string],
+    launchDeadline: systemClock.now() + 60_000,
     env: {},
     probe: probeOf({}),
     spawnDetached: spawn,

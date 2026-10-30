@@ -24,10 +24,12 @@
 //
 // Before the active runs, `worker_hosts` rows left pending (written before their spawn) are
 // settled: a host that answers on the row's socket with its PID, running `dipo daemon worker-host
-// <run>` and started after the row, is recorded; otherwise no live process matches the row, its
-// `launch.json` is removed so a late host starts nothing, the row goes, and the story parks
-// `worker-failed`. After them, the open hosts of runs that have ended are closed out when dead, or
-// sent one verified SIGTERM and closed out once they exit.
+// <run>` and started after the row, is recorded; otherwise its `launch.json` is removed so a late
+// host starts nothing. Until `HOST_LAUNCH_DEADLINE_MS` after the row was written the row stays and
+// its run waits, asked again at the next pass (DIPO-386; the host exits by itself at its deadline).
+// After that the row goes, and the story parks `worker-failed`. After them, the open hosts of runs
+// that have ended are closed out when dead, or sent one verified SIGTERM and closed out once they
+// exit.
 //
 // Exits ingested but not decided before the stop are `run-outcomes/redispatch`'s; runs whose host
 // has an ended agent are left to it.
@@ -76,7 +78,7 @@ import type { Caps, ParseState } from "../workers/types";
 
 import { REVIEWER_ROLE, runCaps } from "./caps";
 import { CAP_TICK_MS, type RunEnding, type TrackedRun } from "./control";
-import { HOST_CONNECT_RETRY_MS, HOST_CONNECT_TIMEOUT_MS } from "./hosts";
+import { HOST_CONNECT_RETRY_MS, HOST_CONNECT_TIMEOUT_MS, HOST_LAUNCH_DEADLINE_MS } from "./hosts";
 import { HOST_LOST_WHY } from "./outcome-types";
 import { HOST_LOST_END } from "./outcomes";
 import type { ParkOutcome } from "./park";
@@ -235,9 +237,9 @@ export class RunReattacher {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined) return [];
     const done: ReattachedRun[] = [];
-    const unmatched = await this.#settlePending(office);
+    const { unmatched, waiting } = await this.#settlePending(office);
     for (const run of activeRuns(office)) {
-      if (run.kind !== "story") continue;
+      if (run.kind !== "story" || waiting.has(run.runId)) continue;
       try {
         const outcome = await this.#reattachRun(office, run, unmatched.get(run.runId));
         if (outcome !== null) done.push(outcome);
@@ -256,10 +258,14 @@ export class RunReattacher {
   /**
    * Settles every `worker_hosts` row the previous daemon left pending between writing it and
    * recording the spawned host (0005). Returns the agent of each run whose pending row matched no
-   * live process.
+   * live process once its launch deadline passed; a row whose socket did not answer before that is
+   * kept and asked again at the next pass, and its run waits (DIPO-386).
    */
-  async #settlePending(office: OfficeHandle): Promise<Map<string, string>> {
+  async #settlePending(
+    office: OfficeHandle,
+  ): Promise<{ unmatched: Map<string, string>; waiting: Set<string> }> {
     const unmatched = new Map<string, string>();
+    const waiting = new Set<string>();
     const rows = office.all<{ run_id: string; agent_id: string }>(
       `select run_id, agent_id from worker_hosts where office_id = $office_id and pending = 1
         order by started_at, rowid`,
@@ -269,6 +275,15 @@ export class RunReattacher {
       if (host === undefined) continue;
       try {
         const live = await this.#pendingHost(host);
+        if (live === null && this.#deps.clock.now() < host.startedAt + HOST_LAUNCH_DEADLINE_MS) {
+          // The host has not claimed its socket yet, and it exits by itself at its deadline.
+          waiting.add(row.run_id);
+          this.#deps.warn?.("a worker host is still pending; it is asked again at the next pass", {
+            run: row.run_id,
+            agent: row.agent_id,
+          });
+          continue;
+        }
         if (live === null) {
           unmatched.set(row.run_id, row.agent_id);
           deletePendingHost(office, row.run_id, row.agent_id);
@@ -288,7 +303,7 @@ export class RunReattacher {
         });
       }
     }
-    return unmatched;
+    return { unmatched, waiting };
   }
 
   /**

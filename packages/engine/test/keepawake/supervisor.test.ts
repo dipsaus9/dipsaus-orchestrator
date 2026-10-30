@@ -3,6 +3,7 @@
 // `config.yaml` names `gui/<uid>` or, without it, `user/<uid>` (AC #6, #7). Every process is a
 // fake; nothing touches launchctl.
 
+import { systemClock } from "../../src/platform/clock";
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
 
@@ -65,6 +66,7 @@ describe("worker host command", () => {
         runtimeDir: join(dir, "rt"),
         plan: { argv: ["claude"], env: {}, cwd: dir, files: [], stdin: [] },
         dipoCommand: ["/opt/dipo"],
+        launchDeadline: systemClock.now() + 60_000,
         env: {},
         probe: async (pid) => ({ pid, startTimeMs: 0, zombie: false, command: "dipo" }),
         spawnDetached: (options) => {

@@ -64,6 +64,8 @@ export interface LaunchWorkerHostOptions {
   readonly plan: LaunchPlan;
   /** How to run `dipo` (`selfCommand()`): the binary, or Bun with the entry script. */
   readonly dipoCommand: readonly [string, ...string[]];
+  /** Epoch ms by which a daemon must claim the host, else it exits (`HOST_LAUNCH_DEADLINE_MS`). */
+  readonly launchDeadline: number;
   /** The daemon's environment; `BUN_OPTIONS` is removed before the host gets it. */
   readonly env: Env;
   readonly probe: ProcessProbe;
@@ -111,6 +113,7 @@ export async function launchWorkerHost(
     run: options.runId,
     agent: options.agentId,
     socket: socketPath,
+    deadline: options.launchDeadline,
     plan: options.plan,
   };
   hooks.beforeSpawn?.({

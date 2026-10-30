@@ -3,6 +3,7 @@
 // records PID, start time, socket path and protocol version in `worker_hosts`, and judges
 // liveness by PID plus start time only, a zombie being dead.
 
+import { systemClock } from "../../src/platform/clock";
 import { describe, expect, it } from "bun:test";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -62,6 +63,7 @@ function launchOptions(dir: string, calls: DetachedSpawnOptions[]) {
     runtimeDir: join(dir, "rt"),
     plan: PLAN,
     dipoCommand: ["/opt/dipo"] as [string],
+    launchDeadline: systemClock.now() + 60_000,
     env: {
       HOME: "/home/m",
       BUN_OPTIONS: "--no-orphans",
@@ -111,6 +113,7 @@ describe("launchWorkerHost", () => {
         run: RUN,
         agent: AGENT,
         socket: host.socketPath,
+        deadline: systemClock.now() + 60_000,
         plan: PLAN,
       });
     }));

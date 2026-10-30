@@ -29,6 +29,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             run: RUN,
             agent: "agt_01JZ0000000000000000000001",
             socket: hostSocketPath(join(dir, "rt"), RUN),
+            deadline: systemClock.now() + 60_000,
             plan: {
               argv: [
                 "/bin/sh",

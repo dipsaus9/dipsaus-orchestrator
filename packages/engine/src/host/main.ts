@@ -171,6 +171,9 @@ export class WorkerHost {
   #steering: Steering | null = null;
   #state: HostState = "running";
   #exit: HostExitFile | null = null;
+  /** Set by the first valid hello: a daemon has claimed the host (DIPO-386). */
+  #claimed = false;
+  #claimTimer: TimerHandle | null = null;
   /** Set once SIGTERM to the host started stopping the worker (DIPO-93). */
   #terminating = false;
   #offTerminate: (() => void) | null = null;
@@ -253,6 +256,14 @@ export class WorkerHost {
     return true;
   }
 
+  /** The launch deadline passed with no daemon claim: the worker is stopped as on SIGTERM. */
+  #unclaimed(): void {
+    this.#claimTimer = null;
+    if (this.#claimed || this.#state !== "running") return;
+    this.#logger.error("no daemon claimed the worker host by its launch deadline", {});
+    this.terminate();
+  }
+
   status(): HostStatus {
     return {
       run: this.runId,
@@ -273,6 +284,12 @@ export class WorkerHost {
       agent: launch.agent,
       offset: this.#events.offset,
     });
+    // A host no daemon claims by its deadline stops on its own, so it never runs untracked (DIPO-386).
+    const { clock } = this.#options;
+    this.#claimTimer = clock.setTimeout(
+      () => this.#unclaimed(),
+      Math.max(0, launch.deadline - clock.now()),
+    );
     const fail = (what: string, error: unknown) => {
       const message = `${what}: ${error instanceof Error ? error.message : String(error)}`;
       this.#logger.error(what, { error: message });
@@ -468,6 +485,8 @@ export class WorkerHost {
     this.#state = "exiting";
     this.#offTerminate?.();
     this.#offTerminate = null;
+    if (this.#claimTimer !== null) this.#options.clock.clearTimeout(this.#claimTimer);
+    this.#claimTimer = null;
     const inferred = exit.signalInferred === true ? { signalInferred: true } : {};
     this.#append("exit", JSON.stringify({ code: exit.code, signal: exit.signal, ...inferred }));
     const record: HostExitFile = {
@@ -540,6 +559,7 @@ export class WorkerHost {
         return;
       }
       client.version = version;
+      this.#claimed = true;
       this.#send(client, { kind: "hello", version, run: this.runId, pid: this.#options.pid });
       return;
     }
