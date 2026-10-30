@@ -1,10 +1,10 @@
 ---
 id: DIPO-398
 title: Drop the zombie-aware test checks now that every box reaps
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-30 18:21'
-updated_date: '2026-10-30 18:23'
+updated_date: '2026-10-30 21:57'
 labels:
   - 'tier:S'
   - 'slice:prune'
