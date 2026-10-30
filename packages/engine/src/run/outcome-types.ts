@@ -232,8 +232,8 @@ export interface RunOutcomesDeps {
   readonly offices: { get(office: OfficeId): OfficeHandle | undefined };
   readonly steering: RunSteering;
   readonly encode: (op: SteerOp) => HostOp[];
-  /** The worker port's id, pure `result` and transcript parser. */
-  readonly worker: Pick<WorkerPort, "id" | "result" | "readTranscript">;
+  /** The worker port's id and pure `result`. */
+  readonly worker: Pick<WorkerPort, "id" | "result">;
   /** Run control; read when needed, since it is built with this as its outcomes. */
   readonly ender: () => RunEnder;
   /** Starts the run's next session; without it every crash parks `worker-failed`. */

@@ -51,7 +51,6 @@ import type { OfficeHandle } from "../db/office";
 import { connectHost, type ConnectHostResult } from "../host/client";
 import { LAUNCH_FILE, type HostExitFile } from "../host/protocol";
 import type { IngestAdapter, IngestedExit, IngestTarget, PassResult } from "../ingest/ingestor";
-import { recoverLostUsage } from "../ingest/transcript";
 import {
   isWorkerHostCommand,
   type ProcessProbe,
@@ -690,9 +689,8 @@ export class RunReattacher {
    * A dead host of a run that has ended: nothing is decided any more, so the host row, the agent
    * and its cursor end. One last pass takes the lines the host wrote after the last poll (an exit
    * line among them ends the agent as ingestion always does), unless the event file was reported
-   * changed. The exit is the host's own `exit.json` when there is one; without it the usage the
-   * stream lacked is read from the transcript, and the agent ends `host-lost` unless an end reason
-   * (the park's) is already recorded.
+   * changed. The exit is the host's own `exit.json` when there is one; without it the agent ends
+   * `host-lost` unless an end reason (the park's) is already recorded.
    */
   #closeOut(
     office: OfficeHandle,
@@ -721,16 +719,6 @@ export class RunReattacher {
         ? own
         : null;
     const at = deps.clock.now();
-    // A host dead without `exit.json` never wrote its usage; its transcript has it (DIPO-134).
-    if (!agentEnded && exit === null) {
-      recoverLostUsage({
-        office,
-        scope: target,
-        read: target.adapter.readTranscript,
-        at,
-        warn: deps.warn,
-      });
-    }
     // The exit as `exit.json` says (its own transaction), then the rest of the close-out.
     if (exit !== null) recordHostExit(office, host.agentId, exit);
     office.immediate(() => {

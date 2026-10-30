@@ -3,11 +3,9 @@
 
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit } from "../ingest/ingestor";
-import { recoverLostUsage } from "../ingest/transcript";
 import { endAgent } from "../runs/agents";
 import type { HostOp } from "../workers/types";
 
-import { runCaps } from "./caps";
 import type { RunEnding } from "./control-types";
 import { sendFeedback } from "./feedback";
 import { resolveIntent, type StoredIntent } from "./intents";
@@ -70,12 +68,11 @@ export class ExitOutcomes {
     if (office === undefined) return;
     const intent = this.#s.explaining(office, view.runId);
     const at = this.#deps.clock.now();
-    this.#readTranscripts(office, view, agent, at);
     // The agent ends with the signal in one transaction: a restart before the decision below
     // finds `host-lost` and decides it again.
     this.#s.write(office, () => {
-      // Its usage, the transcript's included, is final before its cursors end, so every decision
-      // below (a resume, a park, an intent, a run that ended already) finds it final.
+      // Its usage is final before its cursors end, so every decision below (a resume, a park, an
+      // intent, a run that ended already) finds it final.
       endAgent(office, {
         runId: view.runId,
         agentId: agent,
@@ -107,29 +104,6 @@ export class ExitOutcomes {
       return;
     }
     await this.hostLost(office, run, view, agent);
-  }
-
-  /**
-   * The usage a dead host never wrote to `exit.json` is read from the worker's transcript
-   * (0008 section 4, DIPO-134), once per message id. A transcript that cannot be read costs the
-   * usage, never the decision.
-   */
-  #readTranscripts(office: OfficeHandle, view: RunView, agent: string, at: number): void {
-    // The usage share counts against the run's start budget plus its grants (DIPO-143).
-    const run = findRun(office, view.runId);
-    recoverLostUsage({
-      office,
-      scope: {
-        run: view.runId,
-        agent,
-        role: view.work.role,
-        tier: view.work.tier,
-        budgetLimit: run === null ? view.caps.budgetTokens : runCaps(office, run).budgetTokens,
-      },
-      read: this.#deps.worker.readTranscript,
-      at,
-      warn: this.#deps.warn,
-    });
   }
 
   /** The decision on an agent that ended `host-lost`: one resume, else park `worker-failed`. */

@@ -89,7 +89,7 @@ export interface AgentEnd {
 /**
  * The one end of an agent (DIPO-364): its usage final when `finalizeUsage`, the agent ended at
  * `at` with `reason` (an end time or reason it has stays), every ingestion cursor of the agent
- * ended (its `host-events` and its `transcript` cursor, so retention ages both out), and its
+ * ended (its `host-events` cursor, so retention ages it out), and its
  * worker host row ended when `endHost`. Inside the caller's transaction.
  */
 export function endAgent(office: OfficeHandle, end: AgentEnd): void {

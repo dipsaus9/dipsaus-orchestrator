@@ -71,7 +71,6 @@ import {
   interpret,
 } from "../../src/workers/claude-cli/interpret";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
-import { readTranscript } from "../../src/workers/claude-cli/transcript";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import type { WorkerPort } from "../../src/workers/port";
@@ -90,7 +89,6 @@ import {
   type IngestFixture,
   ingestFixture,
   loggedEvents,
-  seedTranscriptCursor,
   target,
 } from "../ingest/helpers";
 import { type HeldSession, withHeld } from "./held-session";
@@ -202,7 +200,6 @@ function daemon(
     worker: {
       id: "claude-cli",
       result: (state, exit) => claudeResult(state as unknown as ClaudeParseState, exit),
-      readTranscript,
     },
     ender: () => control,
     resumer: {
@@ -559,48 +556,34 @@ describe("re-attach (0005)", () => {
     expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
   });
 
-  it("a dead host's usage the stream lacked is read from its transcript, once, before it is final (DIPO-134)", async () => {
+  it("a reattached run with an old transcript cursor resumes and counts usage from host events only", async () => {
     w.alive = false;
     beforeRestart("success-single", 6, 20);
     const transcript = join(w.dir, "session.jsonl");
-    writeFileSync(transcript, `${message("msg-lost", 9, 11)}\n${message("msg-lost-2", 1, 2)}\n`);
-    // An earlier binary's hook relay named the transcript (DIPO-134); no hook names one now.
-    seedTranscriptCursor(
-      w.f.office,
-      { run: w.f.run, agent: w.f.agent },
-      { path: transcript },
-      w.f.t.clock.now(),
-    );
-    const stored = () =>
-      w.f.office.get<{ input: number; output: number; messages: number; final: number }>(
-        `select sum(t.input) as input, sum(t.output) as output, min(t.final) as final,
-           (select count(*) from usage_messages m where m.office_id = t.office_id
-              and m.message_id like 'msg-lost%') as messages
-         from usage_totals t where t.office_id = $office_id and t.agent_id = $agent`,
-        { agent: w.f.agent },
-      );
+    writeFileSync(transcript, `${message("msg-lost", 9, 11)}\n`);
+    seedLeftTranscriptCursor(transcript);
     const d = daemon();
     await d.reattacher.reattach(w.f.office.officeId);
     await d.control.idle();
     expect(agentRow()?.end_reason).toBe("host-lost");
-    const after = stored();
-    expect(after?.messages).toBe(2);
-    expect(after?.final).toBe(1);
-    // The transcript's two messages are in the totals: their input and their output.
-    const rows = w.f.office.get<{ input: number; output: number }>(
-      `select sum(input) as input, sum(output) as output from usage_messages
-       where office_id = $office_id and agent_id = $agent`,
+    expect(w.next).toHaveLength(1);
+    // The transcript's message is not counted; the totals are the host events' usage alone.
+    const streamed = w.f.office.get<{ input: number; output: number }>(
+      `select coalesce(sum(input), 0) as input, coalesce(sum(output), 0) as output
+         from usage_messages where office_id = $office_id and agent_id = $agent
+           and message_id not like 'msg-lost%'`,
       { agent: w.f.agent },
     );
-    expect(after?.input).toBe(rows?.input ?? -1);
-    expect(after?.output).toBeGreaterThanOrEqual(13);
-
-    // A second restart reads the same transcript and adds nothing.
-    const again = daemon();
-    await again.reattacher.reattach(w.f.office.officeId);
-    await again.control.idle();
-    expect(stored()?.input).toBe(after?.input ?? -1);
-    expect(stored()?.output).toBe(after?.output ?? -1);
+    expect(streamed?.input).toBeGreaterThan(0);
+    expect(lostMessages()).toBe(0);
+    // The totals hold the host's input; its output joins them at a turn end, which this host never sent.
+    expect(
+      w.f.office.get<{ input: number }>(
+        `select sum(input) as input from usage_totals
+           where office_id = $office_id and agent_id = $agent`,
+        { agent: w.f.agent },
+      )?.input,
+    ).toBe(streamed?.input);
   });
 
   it("a dead host's leftover output is stored and sent as work.output, once (host-lost)", async () => {
@@ -817,6 +800,34 @@ const message = (id: string, input: number, output: number): string =>
       },
     },
   });
+
+/** The messages of the lost transcript that were counted (none may be). */
+function lostMessages(): number {
+  return (
+    w.f.office.get<{ n: number }>(
+      "select count(*) as n from usage_messages where office_id = $office_id and message_id like 'msg-lost%'",
+    )?.n ?? -1
+  );
+}
+
+/**
+ * A transcript cursor an earlier binary left (DIPO-134). The migration drops such rows, so the
+ * check constraint is lifted for this one insert.
+ */
+function seedLeftTranscriptCursor(path: string): void {
+  const db = w.f.t.state.connection;
+  db.exec("pragma ignore_check_constraints = on");
+  try {
+    db.run(
+      `insert into ingest_cursors (office_id, run_id, agent_id, source_kind, path, read_offset,
+         parse_state, updated_at)
+       values ($office, $run, $agent, 'transcript', $path, 0, '{"subagents":{}}', $at)`,
+      { office: w.f.office.officeId, run: w.f.run, agent: w.f.agent, path, at: w.f.t.clock.now() },
+    );
+  } finally {
+    db.exec("pragma ignore_check_constraints = off");
+  }
+}
 
 function countDaily(): number {
   return (
@@ -1424,64 +1435,29 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
     expect(w.next).toEqual([]);
   });
 
-  it("reads the transcript of a followed host of an ended run that died without exit.json, once (DIPO-134)", async () => {
+  it("closes out a followed host of an ended run that died without exit.json from host events only", async () => {
     beforeRestart("success-single", 6, 20);
     const transcript = join(w.dir, "session.jsonl");
-    writeFileSync(transcript, `${message("msg-lost", 9, 11)}\n${message("msg-lost-2", 1, 2)}\n`);
-    // An earlier binary's hook relay named the transcript (DIPO-134); no hook names one now.
-    seedTranscriptCursor(
-      w.f.office,
-      { run: w.f.run, agent: w.f.agent },
-      { path: transcript },
-      w.f.t.clock.now(),
-    );
+    writeFileSync(transcript, `${message("msg-lost", 9, 11)}\n`);
+    seedLeftTranscriptCursor(transcript);
     endRunByHand();
     w.alive = false;
-    const d = daemon({ adapter: () => ({ ...claude, readTranscript }) });
+    const d = daemon();
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
       { run: w.f.run, agent: w.f.agent, outcome: "closedOut" },
     ]);
     expect(agentRow()?.end_reason).toBe("host-lost");
-    // The stream lacked both messages: each is stored once, with the transcript's numbers.
-    const lost = w.f.office.all<{ message_id: string; input: number; output: number }>(
-      `select message_id, input, output from usage_messages
-        where office_id = $office_id and agent_id = $agent and message_id like 'msg-lost%'
-        order by message_id`,
-      { agent: w.f.agent },
-    );
-    expect(lost).toEqual([
-      { message_id: "msg-lost", input: 9, output: 11 },
-      { message_id: "msg-lost-2", input: 1, output: 2 },
-    ]);
-    const streamed =
-      w.f.office.get<{ input: number }>(
-        `select coalesce(sum(input), 0) as input from usage_messages
-          where office_id = $office_id and agent_id = $agent and message_id not like 'msg-lost%'`,
+    expect(lostMessages()).toBe(0);
+    expect(
+      w.f.office.get<{ final: number }>(
+        "select min(final) as final from usage_totals where office_id = $office_id and agent_id = $agent",
         { agent: w.f.agent },
-      )?.input ?? -1;
-    const totals = w.f.office.get<{ input: number; final: number }>(
-      `select sum(input) as input, min(final) as final from usage_totals
-        where office_id = $office_id and agent_id = $agent`,
-      { agent: w.f.agent },
-    );
-    expect(totals).toEqual({ input: streamed + 9 + 1, final: 1 });
-    // The daily rollup holds it once too.
-    const daily = w.f.office.get<{ input: number }>(
-      "select sum(input) as input from usage_daily where office_id = $office_id",
-    );
-    expect(daily?.input).toBe(streamed + 9 + 1);
+      )?.final,
+    ).toBe(1);
     // Closed for good: a later restart reads nothing again.
     stopDaemon(d);
-    expect(
-      await daemon({ adapter: () => ({ ...claude, readTranscript }) }).reattacher.reattach(
-        w.f.office.officeId,
-      ),
-    ).toEqual([]);
-    expect(
-      w.f.office.get<{ input: number }>(
-        "select sum(input) as input from usage_daily where office_id = $office_id",
-      )?.input,
-    ).toBe(streamed + 9 + 1);
+    expect(await daemon().reattacher.reattach(w.f.office.officeId)).toEqual([]);
+    expect(lostMessages()).toBe(0);
   });
 
   it("stops a living host of an ended run with one verified SIGTERM per restart, and closes it out once it exits", async () => {
