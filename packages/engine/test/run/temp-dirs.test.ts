@@ -533,7 +533,7 @@ describe("the short temp root (DIPO-118)", () => {
 });
 
 describe("afterRunExits", () => {
-  it("calls back once each exit and lost host is decided, also when the decision throws", async () => {
+  it("calls back once each exit is decided, also when the decision throws", async () => {
     const calls: string[] = [];
     const port: RunOutcomesPort = {
       onTurnProblem: async () => undefined,
@@ -544,14 +544,10 @@ describe("afterRunExits", () => {
         calls.push("exit");
         throw new Error("decision failed");
       },
-      onHostLost: async () => {
-        calls.push("lost");
-      },
     };
     const wrapped = afterRunExits(port, () => calls.push("after"));
     await expect(wrapped.onExit({} as never)).rejects.toThrow("decision failed");
-    await wrapped.onHostLost?.({} as never);
     wrapped.answered({} as never);
-    expect(calls).toEqual(["exit", "after", "lost", "after", "answered"]);
+    expect(calls).toEqual(["exit", "after", "answered"]);
   });
 });

@@ -11,7 +11,8 @@
 // - Host dead with `exit.json`: the remaining events and the exit are processed as ingestion
 //   always does; run control and worker outcomes decide the exit.
 // - Host dead without `exit.json`: the remaining events are processed; an exit line among them is
-//   an exit as above. Otherwise the host is lost (`RunOutcomes`).
+//   an exit as above. Otherwise the host is lost: its agent ends `host-lost` and its story parks
+//   `worker-failed`, with no resume.
 // - No new host ever starts here, and the run's next session (`RunResumer`) waits for every earlier
 //   host of the run to end.
 // - After the catch-up the run's caps are checked once, so a run over its caps is stopped at once.
@@ -76,6 +77,7 @@ import type { Caps, ParseState } from "../workers/types";
 import { REVIEWER_ROLE, runCaps } from "./caps";
 import { CAP_TICK_MS, type RunEnding, type TrackedRun } from "./control";
 import { HOST_CONNECT_RETRY_MS, HOST_CONNECT_TIMEOUT_MS } from "./hosts";
+import { HOST_LOST_WHY } from "./outcome-types";
 import { HOST_LOST_END } from "./outcomes";
 import type { ParkOutcome } from "./park";
 import { activeRuns, capsStartedAt, findRun, type StoredRun } from "./records";
@@ -97,7 +99,7 @@ export type ReattachOutcome =
   | "stopped"
   /** The host had ended; its exit was handed to run control. */
   | "exited"
-  /** The host died without an exit file; handed to worker outcomes. */
+  /** The host died without an exit file: its agent ends `host-lost` and the story parks. */
   | "hostLost"
   /** The event file changed; the story parks `worker-failed`. */
   | "fileChanged"
@@ -161,7 +163,6 @@ export interface RunReattacherDeps {
     isTracked(run: string): boolean;
     checkCaps(run: string): boolean;
     onEnded(run: string, agent?: string, end?: IngestedExit): void;
-    onHostLost(run: string, agent: string): void;
     interruptedEnding(): RunEnding;
     park(
       office: OfficeHandle,
@@ -546,7 +547,7 @@ export class RunReattacher {
     return {
       run: run.runId,
       agent: host.agentId,
-      outcome: this.#closeDead(office, run, host, target),
+      outcome: await this.#closeDead(office, run, host, target),
     };
   }
 
@@ -604,13 +605,16 @@ export class RunReattacher {
     this.#watchUntilExit(office, run, host, park);
   }
 
-  /** A dead host: process what it wrote, then the exit (or its loss). */
-  #closeDead(
+  /**
+   * A dead host: process what it wrote, then the exit (or its loss). A host lost without an exit
+   * file ends `host-lost`, and its story parks `worker-failed` with no resume (0005, 0008).
+   */
+  async #closeDead(
     office: OfficeHandle,
     run: StoredRun,
     host: WorkerHostRow,
     target: IngestTarget,
-  ): ReattachOutcome {
+  ): Promise<ReattachOutcome> {
     const deps = this.#deps;
     const exit = exitFileOf(host);
     if (exit !== null) this.#recordExit(office, host, exit);
@@ -627,7 +631,23 @@ export class RunReattacher {
       });
       return "exited";
     }
-    deps.control.onHostLost(run.runId, host.agentId);
+    // Lost: its usage is final when the agent ends, the run is untracked, and it parks at once.
+    office.immediate(() => {
+      endAgent(office, {
+        runId: run.runId,
+        agentId: host.agentId,
+        at: deps.clock.now(),
+        reason: HOST_LOST_END,
+        finalizeUsage: true,
+        endHost: true,
+      });
+    });
+    deps.control.onEnded(run.runId);
+    await deps.control.park(office, run, target.work, {
+      ...deps.control.interruptedEnding(),
+      ops: [],
+      detail: HOST_LOST_WHY,
+    });
     return "hostLost";
   }
 

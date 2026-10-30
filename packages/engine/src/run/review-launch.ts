@@ -11,7 +11,7 @@
 // (`ReviewSessionRequest.head`), refused when the story branch has moved since, no `box.files`, and
 // the firewall, the box user and the proxies of any box. Its web traffic goes through the box web
 // proxy. No session has hooks. The box is deleted when the start fails, when the session's exit or
-// lost host is decided (`finish`), at daemon stop, and at daemon start for one a stopped daemon
+// exit is decided (`finish`), at daemon stop, and at daemon start for one a stopped daemon
 // left. The head the session reviews is kept in the run directory (`REVIEW_COMMIT_PREFIX`), read
 // back for the verdict (`reviewedCommit`) and removed with the box.
 //
@@ -273,7 +273,7 @@ export type ReviewSessionOutcome =
 /** Starts a reviewer session (the real one is `ReviewLauncher`). */
 export interface ReviewSessions {
   start(request: ReviewSessionRequest): Promise<ReviewSessionOutcome>;
-  /** Deletes the box of the session of `agent`, once its exit or lost host is decided. */
+  /** Deletes the box of the session of `agent`, once its exit is decided. */
   finish?(office: OfficeId, runId: string, agent: string): Promise<void>;
   /** The head the session of `agent` was given and reviews, until it finished; else null. */
   reviewedCommit?(office: OfficeId, runId: string, agent: string): Promise<string | null>;

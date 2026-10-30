@@ -633,12 +633,11 @@ function exitPortOf(
   });
 }
 
-/** `port` with `before` awaited for the run before each exit or lost host is decided (DIPO-376). */
+/** `port` with `before` awaited for the run before each exit is decided (DIPO-376). */
 function beforeRunExits(
   port: RunOutcomesPort,
   before: (runId: string) => Promise<void>,
 ): RunOutcomesPort {
-  const onHostLost = port.onHostLost?.bind(port);
   return {
     onTurnProblem: (view, problem) => port.onTurnProblem(view, problem),
     onPlanLimit: (view, limit) => port.onPlanLimit(view, limit),
@@ -651,14 +650,6 @@ function beforeRunExits(
       await before(exit.view.runId);
       await port.onExit(exit);
     },
-    ...(onHostLost === undefined
-      ? {}
-      : {
-          onHostLost: async (lost) => {
-            await before(lost.view.runId);
-            await onHostLost(lost);
-          },
-        }),
   };
 }
 

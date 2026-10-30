@@ -79,7 +79,6 @@ import type { RunSteering } from "./control-types";
 import { resolveIntent, runIntents, sendAsIntent, type StoredIntent } from "./intents";
 import {
   type ExitContext,
-  type HostLostContext,
   INTENT_TAGS,
   intentRest,
   intentTag,
@@ -727,13 +726,6 @@ export class Reviews {
     await this.#decide(exit.view, exit.agent, exit.end);
   }
 
-  /** A reviewer host found dead after a restart: as a crash. */
-  async onHostLost(lost: HostLostContext): Promise<void> {
-    await lost.ending?.catch(() => undefined);
-    await this.#finish(lost.view, lost.agent);
-    await this.#decide(lost.view, lost.agent, null);
-  }
-
   /** The ended session's reviewer box goes (0002); a failure is left for the daemon-start sweep. */
   async #finish(view: RunView, agent: string): Promise<void> {
     await this.#deps.sessions.finish?.(view.office, view.runId, agent).catch((error: unknown) => {
@@ -890,10 +882,6 @@ export class Reviews {
       onReview: (view, report) =>
         reviewerView(view) ? this.onReview(view, report) : Promise.resolve(),
       onExit: (exit) => (reviewerView(exit.view) ? this.onExit(exit) : base.onExit(exit)),
-      onHostLost: (lost) =>
-        reviewerView(lost.view)
-          ? this.onHostLost(lost)
-          : (base.onHostLost?.(lost) ?? Promise.resolve()),
     };
   }
 }

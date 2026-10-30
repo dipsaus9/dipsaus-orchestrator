@@ -3,7 +3,6 @@
 
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit } from "../ingest/ingestor";
-import { endAgent } from "../runs/agents";
 import type { HostOp } from "../workers/types";
 
 import type { RunEnding } from "./control-types";
@@ -13,20 +12,17 @@ import type { OutcomeSupport } from "./outcome-support";
 import type { SessionStarts } from "./outcome-sessions";
 import {
   type ExitContext,
-  HOST_LOST_END,
   HOST_LOST_WHY,
   initRejectedEnding,
   INTENT_TAGS,
   intentRest,
   intentTag,
-  type HostLostContext,
   planLimitEnding,
   reportFeedbackText,
   type RunOutcomesDeps,
   type RunView,
 } from "./outcome-types";
 import { findRun, type StoredRun } from "./records";
-import { raiseSignal } from "./signals";
 import { planLimitPause } from "./starts-paused";
 
 export class ExitOutcomes {
@@ -49,87 +45,16 @@ export class ExitOutcomes {
   }
 
   /**
-   * A host found dead after a restart, with no `exit.json` and no exit line (0006 decision 8,
-   * 0008 section 7): `work.observed host-lost` (health `lost`) and the agent ends `host-lost`;
-   * then as a crash row, except that only a resume will do: the session is resumed once when
-   * budget remains and `canResume` holds (the dead agent's usage finalized first), else the story
-   * parks `worker-failed`. An intent from before the stop that explains an exit decides it instead.
+   * The decision on a host that was lost (its agent ended `host-lost`, 0005, 0008): the story parks
+   * `worker-failed`, with no resume. Re-attach parks a host it finds dead at recovery itself; this
+   * is for a lost host the restart found decided and not yet parked.
    */
-  async onHostLost(lost: HostLostContext): Promise<void> {
-    const key = `${lost.view.runId} ${lost.agent}`;
-    if (this.#guard.has(key)) return;
-    await this.#guard.within(key, () => this.#decideHostLost(lost));
-  }
-
-  async #decideHostLost(lost: HostLostContext): Promise<void> {
-    await lost.ending?.catch(() => undefined);
-    const { view, agent } = lost;
-    const office = this.#deps.offices.get(view.office);
-    if (office === undefined) return;
-    const intent = this.#s.explaining(office, view.runId);
-    const at = this.#deps.clock.now();
-    // The agent ends with the signal in one transaction: a restart before the decision below
-    // finds `host-lost` and decides it again.
-    this.#s.write(office, () => {
-      // Its usage is final before its cursors end, so every decision below (a resume, a park, an
-      // intent, a run that ended already) finds it final.
-      endAgent(office, {
-        runId: view.runId,
-        agentId: agent,
-        at,
-        reason: intent === null ? HOST_LOST_END : "exited",
-        finalizeUsage: true,
-        endHost: true,
-      });
-      const raised = raiseSignal(office, view.runId, "host-lost", at);
-      if (raised === null) return [];
-      return [
-        {
-          type: "work.observed",
-          key: view.work.key,
-          run: view.runId,
-          delta: { work: view.work, signal: "host-lost", since: new Date(at).toISOString() },
-        },
-      ];
-    });
-    const run = findRun(office, view.runId);
-    if (run === null) return;
-    if (run.endedAt !== null) {
-      if (intent !== null)
-        this.#s.resolve(office, view.runId, intent, this.#s.outcomeOf(intent), at);
-      return;
-    }
-    if (intent !== null) {
-      await this.#byIntent(office, run, view, agent, intent);
-      return;
-    }
-    await this.hostLost(office, run, view, agent);
-  }
-
-  /** The decision on an agent that ended `host-lost`: one resume, else park `worker-failed`. */
-  async hostLost(
-    office: OfficeHandle,
-    run: StoredRun,
-    view: RunView,
-    agent: string,
-  ): Promise<void> {
-    const refused = this.#s.noRetry(office, view, agent);
-    if (refused !== null) {
-      const suffix = refused === "" ? "; dipo cannot start another session of the run" : refused;
-      await this.#s.park(office, run, view.work, {
-        intent: "park",
-        ops: [],
-        reason: "worker-failed",
-        detail: `${HOST_LOST_WHY}${suffix}`,
-      });
-      return;
-    }
-    // The dead agent's usage was made final when it ended `host-lost` (`endAgent`, here and in
-    // `reattach.ts`), before the resumed session adds its own (AC #9).
-    await this.#sessions.next(office, run, view, {
-      mode: "resume",
-      why: HOST_LOST_WHY,
-      requireResume: true,
+  async hostLost(office: OfficeHandle, run: StoredRun, view: RunView): Promise<void> {
+    await this.#s.park(office, run, view.work, {
+      intent: "park",
+      ops: [],
+      reason: "worker-failed",
+      detail: HOST_LOST_WHY,
     });
   }
 

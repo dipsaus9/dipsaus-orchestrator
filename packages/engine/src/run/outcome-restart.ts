@@ -221,7 +221,7 @@ export class Redispatch {
         const key = `${run.runId} ${agent.agent_id}`;
         await this.#guard.within(key, async () => {
           if (decided === HOST_LOST_END) {
-            await this.#exits.hostLost(office, run, view, agent.agent_id);
+            await this.#exits.hostLost(office, run, view);
             return;
           }
           await this.#sessions.next(
