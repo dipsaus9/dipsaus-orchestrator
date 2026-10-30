@@ -162,6 +162,10 @@ async function answerRead(deps: ReadDeps, request: ReadRequest): Promise<ReadRep
   try {
     let office: OfficeHandle | undefined;
     if (officeId !== undefined) {
+      // A read that has an answer for a loading office gives it now, not after the load (DIPO-380).
+      if (read.whileLoading !== undefined && deps.offices.loading?.(officeId) === true) {
+        return reply(read, request, read.whileLoading(officeId, deps.clock.now()));
+      }
       // A read loads the office's engine instance on first use, like a command (DIPO-27).
       const access = await deps.offices.load(officeId);
       if (!access.ok) return failure(requestId, access.error);

@@ -25,6 +25,8 @@ export interface OfficeDirectory {
   load(office: OfficeId): Promise<OfficeAccess>;
   /** The handle of an office that is already loaded; undefined for any other id. */
   get(office: OfficeId): OfficeHandle | undefined;
+  /** Whether a load of the office has started and not finished (DIPO-380); false when unknown. */
+  loading?(office: OfficeId): boolean;
   /**
    * The registered path of an office, forgotten or not (DIPO-48): `office.unknown` for an id never
    * registered, `engine.recovering` while the state database is not open. The executor compares a

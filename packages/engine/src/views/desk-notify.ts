@@ -7,6 +7,7 @@
 // logged and never reaches the caller.
 
 import {
+  DESK_LOADING_KIND,
   type DeskItem,
   officeDesk,
   type OfficeId,
@@ -59,6 +60,8 @@ export class DeskNotifier {
 
   /** Posts the items of `office`'s desk that were not shown before; `officeName` names it. */
   async observe(office: OfficeId, officeName: string, items: readonly DeskItem[]): Promise<void> {
+    // A loading office's desk is only the LOADING item: its first real read is still the first (DIPO-380).
+    if (items.some((item) => item.kind === DESK_LOADING_KIND)) return;
     const first = !this.#shown.has(office);
     const shown = this.#shown.get(office) ?? new Set<string>();
     this.#shown.set(office, shown);

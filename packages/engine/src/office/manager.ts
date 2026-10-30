@@ -195,6 +195,11 @@ export class OfficeManager implements OfficeDirectory {
     return this.#instances.get(office)?.office;
   }
 
+  /** Whether the office's load is running now (DIPO-380): its reads answer `whileLoading`. */
+  loading(office: OfficeId): boolean {
+    return !this.#instances.has(office) && this.#loading.has(office);
+  }
+
   /**
    * Every registered office that is not forgotten, oldest first; empty before the database opened.
    * The daemon loads each of them in `recovering` (DIPO-56).

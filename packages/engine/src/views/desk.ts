@@ -40,6 +40,7 @@
 
 import {
   type CommandName,
+  DESK_LOADING_KIND,
   type DeskAction,
   type DeskItem,
   GateId,
@@ -739,5 +740,15 @@ export function registerDesk(registry: FeatureRegistry, sources: DeskSources): v
       if (ctx.office === undefined) throw new Error("office.desk runs with its office");
       return desk(ctx.office, implementedIn(ctx.registry), sources, ctx.clock.now());
     },
+    // While the office loads there is no database to read yet: the desk says so (DIPO-380).
+    whileLoading: (_office, nowMs) => [
+      {
+        kind: DESK_LOADING_KIND,
+        detail: "the office is loading; its desk follows when the load ends",
+        since: iso(nowMs),
+        blocks: [],
+        actions: [],
+      },
+    ],
   });
 }
