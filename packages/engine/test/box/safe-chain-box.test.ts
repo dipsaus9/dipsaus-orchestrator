@@ -549,6 +549,10 @@ describe.skipIf(!RUNS)("what the Safe-Chain check refuses", () => {
     }));
 });
 
+/** 300 long lines of `what`, as a box that prints a lot. */
+const many = (what: string) =>
+  Array.from({ length: 300 }, (_, i) => `${what} ${i} ${"x".repeat(300)}`).join("\n");
+
 // The added readiness (DIPO-383): each Safe-Chain process loads its malware list before the start
 // script's ready line, and a failed start says what the box printed and the upstream listener did.
 describe.skipIf(!RUNS)(
@@ -576,6 +580,26 @@ describe.skipIf(!RUNS)(
         expect(downloads).toEqual([]);
         expect(boxes.boxes.has(SAFE_CHAIN_BOX)).toBe(false);
         expect(existsSync(caFile)).toBe(false);
+      }));
+
+    it("keeps a failed start's whole reason within 40 lines, however much the box printed", () =>
+      withTempDir(async (tmp) => {
+        const { started } = await route(tmp, {
+          ready: {
+            stdout: `${many("out")}\n{"ready":false,"reason":"first\\nsecond\\nthird"}\n`,
+            stderr: `${many("err")}\n`,
+            code: 1,
+          },
+        });
+        expect(started.ok).toBe(false);
+        if (started.ok) return;
+        const lines = started.reason.split("\n");
+        expect(lines.length).toBeLessThanOrEqual(SAFE_CHAIN_FAILURE_LINES);
+        // The first line is one line, with none of the box's raw output.
+        expect(lines[0]).toBe(
+          "the box web route did not start: Safe-Chain did not start in its box: first second third",
+        );
+        expect(lines.every((line) => line.length <= 250)).toBe(true);
       }));
 
     it("sends no tunnel to the Safe-Chain box while its start script still loads, and fails when the box ends then", () =>
@@ -650,12 +674,13 @@ describe("a failed start's detail (DIPO-383)", () => {
     const output = Array.from({ length: 100 }, (_, i) => `line ${i}`).join("\n");
     const events = Array.from({ length: 30 }, (_, i) => event(i));
     const lines = safeChainFailureDetail({ box: SAFE_CHAIN_BOX, output, events }).split("\n");
-    expect(lines).toHaveLength(SAFE_CHAIN_FAILURE_LINES);
-    expect(lines[0]).toBe(`the Safe-Chain box ${SAFE_CHAIN_BOX} printed (last 23 lines):`);
-    expect(lines[1]).toBe("  line 77");
-    expect(lines[23]).toBe("  line 99");
-    expect(lines[24]).toBe("the upstream listener's events (last 15 of 30):");
-    expect(lines[25]).toBe(`  ${JSON.stringify(event(15))}`);
+    // The reason's first line comes before these.
+    expect(lines).toHaveLength(SAFE_CHAIN_FAILURE_LINES - 1);
+    expect(lines[0]).toBe(`the Safe-Chain box ${SAFE_CHAIN_BOX} printed (last 22 lines):`);
+    expect(lines[1]).toBe("  line 78");
+    expect(lines[22]).toBe("  line 99");
+    expect(lines[23]).toBe("the upstream listener's events (last 15 of 30):");
+    expect(lines[24]).toBe(`  ${JSON.stringify(event(15))}`);
     expect(lines.at(-1)).toBe(`  ${JSON.stringify(event(29))}`);
   });
 

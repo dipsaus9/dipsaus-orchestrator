@@ -88,8 +88,9 @@ export const SAFE_CHAIN_CHECK_ATTEMPTS = 3;
 /** Time on the clock between two tries of the allowed download. */
 export const SAFE_CHAIN_CHECK_RETRY_DELAY_MS = 2_000;
 /**
- * The most lines a failed start's reason carries after its first: the Safe-Chain box's last output
- * and the upstream listener's events (DIPO-383), so the cause is readable without debug logs.
+ * The most lines a failed start's reason carries, its first included: after it, the Safe-Chain box's
+ * last output and the upstream listener's events (DIPO-383), so the cause is readable without
+ * debug logs.
  */
 export const SAFE_CHAIN_FAILURE_LINES = 40;
 /** The most upstream listener events a failed start's reason shows; the box's output takes the rest. */
@@ -326,9 +327,9 @@ function failureLine(text: string): string {
 }
 
 /**
- * Pure: what a failed start's reason carries after its first line (DIPO-383), at most
- * SAFE_CHAIN_FAILURE_LINES lines: the upstream listener's last events (at most 15, or none), and
- * the Safe-Chain box's last output lines in the rest. Empty when there is no box.
+ * Pure: what a failed start's reason carries after its first line (DIPO-383), so that the whole
+ * reason has at most SAFE_CHAIN_FAILURE_LINES lines: the upstream listener's last events (at most
+ * 15, or none), and the Safe-Chain box's last output lines in the rest. Empty when there is no box.
  */
 export function safeChainFailureDetail(input: {
   readonly box: string | null;
@@ -347,7 +348,8 @@ export function safeChainFailureDetail(input: {
           `the upstream listener's events (last ${events.length} of ${input.events.length}):`,
           ...events,
         ];
-  const room = SAFE_CHAIN_FAILURE_LINES - eventLines.length - 1;
+  // The reason's first line and the output's heading take one line each.
+  const room = SAFE_CHAIN_FAILURE_LINES - 1 - eventLines.length - 1;
   const output = input.output
     .split("\n")
     .map(failureLine)
@@ -516,12 +518,9 @@ async function startSafeChainBox(
     },
   });
   started.process = process;
-  let stderr = "";
+  // Both streams go to the failure's detail only (`safeChainFailureDetail`), which caps them.
   const keep = (text: string) => (started.output = (started.output + text).slice(-OUTPUT_KEPT));
-  drain(process.stderr, (text) => {
-    stderr = (stderr + text).slice(-2_000);
-    keep(text);
-  });
+  drain(process.stderr, keep);
   const ready = await withTimeout(
     deps.clock,
     readyTimeoutMs,
@@ -532,7 +531,7 @@ async function startSafeChainBox(
   const bundle = ready?.ready === true && typeof ready.bundle === "string" ? ready.bundle : null;
   if (bundle === null) {
     const why = typeof ready?.reason === "string" ? ready.reason : "it stopped before it was ready";
-    throw new Error(`Safe-Chain did not start in its box: ${why} ${stderr.trim()}`.trim());
+    throw new Error(`Safe-Chain did not start in its box: ${failureLine(why)}`);
   }
   if (!bundle.startsWith(`${SAFE_CHAIN_TMP_DIR}/`) || bundle.includes("/../")) {
     throw new Error(`Safe-Chain named a CA bundle outside its temp folder: ${bundle}`);
