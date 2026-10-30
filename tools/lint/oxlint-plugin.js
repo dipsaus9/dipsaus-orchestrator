@@ -690,7 +690,7 @@ const packageImports = {
  * types may cross. Until the layering spike sets finer layers, all the engine's orchestration is
  * one domain layer between the base and the composition root.
  */
-const ENGINE_LAYERS = [
+export const ENGINE_LAYERS = [
   {
     name: "base",
     entries: [
