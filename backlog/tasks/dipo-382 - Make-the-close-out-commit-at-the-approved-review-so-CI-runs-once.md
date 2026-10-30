@@ -4,7 +4,7 @@ title: 'Make the close-out commit at the approved review, so CI runs once'
 status: Refined
 assignee: []
 created_date: '2026-10-30 08:10'
-updated_date: '2026-10-30 08:12'
+updated_date: '2026-10-30 08:13'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -19,7 +19,7 @@ references:
   - packages/engine/src/run/fix-rounds.ts
   - packages/engine/src/story-pr/
   - docs/decisions/0002-review-and-testing.md
-  - docs/decisions/0012-backlog-workflow.md
+  - docs/decisions/0012-story-standard.md
 priority: high
 type: enhancement
 ordinal: 362000
