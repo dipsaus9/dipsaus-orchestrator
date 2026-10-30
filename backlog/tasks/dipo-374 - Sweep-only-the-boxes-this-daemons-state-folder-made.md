@@ -1,10 +1,10 @@
 ---
 id: DIPO-374
 title: Sweep only the boxes this daemon's state folder made
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-29 09:29'
-updated_date: '2026-10-29 09:32'
+updated_date: '2026-10-30 07:58'
 labels:
   - 'tier:S'
   - 'slice:prune'
