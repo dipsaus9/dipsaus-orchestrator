@@ -4,7 +4,8 @@
 // no run (parked from Refined or Ready) gets its status back through the planning lane
 // (`HoldResumer`), and the next `work.run` picks it up through the pickup check. A resume is a
 // target state (0005): a story that already runs (In Progress or In Review) answers `changed: false`
-// and changes nothing; any other story that is not parked answers `story.notParked`.
+// and changes nothing; a story whose park failed to write (DIPO-401) has that park dismissed, so
+// pickup may take it again; any other story that is not parked answers `story.notParked`.
 
 import { type Lifecycle, workResume } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
@@ -41,6 +42,15 @@ export interface HoldResumer {
     park: { readonly parkId: number; readonly from: string; readonly detail: string },
     note: string | undefined,
   ): Promise<Lifecycle>;
+  /**
+   * Dismisses the story's park whose hold failed to write (DIPO-401): pickup may take it again.
+   * The lifecycle it is at, or null when it has no such park.
+   */
+  dismissFailedHold?(
+    ctx: AsyncCommandContext,
+    identity: StoryIdentity,
+    note: string | undefined,
+  ): Promise<Lifecycle | null>;
 }
 
 /** The resume of a parked story with a run (`ParkResumes`, DIPO-155). */
@@ -117,6 +127,14 @@ export class WorkResumeCommand {
             ...(now.work === undefined ? {} : { run: now.work.run }),
           },
           changed: false,
+        };
+      }
+      // A park that failed to write holds the story from pickup; resume dismisses it (DIPO-401).
+      const dismissed = await this.#holds()?.dismissFailedHold?.(ctx, identity, args.note);
+      if (dismissed != null) {
+        return {
+          result: { story: identity.story, key: identity.key, to: dismissed },
+          changed: true,
         };
       }
       throw new CommandError(

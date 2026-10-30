@@ -9,6 +9,7 @@ import type { OfficeHandle } from "../../db/office";
 import {
   DROP_KIND,
   EditTarget,
+  HOLD_KIND,
   type JournalState,
   OPEN_STATES,
   PENDING_LANE_NOTICE,
@@ -336,4 +337,55 @@ export function journaledPark(
     if (park !== undefined) return park;
   }
   return undefined;
+}
+
+/** A hold whose write the Backlog CLI failed on, still the newest operation of its story (DIPO-401). */
+export interface FailedHold {
+  readonly opId: number;
+  readonly key: StoryKey;
+  readonly subject: string;
+  /** The status the hold parked the story from. */
+  readonly from: string | null;
+  /** The notice the lane closed it with. */
+  readonly notice: string | null;
+  /** When it was closed. */
+  readonly at: number;
+}
+
+function failedHoldOf(row: JournalRow): FailedHold {
+  const parsed = EditTarget.safeParse(JSON.parse(row.target));
+  const park = parsed.success ? FieldBlockPark.safeParse(parsed.data.fields?.["park"]) : null;
+  return {
+    opId: row.op_id,
+    key: row.key as StoryKey,
+    subject: row.subject,
+    from: park?.success === true ? park.data.from : null,
+    notice: row.notice,
+    at: row.closed_at ?? row.updated_at,
+  };
+}
+
+const NEWEST_PER_STORY = `select ${COLUMNS} from backlog_journal j
+  where office_id = $office_id and key is not null and op_kind = $hold and state = 'failed'
+    and op_id = (select max(op_id) from backlog_journal k
+      where k.office_id = j.office_id and k.key = j.key)`;
+
+/**
+ * The stories whose newest operation is a hold the Backlog CLI failed on (DIPO-401): the park the
+ * maintainer asked for was never written, so the story stays out of pickup (fail closed) until a
+ * newer operation of the story (the park sent again, or its resume withdrawing this one) follows.
+ */
+export function failedHolds(office: OfficeHandle): FailedHold[] {
+  return office
+    .all<JournalRow>(`${NEWEST_PER_STORY} order by op_id`, { hold: HOLD_KIND })
+    .map(failedHoldOf);
+}
+
+/** `failedHolds` of the story `key`, or null. */
+export function failedHold(office: OfficeHandle, key: StoryKey | string): FailedHold | null {
+  const row = office.get<JournalRow>(`${NEWEST_PER_STORY} and key = $key`, {
+    hold: HOLD_KIND,
+    key,
+  });
+  return row === null ? null : failedHoldOf(row);
 }

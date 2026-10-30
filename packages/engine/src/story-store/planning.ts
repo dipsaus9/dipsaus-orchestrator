@@ -126,6 +126,12 @@ export interface PlanningLane {
   /** Gives a journaled change up before anything of it was applied. */
   withdraw(change: PlannedChange): void;
   /**
+   * The hold of the story `key` the store failed to write, while it is the story's newest change
+   * (DIPO-401), with the status it parked the story from; undefined otherwise. Withdrawing it
+   * dismisses it.
+   */
+  failedHold(key: StoryKey): (PlannedChange & { readonly from: Lifecycle | null }) | undefined;
+  /**
    * Applies every journaled change; a failure is a notice on the office, never a throw. Says what
    * the flush did with `change` (DIPO-401); without one, null unless the flush failed.
    */
@@ -147,4 +153,9 @@ export type PlanningHold =
   /** A change of the story is journaled and not on the base yet. */
   | "pending"
   /** The office's backlog PR failed its structural check on the story. */
-  | "checkFailed";
+  | "checkFailed"
+  /**
+   * The maintainer's park of the story (a hold) failed to write and is closed (DIPO-401): the
+   * story stays out of pickup until the park is sent again or resumed.
+   */
+  | "holdFailed";

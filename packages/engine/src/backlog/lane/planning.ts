@@ -20,7 +20,14 @@ import {
   type PlanningLane,
 } from "../../story-store/planning";
 
-import { allEntries, findEntry, type JournalEntry, type LaneOp, updateEntry } from "./journal";
+import {
+  allEntries,
+  failedHold,
+  findEntry,
+  type JournalEntry,
+  type LaneOp,
+  updateEntry,
+} from "./journal";
 import { type FlushReport, LaneFlushError, type OfficeLane } from "./lane";
 import { proposeTarget } from "./propose";
 
@@ -86,7 +93,7 @@ function offBranch(lane: OfficeLane, report: FlushReport, entry: JournalEntry): 
     case "applied":
       return {
         state: "waiting",
-        branch: report.branch ?? "",
+        ...(report.branch === null ? {} : { branch: report.branch }),
         reason: lane.stall()?.reason ?? "the flush did not apply it",
       };
     default:
@@ -168,6 +175,12 @@ export function planningLane(lane: OfficeLane): PlanningLane {
         subject,
         target: proposeTarget(draft),
       }),
+    failedHold(key) {
+      const failed = failedHold(lane.office, key);
+      if (failed === null) return undefined;
+      const from = failed.from === "Ready" || failed.from === "Refined" ? failed.from : null;
+      return { opId: failed.opId, from };
+    },
     withdraw(change) {
       const office = lane.office;
       office.immediate(() =>

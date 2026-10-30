@@ -9,7 +9,9 @@
 //   operation writes F16 (`park: {reason: by-maintainer, from, note}`) and status Parked; an open
 //   `parks` row without a run is the park's run detail, and `story.parked` follows
 //   `story.state`. A Parked story answers `changed: false`; any other status fails
-//   `story.notParkable`. `work.resume` of a park with no run is `resumeHold` below.
+//   `story.notParkable`. `work.resume` of a park with no run is `resumeHold` below. A hold the
+//   Backlog CLI failed to write keeps the story out of pickup (DIPO-401): `story.park` sends it
+//   again, replacing its park row, and `work.resume` dismisses it (`dismissFailedHold`).
 // - `story.drop { story, deleteBranch }`: a Draft, Refined, Ready or Parked story is archived.
 //   In Progress or In Review fails `story.active`, and a story another active story depends on
 //   fails `story.hasDependents`. `deleteBranch` needs the typed story id from the client. The order
@@ -216,7 +218,13 @@ export class StoryPlanning {
     const { key, story } = identity;
     const result = { story, key };
     const view = storyView(office, key);
-    const lifecycle = view?.lifecycle;
+    // A park whose hold failed to write is no park (DIPO-401): the story is where the hold found
+    // it, and this park sends it again.
+    const failed = this.#deps.lane(office.officeId)?.failedHold(key);
+    const lifecycle =
+      failed !== undefined && view?.lifecycle === "Parked"
+        ? (failed.from ?? view.lifecycle)
+        : view?.lifecycle;
     // Parked already: the target state (0005).
     if (lifecycle === "Parked" || openPark(this.#deps.stories, office, key) !== null) {
       return { result, changed: false };
@@ -247,6 +255,9 @@ export class StoryPlanning {
     }
     const from: "Refined" | "Ready" = lifecycle;
     const lane = this.#laneOf(office);
+    // A park sent again after its hold failed to write (DIPO-401): the earlier attempt's open
+    // park row gives way to this one.
+    const again = failed === undefined ? [] : openParkIds(office, key);
     try {
       await lane.hold({ key, story }, { from, note: args.note });
     } catch (error) {
@@ -261,6 +272,9 @@ export class StoryPlanning {
     }
     const at = ctx.clock.now();
     ctx.commit((): NewEntry[] => {
+      const replaced = again.flatMap((parkId) =>
+        resolvePark(office, parkId, "reconcile", at, "replaced by the park sent again"),
+      );
       insertPark(office, {
         key,
         story,
@@ -275,6 +289,7 @@ export class StoryPlanning {
         park: { reason: "by-maintainer", from, note: args.note, since: at },
       });
       return [
+        ...replaced,
         {
           type: "story.state",
           key,
@@ -343,6 +358,55 @@ export class StoryPlanning {
       ];
     });
     await lane.flush();
+    return to;
+  }
+
+  /**
+   * `work.resume` of a story whose park failed to write (DIPO-401): the failed hold is withdrawn,
+   * so pickup may take the story again, and the park row it left is resolved `resume`. Null when
+   * the story has no failed hold.
+   */
+  async dismissFailedHold(
+    ctx: AsyncCommandContext,
+    identity: StoryIdentity,
+    note: string | undefined,
+  ): Promise<Lifecycle | null> {
+    const office = ctx.office;
+    const { key, story } = identity;
+    const lane = this.#laneOf(office);
+    const failed = lane.failedHold(key);
+    if (failed === undefined) return null;
+    const current = storyView(office, key);
+    const to: Lifecycle =
+      current !== null && current.lifecycle !== "Parked"
+        ? current.lifecycle
+        : (failed.from ?? "Refined");
+    const at = ctx.clock.now();
+    ctx.commit((): NewEntry[] => {
+      lane.withdraw(failed);
+      const closed = openParkIds(office, key).flatMap((parkId) =>
+        resolvePark(office, parkId, "resume", at, note ?? null),
+      );
+      if (current === null || current.lifecycle === to) return closed;
+      return [
+        ...closed,
+        {
+          type: "story.state",
+          key,
+          delta: {
+            story,
+            key,
+            from: current.lifecycle,
+            to,
+            detail: [
+              "the park that failed to write was dismissed",
+              ...(note === undefined ? [] : [note]),
+            ],
+          },
+          view: deriveStoryView({ ...factsOf(current), lifecycle: to }),
+        },
+      ];
+    });
     return to;
   }
 

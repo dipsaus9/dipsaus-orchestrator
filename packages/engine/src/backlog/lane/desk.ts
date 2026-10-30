@@ -3,9 +3,22 @@
 // desk's hand-action group names the lane, how many operations wait since when, and the reason the
 // lane's last flush gave (`OfficeLane.stall`). The item is gone once a flush applies and pushes
 // them. The desk reads it through `DeskSources.officeItems`.
+//
+// A park the maintainer asked for whose hold the Backlog CLI failed to write (a `failed` hold, still
+// the story's newest operation) keeps the story out of pickup, fail closed; the desk shows it as
+// PARK NOT WRITTEN with `dipo park` (send it again) and `dipo resume` (dismiss it), through
+// `DeskSources.handItems`.
 
 import type { OfficeHandle } from "../../db/office";
-import { deskText, type OfficeHandItem } from "../../views/desk";
+import { findStoryByKey } from "../../stories/keys";
+import {
+  deskText,
+  type HandDeskItem,
+  type OfficeHandItem,
+  PARK_NOT_WRITTEN,
+} from "../../views/desk";
+
+import { failedHolds } from "./journal";
 
 import { LANE_STUCK_MS, type LaneStall } from "./lane";
 
@@ -40,4 +53,22 @@ export function laneDeskItems(
       hand: "fix what the reason names; dipo applies the operations at the next backlog change or office load, and the daemon log has a line for each flush that stops",
     },
   ];
+}
+
+/** The stories whose park failed to write and still hold them from pickup (DIPO-401). */
+export function failedHoldDeskItems(office: OfficeHandle): HandDeskItem[] {
+  return failedHolds(office).map((hold) => {
+    const story = findStoryByKey(office, hold.key)?.story ?? hold.subject;
+    return {
+      kind: PARK_NOT_WRITTEN,
+      key: hold.key,
+      story,
+      detail: `your park of ${story} failed to write to Backlog.md, so dipo does not pick it: ${hold.notice ?? "the Backlog CLI failed on it"}`,
+      since: hold.at,
+      actions: [
+        { command: "story.park", cli: `dipo park ${story} --note "<why>"` },
+        { command: "work.resume", cli: `dipo resume ${story}` },
+      ],
+    };
+  });
 }

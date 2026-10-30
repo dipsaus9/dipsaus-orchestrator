@@ -444,7 +444,9 @@ export class OfficeLane {
     }
     if (report.held === true) return this.#heldOut(report);
     this.#flushed(report);
-    await this.#refreshMerged(report.merged);
+    // A failed operation's story is read again too: what it was to write is not on the base, and
+    // the story view must not keep showing it (DIPO-401).
+    await this.#refreshMerged([...report.merged, ...(report.failed ?? [])]);
     // The hook reports its own failures as notices; a failure there is no failed flush, but the
     // log says so (DIPO-401).
     await this.#onFlushed?.(this.officeId, report).catch((error: unknown) => {

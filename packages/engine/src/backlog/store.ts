@@ -13,7 +13,7 @@ import type { StoryEditor, StoryStore } from "../story-store/store";
 import { readOnBranch } from "./branch-read";
 import { backlogStoryFolders, isBacklogProject } from "./folder";
 import { appendImplementationNotes, setFinalSummary } from "./fields/summary";
-import { journaledPark, pendingLaneOp } from "./lane/journal";
+import { failedHold, journaledPark, pendingLaneOp } from "./lane/journal";
 import { backlogCheckBlocked } from "./pr/records";
 import { type StoryTarget, viewStory, writeFields } from "./fields/write";
 import { listAll } from "./list";
@@ -118,6 +118,8 @@ export function backlogStoryStore(cli: BacklogCli): StoryStore {
     isProject: isBacklogProject,
     planningHold(office, key): PlanningHold | null {
       if (pendingLaneOp(office, key) !== null) return "pending";
+      // A park that failed to write holds the story, fail closed (DIPO-401).
+      if (failedHold(office, key) !== null) return "holdFailed";
       return backlogCheckBlocked(office, key) === null ? null : "checkFailed";
     },
     plannedPark: journaledPark,

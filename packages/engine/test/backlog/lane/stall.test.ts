@@ -21,6 +21,8 @@ import {
   allEntries,
   DISCARD_KIND,
   editKind,
+  failedHoldDeskItems,
+  HOLD_KIND,
   LANE_NOTICES,
   LANE_STUCK_MS,
   laneDeskItems,
@@ -34,6 +36,7 @@ import {
 } from "../../../src/backlog/lane";
 import { BacklogCommandError, runBacklog } from "../../../src/backlog/runner";
 import type { ProposedDraft } from "../../../src/story-store/planning";
+import { backlogLayout } from "../../story-store/backlog";
 import {
   BACKLOG_FIXTURE,
   inRemote,
@@ -65,10 +68,11 @@ function memoryLog(): { lines: Line[]; logger: NonNullable<OfficeLaneOptions["lo
   };
 }
 
-/** The setup's lane with the kinds `proposal.accept` and `work.discard` journal, and `extra`. */
+/** The setup's lane with the kinds `proposal.accept`, `work.discard` and `story.park` journal, and `extra`. */
 function laneOf(s: LaneSetup, extra: Partial<OfficeLaneOptions> = {}): OfficeLane {
   s.kinds.set(PROPOSE_KIND, proposeKind);
   s.kinds.set(DISCARD_KIND, editKind(DISCARD_KIND));
+  s.kinds.set(HOLD_KIND, editKind(HOLD_KIND));
   return new OfficeLane({
     officeId: s.office.officeId,
     office: s.office,
@@ -209,6 +213,44 @@ describe("the stall of gap G16 (DIPO-401)", () => {
   });
 });
 
+describe("a park whose hold the Backlog CLI fails on (DIPO-401)", () => {
+  it("holds the story from pickup, fail closed, and puts it on the desk", async () => {
+    await withBareRemote(async (repo) => {
+      // A configuration without the Parked status: the CLI refuses `--status Parked`.
+      const config = join(repo.dir, "backlog", "config.yml");
+      writeFileSync(config, readFileSync(config, "utf8").replace(`"Parked", `, ""));
+      await publish(repo);
+      const s = await laneSetup(repo);
+      const lane = laneOf(s);
+      const key = storyKey(s);
+      const hold = await planningLane(lane).hold(
+        { key, story: "TASK-1" },
+        { from: "Ready", note: "later" },
+      );
+      expect(backlogLayout.planningHold(s.office, key)).toBe("pending");
+
+      const report = await lane.flush();
+      expect(report.failed).toEqual([hold.opId]);
+      // Nothing of it is open any more, and still the story is held.
+      expect(backlogLayout.planningHold(s.office, key)).toBe("holdFailed");
+      expect(planningLane(lane).failedHold(key)).toEqual({ opId: hold.opId, from: "Ready" });
+      expect(failedHoldDeskItems(s.office).map((item) => [item.kind, item.story])).toEqual([
+        ["PARK NOT WRITTEN", "TASK-1"],
+      ]);
+
+      // Sent again, it is pending; dismissed, nothing holds the story.
+      const again = await planningLane(lane).hold(
+        { key, story: "TASK-1" },
+        { from: "Ready", note: "later" },
+      );
+      expect(again.opId).not.toBe(hold.opId);
+      expect(backlogLayout.planningHold(s.office, key)).toBe("pending");
+      planningLane(lane).withdraw(again);
+      expect(backlogLayout.planningHold(s.office, key)).toBeNull();
+    }, FIXTURE);
+  });
+});
+
 describe("a planning lane that cannot flush (DIPO-401)", () => {
   it("logs each early return and failure with its reason, and keeps it as its stall", async () => {
     await withBareRemote(async (repo) => {
@@ -311,6 +353,19 @@ describe("a planning lane that cannot flush (DIPO-401)", () => {
         message: "the planning lane's branch waits",
       });
       expect(lane.stall()?.reason).toContain("the office has no remote origin");
+
+      // What the flush did with a change says the branch it waits on, never an empty one.
+      const planning = planningLane(lane);
+      const change = await planning.hold(
+        { key: storyKey(s), story: "TASK-2" },
+        { from: "Refined", note: "later" },
+      );
+      const flush = await planning.flush(change);
+      expect(flush).toEqual({
+        state: "waiting",
+        branch: expect.stringMatching(/^dipo\/backlog-/),
+        reason: expect.stringContaining("the office has no remote origin"),
+      });
     }, FIXTURE);
   });
 

@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { git, withBareRemote, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { type GitCall, type GitResult, type GitSettings, spawnGitExec } from "../../src/git";
+import { updateEntry } from "../../src/backlog/lane/journal";
 import { OfficeHandle } from "../../src/db/office";
 import type { RunResult, SqlParams } from "../../src/platform/sqlite";
 import { systemSpawn } from "../../src/platform/process";
@@ -311,6 +312,38 @@ describe("the claim and the planning lane in the office git queue", () => {
         code: CLAIM_NOTICES.pendingLaneOp,
       });
       expect(outcome.ok ? "" : outcome.notice).toContain("pending backlog PR");
+      expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
+    }, FIXTURE);
+  });
+
+  it("skips a story whose park failed to write, fail closed (DIPO-401)", async () => {
+    await withBareRemote(async (repo) => {
+      await publish(repo);
+      const s = await claimSetup(repo);
+      const key = s.key();
+      const hold = await laneOf(s).journal({
+        kind: "edit",
+        key,
+        subject: TASK_1,
+        target: { from: ["Ready"], status: "Parked" },
+      });
+      // The lane closes a hold the Backlog CLI failed on as `failed`; nothing of it is open.
+      s.office.immediate(() =>
+        s.office.run(
+          "update backlog_journal set op_kind = 'hold' where office_id = $office_id and op_id = $op",
+          { op: hold.opId },
+        ),
+      );
+      s.office.immediate(() => updateEntry(s.office, hold.opId, { state: "failed" }, 1));
+
+      const outcome = await claimStory(s.deps(), s.request(key));
+
+      expect(outcome).toMatchObject({
+        ok: false,
+        reason: "notRunnable",
+        code: CLAIM_NOTICES.holdFailed,
+      });
+      expect(outcome.ok ? "" : outcome.notice).toContain("your park of it failed to write");
       expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
     }, FIXTURE);
   });

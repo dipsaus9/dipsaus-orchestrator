@@ -60,6 +60,7 @@ export const CLAIM_STATUS = "In Progress";
 /** `engine.notice` codes of the claim. */
 export const CLAIM_NOTICES = {
   pendingLaneOp: "claim.pendingLaneOp",
+  holdFailed: "claim.holdFailed",
   collision: "claim.collision",
   lostRace: "claim.lostRace",
   pushFailed: "claim.pushFailed",
@@ -232,13 +233,24 @@ async function startClaim(
   if (liveClaimOf(deps.office, request.key) !== null) {
     return { ok: false, reason: "notRunnable", notice: null, code: null };
   }
-  if (deps.stories.planningHold(deps.office, request.key) === "pending") {
+  const hold = deps.stories.planningHold(deps.office, request.key);
+  if (hold === "pending") {
     return skip(
       deps,
       request,
       "notRunnable",
       CLAIM_NOTICES.pendingLaneOp,
       `${request.story} was not claimed: ${PENDING_LANE_NOTICE}.`,
+    );
+  }
+  // A park that failed to write still holds the story, fail closed (DIPO-401).
+  if (hold === "holdFailed") {
+    return skip(
+      deps,
+      request,
+      "notRunnable",
+      CLAIM_NOTICES.holdFailed,
+      `${request.story} was not claimed: your park of it failed to write; send it again with dipo park, or resume it with dipo resume.`,
     );
   }
 
