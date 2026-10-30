@@ -1,10 +1,10 @@
 ---
 id: DIPO-365
 title: Pass or fail a story's test from the TUI checklist view
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-28 13:44'
-updated_date: '2026-10-30 08:19'
+updated_date: '2026-10-30 08:32'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -51,11 +51,11 @@ test_plan:
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Closed 2026-10-30 08:10 UTC
+Closed 2026-10-30 08:32 UTC
 - Criteria met: 1 of 1 (as the worker reported them)
-- Loops: 0; CI attempts: 0
-- Review rounds: 1, failed 0
-- Budget used: 142,571 of 300,000 tokens
+- Loops: 0; CI attempts: 1
+- Review rounds: 2, failed 0
+- Budget used: 174,069 of 300,000 tokens
 - Runs: 1; resumes: 0
 - Parks: none
 - Grants: none
