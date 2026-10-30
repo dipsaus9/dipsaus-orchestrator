@@ -132,6 +132,17 @@ function fake(options: {
     read: (async (definition: { name: string }) => {
       reads.push(definition.name);
       if (definition.name === "office.snapshot") return { ok: true, result: snapshot() };
+      if (definition.name === "engine.hello") {
+        return {
+          ok: true,
+          result: {
+            engine: "0.0.0",
+            daemon: "running",
+            offices: [],
+            cursor: { stream: "software", seq: 1 },
+          },
+        };
+      }
       if (definition.name === "story.detail") {
         return { ok: true, result: { view: shown, runs: [run()], verdicts: [] } };
       }
@@ -170,9 +181,10 @@ function fake(options: {
     subscriptions.at(-1)?.onEvent(event);
   };
   const end = (error: EngineError) => subscriptions.at(-1)?.onEnded?.(error);
+  const endSoftware = (error: EngineError) => software.at(-1)?.onEnded?.(error);
   /** The store's idle check, which a stream mark set off before (DIPO-320). */
   const idle = () => (deps.clock as ManualClock).advance(STREAM_MARK_MS);
-  return { deps, out, err, reads, subscriptions, software, emit, end, idle };
+  return { deps, out, err, reads, subscriptions, software, emit, end, endSoftware, idle };
 }
 
 const tick = () => new Promise<void>((resolve) => queueMicrotask(resolve));
@@ -384,6 +396,56 @@ describe("dipo watch", () => {
       "-- view reloaded (history gap) --",
       `dipo watch: office ${OFFICE} · 1 running · Ctrl-C to stop`,
     ]);
+    ctx.end({ code: "office.unknown", message: "gone", retryable: false });
+    expect(await done).toBe(1);
+  });
+
+  it("prints nothing for a gap in the software stream, and goes on through a retryable end (DIPO-320)", async () => {
+    const ctx = fake({ running: true });
+    const done = main(["watch"], ctx.deps);
+    await until(() => ctx.out.includes("--"));
+    ctx.out.length = 0;
+    ctx.endSoftware({ code: "stream.resetRequired", message: "gap", retryable: false });
+    await until(() => ctx.software.length === 2);
+    expect(ctx.out).toEqual([]);
+    // A retryable end of the office stream is followed again; it does not end the watch.
+    ctx.end({ code: "engine.recovering", message: "wait", retryable: true });
+    for (let i = 0; i < 20; i++) await tick();
+    let ended = false;
+    void done.then(() => {
+      ended = true;
+    });
+    for (let i = 0; i < 20; i++) await tick();
+    expect(ended).toBe(false);
+    expect(ctx.err).toEqual([]);
+    ctx.end({ code: "office.unknown", message: "gone", retryable: false });
+    expect(await done).toBe(1);
+  });
+
+  it("leaves a story out of the idle check when an event that may end its run came within it (DIPO-320)", async () => {
+    const ctx = fake({ running: true });
+    const done = main(["watch"], ctx.deps);
+    await until(() => ctx.out.includes("--"));
+    const details = () => ctx.reads.filter((name) => name === "story.detail").length;
+    const before = details();
+    const clock = ctx.deps.clock as ManualClock;
+    // Half an interval after the timer was armed, a story move reads the detail at once.
+    clock.advance(STREAM_MARK_MS / 2);
+    ctx.emit("story.state", {
+      story: "TASK-1",
+      key: KEY,
+      from: "In Progress",
+      to: "In Progress",
+      view: story,
+    });
+    await until(() => details() === before + 1);
+    // Half an interval later the idle check fires: the move read the detail already.
+    clock.advance(STREAM_MARK_MS / 2);
+    for (let i = 0; i < 20; i++) await tick();
+    expect(details()).toBe(before + 1);
+    // A whole interval without such an event: the idle check reads it.
+    ctx.idle();
+    await until(() => details() === before + 2);
     ctx.end({ code: "office.unknown", message: "gone", retryable: false });
     expect(await done).toBe(1);
   });

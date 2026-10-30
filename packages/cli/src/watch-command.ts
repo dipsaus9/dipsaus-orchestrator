@@ -181,9 +181,11 @@ class Watch {
   #snapshots = 0;
   /** A history gap made the store read the office again; a failed re-read ends the watch. */
   #reloading = false;
-  /** A check of run ends is running; `#recheck` asks for one more after it. */
+  /** A check of run ends is running; `#recheck` asks for one more after it, of every story or idle. */
   #checking = false;
-  #recheck = false;
+  #recheck: "all" | "idle" | null = null;
+  /** When an event that may end a run (a park, a story move) last arrived, by story key. */
+  readonly #closedAt = new Map<string, number>();
   #idle: TimerHandle | null = null;
   readonly #stops: (() => void)[] = [];
   #finish: ((code: number) => void) | null = null;
@@ -328,8 +330,11 @@ class Watch {
     if (this.#finish === null) return;
     const state = this.#store.state;
     if (state.notice === RELOADED_NOTICE) {
-      this.#reloading = true;
       this.#store.dismissNotice();
+      // A gap in the office stream empties the office view (no cursor) and reads it again; a gap
+      // in the software stream reads only `engine.hello` again, which watch does not print.
+      if (state.cursor !== null) return;
+      this.#reloading = true;
       this.#line("-- view reloaded (history gap) --");
       return;
     }
@@ -364,7 +369,7 @@ class Watch {
     if (this.#finish === null) return;
     this.#idle = this.#deps.clock.setTimeout(() => {
       this.#idle = null;
-      void this.#checkEnds();
+      void this.#checkEnds("idle");
       this.#armIdle();
     }, STREAM_MARK_MS);
   }
@@ -497,6 +502,7 @@ class Watch {
         if (park.actions.length > 0) {
           this.#event(event, park.story, "parked", `you can: ${park.actions.join(", ")}`);
         }
+        this.#closedAt.set(park.key, this.#deps.clock.now());
         void this.#checkEnds();
         break;
       }
@@ -506,6 +512,7 @@ class Watch {
         const move = data.data;
         this.#event(event, move.story, "state", `${move.from} -> ${move.to} (${move.view.column})`);
         for (const line of move.detail ?? []) this.#event(event, move.story, "state", `  ${line}`);
+        this.#closedAt.set(move.key, this.#deps.clock.now());
         void this.#checkEnds();
         break;
       }
@@ -583,28 +590,37 @@ class Watch {
     void this.#checkEnds();
   }
 
-  /** Prints the end of every run seen running that has ended since (`runs.ended_at`). */
-  async #checkEnds(): Promise<void> {
+  /**
+   * Prints the end of every run seen running that has ended since (`runs.ended_at`). The idle
+   * check every `STREAM_MARK_MS` leaves out the stories an event that may end a run named within
+   * that time: that event read their detail already.
+   */
+  async #checkEnds(which: "all" | "idle" = "all"): Promise<void> {
     if (this.#checking) {
-      this.#recheck = true;
+      if (this.#recheck !== "all") this.#recheck = which;
       return;
     }
     this.#checking = true;
     try {
-      do {
-        this.#recheck = false;
-        await this.#checkEndsOnce();
-      } while (this.#recheck);
+      let next: "all" | "idle" | null = which;
+      while (next !== null) {
+        this.#recheck = null;
+        await this.#checkEndsOnce(next);
+        next = this.#recheck;
+      }
     } finally {
       this.#checking = false;
     }
   }
 
   /** One pass: the end of every run seen running that has ended since. */
-  async #checkEndsOnce(): Promise<void> {
+  async #checkEndsOnce(which: "all" | "idle"): Promise<void> {
     const keys = new Set(this.#running.values());
     if (this.#story !== null) keys.add(this.#story.key);
+    const now = this.#deps.clock.now();
     for (const key of keys) {
+      const closedAt = this.#closedAt.get(key);
+      if (which === "idle" && closedAt !== undefined && now - closedAt < STREAM_MARK_MS) continue;
       const detail = await this.#detail(key);
       if (detail === null) continue;
       for (const run of detail.runs) {
