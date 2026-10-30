@@ -20,6 +20,9 @@ export class DaemonNotRunningError extends Error {
   }
 }
 
+/** The hello refusals of a daemon that speaks another contract. */
+const FOREIGN_HELLO_CODES: ReadonlySet<string> = new Set(["args.invalid", "not.permitted"]);
+
 /** The client-side code of a daemon of another version. */
 export const OTHER_VERSION = "client.otherVersion";
 
@@ -75,8 +78,11 @@ export async function connectToDaemon(
     if (error instanceof ClientError && error.code === "client.unreachable") {
       throw new DaemonNotRunningError(state, `nothing answers on ${runtime.socket}`);
     }
-    // A daemon that answers the hello with an engine error speaks another contract.
-    if (error instanceof ClientError && error.engineError !== undefined) {
+    // A daemon that refuses the hello's shape speaks another contract: it answers `args.invalid`,
+    // or `not.permitted` for a frame it does not take as a hello. Any other refusal (`internal`)
+    // is the daemon's own failure and stays what it is.
+    const code = error instanceof ClientError ? error.engineError?.code : undefined;
+    if (code !== undefined && FOREIGN_HELLO_CODES.has(code)) {
       throw new OtherVersionError(null, options.client.version);
     }
     throw error;

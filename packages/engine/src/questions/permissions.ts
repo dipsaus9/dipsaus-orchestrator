@@ -130,7 +130,7 @@ export interface PermissionAsksDeps {
    * False by default: the exit closes it at once.
    */
   readonly exitDecides?: boolean;
-  /** False while the daemon schedules no work (`safe`, `draining`); true by default. */
+  /** False while the daemon schedules no work (`draining`); true by default. */
   readonly scheduling?: () => boolean;
   /** Called after change-log entries were appended outside a command. */
   readonly onChanged?: (office: OfficeId) => void;

@@ -13,7 +13,7 @@ export const EngineError = z.object({
 });
 export type EngineError = z.infer<typeof EngineError>;
 
-// Generic codes any command or read may return. Since minor 1 (DIPO-111): `database.unavailable`,
+// Generic codes any command or read may return. `database.unavailable` (DIPO-111),
 // not retryable, while the daemon cannot open or migrate its state database (0007 sections 9 and
 // 10): it stays in `recovering` and serves only `engine.hello`, `commands.describe` and
 // `daemon.*`; the message says what to do, and `details` are `DatabaseUnavailableDetails`.
@@ -36,17 +36,16 @@ export const RETRYABLE_ERROR_CODES = [
   "engine.recovering",
   "scheduling.off",
   "run.hostAlive",
-  // Since minor 1 (DIPO-48; 0005 amendment of 2026-10-13): fetching the base failed, for example
-  // offline; `work.run` waits until a fetch succeeds.
+  // Fetching the base failed, for example offline; `work.run` waits until a fetch succeeds
+  // (DIPO-48).
   "git.fetchFailed",
 ] as const;
 
-// Specific codes of the software-level commands (0005 section 4). Since minor 1 (DIPO-27):
-// `office.refused` for an office whose engine instance would not load (its `office.json` names
-// another id, or a load step failed; `details` name the step), also on office-level commands and
-// reads, and `office.markerInvalid` for an `office.json` that is not a valid marker. Also
-// `office.refused` when a write of an office file, such as `.dipo/office.local.yaml`, is refused
-// (DIPO-136).
+// Specific codes of the software-level commands (0005): `office.refused` for an office whose
+// engine instance would not load (its `office.json` names another id, or a load step failed;
+// `details` name the step), also on office-level commands and reads, and when a write of an office
+// file, such as `.dipo/office.local.yaml`, is refused (DIPO-27, DIPO-136); `office.markerInvalid`
+// for an `office.json` that is not a valid marker.
 export const SOFTWARE_ERROR_CODES = [
   "office.notProject",
   "office.pathMissing",
@@ -56,38 +55,38 @@ export const SOFTWARE_ERROR_CODES = [
   "scan.running",
 ] as const;
 
-// Specific codes of office-level commands and reads. Since minor 1 (DIPO-71): `config.invalid`
-// when the office has no valid configuration, so the command or read cannot run, and
-// `backlog.unreadable` when the Backlog CLI could not read the story or the backlog on the office's
-// base branch. Since minor 1 (DIPO-48): `run.refused` when an office check refuses `work.run`;
-// `details.check` names it (`adapter` or `plan-limit` while the office's starts are paused (0020),
-// `statuses` or `verify`).
-// Since minor 1 (DIPO-59): `question.closed` when `work.answer` names a question that is not waiting.
-// Since minor 1 (DIPO-140, 0019 section 15), all not retryable: `gate.notWaitingOnMaintainer` when
-// `gate.approve` or `gate.reject` names a gate that waits for no maintainer, `gate.handMergeOnly`
-// when the gate is a merge the maintainer merges by hand, and `gate.noteRequired` when a decision
-// that needs a note has none. Since minor 1 (DIPO-163, 0020 section 9), not retryable:
-// `story.notSteerable` when `work.steer` names a story whose live session is its reviewer. Since minor 1 (DIPO-155, 0020), not retryable, from
-// `work.resume` of a parked story: `resume.topUpRequired` (a `budget-exceeded` park resumed without
-// `budget`, naming the cap that fired), `resume.topUpTooSmall` (a top-up after which that cap is
-// still reached, naming the smallest share that clears it), `resume.noteRequired` (a reason whose
-// resume needs a note), `resume.notResumable` (a park with no way back, `scope-violation`, naming
-// `dipo discard`) and `resume.capReached` (what remains of the run's caps is zero, naming
-// `--budget`). `story.notParked`, not retryable, when `work.resume` names a story that is
-// neither parked nor running, or whose park changed while the resume ran (DIPO-352); a running
-// story answers `changed: false` (0005).
-// Since minor 1 (DIPO-310, 0013 section 6), not retryable, from `office.infer` and `office.confirm`:
-// `scan.noProfile` (the office has no run profile yet), `scan.noProposal` (no pending proposal to
-// accept, edit or reject), `scan.resolvedByCode` (code resolves the capability: change the script
-// instead), `scan.notConflict` and `scan.noCandidate` (a pick of a capability not in conflict, or a
-// candidate it does not have), `scan.notConfirmed` (`keep` of a capability with no confirmation) and
-// `scan.invalidCommand` (a working directory outside the repository), and `scan.staleProposal`
-// (accept of a proposal made before the repository's run inputs changed).
-// Since minor 1 (DIPO-309, 0002), not retryable, from `test.start` and `test.record`:
-// `story.notTestable` (no manual test-plan entry), `test.notInReview` (not In Review in phase
-// review, test or merge), `test.refused` (install or `dev` unresolved; `details.capability`),
-// `test.startFailed` (the test box, install, setup or `dev` failed) and `test.closed` (the test is
-// no longer open, or its head is older than the story's current head).
+// Specific codes of office-level commands and reads, none retryable:
+// - `config.invalid` when the office has no valid configuration, so the command or read cannot run,
+//   and `backlog.unreadable` when the Backlog CLI could not read the story or the backlog on the
+//   office's base branch (DIPO-71).
+// - `run.refused` when an office check refuses `work.run`; `details.check` names it (`adapter` or
+//   `plan-limit` while the office's starts are paused (0020), `statuses` or `verify`) (DIPO-48).
+// - `question.closed` when `work.answer` names a question that is not waiting (DIPO-59).
+// - `gate.notWaitingOnMaintainer` when `gate.approve` or `gate.reject` names a gate that waits for
+//   no maintainer, `gate.handMergeOnly` when the gate is a merge the maintainer merges by hand, and
+//   `gate.noteRequired` when a decision that needs a note has none (DIPO-140, 0002).
+// - `story.notSteerable` when `work.steer` names a story whose live session is its reviewer
+//   (DIPO-163, 0020).
+// - From `work.resume` of a parked story (DIPO-155, 0020): `resume.topUpRequired` (a
+//   `budget-exceeded` park resumed without `budget`, naming the cap that fired),
+//   `resume.topUpTooSmall` (a top-up after which that cap is still reached, naming the smallest
+//   share that clears it), `resume.noteRequired` (a reason whose resume needs a note),
+//   `resume.notResumable` (a park with no way back, `scope-violation`, naming `dipo discard`) and
+//   `resume.capReached` (what remains of the run's caps is zero, naming `--budget`).
+//   `story.notParked` when `work.resume` names a story that is neither parked nor running, or
+//   whose park changed while the resume ran (DIPO-352); a running story answers `changed: false`.
+// - From `office.infer` and `office.confirm` (DIPO-310, 0013): `scan.noProfile` (the office has
+//   no run profile yet), `scan.noProposal` (no pending proposal to accept, edit or reject),
+//   `scan.resolvedByCode` (code resolves the capability: change the script instead),
+//   `scan.notConflict` and `scan.noCandidate` (a pick of a capability not in conflict, or a
+//   candidate it does not have), `scan.notConfirmed` (`keep` of a capability with no
+//   confirmation), `scan.invalidCommand` (a working directory outside the repository) and
+//   `scan.staleProposal` (accept of a proposal made before the repository's run inputs changed).
+// - From `test.start` and `test.record` (DIPO-309, 0002): `story.notTestable` (no manual
+//   test-plan entry), `test.notInReview` (not In Review in phase review, test or merge),
+//   `test.refused` (install or `dev` unresolved; `details.capability`), `test.startFailed` (the
+//   test box, install, setup or `dev` failed) and `test.closed` (the test is no longer open, or its
+//   head is older than the story's current head).
 export const OFFICE_ERROR_CODES = [
   "config.invalid",
   "backlog.unreadable",

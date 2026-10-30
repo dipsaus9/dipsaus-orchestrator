@@ -17,6 +17,7 @@ import {
   existsSync,
   mkdirSync,
   openSync,
+  readFileSync,
   rmSync,
   writeSync,
 } from "node:fs";
@@ -328,6 +329,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           mkdirSync(join(dir, "state", "backups"), { recursive: true });
           copyFileSync(live, backup);
           damageHeader(live);
+          const damagedBytes = readFileSync(live);
 
           const damaged = start(env);
           try {
@@ -348,6 +350,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             await kill(damaged);
           }
 
+          // The daemon left the damaged file as it was: recovery is by hand (0007).
+          expect(readFileSync(live).equals(damagedBytes)).toBe(true);
           restoreByHand(dir, backup);
 
           const daemon = start(env);

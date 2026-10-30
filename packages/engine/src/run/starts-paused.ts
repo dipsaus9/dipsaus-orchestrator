@@ -235,9 +235,12 @@ const REGISTERED = "select office_id from offices where forgotten_at is null";
  * them, written to all of them, with an `office.startsPaused` notice in each loaded office where it
  * is new, and cleared from all of them, with `office.startsLifted` in each loaded office that had
  * it. So a hold set while no office is loaded is kept, and a lift reaches an office that was not
- * loaded. Before the database opened nothing is stored.
+ * loaded. A hold written before the database opened, or while no office is registered, is kept in
+ * memory and written to the rows at the next look once an office is registered.
  */
 export function officeHoldStore(clock: Clock, offices: HoldStoreOffices): AdapterHoldStore {
+  /** Holds not in the rows yet: written before the database opened or any office registered. */
+  const pending = new Map<string, AdapterHoldRecord>();
   const loadedHandles = (): OfficeHandle[] =>
     offices.loaded().flatMap((id) => {
       const handle = offices.get(id);
@@ -248,13 +251,30 @@ export function officeHoldStore(clock: Clock, offices: HoldStoreOffices): Adapte
       at: clock.now(),
     });
   };
-  const open = () => {
+  /** The connection when at least one office is registered, else null. */
+  const rows = () => {
     const connection = offices.connection();
-    if (connection === null) throw new Error("the state database is not open yet");
-    return connection;
+    if (connection === null) return null;
+    const registered = connection.get<{ n: number }>(
+      `select count(*) as n from offices where forgotten_at is null`,
+    );
+    return (registered?.n ?? 0) > 0 ? connection : null;
+  };
+  const writeRows = (connection: HoldConnection, record: AdapterHoldRecord): void =>
+    writeHoldRows(connection, loadedHandles(), record, notice);
+  /** Writes the kept holds to the rows once an office is registered. */
+  const flush = (): void => {
+    if (pending.size === 0) return;
+    const connection = rows();
+    if (connection === null) return;
+    for (const record of pending.values()) writeRows(connection, record);
+    pending.clear();
   };
   return {
     read: (adapter) => {
+      flush();
+      const kept = pending.get(adapter);
+      if (kept !== undefined) return kept;
       const row = offices.connection()?.get<AdapterRow>(
         `select adapter, failures, since from starts_paused
           where reason = 'adapter' and adapter = $adapter and office_id in (${REGISTERED})
@@ -269,56 +289,87 @@ export function officeHoldStore(clock: Clock, offices: HoldStoreOffices): Adapte
       };
     },
     write: (record) => {
-      const connection = open();
-      // The loaded offices first, each with its notice; then every other registered office.
-      for (const handle of loadedHandles()) writeHoldRow(handle, record, notice);
-      connection.immediate(() =>
-        connection.run(
-          `insert into starts_paused (office_id, reason, detail, since, adapter, failures)
-           select office_id, 'adapter', $detail, $since, $adapter, $failures from offices
-            where forgotten_at is null
-           on conflict (office_id, reason) do update set detail = excluded.detail,
-             since = excluded.since, adapter = excluded.adapter, failures = excluded.failures`,
-          {
-            detail: failureLine(record.failures),
-            since: record.since,
-            adapter: record.adapter,
-            failures: JSON.stringify(record.failures),
-          },
-        ),
-      );
+      const connection = rows();
+      if (connection === null) {
+        pending.set(record.adapter, record);
+        return;
+      }
+      pending.delete(record.adapter);
+      writeRows(connection, record);
     },
     clear: (adapter) => {
-      const connection = open();
-      for (const handle of loadedHandles()) {
-        handle.immediate(() => {
-          const row = rowOf(handle);
-          if (row === null || row.adapter !== adapter) return;
-          handle.run(
-            "delete from starts_paused where office_id = $office_id and reason = 'adapter'",
-          );
-          notice(
-            handle,
-            STARTS_PAUSED_NOTICES.lifted,
-            `The office's starts paused (adapter check failed: ${failureLine(JSON.parse(row.failures) as LaunchCheckFailure[])}) lifted.`,
-          );
-        });
-      }
-      connection.immediate(() =>
-        connection.run(
-          "delete from starts_paused where reason = 'adapter' and adapter = $adapter",
-          { adapter },
-        ),
-      );
+      pending.delete(adapter);
+      const connection = offices.connection();
+      if (connection !== null) clearHoldRows(connection, loadedHandles(), adapter, notice);
     },
-    adapters: () =>
-      (
+    adapters: () => {
+      flush();
+      const stored = (
         offices.connection()?.all<{ adapter: string }>(
           `select distinct adapter from starts_paused
             where reason = 'adapter' and adapter is not null and office_id in (${REGISTERED})`,
         ) ?? []
-      ).map((row) => row.adapter),
+      ).map((row) => row.adapter);
+      return [...new Set([...pending.keys(), ...stored])];
+    },
   };
+}
+
+type HoldConnection = NonNullable<ReturnType<HoldStoreOffices["connection"]>>;
+type HoldNoticeWriter = (handle: OfficeHandle, code: string, text: string) => void;
+
+/**
+ * Writes `record` as the adapter pause of every registered office: the loaded offices first, each
+ * with its notice, then every other one.
+ */
+function writeHoldRows(
+  connection: HoldConnection,
+  loaded: readonly OfficeHandle[],
+  record: AdapterHoldRecord,
+  notice: HoldNoticeWriter,
+): void {
+  for (const handle of loaded) writeHoldRow(handle, record, notice);
+  connection.immediate(() =>
+    connection.run(
+      `insert into starts_paused (office_id, reason, detail, since, adapter, failures)
+       select office_id, 'adapter', $detail, $since, $adapter, $failures from offices
+        where forgotten_at is null
+       on conflict (office_id, reason) do update set detail = excluded.detail,
+         since = excluded.since, adapter = excluded.adapter, failures = excluded.failures`,
+      {
+        detail: failureLine(record.failures),
+        since: record.since,
+        adapter: record.adapter,
+        failures: JSON.stringify(record.failures),
+      },
+    ),
+  );
+}
+
+/** Clears `adapter`'s pause from every office, with a notice in each loaded office that had it. */
+function clearHoldRows(
+  connection: HoldConnection,
+  loaded: readonly OfficeHandle[],
+  adapter: string,
+  notice: HoldNoticeWriter,
+): void {
+  for (const handle of loaded) {
+    handle.immediate(() => {
+      const row = rowOf(handle);
+      if (row === null || row.adapter !== adapter) return;
+      handle.run("delete from starts_paused where office_id = $office_id and reason = 'adapter'");
+      notice(
+        handle,
+        STARTS_PAUSED_NOTICES.lifted,
+        `The office's starts paused (adapter check failed: ${failureLine(JSON.parse(row.failures) as LaunchCheckFailure[])}) lifted.`,
+      );
+    });
+  }
+  connection.immediate(() =>
+    connection.run("delete from starts_paused where reason = 'adapter' and adapter = $adapter", {
+      adapter,
+    }),
+  );
 }
 
 /** Writes `record` as the office's adapter pause, with a notice when it is new there. */
@@ -698,7 +749,7 @@ export class StartsPaused {
         order by at, park_id`,
     );
     if (parks.length === 0) return;
-    // The daemon schedules no work now (it recovers, or is in `safe`): a minute later.
+    // The daemon schedules no work now (it recovers, or drains): a minute later.
     if (this.#deps.scheduling?.() === false) {
       this.#retry(officeId);
       return;

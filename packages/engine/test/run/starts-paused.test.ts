@@ -414,6 +414,45 @@ describe("one record that survives a restart (0020, DIPO-359)", () => {
     expect(paused.state(id(w.office))).toBeNull();
   });
 
+  it("keeps a hold written before the database opened or with no office registered, and writes it once one registers (DIPO-355)", () => {
+    let open = false;
+    const early = new AdapterHolds({
+      clock: w.t.clock,
+      notify: () => {},
+      store: officeHoldStore(w.t.clock, {
+        get: (office) => offices.get(office),
+        loaded: () => [],
+        connection: () => (open ? w.t.state.connection : null),
+      }),
+    });
+    const rows = () =>
+      w.t.state.connection.all<{ office_id: string }>(
+        "select office_id from starts_paused where reason = 'adapter' order by office_id",
+      );
+    // Before the database opened: the hold is kept, not lost.
+    early.hold(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
+    expect(early.adapterHeld(ADAPTER)?.check).toBe("probe");
+    // The database opened, but no office is registered: still kept, no row yet.
+    open = true;
+    w.t.state.connection.immediate(() =>
+      w.t.state.connection.run("update offices set forgotten_at = 1"),
+    );
+    expect(early.adapterHeld(ADAPTER)?.check).toBe("probe");
+    expect(rows()).toEqual([]);
+    // An office registers: the next look writes the hold to its row.
+    w.t.state.connection.immediate(() =>
+      w.t.state.connection.run("update offices set forgotten_at = null where office_id = $office", {
+        office: id(w.office),
+      }),
+    );
+    expect(early.adapterHeld(ADAPTER)?.check).toBe("probe");
+    expect(rows()).toEqual([{ office_id: id(w.office) }]);
+    // A lift clears it.
+    expect(early.lift(ADAPTER)).toBe(true);
+    expect(rows()).toEqual([]);
+    expect(early.adapterHeld(ADAPTER)).toBeNull();
+  });
+
   it("names what lifts a pause truly: never the command for the box token, never a check for the command", () => {
     holds.hold(ADAPTER, [{ check: "box-token", detail: "the token was found in a box" }]);
     expect(paused.state(id(w.office))?.lifts).toBe("Replace the box login with dipo login box.");

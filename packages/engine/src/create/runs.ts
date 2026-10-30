@@ -183,7 +183,7 @@ export interface RunsOptions {
   readonly stories?: StoryIndex;
   /** Whether a TUI is connected, for live questions (DIPO-279); none by default. */
   readonly presence?: Presence;
-  /** False while the daemon schedules no work (`safe`): a starts paused lifts later (0020). */
+  /** False while the daemon schedules no work (recovering, draining): a starts paused lifts later (0020). */
   readonly scheduling?: () => boolean;
   /**
    * The box backend (DIPO-271); by default Apple `container` when the daemon's PATH has it, and
@@ -951,7 +951,7 @@ function baseRunPorts(options: RunsOptions, parts: RunPortParts): Omit<RunPorts,
             refreshStory.refreshStory(office, key, { quiet: true }),
         }),
     release: (office, claim, reason) => options.claims.releaseUnstarted(office, claim, reason),
-    // The permission wait (DIPO-59) asks the maintainer when present, and holds while `safe`.
+    // The permission wait (DIPO-59) asks the maintainer when present, and holds while no work is scheduled.
     ...(options.presence === undefined ? {} : { presence: options.presence }),
     ...(options.scheduling === undefined ? {} : { scheduling: options.scheduling }),
   };
