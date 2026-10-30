@@ -81,6 +81,10 @@ export interface ActionTarget {
   readonly cli?: string;
   /** What the prompt names: the question's text or the permission. */
   readonly text?: string;
+  /** The open test a checklist action is about (DIPO-365). */
+  readonly test?: string;
+  /** What a fail note starts with: the first unticked step (DIPO-365). */
+  readonly prefill?: string;
 }
 
 type Step =
@@ -144,6 +148,8 @@ const VERBS: Readonly<Record<ActionId, string>> = {
   accept: "accept",
   dismiss: "dismiss",
   steer: "steer",
+  pass: "pass",
+  fail: "fail",
 };
 
 /** What the irreversible commands do, as the typed confirmation says it (0009 section 5). */
@@ -197,6 +203,8 @@ function stepsOf(id: ActionId, target: ActionTarget): Step[] {
       return [{ kind: "text", field: "note", label: `park note for ${story}` }];
     case "steer":
       return [{ kind: "text", field: "text", label: "steer text" }];
+    case "fail":
+      return [{ kind: "text", field: "note", label: "fail note" }];
     default:
       return [];
   }
@@ -214,7 +222,7 @@ export function startFlow(id: ActionId, office: OfficeId, target: ActionTarget):
     steps: stepsOf(id, target),
     at: 0,
     values: budget === undefined ? {} : { budget },
-    draft: "",
+    draft: target.prefill ?? "",
     lines: [],
     reading: false,
   };
@@ -251,6 +259,12 @@ export function requestOf(flow: Flow, requestId: RequestId): CommandRequest {
       break;
     case "steer":
       args = { ...story, text: values.text ?? "" };
+      break;
+    case "pass":
+      args = { test: target.test, result: "pass" };
+      break;
+    case "fail":
+      args = { test: target.test, result: "fail", ...note };
       break;
     case "discard":
     case "park":

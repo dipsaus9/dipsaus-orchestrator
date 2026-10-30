@@ -18,6 +18,10 @@
 // `h` hold and `d` drop in the queue. Under the overview's count line one line says what happened
 // since the maintainer last left the office (`office.digest`).
 //
+// `4` opens the test checklist (`checklist.tsx`, DIPO-365): the open test's manual steps with local
+// ticks (Space), `P` passes it and `F` fails it with a note that starts as the first unticked step,
+// and Esc leaves it open. `t` on a desk row opens the same checklist for that story.
+//
 // An action is done only when the office stream passes its reply cursor (read-your-writes). An
 // error shows in the footer; a retryable one offers Ctrl-R, which sends the same request again
 // with the same request id. The store's state is taken at most 10 times per second.
@@ -62,6 +66,7 @@ import {
   selectedRow,
   useDesk,
 } from "./desk";
+import { Checklist, firstUnticked } from "./checklist";
 import { answerHint, Detail, type DetailTarget, type ReadOutput, type ReadPrompt } from "./detail";
 import { skipReason, widthOf } from "./format";
 import { useLatestLines } from "./latest";
@@ -173,7 +178,7 @@ type Mode =
   | { readonly kind: "confirm-resume" }
   | { readonly kind: "confirm-privacy"; readonly key: string; readonly value: boolean };
 
-type View = "overview" | "queue" | "settings" | "desk";
+type View = "overview" | "queue" | "settings" | "desk" | "checklist";
 
 /** The story a desk row opened with Enter, and what `story.detail` answered for it. */
 interface CardState {
@@ -295,6 +300,12 @@ export function App(props: AppProps) {
   // The selected privacy setting, and whether one was written (the comments warning is then gone).
   const [settingsIndex, setSettingsIndex] = useState(0);
   const [privacyWritten, setPrivacyWritten] = useState(false);
+  // The checklist (DIPO-365): the story whose open test shows (null: the first open test), the view
+  // Esc returns to, the step the cursor is on and the steps ticked, by test id, on this screen.
+  const [checklistKey, setChecklistKey] = useState<string | null>(null);
+  const [checklistBack, setChecklistBack] = useState<View>("overview");
+  const [checklistStep, setChecklistStep] = useState(0);
+  const [ticks, setTicks] = useState<Readonly<Record<string, readonly number[]>>>({});
   // The newest output line of each running run, for the overview's `now:` lines (DIPO-81).
   const { latest } = useLatestLines({
     store,
@@ -370,6 +381,34 @@ export function App(props: AppProps) {
   const act = (id: ActionId, target: ActionTarget) => {
     setMessage(null);
     acts.start(id, target);
+  };
+  // The open test the checklist shows: the story's, else the first open one (DIPO-365).
+  const checklistTest =
+    state.tests.find((test) => checklistKey === null || String(test.key) === checklistKey) ?? null;
+  /** `4`, or `t` on a desk row: the checklist; Esc returns to `back`. */
+  const openChecklist = (key: string | null, back: View) => {
+    setMessage(null);
+    setChecklistKey(key);
+    setChecklistBack(back);
+    setChecklistStep(0);
+    setView("checklist");
+  };
+  /** `P` or `F` on the checklist: passes or fails the open test, a fail with its note (DIPO-365). */
+  const recordTest = (id: "pass" | "fail") => {
+    if (checklistTest === null) {
+      setMessage("no test is open to record");
+    } else if (!allowed(binding(id), state.capabilities)) {
+      setMessage(`this daemon cannot record a test (capability ${binding(id).flag})`);
+    } else {
+      const ticked = ticks[checklistTest.test] ?? [];
+      act(id, {
+        story: String(checklistTest.story),
+        test: checklistTest.test,
+        ...(id === "fail"
+          ? { prefill: firstUnticked(checklistTest.steps, ticked)?.check ?? "" }
+          : {}),
+      });
+    }
   };
   /** `a` on a run: answers its oldest open question. */
   const answerRun = (runId: string) => {
@@ -678,7 +717,8 @@ export function App(props: AppProps) {
         steerOrPark(input === "s" ? "steer" : "park", detail.target.run);
         return;
       }
-      const leaves = input === "1" || input === "2" || input === "3" || input === "o";
+      const leaves =
+        input === "1" || input === "2" || input === "3" || input === "4" || input === "o";
       if (!leaves && !(input === "S" && state.daemon === "safe") && !(key.ctrl && input === "r")) {
         return;
       }
@@ -712,7 +752,8 @@ export function App(props: AppProps) {
         setCard({ ...card, top: Math.max(0, card.top - 1) });
         return;
       }
-      const leaves = input === "1" || input === "2" || input === "3" || input === "o";
+      const leaves =
+        input === "1" || input === "2" || input === "3" || input === "4" || input === "o";
       if (!leaves && !(input === "S" && state.daemon === "safe")) return;
       if (leaves) setCard(null);
     }
@@ -727,11 +768,16 @@ export function App(props: AppProps) {
     } else if (input === "o") {
       setMessage(null);
       setMode({ kind: "switcher", index: selectedIndex(state) });
+    } else if (input === "4") {
+      // Esc returns to where the checklist was opened from, not to the checklist itself.
+      openChecklist(null, view === "checklist" ? checklistBack : view);
     } else if (key.escape) {
       setRun(null);
       setMessage(null);
       acts.dismiss();
       if (view === "settings") setView("overview");
+      // Esc leaves the test open: nothing is sent (DIPO-365).
+      if (view === "checklist") setView(checklistBack);
     } else if (input === "S" && state.daemon === "safe") {
       if (offline) {
         setMessage("offline: actions are disabled");
@@ -775,6 +821,24 @@ export function App(props: AppProps) {
         setMessage(null);
         setMode({ kind: "confirm-privacy", key: setting.key, value: !setting.value });
       }
+    } else if (view === "checklist") {
+      const steps = checklistTest?.steps.length ?? 0;
+      if (key.downArrow || input === "j") {
+        setChecklistStep(Math.min(Math.max(0, steps - 1), checklistStep + 1));
+      } else if (key.upArrow || input === "k") {
+        setChecklistStep(Math.max(0, checklistStep - 1));
+      } else if (input === " " && checklistTest !== null) {
+        const id = checklistTest.test;
+        const ticked = ticks[id] ?? [];
+        const next = ticked.includes(checklistStep)
+          ? ticked.filter((index) => index !== checklistStep)
+          : [...ticked, checklistStep];
+        setTicks({ ...ticks, [id]: next });
+      } else if (input === "P") {
+        recordTest("pass");
+      } else if (input === "F") {
+        recordTest("fail");
+      }
     } else if (view === "queue") {
       if (key.downArrow || input === "j") {
         selectQueue(queueSelected + 1);
@@ -813,6 +877,9 @@ export function App(props: AppProps) {
         );
         if (bound === undefined) return;
         setDeskSelection({ id: deskRowId(deskItem), key: deskItem.key ?? null, index: deskIndex });
+        if (bound.binding.id === "test" && deskItem.key !== undefined) {
+          openChecklist(String(deskItem.key), "desk");
+        }
         act(bound.binding.id, deskTarget(deskItem, bound.action.cli, bound.binding.id));
       }
     }
@@ -1020,6 +1087,19 @@ export function App(props: AppProps) {
           height={height}
           now={clock.now()}
         />
+      ) : view === "checklist" ? (
+        <Checklist
+          test={checklistTest}
+          empty={
+            checklistKey === null
+              ? "No test is open. t on a desk row starts one."
+              : `No test is open for ${checklistKey}.`
+          }
+          ticked={checklistTest === null ? [] : (ticks[checklistTest.test] ?? [])}
+          step={checklistStep}
+          display={display}
+          columns={columns}
+        />
       ) : (
         <Overview
           state={state}
@@ -1156,9 +1236,17 @@ function footerKeys(
           ["[1] overview", 50],
         );
         hints.push(["[3] desk", 45]);
+      } else if (view === "checklist") {
+        hints.push(
+          ["[Space] tick", 70],
+          ["[P] pass", 75],
+          ["[F] fail", 75],
+          ["[j/k] step", 30],
+          ["[Esc] back", 90],
+        );
       } else if (view === "desk") {
         if (extras.desk) hints.push(["[Enter] detail", 60], ["[j/k] move", 30]);
-        hints.push(["[1] overview", 50], ["[2] queue", 45]);
+        hints.push(["[1] overview", 50], ["[2] queue", 45], ["[4] checklist", 35]);
       } else {
         if (boardEntries(state).length > 0) {
           hints.push(["[Enter] detail", 60], ["[j/k] move", 30]);
