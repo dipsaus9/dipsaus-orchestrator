@@ -1,10 +1,10 @@
 ---
 id: DIPO-385
 title: Make 0005's error codes and the contract's list one list
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-30 09:30'
-updated_date: '2026-10-30 16:09'
+updated_date: '2026-10-30 16:13'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -39,7 +39,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 0005 lists the generic codes and the retryable codes as two explicit lists of backticked codes (the generic sentence no longer mixes in the retryable ones), and they match packages/contract/src/errors.ts exactly, scheduling.off included
-- [ ] #2 A contract test reads those two lists from 0005 and fails when errors.ts has a generic or retryable code the ADR does not list, or the reverse; the software and office code lists are out of scope
-- [ ] #3 No "Since minor" note remains in the contract package
+- [x] #1 0005 lists the generic codes and the retryable codes as two explicit lists of backticked codes (the generic sentence no longer mixes in the retryable ones), and they match packages/contract/src/errors.ts exactly, scheduling.off included
+- [x] #2 A contract test reads those two lists from 0005 and fails when errors.ts has a generic or retryable code the ADR does not list, or the reverse; the software and office code lists are out of scope
+- [x] #3 No "Since minor" note remains in the contract package
 <!-- AC:END -->
