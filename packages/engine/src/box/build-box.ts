@@ -361,11 +361,12 @@ export function ensureBoxImage(
 /**
  * The machine-wide Safe-Chain image (DIPO-343, `safe-chain.ts`): reused when it exists with its box
  * network tools, otherwise built as an office image is, in a build box through the web proxy, but
- * with no registry install, so with no Safe-Chain behind the route.
+ * with no registry install, so with no Safe-Chain behind the route. `tag` replaces the
+ * machine-wide tag for a real-box test that builds an image of its own; dipo never passes it.
  */
-export function ensureSafeChainImage(deps: BoxImageDeps): Promise<BoxImageResult> {
+export function ensureSafeChainImage(deps: BoxImageDeps, tag?: string): Promise<BoxImageResult> {
   const plan = safeChainBuildPlan();
-  return buildOnce(deps, safeChainImageTag(plan), { ...plan, needsCa: false });
+  return buildOnce(deps, tag ?? safeChainImageTag(plan), { ...plan, needsCa: false });
 }
 
 /** One build of `tag` at a time: a second request for it waits for the first. */

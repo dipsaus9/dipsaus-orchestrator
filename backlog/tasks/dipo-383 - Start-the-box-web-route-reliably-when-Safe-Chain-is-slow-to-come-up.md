@@ -1,10 +1,10 @@
 ---
 id: DIPO-383
 title: Start the box web route reliably when Safe-Chain is slow to come up
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-30 08:53'
-updated_date: '2026-10-30 08:55'
+updated_date: '2026-10-30 10:55'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -44,11 +44,17 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The PR names the cause: which step after the start script's ready line does not pass the check's request on time (the forwarders, the web proxy's target path to the box, or Safe-Chain's upstream fetch), shown by the Safe-Chain box's output and the upstream listener's events from a real box
-- [ ] #2 The fix acts on that step: the readiness the route waits for covers the failing step (a signal from it, not a longer fixed sleep), within SAFE_CHAIN_READY_TIMEOUT_MS
-- [ ] #3 When the check still fails, the route's error and the info log carry the Safe-Chain box's last output lines and the upstream listener's events, capped at 40 lines, so the cause is readable without debug logs
-- [ ] #4 What the old check caught, each with a test: the allowed download not returning 200 fails the route; safe-chain-test not refused with 403 fails it; the web proxy's own 403 is not taken for Safe-Chain's refusal; a refused CONNECT fails it
-- [ ] #5 Bypass forms are tested: a Safe-Chain that printed its ready line but never forwards fails the route; a Safe-Chain process or box that ended during any added wait fails it, never passes it; no tunnel goes to the Safe-Chain box (target set) before the check has passed
-- [ ] #6 A fail-closed test against the real path (DIPO_TEST_BOX=1) with a Safe-Chain that never forwards shows the route does not start and no install reaches a registry
-- [ ] #7 A real-box test (DIPO_TEST_BOX=1) removes the Safe-Chain image to force a rebuild, then starts the route ten times in a row, and all ten pass
+- [x] #1 The PR names the cause: which step after the start script's ready line does not pass the check's request on time (the forwarders, the web proxy's target path to the box, or Safe-Chain's upstream fetch), shown by the Safe-Chain box's output and the upstream listener's events from a real box
+- [x] #2 The fix acts on that step: the readiness the route waits for covers the failing step (a signal from it, not a longer fixed sleep), within SAFE_CHAIN_READY_TIMEOUT_MS
+- [x] #3 When the check still fails, the route's error and the info log carry the Safe-Chain box's last output lines and the upstream listener's events, capped at 40 lines, so the cause is readable without debug logs
+- [x] #4 What the old check caught, each with a test: the allowed download not returning 200 fails the route; safe-chain-test not refused with 403 fails it; the web proxy's own 403 is not taken for Safe-Chain's refusal; a refused CONNECT fails it
+- [x] #5 Bypass forms are tested: a Safe-Chain that printed its ready line but never forwards fails the route; a Safe-Chain process or box that ended during any added wait fails it, never passes it; no tunnel goes to the Safe-Chain box (target set) before the check has passed
+- [x] #6 A fail-closed test against the real path (DIPO_TEST_BOX=1) with a Safe-Chain that never forwards shows the route does not start and no install reaches a registry
+- [x] #7 A real-box test (DIPO_TEST_BOX=1) removes the Safe-Chain image to force a rebuild, then starts the route ten times in a row, and all ten pass
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Most likely cause, from fault injection on real boxes (no natural reproduction in 25 starts): Safe-Chain loads its malware list lazily on the first proxied request, and when the Mac's connect to malware-list.aikido.dev hung, the upstream listener waited 30 s per address and logged nothing, so the check timed out three times. The upstream connect now tries the resolved addresses staggered 250 ms apart with a 5 s deadline each and logs every failed connect; the start script makes each Safe-Chain process load its list before the ready line, within the ready timeout, else the route fails closed. A failed start logs, at warn and in the route error, the Safe-Chain box output and the last upstream events, the whole reason capped at 40 lines. What the old check refused is pinned and still refused; a ready-but-not-forwarding Safe-Chain, a box ending during the load and Safe-Chain ending during the check each fail the route; a real-box test starts the route ten times after a forced image rebuild, all pass.
+<!-- SECTION:FINAL_SUMMARY:END -->

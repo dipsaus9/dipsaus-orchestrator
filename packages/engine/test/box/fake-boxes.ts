@@ -148,6 +148,8 @@ export interface FakeBoxesOptions {
 /** What one live exec in a fake box prints and how it ends. */
 export interface LiveReply {
   readonly stdout?: string;
+  /** What it prints on stderr; nothing by default. */
+  readonly stderr?: string;
   /** Bytes on stdout, after `stdout` (an archive). */
   readonly bytes?: Uint8Array;
   readonly code?: number;
@@ -412,7 +414,12 @@ export class FakeBoxes implements BoxPort {
   #reply(name: string, reply: LiveReply): BoxProcess {
     let out!: ReadableStreamDefaultController<Uint8Array>;
     const stdout = new ReadableStream<Uint8Array>({ start: (c) => void (out = c) });
-    const stderr = new ReadableStream<Uint8Array>({ start: (c) => c.close() });
+    const stderr = new ReadableStream<Uint8Array>({
+      start: (c) => {
+        if (reply.stderr !== undefined) c.enqueue(new TextEncoder().encode(reply.stderr));
+        c.close();
+      },
+    });
     const { promise: exited, resolve } = Promise.withResolvers<ChildExit>();
     if (reply.stdout !== undefined) out.enqueue(new TextEncoder().encode(reply.stdout));
     if (reply.bytes !== undefined) out.enqueue(reply.bytes);

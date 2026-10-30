@@ -13,7 +13,7 @@
 // Unix socket where the sandbox refuses loopback listens (DIPO-287), and its upstream connections
 // are redirected to local test servers while the address asked for is kept.
 
-import { connect, createServer, type Server, type Socket } from "node:net";
+import { connect, createServer, type Server, Socket } from "node:net";
 import { join } from "node:path";
 
 import { afterAll, afterEach, describe, expect, it } from "bun:test";
@@ -29,12 +29,14 @@ import {
   isRegistryHost,
   normaliseHost,
   parseTunnelRequest,
+  SAFE_CHAIN_UPSTREAM_CONNECT_TIMEOUT_MS,
   type BoxWebProxyDeps,
   type BoxWebProxyOptions,
   type RunningBoxWebProxy,
   startBoxWebProxy,
   startSafeChainUpstreamProxy,
   WEB_PROXY_HEAD_LIMIT,
+  WEB_PROXY_CONNECT_STAGGER_MS,
   WEB_PROXY_HEAD_TIMEOUT_MS,
   WEB_PROXY_LIMITS,
   type WebProxyEvent,
@@ -705,6 +707,12 @@ for (const transport of [TCP, UNIX]) {
       const h = await harness(transport, { "down.example": [["203.0.113.9"]] }, ["203.0.113.9"]);
       const result = await exchange(h.endpoint, connectHead("down.example:443"));
       expect(result.text).toStartWith("HTTP/1.1 502 Bad Gateway");
+      // Said, with why each address failed (DIPO-383).
+      const said = h.events.find((event) => event.kind === "refused");
+      expect(said).toMatchObject({ kind: "refused", target: "down.example:443" });
+      expect(said?.kind === "refused" ? said.reason : "").toStartWith(
+        "no address of down.example answered (203.0.113.9: ",
+      );
     });
 
     it("refuses a name with any refused address, before connecting", async () => {
@@ -1144,7 +1152,12 @@ function counted() {
 // TLS port, under the address rule. TCP only: it knows the Safe-Chain box by its source address.
 
 /** Safe-Chain's own listener (DIPO-343) whose clients count as the Safe-Chain box from `source`. */
-async function upstreamHarness(source: string | null, limits?: BoxWebProxyOptions["limits"]) {
+async function upstreamHarness(
+  source: string | null,
+  limits?: BoxWebProxyOptions["limits"],
+  hosts: Readonly<Record<string, readonly string[]>> = {},
+  silent: readonly string[] = [],
+) {
   const clock = new ManualClock();
   const events: WebProxyEvent[] = [];
   const connects: string[] = [];
@@ -1161,6 +1174,8 @@ async function upstreamHarness(source: string | null, limits?: BoxWebProxyOption
       onEvent: (event) => events.push(event),
       interfaces: () => INTERFACES,
       resolve: async (host) => {
+        const listed = hosts[host];
+        if (listed !== undefined) return listed;
         if (host === "registry.npmjs.org" || host === "malware-list.aikido.dev") {
           return ["203.0.113.7"];
         }
@@ -1169,12 +1184,14 @@ async function upstreamHarness(source: string | null, limits?: BoxWebProxyOption
       },
       connect: (address, port) => {
         connects.push(`${address}:${port}`);
+        // An address that drops the connection: it never opens and never fails (DIPO-383).
+        if (silent.includes(address)) return new Socket();
         return dial(upstream.endpoint);
       },
     },
   );
   proxies.push(proxy);
-  return { proxy, events, connects, upstream };
+  return { proxy, events, connects, upstream, clock };
 }
 
 describe.skipIf(!TCP_RUNS)("the web proxy's connection into the box network (DIPO-343)", () => {
@@ -1220,6 +1237,55 @@ async function openConnections(port: number, count: number): Promise<Socket[]> {
 }
 
 describe.skipIf(!TCP_RUNS)("the Safe-Chain upstream listener", () => {
+  it("does not let a dead first address hold Safe-Chain's fetch of its malware list up (DIPO-383)", async () => {
+    const h = await upstreamHarness(
+      LOOPBACK,
+      undefined,
+      { "malware-list.aikido.dev": ["203.0.113.5", "203.0.113.7"] },
+      ["203.0.113.5"],
+    );
+    const bytes = hello("malware-list.aikido.dev");
+    const result = exchange(h.proxy.port, connectHead("malware-list.aikido.dev:443"), {
+      payload: bytes.toString("latin1"),
+      until: (text) => text.includes("upstream:"),
+    });
+    for (let i = 0; i < 50 && h.connects.length === 0; i += 1) await Bun.sleep(2);
+    expect(h.connects).toEqual(["203.0.113.5:443"]);
+    // The second address is tried after the stagger, long before the first one's deadline.
+    h.clock.advance(WEB_PROXY_CONNECT_STAGGER_MS);
+    const done = await result;
+    expect(done.text).toStartWith("HTTP/1.1 200 Connection Established\r\n\r\n");
+    expect(h.connects).toEqual(["203.0.113.5:443", "203.0.113.7:443"]);
+    expect(h.events).toContainEqual({
+      kind: "direct",
+      host: "malware-list.aikido.dev",
+      port: 443,
+      address: "203.0.113.7",
+    });
+    done.socket.destroy();
+  });
+
+  it("says which addresses did not answer when none of a host's does (DIPO-383)", async () => {
+    const h = await upstreamHarness(
+      LOOPBACK,
+      undefined,
+      { "malware-list.aikido.dev": ["203.0.113.5", "203.0.113.6"] },
+      ["203.0.113.5", "203.0.113.6"],
+    );
+    const result = exchange(h.proxy.port, connectHead("malware-list.aikido.dev:443"));
+    for (let i = 0; i < 50 && h.connects.length === 0; i += 1) await Bun.sleep(2);
+    h.clock.advance(SAFE_CHAIN_UPSTREAM_CONNECT_TIMEOUT_MS + WEB_PROXY_CONNECT_STAGGER_MS);
+    const done = await result;
+    expect(done.text).toStartWith("HTTP/1.1 502 Bad Gateway");
+    expect(h.events).toEqual([
+      {
+        kind: "refused",
+        target: "malware-list.aikido.dev:443",
+        reason: `no address of malware-list.aikido.dev answered (203.0.113.5: no answer in ${SAFE_CHAIN_UPSTREAM_CONNECT_TIMEOUT_MS} ms; 203.0.113.6: no answer in ${SAFE_CHAIN_UPSTREAM_CONNECT_TIMEOUT_MS} ms)`,
+      },
+    ]);
+  });
+
   it("tunnels the Safe-Chain box to a registry and to its malware lists, a TLS hello naming each", async () => {
     const h = await upstreamHarness(LOOPBACK);
     for (const host of ["registry.npmjs.org", "malware-list.aikido.dev"]) {
