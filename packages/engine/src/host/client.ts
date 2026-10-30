@@ -1,7 +1,7 @@
 // The engine side of the host socket: connect, handshake with the run id and the versions this
 // binary speaks, then send ops and receive `advanced` while watching. A host that does not answer
-// is not dead: liveness is PID plus start time (0006 decision 8), and a silent socket only means
-// follow-only mode (DIPO-57).
+// is not dead: liveness is PID plus start time (0005); after a restart a living host whose socket
+// is silent gets one verified SIGTERM (`run/reattach.ts`).
 
 import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
 

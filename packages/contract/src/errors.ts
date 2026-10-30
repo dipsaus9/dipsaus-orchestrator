@@ -67,8 +67,7 @@ export const SOFTWARE_ERROR_CODES = [
 // `gate.approve` or `gate.reject` names a gate that waits for no maintainer, `gate.handMergeOnly`
 // when the gate is a merge the maintainer merges by hand, and `gate.noteRequired` when a decision
 // that needs a note has none. Since minor 1 (DIPO-163, 0020 section 9), not retryable:
-// `story.notSteerable` when `work.steer` names a story whose live session is its reviewer, or
-// whose worker host is followed only. Since minor 1 (DIPO-155, 0020), not retryable, from
+// `story.notSteerable` when `work.steer` names a story whose live session is its reviewer. Since minor 1 (DIPO-155, 0020), not retryable, from
 // `work.resume` of a parked story: `resume.topUpRequired` (a `budget-exceeded` park resumed without
 // `budget`, naming the cap that fired), `resume.topUpTooSmall` (a top-up after which that cap is
 // still reached, naming the smallest share that clears it), `resume.noteRequired` (a reason whose

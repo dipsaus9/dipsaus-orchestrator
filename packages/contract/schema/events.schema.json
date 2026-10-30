@@ -824,10 +824,6 @@
                 }
               ]
             },
-            "followOnly": {
-              "type": "boolean",
-              "const": true
-            },
             "lastOutputAt": {
               "type": "string",
               "format": "date-time",
@@ -1192,10 +1188,6 @@
                 }
               ]
             },
-            "followOnly": {
-              "type": "boolean",
-              "const": true
-            },
             "lastOutputAt": {
               "type": "string",
               "format": "date-time",
@@ -1548,10 +1540,6 @@
                   "type": "string"
                 }
               ]
-            },
-            "followOnly": {
-              "type": "boolean",
-              "const": true
             },
             "lastOutputAt": {
               "type": "string",
@@ -1917,10 +1905,6 @@
                 }
               ]
             },
-            "followOnly": {
-              "type": "boolean",
-              "const": true
-            },
             "lastOutputAt": {
               "type": "string",
               "format": "date-time",
@@ -1994,7 +1978,7 @@
           "anyOf": [
             {
               "type": "string",
-              "enum": ["no-output", "same-failure", "host-lost", "follow-only"]
+              "enum": ["no-output", "same-failure", "host-lost"]
             },
             {
               "type": "string"
@@ -2249,10 +2233,6 @@
                   "type": "string"
                 }
               ]
-            },
-            "followOnly": {
-              "type": "boolean",
-              "const": true
             },
             "lastOutputAt": {
               "type": "string",
@@ -2683,10 +2663,6 @@
                   "type": "string"
                 }
               ]
-            },
-            "followOnly": {
-              "type": "boolean",
-              "const": true
             },
             "lastOutputAt": {
               "type": "string",

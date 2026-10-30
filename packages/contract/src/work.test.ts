@@ -84,7 +84,7 @@ describe("open enums", () => {
     { name: "ParkReason", schema: ParkReason, known: KNOWN_PARK_REASONS, size: 8 },
     { name: "SkipReason", schema: SkipReason, known: KNOWN_SKIP_REASONS, size: 7 },
     { name: "Phase", schema: Phase, known: KNOWN_PHASES, size: 5 },
-    { name: "WatchdogSignal", schema: WatchdogSignal, known: KNOWN_WATCHDOG_SIGNALS, size: 4 },
+    { name: "WatchdogSignal", schema: WatchdogSignal, known: KNOWN_WATCHDOG_SIGNALS, size: 3 },
     { name: "Health", schema: Health, known: KNOWN_HEALTH, size: 5 },
   ];
 
@@ -116,12 +116,7 @@ describe("open enums", () => {
   });
 
   it("keeps the watchdog facts as evidence only, not as health words (0009)", () => {
-    expect([...KNOWN_WATCHDOG_SIGNALS]).toEqual([
-      "no-output",
-      "same-failure",
-      "host-lost",
-      "follow-only",
-    ]);
+    expect([...KNOWN_WATCHDOG_SIGNALS]).toEqual(["no-output", "same-failure", "host-lost"]);
     for (const word of ["asking", "limited", "paused"]) {
       expect(KNOWN_HEALTH as readonly string[]).not.toContain(word);
     }

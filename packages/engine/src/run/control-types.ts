@@ -46,7 +46,6 @@ export const DAEMON_STOPPED_DETAIL =
 /** `engine.notice` codes of run control. */
 export const CONTROL_NOTICES = {
   notSent: "run.stopNotSent",
-  stopSignalled: "run.stopSignalled",
   feedbackNotSent: "run.feedbackNotSent",
 } as const;
 
@@ -57,11 +56,7 @@ export interface RunSteering {
     runId: RunId,
     ops: readonly HostOp[],
   ): Promise<
-    | {
-        readonly ok: true;
-        /** `signal` when a verified SIGTERM stopped a follow-only host instead (DIPO-93). */
-        readonly via?: "socket" | "signal";
-      }
+    | { readonly ok: true }
     | {
         readonly ok: false;
         readonly reason: string;

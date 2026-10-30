@@ -768,7 +768,7 @@ async function buildDaemon(
     // Re-attach after a restart (DIPO-57): no scripted host outlives its daemon.
     reattach: {
       probe: async () => null,
-      steering,
+      signal: () => false,
       adapter: () => scriptedWorker({ script: [] }),
       initialState: () => ({}),
       caps: capsFor,

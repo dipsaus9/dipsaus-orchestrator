@@ -140,7 +140,7 @@ export function headerLine(view: WorkView, story: StoryView | undefined, dot: st
     work.model,
     String(work.run),
   ];
-  return `${parts.join(` ${dot} `)}${view.followOnly === true ? "  [follow]" : ""}`;
+  return parts.join(` ${dot} `);
 }
 
 /** How to answer a question from a shell: `dipo answer <id> allow|deny` or `<text>` (DIPO-59). */

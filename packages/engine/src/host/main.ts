@@ -5,9 +5,9 @@
 // `events.ndjson`. When the worker exits it cancels delayed signals, kills the worker's process
 // group so no child of the worker outlives the run, writes `exit.json` and returns.
 //
-// It claims `launch.json` by a rename and writes its PID marker before it starts the worker, and
 // SIGTERM to the host stops its worker (stdin closed, SIGTERM, SIGKILL 20 s later) instead of
-// ending the host at once (DIPO-93): the engine stops a follow-only host this way.
+// ending the host at once (DIPO-93): after a restart the engine stops a host whose socket does not
+// answer this way, once its PID and start time are verified (0005).
 //
 // A box worker (DIPO-271) is a `container exec` client on the Mac, and a killed client leaves its
 // process running in the box. Its plan carries a stop command (`container stop <box>`), which the
@@ -37,7 +37,6 @@ import { EventLog, LineSplitter, type EventChannel } from "./events";
 import { openHostLog, type HostLog } from "./host-log";
 import { LineScrubber, MAX_SCRUB_LINE } from "./scrub";
 import {
-  claimedLaunchName,
   EVENTS_FILE,
   EXIT_FILE,
   HelloFrame,
@@ -46,7 +45,6 @@ import {
   HOST_OPS,
   HOST_PROTOCOL_VERSIONS,
   HostLaunchSchema,
-  hostMarkerName,
   LAUNCH_FILE,
   OP_SINCE,
   OpFrame,
@@ -55,7 +53,6 @@ import {
   type HostExitFile,
   type HostFrame,
   type HostLaunch,
-  type HostMarker,
   type HostState,
   type HostStatus,
 } from "./protocol";
@@ -127,31 +124,20 @@ export function exitCause(
 }
 
 /**
- * Claims, reads, validates and removes `launch.json`; it holds the task message, so it never
- * stays. The claim is a rename to `launch.json.claimed.<pid>` (DIPO-93): a launch the engine's
- * recovery revoked first is gone, and this host starts nothing. Before the claimed file is
- * removed the host writes its PID marker (`host-pid.<agent>.json`), so from the claim on one of
- * the two files always names this host.
+ * Reads, validates and removes `launch.json`; it holds the task message, so it never stays. A
+ * launch the engine's recovery removed first is gone, and this host starts nothing (0005).
  */
-export function readLaunch(runDir: string, runId: string, pid: number): HostLaunch {
-  const claimed = join(runDir, claimedLaunchName(pid));
-  renameSync(join(runDir, LAUNCH_FILE), claimed);
+export function readLaunch(runDir: string, runId: string): HostLaunch {
+  const path = join(runDir, LAUNCH_FILE);
   try {
-    const launch = HostLaunchSchema.parse(JSON.parse(readFileSync(claimed, "utf8"))) as HostLaunch;
+    const launch = HostLaunchSchema.parse(JSON.parse(readFileSync(path, "utf8"))) as HostLaunch;
     if (launch.run !== runId) {
       throw new Error(`${LAUNCH_FILE} is for ${launch.run}, not ${runId}`);
     }
-    writeMarker(runDir, { run: runId, agent: launch.agent, pid });
     return launch;
   } finally {
-    rmSync(claimed, { force: true });
+    rmSync(path, { force: true });
   }
-}
-
-function writeMarker(runDir: string, marker: HostMarker): void {
-  const path = join(runDir, hostMarkerName(marker.agent));
-  writeFileSync(`${path}.tmp`, JSON.stringify(marker), { mode: 0o600 });
-  renameSync(`${path}.tmp`, path);
 }
 
 function writeExitFile(runDir: string, exit: HostExitFile): void {
@@ -229,7 +215,7 @@ export class WorkerHost {
     );
     let launch: HostLaunch;
     try {
-      launch = readLaunch(options.runDir, options.runId, options.pid);
+      launch = readLaunch(options.runDir, options.runId);
     } catch (error) {
       createLogger({ clock: options.clock, sinks: [hostLog.sink], component: "worker-host" })
         .child({ run: options.runId })
@@ -246,8 +232,8 @@ export class WorkerHost {
   }
 
   /**
-   * The host process got SIGTERM (DIPO-93, 0006 decision 8 amendment): the engine stops a
-   * follow-only host, whose socket it cannot reach, this way. The host stops its own worker as the
+   * The host process got SIGTERM (DIPO-93, 0005): after a restart the engine stops a host whose
+   * socket does not answer this way. The host stops its own worker as the
    * stop sequence does without its stop message: it closes the worker's stdin, sends it SIGTERM
    * and arms SIGKILL `TERM_KILL_AFTER_MS` later, cancelled when the worker exits. Then it ends as
    * always, with the exit line and `exit.json`. A second SIGTERM, or one after the worker exited,

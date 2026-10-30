@@ -81,14 +81,8 @@ export type Phase = z.infer<typeof Phase>;
 
 // The watchdog facts behind health (0009): the evidence of a `work.observed` event, never a second
 // health vocabulary. `no-output` stands behind `quiet` and `stuck`, `same-failure` behind
-// `looping`, `host-lost` behind `lost`. `follow-only` marks a host re-attached in follow-only mode
-// until that mode goes (0005).
-export const KNOWN_WATCHDOG_SIGNALS = [
-  "no-output",
-  "same-failure",
-  "host-lost",
-  "follow-only",
-] as const;
+// `looping`, `host-lost` behind `lost`.
+export const KNOWN_WATCHDOG_SIGNALS = ["no-output", "same-failure", "host-lost"] as const;
 export const WatchdogSignal = openEnum(KNOWN_WATCHDOG_SIGNALS);
 export type WatchdogSignal = z.infer<typeof WatchdogSignal>;
 
@@ -323,9 +317,6 @@ export const WorkView = z.object({
   progress: Progress,
   usage: Usage,
   health: Health,
-  // True while the run's worker host is followed only after a daemon restart, so it takes no steer
-  // (0005); absent otherwise. Goes with follow-only mode (DIPO-355).
-  followOnly: z.literal(true).optional(),
   lastOutputAt: Timestamp.optional(), // display only
   startedAt: Timestamp,
   evidence: EvidenceMap.optional(),

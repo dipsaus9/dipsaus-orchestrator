@@ -190,11 +190,9 @@ export {
 } from "./temp-dirs";
 export type { RunTempDirsDeps, RunTempSweep } from "./temp-dirs";
 export {
-  followOnlyReason,
   HOST_CONNECT_TIMEOUT_MS,
   hostRequestOf,
   hostSocketSteering,
-  isStopSequence,
   OfficeIngest,
   STEER_TIMEOUT_MS,
   systemHostStarter,
@@ -434,13 +432,13 @@ export { composeRuns } from "./compose";
 export type { ComposedRuns, RunPorts } from "./compose";
 // Re-attach after a daemon restart (DIPO-57).
 export {
-  FOLLOW_CHECK_MS,
+  EXIT_CHECK_MS,
   HOST_NEVER_STARTED,
+  hostStoppedDetail,
   macSessionText,
   REATTACH_NOTICES,
   REATTACH_STEP,
   RunReattacher,
-  STOP_AGAIN_DETAIL,
 } from "./reattach";
 export type { ReattachedRun, ReattachOutcome, RunReattacherDeps } from "./reattach";
 export { dueNotices, USAGE_NOTICES, UsageAlerts } from "./usage-alerts";

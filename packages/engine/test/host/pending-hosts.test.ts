@@ -1,20 +1,20 @@
-// DIPO-93: the host row is written pending before the spawn, a restart settles a pending row by
-// the host's claimed launch or PID marker (or revokes the launch), and a follow-only host is
-// signalled only after its PID, start time and command are verified.
+// The host row is written pending before the spawn (DIPO-93) and a restart records the PID of the
+// host it stands for (0005); a host whose socket does not answer after a restart is signalled only
+// after its PID, start time and command are verified, and then with one SIGTERM to its PID alone.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { OfficeHandle } from "../../src/db/office";
-import { claimedLaunchName, EXIT_FILE, hostMarkerName, LAUNCH_FILE } from "../../src/host/protocol";
+import { EXIT_FILE } from "../../src/host/protocol";
 import type { DetachedSpawnOptions, ProcessInfo, ProcessProbe } from "../../src/platform/process";
 import {
   recordPendingHost,
+  recordPendingPid,
   recordWorkerHost,
-  resolvePendingHost,
   runDirectory,
-  SPAWN_WINDOW_MS,
+  signalVerifiedHost,
   startWorkerHost,
   verifyHostForSignal,
   type WorkerHostRow,
@@ -129,107 +129,22 @@ describe("the pending host row (AC #3)", () => {
   });
 });
 
-describe("resolvePendingHost after a restart (AC #3)", () => {
-  it("accepts a host that started inside the spawn window, up to its far end", async () => {
+describe("recordPendingPid after a restart (0005)", () => {
+  it("records the PID and start time of the host a pending row stands for", () => {
     const row = pendingRow();
-    writeFileSync(
-      join(runDir, hostMarkerName(AGENT)),
-      JSON.stringify({ run: RUN, agent: AGENT, pid: 6006 }),
-    );
-    const late = row.startedAt + SPAWN_WINDOW_MS + 1_000;
-    expect(await resolvePendingHost(office, row, probeOf({ startTimeMs: late }))).toEqual({
-      kind: "recorded",
-      pid: 6006,
-      alive: true,
-    });
-    expect(workerHostsOf(office, RUN)[0]?.startTimeMs).toBe(late);
-  });
-
-  it("takes the PID from the host's marker and records its start time when it is the host", async () => {
-    const row = pendingRow();
-    writeFileSync(
-      join(runDir, hostMarkerName(AGENT)),
-      JSON.stringify({ run: RUN, agent: AGENT, pid: 6001 }),
-    );
-    t.clock.advance(1_000);
-    const started = t.clock.now();
-    expect(await resolvePendingHost(office, row, probeOf({ startTimeMs: started }))).toEqual({
-      kind: "recorded",
-      pid: 6001,
-      alive: true,
-    });
+    recordPendingPid(office, row, 6001, 1_234);
     expect(workerHostsOf(office, RUN)[0]).toMatchObject({
       pending: false,
       pid: 6001,
-      startTimeMs: started,
+      startTimeMs: 1_234,
     });
   });
 
-  it("revokes a launch no host claimed: nothing ran and the row is removed", async () => {
+  it("changes nothing on a row that is no longer pending", () => {
     const row = pendingRow();
-    writeFileSync(join(runDir, LAUNCH_FILE), JSON.stringify({ run: RUN, agent: AGENT }));
-    writeFileSync(join(runDir, `${LAUNCH_FILE}.tmp`), "{}");
-    expect(await resolvePendingHost(office, row, probeOf({}))).toEqual({ kind: "revoked" });
-    expect(workerHostsOf(office, RUN)).toEqual([]);
-    // The task message never stays: no launch file of any kind is left.
-    expect(readdirSync(runDir)).toEqual([]);
-  });
-
-  it("finds a host that claimed the launch but died before its marker, and closes it out as dead", async () => {
-    const row = pendingRow();
-    writeFileSync(
-      join(runDir, claimedLaunchName(6002)),
-      JSON.stringify({ run: RUN, agent: AGENT }),
-    );
-    expect(await resolvePendingHost(office, row, probeOf(null))).toEqual({
-      kind: "recorded",
-      pid: 6002,
-      alive: false,
-    });
-    // Start time 0 never matches a living process: re-attach closes it out (exit.json or lost).
-    expect(workerHostsOf(office, RUN)[0]).toMatchObject({
-      pending: false,
-      pid: 6002,
-      startTimeMs: 0,
-    });
-    expect(existsSync(join(runDir, claimedLaunchName(6002)))).toBe(false);
-  });
-
-  it("ignores another agent's claimed launch and marker", async () => {
-    const row = pendingRow();
-    writeFileSync(
-      join(runDir, claimedLaunchName(6003)),
-      JSON.stringify({ run: RUN, agent: "agt_other" }),
-    );
-    writeFileSync(
-      join(runDir, hostMarkerName("agt_other")),
-      JSON.stringify({ run: RUN, agent: "agt_other", pid: 6004 }),
-    );
-    expect(await resolvePendingHost(office, row, probeOf({}))).toEqual({ kind: "revoked" });
-  });
-
-  it("does not take a reused PID for the host: another command, or a start before the row", async () => {
-    for (const info of [
-      { command: "/usr/bin/vim notes.txt" },
-      { command: "/opt/dipo daemon worker-host run_01JZ0000000000000000000009" },
-      { startTimeMs: 1 },
-      // Started after the spawn window: a later process that reused the PID.
-      { startTimeMs: t.clock.now() + SPAWN_WINDOW_MS + 3_000 },
-      { zombie: true },
-    ]) {
-      office.immediate(() => office.run("delete from worker_hosts where office_id = $office_id"));
-      const row = pendingRow();
-      writeFileSync(
-        join(runDir, hostMarkerName(AGENT)),
-        JSON.stringify({ run: RUN, agent: AGENT, pid: 6005 }),
-      );
-      expect(await resolvePendingHost(office, row, probeOf(info))).toEqual({
-        kind: "recorded",
-        pid: 6005,
-        alive: false,
-      });
-      expect(workerHostsOf(office, RUN)[0]?.startTimeMs).toBe(0);
-    }
+    recordPendingPid(office, row, 6001, 1_234);
+    recordPendingPid(office, row, 6002, 5_678);
+    expect(workerHostsOf(office, RUN)[0]).toMatchObject({ pid: 6001, startTimeMs: 1_234 });
   });
 });
 
@@ -275,7 +190,7 @@ function recorded(overrides: Partial<{ signalStop: boolean }> = {}): WorkerHostR
   return row;
 }
 
-describe("verifyHostForSignal (AC #1)", () => {
+describe("verifyHostForSignal (0005)", () => {
   it("passes only for the recorded process running this run's worker host", async () => {
     expect(await verifyHostForSignal(recorded(), same())).toEqual({ ok: true });
     // Within the start-time tolerance of the platform reading.
@@ -306,5 +221,39 @@ describe("verifyHostForSignal (AC #1)", () => {
       JSON.stringify({ run: RUN, code: 0, signal: null, finalOffset: 10, at: 1 }),
     );
     expect(await reasons(recorded(), same())).toContain("exit.json");
+  });
+});
+
+describe("signalVerifiedHost (0005)", () => {
+  it("sends exactly one SIGTERM to the verified host PID", async () => {
+    const sent: [number, string][] = [];
+    const signal = (pid: number, name: string) => {
+      sent.push([pid, name]);
+      return true;
+    };
+    expect(await signalVerifiedHost(recorded(), same(), signal)).toBeNull();
+    expect(sent).toEqual([[7001, "SIGTERM"]]);
+  });
+
+  it("never signals a PID it cannot verify: gone, reused, a zombie, another command or an older host", async () => {
+    for (const [row, probe] of [
+      [recorded(), probeOf(null)],
+      [recorded(), same({ startTimeMs: START + 60_000 })],
+      [recorded(), same({ zombie: true })],
+      [recorded(), same({ command: "/usr/bin/vim" })],
+      [recorded({ signalStop: false }), same()],
+    ] as const) {
+      const sent: number[] = [];
+      const why = await signalVerifiedHost(row, probe, (pid) => {
+        sent.push(pid);
+        return true;
+      });
+      expect(why).not.toBeNull();
+      expect(sent).toEqual([]);
+    }
+  });
+
+  it("says when the signal was refused", async () => {
+    expect(await signalVerifiedHost(recorded(), same(), () => false)).toContain("refused");
   });
 });

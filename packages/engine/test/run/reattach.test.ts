@@ -34,16 +34,16 @@ import { openFeedbackOf } from "../../src/run/open-feedback";
 import { parseFieldBlock } from "../../src/story-store/fields/block";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config/schema";
 import type { HostClient } from "../../src/host/client";
-import { EXIT_FILE, type HostExitFile, hostMarkerName, LAUNCH_FILE } from "../../src/host/protocol";
+import { EXIT_FILE, type HostExitFile, LAUNCH_FILE } from "../../src/host/protocol";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
 import {
   type BranchPark,
   EVENT_FILE_CHANGED,
-  FOLLOW_CHECK_MS,
+  EXIT_CHECK_MS,
   findRun,
   HOST_LOST_WHY,
   HOST_NEVER_STARTED,
-  hostSocketSteering,
+  hostStoppedDetail,
   insertRun,
   macSessionText,
   type NextSessionOutcome,
@@ -58,9 +58,7 @@ import {
   runIntents,
   runTotals,
   noteText,
-  STOP_AGAIN_DETAIL,
 } from "../../src/run";
-import { markIntentSent, recordIntent } from "../../src/run/intents";
 import { activeSignals, markStuck, raiseSignal } from "../../src/run/signals";
 import { workView } from "../../src/views/work";
 import { promptPartsOf, promptTextsOf } from "../../src/prompts/parts";
@@ -136,6 +134,14 @@ interface World {
   answers: boolean;
   /** The fake host's start time as the probe reads it (DIPO-93). */
   startTimeMs: number;
+  /** The command the probe reads for the fake host. */
+  command: string | null;
+  /** How a socket that does not answer fails: gone, or silent. */
+  silence: "unreachable" | "timeout";
+  /** Every signal re-attach sent, as [pid, signal]. */
+  readonly signals: [number, string][];
+  /** The host PID the fake socket's handshake names. */
+  hostPid: number;
   caps: Caps;
   readonly daemons: Daemon[];
 }
@@ -144,7 +150,7 @@ let w: World;
 
 const fakeClient = (): HostClient => ({
   version: 1,
-  hostPid: 4242,
+  hostPid: w.hostPid,
   request: async () => ({ ok: true }),
   status: async () => null,
   watch: async () => 0,
@@ -157,7 +163,7 @@ function daemon(
   options: Partial<
     Pick<
       ConstructorParameters<typeof RunReattacher>[0],
-      "followCheckMs" | "boxRecord" | "steering" | "adapter"
+      "exitCheckMs" | "boxRecord" | "adapter" | "signal"
     >
   > = {},
 ): Daemon {
@@ -219,11 +225,16 @@ function daemon(
             pid,
             startTimeMs: w.startTimeMs,
             zombie: false,
-            command: `/opt/dipo daemon worker-host ${w.f.run}`,
+            command: w.command ?? `/opt/dipo daemon worker-host ${w.f.run}`,
           }
         : null,
+    // Never the real signal: the fake host's PID may be a real process.
+    signal: (pid, signal) => {
+      w.signals.push([pid, signal]);
+      return true;
+    },
     connect: async () =>
-      w.answers ? { ok: true, client: fakeClient() } : { ok: false, reason: "unreachable" },
+      w.answers ? { ok: true, client: fakeClient() } : { ok: false, reason: w.silence },
     ingest,
     control,
     outcomes,
@@ -257,6 +268,10 @@ beforeEach(async () => {
     alive: true,
     answers: true,
     startTimeMs: 0,
+    command: null,
+    silence: "unreachable",
+    signals: [],
+    hostPid: 4242,
     caps: ROOMY,
     daemons: [],
   };
@@ -363,13 +378,26 @@ function signals(): string[] {
   return activeSignals(w.f.office, w.f.run).map((signal) => signal.signal);
 }
 
+/**
+ * The host row with a real start time, as the daemon records one, and the probe reading it: a host
+ * whose start time is not recorded is never signalled (0005).
+ */
+function recordedStart(): void {
+  w.startTimeMs = 1_767_225_600_000;
+  w.f.office.immediate(() =>
+    w.f.office.run("update worker_hosts set start_time_ms = $start where office_id = $office_id", {
+      start: w.startTimeMs,
+    }),
+  );
+}
+
 function hostRow() {
   const host = workerHostsOf(w.f.office, w.f.run).at(-1);
   if (host === undefined) throw new Error("no host row");
   return host;
 }
 
-describe("re-attach (0006 decision 8)", () => {
+describe("re-attach (0005)", () => {
   it("a living host that answers: catches up from the processed offset and follows with steering (AC #1)", async () => {
     beforeRestart("success-single", 6, 20);
     const offset = hostRow().processedOffset;
@@ -380,7 +408,7 @@ describe("re-attach (0006 decision 8)", () => {
     ]);
     // Caught up to the end of the file, the stored output continuing what was there.
     expect(hostRow().processedOffset).toBe(statSync(w.f.eventFile).size);
-    expect(hostRow().mode).toBe("steer");
+    expect(w.signals).toEqual([]);
     // The message written while the daemon was down is counted once.
     expect(
       w.f.office.all("select message_id from usage_messages where office_id = $office_id"),
@@ -391,135 +419,87 @@ describe("re-attach (0006 decision 8)", () => {
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([]);
   });
 
-  it("a living host whose socket is gone: follow-only, and steering fails with a message (AC #2)", async () => {
+  it("a living host whose socket is gone: one verified SIGTERM, then the story parks worker-failed once it exits (0005)", async () => {
     w.answers = false;
+    recordedStart();
     beforeRestart("success-single", 6, 20);
     const d = daemon();
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "follow" },
+      { run: w.f.run, agent: w.f.agent, outcome: "stopped" },
     ]);
-    expect(hostRow().mode).toBe("follow");
-    expect(signals()).toEqual(["follow-only"]);
-    expect(observed()).toEqual(["follow-only"]);
-    // The work view says so, so a client can refuse a steer before any text is typed (DIPO-352).
-    expect(workView(w.f.office, w.f.run)?.followOnly).toBe(true);
-    const carried = loggedEvents(w.f.office).find((event) => event.type === "work.observed");
-    const data = carried?.data as { view?: { followOnly?: boolean } } | undefined;
-    expect(data?.view?.followOnly).toBe(true);
-    const notice = loggedEvents(w.f.office).find((event) => event.type === "engine.notice");
-    expect((notice?.data as { code: string } | undefined)?.code).toBe("run.followOnly");
-    const sent = await hostSocketSteering({ clock: w.f.t.clock }).send(w.f.office, w.f.run, [
-      { closeStdin: true },
-    ]);
-    expect(sent.ok).toBe(false);
-    expect(sent.ok ? "" : sent.reason).toContain("follow-only");
-    // The tail goes on: the rest of the file, with the exit, ends the agent.
-    appendLines(
-      w.f.eventFile,
-      hostLines(readRecording(join(RECORDINGS_DIR, "success-single"))).slice(20),
+    // Exactly one SIGTERM, to the verified host PID alone; nothing goes over the socket.
+    expect(w.signals).toEqual([[4242, "SIGTERM"]]);
+    expect(w.sent).toEqual([]);
+    expect(d.control.isTracked(w.f.run)).toBe(false);
+    const notice = loggedEvents(w.f.office).find(
+      (event) =>
+        event.type === "engine.notice" &&
+        (event.data as { code?: string }).code === REATTACH_NOTICES.hostStopped,
     );
-    w.f.t.clock.advance(1_000);
-    await d.control.idle();
-    expect(agentRow()?.end_reason).toBe("exited");
-  });
-
-  it("notices a followed host that dies without an exit line, by its liveness on the tick", async () => {
-    w.answers = false;
-    beforeRestart("success-single", 6, 20);
-    const d = daemon();
-    await d.reattacher.reattach(w.f.office.officeId);
-    // Still alive at the first check: nothing happens.
-    w.f.t.clock.advance(FOLLOW_CHECK_MS);
+    expect((notice?.data as { text?: string } | undefined)?.text).toContain("SIGTERM");
+    // Still alive at the first check: the story waits for it.
+    w.f.t.clock.advance(EXIT_CHECK_MS);
     await Bun.sleep(1);
-    expect(observed()).toEqual(["follow-only"]);
-    // Killed later, with no exit line: the next check finds it lost.
+    expect(parks()).toEqual([]);
+    // A second pass of this daemon signals nothing more.
+    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([]);
+    expect(w.signals).toHaveLength(1);
+    // The host exits: the story parks worker-failed, and the host is closed out.
     w.alive = false;
-    w.f.t.clock.advance(FOLLOW_CHECK_MS);
-    for (let i = 0; i < 50 && w.next.length === 0; i += 1) await Bun.sleep(1);
+    w.f.t.clock.advance(EXIT_CHECK_MS);
+    for (let i = 0; i < 50 && parks().length === 0; i += 1) await Bun.sleep(1);
     await d.control.idle();
-    expect(observed()).toEqual(["follow-only", "host-lost"]);
-    expect(agentRow()?.end_reason).toBe("host-lost");
-    expect(w.next.map((request) => request.requireResume)).toEqual([true]);
-  });
-
-  it("closes out a followed host that outlives its parked run once its process is gone", async () => {
-    // Over its caps after the catch-up: the run parks while the follow-only host keeps running.
-    w.answers = false;
-    w.caps = { ...ROOMY, budgetTokens: 10 };
-    startBudget(10);
-    beforeRestart("success-single", 6, 20);
-    const d = daemon();
-    await d.reattacher.reattach(w.f.office.officeId);
-    await d.control.idle();
+    expect(parks()).toEqual([
+      ["worker-failed", hostStoppedDetail(4242, "its socket is gone", null)],
+    ]);
     expect(findRun(w.f.office, w.f.run)?.endedAt).not.toBeNull();
-    expect(agentRow()).toEqual({ end_reason: "budget-exceeded", ended_at: null });
-    // Still alive at the first check after the park: nothing is closed yet.
-    w.f.t.clock.advance(FOLLOW_CHECK_MS);
-    await Bun.sleep(1);
-    expect(hostRow().endedAt).toBeNull();
-    expect(signals()).toEqual(["follow-only"]);
-    // Killed later, with no exit line and no exit file: host, agent and signal end.
-    w.alive = false;
-    w.f.t.clock.advance(FOLLOW_CHECK_MS);
     for (let i = 0; i < 50 && hostRow().endedAt === null; i += 1) await Bun.sleep(1);
     expect(hostRow().endedAt).not.toBeNull();
-    expect(agentRow()?.end_reason).toBe("budget-exceeded");
-    expect(agentRow()?.ended_at).not.toBeNull();
-    expect(signals()).toEqual([]);
-    expect(observed()).toEqual(["follow-only", "follow-only"]);
+    expect(w.signals).toHaveLength(1);
     expect(w.next).toEqual([]);
   });
 
-  it("ingests what a followed host of a parked run wrote after the last poll before closing it out", async () => {
+  it("a living host whose socket is silent is stopped the same way (0005)", async () => {
     w.answers = false;
-    w.caps = { ...ROOMY, budgetTokens: 10 };
-    startBudget(10);
-    beforeRestart("success-single", 6, 20);
-    // The liveness check comes before the next 1 s ingestion poll.
-    const d = daemon({ followCheckMs: 500 });
-    await d.reattacher.reattach(w.f.office.officeId);
-    await d.control.idle();
-    expect(findRun(w.f.office, w.f.run)?.endedAt).not.toBeNull();
-    // The host writes its last lines, the exit line among them, and its exit file, then dies.
-    appendLines(
-      w.f.eventFile,
-      hostLines(readRecording(join(RECORDINGS_DIR, "success-single"))).slice(20),
-    );
-    writeExitFile({ code: 0 });
-    w.alive = false;
-    w.f.t.clock.advance(500);
-    for (let i = 0; i < 50 && hostRow().endedAt === null; i += 1) await Bun.sleep(1);
-    expect(hostRow().processedOffset).toBe(statSync(w.f.eventFile).size);
-    expect(hostRow().exitCode).toBe(0);
-    expect(hostRow().endedAt).not.toBeNull();
-    expect(agentRow()?.end_reason).toBe("budget-exceeded");
-    expect(agentRow()?.ended_at).not.toBeNull();
-    expect(signals()).toEqual([]);
-  });
-
-  it("records the exit.json of a followed host whose agent exited, once its process is gone", async () => {
-    w.answers = false;
+    w.silence = "timeout";
+    recordedStart();
     beforeRestart("success-single", 6, 20);
     const d = daemon();
-    await d.reattacher.reattach(w.f.office.officeId);
-    // The rest of the recording, with the exit line, ends the agent; the host lingers a moment.
-    appendLines(
-      w.f.eventFile,
-      hostLines(readRecording(join(RECORDINGS_DIR, "success-single"))).slice(20),
-    );
-    w.f.t.clock.advance(1_000);
+    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
+      { run: w.f.run, agent: w.f.agent, outcome: "stopped" },
+    ]);
+    expect(w.signals).toEqual([[4242, "SIGTERM"]]);
+  });
+
+  it("never signals a living host it cannot verify: the story parks at once, with the reason (0005)", async () => {
+    w.answers = false;
+    w.command = "/usr/bin/vim notes.txt";
+    recordedStart();
+    beforeRestart("success-single", 6, 20);
+    const d = daemon();
+    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
+      { run: w.f.run, agent: w.f.agent, outcome: "stopped" },
+    ]);
     await d.control.idle();
-    expect(agentRow()?.end_reason).toBe("exited");
-    // The ingested exit line ended the host row already, at its final offset (DIPO-330).
-    expect(hostRow().endedAt).not.toBeNull();
-    expect(hostRow().finalOffset).toBe(statSync(w.f.eventFile).size);
-    writeExitFile({ code: 0 });
-    w.alive = false;
-    w.f.t.clock.advance(FOLLOW_CHECK_MS);
-    for (let i = 0; i < 50 && signals().includes("follow-only"); i += 1) await Bun.sleep(1);
-    expect(hostRow().exitCode).toBe(0);
-    expect(hostRow().endedAt).not.toBeNull();
-    expect(signals()).not.toContain("follow-only");
+    expect(w.signals).toEqual([]);
+    const [park] = parks();
+    expect(park?.[0]).toBe("worker-failed");
+    expect(park?.[1]).toContain("dipo sent it no signal");
+    expect(park?.[1]).toContain("does not run");
+  });
+
+  it("never signals a reused PID: another start time is no living host (0005)", async () => {
+    w.answers = false;
+    recordedStart();
+    // The PID now belongs to a process that started a minute after the recorded host.
+    w.startTimeMs += 60_000;
+    beforeRestart("success-single", 6, 20);
+    const d = daemon();
+    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
+      { run: w.f.run, agent: w.f.agent, outcome: "hostLost" },
+    ]);
+    await d.control.idle();
+    expect(w.signals).toEqual([]);
   });
 
   it("a dead host with exit.json: the remaining events and the exit are processed (AC #3)", async () => {
@@ -736,6 +716,7 @@ describe("re-attach (0006 decision 8)", () => {
   });
 
   it("a living developer on the Mac, with no box record, is stopped with a notice and parks worker-failed (DIPO-240)", async () => {
+    recordedStart();
     beforeRestart("success-single", 6, 20);
     const asked: string[] = [];
     const d = daemon({
@@ -746,9 +727,10 @@ describe("re-attach (0006 decision 8)", () => {
     });
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
       { run: w.f.run, agent: w.f.agent, outcome: "macSession" },
-      // The parked run's host still runs after the stop: followed until it exits (DIPO-93).
-      { run: w.f.run, agent: w.f.agent, outcome: "followEnded" },
+      // The parked run's host still runs after the stop: one verified SIGTERM (0005).
+      { run: w.f.run, agent: w.f.agent, outcome: "stopEnded" },
     ]);
+    expect(w.signals).toEqual([[4242, "SIGTERM"]]);
     await d.control.idle();
     expect(asked).toEqual([w.dir]);
     const text = macSessionText({ story: "DIPO-1", runId: w.f.run });
@@ -999,12 +981,11 @@ describe("restart windows of DIPO-51's review", () => {
 
     // The restart: redispatch starts no second session, and re-attach follows the new host.
     w.alive = true;
-    w.answers = false;
     const d = daemon();
     expect(await d.outcomes.redispatch(w.f.office.officeId)).toBe(0);
     expect(w.next).toEqual([]);
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: recorded as unknown as string, outcome: "follow" },
+      { run: w.f.run, agent: recorded as unknown as string, outcome: "steer" },
     ]);
   });
 
@@ -1017,7 +998,7 @@ describe("restart windows of DIPO-51's review", () => {
         { agent: w.f.agent },
       );
       // The restart's host signal.
-      raiseSignal(w.f.office, w.f.run, "follow-only", 1);
+      raiseSignal(w.f.office, w.f.run, "host-lost", 1);
     });
     const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
     mkdirSync(runDir, { recursive: true });
@@ -1049,18 +1030,18 @@ describe("restart windows of DIPO-51's review", () => {
         // The first pass, synchronous in `start`, raises a host signal again.
         ingest: {
           start: (office) => {
-            office.immediate(() => raiseSignal(office, w.f.run, "follow-only", 2));
+            office.immediate(() => raiseSignal(office, w.f.run, "host-lost", 2));
           },
         },
       },
     );
     const outcome = await resumer.next(nextRequest());
     expect(outcome.kind).toBe("started");
-    expect(signals()).toEqual(["follow-only"]);
+    expect(signals()).toEqual(["host-lost"]);
     const cleared = loggedEvents(w.f.office)
       .filter((event) => event.type === "work.observed")
       .map((event) => (event.data as { signal: string }).signal);
-    expect(cleared).toEqual(["follow-only"]);
+    expect(cleared).toEqual(["host-lost"]);
   });
 
   it("a new session clears the old session's no-output, so a resumed run is not stuck before its first line (DIPO-352)", async () => {
@@ -1283,9 +1264,8 @@ describe("restart windows of DIPO-51's review", () => {
     const d = daemon();
     expect(await d.outcomes.redispatch(w.f.office.officeId)).toBe(0);
     expect(w.next).toEqual([]);
-    w.answers = false;
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: orphan, outcome: "follow" },
+      { run: w.f.run, agent: orphan, outcome: "steer" },
     ]);
     // It starts where the earlier host's lines end, so nothing is ingested twice.
     expect(hostRow().processedOffset).toBe(statSync(w.f.eventFile).size);
@@ -1355,14 +1335,25 @@ function stopDaemon(d: Daemon): void {
   d.reattacher.close();
 }
 
-describe("re-attach gaps (DIPO-93)", () => {
-  it("settles a pending host row by the host's PID marker and follows it; no second host starts (AC #3)", async () => {
+/** Advances the clock in connect-retry steps until `promise` settles. */
+async function settled<T>(promise: Promise<T>): Promise<T> {
+  const state = { done: false };
+  void promise.finally(() => {
+    state.done = true;
+  });
+  for (let i = 0; i < 1_000; i += 1) {
+    if (state.done) break;
+    await Bun.sleep(0);
+    w.f.t.clock.advance(25);
+  }
+  return promise;
+}
+
+describe("re-attach of hosts left pending and of ended runs (0005)", () => {
+  it("records the host a pending row stands for by the PID its socket names, and follows it; no second host starts", async () => {
     beforeRestart("success-single", 6, 20);
     makePending();
-    writeFileSync(
-      join(w.dir, hostMarkerName(w.f.agent)),
-      JSON.stringify({ run: w.f.run, agent: w.f.agent, pid: 4343 }),
-    );
+    w.hostPid = 4343;
     w.startTimeMs = w.f.t.clock.now();
     const d = daemon();
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
@@ -1374,11 +1365,12 @@ describe("re-attach gaps (DIPO-93)", () => {
     expect(parks()).toEqual([]);
   });
 
-  it("revokes a pending launch no host claimed: nothing ran, the story parks worker-failed (AC #3)", async () => {
+  it("removes the launch of a pending row no live host answers for: the row goes, the story parks worker-failed", async () => {
     makePending();
+    w.answers = false;
     writeFileSync(join(w.dir, LAUNCH_FILE), JSON.stringify({ run: w.f.run, agent: w.f.agent }));
     const d = daemon();
-    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
+    expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([
       { run: w.f.run, agent: w.f.agent, outcome: "neverStarted" },
     ]);
     await d.control.idle();
@@ -1387,7 +1379,18 @@ describe("re-attach gaps (DIPO-93)", () => {
     expect(parks()).toEqual([["worker-failed", HOST_NEVER_STARTED]]);
     // Nothing to stop and no next session.
     expect(w.sent).toEqual([]);
+    expect(w.signals).toEqual([]);
     expect(w.next).toEqual([]);
+  });
+
+  it("never takes a process that is not this run's host for a pending row: it parks", async () => {
+    makePending();
+    w.command = "/usr/bin/vim notes.txt";
+    const d = daemon();
+    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
+      { run: w.f.run, agent: w.f.agent, outcome: "neverStarted" },
+    ]);
+    expect(w.signals).toEqual([]);
   });
 
   it("closes out a dead host of an ended run with its exit.json after a second restart (AC #2)", async () => {
@@ -1481,20 +1484,23 @@ describe("re-attach gaps (DIPO-93)", () => {
     ).toBe(streamed + 9 + 1);
   });
 
-  it("follows a living host of an ended run across restarts until it exits, then closes it out (AC #2)", async () => {
+  it("stops a living host of an ended run with one verified SIGTERM per restart, and closes it out once it exits", async () => {
+    recordedStart();
     beforeRestart("success-single", 6, 20);
     endRunByHand();
     const first = daemon();
     expect(await first.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "followEnded" },
+      { run: w.f.run, agent: w.f.agent, outcome: "stopEnded" },
     ]);
+    expect(w.signals).toEqual([[4242, "SIGTERM"]]);
     stopDaemon(first);
-    // A later restart still finds the open row and follows it again.
+    // A later restart still finds the open row and stops it again.
     const second = daemon();
     expect(await second.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "followEnded" },
+      { run: w.f.run, agent: w.f.agent, outcome: "stopEnded" },
     ]);
     expect(await second.reattacher.reattach(w.f.office.officeId)).toEqual([]);
+    expect(w.signals).toHaveLength(2);
     expect(hostRow().endedAt).toBeNull();
     // The host ends: the rest of its lines with the exit, then exit.json.
     appendLines(
@@ -1503,117 +1509,12 @@ describe("re-attach gaps (DIPO-93)", () => {
     );
     writeExitFile();
     w.alive = false;
-    w.f.t.clock.advance(FOLLOW_CHECK_MS);
+    w.f.t.clock.advance(EXIT_CHECK_MS);
     for (let i = 0; i < 50 && hostRow().endedAt === null; i += 1) await Bun.sleep(1);
     expect(hostRow().endedAt).not.toBeNull();
     expect(hostRow().exitCode).toBe(0);
     expect(agentRow()?.end_reason).toBe("exited");
     expect(w.next).toEqual([]);
-  });
-
-  it("a follow-only host after the restart is stopped by one verified SIGTERM (AC #1)", async () => {
-    w.answers = false;
-    w.startTimeMs = 1_767_225_600_000;
-    w.f.office.immediate(() =>
-      w.f.office.run(
-        "update worker_hosts set start_time_ms = $start where office_id = $office_id",
-        {
-          start: w.startTimeMs,
-        },
-      ),
-    );
-    beforeRestart("success-single", 6, 20);
-    const d = daemon();
-    await d.reattacher.reattach(w.f.office.officeId);
-    expect(hostRow().mode).toBe("follow");
-    const signalled: [number, string][] = [];
-    const steering = hostSocketSteering({
-      clock: w.f.t.clock,
-      probe: async (pid) => ({
-        pid,
-        startTimeMs: w.startTimeMs,
-        zombie: false,
-        command: `/opt/dipo daemon worker-host ${w.f.run}`,
-      }),
-      signal: (pid, signal) => {
-        signalled.push([pid, signal]);
-        return true;
-      },
-    });
-    expect(await steering.send(w.f.office, w.f.run, encode({ kind: "stop" }))).toEqual({
-      ok: true,
-      via: "signal",
-    });
-    expect(signalled).toEqual([[4242, "SIGTERM"]]);
-  });
-});
-
-/** The run ended with an ending intent in `state`, as reconcile or a park leaves it. */
-function endedWith(state: "failed" | "sent"): void {
-  endRunByHand();
-  w.f.office.immediate(() => {
-    const id = recordIntent(w.f.office, w.f.run, "stop", "reconciled", w.f.t.clock.now());
-    markIntentSent(
-      w.f.office,
-      w.f.run,
-      id,
-      w.f.t.clock.now(),
-      state === "failed" ? "the run's worker host is still being started" : null,
-    );
-  });
-}
-
-describe("a stop that did not reach the host before re-attach (DIPO-93)", () => {
-  const recording = {
-    send: async (_office: unknown, _run: unknown, ops: readonly HostOp[]) => {
-      w.sent.push([...ops]);
-      return { ok: true as const, via: "signal" as const };
-    },
-  };
-
-  it("sends the stop again to a living host of a run whose stop failed, then follows it", async () => {
-    beforeRestart("success-single", 6, 20);
-    endedWith("failed");
-    const d = daemon({ steering: recording });
-    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "stopAgain" },
-    ]);
-    expect(w.sent).toEqual([encode({ kind: "stop" })]);
-    const last = runIntents(w.f.office, w.f.run).at(-1);
-    expect(last).toMatchObject({ kind: "stop", state: "sent", detail: STOP_AGAIN_DETAIL });
-    // Followed until it exits; the next restart does not send it again.
-    stopDaemon(d);
-    expect(await daemon({ steering: recording }).reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "followEnded" },
-    ]);
-    expect(w.sent).toHaveLength(1);
-  });
-
-  it("sends nothing when the stop that ended the run reached the host", async () => {
-    beforeRestart("success-single", 6, 20);
-    endedWith("sent");
-    const d = daemon({ steering: recording });
-    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "followEnded" },
-    ]);
-    expect(w.sent).toEqual([]);
-  });
-
-  it("records the failed second stop, and still follows the host", async () => {
-    beforeRestart("success-single", 6, 20);
-    endedWith("failed");
-    const d = daemon({
-      steering: { send: async () => ({ ok: false as const, reason: "dipo sent no signal" }) },
-    });
-    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "followEnded" },
-    ]);
-    expect(runIntents(w.f.office, w.f.run).at(-1)).toMatchObject({
-      kind: "stop",
-      state: "failed",
-      detail: STOP_AGAIN_DETAIL,
-    });
-    expect(hostRow().endedAt).toBeNull();
   });
 });
 

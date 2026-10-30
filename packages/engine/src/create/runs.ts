@@ -1044,14 +1044,14 @@ function controlRunPorts(
   };
 }
 
-/** Re-attach after a restart (DIPO-57): every active run's newest worker host is followed again. */
+/** Re-attach after a restart (0005): every active run's newest worker host is re-attached or parked. */
 function reattachRunPorts(options: RunsOptions, parts: RunPortParts): Partial<RunPorts> {
   const { worker, paths } = parts;
   return {
     reattach: {
       probe: options.probe,
-      // A living host of an ended run whose stop did not reach it is stopped again (DIPO-93).
-      steering: parts.steering,
+      // One verified SIGTERM to a host that does not answer after the restart (0005).
+      signal: signalProcess,
       adapter: (office, run) => {
         const runPaths = paths.runPaths(office, run);
         const config = options.offices.config(office);
@@ -1176,11 +1176,7 @@ export function buildRuns(options: RunsOptions): EngineRuns {
     boxed,
     worker: workerOf(options, boxed?.workers ?? null),
     // One steering for every run service: it keeps no state between sends.
-    steering: hostSocketSteering({
-      clock: options.clock,
-      probe: options.probe,
-      signal: signalProcess,
-    }),
+    steering: hostSocketSteering({ clock: options.clock }),
     isBoxRun,
     finisher: finisherOf(options, boxed, isBoxRun, storyConflicts),
     sweeps: { temp: sweepTempDirs, boxes: () => passes.finishEndedBoxes() },

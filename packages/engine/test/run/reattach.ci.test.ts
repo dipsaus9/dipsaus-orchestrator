@@ -302,6 +302,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         clock: f.t.clock,
         offices: { get: () => f.office },
         probe: async (pid) => ({ pid, startTimeMs: 0, zombie: false, command: "dipo" }),
+        signal: () => false,
         ingest: second.ingest,
         control: second.control,
         outcomes: second.outcomes,

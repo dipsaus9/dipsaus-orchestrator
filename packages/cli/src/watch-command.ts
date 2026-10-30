@@ -92,7 +92,6 @@ const SIGNAL_MEANING: Readonly<Record<string, string>> = {
   "no-output": "no output line since then",
   "same-failure": "the same failure twice in a row",
   "host-lost": "the worker host died without an exit file",
-  "follow-only": "the worker can be followed but not steered",
 };
 
 /** One usage line: tokens counted against the budget, its share, the parts and the turns. */

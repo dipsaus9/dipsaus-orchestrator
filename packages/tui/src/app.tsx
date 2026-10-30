@@ -428,8 +428,6 @@ export function App(props: AppProps) {
           ? "this run has ended; there is no worker to steer"
           : "this run has ended; park its story from the queue or the desk",
       );
-    } else if (id === "steer" && live.followOnly === true) {
-      setMessage("this run is followed only; it cannot be steered");
     } else {
       act(id, { story: String(live.work.story) });
     }
@@ -904,7 +902,7 @@ export function App(props: AppProps) {
   const rowHintList: Hint[] = [];
   if (inDetail) {
     if (detail !== null && asks(detail.target.run)) rowHintList.push(["[a]nswer", 85]);
-    if (detailLive && detailRun?.followOnly !== true) {
+    if (detailLive) {
       for (const entry of viewKeys("detail")) {
         rowHintList.push([entry.hint, 72]);
       }

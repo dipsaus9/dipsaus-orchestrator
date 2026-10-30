@@ -381,17 +381,6 @@ describe("work.steer", () => {
     expect(w.sent).toEqual([]);
     expect(steers()).toEqual([]);
   });
-
-  it("answers story.notSteerable for a follow-only host", async () => {
-    w.f.office.immediate(() =>
-      w.f.office.run(
-        "update worker_hosts set mode = 'follow' where office_id = $office_id and run_id = $run",
-        { run: w.f.run },
-      ),
-    );
-    expect(failure(await steer("hello"))).toBe("story.notSteerable");
-    expect(w.sent).toEqual([]);
-  });
 });
 
 /** Starts the next session of the run through the outcomes' session starts (a crash resume). */

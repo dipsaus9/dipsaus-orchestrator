@@ -305,23 +305,7 @@ export class RunEndings {
       },
     });
     return (async () => {
-      const { error, via } = await done;
-      const signalled = via === "signal";
-      if (signalled) {
-        // A follow-only host got one SIGTERM after its PID and start time were verified (DIPO-93).
-        write(() => [
-          {
-            type: "engine.notice",
-            ...(run.key === null ? {} : { key: run.key }),
-            run: run.runId,
-            delta: {
-              level: "info",
-              code: CONTROL_NOTICES.stopSignalled,
-              text: `${run.story ?? run.runId}: its worker host is followed only, so dipo sent it SIGTERM after checking its PID and start time; the host stops the worker and dipo follows it until it exits.`,
-            },
-          },
-        ]);
-      }
+      const { error } = await done;
       if (error !== null) {
         write(() => [
           {

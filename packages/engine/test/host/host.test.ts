@@ -11,7 +11,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -34,11 +34,9 @@ import {
   EVENTS_FILE,
   EXIT_FILE,
   HOST_LOG_FILE,
-  hostMarkerName,
   hostSocketPath,
   LAUNCH_FILE,
   RESERVED_RUN_FILES,
-  REVOKED_LAUNCH_FILE,
   type HostExitFile,
   type HostLaunch,
   type HostStatus,
@@ -465,26 +463,8 @@ describe("worker host in-process", () => {
         "exit.json.tmp",
         "host.log",
         "launch.json",
-        "launch.json.revoked",
         "launch.json.tmp",
       ]);
-      // The claimed launch and the PID markers (DIPO-93) are reserved by prefix.
-      for (const name of [`${LAUNCH_FILE}.claimed.782`, "host-pid.agt_x.json"]) {
-        const bad = { ...launch, plan: { ...launch.plan, files: [{ name, content: "x" }] } };
-        writeFileSync(join(runDir, LAUNCH_FILE), JSON.stringify(bad));
-        expect(() =>
-          WorkerHost.start({
-            runId: RUN,
-            runDir,
-            clock: new ManualClock(),
-            spawn: () => {
-              throw new Error("not reached");
-            },
-            killGroup: () => {},
-            pid: 782,
-          }),
-        ).toThrow("may not replace a file the host writes");
-      }
     }));
 
   it("makes the hosts directory 0700 even when it exists with a wider mode", () =>
@@ -643,8 +623,8 @@ describe("worker host thinking scrub (DIPO-105)", () => {
     }));
 });
 
-describe("worker host claim and SIGTERM (DIPO-93)", () => {
-  it("claims launch.json by rename and writes its PID marker before the worker starts", () =>
+describe("worker host launch and SIGTERM (DIPO-93, 0005)", () => {
+  it("reads and removes launch.json before the worker starts", () =>
     withTempDir(async (dir) => {
       const { runDir, launch } = setup(dir);
       const clock = new ManualClock();
@@ -661,22 +641,17 @@ describe("worker host claim and SIGTERM (DIPO-93)", () => {
         killGroup: () => {},
         pid: 790,
       });
-      // The marker names this host before the worker runs; the claimed launch is gone.
-      expect(filesAtSpawn).toContain(hostMarkerName(launch.agent));
+      // The launch holds the task message: it is gone before the worker runs, and no marker is left.
       expect(filesAtSpawn.filter((name) => name.startsWith(LAUNCH_FILE))).toEqual([]);
-      expect(JSON.parse(readFileSync(join(runDir, hostMarkerName(launch.agent)), "utf8"))).toEqual({
-        run: RUN,
-        agent: launch.agent,
-        pid: 790,
-      });
-      expect(statSync(join(runDir, hostMarkerName(launch.agent))).mode & 0o777).toBe(0o600);
+      expect(filesAtSpawn.filter((name) => name.startsWith("host-pid."))).toEqual([]);
+      expect(launch.run).toBe(RUN);
       await host.done;
     }));
 
-  it("starts nothing when its launch was revoked first", () =>
+  it("starts nothing when re-attach removed its launch first (0005)", () =>
     withTempDir((dir) => {
-      const { runDir, launch } = setup(dir);
-      renameSync(join(runDir, LAUNCH_FILE), join(runDir, REVOKED_LAUNCH_FILE));
+      const { runDir } = setup(dir);
+      rmSync(join(runDir, LAUNCH_FILE));
       let spawned = false;
       expect(() =>
         WorkerHost.start({
@@ -692,7 +667,6 @@ describe("worker host claim and SIGTERM (DIPO-93)", () => {
         }),
       ).toThrow();
       expect(spawned).toBe(false);
-      expect(existsSync(join(runDir, hostMarkerName(launch.agent)))).toBe(false);
       expect(existsSync(join(runDir, EVENTS_FILE))).toBe(false);
     }));
 

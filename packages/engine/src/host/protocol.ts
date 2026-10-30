@@ -40,57 +40,19 @@ export const RUN_ID_PATTERN = /^run_[0-9A-HJKMNP-TV-Z]{26}$/;
 
 export const HostSignalSchema = z.enum(["SIGINT", "SIGTERM", "SIGKILL"]);
 
-/**
- * The name a host renames `launch.json` to before it reads it (DIPO-93). The rename is the claim:
- * the engine's recovery revokes a launch no host claimed with a rename of its own, so exactly one
- * of them wins. The host removes the claimed file once its PID marker is written.
- */
-export function claimedLaunchName(pid: number): string {
-  return `${LAUNCH_FILE}.claimed.${pid}`;
-}
-
-/** The engine's name for a launch it revoked after a restart; removed at once (DIPO-93). */
-export const REVOKED_LAUNCH_FILE = `${LAUNCH_FILE}.revoked`;
-
-/** The prefix of host PID markers in the run directory. */
-export const HOST_MARKER_PREFIX = "host-pid.";
-
-/**
- * The PID marker of the host for `agent` (DIPO-93): `{ run, agent, pid }`, written by the host
- * after its claim and before it removes the claimed launch, so a restart finds a host whose
- * `worker_hosts` row was still pending when the daemon stopped.
- */
-export function hostMarkerName(agent: string): string {
-  return `${HOST_MARKER_PREFIX}${agent}.json`;
-}
-
-/** A host PID marker. */
-export const HostMarkerSchema = z.object({
-  run: z.string().regex(RUN_ID_PATTERN),
-  agent: z.string().min(1),
-  pid: z.number().int().positive(),
-});
-
-export type HostMarker = z.infer<typeof HostMarkerSchema>;
-
 /** Files the engine and the host write in the run directory; a plan's files may not use them. */
 export const RESERVED_RUN_FILES: ReadonlySet<string> = new Set([
   LAUNCH_FILE,
   `${LAUNCH_FILE}.tmp`,
-  REVOKED_LAUNCH_FILE,
   EVENTS_FILE,
   EXIT_FILE,
   `${EXIT_FILE}.tmp`,
   HOST_LOG_FILE,
 ]);
 
-/** True when a plan file would take a name the host or the engine writes (DIPO-93 adds two). */
+/** True when a plan file would take a name the host or the engine writes. */
 export function isReservedRunFile(name: string): boolean {
-  return (
-    RESERVED_RUN_FILES.has(name) ||
-    name.startsWith(`${LAUNCH_FILE}.claimed.`) ||
-    name.startsWith(HOST_MARKER_PREFIX)
-  );
+  return RESERVED_RUN_FILES.has(name);
 }
 
 const LaunchFileSchema = z.object({

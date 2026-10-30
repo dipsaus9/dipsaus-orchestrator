@@ -1,8 +1,8 @@
-// CI only (0017 section 1): real processes (DIPO-93 AC #5). A real `dipo daemon worker-host`
-// started detached through the engine runs a stub worker; its socket is removed and its row set to
-// follow-only, as after a restart whose host socket did not answer. The stop sequence then reaches
-// it as one SIGTERM to the verified host PID: the host stops its worker and writes `exit.json`.
-// A host whose recorded start time does not match is never signalled and keeps running.
+// CI only (0017 section 1): real processes (0005, DIPO-355). A real `dipo daemon worker-host`
+// started detached through the engine runs a stub worker; its socket is removed, as after a restart
+// whose host socket does not answer. Re-attach's verified SIGTERM (`signalVerifiedHost`) reaches it
+// as one SIGTERM to the host PID: the host stops its worker and writes `exit.json`. A host whose
+// recorded start time does not match (a reused PID) is never signalled and keeps running.
 
 import { describe, expect, it } from "bun:test";
 import {
@@ -19,12 +19,15 @@ import { join, resolve } from "node:path";
 import { cleanEnv, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { EXIT_FILE, type HostExitFile } from "../../src/host/protocol";
-import { systemClock } from "../../src/platform/clock";
 import { currentPlatform } from "../../src/platform/paths";
 import { pidExists, signalProcess, systemProcessProbe } from "../../src/platform/process";
-import { hostSocketSteering } from "../../src/run";
-import { hostAlive, type LaunchedHost, startWorkerHost } from "../../src/runs/worker-hosts";
-import { encode } from "../../src/workers/claude-cli/encode";
+import {
+  hostAlive,
+  type LaunchedHost,
+  signalVerifiedHost,
+  startWorkerHost,
+  workerHostsOf,
+} from "../../src/runs/worker-hosts";
 import { addOffice, openTestState } from "../commands/helpers";
 
 const FIXTURES = resolve(import.meta.dir, "../host/fixtures");
@@ -54,7 +57,7 @@ function killGroup(pid: number | undefined): void {
 }
 
 if (process.env["DIPO_TEST_CI"] === "1") {
-  describe("stopping a follow-only host by signal (DIPO-93)", () => {
+  describe("stopping a host whose socket does not answer by a verified SIGTERM (0005)", () => {
     it(
       "sends one SIGTERM to the verified host, which stops its worker and writes exit.json; an unverified host is left alone",
       () =>
@@ -99,14 +102,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
                   return text === "" ? null : Number(text);
                 }),
               );
-              // Follow-only, as after a restart: the socket is gone and the row says so.
+              // As after a restart whose host socket does not answer: the socket is gone.
               rmSync(host.socketPath, { force: true });
-              office.immediate(() =>
-                office.run(
-                  "update worker_hosts set mode = 'follow' where office_id = $office_id and run_id = $run",
-                  { run: runId },
-                ),
-              );
             }
             const [good, bad] = hosts as [LaunchedHost, LaunchedHost];
             // The second host's row names another start time: as if its PID had been reused.
@@ -116,26 +113,16 @@ if (process.env["DIPO_TEST_CI"] === "1") {
                 { run: bad.runId },
               ),
             );
-            const steering = hostSocketSteering({
-              clock: systemClock,
-              probe,
-              signal: signalProcess,
-            });
+            const rowOf = (runId: string) => {
+              const row = workerHostsOf(office, runId).at(-1);
+              if (row === undefined) throw new Error(`no host row for ${runId}`);
+              return row;
+            };
 
-            const refused = await steering.send(
-              office,
-              bad.runId as never,
-              encode({ kind: "stop" }),
+            expect(await signalVerifiedHost(rowOf(bad.runId), probe, signalProcess)).toContain(
+              "another start time",
             );
-            expect(refused.ok).toBe(false);
-            expect(refused.ok ? "" : refused.reason).toContain("dipo sent no signal");
-
-            expect(
-              await steering.send(office, good.runId as never, encode({ kind: "stop" })),
-            ).toEqual({
-              ok: true,
-              via: "signal",
-            });
+            expect(await signalVerifiedHost(rowOf(good.runId), probe, signalProcess)).toBeNull();
             const exit = await waitFor("exit.json", () =>
               readJson<HostExitFile>(join(good.runDir, EXIT_FILE)),
             );

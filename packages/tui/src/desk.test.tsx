@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { DeskItem, type Event, Verdict } from "@dipsaus-orchestrator/contract";
 
 import { DESK_READ_INTERVAL_MS, EMPTY_DESK } from "./desk";
-import { goldenSnapshots, OFFICES } from "../test/support/fake-session";
+import { OFFICES } from "../test/support/fake-session";
 import { mount } from "../test/support/setup";
 
 const mounted: { unmount(): Promise<void> }[] = [];
@@ -692,32 +692,6 @@ describe("the queue and the detail use the same table", () => {
       { name: "work.steer", args: { story: "DIPO-21", text: "Keep the old flag" } },
       { name: "story.park", args: { story: "DIPO-21", note: "after the release" } },
     ]);
-  });
-
-  it("tags a follow-only run and refuses a steer before any text is typed (0005)", async () => {
-    const view = await mount({ columns: 120, rows: 30 });
-    mounted.push(view.ui);
-    const { ui, session } = view;
-    await ui.waitFor("· live");
-    await ui.press("enter");
-    await ui.waitFor("following the tail");
-    const base = goldenSnapshots.get(OFFICES.dipsaus)!.work[0]!;
-    const since = "2026-10-14T10:03:00.000Z";
-    session.active(STREAM)?.options.onEvent(
-      event(8, "work.observed", {
-        work: base.work,
-        signal: "follow-only",
-        since,
-        view: { ...base, followOnly: true },
-      }),
-    );
-    const frame = await ui.waitFor("[follow]");
-    expect(frame).toMatch(/ {2}\[follow\]$/m);
-    expect(lines(frame).at(-1)).not.toContain("[s]teer");
-    await ui.press("s");
-    const refused = await ui.waitFor("this run is followed only; it cannot be steered");
-    expect(refused).not.toContain("steer text:");
-    expect(session.commands).toEqual([]);
   });
 });
 
