@@ -36,6 +36,7 @@ import type { LatestLines } from "./latest";
 import { boardNow } from "./now";
 import type { Display } from "./options";
 import { glyphs, officeOptIns, storedLabel } from "./views";
+import { Colored } from "./colour";
 
 /** The legend for evidence markers, shown in the footer while they are on. */
 export const EVIDENCE_LEGEND = "* claimed ~ estimated ? none";
@@ -444,18 +445,15 @@ const Line = memo(function Line(props: {
   display: Display;
 }) {
   const { text, tone, display } = props;
-  if (!display.color || tone === undefined) return <Text wrap="truncate-end">{text}</Text>;
-  if (tone === "section") {
-    return (
-      <Text bold wrap="truncate-end">
-        {text}
-      </Text>
-    );
-  }
   return (
-    <Text color="cyan" wrap="truncate-end">
+    <Colored
+      display={display}
+      bold={tone === "section"}
+      color={tone === undefined || tone === "section" ? undefined : "cyan"}
+      wrap="truncate-end"
+    >
       {text}
-    </Text>
+    </Colored>
   );
 });
 

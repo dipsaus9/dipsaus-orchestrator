@@ -57,6 +57,7 @@ import {
   wrapLines,
 } from "./output";
 import { glyphs, officeOptIns, storedLabel } from "./views";
+import { Colored } from "./colour";
 
 // The `now` line is shared with the overview (DIPO-81).
 export { nowLine, shortAge } from "./now";
@@ -545,7 +546,7 @@ export function Detail(props: DetailProps) {
   );
   const header = (
     <>
-      <Text wrap="truncate-end" bold={display.color}>
+      <Colored display={display} bold wrap="truncate-end">
         {` ${truncate(
           view === undefined && record !== undefined
             ? recordHeaderLine(record, story, dot)
@@ -553,18 +554,18 @@ export function Detail(props: DetailProps) {
           columns - 1,
           ellipsis,
         )}`}
-      </Text>
-      {display.color ? (
-        <Text wrap="truncate-end" color={ended === undefined ? "cyan" : "yellow"}>
-          {` ${truncate(now, columns - 1, ellipsis)}`}
-        </Text>
-      ) : (
-        <Text wrap="truncate-end">{` ${truncate(now, columns - 1, ellipsis)}`}</Text>
-      )}
+      </Colored>
+      <Colored
+        display={display}
+        color={ended === undefined ? "cyan" : "yellow"}
+        wrap="truncate-end"
+      >
+        {` ${truncate(now, columns - 1, ellipsis)}`}
+      </Colored>
       {questionText.map((line, i) => (
-        <Text key={`q${i}`} wrap="truncate-end" {...(display.color ? { color: "yellow" } : {})}>
+        <Colored key={`q${i}`} display={display} color="yellow" wrap="truncate-end">
           {` ${truncate(line, columns - 1, ellipsis)}`}
-        </Text>
+        </Colored>
       ))}
     </>
   );

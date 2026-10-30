@@ -9,6 +9,7 @@ import { Box, Text } from "ink";
 
 import type { Display } from "./options";
 import { officeName } from "./views";
+import { Colored } from "./colour";
 
 /** What each setting stores and from when a change applies (0007 section 8, DIPO-136). */
 const SETTING_WORDS: Readonly<Record<string, { stores: string; applies: string; label: string }>> =
@@ -82,14 +83,15 @@ export function Settings(props: {
         const line = ` ${index === selected ? ">" : " "} ${settingName(setting.key).padEnd(20)} ${
           setting.value ? "on " : "off"
         }  ${`(${setting.source})`.padEnd(26)} ${words === undefined ? "" : `stores ${words.stores}`}`;
-        return index === selected && display.color ? (
-          <Text key={setting.key} color="cyan" wrap="truncate-end">
+        return (
+          <Colored
+            key={setting.key}
+            display={display}
+            color={index === selected ? "cyan" : undefined}
+            wrap="truncate-end"
+          >
             {line}
-          </Text>
-        ) : (
-          <Text key={setting.key} wrap="truncate-end">
-            {line}
-          </Text>
+          </Colored>
         );
       })}
       {props.written ? null : <Text>{` ${COMMENTS_WARNING}`}</Text>}

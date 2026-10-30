@@ -19,13 +19,14 @@ import type {
   OfficeId,
   TimerHandle,
 } from "@dipsaus-orchestrator/contract";
-import { Box, Text } from "ink";
+import { Box } from "ink";
 import { useEffect, useRef, useState } from "react";
 
 import { age, truncate } from "./format";
 import { rowKeys } from "./keys";
 import type { Display } from "./options";
 import { glyphs } from "./views";
+import { Colored } from "./colour";
 
 /** The narrowest terminal whose desk rows may take a second line (0009 section 9). */
 export const DESK_WIDE_COLUMNS = 80;
@@ -251,21 +252,16 @@ export function Desk(props: {
   const { ellipsis } = glyphs(display.ascii);
   const line = (text: string, key: string, tone?: "selected" | "title") => {
     const shown = truncate(text, columns - 1, ellipsis);
-    if (!display.color || tone === undefined) {
-      return (
-        <Text key={key} wrap="truncate-end">
-          {` ${shown}`}
-        </Text>
-      );
-    }
-    return tone === "title" ? (
-      <Text key={key} bold wrap="truncate-end">
+    return (
+      <Colored
+        key={key}
+        display={display}
+        bold={tone === "title"}
+        color={tone === "selected" ? "cyan" : undefined}
+        wrap="truncate-end"
+      >
         {` ${shown}`}
-      </Text>
-    ) : (
-      <Text key={key} color="cyan" wrap="truncate-end">
-        {` ${shown}`}
-      </Text>
+      </Colored>
     );
   };
   if (desk.items === null) {
