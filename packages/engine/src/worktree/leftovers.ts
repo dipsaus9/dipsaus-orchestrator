@@ -10,19 +10,22 @@
 //
 // Only a worktree dipo made is a candidate: one git lists directly under the worktree root, not
 // named with a leading `_` like dipo's own `_base` and `_backlog`, and locked with the reason
-// `dipo <run-id>` the claim of an earlier binary gave it. Any other worktree there, such as one the maintainer added, is not
-// touched. A worktree whose folder is gone is reconcile's notice (`goneWorktrees`), not this one's.
+// `dipo <run-id>` the claim of an earlier binary gave it. Any other worktree there, such as one the
+// maintainer added, is not touched. A worktree whose folder is gone is reconcile's notice
+// (`goneWorktrees`), not this one's.
 //
 // Clean means: on a branch (not a detached HEAD), and `git status` listing no change, untracked
-// file or ignored file other than a whole `node_modules/` folder or a `.DS_Store` file (which
-// `git worktree remove` deletes even without `--force`, and which an install or the Finder makes
-// again). The branch stays in either case, so no commit is lost.
+// file or ignored file other than a rebuildable one (`worktree.rebuildable` in the office
+// configuration, DIPO-375: by default a whole `node_modules/` folder, a `.DS_Store` file and the
+// build caches `.tsbuild/` and `.claude/.cc-writes/`). `git worktree remove` deletes those even
+// without `--force`, and an install, a build or the Finder makes them again. The branch stays in
+// either case, so no commit is lost.
 //
-// Saved means: on a branch, and every path `git status` lists (but those two) is a deleted file,
-// or a regular file whose bytes equal the blob git holds for that path at some commit reachable
-// from the branch tip. A worktree of a box run lags its branch, because the box's parts were
-// committed from objects; its files are then saved, and removing it loses nothing. It is removed
-// with `--force`, which git needs for a worktree with changes. Any other path keeps it.
+// Saved means: on a branch, and every path `git status` lists (but the rebuildable ones) is a
+// deleted file, or a regular file whose bytes equal the blob git holds for that path at some commit
+// reachable from the branch tip. A worktree of a box run lags its branch, because the box's parts
+// were committed from objects; its files are then saved, and removing it loses nothing. It is
+// removed with `--force`, which git needs for a worktree with changes. Any other path keeps it.
 //
 // The desk rows are kept in `leftover_worktrees`, written again at each office load: a row whose
 // worktree is gone or removed goes.
@@ -46,12 +49,19 @@ export const LEFTOVER_WORKTREE_DESK = "LEFTOVER WORKTREE";
 /** The lock reason a claim of an earlier binary gave its story worktree: `dipo <run-id>`. */
 const CLAIM_LOCK = /^dipo run_[0-9A-Za-z]+$/;
 
-/** Ignored entries `git worktree remove` may delete with a leftover: rebuilt by an install or the Finder. */
-function rebuildable(path: string): boolean {
-  const name = path.replace(/\/$/, "");
-  return (
-    (path.endsWith("/") && basename(name) === "node_modules") || basename(name) === ".DS_Store"
-  );
+/**
+ * Whether an ignored path `git status` lists is one of the `rebuildable` entries of the office
+ * configuration. An entry without a slash names a file or folder at any depth (a trailing `/`
+ * makes it a folder only); an entry with a slash names one exact path from the worktree root.
+ */
+export function isRebuildable(path: string, rebuildable: readonly string[]): boolean {
+  const folder = path.endsWith("/");
+  const bare = path.replace(/\/$/, "");
+  return rebuildable.some((entry) => {
+    const name = entry.replace(/\/$/, "");
+    if (name.includes("/")) return bare === name;
+    return basename(bare) === name && (folder || !entry.endsWith("/"));
+  });
 }
 
 /** How many paths a kept worktree's detail names; the rest are counted. */
@@ -99,10 +109,10 @@ export interface StatusPath {
 
 /**
  * The paths `git status --porcelain=v1 -z` lists that keep a worktree unless saved: every change
- * and untracked path, and every ignored path but a rebuildable one. A rename's second path is
+ * and untracked path, and every ignored path but a `rebuildable` one. A rename's second path is
  * skipped.
  */
-export function statusPaths(status: string): StatusPath[] {
+export function statusPaths(status: string, rebuildable: readonly string[]): StatusPath[] {
   const fields = status.split("\0");
   const paths: StatusPath[] = [];
   for (let i = 0; i < fields.length; i++) {
@@ -111,15 +121,15 @@ export function statusPaths(status: string): StatusPath[] {
     const code = entry.slice(0, 2);
     const path = entry.slice(3);
     if (code.startsWith("R") || code.startsWith("C")) i += 1;
-    if (code === "!!" && rebuildable(path)) continue;
+    if (code === "!!" && isRebuildable(path, rebuildable)) continue;
     paths.push({ path, deleted: code[1] === "D" || (code[0] === "D" && code[1] === " ") });
   }
   return paths;
 }
 
 /** The paths of `statusPaths`. */
-export function keepingPaths(status: string): string[] {
-  return statusPaths(status).map((entry) => entry.path);
+export function keepingPaths(status: string, rebuildable: readonly string[]): string[] {
+  return statusPaths(status, rebuildable).map((entry) => entry.path);
 }
 
 /**
@@ -191,6 +201,7 @@ async function verdictOf(
   git: OfficeGit,
   session: GitSession,
   entry: ListedWorktree,
+  rebuildable: readonly string[],
 ): Promise<LeftoverVerdict> {
   if (entry.branch === null) return { keep: "it has a detached HEAD checked out" };
   let paths: StatusPath[];
@@ -201,7 +212,7 @@ async function verdictOf(
       ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching"],
       { config: BASE_CHECKOUT_CONFIG, env: BASE_CHECKOUT_ENV },
     );
-    paths = statusPaths(status);
+    paths = statusPaths(status, rebuildable);
     if (paths.length === 0) return { remove: "clean" };
     if (paths.length > CHECKED_PATHS) {
       unsaved = paths.map((p) => p.path);
@@ -228,7 +239,10 @@ async function verdictOf(
  * the office git queue (see the file comment). A worktree git refuses to remove is kept, with
  * git's reason.
  */
-export function sweepLeftoverWorktrees(git: OfficeGit): Promise<LeftoverSweep> {
+export function sweepLeftoverWorktrees(
+  git: OfficeGit,
+  rebuildable: readonly string[],
+): Promise<LeftoverSweep> {
   return git.run(async (session) => {
     const listed = parseWorktreeList(
       await session.ok(session.repository, ["worktree", "list", "--porcelain", "-z"]),
@@ -237,7 +251,7 @@ export function sweepLeftoverWorktrees(git: OfficeGit): Promise<LeftoverSweep> {
     const kept: KeptWorktree[] = [];
     for (const entry of leftoverCandidates(listed, git.worktreeRoot())) {
       const branch = entry.branch?.replace(/^refs\/heads\//, "") ?? null;
-      const verdict = await verdictOf(git, session, entry);
+      const verdict = await verdictOf(git, session, entry, rebuildable);
       if ("keep" in verdict) {
         kept.push({ path: entry.path, branch, why: verdict.keep });
         continue;

@@ -16,6 +16,7 @@ import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
 import type { FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
+import { OFFICE_DEFAULTS } from "../config";
 import type { OfficeLoadContext } from "../office/steps";
 import type { StoryStore } from "../story-store/store";
 
@@ -109,7 +110,9 @@ export class StoryClaims {
     const git = this.#deps.git(ctx.officeId);
     if (git === undefined) return;
     try {
-      const swept = await sweepLeftoverWorktrees(git);
+      // Without a valid configuration the defaults decide: they name only build caches.
+      const rebuildable = ctx.config?.worktree.rebuildable ?? OFFICE_DEFAULTS.worktree.rebuildable;
+      const swept = await sweepLeftoverWorktrees(git, rebuildable);
       recordKeptWorktrees(ctx.office, swept.kept, ctx.clock);
       if (swept.removed.length > 0 || swept.kept.length > 0) {
         this.#deps.info?.("leftover story worktrees swept", {

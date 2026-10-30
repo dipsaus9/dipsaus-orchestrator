@@ -69,6 +69,7 @@ const VERSION_14_KEY_PATHS = [
   ].flatMap((section) => sizes(`prompt.budgets.${section}`)),
   "prompt.contractMax",
   "base",
+  "worktree.rebuildable",
   "worktree.root",
   "scripts.*",
   "timeouts.workerStallMinutes",
