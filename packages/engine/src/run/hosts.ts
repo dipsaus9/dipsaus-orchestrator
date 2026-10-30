@@ -12,6 +12,7 @@ import {
   type HostClient,
   type HostRequest,
 } from "../host/client";
+import { OP_SINCE } from "../host/protocol";
 import { Ingestor, type IngestHooks, type IngestTarget, type PassResult } from "../ingest/ingestor";
 import type { OutputPrivacy } from "../ingest/output";
 import type { Env } from "../platform/paths";
@@ -38,6 +39,23 @@ export const HOST_LAUNCH_DEADLINE_MS = 30_000;
 /** The launch deadline of a host whose row was written at `startedAt`: one value for both sides. */
 export function hostLaunchDeadline(startedAt: number): number {
   return startedAt + HOST_LAUNCH_DEADLINE_MS;
+}
+
+/**
+ * Claims a host (DIPO-386, 0008): the `claim` op, sent only by a daemon that holds the host's
+ * verified PID in its `worker_hosts` row and follows its run, and only when the handshake named
+ * that PID. A handshake alone claims nothing, and a host no daemon claimed by its launch deadline
+ * stops itself. A host that speaks no `claim` (an earlier binary's, with no launch deadline) needs
+ * none. Returns why the host was not claimed, or null.
+ */
+export async function claimHost(client: HostClient, recordedPid: number): Promise<string | null> {
+  if (client.hostPid !== recordedPid) {
+    return `its handshake named pid ${client.hostPid}, not the recorded ${recordedPid}`;
+  }
+  if (client.version < OP_SINCE.claim) return null;
+  const reply = await client.request({ op: "claim" });
+  if (reply === null) return "it did not answer the claim";
+  return reply.ok ? null : `${reply.error.code}: ${reply.error.message}`;
 }
 
 /** How long the engine waits between connection attempts while a new host has not bound its socket. */
@@ -228,6 +246,14 @@ export class OfficeIngest implements RunIngest {
           return;
         }
         if (connected.ok) {
+          // The host is recorded and its run followed: claim it, so it keeps its worker (DIPO-386).
+          const unclaimed = await claimHost(connected.client, host.pid);
+          if (unclaimed !== null) {
+            this.#options.warn?.(
+              "the worker host was not claimed; it stops its worker at its launch deadline",
+              { run: host.runId, reason: unclaimed },
+            );
+          }
           await ingestor.watch(host.runId, host.agentId, connected.client);
           return;
         }

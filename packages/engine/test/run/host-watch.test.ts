@@ -45,40 +45,72 @@ async function advancePast(clock: ManualClock, ms: number): Promise<void> {
   }
 }
 
+/**
+ * Starts ingesting a host recorded with PID 777 that binds its socket only after the PID ask's
+ * timeout, answering its handshake with `pid`; returns the frames it got and the warnings.
+ */
+async function lateBind(
+  dir: string,
+  pid: number,
+): Promise<{ frames: Record<string, unknown>[]; warnings: string[] }> {
+  const f = await ingestFixture(dir);
+  const clock = new ManualClock();
+  const warnings: string[] = [];
+  const ingest = new OfficeIngest({ clock, warn: (message) => warnings.push(message) });
+  const host = unboundHost(dir, f.run, f.agent, clock.now() + HOST_LAUNCH_DEADLINE_MS);
+  const frames: Record<string, unknown>[] = [];
+  const server = createServer((socket) => {
+    let buffered = "";
+    socket.on("data", (data) => {
+      buffered += data.toString("utf8");
+      for (let at = buffered.indexOf("\n"); at >= 0; at = buffered.indexOf("\n")) {
+        const frame = JSON.parse(buffered.slice(0, at)) as Record<string, unknown>;
+        buffered = buffered.slice(at + 1);
+        frames.push(frame);
+        const reply =
+          frame["kind"] === "hello"
+            ? { kind: "hello", version: 3, run: f.run, pid }
+            : { kind: "reply", id: frame["id"], ok: true, result: { offset: 0 } };
+        socket.write(`${JSON.stringify(reply)}\n`);
+      }
+    });
+  });
+  try {
+    ingest.start(f.office, host, target(f, ADAPTER, {} as unknown as ParseState, { work: false }));
+    await advancePast(clock, HOST_CONNECT_TIMEOUT_MS + 1_000);
+    // The host binds late: the engine is still trying until the launch deadline.
+    await new Promise<void>((resolve) => server.listen(host.socketPath, resolve));
+    for (let i = 0; i < 400 && !frames.some((frame) => frame["op"] === "watch"); i += 1) {
+      clock.advance(25);
+      await Bun.sleep(5);
+    }
+    return { frames, warnings };
+  } finally {
+    ingest.close();
+    server.close();
+  }
+}
+
 describe("the engine watches a host that binds its socket after OfficeIngest.start (DIPO-181)", () => {
   it("claims a host that binds its socket after the PID ask's timeout, before its launch deadline (DIPO-386)", () =>
     withTempDir(async (dir) => {
-      const f = await ingestFixture(dir);
-      const clock = new ManualClock();
-      const warnings: string[] = [];
-      const ingest = new OfficeIngest({ clock, warn: (message) => warnings.push(message) });
-      const host = unboundHost(dir, f.run, f.agent, clock.now() + HOST_LAUNCH_DEADLINE_MS);
-      const hellos: unknown[] = [];
-      const server = createServer((socket) => {
-        socket.once("data", (data) => {
-          hellos.push(JSON.parse(data.toString("utf8").split("\n")[0] ?? ""));
-          socket.write(`${JSON.stringify({ kind: "hello", version: 2, run: f.run, pid: 777 })}\n`);
-        });
-      });
-      try {
-        ingest.start(
-          f.office,
-          host,
-          target(f, ADAPTER, {} as unknown as ParseState, { work: false }),
-        );
-        await advancePast(clock, HOST_CONNECT_TIMEOUT_MS + 1_000);
-        // The host binds late: the engine is still trying, so its handshake claims the host.
-        await new Promise<void>((resolve) => server.listen(host.socketPath, resolve));
-        for (let i = 0; i < 200 && hellos.length === 0; i += 1) {
-          clock.advance(25);
-          await Bun.sleep(5);
-        }
-        expect(hellos).toMatchObject([{ kind: "hello", run: f.run }]);
-        expect(warnings).toEqual([]);
-      } finally {
-        ingest.close();
-        server.close();
-      }
+      const { frames, warnings } = await lateBind(dir, 777);
+      // The handshake, then the claim of the recorded host, then the watch.
+      expect(frames.map((frame) => frame["op"] ?? frame["kind"])).toEqual([
+        "hello",
+        "claim",
+        "watch",
+      ]);
+      expect(warnings).toEqual([]);
+    }));
+
+  it("does not claim a host whose handshake names another PID than the recorded one (DIPO-386)", () =>
+    withTempDir(async (dir) => {
+      const { frames, warnings } = await lateBind(dir, 778);
+      expect(frames.map((frame) => frame["op"] ?? frame["kind"])).toEqual(["hello", "watch"]);
+      expect(warnings).toEqual([
+        "the worker host was not claimed; it stops its worker at its launch deadline",
+      ]);
     }));
 
   it("warns when the host never binds its socket by its launch deadline", () =>

@@ -9,9 +9,10 @@
 // ending the host at once (DIPO-93): after a restart the engine stops a host whose socket does not
 // answer this way, once its PID and start time are verified (0005).
 //
-// A daemon claims the host with its first handshake. A host no daemon claimed by the launch
-// deadline in `launch.json` stops its worker the same way and refuses every later handshake, so a
-// host no daemon answers for never runs on untracked (DIPO-386, 0008).
+// A daemon claims the host with the `claim` op once it has recorded the host's verified PID and
+// follows its run; a handshake alone claims nothing. A host no daemon claimed by the launch
+// deadline in `launch.json` stops its worker the same way and refuses every later handshake and
+// claim, so a host no daemon keeps never runs on untracked (DIPO-386, 0008).
 //
 // A box worker (DIPO-271) is a `container exec` client on the Mac, and a killed client leaves its
 // process running in the box. Its plan carries a stop command (`container stop <box>`), which the
@@ -175,9 +176,9 @@ export class WorkerHost {
   #steering: Steering | null = null;
   #state: HostState = "running";
   #exit: HostExitFile | null = null;
-  /** Epoch ms by which a daemon's handshake must claim the host (DIPO-386). */
+  /** Epoch ms by which a daemon must claim the host (DIPO-386). */
   readonly #deadline: number;
-  /** Set by the first handshake before the deadline: a daemon follows the host. */
+  /** Set by the first `claim` before the deadline: a daemon recorded and follows the host. */
   #claimed = false;
   /** Set when the deadline passed unclaimed: the worker is being stopped. */
   #unclaimed = false;
@@ -267,7 +268,7 @@ export class WorkerHost {
 
   /**
    * The launch deadline passed and no daemon claimed the host (DIPO-386): it refuses every later
-   * handshake and stops its worker as on SIGTERM. True when the host is unclaimed.
+   * handshake and claim and stops its worker as on SIGTERM. True when the host is unclaimed.
    */
   #claimExpired(): boolean {
     if (this.#claimed) return false;
@@ -593,8 +594,6 @@ export class WorkerHost {
         });
         return;
       }
-      this.#claimed = true;
-      this.#clearClaimTimer();
       client.version = version;
       this.#send(client, { kind: "hello", version, run: this.runId, pid: this.#options.pid });
       return;
@@ -633,6 +632,24 @@ export class WorkerHost {
     }
     if (frame.op === "status") {
       this.#send(client, { kind: "reply", id: frame.id, ok: true, result: this.status() });
+      return;
+    }
+    if (frame.op === "claim") {
+      if (this.#claimExpired()) {
+        this.#send(client, {
+          kind: "reply",
+          id: frame.id,
+          ok: false,
+          error: {
+            code: "host.unclaimed",
+            message: "No daemon claimed this host by its launch deadline; it stops its worker.",
+          },
+        });
+        return;
+      }
+      this.#claimed = true;
+      this.#clearClaimTimer();
+      this.#send(client, { kind: "reply", id: frame.id, ok: true });
       return;
     }
     if (frame.op === "watch") {

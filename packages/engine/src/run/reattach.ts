@@ -79,7 +79,12 @@ import type { Caps, ParseState } from "../workers/types";
 
 import { REVIEWER_ROLE, runCaps } from "./caps";
 import { CAP_TICK_MS, type RunEnding, type TrackedRun } from "./control";
-import { HOST_CONNECT_RETRY_MS, HOST_CONNECT_TIMEOUT_MS, hostLaunchDeadline } from "./hosts";
+import {
+  claimHost,
+  HOST_CONNECT_RETRY_MS,
+  HOST_CONNECT_TIMEOUT_MS,
+  hostLaunchDeadline,
+} from "./hosts";
 import { HOST_LOST_WHY } from "./outcome-types";
 import { HOST_LOST_END } from "./outcomes";
 import type { ParkOutcome } from "./park";
@@ -204,6 +209,17 @@ export interface RunReattacherDeps {
   readonly boxRecord?: (runDir: string) => boolean;
 }
 
+/** What one ask of a pending row found (DIPO-386). */
+type PendingAsk =
+  | { readonly kind: "live"; readonly pid: number; readonly startTimeMs: number }
+  /** Nothing answered on the row's socket. */
+  | { readonly kind: "waiting" }
+  /** A host answered, but its PID failed the identity check. */
+  | { readonly kind: "refused" };
+
+/** How a pending row was settled by one ask (DIPO-386). */
+type Settled = "matched" | "waiting" | "refused" | "unmatched";
+
 /** How often a signalled host's liveness is checked by PID and start time: the cap tick. */
 export const EXIT_CHECK_MS = CAP_TICK_MS;
 
@@ -282,9 +298,9 @@ export class RunReattacher {
       try {
         const settled = await this.#settleOne(office, host);
         if (settled === "unmatched") unmatched.set(row.run_id, row.agent_id);
-        if (settled === "waiting") {
+        if (settled === "waiting" || settled === "refused") {
           waiting.add(row.run_id);
-          this.#waitPending(office, host);
+          this.#waitPending(office, host, settled);
         }
         this.#deps.warn?.("a worker host was still pending at the restart", {
           run: row.run_id,
@@ -304,21 +320,25 @@ export class RunReattacher {
   }
 
   /**
-   * Asks a pending row's host once: records the live host it names ("matched"), keeps the row
-   * while its launch deadline has not passed ("waiting"), or removes it ("unmatched"). Nothing is
-   * signalled: the PID of a pending host is known only from its own handshake.
+   * Asks a pending row's host once: records the live host it names ("matched"); keeps the row
+   * while its launch deadline has not passed, because nothing answered ("waiting") or what
+   * answered failed the identity check ("refused"); or removes it ("unmatched"). Nothing is
+   * signalled and nothing claimed here: the PID of a pending host is known only from its own
+   * handshake, and only a recorded host is claimed (`claimHost`), so a host this daemon cannot
+   * verify or keep stops itself at its deadline.
    */
-  async #settleOne(
-    office: OfficeHandle,
-    host: WorkerHostRow,
-  ): Promise<"matched" | "waiting" | "unmatched"> {
+  async #settleOne(office: OfficeHandle, host: WorkerHostRow): Promise<Settled> {
     const deadline = hostLaunchDeadline(host.startedAt);
-    const live = await this.#pendingHost(host, deadline);
-    if (live !== null) {
-      recordPendingPid(office, host, live.pid, live.startTimeMs);
+    const asked = await this.#pendingHost(host, deadline);
+    if (asked.kind === "live") {
+      // A daemon that stops, or a run that ended, during the ask keeps nothing: no record, so no
+      // claim, and the host stops itself at its deadline.
+      const run = findRun(office, host.runId as RunId);
+      if (this.#closed || run === null || run.endedAt !== null) return "waiting";
+      recordPendingPid(office, host, asked.pid, asked.startTimeMs);
       return "matched";
     }
-    if (this.#deps.clock.now() < deadline) return "waiting";
+    if (this.#deps.clock.now() < deadline) return asked.kind;
     deletePendingHost(office, host.runId, host.agentId);
     return "unmatched";
   }
@@ -328,11 +348,11 @@ export class RunReattacher {
    * then re-attaches the run whose host answered, or parks it as never started. A run that ended
    * meanwhile gets no handshake: its row goes, and its unclaimed host stops itself.
    */
-  #waitPending(office: OfficeHandle, host: WorkerHostRow): void {
+  #waitPending(office: OfficeHandle, host: WorkerHostRow, first: Settled): void {
     const key = `${host.runId} ${host.agentId}`;
     if (this.#waiting.has(key)) return;
     this.#waiting.add(key);
-    void this.#askUntilDeadline(office, host)
+    void this.#askUntilDeadline(office, host, first)
       .catch((error: unknown) => {
         this.#deps.warn?.("asking a pending worker host again failed", {
           run: host.runId,
@@ -343,11 +363,18 @@ export class RunReattacher {
       .finally(() => this.#waiting.delete(key));
   }
 
-  async #askUntilDeadline(office: OfficeHandle, pending: WorkerHostRow): Promise<void> {
+  async #askUntilDeadline(
+    office: OfficeHandle,
+    pending: WorkerHostRow,
+    first: Settled,
+  ): Promise<void> {
     const { clock } = this.#deps;
-    let settled: "matched" | "waiting" | "unmatched" = "waiting";
-    while (settled === "waiting") {
-      await sleep(clock, HOST_CONNECT_RETRY_MS);
+    const deadline = hostLaunchDeadline(pending.startedAt);
+    let settled = first;
+    while (settled === "waiting" || settled === "refused") {
+      // A host that answered but failed the check is not asked again: the row waits for the deadline.
+      const wait = settled === "refused" ? deadline - clock.now() : HOST_CONNECT_RETRY_MS;
+      await sleep(clock, Math.max(HOST_CONNECT_RETRY_MS, wait));
       if (this.#closed) return;
       const host = workerHostsOf(office, pending.runId).find((h) => h.agentId === pending.agentId);
       // Settled by another pass.
@@ -359,6 +386,7 @@ export class RunReattacher {
       }
       settled = await this.#settleOne(office, host);
     }
+    // A run that ended, or a daemon that stops, claims nothing: the host stops at its deadline.
     const run = findRun(office, pending.runId as RunId);
     if (run === null || run.endedAt !== null || run.kind !== "story" || this.#closed) return;
     const outcome = await this.#reattachRun(
@@ -381,16 +409,13 @@ export class RunReattacher {
    * PID it names counts only when the process runs `dipo daemon worker-host <run>` and started
    * after the row was written.
    */
-  async #pendingHost(
-    host: WorkerHostRow,
-    launchDeadline: number,
-  ): Promise<{ readonly pid: number; readonly startTimeMs: number } | null> {
+  async #pendingHost(host: WorkerHostRow, launchDeadline: number): Promise<PendingAsk> {
     const { clock, probe } = this.#deps;
     for (const name of [LAUNCH_FILE, `${LAUNCH_FILE}.tmp`]) {
       rmSync(join(host.runDir, name), { force: true });
     }
-    // Past the deadline the host has stopped itself and refuses a handshake.
-    if (clock.now() >= launchDeadline) return null;
+    // Past the deadline the host is unclaimed, so it has stopped itself and refuses a handshake.
+    if (clock.now() >= launchDeadline) return { kind: "waiting" };
     const deadline = Math.min(clock.now() + HOST_CONNECT_TIMEOUT_MS, launchDeadline);
     let connected: ConnectHostResult;
     for (;;) {
@@ -402,7 +427,7 @@ export class RunReattacher {
       if (deadline - clock.now() <= HOST_CONNECT_RETRY_MS) break;
       await sleep(clock, HOST_CONNECT_RETRY_MS);
     }
-    if (!connected.ok) return null;
+    if (!connected.ok) return { kind: "waiting" };
     const pid = connected.client.hostPid;
     connected.client.close();
     const info = await probe(pid);
@@ -411,7 +436,7 @@ export class RunReattacher {
       !info.zombie &&
       isWorkerHostCommand(info.command, host.runId) &&
       info.startTimeMs >= host.startedAt - START_TIME_TOLERANCE_MS;
-    return matches ? { pid, startTimeMs: info.startTimeMs } : null;
+    return matches ? { kind: "live", pid, startTimeMs: info.startTimeMs } : { kind: "refused" };
   }
 
   /**
@@ -623,6 +648,14 @@ export class RunReattacher {
     });
 
     if (client !== null) {
+      // Recorded and followed now: the claim keeps the host's worker past its launch deadline.
+      const unclaimed = await claimHost(client, host.pid);
+      if (unclaimed !== null) {
+        deps.warn?.("the worker host was not claimed; it stops its worker at its launch deadline", {
+          run: run.runId,
+          reason: unclaimed,
+        });
+      }
       const pass = deps.ingest.attach(office, host, target, client);
       if (pass.status === "fileChanged") {
         return { run: run.runId, agent: host.agentId, outcome: "fileChanged" };

@@ -16,6 +16,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   truncateSync,
   writeFileSync,
 } from "node:fs";
@@ -35,7 +36,7 @@ import { parseFieldBlock } from "../../src/story-store/fields/block";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config/schema";
 import { currentPlatform } from "../../src/platform/paths";
 import { systemProcessProbe } from "../../src/platform/process";
-import { connectHost, type HostClient } from "../../src/host/client";
+import { type ConnectHostResult, connectHost, type HostClient } from "../../src/host/client";
 import { systemClock } from "../../src/platform/clock";
 import { EXIT_FILE, type HostExitFile, LAUNCH_FILE } from "../../src/host/protocol";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
@@ -68,7 +69,13 @@ import {
 import { activeSignals, markStuck, raiseSignal } from "../../src/run/signals";
 import { workView } from "../../src/views/work";
 import { promptPartsOf, promptTextsOf } from "../../src/prompts/parts";
-import { launchWorkerHost, recordWorkerHost, workerHostsOf } from "../../src/runs/worker-hosts";
+import {
+  type LaunchedHost,
+  launchWorkerHost,
+  recordWorkerHost,
+  workerHostsOf,
+} from "../../src/runs/worker-hosts";
+import { lateHostScript } from "../host/fixtures/late-host-script";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
@@ -146,6 +153,10 @@ interface World {
   readonly signals: [number, string][];
   /** The host PID the fake socket's handshake names. */
   hostPid: number;
+  /** The protocol version the fake host speaks; 3 and up takes a claim (DIPO-386). */
+  hostVersion: number;
+  /** Every op sent to the fake host, with whether its row was still pending then. */
+  readonly ops: [string, boolean | null][];
   caps: Caps;
   readonly daemons: Daemon[];
 }
@@ -153,9 +164,12 @@ interface World {
 let w: World;
 
 const fakeClient = (): HostClient => ({
-  version: 1,
+  version: w.hostVersion,
   hostPid: w.hostPid,
-  request: async () => ({ ok: true }),
+  request: async (request) => {
+    w.ops.push([request.op, workerHostsOf(w.f.office, w.f.run).at(-1)?.pending ?? null]);
+    return { ok: true };
+  },
   status: async () => null,
   watch: async () => 0,
   closed: new Promise<void>(() => undefined),
@@ -277,6 +291,8 @@ beforeEach(async () => {
     silence: "unreachable",
     signals: [],
     hostPid: 4242,
+    hostVersion: 1,
+    ops: [],
     caps: ROOMY,
     daemons: [],
   };
@@ -1382,6 +1398,7 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
     makePending();
     w.answers = false;
     w.hostPid = 4343;
+    w.hostVersion = 3;
     w.startTimeMs = w.f.t.clock.now();
     const d = daemon();
     // The first ask times out: the row stays pending and the run waits, neither parked nor stopped.
@@ -1393,6 +1410,8 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
     await advanceUntil(() => d.control.isTracked(w.f.run));
     expect(w.f.t.clock.now()).toBeLessThan(hostLaunchDeadline(hostRow().startedAt));
     expect(hostRow()).toMatchObject({ pending: false, pid: 4343, startTimeMs: w.startTimeMs });
+    // Claimed once, and only after its verified PID was recorded.
+    expect(w.ops).toEqual([["claim", false]]);
     expect(w.signals).toEqual([]);
     expect(parks()).toEqual([]);
     expect(w.next).toEqual([]);
@@ -1586,9 +1605,10 @@ const hosts: Parameters<typeof realResumer>[0] = {
   },
 };
 
-const LATE_HOST = resolve(import.meta.dir, "../host/fixtures/late-host.ts");
 const CLI_MAIN = resolve(import.meta.dir, "../../../cli/src/main.ts");
 const realProbe = systemProcessProbe(currentPlatform());
+/** Time a real host gets to start Bun and read its launch file before its deadline. */
+const REAL_HOST_DEADLINE_MS = 4_500;
 
 /** Whether a real process runs: a zombie or a PID that is gone does not. */
 async function running(pid: number): Promise<boolean> {
@@ -1596,31 +1616,127 @@ async function running(pid: number): Promise<boolean> {
   return info !== null && !info.zombie;
 }
 
+/** A daemon on the shared database that asks real sockets on the manual clock. */
+function realSocketDaemon(wrap: (asked: ConnectHostResult) => void = () => {}): Daemon {
+  return daemon({
+    probe: realProbe,
+    connect: async (path, runId) => {
+      const asked = await connectHost(path, {
+        runId,
+        clock: w.f.t.clock,
+        timeoutMs: HOST_CONNECT_TIMEOUT_MS,
+      });
+      wrap(asked);
+      return asked;
+    },
+  });
+}
+
+/** The late-host stand-in for the pending row: bound once `gate` exists; ops logged to `ops`. */
+function lateHost(): { pid: number; gate: string; ops: () => string[]; kill(): void } {
+  const socket = hostRow().socketPath;
+  mkdirSync(dirname(socket), { recursive: true });
+  const gate = join(w.dir, "bind-now");
+  const opsFile = join(w.dir, "late-host-ops");
+  const child = Bun.spawn(
+    [process.execPath, lateHostScript(join(w.dir, "src")), "daemon", "worker-host", w.f.run],
+    {
+      env: {
+        ...process.env,
+        LATE_HOST_SOCKET: socket,
+        LATE_HOST_GATE: gate,
+        LATE_HOST_OPS: opsFile,
+      },
+      stdio: ["ignore", "ignore", "ignore"],
+    },
+  );
+  return {
+    pid: child.pid,
+    gate,
+    ops: () =>
+      existsSync(opsFile) ? readFileSync(opsFile, "utf8").split("\n").filter(Boolean) : [],
+    kill: () => child.kill("SIGKILL"),
+  };
+}
+
+/**
+ * A real `dipo daemon worker-host` for the pending row, run as `dipoCommand`, its launch deadline
+ * the row's, `REAL_HOST_DEADLINE_MS` away. Resolves once it has read its launch and bound its
+ * socket.
+ */
+async function realPendingHost(
+  dipoCommand: [string, ...string[]],
+): Promise<{ host: LaunchedHost; deadline: number }> {
+  const startedAt = systemClock.now() - HOST_LAUNCH_DEADLINE_MS + REAL_HOST_DEADLINE_MS;
+  w.f.office.immediate(() =>
+    w.f.office.run("update worker_hosts set started_at = $at where office_id = $office_id", {
+      at: startedAt,
+    }),
+  );
+  const deadline = hostLaunchDeadline(startedAt);
+  const real = join(w.dir, "real");
+  const env = cleanEnv();
+  delete env["BUN_OPTIONS"];
+  delete env["BUN_FEATURE_FLAG_NO_ORPHANS"];
+  const host = await launchWorkerHost({
+    runId: w.f.run,
+    agentId: w.f.agent,
+    officeDir: join(real, "office"),
+    runtimeDir: join(real, "rt"),
+    plan: {
+      argv: ["/bin/sleep", "600"],
+      env: { PATH: "/usr/bin:/bin" },
+      cwd: real,
+      files: [],
+      stdin: [],
+    },
+    dipoCommand,
+    startedAt,
+    launchDeadline: deadline,
+    env: { ...env, DIPO_HOME: join(real, "state"), DIPO_TMP: real },
+    probe: realProbe,
+  });
+  for (let i = 0; i < 400 && !existsSync(host.socketPath); i += 1) await Bun.sleep(10);
+  expect(existsSync(host.socketPath)).toBe(true);
+  return { host, deadline };
+}
+
+/** After the deadline: the row is gone, the story parked, and the host stopped itself. */
+async function stoppedItself(host: LaunchedHost, deadline: number, d: Daemon): Promise<void> {
+  for (let i = 0; i < 800 && parks().length === 0; i += 1) await Bun.sleep(10);
+  expect(systemClock.now()).toBeGreaterThanOrEqual(deadline);
+  await d.control.idle();
+  expect(workerHostsOf(w.f.office, w.f.run)).toEqual([]);
+  expect(parks()).toEqual([["worker-failed", HOST_NEVER_STARTED]]);
+  for (let i = 0; i < 300 && (await running(host.pid)); i += 1) await Bun.sleep(20);
+  expect(await running(host.pid)).toBe(false);
+  expect(JSON.parse(readFileSync(join(host.runDir, EXIT_FILE), "utf8"))).toMatchObject({
+    signal: "SIGTERM",
+  });
+  expect(readFileSync(join(host.runDir, "host.log"), "utf8")).toContain(
+    "no daemon claimed the worker host by its launch deadline",
+  );
+  expect(w.signals).toEqual([]);
+  expect(w.sent).toEqual([]);
+}
+
 describe("re-attach of real worker host processes left pending (DIPO-386)", () => {
-  it("re-attaches a real host that binds its socket after the first ask timed out, at a later ask, with no signal", async () => {
+  it("re-attaches a real host that binds its socket after the first ask timed out, at a later ask, and claims it once it is recorded; no signal", async () => {
     beforeRestart("success-single", 6, 20);
     makePending();
-    const socket = hostRow().socketPath;
-    mkdirSync(dirname(socket), { recursive: true });
-    const gate = join(w.dir, "bind-now");
-    const host = Bun.spawn([process.execPath, LATE_HOST, "daemon", "worker-host", w.f.run], {
-      env: { ...process.env, LATE_HOST_SOCKET: socket, LATE_HOST_GATE: gate },
-      stdio: ["ignore", "ignore", "ignore"],
-    });
+    const host = lateHost();
     try {
-      const d = daemon({
-        probe: realProbe,
-        connect: (path, runId) =>
-          connectHost(path, { runId, clock: w.f.t.clock, timeoutMs: HOST_CONNECT_TIMEOUT_MS }),
-      });
+      const d = realSocketDaemon();
       // The first ask finds no socket for the whole connect timeout: the row stays pending.
       expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([]);
       expect(hostRow()).toMatchObject({ pending: true, pid: 0 });
       // The host binds now, before its launch deadline, and a later ask of the same daemon finds it.
-      writeFileSync(gate, "");
+      writeFileSync(host.gate, "");
       await advanceUntil(() => d.control.isTracked(w.f.run));
       expect(w.f.t.clock.now()).toBeLessThan(hostLaunchDeadline(hostRow().startedAt));
       expect(hostRow()).toMatchObject({ pending: false, pid: host.pid });
+      await advanceUntil(() => host.ops().includes("watch"));
+      expect(host.ops()).toEqual(["claim", "watch"]);
       expect(await running(host.pid)).toBe(true);
       expect(w.signals).toEqual([]);
       expect(parks()).toEqual([]);
@@ -1630,43 +1746,48 @@ describe("re-attach of real worker host processes left pending (DIPO-386)", () =
     }
   });
 
+  it("claims nothing when the run ends while its pending host is asked: the row goes, with no signal", async () => {
+    makePending();
+    const host = lateHost();
+    writeFileSync(host.gate, "");
+    try {
+      const d = realSocketDaemon((asked) => {
+        if (asked.ok) endRunByHand();
+      });
+      await settled(d.reattacher.reattach(w.f.office.officeId));
+      await advanceUntil(() => workerHostsOf(w.f.office, w.f.run).length === 0);
+      expect(host.ops()).toEqual([]);
+      expect(d.control.isTracked(w.f.run)).toBe(false);
+      expect(w.signals).toEqual([]);
+    } finally {
+      host.kill();
+    }
+  });
+
+  it("claims nothing when the daemon stops between the handshake and the record: the row stays pending for the next daemon", async () => {
+    makePending();
+    const host = lateHost();
+    writeFileSync(host.gate, "");
+    try {
+      let d: Daemon | null = null;
+      d = realSocketDaemon((asked) => {
+        if (asked.ok) d?.reattacher.close();
+      });
+      expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([]);
+      await Bun.sleep(50);
+      expect(hostRow()).toMatchObject({ pending: true, pid: 0 });
+      expect(host.ops()).toEqual([]);
+      expect(w.signals).toEqual([]);
+      expect(parks()).toEqual([]);
+    } finally {
+      host.kill();
+    }
+  });
+
   it("a real host that never binds where its row says exits by itself at its launch deadline; the story parks worker-failed, with no signal", async () => {
     makePending();
-    // The row was written a little under the launch deadline ago, so the deadline is 1.5 s away.
-    const startedAt = systemClock.now() - HOST_LAUNCH_DEADLINE_MS + 1_500;
-    w.f.office.immediate(() =>
-      w.f.office.run("update worker_hosts set started_at = $at where office_id = $office_id", {
-        at: startedAt,
-      }),
-    );
-    const deadline = hostLaunchDeadline(startedAt);
-    // A real `dipo daemon worker-host`, its deadline the row's; its socket is not the row's.
-    const real = join(w.dir, "real");
-    const env = cleanEnv();
-    delete env["BUN_OPTIONS"];
-    delete env["BUN_FEATURE_FLAG_NO_ORPHANS"];
-    const host = await launchWorkerHost({
-      runId: w.f.run,
-      agentId: w.f.agent,
-      officeDir: join(real, "office"),
-      runtimeDir: join(real, "rt"),
-      plan: {
-        argv: ["/bin/sleep", "600"],
-        env: { PATH: "/usr/bin:/bin" },
-        cwd: real,
-        files: [],
-        stdin: [],
-      },
-      dipoCommand: [process.execPath, CLI_MAIN],
-      startedAt,
-      launchDeadline: deadline,
-      env: { ...env, DIPO_HOME: join(real, "state"), DIPO_TMP: real },
-      probe: realProbe,
-    });
+    const { host, deadline } = await realPendingHost([process.execPath, CLI_MAIN]);
     try {
-      // The host has read its launch and runs its worker before the daemon asks.
-      for (let i = 0; i < 200 && !existsSync(host.socketPath); i += 1) await Bun.sleep(10);
-      expect(existsSync(host.socketPath)).toBe(true);
       expect(host.socketPath).not.toBe(hostRow().socketPath);
       const d = daemon({
         clock: systemClock,
@@ -1678,23 +1799,45 @@ describe("re-attach of real worker host processes left pending (DIPO-386)", () =
       // returns while the row still waits and the later ask parks it, by how the timers fall.
       const first = await d.reattacher.reattach(w.f.office.officeId);
       expect(first.filter((done) => done.outcome !== "neverStarted")).toEqual([]);
-      for (let i = 0; i < 300 && parks().length === 0; i += 1) await Bun.sleep(10);
-      // Parked only once the launch deadline passed.
-      expect(systemClock.now()).toBeGreaterThanOrEqual(deadline);
-      await d.control.idle();
-      expect(workerHostsOf(w.f.office, w.f.run)).toEqual([]);
-      expect(parks()).toEqual([["worker-failed", HOST_NEVER_STARTED]]);
-      // The host stopped its worker and exited by itself; dipo signalled nothing.
-      for (let i = 0; i < 300 && (await running(host.pid)); i += 1) await Bun.sleep(20);
-      expect(await running(host.pid)).toBe(false);
-      expect(JSON.parse(readFileSync(join(host.runDir, EXIT_FILE), "utf8"))).toMatchObject({
-        signal: "SIGTERM",
-      });
-      expect(readFileSync(join(host.runDir, "host.log"), "utf8")).toContain(
-        "no daemon claimed the worker host by its launch deadline",
+      await stoppedItself(host, deadline, d);
+    } finally {
+      if (await running(host.pid)) process.kill(host.pid, "SIGKILL");
+    }
+  });
+
+  it("a real host that answers but fails the identity check is asked once, never claimed, and stops itself at its deadline; no signal", async () => {
+    makePending();
+    // Bun under a name the identity check does not know, as an odd install would show.
+    const runtime = join(w.dir, "runtime");
+    symlinkSync(process.execPath, runtime);
+    const { host, deadline } = await realPendingHost([runtime, CLI_MAIN]);
+    try {
+      w.f.office.immediate(() =>
+        w.f.office.run(
+          "update worker_hosts set socket_path = $socket where office_id = $office_id",
+          {
+            socket: host.socketPath,
+          },
+        ),
       );
-      expect(w.signals).toEqual([]);
-      expect(w.sent).toEqual([]);
+      let answered = 0;
+      const d = daemon({
+        clock: systemClock,
+        probe: realProbe,
+        connect: async (path, runId) => {
+          const asked = await connectHost(path, {
+            runId,
+            clock: systemClock,
+            timeoutMs: HOST_CONNECT_TIMEOUT_MS,
+          });
+          if (asked.ok) answered += 1;
+          return asked;
+        },
+      });
+      expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([]);
+      expect(hostRow()).toMatchObject({ pending: true, pid: 0 });
+      await stoppedItself(host, deadline, d);
+      expect(answered).toBe(1);
     } finally {
       if (await running(host.pid)) process.kill(host.pid, "SIGKILL");
     }
