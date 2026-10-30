@@ -59,7 +59,10 @@ export function stripSlash(path: string): string {
 
 /** `name` inside the folder `dir`. */
 export function inDir(dir: string, name: string): string {
-  return `${dir.replace(/\/+$/, "")}/${name}`;
+  // A loop, not a regular expression: a run of slashes costs one pass.
+  let end = dir.length;
+  while (end > 0 && dir[end - 1] === "/") end -= 1;
+  return `${dir.slice(0, end)}/${name}`;
 }
 
 /** True when `path` is `dir` or inside it. */

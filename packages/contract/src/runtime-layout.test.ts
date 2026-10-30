@@ -39,6 +39,8 @@ describe("the software folders", () => {
     expect(isWithin("/a/b", "/a/b")).toBe(true);
     expect(isWithin("/a/bc", "/a/b")).toBe(false);
     expect(inDir("/a//", "b")).toBe("/a/b");
+    expect(inDir("/", "b")).toBe("/b");
+    expect(inDir(`/a${"/".repeat(10_000)}`, "b")).toBe("/a/b");
   });
 
   it("see the test marker in any of the environments", () => {
