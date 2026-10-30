@@ -33,6 +33,10 @@ export interface Harness {
 export interface HarnessOptions {
   readonly heartbeatMs?: number;
   readonly backpressureLimitBytes?: number;
+  /** The deadline of each read and subscribe; the server's own by default. */
+  readonly readDeadlineMs?: number;
+  /** Reads and subscribes a connection runs at once; the server's own by default. */
+  readonly maxInFlight?: number;
   /** The surface to serve; a new fake by default. A restart serves the same one again. */
   readonly engine?: FakeSurface;
 }
@@ -57,6 +61,8 @@ export async function startHarness(dir: string, options: HarnessOptions = {}): P
     logger,
     tuiLeft: (office, at) => tuiLeft.push({ office, at }),
     ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),
+    ...(options.readDeadlineMs === undefined ? {} : { readDeadlineMs: options.readDeadlineMs }),
+    ...(options.maxInFlight === undefined ? {} : { maxInFlight: options.maxInFlight }),
   });
   const socket = serveUnixSocket(
     socketPath,

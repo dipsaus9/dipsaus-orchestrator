@@ -39,6 +39,8 @@ Event       = { cursor, at, type, causedBy?: RequestId, data }
 
 `changed: false` means the command was valid and the state already matched. A client that wants to read its own write waits until its stream passes the reply's cursor. The engine keeps no per-connection state: every office command names its office.
 
+The daemon serves the frames of one connection side by side. Reads run as they arrive, matched by `requestId`; at most 32 reads and subscribes of a connection run at once, and the next waits its turn; commands start in arrival order; only the subscribes and unsubscribes of one stream wait for each other. A command never waits behind an earlier read or subscribe, so a client that needs a command's entries on a stream subscribes and waits for `stream.mark { caughtUp }` before it sends the command.
+
 ### 4. Commands
 
 | Group | Commands |
@@ -92,7 +94,7 @@ Every event about running work carries a `WorkRef` (story, key, run, agent, role
 
 `EngineError = { code, message, retryable, details? }`, with dotted codes such as `story.unknown`. Codes are part of the contract; messages are not.
 
-The generic codes are `args.invalid`, `office.unknown`, `story.unknown`, `request.reused`, `stream.resetRequired`, `database.unavailable` and `internal`. Three of them mean the request may succeed later: `engine.recovering` (wait for `running`), `run.hostAlive` (an old worker host still runs) and `git.fetchFailed`.
+The generic codes are `args.invalid`, `office.unknown`, `story.unknown`, `request.reused`, `stream.resetRequired`, `database.unavailable`, `request.timedOut` (a read or subscribe the daemon did not answer within its 90 s deadline) and `internal`. On a read or subscribe, `request.reused` means another read or subscribe with the same id is still running on the connection. Three of them mean the request may succeed later: `engine.recovering` (wait for `running`), `run.hostAlive` (an old worker host still runs) and `git.fetchFailed`.
 
 ### 11. One version
 

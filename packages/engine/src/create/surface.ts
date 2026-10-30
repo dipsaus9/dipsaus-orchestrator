@@ -27,9 +27,10 @@ import { replay } from "../changelog/replay";
 import { executeCommand, type Connection } from "../commands/execute";
 import type { OfficeDirectory } from "../commands/offices";
 import type { Registry } from "../commands/registry";
+import { logRequest, officeInArgs } from "../commands/request-log";
 import type { MemoryRequestTable } from "../commands/requests";
 import type { Logger } from "../log/logger";
-import { executeRead } from "../reads/execute";
+import { executeRead, type ReadOptions } from "../reads/execute";
 import type { OfficeSummarySource } from "../reads/hello";
 import type { SoftwareStream } from "../software-stream";
 import type { DaemonLifecycle } from "./lifecycle";
@@ -93,8 +94,8 @@ export interface EngineSurface {
     connection?: Connection,
     send?: (reply: CommandReply) => void,
   ): Promise<CommandReply>;
-  /** Runs one read after the lifecycle checks. */
-  executeRead(request: ReadRequest): Promise<ReadReply>;
+  /** Runs one read after the lifecycle checks; `options` say who asks it (DIPO-320). */
+  executeRead(request: ReadRequest, options?: ReadOptions): Promise<ReadReply>;
   /** Opens a stream at `after`, or at its head; an office stream loads its office (DIPO-27). */
   subscribe(stream: StreamName, after: Cursor | undefined): Promise<Subscribed>;
   /** At most `limit` entries of an office's change log after `position`, rendered (DIPO-124). */
@@ -152,6 +153,15 @@ async function runCommand(
   const gate = lifecycleGate(parts.lifecycle, "command", request.name);
   if (gate !== null) {
     const refused: CommandReply = { ok: false, requestId: request.requestId, error: gate };
+    // Refused before the executor runs: its one line comes from here (DIPO-320).
+    logRequest(parts.logger, {
+      kind: "command",
+      name: request.name,
+      requestId: request.requestId,
+      office: request.office ?? officeInArgs(request.args),
+      reply: refused,
+      ms: 0,
+    });
     send(refused);
     return refused;
   }
@@ -237,10 +247,20 @@ export function engineSurface(parts: SurfaceParts): EngineSurface {
     version: parts.version,
     executeCommand: (request, connection = {}, send = () => {}) =>
       runCommand(parts, request, connection, send),
-    executeRead: async (request) => {
+    executeRead: async (request, options = {}) => {
       const gate = lifecycleGate(parts.lifecycle, "read", request.name);
-      if (gate !== null) return { ok: false, requestId: request.requestId, error: gate };
-      return executeRead(parts, request);
+      if (gate === null) return executeRead(parts, request, options);
+      const refused: ReadReply = { ok: false, requestId: request.requestId, error: gate };
+      if (options.internal === true) return refused;
+      logRequest(parts.logger, {
+        kind: "read",
+        name: request.name,
+        requestId: request.requestId,
+        office: officeInArgs(request.args),
+        reply: refused,
+        ms: 0,
+      });
+      return refused;
     },
     subscribe: async (stream, after) =>
       stream === SOFTWARE_STREAM

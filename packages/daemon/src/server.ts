@@ -6,6 +6,14 @@
 // the subscriptions and the handshake. When the last TUI that follows an office stops following it
 // (it closes, switches office or loses its connection), the server tells `tuiLeft`, which stores
 // the time for `office.digest` (DIPO-308).
+//
+// One connection serves its frames side by side (DIPO-320): each read runs as soon as it arrives,
+// keyed by its request id, so one slow read never holds a fast one or a command back. Commands
+// start in the order they arrive. Only the subscribes and unsubscribes of one stream wait for each
+// other, in order. Frames that arrive while `engine.hello` runs wait for it. Each read and
+// subscribe has a deadline: past it the client gets `request.timedOut`, and the late answer is
+// dropped, so a request gets one reply and a late subscribe opens no subscription. At most
+// `MAX_IN_FLIGHT` reads and subscribes of one connection run at once; the next waits its turn.
 
 import {
   argsInvalid,
@@ -14,14 +22,17 @@ import {
   type CommandReply,
   type Cursor,
   ClientFrame as ClientFrameSchema,
+  type EngineError,
   engineError,
   type Event,
   OfficeId,
   type ReadReply,
+  REQUEST_TIMED_OUT,
   RequestId,
   type ServerFrame,
   SOFTWARE_STREAM,
   type StreamName,
+  type TimerHandle,
   TUI_CLIENT_NAME,
 } from "@dipsaus-orchestrator/contract";
 import type { EngineSurface, Logger, Presence } from "@dipsaus-orchestrator/engine";
@@ -34,6 +45,17 @@ import {
 
 /** An idle subscription gets a `stream.mark` this often (0005 section 8). */
 export const HEARTBEAT_MS = 15_000;
+/**
+ * A read or subscribe that has not answered after this long answers `request.timedOut`
+ * (DIPO-320). It is longer than one external call's deadline and its kill grace (60 s and 2 s,
+ * DIPO-314), so a read that waits on one hung call gets that call's own error first.
+ */
+export const READ_DEADLINE_MS = 90_000;
+/**
+ * At most this many reads and subscribes of one connection run at once (DIPO-320); one more waits
+ * until one of them ends, so a client cannot start unbounded work.
+ */
+export const MAX_IN_FLIGHT = 32;
 /**
  * Office catch-up stops reading the change log while more than this many bytes wait to be
  * written to the client, and continues on the socket's drain; a slow client then costs at most
@@ -66,6 +88,10 @@ export interface ContractServerDeps {
   readonly heartbeatMs?: number;
   /** Office catch-up pauses while more than this many bytes wait to be written. */
   readonly pumpHighWaterBytes?: number;
+  /** The deadline of each read and subscribe; `READ_DEADLINE_MS` by default. */
+  readonly readDeadlineMs?: number;
+  /** Reads and subscribes one connection runs at once; `MAX_IN_FLIGHT` by default. */
+  readonly maxInFlight?: number;
 }
 
 interface Subscription {
@@ -79,7 +105,11 @@ interface Subscription {
   catchingUp: boolean;
 }
 
-type HandshakeState = "new" | "ready";
+/** `greeting` while the `engine.hello` read runs; frames that arrive then wait for it. */
+type HandshakeState = "new" | "greeting" | "ready";
+
+/** What a request under a deadline gave: its value, or null once the deadline answered it. */
+type Answered<T> = { readonly value: T } | null;
 
 function requestIdOf(raw: unknown): RequestId | null {
   if (typeof raw !== "object" || raw === null) return null;
@@ -123,6 +153,14 @@ export class ContractServer {
 
   get pumpHighWaterBytes(): number {
     return this.#deps.pumpHighWaterBytes ?? PUMP_HIGH_WATER_BYTES;
+  }
+
+  get readDeadlineMs(): number {
+    return this.#deps.readDeadlineMs ?? READ_DEADLINE_MS;
+  }
+
+  get maxInFlight(): number {
+    return this.#deps.maxInFlight ?? MAX_IN_FLIGHT;
   }
 
   /** Open connections. */
@@ -252,8 +290,16 @@ class Connection implements ConnectionSession {
   /** The client name its `engine.hello` gave, carried into each command's context (DIPO-155). */
   #client: string | undefined;
   readonly #subscriptions = new Map<StreamName, Subscription>();
-  /** Frames are taken in order; only the handshake and reads are awaited, commands run alongside. */
-  #queue: Promise<void> = Promise.resolve();
+  /** Frames that arrived while `engine.hello` ran, taken in order once it answered. */
+  #held: string[] = [];
+  /** The deadline timer of each read and subscribe that has not answered, by request id. */
+  readonly #inFlight = new Map<RequestId, TimerHandle>();
+  /** Reads and subscribes whose engine work has not ended, timed out or not: the cap counts these. */
+  #running = 0;
+  /** Reads and subscribes waiting for room under the cap, in arrival order. */
+  #waiting: { readonly requestId: RequestId; readonly start: () => void }[] = [];
+  /** Per stream, the last subscribe or unsubscribe; the next one on that stream waits for it. */
+  readonly #streamQueues = new Map<StreamName, Promise<void>>();
 
   constructor(server: ContractServer, socket: SocketConnection, onClosed: () => void) {
     this.#server = server;
@@ -276,10 +322,12 @@ class Connection implements ConnectionSession {
   }
 
   message(text: string): void {
-    this.#queue = this.#queue.then(
-      () => this.#handle(text),
-      () => this.#handle(text),
-    );
+    if (this.#closed) return;
+    if (this.#state === "greeting") {
+      this.#held.push(text);
+      return;
+    }
+    this.#handle(text);
   }
 
   closed(): void {
@@ -288,6 +336,10 @@ class Connection implements ConnectionSession {
     this.#closed = true;
     for (const subscription of this.#subscriptions.values()) this.#stopHeartbeat(subscription);
     this.#subscriptions.clear();
+    for (const timer of this.#inFlight.values()) this.#deps.clock.clearTimeout(timer);
+    this.#inFlight.clear();
+    this.#waiting = [];
+    this.#held = [];
     this.#onClosed();
     if (followed.length > 0) this.#server.tuiLeftOffices(followed);
   }
@@ -328,7 +380,7 @@ class Connection implements ConnectionSession {
 
   // Frames
 
-  async #handle(text: string): Promise<void> {
+  #handle(text: string): void {
     if (this.#closed) return;
     let raw: unknown;
     try {
@@ -360,23 +412,38 @@ class Connection implements ConnectionSession {
       ...("requestId" in frame ? { requestId: frame.requestId } : {}),
     });
     if (this.#state === "new") {
-      await this.#handshake(frame);
+      this.#handshake(frame);
       return;
     }
-    await this.#ready(frame);
+    this.#ready(frame);
   }
 
-  /** The first frame must be the `engine.hello` read (0006 decision 9). */
-  async #handshake(frame: ClientFrame): Promise<void> {
+  /**
+   * The first frame must be the `engine.hello` read (0006 decision 9). While it runs, later frames
+   * wait; once it answered they are taken in order, as the first frames of a ready connection or,
+   * when the hello failed, of a new one.
+   */
+  #handshake(frame: ClientFrame): void {
     if (frame.kind === "read" && frame.name === "engine.hello") {
-      const reply = await this.#read(frame);
-      if (reply.ok) {
-        this.#state = "ready";
-        this.#tui = isTuiHello(frame.args);
-        this.#client = helloClient(frame.args);
-        if (this.#tui) this.#server.presenceMayHaveChanged();
-      }
-      this.#reply(reply);
+      this.#state = "greeting";
+      void this.#withDeadline(frame.requestId, "read", frame.name, (answeredWithout) =>
+        this.#read(frame, answeredWithout),
+      ).then((answered) => {
+        if (this.#closed) return;
+        const reply = answered?.value;
+        if (reply?.ok === true) {
+          this.#state = "ready";
+          this.#tui = isTuiHello(frame.args);
+          this.#client = helloClient(frame.args);
+          if (this.#tui) this.#server.presenceMayHaveChanged();
+        } else {
+          this.#state = "new";
+        }
+        if (reply !== undefined) this.#reply(reply);
+        const held = this.#held;
+        this.#held = [];
+        for (const text of held) this.message(text);
+      });
       return;
     }
     if (frame.kind === "unsubscribe") {
@@ -394,28 +461,154 @@ class Connection implements ConnectionSession {
     });
   }
 
-  async #ready(frame: ClientFrame): Promise<void> {
+  /** Starts one frame of a ready connection; nothing here waits for an earlier frame. */
+  #ready(frame: ClientFrame): void {
     switch (frame.kind) {
-      case "read":
-        this.#reply(await this.#read(frame));
+      case "read": {
+        void this.#withDeadline(frame.requestId, "read", frame.name, (answeredWithout) =>
+          this.#read(frame, answeredWithout),
+        ).then((answered) => {
+          if (answered !== null) this.#reply(answered.value);
+        });
         return;
+      }
       case "command":
         this.#command(frame);
         return;
       case "subscribe":
-        await this.#subscribe(frame);
+        this.#inStreamOrder(frame.stream, () => this.#subscribe(frame));
         return;
-      case "unsubscribe": {
-        const subscription = this.#subscriptions.get(frame.stream);
-        if (subscription !== undefined) this.#dropSubscription(subscription);
+      case "unsubscribe":
+        this.#inStreamOrder(frame.stream, async () => {
+          const subscription = this.#subscriptions.get(frame.stream);
+          if (subscription !== undefined) this.#dropSubscription(subscription);
+        });
         return;
-      }
     }
   }
 
-  async #read(frame: Extract<ClientFrame, { kind: "read" }>): Promise<ReadReply> {
+  /**
+   * Asks the engine for one read. `answeredWithout` settles when the client got `request.timedOut`
+   * instead, so the engine's request line names what the client got (DIPO-320).
+   */
+  async #read(
+    frame: Extract<ClientFrame, { kind: "read" }>,
+    answeredWithout: Promise<EngineError>,
+  ): Promise<ReadReply> {
     const { requestId, name, args } = frame;
-    return this.#deps.engine.executeRead({ requestId, name, args });
+    return this.#deps.engine.executeRead({ requestId, name, args }, { answeredWithout });
+  }
+
+  /**
+   * Runs `run` under the read deadline and the cap on work in flight (DIPO-320), keyed by
+   * `requestId`. Past the deadline the client gets `request.timedOut`, `answeredWithout` settles
+   * with that error and this resolves null; the late answer is dropped. A `run` that throws
+   * answers `internal`, and an id whose earlier read or subscribe is still running or waiting on
+   * this connection `request.reused`; both resolve null too. The caller sends the reply of a
+   * value, so each id gets exactly one reply. Past `maxInFlight` runs at once, a request waits its
+   * turn in arrival order, and its deadline starts when it runs.
+   */
+  #withDeadline<T>(
+    requestId: RequestId,
+    kind: "read" | "subscribe",
+    name: string,
+    run: (answeredWithout: Promise<EngineError>) => Promise<T>,
+  ): Promise<Answered<T>> {
+    if (this.#inFlight.has(requestId) || this.#waiting.some((w) => w.requestId === requestId)) {
+      this.#reply({
+        ok: false,
+        requestId,
+        error: engineError(
+          "request.reused",
+          `A ${kind} with this request id is still running on this connection; send a new request id.`,
+        ),
+      });
+      return Promise.resolve(null);
+    }
+    const { promise, resolve } = Promise.withResolvers<Answered<T>>();
+    const start = () => this.#runWithDeadline(requestId, name, run, resolve);
+    if (this.#running < this.#server.maxInFlight) start();
+    else this.#waiting.push({ requestId, start });
+    return promise;
+  }
+
+  #runWithDeadline<T>(
+    requestId: RequestId,
+    name: string,
+    run: (answeredWithout: Promise<EngineError>) => Promise<T>,
+    resolve: (answered: Answered<T>) => void,
+  ): void {
+    const deadlineMs = this.#server.readDeadlineMs;
+    const timedOut = Promise.withResolvers<EngineError>();
+    const finish = (): boolean => {
+      const timer = this.#inFlight.get(requestId);
+      if (timer === undefined) return false;
+      this.#deps.clock.clearTimeout(timer);
+      this.#inFlight.delete(requestId);
+      return true;
+    };
+    const timer = this.#deps.clock.setTimeout(() => {
+      if (!finish()) return;
+      const error = engineError(
+        REQUEST_TIMED_OUT,
+        `${name} did not answer within its deadline of ${Math.round(deadlineMs / 1000)} s.`,
+        { name, deadlineMs },
+      );
+      this.#deps.logger.warn("a read passed its deadline", { name, requestId, deadlineMs });
+      timedOut.resolve(error);
+      this.#reply({ ok: false, requestId, error });
+      resolve(null);
+    }, deadlineMs);
+    this.#inFlight.set(requestId, timer);
+    // The slot is held until the engine's work ends, also past the deadline: the cap bounds work.
+    this.#running += 1;
+    const settled = () => {
+      this.#running -= 1;
+      this.#startWaiting();
+    };
+    (async () => run(timedOut.promise))().then(
+      (value) => {
+        settled();
+        resolve(finish() ? { value } : null);
+      },
+      (error: unknown) => {
+        settled();
+        if (!finish()) return resolve(null);
+        this.#deps.logger.error("a read failed", { name, requestId, error });
+        this.#reply({
+          ok: false,
+          requestId,
+          error: engineError("internal", "The engine failed while handling this request."),
+        });
+        resolve(null);
+      },
+    );
+  }
+
+  /** Starts the waiting reads and subscribes while the cap leaves room, oldest first. */
+  #startWaiting(): void {
+    while (!this.#closed && this.#running < this.#server.maxInFlight) {
+      const next = this.#waiting.shift();
+      if (next === undefined) return;
+      next.start();
+    }
+  }
+
+  /** Runs `step` after the earlier subscribes and unsubscribes of `stream` on this connection. */
+  #inStreamOrder(stream: StreamName, step: () => Promise<void>): void {
+    const previous = this.#streamQueues.get(stream) ?? Promise.resolve();
+    const next = previous.then(async () => {
+      if (this.#closed) return;
+      try {
+        await step();
+      } catch (error) {
+        this.#deps.logger.error("a stream request failed", { stream, error });
+      }
+    });
+    this.#streamQueues.set(stream, next);
+    void next.then(() => {
+      if (this.#streamQueues.get(stream) === next) this.#streamQueues.delete(stream);
+    });
   }
 
   /** Runs one command alongside later frames; its reply may come after theirs (0005 section 3). */
@@ -438,7 +631,13 @@ class Connection implements ConnectionSession {
     // Subscribing again to the same stream does not leave it.
     if (previous !== undefined) this.#dropSubscription(previous, false);
 
-    const subscribed = await this.#deps.engine.subscribe(stream, frame.after);
+    // A subscribe past its deadline answered `request.timedOut` already: its late answer opens
+    // nothing.
+    const answered = await this.#withDeadline(requestId, "subscribe", `subscribe ${stream}`, () =>
+      this.#deps.engine.subscribe(stream, frame.after),
+    );
+    if (answered === null || this.#closed) return;
+    const subscribed = answered.value;
     if (!subscribed.ok) {
       this.#reply({ ok: false, requestId, error: subscribed.error });
       return;
