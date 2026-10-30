@@ -1,10 +1,10 @@
 ---
 id: DIPO-377
 title: Fix the flake in the backlog PR check test
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-10-29 09:29'
-updated_date: '2026-10-30 11:16'
+updated_date: '2026-10-30 11:20'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -43,10 +43,6 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(unit) scripts/check-backlog-pr.test.ts passes 30 runs in a row on macOS"
-park:
-  reason: "budget-exceeded"
-  from: "In Progress"
-  note: "Your report says done, but these automated test-plan entries are not done:\n- #1 (reported manual): (unit) scripts/check-backlog-pr.test.ts passes 30 runs in a row on macOS\nWrite the tests they ask for and run them. Then report done again with one testPlan entry for each entry of the test plan: its number, done, not-done or manual, and the evidence. If an entry cannot be done in this story, report blocked and say why."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -102,4 +98,6 @@ Parked 2026-10-30 11:16 UTC: budget-exceeded
 - Review rounds: 0, failed 0 of 3
 - Budget used: 223,286 of 300,000 tokens; 90 of 90 turns; 23 of 45 minutes
 - Last good commit: 142cfa48039b3f1b6d40e34109cd38fe32cd1d44
+
+Resumed 2026-10-30 11:20 UTC; grants: budget +150,000 tokens, +45 turns, +23 minutes; note: Test plan entry #1 is done, run by the orchestrating session on the Mac: macOS 26.6.2 arm64, Bun 1.4.2, the branch head 1198fcf1 (your fix be805ec4 in pr()), 30 sequential runs of 'DIPO_TMP=$(mktemp…
 <!-- SECTION:NOTES:END -->
