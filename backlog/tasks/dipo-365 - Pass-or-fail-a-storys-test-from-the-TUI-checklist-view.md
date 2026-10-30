@@ -1,10 +1,10 @@
 ---
 id: DIPO-365
 title: Pass or fail a story's test from the TUI checklist view
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-28 13:44'
-updated_date: '2026-10-30 07:48'
+updated_date: '2026-10-30 07:54'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -39,5 +39,5 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The TUI checklist view `4` (and `t` on a desk row) shows the steps with local ticks, `P` passes, `F` fails with the note pre-filled with the first unticked step, and Esc leaves the test open
+- [x] #1 The TUI checklist view `4` (and `t` on a desk row) shows the steps with local ticks, `P` passes, `F` fails with the note pre-filled with the first unticked step, and Esc leaves the test open
 <!-- AC:END -->
