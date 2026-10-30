@@ -77,8 +77,8 @@ function adapterHolds(): AdapterHolds {
     },
     store: officeHoldStore(w.t.clock, {
       get: (office) => offices.get(office),
-      config: () => OFFICE_DEFAULTS,
       loaded: () => [...offices.keys()],
+      connection: () => w.t.state.connection,
     }),
     sticky: {
       checks: new Set(["box-token"]),
@@ -374,6 +374,44 @@ describe("one record that survives a restart (0020, DIPO-359)", () => {
         "select adapter from starts_paused where office_id = $office_id and reason = 'adapter'",
       )?.adapter,
     ).toBe(ADAPTER);
+  });
+
+  it("keeps a hold set while no office is loaded, and pauses an office that loads later (DIPO-355)", () => {
+    offices.clear();
+    holds.hold(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
+    // Both registered offices hold the record, though neither was loaded.
+    for (const office of [w.office, other]) {
+      expect(
+        office.get<{ adapter: string }>(
+          "select adapter from starts_paused where office_id = $office_id and reason = 'adapter'",
+        )?.adapter,
+      ).toBe(ADAPTER);
+    }
+    // A restart: the office loads and finds the hold.
+    paused.close();
+    holds = adapterHolds();
+    paused = startsPaused();
+    offices.set(id(w.office), w.office);
+    paused.recover(id(w.office), w.office);
+    expect(holds.adapterHeld(ADAPTER)?.check).toBe("probe");
+    expect(paused.state(id(w.office))?.reason).toBe("adapter");
+  });
+
+  it("lifts a hold in an office that was not loaded, so it does not come back when it loads (DIPO-355)", () => {
+    holds.hold(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
+    // The other office is not loaded when the check passes again.
+    offices.delete(id(other));
+    expect(holds.lift(ADAPTER)).toBe(true);
+    expect(other.get("select 1 as x from starts_paused where office_id = $office_id")).toBeNull();
+    // A restart, and the other office loads: nothing holds it.
+    paused.close();
+    holds = adapterHolds();
+    paused = startsPaused();
+    offices.set(id(other), other);
+    paused.recover(id(other), other);
+    expect(holds.adapterHeld(ADAPTER)).toBeNull();
+    expect(paused.state(id(other))).toBeNull();
+    expect(paused.state(id(w.office))).toBeNull();
   });
 
   it("names what lifts a pause truly: never the command for the box token, never a check for the command", () => {

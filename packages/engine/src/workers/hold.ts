@@ -1,7 +1,7 @@
 // The adapter hold (0008, 0020; owned by DIPO-43, M0 review DIPO-15): the rules of a failed
 // adapter check, which pauses the starts of every office on that adapter. Its one record is the
-// offices' starts paused with reason `adapter` (the daemon's store, `run/starts-paused.ts`), so it
-// survives a restart. A failed launch check (probe, box, self-test) or a `startFailed` outcome from
+// offices' starts paused with reason `adapter` in every registered office, loaded or not (the
+// daemon's store, `run/starts-paused.ts`), so it survives a restart and is kept per adapter. A failed launch check (probe, box, self-test) or a `startFailed` outcome from
 // the CLI holds the adapter and raises an `engine.notice`. It is not a park: the story stays where
 // it was. An explicit `work.run` repeats the launch checks through `gateLaunch`, which lifts the
 // hold when they pass, and `dipo daemon resume-scheduling` lifts it by hand. Adapter-neutral:
@@ -118,8 +118,8 @@ export interface AdapterHoldRecord {
 
 /**
  * Where the holds live, read again on every look. The daemon's is the offices' starts paused
- * (`starts_paused` rows with reason `adapter`, `run/starts-paused.ts`), so a hold is one record
- * that survives a restart (0020); `memoryHoldStore` keeps them in memory for a test or a tool.
+ * (`starts_paused` rows with reason `adapter` in every registered office, `run/starts-paused.ts`),
+ * so a hold is one record per adapter that survives a restart (0020); `memoryHoldStore` keeps them in memory for a test or a tool.
  */
 export interface AdapterHoldStore {
   read(adapter: string): AdapterHoldRecord | null;

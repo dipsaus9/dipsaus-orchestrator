@@ -183,10 +183,11 @@ function holdsOf(core: Core, partners: EnginePartners): AdapterHolds {
         partners.runs.get().startsPaused.adapterReleased();
       }
     },
+    // Kept for every registered office, loaded or not: one adapter runs them all (0001).
     store: officeHoldStore(clock, {
       get: (office) => offices.get(office),
-      config: (office) => offices.config(office),
       loaded: () => offices.loadedOffices(),
+      connection: () => core.database.get()?.connection ?? null,
     }),
     sticky: boxTokenStickyHolds(boxTokenHoldPath(core.deps.paths.stateDir), CLAUDE_CLI_ADAPTER_ID),
     warn: (message, fields) => core.logger.warn(message, fields),
