@@ -81,7 +81,7 @@ describe("refused config.yaml under a supervisor", () => {
     withDaemonTempDir(async (dir) => {
       const state = join(dir, "state");
       mkdirSync(state, { recursive: true });
-      writeFileSync(join(state, "config.yaml"), "version: 3\n");
+      writeFileSync(join(state, "config.yaml"), "version: 4\n");
       const calls: (readonly string[])[] = [];
       const code = await runForeground(
         [],
@@ -96,7 +96,7 @@ describe("refused config.yaml under a supervisor", () => {
     withDaemonTempDir(async (dir) => {
       const state = join(dir, "state");
       mkdirSync(state, { recursive: true });
-      writeFileSync(join(state, "config.yaml"), "version: 3\n");
+      writeFileSync(join(state, "config.yaml"), "version: 4\n");
       const calls: (readonly string[])[] = [];
       const code = await runForeground(
         [],
@@ -111,7 +111,7 @@ describe("refused config.yaml under a supervisor", () => {
     withDaemonTempDir(async (dir) => {
       const state = join(dir, "state");
       mkdirSync(state, { recursive: true });
-      writeFileSync(join(state, "config.yaml"), "version: 3\n");
+      writeFileSync(join(state, "config.yaml"), "version: 4\n");
       const calls: (readonly string[])[] = [];
       const code = await runForeground([], io(isolatedDaemonEnv(dir), []), {
         supervisorSpawn: recordingSpawn(calls),

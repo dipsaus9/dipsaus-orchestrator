@@ -71,6 +71,7 @@ export { systemHostStarter } from "./run/hosts";
 export { startForwarder, systemReach } from "./box/forwarder";
 export { systemListenHttp, systemSpawnInteractive } from "./platform/box-host";
 export { systemSpawnKeepAwake, type SpawnKeepAwake } from "./platform/keepawake";
+export { systemPostNotification, type PostNotification } from "./platform/notify";
 
 // The daemon's other forms: the worker host (0006 decision 8), `dipo restore` (DIPO-76),
 // `dipo login box` (DIPO-269), the test shell (DIPO-309) and `dipo config migrate` (0017).

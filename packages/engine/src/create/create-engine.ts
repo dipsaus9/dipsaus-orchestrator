@@ -7,7 +7,9 @@
 // serves its surface on the socket.
 
 import { stopEngineCalls } from "../platform/deadline";
+import { createUlid } from "../platform/ids";
 import { recordTuiLeft } from "../views/digest";
+import { DeskNotifier, watchDesk } from "../views/desk-notify";
 import { MemoryRequestTable } from "../commands/requests";
 import { buildCommandServices } from "./commands";
 import { buildCore, type Core } from "./core";
@@ -18,7 +20,7 @@ import { connectEngine, enginePartners } from "./partners";
 import { runRecovery, type RecoveryContext, type RecoverySteps } from "./recovery";
 import { featureList, recoveryList, type Services } from "./steps";
 import { buildStoryServices } from "./stories";
-import { engineSurface } from "./surface";
+import { engineSurface, type EngineSurface } from "./surface";
 
 /** Starts what runs only once the engine has recovered: in `running` or `safe`. */
 function startRunningJobs(core: Core, services: Services): void {
@@ -76,6 +78,22 @@ function recoveryContext(core: Core): RecoveryContext {
   };
 }
 
+/**
+ * The desk notices (DIPO-357): one notification per item an office's desk gains, when the daemon
+ * has a way to post one and `config.yaml` keeps `notify.desk` on. Returns the call that stops them.
+ */
+function deskNoticesOf(core: Core, surface: EngineSurface): () => void {
+  const { postNotification, settings } = core.deps;
+  if (postNotification === undefined || !settings.notify.desk) return () => undefined;
+  const logger = core.logger.child({ component: "desk" });
+  return watchDesk({
+    surface,
+    notifier: new DeskNotifier({ post: postNotification, logger }),
+    logger,
+    nextId: createUlid(core.deps.clock),
+  });
+}
+
 function engineOf(core: Core, services: Services, steps: RecoverySteps): Engine {
   const { lifecycle } = core;
   const surface = engineSurface({
@@ -93,6 +111,7 @@ function engineOf(core: Core, services: Services, steps: RecoverySteps): Engine 
     logger: core.logger.child({ component: "server" }),
     ...(core.deps.renderer === undefined ? {} : { renderer: core.deps.renderer }),
   });
+  const stopDeskNotices = deskNoticesOf(core, surface);
   return {
     ...surface,
     state: () => lifecycle.state,
@@ -121,7 +140,10 @@ function engineOf(core: Core, services: Services, steps: RecoverySteps): Engine 
       const handle = core.offices.get(office);
       if (handle !== undefined) recordTuiLeft(handle, at);
     },
-    stop: () => stopServices(core, services),
+    stop: async () => {
+      stopDeskNotices();
+      await stopServices(core, services);
+    },
     // Checkpoint (TRUNCATE) and close, so no dipo.db-wal or dipo.db-shm stays (DIPO-87).
     closeDatabase: () => core.database.get()?.shutdown(),
   };
