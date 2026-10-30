@@ -4,6 +4,7 @@ title: Hold the daemon lock with a lock the operating system releases
 status: Refined
 assignee: []
 created_date: '2026-10-30 11:14'
+updated_date: '2026-10-30 11:18'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -48,4 +49,6 @@ test_plan:
 - [ ] #4 Bypass forms are tested: a deleted or replaced dipo.pid while a daemon runs does not let a second daemon start; a lock file on a path that is a symlink is refused; two starters at the same moment, repeated, leave exactly one running
 - [ ] #5 Fail-closed against the real path: when the lock file cannot be created or locked (permissions, read-only folder), the daemon does not start
 - [ ] #6 0005's lock section is rewritten to the new lock with one Replaced line, approved by the maintainer
+- [ ] #7 The two-starters tests run each starter as its own process (fcntl locks are per process), and nothing else in the daemon opens the lock file, shown by a test or a lint check
+- [ ] #8 The "unresponsive" outcome is kept: a lock held by a live daemon whose socket does not answer the handshake is reported as unresponsive with the stop --force hint, never taken over
 <!-- AC:END -->
