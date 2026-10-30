@@ -1,10 +1,10 @@
 ---
 id: DIPO-375
 title: Treat build caches as rebuildable in the leftover worktree sweep
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-29 09:29'
-updated_date: '2026-10-30 07:58'
+updated_date: '2026-10-30 08:52'
 labels:
   - 'tier:S'
   - 'slice:prune'
