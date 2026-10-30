@@ -1,10 +1,10 @@
 ---
 id: DIPO-397
 title: Emit a closing event when a run ends
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-30 16:01'
-updated_date: '2026-10-30 16:03'
+updated_date: '2026-10-30 18:23'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -14,6 +14,8 @@ dependencies:
   - DIPO-320
 references:
   - packages/engine/src/run/
+  - packages/engine/src/scan/
+  - packages/engine/src/worktree/
   - packages/engine/src/changelog/
   - packages/cli/src/watch-command.ts
 priority: medium
@@ -40,7 +42,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every path that ends a run writes a change-log entry that reaches the office stream: the paths through endRunMarked (park, review done, reconcile, control reconcile) and the two bare endRun paths, run/session-run.ts #end (scan session runs) and scan/fallback.ts endLostScanSessions (dropped at office load), plus the failed host start and claim-release drop in run/outcomes.ts; a test per path
-- [ ] #2 dipo watch drops its idle check (#armIdle, the idle #recheck) and still prints every run end, with a test that a run ending at recovery and a scan session end are printed
-- [ ] #3 No event is emitted twice for one end
+- [ ] #1 The two run-end paths with no event, run/session-run.ts #end (scan session runs, bare endRun) and scan/fallback.ts endLostScanSessions (dropped at office load, bare endRun), write a change-log entry that reaches the office stream, like endRunMarked does; a test for each
+- [ ] #2 Every endRunMarked path (park, review done, reconcile, control reconcile, and the claim release and record paths in worktree/claim.ts and worktree/records.ts) is shown by a test to reach the office stream as an event dipo watch can read as a run end, and the PR says what if anything was still missing there
+- [ ] #3 dipo watch drops its idle check (#armIdle and the idle #recheck) and still prints every run end, with a test that a run ending at recovery and a scan session end are printed
+- [ ] #4 No event is emitted twice for one end
 <!-- AC:END -->
