@@ -610,7 +610,7 @@ export const officeStats = defineRead({
 // `PROFILE`, a pending proposal or stale confirmation of the run profile, with no story; DIPO-359
 // `STARTS PAUSED`, the office's starts paused with its reason and what lifts it, with no story;
 // DIPO-349 `LEFTOVER WORKTREE`, a story worktree of an earlier binary that holds changes, with no
-// story).
+// story; DIPO-380 `LOADING`, an office whose load is still running, with no story).
 export const KNOWN_DESK_KINDS = [
   "STARTS PAUSED",
   "QUESTION",
@@ -626,7 +626,10 @@ export const KNOWN_DESK_KINDS = [
   "PARKED BY YOU",
   "PROFILE",
   "LEFTOVER WORKTREE",
+  "LOADING",
 ] as const;
+/** The kind of the one item `office.desk` shows while its office is loading (DIPO-380). */
+export const DESK_LOADING_KIND = "LOADING";
 export const DeskKind = openEnum(KNOWN_DESK_KINDS);
 export type DeskKind = z.infer<typeof DeskKind>;
 

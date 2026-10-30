@@ -162,6 +162,11 @@ export type ReadHandler<A, R> = (ctx: ReadContext, args: A) => R;
 export interface ReadRegistration<D extends ReadDefinition> {
   readonly definition: D;
   readonly handle: ReadHandler<z.output<D["args"]>, z.input<D["result"]>>;
+  /**
+   * The answer of an office read while its office is loading (DIPO-380): the executor gives it
+   * instead of waiting for the load. Absent, the read waits for the load like any other.
+   */
+  readonly whileLoading?: (office: OfficeId, nowMs: number) => z.input<D["result"]>;
 }
 
 /**
@@ -235,12 +240,14 @@ export type RegisteredRead =
       readonly definition: ReadDefinition;
       readonly waits: false;
       readonly handle: ReadHandler<unknown, unknown>;
+      readonly whileLoading?: (office: OfficeId, nowMs: number) => unknown;
     }
   | {
       readonly module: string;
       readonly definition: ReadDefinition;
       readonly waits: true;
       readonly handle: AsyncReadHandler<unknown, unknown>;
+      readonly whileLoading?: (office: OfficeId, nowMs: number) => unknown;
     };
 
 /** A command or read name registered by two modules; startup fails naming both. */
@@ -367,12 +374,15 @@ export class Registry {
           definition,
           handle: handle as SoftwareCommandHandler<unknown, unknown>,
         }),
-      addRead: ({ definition, handle }) =>
+      addRead: ({ definition, handle, whileLoading }) =>
         addRead({
           module,
           definition,
           waits: false,
           handle: handle as ReadHandler<unknown, unknown>,
+          ...(whileLoading === undefined
+            ? {}
+            : { whileLoading: whileLoading as (office: OfficeId, nowMs: number) => unknown }),
         }),
       addAsyncRead: ({ definition, handle }) =>
         addRead({

@@ -195,6 +195,11 @@ export class OfficeManager implements OfficeDirectory {
     return this.#instances.get(office)?.office;
   }
 
+  /** Whether the office's load is running now (DIPO-380): its reads answer `whileLoading`. */
+  loading(office: OfficeId): boolean {
+    return !this.#instances.has(office) && this.#loading.has(office);
+  }
+
   /**
    * Every registered office that is not forgotten, oldest first; empty before the database opened.
    * The daemon loads each of them in `recovering` (DIPO-56).
@@ -265,9 +270,18 @@ export class OfficeManager implements OfficeDirectory {
     if (loaded !== undefined) return Promise.resolve({ ok: true, office: loaded.office });
     const pending = this.#loading.get(office);
     if (pending !== undefined) return pending;
+    // Only an office that can load counts as loading: an unknown or forgotten one is refused at once.
+    if (!this.#canLoad(office)) return this.#load(office);
     const loading = this.#load(office).finally(() => this.#loading.delete(office));
     this.#loading.set(office, loading);
     return loading;
+  }
+
+  #canLoad(office: OfficeId): boolean {
+    const db = this.#deps.database();
+    if (db === null) return false;
+    const row = this.#row(db, office);
+    return row !== null && row.forgotten_at === null;
   }
 
   async #load(officeId: OfficeId): Promise<OfficeAccess> {
