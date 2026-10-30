@@ -1,9 +1,10 @@
 ---
 id: DIPO-376
 title: Name Safe-Chain when it refuses a package in a box
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-29 09:29'
+updated_date: '2026-10-30 07:58'
 labels:
   - 'tier:S'
   - 'slice:prune'
