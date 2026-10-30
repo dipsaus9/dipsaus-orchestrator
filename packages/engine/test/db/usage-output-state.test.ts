@@ -53,7 +53,11 @@ describe("migration 35 on a database at version 34", () => {
         old.close();
       }
 
-      const state = await open(dir);
+      // Up to migration 35: a later migration drops the column (DIPO-368).
+      const state = await open(
+        dir,
+        MIGRATIONS.filter((step) => step.version <= 35),
+      );
       try {
         expect(MIGRATIONS.find((step) => step.version === 35)?.name).toBe(
           "usage message output state",

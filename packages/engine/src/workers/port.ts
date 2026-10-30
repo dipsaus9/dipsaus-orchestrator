@@ -14,7 +14,6 @@ import type {
   ParseState,
   SchemaKind,
   SteerOp,
-  TranscriptRead,
   WorkerAdapter,
   WorkerReport,
   WorkerResult,
@@ -106,12 +105,6 @@ export interface WorkerPort {
   result(state: ParseState, exit: ExitRecord): WorkerResult;
   /** Pure: what a session's parser state says for a resume or a handoff (DIPO-51). */
   sessionFacts(state: ParseState): SessionFacts;
-  /**
-   * Pure: the usage messages of a worker transcript's lines (0008 section 4, DIPO-134), for a host
-   * that died without `exit.json`. Refused when the adapter version's transcript format is not
-   * covered. An adapter without a transcript leaves it out.
-   */
-  readTranscript?(lines: readonly string[], version: string | null): TranscriptRead;
 }
 
 /** What a session's parser state says for its next session (DIPO-51). */

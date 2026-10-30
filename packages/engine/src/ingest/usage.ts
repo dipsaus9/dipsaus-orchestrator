@@ -125,91 +125,6 @@ export function recordUsageMessage(
   return true;
 }
 
-/**
- * One assistant message of a worker transcript (0008 section 4, DIPO-134, DIPO-202), counted once
- * per message id. A message the stream did not carry is counted whole, output included: a host
- * that died sent no turn end to take output from. A message the stream counted keeps its numbers,
- * except its output while `output_state` says the totals lack it (0: counted after the agent's
- * last turn end, or before any): the transcript's output, at least the stored one, joins the
- * totals once and the state becomes 2. A message in state 2 adds only a higher output a later read
- * holds; one in state 1 is in the turn totals and changes nothing. Returns whether anything
- * changed; a second read of the same message changes nothing. A message another agent of the run
- * counted is never counted again: a resumed session (`--resume`) is a new agent whose transcript
- * is the file of the session it resumed, with that session's messages in it.
- */
-export function recordTranscriptUsage(
-  office: OfficeHandle,
-  scope: UsageScope,
-  message: Parameters<typeof recordUsageMessage>[2],
-  at: number,
-): boolean {
-  const earlier = office.get(
-    `select 1 as found from usage_messages
-     where office_id = $office_id and message_id = $message and agent_id <> $agent
-       and agent_id in (select agent_id from agents where office_id = $office_id and run_id = $run)`,
-    { agent: scope.agent, message: message.messageId, run: scope.run },
-  );
-  if (earlier !== null) return false;
-  const counted = office.get<{ model: string; output: number; output_state: number }>(
-    `select model, output, output_state from usage_messages
-     where office_id = $office_id and agent_id = $agent and message_id = $message`,
-    { agent: scope.agent, message: message.messageId },
-  );
-  let added: number;
-  let model: string;
-  if (counted === null) {
-    recordUsageMessage(office, scope, message, at);
-    model = message.model;
-    added = message.output;
-  } else {
-    model = counted.model;
-    if (counted.output_state === 1) return false;
-    added =
-      counted.output_state === 0
-        ? Math.max(counted.output, message.output)
-        : Math.max(0, message.output - counted.output);
-  }
-  if (counted?.output_state === 2 && added === 0) return false;
-  office.run(
-    `update usage_messages set output = $output, output_state = 2
-     where office_id = $office_id and agent_id = $agent and message_id = $message`,
-    {
-      output: counted === null ? message.output : Math.max(counted.output, message.output),
-      agent: scope.agent,
-      message: message.messageId,
-    },
-  );
-  if (added > 0) addOutput(office, scope, model, added, at);
-  setBudget(office, scope);
-  return counted === null || added > 0;
-}
-
-/**
- * Adds output to the totals row of `model`. A turn end may key the row with a context marker
- * (`claude-opus-5-5[1m]`) the message does not carry, so a canonical match stands in.
- */
-function addOutput(
-  office: OfficeHandle,
-  scope: UsageScope,
-  model: string,
-  output: number,
-  at: number,
-): void {
-  const rows = office.all<{ model: string }>(
-    `select model from usage_totals where office_id = $office_id and run_id = $run and agent_id = $agent`,
-    { run: scope.run, agent: scope.agent },
-  );
-  const key =
-    rows.find((row) => row.model === model)?.model ??
-    rows.find((row) => canonicalModel(row.model) === canonicalModel(model))?.model ??
-    model;
-  office.run(
-    `update usage_totals set output = output + $output, updated_at = $at
-     where office_id = $office_id and run_id = $run and agent_id = $agent and model = $model`,
-    { output, at, run: scope.run, agent: scope.agent, model: key },
-  );
-}
-
 function setBudget(office: OfficeHandle, scope: UsageScope): void {
   office.run(
     `update usage_totals set ${BUDGET_UPDATE}
@@ -335,12 +250,6 @@ export function applyTurnTotals(
       },
     );
   }
-  // The turn totals hold the output of every message stored so far.
-  office.run(
-    `update usage_messages set output_state = 1
-     where office_id = $office_id and agent_id = $agent and output_state <> 1`,
-    { agent: scope.agent },
-  );
   setBudget(office, scope);
 }
 

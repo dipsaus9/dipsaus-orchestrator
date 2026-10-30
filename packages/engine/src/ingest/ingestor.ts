@@ -39,7 +39,6 @@ import type { ExitRecord, HostLine, ParseState, WorkerEvent } from "../workers/t
 import { readCompleteLines, readRange, statEventFile, type FileIdentity } from "./event-file";
 import { byteLength, DEFAULT_OUTPUT_PRIVACY, type OutputPrivacy, outputText } from "./output";
 import { HOST_EVENTS_SOURCE, pendingWorkerOutput } from "./pending";
-import { recoverTranscriptUsage, type TranscriptReader } from "./transcript";
 import {
   applyTurnTotals,
   feedFinalChanges,
@@ -87,11 +86,6 @@ export interface IngestAdapter {
     line: HostLine,
     state: ParseState,
   ): { readonly events: readonly WorkerEvent[]; readonly state: ParseState };
-  /**
-   * The adapter's transcript parser (DIPO-134). With it, an agent's end also stores the
-   * per-subagent usage its subagents' transcripts hold.
-   */
-  readonly readTranscript?: TranscriptReader;
 }
 
 /** One run and agent to ingest; its `worker_hosts` row names the event file and offset. */
@@ -639,16 +633,6 @@ export class Ingestor {
       feedFinalChanges(this.#office, run, agent, finalBefore, now);
       if (exited) {
         endState = state;
-        if (target.adapter.readTranscript !== undefined) {
-          // The subagents' transcripts give the per-subagent detail the stream lacked (DIPO-134).
-          recoverTranscriptUsage({
-            office: this.#office,
-            scope: target,
-            read: target.adapter.readTranscript,
-            mode: "detail",
-            at: now,
-          });
-        }
         // The cursor ended with the update above, and the host row ends here too (DIPO-330), so
         // retention and keep-awake see an exited host without a daemon restart.
         endAgent(this.#office, {
