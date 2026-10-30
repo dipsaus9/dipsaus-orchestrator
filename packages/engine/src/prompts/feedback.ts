@@ -17,6 +17,7 @@
 import { createHash } from "node:crypto";
 import { isAbsolute, relative, sep } from "node:path";
 
+import type { SafeChainRunRecord } from "../box/safe-chain";
 import { formatCount } from "../context/truncate";
 import { budgetLine, withBudgetLine, type BudgetFacts } from "./budget";
 import { cutHead, cutTailLines } from "./cut";
@@ -27,6 +28,7 @@ import maintainerTestTemplate from "./feedback/maintainer-test.md" with { type: 
 import rejectTemplate from "./feedback/reject.md" with { type: "text" };
 import reviewCriterionTemplate from "./feedback/review-criterion.md" with { type: "text" };
 import reviewEvidenceTemplate from "./feedback/review-evidence.md" with { type: "text" };
+import safeChainRefusalTemplate from "./feedback/safe-chain-refusal.md" with { type: "text" };
 import reviewFindingTemplate from "./feedback/review-finding.md" with { type: "text" };
 import reviewReportTemplate from "./feedback/review-report.md" with { type: "text" };
 import testPlanTemplate from "./feedback/test-plan.md" with { type: "text" };
@@ -85,6 +87,33 @@ export function decisionNoteFeedback(
   });
 }
 
+/**
+ * The lines of a run's Safe-Chain record as the worker and the reviewer read them (DIPO-376): each
+ * refusal with its ecosystem and the line of its log, then each log that could not be read, so its
+ * refusals are unknown. The log's text is data, so its tags are neutralised.
+ */
+export function safeChainLines(record: SafeChainRunRecord): string[] {
+  return [
+    ...record.refusals.map((refusal) => `- ${refusal.ecosystem}: ${neutraliseTags(refusal.line)}`),
+    ...record.unreadable.map(
+      (ecosystem) => `- ${ecosystem}: its log could not be read, so its refusals are unknown`,
+    ),
+  ];
+}
+
+/**
+ * The worker's feedback for Safe-Chain's refusals of the run (DIPO-376): the reason from its log,
+ * since the install itself shows only the registry's 403. Empty when the run has none. The
+ * signature is over the lines.
+ */
+export function safeChainFeedback(record: SafeChainRunRecord): FeedbackItem[] {
+  const lines = safeChainLines(record);
+  if (lines.length === 0) return [];
+  const text = renderTemplate(safeChainRefusalTemplate, { refusals: lines.join("\n") });
+  const signature = createHash("sha256").update(lines.join("\n")).digest("hex");
+  return [{ kind: "safe-chain", signature, text }];
+}
+
 /** The reviewer's correction turn for a report missing or invalid against its schema. */
 export function reviewReportFeedback(why: string): string {
   return renderTemplate(reviewReportTemplate, { why });
@@ -122,7 +151,7 @@ export interface VerifyFailure {
 }
 
 export interface FeedbackItem {
-  readonly kind: "verify" | "ci";
+  readonly kind: "verify" | "ci" | "safe-chain";
   /** sha256 over the failing fact, the same for the same failure (idea 17). */
   readonly signature: string;
   /** The rendered evidence. */

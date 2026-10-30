@@ -32,6 +32,8 @@ export {
   reviewCriterionSignature,
   reviewFeedbackItems,
   reviewFindingSignature,
+  safeChainFeedback,
+  safeChainLines,
   verifyFeedback,
 } from "./feedback";
 export type {

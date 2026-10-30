@@ -44,6 +44,7 @@ export {
   endRun,
   openAtInReview,
   recordGateChanges,
+  recordSafeChain,
   reopenRun,
   runPhase,
   unparkRun,

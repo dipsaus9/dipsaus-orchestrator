@@ -91,7 +91,7 @@ import { gitParkWriter, gitUnparkWriter, type UnparkWriter, type ParkWriter } fr
 import type { MergeReentry } from "../run/park-resume";
 import type { Places } from "../run/places";
 import { RunReattacher } from "../run/reattach";
-import { findRun, type StoredRun } from "../run/records";
+import { findRun, recordSafeChain, type StoredRun } from "../run/records";
 import { baseStoryFacts } from "../run/resume";
 import type { Resumption } from "../run/resumption";
 import { sweepOldReviewFolders } from "../run/review-launch";
@@ -466,6 +466,15 @@ function engineBoxWorkers(
     // After the install in a new box, its /work is compared with the start commit on dipo's own
     // copy, as a part is (DIPO-294).
     treeCheck: (run) => delivery.changedSinceStart(run),
+    // Each run keeps the Safe-Chain refusals its sessions read, in its office's database (DIPO-376).
+    safeChain: {
+      of: (runId) => loadedRun(options, runId)?.run.safeChain ?? null,
+      store: (runId, record) => {
+        const found = loadedRun(options, runId);
+        const handle = found === null ? undefined : options.offices.get(found.office);
+        if (handle !== undefined) recordSafeChain(handle, runId as RunId, record);
+      },
+    },
     // Each box gets its office's package cache, filled or reused before it is made (DIPO-295).
     packageCache: boxPackageCache(options.stateDir),
     scratchRoot: (() => {

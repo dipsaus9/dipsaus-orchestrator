@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 
 import type { FieldBlock } from "@dipsaus-orchestrator/contract";
 
+import type { SafeChainRunRecord } from "../box/safe-chain";
 import type { OfficeConfig } from "../config";
 import { createDefaultProvider } from "../context/default-provider";
 import { gatherContext } from "../context/gather";
@@ -15,6 +16,7 @@ import { sizeClassOfWorkspace } from "../context/size";
 import type { ContextPack, Workspace } from "../context/types";
 import { assembleTaskMessage, taskBudgetsFor } from "../prompts/assemble";
 import type { Section } from "../prompts/contract";
+import { safeChainFeedback } from "../prompts/feedback";
 import type { HandoffFacts } from "../prompts/handoff";
 import { promptStoryOf } from "../prompts/story";
 import { renderSystemFile } from "../prompts/system";
@@ -39,6 +41,8 @@ export interface RunPromptsInput {
   readonly handoff?: HandoffFacts;
   /** The developer works in its own box (DIPO-271): the scope section is a forecast (DIPO-272). */
   readonly box?: boolean;
+  /** The run's Safe-Chain refusals, read by its earlier box sessions: the next turn names them (DIPO-376). */
+  readonly safeChain?: SafeChainRunRecord | null;
 }
 
 export interface RunPrompts {
@@ -94,6 +98,7 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
     contractMax: config.prompt.contractMax,
     ...(input.box === true ? { box: true } : {}),
     ...(input.handoff === undefined ? {} : { handoff: input.handoff }),
+    feedback: input.safeChain ? safeChainFeedback(input.safeChain) : [],
   });
   return {
     systemFile: renderSystemFile("implement-box", "developer"),

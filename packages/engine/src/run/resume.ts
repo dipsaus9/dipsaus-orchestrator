@@ -778,6 +778,7 @@ export class RunResumer implements NextSession {
       config,
       handoff,
       ...(box ? { box: true } : {}),
+      safeChain: run.safeChain,
     });
     return {
       text: prompts.taskMessage,

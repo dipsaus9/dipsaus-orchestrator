@@ -150,7 +150,7 @@ function startLines(ecosystem: SafeChainEcosystem): string[] {
   const command = SAFE_CHAIN_HOLDER_COMMANDS[ecosystem].join(" ");
   const forward = SAFE_CHAIN_BOX_PORTS[ecosystem];
   return [
-    `${HOLDER_REPORT_ENV}="$dir/out/${ecosystem}" PATH="${SAFE_CHAIN_IMAGE_DIR}/holder:/usr/bin:/bin" "$dir/bin/safe-chain" ${command} < /dev/null > "$dir/${ecosystem}.log" 2>&1 &`,
+    `${HOLDER_REPORT_ENV}="$dir/out/${ecosystem}" PATH="${SAFE_CHAIN_IMAGE_DIR}/holder:/usr/bin:/bin" "$dir/bin/safe-chain" ${command} < /dev/null >> "$dir/${ecosystem}.log" 2>&1 &`,
     "tries=0",
     `until [ -s "$dir/out/${ecosystem}" ]; do`,
     "  tries=$((tries + 1))",
@@ -278,4 +278,73 @@ export function safeChainImageTag(plan: SafeChainBuildPlan = safeChainBuildPlan(
     hash.update(`\n${name}\n${plan.files[name] ?? ""}`);
   }
   return `${BOX_IMAGE_REPOSITORY}:${hash.digest("hex")}`;
+}
+
+/** The log each Safe-Chain process writes in the box: its own output, the start script's `$dir`. */
+export function safeChainLogFile(ecosystem: SafeChainEcosystem): string {
+  return `${SAFE_CHAIN_RUN_DIR}/${ecosystem}.log`;
+}
+
+/** One package Safe-Chain refused, as its log names it (DIPO-376). */
+export interface SafeChainRefusal {
+  readonly ecosystem: SafeChainEcosystem;
+  /** The log line Safe-Chain wrote for the refusal, without colour codes, cut to `REFUSAL_LINE_MAX`. */
+  readonly line: string;
+}
+
+/** The longest refusal line kept, in characters. */
+export const REFUSAL_LINE_MAX = 300;
+
+/** The line Safe-Chain writes for a package it refuses: `blocked by safe-chain`. */
+const REFUSAL_LINE = /blocked by safe-chain/i;
+const COLOUR_CODE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*[A-Za-z]`, "g");
+
+/**
+ * Pure: the refusals in one Safe-Chain log (`safeChainLogFile`), in log order. A line counts when
+ * Safe-Chain names itself as the refuser; the rest of its output is not a refusal.
+ */
+export function safeChainRefusalsOf(
+  ecosystem: SafeChainEcosystem,
+  log: string,
+): SafeChainRefusal[] {
+  return log
+    .split("\n")
+    .map((line) => line.replaceAll(COLOUR_CODE, "").trim())
+    .filter((line) => REFUSAL_LINE.test(line))
+    .map((line) => ({ ecosystem, line: line.slice(0, REFUSAL_LINE_MAX) }));
+}
+
+/**
+ * What Safe-Chain's logs held for one run, stored on the run when its session ends (DIPO-376,
+ * migration 70). The logs are cumulative for the box's life, so `read` says where the next read
+ * starts; `unreadable` lists the logs the last read could not read, so the refusals may be missing.
+ */
+export interface SafeChainRunRecord {
+  readonly refusals: readonly SafeChainRefusal[];
+  /** The complete lines read of each log so far. */
+  readonly read: Readonly<Record<SafeChainEcosystem, number>>;
+  readonly unreadable: readonly SafeChainEcosystem[];
+}
+
+/** The record of a run no read has stored yet. */
+export const EMPTY_SAFE_CHAIN_RECORD: SafeChainRunRecord = {
+  refusals: [],
+  read: { npm: 0, pypi: 0 },
+  unreadable: [],
+};
+
+/**
+ * Pure: the refusals a log holds after its first `from` complete lines, and how many complete lines
+ * it holds now. The last piece of a log is not a complete line yet, so it is read by the next read.
+ */
+export function safeChainLogRead(
+  ecosystem: SafeChainEcosystem,
+  log: string,
+  from: number,
+): { readonly refusals: SafeChainRefusal[]; readonly lines: number } {
+  const complete = log.split("\n").slice(0, -1);
+  return {
+    refusals: safeChainRefusalsOf(ecosystem, complete.slice(from).join("\n")),
+    lines: complete.length,
+  };
 }

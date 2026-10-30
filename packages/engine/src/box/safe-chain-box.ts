@@ -39,8 +39,13 @@ import {
   isCertificateBundle,
   SAFE_CHAIN_BOX_PORTS,
   SAFE_CHAIN_BOX_RUN_PREFIX,
+  SAFE_CHAIN_ECOSYSTEMS,
   SAFE_CHAIN_START_SCRIPT,
   SAFE_CHAIN_TMP_DIR,
+  type SafeChainEcosystem,
+  type SafeChainRunRecord,
+  safeChainLogFile,
+  safeChainLogRead,
 } from "./safe-chain";
 import {
   admittedUrl,
@@ -496,4 +501,40 @@ function running(
       return stopping;
     },
   };
+}
+
+/**
+ * The record of `stored` after a read of Safe-Chain's logs in the box `name` (DIPO-376): the
+ * refusals each log holds after the lines already read, in ecosystem order. Safe-Chain's own 403
+ * reaches the install without its reason, so the log is where the reason is. A log that is absent
+ * holds no refusal yet; one that cannot be read is listed as unreadable and read again next time
+ * from the same line, so no refusal is lost or counted twice.
+ */
+export async function readSafeChain(
+  boxes: Pick<BoxPort, "exec">,
+  name: string,
+  stored: SafeChainRunRecord,
+): Promise<SafeChainRunRecord> {
+  const refusals = [...stored.refusals];
+  const read = { ...stored.read };
+  const unreadable: SafeChainEcosystem[] = [];
+  for (const ecosystem of SAFE_CHAIN_ECOSYSTEMS) {
+    // A missing log means Safe-Chain wrote nothing yet in this box, so it has refused nothing.
+    const log = safeChainLogFile(ecosystem);
+    const got = await boxes.exec(name, [
+      "sh",
+      "-c",
+      '[ -e "$1" ] || exit 0; exec cat -- "$1"',
+      "sh",
+      log,
+    ]);
+    if (got.code !== 0) {
+      unreadable.push(ecosystem);
+      continue;
+    }
+    const next = safeChainLogRead(ecosystem, got.stdout, read[ecosystem]);
+    refusals.push(...next.refusals);
+    read[ecosystem] = next.lines;
+  }
+  return { refusals, read, unreadable };
 }

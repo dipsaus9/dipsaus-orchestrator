@@ -20,6 +20,7 @@ import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 import { canonicalJson } from "../config/merge";
 import type { OfficeHandle } from "../db/office";
 import { finalizeRunAgents } from "../ingest/usage";
+import type { SafeChainRunRecord } from "../box/safe-chain";
 
 import { runTotals } from "./caps";
 import { nextRunState, type RunEnd, type RunEvent, type RunState } from "./lifecycle";
@@ -69,6 +70,8 @@ export interface StoredRun extends NewRun {
   readonly scope: readonly string[] | null;
   /** Gate commands the story branch changed against the base profile; null when none (DIPO-49). */
   readonly gateChanges: readonly string[] | null;
+  /** Safe-Chain's refusals of the run, stored when its box sessions ended (DIPO-376); null if none read. */
+  readonly safeChain: SafeChainRunRecord | null;
   /** When its last active period ended; set while it stays open at In Review (`lifecycle.ts`). */
   readonly endedAt: number | null;
   /** How the run ended: done, parked or dropped; null while it is open (0020). */
@@ -114,6 +117,7 @@ interface RunRow {
   started_at: number;
   scope: string | null;
   gate_changes: string | null;
+  safe_chain: string | null;
   ended_at: number | null;
   end_kind: string | null;
   parked_ms: number;
@@ -124,11 +128,11 @@ interface RunRow {
 const COLUMNS = `run_id, kind, key, story_id, tier, role, model, start_sha, branch, budget_unit, budget_limit, loop_cap, max_turns, max_minutes, review_round_cap, ci_cap,
   conflict_cap, review_max_turns, review_max_minutes, review_max_tokens, config_hash, override_keys,
   run_profile_id, started_at, scope, gate_changes, ended_at, end_kind, parked_ms, waiting,
-  waiting_since`;
+  waiting_since, safe_chain`;
 
 /** The columns a run row is inserted with: those a run starts with. */
 const INSERTED = COLUMNS.replace(
-  /, gate_changes, ended_at, end_kind, parked_ms, waiting,\s+waiting_since$/,
+  /, gate_changes, ended_at, end_kind, parked_ms, waiting,\s+waiting_since, safe_chain$/,
   "",
 );
 
@@ -164,6 +168,7 @@ function toRecord(row: RunRow): StoredRun {
     startedAt: row.started_at,
     scope: jsonList(row.scope),
     gateChanges: jsonList(row.gate_changes),
+    safeChain: row.safe_chain === null ? null : (JSON.parse(row.safe_chain) as SafeChainRunRecord),
     endedAt: row.ended_at,
     ending: row.end_kind as RunEnd | null,
     parkedMs: row.parked_ms,
@@ -226,6 +231,18 @@ export function recordGateChanges(
   office.run(
     `update runs set gate_changes = $changes where office_id = $office_id and run_id = $run`,
     { run: runId, changes: changes.length === 0 ? null : JSON.stringify(changes) },
+  );
+}
+
+/** Stores the Safe-Chain record of the run (DIPO-376): the refusals read when its session ended. */
+export function recordSafeChain(
+  office: OfficeHandle,
+  runId: RunId,
+  record: SafeChainRunRecord,
+): void {
+  office.run(
+    `update runs set safe_chain = $record where office_id = $office_id and run_id = $run`,
+    { run: runId, record: JSON.stringify(record) },
   );
 }
 

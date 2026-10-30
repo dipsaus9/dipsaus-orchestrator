@@ -18,11 +18,16 @@ import {
   ecosystemOf,
   holderScript,
   isCertificateBundle,
+  REFUSAL_LINE_MAX,
+  safeChainLogFile,
+  safeChainLogRead,
+  safeChainRefusalsOf,
   SAFE_CHAIN_BOX_PORTS,
   SAFE_CHAIN_BUILD_FILES,
   SAFE_CHAIN_MALWARE_LIST_HOST,
   SAFE_CHAIN_REGISTRY_HOSTS,
   SAFE_CHAIN_RELEASE,
+  SAFE_CHAIN_RUN_DIR,
   SAFE_CHAIN_UPSTREAM_HOSTS,
   safeChainBuildPlan,
   safeChainImageTag,
@@ -155,5 +160,50 @@ describe("the CA bundle check", () => {
     for (const text of ["", "hello", `${PEM}export X=1\n`, "x".repeat(5 * 1024 * 1024)]) {
       expect(isCertificateBundle(text)).toBe(false);
     }
+  });
+});
+
+describe("Safe-Chain refusals (DIPO-376)", () => {
+  it("reads each refusal line of a Safe-Chain log, without colour codes, and names the ecosystem", () => {
+    const log = [
+      "Safe-chain: checking is-number@7.0.0",
+      `\u001b[31mnpm ERR! blocked by safe-chain: safe-chain-test@0.0.1-security is malware\u001b[0m`,
+      "added 1 package",
+      "",
+    ].join("\n");
+    expect(safeChainRefusalsOf("npm", log)).toEqual([
+      {
+        ecosystem: "npm",
+        line: "npm ERR! blocked by safe-chain: safe-chain-test@0.0.1-security is malware",
+      },
+    ]);
+    expect(safeChainRefusalsOf("pypi", "no refusal here\n")).toEqual([]);
+  });
+
+  it("reads a log from the line the last read ended on, so no refusal is read twice", () => {
+    const first = safeChainLogRead(
+      "npm",
+      "blocked by safe-chain: a\nadded 1\nblocked by safe-chain: b",
+      0,
+    );
+    expect(first.lines).toBe(2);
+    expect(first.refusals.map((refusal) => refusal.line)).toEqual(["blocked by safe-chain: a"]);
+    const next = safeChainLogRead(
+      "npm",
+      "blocked by safe-chain: a\nadded 1\nblocked by safe-chain: b\n",
+      first.lines,
+    );
+    expect(next.refusals.map((refusal) => refusal.line)).toEqual(["blocked by safe-chain: b"]);
+  });
+
+  it("keeps a refusal line to its length limit", () => {
+    const long = `blocked by safe-chain ${"x".repeat(REFUSAL_LINE_MAX * 2)}`;
+    expect(safeChainRefusalsOf("npm", long)[0]?.line.length).toBe(REFUSAL_LINE_MAX);
+  });
+
+  it("reads the log the start script writes for each ecosystem", () => {
+    expect(safeChainLogFile("npm")).toBe(`${SAFE_CHAIN_RUN_DIR}/npm.log`);
+    expect(safeChainStartScript()).toContain(`"$dir/npm.log"`);
+    expect(safeChainStartScript()).toContain(`"$dir/pypi.log"`);
   });
 });

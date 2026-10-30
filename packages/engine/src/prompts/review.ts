@@ -7,9 +7,11 @@
 // DIPO-254), as the worker's own account; never its summary, notes, handoff, reasoning or
 // transcript (0002): the input has no field for them. Pure and deterministic.
 
+import type { SafeChainRunRecord } from "../box/safe-chain";
 import { formatCount } from "../context/truncate";
 import type { ReviewFinding, WorkerDeviation, WorkerTestPlanEntry } from "../workers/types";
 import { assembleContract, CONTRACT_MAX_DEFAULT } from "./contract";
+import { safeChainLines } from "./feedback";
 import type { PromptStory } from "./story";
 import { renderTemplate, TASK_TEMPLATES } from "./templates";
 import workerReportTemplate from "./task/review-worker-report.md" with { type: "text" };
@@ -19,6 +21,7 @@ export const REVIEW_SECTION_ORDER = [
   "changes",
   "diff",
   "gate_changes",
+  "safe_chain_refusals",
   "story",
   "outcome",
   "criteria",
@@ -52,6 +55,8 @@ export interface ReviewTaskInput {
   readonly diff: string;
   /** The gate changes the run recorded (`runs.gate_changes`, 0013 section 5); empty for none. */
   readonly gateChanges: readonly string[];
+  /** Safe-Chain's refusals of the run, stored when its box sessions ended (DIPO-376). */
+  readonly safeChain?: SafeChainRunRecord | null;
   /** The previous round's findings, on a re-review. */
   readonly previousFindings?: readonly ReviewFinding[];
   /**
@@ -311,6 +316,13 @@ export function assembleReviewTaskMessage(input: ReviewTaskInput): ReviewTaskMes
     renderTemplate(TASK_TEMPLATES.changes, { paths: bullets(changes.map(changeLine)) }),
   );
   sections.set("diff", renderTemplate(TASK_TEMPLATES.diff, { diff: diff.text }));
+  const refusals = input.safeChain ? safeChainLines(input.safeChain) : [];
+  if (refusals.length > 0) {
+    sections.set(
+      "safe_chain_refusals",
+      renderTemplate(TASK_TEMPLATES.safeChainRefusals, { refusals: refusals.join("\n") }),
+    );
+  }
   if (input.gateChanges.length > 0) {
     sections.set(
       "gate_changes",

@@ -227,13 +227,41 @@ describe("the box run reviewer's system file", () => {
 });
 
 describe("the review task message (L4)", () => {
+  it("names each Safe-Chain refusal of the run in the reviewer's context (DIPO-376)", () => {
+    const safeChain = {
+      refusals: [
+        { ecosystem: "npm", line: "blocked by safe-chain: safe-chain-test is malware" },
+        { ecosystem: "pypi", line: "blocked by safe-chain: evil-pkg is malware" },
+      ],
+      read: { npm: 1, pypi: 1 },
+      unreadable: [],
+    } as const;
+    const message = assembleReviewTaskMessage(input({ safeChain }));
+    expect(message.sections.map((s) => s.name)).toContain("safe_chain_refusals");
+    expect(message.text).toContain(
+      "<safe_chain_refusals>\nSafe-Chain refused these packages in the box during the run",
+    );
+    expect(message.text).toContain("- npm: blocked by safe-chain: safe-chain-test is malware");
+    expect(message.text).toContain("- pypi: blocked by safe-chain: evil-pkg is malware");
+    // Without refusals the section is left out.
+    expect(assembleReviewTaskMessage(input()).text).not.toContain("safe_chain_refusals>");
+  });
+
   it("matches the golden sample for the fixture story", async () => {
     await expectGolden("task-review.md", assembleReviewTaskMessage(input()).text);
   });
 
   it("holds the section 4 inputs in order, each in its tag", () => {
     const message = assembleReviewTaskMessage(
-      input({ previousFindings: FINDINGS, workerReport: WORKER_REPORT }),
+      input({
+        previousFindings: FINDINGS,
+        workerReport: WORKER_REPORT,
+        safeChain: {
+          refusals: [{ ecosystem: "npm", line: "blocked by safe-chain: x is malware" }],
+          read: { npm: 1, pypi: 0 },
+          unreadable: [],
+        },
+      }),
     );
     expect(names(message.text)).toEqual([...REVIEW_SECTION_ORDER]);
     expect(message.sections.map((section) => section.name)).toEqual([...REVIEW_SECTION_ORDER]);

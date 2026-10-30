@@ -114,7 +114,13 @@ import {
 import type { PartRun, StartTreeCheck } from "./parts";
 import { type BoxTokenCheck, checkBoxAfterRun, tokenCheckFailure } from "./token-check";
 import { copyInAsUser } from "./user";
-import { SAFE_CHAIN_BOX_RUN_PREFIX } from "./safe-chain";
+import {
+  EMPTY_SAFE_CHAIN_RECORD,
+  SAFE_CHAIN_BOX_RUN_PREFIX,
+  SAFE_CHAIN_ECOSYSTEMS,
+  type SafeChainRunRecord,
+} from "./safe-chain";
+import { readSafeChain } from "./safe-chain-box";
 import { type BoxInstallResult, type BoxVerifyResult, runBoxInstall, runBoxVerify } from "./verify";
 import { BoxWebRoute, type BoxWebRouteStart, type RunningBoxWebRoute } from "./web-proxy";
 
@@ -227,6 +233,12 @@ export interface BoxPassOptions {
   readonly runDirOf?: (runId: string) => string | null;
 }
 
+/** A run's stored Safe-Chain record: read it, and store the one a box read made (DIPO-376). */
+export interface BoxSafeChainStore {
+  readonly of: (runId: string) => SafeChainRunRecord | null;
+  readonly store: (runId: string, record: SafeChainRunRecord) => void;
+}
+
 /** One developer session's box: how the worker host runs claude in it and stops it. */
 export interface BoxSession {
   readonly box: string;
@@ -302,6 +314,11 @@ export interface BoxWorkersDeps {
    * so a daemon-start sweep leaves them alone (`startBoxWebRoute`'s `boxId` and `buildId`).
    */
   readonly startWebRoute: (network: BoxNetwork, ids: RouteBoxIds) => Promise<BoxWebRouteStart>;
+  /**
+   * Where each run's Safe-Chain refusals are read and stored (DIPO-376): read from the Safe-Chain
+   * box's logs before a box rests or finishes, and kept on the run for its next turn and review.
+   */
+  readonly safeChain?: BoxSafeChainStore;
   /** Starts the model proxy on the box network's host address; it reads the token at start. */
   readonly startModelProxy: (
     network: Pick<BoxNetwork, "hostAddress">,
@@ -463,6 +480,8 @@ export class BoxWorkers {
   readonly #index: string;
   #network: BoxNetwork | null = null;
   readonly #web: BoxWebRoute<RunningBoxWebRoute>;
+  /** The Safe-Chain box of the started route, whose logs hold the refusals (DIPO-376). */
+  #safeChainBox: string | null = null;
   readonly #model: BoxWebRoute<RunningModelProxy>;
   /** Finishes in flight, by run id. */
   readonly #finishing = new Map<string, Promise<BoxFinish>>();
@@ -516,11 +535,13 @@ export class BoxWorkers {
   async #startWebRoute(): Promise<RunningBoxWebRoute> {
     ensurePrivateDir(this.#index);
     const named: string[] = [];
-    const id = (prefix: string) => () => {
+    // `onName` hears the box a fresh id names; the Safe-Chain box's is kept for its logs (DIPO-376).
+    const id = (prefix: string, onName?: (name: string) => void) => () => {
       const value = randomUUID().replaceAll("-", "").slice(0, 16);
       const name = boxName(`${prefix}${value}`);
       named.push(name);
       this.#filling.add(name);
+      onName?.(name);
       return value;
     };
     const forget = () => {
@@ -529,14 +550,18 @@ export class BoxWorkers {
     let started: BoxWebRouteStart;
     try {
       started = await this.#deps.startWebRoute(await this.#networkOf(), {
-        boxId: id(SAFE_CHAIN_BOX_RUN_PREFIX),
+        boxId: id(SAFE_CHAIN_BOX_RUN_PREFIX, (name) => {
+          this.#safeChainBox = name;
+        }),
         buildId: id(BUILD_BOX_RUN_PREFIX),
       });
     } catch (error) {
+      this.#safeChainBox = null;
       forget();
       throw error;
     }
     if (!started.ok) {
+      this.#safeChainBox = null;
       forget();
       throw new BoxError("box.routeFailed", `the box web route did not start: ${started.reason}`);
     }
@@ -544,6 +569,7 @@ export class BoxWorkers {
     return {
       ...route,
       stop: async () => {
+        this.#safeChainBox = null;
         try {
           await route.stop();
         } finally {
@@ -1031,6 +1057,9 @@ export class BoxWorkers {
     const name = record.box;
     const { boxes } = this.#deps;
     await this.#running(name);
+    // A run's first session starts its record at the logs' current lines (DIPO-376).
+    if (this.#deps.safeChain?.of(input.runId) === null)
+      await this.#keepSafeChain(input.runId, true);
     // A session runs in it now: the next stop checks it for the token again (DIPO-278).
     markWaiting(input.runDir, false);
     // The routes only now: the box network's address exists on the Mac once a box on it runs.
@@ -1123,6 +1152,8 @@ export class BoxWorkers {
     // runs in its box, so a mark still set then means no session ran since the last check; one
     // that cleared it gets a fresh token check before its box is deleted.
     const rested = (): boolean => runDir !== undefined && readBoxRun(runDir)?.waiting === true;
+    // A rested box read its refusals when it rested, and no session ran since (DIPO-376).
+    if (!rested()) await this.#keepSafeChain(runId);
     const outcome = await this.#checked(runId, name, { skipCheck: rested }, (box) =>
       this.#deps.boxes.delete(box),
     );
@@ -1154,6 +1185,8 @@ export class BoxWorkers {
     const runDir = this.#runDirOf(runId);
     const record = runDir === undefined ? null : readBoxRun(runDir);
     if (record?.waiting === true) return { kind: "resting" };
+    // The session ended: its refusals are read while the box still runs, before it stops (DIPO-376).
+    await this.#keepSafeChain(runId);
     // A session that is making the box ready now keeps it; its run is not waiting any more.
     if (this.#starting.has(runId)) return { kind: "skipped" };
     this.#door?.stop(runId);
@@ -1180,6 +1213,38 @@ export class BoxWorkers {
     }
     if (outcome.kind === "gone") return { kind: "gone" };
     return { kind: "failed", reason: outcome.kind === "failed" ? outcome.reason : "unknown" };
+  }
+
+  /**
+   * Reads Safe-Chain's logs in box `name` and stores the record on the run (DIPO-376), so the
+   * refusals outlive the box. A log that cannot be read is listed as unreadable on the record, and
+   * read again from the same line next time, so no refusal is lost or counted twice.
+   */
+  async #keepSafeChain(runId: string, baseline = false): Promise<void> {
+    const safeChain = this.#deps.safeChain;
+    const box = this.#safeChainBox;
+    if (safeChain === undefined || box === null) return;
+    const stored = safeChain.of(runId) ?? EMPTY_SAFE_CHAIN_RECORD;
+    let next: SafeChainRunRecord;
+    try {
+      next = await readSafeChain(this.#deps.boxes, box, stored);
+    } catch (error) {
+      this.#deps.info?.("safe-chain logs could not be read; their refusals are unknown", {
+        run: runId,
+        box,
+        error: messageOf(error),
+      });
+      next = { ...stored, unreadable: [...SAFE_CHAIN_ECOSYSTEMS] };
+    }
+    if (next.unreadable.length > 0) {
+      this.#deps.info?.("safe-chain logs could not be read; their refusals are unknown", {
+        run: runId,
+        box,
+        ecosystems: next.unreadable.join(","),
+      });
+    }
+    // The logs hold the refusals of the route's earlier runs too: a baseline keeps only the lines.
+    safeChain.store(runId, baseline ? { ...next, refusals: [] } : next);
   }
 
   /**

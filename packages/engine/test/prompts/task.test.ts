@@ -10,6 +10,7 @@ import {
   outcomeOf,
   PROMPT_TAGS,
   REVIEW_SECTION_ORDER,
+  safeChainFeedback,
   SECTION_ORDER,
   verifyFeedback,
   type HandoffFacts,
@@ -56,6 +57,22 @@ function names(text: string): SectionName[] {
 }
 
 describe("task message", () => {
+  it("tells the worker's next turn Safe-Chain's refusals, named as Safe-Chain's (DIPO-376)", () => {
+    const record = {
+      refusals: [{ ecosystem: "npm", line: "blocked by safe-chain: safe-chain-test is malware" }],
+      read: { npm: 1, pypi: 0 },
+      unreadable: [],
+    } as const;
+    const text = assembleTaskMessage({
+      story: fixtureStory(),
+      pack: fixturePack(),
+      feedback: safeChainFeedback(record),
+      budgets: BUDGETS_M,
+    }).text;
+    expect(text).toContain("Safe-Chain refused these packages in the box");
+    expect(text).toContain("- npm: blocked by safe-chain: safe-chain-test is malware");
+  });
+
   it("matches the golden sample for the fixture story", async () => {
     const message = assembleTaskMessage({
       story: fixtureStory(),
@@ -219,6 +236,7 @@ describe("tags inside slot text", () => {
       "changes",
       "diff",
       "gate_changes",
+      "safe_chain_refusals",
       "previous_findings",
       "worker_report",
       "commit",

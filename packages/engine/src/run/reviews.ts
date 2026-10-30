@@ -343,6 +343,7 @@ export class Reviews {
         changes,
         diff,
         gateChanges: run.gateChanges ?? [],
+        safeChain: run.safeChain,
         // The stored findings are the reviewer's, judged by code, so their kinds are known.
         ...(previous === null
           ? {}
