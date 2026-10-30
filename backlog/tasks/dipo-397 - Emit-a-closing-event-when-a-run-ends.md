@@ -1,7 +1,7 @@
 ---
 id: DIPO-397
 title: Emit a closing event when a run ends
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-10-30 16:01'
 updated_date: '2026-10-30 21:21'
@@ -40,10 +40,6 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(engine) every run end path emits one closing event on the office stream"
-park:
-  reason: "budget-exceeded"
-  from: "In Progress"
-  note: "turn cap (--max-turns) after 77 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -77,4 +73,6 @@ Parked 2026-10-30 21:21 UTC: budget-exceeded
 - Review rounds: 0, failed 0 of 3
 - Budget used: 279,451 of 300,000 tokens; 91 of 90 turns; 9 of 45 minutes
 - Last good commit: 826f3a6100033714772e48c4751795295c27d9b5
+
+Resumed 2026-10-30 21:21 UTC; grants: budget +150,000 tokens, +45 turns, +23 minutes; note: Top-up for the approved run.ended event. Finish the event, the 0005 catalogue line, dipo watch without its idle check and the tests; commit parts as you go.
 <!-- SECTION:NOTES:END -->
