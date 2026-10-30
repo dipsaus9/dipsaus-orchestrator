@@ -5,23 +5,26 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
 import { currentPlatform } from "../../src/platform/paths";
 import { systemProcessProbe } from "../../src/platform/process";
 import { type WorkerHostRow, verifyHostForSignal } from "../../src/runs/worker-hosts";
+import { lateHostScript } from "./fixtures/late-host-script";
 
 const RUN = "run_01JZ0000000000000000000001";
 const AGENT = "agt_01JZ0000000000000000000001";
-const STAND_IN = resolve(import.meta.dir, "fixtures/late-host.ts");
 const probe = systemProcessProbe(currentPlatform());
 const HOUR = 3_600_000;
 
 let dir = "";
+/** The stand-in host at `<dir>/cli/src/main.ts`, so Bun running it is the host's source form. */
+let standIn = "";
 const children: Bun.Subprocess[] = [];
 
 beforeEach(() => {
   dir = mkdtempSync(join(process.env["DIPO_TMP"] || "/tmp", "verify-real-"));
+  standIn = lateHostScript(dir);
 });
 
 afterEach(() => {
@@ -79,20 +82,20 @@ function bunNamed(name: string): string {
 
 describe("verifyHostForSignal on real processes (DIPO-386)", () => {
   it("passes for a real process in the host's source form, with the row's start time", async () => {
-    const live = await start([process.execPath, STAND_IN, "daemon", "worker-host", RUN]);
+    const live = await start([process.execPath, standIn, "daemon", "worker-host", RUN]);
     expect(await verifyHostForSignal(rowFor(live.pid, live.startTimeMs), probe)).toEqual({
       ok: true,
     });
   });
 
   it("refuses a reused PID: the live process started an hour after the recorded host", async () => {
-    const live = await start([process.execPath, STAND_IN, "daemon", "worker-host", RUN]);
+    const live = await start([process.execPath, standIn, "daemon", "worker-host", RUN]);
     const check = await verifyHostForSignal(rowFor(live.pid, live.startTimeMs - HOUR), probe);
     expect(check).toMatchObject({ ok: false, reason: expect.stringContaining("start time") });
   });
 
   it("refuses a process that started before its row was written", async () => {
-    const live = await start([process.execPath, STAND_IN, "daemon", "worker-host", RUN]);
+    const live = await start([process.execPath, standIn, "daemon", "worker-host", RUN]);
     const row = rowFor(live.pid, live.startTimeMs, live.startTimeMs + HOUR);
     const check = await verifyHostForSignal(row, probe);
     expect(check).toMatchObject({ ok: false, reason: expect.stringContaining("before its row") });
@@ -100,11 +103,18 @@ describe("verifyHostForSignal on real processes (DIPO-386)", () => {
 
   it("refuses a command that only mentions the run id, with the host's words or without", async () => {
     // Another tool whose arguments end in the host's three words.
-    const grep = await start([bunNamed("grep"), STAND_IN, "daemon", "worker-host", RUN]);
+    const grep = await start([bunNamed("grep"), standIn, "daemon", "worker-host", RUN]);
     expect(await verifyHostForSignal(rowFor(grep.pid, grep.startTimeMs), probe)).toMatchObject({
       ok: false,
     });
-    const logs = await start([process.execPath, STAND_IN, "logs", RUN]);
+    // Bun running another script, with exactly the host's words after it.
+    const other = join(dir, "other.ts");
+    await Bun.write(other, await Bun.file(standIn).text());
+    const script = await start([process.execPath, other, "daemon", "worker-host", RUN]);
+    expect(await verifyHostForSignal(rowFor(script.pid, script.startTimeMs), probe)).toMatchObject({
+      ok: false,
+    });
+    const logs = await start([process.execPath, standIn, "logs", RUN]);
     expect(await verifyHostForSignal(rowFor(logs.pid, logs.startTimeMs), probe)).toMatchObject({
       ok: false,
     });
@@ -132,7 +142,7 @@ describe("verifyHostForSignal on real processes (DIPO-386)", () => {
     // shown as env in front of the host's words is a wrapper.
     const env = await start([
       bunNamed("env"),
-      STAND_IN,
+      standIn,
       "/usr/local/bin/dipo",
       "daemon",
       "worker-host",
@@ -153,7 +163,7 @@ describe("verifyHostForSignal on real processes (DIPO-386)", () => {
         `"$1" "$2" daemon worker-host "$3" & echo $!; exec sleep 600`,
         "sh",
         process.execPath,
-        STAND_IN,
+        standIn,
         RUN,
       ],
       { env: { ...process.env, LATE_HOST_EXIT: "1" }, stdio: ["ignore", "pipe", "ignore"] },

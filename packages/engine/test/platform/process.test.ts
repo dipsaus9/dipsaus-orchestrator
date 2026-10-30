@@ -396,11 +396,9 @@ describe("isWorkerHostCommand (DIPO-93)", () => {
 
   it("matches `dipo daemon worker-host <run>` for exactly that run, from the binary or source", () => {
     expect(isWorkerHostCommand(`/usr/local/bin/dipo daemon worker-host ${RUN}`, RUN)).toBe(true);
-    expect(isWorkerHostCommand(`/opt/bun /src/cli/main.ts daemon worker-host ${RUN}`, RUN)).toBe(
-      true,
-    );
-    // A binary path with spaces still ends in the same three arguments.
-    expect(isWorkerHostCommand(`/Users/m/My Tools/dipo daemon worker-host ${RUN}`, RUN)).toBe(true);
+    expect(
+      isWorkerHostCommand(`/opt/bun /repo/packages/cli/src/main.ts daemon worker-host ${RUN}`, RUN),
+    ).toBe(true);
   });
 
   it("refuses another run, another form, extra arguments or another program", () => {
@@ -414,10 +412,41 @@ describe("isWorkerHostCommand (DIPO-93)", () => {
     expect(isWorkerHostCommand("", RUN)).toBe(false);
   });
 
-  it("matches Bun from source with a script path that holds spaces (DIPO-386)", () => {
+  it("refuses a path with spaces, which a command line cannot tell from a program and its words: it fails closed (DIPO-386)", () => {
+    expect(isWorkerHostCommand(`/Users/m/My Tools/dipo daemon worker-host ${RUN}`, RUN)).toBe(
+      false,
+    );
     expect(
-      isWorkerHostCommand(`/opt/bun /Users/m/My Repo/cli/main.ts daemon worker-host ${RUN}`, RUN),
-    ).toBe(true);
+      isWorkerHostCommand(
+        `/opt/bun /Users/m/My Repo/cli/src/main.ts daemon worker-host ${RUN}`,
+        RUN,
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses another program whose last word ends in dipo, or Bun with any script but the CLI's (DIPO-386)", () => {
+    expect(isWorkerHostCommand(`/bin/cat x/dipo daemon worker-host ${RUN}`, RUN)).toBe(false);
+    expect(isWorkerHostCommand(`/usr/bin/grep foo/dipo daemon worker-host ${RUN}`, RUN)).toBe(
+      false,
+    );
+    expect(isWorkerHostCommand(`/opt/bun /tmp/other.ts daemon worker-host ${RUN}`, RUN)).toBe(
+      false,
+    );
+    expect(
+      isWorkerHostCommand(
+        `/opt/bun /repo/packages/cli/src/main.tsx daemon worker-host ${RUN}`,
+        RUN,
+      ),
+    ).toBe(false);
+    expect(
+      isWorkerHostCommand(`/opt/bun packages/cli/src/main.ts daemon worker-host ${RUN}`, RUN),
+    ).toBe(false);
+    expect(
+      isWorkerHostCommand(
+        `/opt/dipo /repo/packages/cli/src/main.ts daemon worker-host ${RUN}`,
+        RUN,
+      ),
+    ).toBe(false);
   });
 
   it("refuses a command that only mentions the host's words: no absolute dipo or Bun in front (DIPO-386)", () => {
@@ -445,7 +474,7 @@ describe("isWorkerHostCommand (DIPO-93)", () => {
       `/usr/bin/time /usr/local/bin/dipo daemon worker-host ${RUN}`,
       `/usr/local/bin/dipo -x daemon worker-host ${RUN}`,
       `/opt/bun -e setTimeout(()=>{},1) daemon worker-host ${RUN}`,
-      `/opt/bun /src/cli/main.ts /usr/local/bin/dipo daemon worker-host ${RUN}`,
+      `/opt/bun /repo/packages/cli/src/main.ts /usr/local/bin/dipo daemon worker-host ${RUN}`,
     ]) {
       expect([command, isWorkerHostCommand(command, RUN)]).toEqual([command, false]);
     }

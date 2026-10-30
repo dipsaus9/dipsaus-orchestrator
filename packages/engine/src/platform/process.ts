@@ -55,58 +55,33 @@ export {
   SUPERVISOR_VARIABLES,
 } from "@dipsaus-orchestrator/contract";
 
-/** Programs that run another command: one in front of the host's words is not the host (DIPO-386). */
-const WRAPPER_PROGRAMS: ReadonlySet<string> = new Set([
-  "bash",
-  "caffeinate",
-  "csh",
-  "dash",
-  "doas",
-  "env",
-  "exec",
-  "fish",
-  "ksh",
-  "nice",
-  "nohup",
-  "script",
-  "sh",
-  "sudo",
-  "tcsh",
-  "timeout",
-  "xargs",
-  "zsh",
-]);
+/** The entry script of `dipo` run from source (`selfCommand()`): the CLI package's main. */
+const SOURCE_ENTRY = "/cli/src/main.ts";
 
 /**
- * True when the command line is `dipo daemon worker-host <runId>`, from the binary or from source
- * (DIPO-93), as the engine starts it: the run id is the last argument exactly, and what runs the
- * host is the `dipo` binary at an absolute path, which may hold spaces, or Bun at an absolute path
- * with the entry script at one. A command that only mentions the run id, or a wrapper in front of
- * the host's words (`sh -c`, `env`, `nohup`), is refused (DIPO-386).
+ * True when the command line is `dipo daemon worker-host <runId>` in one of the two forms the
+ * engine starts it with (`selfCommand()`, DIPO-93): the `dipo` binary at an absolute path, or Bun
+ * at an absolute path with the CLI's entry script at an absolute path. The arguments after it are
+ * exactly `daemon worker-host <runId>`. Anything else is refused (DIPO-386): a command that only
+ * ends in those words (`/bin/cat x/dipo`, another Bun script), a wrapper in front of them (`sh -c`,
+ * `env`, `nohup`), an option, and a path with spaces, which a command line cannot tell from a
+ * program and its arguments. Refusing fails closed: such a host is never signalled.
  */
 export function isWorkerHostCommand(command: string, runId: string): boolean {
   const args = command.trim().split(/\s+/);
-  if (
-    args.length < 4 ||
-    args.at(-1) !== runId ||
-    args.at(-2) !== "worker-host" ||
-    args.at(-3) !== "daemon"
-  ) {
-    return false;
-  }
-  const program = args.slice(0, -3);
-  const [first = "", ...rest] = program;
-  if (!first.startsWith("/")) return false;
-  const wrapped = program.some(
-    (arg) => arg.startsWith("-") || WRAPPER_PROGRAMS.has(arg.slice(arg.lastIndexOf("/") + 1)),
+  const [program = "", ...rest] = args;
+  const words = rest.slice(-3);
+  if (words.join(" ") !== `daemon worker-host ${runId}`) return false;
+  const between = rest.slice(0, -3);
+  if (!program.startsWith("/")) return false;
+  if (between.length === 0) return program.endsWith("/dipo");
+  const [script = ""] = between;
+  return (
+    between.length === 1 &&
+    program.endsWith("/bun") &&
+    script.startsWith("/") &&
+    script.endsWith(SOURCE_ENTRY)
   );
-  if (wrapped) return false;
-  // Only the first path is absolute: a second one is a command the first one runs.
-  if (first.endsWith("/bun")) {
-    const [script = "", ...more] = rest;
-    return script.startsWith("/") && more.every((arg) => !arg.startsWith("/"));
-  }
-  return program.join(" ").endsWith("/dipo") && rest.every((arg) => !arg.startsWith("/"));
 }
 
 /** True unless `kill(pid, 0)` says the PID does not exist (EPERM means it does). */
