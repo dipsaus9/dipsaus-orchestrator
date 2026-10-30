@@ -1,10 +1,10 @@
 ---
 id: DIPO-398
 title: Drop the zombie-aware test checks now that every box reaps
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-30 18:21'
-updated_date: '2026-10-30 22:08'
+updated_date: '2026-10-30 22:36'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -15,6 +15,11 @@ dependencies:
 references:
   - packages/testkit/src/running.ts
   - packages/engine/test/platform/
+modified_files:
+  - packages/engine/test/platform/deadline.test.ts
+  - packages/engine/test/platform/process.test.ts
+  - packages/testkit/src/running.test.ts
+  - packages/testkit/src/running.ts
 priority: low
 type: chore
 ordinal: 376000
@@ -43,3 +48,18 @@ test_plan:
 - [x] #2 bun run verify passes in a box made by a dipo binary that includes DIPO-378, shown by the story's own dipo run
 - [x] #3 No comment still explains a box zombie workaround in the test helpers
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-10-30 22:36 UTC
+- Criteria met: 3 of 3 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 41,324 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
