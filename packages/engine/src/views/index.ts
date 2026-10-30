@@ -65,7 +65,6 @@ export {
   storyRuns,
   storedPrompt,
   storyVerdicts,
-  viewsFeature,
 } from "./feature";
 export {
   DEFAULT_USAGE_LIMITS,

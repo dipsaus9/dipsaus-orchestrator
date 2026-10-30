@@ -20,6 +20,7 @@ import type { StoryIdentity } from "../stories/keys";
 import { storyView } from "../views/story";
 
 import { openPark } from "./park";
+import type { ParkStore } from "./park-state";
 import { notResumable } from "./park-resume";
 import { parkResumeNeed } from "./resume-policy";
 
@@ -64,6 +65,9 @@ type ResumeArgs = z.output<typeof workResume.args>;
 type ResumeResult = z.input<typeof workResume.result>;
 
 export class WorkResumeCommand {
+  /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
+  readonly #stories: ParkStore;
+
   /** The planning lane's resume of a park with no run; read when needed. */
   readonly #holds: () => HoldResumer | undefined;
 
@@ -71,9 +75,11 @@ export class WorkResumeCommand {
   readonly #parks: () => ParkResumer | undefined;
 
   constructor(
+    stories: ParkStore,
     holds: () => HoldResumer | undefined = () => undefined,
     parks: () => ParkResumer | undefined = () => undefined,
   ) {
+    this.#stories = stories;
     this.#holds = holds;
     this.#parks = parks;
   }
@@ -99,7 +105,7 @@ export class WorkResumeCommand {
     // A retry of a park resume this request stored repeats nothing (0005).
     const replayed = await this.#parks()?.replay(ctx, identity);
     if (replayed != null) return replayed;
-    const park = openPark(handle, identity.key);
+    const park = openPark(this.#stories, handle, identity.key);
     if (park === null) {
       const now = storyView(handle, identity.key);
       if (now !== null && RUNNING.has(now.lifecycle)) {

@@ -72,6 +72,7 @@ import {
   type StoryRun,
   storyRun,
 } from "./rounds-helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 let w: RoundsWorld;
 
@@ -262,6 +263,7 @@ function world(): World {
     summarize: async () => undefined,
   };
   const control = new RunControl({
+    stories: backlogLayout,
     clock: w.t.clock,
     offices: { get: () => w.office },
     writer: {
@@ -284,6 +286,7 @@ function world(): World {
     outcomes: () => reviews?.route(base),
   });
   const built = new Reviews({
+    stories: backlogLayout,
     clock: w.t.clock,
     ids: w.t.ids,
     offices: { get: () => w.office, config: () => setting.config },
@@ -529,7 +532,7 @@ describe("a pending review (0019 sections 6 and 12)", () => {
     const newer = inReview("DIPO-2", "tree-2");
     heads.set(newer.run, "tree-2");
 
-    expect(pendingReviews(w.office)).toEqual([
+    expect(pendingReviews(backlogLayout, w.office)).toEqual([
       { kind: START_KINDS.review, runId: older.run, since: olderAt },
       { kind: START_KINDS.review, runId: newer.run, since: now() },
     ]);
@@ -592,7 +595,7 @@ describe("a pending review (0019 sections 6 and 12)", () => {
       waitingSince: inReviewAt,
     });
     expect(stepsOf(s.run, "phase").at(-1)).toMatchObject({ value: "review", at: now() });
-    expect(pendingReviews(w.office)).toEqual([]);
+    expect(pendingReviews(backlogLayout, w.office)).toEqual([]);
 
     // The next drain starts it, in the same round.
     x.next = null;
@@ -684,11 +687,11 @@ describe("a code tree key with a verdict (0019 section 6)", () => {
     write(() => appendRunStep(w.office, s.run, "phase", "review", now()));
     // It looks pending (dipo records no tree at In Review), and the drain takes its verdict: its
     // HEAD's code tree, read at the start, is the reviewed one.
-    expect(pendingReviews(w.office)).toHaveLength(1);
+    expect(pendingReviews(backlogLayout, w.office)).toHaveLength(1);
     expect(await x.places.drain(officeId())).toBe(0);
     expect(x.sessions).toEqual([]);
     expect(stepsOf(s.run, "review")).toHaveLength(1);
-    expect(pendingReviews(w.office)).toEqual([]);
+    expect(pendingReviews(backlogLayout, w.office)).toEqual([]);
   });
 
   it("is taken without a round by a head whose commits changed only the task file", async () => {
@@ -703,12 +706,12 @@ describe("a code tree key with a verdict (0019 section 6)", () => {
     write(() => {
       appendRunStep(w.office, s.run, "phase", "review", now());
     });
-    expect(pendingReviews(w.office)).toHaveLength(1);
+    expect(pendingReviews(backlogLayout, w.office)).toHaveLength(1);
     expect(await x.places.drain(officeId())).toBe(0);
     expect(x.sessions).toHaveLength(1);
     expect(reviewedInReview(w.office, findRun(w.office, s.run)!)).toBe(true);
     expect(stepsOf(s.run, "review")).toHaveLength(1);
-    expect(pendingReviews(w.office)).toEqual([]);
+    expect(pendingReviews(backlogLayout, w.office)).toEqual([]);
   });
 });
 
@@ -995,13 +998,13 @@ const parkIt = (s: StoryRun) =>
 describe("a story parked while it waits In Review (DIPO-344)", () => {
   it("gets no review round or reviewer session until its park is resolved, then its review starts", async () => {
     const s = inReview("DIPO-1", "tree-1");
-    const start = pendingReviews(w.office)[0]!;
+    const start = pendingReviews(backlogLayout, w.office)[0]!;
     await parkIt(s);
     expect(parksOf()).toEqual([
       { story_id: "DIPO-1", reason: "by-maintainer", detail: "After the release." },
     ]);
 
-    expect(pendingReviews(w.office)).toEqual([]);
+    expect(pendingReviews(backlogLayout, w.office)).toEqual([]);
     expect(await x.places.drain(officeId())).toBe(0);
     // A start queued before the park waits too.
     expect(await x.reviews.start(officeId(), findRun(w.office, s.run)!, start)).toBe(false);
@@ -1010,7 +1013,7 @@ describe("a story parked while it waits In Review (DIPO-344)", () => {
 
     // The resume resolves the park and the run stands open at In Review again (`ParkResumes`);
     // the next drain starts the review.
-    const parkId = openPark(w.office, s.key)!.parkId;
+    const parkId = openPark(backlogLayout, w.office, s.key)!.parkId;
     write(() => {
       resolvePark(w.office, parkId, "resume", now());
       // The lift's read-back: In Review with no park record in Backlog.md (DIPO-360).
@@ -1050,7 +1053,7 @@ const ciCapPark = (s: StoryRun) =>
 
 /** The resume's lift: the park resolved and the story In Review again in Backlog.md. */
 function lift(s: StoryRun): void {
-  const parkId = openPark(w.office, s.key)!.parkId;
+  const parkId = openPark(backlogLayout, w.office, s.key)!.parkId;
   write(() => {
     resolvePark(w.office, parkId, "resume", now());
     mirrorUnpark(w.office, s.key, "In Review");
@@ -1084,7 +1087,7 @@ describe("a park that lands while a review round is built (DIPO-346)", () => {
       ending: "parked",
       waiting: null,
     });
-    expect(pendingReviews(w.office)).toEqual([]);
+    expect(pendingReviews(backlogLayout, w.office)).toEqual([]);
     expect(await x.places.drain(officeId())).toBe(0);
     expect(x.sessions).toEqual([]);
 
@@ -1104,7 +1107,7 @@ describe("a park that lands while a review round is built (DIPO-346)", () => {
     expect(await x.places.drain(officeId())).toBe(0);
     expect(x.sessions).toEqual([]);
     expect(findRun(w.office, s.run)).toMatchObject({ ending: "parked", waiting: null });
-    expect(pendingReviews(w.office)).toEqual([]);
+    expect(pendingReviews(backlogLayout, w.office)).toEqual([]);
     expect(await x.places.drain(officeId())).toBe(0);
     expect(x.sessions).toEqual([]);
   });
@@ -1121,7 +1124,7 @@ describe("a park that lands while a review round is built (DIPO-346)", () => {
     expect(await x.places.drain(officeId())).toBe(0);
     expect(x.sessions).toEqual([]);
     expect(findRun(w.office, s.run)).toMatchObject({ ending: "parked", waiting: null });
-    expect(pendingReviews(w.office)).toEqual([]);
+    expect(pendingReviews(backlogLayout, w.office)).toEqual([]);
     expect(await x.places.drain(officeId())).toBe(0);
     expect(x.sessions).toEqual([]);
   });
@@ -1147,7 +1150,7 @@ describe("a park that lands while a review round is built (DIPO-346)", () => {
 describe("a story whose park could not be written to Backlog.md (DIPO-360)", () => {
   it("gets no review round or reviewer session while its park row is open, fail-closed", async () => {
     const s = inReview("DIPO-1", "tree-1");
-    const start = pendingReviews(w.office)[0]!;
+    const start = pendingReviews(backlogLayout, w.office)[0]!;
     await parkStory(
       {
         office: w.office,
@@ -1167,9 +1170,9 @@ describe("a story whose park could not be written to Backlog.md (DIPO-360)", () 
       },
     );
     // Backlog.md does not hold the park, and the run stays open at In Review.
-    expect(openPark(w.office, s.key)).toBeNull();
+    expect(openPark(backlogLayout, w.office, s.key)).toBeNull();
     expect(findRun(w.office, s.run)?.ending).toBeNull();
-    expect(pendingReviews(w.office)).toEqual([]);
+    expect(pendingReviews(backlogLayout, w.office)).toEqual([]);
     expect(await x.places.drain(officeId())).toBe(0);
     expect(await x.reviews.start(officeId(), findRun(w.office, s.run)!, start)).toBe(false);
     expect(x.sessions).toEqual([]);
@@ -1182,12 +1185,12 @@ describe("a story Done on the office base (DIPO-239)", () => {
     heads.set(s.run, "tree-1");
     setting.facts = onBase("Done");
     const run = findRun(w.office, s.run)!;
-    const start = pendingReviews(w.office)[0]!;
+    const start = pendingReviews(backlogLayout, w.office)[0]!;
     expect(await x.reviews.start(officeId(), run, start)).toBe(false);
     expect(x.sessions).toEqual([]);
     expect(stepsOf(s.run, "review")).toEqual([]);
     expect(findRun(w.office, s.run)).toMatchObject({ ending: "done" });
-    expect(pendingReviews(w.office)).toEqual([]);
+    expect(pendingReviews(backlogLayout, w.office)).toEqual([]);
     const notices = noticesOf(REVIEW_NOTICES.doneOnBase);
     expect(notices).toHaveLength(1);
     expect(JSON.stringify(notices[0])).toContain('"level":"info"');

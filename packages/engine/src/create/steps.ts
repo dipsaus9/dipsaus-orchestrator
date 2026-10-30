@@ -99,6 +99,7 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
     // The desk shows the office's starts paused first (0020).
     ...engineFeatures({
       backlog: core.backlogCli,
+      stories: core.stories,
       desk: { startsPaused: (handle) => runs.startsPaused.state(handle.officeId as OfficeId) },
     }),
     core.engineGit.feature,

@@ -45,6 +45,7 @@ import type { Caps, HostOp, WorkerEvent } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
 import { type IngestFixture, ingestFixture, loggedEvents } from "../ingest/helpers";
 import { SCRIPTS } from "../workers/scripts";
+import { backlogLayout } from "../story-store/backlog";
 
 const ROOMY: Caps = { budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 30 };
 const QUESTION = "Which greeting should the CLI print?";
@@ -84,6 +85,7 @@ function asksFor(
     replay: async () => null,
   };
   return new PermissionAsks({
+    stories: backlogLayout,
     clock: world.f.t.clock,
     ids: world.f.t.ids,
     offices: { get: () => world.f.office, config: () => world.config },
@@ -125,6 +127,7 @@ beforeEach(async () => {
   };
   let asks: PermissionAsks | null = null;
   const control = new RunControl({
+    stories: backlogLayout,
     clock: f.t.clock,
     offices: { get: () => f.office },
     // Question ids for the question a park asks itself (DIPO-159).

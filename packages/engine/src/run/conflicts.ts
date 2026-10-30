@@ -116,7 +116,7 @@ import { withWorkViews } from "../views/work";
 import { runCaps } from "./caps";
 import { lastReviewVerdict } from "./fix-rounds";
 import type { ConflictPrepared, ConflictResumer } from "./park-resume";
-import { runHeldByPark } from "./park-state";
+import { type ParkStore, runHeldByPark } from "./park-state";
 import { appendRunStep, findRun, type StoredRun } from "./records";
 import { codeTreeKeyOf } from "./story-git";
 
@@ -392,7 +392,7 @@ export function baseConflictOf(
  * Done (the close-out commit on its branch, or the base's after a release). Its claim
  * may stay live while its teardown waits, but it is not In Review, and the base holds its work.
  */
-export function inReviewRunIds(office: OfficeHandle): RunId[] {
+export function inReviewRunIds(stories: ParkStore, office: OfficeHandle): RunId[] {
   return office
     .all<{ run_id: string }>(
       `select r.run_id from runs r
@@ -406,7 +406,7 @@ export function inReviewRunIds(office: OfficeHandle): RunId[] {
             and m.key = r.key and m.kind = 'task' and m.status = 'Done')
         order by r.ended_at, r.run_id`,
     )
-    .filter((row) => !runHeldByPark(office, row.run_id))
+    .filter((row) => !runHeldByPark(stories, office, row.run_id))
     .map((row) => row.run_id as RunId);
 }
 
@@ -614,7 +614,7 @@ export type DoneConflictDecision =
 export interface StoryConflictsDeps {
   readonly clock: { now(): number };
   /** The story store: the story's own file at a tip. */
-  readonly stories: Pick<StoryStore, "fileAt">;
+  readonly stories: Pick<StoryStore, "fileAt" | "storyFolders">;
   readonly ids: IdSource;
   readonly offices: {
     get(office: OfficeId): OfficeHandle | undefined;
@@ -927,7 +927,7 @@ export const REMOTE_COMMITS_SHOWN = 20;
 /** What `ConflictResumes` needs; the daemon's are the office git and the box collisions. */
 export interface ConflictResumesDeps {
   /** The story store: the story's own file at a tip. */
-  readonly stories: Pick<StoryStore, "fileAt">;
+  readonly stories: Pick<StoryStore, "fileAt" | "storyFolders">;
   readonly offices: {
     get(office: OfficeId): OfficeHandle | undefined;
     config(office: OfficeId): OfficeConfig | undefined;

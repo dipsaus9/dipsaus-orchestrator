@@ -41,7 +41,7 @@ export function steerText(text: string): string {
 
 type Deps = Pick<
   RunControlDeps,
-  "clock" | "offices" | "steering" | "encode" | "warn" | "onChanged"
+  "clock" | "offices" | "steering" | "encode" | "warn" | "onChanged" | "stories"
 >;
 
 export class Interventions {
@@ -83,7 +83,7 @@ export class Interventions {
     const run = activeStoryRun(handle, identity.key);
     if (run === undefined) {
       // A parked story: the steer waits on the run that parked.
-      const park = openPark(handle, identity.key);
+      const park = openPark(this.#deps.stories, handle, identity.key);
       if (park?.runId == null) {
         throw new CommandError(
           STORY_NOT_RUNNING,

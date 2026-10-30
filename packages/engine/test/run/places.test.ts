@@ -46,6 +46,7 @@ import {
   storyRun,
   type StoryRun,
 } from "./rounds-helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 let w: RoundsWorld;
 
@@ -201,6 +202,7 @@ describe("a resume that finds its place taken (0020 section 1)", () => {
     const started: string[] = [];
     const { resumption } = createRunOutcomes(
       {
+        stories: backlogLayout,
         clock: w.t.clock,
         offices: { get: () => w.office },
         steering: { send: async () => ({ ok: true }) },
@@ -334,6 +336,7 @@ function waitingAs(story: string, kind: "fix" | "conflict", turns: number): Stor
 function world() {
   const started: string[] = [];
   const control = new RunControl({
+    stories: backlogLayout,
     clock: w.t.clock,
     offices: { get: () => w.office },
     writer: {

@@ -91,6 +91,17 @@ export function buildCore(deps: EngineDeps): Core {
   const ids = createSystemIds(clock);
   const database = new StateDatabaseHolder();
   const git = { spawn, ...(tools.git === undefined ? {} : { git: tools.git }) };
+  // Every Backlog CLI call runs the `backlog` the daemon resolved (DIPO-74). A status change the
+  // runner refuses (DIPO-312) is an `engine.notice` on the software stream. Each call's deadline
+  // runs on the engine clock (DIPO-314).
+  const backlogCli: BacklogCli = {
+    ...backlogCliFor(tools, spawn),
+    clock,
+    notify: (notice: { level: "error"; code: string; text: string }) =>
+      software.append("engine.notice", notice),
+  };
+  // Every story read and write goes through the StoryStore (0010), here Backlog.md.
+  const stories = backlogStoryStore(backlogCli);
   // Office commands reach the database only once the migrations step opened it; until then the
   // lifecycle gate answers them with engine.recovering. Office engine instances load lazily on
   // first use (0006 decision 4, DIPO-27).
@@ -102,20 +113,12 @@ export function buildCore(deps: EngineDeps): Core {
     ids,
     git,
     logger: logger.child({ component: "office" }),
+    stories,
     onOfficeChanged: onChanged,
   });
   // The engine's git (DIPO-31): one serial queue per loaded office, with the git the daemon
   // resolved from its PATH, so every office uses the same binary.
   const engineGit = new EngineGit(git);
-  // Every Backlog CLI call runs the `backlog` the daemon resolved (DIPO-74). A status change the
-  // runner refuses (DIPO-312) is an `engine.notice` on the software stream. Each call's deadline
-  // runs on the engine clock (DIPO-314).
-  const backlogCli: BacklogCli = {
-    ...backlogCliFor(tools, spawn),
-    clock,
-    notify: (notice: { level: "error"; code: string; text: string }) =>
-      software.append("engine.notice", notice),
-  };
   // One `gh` host, on the daemon's PATH, for teardown, the story and backlog PRs and the merges.
   const host = new GhHost({
     spawn,
@@ -143,8 +146,7 @@ export function buildCore(deps: EngineDeps): Core {
     engineGit,
     gitOf: (office) => engineGit.forOffice(office),
     backlogCli,
-    // Every story read and write goes through the StoryStore (0010), here Backlog.md.
-    stories: backlogStoryStore(backlogCli),
+    stories,
     host,
     // One PR-state poll per office (DIPO-314): every `polling.prStateSeconds` one round runs the
     // story-PR poll, an auto-merge round and the Done poll, which read each open PR once.

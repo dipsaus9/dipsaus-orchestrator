@@ -643,6 +643,7 @@ async function buildDaemon(
 
   // The story PR and its CI watch (DIPO-144, DIPO-147); every run is a box run (DIPO-299).
   const storyPrs = new StoryPrs({
+    stories: backlogLayout,
     host,
     git: gitStoryPrOps({ git: gitOf, stories: backlogStoryStore(cli) }),
     offices,
@@ -740,6 +741,7 @@ async function buildDaemon(
     send: async () => ({ ok: false, reason: "the worker host has exited" }),
   };
   const runs = composeRuns({
+    stories: backlogLayout,
     clock: officeClock,
     ids: { next: (prefix: IdPrefix) => loaded().ids.next(prefix) },
     offices,
@@ -800,6 +802,7 @@ async function buildDaemon(
     offices,
     clock: officeClock,
     stories: {
+      stories: backlogLayout,
       git: storyMergeGit,
       ids: { next: (prefix: IdPrefix) => loaded().ids.next(prefix) },
       labels: host,
@@ -829,6 +832,7 @@ async function buildDaemon(
   });
   mergeRef = merge;
   const mergeGates = new MergeGates({
+    stories: backlogLayout,
     labels: host,
     unpark: unparkWriter,
     reject: (office, runId, reject) => fixRounds.reject(office, runId, reject),

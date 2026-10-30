@@ -17,7 +17,7 @@ import { MIGRATIONS } from "../../src/db/schema";
 import { executeRead } from "../../src/reads/execute";
 import { capabilityFlags } from "../../src/reads/hello";
 import { DIGEST_COUNTS, recordTuiLeft, tuiLeftAt } from "../../src/views/digest";
-import { viewsFeature } from "../../src/views/feature";
+import { viewsFeature } from "./views-feature";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { localMounts, memoryLogger } from "../db/helpers";
 import { pass, task } from "../stories/helpers";

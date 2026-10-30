@@ -55,6 +55,7 @@ import {
 } from "../ingest/helpers";
 import { context, spec, withoutSkills } from "./launch-fixtures";
 import { loadRecording } from "./replay";
+import { backlogLayout } from "../story-store/backlog";
 
 const RUN = "run_01JZ0000000000000000000271";
 const BOX = `dipo-${RUN}`;
@@ -297,6 +298,7 @@ describe("the caps on a box worker's stream (criterion 3)", () => {
     sent = [];
     ingestor = null;
     control = new RunControl({
+      stories: backlogLayout,
       clock: f.t.clock,
       offices: { get: () => f.office },
       writer: {

@@ -47,6 +47,7 @@ import {
 
 import { APPROVED, TITLE } from "./story-helpers";
 import { backlogStoryStore } from "../../src/backlog/store";
+import { backlogLayout } from "../story-store/backlog";
 
 const REPO = "o/r";
 const PR = 7;
@@ -204,6 +205,7 @@ async function scenario(
     offices: { get: () => office, config: () => OFFICE_DEFAULTS },
     clock: s.t.clock,
     stories: {
+      stories: backlogLayout,
       git: mergeGit,
       ids: s.t.ids,
       labels: host,

@@ -928,6 +928,7 @@ beforeEach(async () => {
     },
   });
   const control = new RunControl({
+    stories: backlogLayout,
     clock: f.t.clock,
     offices: { get: () => f.office },
     writer: {
@@ -1079,9 +1080,9 @@ describe("a box run at done (DIPO-346: a green verify in the box, then In Review
     expect(w.sent).toEqual([[{ closeStdin: true }]]);
     expect(parks()).toEqual([]);
     // The review waits for the reviewer place on that head while the PR poll watches its CI.
-    expect(pendingReviews(w.f.office).map((start) => [start.kind, start.runId])).toEqual([
-      ["review", w.f.run],
-    ]);
+    expect(
+      pendingReviews(backlogLayout, w.f.office).map((start) => [start.kind, start.runId]),
+    ).toEqual([["review", w.f.run]]);
   });
 
   it("records the branch's changed gate scripts for the review, and runs none of them", async () => {
@@ -1604,6 +1605,7 @@ describe("the In Review end of a box run (DIPO-144, DIPO-84, restated for box ru
   it("writes an outcome row for a budget-exceeded park too", async () => {
     w.control.close();
     const control = new RunControl({
+      stories: backlogLayout,
       clock: w.f.t.clock,
       offices: { get: () => w.f.office },
       writer: {

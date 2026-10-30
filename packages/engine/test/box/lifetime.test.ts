@@ -54,6 +54,7 @@ import { systemSpawn } from "../../src/platform/process";
 import type { RunProfile } from "../../src/scan/detect";
 import { AdapterHolds } from "../../src/workers/hold";
 import { FakeBoxes, writeNetTools } from "./fake-boxes";
+import { backlogLayout } from "../story-store/backlog";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z00000278" as OfficeId;
 const RUN = "run_01J9ZK5Q8W3V4X6Y7Z00000278";
@@ -521,7 +522,12 @@ describe("the delivered code a lost box is rebuilt from", () => {
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp);
       const tip = await deliverPart(repo);
-      const code = await deliveredCode(w.git, { branch: BRANCH, startSha: w.start, tmpRoot: tmp });
+      const code = await deliveredCode(w.git, {
+        stories: backlogLayout,
+        branch: BRANCH,
+        startSha: w.start,
+        tmpRoot: tmp,
+      });
       expect(code.tip).toBe(tip);
       expect(code.parts).toBe(1);
       const listed = (await repo.git("ls-tree", "-r", "--name-only", code.tree)).trim().split("\n");
@@ -590,7 +596,12 @@ describe("a lost box (BoxLifetime.ensure)", () => {
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp);
       const { boxes, calls } = scripted("ready");
-      const lifetime = new BoxLifetime({ boxes, profile: () => PROFILE, tmpRoot: tmp });
+      const lifetime = new BoxLifetime({
+        stories: backlogLayout,
+        boxes,
+        profile: () => PROFILE,
+        tmpRoot: tmp,
+      });
       expect(await lifetime.ensure(request(w), () => {})).toEqual({ kind: "ready" });
       expect(calls).toEqual([]);
     }));
@@ -600,10 +611,20 @@ describe("a lost box (BoxLifetime.ensure)", () => {
       const w = await world(repo, tmp);
       const tip = await deliverPart(repo);
       const { boxes, calls } = scripted("gone");
-      const lifetime = new BoxLifetime({ boxes, profile: () => PROFILE, tmpRoot: tmp });
+      const lifetime = new BoxLifetime({
+        stories: backlogLayout,
+        boxes,
+        profile: () => PROFILE,
+        tmpRoot: tmp,
+      });
       const ensured = await lifetime.ensure(request(w), () => {});
       expect(ensured).toEqual({ kind: "rebuilt", had: "gone", parts: 1 });
-      const code = await deliveredCode(w.git, { branch: BRANCH, startSha: w.start, tmpRoot: tmp });
+      const code = await deliveredCode(w.git, {
+        stories: backlogLayout,
+        branch: BRANCH,
+        startSha: w.start,
+        tmpRoot: tmp,
+      });
       expect(calls).toEqual([
         `discard ${RUN}`,
         `create at ${code.tree}`,
@@ -616,7 +637,12 @@ describe("a lost box (BoxLifetime.ensure)", () => {
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp);
       const { boxes, calls } = scripted("none");
-      const lifetime = new BoxLifetime({ boxes, profile: () => PROFILE, tmpRoot: tmp });
+      const lifetime = new BoxLifetime({
+        stories: backlogLayout,
+        boxes,
+        profile: () => PROFILE,
+        tmpRoot: tmp,
+      });
       expect(await lifetime.ensure(request(w), () => {})).toEqual({
         kind: "rebuilt",
         had: "none",
@@ -629,7 +655,12 @@ describe("a lost box (BoxLifetime.ensure)", () => {
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp);
       const { boxes, calls } = scripted("gone", { installFails: true });
-      const lifetime = new BoxLifetime({ boxes, profile: () => PROFILE, tmpRoot: tmp });
+      const lifetime = new BoxLifetime({
+        stories: backlogLayout,
+        boxes,
+        profile: () => PROFILE,
+        tmpRoot: tmp,
+      });
       expect(await lifetime.ensure(request(w), () => {})).toEqual({
         kind: "failed",
         reason: "the install exited 1 in the box",
@@ -642,7 +673,12 @@ describe("a lost box (BoxLifetime.ensure)", () => {
       const w = await world(repo, tmp);
       await repo.git("branch", "-D", BRANCH);
       const { boxes, calls } = scripted("gone");
-      const lifetime = new BoxLifetime({ boxes, profile: () => PROFILE, tmpRoot: tmp });
+      const lifetime = new BoxLifetime({
+        stories: backlogLayout,
+        boxes,
+        profile: () => PROFILE,
+        tmpRoot: tmp,
+      });
       const ensured = await lifetime.ensure(request(w), () => {});
       expect(ensured.kind).toBe("failed");
       expect(calls).toEqual([]);
@@ -656,6 +692,7 @@ describe("a lost box (BoxLifetime.ensure)", () => {
       w.boxes.boxes.delete(BOX);
       expect(await w.workers.has(RUN, w.runDir)).toBe("gone");
       const lifetime = new BoxLifetime({
+        stories: backlogLayout,
         boxes: w.workers,
         profile: () => ({ ...PROFILE, capabilities: { install: { status: "missing" } } }) as never,
         tmpRoot: tmp,

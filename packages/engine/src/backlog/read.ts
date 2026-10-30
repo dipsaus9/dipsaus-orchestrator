@@ -18,7 +18,7 @@ import type { StoryKind } from "../story-store/story";
 
 import { listAll } from "./list";
 import { BacklogParseError, parseView, plainLines } from "./plain";
-import { type BacklogCli, backlogPointer, runBacklog } from "./runner";
+import { type BacklogCli, ROOT_CONFIG, runBacklog, storyFoldersOf } from "./runner";
 
 /** sha256 of a view's output without the `File:` line that names where it was read. */
 export function contentHash(output: string): string {
@@ -270,9 +270,6 @@ export class ViewPass {
   }
 }
 
-/** The Backlog CLI's root configuration file. */
-const BACKLOG_ROOT_CONFIG = "backlog.config.yml";
-
 /** The kept views of each `ReadReuse` key (the office), for as long as the key lives. */
 const VIEW_CACHES = new WeakMap<object, StoryViewCache>();
 
@@ -292,17 +289,19 @@ export function viewCacheOf(key: object): StoryViewCache {
  * file itself; null when the file names a folder dipo cannot resolve, or cannot be read.
  */
 export function backlogFolders(cwd: string): string[] | null {
-  const folders = ["backlog", ".backlog", BACKLOG_ROOT_CONFIG];
-  let text: string;
+  let text: string | null;
   try {
-    text = readFileSync(join(cwd, BACKLOG_ROOT_CONFIG), "utf8");
+    text = readFileSync(join(cwd, ROOT_CONFIG), "utf8");
   } catch (error) {
-    return (error as { code?: unknown }).code === "ENOENT" ? folders : null;
+    if ((error as { code?: unknown }).code !== "ENOENT") return null;
+    text = null;
   }
-  const pointer = backlogPointer(text);
-  if (pointer.kind === "unresolved") return null;
-  if (pointer.kind === "folder" && !folders.includes(pointer.folder)) folders.push(pointer.folder);
-  return folders;
+  try {
+    const [own = "", hidden = "", ...named] = storyFoldersOf(text);
+    return [own, hidden, ROOT_CONFIG, ...named];
+  } catch {
+    return null;
+  }
 }
 
 /**

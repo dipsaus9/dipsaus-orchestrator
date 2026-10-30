@@ -36,6 +36,7 @@ import { insertClaim, updateClaim } from "../../src/worktree/records";
 import type { TestState } from "../commands/helpers";
 import { loggedEvents } from "../ingest/helpers";
 import { pass, task, withOffice } from "../stories/helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const REPO = "o/r";
 const BRANCH = "DIPO-1/open-the-pr";
@@ -210,6 +211,7 @@ async function inWorld(fn: (w: World) => Promise<void>, setup: WorldSetup = {}):
       office,
       t,
       prs: new StoryPrs({
+        stories: backlogLayout,
         host,
         git: {
           read: async () => {

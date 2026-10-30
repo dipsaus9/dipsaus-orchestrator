@@ -12,6 +12,7 @@ import { reconcileOffice, type ReconcileReport } from "../../src/reconcile";
 import { DONE_ELSEWHERE_DESK, doneElsewhereDeskItems } from "../../src/worktree/done-elsewhere";
 import { openReleasedBranches, releaseClaim } from "../../src/worktree/records";
 import { claim, type FakeTask, keyOf, type ReconcileOffice, withReconcileOffice } from "./helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const DONE: readonly FakeTask[] = [{ id: "TASK-1", status: "Done" }];
 
@@ -49,6 +50,7 @@ async function reconcile(
   const pass = await o.index.indexStories(o.officeId);
   const report = await reconcileOffice(
     {
+      stories: backlogLayout,
       officeId: o.officeId,
       office: o.office,
       git: gitOf(o),

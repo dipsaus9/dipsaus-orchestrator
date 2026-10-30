@@ -92,6 +92,7 @@ function runsOf(core: Core, story: StoryServices, partners: EnginePartners): Eng
 function reconcilerOf(core: Core, story: StoryServices, runs: EngineRuns): Reconciler {
   return new Reconciler({
     git: core.gitOf,
+    storyStore: core.stories,
     stories: story.storyIndex,
     runs: runs.control,
     releaseClaim: (office, claim, reason) => story.claims.releaseUnstarted(office, claim, reason),
@@ -167,6 +168,7 @@ function autoMergeOf(core: Core, story: StoryServices, runs: EngineRuns): AutoMe
     offices: core.offices,
     clock: core.deps.clock,
     stories: {
+      stories: core.stories,
       git: gitStoryMergeOps({ git: gitOf, stories: core.stories }),
       ids: core.ids,
       labels: host,
@@ -201,6 +203,7 @@ function mergeGatesOf(
   const { host, gitOf } = core;
   const { storyPrs, storyIndex, autoMergeGuard } = story;
   return new MergeGates({
+    stories: core.stories,
     labels: host,
     unpark: guardedUnparkWriter(
       gitUnparkWriter({ git: gitOf, stories: core.stories }),
@@ -230,6 +233,7 @@ function storyTestsOf(
 ): StoryTests {
   const { runProfiles, autoMerge } = later;
   const storyTests = new StoryTests({
+    stories: core.stories,
     offices: core.offices,
     clock: core.deps.clock,
     ids: core.ids,

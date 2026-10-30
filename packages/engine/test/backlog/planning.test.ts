@@ -44,6 +44,7 @@ import { StoryPlanning } from "../../src/stories/planning";
 import { insertClaim, liveClaimOf, releasedBranchFor } from "../../src/worktree/records";
 import { CodeHostError } from "../../src/platform/host";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 interface Closed {
   repo: string;
@@ -166,6 +167,7 @@ beforeEach(async () => {
     parkedRuns: [] as { story: string; note: string }[],
   };
   const planning = new StoryPlanning({
+    stories: backlogLayout,
     parkRun: async (_ctx, args) => {
       hooks.parkedRuns.push({ story: args.story, note: args.note });
       return { result: { run: "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C5H" as RunId } };
@@ -189,7 +191,7 @@ beforeEach(async () => {
         ? { pid, startTimeMs: HOST_START, zombie: false, command: "dipo daemon worker-host" }
         : null,
   });
-  const resume = new WorkResumeCommand(() => planning);
+  const resume = new WorkResumeCommand(backlogLayout, () => planning);
   const registry = buildRegistry([planning.feature, resume.feature as FeatureModule]);
   w = { dir, t, office, ops, flushes, closed, planning, registry, hooks };
 });
@@ -384,7 +386,7 @@ describe("story.park", () => {
       // The pending-op skip applies at once, while the base still says the story is `status`.
       expect(pendingLaneOp(w.office, key)).not.toBeNull();
       expect(w.flushes.n).toBe(1);
-      expect(openPark(w.office, key)).toMatchObject({
+      expect(openPark(backlogLayout, w.office, key)).toMatchObject({
         reason: "by-maintainer",
         from: status,
         detail: "after M2",
@@ -519,7 +521,7 @@ describe("work.resume of a story parked with no run", () => {
     // The pending-op skip covers the story until the resume merges, then the pickup re-check runs.
     expect(pendingLaneOp(w.office, key)).not.toBeNull();
     expect(w.flushes.n).toBe(2);
-    expect(openPark(w.office, key)).toBeNull();
+    expect(openPark(backlogLayout, w.office, key)).toBeNull();
     expect(
       w.office.get<{ how: string }>(
         "select resolved_how as how from parks where office_id = $office_id and key = $key",
@@ -584,10 +586,10 @@ describe("story.drop", () => {
       park: { reason: "by-maintainer", from: "Ready", note: "later" },
     });
     park(key, "DIPO-7", "by-maintainer", "Ready", null);
-    expect(openPark(w.office, key)).not.toBeNull();
+    expect(openPark(backlogLayout, w.office, key)).not.toBeNull();
     const reply = await send("story.drop", { story: "DIPO-7", deleteBranch: false });
     expect(reply).toMatchObject({ ok: true });
-    expect(openPark(w.office, key)).toBeNull();
+    expect(openPark(backlogLayout, w.office, key)).toBeNull();
     expect(
       w.office.get<{ how: string }>(
         "select resolved_how as how from parks where office_id = $office_id and key = $key",
@@ -718,6 +720,7 @@ describe("story.drop", () => {
       }),
     );
     const failing = new StoryPlanning({
+      stories: backlogLayout,
       lane: () => planningLane(fakeLane(w.office, w.t, w.ops, w.flushes)),
       git: () => fakeGit(),
       host: {

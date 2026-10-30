@@ -34,6 +34,7 @@ import { encode } from "../../src/workers/claude-cli/encode";
 import type { WorkerPort } from "../../src/workers/port";
 import type { Caps } from "../../src/workers/types";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const ROOMY: Caps = { budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 30 };
 
@@ -64,6 +65,7 @@ afterEach(() => {
 /** The ports every wiring has; `extra` adds the optional services. */
 function portsOf(extra: Partial<RunPorts> = {}): RunPorts {
   return {
+    stories: backlogLayout,
     clock: f.t.clock,
     ids: f.t.ids,
     offices: { get: () => f.office, config: () => undefined },
@@ -239,7 +241,7 @@ describe("composeRuns", () => {
       warn: (message) => warned.push(message),
     });
     expect(composed.reviews).toBeInstanceOf(Reviews);
-    expect(pendingReviews(office).map((start) => start.runId)).toEqual([f.run]);
+    expect(pendingReviews(backlogLayout, office).map((start) => start.runId)).toEqual([f.run]);
 
     // The starter reads the story first; this wiring reads none, so the review waits.
     expect(await composed.places?.drain(office.officeId)).toBe(0);

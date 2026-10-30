@@ -3,13 +3,11 @@
 // before the store applies it, so a pending change wins over pickup at once. The Backlog.md
 // implementation (`backlog/lane/`) applies them through the Backlog CLI on an engine branch and a
 // backlog PR; the engine asks for them only through `PlanningLane`, and asks the StoryStore
-// whether one holds a story from pickup (`planningHold`).
-//
-// The target-state model below (the change kinds, an edit's target, the journal states) is what
-// the engine's park read shares with the store: the park a pending change writes (`plannedPark`)
-// counts as the story's park before its backlog PR merges (`run/park-state.ts`).
+// whether one holds a story from pickup (`planningHold`) and which park a pending change writes
+// (`plannedPark`): that park counts as the story's park before its backlog PR merges
+// (`run/park-state.ts`).
 
-import { FieldBlockPark, type Lifecycle, type StoryKey } from "@dipsaus-orchestrator/contract";
+import type { FieldBlockPark, Lifecycle, StoryKey } from "@dipsaus-orchestrator/contract";
 import { z } from "zod";
 
 import type { StoryKind } from "./story";
@@ -69,26 +67,6 @@ export type DropTarget = z.infer<typeof DropTarget>;
 
 /** A park record as a story holds it (0010 field block `park`). */
 export type PlannedPark = FieldBlockPark;
-
-/**
- * The park a journaled change of `kind` with `target` writes: `undefined` when it sets neither the
- * status nor the park, else its park record (null when it lifts, drops or moves the story to a
- * status other than Parked).
- */
-export function plannedPark(kind: string, target: unknown): PlannedPark | null | undefined {
-  if (kind === DROP_KIND) return null;
-  const parsed = EditTarget.safeParse(target);
-  if (!parsed.success) return undefined;
-  const { status, fields, unset } = parsed.data;
-  const park = fields?.["park"];
-  if (status === undefined && park === undefined && !(unset ?? []).includes("park")) {
-    return undefined;
-  }
-  if (status !== undefined && status !== "Parked") return null;
-  if (park === undefined) return null;
-  const record = FieldBlockPark.safeParse(park);
-  return record.success ? record.data : null;
-}
 
 /** A planning change the store journaled. */
 export interface PlannedChange {

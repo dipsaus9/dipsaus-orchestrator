@@ -55,6 +55,7 @@ import type { RunSteering } from "../run/control";
 import { type LiveQuestions, type Presence, questionRoute } from "../run/live-question";
 import { sendFeedback } from "../run/feedback";
 import { openPark } from "../run/park";
+import type { ParkStore } from "../run/park-state";
 import { findRun, type StoredRun } from "../run/records";
 import { withWorkViews, workRefOf } from "../views/work";
 import type { HostOp, SteerOp } from "../workers/types";
@@ -106,6 +107,8 @@ export interface QuestionParkResumer {
 }
 
 export interface PermissionAsksDeps {
+  /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
+  readonly stories: ParkStore;
   readonly clock: Clock;
   readonly ids: IdSource;
   readonly offices: {
@@ -366,7 +369,7 @@ export class PermissionAsks implements LiveQuestions {
     const office = ctx.office;
     const text = workerAnswerTextOf(args);
     const run = findRun(office, question.runId as RunId);
-    const park = run?.key == null ? null : openPark(office, run.key);
+    const park = run?.key == null ? null : openPark(this.#deps.stories, office, run.key);
     const now = this.#deps.clock.now();
     if (run === null || park === null || park.parkId !== question.parkId) {
       ctx.commit(() =>

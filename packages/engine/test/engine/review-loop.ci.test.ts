@@ -61,6 +61,7 @@ import {
   TASK_FILE_1,
   withLoopOffice,
 } from "./loop-office";
+import { backlogLayout } from "../story-store/backlog";
 
 const CSV = "packages/export/csv.ts";
 const CSV_V1 = 'export const header = "id,title";\nexport const row = (id: string) => id;\n';
@@ -677,7 +678,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             return devScript(session.n);
           };
           const run = await startStory(w, TASK_1);
-          await w.until("the park", () => openPark(w.office, keyOf(w, run)) !== null);
+          await w.until(
+            "the park",
+            () => openPark(backlogLayout, w.office, keyOf(w, run)) !== null,
+          );
           // The review that ran meanwhile ends with its verdict; the run waits parked.
           await w.until(
             "the review's verdict",

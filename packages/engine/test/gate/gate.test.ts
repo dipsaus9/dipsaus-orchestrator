@@ -569,6 +569,11 @@ describe("R12 scope paths", () => {
     "",
     "backlog",
     "backlog/tasks/dipo-1.md",
+    // The story folders as the store names them, in any spelling (DIPO-379).
+    "./backlog/tasks/dipo-1.md",
+    "backlog/",
+    "Backlog/Tasks",
+    ".backlog/tasks/x.md",
   ];
   for (const path of bad) {
     it(`rejects ${JSON.stringify(path)}`, () => {
@@ -588,11 +593,25 @@ describe("R12 scope paths", () => {
           "src/..hidden",
           ".github/workflows/ci.yml",
           "backlogs/x",
+          "backlog-x/y",
         ],
       }),
       "ready",
     );
     expect(result.failures).toEqual([]);
+  });
+
+  it("keeps out the folders another store names, and only those (DIPO-379)", () => {
+    const result = evaluateGate(
+      input(
+        { references: ["tracker/items/", "backlog/tasks/x.md"] },
+        { storyFolders: ["tracker"] },
+      ),
+      "ready",
+    );
+    expect(messages(result)).toEqual([
+      `${prefix("R12")}scope path "tracker/items/" is not a valid repo-relative path`,
+    ]);
   });
 });
 
@@ -748,6 +767,7 @@ describe("purity", () => {
     /^\.\/[a-z]+$/,
     /^\.\.\/story-store\/fields\/(block|labels)$/,
     /^\.\.\/story-store\/story$/,
+    /^\.\.\/story-store\/paths$/,
     /^\.\.\/config\/schema$/,
     /^@dipsaus-orchestrator\/contract$/,
   ];

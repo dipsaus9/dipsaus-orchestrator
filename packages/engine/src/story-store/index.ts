@@ -20,6 +20,15 @@ export {
 } from "./fields/block";
 export type { BlockLocation, ParsedDescription } from "./fields/block";
 export {
+  checkoutFiles,
+  folderLookupRefused,
+  StoryFileRefusedError,
+  TREE_FILE_MAX,
+  treeFiles,
+} from "./folder";
+export { foldName, inStoryFolder, linkTargetOf, repoPathOf } from "./paths";
+export type { RepoFileRead } from "./folder";
+export {
   isValidLabel,
   LABEL_GRAMMAR,
   readLabels,
@@ -37,7 +46,6 @@ export {
   HOLD_KIND,
   OPEN_STATES,
   PENDING_LANE_NOTICE,
-  plannedPark,
   PROPOSE_KIND,
   RESUME_KIND,
 } from "./planning";

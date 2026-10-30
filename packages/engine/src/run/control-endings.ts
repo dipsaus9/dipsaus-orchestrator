@@ -216,7 +216,7 @@ export class RunEndings {
         story: identity.story,
       });
     }
-    if (openPark(handle, identity.key) !== null) {
+    if (openPark(this.#deps.stories, handle, identity.key) !== null) {
       return { result: { run: waiting.runId }, changed: false };
     }
     // A park of this run that Backlog.md does not hold (its write failed) is written again on

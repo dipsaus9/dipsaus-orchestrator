@@ -753,6 +753,7 @@ describe("work.run refusals", () => {
   it("answers engine.recovering for from while the state database is not open", async () => {
     const t = world.t;
     const manager = new OfficeManager({
+      stories: backlogLayout,
       database: () => null,
       registry: () => world.registry,
       software: new SoftwareStream({ clock: t.clock }),
@@ -1057,6 +1058,7 @@ function resumption(sessions: { count: number }): Resumption {
   const ender = { isTracked: () => false } as unknown as RunEnder;
   return createRunOutcomes(
     {
+      stories: backlogLayout,
       clock: world.t.clock,
       offices: { get: () => world.office },
       steering: { send: async () => ({ ok: true }) },

@@ -21,8 +21,9 @@
 // 2. On the Mac. The extractor (`extractArchive`) writes only files and folders into a fresh
 //    folder outside any repository and refuses hostile entries; every symlink or hard link is
 //    recorded as data, never written or followed. dipo reads the files there, as data only, and
-//    compares them with the last delivered tree: the story branch's tip, with `backlog/` as the box
-//    got it at the start commit (dipo's own task-file commits never reach the box). Left out are
+//    compares them with the last delivered tree: the story branch's tip, with the story folders (the
+//    StoryStore's `storyFolders`, read from the tip) as the box got them at the start commit
+//    (dipo's own task-file commits never reach the box). Left out are
 //    paths git ignores by the part's own `.gitignore` rules (`box/ignore.ts`), as git would in the
 //    part's commit, the files outside git the office config copied in when the box was made (the
 //    run's record of `box.files`, `BoxRunRecord.files`, never the base config at part time), and
@@ -31,11 +32,11 @@
 //    `.gitignore` over `IGNORE_FILE_MAX` is refused unread.
 // 3. The scans (0021 section 8). A path with a control, bidirectional or invisible character is
 //    refused. A protected-file check (`protectedKind`, folded as APFS folds names, with a
-//    look-alike fold as a second layer: git's own folder, the whole `backlog/` with the story's
-//    task file, `.dipo/`, `.github/`, the Claude settings, `.gitattributes`/`.gitmodules`, and
-//    the configuration of the tools dipo runs on checkouts of the repository: the Backlog CLI's,
-//    Bun's and Claude Code's MCP servers', with the configuration in the backlog folder the
-//    delivered `backlog.config.yml` names, DIPO-312) runs
+//    look-alike fold as a second layer: git's own folder, every story folder with the story's task
+//    file (compared normalised, whole segments, `story-store/paths.ts`), `.dipo/`, `.github/`,
+//    the Claude settings, `.gitattributes`/`.gitmodules`, and the configuration of the tools dipo
+//    runs on checkouts of the repository: the Backlog CLI's, Bun's and Claude Code's MCP servers',
+//    DIPO-312) runs
 //    over every added, changed and deleted path, where any link other than an unchanged tracked
 //    symlink also counts as protected. Then the secret scan, outside the git queue: the cleaned
 //    commit subject, every added or changed path's name, and every added or changed file streamed
@@ -108,9 +109,12 @@ import {
 } from "../context/secrets";
 import { BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
+import { type GitTreeEntry, listTree } from "../git/tree";
 import { GitError } from "../git/runner";
 import { commitTree, moveBranch, type PushResult, pushBranch } from "../git/write";
 import { yieldToEventLoop } from "../platform/clock";
+import { folderLookupRefused, treeFiles } from "../story-store/folder";
+import { foldName, inStoryFolder } from "../story-store/paths";
 import type { StoryStore } from "../story-store/store";
 import {
   type ArchiveLink,
@@ -262,25 +266,16 @@ export type ProtectedKind =
 /** The fixed text of each kind, for the park detail. */
 export const PROTECTED_TEXT: Readonly<Record<ProtectedKind, string>> = {
   git: "git's own folder (.git)",
-  backlog: "the backlog (backlog/, with the story's task file)",
+  backlog: "the story store's folder, with the story's task file",
   dipo: "dipo's configuration (.dipo/)",
   ci: "CI configuration (.github/)",
   claude: "the Claude settings (.claude/settings.json)",
   gitConfig: "git's attributes or submodules (.gitattributes, .gitmodules)",
-  backlogConfig: "the Backlog CLI's configuration (backlog.config.yml, .backlog/)",
+  backlogConfig: "the Backlog CLI's configuration (backlog.config.yml)",
   bunConfig: "Bun's configuration (bunfig.toml)",
   mcpConfig: "Claude Code's MCP server configuration (.mcp.json)",
   link: "a symlink or hard link",
 };
-
-/**
- * `text` folded as a case- and normalisation-insensitive volume compares names: decomposed, then
- * upper- and lower-cased, so `ſ` and `K` (Kelvin) meet their ASCII letters as `.GitHub/` meets
- * `.github/`.
- */
-export function foldName(text: string): string {
-  return text.normalize("NFD").toUpperCase().toLowerCase();
-}
 
 /** `text` folded harder: compatibility forms (`ｂ`), combining marks dropped, then `foldName`. */
 function lookAlike(text: string): string {
@@ -291,17 +286,13 @@ function lookAlike(text: string): string {
  * The protected kind of the repo-relative `path`, or null. Compared folded (`foldName`), as an
  * APFS volume finds files; and, as a second layer, a path with characters outside ASCII is also
  * protected when its look-alike fold (`.gitattributeſ`, `ｂacklog/`) names a protected file.
- * `backlogFolder` is the backlog folder the delivered tree's `backlog.config.yml` names, if any:
- * its `config.yml` and `config.yaml` are the Backlog CLI's configuration too.
+ * `folders` are the story folders (`StoryStore.storyFolders`): a path in one is the `backlog` kind.
  */
-export function protectedKind(
-  path: string,
-  backlogFolder: string | null = null,
-): ProtectedKind | null {
-  const kind = protectedOf(foldName(path), backlogFolder === null ? null : foldName(backlogFolder));
+export function protectedKind(path: string, folders: readonly string[]): ProtectedKind | null {
+  const kind = protectedOf(foldName(path), folders);
   if (kind !== null) return kind;
   if (!/[^\p{ASCII}]/u.test(path)) return null;
-  return protectedOf(lookAlike(path), backlogFolder === null ? null : lookAlike(backlogFolder));
+  return protectedOf(lookAlike(path), folders.map(lookAlike));
 }
 
 /**
@@ -330,18 +321,15 @@ export function unsafePath(path: string): boolean {
   return false;
 }
 
-function protectedOf(key: string, folder: string | null): ProtectedKind | null {
+function protectedOf(key: string, folders: readonly string[]): ProtectedKind | null {
   const parts = key.split("/");
   if (parts.includes(".git")) return "git";
-  if (parts[0] === "backlog") return "backlog";
+  if (inStoryFolder(key, folders)) return "backlog";
   if (parts[0] === ".dipo") return "dipo";
   if (parts[0] === ".github") return "ci";
   if (key === ".claude/settings.json" || key === ".claude/settings.local.json") return "claude";
   const name = parts.at(-1);
   if (name === ".gitattributes" || name === ".gitmodules") return "gitConfig";
-  if (folder !== null && (key === `${folder}/config.yml` || key === `${folder}/config.yaml`)) {
-    return "backlogConfig";
-  }
   return toolConfigOf(key, parts);
 }
 
@@ -349,16 +337,15 @@ function protectedOf(key: string, folder: string | null): ProtectedKind | null {
 // 14): after a story merges, dipo runs the Backlog CLI (a program built with Bun) and Bun in
 // checkouts of the base, and the reviewer, a Claude Code session, runs on a copy of the story's
 // commit. A part may not add, change or delete a file any of them reads its configuration from.
-// `backlog/` itself is the `backlog` kind.
+// The story folders themselves are the `backlog` kind.
 
 /** The protected tool-configuration kind of the folded `key` (split into `parts`), or null. */
 function toolConfigOf(key: string, parts: readonly string[]): ProtectedKind | null {
   // Backlog.md 1.53, README section "Configuration": the project configuration is
-  // `backlog.config.yml` at the project root when present, otherwise `backlog/config.yml` or
-  // `.backlog/config.yml` (its reader also takes `config.yaml` in either folder), and
-  // `.backlog/` is the other folder it keeps tasks in. dipo runs the CLI at the repository root.
+  // `backlog.config.yml` at the project root when present, otherwise the one in a folder it keeps
+  // its stories in, which the store names (`storyFolders`, the `backlog` kind). dipo runs the CLI
+  // at the repository root.
   if (key === "backlog.config.yml") return "backlogConfig";
-  if (parts[0] === ".backlog") return "backlogConfig";
   // Bun: https://bun.sh/docs/runtime/bunfig (Bun reads `bunfig.toml` in the folder it runs in;
   // `.bunfig.toml` is the name of its user-level file, protected too). In any folder, as a
   // workspace script runs Bun in its package's folder.
@@ -373,11 +360,7 @@ function toolConfigOf(key: string, parts: readonly string[]): ProtectedKind | nu
 // ---- comparing -----------------------------------------------------------------------------------
 
 /** One entry of the delivered tree (`git ls-tree -r`). */
-export interface TreeEntry {
-  readonly mode: string;
-  readonly type: string;
-  readonly id: string;
-}
+export type TreeEntry = GitTreeEntry;
 
 /** One regular file of the part, as dipo read it on the Mac. */
 export interface PartFile {
@@ -543,18 +526,18 @@ export function blobId(format: "sha1" | "sha256", content: Uint8Array | string):
 export const SECRET_NAME_KIND = "a secret file name";
 
 /**
- * Pure: the protected-file check of a part's changes and link hits; `backlogFolder` as in
+ * Pure: the protected-file check of a part's changes and link hits; `folders` as in
  * `protectedKind`.
  */
 export function protectedHits(
   changes: readonly PartChange[],
   linkHits: readonly string[],
-  backlogFolder: string | null = null,
+  folders: readonly string[],
 ): { readonly kinds: ProtectedKind[]; readonly paths: string[] } {
   const kinds = new Set<ProtectedKind>();
   const paths: string[] = [];
   for (const change of changes) {
-    const kind = protectedKind(change.path, backlogFolder);
+    const kind = protectedKind(change.path, folders);
     if (kind === null) continue;
     kinds.add(kind);
     paths.push(change.path);
@@ -739,7 +722,8 @@ export type PartRefusal =
   | "path"
   | "ignoreFile"
   | "ignoreWork"
-  | "bigFile";
+  | "bigFile"
+  | "storyFolder";
 
 /** The fixed park detail of a part dipo could not take, by why. */
 export function refusedDetail(why: PartRefusal, maxBytes: number): string {
@@ -753,6 +737,8 @@ export function refusedDetail(why: PartRefusal, maxBytes: number): string {
       return `The part the worker delivered has more paths and ignore rules than dipo matches in one part. ${nothing}`;
     case "bigFile":
       return `The part the worker delivered adds or changes a file larger than ${SCAN_FILE_MAX} bytes, which dipo does not scan. ${nothing}`;
+    case "storyFolder":
+      return `dipo could not tell from the story branch which folders the story store keeps its stories in (its configuration names a folder dipo cannot resolve, or is a file dipo does not read), so it cannot check the part for them. ${nothing}`;
     default:
       break;
   }
@@ -824,44 +810,53 @@ interface PartView {
   readonly format: "sha1" | "sha256";
   readonly entries: ReadonlyMap<string, TreeEntry>;
   readonly ignores: readonly IgnoreFile[];
-}
-
-function treeEntries(listed: string): [string, TreeEntry][] {
-  return listed
-    .split("\0")
-    .filter((line) => line !== "")
-    .map((line) => {
-      const tab = line.indexOf("\t");
-      const [mode = "", type = "", id = ""] = line.slice(0, tab).split(" ");
-      return [line.slice(tab + 1), { mode, type, id }];
-    });
-}
-
-function inBacklog(path: string): boolean {
-  return path === "backlog" || path.startsWith("backlog/");
+  /** The story folders the tip names (`StoryStore.storyFolders`); null when the store refused. */
+  readonly folders: readonly string[] | null;
 }
 
 /**
- * The last delivered tree: the branch tip's tree with `backlog/` as the start commit holds it, the
- * box's view, since dipo's own task-file commits never reach the box. With the `.gitignore` files
- * it holds.
+ * The last delivered tree: the branch tip's tree with the story folders (`storyFolders`, read from
+ * the tip) as the start commit holds them, the box's view, since dipo's own task-file commits never
+ * reach the box. With the `.gitignore` files it holds. `folders` is null when the store could not
+ * tell its folders from the tip (`folderLookupRefused`): the view is then the tip's tree, and a
+ * part is refused.
  */
-async function readView(session: GitSession, branch: string, startSha: string): Promise<PartView> {
-  return readViewAt(session, await branchTip(session, branch), startSha);
+async function readView(
+  session: GitSession,
+  stories: Pick<StoryStore, "storyFolders">,
+  branch: string,
+  startSha: string,
+): Promise<PartView> {
+  return readViewAt(session, stories, await branchTip(session, branch), startSha);
 }
 
 /** `readView` at the commit `tip` instead of a branch's tip. */
-async function readViewAt(session: GitSession, tip: string, startSha: string): Promise<PartView> {
+async function readViewAt(
+  session: GitSession,
+  stories: Pick<StoryStore, "storyFolders">,
+  tip: string,
+  startSha: string,
+): Promise<PartView> {
   const repo = session.repository;
   const tipTree = (await session.ok(repo, ["rev-parse", "--verify", `${tip}^{tree}`])).trim();
   const shown = (await session.ok(repo, ["rev-parse", "--show-object-format"])).trim();
   const format = shown === "sha256" ? "sha256" : "sha1";
+  const atTip = await listTree(session, tip);
+  const folders = await stories
+    .storyFolders(treeFiles(session, atTip))
+    .catch((error: unknown): null => {
+      if (folderLookupRefused(error)) return null;
+      throw error;
+    });
   const entries = new Map<string, TreeEntry>();
-  for (const [path, entry] of treeEntries(await session.ok(repo, ["ls-tree", "-r", "-z", tip]))) {
-    if (!inBacklog(path)) entries.set(path, entry);
+  for (const [path, entry] of atTip) {
+    if (folders === null || !inStoryFolder(path, folders)) entries.set(path, entry);
   }
-  const atStart = await session.ok(repo, ["ls-tree", "-r", "-z", startSha, "--", "backlog"]);
-  for (const [path, entry] of treeEntries(atStart)) entries.set(path, entry);
+  if (folders !== null) {
+    for (const [path, entry] of await listTree(session, startSha)) {
+      if (inStoryFolder(path, folders)) entries.set(path, entry);
+    }
+  }
   const ignores: IgnoreFile[] = [];
   for (const [path, entry] of entries) {
     const dir = ignoreFileDir(path);
@@ -871,26 +866,7 @@ async function readViewAt(session: GitSession, tip: string, startSha: string): P
     if (!(size <= IGNORE_FILE_MAX)) continue;
     ignores.push({ dir, text: await session.ok(repo, ["cat-file", "blob", entry.id]) });
   }
-  return { tip, tipTree, format, entries, ignores };
-}
-
-/**
- * The backlog folder the delivered tree's `backlog.config.yml` names (the store's
- * `configuredFolder`), or null: none, a link or a file too large to read, or a pointer that does
- * not resolve (the runner then refuses every Backlog CLI call there).
- */
-async function namedBacklogFolder(
-  session: GitSession,
-  stories: Pick<StoryStore, "configuredFolder">,
-  entries: ReadonlyMap<string, TreeEntry>,
-): Promise<string | null> {
-  const entry = entries.get("backlog.config.yml");
-  if (entry === undefined || entry.type !== "blob" || entry.mode === "120000") return null;
-  const size = Number((await session.ok(session.repository, ["cat-file", "-s", entry.id])).trim());
-  if (!(size <= IGNORE_FILE_MAX)) return null;
-  return stories.configuredFolder(
-    await session.ok(session.repository, ["cat-file", "blob", entry.id]),
-  );
+  return { tip, tipTree, format, entries, ignores, folders };
 }
 
 /** The commit the story branch points at. */
@@ -1101,6 +1077,8 @@ export function startTreeRefusal(why: PartRefusal, maxBytes: number): string {
       return `the box's /work holds a .gitignore larger than ${IGNORE_FILE_MAX} bytes, which dipo does not read`;
     case "ignoreWork":
       return "the box's /work has more paths and ignore rules than dipo matches at once";
+    case "storyFolder":
+      return "dipo could not tell from the start commit which folders the story store keeps its stories in";
     default:
       return `dipo refused the archive of the box's /work (${why})`;
   }
@@ -1179,8 +1157,8 @@ type Log = (message: string, fields: Readonly<Record<string, unknown>>) => void;
 
 export interface BoxPartsDeps {
   readonly boxes: Pick<BoxPort, "execLive" | "stop">;
-  /** The story store: the backlog folder a delivered tree's configuration names is protected too. */
-  readonly stories: Pick<StoryStore, "configuredFolder">;
+  /** The story store: the folders it keeps its stories in are protected (`storyFolders`). */
+  readonly stories: Pick<StoryStore, "storyFolders">;
   readonly clock: Clock;
   /**
    * This daemon's own folder of part stages (`partStageRoot`), made 0700 when first used; a part
@@ -1457,8 +1435,12 @@ export class BoxParts {
     try {
       const git = this.#gitOf(run);
       const view = await git.run((session) =>
-        readViewAt(session, run.codeTip ?? run.startSha, run.startSha),
+        readViewAt(session, this.#deps.stories, run.codeTip ?? run.startSha, run.startSha),
       );
+      if (view.folders === null) {
+        const limit = (this.#deps.limits ?? PART_ARCHIVE_LIMITS).maxArchiveBytes;
+        return { kind: "unknown", reason: startTreeRefusal("storyFolder", limit) };
+      }
       const listed = await this.#listed(run, git);
       return await this.#inStage(async (stage): Promise<StartTreeCheck> => {
         const taken = await this.#take(run, view, listed, stage);
@@ -1789,12 +1771,17 @@ export class BoxParts {
   async #attempt(run: PartRun, message: string): Promise<PartOutcome | null> {
     const git = this.#gitOf(run);
     const limits = this.#deps.limits ?? PART_ARCHIVE_LIMITS;
-    const view = await git.run((session) => readView(session, run.branch, run.startSha));
-    const listed = await this.#listed(run, git);
+    const view = await git.run((session) =>
+      readView(session, this.#deps.stories, run.branch, run.startSha),
+    );
     const refused = (why: PartRefusal): PartOutcome => ({
       kind: "refused",
       detail: refusedDetail(why, limits.maxArchiveBytes),
     });
+    // The story folders are protected by name: a store that cannot tell them refuses the part.
+    const folders = view.folders;
+    if (folders === null) return refused("storyFolder");
+    const listed = await this.#listed(run, git);
     return this.#inStage(async (stage): Promise<PartOutcome | null> => {
       const taken = await this.#take(run, view, listed, stage);
       if (taken.kind === "refused") return taken.outcome;
@@ -1802,10 +1789,7 @@ export class BoxParts {
       if ([...changes.map((change) => change.path), ...linkHits].some(unsafePath)) {
         return refused("path");
       }
-      const folder = await git.run((session) =>
-        namedBacklogFolder(session, this.#deps.stories, view.entries),
-      );
-      const guarded = protectedHits(changes, linkHits, folder);
+      const guarded = protectedHits(changes, linkHits, folders);
       if (guarded.kinds.length > 0) {
         this.#hitRecord(run, PART_HITS.protectedFile, guarded.paths);
         return {

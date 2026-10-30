@@ -51,6 +51,7 @@ import { recordContextPack } from "../context/pack";
 import type { ContextPack, Workspace } from "../context/types";
 import type { OfficeHandle } from "../db/office";
 import { parseFieldBlock } from "../story-store/fields/block";
+import type { StoryStore } from "../story-store/store";
 import type { PlainTask } from "../story-store/story";
 
 import type { OfficeGit } from "../git/office";
@@ -154,6 +155,8 @@ export interface RunStoryFacts {
 }
 
 export interface RunResumerDeps {
+  /** The story store: the folders a rebuilt box's tree takes from the start commit. */
+  readonly stories: Pick<StoryStore, "storyFolders">;
   readonly clock: Clock;
   readonly ids: IdSource;
   readonly offices: {
@@ -664,6 +667,7 @@ export class RunResumer implements NextSession {
     const notices: NewEntry[] = [];
     const lifetime = new BoxLifetime({
       boxes,
+      stories: this.#deps.stories,
       ...(this.#deps.profile === undefined ? {} : { profile: this.#deps.profile }),
       tmpRoot: this.#deps.tmpRoot,
     });

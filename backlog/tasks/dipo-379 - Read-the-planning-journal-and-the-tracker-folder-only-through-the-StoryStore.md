@@ -1,10 +1,10 @@
 ---
 id: DIPO-379
 title: Read the planning journal and the tracker folder only through the StoryStore
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-29 12:45'
-updated_date: '2026-10-29 12:47'
+updated_date: '2026-10-30 09:32'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -48,9 +48,15 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 run/park-state.ts asks the StoryStore for a story's planned park (for example StoryStore.plannedPark(office, key)), implemented in backlog/, and the direct SQL on backlog_journal outside backlog/ and retention is removed
-- [ ] #2 The tracker folder name comes from one store method; inBacklog, merge/story-git.ts, gate R12, office/repository.ts and protectedOf use it, and the literal `backlog/` appears in engine code only inside backlog/
-- [ ] #3 What the old barrier caught: each guard that used the literal folder (the parts guard's protectedOf, collisions) keeps refusing the same paths, with a test for each
-- [ ] #4 Bypass forms are tested for each guard: ./ and ../ segments, an absolute path, a trailing slash, a different case on a case-insensitive file system, a symlink into the tracker folder, a rename into it, a folder that only shares the prefix (backlog-x/, which is not the tracker folder), and a configured folder other than backlog/
-- [ ] #5 A fail-closed test against the real path: the real guard code with the real Backlog store whose folder lookup fails (not a fake store) refuses instead of allowing
+- [x] #1 run/park-state.ts asks the StoryStore for a story's planned park (for example StoryStore.plannedPark(office, key)), implemented in backlog/, and the direct SQL on backlog_journal outside backlog/ and retention is removed
+- [x] #2 The tracker folder name comes from one store method; inBacklog, merge/story-git.ts, gate R12, office/repository.ts and protectedOf use it, and the literal `backlog/` appears in engine code only inside backlog/
+- [x] #3 What the old barrier caught: each guard that used the literal folder (the parts guard's protectedOf, collisions) keeps refusing the same paths, with a test for each
+- [x] #4 Bypass forms are tested for each guard: ./ and ../ segments, an absolute path, a trailing slash, a different case on a case-insensitive file system, a symlink into the tracker folder, a rename into it, a folder that only shares the prefix (backlog-x/, which is not the tracker folder), and a configured folder other than backlog/
+- [x] #5 A fail-closed test against the real path: the real guard code with the real Backlog store whose folder lookup fails (not a fake store) refuses instead of allowing
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+No engine code outside backlog/ reads the planning journal or knows the tracker folder name. run/park-state.ts asks StoryStore.plannedPark, implemented in backlog/; backlog_journal is read only in backlog/, retention/ and migrations. The story folders come from one store method (storyFolders, one pure storyFoldersOf), always backlog and .backlog plus a folder a root backlog.config.yml names, and every check goes through inStoryFolder: the parts guard, collisions, lifetime, merge/story-git, gate R12/R29 and office open; a seam test keeps the literal out of other engine code. The old refusals were pinned on main's code first and still hold; bypass forms (dot segments, absolute, trailing slash, case and Unicode look-alikes, rename, symlinks in parts and merges including chains and ancestors, prefix-only, a configured folder) are refused; a root config that is a link, too large or names an unreadable folder makes every guard refuse, on the real store. ADR 0010's direct-read sentence updated, approved by the maintainer.
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -33,17 +33,22 @@ import {
   type DeskSources,
   DESK_SOURCES,
 } from "../../src/views/desk";
-import { viewsFeature } from "../../src/views/feature";
+import { viewsFeature } from "./views-feature";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { pass, task } from "../stories/helpers";
 import { insertPark as insertParkRow } from "../run/park-fixture";
 import { keyOf, startRun } from "./helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const HOUR = 3_600_000;
 const all = () => true;
 
 /** The engine's sources with the planning lane's backlog PRs, as `engineFeatures` lists them. */
-const ALL_SOURCES: DeskSources = { ...DESK_SOURCES, prItems: backlogPrDeskItems };
+const ALL_SOURCES: DeskSources = {
+  stories: backlogLayout,
+  ...DESK_SOURCES,
+  prItems: backlogPrDeskItems,
+};
 
 function insertPark(
   office: OfficeHandle,
@@ -468,7 +473,11 @@ describe("review-blocked parks and hand-merge-only gates", () => {
           at,
         });
         // verify-failing ranks before scope-violation (0020), and resumes with nothing more.
-        expect(desk(office, all).map((item) => item.actions)).toEqual([
+        expect(
+          desk(office, all, { ...DESK_SOURCES, stories: backlogLayout }).map(
+            (item) => item.actions,
+          ),
+        ).toEqual([
           [{ command: "work.resume", cli: "dipo resume DIPO-2" }],
           [{ command: "work.discard", cli: 'dipo discard DIPO-1 --note "<why>"' }],
         ]);
@@ -561,7 +570,7 @@ describe("the parks the merge slot makes (DIPO-324, DIPO-344)", () => {
         const at = t.clock.now();
         for (const [story, reason, detail] of parks)
           insertPark(office, story, { reason, detail, at });
-        const items = desk(office, all);
+        const items = desk(office, all, { ...DESK_SOURCES, stories: backlogLayout });
         const itemOf = (story: string) => items.find((item) => item.story === story);
         expect(itemOf("DIPO-1")).toMatchObject({
           kind: "PARKED",
@@ -891,7 +900,7 @@ describe("a worker question waiting on the desk (DIPO-159; 0020 section 7)", () 
             parkId,
           }),
         );
-        const items = desk(office, all, DESK_SOURCES, at);
+        const items = desk(office, all, { ...DESK_SOURCES, stories: backlogLayout }, at);
         expect(items).toHaveLength(1);
         expect(items[0]).toMatchObject({
           kind: "PARKED",
@@ -921,6 +930,7 @@ describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
         insertPark(office, "DIPO-1", { reason: "worker-failed", detail: "plan limit until X", at });
         t.clock.advance(HOUR);
         const sources: DeskSources = {
+          stories: backlogLayout,
           ...DESK_SOURCES,
           startsPaused: () => ({
             reason: "plan-limit",
@@ -943,6 +953,7 @@ describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
         });
 
         const adapter = desk(office, all, {
+          stories: backlogLayout,
           ...DESK_SOURCES,
           startsPaused: () => ({
             reason: "adapter",
@@ -957,6 +968,7 @@ describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
         );
         // The box token's hold: no command lifts it, so the row offers none (DIPO-271).
         const sticky = desk(office, all, {
+          stories: backlogLayout,
           ...DESK_SOURCES,
           startsPaused: () => ({
             reason: "adapter",
@@ -979,7 +991,9 @@ describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
           hand: "Replace the box login with dipo login box.",
         });
         // Nothing paused: no such item.
-        expect(desk(office, all, DESK_SOURCES).map((item) => item.kind)).toEqual(["PARKED"]);
+        expect(
+          desk(office, all, { ...DESK_SOURCES, stories: backlogLayout }).map((item) => item.kind),
+        ).toEqual(["PARKED"]);
       } finally {
         t.state.close();
       }

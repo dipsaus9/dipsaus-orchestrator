@@ -29,6 +29,7 @@ import { encode } from "../../src/workers/claude-cli/encode";
 import type { Caps } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const CAPS: Caps = { budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 30 };
 
@@ -104,6 +105,7 @@ function resumption(): Resumption {
   const ender = { isTracked: () => false } as unknown as RunEnder;
   return createRunOutcomes(
     {
+      stories: backlogLayout,
       clock: f.t.clock,
       offices: { get: () => f.office },
       steering: { send: async () => ({ ok: true }) },

@@ -51,12 +51,13 @@ import { LAUNCH_FILE } from "../host/protocol";
 import { officeDirectory } from "../office/marker";
 import { type BacklogPark, backlogPark, openParkIds, resolvePark } from "../run/park";
 import { insertPark, parkedRunOf } from "../run/park-records";
-import { parksBeingResumed } from "../run/park-state";
+import { type ParkStore, parksBeingResumed } from "../run/park-state";
 import type { RunEnd } from "../run/lifecycle";
 import { endRunMarked } from "../run/markers";
 import { activeRuns, findRun, parkedFromInReview, type StoredRun, unparkRun } from "../run/records";
 import { runDirectory } from "../runs/worker-hosts";
 import type { IndexResult } from "../stories/index-stories";
+import type { StoryStore } from "../story-store/store";
 import { readsOnBranch } from "../stories/index-stories";
 import { lifecycleOf } from "../views/story";
 import { type ClaimRecord, liveClaims } from "../worktree/records";
@@ -117,6 +118,11 @@ export interface ReconcileRuns {
 }
 
 export interface ReconcileDeps {
+  /**
+   * The story store: the park a pending planning change writes (`plannedPark`, 0010) and the
+   * commit that last changed a story's file (`lastFileCommit`).
+   */
+  readonly stories: ParkStore & Pick<StoryStore, "lastFileCommit">;
   readonly officeId: OfficeId;
   readonly office: OfficeHandle;
   readonly git: OfficeGit;
@@ -501,7 +507,7 @@ function reconcilePark(
   const resuming = parksBeingResumed(office);
   const open = openParkIds(office, story.key).filter((parkId) => !resuming.has(parkId));
   if (open.length === 0 && openParkIds(office, story.key).length > 0) return;
-  const current = backlogPark(office, story.key);
+  const current = backlogPark(deps.stories, office, story.key);
   const action = parkStateAction(story, current, open.length > 0);
   if (action === "stale" && story.park !== null) {
     record({

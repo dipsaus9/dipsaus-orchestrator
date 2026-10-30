@@ -71,6 +71,7 @@ import type { Caps } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
 import { CRASH, crashAfterHandler } from "../commands/crash";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 /**
  * The first message the session of `request` got (`RunResumer`): the resume delta of a native
@@ -183,6 +184,7 @@ function resumption(options: Partial<ResumptionOptions> = {}): Resumption {
   const ender = { isTracked: () => false } as unknown as RunEnder;
   return createRunOutcomes(
     {
+      stories: backlogLayout,
       clock: f.t.clock,
       offices: { get: () => f.office },
       steering: { send: async () => ({ ok: true }) },
@@ -508,7 +510,7 @@ describe("work.resume of a reason that needs nothing more (0020)", () => {
       offices: { get: () => w.f.office },
       // The run is pending again once its park is resolved (`pendingReviews`).
       pending: (office) =>
-        openPark(office, w.key) === null
+        openPark(backlogLayout, office, w.key) === null
           ? [{ kind: START_KINDS.review, runId: w.f.run, since: w.f.t.clock.now() }]
           : [],
       starters: {
@@ -1204,7 +1206,7 @@ describe("a retry of the same request (0005 note of 2026-10-17)", () => {
       note: "once",
     });
     await Bun.sleep(0);
-    expect(openPark(w.f.office, w.key)).toBeNull();
+    expect(openPark(backlogLayout, w.f.office, w.key)).toBeNull();
     // Reconcile leaves the row to the resume that is lifting it.
     expect(parksBeingResumed(w.f.office).has(parkId)).toBe(true);
     const restarted = createRunOutcomesWithLift(async (request) => {
@@ -1242,7 +1244,7 @@ describe("a retry of the same request (0005 note of 2026-10-17)", () => {
     // Pending, not failed: the park row stays held, so reconcile leaves it open.
     expect(resumes().map((intent) => [intent.state, intent.outcome])).toEqual([["pending", null]]);
     expect(parksBeingResumed(w.f.office).has(parkId)).toBe(true);
-    expect(openPark(w.f.office, w.key)).toBeNull();
+    expect(openPark(backlogLayout, w.f.office, w.key)).toBeNull();
     expect(w.sessions).toEqual([]);
     const notice = entries("engine.notice").find(
       (data) => data["code"] === PARK_RESUME_NOTICES.unfinished,
@@ -1323,6 +1325,7 @@ function createRunOutcomesWithLift(
   const { f } = w;
   const ender = { isTracked: () => false } as unknown as RunEnder;
   return createRunOutcomes({
+    stories: backlogLayout,
     clock: f.t.clock,
     offices: { get: () => f.office },
     steering: { send: async () => ({ ok: true }) },
@@ -1596,7 +1599,7 @@ describe("an ambiguous-spec park resumed with its answer (DIPO-159; 0020)", () =
     const { question } = questionPark();
     const of = resumption();
     const run = findRun(w.f.office, w.f.run);
-    const parked = openPark(w.f.office, w.key);
+    const parked = openPark(backlogLayout, w.f.office, w.key);
     if (run === null || parked === null) throw new Error("fixture changed");
     const resumed = await of.questionParks.resume(ctx(), run, parked, "Print Hello, Ada!");
     await of.idle();

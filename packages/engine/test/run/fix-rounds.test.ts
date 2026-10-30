@@ -51,6 +51,7 @@ import {
   storyRun,
   workOf,
 } from "./rounds-helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 let w: RoundsWorld;
 
@@ -180,6 +181,7 @@ function world(): World {
   const warned: unknown[] = [];
   const state = { config: OFFICE_DEFAULTS as OfficeConfig, facts: FACTS, starts: true };
   const control = new RunControl({
+    stories: backlogLayout,
     clock: w.t.clock,
     offices: { get: () => w.office },
     writer: {
@@ -196,6 +198,7 @@ function world(): World {
   });
   let places: Places | null = null;
   const fix = new FixRounds({
+    stories: backlogLayout,
     clock: w.t.clock,
     offices: { get: () => w.office, config: () => state.config },
     story: async () => state.facts,

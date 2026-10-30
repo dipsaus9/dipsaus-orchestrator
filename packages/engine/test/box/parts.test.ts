@@ -86,6 +86,9 @@ describe("the part message", () => {
   });
 });
 
+/** The folders the Backlog.md store names in a repository with no root configuration. */
+const FOLDERS = ["backlog", ".backlog"];
+
 describe("the protected list", () => {
   it("names the task file, the backlog, CI, dipo's configuration and git's own files", () => {
     for (const [path, kind] of [
@@ -104,7 +107,7 @@ describe("the protected list", () => {
       ["packages/a/.gitattributes", "gitConfig"],
       [".gitmodules", "gitConfig"],
     ] as const) {
-      expect([path, protectedKind(path)]).toEqual([path, kind]);
+      expect([path, protectedKind(path, FOLDERS)]).toEqual([path, kind]);
     }
   });
 
@@ -113,9 +116,10 @@ describe("the protected list", () => {
       // The Backlog CLI: every place Backlog.md 1.53 reads its configuration from.
       ["backlog.config.yml", "backlogConfig"],
       ["Backlog.Config.YML", "backlogConfig"],
-      [".backlog/config.yml", "backlogConfig"],
-      [".backlog/config.yaml", "backlogConfig"],
-      [".backlog/tasks/task-1 - x.md", "backlogConfig"],
+      // Its other folder is one of the store's story folders (`storyFolders`).
+      [".backlog/config.yml", "backlog"],
+      [".backlog/config.yaml", "backlog"],
+      [".backlog/tasks/task-1 - x.md", "backlog"],
       ["backlog/config.yml", "backlog"],
       ["backlog/config.yaml", "backlog"],
       // Bun, in any folder it may run in.
@@ -127,11 +131,11 @@ describe("the protected list", () => {
       [".mcp.json", "mcpConfig"],
       [".MCP.json", "mcpConfig"],
     ] as const) {
-      expect([path, protectedKind(path)]).toEqual([path, kind]);
+      expect([path, protectedKind(path, FOLDERS)]).toEqual([path, kind]);
     }
     const fullwidthM = String.fromCodePoint(0xff4d);
-    expect(protectedKind(`.${fullwidthM}cp.json`)).toBe("mcpConfig");
-    expect(protectedKind(`bunfig.to${String.fromCodePoint(0xff4d)}l`)).toBe("bunConfig");
+    expect(protectedKind(`.${fullwidthM}cp.json`, FOLDERS)).toBe("mcpConfig");
+    expect(protectedKind(`bunfig.to${String.fromCodePoint(0xff4d)}l`, FOLDERS)).toBe("bunConfig");
     for (const path of [
       "docs/backlog.config.yml",
       "src/.mcp.json",
@@ -140,23 +144,24 @@ describe("the protected list", () => {
       "docs/bunfig.md",
       "backlog-config.yml",
     ]) {
-      expect([path, protectedKind(path)]).toEqual([path, null]);
+      expect([path, protectedKind(path, FOLDERS)]).toEqual([path, null]);
     }
   });
 
-  it("names the configuration in the backlog folder backlog.config.yml names", () => {
+  it("names the whole folder backlog.config.yml names, as the store does", () => {
+    const named = [...FOLDERS, "planning/board"];
     for (const [path, kind] of [
-      ["planning/board/config.yml", "backlogConfig"],
-      ["Planning/Board/CONFIG.yaml", "backlogConfig"],
-      ["planning/board/tasks/task-1 - x.md", null],
+      ["planning/board/config.yml", "backlog"],
+      ["Planning/Board/CONFIG.yaml", "backlog"],
+      ["planning/board/tasks/task-1 - x.md", "backlog"],
       ["planning/config.yml", null],
     ] as const) {
-      expect([path, protectedKind(path, "planning/board")]).toEqual([path, kind]);
+      expect([path, protectedKind(path, named)]).toEqual([path, kind]);
     }
-    expect(protectedKind("planning/board/config.yml")).toBeNull();
+    expect(protectedKind("planning/board/config.yml", FOLDERS)).toBeNull();
     const changes: PartChange[] = [{ path: "planning/board/config.yml", kind: "deleted" }];
-    expect(protectedHits(changes, [], "planning/board").kinds).toEqual(["backlogConfig"]);
-    expect(protectedHits(changes, []).kinds).toEqual([]);
+    expect(protectedHits(changes, [], named).kinds).toEqual(["backlog"]);
+    expect(protectedHits(changes, [], FOLDERS).kinds).toEqual([]);
   });
 
   it("names each tool-configuration kind in the park detail", () => {
@@ -165,10 +170,10 @@ describe("the protected list", () => {
       { path: ".mcp.json", kind: "added", mode: "100644", id: "1", at: "/x" },
       { path: "backlog.config.yml", kind: "changed", mode: "100644", id: "2", at: "/y" },
     ];
-    const hits = protectedHits(changes, []);
+    const hits = protectedHits(changes, [], FOLDERS);
     expect(hits.kinds).toEqual(["backlogConfig", "bunConfig", "mcpConfig"]);
     expect(protectedDetail(hits.kinds)).toBe(
-      "The part the worker delivered changes protected files: the Backlog CLI's configuration (backlog.config.yml, .backlog/); Bun's configuration (bunfig.toml); Claude Code's MCP server configuration (.mcp.json). dipo committed and pushed nothing, and the change stays in the box. Only dipo or the maintainer writes these files.",
+      "The part the worker delivered changes protected files: the Backlog CLI's configuration (backlog.config.yml); Bun's configuration (bunfig.toml); Claude Code's MCP server configuration (.mcp.json). dipo committed and pushed nothing, and the change stays in the box. Only dipo or the maintainer writes these files.",
     );
   });
 
@@ -185,7 +190,7 @@ describe("the protected list", () => {
       [`${fullwidthB}acklog/config.yml`, "backlog"],
       [`.di${combiningDot}po/office.yaml`, "dipo"],
     ] as const) {
-      expect([path, protectedKind(path)]).toEqual([path, kind]);
+      expect([path, protectedKind(path, FOLDERS)]).toEqual([path, kind]);
     }
   });
 
@@ -210,7 +215,7 @@ describe("the protected list", () => {
       ".gitignore",
       ".claude/commands/x.md",
     ]) {
-      expect([path, protectedKind(path)]).toEqual([path, null]);
+      expect([path, protectedKind(path, FOLDERS)]).toEqual([path, null]);
     }
   });
 
@@ -219,7 +224,7 @@ describe("the protected list", () => {
       { path: ".github/workflows/ci.yml", kind: "deleted" },
       { path: "src/a.ts", kind: "added", mode: "100644", id: "1", at: "/x" },
     ];
-    const hits = protectedHits(changes, ["src/link"]);
+    const hits = protectedHits(changes, ["src/link"], FOLDERS);
     expect(hits.kinds).toEqual(["ci", "link"]);
     expect(hits.paths).toEqual([".github/workflows/ci.yml", "src/link"]);
     const detail = protectedDetail(hits.kinds);
@@ -227,7 +232,7 @@ describe("the protected list", () => {
     expect(detail).toContain("a symlink or hard link");
     expect(detail).not.toContain("ci.yml");
     expect(detail).not.toContain("src/link");
-    expect(protectedHits(changes.slice(1), []).kinds).toEqual([]);
+    expect(protectedHits(changes.slice(1), [], FOLDERS).kinds).toEqual([]);
   });
 });
 

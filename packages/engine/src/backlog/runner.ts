@@ -563,8 +563,8 @@ export const BACKLOG_FILE_NOTICE = "backlog.fileRefused";
 /** The configuration files of Backlog.md 1.53 in a backlog folder. */
 const FOLDER_CONFIGS: readonly string[] = ["config.yml", "config.yaml"];
 
-/** The root configuration file of Backlog.md 1.53. */
-const ROOT_CONFIG = "backlog.config.yml";
+/** The root configuration file of Backlog.md 1.53, read before a project folder's own. */
+export const ROOT_CONFIG = "backlog.config.yml";
 
 /** The folders 1.53 loads a task from, inside a backlog folder. */
 const TASK_FOLDERS: readonly string[] = ["tasks", "completed"];
@@ -645,6 +645,40 @@ export function backlogPointer(text: string): BacklogPointer {
   }
   if (isAbsolute(folder)) return { kind: "unresolved" };
   return { kind: "folder", folder };
+}
+
+/** The folder dipo keeps a repository's Backlog.md project in, relative to its root (0010). */
+export const BACKLOG_FOLDER = "backlog";
+
+/** The other folder Backlog.md 1.53 keeps a project in. */
+export const HIDDEN_FOLDER = ".backlog";
+
+/** The repository's root configuration names a folder dipo cannot resolve. */
+export class BacklogFolderError extends StoryStoreError {
+  constructor(readonly folder: string) {
+    super(
+      `${ROOT_CONFIG} names a backlog folder dipo cannot resolve (${JSON.stringify(folder)}); it must be a folder inside the repository.`,
+    );
+    this.name = "BacklogFolderError";
+  }
+}
+
+/**
+ * Pure: the folders Backlog.md 1.53 keeps a repository's stories in, for its root configuration
+ * `text` (null when it has none): `backlog/`, `.backlog/` and the folder `text` names. The one
+ * list the StoryStore's `storyFolders`, the runner's check before every call and the view pass
+ * use. Throws `BacklogFolderError` when `text` names a folder that does not resolve.
+ */
+export function storyFoldersOf(text: string | null): string[] {
+  const own = [BACKLOG_FOLDER, HIDDEN_FOLDER];
+  if (text === null) return own;
+  const pointer = backlogPointer(text);
+  if (pointer.kind === "unresolved") {
+    const named = /^\s*(?:backlog_directory|backlogDirectory)\s*:(.*)$/m.exec(text)?.[1] ?? "";
+    throw new BacklogFolderError(named.trim());
+  }
+  if (pointer.kind === "none" || own.includes(pointer.folder)) return own;
+  return [...own, pointer.folder];
 }
 
 /**
@@ -986,28 +1020,26 @@ export function scanBacklogFiles(
     return stat;
   };
 
-  // The root configuration, and the folder it names.
-  const folders = ["backlog", ".backlog"];
+  // The root configuration, and the folders it makes the store's (`storyFoldersOf`).
+  let folders = storyFoldersOf(null);
   let rooted = false;
   const rootStat = checkConfig(ROOT_CONFIG);
   if (rootStat !== undefined && rootStat.isFile() && rootStat.size <= BACKLOG_CHECK_MAX) {
-    let pointer: BacklogPointer = { kind: "unresolved" };
     try {
       const rootText = readFileSync(join(cwd, ROOT_CONFIG), "utf8");
-      pointer = backlogPointer(rootText);
       rooted = hasProjectName(rootText);
+      folders = storyFoldersOf(rootText);
     } catch {
-      // An unreadable root configuration is refused as unresolved.
-    }
-    if (pointer.kind === "unresolved") refuse(ROOT_CONFIG, UNRESOLVED_FOLDER);
-    if (pointer.kind === "folder" && !folders.includes(pointer.folder)) {
-      folders.push(pointer.folder);
+      // An unreadable root configuration, or one naming a folder that does not resolve.
+      refuse(ROOT_CONFIG, UNRESOLVED_FOLDER);
     }
   }
   for (const folder of folders) {
     for (const name of FOLDER_CONFIGS) {
       const stat = checkConfig(`${folder}/${name}`);
-      if (stat?.isFile() === true && (folder === "backlog" || folder === ".backlog")) rooted = true;
+      if (stat?.isFile() === true && (folder === BACKLOG_FOLDER || folder === HIDDEN_FOLDER)) {
+        rooted = true;
+      }
     }
   }
   // Without a project configuration here, the CLI looks for one in the folders above, which dipo
@@ -1084,7 +1116,7 @@ export function statusCommandFiles(cwd: string, cache?: VerdictCache): BacklogFi
 // ---- the story's task file (0021 section 14) ---------------------------------------------------
 
 /** The folder that holds the Backlog task files, relative to the repository root. */
-export const TASKS_DIR = "backlog/tasks";
+export const TASKS_DIR = `${BACKLOG_FOLDER}/tasks`;
 
 /** The `GitError` code when dipo cannot make its copy of a story's backlog or commit from it. */
 export const BACKLOG_FOLDER_ERROR = "story.backlogFolder";

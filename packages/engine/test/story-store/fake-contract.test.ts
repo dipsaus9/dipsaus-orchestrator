@@ -41,5 +41,6 @@ storyStoreContract("the in-memory fake", async (fn) => {
       `---\nid: ${story}\nstatus: ${store.base.get(story)?.story?.status}\n---\n`,
     journal: (key) => store.pending.add(key),
     block: (key) => store.checkFailed.add(key),
+    plan: (key, park) => store.planned.set(key, park),
   });
 });

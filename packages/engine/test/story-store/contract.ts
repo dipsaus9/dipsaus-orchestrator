@@ -9,6 +9,9 @@ import type { StoryKey } from "@dipsaus-orchestrator/contract";
 import type { OfficeHandle } from "../../src/db/office";
 import type { OfficeGit } from "../../src/git/office";
 import { parseFieldBlock } from "../../src/story-store/fields/block";
+import { checkoutFiles } from "../../src/story-store/folder";
+import { inStoryFolder, repoPathOf } from "../../src/story-store/paths";
+import type { PlannedPark } from "../../src/story-store/planning";
 import type { StoryStore } from "../../src/story-store/store";
 
 /** The tasks every contract world holds: the Backlog fixture's. */
@@ -40,12 +43,22 @@ export interface ContractWorld {
   journal(key: StoryKey): void;
   /** Records that the office's merged backlog PR failed its check on the story `key`. */
   block(key: StoryKey): void;
+  /**
+   * Journals a planning change of the story `key` that parks it with `park`, or, with null,
+   * moves it back to Refined, the way the store's planning lane does.
+   */
+  plan(key: StoryKey, park: PlannedPark | null): void;
 }
 
 export type WithWorld = (fn: (world: ContractWorld) => Promise<void>) => Promise<void>;
 
 const KEY = "key_contract_1" as StoryKey;
 const OTHER = "key_contract_2" as StoryKey;
+
+/** A repository whose files cannot be read. */
+async function unreadable(): Promise<string | null> {
+  throw new Error("the file cannot be read");
+}
 
 /** By id: a store may list its stories grouped by status. */
 const byId = <T extends { readonly id: string }>(items: readonly T[]): T[] =>
@@ -125,11 +138,19 @@ export function storyStoreContract(name: string, withWorld: WithWorld, timeout?:
       expect(await w.git.run((session) => w.store.fileAt(session, w.head, "TASK-99"))).toBeNull();
     });
 
-    test("names the folder its root configuration points at, or none", async (w) => {
-      expect(w.store.configuredFolder("backlog_directory: planning\n")).toBe("planning");
-      expect(w.store.configuredFolder("project_name: x\n")).toBeNull();
-      expect(w.store.configuredFolder("backlog_directory: ../outside\n")).toBeNull();
-      expect(w.store.configuredFolder("backlog_directory: /etc\n")).toBeNull();
+    test("names the folders it keeps its stories in, and refuses through a read that fails", async (w) => {
+      const folders = await w.store.storyFolders(checkoutFiles(w.checkout));
+      expect(folders.length).toBeGreaterThan(0);
+      for (const folder of folders) expect(repoPathOf(folder)).toBe(folder);
+      // Every story file of the checkout lies in one of them.
+      for (const task of CONTRACT_TASKS) {
+        const file = await w.git.run((session) => w.store.fileAt(session, w.head, task.id));
+        expect([file, inStoryFolder(file as string, folders)]).toEqual([file, true]);
+      }
+      expect(inStoryFolder("src/export.ts", folders)).toBe(false);
+      await expect(w.store.storyFolders(unreadable)).rejects.toThrow("cannot be read");
+      await expect(w.store.isProject(unreadable)).rejects.toThrow("cannot be read");
+      expect(await w.store.isProject(checkoutFiles(w.checkout))).toBe(true);
     });
 
     test("edits a story on its branch in one commit, and commits nothing for no change", async (w) => {
@@ -177,6 +198,20 @@ export function storyStoreContract(name: string, withWorld: WithWorld, timeout?:
       expect(w.store.planningHold(w.office, KEY)).toBe("pending");
       w.journal(OTHER);
       expect(w.store.planningHold(w.office, OTHER)).toBe("pending");
+    });
+
+    test("names the park a journaled change writes, the newest first, and none without one", async (w) => {
+      const park: PlannedPark = {
+        reason: "by-maintainer",
+        from: "Ready",
+        note: "Waits on design.",
+      };
+      expect(w.store.plannedPark(w.office, KEY)).toBeUndefined();
+      w.plan(KEY, park);
+      expect(w.store.plannedPark(w.office, KEY)).toEqual(park);
+      expect(w.store.plannedPark(w.office, OTHER)).toBeUndefined();
+      w.plan(KEY, null);
+      expect(w.store.plannedPark(w.office, KEY)).toBeNull();
     });
   });
 }

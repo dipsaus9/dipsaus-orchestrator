@@ -83,6 +83,7 @@ import { withBuiltinPlugins, withoutSkills } from "../workers/launch-fixtures";
 import { loadRecording } from "../workers/replay";
 import { stubReviewBoxes } from "./review-boxes";
 import { backlogStoryStore } from "../../src/backlog/store";
+import { backlogLayout } from "../story-store/backlog";
 
 export const CLAUDE = "/opt/claude/bin/claude";
 export const BRANCH = "TASK-1/add-the-csv-export-command";
@@ -448,6 +449,7 @@ export async function withRunOffice(
       // Worker outcomes and the run's next session (DIPO-51), on the same replay hosts.
       const starts: Running["starts"] = [];
       const composed = composeRuns({
+        stories: backlogLayout,
         clock: officeClock,
         ids: { next: (prefix: IdPrefix) => loaded().ids.next(prefix) },
         offices,
@@ -592,6 +594,7 @@ export async function withRunOffice(
                 // `story.park` (0020): the planning lane parks a story with no run, run control one
                 // with a run.
                 new StoryPlanning({
+                  stories: backlogLayout,
                   lane: (office) => lane.planning(office),
                   git: (office) => engineGit.forOffice(office),
                   host: { closePr: async () => undefined },

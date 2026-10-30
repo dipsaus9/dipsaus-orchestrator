@@ -100,7 +100,7 @@ import { storedDoneReport } from "../run/done-report";
 import { runBudgetFacts } from "../run/budget-line";
 import { runCaps } from "../run/caps";
 import { type ParkWriter, parkStory } from "../run/park";
-import { runHeldByPark } from "../run/park-state";
+import { type ParkStore, runHeldByPark } from "../run/park-state";
 import {
   appendRunStep,
   findRun,
@@ -166,6 +166,8 @@ export const CI_STUCK_POLL_MS = 10 * 60_000;
 export const STORY_PR_STEP = "story-pr.poll";
 
 export interface StoryPrsDeps {
+  /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
+  readonly stories: ParkStore;
   readonly host: CodeHost;
   readonly git: StoryPrGit;
   /** The loaded offices and the configuration in force for each next interval. */
@@ -938,7 +940,8 @@ export class StoryPrs {
     const run = findRun(office, stored.runId);
     // A story dipo closed out is Done on its branch until GitHub merges it, and still watched.
     if (run === null) return;
-    if (!storyInReview(office, stored.key) && !waitsForMerge(office, run)) return;
+    if (!storyInReview(office, stored.key) && !waitsForMerge(this.#deps.stories, office, run))
+      return;
     const config = this.#runConfig(officeId, run);
     const now = this.#deps.clock.now();
     let watch = state.watch.get(stored.runId);
@@ -1331,14 +1334,14 @@ export class StoryPrs {
  * True when the run waits for its merge: open at In Review with no active period, with a
  * live claim and no open park. Its story may read Done on its branch after the close-out commit.
  */
-function waitsForMerge(office: OfficeHandle, run: StoredRun): boolean {
+function waitsForMerge(stories: ParkStore, office: OfficeHandle, run: StoredRun): boolean {
   if (run.key === null || !openAtInReview(run)) return false;
   return (
     office.get(
       `select 1 as found from claims c where c.office_id = $office_id and c.run_id = $run
           and c.released_at is null`,
       { run: run.runId },
-    ) !== null && !runHeldByPark(office, run.runId)
+    ) !== null && !runHeldByPark(stories, office, run.runId)
   );
 }
 

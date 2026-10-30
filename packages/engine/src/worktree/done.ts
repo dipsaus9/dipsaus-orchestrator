@@ -54,7 +54,6 @@ import {
   hasLiveWorker,
   hasOpenPark,
   hasUnexitedHost,
-  lastTaskCommit,
   movedPastParkedText,
   releaseDoneElsewhere,
   releaseMovedPastMerge,
@@ -445,7 +444,7 @@ export class StoryTeardown {
       );
       return "open";
     }
-    if (hasOpenPark(state.office, claim)) {
+    if (hasOpenPark(this.#deps.stories, state.office, claim)) {
       const text = movedPastParkedText(claim, pr);
       this.#tell(state, deps, claim, "warn", TEARDOWN_NOTICES.parked, text);
       return "kept";
@@ -468,7 +467,9 @@ export class StoryTeardown {
     const commit =
       head === null
         ? null
-        : await deps.git.run((session) => lastTaskCommit(session, head, claim.story));
+        : await deps.git.run((session) =>
+            this.#deps.stories.lastFileCommit(session, head, claim.story),
+          );
     const elsewhere = this.#elsewhereDeps(deps);
     if (hasLiveWorker(state.office, claim)) {
       flagLiveWorker(elsewhere, claim, commit);

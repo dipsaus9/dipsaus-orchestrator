@@ -52,6 +52,7 @@ import {
   publish,
   TASK_1,
 } from "../worktree/helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const FIXTURE = { fixture: BACKLOG_FIXTURE };
 const TASK_2_FILE = "backlog/tasks/task-2 - Rename-the-export-setting.md";
@@ -80,6 +81,7 @@ function world(s: ClaimSetup) {
   });
   const closed: Closed[] = [];
   const planning = new StoryPlanning({
+    stories: backlogLayout,
     lane: () => planningLane(lane),
     git: () => s.git,
     host: {
@@ -90,7 +92,10 @@ function world(s: ClaimSetup) {
     implemented: () => true,
     probe: systemProcessProbe(currentPlatform()),
   });
-  const registry = buildRegistry([planning.feature, new WorkResumeCommand(() => planning).feature]);
+  const registry = buildRegistry([
+    planning.feature,
+    new WorkResumeCommand(backlogLayout, () => planning).feature,
+  ]);
   let n = 0;
   const send = (name: string, args: Record<string, unknown>) => {
     n += 1;
@@ -186,7 +191,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const lifted = await inRemote(repo, "show", `${branch}:${TASK_2_FILE}`);
         expect(lifted).toContain("status: Refined");
         expect(lifted).not.toContain("by-maintainer");
-        expect(openPark(s.office, key)).toBeNull();
+        expect(openPark(backlogLayout, s.office, key)).toBeNull();
       }, FIXTURE);
     });
   });
@@ -237,7 +242,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(await branchExists(repo.remote, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
         expect(liveClaimOf(s.office, key)).toBeNull();
         expect(releasedBranchFor(s.office, key, BRANCH_1)).toBeNull();
-        expect(openPark(s.office, key)).toBeNull();
+        expect(openPark(backlogLayout, s.office, key)).toBeNull();
         expect(closed).toHaveLength(1);
         expect(closed[0]).toMatchObject({ repo: "acme/app", number: 12 });
         expect(latestStoryPr(s.office, key)?.state).toBe("closed");

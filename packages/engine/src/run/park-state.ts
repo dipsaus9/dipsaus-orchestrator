@@ -3,7 +3,8 @@
 // (the `dipo` field block's `park: {reason, from, note}`); the engine reads them as the story
 // index last read them (`backlog_mirror`, refreshed after every park and lift commit, and set from
 // the park's read-back in the park's own transaction), or as an open planning-lane operation
-// writes them before its backlog PR merges (0010: a pending operation wins). The `parks` table is
+// writes them before its backlog PR merges (0010: a pending operation wins), which the engine asks
+// the StoryStore (`plannedPark`) and never reads from the journal itself. The `parks` table is
 // run detail and history only: its open row gives the park's id, run, detail, last good commit and
 // time, and its `reason` column is the reason the park was made with, never read here.
 //
@@ -20,7 +21,10 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
-import { OPEN_STATES, plannedPark } from "../story-store/planning";
+import type { StoryStore } from "../story-store/store";
+
+/** What a park read asks the StoryStore (0010): the park a pending planning change writes. */
+export type ParkStore = Pick<StoryStore, "plannedPark">;
 
 /** The park record Backlog.md holds for a story. */
 export interface BacklogPark {
@@ -42,39 +46,22 @@ export interface OpenPark {
   readonly at: number;
 }
 
-const OPEN_SQL = OPEN_STATES.map((state) => `'${state}'`).join(", ");
-
 function parkOf(json: unknown): BacklogPark | null {
   const parsed = FieldBlockPark.safeParse(json);
   return parsed.success ? parsed.data : null;
 }
 
 /**
- * The park an open planning-lane operation writes, newest first: `undefined` when no open
- * operation sets the story's status or park, else its park record (null when it lifts, drops or
- * moves the story to a status other than Parked).
- */
-function laneParkOf(office: OfficeHandle, key: string): BacklogPark | null | undefined {
-  const rows = office.all<{ op_kind: string; target: string }>(
-    `select op_kind, target from backlog_journal
-      where office_id = $office_id and key = $key and state in (${OPEN_SQL})
-      order by op_id desc`,
-    { key },
-  );
-  for (const row of rows) {
-    const park = plannedPark(row.op_kind, JSON.parse(row.target));
-    if (park !== undefined) return park;
-  }
-  return undefined;
-}
-
-/**
  * The park record Backlog.md holds for the story `key` now, or null when it is not Parked there:
- * an open planning-lane operation's record first, else the story index's read (status Parked with
- * a park record).
+ * the park a pending planning change writes first (`StoryStore.plannedPark`), else the story
+ * index's read (status Parked with a park record).
  */
-export function backlogPark(office: OfficeHandle, key: StoryKey | string): BacklogPark | null {
-  const lane = laneParkOf(office, key);
+export function backlogPark(
+  stories: ParkStore,
+  office: OfficeHandle,
+  key: StoryKey | string,
+): BacklogPark | null {
+  const lane = stories.plannedPark(office, key);
   if (lane !== undefined) return lane;
   const row = office.get<{ kind: string; status: string; park: string | null }>(
     `select kind, status, park from backlog_mirror where office_id = $office_id and key = $key`,
@@ -143,8 +130,12 @@ function openParkRow(office: OfficeHandle, key: string): Omit<OpenPark, "reason"
  * and origin) with the run detail of the open `parks` row. Null when either is missing; see the
  * file comment.
  */
-export function openPark(office: OfficeHandle, key: StoryKey | string): OpenPark | null {
-  const park = backlogPark(office, key);
+export function openPark(
+  stories: ParkStore,
+  office: OfficeHandle,
+  key: StoryKey | string,
+): OpenPark | null {
+  const park = backlogPark(stories, office, key);
   if (park === null) return null;
   const row = openParkRow(office, key);
   return row === null ? null : { ...row, reason: park.reason, from: park.from };
@@ -184,12 +175,12 @@ export function mirrorUnpark(office: OfficeHandle, key: StoryKey | string, to: L
 }
 
 /** True when the story of the run `runId` is parked (`openPark`); false for a run with no story. */
-export function parkedRun(office: OfficeHandle, runId: string): boolean {
+export function parkedRun(stories: ParkStore, office: OfficeHandle, runId: string): boolean {
   const row = office.get<{ key: string | null }>(
     "select key from runs where office_id = $office_id and run_id = $run",
     { run: runId },
   );
-  return row?.key != null && openPark(office, row.key) !== null;
+  return row?.key != null && openPark(stories, office, row.key) !== null;
 }
 
 /**
@@ -235,8 +226,12 @@ export function unresolvedPark(
  * rounds and the Done teardown start while neither Backlog.md holds a park nor a park row is open.
  * The current reason and origin stay Backlog.md's alone (`openPark`).
  */
-export function heldByPark(office: OfficeHandle, key: StoryKey | string): boolean {
-  if (backlogPark(office, key) !== null) return true;
+export function heldByPark(
+  stories: ParkStore,
+  office: OfficeHandle,
+  key: StoryKey | string,
+): boolean {
+  if (backlogPark(stories, office, key) !== null) return true;
   return (
     office.get(
       `select 1 as found from parks where office_id = $office_id and key = $key
@@ -247,12 +242,12 @@ export function heldByPark(office: OfficeHandle, key: StoryKey | string): boolea
 }
 
 /** `heldByPark` of the story of the run `runId`; false for a run with no story. */
-export function runHeldByPark(office: OfficeHandle, runId: string): boolean {
+export function runHeldByPark(stories: ParkStore, office: OfficeHandle, runId: string): boolean {
   const row = office.get<{ key: string | null }>(
     "select key from runs where office_id = $office_id and run_id = $run",
     { run: runId },
   );
-  return row?.key != null && heldByPark(office, row.key);
+  return row?.key != null && heldByPark(stories, office, row.key);
 }
 
 /**
@@ -267,7 +262,10 @@ export type HeldParkWhy = "unwritten" | "resuming" | "lifted";
  * (`HeldParkWhy`): each holds the story's work (`heldByPark`) until a resume, a park written again
  * or a rescan's reconcile resolves it.
  */
-export function heldParks(office: OfficeHandle): {
+export function heldParks(
+  stories: ParkStore,
+  office: OfficeHandle,
+): {
   readonly key: string;
   readonly story: string;
   readonly detail: string;
@@ -291,7 +289,7 @@ export function heldParks(office: OfficeHandle): {
   );
   const resuming = parksBeingResumed(office);
   return rows
-    .filter((row) => backlogPark(office, row.key) === null)
+    .filter((row) => backlogPark(stories, office, row.key) === null)
     .map((row) => ({
       key: row.key,
       story: row.story_id,

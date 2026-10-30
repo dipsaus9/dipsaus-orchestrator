@@ -293,7 +293,9 @@ export function storedPrompt(
  * The view reads, listed in `features.ts`, with the desk's sources beyond this engine's own (the
  * daemon's office starts paused, 0020).
  */
-export function viewsFeatureWith(desk: Partial<DeskSources> = {}): FeatureModule {
+export function viewsFeatureWith(
+  desk: Partial<DeskSources> & Pick<DeskSources, "stories">,
+): FeatureModule {
   const sources: DeskSources = { ...DESK_SOURCES, ...desk };
   return {
     name: "views",
@@ -327,9 +329,6 @@ export function viewsFeatureWith(desk: Partial<DeskSources> = {}): FeatureModule
     },
   };
 }
-
-/** The view reads with this engine's own desk sources. */
-export const viewsFeature: FeatureModule = viewsFeatureWith();
 
 /** The `doneReport` of a run record when the run stored notes or proposals (DIPO-152). */
 function doneReportField(

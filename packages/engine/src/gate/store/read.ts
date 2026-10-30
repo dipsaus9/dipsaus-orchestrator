@@ -7,6 +7,7 @@ import { openDependencies } from "../../run/select";
 import { isProvisionalId } from "../../stories/keys";
 import { mapLimited, VIEW_CONCURRENCY } from "../../stories/read";
 import { StoryParseError } from "../../story-store/errors";
+import { checkoutFiles } from "../../story-store/folder";
 import type { StoryStore } from "../../story-store/store";
 import type { PlainListEntry, PlainTask } from "../../story-store/story";
 import { gateStoryFromView, gateTaskFromView } from "../input";
@@ -80,14 +81,15 @@ export function gateTasksOf(views: ReadonlyMap<string, PlainTask | undefined>): 
 
 /**
  * The gate input of `story`, built from its view, the active tasks as GateTask values (the
- * story's own entry is replaced by its view), the milestone ids and names, the configuration and,
- * when the caller listed them, the base tree's file paths (R29, DIPO-251). Pure: the caller runs
- * the CLI and git. Its subtasks are the view's.
+ * story's own entry is replaced by its view), the milestone ids and names, the store's story
+ * folders (R12), the configuration and, when the caller listed them, the base tree's file paths
+ * (R29, DIPO-251). Pure: the caller runs the CLI and git. Its subtasks are the view's.
  */
 export function gateInputOf(
   story: PlainTask,
   others: readonly GateTask[],
   milestones: readonly string[],
+  storyFolders: readonly string[],
   config: GateConfig,
   baseFiles?: readonly string[],
 ): GateInput {
@@ -101,6 +103,7 @@ export function gateInputOf(
     },
     activeTasks: others.map((task) => (task.id === story.id ? gateTaskFromView(story) : task)),
     milestones: [...milestones],
+    storyFolders: [...storyFolders],
     config,
     ...(baseFiles === undefined ? {} : { baseFiles }),
   };
@@ -143,5 +146,7 @@ export async function readGateInput(
       ),
     );
   const milestones = await stories.milestones(cwd);
-  return gateInputOf(target, activeTasks, milestones, config, baseFiles);
+  // The folders R12 keeps out of the References, as the store names them in this checkout.
+  const folders = await stories.storyFolders(checkoutFiles(cwd));
+  return gateInputOf(target, activeTasks, milestones, folders, config, baseFiles);
 }

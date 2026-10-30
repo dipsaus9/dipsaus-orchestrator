@@ -25,6 +25,7 @@ import {
 } from "../packages/engine/src/gate/store/read";
 import { treePaths } from "../packages/engine/src/gate/store/tree";
 import { systemSpawn } from "../packages/engine/src/platform/process";
+import { checkoutFiles } from "../packages/engine/src/story-store/folder";
 
 const READY = "Ready";
 
@@ -77,6 +78,7 @@ export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<Rea
     entries.map((entry) => entry.id),
   );
   const milestones = await stories.milestones(repo);
+  const folders = await stories.storyFolders(checkoutFiles(repo));
   const others = gateTasksOf(views);
   const files = treeFiles(repo);
   const ready = entries.filter((entry) => entry.group === READY);
@@ -88,7 +90,7 @@ export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<Rea
     if (view === undefined) {
       throw new Error(`${entry.id} is Ready but its Backlog view does not parse`);
     }
-    const input = gateInputOf(view, others, milestones, config, files);
+    const input = gateInputOf(view, others, milestones, folders, config, files);
     const result = evaluateGate(input, "pickup");
     if (result.passed) passed.push(entry.id);
     failures.push(...result.failures.map((failure) => failure.message));

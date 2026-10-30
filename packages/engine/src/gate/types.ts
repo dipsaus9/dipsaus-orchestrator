@@ -106,6 +106,8 @@ export interface GateInput {
   readonly activeTasks: readonly GateTask[];
   /** Milestone ids and names that exist in the office (R07). */
   readonly milestones: readonly string[];
+  /** The folders the story store keeps its stories in (`StoryStore.storyFolders`), for R12. */
+  readonly storyFolders: readonly string[];
   readonly config: GateConfig;
   /** Defaults to `BUILT_IN_ROSTER`. */
   readonly roster?: readonly GateRole[];

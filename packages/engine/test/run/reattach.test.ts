@@ -100,6 +100,7 @@ import { sendFeedback } from "../../src/run/feedback";
 import { RECORDINGS_DIR } from "../workers/replay";
 import { memoryWorkspace } from "../context/helpers";
 import { plainTask } from "../prompts/helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const claude: IngestAdapter = {
   interpret: (line, state) =>
@@ -170,6 +171,7 @@ function daemon(
   };
   let outcomes: RunOutcomes | null = null;
   const control = new RunControl({
+    stories: backlogLayout,
     clock: f.t.clock,
     offices,
     writer: {
@@ -186,6 +188,7 @@ function daemon(
     outcomes: () => outcomes ?? undefined,
   });
   outcomes = new RunOutcomes({
+    stories: backlogLayout,
     clock: f.t.clock,
     offices,
     steering,
@@ -898,6 +901,7 @@ function realResumer(
     sessionFacts: () => ({ contextTokens: null, contextWindow: null, lastReport: null }),
   };
   return new RunResumer({
+    stories: backlogLayout,
     clock: w.f.t.clock,
     ids: w.f.t.ids,
     offices: {

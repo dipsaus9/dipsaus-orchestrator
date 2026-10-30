@@ -65,7 +65,7 @@ import { DONE_RELEASE_REASON } from "../worktree/teardown";
 import { findClaim, liveClaimOf } from "../worktree/records";
 
 import { holdTestNote } from "./fix-rounds";
-import { heldByPark } from "./park-state";
+import { heldByPark, type ParkStore } from "./park-state";
 import { findRun, openAtInReview, runPhase, type StoredRun } from "./records";
 import type { RunStoryFacts } from "./resume";
 import {
@@ -99,6 +99,8 @@ export const TESTABLE_PHASES: readonly string[] = ["review", "test", "merge"];
 export type TestBoxPort = Pick<TestBoxes, "start" | "close" | "reattach" | "sweep" | "holds">;
 
 export interface StoryTestsDeps {
+  /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
+  readonly stories: ParkStore;
   readonly offices: {
     get(office: OfficeId): OfficeHandle | undefined;
     config(office: OfficeId): OfficeConfig | undefined;
@@ -150,6 +152,7 @@ function notInReview(story: string, why: string): CommandError {
  * merge, claim live, not parked, a pushed head); otherwise why not.
  */
 export function testableRun(
+  stories: ParkStore,
   office: OfficeHandle,
   key: StoryKey | string,
 ): { readonly run: StoredRun; readonly head: string } | { readonly why: string } {
@@ -158,7 +161,7 @@ export function testableRun(
   const claim = liveClaimOf(office, key as StoryKey);
   const run = claim === null ? null : findRun(office, claim.runId);
   if (run === null || run.kind !== "story") return { why: "it has no live claim" };
-  if (heldByPark(office, key) || run.ending === "parked") return { why: "it is parked" };
+  if (heldByPark(stories, office, key) || run.ending === "parked") return { why: "it is parked" };
   if (!openAtInReview(run)) return { why: "its run is working" };
   const phase = runPhase(office, run.runId);
   if (phase === null || !TESTABLE_PHASES.includes(phase)) {
@@ -307,7 +310,7 @@ export class StoryTests {
     const officeId = office.officeId as OfficeId;
     const key = args.story as StoryKey;
     const story = ctx.stories.get(key)?.story ?? key;
-    const testable = testableRun(office, key);
+    const testable = testableRun(this.#deps.stories, office, key);
     if ("why" in testable) throw notInReview(story, testable.why);
     const { run, head } = testable;
     const open = openTestOf(office, key);
@@ -532,7 +535,7 @@ export class StoryTests {
     const claim = findClaim(office, test.runId);
     if (claim === null || claim.releasedAt !== null)
       return endOfRelease(claim?.releaseReason ?? null);
-    const testable = testableRun(office, test.key);
+    const testable = testableRun(this.#deps.stories, office, test.key);
     if ("why" in testable) return "not-in-review";
     if (testable.run.runId !== test.runId || testable.head !== test.head) return "new-head";
     const idle = this.#deps.offices.config(officeId)?.timeouts.testIdleMinutes ?? 240;

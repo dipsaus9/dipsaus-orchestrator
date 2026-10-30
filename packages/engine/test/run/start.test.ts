@@ -311,6 +311,7 @@ beforeEach(async () => {
     },
   };
   const launcher = new RunLauncher({
+    stories: backlogLayout,
     worker,
     git: () => git,
     dependencies: async () => [],

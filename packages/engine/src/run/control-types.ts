@@ -23,6 +23,7 @@ import type { IntentKind } from "./intents";
 import type { LiveQuestions } from "./live-question";
 import type { RunAct, RunOutcomesPort, RunView } from "./outcome-types";
 import type { ParkOutcome, ParkWriter } from "./park";
+import type { ParkStore } from "./park-state";
 import type { StoredRun } from "./records";
 import type { RunFinisher } from "./verify-commit";
 
@@ -71,6 +72,8 @@ export interface RunSteering {
 }
 
 export interface RunControlDeps {
+  /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
+  readonly stories: ParkStore;
   readonly clock: Clock;
   readonly offices: {
     get(office: OfficeId): OfficeHandle | undefined;

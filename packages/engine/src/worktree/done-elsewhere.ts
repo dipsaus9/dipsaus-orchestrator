@@ -34,7 +34,7 @@ import { closeQuestion, openQuestions } from "../questions/questions";
 import { CodeHostError, type CodeHost } from "../platform/host";
 import { forgetWorkerNotes } from "../prompts/notes";
 import { openParkIds, resolvePark } from "../run/park-records";
-import { heldByPark } from "../run/park-state";
+import { heldByPark, type ParkStore } from "../run/park-state";
 import { findRun } from "../run/records";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
 import type { StoryStore } from "../story-store/store";
@@ -291,27 +291,6 @@ export function hasUnexitedHost(office: OfficeHandle, runId: string): boolean {
   );
 }
 
-/**
- * The commit of `ref` that last changed the task file of `story` (`backlog/**\/<id> - *.md`), or
- * null when git finds none.
- */
-export async function lastTaskCommit(
-  git: GitSession,
-  ref: string,
-  story: string,
-): Promise<string | null> {
-  const result = await git.step(git.repository, [
-    "log",
-    "-1",
-    "--format=%H",
-    ref,
-    "--",
-    `:(glob,icase)backlog/**/${story} - *.md`,
-  ]);
-  const sha = result.code === 0 ? result.stdout.trim() : "";
-  return sha === "" ? null : sha;
-}
-
 /** What `_base` says of a story: its status and the commit `_base` is at. */
 export interface BaseStatus {
   /** The story's status, or null when it cannot be read. */
@@ -449,8 +428,12 @@ export function releaseDoneElsewhere(
 }
 
 /** True while the story of the claim is held by a park (DIPO-332; `heldByPark`, DIPO-360). */
-export function hasOpenPark(office: OfficeHandle, claim: Pick<ClaimRecord, "key">): boolean {
-  return heldByPark(office, claim.key);
+export function hasOpenPark(
+  stories: ParkStore,
+  office: OfficeHandle,
+  claim: Pick<ClaimRecord, "key">,
+): boolean {
+  return heldByPark(stories, office, claim.key);
 }
 
 /**

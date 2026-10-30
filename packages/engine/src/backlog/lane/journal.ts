@@ -3,10 +3,17 @@
 // read and written through the office handle, so every statement binds the office. Callers that
 // change a row run inside `office.immediate`.
 
-import type { StoryKey } from "@dipsaus-orchestrator/contract";
+import { FieldBlockPark, type StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../../db/office";
-import { type JournalState, OPEN_STATES, PENDING_LANE_NOTICE } from "../../story-store/planning";
+import {
+  DROP_KIND,
+  EditTarget,
+  type JournalState,
+  OPEN_STATES,
+  PENDING_LANE_NOTICE,
+  type PlannedPark,
+} from "../../story-store/planning";
 
 export { OPEN_STATES, PENDING_LANE_NOTICE };
 export type { JournalState };
@@ -287,4 +294,46 @@ export function pendingLaneOp(office: OfficeHandle, key: StoryKey): PendingLaneO
   );
   if (rows.length === 0) return null;
   return { reason: "notRunnable", notice: PENDING_LANE_NOTICE, ops: rows.map((row) => row.op_id) };
+}
+
+/**
+ * Pure: the park a journaled change of `kind` with `target` writes: `undefined` when it sets
+ * neither the status nor the park, else its park record (null when it lifts, drops or moves the
+ * story to a status other than Parked).
+ */
+export function parkOfTarget(kind: string, target: unknown): PlannedPark | null | undefined {
+  if (kind === DROP_KIND) return null;
+  const parsed = EditTarget.safeParse(target);
+  if (!parsed.success) return undefined;
+  const { status, fields, unset } = parsed.data;
+  const park = fields?.["park"];
+  if (status === undefined && park === undefined && !(unset ?? []).includes("park")) {
+    return undefined;
+  }
+  if (status !== undefined && status !== "Parked") return null;
+  if (park === undefined) return null;
+  const record = FieldBlockPark.safeParse(park);
+  return record.success ? record.data : null;
+}
+
+/**
+ * The park an open operation of the story `key` writes, newest first (`StoryStore.plannedPark`):
+ * `undefined` when no open operation sets its status or park, else its park record (null when it
+ * lifts, drops or moves the story to a status other than Parked).
+ */
+export function journaledPark(
+  office: OfficeHandle,
+  key: StoryKey | string,
+): PlannedPark | null | undefined {
+  const rows = office.all<{ op_kind: string; target: string }>(
+    `select op_kind, target from backlog_journal
+      where office_id = $office_id and key = $key and state in (${OPEN_SQL})
+      order by op_id desc`,
+    { key },
+  );
+  for (const row of rows) {
+    const park = parkOfTarget(row.op_kind, JSON.parse(row.target));
+    if (park !== undefined) return park;
+  }
+  return undefined;
 }

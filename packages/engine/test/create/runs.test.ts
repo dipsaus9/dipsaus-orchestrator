@@ -14,6 +14,7 @@ import { FakeProcess, ManualClock, SequentialIds } from "@dipsaus-orchestrator/t
 
 import { backlogCliFor } from "../../src/create/runs";
 import { startedSessionState, type StartedSession } from "../../src/run/started-session";
+import { backlogLayout } from "../story-store/backlog";
 
 const BACKLOG = "/opt/tools/bin/backlog";
 
@@ -43,7 +44,10 @@ describe("the daemon's Backlog CLI", () => {
       });
     };
     const registry = engineRegistry(
-      engineFeatures({ backlog: backlogCliFor({ backlog: BACKLOG }, spawn) }),
+      engineFeatures({
+        stories: backlogLayout,
+        backlog: backlogCliFor({ backlog: BACKLOG }, spawn),
+      }),
     );
     const step = registry.loadSteps().find((entry) => entry.name === "backlog.version");
     expect(step).toBeDefined();

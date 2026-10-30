@@ -91,7 +91,7 @@ export class Resumption {
     this.#deps = parts.support.deps;
     const places = options.places ?? (() => undefined);
     this.#parks = new ParkResumes(parts, { ...options.parks, places });
-    this.#command = new WorkResumeCommand(options.holds, () => this.#parks);
+    this.#command = new WorkResumeCommand(this.#deps.stories, options.holds, () => this.#parks);
   }
 
   /** Resolves once every session start of a resumed park this started has finished. */
@@ -143,7 +143,7 @@ export class Resumption {
   async resumeLifted(officeId: OfficeId, lifted: LiftedPark): Promise<LiftedResume> {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined) return { outcome: "retry", why: "the office is not loaded" };
-    const park = openPark(office, lifted.key);
+    const park = openPark(this.#deps.stories, office, lifted.key);
     // Resumed, dropped or parked again meanwhile: nothing to do for this park.
     if (park === null || park.parkId !== lifted.parkId) return { outcome: "resumed" };
     const current = office.get<{ story_id: string }>(

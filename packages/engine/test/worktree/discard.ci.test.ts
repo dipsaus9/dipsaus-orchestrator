@@ -50,6 +50,7 @@ import {
   withReconcileOffice,
 } from "../reconcile/helpers";
 import { backlogStoryStore } from "../../src/backlog/store";
+import { backlogLayout } from "../story-store/backlog";
 
 interface Closed {
   readonly repo: string;
@@ -118,6 +119,7 @@ function features(seen: Seen) {
       } as BacklogCli),
     });
     const planning = new StoryPlanning({
+      stories: backlogLayout,
       lane: () => planningLane(lane),
       git: (office) => engineGit.forOffice(office),
       host,
@@ -416,7 +418,13 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const git = o.engineGit.forOffice(o.officeId) as OfficeGit;
           const pass = await o.index.indexStories(o.officeId);
           await reconcileOffice(
-            { officeId: o.officeId, office: o.office, git, clock: o.s.clock },
+            {
+              stories: backlogLayout,
+              officeId: o.officeId,
+              office: o.office,
+              git,
+              clock: o.s.clock,
+            },
             { trigger: "rescan", pass, reindex: () => o.index.indexStories(o.officeId) },
           );
           expect(findDoneElsewhere(o.office, record.runId)).toMatchObject({ branchKept: true });
@@ -493,7 +501,13 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const git = o.engineGit.forOffice(o.officeId) as OfficeGit;
           const pass = await o.index.indexStories(o.officeId);
           await reconcileOffice(
-            { officeId: o.officeId, office: o.office, git, clock: o.s.clock },
+            {
+              stories: backlogLayout,
+              officeId: o.officeId,
+              office: o.office,
+              git,
+              clock: o.s.clock,
+            },
             { trigger: "rescan", pass, reindex: () => o.index.indexStories(o.officeId) },
           );
           o.office.run("delete from claims where office_id = $office_id and run_id = $run", {

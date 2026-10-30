@@ -4,7 +4,16 @@
 // office, a copy gets a new id and a moved repository keeps its own.
 
 import { describe, expect, it } from "bun:test";
-import { cpSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { OfficeId } from "@dipsaus-orchestrator/contract";
@@ -124,6 +133,27 @@ describe("office.open", () => {
       expect(officeRows(s.state)).toEqual([]);
       expect(s.events).toEqual([]);
     });
+  });
+
+  it("refuses a repository whose root backlog.config.yml names a folder the store cannot resolve", async () => {
+    await withTempRepo(
+      async (repo) => {
+        const s = await officeSetup(repo.root);
+        writeFileSync(join(repo.dir, "backlog.config.yml"), "backlog_directory: ../outside\n");
+        const refused = await send(s, "office.open", { path: repo.dir });
+        expect(errorOf(refused)).toBe("office.notProject");
+        expect(JSON.stringify(refused)).toContain("cannot resolve");
+        expect(officeRows(s.state)).toEqual([]);
+        // A root configuration that is a link is not read: refused too.
+        writeFileSync(join(repo.root, "pointer.yml"), "project_name: x\n");
+        rmSync(join(repo.dir, "backlog.config.yml"));
+        symlinkSync(join(repo.root, "pointer.yml"), join(repo.dir, "backlog.config.yml"));
+        const linked = await send(s, "office.open", { path: repo.dir });
+        expect(errorOf(linked)).toBe("office.notProject");
+        expect(JSON.stringify(linked)).toContain("through a link");
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
   });
 
   it("refuses an office.json that is not a marker", async () => {
