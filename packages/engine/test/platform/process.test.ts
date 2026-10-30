@@ -406,8 +406,6 @@ describe("ChildProcesses (DIPO-68)", () => {
       expect(children.killGroups("SIGKILL")).toEqual([child.pid]);
       await children.waitAll();
       expect(child.signalCode).toBe("SIGKILL");
-      // Gone or a zombie: in a box made before DIPO-378 PID 1 reaps no orphan (testkit
-      // `processRunning`, DIPO-372).
       for (let i = 0; i < 100 && processRunning(grandchild); i++) await Bun.sleep(20);
       expect(processRunning(grandchild)).toBe(false);
     });
