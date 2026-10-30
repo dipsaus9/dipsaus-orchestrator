@@ -1967,6 +1967,13 @@ describe("the daemon-start sweep of one state folder's helper boxes (DIPO-374)",
       expect(stateFolderLabel(join(dir, "linked"))).toBe(label);
       expect(stateFolderLabel(join(dir, "linked", "..", "state"))).toBe(label);
       expect(stateFolderLabel(join(dir, "other"))).not.toBe(label);
+      // A folder not made yet: named through the real path of its deepest existing parent, so a
+      // symlinked parent gives the same value, before and after the folder exists.
+      const early = stateFolderLabel(join(dir, "linked", "dipo", "state"));
+      expect(early).toBe(stateFolderLabel(join(state, "dipo", "state")));
+      expect(early).not.toBe(label);
+      mkdirSync(join(state, "dipo", "state"), { recursive: true });
+      expect(stateFolderLabel(join(dir, "linked", "dipo", "state"))).toBe(early);
     }));
 });
 

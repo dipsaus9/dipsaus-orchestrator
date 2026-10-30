@@ -185,6 +185,7 @@ An adapter implements section 1. An Agent SDK adapter would share `interpret`, b
 - Verify run by dipo in the box at done (2026-10-21), replaced by CI as the only verify (2026-10-22) because the box had no git and many test suites need it. Reinstated (2026-10-24) once the box got its own local git repository, with CI as the final gate (0002).
 - `bypassPermissions` ruled out as "no guard at all" (2026-10-10). Inside a box it is the documented pattern, and the box is the guard (2026-10-21).
 - A pricing catalog with versioned rates and a drift check against the CLI (2026-10-10). Replaced by the CLI's reported cost (2026-10-24).
+- Any daemon start deleted a helper box a stopped daemon left (2026-10-24). Replaced by a daemon with the same state folder only, named in each box's label (2026-10-30, DIPO-374), because a test's and a daemon's sweeps deleted each other's boxes.
 - Native `--resume` chosen by a cost check, and transcript tailing for usage after a crash (2026-10-10, 2026-10-18). Replaced by a new session with a handoff in the kept box, and the usage the stream showed (2026-10-24).
 - Pause, reassign and nudges as steer ops. Pause and reassign are gone (0020); nudges went with the developer's hooks.
 - `needs-permission` and `scopeRequest` in the report. A box worker has every permission, and references are a forecast (2026-10-21).

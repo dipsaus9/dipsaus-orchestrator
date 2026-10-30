@@ -7,7 +7,7 @@
 
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import type { ChildExit, ChildStdin, Signal } from "@dipsaus-orchestrator/contract";
 
@@ -76,17 +76,30 @@ export function isBoxTimedOut(error: unknown): error is BoxError {
 
 /**
  * The `BOX_STATE_LABEL` value of the state folder `stateDir` (DIPO-374): the sha256 of its real
- * path (the resolved path when it does not exist), so one folder always gets one value and two
- * folders never share one.
+ * path, so one folder always gets one value and two folders never share one. For a folder that
+ * does not exist yet, the real path of its deepest existing parent with the rest appended, so
+ * `/tmp/x` and `/private/tmp/x` share one value before `x` exists too.
  */
 export function stateFolderLabel(stateDir: string): string {
-  let path = resolve(stateDir);
-  try {
-    path = realpathSync(path);
-  } catch {
-    // A folder that does not exist yet keeps its resolved path.
+  return createHash("sha256")
+    .update(realPathOf(resolve(stateDir)))
+    .digest("hex");
+}
+
+/** The real path of the absolute `path`, through its deepest existing parent when it is missing. */
+function realPathOf(path: string): string {
+  const missing: string[] = [];
+  let at = path;
+  for (;;) {
+    try {
+      return join(realpathSync(at), ...missing.toReversed());
+    } catch {
+      const parent = dirname(at);
+      if (parent === at) return path;
+      missing.push(basename(at));
+      at = parent;
+    }
   }
-  return createHash("sha256").update(path).digest("hex");
 }
 
 /** The box name of `runId`; refuses a run id the name cannot carry. */
