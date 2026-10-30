@@ -63,7 +63,11 @@ export {
 } from "@dipsaus-orchestrator/contract";
 export const LOCK_WAIT_MS = 5000;
 export const LOCK_POLL_MS = 250;
-/** How long one attempt waits, blocking, for another process's lock to go (SQLite's busy timeout). */
+/**
+ * SQLite's busy timeout: how long each statement of one attempt waits, blocking, for another
+ * process's lock to go. An attempt runs two statements that can wait, so it blocks up to about
+ * twice this before the poll sleeps.
+ */
 const LOCK_BUSY_MS = 100;
 
 // <sqlite3.h>: SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOFOLLOW.
