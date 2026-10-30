@@ -1,10 +1,10 @@
 ---
 id: DIPO-388
 title: 'Report a resume that resolved a park as resumed, not as already running'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-30 11:14'
-updated_date: '2026-10-30 20:26'
+updated_date: '2026-10-30 20:28'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -17,6 +17,11 @@ references:
   - packages/engine/src/commands/registry.ts
   - packages/cli/src/resume-command.ts
   - packages/engine/test/run/
+modified_files:
+  - packages/cli/src/resume-command.test.ts
+  - packages/engine/src/run/park-resume.ts
+  - packages/engine/src/run/work-resume.ts
+  - packages/engine/test/run/resume-parks.test.ts
 priority: medium
 type: bug
 ordinal: 368000
@@ -45,3 +50,18 @@ test_plan:
 - [x] #2 The CLI prints "resumed <story> ..." for a resolved park and "already runs" only when nothing was parked; a test for each
 - [x] #3 A test reproduces the 2026-10-30 case: a story parked ambiguous-spec, resumed with a note, reports resumed, and the note is on the park
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-10-30 20:28 UTC
+- Criteria met: 3 of 3 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 60,492 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
