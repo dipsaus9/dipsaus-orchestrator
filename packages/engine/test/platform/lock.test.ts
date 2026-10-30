@@ -8,6 +8,7 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
   acquireLock,
+  deleteStaleRecord,
   formatPidRecord,
   LockBusyError,
   parsePidRecord,
@@ -177,6 +178,32 @@ describe("acquireLock", () => {
     });
   });
 
+  it("never deletes a record another starter created after this one judged the old one stale", async () => {
+    await withTempDir(async (dir) => {
+      writeRecord(dir, OTHER);
+      const winner: PidRecord = { ...OTHER, pid: 3000, startTimeMs: T0 };
+      const table: Table = new Map();
+      let swapped = false;
+      const opts = options(dir, table, {
+        // While this starter checks the dead PID, another one deletes the stale record and takes
+        // the lock: the file now holds the winner's record.
+        probe: async (pid) => {
+          if (!swapped && pid === OTHER.pid) {
+            swapped = true;
+            writeRecord(dir, winner);
+            table.set(winner.pid, daemonInfo(winner));
+            return null;
+          }
+          return table.get(pid) ?? null;
+        },
+        handshake: async (record) => record.pid === winner.pid,
+      });
+      expect(await acquireLock(opts)).toEqual({ kind: "running", record: winner });
+      expect(readRecord(dir)).toEqual(winner);
+      expect(opts.log.lines.some((l) => l.message === "removed a stale daemon lock")).toBe(false);
+    });
+  });
+
   it("gives up when another starter wins step 3 twice", async () => {
     await withTempDir(async (dir) => {
       writeRecord(dir, OTHER);
@@ -230,6 +257,21 @@ describe("held lock", () => {
       const lock = await held(dir);
       lock.release();
       expect(existsSync(pidPath(dir))).toBe(false);
+    });
+  });
+});
+
+describe("deleteStaleRecord", () => {
+  it("deletes only the bytes judged stale", async () => {
+    await withTempDir((dir) => {
+      writeRecord(dir, OTHER);
+      const stale = formatPidRecord(OTHER);
+      writeRecord(dir, { ...OTHER, pid: 3000 });
+      expect(deleteStaleRecord(pidPath(dir), stale)).toBe(false);
+      expect(readRecord(dir)?.pid).toBe(3000);
+      expect(deleteStaleRecord(pidPath(dir), formatPidRecord({ ...OTHER, pid: 3000 }))).toBe(true);
+      expect(existsSync(pidPath(dir))).toBe(false);
+      expect(deleteStaleRecord(pidPath(dir), stale)).toBe(false);
     });
   });
 });

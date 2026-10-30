@@ -5,7 +5,9 @@
 //    daemon runs: it gets up to 5 s to answer `engine.hello` and `daemon.status` with its own PID
 //    over `ws+unix://` (`helloHandshake`), else it is reported unresponsive. Code never removes a
 //    live daemon's record.
-// 2. Otherwise the record is stale: delete it.
+// 2. Otherwise the record is stale: delete it, but only while the file still holds the bytes that
+//    were judged stale. They are read again synchronously right before the unlink, so a record
+//    another starter created meanwhile is never deleted; that starter won.
 // 3. Create the record with `O_EXCL`. When that fails another starter won: back to step 1, once.
 
 import {
@@ -145,13 +147,20 @@ function createExclusive(path: string, record: PidRecord): boolean {
   return true;
 }
 
-/** Deletes `path` (step 2); a record another starter removed first is no error. */
-function deleteRecord(path: string): void {
+/**
+ * Deletes `path` (step 2) when it still holds `stale`, read again right before the unlink with no
+ * await in between. True when it deleted; a record another starter removed or replaced first is
+ * left alone.
+ */
+export function deleteStaleRecord(path: string, stale: string): boolean {
+  if (readRaw(path)?.raw !== stale) return false;
   try {
     unlinkSync(path);
   } catch (error) {
     if (errorCode(error) !== "ENOENT") throw error;
+    return false;
   }
+  return true;
 }
 
 const sameIdentity = (a: PidRecord, b: PidRecord) =>
@@ -197,8 +206,7 @@ export async function acquireLock(options: AcquireLockOptions): Promise<LockOutc
       if (await isLiveDaemon(record)) return { kind: "unresponsive", record };
     }
     // Step 2.
-    if (current !== null) {
-      deleteRecord(path);
+    if (current !== null && deleteStaleRecord(path, current.raw)) {
       logger.warn("removed a stale daemon lock", { path, pid: current.record?.pid ?? null });
     }
     // Step 3.
@@ -247,8 +255,9 @@ export interface HelloHandshakeOptions {
 /**
  * Step 1's handshake (0005): find the socket in `runtime.json` written by the process the record
  * names (same PID and start time), send `engine.hello` over `ws+unix://`, then `daemon.status`, and
- * check the status names the record's PID. Both are among the shapes that never change (0005), so a
- * daemon of another version answers too.
+ * check the status names the record's PID. A daemon of another version may refuse this binary's
+ * hello (one from before 0005's single version does); then the status is refused too, the daemon
+ * counts as not answering, and step 1 reports it unresponsive: its record is never deleted.
  */
 export function helloHandshake(
   options: HelloHandshakeOptions,

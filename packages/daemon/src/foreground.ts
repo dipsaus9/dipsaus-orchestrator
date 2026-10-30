@@ -570,6 +570,15 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     held.server = server;
     server.onPresenceChanged(() => engine.setTuiPresent(server.presence.tuiConnected()));
     held.socket = serveUnixSocket(place.socketPath, (connection) => server.accept(connection));
+    // Once, after the bind and before any state is touched (0005): a starter that lost a race for
+    // the lock exits here and leaves the socket and the runtime record to the winner.
+    if (!lock.holds()) {
+      logger.error("the daemon lock does not hold this process after binding; exiting", {
+        path: lock.path,
+      });
+      io.writeError("dipo: another daemon took the lock while this one started; exiting.");
+      return 1;
+    }
     announcePlace(run, lock, place);
     upgrade.start();
     await recover(run, engine);

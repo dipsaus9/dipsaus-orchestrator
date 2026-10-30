@@ -167,6 +167,47 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     );
 
     it(
+      "lets exactly one of two starters that find the same stale dipo.pid run",
+      async () => {
+        for (let round = 0; round < 3; round++) {
+          await withDaemonTempDir(async (dir) => {
+            const env = daemonTestEnv(dir);
+            const dead = Bun.spawn({ cmd: ["true"], stdout: "ignore", stderr: "ignore" });
+            await dead.exited;
+            const state = join(dir, "state");
+            await Bun.write(join(state, "logs", ".keep"), "");
+            writeFileSync(
+              join(state, "dipo.pid"),
+              `${JSON.stringify({ pid: dead.pid, startTimeMs: 1, version: "old", runtimeDir: null })}\n`,
+            );
+            const daemons = [start(env), start(env)];
+            try {
+              const loser = await Promise.race(daemons.map((d) => d.exited.then(() => d)));
+              const winner = daemons.find((d) => d !== loser);
+              if (winner === undefined) throw new Error("no winner");
+              // The loser met the running winner (exit 0), or lost the lock after binding (exit 1).
+              expect([0, 1]).toContain(loser.exitCode ?? -1);
+              await waitUntilServing(dir, winner);
+              expect(winner.exitCode).toBeNull();
+              const record = JSON.parse(readFileSync(join(state, "dipo.pid"), "utf8")) as {
+                pid: number;
+              };
+              expect(record.pid).toBe(winner.pid);
+              const runtime = JSON.parse(readFileSync(join(state, "runtime.json"), "utf8")) as {
+                pid: number;
+              };
+              expect(runtime.pid).toBe(winner.pid);
+              expect(await stop(winner)).toBe(0);
+            } finally {
+              await Promise.all(daemons.map(stop));
+            }
+          });
+        }
+      },
+      TIMEOUT_MS * 3,
+    );
+
+    it(
       "removes its own unknown runs' temp directories at start and leaves another daemon's",
       async () => {
         await withDaemonTempDir(async (dir) => {
