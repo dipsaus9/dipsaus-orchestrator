@@ -1,7 +1,5 @@
 // Office-level messages: work, story, gate and test commands, the office reads and the office
-// events (0005 sections 4, 5 and 7 with the 0008 and 0009 additions). Commands no engine has built
-// yet are provisional (0005 section 11, amendment of 2026-10-12); the engine hides them with
-// capability flags.
+// events (0005 with the 0008 and 0009 additions).
 
 import { z } from "zod";
 
@@ -81,7 +79,6 @@ export const workRun = defineCommand({
   }),
   confirm: false,
   irreversible: false,
-  since: 0,
 });
 
 // The answer to a worker's question is always text, so an answer that reads "allow" is never a
@@ -100,7 +97,6 @@ export const workAnswer = defineCommand({
   }),
   confirm: false,
   irreversible: false,
-  since: 0,
 });
 
 // Since minor 1 (DIPO-163, 0020): a running worker gets the text as its next user message
@@ -114,7 +110,6 @@ export const workSteer = defineCommand({
   result: z.object({ run: RunId, delivered: z.enum(["next-turn", "on-resume"]) }),
   confirm: false,
   irreversible: false,
-  since: 1,
 });
 
 // The one way back from a park (0020): a parked story returns to the status it had before, and a
@@ -175,7 +170,6 @@ export const workResume = defineCommand({
   confirm: false,
   confirmWhen: ["budget"],
   irreversible: false,
-  since: 1,
 });
 
 // Ends the run, deletes the story branch and returns the story to Refined
@@ -191,7 +185,6 @@ export const workDiscard = defineCommand({
   result: StoryResult,
   confirm: true,
   irreversible: true,
-  since: 1,
 });
 
 // Parks a Refined, Ready, In Progress or In Review story with reason `by-maintainer` and the note
@@ -207,7 +200,6 @@ export const storyPark = defineCommand({
   result: z.object({ story: StoryId, key: StoryKey, run: RunId.optional() }),
   confirm: false,
   irreversible: false,
-  since: 1,
 });
 
 // Archives the story through the planning lane and releases its claim; deletes its branch only
@@ -222,7 +214,6 @@ export const storyDrop = defineCommand({
   confirm: true,
   irreversible: false,
   irreversibleWhen: ["deleteBranch"],
-  since: 1,
 });
 
 // Since minor 1 (DIPO-140): the maintainer's decision on a gate, such as a merge gate that waits
@@ -234,7 +225,6 @@ export const gateApprove = defineCommand({
   result: z.object({ gate: GateId, decision: z.literal("approved") }),
   confirm: false,
   irreversible: false,
-  since: 1,
 });
 
 // The note becomes worker input.
@@ -245,7 +235,6 @@ export const gateReject = defineCommand({
   result: z.object({ gate: GateId, decision: z.literal("rejected") }),
   confirm: true,
   irreversible: false,
-  since: 1,
 });
 
 // A worker's proposal (0020 section 11c, DIPO-186): its stored id is a hash of 64 lower-case hex
@@ -274,7 +263,6 @@ export const proposalAccept = defineCommand({
   }),
   confirm: false,
   irreversible: false,
-  since: 1,
 });
 
 // Since minor 1 (DIPO-166) [`proposals`]: closes an open proposal without filing anything.
@@ -287,7 +275,6 @@ export const proposalDismiss = defineCommand({
   result: z.object({ proposal: ProposalId, state: z.literal("dismissed") }),
   confirm: false,
   irreversible: false,
-  since: 1,
 });
 
 // Since minor 1 (DIPO-309, 0002) [`test.sessions`]: runs the story's pushed head in a new test box
@@ -312,7 +299,6 @@ export const testStart = defineCommand({
   }),
   confirm: false,
   irreversible: false,
-  since: 1,
 });
 
 // Since minor 1 (DIPO-309, 0002) [`test.sessions`]: records the open test's result for the head
@@ -331,7 +317,6 @@ export const testRecord = defineCommand({
   result: z.object({ test: TestId, result: TestResult }),
   confirm: false,
   irreversible: false,
-  since: 1,
 });
 
 // Reads
@@ -353,7 +338,6 @@ export const officeSnapshot = defineRead({
   name: "office.snapshot",
   args: OfficeArgs,
   result: OfficeSnapshot,
-  since: 0,
 });
 
 // Switching offices changes no engine fact, so it is a read (0005 sections 4 and 7, 0009 section 4):
@@ -363,7 +347,6 @@ export const officeSwitch = defineRead({
   name: "office.switch",
   args: OfficeArgs,
   result: OfficeSnapshot,
-  since: 1,
 });
 
 // The notes and proposals of a run's done report (DIPO-152), the worker's own words, cleaned and
@@ -444,7 +427,6 @@ export const storyDetail = defineRead({
     // section 11): `dipo approve` and `dipo reject` send the newest one's id.
     gates: z.array(GateView).optional(),
   }),
-  since: 0,
 });
 
 // Stored output text for a byte range; `to` absent reads to the end of what is stored.
@@ -466,7 +448,6 @@ export const workOutputRange = defineRead({
     // The engine markers that overlap the range (DIPO-95, minor 1), oldest first; absent when none.
     markers: z.array(OutputMarker).optional(),
   }),
-  since: 0,
 });
 
 // The prompt text dipo sent a worker session (DIPO-137, `privacy.storePrompts`): the system file
@@ -484,7 +465,6 @@ export const workPrompt = defineRead({
     agent: AgentId,
     texts: z.array(z.object({ part: PromptPart, text: z.string() })),
   }),
-  since: 1,
 });
 
 // A dependency of a story that is not Done on the office's base (DIPO-179): its id and its status
@@ -511,7 +491,6 @@ export const storyGate = defineRead({
     waitingOn: z.array(GateDependency).optional(),
     warnings: z.array(GateRuleFailure).optional(),
   }),
-  since: 1,
 });
 
 // A commit on a story's branch that is not on the base, short sha and subject (DIPO-228).
@@ -538,7 +517,6 @@ export const storyLosses = defineRead({
     key: StoryKey,
     commits: z.array(LostCommit),
   }),
-  since: 1,
 });
 
 // The worker launch `work.run` would make for the story it would pick (DIPO-74): the branch it
@@ -592,7 +570,6 @@ export const workPreview = defineRead({
     launch: WorkerLaunchPreview.nullable(),
     problem: z.string().nullable(),
   }),
-  since: 1,
 });
 
 // Code-built "since you left" counts and lines (0009 section 8) [`digest`]. Since minor 1
@@ -608,7 +585,6 @@ export const officeDigest = defineRead({
     lines: z.array(z.string()),
     evidence: EvidenceMap.optional(),
   }),
-  since: 1,
 });
 
 // Size of one office-scoped table for one office (0007 "Size"): its row count and the approximate
@@ -627,7 +603,6 @@ export const officeStats = defineRead({
   name: "office.stats",
   args: OfficeArgs,
   result: z.object({ office: OfficeId, tables: z.array(TableStats) }),
-  since: 1,
 });
 
 // The kinds of a desk item (0020 section 12), as `dipo desk` prints them. Open: later stories add
@@ -700,7 +675,6 @@ export const officeDesk = defineRead({
   name: "office.desk",
   args: OfficeArgs,
   result: z.array(DeskItem),
-  since: 1,
 });
 
 // Events (office stream, 0005 section 5)

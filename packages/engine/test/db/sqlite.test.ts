@@ -3,16 +3,7 @@
 
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
-import {
-  chmodSync,
-  closeSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  statSync,
-  writeFileSync,
-  writeSync,
-} from "node:fs";
+import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
@@ -23,7 +14,6 @@ import {
   closeCleanly,
   COMPILED_SQLITE_WORKER_PATH,
   sqliteWorkerUrl,
-  IntegrityCheckError,
   isNetworkFsType,
   mountFor,
   NetworkFileSystemError,
@@ -153,37 +143,6 @@ describe("openSqlite", () => {
     withTempDir(async (dir) => {
       const db = await openSqlite({ stateDir: join(dir, "state"), logger: memoryLogger() });
       db.close();
-    }));
-
-  it("runs quick_check after an unclean exit and refuses a damaged file", () =>
-    withTempDir(async (dir) => {
-      const stateDir = join(dir, "state");
-      const options = { stateDir, logger: memoryLogger(), readMounts: localMounts };
-      mkdirSync(stateDir, { mode: 0o700 });
-      const path = join(stateDir, "dipo.db");
-      const raw = new Database(path, { create: true });
-      raw.exec("create table t (x integer primary key, y text); create index ty on t (y);");
-      const insert = raw.query("insert into t (y) values ($y)");
-      // One transaction: 2000 separate commits each wait for the disk and can exceed the
-      // test timeout on a busy machine.
-      raw.transaction(() => {
-        for (let i = 0; i < 2000; i++) insert.run({ $y: `row ${i} ${"x".repeat(50)}` });
-      })();
-      raw.close();
-
-      const healthy = await openSqlite({ ...options, checkIntegrity: true });
-      healthy.close();
-
-      // Overwrite part of a b-tree page; the header stays valid, so only quick_check notices.
-      const fd = openSync(path, "r+");
-      writeSync(fd, Buffer.alloc(4096, 0xff), 0, 4096, 4096 * 5 + 100);
-      closeSync(fd);
-      const error = await openSqlite({ ...options, checkIntegrity: true }).then(
-        () => null,
-        (caught: unknown) => caught,
-      );
-      expect(error).toBeInstanceOf(IntegrityCheckError);
-      expect((error as Error).message).toContain(join(stateDir, "backups"));
     }));
 });
 

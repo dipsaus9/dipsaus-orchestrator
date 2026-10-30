@@ -3,7 +3,6 @@
 import { z } from "zod";
 
 import { Cursor } from "./ids";
-import { ContractVersion } from "./version";
 import { openEnum } from "./work";
 
 export const EngineError = z.object({
@@ -19,7 +18,6 @@ export type EngineError = z.infer<typeof EngineError>;
 // 10): it stays in `recovering` and serves only `engine.hello`, `commands.describe` and
 // `daemon.*`; the message says what to do, and `details` are `DatabaseUnavailableDetails`.
 export const GENERIC_ERROR_CODES = [
-  "contract.unsupported",
   "args.invalid",
   "office.unknown",
   "story.unknown",
@@ -28,7 +26,6 @@ export const GENERIC_ERROR_CODES = [
   "request.reused",
   "confirmation.required",
   "not.permitted",
-  "auth.failed",
   "stream.resetRequired",
   "internal",
   "database.unavailable",
@@ -57,7 +54,6 @@ export const SOFTWARE_ERROR_CODES = [
   "office.refused",
   "office.markerInvalid",
   "scan.running",
-  "daemon.notSafe",
 ] as const;
 
 // Specific codes of office-level commands and reads. Since minor 1 (DIPO-71): `config.invalid`
@@ -149,20 +145,13 @@ export function argsInvalid(message: string, issues: readonly unknown[] = []): E
   return engineError("args.invalid", message, { issues });
 }
 
-// `details` of `contract.unsupported`: the daemon's contract and version (frozen, section 11).
-export const ContractUnsupportedDetails = z.object({
-  contract: ContractVersion,
-  version: z.string(),
-});
-export type ContractUnsupportedDetails = z.infer<typeof ContractUnsupportedDetails>;
-
 // `details` of `stream.resetRequired`: the oldest cursor the stream can still replay from.
 export const StreamResetRequiredDetails = z.object({ oldest: Cursor });
 export type StreamResetRequiredDetails = z.infer<typeof StreamResetRequiredDetails>;
 
 // Why the state database is unavailable (0007 sections 9 and 10). Open enum: `migration` (a step
-// failed and was rolled back), `checksum` (an applied migration was edited), `damaged` (the file
-// failed `PRAGMA quick_check` or is not a database), `tooNew` (written by a newer dipo),
+// failed and was rolled back), `checksum` (an applied migration was edited), `damaged` (SQLite
+// found the file damaged or no database at all), `tooNew` (written by a newer dipo),
 // `networkFilesystem` (`<state>` is on a network filesystem) and `open` (any other failure).
 export const DATABASE_UNAVAILABLE_REASONS = [
   "migration",

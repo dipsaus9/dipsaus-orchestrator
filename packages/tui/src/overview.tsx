@@ -41,12 +41,15 @@ import { boardNow } from "./now";
 import type { Display } from "./options";
 import { glyphs, healthLabel, officeOptIns, storedLabel } from "./views";
 
-/** The legend for evidence markers, shown in the footer with the `evidence` capability. */
+/** The legend for evidence markers, shown in the footer while they are on. */
 export const EVIDENCE_LEGEND = "* claimed ~ estimated ? none";
 
-export function evidenceEnabled(state: OfficeStoreState): boolean {
-  return state.capabilities.includes("evidence");
-}
+/**
+ * Whether values show their evidence markers (0009). Off, as before: the engine never sent the
+ * `evidence` capability flag that turned them on, and capability flags are gone (0005). Turning
+ * them on changes the approved layout, so a TUI story decides it.
+ */
+export const EVIDENCE_MARKERS: boolean = false;
 
 /** The widest title per width tier; shorter titles keep their own width. */
 const TITLE_WIDTH: Readonly<Record<Width, number>> = { full: 27, medium: 22, cards: 16 };
@@ -246,7 +249,7 @@ function sections(options: {
   ellipsis: string;
 }): Section[] {
   const { state, width, latest, now, dot, ellipsis } = options;
-  const evidence = evidenceEnabled(state);
+  const evidence = EVIDENCE_MARKERS;
   const { needs, review, ready, gated } = waitingStories(state);
   const titleOf = new Map(state.stories.map((story) => [String(story.key), story.title]));
   const named = [

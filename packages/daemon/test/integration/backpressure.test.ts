@@ -9,7 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { createConnection, type Socket } from "node:net";
 
-import { CONTRACT_VERSION, type Cursor, type OfficeId } from "@dipsaus-orchestrator/contract";
+import { type Cursor, type OfficeId } from "@dipsaus-orchestrator/contract";
 import { makeTempDir, removeTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { requestId, TestClient } from "../support/client";
@@ -122,7 +122,7 @@ function subscribeFrames(from: Cursor): unknown[] {
       kind: "read",
       requestId: requestId(),
       name: "engine.hello",
-      args: { contract: CONTRACT_VERSION, client: { name: "slow", version: "0" } },
+      args: { client: { name: "slow", version: "0" } },
     },
     { kind: "subscribe", requestId: requestId(), stream: from.stream, after: from },
   ];

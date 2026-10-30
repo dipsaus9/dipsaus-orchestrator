@@ -112,16 +112,10 @@ function withRefined(story: (view: StoryView) => StoryView): OfficeSnapshot {
   };
 }
 
-async function open(
-  columns: number,
-  rows = 30,
-  snapshot: OfficeSnapshot | null = null,
-  capabilities?: readonly string[],
-) {
+async function open(columns: number, rows = 30, snapshot: OfficeSnapshot | null = null) {
   const view = await mount({
     columns,
     rows,
-    ...(capabilities === undefined ? {} : { capabilities }),
     ...(snapshot === null
       ? {}
       : { snapshots: new Map<OfficeId, OfficeSnapshot>([[OFFICES.dipsaus, snapshot]]) }),
@@ -279,11 +273,11 @@ describe("office overview board", () => {
     expect(reads()).toBe(before);
   });
 
-  it("marks claimed values and shows the legend with the evidence capability", async () => {
-    const { ui } = await open(120, 30, null, ["evidence"]);
+  it("shows plain values and no legend while evidence markers are off", async () => {
+    const { ui } = await open(120, 30, null);
     const frame = ui.frame();
-    expect(frame).toContain("build   looping @  AC 2/3*  loop 2/3  [######--] 78%* 22m");
-    expect(frame).toContain("* claimed ~ estimated ? none");
+    expect(frame).toContain("build   looping @  AC 2/3  loop 2/3  [######--] 78% 22m");
+    expect(frame).not.toContain("* claimed ~ estimated ? none");
     for (const line of lines(frame)) expect(line.length).toBeLessThanOrEqual(120);
   });
 

@@ -7,7 +7,7 @@
 //   and its socket answers: running. It is alive but silent for 5 s: unresponsive. Otherwise the
 //   daemon is not running, and a leftover `dipo.pid` or `runtime.json` is stale and removed.
 // - Start spawns the daemon detached and waits up to 5 s for `engine.hello`.
-// - Stop sends `daemon.stop`. `--force`, and a daemon of another contract major, get SIGTERM to the
+// - Stop sends `daemon.stop`. `--force`, and a daemon of another version (0005), get SIGTERM to the
 //   verified PID (every version drains on it); `--force` adds SIGKILL after 10 s. Code never
 //   signals a PID whose start time or command does not match the record.
 // - Installed autostart (0006 decision 15, DIPO-63): start, stop and restart go through
@@ -17,7 +17,6 @@
 import {
   type Clock,
   type ConfigError,
-  ContractUnsupportedDetails,
   daemonStatus,
   daemonStop,
   type Origin,
@@ -29,7 +28,7 @@ import type { z } from "zod";
 import { ClientError, type DipoClient } from "../../client";
 import { systemClock } from "../clock";
 import { readSoftwareConfig, softwareConfigPath } from "../config";
-import { connectToDaemon, DaemonNotRunningError } from "../connect";
+import { connectToDaemon, DaemonNotRunningError, OtherVersionError } from "../connect";
 import { type Env, logsDir, readRuntimeInfo, stateDir } from "../runtime";
 import {
   parsePidRecord,
@@ -161,11 +160,11 @@ export type DaemonObservation =
       readonly record: PidRecord;
       readonly status: DaemonStatusResult;
     }
-  /** Alive and answering, but it speaks another contract major (0005 section 11). */
+  /** Alive and answering, but it runs another version of dipo (0005); null when it did not say. */
   | {
       readonly kind: "foreign";
       readonly record: PidRecord;
-      readonly details: ContractUnsupportedDetails | null;
+      readonly version: string | null;
     }
   | { readonly kind: "unresponsive"; readonly record: PidRecord }
   /** `cleaned` lists the stale files removed; non-empty means `stale`. */
@@ -194,7 +193,7 @@ async function isLiveDaemon(deps: LifecycleDeps, record: PidRecord): Promise<boo
 
 type Answer =
   | { readonly kind: "status"; readonly status: DaemonStatusResult }
-  | { readonly kind: "foreign"; readonly details: ContractUnsupportedDetails | null }
+  | { readonly kind: "foreign"; readonly version: string | null }
   | { readonly kind: "silent" };
 
 /** One attempt: connect, `engine.hello`, then `daemon.status`. */
@@ -203,10 +202,8 @@ async function ask(deps: LifecycleDeps): Promise<Answer> {
   try {
     session = await deps.connect(deps.timings.connectTimeoutMs);
   } catch (error) {
-    if (error instanceof ClientError && error.code === "contract.unsupported") {
-      const details = ContractUnsupportedDetails.safeParse(error.engineError?.details);
-      return { kind: "foreign", details: details.success ? details.data : null };
-    }
+    if (error instanceof OtherVersionError)
+      return { kind: "foreign", version: error.daemonVersion };
     return { kind: "silent" };
   }
   try {
@@ -245,7 +242,7 @@ async function handshake(
     ) {
       const answer = await ask(deps);
       if (answer.kind === "status") return { kind: "running", record, status: answer.status };
-      if (answer.kind === "foreign") return { kind: "foreign", record, details: answer.details };
+      if (answer.kind === "foreign") return { kind: "foreign", record, version: answer.version };
     }
     if (clock.now() >= deadline) return { kind: "unresponsive", record };
     await sleep(clock, timings.pollMs);
@@ -399,7 +396,7 @@ export async function startDaemon(
     return {
       kind: "already running",
       pid: before.record.pid,
-      version: before.details?.version ?? before.record.version,
+      version: before.version ?? before.record.version,
     };
   }
   if (before.kind === "unresponsive") return { kind: "unresponsive", pid: before.record.pid };
@@ -431,7 +428,7 @@ export type StopResult =
   | { readonly kind: "refused"; readonly pid: number; readonly message: string }
   | { readonly kind: "still running"; readonly pid: number };
 
-/** Stops the daemon `observed` names; `daemon.stop` for the same contract major, else SIGTERM. */
+/** Stops the daemon `observed` names; `daemon.stop` for the same version, else SIGTERM. */
 async function stopObserved(
   deps: LifecycleDeps,
   observed: Exclude<DaemonObservation, { kind: "not running" }>,
@@ -458,7 +455,7 @@ async function stopObserved(
   }
   if (observed.kind === "unresponsive") return { kind: "unresponsive", pid };
   if (observed.kind === "foreign") {
-    // Another contract major: SIGTERM does not depend on any contract (0006 decision 14).
+    // Another version: SIGTERM does not depend on any contract (0005).
     await signalVerified(deps, record, "SIGTERM");
   } else {
     let session: DaemonSession;
@@ -524,8 +521,8 @@ export type RestartResult =
   | { readonly kind: "restarted"; readonly stopped: number | null; readonly start: StartResult };
 
 /**
- * `dipo daemon restart` (0006 decision 14): stops the running daemon (`daemon.stop` for the same
- * contract major, verified-PID SIGTERM for another), waits for its PID to exit, then starts this
+ * `dipo daemon restart` (0005): stops the running daemon (`daemon.stop` for the same version,
+ * verified-PID SIGTERM for another), waits for its PID to exit, then starts this
  * binary. An invalid `config.yaml` refuses before anything is stopped.
  */
 export async function restartDaemon(

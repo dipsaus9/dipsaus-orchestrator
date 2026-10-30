@@ -1,8 +1,7 @@
-// An error no code caught (DIPO-117, 0006 decision 7) in a daemon run in-process on the manual
-// clock, with a fake source standing in for `process`: the daemon drains with the reason "uncaught
-// error", or keeps the reason of a drain already requested (`daemon.stop`), and exits 1 with its
-// crash marker kept, so the next start counts a crash. An error before the lock is taken still
-// counts: the daemon takes the lock, drains at once from `starting` and exits 1. A start that finds
+// An error no code caught (DIPO-117, 0005) in a daemon run in-process on the manual clock, with a
+// fake source standing in for `process`: the daemon drains with the reason "uncaught error", or
+// keeps the reason of a drain already requested (`daemon.stop`), and exits 1. An error before the
+// lock is taken still counts: the daemon takes the lock, drains at once from `starting` and exits 1. A start that finds
 // another daemon running exits 0 as before, and 1 only after an error of its own. A child the daemon
 // started holds each drain open until the test ends it. The real process is in
 // uncaught-error.ci.test.ts. Every daemon is stopped in a `finally`.
@@ -23,13 +22,12 @@ import {
 import type { Clock } from "@dipsaus-orchestrator/contract";
 import { systemClock } from "@dipsaus-orchestrator/engine/platform";
 
-import { CRASH_FILE, CrashCounter } from "../../src/crash-counter";
 import { runForeground } from "../../src/foreground";
 import { TestClient } from "../support/client";
 
 // The running daemon is the real binary's entry: the lock only counts a `dipo daemon` command live.
 const MAIN = resolve(import.meta.dir, "../../../cli/src/main.ts");
-const CRASH_EXIT = "exiting 1 after an uncaught error; the next start counts a crash";
+const CRASH_EXIT = "exiting 1 after an uncaught error";
 
 type Message = { msg: string; to?: string; reason?: string; errorCode?: string };
 
@@ -111,13 +109,6 @@ function startInProcess(dir: string, raise = false, clock: Clock = new ManualClo
   return { exited, messages, out, waitFor, uncaught, endChild, reached, stop };
 }
 
-function readMarker(dir: string): { pid: number } | null {
-  const file = JSON.parse(readFileSync(join(dir, "state", CRASH_FILE), "utf8")) as {
-    running: { pid: number } | null;
-  };
-  return file.running;
-}
-
 const transitions = (messages: Message[]) =>
   messages.filter((m) => m.msg === "daemon state" && m.to !== undefined).map((m) => m.to);
 
@@ -126,7 +117,7 @@ const drainReasons = (messages: Message[]) =>
 
 describe("an error no code caught in the daemon", () => {
   it(
-    "drains with its own reason once, exits 1 and keeps the marker, so the next start counts a crash",
+    "drains with its own reason once and exits 1",
     () =>
       withDaemonTempDir(async (dir) => {
         const daemon = startInProcess(dir);
@@ -152,22 +143,13 @@ describe("an error no code caught in the daemon", () => {
           messages.filter((m) => m.msg === "an unhandled rejection reached the daemon"),
         ).toHaveLength(1);
         expect(messages.map((m) => m.msg)).toContain("closed state database");
-        expect(readMarker(dir)).toMatchObject({ pid: process.pid });
-
-        // The next daemon is another process: the marker left behind is one crash.
-        const next = CrashCounter.open(
-          join(dir, "state"),
-          { pid: process.pid, startTimeMs: 2 },
-          new ManualClock(),
-        );
-        expect(next.previousCrashed).toBe(true);
-        expect(next.counter.recentCrashes).toBe(1);
+        expect(existsSync(join(dir, "state", "crashes.json"))).toBe(false);
       }),
     20_000,
   );
 
   it(
-    "during a drain daemon.stop requested keeps that reason, exits 1 and keeps the marker",
+    "during a drain daemon.stop requested keeps that reason and exits 1",
     () =>
       withDaemonTempDir(async (dir) => {
         const daemon = startInProcess(dir);
@@ -188,13 +170,12 @@ describe("an error no code caught in the daemon", () => {
         const messages = daemon.messages();
         expect(drainReasons(messages)).toEqual(["daemon.stop"]);
         expect(messages.find((m) => m.msg === CRASH_EXIT)?.reason).toBe("daemon.stop");
-        expect(readMarker(dir)).toMatchObject({ pid: process.pid });
       }),
     20_000,
   );
 
   it(
-    "before the lock is taken, still takes the lock, drains at once from starting, exits 1 and keeps the marker",
+    "before the lock is taken, still takes the lock, drains at once from starting and exits 1",
     () =>
       withDaemonTempDir(async (dir) => {
         const daemon = startInProcess(dir, true);
@@ -209,7 +190,6 @@ describe("an error no code caught in the daemon", () => {
         expect(drainReasons(messages)).toEqual(["uncaught error"]);
         expect(messages.map((m) => m.msg)).not.toContain("opened state database");
         expect(messages.find((m) => m.msg === CRASH_EXIT)?.reason).toBe("uncaught error");
-        expect(readMarker(dir)).toMatchObject({ pid: process.pid });
         expect(existsSync(join(dir, "state", "dipo.pid"))).toBe(false);
         expect(existsSync(join(dir, "run", "dipo.sock"))).toBe(false);
       }),
@@ -255,8 +235,6 @@ describe("an error no code caught in the daemon", () => {
             await failing.stop();
           }
           expect(failing.out.join("\n")).toContain("dipo daemon is already running");
-          // Neither start touched the running daemon's crash marker.
-          expect(readMarker(dir)).toMatchObject({ pid: running.pid });
 
           running.kill("SIGTERM");
           expect(await running.exited).toBe(0);

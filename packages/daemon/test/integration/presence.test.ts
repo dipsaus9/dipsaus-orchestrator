@@ -6,7 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
-import { CONTRACT_VERSION, TUI_CLIENT_NAME } from "@dipsaus-orchestrator/contract";
+import { TUI_CLIENT_NAME } from "@dipsaus-orchestrator/contract";
 import { makeTempDir, removeTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { settle, TestClient } from "../support/client";
@@ -33,7 +33,6 @@ describe("presence", () => {
     const tui = await TestClient.connect(harness.socketPath);
     expect(presence.tuiConnected()).toBe(false);
     await tui.read("engine.hello", {
-      contract: CONTRACT_VERSION,
       client: { name: TUI_CLIENT_NAME, version: "0" },
     });
     expect(presence.tuiConnected()).toBe(true);
@@ -64,7 +63,6 @@ describe("presence", () => {
 async function connectTui(): Promise<TestClient> {
   const tui = await TestClient.connect(harness.socketPath);
   await tui.read("engine.hello", {
-    contract: CONTRACT_VERSION,
     client: { name: TUI_CLIENT_NAME, version: "0" },
   });
   return tui;

@@ -1,7 +1,7 @@
 // `waitForRecovery` (DIPO-86) against a fake daemon behind the real `DipoClient` on the manual
 // clock: `engine.recovering` makes a command wait for `daemon.status` to leave `starting` and
-// `recovering` and go again with the same `requestId`; a read goes again with a new one; a daemon
-// that ends recovery in `safe` is reported once; `close` ends a wait at once. The request goes
+// `recovering` and go again with the same `requestId`; a read goes again with a new one; `close`
+// ends a wait at once. The request goes
 // again after every answered poll, also while the daemon still says `recovering`, so a daemon held
 // there without its state database ends the wait with `database.unavailable` (DIPO-111).
 
@@ -9,7 +9,6 @@ import { describe, expect, it } from "bun:test";
 
 import {
   type ClientFrame,
-  CONTRACT_VERSION,
   type Cursor,
   type DaemonState,
   officeOpen,
@@ -84,7 +83,7 @@ class FakeDaemon implements Transport {
   #reply(frame: Request): Answer {
     if (frame.name === "engine.hello") {
       const cursor = { stream: "software", seq: 0 };
-      const result = { engine: "0.0.0-test", contract: CONTRACT_VERSION, capabilities: [] };
+      const result = { engine: "0.0.0-test" };
       return { ok: true, result: { ...result, daemon: "recovering", offices: [], cursor } };
     }
     this.requests.push(frame);
@@ -135,7 +134,6 @@ async function setup() {
   const session = waitForRecovery(client, {
     clock,
     onWaiting: () => said.push("waiting"),
-    onSafe: (reason) => said.push(`safe: ${reason}`),
   });
   /** Moves the clock one poll at a time, letting replies through after each step. */
   const polls = async (count: number) => {
@@ -229,20 +227,6 @@ describe("waitForRecovery", () => {
     const ids = daemon.named("office.snapshot").map((request) => request.requestId);
     expect(ids).toHaveLength(2);
     expect(ids[0]).not.toBe(ids[1]);
-  });
-
-  it("reports a recovery that ends in safe and returns the command's own answer", async () => {
-    const { daemon, session, said, polls } = await setup();
-    daemon.states = ["recovering", "safe"];
-    daemon.reason = "crash loop";
-    const off = { code: "scheduling.off", message: "Scheduling is off", retryable: true };
-    daemon.answer = daemon.recoveringUntil(() => ({ ok: false, error: off }));
-    const done = session.command(workRun, {}, { office: OFFICE });
-    await flush();
-    await polls(2);
-    expect(await done).toEqual({ ok: false, error: off });
-    expect(said).toEqual(["safe: crash loop"]);
-    expect(daemon.named("work.run")).toHaveLength(3);
   });
 
   it("returns other errors at once without polling", async () => {

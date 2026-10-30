@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { ClientError } from "@dipsaus-orchestrator/client";
+import { OtherVersionError } from "@dipsaus-orchestrator/client/node";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
 import { main } from "./index";
@@ -27,17 +28,13 @@ describe("dipo tui", () => {
     expect(resolveTypedPath("/work", "~", "/home/me")).toBe("/home/me");
   });
 
-  it("says which contract the daemon speaks when it refuses this client", () => {
-    const error = new ClientError("contract.unsupported", "major 2 only", {
-      code: "contract.unsupported",
-      message: "major 2 only",
-      retryable: false,
-      details: { version: "2.0.0", contract: { major: 2, minor: 0 } },
-    });
-    expect(connectFailure(error, "0.1.0").message).toBe(
-      "contract.unsupported: major 2 only; daemon runs v2.0.0, this binary is v0.1.0, run `dipo daemon restart`",
+  it("says which version the daemon runs when it refuses this client (0005)", () => {
+    expect(connectFailure(new OtherVersionError("2.0.0", "0.1.0")).message).toBe(
+      "daemon runs v2.0.0, this binary is v0.1.0, run `dipo daemon restart`",
     );
-    expect(connectFailure(new Error("autostart is off"), "0.1.0").message).toBe("autostart is off");
+    const refused = new ClientError("args.invalid", "bad hello");
+    expect(connectFailure(refused).message).toBe("args.invalid: bad hello");
+    expect(connectFailure(new Error("autostart is off")).message).toBe("autostart is off");
   });
 
   it("finds the office of the current directory", async () => {

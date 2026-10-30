@@ -1,4 +1,4 @@
-// The daemon state machine (DIPO-68, 0006 decision 7): every allowed transition is accepted, every
+// The daemon state machine (DIPO-68, 0005): every allowed transition is accepted, every
 // other one throws, listeners see `{ from, to, reason }`, and the office-access and scheduling
 // predicates report `engine.recovering` and `scheduling.off`, or `database.unavailable` once the
 // state database could not be used (DIPO-111).
@@ -6,10 +6,8 @@
 import { describe, expect, it } from "bun:test";
 
 import { DaemonState } from "@dipsaus-orchestrator/contract";
-import { CommandError } from "../../src/commands/errors";
 
 import {
-  CRASH_LOOP_REASON,
   DATABASE_UNAVAILABLE,
   DaemonLifecycle,
   TransitionError,
@@ -18,17 +16,14 @@ import {
 
 const STATES = DaemonState.options;
 
-/** The transitions of 0006 decision 7, written out independently of the table under test. */
+/** The transitions of 0005, written out independently of the table under test. */
 const ALLOWED = new Set([
   "starting>recovering",
   "recovering>running",
-  "recovering>safe",
-  "safe>running",
   // SIGTERM always means the graceful drain, from every live state.
   "starting>draining",
   "recovering>draining",
   "running>draining",
-  "safe>draining",
 ]);
 
 /** A shortest path from `starting` to each state. */
@@ -36,7 +31,6 @@ const PATH: Record<DaemonState, DaemonState[]> = {
   starting: [],
   recovering: ["recovering"],
   running: ["recovering", "running"],
-  safe: ["recovering", "safe"],
   draining: ["draining"],
 };
 
@@ -90,35 +84,6 @@ describe("DaemonLifecycle transitions", () => {
   });
 });
 
-describe("resumeScheduling", () => {
-  it("leaves safe for running", () => {
-    const lifecycle = lifecycleIn("recovering");
-    lifecycle.transition("safe", CRASH_LOOP_REASON);
-    expect(lifecycle.resumeScheduling()).toEqual({
-      from: "safe",
-      to: "running",
-      reason: "scheduling resumed",
-    });
-  });
-
-  it("throws daemon.notSafe outside safe", () => {
-    for (const state of STATES.filter((s) => s !== "safe")) {
-      const lifecycle = lifecycleIn(state);
-      try {
-        lifecycle.resumeScheduling();
-        throw new Error("expected a CommandError");
-      } catch (error) {
-        expect(error).toBeInstanceOf(CommandError);
-        expect((error as CommandError).error).toMatchObject({
-          code: "daemon.notSafe",
-          retryable: false,
-        });
-      }
-      expect(lifecycle.state).toBe(state);
-    }
-  });
-});
-
 describe("predicates", () => {
   it("reports the retryable engine.recovering for office access in starting and recovering", () => {
     for (const state of STATES) {
@@ -131,18 +96,6 @@ describe("predicates", () => {
     }
   });
 
-  it("reports the retryable scheduling.off in safe, with the reason", () => {
-    const lifecycle = lifecycleIn("recovering");
-    lifecycle.transition("safe", CRASH_LOOP_REASON);
-    const error = lifecycle.scheduling();
-    expect(error).toMatchObject({
-      code: "scheduling.off",
-      retryable: true,
-      details: { state: "safe", reason: "crash loop" },
-    });
-    expect(lifecycle.officeAccess()).toBeNull();
-  });
-
   it("lets scheduling run only in running", () => {
     const codes = Object.fromEntries(
       STATES.map((state) => [state, lifecycleIn(state).scheduling()?.code ?? null]),
@@ -152,7 +105,6 @@ describe("predicates", () => {
       recovering: "engine.recovering",
       running: null,
       draining: "scheduling.off",
-      safe: "scheduling.off",
     });
   });
 });
@@ -205,23 +157,6 @@ describe("an unavailable state database (DIPO-111)", () => {
     expect(lifecycle.unavailable).toEqual(expected);
   });
 
-  it("refuses resumeScheduling with database.unavailable instead of daemon.notSafe", () => {
-    const lifecycle = lifecycleIn("recovering");
-    lifecycle.holdUnavailable(failure);
-    let thrown: unknown;
-    try {
-      lifecycle.resumeScheduling();
-    } catch (error) {
-      thrown = error;
-    }
-    expect(thrown).toBeInstanceOf(CommandError);
-    expect((thrown as CommandError).error).toMatchObject({
-      code: DATABASE_UNAVAILABLE,
-      retryable: false,
-    });
-    expect(lifecycle.state).toBe("recovering");
-  });
-
   it("still drains, and keeps refusing office access while it does", () => {
     const lifecycle = lifecycleIn("recovering");
     lifecycle.holdUnavailable(failure);
@@ -230,7 +165,7 @@ describe("an unavailable state database (DIPO-111)", () => {
   });
 
   it("changes nothing outside recovering", () => {
-    for (const state of ["starting", "running", "safe", "draining"] as const) {
+    for (const state of ["starting", "running", "draining"] as const) {
       const lifecycle = lifecycleIn(state);
       expect(lifecycle.holdUnavailable(failure)).toBe(false);
       expect(lifecycle.unavailable).toBeNull();

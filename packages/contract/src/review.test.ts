@@ -147,7 +147,7 @@ describe("progress (0019 section 14)", () => {
 });
 
 describe("gate commands and office codes (0019 section 15)", () => {
-  it("lists gate.approve and gate.reject as shipped commands", () => {
+  it("lists gate.approve and gate.reject as commands", () => {
     const commands = contractCommands.filter(
       (command) => command.name === "gate.approve" || command.name === "gate.reject",
     );
@@ -155,7 +155,6 @@ describe("gate commands and office codes (0019 section 15)", () => {
       "gate.approve",
       "gate.reject",
     ]);
-    for (const command of commands) expect(command.since).toBe(1);
   });
 
   it("exports the three review codes as office errors that are not retryable", () => {

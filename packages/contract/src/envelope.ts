@@ -69,20 +69,7 @@ export const Event = z.object({
 });
 export type Event = z.infer<typeof Event>;
 
-export const AuthFrame = z
-  .object({
-    kind: z.literal("auth"),
-    requestId: RequestId,
-    code: z.string().optional(), // single-use bootstrap code, exchanged for a session token
-    token: z.string().optional(), // session token on later connections
-  })
-  .refine((f) => (f.code === undefined) !== (f.token === undefined), {
-    message: "auth needs exactly one of code or token",
-  });
-export type AuthFrame = z.infer<typeof AuthFrame>;
-
 export const ClientFrame = z.discriminatedUnion("kind", [
-  AuthFrame,
   z.object({ kind: z.literal("command"), ...CommandRequest.shape }),
   z.object({ kind: z.literal("read"), ...ReadRequest.shape }),
   z.object({
@@ -107,8 +94,3 @@ export type ServerFrame = z.infer<typeof ServerFrame>;
 // Ok result of a `subscribe` reply. The error is `stream.resetRequired` with `{ oldest }`.
 export const SubscribeResult = z.object({ stream: Cursor.shape.stream, from: Cursor });
 export type SubscribeResult = z.infer<typeof SubscribeResult>;
-
-// Ok result of an `auth` reply: the new session token after a code exchange, nothing after a
-// token. The error is `auth.failed`.
-export const AuthResult = z.object({ session: z.object({ token: z.string() }).optional() });
-export type AuthResult = z.infer<typeof AuthResult>;

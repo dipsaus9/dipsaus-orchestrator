@@ -22,10 +22,10 @@ import { featureList, recoveryList, type Services } from "./steps";
 import { buildStoryServices } from "./stories";
 import { engineSurface, type EngineSurface } from "./surface";
 
-/** Starts what runs only once the engine has recovered: in `running` or `safe`. */
+/** Starts what runs only once the engine has recovered: in `running`. */
 function startRunningJobs(core: Core, services: Services): void {
   const { lifecycle } = core;
-  if (lifecycle.state !== "running" && lifecycle.state !== "safe") return;
+  if (lifecycle.state !== "running") return;
   // Recovery loaded the registered offices: read their engine commits behind now, then on the
   // refresh interval; offices loaded later are read when status first sees them (DIPO-198).
   services.office.engineBehind?.start();
@@ -115,8 +115,8 @@ function engineOf(core: Core, services: Services, steps: RecoverySteps): Engine 
   return {
     ...surface,
     state: () => lifecycle.state,
-    recover: async ({ crashLoop }) => {
-      await runRecovery({ lifecycle, steps, context: recoveryContext(core), crashLoop });
+    recover: async () => {
+      await runRecovery({ lifecycle, steps, context: recoveryContext(core) });
       startRunningJobs(core, services);
     },
     drain: (request, caps = DEFAULT_DRAIN_CAPS) => {

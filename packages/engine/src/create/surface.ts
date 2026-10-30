@@ -30,25 +30,18 @@ import type { Registry } from "../commands/registry";
 import type { MemoryRequestTable } from "../commands/requests";
 import type { Logger } from "../log/logger";
 import { executeRead } from "../reads/execute";
-import { contractUnsupported, type OfficeSummarySource } from "../reads/hello";
+import type { OfficeSummarySource } from "../reads/hello";
 import type { SoftwareStream } from "../software-stream";
 import type { DaemonLifecycle } from "./lifecycle";
 import type { OfficeChanges } from "./notify";
 
-/**
- * Commands that would schedule work and so fail with `scheduling.off` in `safe` (0006 decision 7):
- * `work.run`, and `work.resume`, which resumes a parked run (0020).
- */
-export const SCHEDULING_COMMANDS: ReadonlySet<string> = new Set(["work.run", "work.resume"]);
-
-/** Names any connection may use in every daemon state (0006 decision 7: `starting`). */
+/** Names any connection may use in every daemon state (0005: also `starting`). */
 const ALWAYS_ALLOWED: ReadonlySet<string> = new Set(["engine.hello", "commands.describe"]);
 
 /**
- * The lifecycle check for one request (0006 decision 7), null when it may run: office commands and
- * reads get `engine.recovering` in `starting` and `recovering`; commands that schedule work get
- * `scheduling.off` in `safe`; in `draining` no command but `daemon.*` starts, also with the
- * retryable `scheduling.off`, so a client retries it against the next daemon. `engine.hello`,
+ * The lifecycle check for one request (0005), null when it may run: office commands and reads get
+ * `engine.recovering` in `starting` and `recovering`; in `draining` no command but `daemon.*`
+ * starts, with the retryable `scheduling.off`, so a client retries it against the next daemon. `engine.hello`,
  * `commands.describe` and `daemon.*` always run.
  */
 export function lifecycleGate(
@@ -59,9 +52,7 @@ export function lifecycleGate(
   if (ALWAYS_ALLOWED.has(name) || name.startsWith("daemon.")) return null;
   const access = lifecycle.officeAccess();
   if (access !== null) return access;
-  if (kind === "command" && (lifecycle.state === "draining" || SCHEDULING_COMMANDS.has(name))) {
-    return lifecycle.scheduling();
-  }
+  if (kind === "command" && lifecycle.state === "draining") return lifecycle.scheduling();
   return null;
 }
 
@@ -116,8 +107,6 @@ export interface EngineSurface {
   officeSummaries(): readonly OfficeSummary[];
   /** The summary of one office, or undefined when it has none. */
   officeSummary(office: OfficeId): OfficeSummary | undefined;
-  /** `contract.unsupported`: the frozen surface is all a client of another major may use. */
-  contractUnsupported(): EngineError;
 }
 
 /** The parts the surface is made of; `createEngine` builds them, and tests pass their own. */
@@ -265,6 +254,5 @@ export function engineSurface(parts: SurfaceParts): EngineSurface {
       parts.officeSummary === undefined
         ? parts.officeSummaries().find((candidate) => candidate.office === office)
         : parts.officeSummary(office),
-    contractUnsupported: () => contractUnsupported(parts.version).error,
   };
 }

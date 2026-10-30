@@ -37,7 +37,6 @@ import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import type { OfficeHandle } from "../../src/db/office";
 import { executeRead } from "../../src/reads/execute";
-import { capabilityFlags } from "../../src/reads/hello";
 import { ProposalCommands, proposalDraft, type StoredProposal } from "../../src/run/proposals";
 import { proposalHash, storeProposals } from "../../src/run/report-data";
 import { addStory } from "../../src/stories/keys";
@@ -201,11 +200,6 @@ describe("proposal.filed (criterion 1)", () => {
     const title = `Fix${SEQUENCE_SAMPLES["CSI, 7-bit"]}\nthe ${SEQUENCE_SAMPLES["OSC"]}flag`;
     store([{ ...SPIKE, title }]);
     expect((logged("proposal.filed")[0] as { title: string }).title).toBe("Fix the flag");
-  });
-
-  it("is behind the capability flag proposals, with both commands registered", () => {
-    expect(capabilityFlags(w.registry)).toContain("proposals");
-    expect(capabilityFlags(buildRegistry([viewsFeature]))).not.toContain("proposals");
   });
 });
 

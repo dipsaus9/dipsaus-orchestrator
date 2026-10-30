@@ -1,7 +1,7 @@
 // CI only (0017 section 1, DIPO-225): real git repositories and processes, too slow for the local
 // run.
 // `dipo daemon --foreground` as real processes (DIPO-23): two starters race for the lock and exactly
-// one runs; a stale record with a dead PID is broken. State, runtime directory and temp files stay
+// one runs; a stale record with a dead PID is replaced (0005). State, runtime directory and temp files stay
 // under the test's temp directory (DIPO_HOME, DIPO_RUNTIME_DIR, DIPO_TMP), and every daemon is
 // stopped in a `finally`.
 
@@ -68,7 +68,7 @@ async function waitUntilServing(dir: string, daemon: Daemon): Promise<void> {
         const status = await client.read("daemon.status");
         const result = status.ok ? (status.result as { pid: number; state: string }) : null;
         const opened = readFileSync(log, "utf8").includes("opened state database");
-        const recovered = result?.state === "running" || result?.state === "safe";
+        const recovered = result?.state === "running";
         if (result?.pid === daemon.pid && opened && recovered) return;
       } finally {
         await client.close();
@@ -152,7 +152,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               "tests-recover",
               "fix-rounds-recover",
             ]);
-            // The database opens only after the post-bind re-read: after "listening".
+            // The database opens only once the socket is bound: after "listening".
             expect(messages.indexOf("listening")).toBeLessThan(
               messages.indexOf("opened state database"),
             );
@@ -201,7 +201,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     );
 
     it(
-      "reads <state>/config.yaml at start",
+      "reads <state>/config.yaml at start and drops the retired autoRestartOnUpgrade with a warning",
       async () => {
         await withDaemonTempDir(async (dir) => {
           const state = join(dir, "state");
@@ -212,16 +212,19 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const daemon = start(daemonTestEnv(dir));
           try {
             await waitUntilServing(dir, daemon);
-            const line = readFileSync(join(state, "logs", "daemon.log"), "utf8")
+            const lines = readFileSync(join(state, "logs", "daemon.log"), "utf8")
               .trim()
               .split("\n")
-              .map((entry) => JSON.parse(entry) as Record<string, unknown>)
-              .find((entry) => entry["msg"] === "software configuration");
-            expect(line).toMatchObject({
-              fromFile: true,
-              autostart: true,
-              autoRestartOnUpgrade: true,
-            });
+              .map((entry) => JSON.parse(entry) as Record<string, unknown>);
+            const line = lines.find((entry) => entry["msg"] === "software configuration");
+            expect(line).toMatchObject({ fromFile: true, autostart: true });
+            expect(line).not.toHaveProperty("autoRestartOnUpgrade");
+            const warning = lines.find(
+              (entry) =>
+                entry["level"] === "warn" &&
+                String(entry["msg"]).includes("daemon.autoRestartOnUpgrade is no longer read"),
+            );
+            expect(warning).toBeDefined();
           } finally {
             expect(await stop(daemon)).toBe(0);
           }
@@ -235,7 +238,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       async () => {
         await withDaemonTempDir(async (dir) => {
           const state = join(dir, "state");
-          await Bun.write(join(state, "config.yaml"), "version: 4\n");
+          await Bun.write(join(state, "config.yaml"), "version: 5\n");
           const daemon = start(daemonTestEnv(dir));
           try {
             // EX_CONFIG, so a supervisor does not restart it in a loop.
@@ -275,7 +278,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     );
 
     it(
-      "breaks a stale lock left by a dead process",
+      "replaces a stale lock left by a dead process",
       async () => {
         await withDaemonTempDir(async (dir) => {
           const env = daemonTestEnv(dir);
@@ -295,7 +298,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             };
             expect(record.pid).toBe(daemon.pid);
             expect(readFileSync(join(state, "logs", "daemon.log"), "utf8")).toContain(
-              "found a stale daemon lock",
+              "removed a stale daemon lock",
             );
           } finally {
             expect(await stop(daemon)).toBe(0);

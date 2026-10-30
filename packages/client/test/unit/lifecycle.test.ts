@@ -11,7 +11,6 @@ import { join } from "node:path";
 import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { ClientError } from "../../src/index";
 import {
   AutostartOffError,
   connectOrStart,
@@ -23,6 +22,7 @@ import {
   inspectDaemon,
   LIFECYCLE_TIMINGS,
   type LifecycleDeps,
+  OtherVersionError,
   type ProcessInfo,
   removeIfUnchanged,
   restartDaemon,
@@ -233,26 +233,15 @@ describe("inspectDaemon", () => {
       expect(w.deps.clock.now() - before).toBeGreaterThanOrEqual(LIFECYCLE_TIMINGS.startWaitMs);
     }));
 
-  it("reports a daemon of another contract major as foreign with its version", () =>
+  it("reports a daemon of another version as foreign with its version (0005)", () =>
     withTempDir(async (dir) => {
       const w = world(dir, {
-        connect: () =>
-          Promise.reject(
-            new ClientError("contract.unsupported", "other major", {
-              code: "contract.unsupported",
-              message: "other major",
-              retryable: false,
-              details: { contract: { major: 2, minor: 0 }, version: "2.0.0" },
-            }),
-          ),
+        connect: () => Promise.reject(new OtherVersionError("2.0.0", "0.0.0-dev")),
       });
       w.procs.set(DAEMON_PID, DAEMON_INFO);
       writeLock(w.state);
       writeRuntime(w.state);
-      expect(await inspectDaemon(w.deps)).toMatchObject({
-        kind: "foreign",
-        details: { version: "2.0.0" },
-      });
+      expect(await inspectDaemon(w.deps)).toMatchObject({ kind: "foreign", version: "2.0.0" });
     }));
 });
 
@@ -351,7 +340,7 @@ describe("startDaemon and autostart", () => {
       expect((error as SoftwareConfigError).errors[0]?.message).toContain("daemon.autostart");
       expect(w.spawns).toEqual([]);
 
-      writeFileSync(join(w.state, "config.yaml"), "version: 4\n");
+      writeFileSync(join(w.state, "config.yaml"), "version: 5\n");
       expect(await startDaemon(w.deps)).toMatchObject({ kind: "config" });
       expect(w.spawns).toEqual([]);
     }));
@@ -484,18 +473,14 @@ describe("stopDaemon", () => {
 });
 
 describe("restartDaemon", () => {
-  it("uses the verified-PID SIGTERM for another contract major, then starts this binary", () =>
+  it("uses the verified-PID SIGTERM for another version, then starts this binary", () =>
     withTempDir(async (dir) => {
       let spawned = false;
       const w = world(dir, {
         connect: async () => {
           if (spawned) return session({ pid: 999 });
-          throw new ClientError("contract.unsupported", "other major", {
-            code: "contract.unsupported",
-            message: "other major",
-            retryable: false,
-            details: { contract: { major: 2, minor: 0 }, version: "2.0.0" },
-          });
+          // An older daemon refuses this binary's hello: its version is not known.
+          throw new OtherVersionError(null, "0.0.0-dev");
         },
         onSignal: (self, pid) => {
           self.procs.delete(pid);

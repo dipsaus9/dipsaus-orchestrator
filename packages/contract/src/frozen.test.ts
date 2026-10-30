@@ -1,14 +1,13 @@
-// The frozen minimal surface of 0005 section 11: shapes that never change in any major, so
-// `dipo daemon restart` works across a major upgrade (0006 section 14). Each expected value below
-// is written out by hand. If this test fails, the change breaks every older and newer client:
-// revert it.
+// The shapes that never change (0005): so `dipo daemon restart` works across versions, the frame
+// envelope, the reply frame with `EngineError`, `engine.hello` with its version, `daemon.status`
+// (`state`, `pid`, `version`) and `daemon.stop` stay as they are. Each expected value below is
+// written out by hand. If this test fails, the change breaks every older and newer client: revert
+// it.
 
 import { describe, expect, it } from "bun:test";
 
 import {
   ClientFrame,
-  CONTRACT_VERSION,
-  ContractUnsupportedDetails,
   daemonStatus,
   daemonStop,
   EngineError,
@@ -19,26 +18,12 @@ import {
 } from "./index";
 
 const ULID_PATTERN = "^[0-7][0-9A-HJKMNP-TV-Z]{25}$";
-const VERSION = {
-  type: "object",
-  properties: {
-    major: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
-    minor: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
-  },
-  required: ["major", "minor"],
-};
 
 function field(schema: unknown, name: string): unknown {
   return (schema as { properties: Record<string, unknown> }).properties[name];
 }
 
-describe("frozen minimal surface (0005 section 11)", () => {
-  // A minor only adds (0005 section 11); the major is what a client of another binary must match.
-  it("contract major is 1", () => {
-    expect(CONTRACT_VERSION.major).toBe(1);
-    expect(Object.keys(CONTRACT_VERSION).toSorted()).toEqual(["major", "minor"]);
-  });
-
+describe("the shapes that never change (0005)", () => {
   it("frame envelope: kind on every frame, requestId a ULID", () => {
     expect(jsonSchemaOf(RequestId)).toEqual({ type: "string", pattern: ULID_PATTERN });
     for (const frame of ClientFrame.options) {
@@ -77,28 +62,22 @@ describe("frozen minimal surface (0005 section 11)", () => {
     });
   });
 
-  it("engine.hello request", () => {
+  it("engine.hello request, and the daemon's version in its result", () => {
     expect(engineHello.name).toBe("engine.hello");
     expect(jsonSchemaOf(engineHello.args)).toEqual({
       type: "object",
       properties: {
-        contract: VERSION,
         client: {
           type: "object",
           properties: { name: { type: "string" }, version: { type: "string" } },
           required: ["name", "version"],
         },
       },
-      required: ["contract", "client"],
+      required: ["client"],
     });
-  });
-
-  it("contract.unsupported details: the daemon's contract and version", () => {
-    expect(jsonSchemaOf(ContractUnsupportedDetails)).toEqual({
-      type: "object",
-      properties: { contract: VERSION, version: { type: "string" } },
-      required: ["contract", "version"],
-    });
+    const result = jsonSchemaOf(engineHello.result);
+    expect(field(result, "engine")).toEqual({ type: "string" });
+    expect(result["required"]).toEqual(expect.arrayContaining(["engine"]));
   });
 
   it("daemon.status fields state, pid and version", () => {
@@ -106,7 +85,7 @@ describe("frozen minimal surface (0005 section 11)", () => {
     const result = jsonSchemaOf(daemonStatus.result);
     expect(field(result, "state")).toEqual({
       type: "string",
-      enum: ["starting", "recovering", "running", "draining", "safe"],
+      enum: ["starting", "recovering", "running", "draining"],
     });
     expect(field(result, "pid")).toEqual({
       type: "integer",

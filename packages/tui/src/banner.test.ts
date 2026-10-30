@@ -14,7 +14,6 @@ function state(patch: Partial<OfficeStoreState>): OfficeStoreState {
     live: true,
     daemon: "recovering",
     engine: "0.1.0",
-    capabilities: [],
     offices: [],
     office: null,
     loading: false,

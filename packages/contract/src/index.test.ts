@@ -119,13 +119,6 @@ describe("frames", () => {
     });
   }
 
-  it("names the auth rule when both code and token are sent", () => {
-    const result = ClientFrame.safeParse(malformedClientFrames["auth with code and token"]);
-    expect(result.error?.issues.map((issue) => issue.message)).toContain(
-      "auth needs exactly one of code or token",
-    );
-  });
-
   it("defaults confirmed to false on a command", () => {
     const frame = ClientFrame.parse(clientFrameFixtures["command"]);
     expect(frame.kind === "command" && frame.confirmed).toBe(false);
@@ -187,10 +180,8 @@ describe("errors", () => {
     expect(([...GENERIC_ERROR_CODES] as string[]).toSorted()).toEqual(
       [
         "args.invalid",
-        "auth.failed",
         "capability.missing",
         "confirmation.required",
-        "contract.unsupported",
         "database.unavailable",
         "internal",
         "not.permitted",

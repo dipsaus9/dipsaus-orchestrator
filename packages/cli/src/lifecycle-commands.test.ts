@@ -188,16 +188,11 @@ describe("dipo daemon status", () => {
     }
   });
 
-  it("reports a daemon of another contract major as running with the restart hint", async () => {
-    const ctx = fake({
-      inspect: {
-        kind: "foreign",
-        record: RECORD,
-        details: { contract: { major: 2, minor: 0 }, version: "2.0.0" },
-      },
-    });
+  it("reports a daemon of another version as running with the restart hint (0005)", async () => {
+    const ctx = fake({ inspect: { kind: "foreign", record: RECORD, version: "2.0.0" } });
     expect(await main(["daemon", "status"], ctx.deps)).toBe(0);
     expect(ctx.out[0]).toBe("running");
+    expect(ctx.out[2]).toBe("  version:    2.0.0 (another version)");
     expect(ctx.err).toEqual([
       "dipo: daemon runs v2.0.0, this binary is v0.0.0-dev, run `dipo daemon restart`",
     ]);

@@ -33,7 +33,6 @@ const RUN_19 = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C19";
 const RUN_24 = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24";
 
 /** Every flag the desk's keys need. */
-const ALL_FLAGS = ["desk", "work.intervene", "review", "proposals", "evidence"];
 
 /** The clock starts at 10:04; `ago(40)` is 40 minutes before. */
 function ago(minutes: number): string {
@@ -169,13 +168,11 @@ async function openDesk(
     columns?: number;
     rows?: number;
     desk?: readonly DeskItem[];
-    capabilities?: readonly string[];
   } = {},
 ) {
   const view = await mount({
     columns: options.columns ?? 120,
     rows: options.rows ?? 30,
-    capabilities: options.capabilities ?? ALL_FLAGS,
   });
   mounted.push(view.ui);
   view.session.desk = [...(options.desk ?? DESK)];
@@ -221,7 +218,7 @@ async function selectRow(
 
 /** The queue with DIPO-30 selected. */
 async function openQueue() {
-  const view = await mount({ columns: 120, rows: 30, capabilities: ALL_FLAGS });
+  const view = await mount({ columns: 120, rows: 30 });
   mounted.push(view.ui);
   await view.ui.waitFor("· live");
   await view.ui.press("2");
@@ -395,15 +392,8 @@ describe("the key table on desk rows", () => {
     ]);
   });
 
-  it("offers a key only for what the row lists and the flags allow; the rest shows its cli line", async () => {
-    // Without the `proposals` flag a PROPOSAL row offers no key and shows its command lines.
-    const { ui, session } = await openDesk({ capabilities: ["desk", "work.intervene", "review"] });
-    await selectRow(ui, "DIPO-21");
-    const frame = ui.frame();
-    expect(frame).not.toContain("[y] accept");
-    expect(frame).toContain(`type: dipo propose accept ${PROPOSAL}`);
-    expect(frame).toContain(`type: dipo propose dismiss ${PROPOSAL}`);
-    await ui.press("y");
+  it("offers a key only for what the row lists", async () => {
+    const { ui, session } = await openDesk();
     // The QUESTION row lists no resume: `r` sends nothing.
     await selectRow(ui, "DIPO-19");
     await ui.press("r");
@@ -681,7 +671,7 @@ describe("the queue and the detail use the same table", () => {
   });
 
   it("steers with s and parks with P in the live agent detail", async () => {
-    const view = await mount({ columns: 120, rows: 30, capabilities: ALL_FLAGS });
+    const view = await mount({ columns: 120, rows: 30 });
     mounted.push(view.ui);
     const { ui, session } = view;
     await ui.waitFor("· live");
@@ -705,7 +695,7 @@ describe("the queue and the detail use the same table", () => {
   });
 
   it("tags a follow-only run and refuses a steer before any text is typed (0005)", async () => {
-    const view = await mount({ columns: 120, rows: 30, capabilities: ALL_FLAGS });
+    const view = await mount({ columns: 120, rows: 30 });
     mounted.push(view.ui);
     const { ui, session } = view;
     await ui.waitFor("· live");
@@ -733,7 +723,7 @@ describe("the queue and the detail use the same table", () => {
 
 describe("answers, closed prompts, read-your-writes and retry", () => {
   it("answers from an overview row whose run asks and from the live agent detail", async () => {
-    const view = await mount({ columns: 120, rows: 30, capabilities: ALL_FLAGS });
+    const view = await mount({ columns: 120, rows: 30 });
     mounted.push(view.ui);
     const { ui, session } = view;
     await ui.waitFor("· live");
@@ -762,7 +752,7 @@ describe("answers, closed prompts, read-your-writes and retry", () => {
   });
 
   it("answers a permission question from the detail with a text, never a decision", async () => {
-    const view = await mount({ columns: 120, rows: 30, capabilities: ALL_FLAGS });
+    const view = await mount({ columns: 120, rows: 30 });
     mounted.push(view.ui);
     const { ui, session } = view;
     await ui.waitFor("· live");
@@ -924,11 +914,11 @@ describe("Enter on a desk row", () => {
     expect(shown.some((line) => line.startsWith(" round 1 · 4f2a9c1e5d6b · blocked · "))).toBe(
       true,
     );
-    // Per-criterion results and findings are the reviewer's word: claimed, `*`.
-    expect(shown).toContain("   criteria: #1 met*  #2 unmet*");
-    expect(shown).toContain("     #2 no notice on the cap*");
+    // Per-criterion results and findings are the reviewer's word; evidence markers are off.
+    expect(shown).toContain("   criteria: #1 met  #2 unmet");
+    expect(shown).toContain("     #2 no notice on the cap");
     expect(shown).toContain(
-      "   finding blocking correctness #2 src/retry.ts:41: the cap is off by one*",
+      "   finding blocking correctness #2 src/retry.ts:41: the cap is off by one",
     );
     expect(shown).toContain('     quote (checked): "if (tries > cap)"');
     expect(shown).toContain('     quote (unverified): "let x"');

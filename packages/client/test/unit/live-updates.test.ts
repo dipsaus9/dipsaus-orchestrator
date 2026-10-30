@@ -284,21 +284,6 @@ describe("after a daemon restart", () => {
     expect(store.state.snapshots).toBe(1);
   });
 
-  it("subscribes again in safe mode, where office streams are served", async () => {
-    const { clock, daemon, store } = await setup();
-    daemon.stop();
-    await flush();
-    daemon.start();
-    clock.advance(RECONNECT_INITIAL_MS);
-    await flush();
-    daemon.setState("safe");
-    await flush();
-    expect(store.state.live).toBe(true);
-    daemon.write(STARTED);
-    await flush();
-    expect(shown(store).run).toBe("setup 0/3");
-  });
-
   it("does not subscribe again to an office the maintainer left", async () => {
     const { clock, daemon, store } = await setup();
     daemon.stop();

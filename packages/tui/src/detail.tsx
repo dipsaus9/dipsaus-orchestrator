@@ -39,7 +39,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { budgetBar, evidenceOf, marked, percent, tokens, truncate } from "./format";
 import type { Display } from "./options";
 import { endedLine, nowLine, shortAge } from "./now";
-import { evidenceEnabled } from "./overview";
+import { EVIDENCE_MARKERS } from "./overview";
 import { compactRecordFactLines, noOutputLine, recordFactLines, recordHeaderLine } from "./past";
 import {
   type FeedChange,
@@ -372,7 +372,7 @@ export function Detail(props: DetailProps) {
   }, [source, promptAgent, promptOffice, target.run, state.snapshots, props.readPrompt]);
 
   const side = columns >= SIDE_BY_SIDE_COLUMNS;
-  const evidence = evidenceEnabled(state);
+  const evidence = EVIDENCE_MARKERS;
   const record = view === undefined ? target.record : undefined;
   const factText =
     view !== undefined

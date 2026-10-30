@@ -38,10 +38,9 @@ export async function migratedDatabase(stateDir: string, root: string): Promise<
       upgradePending: () => false,
       requestStop: () => {},
     },
-    databaseCheck: { because: null, needsCheck: () => {} },
   });
   try {
-    await engine.recover({ crashLoop: false });
+    await engine.recover();
     if (engine.state() !== "running") throw new Error(`the engine is ${engine.state()}`);
   } finally {
     await engine.stop();

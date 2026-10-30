@@ -21,13 +21,7 @@ import { controlFeature, sumActiveRuns } from "./control";
 import type { Core } from "./core";
 import { DATABASE_UNAVAILABLE } from "./lifecycle";
 import type { OfficeServices } from "./office-services";
-import {
-  databaseFailure,
-  MIGRATIONS_STEP,
-  needsCheckAfter,
-  RecoverySteps,
-  type RecoveryStep,
-} from "./recovery";
+import { databaseFailure, MIGRATIONS_STEP, RecoverySteps, type RecoveryStep } from "./recovery";
 import type { StoryServices } from "./stories";
 
 /** Every service the lists are made of. */
@@ -144,22 +138,16 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
 }
 
 /**
- * The first recovery step (0007 section 1): opens and migrates the state database, with
- * `PRAGMA quick_check` when the daemon says so (0007 section 10). A database that cannot be opened,
- * checked or migrated holds the engine in `recovering` (DIPO-111): office commands and reads get
+ * The first recovery step (0005, 0007): opens and migrates the state database. A database that
+ * cannot be opened or migrated holds the engine in `recovering`: office commands and reads get
  * `database.unavailable`, the notice says what to do, and the daemon stays up.
  */
 function migrationsStep(core: Core): RecoveryStep {
   const { deps, lifecycle } = core;
-  const { because, needsCheck } = deps.databaseCheck;
-  const checkIntegrity = because !== null;
   return {
     name: MIGRATIONS_STEP,
     run: async (context) => {
       const dbLogger = context.logger.child({ component: "database" });
-      if (because !== null) {
-        dbLogger.info("checking the state database with quick_check", { because });
-      }
       try {
         core.database.set(
           await openStateDatabase({
@@ -167,7 +155,6 @@ function migrationsStep(core: Core): RecoveryStep {
             logger: dbLogger,
             clock: deps.clock,
             engineVersion: deps.daemon.version,
-            checkIntegrity,
             ...(deps.extraMigrations === undefined
               ? {}
               : {
@@ -181,11 +168,8 @@ function migrationsStep(core: Core): RecoveryStep {
                 }),
           }),
         );
-        // The check passed: nothing is pending any more.
-        if (checkIntegrity) needsCheck(false);
       } catch (error) {
         const failure = databaseFailure(error, deps.paths.stateDir);
-        needsCheck(needsCheckAfter(failure.details.reason, checkIntegrity));
         dbLogger.error("the state database is unavailable; serving software commands only", {
           ...failure.details,
           error,

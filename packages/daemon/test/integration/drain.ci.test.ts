@@ -109,9 +109,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               messages.indexOf("lock released"),
             );
             expect(messages.at(-1)).toBe("daemon stopped");
-            // A clean exit leaves no crash for the next start.
-            const crashes = JSON.parse(readFileSync(join(dir, "state", "crashes.json"), "utf8"));
-            expect(crashes).toMatchObject({ running: null, crashes: [] });
+            // No crash marker is kept at all (0005).
+            expect(existsSync(join(dir, "state", "crashes.json"))).toBe(false);
           } finally {
             await cleanup(daemon, child === 0 ? [] : [child]);
           }

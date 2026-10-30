@@ -108,8 +108,8 @@ describe("daemon.status build commit (DIPO-198)", () => {
   });
 });
 
-describe("daemon.resumeScheduling outside safe (0020)", () => {
-  it("lifts the offices' starts paused, and answers daemon.notSafe once nothing is left", () => {
+describe("daemon.resumeScheduling (0020)", () => {
+  it("lifts the offices' starts paused, and changes nothing once nothing is left (0005)", () => {
     const clock = new ManualClock();
     const lifecycle = new DaemonLifecycle();
     lifecycle.transition("recovering", "setup");
@@ -143,15 +143,43 @@ describe("daemon.resumeScheduling outside safe (0020)", () => {
     expect(resume()).toEqual({ result: { state: "running" }, changed: true });
     expect(lifts).toEqual(["the maintainer ran dipo daemon resume-scheduling"]);
     expect(lifecycle.state).toBe("running");
-    // Nothing left to lift and not safe: daemon.notSafe, as before.
+    // Nothing left to lift: target state, it changes nothing.
+    expect(resume()).toEqual({ result: { state: "running" }, changed: false });
+  });
+
+  it("refuses with database.unavailable while the state database cannot be used", () => {
+    const clock = new ManualClock();
+    const lifecycle = new DaemonLifecycle();
+    lifecycle.transition("recovering", "setup");
+    lifecycle.holdUnavailable({ details: { reason: "damaged" }, text: "damaged" });
+    const lifts: string[] = [];
+    const registry = buildRegistry([
+      controlFeature({
+        lifecycle,
+        logger: createLogger({ clock, sinks: [], component: "test" }),
+        clock,
+        startedAt: clock.now(),
+        pid: 1,
+        version: "0.0.0-test",
+        socket: "/s",
+        tools: {},
+        upgradePending: () => false,
+        loadedOffices: () => [],
+        liftStartsPaused: (why) => lifts.push(why),
+        requestStop: () => {},
+      }),
+    ]);
+    const command = registry.command("daemon.resumeScheduling");
+    if (command === undefined) throw new Error("daemon.resumeScheduling is not registered");
     let refused: unknown;
     try {
-      resume();
+      (command.handle as (ctx: unknown, args: unknown) => unknown)({}, {});
     } catch (error) {
       refused = error;
     }
     expect((refused as { error?: { code?: string } } | undefined)?.error?.code).toBe(
-      "daemon.notSafe",
+      "database.unavailable",
     );
+    expect(lifts).toEqual([]);
   });
 });

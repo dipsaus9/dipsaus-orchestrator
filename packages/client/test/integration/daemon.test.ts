@@ -1,13 +1,11 @@
 // The client against a real `dipo daemon --foreground` in a temp DIPO_HOME (DIPO-25 test plan):
-// hello, a command, a dropped connection, reconnect and replay without duplicates, and the
-// `dipo daemon log-level` and `resume-scheduling` subcommands as real processes. The daemon starts
-// in `safe` (a seeded crash loop), so `daemon.resumeScheduling` puts a `daemon.state` event on the
-// software stream while the first client is away. State, runtime directory and temp files stay
-// under the test's temp directory (DIPO_HOME, DIPO_RUNTIME_DIR, DIPO_TMP), and the daemon is
-// stopped in a `finally`.
+// hello, a command, a dropped connection, reconnect and re-subscribe without duplicates, a client
+// of another version refused (0005), and the `dipo daemon log-level` and `resume-scheduling`
+// subcommands as real processes. State, runtime directory and temp files stay under the test's temp
+// directory (DIPO_HOME, DIPO_RUNTIME_DIR, DIPO_TMP), and the daemon is stopped in a `finally`.
 
 import { describe, expect, it } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import {
@@ -23,6 +21,7 @@ import { type ConnectionState, DipoClient, type Transport } from "../../src/inde
 import {
   connectToDaemon,
   DaemonNotRunningError,
+  OtherVersionError,
   readRuntimeInfo,
   systemClock,
   unixSocketTransport,
@@ -31,23 +30,10 @@ import {
 const MAIN = resolve(import.meta.dir, "../../../cli/src/main.ts");
 const TIMEOUT_MS = 30_000;
 const SOFTWARE = "software" as StreamName;
-const CLIENT = { name: "client-test", version: "0" };
+// The daemon runs from source, so its version is `dev` (cli/src/version.ts); a client must match.
+const CLIENT = { name: "client-test", version: "dev" };
 
 type Daemon = Bun.Subprocess<"ignore", "pipe", "pipe">;
-
-/** Two recent crashes and a marker left by a dead daemon: the next start is the third, so `safe`. */
-function seedCrashLoop(stateDir: string): void {
-  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
-  const now = systemClock.now();
-  writeFileSync(
-    join(stateDir, "crashes.json"),
-    `${JSON.stringify({
-      version: 1,
-      running: { pid: 999_999, startTimeMs: 1 },
-      crashes: [now - 120_000, now - 60_000],
-    })}\n`,
-  );
-}
 
 async function startDaemon(env: Record<string, string>): Promise<Daemon> {
   const daemon = Bun.spawn({
@@ -130,11 +116,10 @@ async function runCli(args: string[], env: Record<string, string>) {
 
 describe("client against a running daemon", () => {
   it(
-    "says hello, sends a command, reconnects and replays what it missed without duplicates",
+    "says hello, sends a command, reconnects and re-subscribes after its cursor without duplicates",
     async () => {
       await withDaemonTempDir(async (dir) => {
         const env = daemonTestEnv(dir);
-        seedCrashLoop(env["DIPO_HOME"] ?? "");
         const daemon = await startDaemon(env);
         const clients: DipoClient[] = [];
         try {
@@ -153,7 +138,8 @@ describe("client against a running daemon", () => {
           const states: ConnectionState[] = [];
           client.onState((state) => states.push(state));
           const hello = await client.connect();
-          expect(hello.daemon).toBe("safe");
+          expect(hello.daemon).toBe("running");
+          expect(hello.engine).toBe(CLIENT.version);
 
           const events: Event[] = [];
           let caughtUp = 0;
@@ -167,31 +153,28 @@ describe("client against a running daemon", () => {
           const level = await client.command(daemonSetLogLevel, { level: "debug" });
           expect(level).toMatchObject({ ok: true, result: { level: "debug" }, changed: true });
 
-          // The connection drops; meanwhile another client resumes scheduling, and this client
-          // sends a command that waits for the next connection.
+          // The connection drops; meanwhile another client connects, and this client sends a
+          // command that waits for the next connection.
           link.drop();
           expect(client.state).toBe("reconnecting");
           const pending = client.command(daemonSetLogLevel, { level: "info" });
           const { client: other } = await connectToDaemon({ client: CLIENT, origin: "other", env });
           clients.push(other);
           const resumed = await other.command(daemonResumeScheduling, {});
-          expect(resumed).toMatchObject({ ok: true, result: { state: "running" } });
+          // Nothing is paused: the command changes nothing (0005).
+          expect(resumed).toMatchObject({ ok: true, result: { state: "running" }, changed: false });
 
           // Reconnect after 0.5 s: hello again, re-subscribe after the last cursor, re-send.
           expect(await pending).toMatchObject({ ok: true, result: { level: "info" } });
           expect(client.hello?.daemon).toBe("running");
           await until(() => caughtUp === 2, "the catch-up after the reconnect");
-          const changes = events.filter((event) => event.type === "daemon.state");
-          expect(changes.map((event) => event.data)).toEqual([
-            { from: "safe", to: "running", reason: "scheduling resumed" },
-          ]);
+          expect(events.filter((event) => event.type === "daemon.state")).toEqual([]);
 
           // A second drop with nothing new replays nothing and duplicates nothing.
           const cursor = subscription.cursor;
           link.drop();
           await until(() => caughtUp === 3, "the catch-up after the second reconnect");
           expect(subscription.cursor).toEqual(cursor);
-          expect(events.filter((event) => event.type === "daemon.state")).toHaveLength(1);
           const stored = events.filter((event) => event.type !== "stream.mark");
           const seqs = stored.map((event) => event.cursor.seq);
           expect(new Set(seqs).size).toBe(seqs.length);
@@ -220,8 +203,22 @@ describe("client against a running daemon", () => {
           });
 
           const resume = await runCli(["daemon", "resume-scheduling"], env);
-          expect(resume.code).toBe(1);
-          expect(resume.stderr).toStartWith("dipo: daemon.notSafe: ");
+          expect(resume).toMatchObject({
+            code: 0,
+            stdout: "starts unpaused in every office; daemon state: running\n",
+          });
+
+          // A client of another version is refused with the restart hint (0005).
+          const other = connectToDaemon({
+            client: { ...CLIENT, version: "0" },
+            origin: "other",
+            env,
+          });
+          await expect(other).rejects.toBeInstanceOf(OtherVersionError);
+          await expect(other).rejects.toMatchObject({
+            daemonVersion: "dev",
+            message: "daemon runs vdev, this binary is v0, run `dipo daemon restart`",
+          });
 
           await stopDaemon(daemon);
           const log = readFileSync(join(env["DIPO_HOME"] ?? "", "logs", "daemon.log"), "utf8");

@@ -8,13 +8,11 @@
 import { join } from "node:path";
 
 import {
-  CONTRACT_VERSION,
   type CommandDefinition,
   type CommandReply,
   defineCommand,
   defineRead,
   type OfficeId,
-  officeInit,
   officeRescan,
   type ReadReply,
   RequestId,
@@ -52,23 +50,17 @@ const BACKLOG_CLI = join(
 );
 
 function shipped<D extends CommandDefinition>(definition: D, name: string) {
-  const { provisional: _provisional, since: _since, ...rest } = definition;
-  return defineCommand({ ...rest, name, since: 0 });
+  const { name: _name, ...rest } = definition;
+  return defineCommand({ ...rest, name });
 }
 
 /** An office command that writes one `scan.finished` entry per call. */
 export const scanCommand = shipped(officeRescan, "fixture.scan");
-/** A provisional command: registered, but never described. */
-export const draftCommand = (() => {
-  const { since: _since, ...rest } = shipped(officeInit, "fixture.draft");
-  return defineCommand({ ...rest, provisional: true });
-})();
-/** A shipped test read with its own schemas. */
+/** A test read with its own schemas. */
 export const echoRead = defineRead({
   name: "fixture.echo",
   args: officeRescan.args,
   result: officeRescan.result,
-  since: 0,
 });
 
 export const fixtureFeature: FeatureModule = {
@@ -83,10 +75,6 @@ export const fixtureFeature: FeatureModule = {
         });
         return { result: { scan: "started" as const } };
       },
-    });
-    registry.addSoftwareCommand({
-      definition: draftCommand,
-      handle: (_ctx, args) => ({ result: { office: args.office } }),
     });
     registry.addRead({ definition: echoRead, handle: () => ({ scan: "started" as const }) });
   },
@@ -159,7 +147,6 @@ export function fakeDeps(root: string, home: string, options: FakeOptions = {}):
         upgradePending: () => upgrade.pending,
         requestStop: (request) => stops.push(request),
       },
-      databaseCheck: { because: null, needsCheck: () => {} },
       features: [fixtureFeature],
       ...(options.renderer === undefined ? {} : { renderer: options.renderer }),
       ...(options.recoverySteps === undefined ? {} : { recoverySteps: options.recoverySteps }),
@@ -225,8 +212,7 @@ export function withEngine<T>(
           repo,
           command,
           read,
-          hello: (contract = CONTRACT_VERSION) =>
-            read("engine.hello", { contract, client: { name: "test", version: "0" } }),
+          hello: () => read("engine.hello", { client: { name: "test", version: "0" } }),
           open: async () => {
             const reply = await command("office.open", { path: repo.dir });
             if (!reply.ok) throw new Error(`office.open: ${reply.error.message}`);

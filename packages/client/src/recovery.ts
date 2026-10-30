@@ -58,11 +58,6 @@ export interface RecoveryOptions {
   readonly noticeAfterMs?: number;
   /** A wait has lasted `noticeAfterMs`; called at most once per session. */
   readonly onWaiting?: () => void;
-  /**
-   * Recovery ended in `safe` (a crash loop): office commands and reads run, but commands that
-   * schedule work fail with `scheduling.off` until `daemon.resumeScheduling`. Called at most once.
-   */
-  readonly onSafe?: (reason: string | undefined) => void;
 }
 
 export interface RecoveringSession extends RecoverySession {
@@ -86,7 +81,6 @@ export function waitForRecovery(
   let closed = false;
   let waiters = 0;
   let noticed = false;
-  let safeSaid = false;
   /** Timers and wake-ups of the waits in progress, so `close` ends them at once. */
   const sleepers = new Set<{ readonly timer: TimerHandle; readonly wake: () => void }>();
 
@@ -179,10 +173,6 @@ export function waitForRecovery(
           continue;
         }
         failures = 0;
-        if (status.result.state === "safe" && !safeSaid) {
-          safeSaid = true;
-          options.onSafe?.(status.result.stateReason);
-        }
         // Sent again also while still recovering: a daemon held without its database answers
         // `database.unavailable` and never leaves `recovering` (DIPO-111).
         last = await attempt();

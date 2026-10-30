@@ -17,13 +17,13 @@ import type { CommandContext, FeatureModule } from "../../src/commands/registry"
 import { CommandError } from "../../src/commands/errors";
 
 function shipped<D extends CommandDefinition>(definition: D, name: string) {
-  const { provisional: _provisional, since: _since, ...rest } = definition;
-  return defineCommand({ ...rest, name, since: 0 });
+  const { name: _name, ...rest } = definition;
+  return defineCommand({ ...rest, name });
 }
 
 function shippedRead<D extends ReadDefinition>(definition: D, name: string) {
-  const { provisional: _provisional, since: _since, ...rest } = definition;
-  return defineRead({ ...rest, name, since: 0 });
+  const { name: _name, ...rest } = definition;
+  return defineRead({ ...rest, name });
 }
 
 /** `{ story, text }` -> `{ run, delivered }`: writes a fact and emits `story.state`. */
@@ -32,11 +32,6 @@ export const touchCommand = shipped(workSteer, "fixture.touch");
 export const peekCommand = shipped(workSteer, "fixture.peek");
 /** A software-level command: `{ level }` -> `{ level }`. */
 export const levelCommand = shipped(daemonSetLogLevel, "fixture.level");
-/** A provisional command: registered, but left out of `commands.describe`. */
-export const draftCommand = (() => {
-  const { since: _since, ...rest } = peekCommand;
-  return defineCommand({ ...rest, name: "fixture.draft", provisional: true });
-})();
 /** An office read with a story reference: `{ office, story }`. */
 export const detailRead = shippedRead(storyDetail, "fixture.detail");
 
@@ -103,12 +98,6 @@ export function fixtureFeature(calls: FixtureCalls, name = "test/fixture"): Feat
           if (args.level === "trace") throw new CommandError("not.permitted", "No tracing here.");
           return { result: { level: args.level }, changed: true };
         },
-      });
-      registry.addOfficeCommand({
-        definition: draftCommand,
-        handle: (ctx) => ({
-          result: { run: ctx.ids.next("run"), delivered: "next-turn" as const },
-        }),
       });
       registry.addRead({
         definition: detailRead,

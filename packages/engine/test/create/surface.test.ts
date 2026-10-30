@@ -9,7 +9,6 @@
 import { describe, expect, it } from "bun:test";
 
 import {
-  CONTRACT_VERSION,
   type CommandReply,
   type Cursor,
   type Event,
@@ -20,7 +19,6 @@ import {
 
 import { Renderer } from "../../src/changelog/render";
 import type { Engine } from "../../src/create/deps";
-import { CAPABILITY_FLAGS } from "../../src/reads/hello";
 import { TEST_VERSION, withEngine, type EngineFixture } from "./engine-fixture";
 
 const TIMEOUT_MS = 30_000;
@@ -67,63 +65,41 @@ function softwareEvents(engine: Engine): Event[] {
 
 describe("engine.hello and commands.describe", () => {
   it(
-    "answers engine.hello with versions, flags, daemon state, offices and the software cursor",
+    "answers engine.hello with the version, daemon state, offices and the software cursor",
     () =>
       withEngine(async (f) => {
-        await f.engine.recover({ crashLoop: false });
+        await f.engine.recover();
         const hello = okResult<{
           engine: string;
-          contract: unknown;
-          capabilities: string[];
           daemon: string;
           offices: unknown[];
           cursor: Cursor;
         }>(await f.hello());
         expect(hello.engine).toBe(TEST_VERSION);
-        expect(hello.contract).toEqual({ ...CONTRACT_VERSION });
         expect(hello.daemon).toBe("running");
         expect(hello.offices).toEqual([]);
         // starting -> recovering -> running, counted from the stream's start time (0005).
         expect(hello.cursor.seq).toBe(f.clock.now() + 2);
-        // The whole engine backs every flag; a flag whose commands are not registered is left out
-        // (reads/hello.test.ts).
-        expect(hello.capabilities).toEqual(Object.keys(CAPABILITY_FLAGS));
+        expect(hello).not.toHaveProperty("contract");
+        expect(hello).not.toHaveProperty("capabilities");
       }),
     TIMEOUT_MS,
   );
 
   it(
-    "gives a client of another major contract.unsupported with the daemon's contract and version",
+    "lists registered commands and reads with schemas",
     () =>
       withEngine(async (f) => {
-        await f.engine.recover({ crashLoop: false });
-        const hello = await f.hello({ major: CONTRACT_VERSION.major + 1, minor: 0 });
-        if (hello.ok) throw new Error("expected contract.unsupported");
-        expect(hello.error).toMatchObject({ code: "contract.unsupported", retryable: false });
-        expect(hello.error.details).toEqual({
-          contract: { ...CONTRACT_VERSION },
-          version: TEST_VERSION,
-        });
-        expect(f.engine.contractUnsupported()).toEqual(hello.error);
-      }),
-    TIMEOUT_MS,
-  );
-
-  it(
-    "lists registered commands and reads with schemas and since, and leaves out provisional ones",
-    () =>
-      withEngine(async (f) => {
-        await f.engine.recover({ crashLoop: false });
+        await f.engine.recover();
         const described = okResult<{
-          commands: { name: string; confirm: boolean; irreversible: boolean; since: number }[];
-          reads: { name: string; args: unknown; result: unknown; since: number }[];
+          commands: { name: string; confirm: boolean; irreversible: boolean }[];
+          reads: { name: string; args: unknown; result: unknown }[];
         }>(await f.read("commands.describe"));
         const echo = described.reads.find((read) => read.name === "fixture.echo");
         expect(echo).toEqual({
           name: "fixture.echo",
           args: { type: "object", properties: {} },
           result: expect.objectContaining({ type: "object" }) as unknown,
-          since: 0,
         });
         const reads = described.reads.map((read) => read.name);
         expect(reads).toEqual(
@@ -145,11 +121,10 @@ describe("engine.hello and commands.describe", () => {
             "fixture.scan",
           ]),
         );
-        expect(commands).not.toContain("fixture.draft");
         // Contract entries no engine module registered are absent too.
         expect(commands).not.toContain("work.intervene");
         const stop = described.commands.find((command) => command.name === "daemon.stop");
-        expect(stop).toMatchObject({ confirm: true, irreversible: false, since: 0 });
+        expect(stop).toMatchObject({ confirm: true, irreversible: false });
       }),
     TIMEOUT_MS,
   );
@@ -160,12 +135,12 @@ describe("daemon.* operations", () => {
     "reports daemon.status from the lifecycle",
     () =>
       withEngine(async (f) => {
-        await f.engine.recover({ crashLoop: true });
+        await f.engine.recover();
         f.clock.advance(1234);
         const status = okResult<Record<string, unknown>>(await f.read("daemon.status"));
         expect(status).toMatchObject({
-          state: "safe",
-          stateReason: "crash loop",
+          state: "running",
+          stateReason: "recovered",
           pid: process.pid,
           version: TEST_VERSION,
           uptimeMs: 1234,
@@ -183,7 +158,7 @@ describe("daemon.* operations", () => {
     "reports the resolved tool paths and a pending upgrade in daemon.status",
     () =>
       withEngine(async (f) => {
-        await f.engine.recover({ crashLoop: false });
+        await f.engine.recover();
         const before = okResult<Record<string, unknown>>(await f.read("daemon.status"));
         expect(before).toMatchObject({ tools: f.deps.tools, upgradePending: false });
         f.upgrade.pending = true;
@@ -197,7 +172,7 @@ describe("daemon.* operations", () => {
     "stops: daemon.stop moves to draining, asks for the drain once, and a repeat changes nothing",
     () =>
       withEngine(async (f) => {
-        await f.engine.recover({ crashLoop: false });
+        await f.engine.recover();
         const first = await f.command("daemon.stop", { stopWorkers: true });
         expect(first).toMatchObject({ ok: true, result: { state: "draining" }, changed: true });
         expect(f.engine.state()).toBe("draining");
@@ -212,7 +187,7 @@ describe("daemon.* operations", () => {
     "returns the stored reply for a retried daemon command",
     () =>
       withEngine(async (f) => {
-        await f.engine.recover({ crashLoop: false });
+        await f.engine.recover();
         const request = {
           requestId: "01J9ZK5Q8W3V4X6Y7Z99999999",
           name: "daemon.setLogLevel",
@@ -232,18 +207,14 @@ describe("daemon.* operations", () => {
   );
 
   it(
-    "leaves safe with daemon.resumeScheduling and refuses it outside safe",
+    "answers daemon.resumeScheduling with nothing paused as a change of nothing",
     () =>
       withEngine(async (f) => {
-        await f.engine.recover({ crashLoop: true });
+        await f.engine.recover();
         const events = softwareEvents(f.engine);
         const resumed = await f.command("daemon.resumeScheduling", {});
-        expect(resumed).toMatchObject({ ok: true, result: { state: "running" } });
-        expect(events.filter((e) => e.type === "daemon.state").map((e) => e.data)).toEqual([
-          { from: "safe", to: "running", reason: "scheduling resumed" },
-        ]);
-        const again = await f.command("daemon.resumeScheduling", {});
-        expect(errorCode(again)).toBe("daemon.notSafe");
+        expect(resumed).toMatchObject({ ok: true, result: { state: "running" }, changed: false });
+        expect(events.filter((e) => e.type === "daemon.state")).toEqual([]);
       }),
     TIMEOUT_MS,
   );
@@ -283,7 +254,7 @@ describe("lifecycle checks", () => {
       const holding = Promise.withResolvers<void>();
       return withEngine(
         async (f) => {
-          const recovered = f.engine.recover({ crashLoop: false });
+          const recovered = f.engine.recover();
           await holding.promise;
           expect(f.engine.state()).toBe("recovering");
           await expectRecovering(f);
@@ -306,21 +277,6 @@ describe("lifecycle checks", () => {
     },
     TIMEOUT_MS,
   );
-
-  it(
-    "answers work.run with scheduling.off in safe, while other office commands run",
-    () =>
-      withEngine(async (f) => {
-        await f.engine.recover({ crashLoop: true });
-        const office = await f.open();
-        expect(await f.command("work.run", {}, office)).toMatchObject({
-          ok: false,
-          error: { code: "scheduling.off", retryable: true },
-        });
-        expect(await f.command("fixture.scan", {}, office)).toMatchObject({ ok: true });
-      }),
-    TIMEOUT_MS,
-  );
 });
 
 describe("the software stream", () => {
@@ -329,7 +285,7 @@ describe("the software stream", () => {
     () =>
       withEngine(async (f) => {
         const hello = okResult<{ cursor: Cursor }>(await f.hello());
-        await f.engine.recover({ crashLoop: false });
+        await f.engine.recover();
         const subscribed = await f.engine.subscribe("software" as StreamName, hello.cursor);
         if (!subscribed.ok || subscribed.office !== null) throw new Error("expected a replay");
         expect(subscribed.from).toEqual(hello.cursor);
@@ -367,7 +323,7 @@ describe("the software stream", () => {
     "summarises each office from what the engine stored",
     () =>
       withEngine(async (f) => {
-        await f.engine.recover({ crashLoop: false });
+        await f.engine.recover();
         const office = await f.open();
         expect(f.engine.officeSummaries()).toMatchObject([{ office, running: 0 }]);
         const state = await f.state();
@@ -390,7 +346,7 @@ describe("an office's change log", () => {
     "replays after a cursor page by page, and a command's entries carry its request",
     () =>
       withEngine(async (f) => {
-        await f.engine.recover({ crashLoop: false });
+        await f.engine.recover();
         const office = await f.open();
         const loaded = await head(f, office);
         for (let i = 0; i < 3; i++) {
@@ -419,7 +375,7 @@ describe("an office's change log", () => {
     "subscribes from the head when no cursor is given",
     () =>
       withEngine(async (f) => {
-        await f.engine.recover({ crashLoop: false });
+        await f.engine.recover();
         const office = await f.open();
         const loaded = await head(f, office);
         await f.command("fixture.scan", {}, office);
@@ -433,7 +389,7 @@ describe("an office's change log", () => {
     "sends a command's reply before its office's subscribers hear of the entries (DIPO-318)",
     () =>
       withEngine(async (f) => {
-        await f.engine.recover({ crashLoop: false });
+        await f.engine.recover();
         const office = await f.open();
         await head(f, office);
         const order: string[] = [];
@@ -460,7 +416,7 @@ describe("an office's change log", () => {
     "asks a cursor beyond the last entry to reset, and does not know a forgotten office",
     () =>
       withEngine(async (f) => {
-        await f.engine.recover({ crashLoop: false });
+        await f.engine.recover();
         const office = await f.open();
         // A log that was lost and started again: the cursor is beyond its last entry.
         const reset = await f.engine.subscribe(stream(office), {
@@ -495,7 +451,7 @@ describe("an office's change log", () => {
     "gives a stored entry that does not render as an engine.notice at its cursor (DIPO-124)",
     () =>
       withEngine(async (f) => {
-        await f.engine.recover({ crashLoop: false });
+        await f.engine.recover();
         const office = await f.open();
         const loaded = await head(f, office);
         await f.command("fixture.scan", {}, office);
@@ -533,7 +489,7 @@ describe("an office's change log", () => {
     () =>
       withEngine(
         async (f) => {
-          await f.engine.recover({ crashLoop: false });
+          await f.engine.recover();
           const office = await f.open();
           const loaded = await head(f, office);
           await f.command("fixture.scan", {}, office);
@@ -556,7 +512,7 @@ describe("when the last TUI of an office left (DIPO-308)", () => {
     "stores the time the server tells, and office.digest counts from it",
     () =>
       withEngine(async (f) => {
-        await f.engine.recover({ crashLoop: false });
+        await f.engine.recover();
         const office = await f.open();
         await head(f, office);
         f.clock.advance(120_000);

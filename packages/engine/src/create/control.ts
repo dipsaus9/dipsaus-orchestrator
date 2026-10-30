@@ -13,6 +13,7 @@ import {
   type OfficeId,
   type ToolPaths,
 } from "@dipsaus-orchestrator/contract";
+import { CommandError } from "../commands/errors";
 import type { FeatureModule } from "../commands/registry";
 import type { Logger } from "../log/logger";
 import type { SoftwareStream } from "../software-stream/stream";
@@ -134,17 +135,16 @@ export function controlFeature(deps: ControlDeps): FeatureModule {
       registry.addSoftwareCommand({
         definition: daemonResumeScheduling,
         handle: () => {
-          // Every office's starts paused lifts too (0020), after `safe` is left, so the parks the
-          // lift resumes find scheduling on. Outside `safe` the lift is all it does, and with
-          // nothing paused either it answers `daemon.notSafe`.
-          const why = "the maintainer ran dipo daemon resume-scheduling";
-          if (lifecycle.state === "safe") {
-            lifecycle.resumeScheduling();
-            deps.liftStartsPaused?.(why);
-            return { result: { state: lifecycle.state }, changed: true };
+          // Lifts every office's starts paused (0020). Target state (0005): with nothing paused it
+          // changes nothing. Without the state database it refuses with `database.unavailable`.
+          const unavailable = lifecycle.unavailable;
+          if (unavailable !== null) {
+            throw new CommandError(unavailable.code, unavailable.message, unavailable.details);
           }
-          if ((deps.liftStartsPaused?.(why) ?? 0) === 0) lifecycle.resumeScheduling();
-          return { result: { state: lifecycle.state }, changed: true };
+          const lifted = deps.liftStartsPaused?.(
+            "the maintainer ran dipo daemon resume-scheduling",
+          );
+          return { result: { state: lifecycle.state }, changed: (lifted ?? 0) > 0 };
         },
       });
     },

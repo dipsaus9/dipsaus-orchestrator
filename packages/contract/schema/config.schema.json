@@ -4,23 +4,17 @@
   "properties": {
     "version": {
       "type": "number",
-      "const": 3
+      "const": 4
     },
     "daemon": {
       "default": {
-        "autostart": true,
-        "autoRestartOnUpgrade": false
+        "autostart": true
       },
       "type": "object",
       "properties": {
         "autostart": {
           "default": true,
           "description": "A client command that needs the daemon starts it when none is running (0006 decision 5).",
-          "type": "boolean"
-        },
-        "autoRestartOnUpgrade": {
-          "default": false,
-          "description": "When the dipo executable changed, the daemon drains and restarts itself once no run is in a step that cannot be detached (0006 decision 14).",
           "type": "boolean"
         }
       },

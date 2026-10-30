@@ -9,7 +9,6 @@
 // microtasks, so a client never sees a reply inside its own `send`.
 
 import {
-  CONTRACT_VERSION,
   type Cursor,
   type DaemonState,
   type EngineError,
@@ -210,8 +209,6 @@ export class FakeDaemon implements Transport {
     if (frame.kind === "read" && frame.name === "engine.hello") {
       reply({
         engine: "0.1.0",
-        contract: CONTRACT_VERSION,
-        capabilities: [],
         daemon: this.state,
         offices: [this.#summary()],
         cursor: this.softwareHead,

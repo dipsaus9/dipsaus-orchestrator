@@ -57,14 +57,6 @@ export interface DaemonFacts {
   readonly requestStop: (request: DrainRequest) => void;
 }
 
-/** Whether the state database gets `PRAGMA quick_check` at open, and where the result goes. */
-export interface DatabaseCheck {
-  /** Why the open checks the file (an unclean exit, ...); null for no check. */
-  readonly because: string | null;
-  /** Whether the next open must check again (DIPO-111), told after this open. */
-  readonly needsCheck: (value: boolean) => void;
-}
-
 export interface EngineDeps {
   readonly clock: Clock;
   readonly logger: Logger;
@@ -92,7 +84,6 @@ export interface EngineDeps {
    */
   readonly postNotification?: PostNotification;
   readonly daemon: DaemonFacts;
-  readonly databaseCheck: DatabaseCheck;
   /**
    * SQL steps after the compiled-in migrations, numbered after them; a test adds a failing step
    * (DIPO-111).
@@ -112,11 +103,11 @@ export interface Engine extends EngineSurface {
   /** The daemon state (0006 decision 7). */
   state(): DaemonState;
   /**
-   * Moves to `recovering`, runs the recovery steps in their order, then enters `running`, or `safe`
-   * after a crash loop, and starts the jobs of a running engine. A drain that starts meanwhile
-   * lets the current step finish and runs no further step.
+   * Moves to `recovering`, runs the recovery steps in their order, then enters `running` and starts
+   * the jobs of a running engine. A drain that starts meanwhile lets the current step finish and
+   * runs no further step.
    */
-  recover(options: { readonly crashLoop: boolean }): Promise<void>;
+  recover(): Promise<void>;
   /** Enters `draining` and drains within the cap (0006 decision 7). */
   drain(request: DrainRequest, caps?: DrainCaps): Promise<DrainResult>;
   /** True while an engine step runs: a child process the engine started, or a command's writes. */

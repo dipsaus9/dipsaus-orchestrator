@@ -9,15 +9,11 @@ import { resolve } from "node:path";
 import { ClientError, DipoClient } from "@dipsaus-orchestrator/client";
 import {
   connectOrStart,
+  OtherVersionError,
   systemClock,
   systemLifecycleDeps,
-  versionHint,
 } from "@dipsaus-orchestrator/client/node";
-import {
-  ContractUnsupportedDetails,
-  type OfficeId,
-  TUI_CLIENT_NAME,
-} from "@dipsaus-orchestrator/contract";
+import { type OfficeId, TUI_CLIENT_NAME } from "@dipsaus-orchestrator/contract";
 import type { TuiSession } from "@dipsaus-orchestrator/tui";
 
 import type { Workspace } from "./workspace";
@@ -34,17 +30,10 @@ export async function workspaceOffice(workspace: Workspace): Promise<OfficeId | 
   return location === null ? null : workspace.readOfficeId(location.commonDir);
 }
 
-/** A readable message for a failed connect, with the restart hint for another contract. */
-export function connectFailure(error: unknown, version: string): Error {
-  if (error instanceof ClientError) {
-    let message = `${error.code}: ${error.message}`;
-    if (error.code === "contract.unsupported") {
-      const details = ContractUnsupportedDetails.safeParse(error.engineError?.details);
-      const hint = details.success ? versionHint(version, details.data.version) : null;
-      message += `; ${hint ?? "run `dipo daemon restart`"}`;
-    }
-    return new Error(message);
-  }
+/** A readable message for a failed connect; a daemon of another version says to restart it. */
+export function connectFailure(error: unknown): Error {
+  if (error instanceof OtherVersionError) return new Error(error.message);
+  if (error instanceof ClientError) return new Error(`${error.code}: ${error.message}`);
   return error instanceof Error ? error : new Error(String(error));
 }
 
@@ -77,7 +66,7 @@ export function systemTui(
         try {
           ({ session } = await connectOrStart(lifecycle));
         } catch (error) {
-          throw connectFailure(error, version);
+          throw connectFailure(error);
         }
         if (!(session instanceof DipoClient)) throw new Error("the daemon session is not a client");
         return session;

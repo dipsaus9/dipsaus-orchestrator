@@ -15,30 +15,35 @@ describe("loadSoftwareConfig", () => {
       expect(await loadSoftwareConfig(state)).toEqual({
         ok: true,
         config: {
-          version: 3,
-          daemon: { autostart: true, autoRestartOnUpgrade: false },
+          version: 4,
+          daemon: { autostart: true },
           usage: { alerts: { level: 0.8 } },
           notify: { desk: true },
         },
         fromFile: false,
+        warnings: [],
       });
     }));
 
-  it("reads a valid file", () =>
+  it("reads a valid file, dropping a retired key with a warning", () =>
     withTempDir(async (state) => {
       writeFileSync(
         join(state, "config.yaml"),
-        "version: 1\ndaemon:\n  autoRestartOnUpgrade: true\n",
+        "version: 1\ndaemon:\n  autostart: false\n  autoRestartOnUpgrade: true\n",
       );
+      const path = softwareConfigPath(state);
       expect(await loadSoftwareConfig(state)).toEqual({
         ok: true,
         config: {
-          version: 3,
-          daemon: { autostart: true, autoRestartOnUpgrade: true },
+          version: 4,
+          daemon: { autostart: false },
           usage: { alerts: { level: 0.8 } },
           notify: { desk: true },
         },
         fromFile: true,
+        warnings: [
+          `${path}: daemon.autoRestartOnUpgrade is no longer read and was ignored, because the daemon never restarts itself; run \`dipo daemon restart\` after an upgrade (0005). Delete it.`,
+        ],
       });
     }));
 
@@ -68,7 +73,7 @@ describe("loadSoftwareConfig", () => {
         ok: false,
         errors: [{ file: path, path: "(top level)", expected: "exactly one YAML document" }],
       });
-      writeFileSync(path, "version: 4\n");
+      writeFileSync(path, "version: 5\n");
       const result = await loadSoftwareConfig(state);
       if (result.ok) throw new Error("expected a refusal");
       expect(result.errors[0]?.message).toContain("upgrade dipo");

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { ClientError } from "@dipsaus-orchestrator/client";
-import { DaemonNotRunningError } from "@dipsaus-orchestrator/client/node";
+import { DaemonNotRunningError, OtherVersionError } from "@dipsaus-orchestrator/client/node";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { type DaemonControl, REPLY_TIMEOUT_MS, type DaemonSession } from "./daemon-commands";
@@ -81,7 +81,7 @@ describe("dipo daemon log-level and resume-scheduling", () => {
     );
     expect(await main(["daemon", "resume-scheduling"], ctx.deps)).toBe(0);
     expect(ctx.sent).toEqual([{ name: "daemon.resumeScheduling", args: {} }]);
-    expect(ctx.out).toEqual(["scheduling resumed and starts unpaused; daemon state: running"]);
+    expect(ctx.out).toEqual(["starts unpaused in every office; daemon state: running"]);
   });
 
   it("prints an engine error's code and message and exits 1", async () => {
@@ -89,15 +89,15 @@ describe("dipo daemon log-level and resume-scheduling", () => {
       answering(async () => ({
         ok: false,
         error: {
-          code: "daemon.notSafe",
-          message: "Scheduling is not off: the daemon is running, not safe.",
+          code: "database.unavailable",
+          message: "The state database is damaged. No office is loaded.",
           retryable: false,
         },
       })),
     );
     expect(await main(["daemon", "resume-scheduling"], ctx.deps)).toBe(1);
     expect(ctx.err).toEqual([
-      "dipo: daemon.notSafe: Scheduling is not off: the daemon is running, not safe.",
+      "dipo: database.unavailable: The state database is damaged. No office is loaded.",
     ]);
     expect(ctx.closed()).toBe(1);
   });
@@ -118,14 +118,17 @@ describe("dipo daemon log-level and resume-scheduling", () => {
     }
   });
 
-  it("prints a client error's code, such as contract.unsupported", async () => {
-    const ctx = fake(() =>
-      Promise.reject(new ClientError("contract.unsupported", "The daemon speaks contract 2.0.")),
-    );
+  it("prints a client error's code", async () => {
+    const ctx = fake(() => Promise.reject(new ClientError("client.invalidReply", "Bad reply.")));
+    expect(await main(["daemon", "log-level", "debug"], ctx.deps)).toBe(1);
+    expect(ctx.err).toEqual(["dipo: client.invalidReply: Bad reply."]);
+  });
+
+  it("names the restart for a daemon of another version (0005)", async () => {
+    const ctx = fake(() => Promise.reject(new OtherVersionError("2.0.0", "0.0.0-dev")));
     expect(await main(["daemon", "log-level", "debug"], ctx.deps)).toBe(1);
     expect(ctx.err).toEqual([
-      "dipo: contract.unsupported: The daemon speaks contract 2.0.",
-      "dipo: run `dipo daemon restart`",
+      "dipo: daemon runs v2.0.0, this binary is v0.0.0-dev, run `dipo daemon restart`",
     ]);
   });
 

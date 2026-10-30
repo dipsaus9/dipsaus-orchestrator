@@ -1,14 +1,13 @@
-// The one key table of the TUI's actions (0009 sections 5 and 6, amended by DIPO-308): which key
-// sends which command, in which view, behind which capability flag. The desk binds every action
-// `office.desk` can list; the live agent detail adds `s` steer and `P` park, the queue `P` park
-// and `d` drop, and an overview row whose run asks offers `a` answer.
+// The one key table of the TUI's actions (0009, amended by DIPO-308): which key sends which
+// command, in which view. The desk binds every action `office.desk` can list; the live agent detail
+// adds `s` steer and `P` park, the queue `P` park and `d` drop, and an overview row whose run asks
+// offers `a` answer.
 //
-// On a desk row a key is offered only when the row's `actions` lists its command and the engine's
-// capability flags allow it; a view's row binding wins over a global key (`n` rejects a merge and
-// dismisses a proposal, `y` approves a merge and accepts a proposal). An action no entry binds on
-// its row, or whose key an earlier action of the row took, shows its `cli` line in the footer. An
-// answer is always a text (0020). Commands without a flag (`story.park`, `story.drop`,
-// `work.discard`) are gated by the engine's answer alone.
+// On a desk row a key is offered only when the row's `actions` lists its command; a view's row
+// binding wins over a global key (`n` rejects a merge and dismisses a proposal, `y` approves a merge
+// and accepts a proposal). An action no entry binds on its row, or whose key an earlier action of
+// the row took, shows its `cli` line in the footer. An answer is always a text (0020). Client and
+// daemon are one binary (0005), so every command in the table exists.
 
 import type { DeskAction, DeskItem } from "@dipsaus-orchestrator/contract";
 
@@ -38,8 +37,6 @@ export interface KeyBinding {
   /** The footer and row hint. */
   readonly hint: string;
   readonly views: readonly ActionView[];
-  /** The capability flag (0005 section 7) the engine must report; null when none covers it. */
-  readonly flag: string | null;
 }
 
 /** The table, in the order a row's keys are shown and taken. */
@@ -50,7 +47,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     key: "a",
     hint: "[a]nswer",
     views: ["desk", "detail", "overview"],
-    flag: "work.intervene",
   },
   {
     id: "approve",
@@ -58,7 +54,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     key: "y",
     hint: "[y] approve",
     views: ["desk"],
-    flag: "review",
   },
   {
     id: "reject",
@@ -66,7 +61,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     key: "n",
     hint: "[n] reject",
     views: ["desk"],
-    flag: "review",
   },
   {
     id: "accept",
@@ -74,7 +68,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     key: "y",
     hint: "[y] accept",
     views: ["desk"],
-    flag: "proposals",
   },
   {
     id: "dismiss",
@@ -82,7 +75,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     key: "n",
     hint: "[n] dismiss",
     views: ["desk"],
-    flag: "proposals",
   },
   {
     id: "resume",
@@ -90,7 +82,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     key: "r",
     hint: "[r]esume",
     views: ["desk"],
-    flag: "work.intervene",
   },
   {
     id: "test",
@@ -98,7 +89,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     key: "t",
     hint: "[t]est",
     views: ["desk"],
-    flag: "test.sessions",
   },
   {
     id: "park",
@@ -106,7 +96,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     key: "P",
     hint: "[P]ark",
     views: ["desk", "detail", "queue"],
-    flag: null,
   },
   {
     id: "drop",
@@ -114,7 +103,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     key: "d",
     hint: "[d]rop",
     views: ["desk", "queue"],
-    flag: null,
   },
   {
     id: "discard",
@@ -122,7 +110,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     key: "D",
     hint: "[Shift-D]iscard",
     views: ["desk"],
-    flag: null,
   },
   {
     id: "steer",
@@ -130,7 +117,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     key: "s",
     hint: "[s]teer",
     views: ["detail"],
-    flag: "work.intervene",
   },
   {
     id: "pass",
@@ -138,7 +124,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     key: "P",
     hint: "[P] pass",
     views: ["checklist"],
-    flag: "test.sessions",
   },
   {
     id: "fail",
@@ -146,7 +131,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     key: "F",
     hint: "[F] fail",
     views: ["checklist"],
-    flag: "test.sessions",
   },
 ];
 
@@ -154,11 +138,6 @@ export function binding(id: ActionId): KeyBinding {
   const found = KEY_TABLE.find((entry) => entry.id === id);
   if (found === undefined) throw new Error(`no key binding ${id}`);
   return found;
-}
-
-/** True when the engine reports the flag the binding needs. */
-export function allowed(entry: KeyBinding, capabilities: readonly string[]): boolean {
-  return entry.flag === null || capabilities.includes(entry.flag);
 }
 
 /** Whether a desk row carries the target the binding's command needs. */
@@ -189,8 +168,8 @@ export interface RowKeys {
   readonly unbound: readonly DeskAction[];
 }
 
-/** The keys a desk row offers: only for the commands its `actions` lists and the flags allow. */
-export function rowKeys(item: DeskItem, capabilities: readonly string[]): RowKeys {
+/** The keys a desk row offers: only for the commands its `actions` lists. */
+export function rowKeys(item: DeskItem): RowKeys {
   const bound: BoundAction[] = [];
   const unbound: DeskAction[] = [];
   for (const action of item.actions) {
@@ -198,8 +177,7 @@ export function rowKeys(item: DeskItem, capabilities: readonly string[]): RowKey
       (candidate) =>
         candidate.command === action.command &&
         candidate.views.includes("desk") &&
-        hasTarget(candidate, item) &&
-        allowed(candidate, capabilities),
+        hasTarget(candidate, item),
     );
     const taken = entry !== undefined && bound.some((other) => other.binding.key === entry.key);
     if (entry === undefined || taken) unbound.push(action);
@@ -209,12 +187,11 @@ export function rowKeys(item: DeskItem, capabilities: readonly string[]): RowKey
 }
 
 /** The keys a view offers without a row's `actions` (the detail's steer and park, the queue's). */
-export function viewKeys(view: ActionView, capabilities: readonly string[]): KeyBinding[] {
+export function viewKeys(view: ActionView): KeyBinding[] {
   return KEY_TABLE.filter(
     (entry) =>
       entry.views.includes(view) &&
       (view !== "detail" || entry.id === "steer" || entry.id === "park") &&
-      (view !== "queue" || entry.id === "park" || entry.id === "drop") &&
-      allowed(entry, capabilities),
+      (view !== "queue" || entry.id === "park" || entry.id === "drop"),
   );
 }

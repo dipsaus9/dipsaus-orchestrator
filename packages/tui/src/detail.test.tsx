@@ -110,7 +110,7 @@ describe("live agent detail", () => {
       "                                     │ [tool] Bash",
       "                                     │ [tool] Edit src/retry.ts (live)",
       "                                     │ following the tail",
-      " [P]ark  [w]orker [v]erify [i] prompt  [k/j PgUp/PgDn] scroll  [End] follow tail  [Esc] back  [q] quit",
+      " [P]ark  [s]teer  [w]orker [v]erify [i] prompt  [k/j PgUp/PgDn] scroll  [End] follow tail  [Esc] back  [q] quit",
     ]);
     // The tail came from work.outputRange reads to the end; the live text came from the stream.
     expect(rangeReads(session).filter((read) => read.source === "worker")).toEqual([
@@ -131,8 +131,8 @@ describe("live agent detail", () => {
     }
   });
 
-  it("shows usage, the budget bar, health without a signals list and evidence markers", async () => {
-    const view = await mount({ columns: 120, rows: 30, capabilities: ["evidence"] });
+  it("shows usage, the budget bar and health without a signals list", async () => {
+    const view = await mount({ columns: 120, rows: 30 });
     mounted.push(view.ui);
     const { ui, session } = view;
     await ui.waitFor("· live");
@@ -155,7 +155,8 @@ describe("live agent detail", () => {
     // The watchdog fact is evidence on work.observed only; the detail shows the one health value.
     expect(frame).not.toContain("signals");
     expect(frame).not.toContain("no-output");
-    expect(frame).toContain(" usage    in 210k* out 18k");
+    // Evidence markers are off (overview.tsx), so a claimed value shows plain.
+    expect(frame).toContain(" usage    in 210k out 18k");
     expect(frame).toContain("          cw 6k cr 1.1M");
     expect(frame).toContain("          turns 31  ~$0.84");
     expect(frame).toContain(" budget   [####----] 52% of 300k");

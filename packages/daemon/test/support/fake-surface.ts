@@ -5,13 +5,10 @@
 // (`packages/engine/test/create/surface.test.ts`).
 
 import {
-  CONTRACT_VERSION,
   type CommandReply,
   type CommandRequest,
-  type ContractVersion,
   type Cursor,
   engineError,
-  type EngineError,
   type Event,
   type OfficeId,
   type OfficeSummary,
@@ -160,17 +157,11 @@ export class FakeSurface implements EngineSurface {
     const { requestId } = request;
     switch (request.name) {
       case "engine.hello": {
-        const contract = (request.args as { contract?: ContractVersion }).contract;
-        if (contract?.major !== CONTRACT_VERSION.major) {
-          return { ok: false, requestId, error: this.contractUnsupported() };
-        }
         return {
           ok: true,
           requestId,
           result: {
             engine: this.version,
-            contract: { ...CONTRACT_VERSION },
-            capabilities: [],
             daemon: "running",
             offices: this.summaries,
             cursor: this.softwareHead(),
@@ -253,13 +244,6 @@ export class FakeSurface implements EngineSurface {
 
   officeSummary(office: OfficeId): OfficeSummary | undefined {
     return this.summaries.find((summary) => summary.office === office);
-  }
-
-  contractUnsupported(): EngineError {
-    return engineError("contract.unsupported", "another contract major", {
-      contract: { ...CONTRACT_VERSION },
-      version: this.version,
-    });
   }
 
   #office(office: OfficeId): FakeOffice {

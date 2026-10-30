@@ -10,7 +10,6 @@ import { afterEach, describe, expect, it } from "bun:test";
 
 import {
   type GateId,
-  gateApprove,
   type OfficeId,
   type RequestId,
   type RunId,
@@ -31,7 +30,6 @@ import {
 import { reviewVerdictOfGate } from "../../src/review/store";
 import type { ParkBranchRequest, UnparkBranchRequest } from "../../src/run/park";
 import { findRun, runPhase, runSteps } from "../../src/run/records";
-import { CAPABILITY_FLAGS } from "../../src/reads/hello";
 
 import { APPROVED, C1, H1, PR, type StoryWorld, storyWorld } from "./story-helpers";
 import { backlogLayout } from "../story-store/backlog";
@@ -211,11 +209,6 @@ describe("gate.approve", () => {
     expect(await refused(g.gates.approve(g.ctx(), { gate: "gat_unknown" as GateId }))).toBe(
       "gate.notWaitingOnMaintainer",
     );
-  });
-
-  it("is shipped behind the capability flag review", () => {
-    expect(CAPABILITY_FLAGS["review"]).toEqual(["gate.approve", "gate.reject"]);
-    expect(gateApprove.since).toBeDefined();
   });
 });
 

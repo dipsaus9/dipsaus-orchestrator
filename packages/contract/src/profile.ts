@@ -51,7 +51,6 @@ export const officeInfer = defineCommand({
   }),
   confirm: false,
   irreversible: false,
-  since: 1,
 });
 
 // What `office.confirm` does (DIPO-310's design choice):
@@ -109,7 +108,6 @@ export const officeConfirm = defineCommand({
   }),
   confirm: false,
   irreversible: false,
-  since: 1,
 });
 
 // A command list as the engine shows it, with its working directory.
@@ -187,7 +185,6 @@ export const officeProfile = defineRead({
   name: "office.profile",
   args: z.object({ office: OfficeId }),
   result: ProfileView,
-  since: 1,
 });
 
 export const profileCommands = [officeInfer, officeConfirm] as const;

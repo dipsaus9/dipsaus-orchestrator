@@ -42,7 +42,6 @@ const ENGINE_ENTRY = [
   "type CodeHost",
   "createEngine",
   "type DaemonFacts",
-  "type DatabaseCheck",
   "type DrainCaps",
   "type DrainRequest",
   "type DrainResult",

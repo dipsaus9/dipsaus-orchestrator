@@ -71,8 +71,6 @@ export interface OpenSqliteOptions {
   readonly logger: DbLogger;
   /** Replaces the system mount table, for tests. */
   readonly readMounts?: MountReader;
-  /** Run `PRAGMA quick_check` at open, as the daemon does after an unclean exit (0007 section 10). */
-  readonly checkIntegrity?: boolean;
 }
 
 export const DATABASE_FILE = "dipo.db";
@@ -90,19 +88,6 @@ export class NetworkFileSystemError extends Error {
       `The state directory ${path} is on a network filesystem (${fsType}). SQLite WAL needs a local disk; set DIPO_HOME to a local directory.`,
     );
     this.name = "NetworkFileSystemError";
-  }
-}
-
-/** Thrown when `PRAGMA quick_check` reports damage (0007 section 10). */
-export class IntegrityCheckError extends Error {
-  constructor(
-    readonly path: string,
-    readonly problems: readonly string[],
-  ) {
-    super(
-      `${path} failed its integrity check: ${problems.slice(0, 3).join("; ")}. Restore the newest file in ${join(dirname(path), BACKUPS_DIR)}.`,
-    );
-    this.name = "IntegrityCheckError";
   }
 }
 
@@ -287,25 +272,11 @@ export async function openSqlite(options: OpenSqliteOptions): Promise<SqliteConn
     const sqliteVersion = one<{ v: string }>("select sqlite_version() as v")?.v ?? "unknown";
     logger.info("opened state database", { path, sqliteVersion, created });
 
-    if (options.checkIntegrity === true) {
-      const problems = quickCheck(db);
-      if (problems.length > 0) throw new IntegrityCheckError(path, problems);
-    }
-
     return createConnection(db, path, sqliteVersion, created);
   } catch (error) {
     db.close();
     throw error;
   }
-}
-
-/** The problems `PRAGMA quick_check` reports; empty for an intact file. */
-function quickCheck(db: Database): string[] {
-  const lines = db
-    .query("pragma quick_check")
-    .all()
-    .flatMap((row) => String(Object.values(row as SqlRow)[0]).split("\n"));
-  return lines.length === 1 && lines[0] === "ok" ? [] : lines;
 }
 
 function createConnection(
