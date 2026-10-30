@@ -57,19 +57,39 @@ export function stripSlash(path: string): string {
   return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
 }
 
-/** `name` inside the folder `dir`. */
-export function inDir(dir: string, name: string): string {
-  // A loop, not a regular expression: a run of slashes costs one pass.
-  let end = dir.length;
-  while (end > 0 && dir[end - 1] === "/") end -= 1;
-  return `${dir.slice(0, end)}/${name}`;
+/**
+ * `path` with `.` and `..` segments resolved and runs of slashes collapsed, as `node:path`'s
+ * `normalize` does for POSIX paths, without a trailing slash. `..` above the root stays at the
+ * root; a relative path keeps the `..` it cannot resolve. Split on `/`, never a pattern, so a run
+ * of slashes costs one pass.
+ */
+export function normalizePath(path: string): string {
+  const absolute = path.startsWith("/");
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part !== "..") parts.push(part);
+    else if (parts.length > 0 && parts.at(-1) !== "..") parts.pop();
+    else if (!absolute) parts.push("..");
+  }
+  const joined = parts.join("/");
+  if (absolute) return `/${joined}`;
+  return joined === "" ? "." : joined;
 }
 
-/** True when `path` is `dir` or inside it. */
+/** `name` inside the folder `dir`, normalised. */
+export function inDir(dir: string, name: string): string {
+  return normalizePath(`${dir}/${name}`);
+}
+
+/**
+ * True when `path` is `dir` or inside it, both normalised first: `<dir>/../x` is not inside
+ * `<dir>`, and `<dir>/./x` is.
+ */
 export function isWithin(path: string, dir: string): boolean {
-  const p = stripSlash(path);
-  const d = stripSlash(dir);
-  return p === d || p.startsWith(`${d}/`);
+  const p = normalizePath(path);
+  const d = normalizePath(dir);
+  return p === d || p.startsWith(d === "/" ? "/" : `${d}/`);
 }
 
 /** The default state and logs folders of the passwd home `home` (0005). */
@@ -149,12 +169,14 @@ export function runtimePathReason(dir: string): string | null {
 
 /**
  * Why an existing runtime directory cannot be used, or null: a real directory (no symlink) that
- * `uid` owns, with mode 0700 (0005). A negative `uid` (unknown) skips the owner check.
+ * `uid` owns, with mode 0700 (0005). The sockets' only guard is this folder, so a negative `uid`
+ * (this process cannot tell its user, which no macOS or Linux process sees) refuses it.
  */
 export function runtimeDirReason(stat: DirStat, uid: number): string | null {
   if (stat.isSymbolicLink) return "it is a symlink";
   if (!stat.isDirectory) return "it is not a directory";
-  if (uid >= 0 && stat.uid !== uid) return `it is owned by uid ${stat.uid}, not ${uid}`;
+  if (uid < 0) return "this process cannot tell its user id, so it cannot check the owner";
+  if (stat.uid !== uid) return `it is owned by uid ${stat.uid}, not ${uid}`;
   if (stat.mode !== 0o700) return `its mode is ${stat.mode.toString(8).padStart(4, "0")}, not 0700`;
   return null;
 }

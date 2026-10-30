@@ -13,6 +13,7 @@ import {
   DIR_ERROR_CODES,
   longestRuntimePathBytes,
   readRuntimeRecord,
+  realRuntimeDirReason,
   resolveSoftwareDirs,
   RUNTIME_PATH_LIMIT,
   runtimeCandidates,
@@ -434,5 +435,15 @@ describe("runtime.json", () => {
       writeFileSync(join(dir, "runtime.json"), "{not json");
       expect(await readRuntimeRecord(dir)).toBeNull();
     });
+  });
+});
+
+describe("the real runtime folders (DIPO-320)", () => {
+  it("are found through . and .. segments, and a sibling reached with .. is not one", () => {
+    expect(realRuntimeDirReason("/tmp/x/../dipo-501", [501])).toBe(
+      "it is the shared runtime directory of this user",
+    );
+    expect(realRuntimeDirReason("/tmp/./dipo-501/", [501])).not.toBeNull();
+    expect(realRuntimeDirReason("/tmp/dipo-501/../dipo-502", [501])).toBeNull();
   });
 });

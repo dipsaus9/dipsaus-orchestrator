@@ -23,7 +23,9 @@ import {
   type DirStat,
   type Env,
   hasTestMarker,
+  inDir,
   isWithin,
+  normalizePath,
   parseRuntimeRecord,
   realStateInTestMessage,
   RUNTIME_FILE,
@@ -267,7 +269,8 @@ const MACOS_USER_TMP_DIPO = /^(\/private)?\/var\/folders\/[^/]+\/[^/]+\/T\/dipo$
  * per-user temp folder's `dipo`.
  */
 export function realRuntimeDirReason(path: string, uids: readonly number[]): string | null {
-  const p = stripSlash(path);
+  // Normalised, so `/tmp/x/../dipo-501` is the real folder it names (DIPO-320).
+  const p = normalizePath(path);
   for (const uid of uids) {
     if (p === `/tmp/dipo-${uid}` || p === `/private/tmp/dipo-${uid}`) {
       return "it is the shared runtime directory of this user";
@@ -275,7 +278,7 @@ export function realRuntimeDirReason(path: string, uids: readonly number[]): str
   }
   for (const name of ["TMPDIR", "XDG_RUNTIME_DIR"]) {
     const value = process.env[name];
-    if (value !== undefined && value !== "" && p === join(value, "dipo")) {
+    if (value !== undefined && value !== "" && p === inDir(value, "dipo")) {
       return `it is ${name}/dipo, a real runtime directory`;
     }
   }

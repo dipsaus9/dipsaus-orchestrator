@@ -9,6 +9,7 @@ import {
   hasTestMarker,
   inDir,
   isWithin,
+  normalizePath,
   longestRuntimePathBytes,
   parsePidRecord,
   parseRuntimeRecord,
@@ -32,6 +33,22 @@ describe("the software folders", () => {
       override: "/tmp/d.1/state/",
     });
     expect(softwareDirsOf({ DIPO_HOME: "" }, "/Users/me").override).toBeNull();
+  });
+
+  it("never count <dir>/../x as inside <dir>, and resolve . and .. before they compare", () => {
+    expect(isWithin("/a/b/../x", "/a/b")).toBe(false);
+    expect(isWithin("/a/b/../b/c", "/a/b")).toBe(true);
+    expect(isWithin("/a/b/./c", "/a/b")).toBe(true);
+    expect(isWithin("/a/b", "/a/b/c/..")).toBe(true);
+    expect(isWithin("/x", "/")).toBe(true);
+    expect(normalizePath("/a/./b/../../../c//d/")).toBe("/c/d");
+    expect(normalizePath("a/../../b")).toBe("../b");
+    expect(normalizePath("./")).toBe(".");
+    expect(inDir("/a/./b/..", "c")).toBe("/a/c");
+    // A DIPO_HOME with .. puts its logs where the folder really is.
+    expect(softwareDirsOf({ DIPO_HOME: "/tmp/d.1/x/../state" }, "/Users/me").logs).toBe(
+      "/tmp/d.1/state/logs",
+    );
   });
 
   it("tell a folder inside another apart from one that only shares a prefix", () => {
@@ -61,6 +78,10 @@ describe("the folder checks", () => {
     expect(stateDirReason(good, 501)).toBeNull();
     expect(stateDirReason({ isDirectory: false, uid: 501 }, 501)).toBe("it is not a directory");
     expect(stateDirReason(good, -1)).toBeNull();
+    // The runtime folder guards the sockets: an unknown user id refuses it, fail closed.
+    expect(runtimeDirReason(good, -1)).toBe(
+      "this process cannot tell its user id, so it cannot check the owner",
+    );
   });
 
   it("refuse a runtime directory too long for every socket path", () => {
