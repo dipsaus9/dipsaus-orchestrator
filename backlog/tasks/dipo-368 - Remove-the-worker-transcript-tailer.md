@@ -1,10 +1,10 @@
 ---
 id: DIPO-368
 title: Remove the worker transcript tailer
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-29 08:06'
-updated_date: '2026-10-30 11:15'
+updated_date: '2026-10-30 16:46'
 labels:
   - 'tier:S'
   - 'slice:prune'
