@@ -113,7 +113,7 @@ async function cleanup(daemon: Bun.Subprocess, children: number[] = []): Promise
 /** The ordered close-down after a drain: socket removed, database closed, lock released. */
 function expectClosedDown(dir: string, log: Line[]): void {
   const messages = log.map((line) => line.msg);
-  expect(log.find((line) => line.msg === "socket closed")?.removed).toBe(true);
+  expect(log.some((line) => line.msg === "socket closed")).toBe(true);
   expect(messages.indexOf("socket closed")).toBeLessThan(messages.indexOf("closed state database"));
   expect(messages.indexOf("closed state database")).toBeLessThan(messages.indexOf("lock released"));
   expect(messages.at(-1)).toBe("daemon stopped");

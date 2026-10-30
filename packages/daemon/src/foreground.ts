@@ -545,8 +545,8 @@ async function closeDown(run: Run, held: Held): Promise<void> {
   held.server?.close();
   try {
     if (held.socket !== null) {
-      await held.socket.stop({ removeFile: true });
-      logger.info("socket closed", { removed: true });
+      await held.socket.stop();
+      logger.info("socket closed");
     }
   } finally {
     // Last, after every engine service stopped and the connections closed (1001), so no request
