@@ -346,6 +346,8 @@ export class Reviews {
         changes,
         diff,
         gateChanges: run.gateChanges ?? [],
+        // Kept on the run when each session ended; the Safe-Chain box may be gone (DIPO-376).
+        safeChain: run.safeChain,
         // The stored findings are the reviewer's, judged by code, so their kinds are known.
         ...(previous === null
           ? {}

@@ -31,6 +31,7 @@ The task message holds these sections, in this order, each in its own tag. A sec
 - `<changes>`: every changed path with its added and removed line counts.
 - `<diff>`: the change from the merge base, without the story's own task file. When it is over its size limit, it shows the largest hunks and says how to read the rest.
 - `<gate_changes>`: changes the branch made to the test, lint, typecheck or verify commands. Judge whether each one is needed by the story.
+- `<safe_chain_refusals>`: what Safe-Chain refused in the box during the run, from its log: each package with its reason, and each session whose log dipo could not read, so its refusals are unknown. An install of a refused package fails as if the registry refused it, but Safe-Chain refused it.
 - `<story>`: the story's id, title, type and tier.
 - `<outcome>`: what must be true when the story is done.
 - `<criteria>`: the acceptance criteria, numbered.
