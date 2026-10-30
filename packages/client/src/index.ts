@@ -44,5 +44,9 @@ export type {
 } from "./store/index";
 export type { RandomBytes, RequestIds } from "./request-id";
 export type { Transport, TransportConnection, TransportHandlers } from "./transport";
+export { healthLabel, healthMeaning } from "./health-text";
 export { markerRule } from "./marker-text";
-export { resetText, usageParts, usageTokens, usageWindowText } from "./usage-text";
+export { byteLength, outputPieces, textFrom } from "./output-range";
+export type { OutputRange } from "./output-range";
+export { storyRef } from "./story-ref";
+export { percent, resetText, usageParts, usageTokens, usageWindowText } from "./usage-text";

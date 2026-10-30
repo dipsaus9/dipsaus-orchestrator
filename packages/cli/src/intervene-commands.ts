@@ -1,20 +1,14 @@
 // `dipo steer <id> <text>` (DIPO-163; 0020): `work.steer` for the story in the office of
 // `--office` or of the current directory. It asks for no confirmation. The text of a steer is the words after the story id, joined with spaces.
 
-import { StoryId, StoryKey, type StoryRefValue, workSteer } from "@dipsaus-orchestrator/contract";
+import { storyRef } from "@dipsaus-orchestrator/client";
+import { type StoryRefValue, workSteer } from "@dipsaus-orchestrator/contract";
 
 import { engineFailure, usage } from "./daemon-commands";
 import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
 
 /** How long these commands wait: the message goes through the worker host's socket. */
 export const INTERVENE_TIMEOUT_MS = 60_000;
-
-function storyRef(text: string): StoryRefValue | null {
-  const key = StoryKey.safeParse(text);
-  if (key.success) return key.data;
-  const id = StoryId.safeParse(text.toUpperCase());
-  return id.success ? id.data : null;
-}
 
 interface Parsed {
   readonly story: StoryRefValue;

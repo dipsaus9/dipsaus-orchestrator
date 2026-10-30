@@ -8,12 +8,11 @@
 // where the story went, which grants were recorded and whether its session waits for its place; a
 // story that already runs answers `changed: false` (0005), and the CLI says nothing was resumed.
 
+import { storyRef } from "@dipsaus-orchestrator/client";
 import {
   type ResumeBudget,
   ResumeConfirmDetails,
   type ResumeGrant,
-  StoryId,
-  StoryKey,
   type StoryRefValue,
   workResume,
 } from "@dipsaus-orchestrator/contract";
@@ -28,13 +27,6 @@ const YES = /^\s*y(es)?\s*$/i;
  * its push, each git step killed after a minute), then the reply; the session starts after it.
  */
 export const RESUME_TIMEOUT_MS = 180_000;
-
-function storyRef(text: string): StoryRefValue | null {
-  const key = StoryKey.safeParse(text);
-  if (key.success) return key.data;
-  const id = StoryId.safeParse(text.toUpperCase());
-  return id.success ? id.data : null;
-}
 
 /** `+50%` as a share, `+200000` (or `+200,000`, `+200_000`) as tokens; null for anything else. */
 export function parseBudget(text: string): ResumeBudget | null {

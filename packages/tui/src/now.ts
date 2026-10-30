@@ -3,9 +3,8 @@
 // Both take the newest stored worker line as stored, and its age from the engine's `lastOutputAt`.
 // Nothing here parses adapter output.
 
+import { healthLabel } from "@dipsaus-orchestrator/client";
 import type { QuestionView, RunRecord, StoryView, WorkView } from "@dipsaus-orchestrator/contract";
-
-import { healthLabel } from "./views";
 
 /** An age as `12s`, `4m` or `2h`. */
 export function shortAge(ms: number): string {

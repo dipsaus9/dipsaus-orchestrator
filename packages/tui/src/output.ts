@@ -6,19 +6,19 @@
 // While the pane follows the tail it keeps about `tailBytes`; scrolled back it keeps what it read.
 // The engine's phase markers come flagged with their byte ranges (DIPO-95); the feed keeps the
 // flags of the text it holds and turns each flagged range into one marker line, so only the engine
-// can draw a marker: worker text that reads like one stays text.
+// can draw a marker: worker text that reads like one stays text. Ranges are cut with the client's
+// output-range codec, the one `dipo watch` uses (DIPO-320).
 
-import { markerRule } from "@dipsaus-orchestrator/client";
+import {
+  byteLength,
+  markerRule,
+  type OutputRange,
+  outputPieces,
+  textFrom,
+} from "@dipsaus-orchestrator/client";
 import { cleanText, type EngineError, type OutputMarker } from "@dipsaus-orchestrator/contract";
 
-/** One byte range of stored output, as `work.output` and `work.outputRange` carry it. */
-export interface OutputRange {
-  readonly from: number;
-  readonly to: number;
-  readonly text: string;
-  /** The engine markers in or overlapping the range (DIPO-95). */
-  readonly markers?: readonly OutputMarker[] | undefined;
-}
+export { byteLength, type OutputRange } from "@dipsaus-orchestrator/client";
 
 /** A held line: text as stored, or an engine marker drawn from its flag. */
 export type OutputLine = string | OutputMarker;
@@ -38,10 +38,6 @@ export const OUTPUT_TAIL_BYTES = 64 * 1024;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-
-export function byteLength(text: string): number {
-  return encoder.encode(text).byteLength;
-}
 
 /**
  * One stored line as the pane shows it: cleaned of terminal control characters by the shared
@@ -72,21 +68,9 @@ export function heldLines(
   start: number,
   markers: readonly OutputMarker[],
 ): OutputLine[] {
-  if (markers.length === 0) return splitLines(text);
-  const bytes = encoder.encode(text);
-  const inside = markers
-    .filter((marker) => marker.to > start && marker.from < start + bytes.length)
-    .toSorted((a, b) => a.from - b.from);
-  if (inside.length === 0) return splitLines(text);
-  const lines: OutputLine[] = [];
-  let at = 0;
-  for (const marker of inside) {
-    const from = Math.max(at, marker.from - start);
-    lines.push(...splitLines(decoder.decode(bytes.subarray(at, from))), marker);
-    at = Math.min(bytes.length, Math.max(from, marker.to - start));
-  }
-  lines.push(...splitLines(decoder.decode(bytes.subarray(at))));
-  return lines;
+  return outputPieces(text, start, markers).flatMap<OutputLine>((piece) =>
+    typeof piece === "string" ? splitLines(piece) : [piece],
+  );
 }
 
 /** True for an engine marker line. */
@@ -291,10 +275,7 @@ export class OutputFeed {
       void this.#fill();
       return;
     }
-    const skip = this.#end - range.from;
-    const text =
-      skip === 0 ? range.text : decoder.decode(encoder.encode(range.text).subarray(skip));
-    this.#text += text;
+    this.#text += textFrom(range, this.#end);
     this.#addMarkers(range.markers);
     this.#end = range.to;
     this.#lines = null;

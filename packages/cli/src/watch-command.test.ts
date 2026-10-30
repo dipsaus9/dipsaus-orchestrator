@@ -1,10 +1,19 @@
 // `dipo watch [ID]` (DIPO-52; 0009 section 9): the state of each running story from the snapshot,
 // then one plain line per event after its cursor: output, usage, health and its evidence, notices,
-// parks and the end of a run read from `story.detail`.
+// parks and the end of a run read from `story.detail`. Its state is the client's `OfficeStore`
+// (DIPO-320): the store opens the office and follows its stream, so the fake session records the
+// office subscriptions here and the store's software subscription apart.
 
 import { describe, expect, it } from "bun:test";
 
-import { RECOVERY_POLL_MS, type SubscribeOptions } from "@dipsaus-orchestrator/client";
+import {
+  healthLabel,
+  healthMeaning,
+  percent,
+  RECOVERY_POLL_MS,
+  STREAM_MARK_MS,
+  type SubscribeOptions,
+} from "@dipsaus-orchestrator/client";
 import { DaemonNotRunningError } from "@dipsaus-orchestrator/client/node";
 import {
   type EngineError,
@@ -93,7 +102,9 @@ function fake(options: {
   const out: string[] = [];
   const err: string[] = [];
   const reads: string[] = [];
+  /** The office stream subscriptions; the store's software stream goes to `software`. */
   const subscriptions: SubscribeOptions[] = [];
+  const software: SubscribeOptions[] = [];
   let seq = cursor.seq;
   const snapshot = () => ({
     cursor,
@@ -127,7 +138,7 @@ function fake(options: {
       throw new Error(`unexpected read ${definition.name}`);
     }) as DaemonSession["read"],
     subscribe: ((stream: string, subscribe: SubscribeOptions) => {
-      subscriptions.push(subscribe);
+      (stream === "software" ? software : subscriptions).push(subscribe);
       return { stream, cursor: undefined, unsubscribe: () => undefined };
     }) as unknown as DaemonSession["subscribe"],
     close: () => undefined,
@@ -159,7 +170,9 @@ function fake(options: {
     subscriptions.at(-1)?.onEvent(event);
   };
   const end = (error: EngineError) => subscriptions.at(-1)?.onEnded?.(error);
-  return { deps, out, err, reads, subscriptions, emit, end };
+  /** The store's idle check, which a stream mark set off before (DIPO-320). */
+  const idle = () => (deps.clock as ManualClock).advance(STREAM_MARK_MS);
+  return { deps, out, err, reads, subscriptions, software, emit, end, idle };
 }
 
 const tick = () => new Promise<void>((resolve) => queueMicrotask(resolve));
@@ -194,13 +207,13 @@ describe("dipo watch", () => {
     let inReview = false;
     const ctx = fake({ running: true, inReview: () => inReview });
     const done = main(["watch", "task-1"], ctx.deps);
-    await until(() => ctx.subscriptions.length === 1);
+    await until(() => ctx.out.includes("--"));
     ctx.out.length = 0;
     inReview = true;
-    ctx.emit("stream.mark", {});
+    ctx.idle();
     await until(() => ctx.out.length > 0);
     expect(ctx.out).toEqual([`${T} TASK-1 end    run ${RUN} at In Review · 2 turns`]);
-    ctx.emit("stream.mark", {});
+    ctx.idle();
     await tick();
     expect(ctx.out).toHaveLength(1);
     ctx.end({ code: "office.unknown", message: "gone", retryable: false });
@@ -217,7 +230,7 @@ describe("dipo watch", () => {
       `dipo watch: TASK-1 in office ${OFFICE} · Ctrl-C to stop`,
       'TASK-1 "Greet the user" · In Progress (running)',
       `  run ${RUN} · developer · tier S · model haiku · started ${T}`,
-      "  phase build · health busy · loop 0/3 · verify none · criteria 0/2 · budget 0.5% of 400,000 tokens",
+      "  phase build · health busy > · loop 0/3 · verify none · criteria 0/2 · budget 0.5% of 400,000 tokens",
       "  usage 2,000 of 400,000 tokens (0.5% of budget) · in 1,200 out 300 cache write 500 cache read 9,000 · 2 turns",
       "--",
     ]);
@@ -263,11 +276,11 @@ describe("dipo watch", () => {
       `${T} TASK-1 out    I will now run tests`,
       `${T} TASK-1 usage  2,000 of 400,000 tokens (0.5% of budget) · in 1,200 out 300 cache write 500 cache read 9,000 · 2 turns`,
       `${T} TASK-1 signal no-output since ${T}: no output line since then`,
-      `${T} TASK-1 health quiet: no output for a few minutes (timeouts.workerQuietMinutes)`,
+      `${T} TASK-1 health quiet . (no output for a few minutes (timeouts.workerQuietMinutes))`,
       `${T} TASK-1 signal no-output since ${T}, stuck: no output line past timeouts.workerStallMinutes`,
-      `${T} TASK-1 health stuck: no output for a long time (timeouts.workerStallMinutes); the worker may hang`,
+      `${T} TASK-1 health stuck ~ (no output for a long time (timeouts.workerStallMinutes); the worker may hang)`,
       `${T} TASK-1 signal no-output cleared: output resumed (it began ${T})`,
-      `${T} TASK-1 health busy: the worker is producing output`,
+      `${T} TASK-1 health busy > (the worker is producing output)`,
       `${T} notice error run.startFailed: TASK-1 was claimed but not started: the worker host did not start.`,
       `${T} TASK-1 parked stopped (from In Progress): stopped by you`,
       `${T} TASK-1 parked you can: work.resume, story.drop`,
@@ -276,10 +289,10 @@ describe("dipo watch", () => {
 
     // The run ends without a work event: an idle mark reads story.detail and prints the end once.
     ended = true;
-    ctx.emit("stream.mark", {});
+    ctx.idle();
     await until(() => ctx.out.length > 0);
     expect(ctx.out).toEqual([`${T} TASK-1 end    run ${RUN} ended: dropped · 2 turns`]);
-    ctx.emit("stream.mark", {});
+    ctx.idle();
     await tick();
     expect(ctx.out).toHaveLength(1);
 
@@ -332,7 +345,7 @@ describe("dipo watch", () => {
     ctx.emit("work.phase", { work, phase: "setup", progress, view: view("busy") });
     expect(ctx.out).toEqual([
       `${T} TASK-1 run    started ${RUN} · developer · tier S · model haiku`,
-      `${T} TASK-1 health busy: the worker is producing output`,
+      `${T} TASK-1 health busy > (the worker is producing output)`,
       `${T} TASK-1 phase  setup · loop 0/3 · verify none · criteria 0/2`,
     ]);
     ctx.out.length = 0;
@@ -340,6 +353,37 @@ describe("dipo watch", () => {
     await until(() => ctx.subscriptions.length === 2);
     expect(ctx.out[0]).toBe("-- view reloaded (history gap) --");
     expect(ctx.reads.filter((name) => name === "office.snapshot")).toHaveLength(2);
+    ctx.end({ code: "office.unknown", message: "gone", retryable: false });
+    expect(await done).toBe(1);
+  });
+
+  it("builds its state on the client's OfficeStore and prints with the client's formatters (DIPO-320)", async () => {
+    const ctx = fake({ running: true });
+    const done = main(["watch"], ctx.deps);
+    await until(() => ctx.out.includes("--"));
+    // The store follows the software stream next to the office stream, as it does for the TUI.
+    expect(ctx.software).toHaveLength(1);
+    expect(ctx.subscriptions).toHaveLength(1);
+    expect(ctx.out).toContain(
+      `  phase build · health ${healthLabel("busy")} · loop 0/3 · verify none · criteria 0/2 · budget ${percent(0.005)} of 400,000 tokens`,
+    );
+    ctx.out.length = 0;
+    // The health comes from the store's view of the run: an event without a view changes nothing.
+    ctx.emit("work.phase", { work, phase: "verify", progress, view: view("looping") });
+    ctx.emit("work.output", { work, source: "worker", from: 0, to: 3, text: "ok\n" });
+    expect(ctx.out).toEqual([
+      `${T} TASK-1 phase  verify · loop 0/3 · verify none · criteria 0/2`,
+      `${T} TASK-1 health ${healthLabel("looping")} (${healthMeaning("looping")})`,
+      `${T} TASK-1 out    ok`,
+    ]);
+    ctx.out.length = 0;
+    // After a history gap the store reads the office again, and watch prints its new state.
+    ctx.end({ code: "stream.resetRequired", message: "gap", retryable: false });
+    await until(() => ctx.out.includes("--"));
+    expect(ctx.out.slice(0, 2)).toEqual([
+      "-- view reloaded (history gap) --",
+      `dipo watch: office ${OFFICE} · 1 running · Ctrl-C to stop`,
+    ]);
     ctx.end({ code: "office.unknown", message: "gone", retryable: false });
     expect(await done).toBe(1);
   });

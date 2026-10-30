@@ -10,11 +10,10 @@
 //   nothing to start: the daemon-side `test-shell` form with the open test's box.
 // A story with no open test gets "no open test" and exit 1.
 
+import { storyRef } from "@dipsaus-orchestrator/client";
 import {
   officeSnapshot,
   type OfficeId,
-  StoryId,
-  StoryKey,
   type StoryRefValue,
   testRecord,
   testStart,
@@ -36,13 +35,6 @@ export const TEST_RECORD_TIMEOUT_MS = 120_000;
 export interface TestCommandDeps extends OfficeCommandDeps {
   /** Runs a daemon-side form (`test-shell`) with this terminal. */
   readonly runDaemon: (argv: readonly string[]) => Promise<number>;
-}
-
-function storyRef(text: string): StoryRefValue | null {
-  const key = StoryKey.safeParse(text);
-  if (key.success) return key.data;
-  const id = StoryId.safeParse(text.toUpperCase());
-  return id.success ? id.data : null;
 }
 
 interface Parsed {

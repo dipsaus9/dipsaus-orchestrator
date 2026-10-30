@@ -4,7 +4,8 @@
 // does not change the exit code. The office comes from `--office`, else from the repository around the
 // current directory, as for `dipo office`.
 
-import { StoryId, StoryKey, type StoryRefValue, storyGate } from "@dipsaus-orchestrator/contract";
+import { storyRef } from "@dipsaus-orchestrator/client";
+import { storyGate } from "@dipsaus-orchestrator/contract";
 
 import { engineFailure, usage } from "./daemon-commands";
 import { type Act, type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
@@ -17,14 +18,6 @@ import { type Act, type OfficeCommandDeps, parseOptions, withOffice } from "./of
  * 11 to 13 s (about 0.17 s per view, 4 at a time), so the wait covers that read twice over.
  */
 export const GATE_TIMEOUT_MS = 30_000;
-
-/** A story id as typed (Backlog.md prints ids upper-cased), or a story key as is. */
-function storyRef(text: string): StoryRefValue | null {
-  const key = StoryKey.safeParse(text);
-  if (key.success) return key.data;
-  const id = StoryId.safeParse(text.toUpperCase());
-  return id.success ? id.data : null;
-}
 
 export async function gateCommand(
   args: readonly string[],

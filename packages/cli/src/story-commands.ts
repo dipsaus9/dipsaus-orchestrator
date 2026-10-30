@@ -11,10 +11,9 @@
 // `dipo discard <id> --note <text>` (DIPO-161) is irreversible: it lists the same losses and asks
 // for the typed story id.
 
+import { storyRef } from "@dipsaus-orchestrator/client";
 import {
   type LostCommit,
-  StoryId,
-  StoryKey,
   type StoryRefValue,
   storyDrop,
   storyPark,
@@ -51,13 +50,6 @@ function printLosses(deps: OfficeCommandDeps, losses: StoryLosses): void {
 
 /** How long these commands wait: the lane's flush, the PR close and the branch deletion. */
 export const STORY_COMMAND_TIMEOUT_MS = 180_000;
-
-function storyRef(text: string): StoryRefValue | null {
-  const key = StoryKey.safeParse(text);
-  if (key.success) return key.data;
-  const id = StoryId.safeParse(text.toUpperCase());
-  return id.success ? id.data : null;
-}
 
 interface Parsed {
   readonly story: StoryRefValue;
