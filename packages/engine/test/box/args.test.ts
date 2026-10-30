@@ -740,3 +740,70 @@ describe("the Apple container argument builder", () => {
     }
   });
 });
+
+// What a box's start keeps (DIPO-378): the whole `create` argv of a box with both mounts and of a
+// build box, so any flag added to a box's start shows here.
+describe("a box's start", () => {
+  const cache = `${HOME}/Library/Caches/dipo/offices/off_1/packages`;
+  const tools = TOOLS[0]![0]!;
+
+  it("keeps the one capability, the two read-only mounts and the mounted tail of a box", () => {
+    expect(createArgs({ ...VALID, packageCache: cache })).toEqual([
+      "create",
+      "--name",
+      `dipo-${VALID.runId}`,
+      "--label",
+      `dipo=${VALID.runId}`,
+      "--network",
+      BOX_NETWORK_NAME,
+      "--memory",
+      "8192M",
+      "--cpus",
+      "8",
+      "--cap-add",
+      "CAP_NET_ADMIN",
+      "--mount",
+      `type=bind,source=${cache},target=${BOX_PACKAGE_CACHE_PATH},readonly`,
+      "--mount",
+      `type=bind,source=${tools},target=${BOX_NET_TOOLS_PATH},readonly`,
+      "--entrypoint",
+      CONTAINED_KEEPALIVE[0],
+      VALID.image,
+      ...CONTAINED_KEEPALIVE.slice(1),
+    ]);
+    expect(CONTAINED_KEEPALIVE).toEqual(netToolCommand("tail", ["-f", "/dev/null"]));
+  });
+
+  it("keeps the one capability, no mount and the image's own tail of a build box", () => {
+    const base = "docker.io/library/debian:trixie-slim";
+    expect(
+      createArgs({
+        runId: BUILD_RUN_ID,
+        image: base,
+        network: VALID.network,
+        host: VALID.host,
+        home: HOME,
+      }),
+    ).toEqual([
+      "create",
+      "--name",
+      BUILD_NAME,
+      "--label",
+      `dipo=${BUILD_RUN_ID}`,
+      "--network",
+      BOX_NETWORK_NAME,
+      "--memory",
+      "8192M",
+      "--cpus",
+      "8",
+      "--cap-add",
+      "CAP_NET_ADMIN",
+      "--entrypoint",
+      "tail",
+      base,
+      "-f",
+      "/dev/null",
+    ]);
+    expect(BOX_KEEPALIVE).toEqual(["tail", "-f", "/dev/null"]);
+  });
+});
