@@ -2,10 +2,10 @@
 // `dipo.pid` and `runtime.json` (AC #9), autostart off and an invalid `config.yaml` spawning
 // nothing (AC #2, #10), the daemon's environment without the Bun flag variables (AC #1, #11),
 // `stop` with `daemon.stop` and `--force` against a verified PID only (AC #5) and `restart` across
-// contract majors (AC #6). Time is a clock whose timers fire at once and move it forward.
+// versions (AC #6, 0005). Time is a clock whose timers fire at once and move it forward.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
@@ -177,27 +177,35 @@ describe("inspectDaemon", () => {
       expect(await inspectDaemon(w.deps)).toEqual({ kind: "not running", cleaned: [] });
     }));
 
-  it("treats dipo.pid and runtime.json as stale for a dead PID and for a reused PID", () =>
+  it("treats dipo.pid and runtime.json as stale for a dead PID and for a reused PID, and never deletes dipo.pid", () =>
     withTempDir(async (dir) => {
       const w = world(dir);
       writeLock(w.state);
+      const lock = readFileSync(join(w.state, "dipo.pid"), "utf8");
       writeRuntime(w.state);
       expect(await inspectDaemon(w.deps)).toEqual({
         kind: "not running",
-        cleaned: [join(w.state, "dipo.pid"), join(w.state, "runtime.json")],
+        cleaned: [join(w.state, "runtime.json")],
+        staleLock: join(w.state, "dipo.pid"),
       });
+      // The lock's one deleter is the starting daemon (0005): the client leaves it as it was.
+      expect(readFileSync(join(w.state, "dipo.pid"), "utf8")).toBe(lock);
+      expect(readdirSync(w.state).filter((name) => name.includes(".stale."))).toEqual([]);
       // The PID now belongs to another process that started later.
       w.procs.set(DAEMON_PID, { ...DAEMON_INFO, startTimeMs: START + 60_000 });
       writeLock(w.state);
       writeRuntime(w.state);
       const observed = await inspectDaemon(w.deps);
-      expect(observed.kind).toBe("not running");
-      expect(observed.kind === "not running" && observed.cleaned).toHaveLength(2);
+      expect(observed).toEqual({
+        kind: "not running",
+        cleaned: [join(w.state, "runtime.json")],
+        staleLock: join(w.state, "dipo.pid"),
+      });
       // And a PID with the right start time that is not `dipo daemon --foreground`.
       w.procs.set(DAEMON_PID, { ...DAEMON_INFO, command: "/bin/sleep 100" });
       writeLock(w.state);
       expect((await inspectDaemon(w.deps)).kind).toBe("not running");
-      expect(existsSync(join(w.state, "dipo.pid"))).toBe(false);
+      expect(existsSync(join(w.state, "dipo.pid"))).toBe(true);
     }));
 
   it("keeps a runtime.json whose own process is alive, even without dipo.pid", () =>
@@ -420,7 +428,8 @@ describe("stopDaemon", () => {
       expect(w.deps.clock.now() - before).toBeGreaterThanOrEqual(
         LIFECYCLE_TIMINGS.forceKillAfterMs,
       );
-      expect(existsSync(join(w.state, "dipo.pid"))).toBe(false);
+      // A killed daemon's lock stays for the next daemon start to delete (0005).
+      expect(existsSync(join(w.state, "dipo.pid"))).toBe(true);
       expect(existsSync(join(w.state, "runtime.json"))).toBe(false);
     }));
 
@@ -454,9 +463,11 @@ describe("stopDaemon", () => {
       writeLock(w.state);
       expect(await stopDaemon(w.deps, { force: true })).toEqual({
         kind: "not running",
-        cleaned: [join(w.state, "dipo.pid")],
+        cleaned: [],
+        staleLock: join(w.state, "dipo.pid"),
       });
       expect(w.signals).toEqual([]);
+      expect(existsSync(join(w.state, "dipo.pid"))).toBe(true);
     }));
 
   it("points an unresponsive daemon to --force without signalling it", () =>

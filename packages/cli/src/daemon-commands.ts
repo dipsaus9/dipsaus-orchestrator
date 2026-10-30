@@ -234,8 +234,12 @@ function statusJson(observed: DaemonObservation): Record<string, unknown> {
     case "unresponsive":
       return { status: "unresponsive", pid: observed.record.pid };
     default:
-      return observed.cleaned.length > 0
-        ? { status: "stale", cleaned: observed.cleaned }
+      return observed.cleaned.length > 0 || observed.staleLock !== undefined
+        ? {
+            status: "stale",
+            cleaned: observed.cleaned,
+            ...(observed.staleLock === undefined ? {} : { staleLock: observed.staleLock }),
+          }
         : { status: "not running" };
   }
 }
@@ -279,11 +283,18 @@ async function statusCommand(args: readonly string[], deps: DaemonCommandDeps): 
       );
       break;
     default:
-      if (observed.cleaned.length > 0) {
+      if (observed.cleaned.length > 0 || observed.staleLock !== undefined) {
         deps.writeLine("stale");
-        deps.writeLine(
-          `  removed leftovers of a daemon that is gone: ${observed.cleaned.join(", ")}`,
-        );
+        if (observed.cleaned.length > 0) {
+          deps.writeLine(
+            `  removed leftovers of a daemon that is gone: ${observed.cleaned.join(", ")}`,
+          );
+        }
+        if (observed.staleLock !== undefined) {
+          deps.writeLine(
+            `  stale lock of a daemon that is gone, left for the next daemon start: ${observed.staleLock}`,
+          );
+        }
       } else {
         deps.writeLine("not running");
       }
@@ -353,6 +364,9 @@ function printStop(deps: DaemonCommandDeps, result: StopResult): number {
           ? `dipo daemon is not running (removed stale ${result.cleaned.join(", ")})`
           : "dipo daemon is not running",
       );
+      if (result.staleLock !== undefined) {
+        deps.writeLine(`  stale lock left for the next daemon start: ${result.staleLock}`);
+      }
       return 0;
     case "stopped":
       deps.writeLine(

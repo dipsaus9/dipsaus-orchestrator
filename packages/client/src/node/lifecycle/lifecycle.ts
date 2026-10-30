@@ -5,7 +5,9 @@
 //
 // - Status: `dipo.pid` names a live `dipo daemon --foreground` with the same start time (DIPO-23)
 //   and its socket answers: running. It is alive but silent for 5 s: unresponsive. Otherwise the
-//   daemon is not running, and a leftover `dipo.pid` or `runtime.json` is stale and removed.
+//   daemon is not running: a leftover `runtime.json` is stale and removed, and a leftover
+//   `dipo.pid` is reported stale and left for the next daemon start to delete (0005: the daemon
+//   is the lock's one deleter).
 // - Start spawns the daemon detached and waits up to 5 s for `engine.hello`.
 // - Stop sends `daemon.stop`. `--force`, and a daemon of another version (0005), get SIGTERM to the
 //   verified PID (every version drains on it); `--force` adds SIGKILL after 10 s. Code never
@@ -167,8 +169,15 @@ export type DaemonObservation =
       readonly version: string | null;
     }
   | { readonly kind: "unresponsive"; readonly record: PidRecord }
-  /** `cleaned` lists the stale files removed; non-empty means `stale`. */
-  | { readonly kind: "not running"; readonly cleaned: readonly string[] };
+  /**
+   * `cleaned` lists the stale files removed; `staleLock` names a stale `dipo.pid`, which the
+   * client never deletes. Either means `stale`.
+   */
+  | {
+      readonly kind: "not running";
+      readonly cleaned: readonly string[];
+      readonly staleLock?: string;
+    };
 
 function sleep(clock: Clock, ms: number): Promise<void> {
   return new Promise((resolve) => clock.setTimeout(resolve, ms));
@@ -250,11 +259,16 @@ async function handshake(
   }
 }
 
-/** Removes the stale lock and `runtime.json`, never a file a live daemon wrote meanwhile. */
-async function cleanLeftovers(deps: LifecycleDeps, pidFile: ReturnType<typeof readRaw>) {
+/**
+ * Removes a stale `runtime.json`, never one a live daemon wrote meanwhile. A stale `dipo.pid` is
+ * only reported: the starting daemon deletes it (0005), so the lock has one deleter.
+ */
+async function cleanLeftovers(
+  deps: LifecycleDeps,
+  pidFile: ReturnType<typeof readRaw>,
+): Promise<{ readonly cleaned: string[]; readonly staleLock?: string }> {
   const state = stateDir(deps.env);
   const cleaned: string[] = [];
-  if (pidFile !== null && removeIfUnchanged(pidFile)) cleaned.push(pidFile.path);
   // `runtime.json` is stale when `dipo.pid` is missing or failed the check. It is removed unless
   // the process it names is alive with the same start time: a live daemon's socket must stay
   // findable even when its lock file went missing.
@@ -264,7 +278,7 @@ async function cleanLeftovers(deps: LifecycleDeps, pidFile: ReturnType<typeof re
     const live = identity !== null && isSameProcess(identity, await deps.probe(identity.pid));
     if (!live && removeIfUnchanged(runtimeFile)) cleaned.push(runtimeFile.path);
   }
-  return cleaned;
+  return pidFile === null ? { cleaned } : { cleaned, staleLock: pidFile.path };
 }
 
 /** Reads `dipo.pid` and the daemon it names: running, foreign, unresponsive or not running. */
@@ -287,7 +301,7 @@ export async function inspectDaemon(deps: LifecycleDeps): Promise<DaemonObservat
       if (observed !== null) return observed;
       if (pass < 2) continue;
     }
-    return { kind: "not running", cleaned: await cleanLeftovers(deps, pidFile) };
+    return { kind: "not running", ...(await cleanLeftovers(deps, pidFile)) };
   }
 }
 
@@ -422,7 +436,11 @@ async function supervisedStart(
 }
 
 export type StopResult =
-  | { readonly kind: "not running"; readonly cleaned: readonly string[] }
+  | {
+      readonly kind: "not running";
+      readonly cleaned: readonly string[];
+      readonly staleLock?: string;
+    }
   | { readonly kind: "stopped"; readonly pid: number; readonly killed: boolean }
   | { readonly kind: "unresponsive"; readonly pid: number }
   | { readonly kind: "refused"; readonly pid: number; readonly message: string }

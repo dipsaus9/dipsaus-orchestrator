@@ -150,12 +150,17 @@ describe("dipo daemon status", () => {
     expect(none.out).toEqual(["not running"]);
 
     const stale = fake({
-      inspect: { kind: "not running", cleaned: ["/state/dipo.pid", "/state/runtime.json"] },
+      inspect: {
+        kind: "not running",
+        cleaned: ["/state/runtime.json"],
+        staleLock: "/state/dipo.pid",
+      },
     });
     expect(await main(["daemon", "status"], stale.deps)).toBe(3);
     expect(stale.out).toEqual([
       "stale",
-      "  removed leftovers of a daemon that is gone: /state/dipo.pid, /state/runtime.json",
+      "  removed leftovers of a daemon that is gone: /state/runtime.json",
+      "  stale lock of a daemon that is gone, left for the next daemon start: /state/dipo.pid",
     ]);
   });
 
@@ -179,6 +184,11 @@ describe("dipo daemon status", () => {
         { kind: "not running", cleaned: ["/state/runtime.json"] },
         3,
         { status: "stale", cleaned: ["/state/runtime.json"] },
+      ],
+      [
+        { kind: "not running", cleaned: [], staleLock: "/state/dipo.pid" },
+        3,
+        { status: "stale", cleaned: [], staleLock: "/state/dipo.pid" },
       ],
     ];
     for (const [inspect, code, json] of cases) {
