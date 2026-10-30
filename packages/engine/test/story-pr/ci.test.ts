@@ -944,3 +944,37 @@ describe("the checks the base requires on GitHub", () => {
     });
   });
 });
+
+// DIPO-382 (0002): a merge decided by rule closes out on the approved verdict, while the reviewed
+// head's checks still run; the close-out push cancels that run (ci.yml's cancel-in-progress).
+describe("the checks of a close-out head", () => {
+  it("never take a check the close-out push cancelled on the reviewed head, and count a red close-out head once", async () => {
+    await inWorld(
+      async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        w.host.required = [report("ci-ok", "pending"), report("pr-title", "pass")];
+        await w.prs.retry(id);
+        expect(w.prs.ciState(id, w.run)).toEqual({ kind: "pending", head: HEAD_A });
+        // The close-out commit C is pushed; GitHub still shows A, whose ci-ok run was cancelled.
+        w.facts = { ...FACTS, head: HEAD_C };
+        await w.prs.sync(id, w.run);
+        w.host.required = [report("ci-ok", "cancel"), report("pr-title", "pass")];
+        await w.prs.retry(id);
+        expect(w.prs.ciState(id, w.run)).toEqual({ kind: "pending", head: HEAD_C });
+        expect(ciSteps(w)).toEqual([]);
+        // GitHub moves to C: its checks run once, and a red ci-ok there is one CI attempt of C.
+        w.host.head = HEAD_C;
+        w.host.required = [report("ci-ok", "pending"), report("pr-title", "pass")];
+        await w.prs.retry(id);
+        expect(w.prs.ciState(id, w.run)).toEqual({ kind: "pending", head: HEAD_C });
+        redHead(w);
+        await w.prs.retry(id);
+        expect(w.prs.ciState(id, w.run)).toMatchObject({ kind: "red", head: HEAD_C });
+        expect(ciSteps(w).map((step) => step.value)).toEqual([HEAD_C]);
+        expect(parked(w.office)).toEqual([]);
+      },
+      { box: true },
+    );
+  });
+});
