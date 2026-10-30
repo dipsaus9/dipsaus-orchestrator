@@ -717,6 +717,40 @@ describe("a verdict and checks of different heads", () => {
   });
 });
 
+// DIPO-382 (0002, 0012): a merge decided by rule closes out on the approved verdict, before CI ran
+// on any head of it, so red checks come on the close-out head, whose branch reads Done.
+describe("red checks on a close-out head", () => {
+  it("start a fix round with the CI items, whose status commit sets the story In Progress again", async () => {
+    const s = inReview("DIPO-1");
+    reviewed(s, H1, APPROVED);
+    // The close-out commit changes only the task file: it has the verdict's code tree.
+    const C1 = "c".repeat(40);
+    x.s.trees.set(C1, `tree-${H1.slice(0, 4)}`);
+    // The reviewed head's checks never became final (the close-out push cancelled its run); the
+    // close-out head's still run: nothing to send.
+    x.ci.set(s.run, { kind: "pending", head: C1 });
+    expect(await x.fix.consider(officeId(), s.run)).toBe(false);
+    // A check failed while others still run: the round waits for all of the head's failures.
+    x.ci.set(s.run, { kind: "failing", head: C1 });
+    expect(await x.fix.consider(officeId(), s.run)).toBe(false);
+    x.ci.set(s.run, { kind: "red", head: C1, items: [red()] });
+    expect(await x.fix.consider(officeId(), s.run)).toBe(true);
+    await x.fix.idle();
+    // One round for the close-out head: its CI item only, since the review approved.
+    expect(feedbackItems(w.office, s.run).map((item) => [item.source, item.head])).toEqual([
+      ["ci", C1],
+    ]);
+    expect(x.lifts).toEqual([
+      expect.objectContaining({ story: "DIPO-1", to: "In Progress", branch: "DIPO-1/a-story" }),
+    ]);
+    expect(events("story.state").at(-1)).toMatchObject({
+      data: { story: "DIPO-1", from: "In Review", to: "In Progress" },
+    });
+    expect(x.started).toHaveLength(1);
+    expect(x.started[0]?.message).toContain(`Your pushed commit ${C1.slice(0, 12)} got feedback`);
+  });
+});
+
 /** A run reviewed blocked on H1 with green CI: its fix round is ready to queue. */
 const waitingFix = (story: string): StoryRun => {
   const s = inReview(story);

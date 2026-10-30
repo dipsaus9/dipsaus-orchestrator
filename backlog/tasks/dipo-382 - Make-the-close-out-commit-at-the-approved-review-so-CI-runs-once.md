@@ -1,10 +1,10 @@
 ---
 id: DIPO-382
 title: 'Make the close-out commit at the approved review, so CI runs once'
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-30 08:10'
-updated_date: '2026-10-30 08:13'
+updated_date: '2026-10-30 09:07'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -44,10 +44,16 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 On the by-rule path (auto-merge on, no hold label, no maintainer criterion, no override, no test before merge, not the release path), the merge gate opens on the approved verdict for the current head without waiting for its checks; dipo then commits the close-out (final summary and status Done) and enables auto-merge, and GitHub merges only when the required checks pass on the close-out head
-- [ ] #2 On every path where the gate waits for the maintainer (dipo approve, test before merge, a maintainer criterion, an override, a hold label, the release path and autorelease: pending PRs) the order stays as today: green checks on the head, then the maintainer, then the close-out; no task file reads Done on a PR that waits for the maintainer, shown by a test per path
-- [ ] #3 A red or failed check on the close-out head turns auto-merge off and starts a fix round that writes status In Progress (fix-rounds.ts), and the next close-out replaces the earlier final summary; shown by a test with the engine fakes
-- [ ] #4 The final summary is built from the facts known at close-out; the CI-attempts line and the verify-failing tier cap say they count the checks of reviewed and close-out heads as they now run
-- [ ] #5 0002 (the review step that runs while CI runs, the merge gate, the required checks before the gate, the close-out) and 0012 (the In Review to In Progress row after a red check on a closed-out head) describe the two paths, each sentence rewritten in the same PR with a Replaced line; the maintainer chose this on 2026-10-30
-- [ ] #6 A test with the engine fakes shows the by-rule order: verdict, close-out commit, auto-merge, one wait for checks, merge
+- [x] #1 On the by-rule path (auto-merge on, no hold label, no maintainer criterion, no override, no test before merge, not the release path), the merge gate opens on the approved verdict for the current head without waiting for its checks; dipo then commits the close-out (final summary and status Done) and enables auto-merge, and GitHub merges only when the required checks pass on the close-out head
+- [x] #2 On every path where the gate waits for the maintainer (dipo approve, test before merge, a maintainer criterion, an override, a hold label, the release path and autorelease: pending PRs) the order stays as today: green checks on the head, then the maintainer, then the close-out; no task file reads Done on a PR that waits for the maintainer, shown by a test per path
+- [x] #3 A red or failed check on the close-out head turns auto-merge off and starts a fix round that writes status In Progress (fix-rounds.ts), and the next close-out replaces the earlier final summary; shown by a test with the engine fakes
+- [x] #4 The final summary is built from the facts known at close-out; the CI-attempts line and the verify-failing tier cap say they count the checks of reviewed and close-out heads as they now run
+- [x] #5 0002 (the review step that runs while CI runs, the merge gate, the required checks before the gate, the close-out) and 0012 (the In Review to In Progress row after a red check on a closed-out head) describe the two paths, each sentence rewritten in the same PR with a Replaced line; the maintainer chose this on 2026-10-30
+- [x] #6 A test with the engine fakes shows the by-rule order: verdict, close-out commit, auto-merge, one wait for checks, merge
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+A merge gate decided by rule opens on the approved review without waiting for the reviewed head's checks, unless they are already red or one already failed. dipo then closes out (final summary and status Done) and turns auto-merge on, and GitHub merges only when the required checks pass on the close-out head, so CI runs once per story instead of twice. Every gate that waits for the maintainer (dipo approve, test before merge, a maintainer criterion, an override, a hold label, the release path, autorelease: pending) still opens only on green checks, and the release path is read on the fetched base before the close-out. A test-before-merge story waits for green even with an earlier pass. Red checks on a close-out head turn auto-merge off and start a fix round that sets In Progress, and the next close-out replaces the summary; a hold label after the close-out reopens the gate. The CI-attempts line counts red reviewed and close-out heads. 0002 and 0012 rewritten with one Replaced line each, approved by the maintainer on 2026-10-30.
+<!-- SECTION:FINAL_SUMMARY:END -->

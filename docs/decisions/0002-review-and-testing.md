@@ -17,9 +17,9 @@ From the developer's done report to Done:
 1. **Done report.** The worker reports `done`. The report gate checks the valid report: every automated test-plan entry is covered, and no conflict markers are left. A miss is feedback (section 5). A report that does not parse or does not match the schema never reaches the gate: it gets one correction turn, then the story parks `worker-failed` (0008). dipo takes the last part out of the box (0008) and runs the office's verify in the box (section 4); red is feedback too.
 2. **Conflict check.** dipo checks the branch against the base with `git merge-tree`. A conflict is feedback (section 6).
 3. **In Review.** dipo ticks the met criteria and sets the status `In Review` through the Backlog CLI, commits and pushes. Then it opens the story PR, or updates it if one is already open (section 2).
-4. **Review and CI at once.** The reviewer reviews the pushed head (section 3) while CI runs on it (section 4).
+4. **Review while CI runs.** The reviewer reviews the pushed head (section 3) while CI runs on it (section 4). An approval does not wait for that CI when the merge gate is decided by rule: the close-out push replaces the run, and CI runs once, on the close-out head (step 7).
 5. **Back to the developer.** A blocked verdict, red required checks, a conflict or a maintainer reject start one fix round (section 5), and the loop starts again at step 1.
-6. **Merge gate.** With the review approved and the required checks green on the head, the merge gate opens. It is decided by rule, or it waits for the maintainer (section 7).
+6. **Merge gate.** With the review approved, the merge gate opens. It is decided by rule at once, or it waits for the maintainer and opens only once the required checks are green on the head (section 7).
 7. **Merge.** dipo makes the close-out commit and asks GitHub to merge when green. The one Done check sees the merge and tears down (section 8).
 
 The run is one run per claim. Its active period ends at In Review and reopens for every fix round, so caps and usage add up across rounds without story-level sums.
@@ -52,7 +52,7 @@ The run is one run per claim. Its active period ends at In Review and reopens fo
 
 - **Which checks.** The required checks are the ones GitHub's branch protection or ruleset requires on the base branch. That is one list, owned by GitHub. Every one of them must pass on the head dipo pushed.
 - **dipo runs verify.** When the done report passes the report gate, dipo runs the office's verify command in the story's box, as the box user, with a deadline. The box has its own local git repository (0008), so tests that need git pass. Red is feedback (section 5); green goes on to the conflict check. The worker may run tests and verify while it works, but only dipo's run counts.
-- **CI is the final gate.** The required checks on the PR must still pass before the merge gate opens. A red verify is caught in the box, so a CI round is rarely the one that finds it.
+- **CI is the final gate.** The required checks must pass on the head that merges: GitHub's auto-merge waits for them on the close-out head, and a merge gate that waits for the maintainer opens only once they are green on the reviewed head. A red verify is caught in the box, so a CI round is rarely the one that finds it.
 - **Polling.** One PR poll per office, every `polling.prStateSeconds`, for each story PR whose head has unfinished checks: `gh pr view` (state, head, labels, mergeable) and `gh pr checks`. A head whose checks stay unfinished past a time limit raises one notice, and its polling slows down.
 - **Logs.** For each failed check that is a GitHub Actions job, dipo fetches the tail of the failed job's log once per head, capped, and parses `file:line` locations for the feedback.
 - **Who talks to GitHub.** Only engine code, with the maintainer's `gh` login. Workers and the reviewer never get `gh`.
@@ -69,7 +69,7 @@ Every kind of feedback reaches the developer the same way: as a message to the d
   | Source | Cap | At the cap |
   |---|---|---|
   | Report gate refusals and a red verify in the box | Tier `loops` | `verify-failing` |
-  | Red required checks | CI attempts, default 2 | `verify-failing` |
+  | Red required checks, on a reviewed head or a close-out head | CI attempts, default 2 | `verify-failing` |
   | Blocked review | Failed rounds, default 3 | `review-blocked` |
   | Conflict | Failed conflict hand-offs, default 2 | `conflict` |
   | Maintainer reject | None; the budget bounds it | None |
@@ -84,10 +84,10 @@ Every kind of feedback reaches the developer the same way: as a message to the d
 
 ## 7. The merge gate
 
-The gate opens when the review approved the head and its required checks are green, so the maintainer only ever approves something that can merge. It is decided **by rule**, and recorded, unless one of these holds. Then it **waits for the maintainer**:
+The gate opens when the review approved the head. It is decided **by rule**, and recorded, at once: dipo does not wait for the head's checks, unless they are already red or one of them already failed, because GitHub's auto-merge waits for them on the close-out head (section 8), so CI runs once. When one of the reasons below holds as the gate is first decided, the gate instead **waits for the maintainer**, and it opens only once the head's required checks are green, so the maintainer only ever approves something that can merge and no task file reads Done while that gate waits. A hold label, or a release-path change, that arrives after the close-out reopens the gate on the closed-out head, whose Done stands on the branch until the merge or a fix round; the merge still waits for green checks. The gate waits for the maintainer when:
 
 - `merge.autoMerge` is `false` in the office config;
-- the story is flagged test before merge, and no test pass is recorded for this head;
+- the story is flagged test before merge, and no test pass is recorded for this head. A flagged story waits for green checks even when a pass was recorded while it was reviewed;
 - the reviewer marked a criterion `maintainer`;
 - the story passed review only through a maintainer override;
 - the PR has a hold label from `merge.holdLabels`;
@@ -111,7 +111,7 @@ When the gate is approved, dipo:
 2. Pushes, then runs `gh pr merge --auto --squash --match-head-commit <head>`. GitHub merges once its required checks pass on that head. The PR title is the squash subject.
 3. Watches through the PR poll:
    - **Merged:** Done.
-   - **Conflict, or red checks:** dipo turns auto-merge off and starts a fix round. The status goes back to In Progress in the next commit.
+   - **Conflict, or red checks:** dipo turns auto-merge off and starts a fix round. The status goes back to In Progress in the next commit, and the next close-out replaces the final summary.
    - **A hold label appears, or a head dipo did not push:** dipo turns auto-merge off and the gate waits again.
 
 **One Done check.** A story is Done when its PR is merged, or when the story reads `Done` on the base while dipo holds a claim (a story finished outside dipo, 0020). One function decides this from the PR poll and the base. Teardown releases the claim and deletes the box and the branch.
@@ -145,3 +145,4 @@ An office runs at most one developer session per story, at most one developer se
 - A PR closed on GitHub parked as `stopped` with cause `pr-closed`. Replaced by `by-maintainer` with a detail (2026-10-24).
 - A forwarder inside the test box on the box's address, with that address as the test URL (2026-10-22). Replaced by a forwarder on the Mac's loopback (2026-10-28): the Mac does not reach a box address while a VPN routes the box network's range.
 - Schema validity in the report gate, a bad report parked `ambiguous-spec`, and markers left at done failing the hand-off (2026-10-24). Replaced by one correction turn and then `worker-failed` for a report that does not parse or match the schema (0008), and by markers as report gate feedback against the tier `loops` (2026-10-28).
+- A merge gate that opened only once the required checks were green on the reviewed head, so every story waited for CI twice, on the reviewed head and again on the close-out head (2026-10-24). Replaced by a gate decided by rule that opens on the approved review, with CI once, on the close-out head; a gate that waits for the maintainer still opens only on green checks (2026-10-30).

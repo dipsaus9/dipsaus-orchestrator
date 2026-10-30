@@ -10,9 +10,14 @@
 //   resume and the first line of the note.
 // - On close, in the close-out commit before auto-merge goes on (0002, `merge/close-out.ts`),
 //   the final summary: criteria met, loops, review rounds, budget used of limit, runs and resumes,
-//   each park in one line, grants, web calls and proposals filed.
+//   each park in one line, grants, web calls and proposals filed. It holds the facts known at the
+//   close-out; a later close-out (after red checks on the close-out head) replaces it.
 //
-// A box run (0021): CI is its final gate, so its CI attempts stand next to the loops.
+// A box run (0021): CI is its final gate, so its CI attempts stand next to the loops. A CI attempt
+// is a pushed head whose required checks were red: a reviewed head, or a close-out head, since a
+// gate decided by rule closes out without waiting for the reviewed head's checks (0002). A head
+// whose CI run a later push cancelled is never counted. The final summary's line says what it
+// counts: the close-out head's own checks run after the summary is written.
 //
 // No written line is a line of dashes: free text (a park detail, a note) is cut to one line, and a
 // line of only `-` is replaced, so the runner's 50-dash refusal (0010) never fires on a summary.
@@ -318,7 +323,7 @@ export function renderFinalSummary(facts: FinalSummaryFacts): string {
   return [
     `Closed ${summaryDate(facts.at)}`,
     `- Criteria met: ${criteriaText(facts.criteria)}`,
-    `- Loops: ${facts.loops}; CI attempts: ${facts.ciAttempts}`,
+    `- Loops: ${facts.loops}; CI attempts: ${facts.ciAttempts} (red heads, reviewed or closed out, before this close-out)`,
     `- Review rounds: ${facts.reviewRounds}, failed ${facts.reviewRoundsFailed}`,
     `- Budget used: ${usedOf(facts.budget, "tokens")}`,
     `- Runs: ${facts.runs}; resumes: ${facts.resumes}`,

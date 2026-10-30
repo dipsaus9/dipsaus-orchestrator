@@ -1,6 +1,9 @@
 // The close-out commit's story edits (0002, 0010 story lane, 0020). When a merge gate is approved,
 // dipo commits the close-out on the story branch before it turns auto-merge on: the final summary,
-// built from the story's stored facts (`run/summary.ts`), and status `Done`. A park record exists
+// built from the story's stored facts as of the close-out (`run/summary.ts`), and status `Done`.
+// A gate decided by rule closes out before CI ran on any head of it, so red checks on the close-out
+// head start a fix round that sets the story In Progress again, and the next close-out replaces
+// the final summary with one built from the facts then. A park record exists
 // only while a story is Parked, so the same commit removes the `park` field, through the single
 // field write path. The commit itself is `StoryMergeGit.closeOut` (`story-git.ts`), which runs these
 // edits in one story lane edit of the StoryStore and commits the task file alone.

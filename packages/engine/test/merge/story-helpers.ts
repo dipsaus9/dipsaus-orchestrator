@@ -12,6 +12,7 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import {
   AutoMerge,
   type ConflictMerge,
+  writeCloseOutSummary,
   type PushOutcome,
   type StoryMergeGit,
   type StoryMergeRun,
@@ -57,12 +58,17 @@ export const APPROVED: JudgedReview = {
   notes: [],
 };
 
-/** A story merge git whose answers the test scripts; every call is logged. */
-/** Any read or write of `noStoreEditor`. */
+/** Any other read or write of `taskEditor`. */
 const noStore = () => Promise.reject(new Error("no story store"));
 
-/** A story lane edit whose every read and write fails: the fake only records the close-out. */
-function noStoreEditor(id: string): StoryEditor {
+/** The story's task file on its branch, as the fake close-out and a test's lift write it. */
+export interface FakeTask {
+  status: string;
+  finalSummary: string | null;
+}
+
+/** A story lane edit that writes only the final summary of `task`; every other call fails. */
+function taskEditor(id: string, task: FakeTask): StoryEditor {
   return {
     id,
     file: `backlog/tasks/${id.toLowerCase()} - story.md`,
@@ -70,16 +76,23 @@ function noStoreEditor(id: string): StoryEditor {
     setStatus: noStore,
     writeFields: noStore,
     appendNotes: noStore,
-    setFinalSummary: noStore,
+    // As `task edit --final-summary` does: the text replaces the one there.
+    setFinalSummary: async (text) => {
+      task.finalSummary = text;
+      return text;
+    },
     recordModifiedFiles: noStore,
   };
 }
 
+/** A story merge git whose answers the test scripts; every call is logged. */
 export class FakeStoryGit implements StoryMergeGit {
   readonly calls: string[] = [];
   readonly heads = new Map<string, string>();
   /** The code tree key of each head; a head not listed has its own. */
   readonly trees = new Map<string, string>();
+  /** The story's task file on the branch: status Done only once a close-out committed. */
+  readonly task: FakeTask = { status: "In Review", finalSummary: null };
   /** What the next close-out commits; null: the story was Done already. */
   closeOutCommit: string | null = C1;
   /** Answers of the next `conflictMerge` calls, in order; then `none`. */
@@ -105,8 +118,9 @@ export class FakeStoryGit implements StoryMergeGit {
   ): Promise<string | null> {
     this.calls.push(`closeOut ${run.branch}`);
     const commit = this.closeOutCommit;
-    if (commit === null) return null;
-    await summary(noStoreEditor(run.story));
+    if (commit === null || this.task.status === "Done") return null;
+    await summary(taskEditor(run.story, this.task));
+    this.task.status = "Done";
     const tip = this.heads.get(run.branch);
     if (tip !== undefined) this.trees.set(commit, this.trees.get(tip) ?? `tree-${tip}`);
     this.heads.set(run.branch, commit);
@@ -268,7 +282,8 @@ export async function storyWorld(
         const pr = host.prs.get(PR);
         if (pr !== undefined) host.prs.set(PR, { ...pr, headSha: head });
       },
-      summary: async () => "summary",
+      // The real final summary, from the facts stored as of the close-out.
+      summary: writeCloseOutSummary,
       recordMerge: async (_office, stored, merged) => {
         if (self.failRecord) throw new Error("the database is locked");
         merges.push(merged);

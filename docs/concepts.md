@@ -35,7 +35,7 @@ Shared vocabulary, matching the ADRs in `docs/decisions/` (rewritten 2026-10-24)
 | **Fix round** | One round of feedback to the same worker in its box, for every source: report gate, conflict, review, CI, reject (0002) |
 | **Reviewer** | A separate agent that checks each pushed head against the story goal, in a read-only box of its own. Never sees the developer's reasoning (0002) |
 | **Gate** | A point where a rule or the maintainer must pass the work before it advances: the Ready gate, the review, the merge gate (0002, 0012) |
-| **Merge gate** | The decision to merge a PR whose review approved and whose checks are green. By rule, unless something makes it wait for the maintainer (0002) |
+| **Merge gate** | The decision to merge a PR whose review approved. By rule, and then GitHub merges once the checks pass on the close-out head; or it waits for the maintainer, and then it opens only once the checks are green (0002) |
 | **Acceptance test** | The maintainer testing the behaviour of a flagged story with `dipo test` (0002) |
 | **State database** | The one local SQLite file with the run detail of every office, keyed by office, outside every repository (0007) |
 | **Your desk** | Everything waiting on the maintainer, in one ordered list: starts paused, questions, merge gates, parked stories, hand actions, proposals (0020) |

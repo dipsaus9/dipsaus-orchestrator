@@ -2,29 +2,48 @@
 // module at each round of the PR-state poll, after the story-PR poll, for each open story PR of a
 // run waiting In Review (open at In Review with no active period, live claim, no open park):
 //
-// - The gate (`#approvedGate`). Once the required checks are green on the pushed head
-//   (`StoryPrs.ciState`, or no CI ran for a box run's head) and the review verdict of the head's
-//   code tree is approved or overridden, the host is read: the PR's state, head, labels and whether
-//   GitHub can merge it. The head's merge gate opens (`gates.ts`) unless one holds for it already,
-//   decided by rule or waiting for the maintainer. Each story parked `review-blocked` gets its
-//   override gate here too.
+// - The gate (`#approvedGate`). Once the review verdict of the head's code tree is approved or
+//   overridden, the host is read: the PR's state, head, labels and whether GitHub can merge it.
+//   The head's merge gate opens (`gates.ts`) unless one holds for it already, decided by rule or
+//   waiting for the maintainer. Two paths (0002):
+//   - By rule (nothing makes the gate wait): the gate opens on the verdict alone, without waiting
+//     for the head's checks, so CI runs once, on the close-out head, and GitHub's auto-merge waits
+//     for it. Only checks already red on the head hold it, or a required check that already failed
+//     while others still run (`failing`): the CI path's fix round takes those once they are final.
+//   - Waiting for the maintainer: the gate opens, and an approved one goes on to the close-out,
+//     only once the required checks are green on the head (`StoryPrs.ciState`, or no CI ran for a
+//     box run's head), so the maintainer only ever approves something that can merge, and no task
+//     file reads Done on a gate as it is first decided. The reasons that need no host read (`#waits`
+//     without labels and release paths, and the test-before-merge flag even when a pass was
+//     recorded for the head while it was reviewed) are checked first, so a waiting gate's PR is not
+//     read for its labels while its checks run. A hold label, or a release-path change, that comes
+//     after a by-rule close-out reopens the gate on the closed-out head (`#watch`), whose Done
+//     stands on the branch until the merge or a fix round; the merge still waits for green.
+//   Each story parked `review-blocked` gets its override gate here too.
 // - The release path. Before a gate opens, the release paths the head changes are read from git
 //   (`StoryMergeGit.releasePaths`: the base's CODEOWNERS, the PR's diff). A PR that changes one gets
 //   a gate that waits for the maintainer's merge on the host only, also when an earlier gate of the
 //   head was approved, and never gets auto-merge; dipo never passes `--admin`. When git cannot tell,
 //   nothing happens this round.
 // - Turning auto-merge on (`#arm`), for a PR whose gate is approved, that carries no hold label and
-//   that GitHub does not report as conflicting: the close-out commit (final summary, modified files,
-//   status Done), one push, never forced, the story PR updated to the pushed head, the approval and
+//   that GitHub does not report as conflicting: the base fetched and the release path read for the
+//   reviewed head first, so a PR whose diff became a release-path change (CODEOWNERS grew) gets no
+//   Done close-out and its gate waits for the maintainer; then the close-out commit (final summary,
+//   modified files, status Done), one push, never forced, the story PR updated to the pushed head, the approval and
 //   the release path checked again for exactly that head, and then
 //   `gh pr merge --auto --squash --match-head-commit <that head>`. GitHub merges once its required
-//   checks pass on that head, and the Done poll sees the merge.
+//   checks pass on that head, and the Done poll sees the merge. The close-out push cancels the
+//   reviewed head's CI run (ci.yml's cancel-in-progress); the PR poll watches the pushed head only
+//   and reads no check while GitHub still shows another head, so a check cancelled on the reviewed
+//   head never counts for the close-out head.
 // - While auto-merge is on (`#watch`), each round reads the PR, its labels and the head's CI. dipo
 //   turns auto-merge off (`gh pr merge --disable-auto`) and then:
 //   - on a conflict, merges the base into the branch as git leaves it, markers and all, pushes, and
 //     hands the conflict to the worker as one fix round (`FixRounds.conflict`); a conflict in a path
 //     the worker cannot write parks the story `conflict`;
-//   - on red required checks, leaves the fix round to the CI path (`StoryPrs`, `FixRounds.consider`);
+//   - on red required checks (on a by-rule PR, the close-out head's), leaves the fix round to the
+//     CI path (`StoryPrs`, `FixRounds.consider`), whose lift sets the story In Progress again; the
+//     next close-out writes the final summary anew;
 //   - on a hold label (`autorelease: pending` always, and `merge.holdLabels`), reopens the gate:
 //     a new merge gate for the head waits for the maintainer;
 //   - on a head dipo did not push, reopens the gate as one only a hand merge or a discard decides;
@@ -381,26 +400,70 @@ export class StoryMerges {
   // ---- the gate ---------------------------------------------------------------------------------
 
   /**
-   * True when the PR's merge gate for its head is approved and nothing holds the PR: its required
-   * checks were green on that head (or no CI ran for it), its verdict is approved or overridden,
-   * no hold label is on it and it changes no release path. Opens the gate when none holds yet.
+   * True when the PR's merge gate for its head is approved and nothing holds the PR: its verdict
+   * is approved or overridden, no hold label is on it and it changes no release path. Opens the
+   * gate when none holds yet. A gate decided by rule opens without waiting for the head's checks;
+   * one that waits for the maintainer opens, and goes on, only on green checks (see the file
+   * comment). Checks already red on the head hold both: the CI path's fix round takes them.
    */
   async #approvedGate(ctx: StoryMergeContext, pr: Pr): Promise<boolean> {
     const { run, stored } = pr;
     const head = stored.headSha;
-    const ci = this.#deps.ci(ctx.officeId, run.runId);
-    if (ci === null || ci.head !== head || (ci.kind !== "green" && ci.kind !== "none"))
-      return false;
-    const verdict = await this.#verdictFor(ctx.officeId, ctx.office, run, head);
-    if (verdict === null || (verdict.verdict !== "approved" && verdict.override === null)) {
-      return false;
-    }
+    const verdict = await this.#passedVerdict(ctx, run, head);
+    if (verdict === null) return false;
+    const checks = this.#checksOf(ctx, run, head);
+    if (checks === "red") return false;
+    const green = checks === "green";
+    if (!green && this.#waitsForGreen(ctx, run, head, verdict)) return false;
     const held = await this.#held(ctx, pr);
+    if (!green && held.length > 0) return false;
     const release = await this.#releasePaths(ctx, run, head);
-    if (release === null) return false;
+    if (release === null || (!green && release.length > 0)) return false;
     const gate = await this.#gateFor(ctx, pr, { head, verdict, held, release });
     if (gate?.decision?.decision !== "approved") return false;
+    if (!green && gate.waitingOn === "maintainer") return false;
     return !this.#heldBack(ctx, run, { number: stored.number, head, held, release });
+  }
+
+  /**
+   * True when the head's gate waits for the maintainer for a reason that needs no host read, so it
+   * waits for green checks first. A story flagged test-before-merge counts even with a pass already
+   * recorded for the head (one recorded while it was reviewed): green checks, then the maintainer's
+   * test, then the close-out.
+   */
+  #waitsForGreen(
+    ctx: StoryMergeContext,
+    run: StoredRun,
+    head: string,
+    verdict: StoredReviewVerdict,
+  ): boolean {
+    if (mirrorFlagged(ctx.office, run.key as StoryKey)) return true;
+    return this.#waits(ctx, run, { head, verdict, held: [], release: [] }).length > 0;
+  }
+
+  /** The verdict of the head's code tree when it is approved or overridden, else null. */
+  async #passedVerdict(
+    ctx: StoryMergeContext,
+    run: StoredRun,
+    head: string,
+  ): Promise<StoredReviewVerdict | null> {
+    const verdict = await this.#verdictFor(ctx.officeId, ctx.office, run, head);
+    if (verdict === null) return null;
+    return verdict.verdict === "approved" || verdict.override !== null ? verdict : null;
+  }
+
+  /**
+   * The required checks of `head` as the PR poll last saw them (`StoryPrs.ciState`): `green` when
+   * they passed or no CI ran for a box run's head, `red` once a failed head was handled or while
+   * a required check already failed and others still run (it cannot pass, and a close-out push
+   * would cancel the run before the failure is counted), `open` otherwise (pending, stuck,
+   * another head watched, or none watched yet).
+   */
+  #checksOf(ctx: StoryMergeContext, run: StoredRun, head: string): "green" | "red" | "open" {
+    const ci = this.#deps.ci(ctx.officeId, run.runId);
+    if (ci === null || ci.head !== head) return "open";
+    if (ci.kind === "red" || ci.kind === "failing") return "red";
+    return ci.kind === "green" || ci.kind === "none" ? "green" : "open";
   }
 
   /** The PR's labels that hold it: `autorelease: pending` and the run's hold labels. */
@@ -520,10 +583,7 @@ export class StoryMerges {
    */
   async #approvedFor(ctx: StoryMergeContext, run: StoredRun, head: string): Promise<boolean> {
     if (head === "") return false;
-    const verdict = await this.#verdictFor(ctx.officeId, ctx.office, run, head);
-    if (verdict === null || (verdict.verdict !== "approved" && verdict.override === null)) {
-      return false;
-    }
+    if ((await this.#passedVerdict(ctx, run, head)) === null) return false;
     for (const gate of mergeGatesOfRun(ctx.office, run.runId).toReversed()) {
       if (gate.decision?.decision !== "approved") continue;
       if (await this.#holds(ctx.officeId, ctx.office, run, gate, head)) return true;
@@ -724,6 +784,9 @@ export class StoryMerges {
     const { run, repo } = pr;
     const git = this.#deps.git;
     const branch = run.branch as string;
+    // The base as it is now, before anything reaches the branch: CODEOWNERS may have grown since
+    // the gate's read, and a PR that changes the release path gets no Done close-out.
+    if (!(await this.#releaseClear(ctx, run, pr.stored.headSha))) return;
     await git.closeOut(ctx.officeId, this.#mergeRun(ctx, run), (story) =>
       this.#deps.summary(story, ctx.office, run.key as string, ctx.clock.now()),
     );
@@ -737,13 +800,8 @@ export class StoryMerges {
       this.#unapproved(ctx, run, head);
       return;
     }
-    // The base as it is now: CODEOWNERS may have grown since the gate's read.
-    if (!(await git.fetch(ctx.officeId))) {
-      this.#releaseUnknownNotice(ctx, run, head, "the fetch of the base failed");
-      return;
-    }
-    const release = await this.#releasePaths(ctx, run, head);
-    if (release === null || release.length > 0) return;
+    // Read again for exactly the head that merges.
+    if (!(await this.#releaseClear(ctx, run, head))) return;
     try {
       await this.#deps.host.enableAutoMerge(repo, stored.number, {
         headSha: head,
@@ -767,11 +825,24 @@ export class StoryMerges {
       notice(
         "info",
         STORY_MERGE_NOTICES.autoMergeOn,
-        `${run.story}: dipo committed the close-out on PR #${stored.number} and turned GitHub's auto-merge on at ${short(head)}; GitHub squash-merges it once its required checks pass on that head.`,
+        `${run.story}: dipo committed the close-out on PR #${stored.number} and turned GitHub's auto-merge on at ${short(head)}; GitHub squash-merges it once its required checks pass on that head, and red checks there turn auto-merge off and start a fix round.`,
         run.key,
         run.runId,
       ),
     ]);
+  }
+
+  /**
+   * True when `head` changes no release path on the base as it is now (fetched first); false, with
+   * a notice when git cannot tell, otherwise.
+   */
+  async #releaseClear(ctx: StoryMergeContext, run: StoredRun, head: string): Promise<boolean> {
+    if (!(await this.#deps.git.fetch(ctx.officeId))) {
+      this.#releaseUnknownNotice(ctx, run, head, "the fetch of the base failed");
+      return false;
+    }
+    const release = await this.#releasePaths(ctx, run, head);
+    return release !== null && release.length === 0;
   }
 
   #unapproved(ctx: StoryMergeContext, run: StoredRun, head: string): void {

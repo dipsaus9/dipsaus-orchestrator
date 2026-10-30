@@ -42,7 +42,7 @@ const Review = z
 const Caps = z
   .strictObject({
     ciAttempts: count().describe(
-      "Pushed heads with red required checks before the story parks with the reason verify-failing.",
+      "Pushed heads with red required checks before the story parks with the reason verify-failing. A reviewed head and a close-out head each count once their checks are red; a head whose CI run a later push cancelled does not count.",
     ),
     conflictAttempts: count().describe(
       "Failed conflict hand-offs of a story before it parks with the reason conflict.",
@@ -55,7 +55,7 @@ const Merge = z
     autoMerge: z
       .boolean()
       .describe(
-        "Whether dipo turns GitHub's auto-merge on for a story PR once it is reviewed and its checks pass, without the maintainer's approval.",
+        "Whether dipo commits the close-out and turns GitHub's auto-merge on for a story PR as soon as its review approves it, without the maintainer's approval. GitHub merges it once its required checks pass on the close-out head.",
       ),
     holdLabels: z
       .array(text())
