@@ -4,8 +4,9 @@ title: 'Make the close-out commit at the approved review, so CI runs once'
 status: Refined
 assignee: []
 created_date: '2026-10-30 08:10'
+updated_date: '2026-10-30 08:12'
 labels:
-  - 'tier:S'
+  - 'tier:M'
   - 'slice:prune'
   - 'track:2'
 milestone: m-1
@@ -14,8 +15,11 @@ references:
   - packages/engine/src/merge/close-out.ts
   - packages/engine/src/merge/gates.ts
   - packages/engine/src/merge/stories.ts
+  - packages/engine/src/merge/merger.ts
+  - packages/engine/src/run/fix-rounds.ts
   - packages/engine/src/story-pr/
-  - packages/engine/src/run/
+  - docs/decisions/0002-review-and-testing.md
+  - docs/decisions/0012-backlog-workflow.md
 priority: high
 type: enhancement
 ordinal: 362000
@@ -40,8 +44,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After an approved verdict on the current head, dipo commits the close-out (final summary and status Done) and enables auto-merge without waiting for the required checks of the reviewed head
-- [ ] #2 The required checks are awaited once, on the close-out head; a red or failed check there starts a fix round as a red check does today, and the fix round's new head is reviewed again before a new close-out
-- [ ] #3 The final summary is built from the facts known at close-out; any line that counted CI attempts says what it counts or is removed
-- [ ] #4 A test with the engine's fakes shows the order verdict, close-out commit, auto-merge, one wait for checks, merge, and no wait for checks between the verdict and the close-out
+- [ ] #1 On the by-rule path (auto-merge on, no hold label, no maintainer criterion, no override, no test before merge, not the release path), the merge gate opens on the approved verdict for the current head without waiting for its checks; dipo then commits the close-out (final summary and status Done) and enables auto-merge, and GitHub merges only when the required checks pass on the close-out head
+- [ ] #2 On every path where the gate waits for the maintainer (dipo approve, test before merge, a maintainer criterion, an override, a hold label, the release path and autorelease: pending PRs) the order stays as today: green checks on the head, then the maintainer, then the close-out; no task file reads Done on a PR that waits for the maintainer, shown by a test per path
+- [ ] #3 A red or failed check on the close-out head turns auto-merge off and starts a fix round that writes status In Progress (fix-rounds.ts), and the next close-out replaces the earlier final summary; shown by a test with the engine fakes
+- [ ] #4 The final summary is built from the facts known at close-out; the CI-attempts line and the verify-failing tier cap say they count the checks of reviewed and close-out heads as they now run
+- [ ] #5 0002 (the review step that runs while CI runs, the merge gate, the required checks before the gate, the close-out) and 0012 (the In Review to In Progress row after a red check on a closed-out head) describe the two paths, each sentence rewritten in the same PR with a Replaced line; the maintainer chose this on 2026-10-30
+- [ ] #6 A test with the engine fakes shows the by-rule order: verdict, close-out commit, auto-merge, one wait for checks, merge
 <!-- AC:END -->
