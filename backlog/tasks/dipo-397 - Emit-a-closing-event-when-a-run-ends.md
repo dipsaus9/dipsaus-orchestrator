@@ -1,10 +1,10 @@
 ---
 id: DIPO-397
 title: Emit a closing event when a run ends
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-30 16:01'
-updated_date: '2026-10-30 21:31'
+updated_date: '2026-10-30 21:34'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -18,6 +18,19 @@ references:
   - packages/engine/src/worktree/
   - packages/engine/src/changelog/
   - packages/cli/src/watch-command.ts
+modified_files:
+  - docs/decisions/0005-command-and-event-model.md
+  - packages/cli/src/watch-command.test.ts
+  - packages/cli/src/watch-command.ts
+  - packages/contract/schema/events.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/platform/process.ts
+  - packages/engine/src/run/records.ts
+  - packages/engine/test/platform/process.test.ts
+  - packages/engine/test/run/run-end-event.test.ts
+  - packages/engine/test/run/session-run.test.ts
+  - packages/engine/test/scan/fallback.test.ts
 priority: medium
 type: bug
 ordinal: 375000
@@ -76,3 +89,21 @@ Parked 2026-10-30 21:21 UTC: budget-exceeded
 
 Resumed 2026-10-30 21:21 UTC; grants: budget +150,000 tokens, +45 turns, +23 minutes; note: Top-up for the approved run.ended event. Finish the event, the 0005 catalogue line, dipo watch without its idle check and the tests; commit parts as you go.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-10-30 21:34 UTC
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 1; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 345,667 of 450,000 tokens
+- Runs: 1; resumes: 2
+- Parks: 2
+  - 2026-10-30 20:48 UTC ambiguous-spec: May DIPO-397 add a new office-stream event `run.ended` (run id, kind, ending, endedAt, and the story's key and story id when the run has one), written by `endRun` in packages/engine/src/run/records.t…
+  - 2026-10-30 21:21 UTC budget-exceeded: turn cap (--max-turns) after 77 turns
+- Grants: 1
+  - 2026-10-30 21:21 UTC budget +150,000 tokens, +45 turns, +23 minutes
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
