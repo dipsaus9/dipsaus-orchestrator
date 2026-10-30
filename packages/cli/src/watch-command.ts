@@ -5,11 +5,11 @@
 // ended while it may retry. Watch prints the state of each running story from the store (phase,
 // health, loop, verify, criteria, budget share, usage), then one readable line per event the store
 // applied: run start, phases, worker output, usage and turns, health changes and the watchdog
-// facts behind them, notices, parks and story moves. A run's end comes from `story.detail`
-// (`endedAt`, `outcome`), which it reads again after every event that may end a run and every
-// `STREAM_MARK_MS` while idle, because a run can end without a closing work event (a failed host
-// start ends it with only a notice). The percentage, the health words, the output-range codec and
-// the story reference are the client's, the TUI's own.
+// facts behind them, notices, parks and story moves. A run's end is the `run.ended` event (0005),
+// which the engine writes at every end, a session run's included, so watch needs no idle check.
+// It reads `story.detail` only for a run's done report and to tell a run open at In Review. The
+// percentage, the health words, the output-range codec and the story reference are the client's,
+// the TUI's own.
 //
 // It runs until it is stopped (Ctrl-C) or the store's stream ends with an error that does not
 // retry. The client reconnects on its own after a lost or hung connection.
@@ -25,7 +25,6 @@ import {
   RELOADED_NOTICE,
   type StoreClient,
   storyRef,
-  STREAM_MARK_MS,
   usageParts,
 } from "@dipsaus-orchestrator/client";
 import {
@@ -38,11 +37,11 @@ import {
   questionAsked,
   questionClosed,
   type RunRecord,
+  runEnded,
   storyDetail,
   storyParked,
   type StoryRefValue,
   storyState,
-  type TimerHandle,
   type Usage,
   usageUpdated,
   workAssigned,
@@ -181,12 +180,9 @@ class Watch {
   #snapshots = 0;
   /** A history gap made the store read the office again; a failed re-read ends the watch. */
   #reloading = false;
-  /** A check of run ends is running; `#recheck` asks for one more after it, of every story or idle. */
+  /** A check of In Review runs is running; `#recheck` asks for one more after it. */
   #checking = false;
-  #recheck: "all" | "idle" | null = null;
-  /** When an event that may end a run (a park, a story move) last arrived, by story key. */
-  readonly #closedAt = new Map<string, number>();
-  #idle: TimerHandle | null = null;
+  #recheck = false;
   readonly #stops: (() => void)[] = [];
   #finish: ((code: number) => void) | null = null;
 
@@ -234,7 +230,6 @@ class Watch {
     this.#snapshots = this.#store.state.snapshots;
     await this.#header();
     this.#stops.push(this.#store.subscribe(() => this.#changed()));
-    this.#armIdle();
     this.#changed();
     return done;
   }
@@ -357,21 +352,9 @@ class Watch {
     const finish = this.#finish;
     if (finish === null) return;
     this.#finish = null;
-    if (this.#idle !== null) this.#deps.clock.clearTimeout(this.#idle);
-    this.#idle = null;
     for (const stop of this.#stops.splice(0)) stop();
     this.#store.close();
     finish(code);
-  }
-
-  /** While idle, a run may end without an event (a failed start, a release): look every mark. */
-  #armIdle(): void {
-    if (this.#finish === null) return;
-    this.#idle = this.#deps.clock.setTimeout(() => {
-      this.#idle = null;
-      void this.#checkEnds("idle");
-      this.#armIdle();
-    }, STREAM_MARK_MS);
   }
 
   /** An event the store applied: printed now, or after the header that is being printed. */
@@ -502,7 +485,6 @@ class Watch {
         if (park.actions.length > 0) {
           this.#event(event, park.story, "parked", `you can: ${park.actions.join(", ")}`);
         }
-        this.#closedAt.set(park.key, this.#deps.clock.now());
         void this.#checkEnds();
         break;
       }
@@ -512,8 +494,18 @@ class Watch {
         const move = data.data;
         this.#event(event, move.story, "state", `${move.from} -> ${move.to} (${move.view.column})`);
         for (const line of move.detail ?? []) this.#event(event, move.story, "state", `  ${line}`);
-        this.#closedAt.set(move.key, this.#deps.clock.now());
         void this.#checkEnds();
+        break;
+      }
+      case runEnded.type: {
+        const data = runEnded.data.safeParse(event.data);
+        if (!data.success) break;
+        const end = data.data;
+        this.#running.delete(end.run);
+        this.#line(
+          `${clockTime(end.endedAt)} ${end.story ?? "session"} end    run ${end.run} ended: ${end.ending}`,
+        );
+        if (end.key !== undefined) void this.#doneReport(end.key, end.run);
         break;
       }
       case gateReached.type: {
@@ -591,42 +583,36 @@ class Watch {
   }
 
   /**
-   * Prints the end of every run seen running that has ended since (`runs.ended_at`). The idle
-   * check every `STREAM_MARK_MS` leaves out the stories an event that may end a run named within
-   * that time: that event read their detail already.
+   * Prints the runs of the watched stories that reached In Review since the last check: their
+   * session period is over (0020), so they are told once, with their done report. A run's end is
+   * `run.ended`, not this check.
    */
-  async #checkEnds(which: "all" | "idle" = "all"): Promise<void> {
+  async #checkEnds(): Promise<void> {
     if (this.#checking) {
-      if (this.#recheck !== "all") this.#recheck = which;
+      this.#recheck = true;
       return;
     }
     this.#checking = true;
     try {
-      let next: "all" | "idle" | null = which;
-      while (next !== null) {
-        this.#recheck = null;
-        await this.#checkEndsOnce(next);
-        next = this.#recheck;
-      }
+      do {
+        this.#recheck = false;
+        await this.#checkEndsOnce();
+      } while (this.#recheck);
     } finally {
       this.#checking = false;
     }
   }
 
-  /** One pass: the end of every run seen running that has ended since. */
-  async #checkEndsOnce(which: "all" | "idle"): Promise<void> {
+  /** One pass: the In Review runs of the stories seen running, and the runs started while away. */
+  async #checkEndsOnce(): Promise<void> {
     const keys = new Set(this.#running.values());
     if (this.#story !== null) keys.add(this.#story.key);
-    const now = this.#deps.clock.now();
     for (const key of keys) {
-      const closedAt = this.#closedAt.get(key);
-      if (which === "idle" && closedAt !== undefined && now - closedAt < STREAM_MARK_MS) continue;
       const detail = await this.#detail(key);
       if (detail === null) continue;
       for (const run of detail.runs) {
         if (run.inReviewSince !== undefined) {
-          // At In Review the run's session period is over (0020): told once, with its done report,
-          // when it gets there; a fix round or a review that follows is a run seen running again.
+          // A fix round or a review that follows is a run seen running again.
           if (!this.#running.has(run.run)) continue;
           this.#running.delete(run.run);
           this.#line(
@@ -635,19 +621,20 @@ class Watch {
           for (const line of doneReportLines(run)) this.#line(line);
           continue;
         }
-        if (run.endedAt === undefined) {
-          // A run of the watched story that started while the stream was away.
-          if (this.#story !== null && !this.#running.has(run.run)) this.#running.set(run.run, key);
-          continue;
+        // A run of the watched story that started while the stream was away.
+        if (run.endedAt === undefined && this.#story !== null && !this.#running.has(run.run)) {
+          this.#running.set(run.run, key);
         }
-        if (!this.#running.has(run.run)) continue;
-        this.#running.delete(run.run);
-        this.#line(
-          `${clockTime(run.endedAt)} ${detail.view.story} end    run ${run.run} ended: ${run.outcome ?? "no outcome recorded"} · ${count(run.usage.turns)} turns`,
-        );
-        for (const line of doneReportLines(run)) this.#line(line);
       }
     }
+  }
+
+  /** The done report of a run that ended, read from its story once its end line is printed. */
+  async #doneReport(key: string, runId: string): Promise<void> {
+    const detail = await this.#detail(key);
+    const run = detail?.runs.find((candidate) => candidate.run === runId);
+    if (run === undefined) return;
+    for (const line of doneReportLines(run)) this.#line(line);
   }
 }
 

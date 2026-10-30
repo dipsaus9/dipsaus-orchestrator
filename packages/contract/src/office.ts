@@ -709,6 +709,23 @@ export const storyRenumbered = defineEvent({
   }),
 });
 
+// A run ended: done, parked or dropped (0020). The one place a run ends writes it, so every end
+// comes once on the stream, a session run and a run with no story included. `key` and `story` are
+// absent for a session run. Clients print the end from this event and read no detail for it.
+export const runEnded = defineEvent({
+  type: "run.ended",
+  stream: "office",
+  derived: false,
+  data: z.object({
+    run: RunId,
+    kind: z.enum(["story", "session"]),
+    ending: z.enum(["done", "parked", "dropped"]),
+    endedAt: Timestamp,
+    key: StoryKey.optional(),
+    story: StoryId.optional(),
+  }),
+});
+
 // The work events below carry the optional `view` (DIPO-52): the `WorkView` the
 // engine derived when it stored the fact (0005 section 6), so a client replaces the run's view
 // and never derives health or phase itself.
@@ -945,6 +962,7 @@ export const officeEvents = [
   questionAsked,
   questionClosed,
   storyParked,
+  runEnded,
   storyPr,
   proposalFiled,
   proposalClosed,

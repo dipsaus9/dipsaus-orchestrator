@@ -1,6 +1,6 @@
 // `dipo watch [ID]` (DIPO-52; 0009 section 9): the state of each running story from the snapshot,
 // then one plain line per event after its cursor: output, usage, health and its evidence, notices,
-// parks and the end of a run read from `story.detail`. Its state is the client's `OfficeStore`
+// parks and the end of a run from `run.ended`. Its state is the client's `OfficeStore`
 // (DIPO-320): the store opens the office and follows its stream, so the fake session records the
 // office subscriptions here and the store's software subscription apart.
 
@@ -90,7 +90,6 @@ const cursor = { stream: `office:${OFFICE}`, seq: 4 };
 
 function fake(options: {
   readonly running: boolean;
-  readonly ended?: () => boolean;
   /** The run stands open at In Review (DIPO-373). */
   readonly inReview?: () => boolean;
   readonly interactive?: boolean;
@@ -121,7 +120,6 @@ function fake(options: {
     tier: "S",
     model: "haiku",
     startedAt: AT,
-    ...(options.ended?.() === true ? { endedAt: AT, outcome: "dropped" } : {}),
     ...(options.inReview?.() === true ? { inReviewSince: AT } : {}),
     usage: totals,
   });
@@ -182,9 +180,7 @@ function fake(options: {
   };
   const end = (error: EngineError) => subscriptions.at(-1)?.onEnded?.(error);
   const endSoftware = (error: EngineError) => software.at(-1)?.onEnded?.(error);
-  /** The store's idle check, which a stream mark set off before (DIPO-320). */
-  const idle = () => (deps.clock as ManualClock).advance(STREAM_MARK_MS);
-  return { deps, out, err, reads, subscriptions, software, emit, end, endSoftware, idle };
+  return { deps, out, err, reads, subscriptions, software, emit, end, endSoftware };
 }
 
 const tick = () => new Promise<void>((resolve) => queueMicrotask(resolve));
@@ -222,19 +218,33 @@ describe("dipo watch", () => {
     await until(() => ctx.out.includes("--"));
     ctx.out.length = 0;
     inReview = true;
-    ctx.idle();
-    await until(() => ctx.out.length > 0);
-    expect(ctx.out).toEqual([`${T} TASK-1 end    run ${RUN} at In Review · 2 turns`]);
-    ctx.idle();
+    ctx.emit("story.state", {
+      story: "TASK-1",
+      key: KEY,
+      from: "In Progress",
+      to: "In Review",
+      view: story,
+    });
+    await until(() => ctx.out.length > 1);
+    expect(ctx.out).toEqual([
+      `${T} TASK-1 state  In Progress -> In Review (running)`,
+      `${T} TASK-1 end    run ${RUN} at In Review · 2 turns`,
+    ]);
+    ctx.emit("story.state", {
+      story: "TASK-1",
+      key: KEY,
+      from: "In Review",
+      to: "In Review",
+      view: story,
+    });
     await tick();
-    expect(ctx.out).toHaveLength(1);
+    expect(ctx.out.filter((line) => line.includes(" end    "))).toHaveLength(1);
     ctx.end({ code: "office.unknown", message: "gone", retryable: false });
     expect(await done).toBe(1);
   });
 
   it("prints the running story's state, then output, usage, health with its evidence, notices, parks and the run's end", async () => {
-    let ended = false;
-    const ctx = fake({ running: true, ended: () => ended });
+    const ctx = fake({ running: true });
     const done = main(["watch", "task-1"], ctx.deps);
     await until(() => ctx.subscriptions.length === 1);
     expect(ctx.subscriptions[0]?.after as unknown).toEqual(cursor);
@@ -299,14 +309,17 @@ describe("dipo watch", () => {
     ]);
     ctx.out.length = 0;
 
-    // The run ends without a work event: an idle mark reads story.detail and prints the end once.
-    ended = true;
-    ctx.idle();
+    // The run ends: its `run.ended` event prints the end once, with its ending.
+    ctx.emit("run.ended", {
+      run: RUN,
+      kind: "story",
+      ending: "dropped",
+      endedAt: AT,
+      key: KEY,
+      story: "TASK-1",
+    });
     await until(() => ctx.out.length > 0);
-    expect(ctx.out).toEqual([`${T} TASK-1 end    run ${RUN} ended: dropped · 2 turns`]);
-    ctx.idle();
-    await tick();
-    expect(ctx.out).toHaveLength(1);
+    expect(ctx.out).toEqual([`${T} TASK-1 end    run ${RUN} ended: dropped`]);
 
     // The subscription ends for good (not a history gap): watch stops with the error.
     ctx.end({ code: "office.unknown", message: "gone", retryable: false });
@@ -422,30 +435,58 @@ describe("dipo watch", () => {
     expect(await done).toBe(1);
   });
 
-  it("leaves a story out of the idle check when an event that may end its run came within it (DIPO-320)", async () => {
+  it("prints a run that ends while the stream is away, once it is read again (DIPO-325, DIPO-397)", async () => {
     const ctx = fake({ running: true });
+    const done = main(["watch", "task-1"], ctx.deps);
+    await until(() => ctx.out.includes("--"));
+    ctx.out.length = 0;
+    ctx.end({ code: "engine.recovering", message: "recovering", retryable: true });
+    (ctx.deps.clock as ManualClock).advance(RECOVERY_POLL_MS);
+    await until(() => ctx.subscriptions.length === 2);
+    ctx.subscriptions.at(-1)?.onEvent({
+      cursor: { ...cursor, seq: 9 },
+      at: AT,
+      type: "run.ended",
+      data: {
+        run: RUN,
+        kind: "story",
+        ending: "done",
+        endedAt: AT,
+        key: KEY,
+        story: "TASK-1",
+      },
+    } as unknown as Event);
+    await until(() => ctx.out.length > 0);
+    expect(ctx.out).toEqual([`${T} TASK-1 end    run ${RUN} ended: done`]);
+    ctx.end({ code: "office.unknown", message: "gone", retryable: false });
+    expect(await done).toBe(1);
+  });
+
+  it("prints the end of a scan session run, which has no story (DIPO-397)", async () => {
+    const ctx = fake({ running: false });
     const done = main(["watch"], ctx.deps);
     await until(() => ctx.out.includes("--"));
-    const details = () => ctx.reads.filter((name) => name === "story.detail").length;
-    const before = details();
-    const clock = ctx.deps.clock as ManualClock;
-    // Half an interval after the timer was armed, a story move reads the detail at once.
-    clock.advance(STREAM_MARK_MS / 2);
-    ctx.emit("story.state", {
-      story: "TASK-1",
-      key: KEY,
-      from: "In Progress",
-      to: "In Progress",
-      view: story,
+    ctx.out.length = 0;
+    ctx.emit("run.ended", {
+      run: RUN,
+      kind: "session",
+      ending: "dropped",
+      endedAt: AT,
     });
-    await until(() => details() === before + 1);
-    // Half an interval later the idle check fires: the move read the detail already.
-    clock.advance(STREAM_MARK_MS / 2);
+    await until(() => ctx.out.length > 0);
+    expect(ctx.out).toEqual([`${T} session end    run ${RUN} ended: dropped`]);
+    ctx.end({ code: "office.unknown", message: "gone", retryable: false });
+    expect(await done).toBe(1);
+  });
+
+  it("reads no story detail while idle, since a run's end is its run.ended event (DIPO-397)", async () => {
+    const ctx = fake({ running: true });
+    const done = main(["watch", "task-1"], ctx.deps);
+    await until(() => ctx.out.includes("--"));
+    const before = ctx.reads.length;
+    (ctx.deps.clock as ManualClock).advance(STREAM_MARK_MS * 3);
     for (let i = 0; i < 20; i++) await tick();
-    expect(details()).toBe(before + 1);
-    // A whole interval without such an event: the idle check reads it.
-    ctx.idle();
-    await until(() => details() === before + 2);
+    expect(ctx.reads.slice(before)).toEqual([]);
     ctx.end({ code: "office.unknown", message: "gone", retryable: false });
     expect(await done).toBe(1);
   });
