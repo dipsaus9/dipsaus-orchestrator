@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import { systemClock } from "../../../src/platform/clock";
 import { currentPlatform } from "../../../src/platform/paths";
 import { systemProcessProbe } from "../../../src/platform/process";
-import { launchWorkerHost } from "../../../src/runs/worker-hosts";
+import { launchWorkerHost } from "../../../src/records/worker-hosts";
 
 const [dir = "", runId = ""] = process.argv.slice(2);
 const CLI_MAIN = resolve(import.meta.dir, "../../../../cli/src/main.ts");

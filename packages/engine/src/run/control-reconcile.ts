@@ -4,7 +4,7 @@
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import { presetEndReasons } from "../runs/agents";
+import { presetEndReasons } from "../records/agents";
 import { withWorkViews, workRefOf } from "../views/work";
 import type { WorkerReport } from "../workers/types";
 
@@ -18,11 +18,11 @@ import {
   type RunControlDeps,
   type Tracked,
 } from "./control-types";
-import { sendAsIntent } from "./intents";
-import type { RunEnd } from "./lifecycle";
+import { sendAsIntent } from "../records/intents";
+import type { RunEnd } from "../records/lifecycle";
 import { endRunMarked } from "./markers";
 import { type ParkOutcome } from "./park";
-import type { StoredRun } from "./records";
+import type { StoredRun } from "../records/run-records";
 
 export class ReconcileStops {
   readonly #deps: RunControlDeps;

@@ -28,8 +28,8 @@ import { byteLength } from "../ingest/output";
 import { HOST_EVENTS_SOURCE, pendingWorkerOutput } from "../ingest/pending";
 import { withWorkViews, workRefOf } from "../views/work";
 
-import type { RunEnd } from "./lifecycle";
-import { appendRunStep, endRun } from "./records";
+import type { RunEnd } from "../records/lifecycle";
+import { appendRunStep, endRun } from "../records/run-records";
 
 /** The prefix of an engine-written marker line in the worker output. */
 export const MARKER_PREFIX = "[dipo]";

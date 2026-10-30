@@ -35,10 +35,16 @@ import type { OfficeHandle } from "../db/office";
 import { background } from "../platform/background";
 import { workRefOf } from "../views/work";
 
-import { REVIEWER_ROLE } from "./caps";
+import { REVIEWER_ROLE } from "../records/caps";
 import type { RunEnding } from "./control-types";
 import { preStartEnding, reachedCaps, resolvePreStartIntent } from "./pre-start-caps";
-import { activeRuns, applyRunEvent, findRun, runPhase, type StoredRun } from "./records";
+import {
+  activeRuns,
+  applyRunEvent,
+  findRun,
+  runPhase,
+  type StoredRun,
+} from "../records/run-records";
 
 /** The two session places of an office. */
 export type Place = "worker" | "reviewer";

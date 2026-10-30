@@ -19,8 +19,8 @@ import {
   officeEnvSecrets,
   REDACTED_TEXT,
   redactSecrets,
-} from "./env-secrets";
-import { countWebCalls, findRun } from "./records";
+} from "../records/env-secrets";
+import { countWebCalls, findRun } from "../records/run-records";
 
 /** Pure: the web calls among `events`, from the web call the adapter names on each tool activity. */
 export function webCallCounts(events: readonly WorkerEvent[]): {

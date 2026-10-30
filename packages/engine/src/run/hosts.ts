@@ -18,7 +18,7 @@ import type { OutputPrivacy } from "../ingest/output";
 import type { Env } from "../platform/paths";
 import type { ProcessProbe, SpawnDetached } from "../platform/process";
 import type { HostOp, WorkerEvent } from "../workers/types";
-import { type LaunchedHost, startWorkerHost, workerHostsOf } from "../runs/worker-hosts";
+import { type LaunchedHost, startWorkerHost, workerHostsOf } from "../records/worker-hosts";
 
 import type { RunSteering } from "./control";
 import type { HostStarter, RunIngest } from "./launch";

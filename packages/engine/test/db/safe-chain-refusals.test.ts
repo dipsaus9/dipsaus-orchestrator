@@ -13,7 +13,7 @@ import { openStateDatabase } from "../../src/db/database";
 import type { Migration } from "../../src/db/migrations";
 import { OfficeHandle } from "../../src/db/office";
 import { MIGRATIONS } from "../../src/db/schema";
-import { findRun, recordSafeChain } from "../../src/run/records";
+import { findRun, recordSafeChain } from "../../src/records/run-records";
 import { localMounts, memoryLogger } from "./helpers";
 
 const open = (dir: string, name: string, migrations?: readonly Migration[]) =>

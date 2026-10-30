@@ -61,7 +61,7 @@ import {
   type SignalProcess,
   START_TIME_TOLERANCE_MS,
 } from "../platform/process";
-import { endAgent } from "../runs/agents";
+import { endAgent } from "../records/agents";
 import {
   deletePendingHost,
   exitFileOf,
@@ -73,11 +73,11 @@ import {
   signalVerifiedHost,
   type WorkerHostRow,
   workerHostsOf,
-} from "../runs/worker-hosts";
+} from "../records/worker-hosts";
 import { withWorkViews, workRefOf } from "../views/work";
 import type { Caps, ParseState } from "../workers/types";
 
-import { REVIEWER_ROLE, runCaps } from "./caps";
+import { REVIEWER_ROLE, runCaps } from "../records/caps";
 import { CAP_TICK_MS, type RunEnding, type TrackedRun } from "./control";
 import {
   claimHost,
@@ -88,7 +88,7 @@ import {
 import { HOST_LOST_WHY } from "./outcome-types";
 import { HOST_LOST_END } from "./outcomes";
 import type { ParkOutcome } from "./park";
-import { activeRuns, capsStartedAt, findRun, type StoredRun } from "./records";
+import { activeRuns, capsStartedAt, findRun, type StoredRun } from "../records/run-records";
 
 /** The daemon's recovery step that re-attaches worker hosts (0005). */
 export const REATTACH_STEP = "reattach";

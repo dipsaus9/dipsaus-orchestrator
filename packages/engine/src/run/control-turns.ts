@@ -5,12 +5,12 @@ import { background } from "../platform/background";
 import { withWorkViews } from "../views/work";
 import type { ReviewReport, TurnProblem, WorkerReport } from "../workers/types";
 
-import type { FiredCap } from "./caps";
+import type { FiredCap } from "../records/caps";
 import { capEnding, type RunEndings } from "./control-endings";
 import { disarm, messageOf, type RunControlDeps, type Tracked, viewOf } from "./control-types";
 import { notSentNotice, sendFeedback } from "./feedback";
 import type { ParkOutcome } from "./park";
-import { findRun } from "./records";
+import { findRun } from "../records/run-records";
 import type { RunFinisher } from "./verify-commit";
 
 export class AfterTurns {

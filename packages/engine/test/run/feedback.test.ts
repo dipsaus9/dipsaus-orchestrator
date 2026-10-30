@@ -21,8 +21,8 @@ import {
 } from "../../src/run/feedback";
 import { safeChainStoreOf } from "../../src/create/runs";
 import type { OfficeManager } from "../../src/office/manager";
-import { findRun, insertRun } from "../../src/run";
-import { runIntents } from "../../src/run/intents";
+import { findRun, insertRun } from "../../src/records";
+import { runIntents } from "../../src/records/intents";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { HostOp } from "../../src/workers/types";

@@ -20,10 +20,10 @@ import {
   markFeedbackSent,
   nextFixRound,
   planFeedback,
-  recordIntent,
   sameFailureAgain,
   storeFeedbackItems,
 } from "../../src/run";
+import { recordIntent } from "../../src/records";
 import { type RoundsWorld, roundsWorld, storyRun } from "./rounds-helpers";
 
 const QUOTE = "export const total = (a: number, b: number) => a - b;";

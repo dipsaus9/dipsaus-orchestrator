@@ -25,7 +25,7 @@ import type { FeatureModule } from "../../src/commands/registry";
 import type { OfficeHandle } from "../../src/db/office";
 import { EngineGit } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
-import { insertRun } from "../../src/run/records";
+import { insertRun } from "../../src/records/run-records";
 import { StoryIndex } from "../../src/stories/feature";
 import { type ClaimRecord, insertClaim, liveClaimOf } from "../../src/worktree/records";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";

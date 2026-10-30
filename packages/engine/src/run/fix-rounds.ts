@@ -67,21 +67,21 @@ import { deriveStoryView, lifecycleOf, storyView } from "../views/story";
 import { withWorkViews, workRefOf } from "../views/work";
 import { findClaim } from "../worktree/records";
 
-import { REVIEWER_ROLE } from "./caps";
+import { REVIEWER_ROLE } from "../records/caps";
 import type { RunEnding } from "./control-types";
-import type { DecidingGuard } from "./deciding";
+import type { DecidingGuard } from "../records/deciding";
 import { feedbackIntents, type FeedbackSource, heldFeedback, sendFeedback } from "./feedback";
 import { nextFixRound, planFeedback, sameFailureAgain, storeFeedbackItems } from "./feedback-items";
-import { resolveIntent, runIntents } from "./intents";
+import { resolveIntent, runIntents } from "../records/intents";
 import type { RunView } from "./outcome-types";
 import { type BranchUnpark, type UnparkWriter } from "./park";
-import { heldByPark, type ParkStore } from "./park-state";
+import { heldByPark, type ParkStore } from "../records/park-state";
 import { recordBranchPush } from "../story-pr/records";
 import type { Places, PlaceStart } from "./places";
-import { findRun, openAtInReview, RUN_PHASE_SQL, type StoredRun } from "./records";
+import { findRun, openAtInReview, RUN_PHASE_SQL, type StoredRun } from "../records/run-records";
 import type { RunStoryFacts } from "./resume";
 import { reopen, reviewedInReview } from "./rounds";
-import { raiseSignal } from "./signals";
+import { raiseSignal } from "../records/signals";
 
 /** The sources a fix round's message can have: the source of its first item (0002). */
 const ROUND_SOURCES: ReadonlySet<string> = new Set<FeedbackSource>([

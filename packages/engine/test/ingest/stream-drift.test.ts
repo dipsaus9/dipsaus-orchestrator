@@ -16,8 +16,8 @@ import {
   NEWER_VERSION_CODE,
   type StreamDriftCount,
 } from "../../src/ingest/ingestor";
-import { STREAM_DRIFT_LINES } from "../../src/run/caps";
-import { recordWorkerHost } from "../../src/runs/worker-hosts";
+import { STREAM_DRIFT_LINES } from "../../src/records/caps";
+import { recordWorkerHost } from "../../src/records/worker-hosts";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
 import { CHECKED_CLAUDE_VERSION } from "../../src/workers/claude-cli/probe";
 import type { HostLine, ParseState, WorkerEvent } from "../../src/workers/types";

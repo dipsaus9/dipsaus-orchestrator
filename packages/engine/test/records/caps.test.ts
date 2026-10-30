@@ -7,9 +7,9 @@ import { describe, expect, it } from "bun:test";
 import { RunId } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { REVIEWER_ROLE, reviewTotals, runCaps, runTotals } from "../../src/run/caps";
-import { type GrantAmount, recordGrant } from "../../src/run/grants";
-import { appendRunStep, findRun, insertRun, type NewRun } from "../../src/run/records";
+import { REVIEWER_ROLE, reviewTotals, runCaps, runTotals } from "../../src/records/caps";
+import { type GrantAmount, recordGrant } from "../../src/records/grants";
+import { appendRunStep, findRun, insertRun, type NewRun } from "../../src/records/run-records";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";
 
 const T0 = Date.parse("2026-10-18T09:00:00.000Z");

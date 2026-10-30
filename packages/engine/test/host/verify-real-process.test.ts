@@ -9,7 +9,7 @@ import { join } from "node:path";
 
 import { currentPlatform } from "../../src/platform/paths";
 import { systemProcessProbe } from "../../src/platform/process";
-import { type WorkerHostRow, verifyHostForSignal } from "../../src/runs/worker-hosts";
+import { type WorkerHostRow, verifyHostForSignal } from "../../src/records/worker-hosts";
 import { lateHostScript } from "./fixtures/late-host-script";
 
 const RUN = "run_01JZ0000000000000000000001";

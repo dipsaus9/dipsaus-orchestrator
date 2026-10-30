@@ -44,7 +44,7 @@ const violations: Case[] = [
   },
   { fixture: "engine-imports-bun.ts", target: `${ENGINE}/run/bun.ts`, rules: [BUN] },
   { fixture: "engine-imports-sqlite.ts", target: `${ENGINE}/db/sqlite.ts`, rules: [BUN] },
-  { fixture: "engine-loads-bun.ts", target: `${ENGINE}/runs/load.ts`, rules: [BUN] },
+  { fixture: "engine-loads-bun.ts", target: `${ENGINE}/records/load.ts`, rules: [BUN] },
   { fixture: "engine-imports-bun.ts", target: `${DAEMON}/bun.ts`, rules: [BUN] },
   { fixture: "bun-global.ts", target: `${ENGINE}/run/bun-global.ts`, rules: [BUN_GLOBAL] },
   { fixture: "bun-global.ts", target: `${DAEMON}/bun-global.ts`, rules: [BUN_GLOBAL] },

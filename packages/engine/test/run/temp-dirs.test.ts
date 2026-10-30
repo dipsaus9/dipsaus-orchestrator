@@ -48,7 +48,7 @@ import {
   SHORT_TEMP_RUN_FILE,
   shortTempDir,
 } from "../../src/run/temp-dirs";
-import { recordWorkerHost } from "../../src/runs/worker-hosts";
+import { recordWorkerHost } from "../../src/records/worker-hosts";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 
 const DEAD: ProcessProbe = async () => null;

@@ -15,7 +15,7 @@ import type { RunId } from "@dipsaus-orchestrator/contract";
 import type { OfficeHandle } from "../db/office";
 import type { WorkerReport } from "../workers/types";
 
-import { storeReportedCriteria, storeRunCriteria } from "./records";
+import { storeReportedCriteria, storeRunCriteria } from "./run-records";
 
 /** The story's criteria when the run started. */
 export interface RunCriteria {

@@ -4,7 +4,7 @@ import type { OfficeHandle } from "../db/office";
 import type { BudgetFacts } from "../prompts/budget";
 
 import { runCaps, runTotals } from "./caps";
-import { capsStartedAt, type StoredRun } from "./records";
+import { capsStartedAt, type StoredRun } from "./run-records";
 
 /** The caps and usage of `run` as of `now`, counted from the first start of its worker host. */
 export function runBudgetFacts(office: OfficeHandle, run: StoredRun, now: number): BudgetFacts {

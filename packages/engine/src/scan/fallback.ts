@@ -23,7 +23,7 @@ import { CommandError } from "../commands/errors";
 import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
 import { background } from "../platform/background";
-import { endRun } from "../run/records";
+import { endRun } from "../records/run-records";
 import type { JsonSchema } from "../workers/types";
 
 import { checkAnswer, SCAN_ANSWER_JSON_SCHEMA } from "./answer";

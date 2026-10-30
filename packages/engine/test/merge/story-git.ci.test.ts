@@ -28,7 +28,7 @@ import {
 import type { HostPr, RequiredCheck } from "../../src/platform/host";
 import { recordReviewVerdict } from "../../src/review/store";
 import { gitParkWriter } from "../../src/run/park";
-import { findRun, insertRun } from "../../src/run/records";
+import { findRun, insertRun } from "../../src/records/run-records";
 import { reviewedAt } from "../run/in-review";
 import { findStoryPr, insertStoryPr, updateStoryPr } from "../../src/story-pr/records";
 import { addStory } from "../../src/stories/keys";

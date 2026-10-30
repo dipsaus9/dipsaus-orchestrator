@@ -14,7 +14,7 @@ import { type CommandReply, RequestId } from "@dipsaus-orchestrator/contract";
 
 import { executeCommand } from "../../src/commands/execute";
 import { createSystemIds } from "../../src/platform/ids";
-import { findRun, runIntents } from "../../src/run";
+import { findRun, runIntents } from "../../src/records";
 import { resultOf } from "../office/helpers";
 import { type Running, withRunOffice } from "./run-office";
 

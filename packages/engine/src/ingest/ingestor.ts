@@ -29,11 +29,11 @@ import type { Clock, Cursor, RunId, TimerHandle, WorkRef } from "@dipsaus-orches
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import { STREAM_DRIFT_LINES } from "../run/caps";
-import { recordReportedCriteria } from "../run/criteria";
-import { clearSignals, LIVENESS_SIGNALS } from "../run/signals";
-import { endAgent, recordAgent, recordAgentStart, recordInitRejected } from "../runs/agents";
-import { recordExitLine, setProcessedOffset } from "../runs/worker-hosts";
+import { STREAM_DRIFT_LINES } from "../records/caps";
+import { recordReportedCriteria } from "../records/criteria";
+import { clearSignals, LIVENESS_SIGNALS } from "../records/signals";
+import { endAgent, recordAgent, recordAgentStart, recordInitRejected } from "../records/agents";
+import { recordExitLine, setProcessedOffset } from "../records/worker-hosts";
 import { runProgress, withWorkViews } from "../views/work";
 import type { ExitRecord, HostLine, ParseState, WorkerEvent } from "../workers/types";
 import { readCompleteLines, readRange, statEventFile, type FileIdentity } from "./event-file";
@@ -50,7 +50,7 @@ import {
   setElapsed,
   setLiveUsage,
   type UsageScope,
-} from "./usage";
+} from "../records/usage";
 
 /** The engine notice code a changed host event file reports (M0 review, DIPO-15). */
 export const FILE_CHANGED_CODE = "ingest.fileChanged";

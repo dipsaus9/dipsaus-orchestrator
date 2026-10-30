@@ -29,7 +29,7 @@ import {
 } from "../../src/merge";
 import { reviewVerdictOfGate } from "../../src/review/store";
 import type { ParkBranchRequest, UnparkBranchRequest } from "../../src/run/park";
-import { findRun, runPhase, runSteps } from "../../src/run/records";
+import { findRun, runPhase, runSteps } from "../../src/records/run-records";
 
 import { APPROVED, C1, H1, PR, type StoryWorld, storyWorld } from "./story-helpers";
 import { backlogLayout } from "../story-store/backlog";

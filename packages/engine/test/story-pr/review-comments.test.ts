@@ -18,7 +18,7 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import { EngineGit } from "../../src/git";
 import type { OfficeLoadContext } from "../../src/office/steps";
-import type { EnvSecret } from "../../src/run/env-secrets";
+import type { EnvSecret } from "../../src/records/env-secrets";
 import { yieldToEventLoop } from "../../src/platform/clock";
 import {
   type CodeHost,
@@ -37,9 +37,10 @@ import {
   reviewVerdictsOf,
   type StoredReviewVerdict,
 } from "../../src/review";
-import { appendRunStep, insertRun, stopAtInReview } from "../../src/run";
+import { stopAtInReview } from "../../src/run";
+import { appendRunStep, insertRun } from "../../src/records";
 import { doneReportOf, storedDoneReport } from "../../src/run/done-report";
-import { storeRunSummary } from "../../src/run/verify-records";
+import { storeRunSummary } from "../../src/records/verify-records";
 import {
   findStoryPr,
   type StoryPrFacts,

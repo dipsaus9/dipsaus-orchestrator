@@ -1,6 +1,6 @@
 // The grants of a run (0020): the only way a cap grows after the run started, one `run_grants` row
 // each, recorded with the note, the maintainer (origin and client), the time and the caps before
-// and after. A run's start snapshot is never changed; `runCaps` (`run/caps.ts`) adds the grants to
+// and after. A run's start snapshot is never changed; `runCaps` (`records/caps.ts`) adds the grants to
 // it. Nothing grows a cap by itself.
 //
 // Two kinds (0020):

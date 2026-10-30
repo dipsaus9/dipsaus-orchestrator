@@ -7,20 +7,17 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import type { Caps } from "../../src/workers/types";
+import { claimPlace, endReviewPeriod, reopen, stopAtInReview } from "../../src/run";
 import {
   appendRunStep,
   capsStartedAt,
-  claimPlace,
-  endReviewPeriod,
   endRun,
   findRun,
   firedCap,
-  reopen,
   runOutcome,
   runPhase,
   runTotals,
-  stopAtInReview,
-} from "../../src/run";
+} from "../../src/records";
 import { endRunMarked } from "../../src/run/markers";
 import { runProgress } from "../../src/views/work";
 import { DONE_RELEASE_REASON } from "../../src/worktree/teardown";

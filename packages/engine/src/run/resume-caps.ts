@@ -8,9 +8,9 @@ import type { ResumeBudget } from "@dipsaus-orchestrator/contract";
 import type { OfficeHandle } from "../db/office";
 import type { Caps } from "../workers/types";
 
-import { type RunCaps, type RunTotals, runTotals } from "./caps";
-import type { GrantAmount, RoundCap } from "./grants";
-import { capsStartedAt, type StoredRun } from "./records";
+import { type RunCaps, type RunTotals, runTotals } from "../records/caps";
+import type { GrantAmount, RoundCap } from "../records/grants";
+import { capsStartedAt, type StoredRun } from "../records/run-records";
 
 /** One grant as the intent stores it, written in the resume's transaction. */
 export interface PlannedGrant {

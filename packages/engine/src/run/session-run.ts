@@ -39,8 +39,8 @@ import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
 import { Ingestor, type IngestAdapter, type IngestedExit } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
-import { recordAgent } from "../runs/agents";
-import type { LaunchedHost } from "../runs/worker-hosts";
+import { recordAgent } from "../records/agents";
+import type { LaunchedHost } from "../records/worker-hosts";
 import {
   SCAN_ROLE,
   type ScanSessionRequest,
@@ -54,8 +54,8 @@ import type { RunSteering } from "./control-types";
 import { claimHost, connectWhenBound } from "./hosts";
 import { type HostStarter, runLaunchPaths, systemHashOf } from "./launch";
 import { sessionUuid } from "./prompts";
-import type { RunEnd } from "./lifecycle";
-import { currentProfileId, endRun, insertRun, recordConfigSnapshot } from "./records";
+import type { RunEnd } from "../records/lifecycle";
+import { currentProfileId, endRun, insertRun, recordConfigSnapshot } from "../records/run-records";
 import { prepareRunTempDirs } from "./temp-dirs";
 
 /** The name prefix of a session's folder in dipo's temp root. */

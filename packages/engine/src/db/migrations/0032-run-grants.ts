@@ -1,14 +1,14 @@
 // Migration 32 (DIPO-143): a run's turn and minute caps at its start, next to its budget and loop
 // caps (0020 section 5), and `run_grants`, the grants a run was given after it started (0020
 // section 15). The start snapshot never changes; a run's caps are the snapshot plus its grants,
-// read by `runCaps` (`run/caps.ts`). `max_turns` and `max_minutes` are null for a run that started
+// read by `runCaps` (`records/caps.ts`). `max_turns` and `max_minutes` are null for a run that started
 // before this migration; `runCaps` then reads the office tier for them, as it did before.
 //
 // A grant has a `kind` (`budget`, `loop`, `reviewRound`, `ciAttempt`, `conflictHandoff`,
 // `reviewCap` or `scope`), its `amount` as JSON, who gave it (`origin`, and the `client` when a
 // client sent it) and when. Rows are kept with their run (retention tier S). The amount of a
 // budget grant is `{ tokens, turns, minutes }`, of a reviewer cap grant `{ turns, minutes }`, of a
-// scope grant the list of paths, and of the other kinds a count (`run/grants.ts`).
+// scope grant the list of paths, and of the other kinds a count (`records/grants.ts`).
 
 import type { SqlMigration } from "../migrations";
 

@@ -24,7 +24,7 @@
 
 import { remoteUrl } from "../git/write";
 import { repoOfRemoteUrl } from "../platform/host";
-import { findRun } from "../run/records";
+import { findRun } from "../records/run-records";
 import { findStoryPr } from "../story-pr/records";
 import type { IndexResult } from "../stories/index-stories";
 import { claimPr, decideDone, type DoneAnswer } from "../worktree/done-check";

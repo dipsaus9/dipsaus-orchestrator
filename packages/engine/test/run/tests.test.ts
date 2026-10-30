@@ -23,7 +23,7 @@ import type { AsyncCommandContext } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { mergeGatesOfRun } from "../../src/merge";
 import { heldTestNotes } from "../../src/run/fix-rounds";
-import { appendRunStep } from "../../src/run/records";
+import { appendRunStep } from "../../src/records/run-records";
 import { stopAtInReview } from "../../src/run/rounds";
 import type { RunStoryFacts } from "../../src/run/resume";
 import { findTest, openTestOf, openTestViews, testPassedFor } from "../../src/run/test-records";

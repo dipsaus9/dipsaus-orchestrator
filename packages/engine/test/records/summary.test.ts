@@ -17,9 +17,9 @@ import {
   resumeLine,
   runSummaryFacts,
   summaryDate,
-} from "../../src/run";
-import { recordReportedCriteria, recordRunCriteria } from "../../src/run/criteria";
-import { findRun } from "../../src/run/records";
+} from "../../src/records";
+import { recordReportedCriteria, recordRunCriteria } from "../../src/records/criteria";
+import { findRun } from "../../src/records/run-records";
 import { SECTION_RULE } from "../../src/backlog/plain";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";
 

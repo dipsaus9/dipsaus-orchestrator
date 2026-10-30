@@ -32,13 +32,14 @@ import {
   workerAnswerText,
 } from "../../src/questions/permissions";
 import { findQuestion, openQuestions } from "../../src/questions/questions";
-import { type BranchPark, insertRun, RunControl } from "../../src/run";
-import { questionWaitMs, runTotals } from "../../src/run/caps";
+import { type BranchPark, RunControl } from "../../src/run";
+import { insertRun } from "../../src/records";
+import { questionWaitMs, runTotals } from "../../src/records/caps";
 import { heldFeedback } from "../../src/run/feedback";
 import { resolvePark } from "../../src/run/park";
-import { findRun } from "../../src/run/records";
+import { findRun } from "../../src/records/run-records";
 import { reopen } from "../../src/run/rounds";
-import { activeSignals } from "../../src/run/signals";
+import { activeSignals } from "../../src/records/signals";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { Caps, HostOp, WorkerEvent } from "../../src/workers/types";

@@ -41,7 +41,8 @@ import { git } from "@dipsaus-orchestrator/testkit";
 
 import { mergeGatesOfRun } from "../../src/merge";
 import { reviewVerdictsOf } from "../../src/review/store";
-import { findRun, openPark } from "../../src/run";
+import { openPark } from "../../src/run";
+import { findRun } from "../../src/records";
 import { findStoryPr } from "../../src/story-pr";
 import type { ReviewReport, WorkerReport } from "../../src/workers/types";
 import { findClaim } from "../../src/worktree/records";

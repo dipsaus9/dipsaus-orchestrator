@@ -53,11 +53,11 @@ import { sweepOutputDirs } from "../platform/output-files";
 import { ensurePrivateDir, errorCode } from "../platform/paths";
 import type { ProcessProbe } from "../platform/process";
 import type { RunLaunchPaths } from "../workers/port";
-import { hostAlive, workerHostsOf, type WorkerHostRow } from "../runs/worker-hosts";
+import { hostAlive, workerHostsOf, type WorkerHostRow } from "../records/worker-hosts";
 
 import type { RunOutcomesPort } from "./outcomes";
 import type { RunView } from "./outcome-types";
-import { findRun } from "./records";
+import { findRun } from "../records/run-records";
 
 /** The recovery step that sweeps run temp directories at daemon start, after re-attach. */
 export const RUN_TEMP_SWEEP_STEP = "run-temp-sweep";

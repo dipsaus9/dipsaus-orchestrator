@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { nextRunState, RUN_ENDS, type RunEvent, type RunState } from "../../src/run/lifecycle";
+import { nextRunState, RUN_ENDS, type RunEvent, type RunState } from "../../src/records/lifecycle";
 
 const OPEN: RunState = {
   endedAt: null,

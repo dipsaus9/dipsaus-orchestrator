@@ -13,8 +13,8 @@ import { withTempDir, type RecordedLine, type Recording } from "@dipsaus-orchest
 import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { runRetention, DAY_MS } from "../../src/retention/run";
 import { Ingestor, type IngestAdapter } from "../../src/ingest/ingestor";
-import { readCompactions, type UsageScope } from "../../src/ingest/usage";
-import { recordWorkerHost } from "../../src/runs/worker-hosts";
+import { readCompactions, type UsageScope } from "../../src/records/usage";
+import { recordWorkerHost } from "../../src/records/worker-hosts";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
 import type { ParseState } from "../../src/workers/types";
 import { loadRecording, plannedModel } from "../workers/replay";

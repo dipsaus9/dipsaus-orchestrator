@@ -23,11 +23,11 @@ import {
   type ReconcileRuns,
   RECORDED_BY_HAND,
 } from "../../src/reconcile";
-import { endRun, findRun } from "../../src/run/records";
+import { endRun, findRun } from "../../src/records/run-records";
 import { openPark } from "../../src/run/park";
 import { desk, DESK_SOURCES } from "../../src/views/desk";
 import { storyView } from "../../src/views/story";
-import { runDirectory } from "../../src/runs/worker-hosts";
+import { runDirectory } from "../../src/records/worker-hosts";
 import { addStory } from "../../src/stories/keys";
 import { RunProfiles } from "../../src/scan";
 import { type ClaimRecord, liveClaimOf, releaseClaim } from "../../src/worktree/records";

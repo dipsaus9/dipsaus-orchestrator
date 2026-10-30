@@ -28,7 +28,7 @@ import {
   signalVerifiedHost,
   startWorkerHost,
   workerHostsOf,
-} from "../../src/runs/worker-hosts";
+} from "../../src/records/worker-hosts";
 import { addOffice, openTestState } from "../commands/helpers";
 
 const FIXTURES = resolve(import.meta.dir, "../host/fixtures");

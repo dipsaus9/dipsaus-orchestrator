@@ -13,7 +13,7 @@
   ],
   ["gate", "log", "scan/detect"],
   ["host", "prompts"],
-  ["box", "db", "records", "runs"],
+  ["box", "db", "records"],
   ["commands", "review", "views"],
   ["ingest", "office", "reads", "scan"],
   ["run-state", "workers/claude-cli"],

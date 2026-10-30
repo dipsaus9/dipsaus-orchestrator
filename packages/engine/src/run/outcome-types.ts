@@ -13,10 +13,10 @@ import type { Caps, HostOp, ReviewReport, SteerOp, TurnProblem } from "../worker
 import type { ClaimRecord } from "../worktree/records";
 
 import type { RunEnding, RunSteering } from "./control-types";
-import type { IntentKind } from "./intents";
+import type { IntentKind } from "../records/intents";
 import { type ParkOutcome, type UnparkWriter } from "./park";
-import type { ParkStore } from "./park-state";
-import type { StoredRun } from "./records";
+import type { ParkStore } from "../records/park-state";
+import type { StoredRun } from "../records/run-records";
 import type { NextSession } from "./resume";
 import type { PlanLimitPause, StartsPausedState } from "./starts-paused";
 import type { StoryGit } from "./story-git";

@@ -11,7 +11,8 @@ import { withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { appendEntries } from "../../src/changelog/log";
 import type { FeatureModule } from "../../src/commands/registry";
-import { insertRun, WorkRun, type WorkRunDeps } from "../../src/run";
+import { WorkRun, type WorkRunDeps } from "../../src/run";
+import { insertRun } from "../../src/records";
 import { insertClaim } from "../../src/worktree/records";
 import {
   BACKLOG_FIXTURE,

@@ -15,7 +15,7 @@ import type { OfficeHandle } from "../db/office";
 import type { Caps } from "../workers/types";
 
 import { grantTotals } from "./grants";
-import type { StoredRun } from "./records";
+import type { StoredRun } from "./run-records";
 
 /**
  * The ms the run's worker questions waited live up to `now` (0020 section 7, DIPO-159, the

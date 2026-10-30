@@ -7,7 +7,7 @@ import type { RunId } from "@dipsaus-orchestrator/contract";
 import type { OfficeHandle } from "../../src/db/office";
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../../src/prompts/templates";
 import { deliverHeld } from "../../src/run/feedback";
-import { findRun } from "../../src/run/records";
+import { findRun } from "../../src/records/run-records";
 import { type NextSessionRequest, sessionFeedback } from "../../src/run/resume";
 
 /** A next-session request with the first message the session got from the held messages. */

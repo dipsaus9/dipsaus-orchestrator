@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { ABSENT, type Presence, questionRoute } from "../../src/run/live-question";
+import { ABSENT, type Presence, questionRoute } from "../../src/records/live-question";
 
 /** A presence whose TUI the test opens and closes, counting each read. */
 function fakePresence(tui: boolean): Presence & { tui: boolean; reads: number } {

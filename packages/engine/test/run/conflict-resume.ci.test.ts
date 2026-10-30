@@ -42,7 +42,7 @@ import {
   StoryConflicts,
 } from "../../src/run/conflicts";
 import type { ConflictPrepared } from "../../src/run/park-resume";
-import { findRun, insertRun, type StoredRun } from "../../src/run/records";
+import { findRun, insertRun, type StoredRun } from "../../src/records/run-records";
 import { addStory } from "../../src/stories/keys";
 import { insertClaim } from "../../src/worktree/records";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";

@@ -33,7 +33,7 @@ import {
   runDirectory,
   startWorkerHost,
   workerHostsOf,
-} from "../../src/runs/worker-hosts";
+} from "../../src/records/worker-hosts";
 import type { LaunchPlan } from "../../src/workers/types";
 import { localMounts, memoryLogger } from "../db/helpers";
 

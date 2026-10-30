@@ -38,7 +38,7 @@ import {
   inReviewRunIds,
   StoryConflicts,
 } from "../../src/run/conflicts";
-import { findRun, insertRun, runRoundCounts } from "../../src/run/records";
+import { findRun, insertRun, runRoundCounts } from "../../src/records/run-records";
 import { atInReview } from "./in-review";
 import { codeTreeKeyOf } from "../../src/run/story-git";
 import { addStory } from "../../src/stories/keys";

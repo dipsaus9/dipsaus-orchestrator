@@ -10,7 +10,7 @@ import type { DoneReport, RunId } from "@dipsaus-orchestrator/contract";
 import { cleanDoorText } from "../box/door";
 import type { OfficeHandle } from "../db/office";
 
-import { runSummary } from "./verify-records";
+import { runSummary } from "../records/verify-records";
 
 /** The caps of the shown texts (characters), the same as the report schema's. */
 export const DONE_REPORT_CAPS = {

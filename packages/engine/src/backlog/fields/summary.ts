@@ -3,7 +3,7 @@
 // (`task edit --append-notes`, `task edit --final-summary`) and read back. These are the native
 // sections, not the `dipo` field block, so no schema changes. A text holding a line of 50 `-` is
 // refused before the CLI runs (the runner's rule, 0010 section 2: Backlog.md would print it as a
-// section); the builders in `run/summary.ts` never write one.
+// section); the builders in `records/summary.ts` never write one.
 //
 // Like `writeFields`, every call must go through the office git queue, in dipo's own copy of the
 // story's backlog; the caller owns that.

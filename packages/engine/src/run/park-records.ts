@@ -9,7 +9,7 @@ import type { OfficeHandle } from "../db/office";
 import { closeQuestion, openParkQuestions } from "../questions/questions";
 import { workRefOf } from "../views/work";
 
-import type { StoredRun } from "./records";
+import type { StoredRun } from "../records/run-records";
 
 /** A park's detail and history row (0007): the reason it was made with, never read as current. */
 export interface NewPark {

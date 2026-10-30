@@ -20,8 +20,8 @@ import type {
 
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import { readUsage } from "../ingest/usage";
-import { REVIEWER_ROLE } from "../run/caps";
+import { readUsage } from "../records/usage";
+import { REVIEWER_ROLE } from "../records/caps";
 
 import { findingCounts, type JudgedReview, type ReviewDecision } from "./verdict";
 

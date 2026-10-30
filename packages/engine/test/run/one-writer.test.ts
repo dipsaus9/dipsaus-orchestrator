@@ -16,11 +16,11 @@ const REPO = join(import.meta.dir, "..", "..", "..", "..");
 
 /** The one module that writes each table. */
 const WRITERS: Readonly<Record<string, string>> = {
-  runs: "packages/engine/src/run/records.ts",
+  runs: "packages/engine/src/records/run-records.ts",
   parks: "packages/engine/src/run/park-records.ts",
-  agents: "packages/engine/src/runs/agents.ts",
-  worker_hosts: "packages/engine/src/runs/worker-hosts.ts",
-  run_signals: "packages/engine/src/run/signals.ts",
+  agents: "packages/engine/src/records/agents.ts",
+  worker_hosts: "packages/engine/src/records/worker-hosts.ts",
+  run_signals: "packages/engine/src/records/signals.ts",
 };
 
 const MIGRATIONS = "packages/engine/src/db/migrations/";

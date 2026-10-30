@@ -7,7 +7,7 @@ import type { HostOp } from "../workers/types";
 
 import type { RunEnding } from "./control-types";
 import { sendFeedback } from "./feedback";
-import { resolveIntent, type StoredIntent } from "./intents";
+import { resolveIntent, type StoredIntent } from "../records/intents";
 import type { OutcomeSupport } from "./outcome-support";
 import type { SessionStarts } from "./outcome-sessions";
 import {
@@ -22,7 +22,7 @@ import {
   type RunOutcomesDeps,
   type RunView,
 } from "./outcome-types";
-import { findRun, type StoredRun } from "./records";
+import { findRun, type StoredRun } from "../records/run-records";
 import { planLimitPause } from "./starts-paused";
 
 export class ExitOutcomes {

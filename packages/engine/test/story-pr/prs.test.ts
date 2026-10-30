@@ -16,13 +16,8 @@ import {
   type PrState,
 } from "../../src/platform/host";
 import { yieldToEventLoop } from "../../src/platform/clock";
-import {
-  findRun,
-  insertRun,
-  openAtInReview,
-  recordConfigSnapshot,
-  stopAtInReview,
-} from "../../src/run";
+import { stopAtInReview } from "../../src/run";
+import { findRun, insertRun, openAtInReview, recordConfigSnapshot } from "../../src/records";
 import {
   findStoryPr,
   type StoryPrFacts,
