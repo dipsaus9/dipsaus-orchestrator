@@ -4,6 +4,7 @@ title: Attribute each Safe-Chain refusal to the box that made the request
 status: Refined
 assignee: []
 created_date: '2026-10-30 16:01'
+updated_date: '2026-10-30 16:03'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -16,6 +17,8 @@ references:
   - packages/engine/src/box/safe-chain.ts
   - packages/engine/src/box/workers.ts
   - packages/engine/src/box/web-proxy.ts
+  - packages/engine/src/create/runs.ts
+  - packages/engine/test/box/
 priority: medium
 type: bug
 ordinal: 374000
@@ -41,7 +44,9 @@ test_plan:
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 Each stored refusal names the run whose box made the refused request; a refusal is never stored on a run whose box did not make it
-- [ ] #2 A real-box test (DIPO_TEST_BOX=1) with two boxes of two runs whose sessions overlap, each installing a different refused package, shows each run row holds only its own refusal
-- [ ] #3 A refusal whose box cannot be told is stored as unknown on the runs that were open, never as a refusal of one of them, and the PR says how often that can happen
-- [ ] #4 The escape probe runs again if the change touches the Safe-Chain image or the box network (0008)
+- [ ] #2 A fake-box test and a real-box test (DIPO_TEST_BOX=1) with two boxes of two runs whose sessions overlap, each installing a different refused package, show each run row holds only its own refusal
+- [ ] #3 A refusal whose box cannot be told is recorded as unknown on the runs that were open, never as a refusal of one of them
+- [ ] #4 What DIPO-376 caught still holds, each with a test: the per-session diff of the log, each package once, unknown when a log is unreadable, cut or timed out
+- [ ] #5 Bypass forms are tested: a tunnel with a wrong, stale or missing proxy password, a host or alias that skips the Safe-Chain route, and the same package refused for two boxes
+- [ ] #6 Fail-closed: the change moves only where a refusal is recorded; Safe-Chain still refuses the package and the install still fails, shown against the real path; the escape probe runs again if the Safe-Chain image or the box network changes (0008)
 <!-- AC:END -->

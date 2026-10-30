@@ -4,6 +4,7 @@ title: Emit a closing event when a run ends
 status: Refined
 assignee: []
 created_date: '2026-10-30 16:01'
+updated_date: '2026-10-30 16:03'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -39,7 +40,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every path that ends a run (done, parked, dropped, and a run ended at recovery) writes a change-log entry that reaches the office stream, shown by a test per path
-- [ ] #2 dipo watch drops its 15 s idle story.detail check and still prints every run end, with a test that a run ending at recovery is printed
+- [ ] #1 Every path that ends a run writes a change-log entry that reaches the office stream: the paths through endRunMarked (park, review done, reconcile, control reconcile) and the two bare endRun paths, run/session-run.ts #end (scan session runs) and scan/fallback.ts endLostScanSessions (dropped at office load), plus the failed host start and claim-release drop in run/outcomes.ts; a test per path
+- [ ] #2 dipo watch drops its idle check (#armIdle, the idle #recheck) and still prints every run end, with a test that a run ending at recovery and a scan session end are printed
 - [ ] #3 No event is emitted twice for one end
 <!-- AC:END -->
