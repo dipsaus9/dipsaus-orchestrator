@@ -10,6 +10,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   statSync,
   symlinkSync,
   unlinkSync,
@@ -31,6 +32,7 @@ import {
   type PidRecord,
 } from "../../src/platform/lock";
 import { systemClock } from "../../src/platform/clock";
+import { NetworkFileSystemError } from "../../src/platform/sqlite";
 import type { ProcessInfo } from "../../src/platform/process";
 
 const T0 = 1_791_535_923_000;
@@ -79,6 +81,8 @@ function options(
     log,
     waitMs: 60,
     pollMs: 10,
+    // A local disk; one test reads the system mount table.
+    readMounts: async () => null,
     ...overrides,
   };
 }
@@ -189,6 +193,50 @@ describe("acquireLock", () => {
     });
   }
 
+  // A daemon whose dipo.lock was removed or replaced, or one from before this lock, holds no lock
+  // on the file a starter opens: its live record still keeps the starter out.
+  it("lets the lock go when dipo.pid names a live daemon that holds no lock, and reports it running", async () => {
+    await withTempDir(async (dir) => {
+      writeRecord(dir, OTHER);
+      const before = readFileSync(pidPath(dir), "utf8");
+      const table: Table = new Map([[OTHER.pid, daemonInfo(OTHER)]]);
+      const opts = options(dir, table, { handshake: async (record) => record.pid === OTHER.pid });
+      expect(await acquireLock(opts)).toEqual({ kind: "running", record: OTHER });
+      expect(readFileSync(pidPath(dir), "utf8")).toBe(before);
+      expect(opts.log.lines.map((line) => line.message)).toEqual([
+        "dipo.pid names a live daemon that does not hold dipo.lock; not taking it",
+      ]);
+      // The starter let the lock go: once that daemon is gone, the next start takes it.
+      const next = await held(dir);
+      expect(readRecord(dir)).toEqual(SELF);
+      next.release();
+    });
+  });
+
+  it("reports a live daemon that holds no lock and does not answer as unresponsive", async () => {
+    await withTempDir(async (dir) => {
+      writeRecord(dir, OTHER);
+      const before = readFileSync(pidPath(dir), "utf8");
+      const table: Table = new Map([[OTHER.pid, daemonInfo(OTHER)]]);
+      expect(await acquireLock(options(dir, table))).toEqual({
+        kind: "unresponsive",
+        record: OTHER,
+      });
+      expect(readFileSync(pidPath(dir), "utf8")).toBe(before);
+    });
+  });
+
+  it("takes the lock over a record of a live process that is no dipo daemon", async () => {
+    await withTempDir(async (dir) => {
+      writeRecord(dir, OTHER);
+      const table: Table = new Map([[OTHER.pid, daemonInfo(OTHER, { command: "/usr/bin/vim" })]]);
+      const outcome = await acquireLock(options(dir, table));
+      expect(outcome.kind).toBe("acquired");
+      expect(readRecord(dir)).toEqual(SELF);
+      if (outcome.kind === "acquired") outcome.lock.release();
+    });
+  });
+
   it("takes a lock that comes free during the wait", async () => {
     await withTempDir(async (dir) => {
       const other = await held(dir, OTHER);
@@ -242,6 +290,27 @@ async function expectRefused(stateDir: string, code: string): Promise<void> {
 
 // Fail-closed (0005): a lock file that cannot be created or locked stops the start.
 describe("acquireLock when the lock file cannot be used", () => {
+  it("refuses a state folder on a network filesystem before it opens dipo.lock", async () => {
+    await withTempDir(async (dir) => {
+      const mounts = [
+        { mountPoint: "/", fsType: "apfs" },
+        { mountPoint: realpathSync(dir), fsType: "smbfs" },
+      ];
+      const outcome = acquireLock(options(dir, new Map(), { readMounts: async () => mounts }));
+      await expect(outcome).rejects.toBeInstanceOf(NetworkFileSystemError);
+      expect(readdirSync(dir)).toEqual([]);
+    });
+  });
+
+  it("takes the lock on a local disk, read from the system mount table", async () => {
+    await withTempDir(async (dir) => {
+      const { readMounts: _, ...rest } = options(dir, new Map());
+      const outcome = await acquireLock(rest);
+      expect(outcome.kind).toBe("acquired");
+      if (outcome.kind === "acquired") outcome.lock.release();
+    });
+  });
+
   it("refuses a read-only state folder without a lock file", async () => {
     await withTempDir(async (dir) => {
       const state = join(dir, "state");

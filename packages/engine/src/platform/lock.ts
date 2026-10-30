@@ -3,15 +3,18 @@
 // process: the operating system drops them when the process exits, also on SIGKILL. So no starter
 // ever judges a lock stale, and two processes never both hold it.
 //
-// 1. Open `dipo.lock` in the real state folder (created when missing, refused when it is a
+// 1. Refuse a state folder on a network filesystem, where SQLite's lock may exclude nobody. Open
+//    `dipo.lock` in the real state folder (created when missing, refused when it is a
 //    symbolic link) and take the lock: `BEGIN EXCLUSIVE` and one write, kept open and never
 //    committed. The write fails on a file SQLite could open only read-only, whose lock would
 //    exclude nobody. Any error but "busy" stops the start: the daemon never runs without the lock.
 //    The file stays when the daemon exits: removing it would let a starter that opened it before
 //    the removal and one that creates a new file both hold a lock.
-// 2. Taken: write `dipo.pid` (PID, start time, version, later the runtime directory), the record
-//    clients read, by write-to-temp then rename. Only the holder writes it, and it never decides who
-//    holds the lock.
+// 2. Taken: when `dipo.pid` still names another live `dipo daemon`, that daemon holds no lock on
+//    this file (its `dipo.lock` was removed or replaced, or it predates this lock): let the lock go
+//    and treat it as in step 3, never run beside it. Otherwise write `dipo.pid` (PID, start time,
+//    version, later the runtime directory), the record clients read, by write-to-temp then rename.
+//    Only the holder writes it, and a dead process's record never stops it.
 // 3. Busy: another process holds it. When `dipo.pid` names a live `dipo daemon` that answers
 //    `engine.hello` and `daemon.status` with its own PID over `ws+unix://` (`helloHandshake`)
 //    within 5 s, it runs; a live daemon that does not answer is unresponsive; otherwise the holder is
@@ -40,6 +43,13 @@ import {
 import { createUlid } from "./ids";
 import { errorCode, readRuntimeRecord } from "./paths";
 import { connectUnixSocket } from "./socket";
+import {
+  isNetworkFsType,
+  mountFor,
+  type MountReader,
+  NetworkFileSystemError,
+  readSystemMounts,
+} from "./sqlite";
 
 export {
   formatPidRecord,
@@ -76,6 +86,8 @@ export interface AcquireLockOptions {
   readonly logger: LockLogger;
   readonly waitMs?: number;
   readonly pollMs?: number;
+  /** Replaces the system mount table, for tests. */
+  readonly readMounts?: MountReader;
 }
 
 export type LockOutcome =
@@ -161,16 +173,29 @@ function sleep(clock: Clock, ms: number): Promise<void> {
   return new Promise((resolve) => clock.setTimeout(resolve, ms));
 }
 
+/** Step 1's refusal: a state folder on a network filesystem. */
+async function refuseNetworkFolder(realState: string, readMounts: MountReader): Promise<void> {
+  const mounts = await readMounts();
+  const mount = mounts === null ? undefined : mountFor(realState, mounts);
+  if (mount !== undefined && isNetworkFsType(mount.fsType)) {
+    throw new NetworkFileSystemError(realState, mount.fsType);
+  }
+}
+
 /** Takes `<state>/dipo.lock` (0005, steps 1 to 3). */
 export async function acquireLock(options: AcquireLockOptions): Promise<LockOutcome> {
   const { stateDir, self, probe, clock, handshake, logger } = options;
   // The real folder, so the symbolic link refusal concerns the lock file alone.
-  const path = join(realpathSync(stateDir), LOCK_FILE);
+  const realState = realpathSync(stateDir);
+  await refuseNetworkFolder(realState, options.readMounts ?? readSystemMounts);
+  const path = join(realState, LOCK_FILE);
   const pidPath = join(stateDir, PID_FILE);
   const waitMs = options.waitMs ?? LOCK_WAIT_MS;
   const pollMs = options.pollMs ?? LOCK_POLL_MS;
 
-  const isLiveDaemon = async (record: PidRecord) => {
+  /** True when `record` names a live `dipo daemon` other than this process. */
+  const isOtherLiveDaemon = async (record: PidRecord | null): Promise<boolean> => {
+    if (record === null || record.pid === self.pid) return false;
     const info = await probe(record.pid);
     return isSameProcess(record, info) && info !== null && isDaemonCommand(info.command);
   };
@@ -181,21 +206,37 @@ export async function acquireLock(options: AcquireLockOptions): Promise<LockOutc
     // A daemon that just took the lock writes `dipo.pid` and binds its socket after it: wait for it.
     const deadline = clock.now() + waitMs;
     let record: PidRecord | null = null;
+    let warned = false;
     for (;;) {
-      if (take(db, path)) {
+      const took = take(db, path);
+      record = readRecord(pidPath);
+      const other = await isOtherLiveDaemon(record);
+      if (took && !other) {
         held = true;
         writeRecord(pidPath, self);
         logger.info("took the daemon lock", { path, pid: self.pid });
         return { kind: "acquired", lock: heldLock(db, path, pidPath, self) };
       }
-      record = readRecord(pidPath);
-      if (record !== null && (await isLiveDaemon(record)) && (await handshake(record))) {
+      if (took) {
+        // Step 2: a live daemon that holds no lock on this file. Let the lock go.
+        db.run("ROLLBACK");
+        if (!warned) {
+          warned = true;
+          logger.warn("dipo.pid names a live daemon that does not hold dipo.lock; not taking it", {
+            path,
+            pid: record?.pid ?? null,
+          });
+        }
+      }
+      if (record !== null && other && (await handshake(record))) {
         return { kind: "running", record };
       }
       if (clock.now() >= deadline) break;
       await sleep(clock, pollMs);
     }
-    if (record !== null && (await isLiveDaemon(record))) return { kind: "unresponsive", record };
+    if (record !== null && (await isOtherLiveDaemon(record))) {
+      return { kind: "unresponsive", record };
+    }
     return { kind: "held", path, record };
   } finally {
     if (!held) db.close();

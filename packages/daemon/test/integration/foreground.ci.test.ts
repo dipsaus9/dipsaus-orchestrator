@@ -11,6 +11,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   statSync,
   symlinkSync,
   unlinkSync,
@@ -97,6 +98,19 @@ async function stop(daemon: Daemon): Promise<number | null> {
   if (exited === "timeout") {
     daemon.kill("SIGKILL");
     await daemon.exited;
+    return null;
+  }
+  return daemon.exitCode;
+}
+
+/**
+ * The exit code of a starter that should exit on its own, within 15 s; a starter still running then
+ * is stopped, so a failing test leaves no daemon behind, and the result is null.
+ */
+async function exitWithin(daemon: Daemon): Promise<number | null> {
+  const exited = await Promise.race([daemon.exited, Bun.sleep(15_000).then(() => "timeout")]);
+  if (exited === "timeout") {
+    await stop(daemon);
     return null;
   }
   return daemon.exitCode;
@@ -384,7 +398,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             await waitUntilServing(dir, daemon);
             const second = start(env);
             const started = performance.now();
-            expect(await second.exited).toBe(0);
+            expect(await exitWithin(second)).toBe(0);
             // Answered on the first handshake, not after the 5 s wait for an unresponsive daemon.
             expect(performance.now() - started).toBeLessThan(4000);
             expect(await new Response(second.stdout).text()).toContain(
@@ -523,7 +537,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               sock: statSync(socket),
             };
             const second = start(env);
-            expect(await second.exited).toBe(0);
+            expect(await exitWithin(second)).toBe(0);
             expect(await new Response(second.stdout).text()).toContain(
               `dipo daemon is already running (pid ${daemon.pid}`,
             );
@@ -590,6 +604,83 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       TIMEOUT_MS,
     );
 
+    // Bypass forms on the lock file itself: a daemon whose dipo.lock was removed or replaced holds
+    // no lock on the file a starter opens, so its live dipo.pid keeps the starter out.
+    for (const [name, change] of [
+      ["deleted", (lock: string) => unlinkSync(lock)],
+      [
+        "replaced",
+        (lock: string) => {
+          writeFileSync(`${lock}.new`, "");
+          renameSync(`${lock}.new`, lock);
+        },
+      ],
+    ] as const) {
+      it(
+        `refuses a second daemon while one runs and its dipo.lock was ${name}`,
+        async () => {
+          await withDaemonTempDir(async (dir) => {
+            const env = daemonTestEnv(dir);
+            const daemon = start(env);
+            try {
+              await waitUntilServing(dir, daemon);
+              const pidFile = join(dir, "state", "dipo.pid");
+              const socket = join(dir, "run", "dipo.sock");
+              const before = { raw: readFileSync(pidFile, "utf8"), sock: statSync(socket).ino };
+              change(join(dir, "state", "dipo.lock"));
+              const second = start(env);
+              expect(await exitWithin(second)).toBe(0);
+              expect(await new Response(second.stdout).text()).toContain(
+                `dipo daemon is already running (pid ${daemon.pid}`,
+              );
+              expect(await new Response(second.stderr).text()).toContain(
+                "dipo.pid names a live daemon that does not hold dipo.lock",
+              );
+              expect(readFileSync(pidFile, "utf8")).toBe(before.raw);
+              expect(statSync(socket).ino).toBe(before.sock);
+              await waitUntilServing(dir, daemon);
+            } finally {
+              expect(await stop(daemon)).toBe(0);
+            }
+          });
+        },
+        TIMEOUT_MS,
+      );
+    }
+
+    it(
+      "refuses a second daemon beside a live daemon whose dipo.pid it finds but which holds no lock there, as one from before the lock",
+      async () => {
+        await withDaemonTempDir(async (dir) => {
+          const daemon = start(daemonTestEnv(dir));
+          try {
+            await waitUntilServing(dir, daemon);
+            await withDaemonTempDir(async (other) => {
+              // A state folder with the running daemon's records and no lock held on its dipo.lock.
+              const state = join(other, "state");
+              mkdirSync(state, { recursive: true, mode: 0o700 });
+              for (const file of ["dipo.pid", "runtime.json"]) {
+                writeFileSync(join(state, file), readFileSync(join(dir, "state", file)));
+              }
+              const before = readFileSync(join(state, "dipo.pid"), "utf8");
+              const second = start(daemonTestEnv(other));
+              expect(await exitWithin(second)).toBe(0);
+              expect(await new Response(second.stdout).text()).toContain(
+                `dipo daemon is already running (pid ${daemon.pid}`,
+              );
+              expect(readFileSync(join(state, "dipo.pid"), "utf8")).toBe(before);
+              expect(existsSync(join(other, "run", "dipo.sock"))).toBe(false);
+              expect(existsSync(join(state, "dipo.db"))).toBe(false);
+            });
+            await waitUntilServing(dir, daemon);
+          } finally {
+            expect(await stop(daemon)).toBe(0);
+          }
+        });
+      },
+      TIMEOUT_MS,
+    );
+
     // Bypass forms: the record clients read is not the lock.
     for (const [name, change] of [
       ["deleted", (pidFile: string) => unlinkSync(pidFile)],
@@ -616,7 +707,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               change(pidFile);
               const before = existsSync(pidFile) ? readFileSync(pidFile, "utf8") : null;
               const second = start(env);
-              expect(await second.exited).toBe(1);
+              expect(await exitWithin(second)).toBe(1);
               expect(await new Response(second.stderr).text()).toContain(
                 "another process holds the daemon lock",
               );
@@ -702,7 +793,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             process.kill(daemon.pid, "SIGSTOP");
             const second = start(env);
             try {
-              expect(await second.exited).toBe(1);
+              expect(await exitWithin(second)).toBe(1);
               expect(await new Response(second.stderr).text()).toContain(
                 `the daemon (pid ${daemon.pid}) holds the lock but does not answer. Run \`dipo daemon stop --force\` to stop it.`,
               );
