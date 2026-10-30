@@ -1,10 +1,10 @@
 ---
 id: DIPO-377
 title: Fix the flake in the backlog PR check test
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-29 09:29'
-updated_date: '2026-10-30 11:25'
+updated_date: '2026-10-30 15:52'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -15,6 +15,8 @@ dependencies:
 references:
   - scripts/check-backlog-pr.test.ts
   - scripts/
+modified_files:
+  - scripts/check-backlog-pr.test.ts
 priority: medium
 type: bug
 ordinal: 357000
@@ -101,3 +103,23 @@ Parked 2026-10-30 11:16 UTC: budget-exceeded
 
 Resumed 2026-10-30 11:20 UTC; grants: budget +150,000 tokens, +45 turns, +23 minutes; note: Test plan entry #1 is done, run by the orchestrating session on the Mac: macOS 26.6.2 arm64, Bun 1.4.2, the branch head 1198fcf1 (your fix be805ec4 in pr()), 30 sequential runs of 'DIPO_TMP=$(mktemp…
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-10-30 15:52 UTC
+- Criteria met: 2 of 2 (as the worker reported them)
+- Loops: 1; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 236,210 of 450,000 tokens
+- Runs: 1; resumes: 4
+- Parks: 4
+  - 2026-10-30 10:57 UTC ambiguous-spec: Can you send the verify-macos log of the failing run on PR #420 (the Backlog CLI output for the first test), or allow a macOS run of the 30-run loop before I choose a fix? Without it, I can't name th…
+  - 2026-10-30 11:10 UTC ambiguous-spec: Fixed the flake in the test fixture, not the engine. Cause: the Backlog CLI rewrites backlog/config.yml on its first read when the file lacks its defaults (max_column_width, auto_open_browser, defaul…
+  - 2026-10-30 11:12 UTC ambiguous-spec: Can the 30-runs-in-a-row check for scripts/check-backlog-pr.test.ts on macOS be run by the orchestrating session on the Mac, against the pushed head, with the result recorded on the PR? If yes, I wil…
+  - 2026-10-30 11:16 UTC budget-exceeded: Your report says done, but these automated test-plan entries are not done:
+- Grants: 1
+  - 2026-10-30 11:20 UTC budget +150,000 tokens, +45 turns, +23 minutes
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 3
+<!-- SECTION:FINAL_SUMMARY:END -->
