@@ -11,9 +11,13 @@ import { describe, expect, it } from "bun:test";
 
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import type { BoxExecResult } from "../../src/box/port";
+import { BoxError, type BoxExecOptions, type BoxExecResult } from "../../src/box/port";
 import { SAFE_CHAIN_LOG_DIR, type SafeChainMark } from "../../src/box/safe-chain";
-import { markSafeChain, readSafeChain } from "../../src/box/safe-chain-box";
+import {
+  markSafeChain,
+  readSafeChain,
+  SAFE_CHAIN_LOG_READ_TIMEOUT_MS,
+} from "../../src/box/safe-chain-box";
 
 const BOX = "dipo-safe-chain-0123456789abcdef";
 
@@ -150,4 +154,56 @@ describe("the refusals of one session in Safe-Chain's logs (DIPO-376)", () => {
         { ecosystem: "pypi", why: "its Safe-Chain log could not be read (exit 3)" },
       ]);
     }));
+
+  it("keeps a log as unknown, not as no refusals, when it holds fewer lines than at the mark", () =>
+    logs(async (dir) => {
+      const boxes = boxesIn(dir);
+      const mark = await markSafeChain(boxes, BOX);
+      // The log was cut or replaced in the same box: a refusal written since is not lost unseen.
+      writeFileSync(join(dir, "npm.ndjson"), ROUTE_CHECK.split("\n")[0] + "\n");
+      expect(await readSafeChain(boxes, BOX, mark)).toEqual({
+        refusals: [],
+        unknown: [
+          {
+            ecosystem: "npm",
+            why: "its Safe-Chain log holds fewer lines than when the session started, so it was cut or replaced",
+          },
+        ],
+      });
+      // As long as at the mark: nothing new, and nothing unknown.
+      writeFileSync(join(dir, "npm.ndjson"), "a\nb\nc\n");
+      expect(await readSafeChain(boxes, BOX, mark)).toEqual({ refusals: [], unknown: [] });
+    }));
+
+  it("bounds each count and read by a short deadline, and a log past it is unknown", async () => {
+    expect(SAFE_CHAIN_LOG_READ_TIMEOUT_MS).toBeLessThanOrEqual(5_000);
+    const deadlines: (number | undefined)[] = [];
+    const slow = {
+      async exec(
+        _name: string,
+        _command: readonly [string, ...string[]],
+        options?: BoxExecOptions,
+      ): Promise<BoxExecResult> {
+        deadlines.push(options?.timeoutMs);
+        throw new BoxError("box.timedOut", "the exec ran past its deadline");
+      },
+    };
+    expect(await markSafeChain(slow, BOX)).toEqual({ box: BOX, lines: { npm: null, pypi: null } });
+    const found = await readSafeChain(slow, BOX, { box: BOX, lines: { npm: 0, pypi: 0 } });
+    expect(found).toEqual({
+      refusals: [],
+      unknown: [
+        {
+          ecosystem: "npm",
+          why: "its Safe-Chain log could not be read: the exec ran past its deadline",
+        },
+        {
+          ecosystem: "pypi",
+          why: "its Safe-Chain log could not be read: the exec ran past its deadline",
+        },
+      ],
+    });
+    // Two per mark, two per read, each with the short deadline.
+    expect(deadlines).toEqual(Array(4).fill(SAFE_CHAIN_LOG_READ_TIMEOUT_MS));
+  });
 });

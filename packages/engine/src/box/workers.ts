@@ -31,8 +31,9 @@
 // - Safe-Chain's refusals (DIPO-376, with `safeChain`): each session marks where it starts in the
 //   Safe-Chain box's logs (`markSafeChain`), and when it ends (`sessionEnded`, before its exit is
 //   decided; else at its rest or finish, whichever is first) the lines since are read
-//   (`readSafeChain`) and kept on the run, so they outlive the Safe-Chain box. A log that cannot be
-//   read is kept as unknown, never as no refusals.
+//   (`readSafeChain`) and kept on the run, each package once and at most `SAFE_CHAIN_RECORD_MAX`, so
+//   they outlive the Safe-Chain box. A log that cannot be read is kept as unknown, never as no
+//   refusals.
 // - `rest` (the story waits, DIPO-278): the box stopped and started again (so no earlier claude
 //   outlives its host into the check), the post-run token check, then the box stopped with its
 //   files and its routes released; the record says it rests until the next session. A session
@@ -120,8 +121,10 @@ import type { PartRun, StartTreeCheck } from "./parts";
 import { type BoxTokenCheck, checkBoxAfterRun, tokenCheckFailure } from "./token-check";
 import { copyInAsUser } from "./user";
 import {
+  addSafeChainFound,
   EMPTY_SAFE_CHAIN_RECORD,
   SAFE_CHAIN_BOX_RUN_PREFIX,
+  uniqueFound,
   type SafeChainFound,
   type SafeChainRecord,
 } from "./safe-chain";
@@ -1168,16 +1171,10 @@ export class BoxWorkers {
     const store = this.#deps.safeChain;
     const stored = store?.of(runId) ?? null;
     if (store === undefined || stored === null || stored.mark === null) return;
-    const found = await readSafeChain(this.#deps.boxes, this.#safeChainBox, stored.mark);
-    store.store(
-      runId,
-      {
-        refusals: [...stored.refusals, ...found.refusals],
-        unknown: [...stored.unknown, ...found.unknown],
-        mark: null,
-      },
-      found,
+    const found = uniqueFound(
+      await readSafeChain(this.#deps.boxes, this.#safeChainBox, stored.mark),
     );
+    store.store(runId, addSafeChainFound(stored, found), found);
     if (found.unknown.length > 0) {
       this.#deps.info?.("the Safe-Chain refusals of a session are unknown", {
         run: runId,

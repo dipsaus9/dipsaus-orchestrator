@@ -15,6 +15,7 @@ import {
   withReviewCommit,
 } from "../../src/prompts";
 import { WORKER_REPORT_SECTION_MAX } from "../../src/prompts/review";
+import { SAFE_CHAIN_LINES_MAX, safeChainFeedback } from "../../src/prompts/feedback";
 import type { ReviewFinding } from "../../src/workers/types";
 import { expectGolden, fixtureStory } from "./helpers";
 
@@ -525,4 +526,60 @@ describe("the review task message (L4)", () => {
     const spike = assembleReviewTaskMessage(input({ story: { ...story, type: "spike" } }));
     expect(spike.sections.map((section) => section.name)).not.toContain("test_plan");
   });
+});
+
+/** The list lines of a rendered text: the refusals, the marker and the unknown lines. */
+const linesOf = (text: string) => text.split("\n").filter((line) => line.startsWith("- "));
+
+describe("a long list of Safe-Chain refusals (DIPO-376)", () => {
+  // 300 packages, each refused three times, 40 more only counted in the stored record, and one log
+  // that could not be read.
+  const many = {
+    refusals: Array.from({ length: 900 }, (_, i) => ({
+      ecosystem: "npm" as const,
+      package: `some-package-${i % 300}@1.0.${i % 300}`,
+      reason: "Aikido's malware list marks it MALWARE",
+    })),
+    unknown: [
+      {
+        ecosystem: "pypi" as const,
+        why: "the Safe-Chain box it ran with is gone, and its log with it",
+      },
+      {
+        ecosystem: "pypi" as const,
+        why: "the Safe-Chain box it ran with is gone, and its log with it",
+      },
+    ],
+    omitted: 40,
+  };
+
+  for (const [where, text] of [
+    [
+      "the reviewer's section",
+      assembleReviewTaskMessage(input({ safeChain: many })).sections.find(
+        (section) => section.name === "safe_chain_refusals",
+      )?.text ?? "",
+    ],
+    ["the worker's held feedback", safeChainFeedback(many) ?? ""],
+  ] as const) {
+    it(`names each package once within its size, then counts the rest, in ${where}`, () => {
+      const lines = linesOf(text);
+      const named = lines.filter((line) => line.includes(", refused by Safe-Chain: "));
+      expect(new Set(named).size).toBe(named.length);
+      expect(named[0]).toBe(
+        "- npm: some-package-0@1.0.0, refused by Safe-Chain: Aikido's malware list marks it MALWARE",
+      );
+      expect(named.join("\n").length).toBeLessThanOrEqual(SAFE_CHAIN_LINES_MAX);
+      expect(named.length).toBeGreaterThan(20);
+      expect(named.length).toBeLessThan(300);
+      expect(lines).toContain(
+        `- and ${300 - named.length + 40} more packages Safe-Chain refused, left out to keep this short`,
+      );
+      // The unknown log is always named, once.
+      expect(lines.filter((line) => line.includes("is unknown"))).toEqual([
+        "- pypi: what Safe-Chain refused is unknown, because the Safe-Chain box it ran with is gone, and its log with it",
+      ]);
+      expect(text.length).toBeLessThan(SAFE_CHAIN_LINES_MAX + 600);
+    });
+  }
 });

@@ -17,7 +17,7 @@
 import { createHash } from "node:crypto";
 import { isAbsolute, relative, sep } from "node:path";
 
-import type { SafeChainFound } from "../box/safe-chain";
+import { type SafeChainFound, uniqueFound } from "../box/safe-chain";
 import { formatCount } from "../context/truncate";
 import { budgetLine, withBudgetLine, type BudgetFacts } from "./budget";
 import { cutHead, cutTailLines } from "./cut";
@@ -87,19 +87,35 @@ export function decisionNoteFeedback(
   });
 }
 
+/** The most characters of the refusal lines of one message or section (DIPO-376), as an item's. */
+export const SAFE_CHAIN_LINES_MAX = 3_000;
+
 /**
  * The lines of what Safe-Chain refused in a run's box (DIPO-376), as the worker and the reviewer
- * read them: each refusal with its ecosystem, package and Safe-Chain's reason, then each session
- * log dipo could not read, whose refusals are unknown. Its words are data: their tags are
+ * read them: each package once per ecosystem with Safe-Chain's reason, as many as fit in
+ * `SAFE_CHAIN_LINES_MAX` characters, then one line that counts the rest; then each session log
+ * dipo could not read, whose refusals are unknown, always. Its words are data: their tags are
  * neutralised where the lines are rendered.
  */
 export function safeChainLines(found: SafeChainFound): string[] {
+  const unique = uniqueFound(found);
+  const shown: string[] = [];
+  let size = 0;
+  for (const refusal of unique.refusals) {
+    const line = `- ${refusal.ecosystem}: ${refusal.package}, refused by Safe-Chain: ${refusal.reason}`;
+    if (size + line.length + 1 > SAFE_CHAIN_LINES_MAX) break;
+    shown.push(line);
+    size += line.length + 1;
+  }
+  const more = unique.refusals.length - shown.length + (unique.omitted ?? 0);
   return [
-    ...found.refusals.map(
-      (refusal) =>
-        `- ${refusal.ecosystem}: ${refusal.package}, refused by Safe-Chain: ${refusal.reason}`,
-    ),
-    ...found.unknown.map(
+    ...shown,
+    ...(more > 0
+      ? [
+          `- and ${formatCount(more)} more ${more === 1 ? "package" : "packages"} Safe-Chain refused, left out to keep this short`,
+        ]
+      : []),
+    ...unique.unknown.map(
       (log) => `- ${log.ecosystem}: what Safe-Chain refused is unknown, because ${log.why}`,
     ),
   ];

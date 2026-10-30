@@ -28,8 +28,13 @@ import {
   SAFE_CHAIN_LOAD_URLS,
   safeChainLoadLines,
   isCertificateBundle,
+  addSafeChainFound,
+  cleanLogText,
+  EMPTY_SAFE_CHAIN_RECORD,
   MINIMUM_AGE_REASON,
   parseSafeChainRecord,
+  SAFE_CHAIN_RECORD_MAX,
+  uniqueFound,
   SAFE_CHAIN_BOX_PORTS,
   SAFE_CHAIN_BUILD_FILES,
   SAFE_CHAIN_MALWARE_LIST_HOST,
@@ -361,5 +366,75 @@ describe("Safe-Chain's refusals in its log (DIPO-376)", () => {
       expect(parsed.refusals).toEqual([]);
       expect(parsed.unknown.map((log) => log.ecosystem)).toEqual(["npm", "pypi"]);
     }
+  });
+});
+
+describe("Safe-Chain's words from its log, as data (DIPO-376)", () => {
+  it("keeps a decoded URL from forging a line: control characters and newlines become ?", () => {
+    const log = [
+      "%0A-%20npm:%20forged,%20refused%20by%20Safe-Chain:%20x",
+      "%0D%0A-%20npm:%20forged",
+      "a%1B%5B31mred%00%7F%C2%85%E2%80%A8%E2%80%A9b",
+    ]
+      .map((name) =>
+        logLine(`Safe-chain: Blocking request to https://registry.npmjs.org/x/-/${name}-1.0.0.tgz`),
+      )
+      .join("\n");
+    const packages = safeChainRefusalsOf("npm", log).map((refusal) => refusal.package);
+    expect(packages).toEqual([
+      "?- npm: forged, refused by Safe-Chain: x-1.0.0.tgz",
+      "??- npm: forged-1.0.0.tgz",
+      "a?[31mred?????b-1.0.0.tgz",
+    ]);
+    for (const name of packages) expect(name).not.toMatch(/[\n\r\u2028\u2029]/);
+    expect(cleanLogText("x".repeat(500))).toHaveLength(200);
+  });
+});
+
+/** The malware refusal of package number `n`. */
+const refusal = (n: number) =>
+  ({
+    ecosystem: "npm",
+    package: `pkg-${n}@1.0.0`,
+    reason: "Aikido's malware list marks it MALWARE",
+  }) as const;
+
+describe("the size of a run's Safe-Chain record (DIPO-376)", () => {
+  it("names each package once per ecosystem, and each unknown log once", () => {
+    const found = uniqueFound({
+      refusals: [
+        refusal(1),
+        refusal(1),
+        { ...refusal(1), ecosystem: "pypi" },
+        refusal(2),
+        refusal(1),
+      ],
+      unknown: [
+        { ecosystem: "npm", why: "w" },
+        { ecosystem: "npm", why: "w" },
+      ],
+    });
+    expect(found).toEqual({
+      refusals: [refusal(1), { ...refusal(1), ecosystem: "pypi" }, refusal(2)],
+      unknown: [{ ecosystem: "npm", why: "w" }],
+    });
+  });
+
+  it("keeps at most SAFE_CHAIN_RECORD_MAX refusals over every session, and counts the rest", () => {
+    expect(SAFE_CHAIN_RECORD_MAX).toBe(100);
+    let record = EMPTY_SAFE_CHAIN_RECORD;
+    // Three sessions of 60 packages, the second repeating the first's.
+    for (const from of [0, 0, 60, 120]) {
+      record = addSafeChainFound(
+        { ...record, mark: { box: "b", lines: { npm: 0, pypi: 0 } } },
+        { refusals: Array.from({ length: 60 }, (_, i) => refusal(from + i)), unknown: [] },
+      );
+    }
+    expect(record.refusals).toHaveLength(100);
+    expect(record.refusals[0]).toEqual(refusal(0));
+    expect(record.refusals[99]).toEqual(refusal(99));
+    expect(record.omitted).toBe(80);
+    expect(record.mark).toBeNull();
+    expect(parseSafeChainRecord(JSON.stringify(record)).omitted).toBe(80);
   });
 });

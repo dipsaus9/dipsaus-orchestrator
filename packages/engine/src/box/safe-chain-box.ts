@@ -662,17 +662,28 @@ function running(
   };
 }
 
-/** How long one read of a Safe-Chain log in its box may take. */
-export const SAFE_CHAIN_LOG_READ_TIMEOUT_MS = 30_000;
+/**
+ * How long one count or read of a Safe-Chain log in its box may take. A session's start and its end
+ * each make one per log (two), so neither waits more than about 8 seconds; past it the log is
+ * unknown.
+ */
+export const SAFE_CHAIN_LOG_READ_TIMEOUT_MS = 4_000;
+/** The exit of `READ_REFUSALS` for a log shorter than at the session's start: cut or replaced. */
+const LOG_SHRANK = 4;
 
 /** Prints the complete lines of the log `$1`; exit 3 when it is not there to read. */
 const COUNT_LINES = '[ -r "$1" ] || exit 3; wc -l < "$1"';
 /**
- * Prints the lines of the log `$1` from line `$2` on that hold either refusal line (`$3`, `$4`); exit
- * 3 when it is not there to read, grep's 2 when grep failed.
+ * Prints the lines of the log `$1` after its first `$2` lines (the mark) that hold either refusal
+ * line (`$3`, `$4`); exit 3 when it is not there to read, `LOG_SHRANK` when it holds fewer lines
+ * than the mark (it was cut or replaced, so `tail` would print nothing), grep's 2 when grep failed.
  */
-const READ_REFUSALS =
-  '[ -r "$1" ] || exit 3; tail -n "+$2" -- "$1" | grep -F -e "$3" -e "$4"; [ "$?" -le 1 ]';
+const READ_REFUSALS = [
+  '[ -r "$1" ] || exit 3',
+  'n=$(wc -l < "$1") || exit 3',
+  `[ "$n" -ge "$2" ] || exit ${LOG_SHRANK}`,
+  'tail -n "+$(($2 + 1))" -- "$1" | grep -F -e "$3" -e "$4"; [ "$?" -le 1 ]',
+].join("; ");
 
 /**
  * Where a session starts in the Safe-Chain logs of box `box` (DIPO-376): the complete lines each log
@@ -741,7 +752,7 @@ export async function readSafeChain(
           READ_REFUSALS,
           "sh",
           safeChainLogFile(ecosystem),
-          String(from + 1),
+          String(from),
           SAFE_CHAIN_REFUSAL_LINES.blocking,
           SAFE_CHAIN_REFUSAL_LINES.malware,
         ],
@@ -749,6 +760,13 @@ export async function readSafeChain(
       );
     } catch (error) {
       unknown.push({ ecosystem, why: `its Safe-Chain log could not be read: ${messageOf(error)}` });
+      continue;
+    }
+    if (got.code === LOG_SHRANK) {
+      unknown.push({
+        ecosystem,
+        why: "its Safe-Chain log holds fewer lines than when the session started, so it was cut or replaced",
+      });
       continue;
     }
     if (got.code !== 0) {

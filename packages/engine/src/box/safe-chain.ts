@@ -394,6 +394,8 @@ export interface SafeChainUnknown {
 export interface SafeChainFound {
   readonly refusals: readonly SafeChainRefusal[];
   readonly unknown: readonly SafeChainUnknown[];
+  /** Refusals left out of `refusals` past `SAFE_CHAIN_RECORD_MAX`; none when absent. */
+  readonly omitted?: number;
 }
 
 /**
@@ -418,6 +420,70 @@ export interface SafeChainRecord extends SafeChainFound {
 
 /** The record of a run no session marked yet. */
 export const EMPTY_SAFE_CHAIN_RECORD: SafeChainRecord = { refusals: [], unknown: [], mark: null };
+
+/** The most refusals a run's record keeps; past it, only their count (`omitted`). */
+export const SAFE_CHAIN_RECORD_MAX = 100;
+/** The longest package name or reason kept from Safe-Chain's log, in characters. */
+export const SAFE_CHAIN_TEXT_MAX = 200;
+
+/**
+ * Pure: log text as one safe line (DIPO-376): each control character, newline and line separator
+ * (as a decoded URL can hold them) as `?`, cut to `SAFE_CHAIN_TEXT_MAX`. So no text from the log
+ * can start a line of its own where it is quoted.
+ */
+export function cleanLogText(text: string): string {
+  return Array.from(text, (char) => (isControl(char.codePointAt(0) ?? 0) ? "?" : char))
+    .join("")
+    .slice(0, SAFE_CHAIN_TEXT_MAX);
+}
+
+/** A C0 or C1 control character, DEL, or a Unicode line or paragraph separator. */
+function isControl(code: number): boolean {
+  return code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029;
+}
+
+const refusalKey = (refusal: SafeChainRefusal): string => `${refusal.ecosystem} ${refusal.package}`;
+const unknownKey = (log: SafeChainUnknown): string => `${log.ecosystem} ${log.why}`;
+
+/** Pure: `items` with each key once, first seen first. */
+function uniqueBy<T>(items: readonly T[], key: (item: T) => string): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const id = key(item);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+/**
+ * Pure: `found` with each package refused once per ecosystem and each unknown log once (DIPO-376):
+ * an install tried again is refused again, which says nothing new.
+ */
+export function uniqueFound(found: SafeChainFound): SafeChainFound {
+  return {
+    refusals: uniqueBy(found.refusals, refusalKey),
+    unknown: uniqueBy(found.unknown, unknownKey),
+    ...(found.omitted === undefined || found.omitted === 0 ? {} : { omitted: found.omitted }),
+  };
+}
+
+/**
+ * Pure: the run's record with one session's read added (DIPO-376), each package once per ecosystem
+ * and each unknown log once, at most `SAFE_CHAIN_RECORD_MAX` refusals; the rest are counted in
+ * `omitted`. The mark is cleared: the session was read.
+ */
+export function addSafeChainFound(stored: SafeChainRecord, found: SafeChainFound): SafeChainRecord {
+  const all = uniqueBy([...stored.refusals, ...found.refusals], refusalKey);
+  const omitted =
+    (stored.omitted ?? 0) + (found.omitted ?? 0) + Math.max(0, all.length - SAFE_CHAIN_RECORD_MAX);
+  return {
+    refusals: all.slice(0, SAFE_CHAIN_RECORD_MAX),
+    unknown: uniqueBy([...stored.unknown, ...found.unknown], unknownKey),
+    ...(omitted === 0 ? {} : { omitted }),
+    mark: null,
+  };
+}
 
 /** The reason of a refusal Safe-Chain's malware list names, from its status (`MALWARE`). */
 function malwareReason(status: string): string {
@@ -495,11 +561,19 @@ export function safeChainRefusalsOf(
     const url = blocking[1] ?? "";
     const verdict = malware.findLast((entry) => !entry.paired && fileOf(url, entry.pkg));
     if (verdict === undefined) {
-      refusals.push({ ecosystem, package: fileName(url), reason: MINIMUM_AGE_REASON });
+      refusals.push({
+        ecosystem,
+        package: cleanLogText(fileName(url)),
+        reason: MINIMUM_AGE_REASON,
+      });
       continue;
     }
     verdict.paired = true;
-    refusals.push({ ecosystem, package: verdict.pkg, reason: malwareReason(verdict.status) });
+    refusals.push({
+      ecosystem,
+      package: cleanLogText(verdict.pkg),
+      reason: cleanLogText(malwareReason(verdict.status)),
+    });
   }
   return refusals;
 }
@@ -555,9 +629,14 @@ export function parseSafeChainRecord(text: string): SafeChainRecord {
       mark: null,
     };
   }
+  const omitted =
+    typeof value.omitted === "number" && Number.isSafeInteger(value.omitted) && value.omitted > 0
+      ? value.omitted
+      : 0;
   return {
     refusals: value.refusals.filter(isRefusal),
     unknown: value.unknown.filter(isUnknown),
+    ...(omitted === 0 ? {} : { omitted }),
     mark: value.mark === null || value.mark === undefined ? null : markOf(value.mark),
   };
 }
