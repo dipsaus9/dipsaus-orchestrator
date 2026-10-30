@@ -75,6 +75,33 @@ export interface SystemHostStarterOptions {
   readonly spawnDetached?: SpawnDetached;
 }
 
+/**
+ * Connects to a host this daemon just started, trying again until it is bound. The caller runs
+ * right after the detached host was spawned, and the host binds its socket a moment later
+ * (DIPO-181). The caller then claims the host (`claimHost`), which stops its worker when no daemon
+ * claimed it by its launch deadline (DIPO-386), so "unreachable" is retried up to that deadline; a
+ * refusal, a silent socket or `stopped` ends it.
+ */
+export async function connectWhenBound(
+  host: Pick<LaunchedHost, "socketPath" | "runId" | "launchDeadline">,
+  clock: Clock,
+  stopped: () => boolean,
+): Promise<ConnectHostResult> {
+  const deadline = host.launchDeadline;
+  for (;;) {
+    const left = deadline - clock.now();
+    const connected = await connectHost(host.socketPath, {
+      runId: host.runId,
+      clock,
+      // A host that binds late still gets a full second for its hello.
+      timeoutMs: Math.max(HOST_HELLO_MIN_MS, left),
+    });
+    if (connected.ok || connected.reason !== "unreachable" || stopped()) return connected;
+    if (deadline - clock.now() <= HOST_CONNECT_RETRY_MS) return connected;
+    await new Promise<void>((resolve) => clock.setTimeout(resolve, HOST_CONNECT_RETRY_MS));
+  }
+}
+
 /** Starts worker hosts as detached `dipo daemon worker-host <run-id>` processes. */
 export function systemHostStarter(options: SystemHostStarterOptions): HostStarter {
   return {
@@ -239,7 +266,7 @@ export class OfficeIngest implements RunIngest {
     const ingestor = this.#ingestor(office);
     if (target.work !== undefined) this.#options.watchdog?.track(office, host.runId as RunId);
     ingestor.track(target);
-    void this.#connectWhenBound(host)
+    void connectWhenBound(host, this.#options.clock, () => this.#closed)
       .then(async (connected) => {
         if (connected.ok && this.#closed) {
           connected.client.close();
@@ -272,30 +299,6 @@ export class OfficeIngest implements RunIngest {
           reason: error instanceof Error ? error.message : String(error),
         });
       });
-  }
-
-  /**
-   * Connects to a new host's socket, trying again until it is bound. `start` runs right after the
-   * detached host was spawned, and the host binds its socket a moment later (DIPO-181). The
-   * handshake claims the host, which stops its worker when no daemon claimed it by its launch
-   * deadline (DIPO-386), so "unreachable" is retried up to that deadline; a refusal or a silent
-   * socket ends it.
-   */
-  async #connectWhenBound(host: LaunchedHost): Promise<ConnectHostResult> {
-    const { clock } = this.#options;
-    const deadline = host.launchDeadline;
-    for (;;) {
-      const left = deadline - clock.now();
-      const connected = await connectHost(host.socketPath, {
-        runId: host.runId,
-        clock,
-        // A host that binds late still gets a full second for its hello.
-        timeoutMs: Math.max(HOST_HELLO_MIN_MS, left),
-      });
-      if (connected.ok || connected.reason !== "unreachable" || this.#closed) return connected;
-      if (deadline - clock.now() <= HOST_CONNECT_RETRY_MS) return connected;
-      await new Promise<void>((resolve) => clock.setTimeout(resolve, HOST_CONNECT_RETRY_MS));
-    }
   }
 
   /** Writes the run's pending `work.output` now, before a state change of the run (0005 section 6). */

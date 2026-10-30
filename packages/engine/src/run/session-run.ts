@@ -18,6 +18,8 @@
 //   the stop, so without it the caps would no longer hold.
 // - A plan limit the session meets ends it as `plan-limit`: the fallback pauses the office's
 //   starts (0020) and starts a new session once they lift, never a park.
+// - Its host is claimed once started, as a story's is (DIPO-386, 0008): an unclaimed host would
+//   stop the session at its launch deadline.
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
@@ -38,6 +40,7 @@ import type { OfficeGit } from "../git/office";
 import { Ingestor, type IngestAdapter, type IngestedExit } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
 import { recordAgent } from "../runs/agents";
+import type { LaunchedHost } from "../runs/worker-hosts";
 import {
   SCAN_ROLE,
   type ScanSessionRequest,
@@ -48,6 +51,7 @@ import type { RunLaunchPaths, WorkerPort } from "../workers/port";
 import { PlanError, type WorkerEvent, type WorkerSpec } from "../workers/types";
 
 import type { RunSteering } from "./control-types";
+import { claimHost, connectWhenBound } from "./hosts";
 import { type HostStarter, runLaunchPaths, systemHashOf } from "./launch";
 import { sessionUuid } from "./prompts";
 import type { RunEnd } from "./lifecycle";
@@ -236,8 +240,9 @@ export class SessionRuns implements ScanSessionRunner {
         startedAt,
       });
     });
+    let host: LaunchedHost;
     try {
-      await deps.hosts.start(office, {
+      host = await deps.hosts.start(office, {
         runId,
         agentId: agent,
         officeDir: paths.officeDir,
@@ -261,7 +266,7 @@ export class SessionRuns implements ScanSessionRunner {
     }
     deps.onChanged?.(request.office);
 
-    const followed = await this.#follow(request, spec, paths, config);
+    const followed = await this.#follow(request, spec, paths, config, host);
     if (followed.end === null) {
       this.#end(request.office, office, runId, "dropped");
       return { kind: "failed", runId, reason: "its host never reported an exit" };
@@ -288,12 +293,17 @@ export class SessionRuns implements ScanSessionRunner {
     return { kind: "failed", runId, reason: why };
   }
 
-  /** Ingests the session's events until its exit, stopping it at its caps. */
+  /**
+   * Ingests the session's events until its exit, stopping it at its caps. The host is recorded
+   * with its spawned PID and followed from here, so it is claimed (DIPO-386); unclaimed, it would
+   * stop the session at its launch deadline.
+   */
   #follow(
     request: ScanSessionRequest,
     spec: WorkerSpec,
     paths: RunLaunchPaths,
     config: OfficeConfig,
+    host: LaunchedHost,
   ): Promise<Followed> {
     const deps = this.#deps;
     const office = request.handle;
@@ -363,6 +373,7 @@ export class SessionRuns implements ScanSessionRunner {
       warn: (message, fields) => deps.warn?.(message, fields),
     });
     this.#live.set(runId, stop);
+    void this.#claim(host, () => settled);
     const capMs = settings.maxMinutes * 60_000;
     timers.push(
       deps.clock.setTimeout(
@@ -387,6 +398,31 @@ export class SessionRuns implements ScanSessionRunner {
       void stop("its events could not be ingested");
     }
     return promise;
+  }
+
+  /** Connects to the session's new host and claims it; says so when it could not (DIPO-386). */
+  async #claim(host: LaunchedHost, settled: () => boolean): Promise<void> {
+    const deps = this.#deps;
+    const unclaimed = (reason: string) =>
+      deps.warn?.("the scan session's host was not claimed; it stops at its launch deadline", {
+        run: host.runId,
+        reason,
+      });
+    try {
+      const connected = await connectWhenBound(host, deps.clock, settled);
+      if (!connected.ok) {
+        if (!settled()) unclaimed(connected.reason);
+        return;
+      }
+      try {
+        const refused = await claimHost(connected.client, host.pid);
+        if (refused !== null) unclaimed(refused);
+      } finally {
+        connected.client.close();
+      }
+    } catch (error) {
+      unclaimed(messageOf(error));
+    }
   }
 
   /** A session run ends done with its answer, else dropped (0020): nothing waits on it. */
