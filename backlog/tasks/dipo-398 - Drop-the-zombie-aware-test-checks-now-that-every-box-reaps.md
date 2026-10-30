@@ -4,6 +4,7 @@ title: Drop the zombie-aware test checks now that every box reaps
 status: Refined
 assignee: []
 created_date: '2026-10-30 18:21'
+updated_date: '2026-10-30 18:23'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -38,7 +39,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The zombie-aware checks in packages/testkit/src/running.ts and the zombie cases in the platform process and deadline tests are removed
+- [ ] #1 The box-reaping workarounds in packages/testkit/src/running.ts (the checks that treat a zombie left by a box without an init as gone) are removed; tests of the process probe's own zombie handling (process.test.ts withZombie, deadline.test.ts, the lock test fixtures) stay
 - [ ] #2 bun run verify passes in a box made by a dipo binary that includes DIPO-378, shown by the story's own dipo run
-- [ ] #3 No comment still explains a zombie workaround in the test helpers
+- [ ] #3 No comment still explains a box zombie workaround in the test helpers
 <!-- AC:END -->
