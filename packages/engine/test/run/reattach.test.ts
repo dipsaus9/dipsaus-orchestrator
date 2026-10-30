@@ -245,6 +245,7 @@ function daemon(
               startTimeMs: w.startTimeMs,
               zombie: false,
               command: w.command ?? `/opt/dipo daemon worker-host ${w.f.run}`,
+              argv: (w.command ?? `/opt/dipo daemon worker-host ${w.f.run}`).split(" "),
             }
           : null),
     // Never the real signal: the fake host's PID may be a real process.

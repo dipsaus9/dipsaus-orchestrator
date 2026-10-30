@@ -12,7 +12,7 @@ import { guardRuns, processRunning, withTempDir } from "@dipsaus-orchestrator/te
 import {
   ChildProcesses,
   isDaemonCommand,
-  isWorkerHostCommand,
+  isWorkerHostArgv,
   signalProcess,
   isSameProcess,
   parseBootTime,
@@ -199,7 +199,7 @@ describe("kern.proc.pid and kern.procargs2 (DIPO-114)", () => {
     );
   });
 
-  it("joins the arguments with spaces, leaving out the executable path and the environment", () => {
+  it("reads the arguments one string each, leaving out the executable path and the environment", () => {
     expect(
       parseProcArgs(
         procArgsBuffer(
@@ -208,10 +208,10 @@ describe("kern.proc.pid and kern.procargs2 (DIPO-114)", () => {
           ["HOME=/Users/me"],
         ),
       ),
-    ).toBe("/usr/local/bin/dipo daemon --foreground");
+    ).toEqual(["/usr/local/bin/dipo", "daemon", "--foreground"]);
     expect(
       parseProcArgs(procArgsBuffer("/b", ["/Users/m/My Tools/dipo", "daemon", "worker-host", "r"])),
-    ).toBe("/Users/m/My Tools/dipo daemon worker-host r");
+    ).toEqual(["/Users/m/My Tools/dipo", "daemon", "worker-host", "r"]);
   });
 
   it("refuses malformed procargs", () => {
@@ -225,14 +225,25 @@ describe("kern.proc.pid and kern.procargs2 (DIPO-114)", () => {
   it("names the command as ps does: <defunct> for a zombie, (comm) without arguments", () => {
     const start = OCT_12_095203 / 1000;
     expect(
-      darwinProcessInfo(7, { startSeconds: start, zombie: false, comm: "dipo" }, "a b"),
-    ).toEqual({ pid: 7, startTimeMs: OCT_12_095203, zombie: false, command: "a b" });
+      darwinProcessInfo(7, { startSeconds: start, zombie: false, comm: "dipo" }, ["a b", "c"]),
+    ).toEqual({
+      pid: 7,
+      startTimeMs: OCT_12_095203,
+      zombie: false,
+      command: "a b c",
+      argv: ["a b", "c"],
+    });
     expect(
-      darwinProcessInfo(7, { startSeconds: start, zombie: false, comm: "dipo" }, null).command,
-    ).toBe("(dipo)");
+      darwinProcessInfo(7, { startSeconds: start, zombie: false, comm: "dipo" }, null),
+    ).toEqual({
+      pid: 7,
+      startTimeMs: OCT_12_095203,
+      zombie: false,
+      command: "(dipo)",
+    });
     expect(
-      darwinProcessInfo(7, { startSeconds: start, zombie: true, comm: "dipo" }, "a b").command,
-    ).toBe("<defunct>");
+      darwinProcessInfo(7, { startSeconds: start, zombie: true, comm: "dipo" }, ["a b"]),
+    ).toEqual({ pid: 7, startTimeMs: OCT_12_095203, zombie: true, command: "<defunct>" });
   });
 });
 
@@ -343,7 +354,19 @@ describe("system probe", () => {
     try {
       await withZombie(async (zombie) => {
         for (const pid of [process.pid, child.pid, zombie]) {
-          expect(await probe(pid)).toEqual(await readPs(pid));
+          const read = await probe(pid);
+          // `ps` shows the joined line only; the arguments join to it (DIPO-386).
+          if (read?.argv !== undefined) expect(read.argv.join(" ")).toBe(read.command);
+          const shown =
+            read === null
+              ? null
+              : {
+                  pid: read.pid,
+                  startTimeMs: read.startTimeMs,
+                  zombie: read.zombie,
+                  command: read.command,
+                };
+          expect(shown).toEqual(await readPs(pid));
         }
       });
     } finally {
@@ -391,92 +414,80 @@ describe("ChildProcesses (DIPO-68)", () => {
   });
 });
 
-describe("isWorkerHostCommand (DIPO-93)", () => {
+describe("isWorkerHostArgv (DIPO-93, DIPO-386)", () => {
   const RUN = "run_01JZ0000000000000000000001";
+  const HOST = ["daemon", "worker-host", RUN];
 
-  it("matches `dipo daemon worker-host <run>` for exactly that run, from the binary or source", () => {
-    expect(isWorkerHostCommand(`/usr/local/bin/dipo daemon worker-host ${RUN}`, RUN)).toBe(true);
+  it("matches the binary or Bun with the CLI's entry script, for exactly that run", () => {
+    expect(isWorkerHostArgv(["/usr/local/bin/dipo", ...HOST], RUN)).toBe(true);
+    expect(isWorkerHostArgv(["/opt/bun", "/repo/packages/cli/src/main.ts", ...HOST], RUN)).toBe(
+      true,
+    );
+  });
+
+  it("matches a binary or script path with spaces: each argument stays one string", () => {
+    expect(isWorkerHostArgv(["/Users/m/My Tools/dipo", ...HOST], RUN)).toBe(true);
+    expect(isWorkerHostArgv(["/Users/m/.local/bin/dipo", ...HOST], RUN)).toBe(true);
     expect(
-      isWorkerHostCommand(`/opt/bun /repo/packages/cli/src/main.ts daemon worker-host ${RUN}`, RUN),
+      isWorkerHostArgv(["/Users/m/My Bun/bun", "/Users/m/My Repo/cli/src/main.ts", ...HOST], RUN),
     ).toBe(true);
   });
 
-  it("refuses another run, another form, extra arguments or another program", () => {
-    expect(isWorkerHostCommand("dipo daemon worker-host run_01JZ0000000000000000000002", RUN)).toBe(
-      false,
-    );
-    expect(isWorkerHostCommand(`dipo daemon worker-host ${RUN} --x`, RUN)).toBe(false);
-    expect(isWorkerHostCommand(`dipo hook worker-host ${RUN}`, RUN)).toBe(false);
-    expect(isWorkerHostCommand(`daemon worker-host ${RUN}`, RUN)).toBe(false);
-    expect(isWorkerHostCommand(`vim ${RUN}`, RUN)).toBe(false);
-    expect(isWorkerHostCommand("", RUN)).toBe(false);
+  it("refuses another run, another form, extra arguments or no arguments", () => {
+    expect(isWorkerHostArgv(["/opt/dipo", "daemon", "worker-host", "run_02"], RUN)).toBe(false);
+    expect(isWorkerHostArgv(["/opt/dipo", ...HOST, "--x"], RUN)).toBe(false);
+    expect(isWorkerHostArgv(["/opt/dipo", "hook", "worker-host", RUN], RUN)).toBe(false);
+    expect(isWorkerHostArgv(HOST, RUN)).toBe(false);
+    expect(isWorkerHostArgv(["dipo", ...HOST], RUN)).toBe(false);
+    expect(isWorkerHostArgv(["./dipo", ...HOST], RUN)).toBe(false);
+    expect(isWorkerHostArgv(["/opt/notdipo", ...HOST], RUN)).toBe(false);
+    expect(isWorkerHostArgv(["/usr/bin/vim", RUN], RUN)).toBe(false);
+    expect(isWorkerHostArgv([], RUN)).toBe(false);
+    // Arguments that could not be read (a zombie, a refused read).
+    expect(isWorkerHostArgv(undefined, RUN)).toBe(false);
   });
 
-  it("refuses a path with spaces, which a command line cannot tell from a program and its words: it fails closed (DIPO-386)", () => {
-    expect(isWorkerHostCommand(`/Users/m/My Tools/dipo daemon worker-host ${RUN}`, RUN)).toBe(
+  it("refuses another program whose argument ends in dipo, or Bun with any script but the CLI's", () => {
+    expect(isWorkerHostArgv(["/bin/cat", "x/dipo", ...HOST], RUN)).toBe(false);
+    expect(isWorkerHostArgv(["/usr/bin/grep", "foo/dipo", ...HOST], RUN)).toBe(false);
+    expect(isWorkerHostArgv(["/opt/bun", "/tmp/other.ts", ...HOST], RUN)).toBe(false);
+    expect(isWorkerHostArgv(["/opt/bun", "/repo/packages/cli/src/main.tsx", ...HOST], RUN)).toBe(
       false,
     );
-    expect(
-      isWorkerHostCommand(
-        `/opt/bun /Users/m/My Repo/cli/src/main.ts daemon worker-host ${RUN}`,
-        RUN,
-      ),
-    ).toBe(false);
-  });
-
-  it("refuses another program whose last word ends in dipo, or Bun with any script but the CLI's (DIPO-386)", () => {
-    expect(isWorkerHostCommand(`/bin/cat x/dipo daemon worker-host ${RUN}`, RUN)).toBe(false);
-    expect(isWorkerHostCommand(`/usr/bin/grep foo/dipo daemon worker-host ${RUN}`, RUN)).toBe(
+    expect(isWorkerHostArgv(["/opt/bun", "packages/cli/src/main.ts", ...HOST], RUN)).toBe(false);
+    expect(isWorkerHostArgv(["/opt/dipo", "/repo/packages/cli/src/main.ts", ...HOST], RUN)).toBe(
       false,
     );
-    expect(isWorkerHostCommand(`/opt/bun /tmp/other.ts daemon worker-host ${RUN}`, RUN)).toBe(
-      false,
-    );
-    expect(
-      isWorkerHostCommand(
-        `/opt/bun /repo/packages/cli/src/main.tsx daemon worker-host ${RUN}`,
-        RUN,
-      ),
-    ).toBe(false);
-    expect(
-      isWorkerHostCommand(`/opt/bun packages/cli/src/main.ts daemon worker-host ${RUN}`, RUN),
-    ).toBe(false);
-    expect(
-      isWorkerHostCommand(
-        `/opt/dipo /repo/packages/cli/src/main.ts daemon worker-host ${RUN}`,
-        RUN,
-      ),
-    ).toBe(false);
   });
 
-  it("refuses a command that only mentions the host's words: no absolute dipo or Bun in front (DIPO-386)", () => {
-    expect(isWorkerHostCommand(`grep daemon worker-host ${RUN}`, RUN)).toBe(false);
-    expect(isWorkerHostCommand(`/usr/bin/grep daemon worker-host ${RUN}`, RUN)).toBe(false);
-    expect(isWorkerHostCommand(`/usr/bin/tail -f daemon worker-host ${RUN}`, RUN)).toBe(false);
-    expect(isWorkerHostCommand(`dipo daemon worker-host ${RUN}`, RUN)).toBe(false);
-    expect(isWorkerHostCommand(`./dipo daemon worker-host ${RUN}`, RUN)).toBe(false);
-    expect(isWorkerHostCommand(`/opt/notdipo daemon worker-host ${RUN}`, RUN)).toBe(false);
-  });
-
-  it("refuses a wrapper in front of the host's words: sh -c, env, nohup and the like (DIPO-386)", () => {
-    for (const command of [
-      `/bin/sh -c sleep 600; : daemon worker-host ${RUN}`,
-      `/bin/sh -c /usr/local/bin/dipo daemon worker-host ${RUN}`,
-      `/bin/bash /tmp/start.sh /usr/local/bin/dipo daemon worker-host ${RUN}`,
-      `/bin/zsh x/dipo daemon worker-host ${RUN}`,
-      `/usr/bin/env /usr/local/bin/dipo daemon worker-host ${RUN}`,
-      `/usr/bin/env DIPO_X=1 bin/dipo daemon worker-host ${RUN}`,
-      `/usr/bin/env -S dipo daemon worker-host ${RUN}`,
-      `/usr/bin/nohup /usr/local/bin/dipo daemon worker-host ${RUN}`,
-      `/usr/bin/nohup ./dipo daemon worker-host ${RUN}`,
-      `/usr/bin/nice x/dipo daemon worker-host ${RUN}`,
-      `/usr/bin/sudo -u m /usr/local/bin/dipo daemon worker-host ${RUN}`,
-      `/usr/bin/time /usr/local/bin/dipo daemon worker-host ${RUN}`,
-      `/usr/local/bin/dipo -x daemon worker-host ${RUN}`,
-      `/opt/bun -e setTimeout(()=>{},1) daemon worker-host ${RUN}`,
-      `/opt/bun /repo/packages/cli/src/main.ts /usr/local/bin/dipo daemon worker-host ${RUN}`,
+  it("refuses arguments whose space-joined line reads as the host's form", () => {
+    // Each joins to "<program> daemon worker-host <run>", as `ps` shows it, but none is that form.
+    for (const argv of [
+      ["/usr/local/bin/dipo daemon worker-host", RUN],
+      ["/bin/cat", "x/dipo daemon worker-host", RUN],
+      ["/bin/echo", `/usr/local/bin/dipo daemon worker-host ${RUN}`],
     ]) {
-      expect([command, isWorkerHostCommand(command, RUN)]).toEqual([command, false]);
+      expect(argv.join(" ").endsWith(`/dipo daemon worker-host ${RUN}`)).toBe(true);
+      expect([argv, isWorkerHostArgv(argv, RUN)]).toEqual([argv, false]);
+    }
+  });
+
+  it("refuses a wrapper or an option in front of the host's words: sh -c, env, nohup and the like", () => {
+    for (const argv of [
+      ["/bin/sh", "-c", "sleep 600; :", ...HOST],
+      ["/bin/sh", "-c", "/usr/local/bin/dipo", ...HOST],
+      ["/bin/bash", "/tmp/start.sh", "/usr/local/bin/dipo", ...HOST],
+      ["/usr/bin/env", "/usr/local/bin/dipo", ...HOST],
+      ["/usr/bin/env", "DIPO_X=1", "/usr/local/bin/dipo", ...HOST],
+      ["/usr/bin/nohup", "/usr/local/bin/dipo", ...HOST],
+      ["/usr/bin/nice", "/usr/local/bin/dipo", ...HOST],
+      ["/usr/bin/sudo", "-u", "m", "/usr/local/bin/dipo", ...HOST],
+      ["/usr/bin/time", "/usr/local/bin/dipo", ...HOST],
+      ["/usr/local/bin/dipo", "-x", ...HOST],
+      ["/opt/bun", "-e", "setTimeout(()=>{},1)", ...HOST],
+      ["/opt/bun", "/repo/packages/cli/src/main.ts", "/usr/local/bin/dipo", ...HOST],
+    ]) {
+      expect([argv, isWorkerHostArgv(argv, RUN)]).toEqual([argv, false]);
     }
   });
 });

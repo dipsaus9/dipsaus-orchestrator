@@ -56,7 +56,7 @@ import { connectHost, type ConnectHostResult } from "../host/client";
 import { LAUNCH_FILE, type HostExitFile } from "../host/protocol";
 import type { IngestAdapter, IngestedExit, IngestTarget, PassResult } from "../ingest/ingestor";
 import {
-  isWorkerHostCommand,
+  isWorkerHostArgv,
   type ProcessProbe,
   type SignalProcess,
   START_TIME_TOLERANCE_MS,
@@ -434,7 +434,7 @@ export class RunReattacher {
     const matches =
       info !== null &&
       !info.zombie &&
-      isWorkerHostCommand(info.command, host.runId) &&
+      isWorkerHostArgv(info.argv, host.runId) &&
       info.startTimeMs >= host.startedAt - START_TIME_TOLERANCE_MS;
     return matches ? { kind: "live", pid, startTimeMs: info.startTimeMs } : { kind: "refused" };
   }

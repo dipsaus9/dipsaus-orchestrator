@@ -4,7 +4,7 @@
 // its check; the first case shows a real host-form process passes, so the refusals are not vacuous.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 
 import { currentPlatform } from "../../src/platform/paths";
@@ -59,7 +59,7 @@ function rowFor(pid: number, startTimeMs: number, startedAt = startTimeMs): Work
 async function start(
   argv: string[],
   env: Record<string, string> = {},
-): Promise<{ pid: number; startTimeMs: number; command: string }> {
+): Promise<{ pid: number; startTimeMs: number; command: string; argv?: readonly string[] }> {
   const child = Bun.spawn(argv, {
     env: { ...process.env, ...env },
     stdio: ["ignore", "ignore", "ignore"],
@@ -83,6 +83,18 @@ function bunNamed(name: string): string {
 describe("verifyHostForSignal on real processes (DIPO-386)", () => {
   it("passes for a real process in the host's source form, with the row's start time", async () => {
     const live = await start([process.execPath, standIn, "daemon", "worker-host", RUN]);
+    expect(await verifyHostForSignal(rowFor(live.pid, live.startTimeMs), probe)).toEqual({
+      ok: true,
+    });
+  });
+
+  it("passes for a real host whose Bun and entry script paths hold spaces, as a home folder can", async () => {
+    mkdirSync(join(dir, "My Bun"));
+    const bun = join(dir, "My Bun", "bun");
+    symlinkSync(process.execPath, bun);
+    const script = lateHostScript(join(dir, "My Repo"));
+    const live = await start([bun, script, "daemon", "worker-host", RUN]);
+    expect(live.argv).toEqual([bun, script, "daemon", "worker-host", RUN]);
     expect(await verifyHostForSignal(rowFor(live.pid, live.startTimeMs), probe)).toEqual({
       ok: true,
     });

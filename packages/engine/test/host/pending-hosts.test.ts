@@ -45,12 +45,14 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+/** A probe reading `info` over the host's; the arguments are the command's words (no spaces). */
 const probeOf =
   (info: Partial<ProcessInfo> | null): ProcessProbe =>
-  async (pid) =>
-    info === null
-      ? null
-      : { pid, startTimeMs: t.clock.now(), zombie: false, command: HOST_COMMAND, ...info };
+  async (pid) => {
+    if (info === null) return null;
+    const read = { pid, startTimeMs: t.clock.now(), zombie: false, command: HOST_COMMAND, ...info };
+    return { ...read, argv: read.argv ?? read.command.split(" ") };
+  };
 
 function pendingRow(): WorkerHostRow {
   recordPendingHost(

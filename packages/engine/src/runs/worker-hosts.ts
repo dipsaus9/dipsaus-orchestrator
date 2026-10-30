@@ -37,7 +37,7 @@ import { ensurePrivateDir, type Env } from "../platform/paths";
 import {
   detachedEnv,
   isSameProcess,
-  isWorkerHostCommand,
+  isWorkerHostArgv,
   START_TIME_TOLERANCE_MS,
   systemSpawnDetached,
   type ProcessIdentity,
@@ -500,7 +500,7 @@ const no = (reason: string): SignalCheck => ({ ok: false, reason });
  * the row is recorded (not pending) and not ended, the host stops its worker on SIGTERM
  * (`signal_stop`), no `exit.json` past the processed offset says it exited, and the PID is
  * alive with the recorded start time, did not start before its row was written, and runs
- * `dipo daemon worker-host <run>` (`isWorkerHostCommand`). Any doubt refuses: an unverified PID is
+ * `dipo daemon worker-host <run>` (`isWorkerHostArgv`). Any doubt refuses: an unverified PID is
  * never signalled.
  */
 export async function verifyHostForSignal(
@@ -522,7 +522,7 @@ export async function verifyHostForSignal(
   if (info.startTimeMs < host.startedAt - START_TIME_TOLERANCE_MS) {
     return no("the process started before its row was written, so it is not the host dipo started");
   }
-  if (!isWorkerHostCommand(info.command, host.runId)) {
+  if (!isWorkerHostArgv(info.argv, host.runId)) {
     return no(`the process does not run \`dipo daemon worker-host ${host.runId}\``);
   }
   return { ok: true };
