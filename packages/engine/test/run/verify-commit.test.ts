@@ -11,11 +11,11 @@ import {
   dependencyFiles,
   gateChanges,
   NO_BOX_AT_DONE,
-  type StoredRun,
   type StoryGit,
   type TurnContext,
   VerifyCommit,
 } from "../../src/run";
+import { type StoredRun } from "../../src/records";
 import type { OfficeHandle } from "../../src/db/office";
 import { detect, type RunProfile } from "../../src/scan/detect";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";

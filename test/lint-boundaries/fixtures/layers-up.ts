@@ -2,7 +2,7 @@
 // the domain and the composition layer are refused; a type-only import crosses, as do imports
 // from its own layer.
 import { RunControl } from "../run/control";
-import type { StoredRun } from "../run/records";
+import type { StoredRun } from "../records/run-records";
 import { systemClock } from "../platform/clock";
 
 export const lazy = () => import("../create/create-engine");

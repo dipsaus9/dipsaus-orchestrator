@@ -31,7 +31,7 @@ import { runCaps, runTotals } from "./caps";
 import { runCriteriaMet } from "./criteria";
 import type { GrantAmount, RoundCap } from "./grants";
 import { hasTable } from "./open-feedback";
-import { capsStartedAt, findRun, runRoundCounts, type StoredRun } from "./records";
+import { capsStartedAt, findRun, runRoundCounts, type StoredRun } from "./run-records";
 
 /** The longest free text (a park detail, a note) a summary line carries. */
 export const SUMMARY_TEXT_MAX = 200;

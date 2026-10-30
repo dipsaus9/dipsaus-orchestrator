@@ -5,7 +5,7 @@
 import type { HostOp, TurnProblem } from "../workers/types";
 
 import { sendFeedback } from "./feedback";
-import { resolveIntent } from "./intents";
+import { resolveIntent } from "../records/intents";
 import type { OutcomeSupport } from "./outcome-support";
 import {
   INTENT_TAGS,

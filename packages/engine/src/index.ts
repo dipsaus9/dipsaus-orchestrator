@@ -23,6 +23,6 @@ export type { StartForwarder } from "./box/forwarder";
 export type { ListenHttp } from "./box/model-proxy";
 export type { TestBoxesDeps } from "./box/test-box";
 export type { HostStarter } from "./run/launch";
-export type { Presence } from "./run/live-question";
+export type { Presence } from "./records/live-question";
 export type { PreparedWorker, RunLaunchPaths, SessionFacts, WorkerPort } from "./workers/port";
 export type { LaunchPlan, WorkerSpec } from "./workers/types";

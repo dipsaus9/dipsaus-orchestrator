@@ -12,7 +12,7 @@ import { readLogState } from "../../src/changelog/log";
 import { Renderer } from "../../src/changelog/render";
 import type { OfficeHandle } from "../../src/db/office";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
-import { activeSignals } from "../../src/run/signals";
+import { activeSignals } from "../../src/records/signals";
 import { Watchdog } from "../../src/run/watchdog";
 import { workView } from "../../src/views/work";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";

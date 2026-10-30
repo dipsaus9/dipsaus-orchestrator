@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { DecidingGuard } from "../../src/run/deciding";
+import { DecidingGuard } from "../../src/records/deciding";
 
 describe("DecidingGuard", () => {
   it("holds a key from the call until the work settles", async () => {

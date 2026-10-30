@@ -77,7 +77,7 @@ export { systemPostNotification, type PostNotification } from "./platform/notify
 // test shell (DIPO-309) and `dipo config migrate` (0017).
 export { runWorkerHost } from "./host/main";
 export { LAUNCH_FILE, RUN_ID_PATTERN } from "./host/protocol";
-export { RUN_DIR_ENV } from "./runs/worker-hosts";
+export { RUN_DIR_ENV } from "./records/worker-hosts";
 export {
   storeBoxToken,
   TOKEN_KEYCHAIN_ACCOUNT,

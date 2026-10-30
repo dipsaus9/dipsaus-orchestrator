@@ -14,7 +14,7 @@
 import { migrateOfficeDocument, OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 
-import type { StoredRun } from "./records";
+import type { StoredRun } from "./run-records";
 
 function plain(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

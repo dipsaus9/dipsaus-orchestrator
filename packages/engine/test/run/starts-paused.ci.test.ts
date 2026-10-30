@@ -15,7 +15,8 @@ import { type CommandReply, RequestId, type RunId } from "@dipsaus-orchestrator/
 
 import { executeCommand } from "../../src/commands/execute";
 import { createSystemIds } from "../../src/platform/ids";
-import { findRun, PLAN_LIMIT_RESUME_AFTER_MS, type StartsPaused } from "../../src/run";
+import { PLAN_LIMIT_RESUME_AFTER_MS, type StartsPaused } from "../../src/run";
+import { findRun } from "../../src/records";
 import { resultOf } from "../office/helpers";
 import { type Running, withRunOffice } from "./run-office";
 

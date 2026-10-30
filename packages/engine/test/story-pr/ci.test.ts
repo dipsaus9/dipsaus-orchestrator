@@ -21,14 +21,8 @@ import {
   type PrReviewHost,
   type RequiredCheck,
 } from "../../src/platform/host";
-import {
-  appendRunStep,
-  insertRun,
-  recordGrant,
-  runRoundCounts,
-  runSteps,
-  stopAtInReview,
-} from "../../src/run";
+import { stopAtInReview } from "../../src/run";
+import { appendRunStep, insertRun, recordGrant, runRoundCounts, runSteps } from "../../src/records";
 import type { BranchPark, ParkBranchRequest, ParkWriter } from "../../src/run/park";
 import {
   CI_STUCK_POLL_MS,

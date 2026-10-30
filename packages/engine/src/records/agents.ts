@@ -6,10 +6,9 @@
 // cursors ended and its worker host row ended, in that order, inside one transaction.
 
 import type { OfficeHandle } from "../db/office";
-import { finalizeAgentUsage } from "../ingest/usage";
 
-import { ofNoOpenRun } from "../run/retired";
-
+import { ofNoOpenRun } from "./retired";
+import { finalizeAgentUsage } from "./usage";
 import { endHostRow } from "./worker-hosts";
 
 /** An agent row as a session start records it. */

@@ -1,7 +1,7 @@
 // Run directories (0007). `events.ndjson` holds tool inputs, so it exists only while the run needs
 // it: it is deleted once every worker host of the run has ended, the engine has processed it up to
 // each host's final offset and the run summary exists. Once the run ended more than
-// `retention.days` ago and no live claim or open park may reopen it (`run/retired.ts`), the whole
+// `retention.days` ago and no live claim or open park may reopen it (`records/retired.ts`), the whole
 // run directory (`events.ndjson`, `host.log`, `exit.json`) is deleted in every case, with an `engine.notice` when the stream was never fully processed. With
 // `privacy.keepRawEvents` the stream is kept for the retention period too.
 
@@ -11,8 +11,8 @@ import { join } from "node:path";
 import type { OfficeHandle } from "../db/office";
 import { EVENTS_FILE, RUN_ID_PATTERN } from "../host/protocol";
 import { officeDirectory } from "../office/marker";
-import { ofNoOpenRun } from "../run/retired";
-import { runDirectory } from "../runs/worker-hosts";
+import { ofNoOpenRun } from "../records/retired";
+import { runDirectory } from "../records/worker-hosts";
 
 /** Whether the run summary of `run` exists (0005, 0007 section 4 `run_summaries`). */
 export type SummaryCheck = (office: OfficeHandle, run: string) => boolean;

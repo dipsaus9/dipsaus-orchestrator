@@ -16,7 +16,7 @@ import {
   launchdJobPid,
   underLaunchdJob,
 } from "../../src/platform/supervisor";
-import { launchWorkerHost } from "../../src/runs/worker-hosts";
+import { launchWorkerHost } from "../../src/records/worker-hosts";
 
 const RUN = "run_01JZ0000000000000000000001";
 

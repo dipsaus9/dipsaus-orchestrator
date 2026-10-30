@@ -18,7 +18,7 @@ import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { Renderer } from "../../src/changelog/render";
 import type { StoredEntry } from "../../src/changelog/log";
 import type { OfficeHandle } from "../../src/db/office";
-import { recordWorkerHost } from "../../src/runs/worker-hosts";
+import { recordWorkerHost } from "../../src/records/worker-hosts";
 import type { HostLine, ParseState } from "../../src/workers/types";
 import type { IngestAdapter, IngestTarget } from "../../src/ingest/ingestor";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";

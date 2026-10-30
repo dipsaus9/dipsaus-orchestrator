@@ -18,10 +18,10 @@ import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
 import type { OfficeManager } from "../office/manager";
 import { systemIsExecutable } from "../platform/tools";
-import { workerHostsOf } from "../runs/worker-hosts";
+import { workerHostsOf } from "../records/worker-hosts";
 import { findClaim } from "../worktree/records";
 import { pendingBoxCopy } from "./conflicts";
-import { findRun } from "./records";
+import { findRun } from "../records/run-records";
 
 /** Apple `container` on `pathEnv`, by absolute path; undefined when it is not there. */
 export function containerOnPath(

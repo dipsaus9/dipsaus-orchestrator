@@ -45,8 +45,9 @@ import {
   type SignalProcess,
   type SpawnDetached,
 } from "../platform/process";
-import { ofNoOpenRun } from "../run/retired";
 import type { ExitRecord, LaunchPlan } from "../workers/types";
+
+import { ofNoOpenRun } from "./retired";
 
 /** The host reads its run directory from this variable; its cwd is the run directory too. */
 export const RUN_DIR_ENV = "DIPO_RUN_DIR";

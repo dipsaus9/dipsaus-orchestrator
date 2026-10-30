@@ -22,7 +22,7 @@ import { Retention, RETENTION_INTERVAL_MS, RETENTION_STEP } from "../../src/rete
 import { DAY_MS, runRetention } from "../../src/retention/run";
 import { MAX_BATCH_ROWS } from "../../src/retention/slices";
 import { addStory } from "../../src/stories/keys";
-import { runDirectory } from "../../src/runs/worker-hosts";
+import { runDirectory } from "../../src/records/worker-hosts";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
 
 import {

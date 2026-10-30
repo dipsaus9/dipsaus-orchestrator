@@ -13,7 +13,7 @@ import { type CommandReply, RequestId } from "@dipsaus-orchestrator/contract";
 
 import { executeCommand } from "../../src/commands/execute";
 import { createSystemIds } from "../../src/platform/ids";
-import { runIntents } from "../../src/run";
+import { runIntents } from "../../src/records";
 import { openPark } from "../../src/run/park";
 import { resultOf } from "../office/helpers";
 import { loadRecording } from "../workers/replay";

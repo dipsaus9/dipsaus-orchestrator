@@ -18,13 +18,13 @@ import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { Caps, HostOp, SteerOp, WorkerReport } from "../workers/types";
 
-import type { FiredCap } from "./caps";
-import type { IntentKind } from "./intents";
-import type { LiveQuestions } from "./live-question";
+import type { FiredCap } from "../records/caps";
+import type { IntentKind } from "../records/intents";
+import type { LiveQuestions } from "../records/live-question";
 import type { RunAct, RunOutcomesPort, RunView } from "./outcome-types";
 import type { ParkOutcome, ParkWriter } from "./park";
-import type { ParkStore } from "./park-state";
-import type { StoredRun } from "./records";
+import type { ParkStore } from "../records/park-state";
+import type { StoredRun } from "../records/run-records";
 import type { RunFinisher } from "./verify-commit";
 
 /** The error of `work.steer` for a story with no worker and no park (0005). */

@@ -77,7 +77,7 @@ import { GitError } from "../git/runner";
 import { assembleContract, ContractTooLargeError } from "../prompts/contract";
 import { recordPromptParts, recordPromptTexts } from "../prompts/parts";
 import { promptStoryOf } from "../prompts/story";
-import { recordAgent } from "../runs/agents";
+import { recordAgent } from "../records/agents";
 import { resolveStoryRef } from "../stories/keys";
 import { mapLimited, VIEW_CONCURRENCY } from "../stories/read";
 import { PlanningRefusedError, StoryParseError } from "../story-store/errors";
@@ -92,13 +92,18 @@ import { PlanError } from "../workers/types";
 import type { ClaimOutcome, ClaimRequest } from "../worktree/claim";
 import { type ClaimRecord, liveClaimOf } from "../worktree/records";
 
-import { recordRunCriteria } from "./criteria";
+import { recordRunCriteria } from "../records/criteria";
 import { planRefusedText, type PreparedRun, type RunFacts, type RunLauncher } from "./launch";
 import { markPhase } from "./markers";
 
 import { placeTaken, type Places, START_KINDS } from "./places";
-import { currentProfileId, hasActiveRun, insertRun, recordConfigSnapshot } from "./records";
-import { openDependencies, pickupOrder, READY_STATUS, statusSkip } from "./select";
+import {
+  currentProfileId,
+  hasActiveRun,
+  insertRun,
+  recordConfigSnapshot,
+} from "../records/run-records";
+import { openDependencies, pickupOrder, READY_STATUS, statusSkip } from "../records/select";
 import { type StartsPausedState, startsPausedRefusal } from "./starts-paused";
 
 /** The role every M0 run starts with (0012 F12). */

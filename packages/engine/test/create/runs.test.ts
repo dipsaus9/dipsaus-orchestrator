@@ -8,7 +8,7 @@ import type { OfficeId, SpawnOptions } from "@dipsaus-orchestrator/contract";
 import { OFFICE_DEFAULTS } from "../../src/config/schema";
 import type { OfficeHandle } from "../../src/db/office";
 import { engineFeatures, engineRegistry } from "../../src/features";
-import type { StoredRun } from "../../src/run/records";
+import type { StoredRun } from "../../src/records/run-records";
 import type { ParseState, WorkerSpec } from "../../src/workers/types";
 import { FakeProcess, ManualClock, SequentialIds } from "@dipsaus-orchestrator/testkit";
 

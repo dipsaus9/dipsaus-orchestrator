@@ -11,8 +11,8 @@ import { appendEntries } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { withWorkViews, workRefOf } from "../views/work";
 
-import { findRun } from "./records";
-import { markStuck, raiseSignal, type StoredSignal } from "./signals";
+import { findRun } from "../records/run-records";
+import { markStuck, raiseSignal, type StoredSignal } from "../records/signals";
 
 const MINUTE_MS = 60_000;
 

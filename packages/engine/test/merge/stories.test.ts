@@ -44,7 +44,12 @@ import {
   type UnparkBranchRequest,
   type UnparkWriter,
 } from "../../src/run/park";
-import { appendRunStep, findRun, recordConfigSnapshot, runSteps } from "../../src/run/records";
+import {
+  appendRunStep,
+  findRun,
+  recordConfigSnapshot,
+  runSteps,
+} from "../../src/records/run-records";
 import { reopen } from "../../src/run/rounds";
 import { insertTest, recordTestResult } from "../../src/run/test-records";
 import { findStoryPr, updateStoryPr } from "../../src/story-pr/records";

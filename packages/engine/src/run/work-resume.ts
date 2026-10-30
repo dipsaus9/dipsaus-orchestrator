@@ -20,9 +20,9 @@ import type { StoryIdentity } from "../stories/keys";
 import { storyView } from "../views/story";
 
 import { openPark } from "./park";
-import type { ParkStore } from "./park-state";
+import type { ParkStore } from "../records/park-state";
 import { notResumable } from "./park-resume";
-import { parkResumeNeed } from "./resume-policy";
+import { parkResumeNeed } from "../records/resume-policy";
 
 /** `work.resume` on a story that is neither parked nor running (0005). */
 export const NOT_PARKED = "story.notParked";

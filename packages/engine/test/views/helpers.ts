@@ -15,9 +15,9 @@ import {
 
 import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import type { OfficeHandle } from "../../src/db/office";
-import { type RunCriteria, recordRunCriteria } from "../../src/run/criteria";
-import { appendRunStep, insertRun } from "../../src/run/records";
-import { recordWorkerHost } from "../../src/runs/worker-hosts";
+import { type RunCriteria, recordRunCriteria } from "../../src/records/criteria";
+import { appendRunStep, insertRun } from "../../src/records/run-records";
+import { recordWorkerHost } from "../../src/records/worker-hosts";
 import type { TestState } from "../commands/helpers";
 
 export interface StartedRun {

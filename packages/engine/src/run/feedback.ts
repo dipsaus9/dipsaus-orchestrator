@@ -28,8 +28,8 @@ import type { HostOp, SteerOp } from "../workers/types";
 
 import { CONTROL_NOTICES } from "./control-types";
 import { markFeedbackSent } from "./feedback-items";
-import { type IntentSteering, markIntentSent, recordIntent, runIntents } from "./intents";
-import type { StoredRun } from "./records";
+import { type IntentSteering, markIntentSent, recordIntent, runIntents } from "../records/intents";
+import type { StoredRun } from "../records/run-records";
 
 /** The tag every feedback intent's detail starts with. */
 export const FEEDBACK_TAG = "feedback";

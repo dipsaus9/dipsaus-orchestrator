@@ -23,7 +23,7 @@ import { openPark } from "./park";
 import { ParkResumes, type ParkResumeOptions, type ResumeRequest } from "./park-resume";
 import type { RunOutcomesDeps } from "./outcome-types";
 import type { Places } from "./places";
-import type { StoredRun } from "./records";
+import type { StoredRun } from "../records/run-records";
 import type { LiftedPark, LiftedResume } from "./starts-paused";
 import { type HoldResumer, WorkResumeCommand } from "./work-resume";
 

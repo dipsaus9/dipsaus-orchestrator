@@ -16,13 +16,11 @@ import { CommandError } from "../../src/commands/errors";
 import type { AsyncCommandContext } from "../../src/commands/registry";
 import {
   createRunOutcomes,
-  insertRun,
-  raiseSignal,
-  recordIntent,
   type Resumption,
   type RunEnder,
   type UnparkBranchRequest,
 } from "../../src/run";
+import { insertRun, raiseSignal, recordIntent } from "../../src/records";
 import { type HeldSession, withHeld } from "./held-session";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";

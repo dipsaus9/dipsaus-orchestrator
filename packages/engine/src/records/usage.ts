@@ -17,8 +17,9 @@
 import type { Usage, UsageTotals } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
-import { REVIEWER_ROLE } from "../run/caps";
 import type { ModelUsageTotals, UsageTotalsByModel } from "../workers/types";
+
+import { REVIEWER_ROLE } from "./caps";
 
 /** The run and agent usage is counted for, with what `runs` holds for it. */
 export interface UsageScope {

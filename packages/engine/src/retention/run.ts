@@ -1,5 +1,5 @@
 // The one retention rule (0007): one pass over one office's rows deletes everything about a run
-// that ended more than `retention.days` ago and may not reopen (`run/retired.ts`: done, dropped,
+// that ended more than `retention.days` ago and may not reopen (`records/retired.ts`: done, dropped,
 // or parked with no live claim and no open park), and every other row of run detail older than
 // that: change-log entries, output, steps, verdicts, feedback and the rest. The run's outcome row
 // and the daily usage rollup are kept, and so are the office's own facts (story identity, the
@@ -18,11 +18,11 @@ import { REQUEST_TTL_MS } from "../commands/requests";
 import type { OfficeHandle } from "../db/office";
 import type { SqlParams } from "../platform/sqlite";
 import { deleteParksResolvedBefore } from "../run/park-records";
-import { deleteRetiredRuns } from "../run/records";
-import { ofNoOpenRun, retiredRun } from "../run/retired";
-import { deleteRetiredSignals } from "../run/signals";
-import { deleteRetiredAgents } from "../runs/agents";
-import { deleteRetiredHosts } from "../runs/worker-hosts";
+import { deleteRetiredRuns } from "../records/run-records";
+import { ofNoOpenRun, retiredRun } from "../records/retired";
+import { deleteRetiredSignals } from "../records/signals";
+import { deleteRetiredAgents } from "../records/agents";
+import { deleteRetiredHosts } from "../records/worker-hosts";
 
 import { cleanRunDirectories, runSummaryExists, type SummaryCheck } from "./run-files";
 import { Slicer, type SliceOptions } from "./slices";

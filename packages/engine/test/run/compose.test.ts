@@ -14,7 +14,6 @@ import { PermissionAsks } from "../../src/questions/permissions";
 import {
   composeRuns,
   FixRounds,
-  insertRun,
   stopAtInReview,
   pendingReviews,
   OfficeIngest,
@@ -27,6 +26,7 @@ import {
   RunResumer,
   Reviews,
 } from "../../src/run";
+import { insertRun } from "../../src/records";
 import { insertClaim, updateClaim } from "../../src/worktree/records";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";

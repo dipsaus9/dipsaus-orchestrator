@@ -20,7 +20,7 @@ import {
   verifyHostForSignal,
   type WorkerHostRow,
   workerHostsOf,
-} from "../../src/runs/worker-hosts";
+} from "../../src/records/worker-hosts";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 
 const RUN = "run_01JZ0000000000000000000001";

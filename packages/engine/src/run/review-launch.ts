@@ -50,16 +50,16 @@ import { ensurePrivateDir } from "../platform/paths";
 import { promptParts, recordPromptParts, recordPromptTexts } from "../prompts/parts";
 import { type ReviewChangedPath, withReviewCommit } from "../prompts/review";
 import { renderSystemFile } from "../prompts/system";
-import { recordAgent } from "../runs/agents";
-import { setProcessedOffset } from "../runs/worker-hosts";
+import { recordAgent } from "../records/agents";
+import { setProcessedOffset } from "../records/worker-hosts";
 import { branchTip } from "../git/write";
 import { withWorkViews } from "../views/work";
 import type { AdapterHold } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
 import { PlanError, type Caps } from "../workers/types";
 
-import { REVIEWER_ROLE, runCaps } from "./caps";
-import { runConfigOf } from "./config-snapshot";
+import { REVIEWER_ROLE, runCaps } from "../records/caps";
+import { runConfigOf } from "../records/config-snapshot";
 import type { TrackedRun } from "./control-types";
 import {
   type HostStarter,
@@ -71,7 +71,7 @@ import {
   type TierCaps,
 } from "./launch";
 import { sessionUuid } from "./prompts";
-import { findRun, storeReviewCaps, type StoredRun } from "./records";
+import { findRun, storeReviewCaps, type StoredRun } from "../records/run-records";
 import { codeTreeKeyOf } from "./story-git";
 
 /** The git reads of a review, from git objects in the repository: a story has no worktree. */

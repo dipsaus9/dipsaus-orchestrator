@@ -5,7 +5,7 @@ import type { OfficeHandle } from "../db/office";
 import type { WorkerPort } from "../workers/port";
 import type { ParseState } from "../workers/types";
 import { runWorkerSpec, type TierCaps } from "./launch";
-import type { StoredRun } from "./records";
+import type { StoredRun } from "../records/run-records";
 import { startTierOf } from "./resume";
 
 /**

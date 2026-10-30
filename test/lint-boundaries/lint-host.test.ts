@@ -16,7 +16,8 @@ const banned = [
   "host-imports-gate.ts",
   "host-imports-gate-decisions.ts",
   "host-imports-budget.ts",
-  "host-imports-runs.ts",
+  "host-imports-records.ts",
+  "host-imports-records-barrel.ts",
 ];
 
 let run: { exitCode: number; diagnostics: Diagnostic[] } | undefined;
@@ -47,8 +48,12 @@ describe("oxlint worker host boundary", () => {
     () => {
       const { exitCode, diagnostics } = lintTree([
         { fixture: "host-allowed.ts", target: `${HOST}/host-allowed.ts` },
-        { fixture: "host-imports-db.ts", target: "packages/engine/src/runs/uses-db.ts" },
-        { fixture: "host-imports-budget.ts", target: "packages/engine/src/runs/uses-budget.ts" },
+        { fixture: "host-imports-db.ts", target: "packages/engine/src/records/uses-db.ts" },
+        { fixture: "host-imports-budget.ts", target: "packages/engine/src/records/uses-budget.ts" },
+        {
+          fixture: "host-imports-records-barrel.ts",
+          target: "packages/engine/src/run/uses-records-barrel.ts",
+        },
         {
           fixture: "host-imports-gate-decisions.ts",
           target: "packages/engine/src/run/uses-gate-decisions.ts",

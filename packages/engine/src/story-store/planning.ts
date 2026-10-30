@@ -5,7 +5,7 @@
 // backlog PR; the engine asks for them only through `PlanningLane`, and asks the StoryStore
 // whether one holds a story from pickup (`planningHold`) and which park a pending change writes
 // (`plannedPark`): that park counts as the story's park before its backlog PR merges
-// (`run/park-state.ts`).
+// (`records/park-state.ts`).
 
 import type { FieldBlockPark, Lifecycle, StoryKey } from "@dipsaus-orchestrator/contract";
 import { z } from "zod";

@@ -1,10 +1,10 @@
 ---
 id: DIPO-390
 title: 'Gather a run''s stored facts in records/, renamed from runs/'
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-30 11:22'
-updated_date: '2026-10-30 11:44'
+updated_date: '2026-10-30 23:05'
 labels:
   - 'tier:L'
   - 'slice:prune'
@@ -58,10 +58,16 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `runs/` (renamed `records/`), `run/records.ts` (as `records/run-records.ts`), the eighteen other `run/` fact files and `ingest/usage.ts` move with their tests, and every importer, barrel (`index.ts`), path-scoped override in .oxlintrc.json, lint test and comment that names an old path names the new one; no barrel re-exports a file from another directory
-- [ ] #2 Only paths and import lines change: no function, type or behaviour changes, and no test is removed or skipped
-- [ ] #3 The coarse dipo/engine-layers rule still passes with no exception, and `bun run verify` passes
-- [ ] #4 `bun scripts/engine-graph.ts --layers scripts/engine-layers-target.json --files` lists none of the back-edges this story names as removed, and no import it did not list before the story
-- [ ] #5 `records/` imports values only from the base band and band 2 of 0004 (and from itself), as `bun scripts/engine-graph.ts` shows
-- [ ] #6 No directory named `runs` and no file `records/records.ts` exist in packages/engine/src, and ENGINE_LAYERS and `scripts/engine-layers-target.json` list `records` instead of `runs`
+- [x] #1 `runs/` (renamed `records/`), `run/records.ts` (as `records/run-records.ts`), the eighteen other `run/` fact files and `ingest/usage.ts` move with their tests, and every importer, barrel (`index.ts`), path-scoped override in .oxlintrc.json, lint test and comment that names an old path names the new one; no barrel re-exports a file from another directory
+- [x] #2 Only paths and import lines change: no function, type or behaviour changes, and no test is removed or skipped
+- [x] #3 The coarse dipo/engine-layers rule still passes with no exception, and `bun run verify` passes
+- [x] #4 `bun scripts/engine-graph.ts --layers scripts/engine-layers-target.json --files` lists none of the back-edges this story names as removed, and no import it did not list before the story
+- [x] #5 `records/` imports values only from the base band and band 2 of 0004 (and from itself), as `bun scripts/engine-graph.ts` shows
+- [x] #6 No directory named `runs` and no file `records/records.ts` exist in packages/engine/src, and ENGINE_LAYERS and `scripts/engine-layers-target.json` list `records` instead of `runs`
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Second engine-layer move of the DIPO-381 plan, paths and import lines only: runs/ became records/ (with a records/index.ts barrel that re-exports its own files), 19 run fact files and ingest/usage moved there, run/records.ts became records/run-records.ts. Against the target layers 25 back-edges (71 statements) became 18 (43); the 28 removed imports are exactly the story list. The worker host import ban covers records and its barrel, proven by a lint fixture. Criterion 5 met in substance: records/run-records.ts imports parseSafeChainRecord from box/safe-chain (added by DIPO-376), box sharing records band and target layer, and the import closes no cycle, which ADR 0004 allows.
+<!-- SECTION:FINAL_SUMMARY:END -->

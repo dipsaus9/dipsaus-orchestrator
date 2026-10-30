@@ -11,7 +11,7 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
-import { endRun, insertRun, runOutcome } from "../../src/run";
+import { endRun, insertRun, runOutcome } from "../../src/records";
 import {
   decodedForms,
   type EnvSecret,
@@ -20,7 +20,7 @@ import {
   MIN_SECRET_CHARS,
   parseEnvText,
   readEnvSecrets,
-} from "../../src/run/env-secrets";
+} from "../../src/records/env-secrets";
 import { WebCalls } from "../../src/run/web-calls";
 import { addStory } from "../../src/stories/keys";
 import type { WorkerEvent } from "../../src/workers/types";

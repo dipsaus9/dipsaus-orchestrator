@@ -25,7 +25,7 @@ import type { OfficeHandle } from "../../src/db/office";
 import type { OfficeGit } from "../../src/git/office";
 import { placeHolders } from "../../src/run/places";
 import { SESSION_FOLDER_PREFIX, SessionRuns } from "../../src/run/session-run";
-import { recordWorkerHost, type LaunchedHost } from "../../src/runs/worker-hosts";
+import { recordWorkerHost, type LaunchedHost } from "../../src/records/worker-hosts";
 import { SCAN_ANSWER_JSON_SCHEMA } from "../../src/scan/answer";
 import { SCAN_MAX_TURNS, type ScanSessionRequest } from "../../src/scan/fallback";
 import { claudeCliAdapter } from "../../src/workers/claude-cli/adapter";

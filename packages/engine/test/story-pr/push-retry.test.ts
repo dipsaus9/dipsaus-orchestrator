@@ -11,7 +11,8 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import type { PushResult } from "../../src/git/write";
 import type { CodeHost, HostPr, NewPr } from "../../src/platform/host";
-import { appendRunStep, insertRun, pendingReviews, stopAtInReview } from "../../src/run";
+import { pendingReviews, stopAtInReview } from "../../src/run";
+import { appendRunStep, insertRun } from "../../src/records";
 import {
   findStoryPr,
   recordBranchPush,

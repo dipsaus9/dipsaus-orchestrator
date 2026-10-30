@@ -39,30 +39,25 @@ import { GitError } from "../../src/git/runner";
 import { createLogger } from "../../src/log/logger";
 import { OfficeManager } from "../../src/office/manager";
 import { systemSpawn } from "../../src/platform/process";
-import { runCriteriaMet } from "../../src/run/criteria";
+import { runCriteriaMet } from "../../src/records/criteria";
 import {
   createRunOutcomes,
-  endRun,
-  findRun,
-  hasActiveRun,
-  insertRun,
   placeHolders,
   Places,
   PLACE_NOTICES,
   planLimitPause,
   type Resumption,
   type RunEnder,
-  runSteps,
   START_KINDS,
   StartsPaused,
   type BaseRead,
-  type NewRun,
   waitForPlace,
   waitingStarts,
   WorkRun,
   type WorkRunDeps,
 } from "../../src/run";
-import type { StoredRun } from "../../src/run/records";
+import { endRun, findRun, hasActiveRun, insertRun, runSteps, type NewRun } from "../../src/records";
+import type { StoredRun } from "../../src/records/run-records";
 import { SoftwareStream } from "../../src/software-stream";
 import { addStory } from "../../src/stories/keys";
 import { AdapterHolds } from "../../src/workers/hold";

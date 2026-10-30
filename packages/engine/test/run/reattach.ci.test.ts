@@ -26,12 +26,12 @@ import { LAUNCH_FILE } from "../../src/host/protocol";
 import type { IngestAdapter } from "../../src/ingest/ingestor";
 import {
   type BranchPark,
-  insertRun,
   OfficeIngest,
   RunControl,
   RunOutcomes,
   RunReattacher,
 } from "../../src/run";
+import { insertRun } from "../../src/records";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {

@@ -1,5 +1,6 @@
 // Runs (DIPO-48): `work.run` picks and claims one Ready story and records the run; the run facts
-// and the pickup order. The worker start of a claimed run and the dry run `work.preview` (DIPO-74).
+// and the pickup order are in records/. The worker start of a claimed run and the dry run
+// `work.preview` (DIPO-74).
 
 export {
   storyRunBase,
@@ -36,34 +37,6 @@ export { SESSION_FOLDER_PREFIX, SessionRuns } from "./session-run";
 export type { SessionRunsDeps } from "./session-run";
 export { renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 export type { RunPrompts, RunPromptsInput } from "./prompts";
-export {
-  activeRuns,
-  capsStartedAt,
-  appendRunStep,
-  currentProfileId,
-  endRun,
-  openAtInReview,
-  recordGateChanges,
-  reopenRun,
-  runPhase,
-  unparkRun,
-  runOutcome,
-  runRoundCounts,
-  findRun,
-  hasActiveRun,
-  insertRun,
-  recordConfigSnapshot,
-  runSteps,
-} from "./records";
-export type {
-  NewRun,
-  RunKind,
-  RunOutcome,
-  RunRounds,
-  StoredRun,
-  StoredRunStep,
-  RunStepKind,
-} from "./records";
 // The office's worker and reviewer places and the run across review rounds (DIPO-142).
 export {
   claimPlace,
@@ -92,8 +65,6 @@ export {
   stopAtInReview,
   waitsForReview,
 } from "./rounds";
-export { RUN_ENDS, nextRunState } from "./lifecycle";
-export type { RunEnd, RunEvent, RunState } from "./lifecycle";
 export type { ReopenFor, RoundKind } from "./rounds";
 export {
   feedbackItems,
@@ -174,7 +145,6 @@ export {
   Reviews,
 } from "./reviews";
 export type { ReviewsDeps } from "./reviews";
-export { openDependencies, pickupOrder, priorityRank, READY_STATUS, statusSkip } from "./select";
 export {
   afterRunExits,
   isRunTempDir,
@@ -202,8 +172,6 @@ export {
 export type { OfficeIngestOptions, OfficeRunListener, SystemHostStarterOptions } from "./hosts";
 export { Watchdog, WATCHDOG_DEFAULTS } from "./watchdog";
 export type { WatchdogOptions, WatchdogTimeouts } from "./watchdog";
-export { activeSignals, clearSignals, LIVENESS_SIGNALS, markStuck, raiseSignal } from "./signals";
-export type { StoredSignal } from "./signals";
 // Caps, parks and `story.park` of a story with a run (DIPO-50).
 export {
   CAP_TICK_MS,
@@ -222,35 +190,7 @@ export type {
   StopAllResult,
   TrackedRun,
 } from "./control";
-export {
-  firedCap,
-  REVIEWER_ROLE,
-  runCaps,
-  runTotals,
-  STREAM_DRIFT_LINES,
-  streamDriftDetail,
-} from "./caps";
-export type { CapName, FiredCap, RunCaps, RunTotals, StreamDriftFacts } from "./caps";
 export { preStartEnding, reachedCaps } from "./pre-start-caps";
-export { GRANT_KINDS, grantTotals, recordGrant, ROUND_CAPS } from "./grants";
-export type {
-  BudgetGrant,
-  GrantAmount,
-  GrantKind,
-  GrantTotals,
-  NewGrant,
-  RoundCap,
-  RoundGrant,
-} from "./grants";
-export {
-  markIntentSent,
-  outcomeOfIntent,
-  recordIntent,
-  resolveIntent,
-  runIntents,
-  sendAsIntent,
-} from "./intents";
-export type { IntentKind, IntentState, IntentSteering, StoredIntent } from "./intents";
 export {
   gitParkWriter,
   gitUnparkWriter,
@@ -271,27 +211,6 @@ export type {
   UnparkBranchRequest,
   UnparkWriter,
 } from "./park";
-// The structured summary on park, resume and close, and a handoff's open feedback (DIPO-154).
-export {
-  finalSummaryFacts,
-  finalSummaryOf,
-  grantText,
-  oneLine,
-  renderFinalSummary,
-  renderParkBlock,
-  resumeLine,
-  runSummaryFacts,
-  summaryDate,
-} from "./summary";
-export type { FinalSummaryFacts, ParkBlockFacts, ResumeLineFacts } from "./summary";
-export {
-  ANSWERED_BY,
-  answered,
-  openFeedbackOf,
-  runAnswers,
-  storedFeedbackOf,
-} from "./open-feedback";
-export type { AnswerKind, RunAnswers, StoredFeedback } from "./open-feedback";
 // In Review at a box run's done and run outcomes (DIPO-49, DIPO-240).
 export { gitStoryOps, IN_REVIEW_STATUS } from "./story-git";
 export type { BranchStory, PushResult, StoryGit } from "./story-git";
@@ -309,8 +228,6 @@ export {
   VerifyCommit,
 } from "./verify-commit";
 export type { RunFinisher, TurnContext, TurnDecision, VerifyCommitDeps } from "./verify-commit";
-export { outputTail, runSummary, storeRunSummary, SUMMARY_OUTPUT_LINES } from "./verify-records";
-export type { RunSummary } from "./verify-records";
 // Worker outcomes and the run's next session (DIPO-51).
 export {
   INIT_REJECTED_SIGKILL_AFTER_MS,
@@ -403,14 +320,6 @@ export type {
   PrReplacement,
   MergeReentry,
 } from "./park-resume";
-export {
-  parkResumeNeed,
-  RESUME_TABLE,
-  resumeRow,
-  resumeSession,
-  SUGGESTED_SHARE,
-} from "./resume-policy";
-export type { ResumeDelta, ResumeFacts, ResumeNeed, ResumeSession } from "./resume-policy";
 export { resolvePark, type ParkResolution } from "./park";
 export {
   baseStoryFacts,

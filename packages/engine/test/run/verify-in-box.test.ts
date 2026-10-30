@@ -63,19 +63,15 @@ import {
 } from "../../src/box/verify";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
+import { pendingReviews, reopen, RunControl, type StoryGit, VerifyCommit } from "../../src/run";
 import {
   findRun,
   openAtInReview,
   insertRun,
-  pendingReviews,
-  reopen,
-  RunControl,
   runIntents,
   runOutcome,
   runSteps,
-  type StoryGit,
-  VerifyCommit,
-} from "../../src/run";
+} from "../../src/records";
 import { appendHandOff, type DoneConflictDecision, handOffState } from "../../src/run/conflicts";
 import type { BoxVerifyResult } from "../../src/box/verify";
 import {

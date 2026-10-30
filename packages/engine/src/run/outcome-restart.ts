@@ -8,7 +8,7 @@ import type { OfficeHandle } from "../db/office";
 import { workRefOf } from "../views/work";
 
 import type { RunEnding } from "./control-types";
-import { runIntents } from "./intents";
+import { runIntents } from "../records/intents";
 import type { ExitOutcomes } from "./outcome-exits";
 import type { SessionStarts } from "./outcome-sessions";
 import type { OutcomeSupport } from "./outcome-support";
@@ -20,8 +20,8 @@ import {
   type RunOutcomesDeps,
   type RunView,
 } from "./outcome-types";
-import { activeRuns, capsStartedAt, type StoredRun } from "./records";
-import { activeSignals, clearSignals } from "./signals";
+import { activeRuns, capsStartedAt, type StoredRun } from "../records/run-records";
+import { activeSignals, clearSignals } from "../records/signals";
 
 /**
  * The intent detail tag of a maintainer pause, which `work.pause` stored before `story.park`

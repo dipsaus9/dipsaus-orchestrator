@@ -12,7 +12,7 @@ import { openStateDatabase } from "../../src/db/database";
 import type { OfficeHandle } from "../../src/db/office";
 import { MIGRATIONS } from "../../src/db/schema";
 import { TABLE_RETENTION } from "../../src/retention/policy";
-import { insertRun } from "../../src/run";
+import { insertRun } from "../../src/records";
 import {
   latestDoneReport,
   recordSendBack,

@@ -9,7 +9,7 @@ import { join } from "node:path";
 
 import { StoryId } from "@dipsaus-orchestrator/contract";
 
-import { insertRun } from "../../src/run";
+import { insertRun } from "../../src/records";
 import {
   type IntentKind,
   type IntentSteering,
@@ -17,7 +17,7 @@ import {
   recordIntent,
   runIntents,
   sendAsIntent,
-} from "../../src/run/intents";
+} from "../../src/records/intents";
 import { addStory } from "../../src/stories/keys";
 import type { HostOp, WorkerOutcome } from "../../src/workers/types";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";

@@ -11,7 +11,7 @@ import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 import { EVENTS_FILE } from "../../src/host/protocol";
 import type { IngestAdapter } from "../../src/ingest/ingestor";
 import { HOST_CONNECT_TIMEOUT_MS, HOST_LAUNCH_DEADLINE_MS, OfficeIngest } from "../../src/run";
-import type { LaunchedHost } from "../../src/runs/worker-hosts";
+import type { LaunchedHost } from "../../src/records/worker-hosts";
 import type { ParseState } from "../../src/workers/types";
 import { ingestFixture, target } from "../ingest/helpers";
 

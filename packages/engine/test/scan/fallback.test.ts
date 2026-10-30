@@ -19,7 +19,7 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 import { appendEntries } from "../../src/changelog/log";
 import { CommandError } from "../../src/commands/errors";
 import type { OfficeHandle } from "../../src/db/office";
-import { activeRuns } from "../../src/run/records";
+import { activeRuns } from "../../src/records/run-records";
 import { applyConfirm } from "../../src/scan/confirm-command";
 import { detect, type Probe, type RunProfile } from "../../src/scan/detect";
 import type { BaseEvidence } from "../../src/scan/evidence-read";

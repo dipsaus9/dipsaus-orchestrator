@@ -47,15 +47,9 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import { renderSystemFile } from "../../src/prompts/system";
-import {
-  findRun,
-  recordConfigSnapshot,
-  reviewCommitFile,
-  ReviewLauncher,
-  type StoredRun,
-  sweepOldReviewFolders,
-} from "../../src/run";
-import type { LaunchedHost } from "../../src/runs/worker-hosts";
+import { reviewCommitFile, ReviewLauncher, sweepOldReviewFolders } from "../../src/run";
+import { findRun, recordConfigSnapshot, type StoredRun } from "../../src/records";
+import type { LaunchedHost } from "../../src/records/worker-hosts";
 import { planInBox } from "../../src/workers/claude-cli/box-plan";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import type { PreparedWorker, RunLaunchPaths, WorkerPort } from "../../src/workers/port";

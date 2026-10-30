@@ -1,6 +1,6 @@
 // The close-out commit's story edits (0002, 0010 story lane, 0020). When a merge gate is approved,
 // dipo commits the close-out on the story branch before it turns auto-merge on: the final summary,
-// built from the story's stored facts as of the close-out (`run/summary.ts`), and status `Done`.
+// built from the story's stored facts as of the close-out (`records/summary.ts`), and status `Done`.
 // A gate decided by rule closes out before CI ran on any head of it, so red checks on the close-out
 // head start a fix round that sets the story In Progress again, and the next close-out replaces
 // the final summary with one built from the facts then. A park record exists
@@ -10,7 +10,7 @@
 
 import type { OfficeHandle } from "../db/office";
 import { GitError } from "../git/runner";
-import { finalSummaryOf } from "../run/summary";
+import { finalSummaryOf } from "../records/summary";
 import type { StoryEditor } from "../story-store/store";
 
 /** The status the close-out commit sets (0012). */

@@ -62,7 +62,7 @@ import type { OfficeManager } from "../office/manager";
 import { ensurePrivateDir } from "../platform/paths";
 import { safeChainFeedback } from "../prompts/feedback";
 import { signalProcess, systemSpawn, type ProcessProbe } from "../platform/process";
-import { runCaps } from "../run/caps";
+import { runCaps } from "../records/caps";
 import {
   boxBehind,
   boxPackageCache,
@@ -90,7 +90,7 @@ import {
   type HostStarter,
   type TierCaps,
 } from "../run/launch";
-import type { Presence } from "../run/live-question";
+import type { Presence } from "../records/live-question";
 import { storyHoldsWork } from "../run/outcome-types";
 import { RunOutcomes } from "../run/outcomes";
 import { gitParkWriter, gitUnparkWriter, type UnparkWriter, type ParkWriter } from "../run/park";
@@ -98,7 +98,7 @@ import type { MergeReentry } from "../run/park-resume";
 import type { Places } from "../run/places";
 import { RunReattacher } from "../run/reattach";
 import { sendFeedback } from "../run/feedback";
-import { findRun, recordSafeChain, type StoredRun } from "../run/records";
+import { findRun, recordSafeChain, type StoredRun } from "../records/run-records";
 import { baseStoryFacts } from "../run/resume";
 import type { Resumption } from "../run/resumption";
 import { sweepOldReviewFolders } from "../run/review-launch";

@@ -17,7 +17,7 @@ import { type OfficeConfig, PRIVACY_KEYS, privacyOptIns } from "../config";
 import type { StateDatabase } from "../db/database";
 import type { OfficeHandle } from "../db/office";
 import { openQuestions } from "../questions/questions";
-import { activeRuns } from "../run/records";
+import { activeRuns } from "../records/run-records";
 
 import { activeStoryViews } from "./story";
 import type { SummaryUsage } from "./usage";
@@ -32,7 +32,7 @@ export function columnCounts(office: OfficeHandle): Partial<Record<QueueColumn, 
   return counts;
 }
 
-/** The office's active runs (`run/records.ts`). */
+/** The office's active runs (`records/run-records.ts`). */
 export function activeRunCount(office: OfficeHandle): number {
   return activeRuns(office).length;
 }

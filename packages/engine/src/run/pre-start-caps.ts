@@ -6,10 +6,10 @@
 
 import type { OfficeHandle } from "../db/office";
 
-import { type FiredCap, firedCap, runCaps, runTotals } from "./caps";
+import { type FiredCap, firedCap, runCaps, runTotals } from "../records/caps";
 import type { RunEnding } from "./control-types";
-import { resolveIntent, runIntents } from "./intents";
-import { capsStartedAt, type StoredRun } from "./records";
+import { resolveIntent, runIntents } from "../records/intents";
+import { capsStartedAt, type StoredRun } from "../records/run-records";
 
 /** The cap the run's stored caps and usage have reached now, or null. */
 export function reachedCaps(office: OfficeHandle, run: StoredRun, now: number): FiredCap | null {

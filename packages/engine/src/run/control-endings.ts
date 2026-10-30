@@ -24,8 +24,8 @@ import {
   STORY_NOT_RUNNING,
   type Tracked,
 } from "./control-types";
-import type { CapName } from "./caps";
-import { sendAsIntent } from "./intents";
+import type { CapName } from "../records/caps";
+import { sendAsIntent } from "../records/intents";
 import type { RunAct } from "./outcome-types";
 import {
   openPark,
@@ -36,7 +36,7 @@ import {
   type ParkWriter,
   parkStory,
 } from "./park";
-import { activeRuns, findRun, openAtInReview, type StoredRun } from "./records";
+import { activeRuns, findRun, openAtInReview, type StoredRun } from "../records/run-records";
 import { liveClaimOf } from "../worktree/records";
 
 /** The detail a cap is named with; the CLI backstop's own detail gets the turn cap prefix. */

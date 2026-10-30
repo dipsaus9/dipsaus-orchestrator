@@ -15,10 +15,10 @@ import {
   type RunOutcomesDeps,
   type RunView,
 } from "./outcome-types";
-import { markIntentSent, recordIntent, resolveIntent } from "./intents";
+import { markIntentSent, recordIntent, resolveIntent } from "../records/intents";
 import { START_FAILED_RELEASE } from "./launch";
 import type { OfficeHandle } from "../db/office";
-import type { StoredRun } from "./records";
+import type { StoredRun } from "../records/run-records";
 
 export class SessionStarts {
   readonly #s: OutcomeSupport;

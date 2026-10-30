@@ -8,7 +8,7 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import type { OfficeHandle } from "../../src/db/office";
 import { endRunMarked } from "../../src/run/markers";
-import { endRun, insertRun, type NewRun } from "../../src/run/records";
+import { endRun, insertRun, type NewRun } from "../../src/records/run-records";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { entriesAfter } from "../stories/helpers";
 

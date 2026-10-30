@@ -8,7 +8,7 @@ import { type FieldBlockPark, StoryId } from "@dipsaus-orchestrator/contract";
 import { gateStoryFromView, gateTaskFromView } from "../gate/input";
 import { gateContentHash } from "../gate/hash";
 import type { GateTask } from "../gate/types";
-import { openDependencies } from "../run/select";
+import { openDependencies } from "../records/select";
 import { parseFieldBlock } from "../story-store/fields/block";
 import { readLabels } from "../story-store/fields/labels";
 import type { StoryRead } from "../story-store/store";

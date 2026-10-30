@@ -11,7 +11,7 @@ import { cleanEnv, withTempDir } from "@dipsaus-orchestrator/testkit";
 import { currentPlatform } from "../../src/platform/paths";
 import { pidExists, systemProcessProbe } from "../../src/platform/process";
 import { EXIT_FILE, type HostExitFile } from "../../src/host/protocol";
-import { hostAlive, type LaunchedHost } from "../../src/runs/worker-hosts";
+import { hostAlive, type LaunchedHost } from "../../src/records/worker-hosts";
 
 const FIXTURES = resolve(import.meta.dir, "fixtures");
 const RUN = "run_01JZ0000000000000000000001";

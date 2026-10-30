@@ -21,11 +21,11 @@ import { parseSafeChainRecord, type SafeChainRecord } from "../box/safe-chain";
 import { appendEntries } from "../changelog/log";
 import { canonicalJson } from "../config/merge";
 import type { OfficeHandle } from "../db/office";
-import { finalizeRunAgents } from "../ingest/usage";
 
 import { runTotals } from "./caps";
 import { nextRunState, type RunEnd, type RunEvent, type RunState } from "./lifecycle";
 import { retiredRun } from "./retired";
+import { finalizeRunAgents } from "./usage";
 
 export type RunKind = "story" | "session";
 
@@ -505,7 +505,7 @@ export function capsStartedAt(
  * Ends the run `runId` as `ending` (0020: done, parked or dropped), once: an open run ends, a
  * parked run ends again only as done or dropped, and a run done or dropped keeps its end
  * (`nextRunState`). Runs inside the caller's transaction. Retention removes a run's rows only once
- * it can no longer reopen (`run/retired.ts`).
+ * it can no longer reopen (`records/retired.ts`).
  *
  * The one place a run ends (DIPO-49, 0007): the call that ends it also writes its `run_outcomes`
  * row, kept by retention (0007): tier, role, model, the outcome (its ending), the park reasons of its

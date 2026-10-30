@@ -25,7 +25,7 @@ import {
   reopenRun,
   runPhase,
   type StoredRun,
-} from "./records";
+} from "../records/run-records";
 
 /** The phase a run open at In Review waits in once its head's verdict is in (0009). */
 export function phaseAfterVerdict(verdict: "approved" | "blocked"): "merge" | "build" {

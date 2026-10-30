@@ -15,11 +15,11 @@ import {
   MIN_SECRET_CHARS,
   REDACTED_TEXT,
   redactSecrets,
-} from "../../src/run/env-secrets";
+} from "../../src/records/env-secrets";
 import { cutWebLine, redactWebTarget, WebCalls } from "../../src/run/web-calls";
 import type { IngestAdapter } from "../../src/ingest/ingestor";
 import { INPUT_MAX_CHARS } from "../../src/ingest/output";
-import { insertRun } from "../../src/run";
+import { insertRun } from "../../src/records";
 import { OfficeIngest } from "../../src/run/hosts";
 import { addStory } from "../../src/stories/keys";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";

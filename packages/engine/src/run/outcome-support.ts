@@ -6,14 +6,14 @@ import type { OfficeId, RunId, WorkRef } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import { decideEndReason } from "../runs/agents";
+import { decideEndReason } from "../records/agents";
 import { withWorkViews, workRefOf } from "../views/work";
 
-import { firedCap, runTotals } from "./caps";
+import { firedCap, runTotals } from "../records/caps";
 import type { RunEnding } from "./control-types";
-import { DecidingGuard } from "./deciding";
+import { DecidingGuard } from "../records/deciding";
 import { type FeedbackIntent, feedbackIntents } from "./feedback";
-import { type IntentKind, resolveIntent, runIntents, type StoredIntent } from "./intents";
+import { type IntentKind, resolveIntent, runIntents, type StoredIntent } from "../records/intents";
 import {
   HOST_LOST_END,
   intentTag,
@@ -22,7 +22,7 @@ import {
   type RunView,
 } from "./outcome-types";
 import type { ParkOutcome } from "./park";
-import { capsStartedAt, type StoredRun } from "./records";
+import { capsStartedAt, type StoredRun } from "../records/run-records";
 
 /** Kinds of intent that explain a worker's exit. */
 const EXPLAINING: readonly IntentKind[] = ["stop", "cap", "park", "reassign", "pause"];

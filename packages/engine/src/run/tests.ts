@@ -65,8 +65,8 @@ import { DONE_RELEASE_REASON } from "../worktree/teardown";
 import { findClaim, liveClaimOf } from "../worktree/records";
 
 import { holdTestNote } from "./fix-rounds";
-import { heldByPark, type ParkStore } from "./park-state";
-import { findRun, openAtInReview, runPhase, type StoredRun } from "./records";
+import { heldByPark, type ParkStore } from "../records/park-state";
+import { findRun, openAtInReview, runPhase, type StoredRun } from "../records/run-records";
 import type { RunStoryFacts } from "./resume";
 import {
   endTest,

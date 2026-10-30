@@ -11,7 +11,7 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 import { appendEntries } from "../../src/changelog/log";
 import { Ingestor } from "../../src/ingest/ingestor";
 import { endRunMarked, markerLine, markPhase, storedMarker } from "../../src/run/markers";
-import { runSteps } from "../../src/run/records";
+import { runSteps } from "../../src/records/run-records";
 import { outputRange, workView } from "../../src/views";
 import type { WorkerEvent } from "../../src/workers/types";
 import { scriptedWorker } from "../workers/scripts";

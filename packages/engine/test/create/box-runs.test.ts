@@ -19,7 +19,7 @@ import { boxName, type BoxPort } from "../../src/box/port";
 import { TOKEN_CHECK_DIR_PREFIX } from "../../src/box/token-check";
 import { BOX_INDEX_DIR, BOX_WAITING, BoxWorkers } from "../../src/box/workers";
 import type { OfficeHandle } from "../../src/db/office";
-import type { WorkerHostRow } from "../../src/runs/worker-hosts";
+import type { WorkerHostRow } from "../../src/records/worker-hosts";
 import { AdapterHolds } from "../../src/workers/hold";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
