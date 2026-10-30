@@ -84,10 +84,10 @@ Every kind of feedback reaches the developer the same way: as a message to the d
 
 ## 7. The merge gate
 
-The gate opens when the review approved the head. It is decided **by rule**, and recorded, at once: dipo does not wait for the head's checks, because GitHub's auto-merge waits for them on the close-out head (section 8), so CI runs once. When one of these holds, the gate instead **waits for the maintainer**, and it opens only once the head's required checks are green, so the maintainer only ever approves something that can merge and no task file reads Done on a PR that waits:
+The gate opens when the review approved the head. It is decided **by rule**, and recorded, at once: dipo does not wait for the head's checks, unless they are already red or one of them already failed, because GitHub's auto-merge waits for them on the close-out head (section 8), so CI runs once. When one of the reasons below holds as the gate is first decided, the gate instead **waits for the maintainer**, and it opens only once the head's required checks are green, so the maintainer only ever approves something that can merge and no task file reads Done while that gate waits. A hold label, or a release-path change, that arrives after the close-out reopens the gate on the closed-out head, whose Done stands on the branch until the merge or a fix round; the merge still waits for green checks. The gate waits for the maintainer when:
 
 - `merge.autoMerge` is `false` in the office config;
-- the story is flagged test before merge, and no test pass is recorded for this head;
+- the story is flagged test before merge, and no test pass is recorded for this head. A flagged story waits for green checks even when a pass was recorded while it was reviewed;
 - the reviewer marked a criterion `maintainer`;
 - the story passed review only through a maintainer override;
 - the PR has a hold label from `merge.holdLabels`;
