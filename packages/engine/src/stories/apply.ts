@@ -20,9 +20,9 @@ import {
 
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
+import { addStory, removeStory, renumberStories, type StoryMove } from "../records/story-keys";
 import { isUnknownStatus, storyView, workByKey } from "../views/story";
 
-import { addStory, removeStory, renumberStories, type StoryMove } from "./keys";
 import type { BacklogStory } from "./read";
 
 /** Where a pass read Backlog.md: the `_base` worktree, or a story branch once claims read there. */

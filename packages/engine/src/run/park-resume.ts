@@ -85,7 +85,7 @@ import answerTemplate from "../prompts/feedback/answer.md" with { type: "text" }
 import parkedTemplate from "../prompts/feedback/parked.md" with { type: "text" };
 import topupTemplate from "../prompts/feedback/topup.md" with { type: "text" };
 import { renderTemplate } from "../prompts/templates";
-import type { StoryIdentity } from "../stories/keys";
+import type { StoryIdentity } from "../records/story-keys";
 import { deriveStoryView, storyView } from "../views/story";
 import { workRefOf } from "../views/work";
 import type { Caps } from "../workers/types";
@@ -111,7 +111,7 @@ import {
   type StoredRun,
   unparkRun,
 } from "../records/run-records";
-import { recordBranchPush } from "../story-pr/records";
+import { recordBranchPush } from "../records/story-prs";
 import {
   resumeRow,
   resumeSession,

@@ -7,7 +7,7 @@ import { RunId, StoryId } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { storeDecisionNotes, storeProposals } from "../../src/run/report-data";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { openDecisionNotes, proposalItems } from "../../src/views/proposals";
 import { addOffice, openTestState } from "../commands/helpers";
 

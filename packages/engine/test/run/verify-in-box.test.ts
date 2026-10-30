@@ -82,7 +82,7 @@ import {
   VERIFY_LOOP,
 } from "../../src/run/verify-commit";
 import { detect, type RunProfile } from "../../src/scan/detect";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { HostOp, WorkerEvent, WorkerReport } from "../../src/workers/types";
 import { findClaim, insertClaim } from "../../src/worktree/records";

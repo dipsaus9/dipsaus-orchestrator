@@ -28,7 +28,7 @@ import type { OfficeGit } from "../../src/git/office";
 import { insertWorkerQuestion } from "../../src/questions/questions";
 import { executeRead } from "../../src/reads/execute";
 import { reconcileOffice } from "../../src/reconcile";
-import { insertStoryPr, latestStoryPr } from "../../src/story-pr/records";
+import { insertStoryPr, latestStoryPr } from "../../src/records/story-prs";
 import { StoryDiscard } from "../../src/stories/discard";
 import { StoryPlanning } from "../../src/stories/planning";
 import { doneElsewhereDeskItems, findDoneElsewhere } from "../../src/worktree/done-elsewhere";

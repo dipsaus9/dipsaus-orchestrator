@@ -32,7 +32,7 @@ import {
   RunReattacher,
 } from "../../src/run";
 import { insertRun } from "../../src/records";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
   type ClaudeParseState,

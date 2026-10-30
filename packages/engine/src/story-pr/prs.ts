@@ -109,18 +109,7 @@ import {
   runSteps,
   type StoredRun,
 } from "../records/run-records";
-import { findStoryByKey } from "../stories/keys";
-import { withWorkViews } from "../views/work";
-
-import { type PrBodyReview, type PrBodyTest, storyPrBodyHash, storyPrBody } from "./body";
-import { latestRecordedTest } from "../run/test-records";
-import {
-  checksFinal,
-  evaluateChecks,
-  requiredCheckStates,
-  type RequiredCheckState,
-} from "./checks";
-import type { StoryPrGit } from "./git";
+import { findStoryByKey } from "../records/story-keys";
 import {
   findStoryPr,
   insertStoryPr,
@@ -137,7 +126,18 @@ import {
   storyInReview,
   type StoryPrRecord,
   updateStoryPr,
-} from "./records";
+} from "../records/story-prs";
+import { withWorkViews } from "../views/work";
+
+import { type PrBodyReview, type PrBodyTest, storyPrBodyHash, storyPrBody } from "./body";
+import { latestRecordedTest } from "../run/test-records";
+import {
+  checksFinal,
+  evaluateChecks,
+  requiredCheckStates,
+  type RequiredCheckState,
+} from "./checks";
+import type { StoryPrGit } from "./git";
 import { storyPrTitle } from "./title";
 
 /** `engine.notice` codes of the story PR. */

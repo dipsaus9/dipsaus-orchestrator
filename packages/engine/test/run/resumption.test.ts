@@ -22,7 +22,7 @@ import {
 } from "../../src/run";
 import { insertRun, raiseSignal, recordIntent } from "../../src/records";
 import { type HeldSession, withHeld } from "./held-session";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { Caps } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";

@@ -39,7 +39,7 @@ import type { OfficeHandle } from "../../src/db/office";
 import { executeRead } from "../../src/reads/execute";
 import { ProposalCommands, proposalDraft, type StoredProposal } from "../../src/run/proposals";
 import { proposalHash, storeProposals } from "../../src/run/report-data";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { viewsFeature } from "../views/views-feature";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 

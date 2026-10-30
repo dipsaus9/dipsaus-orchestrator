@@ -28,7 +28,7 @@ import type { FeatureModule } from "../../src/commands/registry";
 import type { OfficeHandle } from "../../src/db/office";
 import type { OfficeGit } from "../../src/git/office";
 import { executeRead } from "../../src/reads/execute";
-import { insertStoryPr } from "../../src/story-pr/records";
+import { insertStoryPr } from "../../src/records/story-prs";
 import { StoryDiscard } from "../../src/stories/discard";
 import { StoryPlanning } from "../../src/stories/planning";
 import { liveClaimOf } from "../../src/worktree/records";

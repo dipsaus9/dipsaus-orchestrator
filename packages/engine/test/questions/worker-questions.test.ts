@@ -40,7 +40,7 @@ import { resolvePark } from "../../src/run/park";
 import { findRun } from "../../src/records/run-records";
 import { reopen } from "../../src/run/rounds";
 import { activeSignals } from "../../src/records/signals";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { Caps, HostOp, WorkerEvent } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";

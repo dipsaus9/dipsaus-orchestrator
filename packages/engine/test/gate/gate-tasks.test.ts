@@ -16,7 +16,7 @@ import { storyFromRead } from "../../src/stories/read";
 import type { BacklogStory } from "../../src/stories/read";
 import { DEFAULT_CONFIG, block } from "./fixtures";
 import { storyRows, withOffice } from "../stories/helpers";
-import { removeStory } from "../../src/stories/keys";
+import { removeStory } from "../../src/records/story-keys";
 import { backlogStoryStore } from "../../src/backlog/store";
 
 interface FakeTask {

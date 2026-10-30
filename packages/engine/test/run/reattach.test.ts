@@ -77,7 +77,7 @@ import {
   workerHostsOf,
 } from "../../src/records/worker-hosts";
 import { lateHostScript } from "../host/fixtures/late-host-script";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
   type ClaudeParseState,

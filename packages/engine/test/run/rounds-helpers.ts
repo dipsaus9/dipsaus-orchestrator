@@ -16,7 +16,7 @@ import {
 import { mirrorStory } from "./park-fixture";
 import type { OfficeHandle } from "../../src/db/office";
 import { insertRun } from "../../src/records";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { insertClaim } from "../../src/worktree/records";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 

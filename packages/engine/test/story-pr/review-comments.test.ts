@@ -38,11 +38,10 @@ import {
   type StoredReviewVerdict,
 } from "../../src/review";
 import { stopAtInReview } from "../../src/run";
-import { appendRunStep, insertRun } from "../../src/records";
+import { appendRunStep, findStoryPr, insertRun } from "../../src/records";
 import { doneReportOf, storedDoneReport } from "../../src/run/done-report";
 import { storeRunSummary } from "../../src/records/verify-records";
 import {
-  findStoryPr,
   type StoryPrFacts,
   type StoryPrGit,
   StoryPrs,

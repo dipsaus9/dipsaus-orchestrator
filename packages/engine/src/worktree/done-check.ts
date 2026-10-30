@@ -12,7 +12,7 @@
 
 import type { OfficeHandle } from "../db/office";
 import { CodeHostError, type HostPr, type PrStateHost } from "../platform/host";
-import { findStoryPr, type StoryPrState } from "../story-pr/records";
+import { findStoryPr, type StoryPrState } from "../records/story-prs";
 import { lifecycleOf } from "../views/story";
 
 import type { ClaimRecord } from "./records";

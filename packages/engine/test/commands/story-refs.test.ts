@@ -25,7 +25,7 @@ import {
   removeStory,
   renumberStory,
   resolveStoryRef,
-} from "../../src/stories/keys";
+} from "../../src/records/story-keys";
 import { fixtureFeature } from "./fixtures";
 import { addOffice, openTestState, type TestState } from "./helpers";
 

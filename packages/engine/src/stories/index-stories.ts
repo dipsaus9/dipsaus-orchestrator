@@ -23,11 +23,11 @@ import type { Clock, Cursor, IdSource, StoryKey } from "@dipsaus-orchestrator/co
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
+import { findStoryByKey, isProvisionalId } from "../records/story-keys";
 import type { StoryStore } from "../story-store/store";
 import { type ClaimRecord, liveClaimOf, liveClaims } from "../worktree/records";
 
 import { applyIndex, applyStory, type IndexStats } from "./apply";
-import { findStoryByKey, isProvisionalId } from "./keys";
 import { type BacklogStory, storyFromRead } from "./read";
 
 export interface IndexDeps {

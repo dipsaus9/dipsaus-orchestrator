@@ -24,7 +24,7 @@ import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
 import type { IndexResult } from "../stories/index-stories";
-import { findStoryByKey } from "../stories/keys";
+import { findStoryByKey } from "../records/story-keys";
 import { StoryStoreError } from "../story-store/errors";
 import type { StoryStore } from "../story-store/store";
 import { evaluateGate } from "../gate/evaluate";

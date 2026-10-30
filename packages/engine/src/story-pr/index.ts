@@ -8,15 +8,4 @@ export { checksFinal, evaluateChecks, requiredCheckStates } from "./checks";
 export type { ChecksVerdict, RequiredCheckState } from "./checks";
 export { CI_STUCK_POLL_MS, NO_CI_WAIT_MS, STORY_PR_NOTICES, STORY_PR_STEP, StoryPrs } from "./prs";
 export type { CiHeadState, StoryPrsDeps } from "./prs";
-export {
-  findStoryPr,
-  latestStoryPr,
-  noCiRan,
-  openStoryPrs,
-  recordBranchPush,
-  runsToPush,
-  runsWithoutPr,
-  setStoryPrState,
-} from "./records";
-export type { BranchPush, StoryPrRecord, UnpushedRun } from "./records";
 export { storyPrCommitType, STORY_PR_MAX_SUBJECT, storyPrSubject, storyPrTitle } from "./title";

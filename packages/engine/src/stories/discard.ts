@@ -53,7 +53,8 @@ import type { ProcessProbe } from "../platform/process";
 import { openParkIds, resolvePark } from "../run/park";
 import { activeRuns } from "../records/run-records";
 import { hostAlive, workerHostsOf } from "../records/worker-hosts";
-import { findStoryPr, latestStoryPr, setStoryPrState } from "../story-pr/records";
+import type { StoryIdentity } from "../records/story-keys";
+import { findStoryPr, latestStoryPr, setStoryPrState } from "../records/story-prs";
 import { DISCARD_KIND, type PlanningLane } from "../story-store/planning";
 import type { StoryStore } from "../story-store/store";
 import { deriveStoryView, storyView } from "../views/story";
@@ -72,8 +73,6 @@ import {
   removeLeftovers,
   repoOfPrUrl,
 } from "../worktree/release";
-
-import type { StoryIdentity } from "./keys";
 
 export const NOT_DISCARDABLE = "story.notDiscardable";
 export const PR_MERGED = "story.prMerged";

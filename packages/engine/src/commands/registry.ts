@@ -27,7 +27,7 @@ import type {
   RegisteredActiveWorkCheck,
   RegisteredLoadStep,
 } from "../office/steps";
-import type { StoryIdentity } from "../stories/keys";
+import type { StoryIdentity } from "../records/story-keys";
 
 /** What an office-level command handler gets. It runs inside the command's write transaction. */
 export interface CommandContext {

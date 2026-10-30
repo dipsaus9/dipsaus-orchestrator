@@ -17,9 +17,14 @@ import {
 } from "../../src/platform/host";
 import { yieldToEventLoop } from "../../src/platform/clock";
 import { stopAtInReview } from "../../src/run";
-import { findRun, insertRun, openAtInReview, recordConfigSnapshot } from "../../src/records";
 import {
+  findRun,
   findStoryPr,
+  insertRun,
+  openAtInReview,
+  recordConfigSnapshot,
+} from "../../src/records";
+import {
   type StoryPrFacts,
   type StoryPrGit,
   StoryPrs,

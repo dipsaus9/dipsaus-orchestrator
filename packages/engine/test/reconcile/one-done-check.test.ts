@@ -14,7 +14,7 @@ import { OFFICE_DEFAULTS } from "../../src/config";
 import type { OfficeGit } from "../../src/git/office";
 import { CodeHostError, type HostPr, type PrStateHost } from "../../src/platform/host";
 import { doneAnswerOf } from "../../src/reconcile/done-on-base";
-import { insertStoryPr } from "../../src/story-pr/records";
+import { insertStoryPr } from "../../src/records/story-prs";
 import { StoryTeardown } from "../../src/worktree/done";
 import type { DoneAnswer } from "../../src/worktree/done-check";
 import { claim, fakeBacklog, keyOf, type ReconcileOffice, withReconcileOffice } from "./helpers";

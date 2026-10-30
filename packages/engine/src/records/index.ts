@@ -1,4 +1,5 @@
-// A run's stored facts (0004): runs, agents, worker hosts, signals, caps, grants, parks, usage.
+// A run's stored facts (0004): runs, agents, worker hosts, signals, caps, grants, parks, usage,
+// story keys (DIPO-22, DIPO-32) and story PR rows (DIPO-144).
 
 export {
   activeRuns,
@@ -92,3 +93,24 @@ export {
   SUGGESTED_SHARE,
 } from "./resume-policy";
 export type { ResumeDelta, ResumeFacts, ResumeNeed, ResumeSession } from "./resume-policy";
+export {
+  addStory,
+  findStoryByKey,
+  isProvisionalId,
+  removeStory,
+  renumberStories,
+  renumberStory,
+  resolveStoryRef,
+} from "./story-keys";
+export type { NewStory, StoryIdentity, StoryMove, StoryResolution } from "./story-keys";
+export {
+  findStoryPr,
+  latestStoryPr,
+  noCiRan,
+  openStoryPrs,
+  recordBranchPush,
+  runsToPush,
+  runsWithoutPr,
+  setStoryPrState,
+} from "./story-prs";
+export type { BranchPush, StoryPrRecord, UnpushedRun } from "./story-prs";

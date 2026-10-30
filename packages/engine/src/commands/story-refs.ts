@@ -6,7 +6,7 @@ import { type EngineError, StoryRefValue } from "@dipsaus-orchestrator/contract"
 import { z } from "zod";
 
 import type { OfficeHandle } from "../db/office";
-import { resolveStoryRef, type StoryIdentity } from "../stories/keys";
+import { resolveStoryRef, type StoryIdentity } from "../records/story-keys";
 
 /** A top-level args field holding one reference or a list of them. */
 export interface StoryRefField {

@@ -15,7 +15,7 @@ import type { GitSession, OfficeGit } from "../../src/git/office";
 import { BacklogMerges, type BacklogMergeGit } from "../../src/backlog/pr";
 import { AutoMerge } from "../../src/merge";
 import { CodeHostError, type HostPr, type RequiredCheck } from "../../src/platform/host";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { FakeHost, REPO } from "../backlog/pr/helpers";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 

@@ -41,7 +41,7 @@ import { contractCharacters } from "../gate/rules";
 import type { OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
 import { branchTip, pushBranch } from "../git/write";
-import { recordBranchPush } from "../story-pr/records";
+import { recordBranchPush } from "../records/story-prs";
 import { insertWorkerQuestion, questionViewOf } from "../questions/questions";
 import { presetEndReasons } from "../records/agents";
 import { TASK_FIELD_ERROR } from "../story-store/errors";

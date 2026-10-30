@@ -18,7 +18,7 @@ import { MemoryRequestTable } from "../../src/commands/requests";
 import { engineRegistry, FEATURES } from "../../src/features";
 import { executeRead } from "../../src/reads/execute";
 import { describeFeature } from "../../src/reads/describe";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import {
   detailRead,
   type FixtureCalls,

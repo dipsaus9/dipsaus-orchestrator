@@ -4,7 +4,7 @@
 import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
-import { RUN_PHASE_SQL } from "../records/run-records";
+import { RUN_PHASE_SQL } from "./run-records";
 
 export type StoryPrState = "open" | "merged" | "closed";
 

@@ -12,15 +12,14 @@ import type { OfficeHandle } from "../../src/db/office";
 import type { PushResult } from "../../src/git/write";
 import type { CodeHost, HostPr, NewPr } from "../../src/platform/host";
 import { pendingReviews, stopAtInReview } from "../../src/run";
-import { appendRunStep, insertRun } from "../../src/records";
 import {
+  appendRunStep,
   findStoryPr,
+  insertRun,
   recordBranchPush,
   runsToPush,
-  type StoryPrFacts,
-  StoryPrs,
-  STORY_PR_NOTICES,
-} from "../../src/story-pr";
+} from "../../src/records";
+import { type StoryPrFacts, StoryPrs, STORY_PR_NOTICES } from "../../src/story-pr";
 import { findClaim, insertClaim, updateClaim } from "../../src/worktree/records";
 import type { TestState } from "../commands/helpers";
 import { loggedEvents } from "../ingest/helpers";

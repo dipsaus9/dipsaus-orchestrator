@@ -21,7 +21,7 @@ import {
 import { gateStoryFromView } from "../../../src/gate/input";
 import { gateContentHash } from "../../../src/gate";
 import { storeGateDecision } from "../../../src/gate-decisions";
-import { addStory } from "../../../src/stories/keys";
+import { addStory } from "../../../src/records/story-keys";
 import { BACKLOG_FIXTURE, notices, publish, squashMergeOnRemote } from "../lane/helpers";
 
 import { laneSetup, mergeCommitOnRemote, prSetup, rebaseMergeOnRemote } from "./helpers";

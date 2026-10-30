@@ -29,11 +29,11 @@ import { MemoryRequestTable } from "../../src/commands/requests";
 import { executeRead } from "../../src/reads/execute";
 import { currentPlatform } from "../../src/platform/paths";
 import { systemProcessProbe } from "../../src/platform/process";
-import { insertStoryPr, latestStoryPr } from "../../src/story-pr/records";
+import { insertStoryPr, latestStoryPr } from "../../src/records/story-prs";
 import { openPark } from "../../src/run";
 import { WorkResumeCommand } from "../../src/run/work-resume";
 import { writeMirror } from "../../src/stories/apply";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { StoryPlanning } from "../../src/stories/planning";
 import {
   claimStory,

@@ -37,7 +37,7 @@ import {
   type PrListHost,
   repoOfRemoteUrl,
 } from "../../platform/host";
-import { resolveStoryRef } from "../../stories/keys";
+import { resolveStoryRef } from "../../records/story-keys";
 import { hasLiveClaim } from "../../worktree/records";
 import {
   type AdoptedOp,

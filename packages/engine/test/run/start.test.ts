@@ -50,7 +50,7 @@ import {
 import { findRun, runSteps } from "../../src/records";
 import { shortTempDir } from "../../src/run/temp-dirs";
 import { recordWorkerHost, type LaunchedHost } from "../../src/records/worker-hosts";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import {
   claudeCliAdapter,
   claudeLaunchContext,

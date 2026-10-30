@@ -20,7 +20,7 @@ import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
 import { deleteBranch, deleteRemoteBranch, remoteUrl } from "../git/write";
 import { forgetWorkerNotes } from "../prompts/notes";
-import { findStoryPr } from "../story-pr/records";
+import { findStoryPr } from "../records/story-prs";
 
 import { notice, writeWith } from "./claim";
 import { type ClaimRecord, markTeardownStarted, releaseClaim } from "./records";

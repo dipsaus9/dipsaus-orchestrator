@@ -46,7 +46,7 @@ import {
 } from "../../src/run/conflicts";
 import type { ConflictPrepared } from "../../src/run/park-resume";
 import { findRun, insertRun, type StoredRun } from "../../src/records/run-records";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { insertClaim } from "../../src/worktree/records";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";
 import { backlogLayout } from "../story-store/backlog";

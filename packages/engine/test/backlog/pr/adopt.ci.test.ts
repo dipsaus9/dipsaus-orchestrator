@@ -22,7 +22,7 @@ import { gateContentHash } from "../../../src/gate";
 import { storeGateDecision } from "../../../src/gate-decisions";
 import { AutoMerge } from "../../../src/merge";
 import type { RequiredCheck } from "../../../src/platform/host";
-import { addStory } from "../../../src/stories/keys";
+import { addStory } from "../../../src/records/story-keys";
 import { GREEN, RED } from "../../merge/helpers";
 import {
   BACKLOG_FIXTURE,

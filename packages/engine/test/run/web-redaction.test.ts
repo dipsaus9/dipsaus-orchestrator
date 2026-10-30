@@ -21,7 +21,7 @@ import type { IngestAdapter } from "../../src/ingest/ingestor";
 import { INPUT_MAX_CHARS } from "../../src/ingest/output";
 import { insertRun } from "../../src/records";
 import { OfficeIngest } from "../../src/run/hosts";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
 import type { ParseState } from "../../src/workers/types";
 import {

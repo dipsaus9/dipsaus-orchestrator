@@ -64,7 +64,7 @@ import {
   resetWorktree,
   statusPaths,
 } from "../../git/write";
-import { findStoryByKey } from "../../stories/keys";
+import { findStoryByKey } from "../../records/story-keys";
 import { LIVE_CLAIM_REFUSAL, PlanningRefusedError } from "../../story-store/errors";
 import type { BacklogCli } from "../runner";
 

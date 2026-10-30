@@ -67,7 +67,7 @@ import { sendFeedback } from "../../src/run/feedback";
 import { insertPark, mirrorStory } from "./park-fixture";
 import { parksBeingResumed } from "../../src/run/park-resume";
 import { type HeldSession, withHeld } from "./held-session";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { Caps } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";

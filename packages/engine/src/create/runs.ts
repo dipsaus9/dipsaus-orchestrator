@@ -114,7 +114,7 @@ import type { ScanSessionRunner } from "../scan/fallback";
 import { currentProfile } from "../scan/store";
 import type { StoryIndex } from "../stories/feature";
 import type { CiHeadState } from "../story-pr/prs";
-import { recordBranchPush, type BranchPush } from "../story-pr/records";
+import { recordBranchPush, type BranchPush } from "../records/story-prs";
 import type { StoryStore } from "../story-store/store";
 import { claudeWorkerPort } from "../workers/claude-cli/adapter";
 import { CLAUDE_CLI_ADAPTER_ID } from "../workers/claude-cli/plan";
