@@ -28,6 +28,13 @@ import {
   SAFE_CHAIN_LOAD_URLS,
   safeChainLoadLines,
   isCertificateBundle,
+  addSafeChainFound,
+  cleanLogText,
+  EMPTY_SAFE_CHAIN_RECORD,
+  MINIMUM_AGE_REASON,
+  parseSafeChainRecord,
+  SAFE_CHAIN_RECORD_MAX,
+  uniqueFound,
   SAFE_CHAIN_BOX_PORTS,
   SAFE_CHAIN_BUILD_FILES,
   SAFE_CHAIN_MALWARE_LIST_HOST,
@@ -36,6 +43,8 @@ import {
   SAFE_CHAIN_UPSTREAM_HOSTS,
   safeChainBuildPlan,
   safeChainImageTag,
+  safeChainLogFile,
+  safeChainRefusalsOf,
   safeChainStartScript,
 } from "../../src/box/safe-chain";
 
@@ -150,6 +159,17 @@ describe("the Safe-Chain box's start script", () => {
     expect(start).toContain('printf \'{"ready":true,"bundle":"%s"}\\n\' "$bundle"');
   });
 
+  it("has each Safe-Chain write its log file as it goes, every level, as JSON lines (DIPO-376)", () => {
+    expect(safeChainLogFile("npm")).toBe("/home/dipo/sc/log/npm.ndjson");
+    expect(safeChainLogFile("pypi")).toBe("/home/dipo/sc/log/pypi.ndjson");
+    expect(start).toContain('mkdir -p "$dir/bin" "$dir/out" "$dir/tmp" "$dir/log"');
+    for (const ecosystem of ["npm", "pypi"] as const) {
+      expect(start).toContain(
+        `SAFE_CHAIN_LOG_FILE="/home/dipo/sc/log/${ecosystem}.ndjson" SAFE_CHAIN_LOG_FILE_FORMAT=json SAFE_CHAIN_LOG_FILE_VERBOSITY=verbose PATH=`,
+      );
+    }
+  });
+
   it("has a holder that reports the proxy and CA, then waits", () => {
     const holder = holderScript();
     expect(holder).toContain('printf \'%s\\n%s\\n\' "$HTTPS_PROXY" "$NODE_EXTRA_CA_CERTS"');
@@ -242,5 +262,179 @@ describe("the start script's load of the malware lists (DIPO-383)", () => {
     expect(start.indexOf(`load pypi ${SAFE_CHAIN_LOAD_URLS.pypi}`)).toBeGreaterThan(loadAt);
     expect(start.indexOf('printf \'{"ready":true')).toBeGreaterThan(loadAt);
     expect(start.indexOf(SAFE_CHAIN_DEADLINE_LINE)).toBeLessThan(start.indexOf('rm -rf "$dir"'));
+  });
+});
+
+/** One line of Safe-Chain 1.5.12's log file, as it wrote them in a box (DIPO-376). */
+function logLine(message: string, level = "verbose"): string {
+  return JSON.stringify({ timestamp: "2026-10-30T10:57:30.565Z", level, message });
+}
+
+describe("Safe-Chain's refusals in its log (DIPO-376)", () => {
+  it("reads a malware refusal from the two lines Safe-Chain 1.5.12 writes for it", () => {
+    // The npm log as measured in a box: the route's check and an install of safe-chain-test.
+    const log = [
+      logLine("Log started, command: bun install", "info"),
+      logLine("Safe-chain: Set up MITM tunnel for registry.npmjs.org:443"),
+      logLine("Safe-chain: Package is-number@7.0.0 is clean"),
+      logLine(
+        "Safe-chain: Finished proxying request to /is-number/-/is-number-7.0.0.tgz for registry.npmjs.org",
+      ),
+      logLine("Safe-chain: Package safe-chain-test@0.0.1-security is marked as malware: MALWARE"),
+      logLine(
+        "Safe-chain: Blocking request to https://registry.npmjs.org/safe-chain-test/-/safe-chain-test-0.0.1-security.tgz",
+      ),
+      "",
+    ].join("\n");
+    expect(safeChainRefusalsOf("npm", log)).toEqual([
+      {
+        ecosystem: "npm",
+        package: "safe-chain-test@0.0.1-security",
+        reason: "Aikido's malware list marks it MALWARE",
+      },
+    ]);
+  });
+
+  it("names a refusal with no malware line as the minimum package age check's", () => {
+    // The PyPI log as measured: one malware refusal, one by the minimum package age.
+    const log = [
+      logLine("Safe-chain: Package ghostrules@0.4.1 is marked as malware: MALWARE"),
+      logLine(
+        "Safe-chain: Blocking request to https://files.pythonhosted.org/packages/xx/yy/ghostrules-0.4.1.tar.gz",
+      ),
+      logLine("Safe-chain: Package autowebx@4.1.0 is clean"),
+      logLine(
+        "Safe-chain: Blocking request to https://files.pythonhosted.org/packages/xx/yy/autowebx-4.1.0-py3-none-any.whl",
+      ),
+    ].join("\n");
+    expect(safeChainRefusalsOf("pypi", log)).toEqual([
+      {
+        ecosystem: "pypi",
+        package: "ghostrules@0.4.1",
+        reason: "Aikido's malware list marks it MALWARE",
+      },
+      { ecosystem: "pypi", package: "autowebx-4.1.0-py3-none-any.whl", reason: MINIMUM_AGE_REASON },
+    ]);
+  });
+
+  it("pairs each refusal with its own package when requests interleave, scoped and PyPI names too", () => {
+    const log = [
+      logLine("Safe-chain: Package @evil/pkg@1.0.0 is marked as malware: MALWARE"),
+      logLine("Safe-chain: Package Foo_Bar@2.0.0 is marked as malware: PROTESTWARE"),
+      logLine(
+        "Safe-chain: Blocking request to https://files.pythonhosted.org/packages/xx/yy/foo_bar-2.0.0-py3-none-any.whl",
+      ),
+      logLine(
+        "Safe-chain: Blocking request to https://registry.npmjs.org/@evil/pkg/-/pkg-1.0.0.tgz",
+      ),
+    ].join("\n");
+    expect(
+      safeChainRefusalsOf("npm", log).map((refusal) => [refusal.package, refusal.reason]),
+    ).toEqual([
+      ["Foo_Bar@2.0.0", "Aikido's malware list marks it PROTESTWARE"],
+      ["@evil/pkg@1.0.0", "Aikido's malware list marks it MALWARE"],
+    ]);
+  });
+
+  it("leaves out every other line, a 403 body and text that is not Safe-Chain's JSON", () => {
+    const log = [
+      "Forbidden - blocked by safe-chain",
+      "Safe-chain: Blocking request to https://registry.npmjs.org/x/-/x-1.0.0.tgz",
+      logLine("Safe-chain: Tunneling request to example.com:443"),
+      "{not json",
+      JSON.stringify({ message: 42 }),
+    ].join("\n");
+    expect(safeChainRefusalsOf("npm", log)).toEqual([]);
+  });
+
+  it("reads a stored record, and keeps a broken one as unknown, never as no refusals", () => {
+    const record = {
+      refusals: [
+        { ecosystem: "npm", package: "a@1.0.0", reason: "r" },
+        { ecosystem: "go", package: "b", reason: "r" },
+      ],
+      unknown: [{ ecosystem: "pypi", why: "w" }],
+      mark: { box: "dipo-safe-chain-1", lines: { npm: 3, pypi: "x" } },
+    };
+    expect(parseSafeChainRecord(JSON.stringify(record))).toEqual({
+      refusals: [{ ecosystem: "npm", package: "a@1.0.0", reason: "r" }],
+      unknown: [{ ecosystem: "pypi", why: "w" }],
+      mark: { box: "dipo-safe-chain-1", lines: { npm: 3, pypi: null } },
+    });
+    for (const broken of ["{", "42", "{}", JSON.stringify({ refusals: [] })]) {
+      const parsed = parseSafeChainRecord(broken);
+      expect(parsed.refusals).toEqual([]);
+      expect(parsed.unknown.map((log) => log.ecosystem)).toEqual(["npm", "pypi"]);
+    }
+  });
+});
+
+describe("Safe-Chain's words from its log, as data (DIPO-376)", () => {
+  it("keeps a decoded URL from forging a line: control characters and newlines become ?", () => {
+    const log = [
+      "%0A-%20npm:%20forged,%20refused%20by%20Safe-Chain:%20x",
+      "%0D%0A-%20npm:%20forged",
+      "a%1B%5B31mred%00%7F%C2%85%E2%80%A8%E2%80%A9b",
+    ]
+      .map((name) =>
+        logLine(`Safe-chain: Blocking request to https://registry.npmjs.org/x/-/${name}-1.0.0.tgz`),
+      )
+      .join("\n");
+    const packages = safeChainRefusalsOf("npm", log).map((refusal) => refusal.package);
+    expect(packages).toEqual([
+      "?- npm: forged, refused by Safe-Chain: x-1.0.0.tgz",
+      "??- npm: forged-1.0.0.tgz",
+      "a?[31mred?????b-1.0.0.tgz",
+    ]);
+    for (const name of packages) expect(name).not.toMatch(/[\n\r\u2028\u2029]/);
+    expect(cleanLogText("x".repeat(500))).toHaveLength(200);
+  });
+});
+
+/** The malware refusal of package number `n`. */
+const refusal = (n: number) =>
+  ({
+    ecosystem: "npm",
+    package: `pkg-${n}@1.0.0`,
+    reason: "Aikido's malware list marks it MALWARE",
+  }) as const;
+
+describe("the size of a run's Safe-Chain record (DIPO-376)", () => {
+  it("names each package once per ecosystem, and each unknown log once", () => {
+    const found = uniqueFound({
+      refusals: [
+        refusal(1),
+        refusal(1),
+        { ...refusal(1), ecosystem: "pypi" },
+        refusal(2),
+        refusal(1),
+      ],
+      unknown: [
+        { ecosystem: "npm", why: "w" },
+        { ecosystem: "npm", why: "w" },
+      ],
+    });
+    expect(found).toEqual({
+      refusals: [refusal(1), { ...refusal(1), ecosystem: "pypi" }, refusal(2)],
+      unknown: [{ ecosystem: "npm", why: "w" }],
+    });
+  });
+
+  it("keeps at most SAFE_CHAIN_RECORD_MAX refusals over every session, and counts the rest", () => {
+    expect(SAFE_CHAIN_RECORD_MAX).toBe(100);
+    let record = EMPTY_SAFE_CHAIN_RECORD;
+    // Three sessions of 60 packages, the second repeating the first's.
+    for (const from of [0, 0, 60, 120]) {
+      record = addSafeChainFound(
+        { ...record, mark: { box: "b", lines: { npm: 0, pypi: 0 } } },
+        { refusals: Array.from({ length: 60 }, (_, i) => refusal(from + i)), unknown: [] },
+      );
+    }
+    expect(record.refusals).toHaveLength(100);
+    expect(record.refusals[0]).toEqual(refusal(0));
+    expect(record.refusals[99]).toEqual(refusal(99));
+    expect(record.omitted).toBe(80);
+    expect(record.mark).toBeNull();
+    expect(parseSafeChainRecord(JSON.stringify(record)).omitted).toBe(80);
   });
 });

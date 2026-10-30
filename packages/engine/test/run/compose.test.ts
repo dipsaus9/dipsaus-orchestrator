@@ -214,6 +214,34 @@ describe("composeRuns", () => {
     expect(atAfterExit).toEqual([["host-lost"]]);
   });
 
+  test("keeps the session's Safe-Chain refusals before worker outcomes decide its end (DIPO-376)", async () => {
+    storeRun();
+    const order: string[] = [];
+    const composed = compose({
+      control: CONTROL,
+      outcomes: {},
+      beforeExit: async (runId) => {
+        // Outcomes have decided nothing yet: no signal is raised on the run.
+        order.push(
+          `beforeExit ${runId} [${activeSignals(f.office, f.run)
+            .map((s) => s.signal)
+            .join(",")}]`,
+        );
+      },
+      afterExit: () => {
+        order.push(
+          `afterExit [${activeSignals(f.office, f.run)
+            .map((s) => s.signal)
+            .join(",")}]`,
+        );
+      },
+    });
+
+    await loseHost(composed);
+
+    expect(order).toEqual([`beforeExit ${f.run} []`, "afterExit [host-lost]"]);
+  });
+
   test("feeds the pending reviews to the review starter in the reviewer place (DIPO-219)", async () => {
     storeRun(3);
     const { office } = f;

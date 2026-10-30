@@ -29,6 +29,7 @@ import handoff from "./task/handoff.md" with { type: "text" };
 import inputs from "./task/inputs.md" with { type: "text" };
 import instructions from "./task/instructions.md" with { type: "text" };
 import outcome from "./task/outcome.md" with { type: "text" };
+import safeChainRefusals from "./task/safe-chain-refusals.md" with { type: "text" };
 import previousFindings from "./task/previous-findings.md" with { type: "text" };
 import reviewCommit from "./task/review-commit.md" with { type: "text" };
 import reviewScope from "./task/review-scope.md" with { type: "text" };
@@ -91,6 +92,7 @@ export const TASK_TEMPLATES = {
   changes,
   diff,
   gateChanges,
+  safeChainRefusals,
   reviewScope,
   reviewTestPlan,
   previousFindings,
@@ -173,6 +175,7 @@ export const PROMPT_TAGS: readonly string[] = [
   "changes",
   "diff",
   "gate_changes",
+  "safe_chain_refusals",
   "previous_findings",
   "worker_report",
   "commit",

@@ -17,6 +17,7 @@
 import { createHash } from "node:crypto";
 import { isAbsolute, relative, sep } from "node:path";
 
+import { type SafeChainFound, uniqueFound } from "../box/safe-chain";
 import { formatCount } from "../context/truncate";
 import { budgetLine, withBudgetLine, type BudgetFacts } from "./budget";
 import { cutHead, cutTailLines } from "./cut";
@@ -29,6 +30,7 @@ import reviewCriterionTemplate from "./feedback/review-criterion.md" with { type
 import reviewEvidenceTemplate from "./feedback/review-evidence.md" with { type: "text" };
 import reviewFindingTemplate from "./feedback/review-finding.md" with { type: "text" };
 import reviewReportTemplate from "./feedback/review-report.md" with { type: "text" };
+import safeChainTemplate from "./feedback/safe-chain.md" with { type: "text" };
 import testPlanTemplate from "./feedback/test-plan.md" with { type: "text" };
 import { FEEDBACK_TEMPLATES, neutraliseTags, rendered, renderTemplate } from "./templates";
 
@@ -83,6 +85,51 @@ export function decisionNoteFeedback(
       )
       .join("\n"),
   });
+}
+
+/** The most characters of the refusal lines of one message or section (DIPO-376), as an item's. */
+export const SAFE_CHAIN_LINES_MAX = 3_000;
+
+/**
+ * The lines of what Safe-Chain refused in a run's box (DIPO-376), as the worker and the reviewer
+ * read them: each package once per ecosystem with Safe-Chain's reason, as many as fit in
+ * `SAFE_CHAIN_LINES_MAX` characters, then one line that counts the rest; then each session log
+ * dipo could not read, whose refusals are unknown, always. Its words are data: their tags are
+ * neutralised where the lines are rendered.
+ */
+export function safeChainLines(found: SafeChainFound): string[] {
+  const unique = uniqueFound(found);
+  const shown: string[] = [];
+  let size = 0;
+  for (const refusal of unique.refusals) {
+    const line = `- ${refusal.ecosystem}: ${refusal.package}, refused by Safe-Chain: ${refusal.reason}`;
+    if (size + line.length + 1 > SAFE_CHAIN_LINES_MAX) break;
+    shown.push(line);
+    size += line.length + 1;
+  }
+  const more = unique.refusals.length - shown.length + (unique.omitted ?? 0);
+  return [
+    ...shown,
+    ...(more > 0
+      ? [
+          `- and ${formatCount(more)} more ${more === 1 ? "package" : "packages"} Safe-Chain refused, left out to keep this short`,
+        ]
+      : []),
+    ...unique.unknown.map(
+      (log) => `- ${log.ecosystem}: what Safe-Chain refused is unknown, because ${log.why}`,
+    ),
+  ];
+}
+
+/**
+ * The held message for the worker's next session about what Safe-Chain refused in its last one
+ * (DIPO-376); null when the session met no refusal and every log could be read.
+ */
+export function safeChainFeedback(found: SafeChainFound): string | null {
+  const lines = safeChainLines(found);
+  return lines.length === 0
+    ? null
+    : renderTemplate(safeChainTemplate, { refusals: lines.join("\n") });
 }
 
 /** The reviewer's correction turn for a report missing or invalid against its schema. */

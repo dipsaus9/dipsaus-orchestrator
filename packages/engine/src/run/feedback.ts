@@ -60,6 +60,8 @@ export type FeedbackSource =
   | "reject"
   /** A failed test's note (0002, DIPO-309). */
   | "test"
+  /** What Safe-Chain refused in the box during the last session (DIPO-376). */
+  | "safe-chain"
   /**
    * The reason's part of a resumed park's first message (0020). It carries no cap of its own: a
    * resume is bounded by the grants it records and the run's caps.

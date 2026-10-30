@@ -21,6 +21,7 @@
 //   daemon start the fill boxes a stopped daemon left are deleted, never one that fills now.
 
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -63,14 +64,25 @@ import {
   PACKAGE_CACHE_DIR,
   readBaseLockfile,
 } from "../../src/box/cache";
-import { BOX_PACKAGE_CACHE_PATH, BoxError, type BoxNetwork, boxName } from "../../src/box/port";
+import {
+  BOX_PACKAGE_CACHE_PATH,
+  BoxError,
+  type BoxExecResult,
+  type BoxNetwork,
+  boxName,
+} from "../../src/box/port";
 import {
   REVIEW_CODE_DIR,
   REVIEW_ROOT,
   REVIEW_SESSION_DIR,
   reviewBoxName,
 } from "../../src/box/review-box";
-import { SAFE_CHAIN_BOX_RUN_PREFIX } from "../../src/box/safe-chain";
+import {
+  SAFE_CHAIN_BOX_RUN_PREFIX,
+  SAFE_CHAIN_LOG_DIR,
+  type SafeChainFound,
+  type SafeChainRecord,
+} from "../../src/box/safe-chain";
 import { SecretToken } from "../../src/box/token";
 import { BOX_TOKEN_CHECK } from "../../src/box/token-check";
 import { boxTokenHoldPath, boxTokenStickyHolds } from "../../src/box/token-hold";
@@ -83,6 +95,7 @@ import {
   type BoxMade,
   BoxWorkers,
   type BoxPackageCacheDeps,
+  type BoxSafeChainStore,
   type BoxWorkersDeps,
   readBoxRun,
   type RouteBoxIds,
@@ -183,6 +196,8 @@ interface WorldOptions {
   readonly build?: boolean;
   /** The web route makes its Safe-Chain box, by the id the workers tell it (DIPO-343). */
   readonly safeChainBox?: boolean;
+  /** Where each run's Safe-Chain record is kept (DIPO-376); none is read without it. */
+  readonly safeChain?: BoxSafeChainStore;
 }
 
 /**
@@ -248,6 +263,8 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
               network,
             })
           : null;
+      // It runs as the real one does once the route started, so its logs can be read (DIPO-376).
+      if (safeChain !== null && options.safeChain !== undefined) await boxes.start(safeChain);
       return {
         ok: true,
         route: {
@@ -310,6 +327,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     ...(options.door === undefined ? {} : { door: options.door }),
     ...(options.treeCheck === undefined ? {} : { treeCheck: options.treeCheck }),
     ...(options.finishWaitMs === undefined ? {} : { finishWaitMs: options.finishWaitMs }),
+    ...(options.safeChain === undefined ? {} : { safeChain: options.safeChain }),
     warn: (message, fields) => warnings.push({ message, fields }),
   });
   const runDir = join(tmp, "runs", RUN);
@@ -1995,5 +2013,136 @@ describe("the reviewer's box (0002, DIPO-347)", () => {
       expect(w.boxes.boxes.has(other)).toBe(false);
       await w.workers.close();
       expect(w.boxes.boxes.has(REVIEW_BOX)).toBe(false);
+    }));
+});
+
+/** One line of Safe-Chain's log file, as 1.5.12 writes it. */
+const logLine = (message: string): string =>
+  `${JSON.stringify({ timestamp: "2026-10-30T10:57:30.565Z", level: "verbose", message })}\n`;
+const refusalOf = (pkg: string, url: string): string =>
+  logLine(`Safe-chain: Package ${pkg} is marked as malware: MALWARE`) +
+  logLine(`Safe-chain: Blocking request to ${url}`);
+const NPM_REFUSAL = refusalOf(
+  "safe-chain-test@0.0.1-security",
+  "https://registry.npmjs.org/safe-chain-test/-/safe-chain-test-0.0.1-security.tgz",
+);
+
+/** The Safe-Chain box's commands run with `sh` on logs in `dir`; every other box's as before. */
+const safeChainExec =
+  (dir: string) =>
+  (box: string, command: readonly string[]): BoxExecResult | undefined => {
+    if (!box.startsWith(`dipo-${SAFE_CHAIN_BOX_RUN_PREFIX}`)) return undefined;
+    const done = Bun.spawnSync(
+      command.map((arg) => arg.replace(SAFE_CHAIN_LOG_DIR, dir)),
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    return { code: done.exitCode, stdout: done.stdout.toString(), stderr: "" };
+  };
+
+/** An in-memory store of the run records, with what each read found. */
+function safeChainStore(): BoxSafeChainStore & {
+  readonly records: Map<string, SafeChainRecord>;
+  readonly found: SafeChainFound[];
+} {
+  const records = new Map<string, SafeChainRecord>();
+  const found: SafeChainFound[] = [];
+  return {
+    records,
+    found,
+    of: (runId) => records.get(runId) ?? null,
+    store: (runId, record, read) => {
+      records.set(runId, record);
+      found.push(read);
+    },
+  };
+}
+
+describe("Safe-Chain's refusals of each session (DIPO-376)", () => {
+  it("keeps on the run what Safe-Chain refused in a session, read when the session ends", () =>
+    inBoxes(async (repo, tmp) => {
+      const logs = join(tmp, "sc-log");
+      mkdirSync(logs);
+      // The route's own check refused Safe-Chain's test package before any session.
+      writeFileSync(join(logs, "npm.ndjson"), NPM_REFUSAL);
+      writeFileSync(join(logs, "pypi.ndjson"), "");
+      const safeChain = safeChainStore();
+      const w = await world(repo, tmp, {
+        safeChainBox: true,
+        safeChain,
+        boxes: { exec: safeChainExec(logs) },
+      });
+      await created(w);
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      const box = [...w.boxes.boxes.keys()].find((name) =>
+        name.startsWith(`dipo-${SAFE_CHAIN_BOX_RUN_PREFIX}`),
+      );
+      expect(safeChain.records.get(RUN)).toEqual({
+        refusals: [],
+        unknown: [],
+        mark: { box: box ?? "", lines: { npm: 2, pypi: 0 } },
+      });
+      appendFileSync(join(logs, "npm.ndjson"), NPM_REFUSAL);
+      await w.workers.sessionEnded(RUN);
+      const refusal = {
+        ecosystem: "npm",
+        package: "safe-chain-test@0.0.1-security",
+        reason: "Aikido's malware list marks it MALWARE",
+      } as const;
+      expect(safeChain.records.get(RUN)).toEqual({ refusals: [refusal], unknown: [], mark: null });
+      expect(safeChain.found.at(-1)).toEqual({ refusals: [refusal], unknown: [] });
+      // Read once: a second end, the rest's or the finish's, finds no mark.
+      const stores = safeChain.found.length;
+      await w.workers.sessionEnded(RUN);
+      expect(safeChain.found).toHaveLength(stores);
+
+      // The next session's refusal is read at the finish, when no exit read it first.
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      appendFileSync(
+        join(logs, "pypi.ndjson"),
+        refusalOf(
+          "ghostrules@0.4.1",
+          "https://files.pythonhosted.org/packages/xx/yy/ghostrules-0.4.1.tar.gz",
+        ),
+      );
+      await w.workers.finish(RUN);
+      expect(safeChain.records.get(RUN)?.refusals).toEqual([
+        refusal,
+        {
+          ecosystem: "pypi",
+          package: "ghostrules@0.4.1",
+          reason: "Aikido's malware list marks it MALWARE",
+        },
+      ]);
+    }));
+
+  it("keeps a session as unknown, never as no refusals, when its Safe-Chain box is gone", () =>
+    inBoxes(async (repo, tmp) => {
+      const logs = join(tmp, "sc-log");
+      mkdirSync(logs);
+      writeFileSync(join(logs, "npm.ndjson"), "");
+      writeFileSync(join(logs, "pypi.ndjson"), "");
+      const safeChain = safeChainStore();
+      const w = await world(repo, tmp, {
+        safeChainBox: true,
+        safeChain,
+        boxes: { exec: safeChainExec(logs) },
+      });
+      await created(w);
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      // The session started with a Safe-Chain box the route no longer runs (a route started again).
+      safeChain.records.set(RUN, {
+        refusals: [],
+        unknown: [],
+        mark: { box: "dipo-safe-chain-0000000000000000", lines: { npm: 0, pypi: 0 } },
+      });
+      await w.workers.rest(RUN);
+      expect(safeChain.records.get(RUN)).toEqual({
+        refusals: [],
+        unknown: [
+          { ecosystem: "npm", why: "the Safe-Chain box it ran with is gone, and its log with it" },
+          { ecosystem: "pypi", why: "the Safe-Chain box it ran with is gone, and its log with it" },
+        ],
+        mark: null,
+      });
     }));
 });

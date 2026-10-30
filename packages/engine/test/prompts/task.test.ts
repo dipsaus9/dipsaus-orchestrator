@@ -219,6 +219,7 @@ describe("tags inside slot text", () => {
       "changes",
       "diff",
       "gate_changes",
+      "safe_chain_refusals",
       "previous_findings",
       "worker_report",
       "commit",

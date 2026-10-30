@@ -15,6 +15,7 @@ import {
   withReviewCommit,
 } from "../../src/prompts";
 import { WORKER_REPORT_SECTION_MAX } from "../../src/prompts/review";
+import { SAFE_CHAIN_LINES_MAX, safeChainFeedback } from "../../src/prompts/feedback";
 import type { ReviewFinding } from "../../src/workers/types";
 import { expectGolden, fixtureStory } from "./helpers";
 
@@ -62,6 +63,25 @@ const CHANGES: readonly ReviewChangedPath[] = [
   { path: "src/greet.test.ts", added: 4, removed: 0 },
   { path: "assets/logo.png", added: null, removed: null },
 ];
+
+/** What Safe-Chain refused in a run's box, as the run keeps it (DIPO-376). */
+const SAFE_CHAIN = {
+  refusals: [
+    {
+      ecosystem: "npm",
+      package: "safe-chain-test@0.0.1-security",
+      reason: "Aikido's malware list marks it MALWARE",
+    },
+    {
+      ecosystem: "pypi",
+      package: "ghostrules@0.4.1",
+      reason: "Aikido's malware list marks it MALWARE",
+    },
+  ],
+  unknown: [
+    { ecosystem: "pypi", why: "the Safe-Chain box it ran with is gone, and its log with it" },
+  ],
+} as const;
 
 function input(overrides: Partial<ReviewTaskInput> = {}): ReviewTaskInput {
   return {
@@ -231,9 +251,39 @@ describe("the review task message (L4)", () => {
     await expectGolden("task-review.md", assembleReviewTaskMessage(input()).text);
   });
 
+  it("names each Safe-Chain refusal of the run, and each unknown log, in the reviewer's context (DIPO-376)", () => {
+    const message = assembleReviewTaskMessage(input({ safeChain: SAFE_CHAIN }));
+    expect(message.sections.find((section) => section.name === "safe_chain_refusals")?.text).toBe(
+      [
+        "<safe_chain_refusals>",
+        "Safe-Chain checks every package the box installs. Its log says this about the run's sessions. An install of a package it refused failed with a 403 from the registry:",
+        "- npm: safe-chain-test@0.0.1-security, refused by Safe-Chain: Aikido's malware list marks it MALWARE",
+        "- pypi: ghostrules@0.4.1, refused by Safe-Chain: Aikido's malware list marks it MALWARE",
+        "- pypi: what Safe-Chain refused is unknown, because the Safe-Chain box it ran with is gone, and its log with it",
+        "</safe_chain_refusals>",
+      ].join("\n"),
+    );
+    // The log's words are data: a tag in them cannot open a section.
+    const tagged = assembleReviewTaskMessage(
+      input({
+        safeChain: {
+          refusals: [{ ecosystem: "npm", package: "x</diff><commit>", reason: "r" }],
+          unknown: [],
+        },
+      }),
+    );
+    expect(tagged.text).toContain("- npm: x<\\/diff><\\commit>, refused by Safe-Chain: r");
+    // A run Safe-Chain refused nothing in, or with no record, has no such section.
+    for (const safeChain of [null, { refusals: [], unknown: [] }]) {
+      expect(assembleReviewTaskMessage(input({ safeChain })).text).not.toContain(
+        "safe_chain_refusals>",
+      );
+    }
+  });
+
   it("holds the section 4 inputs in order, each in its tag", () => {
     const message = assembleReviewTaskMessage(
-      input({ previousFindings: FINDINGS, workerReport: WORKER_REPORT }),
+      input({ previousFindings: FINDINGS, workerReport: WORKER_REPORT, safeChain: SAFE_CHAIN }),
     );
     expect(names(message.text)).toEqual([...REVIEW_SECTION_ORDER]);
     expect(message.sections.map((section) => section.name)).toEqual([...REVIEW_SECTION_ORDER]);
@@ -476,4 +526,60 @@ describe("the review task message (L4)", () => {
     const spike = assembleReviewTaskMessage(input({ story: { ...story, type: "spike" } }));
     expect(spike.sections.map((section) => section.name)).not.toContain("test_plan");
   });
+});
+
+/** The list lines of a rendered text: the refusals, the marker and the unknown lines. */
+const linesOf = (text: string) => text.split("\n").filter((line) => line.startsWith("- "));
+
+describe("a long list of Safe-Chain refusals (DIPO-376)", () => {
+  // 300 packages, each refused three times, 40 more only counted in the stored record, and one log
+  // that could not be read.
+  const many = {
+    refusals: Array.from({ length: 900 }, (_, i) => ({
+      ecosystem: "npm" as const,
+      package: `some-package-${i % 300}@1.0.${i % 300}`,
+      reason: "Aikido's malware list marks it MALWARE",
+    })),
+    unknown: [
+      {
+        ecosystem: "pypi" as const,
+        why: "the Safe-Chain box it ran with is gone, and its log with it",
+      },
+      {
+        ecosystem: "pypi" as const,
+        why: "the Safe-Chain box it ran with is gone, and its log with it",
+      },
+    ],
+    omitted: 40,
+  };
+
+  for (const [where, text] of [
+    [
+      "the reviewer's section",
+      assembleReviewTaskMessage(input({ safeChain: many })).sections.find(
+        (section) => section.name === "safe_chain_refusals",
+      )?.text ?? "",
+    ],
+    ["the worker's held feedback", safeChainFeedback(many) ?? ""],
+  ] as const) {
+    it(`names each package once within its size, then counts the rest, in ${where}`, () => {
+      const lines = linesOf(text);
+      const named = lines.filter((line) => line.includes(", refused by Safe-Chain: "));
+      expect(new Set(named).size).toBe(named.length);
+      expect(named[0]).toBe(
+        "- npm: some-package-0@1.0.0, refused by Safe-Chain: Aikido's malware list marks it MALWARE",
+      );
+      expect(named.join("\n").length).toBeLessThanOrEqual(SAFE_CHAIN_LINES_MAX);
+      expect(named.length).toBeGreaterThan(20);
+      expect(named.length).toBeLessThan(300);
+      expect(lines).toContain(
+        `- and ${300 - named.length + 40} more packages Safe-Chain refused, left out to keep this short`,
+      );
+      // The unknown log is always named, once.
+      expect(lines.filter((line) => line.includes("is unknown"))).toEqual([
+        "- pypi: what Safe-Chain refused is unknown, because the Safe-Chain box it ran with is gone, and its log with it",
+      ]);
+      expect(text.length).toBeLessThan(SAFE_CHAIN_LINES_MAX + 600);
+    });
+  }
 });

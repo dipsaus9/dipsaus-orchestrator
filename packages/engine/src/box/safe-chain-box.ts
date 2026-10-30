@@ -30,6 +30,11 @@
 // `onRoute` hears of it. `stop` deletes the box, so it
 // lives exactly as long as the route. A Safe-Chain box a killed daemon left is deleted at the next
 // daemon start (`BoxWorkers.finishEnded`).
+//
+// Its refusals (DIPO-376): each Safe-Chain process writes its log file in the box as it goes
+// (`safeChainLogFile`). `markSafeChain` counts each log's lines when a session starts, and
+// `readSafeChain` reads the refusals among the lines each gained when it ends; a log that cannot be
+// read then is unknown. The box workers keep both on the run (`BoxWorkers.sessionEnded`).
 
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { connect as tlsConnect } from "node:tls";
@@ -48,8 +53,17 @@ import {
   SAFE_CHAIN_BOX_RUN_PREFIX,
   SAFE_CHAIN_LOAD_SECONDS_ENV,
   SAFE_CHAIN_RUN_DIR,
+  SAFE_CHAIN_ECOSYSTEMS,
+  SAFE_CHAIN_REFUSAL_LINES,
   SAFE_CHAIN_START_SCRIPT,
   SAFE_CHAIN_TMP_DIR,
+  type SafeChainEcosystem,
+  type SafeChainFound,
+  type SafeChainMark,
+  type SafeChainRefusal,
+  type SafeChainUnknown,
+  safeChainLogFile,
+  safeChainRefusalsOf,
 } from "./safe-chain";
 import {
   admittedUrl,
@@ -646,4 +660,123 @@ function running(
       return stopping;
     },
   };
+}
+
+/**
+ * How long one count or read of a Safe-Chain log in its box may take. A session's start and its end
+ * each make one per log (two), so neither waits more than about 8 seconds; past it the log is
+ * unknown.
+ */
+export const SAFE_CHAIN_LOG_READ_TIMEOUT_MS = 4_000;
+/** The exit of `READ_REFUSALS` for a log shorter than at the session's start: cut or replaced. */
+const LOG_SHRANK = 4;
+
+/** Prints the complete lines of the log `$1`; exit 3 when it is not there to read. */
+const COUNT_LINES = '[ -r "$1" ] || exit 3; wc -l < "$1"';
+/**
+ * Prints the lines of the log `$1` after its first `$2` lines (the mark) that hold either refusal
+ * line (`$3`, `$4`); exit 3 when it is not there to read, `LOG_SHRANK` when it holds fewer lines
+ * than the mark (it was cut or replaced, so `tail` would print nothing), grep's 2 when grep failed.
+ */
+const READ_REFUSALS = [
+  '[ -r "$1" ] || exit 3',
+  'n=$(wc -l < "$1") || exit 3',
+  `[ "$n" -ge "$2" ] || exit ${LOG_SHRANK}`,
+  'tail -n "+$(($2 + 1))" -- "$1" | grep -F -e "$3" -e "$4"; [ "$?" -le 1 ]',
+].join("; ");
+
+/**
+ * Where a session starts in the Safe-Chain logs of box `box` (DIPO-376): the complete lines each log
+ * holds now; null for a log that cannot be read. Never rejects.
+ */
+export async function markSafeChain(
+  boxes: Pick<BoxPort, "exec">,
+  box: string | null,
+): Promise<SafeChainMark> {
+  const lines: Record<SafeChainEcosystem, number | null> = { npm: null, pypi: null };
+  if (box === null) return { box, lines };
+  for (const ecosystem of SAFE_CHAIN_ECOSYSTEMS) {
+    try {
+      const got = await boxes.exec(
+        box,
+        ["sh", "-c", COUNT_LINES, "sh", safeChainLogFile(ecosystem)],
+        { timeoutMs: SAFE_CHAIN_LOG_READ_TIMEOUT_MS },
+      );
+      const count = Number(got.stdout.trim());
+      if (got.code === 0 && got.stdout.trim() !== "" && Number.isSafeInteger(count) && count >= 0) {
+        lines[ecosystem] = count;
+      }
+    } catch {
+      // Unknown: the end of the session says so.
+    }
+  }
+  return { box, lines };
+}
+
+/**
+ * The refusals of one session (DIPO-376): the lines each Safe-Chain log of box `box` gained since
+ * `mark`. A log is unknown, never empty, when the session's start could not count it, when the
+ * Safe-Chain box is another than at its start (the route started again, so its logs are gone), or
+ * when it cannot be read now. Never rejects.
+ */
+export async function readSafeChain(
+  boxes: Pick<BoxPort, "exec">,
+  box: string | null,
+  mark: SafeChainMark,
+): Promise<SafeChainFound> {
+  const refusals: SafeChainRefusal[] = [];
+  const unknown: SafeChainUnknown[] = [];
+  for (const ecosystem of SAFE_CHAIN_ECOSYSTEMS) {
+    const from = mark.lines[ecosystem];
+    if (mark.box === null || from === null) {
+      unknown.push({
+        ecosystem,
+        why: "its Safe-Chain log could not be read when the session started",
+      });
+      continue;
+    }
+    if (box !== mark.box) {
+      unknown.push({
+        ecosystem,
+        why: "the Safe-Chain box it ran with is gone, and its log with it",
+      });
+      continue;
+    }
+    let got: { readonly code: number | null; readonly stdout: string };
+    try {
+      got = await boxes.exec(
+        box,
+        [
+          "sh",
+          "-c",
+          READ_REFUSALS,
+          "sh",
+          safeChainLogFile(ecosystem),
+          String(from),
+          SAFE_CHAIN_REFUSAL_LINES.blocking,
+          SAFE_CHAIN_REFUSAL_LINES.malware,
+        ],
+        { timeoutMs: SAFE_CHAIN_LOG_READ_TIMEOUT_MS },
+      );
+    } catch (error) {
+      unknown.push({ ecosystem, why: `its Safe-Chain log could not be read: ${messageOf(error)}` });
+      continue;
+    }
+    if (got.code === LOG_SHRANK) {
+      unknown.push({
+        ecosystem,
+        why: "its Safe-Chain log holds fewer lines than when the session started, so it was cut or replaced",
+      });
+      continue;
+    }
+    if (got.code !== 0) {
+      unknown.push({
+        ecosystem,
+        why: `its Safe-Chain log could not be read (exit ${got.code ?? "none"})`,
+      });
+      continue;
+    }
+    refusals.push(...safeChainRefusalsOf(ecosystem, got.stdout));
+  }
+  return { refusals, unknown };
 }
