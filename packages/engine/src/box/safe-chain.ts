@@ -21,6 +21,10 @@
 // - The packaged binary takes its install directory from its own path, so a copy at
 //   `<dir>/bin/safe-chain` keeps its CA, certificates and caches in `<dir>`: a fresh CA in each
 //   box, which lives as long as dipo's web route.
+// - Safe-Chain prints what it refused only when the manager it wraps exits, which the holder never
+//   does, so its own output names no refusal while the box lives. Its log file
+//   (`SAFE_CHAIN_LOG_FILE`) is written at once: dipo reads each session's refusals from it
+//   (`safeChainRefusalsOf`, DIPO-376).
 // - The image is one for the whole machine, built from Debian's slim image pinned by digest
 //   (`debianBase`), the box network tools and the official release binary pinned by sha256, with
 //   no npm install: building it needs no Safe-Chain, while building an office image does.
@@ -99,6 +103,22 @@ export const SAFE_CHAIN_START_SCRIPT = `${SAFE_CHAIN_IMAGE_DIR}/start.sh`;
 export const SAFE_CHAIN_RUN_DIR = `${BOX_USER_HOME}/sc`;
 /** Where Safe-Chain writes its CA bundle: the run folder's temp folder. */
 export const SAFE_CHAIN_TMP_DIR = `${SAFE_CHAIN_RUN_DIR}/tmp`;
+/** Where each Safe-Chain process writes its log file (DIPO-376), in the run folder. */
+export const SAFE_CHAIN_LOG_DIR = `${SAFE_CHAIN_RUN_DIR}/log`;
+
+/** The log file of the Safe-Chain process of `ecosystem` in its box. */
+export function safeChainLogFile(ecosystem: SafeChainEcosystem): string {
+  return `${SAFE_CHAIN_LOG_DIR}/${ecosystem}.ndjson`;
+}
+
+/**
+ * Safe-Chain's own variables for its log file (DIPO-376), as the start script sets them for one
+ * process: the file, one JSON object per line, and every level, the verbose lines with the
+ * refusals among them.
+ */
+function logFileEnv(ecosystem: SafeChainEcosystem): string {
+  return `SAFE_CHAIN_LOG_FILE="${safeChainLogFile(ecosystem)}" SAFE_CHAIN_LOG_FILE_FORMAT=json SAFE_CHAIN_LOG_FILE_VERBOSITY=verbose`;
+}
 /** Variable the holder reads: the file it writes its report to. */
 export const HOLDER_REPORT_ENV = "DIPO_SAFE_CHAIN_REPORT";
 
@@ -202,7 +222,7 @@ function startLines(ecosystem: SafeChainEcosystem): string[] {
   const command = SAFE_CHAIN_HOLDER_COMMANDS[ecosystem].join(" ");
   const forward = SAFE_CHAIN_BOX_PORTS[ecosystem];
   return [
-    `${HOLDER_REPORT_ENV}="$dir/out/${ecosystem}" PATH="${SAFE_CHAIN_IMAGE_DIR}/holder:/usr/bin:/bin" "$dir/bin/safe-chain" ${command} < /dev/null > "$dir/${ecosystem}.log" 2>&1 &`,
+    `${HOLDER_REPORT_ENV}="$dir/out/${ecosystem}" ${logFileEnv(ecosystem)} PATH="${SAFE_CHAIN_IMAGE_DIR}/holder:/usr/bin:/bin" "$dir/bin/safe-chain" ${command} < /dev/null > "$dir/${ecosystem}.log" 2>&1 &`,
     "tries=0",
     `until [ -s "$dir/out/${ecosystem}" ]; do`,
     "  tries=$((tries + 1))",
@@ -231,7 +251,7 @@ export function safeChainStartScript(): string {
     SAFE_CHAIN_DEADLINE_LINE,
     `dir="${SAFE_CHAIN_RUN_DIR}"`,
     'rm -rf "$dir"',
-    'mkdir -p "$dir/bin" "$dir/out" "$dir/tmp"',
+    'mkdir -p "$dir/bin" "$dir/out" "$dir/tmp" "$dir/log"',
     `cp ${SAFE_CHAIN_IMAGE_DIR}/bin/safe-chain "$dir/bin/safe-chain"`,
     'export TMPDIR="$dir/tmp"',
     // One after the other: the first makes the CA in the install folder, the second loads it.
@@ -333,4 +353,211 @@ export function safeChainImageTag(plan: SafeChainBuildPlan = safeChainBuildPlan(
     hash.update(`\n${name}\n${plan.files[name] ?? ""}`);
   }
   return `${BOX_IMAGE_REPOSITORY}:${hash.digest("hex")}`;
+}
+
+/**
+ * The two lines Safe-Chain 1.5.12 writes to its log file for a refusal, as measured in a box
+ * (DIPO-376), one JSON object per line with the line in `message`:
+ *
+ *   Safe-chain: Package safe-chain-test@0.0.1-security is marked as malware: MALWARE
+ *   Safe-chain: Blocking request to https://registry.npmjs.org/safe-chain-test/-/safe-chain-test-0.0.1-security.tgz
+ *
+ * A malware refusal writes both; a refusal by its minimum package age check writes only the
+ * second (its package check wrote `... is clean` before). Its 403 reaches the installer with
+ * `Forbidden - blocked by safe-chain`, which no log line holds. A Safe-Chain release that words
+ * them otherwise fails the real-box test (safe-chain-refusals.box.test.ts).
+ */
+export const SAFE_CHAIN_REFUSAL_LINES = {
+  blocking: "Safe-chain: Blocking request to ",
+  malware: " is marked as malware: ",
+} as const;
+
+const BLOCKING_LINE = /^Safe-chain: Blocking request to (\S+)$/;
+const MALWARE_LINE = /^Safe-chain: Package (\S+) is marked as malware: (\S.*)$/;
+
+/** One package Safe-Chain refused, as its log names it (DIPO-376). */
+export interface SafeChainRefusal {
+  readonly ecosystem: SafeChainEcosystem;
+  /** `name@version` as Safe-Chain names it; the requested file's name when its log names none. */
+  readonly package: string;
+  /** Why Safe-Chain refused it. */
+  readonly reason: string;
+}
+
+/** A log of a session that could not be read, so its refusals are unknown (DIPO-376). */
+export interface SafeChainUnknown {
+  readonly ecosystem: SafeChainEcosystem;
+  readonly why: string;
+}
+
+/** What one read of a session's Safe-Chain logs found. */
+export interface SafeChainFound {
+  readonly refusals: readonly SafeChainRefusal[];
+  readonly unknown: readonly SafeChainUnknown[];
+}
+
+/**
+ * Where a session started in each Safe-Chain log (DIPO-376): the box whose logs they are and the
+ * complete lines each held then; null for a log that could not be read then, and a null box when
+ * no Safe-Chain box ran.
+ */
+export interface SafeChainMark {
+  readonly box: string | null;
+  readonly lines: Readonly<Record<SafeChainEcosystem, number | null>>;
+}
+
+/**
+ * A run's Safe-Chain record (DIPO-376, `runs.safe_chain`): every refusal its sessions met and every
+ * session log that could not be read, kept when each session ended, so the worker's next turn and
+ * the reviewer have them after the Safe-Chain box is gone; and the mark of the session in progress,
+ * null between sessions.
+ */
+export interface SafeChainRecord extends SafeChainFound {
+  readonly mark: SafeChainMark | null;
+}
+
+/** The record of a run no session marked yet. */
+export const EMPTY_SAFE_CHAIN_RECORD: SafeChainRecord = { refusals: [], unknown: [], mark: null };
+
+/** The reason of a refusal Safe-Chain's malware list names, from its status (`MALWARE`). */
+function malwareReason(status: string): string {
+  return `Aikido's malware list marks it ${status}`;
+}
+
+/** The reason of a refusal with no malware line: in 1.5.12 the minimum package age check. */
+export const MINIMUM_AGE_REASON =
+  "the version is newer than Safe-Chain's minimum package age, so it was released too recently";
+
+/** Lower case with each run of `-`, `_` and `.` as one `-`, as npm and PyPI file names compare. */
+function normalName(text: string): string {
+  return text.toLowerCase().replaceAll(/[-_.]+/g, "-");
+}
+
+/** True when the file `url` asks for is `pkg` (`name@version`): its name starts `name-version`. */
+function fileOf(url: string, pkg: string): boolean {
+  const at = pkg.lastIndexOf("@");
+  if (at <= 0) return false;
+  const name = pkg.slice(0, at);
+  const base = name.slice(name.lastIndexOf("/") + 1);
+  const want = normalName(`${base}-${pkg.slice(at + 1)}`);
+  const file = normalName(fileName(url));
+  return file === want || file.startsWith(`${want}-`);
+}
+
+/** The last path segment of `url`, decoded; the URL itself when it has none. */
+function fileName(url: string): string {
+  let path: string;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    return url;
+  }
+  const last = path.slice(path.lastIndexOf("/") + 1);
+  try {
+    return decodeURIComponent(last) || url;
+  } catch {
+    return last || url;
+  }
+}
+
+/** The `message` of one log line, or null for a line that is not Safe-Chain's JSON. */
+function messageOfLine(line: string): string | null {
+  try {
+    const value = JSON.parse(line) as { message?: unknown } | null;
+    return typeof value?.message === "string" ? value.message : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pure: the refusals in lines of one Safe-Chain log file (`safeChainLogFile`), in log order. Each
+ * `Blocking request` line is one refusal. Its package and reason come from the latest earlier
+ * malware line of the same file not paired yet (requests run side by side, so lines interleave);
+ * without one it was the minimum package age check. Lines of any other kind are left out.
+ */
+export function safeChainRefusalsOf(
+  ecosystem: SafeChainEcosystem,
+  log: string,
+): SafeChainRefusal[] {
+  const malware: { pkg: string; status: string; paired: boolean }[] = [];
+  const refusals: SafeChainRefusal[] = [];
+  for (const line of log.split("\n")) {
+    const message = messageOfLine(line.trim());
+    if (message === null) continue;
+    const marked = MALWARE_LINE.exec(message);
+    if (marked !== null) {
+      malware.push({ pkg: marked[1] ?? "", status: (marked[2] ?? "").trim(), paired: false });
+      continue;
+    }
+    const blocking = BLOCKING_LINE.exec(message);
+    if (blocking === null) continue;
+    const url = blocking[1] ?? "";
+    const verdict = malware.findLast((entry) => !entry.paired && fileOf(url, entry.pkg));
+    if (verdict === undefined) {
+      refusals.push({ ecosystem, package: fileName(url), reason: MINIMUM_AGE_REASON });
+      continue;
+    }
+    verdict.paired = true;
+    refusals.push({ ecosystem, package: verdict.pkg, reason: malwareReason(verdict.status) });
+  }
+  return refusals;
+}
+
+function isEcosystem(value: unknown): value is SafeChainEcosystem {
+  return (SAFE_CHAIN_ECOSYSTEMS as readonly unknown[]).includes(value);
+}
+
+function isRefusal(value: unknown): value is SafeChainRefusal {
+  const item = value as Partial<Record<keyof SafeChainRefusal, unknown>> | null;
+  return (
+    isEcosystem(item?.ecosystem) &&
+    typeof item?.package === "string" &&
+    typeof item.reason === "string"
+  );
+}
+
+function isUnknown(value: unknown): value is SafeChainUnknown {
+  const item = value as Partial<Record<keyof SafeChainUnknown, unknown>> | null;
+  return isEcosystem(item?.ecosystem) && typeof item?.why === "string";
+}
+
+function markOf(value: unknown): SafeChainMark | null {
+  const mark = value as { box?: unknown; lines?: Record<string, unknown> } | null;
+  if (mark === null || typeof mark !== "object") return null;
+  const box = typeof mark.box === "string" ? mark.box : null;
+  const count = (ecosystem: SafeChainEcosystem): number | null => {
+    const lines = mark.lines?.[ecosystem];
+    return typeof lines === "number" && Number.isSafeInteger(lines) && lines >= 0 ? lines : null;
+  };
+  return { box, lines: { npm: count("npm"), pypi: count("pypi") } };
+}
+
+/**
+ * Pure: the run's Safe-Chain record from its stored JSON (`runs.safe_chain`). Text that does not
+ * parse keeps one unknown log per ecosystem, so a broken record never reads as no refusals.
+ */
+export function parseSafeChainRecord(text: string): SafeChainRecord {
+  const value = ((): Partial<Record<keyof SafeChainRecord, unknown>> | null => {
+    try {
+      return JSON.parse(text) as Partial<Record<keyof SafeChainRecord, unknown>> | null;
+    } catch {
+      return null;
+    }
+  })();
+  if (value === null || !Array.isArray(value.refusals) || !Array.isArray(value.unknown)) {
+    return {
+      refusals: [],
+      unknown: SAFE_CHAIN_ECOSYSTEMS.map((ecosystem) => ({
+        ecosystem,
+        why: "dipo's stored record of its Safe-Chain refusals cannot be read",
+      })),
+      mark: null,
+    };
+  }
+  return {
+    refusals: value.refusals.filter(isRefusal),
+    unknown: value.unknown.filter(isUnknown),
+    mark: value.mark === null || value.mark === undefined ? null : markOf(value.mark),
+  };
 }
