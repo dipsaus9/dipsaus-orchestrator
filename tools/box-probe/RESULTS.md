@@ -1,4 +1,12 @@
-# Box probe results (DIPO-264, DIPO-343, DIPO-367)
+# Box probe results (DIPO-264, DIPO-343, DIPO-367, DIPO-383, DIPO-376)
+
+## Run of 2026-10-30: the Safe-Chain start script of DIPO-383 and DIPO-376
+
+DIPO-383 (#461) made each Safe-Chain process load its malware list before it prints ready, and staggered the upstream listener's connects. DIPO-376 (#463) gave each Safe-Chain process a log file. Both change the start script that is baked into the Safe-Chain image, so the probe ran again. #461 merged without this run; this run covers it too. It ran on macOS 26.6.2 (Apple silicon) with Apple `container` 1.6.0, by the maintainer's orchestrating session, against `7a4a0f15` (the DIPO-376 branch, which contains #461), with the Safe-Chain image built from that start script. The Mac's services were two stand-ins, one on all interfaces and one on loopback.
+
+**Every line passes, as in the run of 2026-10-29**: behind dipo's firewall the developer box reaches nothing of the Mac, the local network or the Safe-Chain box; through the web proxy every refused try is refused (the route logs each reason) and the internet works; an install through Safe-Chain works and Safe-Chain's test package is refused (`403 Forbidden`, `blocked by safe-chain`); a changed proxy setting fails; the user cannot flush the rules, and after a root flush only the Mac's own local-network address answers (the accepted risk); the Safe-Chain box sees no files of the Mac and reaches nothing but its upstream listener, which reaches only the registries and the malware lists; the Safe-Chain box is gone with the route.
+
+`packages/engine/test/box/safe-chain-box.ci.test.ts` (`DIPO_TEST_CI=1 DIPO_TEST_BOX=1`) passed on the same head with a developer box of the office image: 1 pass, 0 fail; the install of safe-chain-test fails, and with the Safe-Chain box stopped the install fails and the web proxy refuses the registry. The boxes listed before and after were the same.
 
 ## Run of 2026-10-29: the pinned Debian base (DIPO-367)
 
