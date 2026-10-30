@@ -649,7 +649,7 @@ export class ParkResumes {
       ),
     );
     const outcome = await this.#finish(office, run, intentId, detail, true, release);
-    return { result: this.#result(identity, run, detail, outcome.queued) };
+    return { result: this.#result(identity, run, detail, outcome.queued), changed: true };
   }
 
   /**
@@ -760,7 +760,7 @@ export class ParkResumes {
     if (run === null) throw new Error(`${identity.story}'s resumed run is gone`);
     if (stored.state === "pending" && stored.resolvedAt === null) {
       const outcome = await this.#finish(office, run, stored.intentId, stored.detail, true);
-      return { result: this.#result(identity, run, stored.detail, outcome.queued) };
+      return { result: this.#result(identity, run, stored.detail, outcome.queued), changed: true };
     }
     const queued = (findRun(office, run.runId) ?? run).waiting != null;
     return { result: this.#result(identity, run, stored.detail, queued), changed: false };

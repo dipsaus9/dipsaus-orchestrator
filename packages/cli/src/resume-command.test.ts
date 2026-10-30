@@ -130,6 +130,28 @@ describe("dipo resume", () => {
     ]);
   });
 
+  it("prints resumed for a park the engine resolved, even when it reports no run", async () => {
+    const ctx = fake(() => ({
+      ok: true,
+      changed: true,
+      result: { story: "DIPO-7", key: KEY, to: "Ready" },
+    }));
+    expect(await main(["resume", "DIPO-7", "--note", "Hold it for now."], ctx.deps)).toBe(0);
+    expect(ctx.out).toEqual(["resumed DIPO-7; it is Ready"]);
+  });
+
+  it("prints already runs, and changes nothing, for a story that was not parked and runs", async () => {
+    const ctx = fake(() => ({
+      ok: true,
+      changed: false,
+      result: { story: "DIPO-7", key: KEY, to: "In Progress", run: RUN },
+    }));
+    expect(await main(["resume", "DIPO-7"], ctx.deps)).toBe(0);
+    expect(ctx.out).toEqual([
+      `DIPO-7 already runs (run ${RUN}); it is In Progress, nothing to resume`,
+    ]);
+  });
+
   it("prints the recorded grants", async () => {
     const ctx = fake(() => resumed({ grants: [{ kind: "round", cap: "loops", count: 1 }] }));
     expect(await main(["resume", "DIPO-7", "--note", "Try once more."], ctx.deps)).toBe(0);
