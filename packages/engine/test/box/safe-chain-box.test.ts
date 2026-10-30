@@ -85,6 +85,12 @@ interface Setup {
   readonly built?: boolean;
   readonly boxes?: FakeBoxesOptions;
   readonly statuses?: Readonly<Record<string, number>>;
+  /** The route's clock; a fresh manual one by default. */
+  readonly clock?: ManualClock;
+  /** True: the check's downloads go through the web proxy as a box makes them (`proxiedStatus`). */
+  readonly realDownload?: boolean;
+  /** Where the web proxy's connection to the Safe-Chain box lands; a port nothing listens on by default. */
+  readonly safeChainPort?: number;
 }
 
 async function route(tmp: string, setup: Setup = {}) {
@@ -110,32 +116,36 @@ async function route(tmp: string, setup: Setup = {}) {
     NETWORK,
     {
       boxes,
-      clock: new ManualClock(),
+      clock: setup.clock ?? new ManualClock(),
       scratchRoot: join(tmp, "scratch"),
       toolsRoot,
       caFile,
       boxId: () => "0123456789abcdef",
       buildId: () => "fedcba9876543210",
-      download: async (proxy, ca, url) => {
-        downloads.push({ proxy, ca, url });
-        return (
-          setup.statuses?.[url] ??
-          (url === SAFE_CHAIN_CHECK_ALLOWED_URL
-            ? 200
-            : url === SAFE_CHAIN_CHECK_BLOCKED_URL
-              ? 403
-              : 0)
-        );
-      },
+      ...(setup.realDownload === true
+        ? {}
+        : {
+            download: async (proxy: string, ca: string, url: string) => {
+              downloads.push({ proxy, ca, url });
+              return (
+                setup.statuses?.[url] ??
+                (url === SAFE_CHAIN_CHECK_ALLOWED_URL
+                  ? 200
+                  : url === SAFE_CHAIN_CHECK_BLOCKED_URL
+                    ? 403
+                    : 0)
+              );
+            },
+          }),
       onRoute: (event) => routeEvents.push(event),
     },
     {
-      clock: new ManualClock(),
+      clock: setup.clock ?? new ManualClock(),
       onEvent: (event) => proxyEvents.push(event),
       // Each upstream connection is recorded and lands on a port nothing listens on.
       connect: (address, port) => {
         connects.push(`${address}:${port}`);
-        return connect(1, "127.0.0.1");
+        return connect(setup.safeChainPort ?? 1, "127.0.0.1");
       },
     },
   );
@@ -411,4 +421,101 @@ describe("the Safe-Chain check", () => {
       SAFE_CHAIN_CHECK_BLOCKED_URL,
     ]);
   });
+});
+
+/** Settles `work` while moving `clock` on, so the check's retries and deadlines fall due. */
+async function settled<T>(work: Promise<T>, clock: ManualClock): Promise<T> {
+  let done = false;
+  void work.finally(() => (done = true)).catch(() => {});
+  for (let i = 0; i < 2_000 && !done; i += 1) {
+    await Bun.sleep(1);
+    clock.advance(1_000);
+  }
+  return work;
+}
+
+/** A stand-in Safe-Chain box port: answers every CONNECT with `answer`. */
+async function standInSafeChain(answer: string) {
+  const server = createServer((socket) => {
+    socket.on("error", () => {});
+    socket.once("data", () => socket.end(answer));
+  });
+  const port = await new Promise<number>((resolve) =>
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      resolve(typeof address === "object" && address !== null ? address.port : 0);
+    }),
+  );
+  return { server, port };
+}
+
+// What the check refused before DIPO-383, each pinned as a route that does not start (R30).
+describe.skipIf(!RUNS)("what the Safe-Chain check refuses", () => {
+  for (const [what, statuses, reason] of [
+    [
+      "the allowed download answers 502",
+      { [SAFE_CHAIN_CHECK_ALLOWED_URL]: 502 },
+      "did not work after 3 attempts (502)",
+    ],
+    [
+      "the allowed download answers 404",
+      { [SAFE_CHAIN_CHECK_ALLOWED_URL]: 404 },
+      "did not work after 3 attempts (404)",
+    ],
+    [
+      "safe-chain-test answers 404",
+      { [SAFE_CHAIN_CHECK_BLOCKED_URL]: 404 },
+      "did not refuse its test package safe-chain-test (404)",
+    ],
+  ] as const) {
+    it(`does not start the route when ${what}`, () =>
+      withTempDir(async (tmp) => {
+        const clock = new ManualClock();
+        const { started, boxes, caFile } = await settled(route(tmp, { statuses, clock }), clock);
+        expect(started.ok).toBe(false);
+        if (started.ok) return;
+        expect(started.reason).toContain(reason);
+        expect(boxes.boxes.has(SAFE_CHAIN_BOX)).toBe(false);
+        expect(existsSync(caFile)).toBe(false);
+      }));
+  }
+
+  it("does not take a 403 before TLS, from a proxy, for Safe-Chain's refusal", () =>
+    withTempDir(async (tmp) => {
+      const clock = new ManualClock();
+      const standIn = await standInSafeChain("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
+      try {
+        const { started, boxes } = await settled(
+          route(tmp, { clock, realDownload: true, safeChainPort: standIn.port }),
+          clock,
+        );
+        expect(started.ok).toBe(false);
+        if (started.ok) return;
+        expect(started.reason).toContain("the web proxy refused the tunnel (403)");
+        expect(started.reason).toContain("did not work after 3 attempts");
+        expect(boxes.boxes.has(SAFE_CHAIN_BOX)).toBe(false);
+      } finally {
+        standIn.server.close();
+      }
+    }));
+
+  it("does not start the route when the tunnel to Safe-Chain is refused", () =>
+    withTempDir(async (tmp) => {
+      const clock = new ManualClock();
+      const { started, boxes, proxyEvents } = await settled(
+        route(tmp, { clock, realDownload: true }),
+        clock,
+      );
+      expect(started.ok).toBe(false);
+      if (started.ok) return;
+      expect(started.reason).toContain(
+        "did not work after 3 attempts (the web proxy refused the tunnel (502))",
+      );
+      expect(proxyEvents).toContainEqual({
+        kind: "refused",
+        target: "registry.npmjs.org:443",
+        reason: "the Safe-Chain box did not answer",
+      });
+      expect(boxes.boxes.has(SAFE_CHAIN_BOX)).toBe(false);
+    }));
 });
