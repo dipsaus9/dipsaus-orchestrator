@@ -1,10 +1,10 @@
 ---
 id: DIPO-384
 title: 'Park a worker host found dead at recovery, as 0005 and 0008 say'
-status: In Review
+status: In Progress
 assignee: []
 created_date: '2026-10-30 09:30'
-updated_date: '2026-10-30 17:26'
+updated_date: '2026-10-30 17:56'
 labels:
   - 'tier:S'
   - 'slice:prune'
