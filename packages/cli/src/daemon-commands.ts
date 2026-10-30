@@ -292,7 +292,7 @@ async function statusCommand(args: readonly string[], deps: DaemonCommandDeps): 
         }
         if (observed.staleLock !== undefined) {
           deps.writeLine(
-            `  stale lock of a daemon that is gone, left for the next daemon start: ${observed.staleLock}`,
+            `  stale dipo.pid of a daemon that is gone, left for the next daemon to overwrite: ${observed.staleLock}`,
           );
         }
       } else {
@@ -365,7 +365,9 @@ function printStop(deps: DaemonCommandDeps, result: StopResult): number {
           : "dipo daemon is not running",
       );
       if (result.staleLock !== undefined) {
-        deps.writeLine(`  stale lock left for the next daemon start: ${result.staleLock}`);
+        deps.writeLine(
+          `  stale dipo.pid left for the next daemon to overwrite: ${result.staleLock}`,
+        );
       }
       return 0;
     case "stopped":

@@ -191,7 +191,7 @@ describe("inspectDaemon", () => {
         cleaned: [join(w.state, "runtime.json")],
         staleLock: join(w.state, "dipo.pid"),
       });
-      // The lock's one deleter is the starting daemon (0005): the client leaves it as it was.
+      // The next daemon to take the lock overwrites it (0005): the client leaves it as it was.
       expect(readFileSync(join(w.state, "dipo.pid"), "utf8")).toBe(lock);
       expect(readdirSync(w.state).filter((name) => name.includes(".stale."))).toEqual([]);
       // The PID now belongs to another process that started later.
@@ -436,7 +436,7 @@ describe("stopDaemon", () => {
       expect(w.deps.clock.now() - before).toBeGreaterThanOrEqual(
         LIFECYCLE_TIMINGS.forceKillAfterMs,
       );
-      // A killed daemon's lock stays for the next daemon start to delete (0005).
+      // A killed daemon's record stays for the next daemon to overwrite (0005).
       expect(existsSync(join(w.state, "dipo.pid"))).toBe(true);
       expect(existsSync(join(w.state, "runtime.json"))).toBe(false);
     }));

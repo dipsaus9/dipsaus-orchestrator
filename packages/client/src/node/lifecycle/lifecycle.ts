@@ -6,8 +6,8 @@
 // - Status: `dipo.pid` names a live `dipo daemon --foreground` with the same start time (DIPO-23)
 //   and its socket answers: running. It is alive but silent for 5 s: unresponsive. Otherwise the
 //   daemon is not running: a leftover `runtime.json` is stale and removed, and a leftover
-//   `dipo.pid` is reported stale and left for the next daemon start to delete (0005: the daemon
-//   is the lock's one deleter).
+//   `dipo.pid` is reported stale and left in place: the next daemon to take the lock overwrites
+//   it (0005).
 // - Start spawns the daemon detached and waits up to 5 s for `engine.hello`.
 // - Stop sends `daemon.stop`. `--force`, and a daemon of another version (0005), get SIGTERM to the
 //   verified PID (every version drains on it); `--force` adds SIGKILL after 10 s. Code never
@@ -168,8 +168,8 @@ export type DaemonObservation =
     }
   | { readonly kind: "unresponsive"; readonly record: PidRecord }
   /**
-   * `cleaned` lists the stale files removed; `staleLock` names a stale `dipo.pid`, which the
-   * client never deletes. Either means `stale`.
+   * `cleaned` lists the stale files removed; `staleLock` names the `dipo.pid` of a daemon that is
+   * gone, which the client never deletes. Either means `stale`.
    */
   | {
       readonly kind: "not running";
@@ -259,7 +259,7 @@ async function handshake(
 
 /**
  * Removes a stale `runtime.json`, never one a live daemon wrote meanwhile. A stale `dipo.pid` is
- * only reported: the starting daemon deletes it (0005), so the lock has one deleter.
+ * only reported: the next daemon to take the lock overwrites it (0005).
  */
 async function cleanLeftovers(
   deps: LifecycleDeps,
@@ -285,7 +285,7 @@ export async function inspectDaemon(deps: LifecycleDeps): Promise<DaemonObservat
   const path = pidFilePath(stateDir(deps.env));
   for (let pass = 0; ; pass++) {
     let pidFile = readRaw(path);
-    // An unparsable record is a starter between create and write, or damage: give it the same
+    // An unparsable record is damage, or an older daemon between create and write: give it the same
     // 5 s a starting daemon gets.
     const deadline = clock.now() + timings.startWaitMs;
     while (pidFile !== null && parsePidRecord(pidFile.raw) === null && clock.now() < deadline) {

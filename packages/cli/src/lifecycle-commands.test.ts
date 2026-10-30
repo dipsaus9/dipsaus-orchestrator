@@ -160,7 +160,7 @@ describe("dipo daemon status", () => {
     expect(stale.out).toEqual([
       "stale",
       "  removed leftovers of a daemon that is gone: /state/runtime.json",
-      "  stale lock of a daemon that is gone, left for the next daemon start: /state/dipo.pid",
+      "  stale dipo.pid of a daemon that is gone, left for the next daemon to overwrite: /state/dipo.pid",
     ]);
   });
 

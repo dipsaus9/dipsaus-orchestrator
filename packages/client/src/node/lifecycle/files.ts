@@ -1,8 +1,8 @@
 // The daemon's files under `<state>` that the client reads without the socket (0006 decisions 2
-// and 6): the lock `dipo.pid` and `runtime.json`. Their names and the record format are the
+// and 6): the lock holder's record `dipo.pid` and `runtime.json`. Their names and the record format are the
 // contract's runtime layout, which the daemon writes by (DIPO-320).
 //
-// The client never deletes `dipo.pid`: the starting daemon is the lock's one deleter (0005). A stale
+// The client never deletes `dipo.pid`: the next daemon to take the lock overwrites it (0005). A stale
 // `runtime.json` it removes only when it still holds what was judged stale: it renames the file
 // aside, checks the renamed content, and deletes it; otherwise it puts the newer file back with
 // `link()`, which never clobbers.
