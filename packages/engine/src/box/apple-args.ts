@@ -6,6 +6,8 @@
 // - never `--volume`, another `--mount`, `--ssh`, `--publish`, `--publish-socket` or
 //   `--virtualization`;
 // - `--memory` and `--cpus` are the Mac's total memory and CPU count (decision 16: no limits);
+// - every box starts with `--init` (DIPO-378): PID 1 is Apple container's init, which reaps every
+//   orphan the box's commands leave, and the keepalive runs as its child;
 // - every box but a build box (DIPO-281) keeps itself running with the mounted `tail`, and every
 //   command in it runs contained (`firewall.ts`) as the box user (DIPO-334): only the box
 //   firewall's own command, and a build box's first step, run with the box's capabilities, and
@@ -45,8 +47,9 @@ export const BOX_NETWORK_NAME = "dipo-boxes";
 /** The value of the `dipo` label on that network. */
 export const BOX_NETWORK_LABEL_VALUE = "network";
 /**
- * A build box's main process: it only keeps the box running; work runs through `exec`. Every
- * other box runs the mounted `tail` instead (`CONTAINED_KEEPALIVE`).
+ * A build box's keepalive: it only keeps the box running; work runs through `exec`. Every other
+ * box runs the mounted `tail` instead (`CONTAINED_KEEPALIVE`). Either runs as the child of the
+ * box's init (`createArgs`), never as PID 1.
  */
 export const BOX_KEEPALIVE: readonly [string, ...string[]] = ["tail", "-f", "/dev/null"];
 /** The Linux capability a box is made with so its firewall can be set (DIPO-281). */
@@ -245,7 +248,9 @@ export function networkCreateArgs(): string[] {
  * box's own command, never an option of `container`. A build box (DIPO-281) gets no mount and
  * keeps itself running with the image's `tail`; every other box must get the box network tools,
  * mounted read-only, and keeps itself running with the mounted `tail`. Every box gets the one
- * capability its firewall needs, which no contained command keeps.
+ * capability its firewall needs, which no contained command keeps, and `--init` (DIPO-378): a
+ * `tail` as PID 1 waits for no child, so every orphan stayed a zombie until the box stopped; the
+ * init reaps them and forwards `container stop`'s signal to the keepalive. No input changes it.
  */
 export function createArgs(input: CreateInput): string[] {
   const name = boxName(input.runId);
@@ -288,6 +293,7 @@ export function createArgs(input: CreateInput): string[] {
       ? []
       : ["--mount", cacheMount(input.packageCache, input.home)]),
     ...(input.netTools === undefined ? [] : ["--mount", netToolsMount(input.netTools, input.home)]),
+    "--init",
     "--entrypoint",
     entrypoint,
     input.image,

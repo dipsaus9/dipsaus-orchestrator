@@ -78,6 +78,8 @@ const SHAPES: Readonly<Record<string, Shape>> = {
       "--cpus": 1,
       "--cap-add": 1,
       "--mount": 1,
+      // DIPO-378: Apple container's init as PID 1; `--init-image` is not listed.
+      "--init": 0,
       "--entrypoint": 1,
     },
     positionals: 1,
@@ -374,7 +376,14 @@ describe("the Apple container argument builder", () => {
       expect(() => readFlags(bad, exec)).toThrow();
     }
     const create = SHAPES["createArgs"]!;
-    for (const flag of ["--publish", "-p", "--publish-socket", "--virtualization", "--rosetta"]) {
+    for (const flag of [
+      "--publish",
+      "-p",
+      "--publish-socket",
+      "--virtualization",
+      "--rosetta",
+      "--init-image",
+    ]) {
       expect(() => readFlags(["create", flag, "x", "alpine"], create)).toThrow();
     }
     expect(() => readFlags(["list", "--all", "-q"], SHAPES["listArgs"]!)).toThrow();
@@ -410,6 +419,8 @@ describe("the Apple container argument builder", () => {
       const build = input.runId === BUILD_RUN_ID;
       const keepalive = build ? BOX_KEEPALIVE : CONTAINED_KEEPALIVE;
       expect(once("--entrypoint")).toEqual([keepalive[0]]);
+      // Every box starts with the init (DIPO-378), once.
+      expect(once("--init")).toEqual([null]);
       expect(mounts(flags)).toEqual([
         ...(input.packageCache === undefined
           ? []
@@ -766,6 +777,7 @@ describe("a box's start", () => {
       `type=bind,source=${cache},target=${BOX_PACKAGE_CACHE_PATH},readonly`,
       "--mount",
       `type=bind,source=${tools},target=${BOX_NET_TOOLS_PATH},readonly`,
+      "--init",
       "--entrypoint",
       CONTAINED_KEEPALIVE[0],
       VALID.image,
@@ -798,6 +810,7 @@ describe("a box's start", () => {
       "8",
       "--cap-add",
       "CAP_NET_ADMIN",
+      "--init",
       "--entrypoint",
       "tail",
       base,
@@ -805,5 +818,34 @@ describe("a box's start", () => {
       "/dev/null",
     ]);
     expect(BOX_KEEPALIVE).toEqual(["tail", "-f", "/dev/null"]);
+  });
+
+  it("starts every box with the init, which no input drops or replaces (DIPO-378)", () => {
+    for (const [input, ok] of createCases()) {
+      if (!ok) continue;
+      const args = createArgs(input);
+      // Once, among `container`'s options before the image: never the box's own command.
+      expect(args.filter((arg) => arg === "--init")).toHaveLength(1);
+      expect(args.indexOf("--init")).toBeLessThan(args.indexOf(input.image));
+      expect(args.some((arg) => arg.startsWith("--init-") || arg.startsWith("--init="))).toBe(
+        false,
+      );
+    }
+    // Words an office config or a caller could hand in are not read: the argv stays the same.
+    const asked = {
+      ...VALID,
+      init: false,
+      initImage: "docker.io/library/alpine:3.20",
+      entrypoint: "/bin/sh",
+      args: ["--init-image", "x"],
+      flags: ["--no-init"],
+    } as CreateInput;
+    expect(createArgs(asked)).toEqual(createArgs(VALID));
+    // Nor can the image or the run id carry a flag in.
+    for (const image of ["--init-image", "alpine --init-image=x", "--no-init"]) {
+      refused(() => createArgs({ ...VALID, image }));
+    }
+    for (const runId of ["--init-image", "x --init"])
+      refused(() => createArgs({ ...VALID, runId }));
   });
 });

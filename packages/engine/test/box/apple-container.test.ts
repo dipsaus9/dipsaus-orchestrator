@@ -286,6 +286,7 @@ describe("box lifecycle", () => {
           `type=bind,source=${cache},target=${BOX_PACKAGE_CACHE_PATH},readonly`,
           "--mount",
           `type=bind,source=${tools.tools},target=${BOX_NET_TOOLS_PATH},readonly`,
+          "--init",
           "--entrypoint",
           CONTAINED_KEEPALIVE[0],
           "docker.io/library/alpine:3.20",
