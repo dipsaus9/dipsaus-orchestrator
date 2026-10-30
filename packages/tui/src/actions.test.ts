@@ -9,6 +9,10 @@ import { confirmSteps, startFlow } from "./actions";
 import { KEY_TABLE } from "./keys";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D" as OfficeId;
+/** Definition lookups that mark every command as asking first, and as irreversible. */
+const confirming = () => ({ confirm: true, irreversible: false });
+const irreversible = () => ({ confirm: true, irreversible: true });
+
 const kinds = (steps: readonly { readonly kind: string }[]) => steps.map((step) => step.kind);
 
 describe("confirmations from the command definitions", () => {
@@ -48,5 +52,28 @@ describe("confirmations from the command definitions", () => {
     expect(kinds(startFlow("discard", OFFICE, target).steps)).toEqual(["text", "losses", "typed"]);
     // `story.park` has no `confirm`: its flow asks only for the note.
     expect(kinds(startFlow("park", OFFICE, target).steps)).toEqual(["text"]);
+  });
+
+  it("asks in every flow once a definition gains confirm or irreversible", () => {
+    const target = {
+      story: "DIPO-7",
+      gate: "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+      question: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+      proposal: "prp_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+      test: "tst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+    };
+    for (const binding of KEY_TABLE) {
+      const asked = kinds(startFlow(binding.id, OFFICE, target, confirming).steps);
+      // Drop's keep-or-delete prompt is its yes or no.
+      expect({
+        action: binding.id,
+        asks: asked.includes("yesno") || asked.includes("drop"),
+      }).toEqual({ action: binding.id, asks: true });
+      const typed = kinds(startFlow(binding.id, OFFICE, target, irreversible).steps);
+      expect({ action: binding.id, last: typed.at(-1) }).toEqual({
+        action: binding.id,
+        last: "typed",
+      });
+    }
   });
 });

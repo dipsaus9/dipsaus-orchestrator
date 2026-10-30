@@ -27,6 +27,7 @@ import { cursorReached, type OfficeStore, storyRef } from "@dipsaus-orchestrator
 import {
   type Cursor,
   type EngineError,
+  type CommandDefinition,
   findCommand,
   type LostCommit,
   type OfficeId,
@@ -177,6 +178,11 @@ function needsNote(cli: string | undefined): boolean {
 /** The commands whose losses `story.losses` lists. */
 const LOSS_COMMANDS: readonly LossesRequest["command"][] = ["work.discard", "story.drop"];
 
+/** Where an action's command definition comes from; the contract's by default. */
+export type DefinitionLookup = (
+  name: string,
+) => Pick<CommandDefinition, "confirm" | "irreversible" | "irreversibleWhen"> | undefined;
+
 /** The yes-or-no question of an action whose command has `confirm`, where it says more. */
 const QUESTIONS: Partial<Record<ActionId, (story: string) => string>> = {
   reject: (story) => `Reject the merge of ${story}? Its note goes to the worker as a fix item.`,
@@ -192,9 +198,10 @@ export function confirmSteps(
   id: ActionId,
   story: string,
   args: Readonly<Record<string, unknown>> = {},
+  lookup: DefinitionLookup = findCommand,
 ): Step[] {
   const command = binding(id).command;
-  const definition = findCommand(command);
+  const definition = lookup(command);
   if (definition === undefined) return [];
   const irreversible =
     definition.irreversible ||
@@ -209,9 +216,24 @@ export function confirmSteps(
   return [{ kind: "yesno", question: QUESTIONS[id]?.(story) ?? `${VERBS[id]} ${story}?` }];
 }
 
-/** The prompts of an action, in order. */
-function stepsOf(id: ActionId, target: ActionTarget): Step[] {
+/**
+ * The prompts of an action, in order: the confirmation its command's definition asks for
+ * (`confirmSteps`, for every action alike) around the prompts for its arguments. A yes or no comes
+ * first; a typed id comes last, after the arguments and the list of what is lost. Drop's first
+ * prompt, keep or delete the branch, is its yes or no.
+ */
+function stepsOf(id: ActionId, target: ActionTarget, lookup: DefinitionLookup): Step[] {
   const story = target.story ?? "the story";
+  const inputs = inputStepsOf(id, target, story);
+  const confirm = confirmSteps(id, story, {}, lookup);
+  const choosesItself = inputs.some((step) => step.kind === "drop");
+  const first = confirm.filter((step) => step.kind === "yesno" && !choosesItself);
+  const last = confirm.filter((step) => step.kind !== "yesno");
+  return [...first, ...inputs, ...last];
+}
+
+/** The prompts for an action's arguments, without its confirmation. */
+function inputStepsOf(id: ActionId, target: ActionTarget, story: string): Step[] {
   switch (id) {
     case "answer":
       return [{ kind: "text", field: "text", label: "answer" }];
@@ -220,13 +242,13 @@ function stepsOf(id: ActionId, target: ActionTarget): Step[] {
         ? [{ kind: "text", field: "note", label: "approve note (overrides the blocked review)" }]
         : [];
     case "reject":
-      return [...confirmSteps(id, story), { kind: "text", field: "note", label: "reject note" }];
+      return [{ kind: "text", field: "note", label: "reject note" }];
     case "resume":
       return needsNote(target.cli) ? [{ kind: "text", field: "note", label: "resume note" }] : [];
     case "discard":
-      return [{ kind: "text", field: "note", label: "discard note" }, ...confirmSteps(id, story)];
+      return [{ kind: "text", field: "note", label: "discard note" }];
     case "drop":
-      // Keep or delete the branch first; `deleteBranch` then decides the rest (`confirmSteps`).
+      // Keep or delete the branch; `deleteBranch` then decides the rest (`confirmSteps`).
       return [{ kind: "drop" }];
     case "park":
       return [{ kind: "text", field: "note", label: `park note for ${story}` }];
@@ -240,7 +262,12 @@ function stepsOf(id: ActionId, target: ActionTarget): Step[] {
 }
 
 /** A new flow for the action `id` on `target`. */
-export function startFlow(id: ActionId, office: OfficeId, target: ActionTarget): Flow {
+export function startFlow(
+  id: ActionId,
+  office: OfficeId,
+  target: ActionTarget,
+  lookup: DefinitionLookup = findCommand,
+): Flow {
   const budget = id === "resume" ? budgetOf(target.cli) : undefined;
   const subject = id === "accept" || id === "dismiss" ? "proposal" : (target.story ?? "");
   return {
@@ -248,7 +275,7 @@ export function startFlow(id: ActionId, office: OfficeId, target: ActionTarget):
     office,
     target,
     label: `${VERBS[id]} ${subject}`.trim(),
-    steps: stepsOf(id, target),
+    steps: stepsOf(id, target, lookup),
     at: 0,
     values: budget === undefined ? {} : { budget },
     draft: target.prefill ?? "",
