@@ -1,10 +1,10 @@
 ---
 id: DIPO-377
 title: Fix the flake in the backlog PR check test
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-10-29 09:29'
-updated_date: '2026-10-30 11:12'
+updated_date: '2026-10-30 11:13'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -36,14 +36,13 @@ unknowns:
   - q: "Fixed the flake in the test fixture, not the engine. Cause: the Backlog CLI rewrites backlog/config.yml on its first read when the file lacks its defaults (max_column_width, auto_open_browser, default_port, bypass_git_hooks, active_branch_days). listAll runs `task list --plain` and `--count` at once, so under load one of them can read the file half-written and see no tasks; the retry can hit the same window. The Ready gate then checks 0 stories and the test reports ready-decision for DIPO-1. The fix: pr() in scripts/check-backlog-pr.test.ts runs one Backlog read on the fixture before the base commit, so the committed config is already normalized and no concurrent read rewrites it. Ruled out: a shared HOME between fixtures. Passing the fixture's HOME to the CLI still gave 2/96 failures. Verified: the baseline stress loop gave 3/96 failures; after the fix, 0/96 (8 parallel x 12) and 0/96 (16 parallel x 6), 30 of 30 sequential runs passed, and `bun run verify` passed. The part is delivered to dipo. Not done: the macOS evidence. This box is Linux, so the 30-run check on macOS is for verify-macos on the PR."
     status: "resolved"
     answer: "The fix and the Linux evidence are enough to go to review. The macOS 30-run check is done by the orchestrating session on the Mac against the pushed head and recorded on the PR; criterion 2's macOS part is checked there, not in the box. Finish the done report and push for review."
+  - q: "Can the 30-runs-in-a-row check for scripts/check-backlog-pr.test.ts on macOS be run by the orchestrating session on the Mac, against the pushed head, with the result recorded on the PR? If yes, I will report this entry as manual; if you want it automated in this story, I need a macOS runner in the box."
+    status: "resolved"
+    answer: "Yes. Report the macOS 30-run entry as manual: the orchestrating session runs it on the Mac against the pushed head and records the result on the PR. No macOS runner. Finish the done report and push for review."
 test_plan:
   entries:
     - kind: "automated"
       check: "(unit) scripts/check-backlog-pr.test.ts passes 30 runs in a row on macOS"
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "Can the 30-runs-in-a-row check for scripts/check-backlog-pr.test.ts on macOS be run by the orchestrating session on the Mac, against the pushed head, with the result recorded on the PR? If yes, I will report this entry as manual; if you want it automated in this story, I need a macOS runner in the box."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -88,4 +87,6 @@ Parked 2026-10-30 11:12 UTC: ambiguous-spec
 - Review rounds: 0, failed 0 of 3
 - Budget used: 210,866 of 300,000 tokens; 84 of 90 turns; 19 of 45 minutes
 - Last good commit: 3998bd5d31f0a923c7baaf82e554c7115b3644eb
+
+Resumed 2026-10-30 11:13 UTC; grants: none; note: Yes. Report the macOS 30-run entry as manual: the orchestrating session runs it on the Mac against the pushed head and records the result on the PR. No macOS runner. Finish the done report and push f…
 <!-- SECTION:NOTES:END -->
