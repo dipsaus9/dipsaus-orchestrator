@@ -68,6 +68,7 @@ import {
 } from "../../src/box/user";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
+import { cleanUpRealBoxes } from "./real-box-cleanup";
 
 const registers =
   process.env["DIPO_TEST_BOX"] === "1" &&
@@ -128,6 +129,8 @@ interface Ran {
 }
 
 if (registers) {
+  // Every box this run makes is deleted after its tests, and one an earlier run left is reported.
+  const cleanup = cleanUpRealBoxes(import.meta.path);
   const root = makeTempDir();
   const env = cleanEnv();
   const cliEnv = { PATH: env["PATH"] ?? "/usr/bin:/bin:/usr/local/bin", HOME: homedir() };
@@ -138,6 +141,7 @@ if (registers) {
     return systemSpawn(options);
   };
   const boxes = new AppleContainerBoxes({
+    stateLabel: cleanup.stateLabel,
     spawn: recording,
     clock: systemClock,
     cli: CLI,

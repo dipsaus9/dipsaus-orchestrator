@@ -59,6 +59,7 @@ import {
 import { startBoxWebRoute } from "../../src/box/safe-chain-box";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
+import { cleanUpRealBoxes } from "./real-box-cleanup";
 
 /**
  * What a box user tries in order to redirect a command dipo runs as root (DIPO-334), each as a
@@ -132,10 +133,13 @@ async function defaultGateway(env: Record<string, string>): Promise<string | nul
 }
 
 if (registers) {
+  // Every box this run makes is deleted after its tests, and one an earlier run left is reported.
+  const cleanup = cleanUpRealBoxes(import.meta.path);
   const root = makeTempDir();
   const env = cleanEnv();
   const cliEnv = { PATH: env["PATH"] ?? "/usr/bin:/bin:/usr/local/bin", HOME: homedir() };
   const boxes = new AppleContainerBoxes({
+    stateLabel: cleanup.stateLabel,
     spawn: systemSpawn,
     clock: systemClock,
     env: cliEnv,

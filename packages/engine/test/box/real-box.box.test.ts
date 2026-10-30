@@ -32,6 +32,11 @@
 // maintainer accepted in the 0021 amendment of 2026-10-21, until DIPO-283. The box network's
 // address exists on the Mac only while a box runs on it, so its listener opens after the box starts.
 //
+// Another test (DIPO-374) makes two build boxes, one labelled with this run's state folder and one
+// with another folder's, and runs the daemon-start sweep of `BoxWorkers` on the real list: only
+// its own box goes. Every other box on the Mac, a daemon's among them, is a box of no run this
+// sweep knows, so it is left alone.
+//
 // A third test (DIPO-267), registered with the build proxy too and needing the internet, fills the office package cache for a small Bun project in a fill box of the office
 // image, through the web route and Safe-Chain; no package manager runs on the Mac (the project's
 // lockfile is made in a helper box the same way). It checks that the fill box is gone afterwards,
@@ -74,8 +79,11 @@ import {
   type WebProxyEvent,
 } from "../../src/box/web-proxy";
 import { startBoxWebRoute } from "../../src/box/safe-chain-box";
+import { BOX_INDEX_DIR, BoxWorkers } from "../../src/box/workers";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
+import { AdapterHolds } from "../../src/workers/hold";
+import { cleanUpRealBoxes } from "./real-box-cleanup";
 
 const IMAGE = "docker.io/library/alpine:3.20";
 /** A first run pulls the image; later calls keep the 60 s default. */
@@ -119,6 +127,11 @@ function listFiles(dir: string): string[] {
     .toSorted();
 }
 
+/** A dependency of `BoxWorkers` the daemon-start sweep never calls. */
+function unused(): never {
+  throw new Error("the sweep starts nothing");
+}
+
 /** A line the maintainer's run shows: one observed behaviour of `container`. */
 function fact(text: string): void {
   console.log(`fact: ${text}`);
@@ -138,6 +151,8 @@ function describePath(path: string): string {
 }
 
 if (registers) {
+  // Every box this run makes is deleted after its tests, and one an earlier run left is reported.
+  const cleanup = cleanUpRealBoxes(import.meta.path);
   describe("a real box on Apple container", () => {
     it(
       "starts, copies in and out, runs commands, keeps its files over stop and start, and is deleted",
@@ -148,6 +163,7 @@ if (registers) {
           HOME: env["HOME"] ?? "/",
         };
         const boxes = new AppleContainerBoxes({
+          stateLabel: cleanup.stateLabel,
           spawn: systemSpawn,
           clock: systemClock,
           env: cliEnv,
@@ -176,7 +192,12 @@ if (registers) {
             await boxes.start(name);
             fact(`box start took ${Math.round(performance.now() - before)} ms`);
 
-            expect(await boxes.list()).toContainEqual({ name, runId, state: "running" });
+            expect(await boxes.list()).toContainEqual({
+              name,
+              runId,
+              state: "running",
+              stateLabel: cleanup.stateLabel,
+            });
 
             await boxes.copyIn(name, code, "/work");
             const cat = await boxes.exec(name, ["cat", "/work/hello.txt"], { fullPrivilege: true });
@@ -252,7 +273,12 @@ if (registers) {
             fact(`box memory: ${memory?.usedBytes} of ${memory?.limitBytes} bytes`);
 
             await boxes.stop(name);
-            expect(await boxes.list()).toContainEqual({ name, runId, state: "stopped" });
+            expect(await boxes.list()).toContainEqual({
+              name,
+              runId,
+              state: "stopped",
+              stateLabel: cleanup.stateLabel,
+            });
             const stats = systemSpawn({ cmd: ["container", ...statsArgs(name)], env: cliEnv });
             const [statsOut, statsErr, statsExit] = await Promise.all([
               new Response(stats.stdout).text(),
@@ -275,6 +301,62 @@ if (registers) {
       PULL_TIMEOUT_MS + 120_000,
     );
 
+    it(
+      "sweeps at daemon start only the helper boxes of its own state folder (DIPO-374)",
+      async () => {
+        const env = cleanEnv();
+        const cliEnv = {
+          PATH: env["PATH"] ?? "/usr/bin:/bin:/usr/local/bin",
+          HOME: env["HOME"] ?? "/",
+        };
+        const backend = (stateLabel: string) =>
+          new AppleContainerBoxes({
+            stateLabel,
+            spawn: systemSpawn,
+            clock: systemClock,
+            env: cliEnv,
+          });
+        const own = backend(cleanup.stateLabel);
+        const otherLabel = cleanup.other("other-folder");
+        const other = backend(otherLabel);
+        expect(await own.check()).toMatchObject({ ok: true });
+        const network = await own.network();
+        const mine = boxName(`build-s${crypto.randomUUID().slice(0, 8)}`);
+        const theirs = boxName(`build-o${crypto.randomUUID().slice(0, 8)}`);
+        await withTempDir(async (dir) => {
+          try {
+            const pull = { timeoutMs: PULL_TIMEOUT_MS };
+            await own.create({ runId: mine.slice(5), image: IMAGE, network }, pull);
+            await other.create({ runId: theirs.slice(5), image: IMAGE, network }, pull);
+            const indexDir = join(dir, "state", BOX_INDEX_DIR);
+            mkdirSync(indexDir, { recursive: true });
+            const workers = new BoxWorkers({
+              boxes: own,
+              startWebRoute: unused,
+              startModelProxy: unused,
+              readBaseBox: unused,
+              code: { spawn: systemSpawn, clock: systemClock },
+              holds: new AdapterHolds({ clock: systemClock, notify: () => {} }),
+              adapter: "claude-cli",
+              tmpRoot: dir,
+              indexDir,
+              scratchRoot: dir,
+              netToolsRoot: join(dir, "state", "box-net-tools"),
+            });
+            // No run of any listed box is known here (null): only the helper sweep acts.
+            expect(await workers.finishEnded(() => null, { listBoxes: true })).toEqual([]);
+            const listed = await own.list();
+            expect(listed.map((box) => box.name)).not.toContain(mine);
+            expect(listed.find((box) => box.name === theirs)?.stateLabel).toBe(otherLabel);
+          } finally {
+            await own.delete(mine).catch(() => {});
+            await other.delete(theirs).catch(() => {});
+          }
+        });
+      },
+      PULL_TIMEOUT_MS + 120_000,
+    );
+
     if (BUILDS) {
       it(
         "fills the office package cache in a fill box through the web route, and mounts it read-only",
@@ -288,6 +370,7 @@ if (registers) {
             const root = join(dir, "package-cache");
             const toolsRoot = join(dir, "box-net-tools");
             const boxes = new AppleContainerBoxes({
+              stateLabel: cleanup.stateLabel,
               spawn: systemSpawn,
               clock: systemClock,
               env: cliEnv,
@@ -478,6 +561,7 @@ if (registers) {
           HOME: env["HOME"] ?? "/",
         };
         const boxes = new AppleContainerBoxes({
+          stateLabel: cleanup.stateLabel,
           spawn: systemSpawn,
           clock: systemClock,
           env: cliEnv,
@@ -496,6 +580,7 @@ if (registers) {
         await withTempDir(async (dir) => {
           // The Safe-Chain box mounts its image's box network tools from this folder (DIPO-343).
           const routeBoxes = new AppleContainerBoxes({
+            stateLabel: cleanup.stateLabel,
             spawn: systemSpawn,
             clock: systemClock,
             env: cliEnv,

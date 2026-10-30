@@ -40,6 +40,7 @@ import { systemSpawn } from "../../src/platform/process";
 import { planInBox } from "../../src/workers/claude-cli/box-plan";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { AdapterHolds } from "../../src/workers/hold";
+import { cleanUpRealBoxes } from "./real-box-cleanup";
 
 const registers =
   process.env["DIPO_TEST_BOX"] === "1" &&
@@ -107,6 +108,8 @@ async function untilResult(stdout: ReadableStream<Uint8Array>): Promise<Record<s
 }
 
 if (registers) {
+  // Every box this run makes is deleted after its tests, and one an earlier run left is reported.
+  const cleanup = cleanUpRealBoxes(import.meta.path);
   describe("a box worker on a real box", () => {
     it(
       "runs Claude Code in its box with stream-json, stops it, and finds no token at the end",
@@ -120,6 +123,7 @@ if (registers) {
         }
         const cliEnv = { PATH: env["PATH"] ?? "/usr/bin:/bin:/usr/local/bin", HOME: home };
         const boxes = new AppleContainerBoxes({
+          stateLabel: cleanup.stateLabel,
           spawn: systemSpawn,
           clock: systemClock,
           cli: "/usr/local/bin/container",
@@ -143,6 +147,7 @@ if (registers) {
             });
             let routes = 0;
             const routeBoxes = new AppleContainerBoxes({
+              stateLabel: cleanup.stateLabel,
               spawn: systemSpawn,
               clock: systemClock,
               cli: "/usr/local/bin/container",
@@ -169,6 +174,7 @@ if (registers) {
             const workers = new BoxWorkers({
               // Every box of the office image mounts its box network tools from here (DIPO-281).
               boxes: new AppleContainerBoxes({
+                stateLabel: cleanup.stateLabel,
                 spawn: systemSpawn,
                 clock: systemClock,
                 cli: "/usr/local/bin/container",
