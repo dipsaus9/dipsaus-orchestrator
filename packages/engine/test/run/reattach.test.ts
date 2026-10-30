@@ -33,6 +33,8 @@ import { renderSystemFile } from "../../src/prompts/system";
 import { openFeedbackOf } from "../../src/run/open-feedback";
 import { parseFieldBlock } from "../../src/story-store/fields/block";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config/schema";
+import { currentPlatform } from "../../src/platform/paths";
+import { systemProcessProbe } from "../../src/platform/process";
 import type { HostClient } from "../../src/host/client";
 import { EXIT_FILE, type HostExitFile, LAUNCH_FILE } from "../../src/host/protocol";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
@@ -161,7 +163,7 @@ function daemon(
   options: Partial<
     Pick<
       ConstructorParameters<typeof RunReattacher>[0],
-      "exitCheckMs" | "boxRecord" | "adapter" | "signal"
+      "exitCheckMs" | "boxRecord" | "adapter" | "signal" | "probe"
     >
   > = {},
 ): Daemon {
@@ -216,15 +218,17 @@ function daemon(
   const reattacher = new RunReattacher({
     clock: f.t.clock,
     offices,
-    probe: async (pid) =>
-      w.alive
-        ? {
-            pid,
-            startTimeMs: w.startTimeMs,
-            zombie: false,
-            command: w.command ?? `/opt/dipo daemon worker-host ${w.f.run}`,
-          }
-        : null,
+    probe:
+      options.probe ??
+      (async (pid) =>
+        w.alive
+          ? {
+              pid,
+              startTimeMs: w.startTimeMs,
+              zombie: false,
+              command: w.command ?? `/opt/dipo daemon worker-host ${w.f.run}`,
+            }
+          : null),
     // Never the real signal: the fake host's PID may be a real process.
     signal: (pid, signal) => {
       w.signals.push([pid, signal]);
@@ -527,7 +531,7 @@ describe("re-attach (0005)", () => {
   });
 
   it("a dead host without exit.json: host-lost, usage finalized, the story parks with no resume (AC #4, AC #9)", async () => {
-    // A real process that has exited: its PID is the host's, and the probe finds nothing for it.
+    // A real process that has exited: its PID is the host's, and the real process probe finds nothing for it.
     const exited = Bun.spawn(["true"]);
     await exited.exited;
     w.alive = false;
@@ -537,7 +541,7 @@ describe("re-attach (0005)", () => {
         pid: exited.pid,
       }),
     );
-    const d = daemon();
+    const d = daemon({ probe: systemProcessProbe(currentPlatform()) });
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
       { run: w.f.run, agent: w.f.agent, outcome: "hostLost" },
     ]);
