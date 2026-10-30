@@ -15,6 +15,9 @@
 //   box's loopback.
 // - Safe-Chain sends its own traffic (the registries it checks, its malware lists) through the
 //   proxy its own `HTTPS_PROXY` names: dipo's upstream listener, which reaches those hosts only.
+// - Safe-Chain loads its malware list only when it checks its first package, not when it starts
+//   (DIPO-383). The start script makes each process load it before the ready line, so a list that
+//   cannot be loaded fails the start instead of the first install.
 // - The packaged binary takes its install directory from its own path, so a copy at
 //   `<dir>/bin/safe-chain` keeps its CA, certificates and caches in `<dir>`: a fresh CA in each
 //   box, which lives as long as dipo's web route.
@@ -144,6 +147,55 @@ export function holderScript(): string {
 
 /** How long the start script waits for one Safe-Chain process to report its proxy, in seconds. */
 export const SAFE_CHAIN_START_SECONDS = 150;
+/**
+ * Variable the start script reads: how many seconds from its start each Safe-Chain process may
+ * take to load its malware list (DIPO-383). dipo sets it within its wait for the ready line.
+ */
+export const SAFE_CHAIN_LOAD_SECONDS_ENV = "DIPO_SAFE_CHAIN_LOAD_SECONDS";
+/**
+ * A request per ecosystem whose check makes that Safe-Chain process load its malware list, which
+ * it does on the first package it checks and not before (measured with 1.5.12, DIPO-383): a
+ * tarball for npm (a package document or a ping does not), a simple index page for PyPI.
+ */
+export const SAFE_CHAIN_LOAD_URLS: Readonly<Record<SafeChainEcosystem, string>> = {
+  npm: "https://registry.npmjs.org/is-number/-/is-number-7.0.0.tgz",
+  pypi: "https://pypi.org/simple/six/",
+};
+/** The load deadline when dipo names none (it always does). */
+const SAFE_CHAIN_LOAD_SECONDS_DEFAULT = 160;
+/** The most seconds one load request of the start script may take. */
+const SAFE_CHAIN_LOAD_TRY_SECONDS = 15;
+
+/** The start script's `fail`: one ready line that says why, then exit 1. */
+export const SAFE_CHAIN_FAIL_FUNCTION =
+  'fail() { printf \'{"ready":false,"reason":"%s"}\\n\' "$1"; exit 1; }';
+
+/** The start script's deadline for loading the malware lists, from its own start. */
+export const SAFE_CHAIN_DEADLINE_LINE = `deadline=$(( $(date +%s) + \${${SAFE_CHAIN_LOAD_SECONDS_ENV}:-${SAFE_CHAIN_LOAD_SECONDS_DEFAULT}} ))`;
+
+/**
+ * The start script's load of each Safe-Chain process's malware list (DIPO-383), after both
+ * processes and their forwarders started and before the ready line: a request through the
+ * process's own proxy on the box's loopback, tried again each second until it passes or the
+ * deadline is reached; then `fail` names the process and curl's last error, so no ready line.
+ * Needs `dir`, `bundle` (the CA bundle) and `deadline`.
+ */
+export function safeChainLoadLines(): string[] {
+  return [
+    "load() {",
+    '  proxy=$(sed -n 1p "$dir/out/$1")',
+    `  until curl -fsS -m ${SAFE_CHAIN_LOAD_TRY_SECONDS} -o /dev/null --proxy "$proxy" --cacert "$bundle" "$2" 2> "$dir/load-$1.err"; do`,
+    '    if [ "$(date +%s)" -ge "$deadline" ]; then',
+    `      fail "the $1 Safe-Chain process could not load its malware list in time: $(tr -d '"\\\\' < "$dir/load-$1.err" | tr '\\n' ' ' | cut -c1-200)"`,
+    "    fi",
+    "    sleep 1",
+    "  done",
+    "}",
+    ...SAFE_CHAIN_ECOSYSTEMS.map(
+      (ecosystem) => `load ${ecosystem} ${SAFE_CHAIN_LOAD_URLS[ecosystem]}`,
+    ),
+  ];
+}
 
 /** One Safe-Chain process of the start script, with the holder in the manager's place. */
 function startLines(ecosystem: SafeChainEcosystem): string[] {
@@ -174,8 +226,9 @@ export function safeChainStartScript(): string {
     "#!/bin/sh",
     "# dipo's Safe-Chain box (DIPO-343): Safe-Chain for npm and PyPI behind dipo's web proxy.",
     "set -eu",
-    'fail() { printf \'{"ready":false,"reason":"%s"}\\n\' "$1"; exit 1; }',
+    SAFE_CHAIN_FAIL_FUNCTION,
     '[ -n "${HTTPS_PROXY:-}" ] || fail "no upstream proxy"',
+    SAFE_CHAIN_DEADLINE_LINE,
     `dir="${SAFE_CHAIN_RUN_DIR}"`,
     'rm -rf "$dir"',
     'mkdir -p "$dir/bin" "$dir/out" "$dir/tmp"',
@@ -185,6 +238,8 @@ export function safeChainStartScript(): string {
     ...SAFE_CHAIN_ECOSYSTEMS.flatMap(startLines),
     'bundle=$(sed -n 2p "$dir/out/npm")',
     'case "$bundle" in "$dir/tmp/"*) ;; *) fail "Safe-Chain named no CA bundle in its temp folder" ;; esac',
+    // Each process loads its malware list now, not at the box's first install (DIPO-383).
+    ...safeChainLoadLines(),
     'printf \'{"ready":true,"bundle":"%s"}\\n\' "$bundle"',
     "wait",
     "",

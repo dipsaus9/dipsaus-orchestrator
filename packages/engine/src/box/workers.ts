@@ -538,6 +538,8 @@ export class BoxWorkers {
     }
     if (!started.ok) {
       forget();
+      // Its reason carries what the Safe-Chain box printed and the upstream listener did (DIPO-383).
+      this.#deps.warn?.("the box web route did not start", { reason: started.reason });
       throw new BoxError("box.routeFailed", `the box web route did not start: ${started.reason}`);
     }
     const route = started.route;

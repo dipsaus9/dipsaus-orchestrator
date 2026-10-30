@@ -3,7 +3,12 @@
 // start script and the holder, and the CA bundle check. The box itself is tested on fakes in
 // safe-chain-box.test.ts and on the real backend in safe-chain-box.ci.test.ts.
 
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "bun:test";
+
+import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
   BOX_DEFAULTS,
@@ -17,6 +22,11 @@ import {
 import {
   ecosystemOf,
   holderScript,
+  SAFE_CHAIN_DEADLINE_LINE,
+  SAFE_CHAIN_FAIL_FUNCTION,
+  SAFE_CHAIN_LOAD_SECONDS_ENV,
+  SAFE_CHAIN_LOAD_URLS,
+  safeChainLoadLines,
   isCertificateBundle,
   SAFE_CHAIN_BOX_PORTS,
   SAFE_CHAIN_BUILD_FILES,
@@ -155,5 +165,82 @@ describe("the CA bundle check", () => {
     for (const text of ["", "hello", `${PEM}export X=1\n`, "x".repeat(5 * 1024 * 1024)]) {
       expect(isCertificateBundle(text)).toBe(false);
     }
+  });
+});
+
+// The start script's load of each Safe-Chain process's malware list (DIPO-383), run in `sh` with a
+// stand-in curl that fails its first `fails` calls: Safe-Chain answers 500 while its list does not
+// load, which curl -f fails on.
+describe("the start script's load of the malware lists (DIPO-383)", () => {
+  const STAND_IN_CURL = [
+    "#!/bin/sh",
+    'n=$(cat "$CALLS" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$CALLS"',
+    'echo "$*" >> "$ARGS"',
+    'if [ "$n" -le "$FAILS" ]; then echo \'curl: (22) The requested URL returned error: 500 "x\\y"\' >&2; exit 22; fi',
+    "exit 0",
+    "",
+  ].join("\n");
+
+  function load(tmp: string, fails: number, seconds: number) {
+    const bin = join(tmp, "bin");
+    const dir = join(tmp, "sc");
+    mkdirSync(bin);
+    mkdirSync(join(dir, "out"), { recursive: true });
+    writeFileSync(join(bin, "curl"), STAND_IN_CURL, { mode: 0o755 });
+    writeFileSync(join(dir, "out", "npm"), "http://127.0.0.1:41000\n/x/ca.pem\n");
+    writeFileSync(join(dir, "out", "pypi"), "http://127.0.0.1:42000\n\n");
+    const script = [
+      "set -eu",
+      SAFE_CHAIN_FAIL_FUNCTION,
+      SAFE_CHAIN_DEADLINE_LINE,
+      `dir="${dir}"`,
+      'bundle="$dir/tmp/ca.pem"',
+      ...safeChainLoadLines(),
+      "echo loaded",
+    ].join("\n");
+    const run = Bun.spawnSync(["/bin/sh", "-c", script], {
+      env: {
+        PATH: `${bin}:/usr/bin:/bin`,
+        CALLS: join(tmp, "calls"),
+        ARGS: join(tmp, "args"),
+        FAILS: String(fails),
+        [SAFE_CHAIN_LOAD_SECONDS_ENV]: String(seconds),
+      },
+    });
+    const args = readFileSync(join(tmp, "args"), "utf8").trim().split("\n");
+    return { code: run.exitCode, stdout: run.stdout.toString(), args };
+  }
+
+  it("tries each process's request again until it passes, through that process's own proxy", () =>
+    withTempDir((tmp) => {
+      const result = load(tmp, 2, 30);
+      expect(result.code).toBe(0);
+      expect(result.stdout).toBe("loaded\n");
+      const npm = `-fsS -m 15 -o /dev/null --proxy http://127.0.0.1:41000 --cacert ${tmp}/sc/tmp/ca.pem ${SAFE_CHAIN_LOAD_URLS.npm}`;
+      const pypi = `-fsS -m 15 -o /dev/null --proxy http://127.0.0.1:42000 --cacert ${tmp}/sc/tmp/ca.pem ${SAFE_CHAIN_LOAD_URLS.pypi}`;
+      expect(result.args).toEqual([npm, npm, npm, pypi]);
+    }));
+
+  it("prints no ready line but why, when a list does not load before the deadline", () =>
+    withTempDir((tmp) => {
+      const result = load(tmp, 1_000, 1);
+      expect(result.code).toBe(1);
+      const lines = result.stdout.trim().split("\n");
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0] ?? "")).toEqual({
+        ready: false,
+        reason:
+          "the npm Safe-Chain process could not load its malware list in time: curl: (22) The requested URL returned error: 500 xy ",
+      });
+      expect(result.args.every((line) => line.includes(SAFE_CHAIN_LOAD_URLS.npm))).toBe(true);
+    }));
+
+  it("loads both lists after the forwarders and before the ready line", () => {
+    const start = safeChainStartScript();
+    const loadAt = start.indexOf(`load npm ${SAFE_CHAIN_LOAD_URLS.npm}`);
+    expect(start.indexOf("socat TCP-LISTEN:8102")).toBeLessThan(loadAt);
+    expect(start.indexOf(`load pypi ${SAFE_CHAIN_LOAD_URLS.pypi}`)).toBeGreaterThan(loadAt);
+    expect(start.indexOf('printf \'{"ready":true')).toBeGreaterThan(loadAt);
+    expect(start.indexOf(SAFE_CHAIN_DEADLINE_LINE)).toBeLessThan(start.indexOf('rm -rf "$dir"'));
   });
 });

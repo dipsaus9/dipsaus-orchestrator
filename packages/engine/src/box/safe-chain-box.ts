@@ -12,11 +12,17 @@
 //    started, and its firewall set: out only to the upstream listener, in only from the Mac's
 //    address on `SAFE_CHAIN_BOX_PORTS`. So no other box reaches it directly.
 // 5. The start script runs in it as the box user (`safeChainStartScript`): a fresh Safe-Chain with
-//    a fresh CA, its two processes and their forwarders; dipo reads the ready line, then the CA
-//    bundle (PEM certificates only), which it writes to `caFile` for the boxes.
+//    a fresh CA, its two processes and their forwarders, then each process loads its malware list
+//    through the upstream listener (DIPO-383), which Safe-Chain otherwise does only at the first
+//    package it checks; dipo reads the ready line, then the CA bundle (PEM certificates only),
+//    which it writes to `caFile` for the boxes. Until then no tunnel goes to the box.
 // 6. The web proxy sends registry tunnels to the box, and the check runs through the web proxy
 //    itself, with no model: `is-number@7.0.0` downloads, and Safe-Chain's own test package
-//    `safe-chain-test` is refused with 403.
+//    `safe-chain-test` is refused with 403. No box is admitted before it passes, so its requests
+//    are the only traffic to the box until then, and Safe-Chain must still run when it ends.
+//
+// A start that fails once the start script ran says, in its reason, what the Safe-Chain box
+// printed and what the upstream listener did (`safeChainFailureDetail`, DIPO-383).
 //
 // Fail-closed: any step that fails stops what was started (the box deleted, both listeners
 // closed) and returns the reason; the caller refuses the box's start. Once started, Safe-Chain ending or
@@ -33,12 +39,15 @@ import type { Clock } from "@dipsaus-orchestrator/contract";
 
 import { ignoreRejection } from "../platform/background";
 import { connectToBox } from "./box-connect";
+import { cleanDoorText } from "./door";
 import { type BoxImageDeps, ensureSafeChainImage } from "./build-box";
 import { type BoxNetwork, type BoxPort, type BoxProcess, boxName } from "./port";
 import {
   isCertificateBundle,
   SAFE_CHAIN_BOX_PORTS,
   SAFE_CHAIN_BOX_RUN_PREFIX,
+  SAFE_CHAIN_LOAD_SECONDS_ENV,
+  SAFE_CHAIN_RUN_DIR,
   SAFE_CHAIN_START_SCRIPT,
   SAFE_CHAIN_TMP_DIR,
 } from "./safe-chain";
@@ -52,10 +61,21 @@ import {
   type SafeChainTarget,
   startBoxWebProxy,
   startSafeChainUpstreamProxy,
+  type WebProxyEvent,
 } from "./web-proxy";
 
-/** How long the Safe-Chain box may take to report ready (both processes fetch their lists). */
+/** How long the Safe-Chain box may take to report ready (both processes load their lists). */
 export const SAFE_CHAIN_READY_TIMEOUT_MS = 180_000;
+/**
+ * How much of that wait the start script leaves after its deadline for loading the malware lists
+ * (`SAFE_CHAIN_LOAD_SECONDS_ENV`): its last load request and its ready line.
+ */
+const SAFE_CHAIN_LOAD_MARGIN_MS = 20_000;
+
+/** The start script's deadline for loading the malware lists, in seconds from its start. */
+export function safeChainLoadSeconds(readyTimeoutMs: number): number {
+  return Math.max(1, Math.floor((readyTimeoutMs - SAFE_CHAIN_LOAD_MARGIN_MS) / 1_000));
+}
 /** How long one request of the Safe-Chain check may take. */
 export const SAFE_CHAIN_CHECK_TIMEOUT_MS = 30_000;
 /** The Safe-Chain check's downloads: one allowed small package and Safe-Chain's own test malware. */
@@ -67,6 +87,19 @@ export const SAFE_CHAIN_CHECK_BLOCKED_URL =
 export const SAFE_CHAIN_CHECK_ATTEMPTS = 3;
 /** Time on the clock between two tries of the allowed download. */
 export const SAFE_CHAIN_CHECK_RETRY_DELAY_MS = 2_000;
+/**
+ * The most lines a failed start's reason carries after its first: the Safe-Chain box's last output
+ * and the upstream listener's events (DIPO-383), so the cause is readable without debug logs.
+ */
+export const SAFE_CHAIN_FAILURE_LINES = 40;
+/** The most upstream listener events a failed start's reason shows; the box's output takes the rest. */
+const FAILURE_EVENT_LINES = 15;
+/** The most characters of one line of a failed start's reason. */
+const FAILURE_LINE_MAX = 200;
+/** How many lines of each Safe-Chain process's log a failed start reads from the box. */
+const SAFE_CHAIN_LOG_LINES = 20;
+/** How long reading those logs from the box may take. */
+const SAFE_CHAIN_LOG_TIMEOUT_MS = 10_000;
 
 /** The box calls the route makes for the Safe-Chain box and its image. */
 export type SafeChainBoxes = BoxImageDeps["boxes"] & Pick<BoxPort, "address">;
@@ -92,6 +125,11 @@ export interface SafeChainRouteDeps {
    * A CONNECT and TLS from the box network's host address by default; tests pass their own.
    */
   readonly download?: (proxyUrl: string, ca: string, url: string) => Promise<number>;
+  /**
+   * Tests only: the Safe-Chain image's tag in place of the machine-wide `safeChainImageTag()`, so
+   * a real-box test can remove and rebuild an image of its own (DIPO-383). dipo never passes it.
+   */
+  readonly imageTag?: string;
   /** Overrides `SAFE_CHAIN_READY_TIMEOUT_MS`. */
   readonly readyTimeoutMs?: number;
   /**
@@ -141,15 +179,23 @@ function withTimeout<T>(clock: Clock, ms: number, work: Promise<T>, label: strin
 /** What the start script printed: ready with its CA bundle, or why not. */
 type ReadyLine = { readonly ready: boolean; readonly bundle?: unknown; readonly reason?: unknown };
 
-/** Reads stdout lines until one parses as the start script's ready line, or the stream ends. */
-export async function readReadyLine(stream: ReadableStream<Uint8Array>): Promise<ReadyLine | null> {
+/**
+ * Reads stdout lines until one parses as the start script's ready line, or the stream ends; `into`
+ * hears all of it.
+ */
+export async function readReadyLine(
+  stream: ReadableStream<Uint8Array>,
+  into?: (text: string) => void,
+): Promise<ReadyLine | null> {
   const decoder = new TextDecoder();
   const reader = stream.getReader();
   let buffer = "";
   for (;;) {
     const { done, value } = await reader.read();
     if (done) return null;
-    buffer += decoder.decode(value, { stream: true });
+    const text = decoder.decode(value, { stream: true });
+    into?.(text);
+    buffer += text;
     let at = buffer.indexOf("\n");
     while (at >= 0) {
       const line = buffer.slice(0, at).trim();
@@ -274,6 +320,47 @@ export function safeChainCheckProblem(results: {
   return null;
 }
 
+/** One line of a failed start's reason: cleaned of control characters, cut to one line's length. */
+function failureLine(text: string): string {
+  return cleanDoorText(text).replaceAll(/\s+/g, " ").trim().slice(0, FAILURE_LINE_MAX);
+}
+
+/**
+ * Pure: what a failed start's reason carries after its first line (DIPO-383), at most
+ * SAFE_CHAIN_FAILURE_LINES lines: the upstream listener's last events (at most 15, or none), and
+ * the Safe-Chain box's last output lines in the rest. Empty when there is no box.
+ */
+export function safeChainFailureDetail(input: {
+  readonly box: string | null;
+  /** What the Safe-Chain box printed: its start script and the logs of its two processes. */
+  readonly output: string;
+  readonly events: readonly WebProxyEvent[];
+}): string {
+  if (input.box === null) return "";
+  const events = input.events
+    .slice(-FAILURE_EVENT_LINES)
+    .map((event) => `  ${failureLine(JSON.stringify(event))}`);
+  const eventLines =
+    events.length === 0
+      ? ["the upstream listener's events: none"]
+      : [
+          `the upstream listener's events (last ${events.length} of ${input.events.length}):`,
+          ...events,
+        ];
+  const room = SAFE_CHAIN_FAILURE_LINES - eventLines.length - 1;
+  const output = input.output
+    .split("\n")
+    .map(failureLine)
+    .filter((line) => line.length > 0)
+    .slice(-room)
+    .map((line) => `  ${line}`);
+  const outputLines =
+    output.length === 0
+      ? [`the Safe-Chain box ${input.box} printed nothing`]
+      : [`the Safe-Chain box ${input.box} printed (last ${output.length} lines):`, ...output];
+  return [...outputLines, ...eventLines].join("\n");
+}
+
 /** One download of the check, with its timeout: the status, or the error's message. */
 async function attemptOnce(
   clock: Clock,
@@ -323,6 +410,46 @@ interface Started {
   process: BoxProcess | null;
   /** Set once the route stops (or its start failed): the end of Safe-Chain is then expected. */
   stopping: boolean;
+  /** The start script's last output, both streams (DIPO-383). */
+  output: string;
+  /** The upstream listener's events so far, the last ones kept (DIPO-383). */
+  readonly upstreamEvents: WebProxyEvent[];
+}
+
+/** How many characters of the start script's output a route keeps. */
+const OUTPUT_KEPT = 8_000;
+/** How many upstream listener events a route keeps. */
+const EVENTS_KEPT = 100;
+
+/**
+ * What a failed start's reason carries after its first line (`safeChainFailureDetail`): the
+ * start script's output, the logs of Safe-Chain's two processes read from the box, and the
+ * upstream listener's events. Empty before the start script ran.
+ */
+async function failureDetail(deps: SafeChainRouteDeps, started: Started): Promise<string> {
+  if (started.box === null || started.process === null) return "";
+  const box = started.box;
+  const logs = await deps.boxes
+    .exec(
+      box,
+      [
+        "tail",
+        "-n",
+        String(SAFE_CHAIN_LOG_LINES),
+        `${SAFE_CHAIN_RUN_DIR}/npm.log`,
+        `${SAFE_CHAIN_RUN_DIR}/pypi.log`,
+      ],
+      { timeoutMs: SAFE_CHAIN_LOG_TIMEOUT_MS },
+    )
+    .then(
+      (read) => `${read.stdout}\n${read.stderr}`,
+      (error: unknown) => `the Safe-Chain logs could not be read: ${messageOf(error)}`,
+    );
+  return safeChainFailureDetail({
+    box,
+    output: `${started.output}\n${logs}`,
+    events: started.upstreamEvents,
+  });
 }
 
 async function stopStarted(deps: SafeChainRouteDeps, started: Started): Promise<void> {
@@ -352,18 +479,21 @@ async function startSafeChainBox(
 ): Promise<{ target: SafeChainTarget; ca: string }> {
   const { boxes } = deps;
   const { proxy, upstream } = listeners;
-  const image = await ensureSafeChainImage({
-    boxes,
-    route: {
-      acquire: async () => ({ url: proxy.url, caFile: null }),
-      release: async () => {},
+  const image = await ensureSafeChainImage(
+    {
+      boxes,
+      route: {
+        acquire: async () => ({ url: proxy.url, caFile: null }),
+        release: async () => {},
+      },
+      scratchRoot: deps.scratchRoot,
+      toolsRoot: deps.toolsRoot,
+      clock: deps.clock,
+      ...(deps.buildId === undefined ? {} : { buildId: deps.buildId }),
+      ...(deps.onEvent === undefined ? {} : { onEvent: deps.onEvent }),
     },
-    scratchRoot: deps.scratchRoot,
-    toolsRoot: deps.toolsRoot,
-    clock: deps.clock,
-    ...(deps.buildId === undefined ? {} : { buildId: deps.buildId }),
-    ...(deps.onEvent === undefined ? {} : { onEvent: deps.onEvent }),
-  });
+    deps.imageTag,
+  );
   const id = deps.boxId?.() ?? crypto.randomUUID().replaceAll("-", "").slice(0, 16);
   const runId = `${SAFE_CHAIN_BOX_RUN_PREFIX}${id}`;
   started.box = boxName(runId);
@@ -378,19 +508,27 @@ async function startSafeChainBox(
   const address = await boxes.address(name);
   if (address === null) throw new Error("the Safe-Chain box has no address on the box network");
   setSource(address);
+  const readyTimeoutMs = deps.readyTimeoutMs ?? SAFE_CHAIN_READY_TIMEOUT_MS;
   const process = boxes.execLive(name, [SAFE_CHAIN_START_SCRIPT], {
-    env: { HTTPS_PROXY: upstream.url },
+    env: {
+      HTTPS_PROXY: upstream.url,
+      [SAFE_CHAIN_LOAD_SECONDS_ENV]: String(safeChainLoadSeconds(readyTimeoutMs)),
+    },
   });
   started.process = process;
   let stderr = "";
-  drain(process.stderr, (text) => (stderr = (stderr + text).slice(-2_000)));
+  const keep = (text: string) => (started.output = (started.output + text).slice(-OUTPUT_KEPT));
+  drain(process.stderr, (text) => {
+    stderr = (stderr + text).slice(-2_000);
+    keep(text);
+  });
   const ready = await withTimeout(
     deps.clock,
-    deps.readyTimeoutMs ?? SAFE_CHAIN_READY_TIMEOUT_MS,
-    readReadyLine(process.stdout),
+    readyTimeoutMs,
+    readReadyLine(process.stdout, keep),
     "the Safe-Chain box's start",
   );
-  drain(process.stdout);
+  drain(process.stdout, keep);
   const bundle = ready?.ready === true && typeof ready.bundle === "string" ? ready.bundle : null;
   if (bundle === null) {
     const why = typeof ready?.reason === "string" ? ready.reason : "it stopped before it was ready";
@@ -425,6 +563,8 @@ export async function startBoxWebRoute(
     box: null,
     process: null,
     stopping: false,
+    output: "",
+    upstreamEvents: [],
   };
   let target: SafeChainTarget | null = null;
   let source: string | null = null;
@@ -437,7 +577,14 @@ export async function startBoxWebRoute(
     started.proxy = proxy;
     const upstream = await startSafeChainUpstreamProxy(
       { network, source: () => source },
-      proxyDeps,
+      {
+        ...proxyDeps,
+        onEvent: (event) => {
+          started.upstreamEvents.push(event);
+          if (started.upstreamEvents.length > EVENTS_KEPT) started.upstreamEvents.shift();
+          proxyDeps.onEvent?.(event);
+        },
+      },
     );
     started.upstream = upstream;
     const box = await startSafeChainBox(deps, network, started, { proxy, upstream }, (address) => {
@@ -470,9 +617,13 @@ export async function startBoxWebRoute(
         : deps.download(proxy.url, box.ca, url),
     );
     if (problem !== null) throw new Error(`the Safe-Chain check failed: ${problem}`);
+    // Fail-closed: a Safe-Chain that ended while it was checked never passes (DIPO-383).
+    if (target === null) throw new Error("the Safe-Chain check failed: Safe-Chain ended during it");
   } catch (error) {
+    const detail = await failureDetail(deps, started);
     await stopStarted(deps, started);
-    return { ok: false, reason: `the box web route did not start: ${messageOf(error)}` };
+    const reason = `the box web route did not start: ${messageOf(error)}`;
+    return { ok: false, reason: detail === "" ? reason : `${reason}\n${detail}` };
   }
   return { ok: true, route: running(deps, started, admissions) };
 }

@@ -162,6 +162,8 @@ interface WorldOptions {
   readonly committed?: Readonly<Record<string, string>>;
   readonly sticky?: boolean;
   readonly modelFails?: boolean;
+  /** The web route does not start, for this reason (DIPO-383). */
+  readonly routeFails?: string;
   /** Each model proxy start waits for it, when given (a finish that hangs). */
   readonly modelGate?: Promise<void>;
   /** `BoxWorkersDeps.finishWaitMs`. */
@@ -236,6 +238,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
   const route =
     (what: string) =>
     async (network: BoxNetwork, ids?: RouteBoxIds): Promise<BoxWebRouteStart> => {
+      if (options.routeFails !== undefined) return { ok: false, reason: options.routeFails };
       log.push(`${what} started on ${network.hostAddress}`);
       const safeChain =
         options.safeChainBox === true && ids !== undefined
@@ -673,6 +676,19 @@ describe("the end of a box run (criterion 9)", () => {
       expect(existsSync(boxTokenHoldPath(tmp))).toBe(true);
       expect(readFileSync(boxTokenHoldPath(tmp), "utf8")).not.toContain(TOKEN);
       expect(w.boxes.boxes.has(BOX)).toBe(false);
+    }));
+
+  it("logs why the web route did not start, with the Safe-Chain detail (DIPO-383)", () =>
+    inBoxes(async (repo, tmp) => {
+      const reason =
+        "the Safe-Chain check failed: downloading is-number@7.0.0 through Safe-Chain did not work after 3 attempts (timed out)\nthe upstream listener's events: none";
+      const w = await world(repo, tmp, { routeFails: reason });
+      await created(w);
+      await expect(installIn(w)).rejects.toThrow("the box web route did not start");
+      expect(w.warnings).toContainEqual({
+        message: "the box web route did not start",
+        fields: { reason },
+      });
     }));
 
   it("holds the adapter when the check cannot even start, and keeps the box for the next pass", () =>

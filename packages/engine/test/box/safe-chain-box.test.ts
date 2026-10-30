@@ -6,7 +6,7 @@
 // listeners close (fail-closed). The real box is tested in safe-chain-box.ci.test.ts.
 
 import { existsSync, readFileSync } from "node:fs";
-import { connect, createServer } from "node:net";
+import { connect, createServer, Socket } from "node:net";
 import { join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
@@ -18,6 +18,7 @@ import { BOX_NETWORK_NAME } from "../../src/box/apple-args";
 import { BoxError, type BoxNetwork } from "../../src/box/port";
 import {
   SAFE_CHAIN_BOX_PORTS,
+  SAFE_CHAIN_LOAD_SECONDS_ENV,
   SAFE_CHAIN_START_SCRIPT,
   safeChainImageTag,
 } from "../../src/box/safe-chain";
@@ -30,6 +31,10 @@ import {
   SAFE_CHAIN_CHECK_ALLOWED_URL,
   SAFE_CHAIN_CHECK_BLOCKED_URL,
   safeChainCheckProblem,
+  safeChainFailureDetail,
+  SAFE_CHAIN_FAILURE_LINES,
+  safeChainLoadSeconds,
+  SAFE_CHAIN_READY_TIMEOUT_MS,
   startBoxWebRoute,
 } from "../../src/box/safe-chain-box";
 import {
@@ -91,6 +96,12 @@ interface Setup {
   readonly realDownload?: boolean;
   /** Where the web proxy's connection to the Safe-Chain box lands; a port nothing listens on by default. */
   readonly safeChainPort?: number;
+  /** True: the web proxy's connection to the Safe-Chain box never opens (it never forwards). */
+  readonly safeChainSilent?: boolean;
+  /** Runs before each download of the check, with the boxes. */
+  readonly onDownload?: (url: string, boxes: FakeBoxes) => Promise<void> | void;
+  /** Filled while the route starts: its boxes, and the ports it listens on (web proxy first). */
+  readonly seen?: { boxes: FakeBoxes | null; readonly ports: number[] };
 }
 
 async function route(tmp: string, setup: Setup = {}) {
@@ -108,6 +119,7 @@ async function route(tmp: string, setup: Setup = {}) {
       command[0] === "cat" ? { stderr: "", ...(setup.cat ?? { code: 0, stdout: PEM }) } : undefined,
     ...setup.boxes,
   });
+  if (setup.seen !== undefined) setup.seen.boxes = boxes;
   const caFile = join(tmp, "route", "ca.pem");
   const routeEvents: SafeChainRouteEvent[] = [];
   const proxyEvents: WebProxyEvent[] = [];
@@ -127,6 +139,7 @@ async function route(tmp: string, setup: Setup = {}) {
         : {
             download: async (proxy: string, ca: string, url: string) => {
               downloads.push({ proxy, ca, url });
+              await setup.onDownload?.(url, boxes);
               return (
                 setup.statuses?.[url] ??
                 (url === SAFE_CHAIN_CHECK_ALLOWED_URL
@@ -145,8 +158,19 @@ async function route(tmp: string, setup: Setup = {}) {
       // Each upstream connection is recorded and lands on a port nothing listens on.
       connect: (address, port) => {
         connects.push(`${address}:${port}`);
+        if (setup.safeChainSilent === true) return new Socket();
         return connect(setup.safeChainPort ?? 1, "127.0.0.1");
       },
+      listen: (server, host, port) =>
+        new Promise<void>((resolve, reject) => {
+          server.once("error", reject);
+          server.listen(port, host, () => {
+            const address = server.address();
+            if (typeof address === "object" && address !== null)
+              setup.seen?.ports.push(address.port);
+            resolve();
+          });
+        }),
     },
   );
   return { started, boxes, caFile, downloads, tag, routeEvents, proxyEvents, connects };
@@ -236,7 +260,12 @@ describe.skipIf(!RUNS)("the web route with Safe-Chain in its box", () => {
         {
           box: SAFE_CHAIN_BOX,
           command: [SAFE_CHAIN_START_SCRIPT],
-          env: { HTTPS_PROXY: `http://127.0.0.1:${upstreamPort}` },
+          env: {
+            HTTPS_PROXY: `http://127.0.0.1:${upstreamPort}`,
+            [SAFE_CHAIN_LOAD_SECONDS_ENV]: String(
+              safeChainLoadSeconds(SAFE_CHAIN_READY_TIMEOUT_MS),
+            ),
+          },
         },
       ]);
       expect(readFileSync(caFile, "utf8")).toBe(PEM);
@@ -425,9 +454,9 @@ describe("the Safe-Chain check", () => {
 
 /** Settles `work` while moving `clock` on, so the check's retries and deadlines fall due. */
 async function settled<T>(work: Promise<T>, clock: ManualClock): Promise<T> {
-  let done = false;
-  void work.finally(() => (done = true)).catch(() => {});
-  for (let i = 0; i < 2_000 && !done; i += 1) {
+  const state = { done: false };
+  void work.finally(() => (state.done = true)).catch(() => {});
+  for (let i = 0; i < 2_000 && !state.done; i += 1) {
     await Bun.sleep(1);
     clock.advance(1_000);
   }
@@ -518,4 +547,138 @@ describe.skipIf(!RUNS)("what the Safe-Chain check refuses", () => {
       });
       expect(boxes.boxes.has(SAFE_CHAIN_BOX)).toBe(false);
     }));
+});
+
+// The added readiness (DIPO-383): each Safe-Chain process loads its malware list before the start
+// script's ready line, and a failed start says what the box printed and the upstream listener did.
+describe.skipIf(!RUNS)(
+  "the Safe-Chain box's readiness and a failed start's detail (DIPO-383)",
+  () => {
+    it("fails closed when Safe-Chain cannot load its malware list: no ready line, no check, the detail", () =>
+      withTempDir(async (tmp) => {
+        const why =
+          "the npm Safe-Chain process could not load its malware list in time: curl: (22) The requested URL returned error: 500";
+        const { started, boxes, caFile, downloads } = await route(tmp, {
+          ready: { stdout: `npm warming\n{"ready":false,"reason":"${why}"}\n`, code: 1 },
+        });
+        expect(started.ok).toBe(false);
+        if (started.ok) return;
+        const [first, ...detail] = started.reason.split("\n");
+        expect(first).toBe(
+          `the box web route did not start: Safe-Chain did not start in its box: ${why}`,
+        );
+        expect(detail).toEqual([
+          `the Safe-Chain box ${SAFE_CHAIN_BOX} printed (last 2 lines):`,
+          "  npm warming",
+          `  {"ready":false,"reason":"${why}"}`,
+          "the upstream listener's events: none",
+        ]);
+        expect(downloads).toEqual([]);
+        expect(boxes.boxes.has(SAFE_CHAIN_BOX)).toBe(false);
+        expect(existsSync(caFile)).toBe(false);
+      }));
+
+    it("sends no tunnel to the Safe-Chain box while its start script still loads, and fails when the box ends then", () =>
+      withTempDir(async (tmp) => {
+        const seen: { boxes: FakeBoxes | null; ports: number[] } = { boxes: null, ports: [] };
+        const starting = route(tmp, { ready: { hang: true }, seen });
+        for (let i = 0; i < 200 && (seen.boxes?.liveExecs.length ?? 0) === 0; i += 1) {
+          await Bun.sleep(2);
+        }
+        expect(seen.boxes?.liveExecs).toHaveLength(1);
+        const proxyPort = seen.ports[0] ?? 0;
+        // During the wait a registry tunnel is refused, and nothing is opened to the box.
+        expect(await connectLine(proxyPort, "registry.npmjs.org:443")).toBe(
+          "HTTP/1.1 503 Service Unavailable",
+        );
+        await seen.boxes?.stop(SAFE_CHAIN_BOX);
+        const { started, connects, downloads } = await starting;
+        expect(started.ok).toBe(false);
+        if (started.ok) return;
+        expect(started.reason).toContain("it stopped before it was ready");
+        expect(connects).toEqual([]);
+        expect(downloads).toEqual([]);
+      }));
+
+    it("does not start the route when Safe-Chain printed its ready line but never forwards", () =>
+      withTempDir(async (tmp) => {
+        const clock = new ManualClock();
+        const { started, proxyEvents, boxes } = await settled(
+          route(tmp, { clock, realDownload: true, safeChainSilent: true }),
+          clock,
+        );
+        expect(started.ok).toBe(false);
+        if (started.ok) return;
+        expect(started.reason).toContain("did not work after 3 attempts");
+        expect(started.reason).toContain("timed out");
+        expect(proxyEvents.filter((event) => event.kind === "registry")).toEqual([]);
+        expect(boxes.boxes.has(SAFE_CHAIN_BOX)).toBe(false);
+      }));
+
+    it("never passes a check during which Safe-Chain ended", () =>
+      withTempDir(async (tmp) => {
+        const { started, boxes } = await route(tmp, {
+          onDownload: async (url, fake) => {
+            if (url !== SAFE_CHAIN_CHECK_ALLOWED_URL) return;
+            await fake.stop(SAFE_CHAIN_BOX);
+            await Bun.sleep(5);
+          },
+        });
+        expect(started.ok).toBe(false);
+        if (started.ok) return;
+        expect(started.reason).toContain("Safe-Chain ended during it");
+        expect(boxes.boxes.has(SAFE_CHAIN_BOX)).toBe(false);
+      }));
+
+    it("leaves the start script time before dipo's own wait for its ready line ends", () => {
+      expect(safeChainLoadSeconds(SAFE_CHAIN_READY_TIMEOUT_MS)).toBe(160);
+      expect(safeChainLoadSeconds(40_000)).toBe(20);
+      expect(safeChainLoadSeconds(5_000)).toBe(1);
+    });
+  },
+);
+
+/** An upstream listener event, numbered. */
+const event = (n: number): WebProxyEvent => ({
+  kind: "refused",
+  target: "malware-list.aikido.dev:443",
+  reason: `no address of malware-list.aikido.dev answered (${n})`,
+});
+
+describe("a failed start's detail (DIPO-383)", () => {
+  it("carries the box's last output and the upstream listener's last events, in 40 lines at most", () => {
+    const output = Array.from({ length: 100 }, (_, i) => `line ${i}`).join("\n");
+    const events = Array.from({ length: 30 }, (_, i) => event(i));
+    const lines = safeChainFailureDetail({ box: SAFE_CHAIN_BOX, output, events }).split("\n");
+    expect(lines).toHaveLength(SAFE_CHAIN_FAILURE_LINES);
+    expect(lines[0]).toBe(`the Safe-Chain box ${SAFE_CHAIN_BOX} printed (last 23 lines):`);
+    expect(lines[1]).toBe("  line 77");
+    expect(lines[23]).toBe("  line 99");
+    expect(lines[24]).toBe("the upstream listener's events (last 15 of 30):");
+    expect(lines[25]).toBe(`  ${JSON.stringify(event(15))}`);
+    expect(lines.at(-1)).toBe(`  ${JSON.stringify(event(29))}`);
+  });
+
+  it("names the host Safe-Chain could not reach", () => {
+    const detail = safeChainFailureDetail({ box: SAFE_CHAIN_BOX, output: "", events: [event(1)] });
+    expect(detail.split("\n")).toEqual([
+      `the Safe-Chain box ${SAFE_CHAIN_BOX} printed nothing`,
+      "the upstream listener's events (last 1 of 1):",
+      `  ${JSON.stringify(event(1))}`,
+    ]);
+  });
+
+  it("cleans the box's text and cuts long lines, and says nothing without a box", () => {
+    const detail = safeChainFailureDetail({
+      box: SAFE_CHAIN_BOX,
+      output: `\u001b[31mred\u001b[0m\n${"x".repeat(500)}`,
+      events: [],
+    });
+    const lines = detail.split("\n");
+    expect(lines[1]).not.toContain("\u001b");
+    expect(lines[1]).toContain("red");
+    expect(lines[2]).toBe(`  ${"x".repeat(200)}`);
+    expect(lines.at(-1)).toBe("the upstream listener's events: none");
+    expect(safeChainFailureDetail({ box: null, output: "x", events: [event(1)] })).toBe("");
+  });
 });
