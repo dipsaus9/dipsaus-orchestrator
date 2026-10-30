@@ -1,7 +1,8 @@
 // The daemon lock (0005, DIPO-387) across real processes: SQLite's `fcntl` locks belong to a
 // process, so the starters here are processes of their own (`fixtures/lock-starter.ts`). Two
 // starters at the same moment leave exactly one holder, again and again, and a holder killed with
-// SIGKILL frees the lock at once.
+// SIGKILL frees the lock at once. Two starters at the same moment each see the other's attempt in
+// progress: the lock must settle that within one attempt each, never leave both refused.
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
@@ -17,9 +18,10 @@ interface Starter {
   line(): Promise<string>;
 }
 
-async function spawnStarter(dir: string): Promise<Starter> {
+/** `waitMs` is how long the starter waits for a held lock; 0 gives it a single attempt. */
+async function spawnStarter(dir: string, waitMs = 100): Promise<Starter> {
   const child = Bun.spawn({
-    cmd: [process.execPath, STARTER, dir],
+    cmd: [process.execPath, STARTER, dir, String(waitMs)],
     stdin: "pipe",
     stdout: "pipe",
     stderr: "ignore",
@@ -63,6 +65,22 @@ describe("the daemon lock across processes", () => {
       await withTempDir(async (dir) => {
         // Both are loaded and waiting before either tries.
         const starters = await Promise.all([spawnStarter(dir), spawnStarter(dir)]);
+        try {
+          const kinds = await Promise.all(starters.map(go));
+          expect(kinds.toSorted()).toEqual(["acquired", "held"]);
+        } finally {
+          await killAll(starters);
+        }
+      });
+    }
+  }, 30_000);
+
+  // Before DIPO-402 both starters often found the other's attempt in progress, each gave up at once,
+  // and retried in step until both reported the lock held by nobody.
+  it(`settles two starters at the same moment within one attempt each, ${ROUNDS} times`, async () => {
+    for (let round = 0; round < ROUNDS; round++) {
+      await withTempDir(async (dir) => {
+        const starters = await Promise.all([spawnStarter(dir, 0), spawnStarter(dir, 0)]);
         try {
           const kinds = await Promise.all(starters.map(go));
           expect(kinds.toSorted()).toEqual(["acquired", "held"]);

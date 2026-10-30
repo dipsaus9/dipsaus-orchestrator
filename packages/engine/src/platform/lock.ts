@@ -8,6 +8,9 @@
 //    symbolic link) and take the lock: `BEGIN EXCLUSIVE` and one write, kept open and never
 //    committed. The write fails on a file SQLite could open only read-only, whose lock would
 //    exclude nobody. Any error but "busy" stops the start: the daemon never runs without the lock.
+//    Each attempt waits up to `LOCK_BUSY_MS` for a lock another starter's attempt holds for a
+//    moment: two starters at the same moment would otherwise each see the other, both give up and
+//    retry in step, and both report the lock held while nobody holds it.
 //    The file stays when the daemon exits: removing it would let a starter that opened it before
 //    the removal and one that creates a new file both hold a lock.
 // 2. Taken: when `dipo.pid` still names another live `dipo daemon`, that daemon holds no lock on
@@ -60,6 +63,8 @@ export {
 } from "@dipsaus-orchestrator/contract";
 export const LOCK_WAIT_MS = 5000;
 export const LOCK_POLL_MS = 250;
+/** How long one attempt waits, blocking, for another process's lock to go (SQLite's busy timeout). */
+const LOCK_BUSY_MS = 100;
 
 // <sqlite3.h>: SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOFOLLOW.
 const OPEN_FLAGS = 0x2 | 0x4 | 0x0100_0000;
@@ -123,11 +128,16 @@ export interface HeldLock {
 
 /** Opens the lock file (step 1); throws `LockFileError` when it cannot. */
 function openLockFile(path: string): Database {
+  let db: Database;
   try {
-    return new Database(path, OPEN_FLAGS);
+    db = new Database(path, OPEN_FLAGS);
   } catch (error) {
     throw new LockFileError(path, error);
   }
+  // With a busy timeout, the attempt that already has the lock half taken keeps it and waits for
+  // the other attempt to let go, so one of two starters at the same moment always takes it.
+  db.run(`PRAGMA busy_timeout = ${LOCK_BUSY_MS}`);
+  return db;
 }
 
 /**

@@ -1,12 +1,13 @@
 // A starter of its own process for the lock tests (0005, DIPO-387): it prints `ready` and waits for
 // a line on stdin, so several starters try at the same moment. Then it takes the lock in `<dir>`
 // with its own PID, drops its own reference to the outcome and collects garbage (the lock must
-// survive that), prints the outcome's kind, and holds what it took until it is killed.
+// survive that), prints the outcome's kind, and holds what it took until it is killed. A second
+// argument sets how long it waits for a held lock; 0 gives it a single attempt.
 
 import { acquireLock } from "../../../src/platform/lock";
 import { systemClock } from "../../../src/platform/clock";
 
-const [dir = ""] = process.argv.slice(2);
+const [dir = "", wait = "100"] = process.argv.slice(2);
 
 console.log("ready");
 for await (const _ of console) break;
@@ -19,7 +20,7 @@ const { kind } = await acquireLock({
   clock: systemClock,
   handshake: async () => false,
   logger: { info: () => {}, warn: () => {} },
-  waitMs: 100,
+  waitMs: Number(wait),
   pollMs: 20,
 });
 Bun.gc(true);
