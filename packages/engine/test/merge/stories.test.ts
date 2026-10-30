@@ -416,6 +416,72 @@ describe("the release-path and autorelease guard", () => {
   });
 });
 
+describe("the ADR guard", () => {
+  const ADR = ["docs/decisions/0002-review-and-testing.md"];
+
+  it("opens a gate that waits for the maintainer for a PR that changes an ADR, approvable with dipo approve", async () => {
+    s = await storyWorld();
+    s.git.adr.set(H1, ADR);
+    await s.tick();
+    expect(gates()).toHaveLength(1);
+    expect(gates()[0]).toMatchObject({ waitingOn: "maintainer", handMerge: null, decision: null });
+    expect(gates()[0]?.waits).toEqual(["adrChange"]);
+    expect(gates()[0]?.summary).toContain(ADR[0] as string);
+    expect(gates()[0]?.summary).toContain("dipo approve");
+    expect(s.host.armedAt).toEqual([]);
+    // The maintainer's approval is the merge decision: auto-merge goes on.
+    approve(gates()[0]!.gate);
+    await s.tick();
+    expect(s.host.armedAt).toHaveLength(1);
+  });
+
+  it("waits for green checks first, as a reason that needs no host read does", async () => {
+    s = await storyWorld();
+    s.git.adr.set(H1, ADR);
+    s.ci.set(s.run, { kind: "pending", head: H1 } as never);
+    await s.tick();
+    expect(gates()).toEqual([]);
+  });
+
+  it("decides a PR without ADR changes by rule", async () => {
+    s = await storyWorld();
+    await s.tick();
+    expect(gates()[0]).toMatchObject({ waitingOn: "rule", decision: { by: "rule" } });
+    expect(s.host.armedAt).toHaveLength(1);
+  });
+
+  it("opens no gate and turns nothing on when git cannot read the changed files, with a named notice", async () => {
+    s = await storyWorld();
+    s.git.adr.set(H1, null);
+    await s.tick();
+    expect(gates()).toEqual([]);
+    expect(s.host.armedAt).toEqual([]);
+    expect(noticeCodes(s.w.office)).toContain(STORY_MERGE_NOTICES.releaseUnknown);
+  });
+
+  it("turns auto-merge off when a head decided by rule shows an ADR change after it went on", async () => {
+    s = await storyWorld();
+    await toArmed();
+    s.git.adr.set(C1, ADR);
+    await s.tick();
+    expect(s.host.disarmed).toEqual([PR]);
+    s.ci.set(s.run, { kind: "green", head: C1 });
+    await s.tick();
+    expect(gates().at(-1)).toMatchObject({ waitingOn: "maintainer", decision: null });
+    expect(gates().at(-1)?.waits).toContain("adrChange");
+    expect(s.host.armedAt).toHaveLength(1);
+  });
+
+  it("keeps the release path hand-merge only when the PR changes both", async () => {
+    s = await storyWorld();
+    s.git.adr.set(H1, ADR);
+    s.git.release.set(H1, ["install.sh"]);
+    await s.tick();
+    expect(gates()[0]).toMatchObject({ handMerge: "release-path", decision: null });
+    expect(gates()[0]?.waits).toEqual(["releasePath", "adrChange"]);
+  });
+});
+
 describe("PRs changed on GitHub", () => {
   it("keeps a PR whose host head differs from the pushed head out, with pr.headChanged naming both", async () => {
     s = await storyWorld();

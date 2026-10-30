@@ -111,8 +111,16 @@ export class FakeBacklogGit implements BacklogMergeGit {
   /** The release paths each head changes; null: git cannot tell. None by default. */
   readonly release = new Map<string, readonly string[] | null>();
 
+  /** The paths under docs/decisions/ each head changes; null: git cannot tell. None by default. */
+  readonly adr = new Map<string, readonly string[] | null>();
+
   async releasePaths(head: string): Promise<readonly string[] | null> {
     const paths = this.release.get(head);
+    return paths === undefined ? [] : paths;
+  }
+
+  async adrPaths(head: string): Promise<readonly string[] | null> {
+    const paths = this.adr.get(head);
     return paths === undefined ? [] : paths;
   }
 

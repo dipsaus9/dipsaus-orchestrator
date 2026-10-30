@@ -7,7 +7,7 @@ import { BASE_CHECKOUT_CONFIG, BASE_CHECKOUT_ENV } from "../../git/hardened";
 import type { GitSession } from "../../git/office";
 import type { GitStepOptions } from "../../git/runner";
 import { deleteBranch, deleteRemoteBranch } from "../../git/write";
-import { releasePathsOnBase } from "../../merge/story-git";
+import { adrPathsOnBase, releasePathsOnBase } from "../../merge/story-git";
 import type { OfficeLane } from "../lane/lane";
 
 const CHECKOUT: GitStepOptions = { config: BASE_CHECKOUT_CONFIG, env: BASE_CHECKOUT_ENV };
@@ -28,6 +28,11 @@ export interface BacklogMergeGit {
    * cannot tell; such a PR never gets auto-merge.
    */
   releasePaths(head: string): Promise<readonly string[] | null>;
+  /**
+   * The paths `head` changes under `docs/decisions/` (0002), or null when git cannot tell; such a
+   * PR never gets auto-merge either.
+   */
+  adrPaths(head: string): Promise<readonly string[] | null>;
 }
 
 async function revParse(git: GitSession, ref: string): Promise<string | null> {
@@ -45,6 +50,8 @@ export function laneMergeGit(lane: OfficeLane): BacklogMergeGit {
   const officeGit = lane.git;
   return {
     releasePaths: (head) => releasePathsOnBase(officeGit, head),
+
+    adrPaths: (head) => adrPathsOnBase(officeGit, head),
 
     head: (branch) => officeGit.run((git) => revParse(git, `refs/heads/${branch}`)),
 

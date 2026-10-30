@@ -5,7 +5,8 @@
 // - Auto-merge on. A backlog PR whose structural check (`BacklogPrs`) passed on the branch's local
 //   head, which GitHub shows as the PR's head, with no hold label (`autorelease: pending` always, and
 //   `merge.holdLabels`), no path the base's CODEOWNERS gives an owner (the release path; when
-//   git cannot tell, none), no conflict and no failed required check, gets
+//   git cannot tell, none), no change under `docs/decisions/` (0002: the maintainer approves an ADR's
+//   wording; when git cannot tell, one), no conflict and no failed required check, gets
 //   `gh pr merge --auto --squash --match-head-commit <head>`. GitHub merges it once its required
 //   checks pass on that head. dipo never passes `--admin`.
 // - The lane holds. While auto-merge is on for its PR, or may be because no round has read it since
@@ -88,7 +89,9 @@ type Stop =
   | "checksFailed"
   | "unchecked"
   | "releasePath"
-  | "releaseUnknown";
+  | "releaseUnknown"
+  | "adrChange"
+  | "adrUnknown";
 
 const STOP_TEXT: Record<Stop, string> = {
   foreignHead: "its head on GitHub is not the one dipo pushed",
@@ -99,6 +102,9 @@ const STOP_TEXT: Record<Stop, string> = {
   releasePath:
     "it changes a path the base's CODEOWNERS gives an owner, which needs the maintainer's code owner approval: merge it by hand on GitHub",
   releaseUnknown: "dipo could not read whether it changes the release path",
+  adrChange:
+    "it changes the decision records under docs/decisions/, whose wording the maintainer approves: merge it by hand on GitHub",
+  adrUnknown: "dipo could not read whether it changes the decision records under docs/decisions/",
 };
 
 function notice(level: "info" | "warn" | "error", code: string, text: string): NewEntry {
@@ -188,6 +194,9 @@ export class BacklogMerges implements BacklogAutoMerge {
     const release = await ctx.git.releasePaths(pr.head).catch(() => null);
     if (release === null) return "releaseUnknown";
     if (release.length > 0) return "releasePath";
+    const adr = await ctx.git.adrPaths(pr.head).catch(() => null);
+    if (adr === null) return "adrUnknown";
+    if (adr.length > 0) return "adrChange";
     const checks = await this.#deps.host.requiredChecks(pr.repo, pr.record.number);
     if (checks.some((check) => check.bucket === "fail" || check.bucket === "cancel")) {
       return "checksFailed";
@@ -256,7 +265,11 @@ export class BacklogMerges implements BacklogAutoMerge {
         : `The backlog PR #${number} carries the hold label ${held.map((label) => `"${label}"`).join(", ")}; dipo turns auto-merge on once the label is gone.`;
     }
     const code =
-      stop === "held" || stop === "releasePath" || stop === "releaseUnknown"
+      stop === "held" ||
+      stop === "releasePath" ||
+      stop === "releaseUnknown" ||
+      stop === "adrChange" ||
+      stop === "adrUnknown"
         ? BACKLOG_MERGE_NOTICES.held
         : stop === "foreignHead"
           ? BACKLOG_MERGE_NOTICES.headChanged
