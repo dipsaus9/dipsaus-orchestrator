@@ -12,6 +12,7 @@ labels:
 milestone: m-1
 dependencies:
   - DIPO-389
+  - DIPO-394
 references:
   - packages/engine/src/gate-decisions/feature.ts
   - packages/engine/src/backlog/init/init.ts
