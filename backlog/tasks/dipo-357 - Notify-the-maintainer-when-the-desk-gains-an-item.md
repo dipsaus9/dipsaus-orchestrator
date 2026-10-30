@@ -1,10 +1,10 @@
 ---
 id: DIPO-357
 title: Notify the maintainer when the desk gains an item
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-25 09:51'
-updated_date: '2026-10-29 21:35'
+updated_date: '2026-10-30 07:03'
 labels:
   - 'tier:S'
   - 'slice:prune'
