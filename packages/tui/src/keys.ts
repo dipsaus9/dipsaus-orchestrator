@@ -13,7 +13,7 @@
 import type { DeskAction, DeskItem } from "@dipsaus-orchestrator/contract";
 
 /** Where a key works. */
-export type ActionView = "desk" | "detail" | "queue" | "overview";
+export type ActionView = "desk" | "detail" | "queue" | "overview" | "checklist";
 
 export type ActionId =
   | "answer"
@@ -26,7 +26,9 @@ export type ActionId =
   | "test"
   | "accept"
   | "dismiss"
-  | "steer";
+  | "steer"
+  | "pass"
+  | "fail";
 
 export interface KeyBinding {
   readonly id: ActionId;
@@ -129,6 +131,22 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     hint: "[s]teer",
     views: ["detail"],
     flag: "work.intervene",
+  },
+  {
+    id: "pass",
+    command: "test.record",
+    key: "P",
+    hint: "[P] pass",
+    views: ["checklist"],
+    flag: "test.sessions",
+  },
+  {
+    id: "fail",
+    command: "test.record",
+    key: "F",
+    hint: "[F] fail",
+    views: ["checklist"],
+    flag: "test.sessions",
   },
 ];
 
