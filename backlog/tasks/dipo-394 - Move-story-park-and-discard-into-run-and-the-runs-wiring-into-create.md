@@ -4,7 +4,7 @@ title: Move story park and discard into run/ and the run's wiring into create/
 status: Refined
 assignee: []
 created_date: '2026-10-30 11:22'
-updated_date: '2026-10-30 22:14'
+updated_date: '2026-10-30 22:16'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -14,6 +14,13 @@ dependencies:
   - DIPO-381
   - DIPO-393
 references:
+  - packages/engine/src/stories/planning.ts
+  - packages/engine/src/stories/discard.ts
+  - packages/engine/src/run/compose.ts
+  - packages/engine/src/run/index.ts
+  - packages/engine/src/create/
+  - packages/engine/test/
+  - .oxlintrc.json
   - packages/engine/src/box/safe-chain.ts
   - packages/engine/src/prompts/feedback.ts
 priority: medium
@@ -49,6 +56,6 @@ test_plan:
 - [ ] #2 Only paths and import lines change: no function, type or behaviour changes, and no test is removed or skipped
 - [ ] #3 The coarse dipo/engine-layers rule still passes with no exception, and `bun run verify` passes
 - [ ] #4 `bun scripts/engine-graph.ts --layers scripts/engine-layers-target.json --check` reports 0 back-edges and 0 directory cycles on main after this story and exits 0
-- [ ] #5 The prompts -> box edge DIPO-376 added after the spike (prompts/feedback.ts importing uniqueFound from box/safe-chain) is gone: the pure dedupe moves to prompts/ or a band-1 module, or the caller passes deduplicated input; this breaks the box/prompts cycle
+- [ ] #5 The prompts -> box edge DIPO-376 added after the spike is gone: uniqueFound and the SafeChainFound type move from box/safe-chain.ts to prompts/ or a band-1 module, with their importers (box/workers.ts, prompts/feedback.ts and the test) following, so prompts imports nothing from box/ and the box/prompts cycle is broken
 - [ ] #6 run/index.ts no longer re-exports stories/planning and stories/discard from another directory (they move to run/ in this story, so the barrel re-exports its own files only)
 <!-- AC:END -->

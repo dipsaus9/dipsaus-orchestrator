@@ -4,13 +4,14 @@ title: Name each feature module after its directory
 status: Refined
 assignee: []
 created_date: '2026-10-30 22:14'
+updated_date: '2026-10-30 22:16'
 labels:
   - 'tier:S'
   - 'slice:prune'
   - 'track:2'
 milestone: m-1
 dependencies:
-  - DIPO-394
+  - DIPO-389
 references:
   - packages/engine/src/gate-decisions/feature.ts
   - packages/engine/src/backlog/init/init.ts
