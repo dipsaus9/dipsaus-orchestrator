@@ -978,3 +978,20 @@ describe("the checks of a close-out head", () => {
     );
   });
 });
+
+describe("a head with a failed required check while others still run (DIPO-382)", () => {
+  it("is failing, not pending, and red with one CI attempt once its checks are final", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      w.host.required = [report("ci-ok", "fail"), report("pr-title", "pending")];
+      await w.prs.retry(id);
+      expect(w.prs.ciState(id, w.run)).toEqual({ kind: "failing", head: HEAD_A });
+      expect(ciSteps(w)).toEqual([]);
+      w.host.required = [report("ci-ok", "fail"), report("pr-title", "pass")];
+      await w.prs.retry(id);
+      expect(w.prs.ciState(id, w.run)).toMatchObject({ kind: "red", head: HEAD_A });
+      expect(ciSteps(w).map((step) => step.value)).toEqual([HEAD_A]);
+    });
+  });
+});

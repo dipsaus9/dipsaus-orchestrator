@@ -730,6 +730,9 @@ describe("red checks on a close-out head", () => {
     // close-out head's still run: nothing to send.
     x.ci.set(s.run, { kind: "pending", head: C1 });
     expect(await x.fix.consider(officeId(), s.run)).toBe(false);
+    // A check failed while others still run: the round waits for all of the head's failures.
+    x.ci.set(s.run, { kind: "failing", head: C1 });
+    expect(await x.fix.consider(officeId(), s.run)).toBe(false);
     x.ci.set(s.run, { kind: "red", head: C1, items: [red()] });
     expect(await x.fix.consider(officeId(), s.run)).toBe(true);
     await x.fix.idle();

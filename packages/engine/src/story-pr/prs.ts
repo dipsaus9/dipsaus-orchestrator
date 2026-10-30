@@ -234,6 +234,8 @@ interface Watch {
   parkWarned: boolean;
   /** The host reported no check for this box run's head: final with no CI (DIPO-299). */
   noCi: boolean;
+  /** A required check failed while others still run: not final, but it cannot pass (DIPO-382). */
+  failing: boolean;
 }
 
 interface Polled {
@@ -253,7 +255,7 @@ interface Polled {
 
 /** Where the CI of a run's pushed head stands (`StoryPrs.ciState`, DIPO-148). */
 export type CiHeadState =
-  | { readonly kind: "pending" | "stuck" | "green" | "none"; readonly head: string }
+  | { readonly kind: "pending" | "failing" | "stuck" | "green" | "none"; readonly head: string }
   | { readonly kind: "red"; readonly head: string; readonly items: readonly CiFeedbackItem[] };
 
 const messageOf = (error: unknown): string =>
@@ -397,7 +399,9 @@ export class StoryPrs {
 
   /**
    * Where the CI of a run's pushed head stands now (DIPO-148's fix-round timing): `pending` while
-   * its required checks are not final, `stuck` once they are past the wait cap, `red` with the CI
+   * its required checks are not final, `failing` while one already failed and others still run
+   * (DIPO-382: the head cannot pass, so a merge gate decided by rule does not close out on it, and
+   * a fix round still waits for the final checks), `stuck` once they are past the wait cap, `red` with the CI
    * items once a failed head was handled, `green` once they passed, `none` for a box run's head
    * the host reported no check for (`noCiRan`). Null before the poll watched any head of the run.
    */
@@ -408,6 +412,7 @@ export class StoryPrs {
     if (watch.noCi) return { kind: "none", head };
     if (watch.items !== null) return { kind: "red", head, items: watch.items };
     if (watch.final) return { kind: "green", head };
+    if (watch.failing) return { kind: "failing", head };
     if (watch.stuck) return { kind: "stuck", head };
     return { kind: "pending", head };
   }
@@ -950,6 +955,7 @@ export class StoryPrs {
         items: null,
         parkWarned: false,
         noCi: false,
+        failing: false,
       };
       state.watch.set(stored.runId, watch);
     }
@@ -1012,6 +1018,7 @@ export class StoryPrs {
       watch.nextAt = now + CI_STUCK_POLL_MS;
     }
     if (verdict.state === "passed") watch.final = true;
+    watch.failing = verdict.state === "failed";
     if (verdict.state === "failed" && (final || waited)) {
       // A park that failed leaves the head open, so the next poll tries the park again.
       watch.final = await this.#red(officeId, state, run, stored, repo, reports);

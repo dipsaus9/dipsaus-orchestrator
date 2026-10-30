@@ -278,7 +278,8 @@ export class FixRounds {
     // The head's verdict is in: the review period ended with it (section 7).
     if (reviewed && !reviewedInReview(office, run)) return false;
     const ci = this.#ciOf(officeId, run);
-    if (ci.kind === "pending") return false;
+    // A failing head is not final yet: the round waits for every failure of it (DIPO-382).
+    if (ci.kind === "pending" || ci.kind === "failing") return false;
     const verdict = reviewed ? lastReviewVerdict(office, runId) : null;
     const head = ci.head ?? verdict?.commit ?? null;
     if (head === null) return false;
