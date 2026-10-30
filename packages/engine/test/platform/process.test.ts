@@ -413,6 +413,43 @@ describe("isWorkerHostCommand (DIPO-93)", () => {
     expect(isWorkerHostCommand(`vim ${RUN}`, RUN)).toBe(false);
     expect(isWorkerHostCommand("", RUN)).toBe(false);
   });
+
+  it("matches Bun from source with a script path that holds spaces (DIPO-386)", () => {
+    expect(
+      isWorkerHostCommand(`/opt/bun /Users/m/My Repo/cli/main.ts daemon worker-host ${RUN}`, RUN),
+    ).toBe(true);
+  });
+
+  it("refuses a command that only mentions the host's words: no absolute dipo or Bun in front (DIPO-386)", () => {
+    expect(isWorkerHostCommand(`grep daemon worker-host ${RUN}`, RUN)).toBe(false);
+    expect(isWorkerHostCommand(`/usr/bin/grep daemon worker-host ${RUN}`, RUN)).toBe(false);
+    expect(isWorkerHostCommand(`/usr/bin/tail -f daemon worker-host ${RUN}`, RUN)).toBe(false);
+    expect(isWorkerHostCommand(`dipo daemon worker-host ${RUN}`, RUN)).toBe(false);
+    expect(isWorkerHostCommand(`./dipo daemon worker-host ${RUN}`, RUN)).toBe(false);
+    expect(isWorkerHostCommand(`/opt/notdipo daemon worker-host ${RUN}`, RUN)).toBe(false);
+  });
+
+  it("refuses a wrapper in front of the host's words: sh -c, env, nohup and the like (DIPO-386)", () => {
+    for (const command of [
+      `/bin/sh -c sleep 600; : daemon worker-host ${RUN}`,
+      `/bin/sh -c /usr/local/bin/dipo daemon worker-host ${RUN}`,
+      `/bin/bash /tmp/start.sh /usr/local/bin/dipo daemon worker-host ${RUN}`,
+      `/bin/zsh x/dipo daemon worker-host ${RUN}`,
+      `/usr/bin/env /usr/local/bin/dipo daemon worker-host ${RUN}`,
+      `/usr/bin/env DIPO_X=1 bin/dipo daemon worker-host ${RUN}`,
+      `/usr/bin/env -S dipo daemon worker-host ${RUN}`,
+      `/usr/bin/nohup /usr/local/bin/dipo daemon worker-host ${RUN}`,
+      `/usr/bin/nohup ./dipo daemon worker-host ${RUN}`,
+      `/usr/bin/nice x/dipo daemon worker-host ${RUN}`,
+      `/usr/bin/sudo -u m /usr/local/bin/dipo daemon worker-host ${RUN}`,
+      `/usr/bin/time /usr/local/bin/dipo daemon worker-host ${RUN}`,
+      `/usr/local/bin/dipo -x daemon worker-host ${RUN}`,
+      `/opt/bun -e setTimeout(()=>{},1) daemon worker-host ${RUN}`,
+      `/opt/bun /src/cli/main.ts /usr/local/bin/dipo daemon worker-host ${RUN}`,
+    ]) {
+      expect([command, isWorkerHostCommand(command, RUN)]).toEqual([command, false]);
+    }
+  });
 });
 
 describe("signalProcess (DIPO-93)", () => {

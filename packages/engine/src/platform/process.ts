@@ -55,19 +55,58 @@ export {
   SUPERVISOR_VARIABLES,
 } from "@dipsaus-orchestrator/contract";
 
+/** Programs that run another command: one in front of the host's words is not the host (DIPO-386). */
+const WRAPPER_PROGRAMS: ReadonlySet<string> = new Set([
+  "bash",
+  "caffeinate",
+  "csh",
+  "dash",
+  "doas",
+  "env",
+  "exec",
+  "fish",
+  "ksh",
+  "nice",
+  "nohup",
+  "script",
+  "sh",
+  "sudo",
+  "tcsh",
+  "timeout",
+  "xargs",
+  "zsh",
+]);
+
 /**
  * True when the command line is `dipo daemon worker-host <runId>`, from the binary or from source
- * (DIPO-93). The last three arguments are compared, so a binary path with spaces still matches,
- * and the run id must be the last argument exactly.
+ * (DIPO-93), as the engine starts it: the run id is the last argument exactly, and what runs the
+ * host is the `dipo` binary at an absolute path, which may hold spaces, or Bun at an absolute path
+ * with the entry script at one. A command that only mentions the run id, or a wrapper in front of
+ * the host's words (`sh -c`, `env`, `nohup`), is refused (DIPO-386).
  */
 export function isWorkerHostCommand(command: string, runId: string): boolean {
   const args = command.trim().split(/\s+/);
-  return (
-    args.length >= 4 &&
-    args.at(-1) === runId &&
-    args.at(-2) === "worker-host" &&
-    args.at(-3) === "daemon"
+  if (
+    args.length < 4 ||
+    args.at(-1) !== runId ||
+    args.at(-2) !== "worker-host" ||
+    args.at(-3) !== "daemon"
+  ) {
+    return false;
+  }
+  const program = args.slice(0, -3);
+  const [first = "", ...rest] = program;
+  if (!first.startsWith("/")) return false;
+  const wrapped = program.some(
+    (arg) => arg.startsWith("-") || WRAPPER_PROGRAMS.has(arg.slice(arg.lastIndexOf("/") + 1)),
   );
+  if (wrapped) return false;
+  // Only the first path is absolute: a second one is a command the first one runs.
+  if (first.endsWith("/bun")) {
+    const [script = "", ...more] = rest;
+    return script.startsWith("/") && more.every((arg) => !arg.startsWith("/"));
+  }
+  return program.join(" ").endsWith("/dipo") && rest.every((arg) => !arg.startsWith("/"));
 }
 
 /** True unless `kill(pid, 0)` says the PID does not exist (EPERM means it does). */

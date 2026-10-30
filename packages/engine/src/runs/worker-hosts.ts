@@ -38,6 +38,7 @@ import {
   detachedEnv,
   isSameProcess,
   isWorkerHostCommand,
+  START_TIME_TOLERANCE_MS,
   systemSpawnDetached,
   type ProcessIdentity,
   type ProcessProbe,
@@ -498,8 +499,9 @@ const no = (reason: string): SignalCheck => ({ ok: false, reason });
  * The checks before the engine signals a host whose socket did not answer after a restart (0005):
  * the row is recorded (not pending) and not ended, the host stops its worker on SIGTERM
  * (`signal_stop`), no `exit.json` past the processed offset says it exited, and the PID is
- * alive with the recorded start time and runs `dipo daemon worker-host <run>`. Any doubt refuses:
- * an unverified PID is never signalled.
+ * alive with the recorded start time, did not start before its row was written, and runs
+ * `dipo daemon worker-host <run>` (`isWorkerHostCommand`). Any doubt refuses: an unverified PID is
+ * never signalled.
  */
 export async function verifyHostForSignal(
   host: WorkerHostRow,
@@ -516,6 +518,9 @@ export async function verifyHostForSignal(
   if (info === null) return no("the process is gone");
   if (!isSameProcess(host, info)) {
     return no("the process has another start time or is a zombie (the PID may have been reused)");
+  }
+  if (info.startTimeMs < host.startedAt - START_TIME_TOLERANCE_MS) {
+    return no("the process started before its row was written, so it is not the host dipo started");
   }
   if (!isWorkerHostCommand(info.command, host.runId)) {
     return no(`the process does not run \`dipo daemon worker-host ${host.runId}\``);
