@@ -43,7 +43,7 @@ Drafts use Backlog.md's draft feature: an idea has a temporary `DRAFT-n` id unti
 | Ready | Refined | A gated field changed, or the pickup check failed | Engine |
 | Ready | In Progress | `work.run` picks it: the pickup check passes, every dependency is Done | Engine |
 | In Progress | In Review | The done report passed and the last part is pushed (0002) | Engine |
-| In Review | In Progress | A fix round: a blocked review, red checks, a conflict, a reject or a failed test (0002) | Engine |
+| In Review | In Progress | A fix round: a blocked review, red checks, a conflict, a reject or a failed test (0002). Red checks on a close-out head count too: the close-out's Done stands only on the story branch until the PR merges, so the fix round's commit sets In Progress over it | Engine |
 | In Review | Done | The PR merged (0002) | GitHub, on dipo's request or the maintainer's merge |
 | Refined, Ready, In Progress, In Review | Parked | A park reason from 0001; `by-maintainer` through `dipo park` | Engine or maintainer |
 | Parked | The state it left | `dipo resume` (0020) | Maintainer, or code after a plan limit |
@@ -116,3 +116,4 @@ Each failure prints `ready <ID> failed <rule>: <message>`. Rule numbers are stab
 - The park reasons `on-hold`, `stopped`, `interrupted` and `needs-permission`, and `hold` as its own transition. Replaced by the eight reasons of 0001 and `dipo park` (2026-10-24).
 - `amend` of a parked story (Parked to Refined with criteria unchecked). That is M3 work (0003).
 - Merge-time sync conflicts and red checks counted against the review round cap (2026-10-10). Replaced by one cap per source (0002, 2026-10-16).
+- The In Review to In Progress row without the close-out head (2026-10-24), when a story closed out only after green checks on its reviewed head. Replaced by the row's note on red checks of a close-out head, since a story decided by rule now closes out before its checks run (0002, 2026-10-30).
