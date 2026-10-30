@@ -22,26 +22,30 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { type Clock, RequestId } from "@dipsaus-orchestrator/contract";
+import {
+  type Clock,
+  formatPidRecord,
+  isDaemonCommand,
+  isSameProcess,
+  parsePidRecord,
+  PID_FILE,
+  type PidRecord,
+  type ProcessProbe,
+  RequestId,
+} from "@dipsaus-orchestrator/contract";
 
 import { createUlid } from "./ids";
 import { errorCode, readRuntimeRecord } from "./paths";
-import { isDaemonCommand, isSameProcess, type ProcessProbe } from "./process";
 import { connectUnixSocket } from "./socket";
 
-export const PID_FILE = "dipo.pid";
+export {
+  formatPidRecord,
+  parsePidRecord,
+  PID_FILE,
+  type PidRecord,
+} from "@dipsaus-orchestrator/contract";
 export const LOCK_WAIT_MS = 5000;
 export const LOCK_POLL_MS = 250;
-
-/** The content of `dipo.pid`. */
-export interface PidRecord {
-  readonly pid: number;
-  /** Start time as `process.ts` reads it, ms since the epoch. */
-  readonly startTimeMs: number;
-  readonly version: string;
-  /** The runtime directory in use; null until the holder has chosen it. */
-  readonly runtimeDir: string | null;
-}
 
 /** The raw file and, when it parses, the record. */
 interface RawRecord {
@@ -89,34 +93,6 @@ export interface HeldLock {
   holds(): boolean;
   /** Removes `dipo.pid` when it is still this process's record. */
   release(): void;
-}
-
-export function parsePidRecord(raw: string): PidRecord | null {
-  try {
-    const value = JSON.parse(raw) as Partial<PidRecord>;
-    if (
-      typeof value.pid === "number" &&
-      Number.isSafeInteger(value.pid) &&
-      value.pid > 0 &&
-      typeof value.startTimeMs === "number" &&
-      typeof value.version === "string" &&
-      (value.runtimeDir === null || typeof value.runtimeDir === "string")
-    ) {
-      return {
-        pid: value.pid,
-        startTimeMs: value.startTimeMs,
-        version: value.version,
-        runtimeDir: value.runtimeDir,
-      };
-    }
-  } catch {
-    // Not JSON: a record being written, or damage. The caller decides.
-  }
-  return null;
-}
-
-export function formatPidRecord(record: PidRecord): string {
-  return `${JSON.stringify(record)}\n`;
 }
 
 function readRaw(path: string): RawRecord | null {

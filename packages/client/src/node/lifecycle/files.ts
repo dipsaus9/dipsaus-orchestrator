@@ -1,6 +1,6 @@
 // The daemon's files under `<state>` that the client reads without the socket (0006 decisions 2
-// and 6): the lock `dipo.pid` and `runtime.json`. The record format is DIPO-23's; `client` may not
-// import `engine` (0004), so the parser is repeated here and `test/lifecycle-parity` runs both.
+// and 6): the lock `dipo.pid` and `runtime.json`. Their names and the record format are the
+// contract's runtime layout, which the daemon writes by (DIPO-320).
 //
 // The client never deletes `dipo.pid`: the starting daemon is the lock's one deleter (0005). A stale
 // `runtime.json` it removes only when it still holds what was judged stale: it renames the file
@@ -10,43 +10,7 @@
 import { linkSync, readFileSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
-import { RUNTIME_FILE } from "../runtime";
-
-export const PID_FILE = "dipo.pid";
-
-/** The content of `dipo.pid` (DIPO-23). */
-export interface PidRecord {
-  readonly pid: number;
-  /** Start time as the process probe reads it, ms since the epoch. */
-  readonly startTimeMs: number;
-  readonly version: string;
-  /** The runtime directory in use; null until the holder has chosen it. */
-  readonly runtimeDir: string | null;
-}
-
-export function parsePidRecord(raw: string): PidRecord | null {
-  try {
-    const value = JSON.parse(raw) as Partial<PidRecord>;
-    if (
-      typeof value.pid === "number" &&
-      Number.isSafeInteger(value.pid) &&
-      value.pid > 0 &&
-      typeof value.startTimeMs === "number" &&
-      typeof value.version === "string" &&
-      (value.runtimeDir === null || typeof value.runtimeDir === "string")
-    ) {
-      return {
-        pid: value.pid,
-        startTimeMs: value.startTimeMs,
-        version: value.version,
-        runtimeDir: value.runtimeDir,
-      };
-    }
-  } catch {
-    // Not JSON: a record being written, or damage.
-  }
-  return null;
-}
+import { PID_FILE, RUNTIME_FILE } from "@dipsaus-orchestrator/contract";
 
 /** A file as read: its raw text, to compare before removing it. */
 export interface ReadFile {

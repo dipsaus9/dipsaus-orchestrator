@@ -5,23 +5,21 @@
 // socket. So a test daemon gets both variables under its temp directory, `tempRoot()` refuses a
 // `DIPO_TMP` too long for them, and a test fails when the daemon logs any other runtime directory.
 //
-// testkit may not import engine (0004), so the two limits below are copies of
-// `RUNTIME_PATH_LIMIT` and `LONGEST_RUNTIME_ENTRY` in packages/engine/src/platform/paths.ts;
-// packages/daemon/test/unit/runtime-isolation.test.ts keeps them equal.
+// The limits and the test marker are the contract's runtime layout, the daemon's own (DIPO-320).
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-/** Longest socket path a runtime directory must hold, in bytes (engine `RUNTIME_PATH_LIMIT`). */
-export const RUNTIME_PATH_LIMIT = 100;
-/** The longest file in a runtime directory (engine `LONGEST_RUNTIME_ENTRY`). */
-export const LONGEST_RUNTIME_ENTRY = `hosts/run_${"0".repeat(26)}.sock`;
+import { LONGEST_RUNTIME_ENTRY, RUNTIME_PATH_LIMIT } from "@dipsaus-orchestrator/contract";
+
+export {
+  LONGEST_RUNTIME_ENTRY,
+  RUNTIME_PATH_LIMIT,
+  TEST_MARKER,
+} from "@dipsaus-orchestrator/contract";
 
 /** The name pattern of a testkit temp directory; `XXXXXX` is as long as what mkdtemp puts there. */
 export const TEMP_DIR_TEMPLATE = "dipo-XXXXXX";
-
-/** The test marker (engine `TEST_MARKER`): with it, dipo refuses the real home's folders (DIPO-316). */
-export const TEST_MARKER = "DIPO_TEST";
 
 /** The only runtime directory source a test daemon may report. */
 export const TEST_RUNTIME_SOURCE = "DIPO_RUNTIME_DIR";

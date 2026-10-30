@@ -1,7 +1,9 @@
 // Software directories (0006 decision 3): the state anchor `<state>`, the logs directory and the
 // runtime directory that holds the sockets. The anchor depends only on the passwd home directory,
 // so every starter and client finds the same lock; the runtime directory is chosen by the daemon
-// after it holds the lock, checked with `lstat`, and written to `<state>/runtime.json`.
+// after it holds the lock, checked with `lstat`, and written to `<state>/runtime.json`. The rules
+// themselves (names, the folder rule, the checks and the records) are the contract's runtime
+// layout, which the client reads too (DIPO-320); this module does the I/O.
 
 import {
   chmodSync,
@@ -14,6 +16,40 @@ import {
 } from "node:fs";
 import { userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
+
+import {
+  defaultSoftwareDirs,
+  DIR_ERROR_CODES,
+  type DirStat,
+  type Env,
+  hasTestMarker,
+  isWithin,
+  parseRuntimeRecord,
+  realStateInTestMessage,
+  RUNTIME_FILE,
+  runtimeDirReason,
+  runtimePathReason,
+  type RuntimeRecord,
+  runtimeUnusableMessage,
+  softwareDirsOf as layoutDirsOf,
+  stateDirReason,
+  stateUnusableMessage,
+  stripSlash,
+  TEST_MARKER,
+} from "@dipsaus-orchestrator/contract";
+
+export {
+  DIR_ERROR_CODES,
+  type DirStat,
+  type Env,
+  LONGEST_RUNTIME_ENTRY,
+  longestRuntimePathBytes,
+  RUNTIME_FILE,
+  RUNTIME_PATH_LIMIT,
+  type RuntimeRecord,
+  SOCKET_FILE,
+  TEST_MARKER,
+} from "@dipsaus-orchestrator/contract";
 
 /**
  * The platforms dipo's process code knows: macOS, the one product platform (0004), and Linux, only
@@ -32,8 +68,6 @@ export interface SoftwareDirs {
   readonly homeMismatch: { readonly env: string; readonly passwd: string } | null;
 }
 
-export type Env = Readonly<Record<string, string | undefined>>;
-
 export function currentPlatform(platform: string = process.platform): DipoPlatform {
   if (platform === "darwin" || platform === "linux") return platform;
   throw new Error(`dipo runs on macOS only, not on ${platform}`);
@@ -44,31 +78,10 @@ export function passwdHome(): string {
   return userInfo().homedir;
 }
 
-/**
- * The test marker (DIPO-316): `DIPO_TEST=1`, set for every test process by the test runner's setup
- * file and in every test daemon's environment. With it, dipo refuses the real home's state, logs
- * and runtime folders instead of using them.
- */
-export const TEST_MARKER = "DIPO_TEST";
-
 /** True when `env` or this process's environment carries the test marker. */
 export function isTestRun(env: Env): boolean {
-  return env[TEST_MARKER] === "1" || process.env[TEST_MARKER] === "1";
+  return hasTestMarker(env, process.env);
 }
-
-/** Codes of the directory refusals (DIPO-316), dotted like the contract's error codes. */
-export const DIR_ERROR_CODES = {
-  /** `DIPO_HOME` names a folder dipo cannot use. */
-  stateUnusable: "paths.stateDirUnusable",
-  /** A test resolved the real home's state or logs folder. */
-  realStateInTest: "paths.realStateInTest",
-  /** `DIPO_RUNTIME_DIR` names a folder dipo cannot use. */
-  runtimeUnusable: "paths.runtimeDirUnusable",
-  /** A test would take one of the real runtime folders. */
-  realRuntimeInTest: "paths.realRuntimeInTest",
-  /** No runtime candidate and no fallback is usable. */
-  noRuntimeDir: "paths.noRuntimeDir",
-} as const;
 
 /** A state folder dipo refuses: `code` names why, `path` and `reason` what. */
 export class SoftwareDirError extends Error {
@@ -81,21 +94,6 @@ export class SoftwareDirError extends Error {
     super(message);
     this.name = "SoftwareDirError";
   }
-}
-
-/** The default state and logs folders of `home`. */
-function defaultDirsOf(home: string): string[] {
-  return [
-    join(home, "Library", "Application Support", "dipo"),
-    join(home, "Library", "Logs", "dipo"),
-  ];
-}
-
-/** True when `path` is `dir` or inside it. */
-function within(path: string, dir: string): boolean {
-  const p = stripSlash(path);
-  const d = stripSlash(dir);
-  return p === d || p.startsWith(`${d}/`);
 }
 
 /**
@@ -113,9 +111,7 @@ export function checkStateDir(path: string, uid: number = process.getuid?.() ?? 
     if (code === "ENOTDIR") return "a part of it is not a directory";
     return `cannot read it: ${describe(error)}`;
   }
-  if (!stat.isDirectory()) return "it is not a directory";
-  if (uid >= 0 && stat.uid !== uid) return `it is owned by uid ${stat.uid}, not ${uid}`;
-  return null;
+  return stateDirReason({ isDirectory: stat.isDirectory(), uid: stat.uid }, uid);
 }
 
 /**
@@ -133,14 +129,14 @@ export function resolveSoftwareDirs(options: {
 }): SoftwareDirs {
   const dirs = softwareDirsOf(options);
   if (isTestRun(options.env)) {
-    const real = defaultDirsOf(passwdHome());
+    const real = Object.values(defaultSoftwareDirs(passwdHome()));
     for (const path of [dirs.state, dirs.logs]) {
-      if (real.some((dir) => within(path, dir) || within(dir, path))) {
+      if (real.some((dir) => isWithin(path, dir) || isWithin(dir, path))) {
         throw new SoftwareDirError(
           DIR_ERROR_CODES.realStateInTest,
           path,
           "it is the real home's dipo folder",
-          `${DIR_ERROR_CODES.realStateInTest}: refusing ${path} with ${TEST_MARKER}=1: it is the real home's dipo folder. Set DIPO_HOME to a folder under DIPO_TMP.`,
+          realStateInTestMessage(path),
         );
       }
     }
@@ -155,37 +151,20 @@ function softwareDirsOf(options: { readonly env: Env; readonly home: string }): 
     envHome !== undefined && envHome !== "" && stripSlash(envHome) !== stripSlash(home)
       ? { env: envHome, passwd: home }
       : null;
-  const override = env["DIPO_HOME"];
-  if (override !== undefined && override !== "") {
+  const { state, logs, override } = layoutDirsOf(env, home);
+  if (override !== null) {
     const reason = checkStateDir(override);
     if (reason !== null) {
       throw new SoftwareDirError(
         DIR_ERROR_CODES.stateUnusable,
         override,
         reason,
-        `${DIR_ERROR_CODES.stateUnusable}: DIPO_HOME ${override} cannot be used: ${reason}. Fix or unset DIPO_HOME; dipo does not fall back to another state folder.`,
+        stateUnusableMessage(override, reason),
       );
     }
-    return { state: override, logs: join(override, "logs"), home, homeMismatch };
   }
-  return {
-    state: join(home, "Library", "Application Support", "dipo"),
-    logs: join(home, "Library", "Logs", "dipo"),
-    home,
-    homeMismatch,
-  };
+  return { state, logs, home, homeMismatch };
 }
-
-function stripSlash(path: string): string {
-  return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
-}
-
-/** Longest socket path a runtime directory must hold, in bytes (0006 decision 3). */
-export const RUNTIME_PATH_LIMIT = 100;
-/** The longest file in the runtime directory: a worker host socket. */
-export const LONGEST_RUNTIME_ENTRY = `hosts/run_${"0".repeat(26)}.sock`;
-export const SOCKET_FILE = "dipo.sock";
-export const RUNTIME_FILE = "runtime.json";
 
 export type RuntimeCandidateSource = "DIPO_RUNTIME_DIR" | "TMPDIR" | "tmp";
 
@@ -214,19 +193,6 @@ export function runtimeCandidates(options: {
   if (tmp !== undefined) candidates.push({ path: join(tmp, "dipo"), source: "TMPDIR" });
   candidates.push({ path: `/tmp/dipo-${uid}`, source: "tmp" });
   return candidates;
-}
-
-/** Byte length of the longest path the runtime directory must hold. */
-export function longestRuntimePathBytes(dir: string): number {
-  return Buffer.byteLength(join(dir, LONGEST_RUNTIME_ENTRY));
-}
-
-/** What `lstat` saw, reduced to what the check needs; injectable for tests. */
-export interface DirStat {
-  readonly isSymbolicLink: boolean;
-  readonly isDirectory: boolean;
-  readonly uid: number;
-  readonly mode: number;
 }
 
 export interface RuntimeDirFs {
@@ -284,7 +250,7 @@ export class RuntimeDirError extends Error {
 function runtimeDirMessage(code: string, rejected: readonly RejectedRuntimeDir[]): string {
   const last = rejected.at(-1);
   if (code === DIR_ERROR_CODES.runtimeUnusable && last !== undefined) {
-    return `${code}: DIPO_RUNTIME_DIR ${last.path} cannot be used: ${last.reason}. Fix or unset DIPO_RUNTIME_DIR; dipo does not fall back to another runtime directory.`;
+    return runtimeUnusableMessage(last.path, last.reason);
   }
   if (code === DIR_ERROR_CODES.realRuntimeInTest && last !== undefined) {
     return `${code}: refusing runtime directory ${last.path} with ${TEST_MARKER}=1: ${last.reason}. Set DIPO_RUNTIME_DIR to a folder under DIPO_TMP.`;
@@ -323,10 +289,8 @@ export function realRuntimeDirReason(path: string, uids: readonly number[]): str
  * rejected, or null when it is usable.
  */
 export function checkRuntimeDir(path: string, uid: number, fs: RuntimeDirFs): string | null {
-  const bytes = longestRuntimePathBytes(path);
-  if (bytes > RUNTIME_PATH_LIMIT) {
-    return `socket paths would be ${bytes} bytes, over the ${RUNTIME_PATH_LIMIT}-byte limit`;
-  }
+  const tooLong = runtimePathReason(path);
+  if (tooLong !== null) return tooLong;
   if (fs.lstat(path) === null) {
     try {
       fs.mkdir(path);
@@ -337,11 +301,7 @@ export function checkRuntimeDir(path: string, uid: number, fs: RuntimeDirFs): st
   }
   const stat = fs.lstat(path);
   if (stat === null) return "it vanished after it was created";
-  if (stat.isSymbolicLink) return "it is a symlink";
-  if (!stat.isDirectory) return "it is not a directory";
-  if (stat.uid !== uid) return `it is owned by uid ${stat.uid}, not ${uid}`;
-  if (stat.mode !== 0o700) return `its mode is ${stat.mode.toString(8).padStart(4, "0")}, not 0700`;
-  return null;
+  return runtimeDirReason(stat, uid);
 }
 
 /**
@@ -392,15 +352,6 @@ export function chooseRuntimeDir(options: {
   return { path: fallback, source: "mkdtemp", rejected };
 }
 
-/** `<state>/runtime.json`, which clients read to find the socket (0006 decision 3). */
-export interface RuntimeRecord {
-  readonly runtimeDir: string;
-  readonly socket: string;
-  readonly pid: number;
-  readonly startTimeMs: number;
-  readonly version: string;
-}
-
 /** Writes `<state>/runtime.json` by write-to-temp then rename, mode 0600. */
 export function writeRuntimeRecord(stateDir: string, record: RuntimeRecord): void {
   const path = join(stateDir, RUNTIME_FILE);
@@ -412,17 +363,7 @@ export function writeRuntimeRecord(stateDir: string, record: RuntimeRecord): voi
 /** Reads `<state>/runtime.json`; null when it is missing or not a runtime record. */
 export async function readRuntimeRecord(stateDir: string): Promise<RuntimeRecord | null> {
   try {
-    const value: unknown = await Bun.file(join(stateDir, RUNTIME_FILE)).json();
-    if (
-      typeof value === "object" &&
-      value !== null &&
-      typeof (value as RuntimeRecord).socket === "string" &&
-      typeof (value as RuntimeRecord).runtimeDir === "string" &&
-      typeof (value as RuntimeRecord).pid === "number"
-    ) {
-      return value as RuntimeRecord;
-    }
-    return null;
+    return parseRuntimeRecord(await Bun.file(join(stateDir, RUNTIME_FILE)).json());
   } catch {
     return null;
   }

@@ -2,18 +2,20 @@
 // created with mode 0700 and the file with mode 0600. The daemon rotates the file itself, because
 // launchd does not rotate and journald sees only stderr: a line that would take `daemon.log` past
 // 10 MB first moves it to `daemon.log.1`, shifts older files up to `daemon.log.5` and drops the
-// oldest, then starts a new `daemon.log`. `dipo daemon logs` (client/node) reads the same names.
+// oldest, then starts a new `daemon.log`. `dipo daemon logs` (client/node) reads the same names,
+// which are the contract's runtime layout (DIPO-320).
 
 import { closeSync, fstatSync, mkdirSync, openSync, renameSync, rmSync, writeSync } from "node:fs";
 import { join } from "node:path";
 
+import { DAEMON_LOG_FILE, DAEMON_LOG_KEEP } from "@dipsaus-orchestrator/contract";
+
 import type { LogSink } from "./logger";
 
-export const DAEMON_LOG_FILE = "daemon.log";
+export { DAEMON_LOG_FILE, DAEMON_LOG_KEEP } from "@dipsaus-orchestrator/contract";
+
 /** Rotation size of `daemon.log` (0006 decision 13). */
 export const DAEMON_LOG_MAX_BYTES = 10 * 1024 * 1024;
-/** Rotated files kept next to `daemon.log`: `daemon.log.1` (newest) to `daemon.log.5`. */
-export const DAEMON_LOG_KEEP = 5;
 
 export interface LogFile {
   readonly path: string;

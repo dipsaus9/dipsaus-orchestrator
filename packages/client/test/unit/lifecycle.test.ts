@@ -8,7 +8,12 @@ import { describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
+import {
+  type Clock,
+  detachedEnv,
+  type ProcessInfo,
+  type TimerHandle,
+} from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
@@ -16,14 +21,12 @@ import {
   connectOrStart,
   connectRunning,
   DaemonNotRunningError,
-  daemonEnv,
   type DaemonSession,
   type DaemonStatusResult,
   inspectDaemon,
   LIFECYCLE_TIMINGS,
   type LifecycleDeps,
   OtherVersionError,
-  type ProcessInfo,
   removeIfUnchanged,
   restartDaemon,
   SoftwareConfigError,
@@ -306,9 +309,14 @@ describe("startDaemon and autostart", () => {
       expect(spawn?.env["BUN_FEATURE_FLAG_NO_ORPHANS"]).toBeUndefined();
     }));
 
-  it("removes BUN_OPTIONS and BUN_FEATURE_FLAG_NO_ORPHANS in daemonEnv", () => {
+  it("removes BUN_OPTIONS and BUN_FEATURE_FLAG_NO_ORPHANS in detachedEnv", () => {
     expect(
-      daemonEnv({ PATH: "/bin", BUN_OPTIONS: "x", BUN_FEATURE_FLAG_NO_ORPHANS: "1", U: undefined }),
+      detachedEnv({
+        PATH: "/bin",
+        BUN_OPTIONS: "x",
+        BUN_FEATURE_FLAG_NO_ORPHANS: "1",
+        U: undefined,
+      }),
     ).toEqual({ PATH: "/bin" });
   });
 

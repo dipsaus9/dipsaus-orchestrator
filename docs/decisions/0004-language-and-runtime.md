@@ -27,7 +27,7 @@ Bun workspaces. Every package is TypeScript ESM, scoped `@dipsaus-orchestrator/*
 
 | Package | Holds | May import |
 |---|---|---|
-| `contract` | Commands, reads, events and shared types. zod schemas only, no I/O | zod |
+| `contract` | Commands, reads, events and shared types, and the runtime layout the daemon writes and clients read (folders, `dipo.pid`, `runtime.json`, process identity). zod schemas and pure rules only, no I/O | zod |
 | `engine` | The headless core: offices, stories, runs, gates, git, backlog, the database, the box | `contract` |
 | `daemon` | The composition root. Wires the engine to the socket server. Exports only `runDaemon` | `contract`, `engine` |
 | `client` | Main entry: the runtime-free protocol core and `OfficeStore`. `client/node`: the Unix-socket transport and daemon lifecycle | `contract` |
@@ -113,3 +113,4 @@ bun run verify   # format:check, lint, typecheck, test; stops at the first failu
 - A planned browser, web, desktop or 3D client, served by the daemon (2026-10-24). It is listed under Later in 0003 and gets an ADR when it is planned.
 - `dipo hook <event>` and its versioned handshake with the worker host (2026-10-12). Removed (2026-10-24): no session has hooks (0008).
 - One domain layer holding every orchestration directory of the engine (2026-10-29), while those directories still imported each other both ways. Replaced by six bands, a fine layer order in the lint plugin and no directory cycles (2026-10-30, DIPO-381).
+- A copy of the daemon's runtime rules in `client/node`, kept equal by a parity test (2026-10-12). Replaced by the contract's runtime layout, which both import (2026-10-30).
