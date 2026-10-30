@@ -291,27 +291,6 @@ export function hasUnexitedHost(office: OfficeHandle, runId: string): boolean {
   );
 }
 
-/**
- * The commit of `ref` that last changed the task file of `story` (`backlog/**\/<id> - *.md`), or
- * null when git finds none.
- */
-export async function lastTaskCommit(
-  git: GitSession,
-  ref: string,
-  story: string,
-): Promise<string | null> {
-  const result = await git.step(git.repository, [
-    "log",
-    "-1",
-    "--format=%H",
-    ref,
-    "--",
-    `:(glob,icase)backlog/**/${story} - *.md`,
-  ]);
-  const sha = result.code === 0 ? result.stdout.trim() : "";
-  return sha === "" ? null : sha;
-}
-
 /** What `_base` says of a story: its status and the commit `_base` is at. */
 export interface BaseStatus {
   /** The story's status, or null when it cannot be read. */

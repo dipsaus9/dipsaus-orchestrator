@@ -36,6 +36,7 @@ import { WebCalls } from "./web-calls";
 import { ConflictResumes, type ConflictResumesDeps } from "./conflicts";
 import { resolveIntent, runIntents } from "./intents";
 import type { MergeReentry, PrReplacement } from "./park-resume";
+import type { StoryStore } from "../story-store/store";
 import type { ParkStore } from "./park-state";
 import { workRefOf } from "../views/work";
 import type { HoldResumer } from "./work-resume";
@@ -46,7 +47,7 @@ type Warn = (message: string, fields: Readonly<Record<string, unknown>>) => void
 
 export interface RunPorts {
   /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
-  readonly stories: ParkStore;
+  readonly stories: ParkStore & Pick<StoryStore, "storyFolders">;
   readonly clock: Clock;
   readonly ids: IdSource;
   readonly offices: RunResumerDeps["offices"];
@@ -321,6 +322,7 @@ function buildOutcomes(
   if (control === null || ports.outcomes === undefined) return null;
   const { probe, ...outcomePorts } = ports.outcomes;
   const resumer = new RunResumer({
+    stories: ports.stories,
     clock: ports.clock,
     ids: ports.ids,
     offices: ports.offices,
@@ -575,6 +577,7 @@ function buildLauncher(
   ingest: OfficeIngest,
 ): RunLauncher {
   return new RunLauncher({
+    stories: ports.stories,
     worker: ports.worker,
     git: ports.git,
     dependencies: async (office, ids) =>

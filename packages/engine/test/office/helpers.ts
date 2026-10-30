@@ -27,6 +27,7 @@ import { systemSpawn } from "../../src/platform/process";
 import { SoftwareStream } from "../../src/software-stream";
 import { localMounts } from "../db/helpers";
 import { openTestState } from "../commands/helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 /** The Backlog.md fixture project: copied into a temp repository it gives `backlog/config.yml`. */
 export const BACKLOG_FIXTURE = join(import.meta.dir, "..", "fixtures", "backlog");
@@ -79,6 +80,7 @@ export async function officeSetup(
   const changed: OfficeId[] = [];
   let registry: Registry | undefined;
   const manager = new OfficeManager({
+    stories: backlogLayout,
     database: () => t.state,
     registry: () => {
       if (registry === undefined) throw new Error("the registry is not built yet");

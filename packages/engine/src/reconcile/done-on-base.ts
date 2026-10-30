@@ -34,7 +34,6 @@ import {
   findDoneElsewhere,
   flagLiveWorker,
   hasLiveWorker,
-  lastTaskCommit,
   releaseDoneElsewhere,
   settleDoneElsewhere,
   settlePending,
@@ -187,7 +186,9 @@ async function releaseOne(
     // The worker is not stopped by code (0020): a desk item, once, and the release follows at the
     // run's next end.
     if (findDoneElsewhere(office, claim.runId) !== null) return "none";
-    const commit = await git.run((session) => lastTaskCommit(session, pass.sha, claim.story));
+    const commit = await git.run((session) =>
+      deps.stories.lastFileCommit(session, pass.sha, claim.story),
+    );
     flagLiveWorker(elsewhere, claim, commit);
     return "none";
   }
@@ -213,7 +214,7 @@ async function releaseOne(
       const pr = findStoryPr(office, claim.runId);
       const again = decideDone({ claim, pr, baseStatus: baseStatusIn(pass, claim) });
       if (again !== "doneOnBase") return "skipped" as const;
-      return { commit: await lastTaskCommit(session, pass.sha, claim.story) };
+      return { commit: await deps.stories.lastFileCommit(session, pass.sha, claim.story) };
     });
     if (checked === "skipped") return "none";
     if (checked === "baseMoved") return "baseMoved";
@@ -270,7 +271,7 @@ async function sweepCrashedTeardowns(
     if (!branches.has(claim.branch)) continue;
     try {
       const commit = await deps.git.run((session) =>
-        lastTaskCommit(session, pass.sha, claim.story),
+        deps.stories.lastFileCommit(session, pass.sha, claim.story),
       );
       adoptReleased(elsewhere, claim, commit);
       const row = findDoneElsewhere(deps.office, claim.runId);

@@ -11,6 +11,7 @@ import type { PlanningHold } from "../story-store/planning";
 import type { StoryEditor, StoryStore } from "../story-store/store";
 
 import { readOnBranch } from "./branch-read";
+import { backlogStoryFolders, isBacklogProject } from "./folder";
 import { appendImplementationNotes, setFinalSummary } from "./fields/summary";
 import { journaledPark, pendingLaneOp } from "./lane/journal";
 import { backlogCheckBlocked } from "./pr/records";
@@ -21,13 +22,12 @@ import { readBacklog, readStory, viewPass } from "./read";
 import {
   type BacklogCli,
   BacklogCommandError,
-  backlogPointer,
   isTaskFileOf,
   runBacklog,
   TASKS_DIR,
 } from "./runner";
 import { editInStoryBacklog, inStoryBacklog, repoPath } from "./story-copy";
-import { taskFileAt, taskFileStatus } from "./task-file";
+import { lastTaskFileCommit, taskFileAt, taskFileStatus } from "./task-file";
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -112,11 +112,10 @@ export function backlogStoryStore(cli: BacklogCli): StoryStore {
       return !name.includes("/") && isTaskFileOf(name, id);
     },
     fileAt: taskFileAt,
+    lastFileCommit: lastTaskFileCommit,
     statusIn: taskFileStatus,
-    configuredFolder(text) {
-      const pointer = backlogPointer(text);
-      return pointer.kind === "folder" ? pointer.folder : null;
-    },
+    storyFolders: backlogStoryFolders,
+    isProject: isBacklogProject,
     planningHold(office, key): PlanningHold | null {
       if (pendingLaneOp(office, key) !== null) return "pending";
       return backlogCheckBlocked(office, key) === null ? null : "checkFailed";

@@ -534,7 +534,7 @@ describe("git's output, as data", () => {
       "vendor/lib",
       "",
     ].join("\0");
-    expect(parseBoxChanges(raw)).toEqual({
+    expect(parseBoxChanges(raw, ["backlog", ".backlog"])).toEqual({
       written: ["src/a.ts", "src/new.ts"],
       removed: ["src/gone.ts", "vendor/lib"],
     });

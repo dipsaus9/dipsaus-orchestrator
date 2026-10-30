@@ -54,7 +54,6 @@ import {
   hasLiveWorker,
   hasOpenPark,
   hasUnexitedHost,
-  lastTaskCommit,
   movedPastParkedText,
   releaseDoneElsewhere,
   releaseMovedPastMerge,
@@ -468,7 +467,9 @@ export class StoryTeardown {
     const commit =
       head === null
         ? null
-        : await deps.git.run((session) => lastTaskCommit(session, head, claim.story));
+        : await deps.git.run((session) =>
+            this.#deps.stories.lastFileCommit(session, head, claim.story),
+          );
     const elsewhere = this.#elsewhereDeps(deps);
     if (hasLiveWorker(state.office, claim)) {
       flagLiveWorker(elsewhere, claim, commit);

@@ -44,15 +44,11 @@ import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
 import type { MountReader } from "../platform/sqlite";
 import type { SoftwareStream } from "../software-stream";
+import { checkoutFiles } from "../story-store/folder";
+import type { StoryStore } from "../story-store/store";
 
 import { type OfficeMarker, readMarker, writeMarker } from "./marker";
-import {
-  type GitRunner,
-  isBacklogProject,
-  networkFsType,
-  type Repository,
-  resolveRepository,
-} from "./repository";
+import { type GitRunner, networkFsType, type Repository, resolveRepository } from "./repository";
 import type { LoadStepResult, OfficeLoadContext } from "./steps";
 
 export interface OfficeManagerDeps {
@@ -65,6 +61,8 @@ export interface OfficeManagerDeps {
   readonly ids: IdSource;
   readonly git: GitRunner;
   readonly logger: Logger;
+  /** The story store: whether a repository holds a project of it (0006 decision 4). */
+  readonly stories: Pick<StoryStore, "isProject">;
   /** Replaces the system mount table, for tests. */
   readonly readMounts?: MountReader;
   /** Entries were appended to an office's change log outside a command; subscribers catch up. */
@@ -537,10 +535,14 @@ export class OfficeManager implements OfficeDirectory {
     }
     const repository = resolved.repository;
     const { mainWorktree, commonDir } = repository;
-    if (!isBacklogProject(mainWorktree)) {
+    const project = await this.#deps.stories.isProject(checkoutFiles(mainWorktree)).then(
+      (holds) => (holds ? null : "it holds no Backlog.md project"),
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+    if (project !== null) {
       throw new CommandError(
         "office.notProject",
-        `${mainWorktree} is a git repository without Backlog.md (no backlog/config.yml); run \`backlog init\` there first.`,
+        `${mainWorktree} is a git repository without Backlog.md (${project}); run \`backlog init\` there first.`,
         { path: mainWorktree },
       );
     }

@@ -6,7 +6,7 @@
 //
 // - The close-out commit: in one story lane edit of the StoryStore (`editOnBranch`), the
 //   final summary (`writeCloseOutSummary`, passed in), the modified files (the paths the branch
-//   changed since its merge base with the base, without `backlog/`), then `closeOutFields`: the
+//   changed since its merge base with the base, without the story folders), then `closeOutFields`: the
 //   park field removed and status `Done`, committed alone as `<ID>: status Done`.
 // - The conflict merge: when GitHub reports that the base conflicts with the PR, dipo merges the
 //   base into the story branch in its own repository from git objects (`planCatchUp`,
@@ -35,8 +35,11 @@ import {
   planCatchUp,
 } from "../box/collisions";
 import type { GitSession, OfficeGit } from "../git/office";
+import { listTree } from "../git/tree";
 import { moveBranch, pushBranch } from "../git/write";
 import { codeTreeKeyOf } from "../run/story-git";
+import { treeFiles } from "../story-store/folder";
+import { inStoryFolder } from "../story-store/paths";
 import type { StoryEditor, StoryStore } from "../story-store/store";
 import { BRANCH_READ_PREFIX } from "../worktree/sweep";
 
@@ -130,13 +133,18 @@ async function revParse(session: GitSession, ref: string): Promise<string | null
   return found.code === 0 ? found.stdout.trim() : null;
 }
 
-/** The paths `tip` changed since its merge base with `baseRef`, without `backlog/`, sorted. */
+/**
+ * The paths `tip` changed since its merge base with `baseRef`, without the story folders `tip`
+ * names (`StoryStore.storyFolders`), sorted.
+ */
 async function modifiedFiles(
   session: GitSession,
+  stories: Pick<StoryStore, "storyFolders">,
   tip: string,
   baseRef: string | null,
   startSha: string,
 ): Promise<string[]> {
+  const folders = await stories.storyFolders(treeFiles(session, await listTree(session, tip)));
   let from = startSha;
   if (baseRef !== null && (await revParse(session, baseRef)) !== null) {
     const base = await session.step(session.repository, ["merge-base", tip, baseRef]);
@@ -152,7 +160,7 @@ async function modifiedFiles(
   ]);
   return listed
     .split("\0")
-    .filter((path) => path !== "" && !path.startsWith("backlog/"))
+    .filter((path) => path !== "" && !inStoryFolder(path, folders))
     .toSorted();
 }
 
@@ -305,10 +313,9 @@ function closeOutIn(
     const tip = await revParse(session, `refs/heads/${run.branch}`);
     if (tip === null) throw new Error(`The story branch ${run.branch} no longer exists.`);
     const base = await baseRefOf(git, session);
-    const files = (await modifiedFiles(session, tip, base?.ref ?? null, run.startSha)).slice(
-      0,
-      MODIFIED_FILES_MAX,
-    );
+    const files = (
+      await modifiedFiles(session, stories, tip, base?.ref ?? null, run.startSha)
+    ).slice(0, MODIFIED_FILES_MAX);
     // Only the task file.
     const { commit } = await stories.editOnBranch(
       git,

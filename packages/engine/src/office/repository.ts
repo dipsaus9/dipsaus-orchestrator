@@ -6,7 +6,6 @@
 // hooks, no fsmonitor, no system config, and the deadline of every engine git step.
 
 import { existsSync, realpathSync, statSync } from "node:fs";
-import { join } from "node:path";
 
 import {
   type Clock,
@@ -19,9 +18,6 @@ import {
 import { clockSleep, runGitStep, spawnGitExec } from "../git/runner";
 import { systemClock } from "../platform/clock";
 import { isNetworkFsType, mountFor, type MountReader, readSystemMounts } from "../platform/sqlite";
-
-/** The Backlog.md project file that makes a repository a project (0006 decision 4). */
-export const BACKLOG_CONFIG = join("backlog", "config.yml");
 
 /** How the office module runs git. */
 export interface GitRunner {
@@ -85,11 +81,6 @@ export async function resolveRepository(runner: GitRunner, path: string): Promis
     canonical: canonicalPath,
   });
   return resolved.ok ? { ok: true, repository: resolved.location } : resolved;
-}
-
-/** True when the main worktree holds a Backlog.md project (`backlog/config.yml`). */
-export function isBacklogProject(mainWorktree: string): boolean {
-  return existsSync(join(mainWorktree, BACKLOG_CONFIG));
 }
 
 /**

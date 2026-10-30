@@ -486,7 +486,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         ));
     }
 
-    it("parks protected-file on the configuration of the backlog folder backlog.config.yml names", () =>
+    it("parks protected-file on the configuration of the folder backlog.config.yml names", () =>
       inParts(
         async (w) => {
           write(w.work, { "planning/config.yml": "project_name: x\n" });
@@ -504,13 +504,16 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         },
       ));
 
-    it("commits a change beside that configuration in the named folder", () =>
+    // The folder the root configuration names is one of the store's story folders (DIPO-379).
+    it("parks protected-file on any change in the named folder", () =>
       inParts(
         async (w) => {
           write(w.work, { "planning/notes.txt": "Notes.\n" });
           await w.parts.onPart(part("Add notes"));
-          expect(w.parks).toEqual([]);
-          expect(await filesAt(w, await tip(w))).toContain("planning/notes.txt");
+          expect(w.parks.map((p) => [p.reason, caught(p)])).toEqual([
+            ["scope-violation", "protected-file"],
+          ]);
+          expect(await tip(w)).toBe(w.claimTip);
         },
         {
           start: {

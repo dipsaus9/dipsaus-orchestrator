@@ -368,13 +368,14 @@ describe("the base tree's file paths (R29, DIPO-251)", () => {
   });
 
   it("are passed in the gate input, where R29 reads them, and leave the content hash alone", () => {
+    const FOLDERS = ["backlog"];
     const view = parseView(recorded("task-view-full"));
     const files = ["packages/engine/test/workers/plan.test.ts"];
-    const withFiles = gateInputOf(view, [], ["m-0"], DEFAULT_CONFIG, files);
+    const withFiles = gateInputOf(view, [], ["m-0"], FOLDERS, DEFAULT_CONFIG, files);
     expect(withFiles.baseFiles).toEqual(files);
-    expect(gateInputOf(view, [], ["m-0"], DEFAULT_CONFIG)).not.toHaveProperty("baseFiles");
+    expect(gateInputOf(view, [], ["m-0"], FOLDERS, DEFAULT_CONFIG)).not.toHaveProperty("baseFiles");
     expect(gateContentHash(withFiles.story)).toBe(
-      gateContentHash(gateInputOf(view, [], ["m-0"], DEFAULT_CONFIG).story),
+      gateContentHash(gateInputOf(view, [], ["m-0"], FOLDERS, DEFAULT_CONFIG).story),
     );
 
     const plan = description(

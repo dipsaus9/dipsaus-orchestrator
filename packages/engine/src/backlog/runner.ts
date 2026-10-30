@@ -1083,8 +1083,11 @@ export function statusCommandFiles(cwd: string, cache?: VerdictCache): BacklogFi
 
 // ---- the story's task file (0021 section 14) ---------------------------------------------------
 
+/** The folder dipo keeps a repository's Backlog.md project in, relative to its root (0010). */
+export const BACKLOG_FOLDER = "backlog";
+
 /** The folder that holds the Backlog task files, relative to the repository root. */
-export const TASKS_DIR = "backlog/tasks";
+export const TASKS_DIR = `${BACKLOG_FOLDER}/tasks`;
 
 /** The `GitError` code when dipo cannot make its copy of a story's backlog or commit from it. */
 export const BACKLOG_FOLDER_ERROR = "story.backlogFolder";

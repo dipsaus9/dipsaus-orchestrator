@@ -16,7 +16,7 @@
 // - Rebuilt when lost (`BoxLifetime.ensure`, before every later developer session): a run whose box
 //   the backend no longer has, whose box was deleted, or that never had one (a run from before
 //   every run was a box run) gets a new box made from the start commit plus the delivered parts:
-//   the story branch's tip with `backlog/` as the start commit holds it, which is the tree the next
+//   the story branch's tip with the story folders as the start commit holds them, the tree the next
 //   part is compared with (`box/parts.ts`). The packages are installed again and `/work` is checked
 //   against that tree. Only work the worker had not delivered as a part is lost, and the caller
 //   tells the maintainer (`boxRebuiltText`).
@@ -32,7 +32,11 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import type { OfficeConfig } from "../config";
 import { BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
+import { listTree } from "../git/tree";
 import type { RunProfile } from "../scan/detect";
+import { treeFiles } from "../story-store/folder";
+import { inStoryFolder } from "../story-store/paths";
+import type { StoryStore } from "../story-store/store";
 
 import { cleanDoorText } from "./door";
 import { partNumber } from "./parts";
@@ -148,7 +152,7 @@ export function boxEndedOf(state: BoxRunState | null): BoxEnded {
 export interface DeliveredCode {
   /** The story branch's tip the tree was read from. */
   readonly tip: string;
-  /** The branch tip's tree with `backlog/` as the start commit holds it. */
+  /** The branch tip's tree with the story folders as the start commit holds them. */
   readonly tree: string;
   /** The parts delivered on the branch since the start commit. */
   readonly parts: number;
@@ -157,12 +161,19 @@ export interface DeliveredCode {
 /**
  * The delivered code of a story (DIPO-278): the tree the box's `/work` held after its last part,
  * built in a temporary index of dipo's own on the repository without a work tree: the branch tip
- * read, `backlog/` replaced by the start commit's (dipo's own task-file commits never reach a box),
- * written as a tree. No checkout of the branch is read or written.
+ * read, the story folders the tip names (`StoryStore.storyFolders`) replaced by the start commit's
+ * (dipo's own task-file commits never reach a box), written as a tree: the view a part is compared
+ * with (`box/parts.ts`). No checkout of the branch is read or written. Throws when the store cannot
+ * tell its folders.
  */
 export async function deliveredCode(
   git: OfficeGit,
-  input: { readonly branch: string; readonly startSha: string; readonly tmpRoot: string },
+  input: {
+    readonly branch: string;
+    readonly startSha: string;
+    readonly tmpRoot: string;
+    readonly stories: Pick<StoryStore, "storyFolders">;
+  },
 ): Promise<DeliveredCode> {
   const stage = await mkdtemp(join(input.tmpRoot, DELIVERED_INDEX_PREFIX));
   try {
@@ -172,28 +183,29 @@ export async function deliveredCode(
       const tip = (
         await session.ok(repo, ["rev-parse", "--verify", `refs/heads/${input.branch}^{commit}`])
       ).trim();
+      const atTip = await listTree(session, tip);
+      const folders = await input.stories.storyFolders(treeFiles(session, atTip));
       await session.ok(repo, ["read-tree", tip], index);
-      await session.ok(
-        repo,
-        ["rm", "-r", "--cached", "--force", "--quiet", "--ignore-unmatch", "--", "backlog"],
-        index,
-      );
-      const atStart = await session.ok(repo, [
-        "ls-tree",
-        "-r",
-        "-z",
-        input.startSha,
-        "--",
-        "backlog",
-      ]);
-      const entries = atStart
-        .split("\0")
-        .filter((line) => line !== "")
-        .map((line) => {
-          const tab = line.indexOf("\t");
-          const [mode = "", , id = ""] = line.slice(0, tab).split(" ");
-          return `${mode},${id},${line.slice(tab + 1)}`;
-        });
+      const own = [...atTip.keys()].filter((path) => inStoryFolder(path, folders));
+      for (let at = 0; at < own.length; at += 200) {
+        await session.ok(
+          repo,
+          [
+            "--literal-pathspecs",
+            "rm",
+            "--cached",
+            "--force",
+            "--quiet",
+            "--ignore-unmatch",
+            "--",
+            ...own.slice(at, at + 200),
+          ],
+          index,
+        );
+      }
+      const entries = [...(await listTree(session, input.startSha))]
+        .filter(([path]) => inStoryFolder(path, folders))
+        .map(([path, entry]) => `${entry.mode},${entry.id},${path}`);
       for (let at = 0; at < entries.length; at += 200) {
         const group = entries.slice(at, at + 200).flatMap((entry) => ["--cacheinfo", entry]);
         await session.ok(repo, ["update-index", "--add", "--replace", ...group], index);
@@ -227,6 +239,8 @@ export interface RunBoxRequest {
 
 export interface BoxLifetimeDeps {
   readonly boxes: RunBoxes;
+  /** The story store: the folders a rebuilt box's tree takes from the start commit. */
+  readonly stories: Pick<StoryStore, "storyFolders">;
   /**
    * The office's current run profile (DIPO-72), whose install a box gets (DIPO-294); without it
    * no box is made.
@@ -337,6 +351,7 @@ export class BoxLifetime {
         branch: request.branch,
         startSha: request.startSha,
         tmpRoot: this.#deps.tmpRoot,
+        stories: this.#deps.stories,
       });
     } catch (error) {
       return {

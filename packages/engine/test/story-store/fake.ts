@@ -11,6 +11,7 @@ import {
   parseFieldBlock,
   spliceFieldBlock,
 } from "../../src/story-store/fields/block";
+import type { RepoFileRead } from "../../src/story-store/folder";
 import type { PlannedPark, PlanningHold } from "../../src/story-store/planning";
 import type {
   ListedStory,
@@ -20,6 +21,9 @@ import type {
   StoryStore,
 } from "../../src/story-store/store";
 import type { PlainList, PlainTask, StoryKind } from "../../src/story-store/story";
+
+/** The configuration file the fake reads before it names its folders. */
+export const FAKE_CONFIG = ".stories.yml";
 
 /** A story the fake holds, by id, with a file path of its own. */
 export function fakeStory(id: string, overrides: Partial<PlainTask> = {}): PlainTask {
@@ -216,11 +220,26 @@ export class FakeStoryStore implements StoryStore {
     return /^status:[ \t]*(.+?)[ \t]*$/m.exec(text)?.[1] ?? null;
   }
 
-  /** The `backlog_directory` a root configuration names: a relative folder inside, else null. */
-  configuredFolder(text: string): string | null {
-    const folder = /^backlog_directory:[ \t]*(.+?)[ \t]*$/m.exec(text)?.[1] ?? "";
-    const inside = folder !== "" && !folder.startsWith("/") && !folder.split("/").includes("..");
-    return inside ? folder : null;
+  /** The commit that last changed a story's file, by id; the fake keeps no history of its own. */
+  readonly lastCommits = new Map<string, string>();
+
+  async lastFileCommit(_session: unknown, _ref: string, id: string): Promise<string | null> {
+    return this.lastCommits.get(id) ?? null;
+  }
+
+  /** The folders the fake keeps its stories in (its files are `fakeStory`'s), as `storyFolders` names them. */
+  folders: readonly string[] = ["backlog"];
+
+  /** Reads its configuration (`FAKE_CONFIG`) as a store does, then names `folders`. */
+  async storyFolders(read: RepoFileRead): Promise<readonly string[]> {
+    await read(FAKE_CONFIG);
+    return this.folders;
+  }
+
+  /** Every repository holds a fake project. */
+  async isProject(read: RepoFileRead): Promise<boolean> {
+    await this.storyFolders(read);
+    return true;
   }
 
   /** A journaled change holds a story first, then a failed backlog PR check. */

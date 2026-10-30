@@ -59,6 +59,9 @@ export const ACTIVE_TASKS: readonly GateTask[] = [
   { id: "DIPO-4", dependencies: ["DIPO-3"], branch: "DIPO-4/design-the-export" },
 ];
 
+/** The folders the Backlog.md store names in a repository with no root configuration. */
+export const STORY_FOLDERS: readonly string[] = ["backlog", ".backlog"];
+
 export function input(
   story: Partial<GateStory> = {},
   rest: Partial<Omit<GateInput, "story">> = {},
@@ -67,6 +70,7 @@ export function input(
     story: { ...PASSING_STORY, ...story },
     activeTasks: ACTIVE_TASKS,
     milestones: ["m-0", "m-1"],
+    storyFolders: STORY_FOLDERS,
     config: DEFAULT_CONFIG,
     ...rest,
   };

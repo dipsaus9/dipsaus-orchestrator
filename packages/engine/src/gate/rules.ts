@@ -9,6 +9,7 @@
 import type { FieldBlock } from "@dipsaus-orchestrator/contract";
 
 import type { StoryLabels } from "../story-store/fields/labels";
+import { inStoryFolder } from "../story-store/paths";
 import { characters, clean, looksLikePath, runCores, wordMatch } from "./text";
 import type {
   GateFailure,
@@ -199,22 +200,25 @@ export const r11: RuleCheck = (context) =>
     ? []
     : fail(context, "R11", "no declared scope; add at least one path with --ref");
 
-/** R12's path check: a repo-relative POSIX path outside `backlog/`. */
-export function isValidScopePath(path: string): boolean {
+/**
+ * R12's path check: a repo-relative POSIX path outside the story `folders` (the StoryStore's
+ * `storyFolders`, compared normalised and whole segments, `story-store/folder.ts`).
+ */
+export function isValidScopePath(path: string, folders: readonly string[]): boolean {
   if (path === "" || path === ".") return false;
   if (path.startsWith("/")) return false;
   if (path.includes("://")) return false;
   if (/\s/u.test(path)) return false;
   if (/[*?[\]]/.test(path)) return false;
   if (path.split("/").includes("..")) return false;
-  if (path === "backlog" || path.startsWith("backlog/")) return false;
+  if (inStoryFolder(path, folders)) return false;
   return true;
 }
 
 /** R12: every scope path is a valid repo-relative path. */
 export const r12: RuleCheck = (context) =>
   context.story.references.flatMap((path) =>
-    isValidScopePath(path)
+    isValidScopePath(path, context.input.storyFolders)
       ? []
       : fail(context, "R12", `scope path "${path}" is not a valid repo-relative path`),
   );
@@ -494,13 +498,13 @@ const BARE_TEST_FILE = /^[\p{L}\p{N}_-][\p{L}\p{N}_.-]*\.test\.ts$/u;
 
 /**
  * R29's repo-relative form of a path token, or undefined when the token is not one: an absolute or
- * home path, a URL, a path with a `..` segment or a glob, and a path under `backlog/` (which R12
+ * home path, a URL, a path with a `..` segment or a glob, and a path in a story folder (which R12
  * keeps out of the References, so no Reference could cover it) are not checked.
  */
-function repoRelativePath(token: string): string | undefined {
+function repoRelativePath(token: string, folders: readonly string[]): string | undefined {
   const path = token.replace(/^(\.\/)+/, "");
   if (path.startsWith("~")) return undefined;
-  return isValidScopePath(path) ? path : undefined;
+  return isValidScopePath(path, folders) ? path : undefined;
 }
 
 function fileName(path: string): string {
@@ -536,13 +540,14 @@ function uncoveredNames(
   check: string,
   references: readonly string[],
   files: readonly string[] | undefined,
+  folders: readonly string[],
 ): UncoveredName[] {
   const names: UncoveredName[] = [];
   for (const token of runCores(check)) {
     if (names.some((found) => found.name === token)) continue;
     if (token.includes("/")) {
       if (!looksLikePath(token)) continue;
-      const path = repoRelativePath(token);
+      const path = repoRelativePath(token, folders);
       if (path === undefined) continue;
       if (!references.some((reference) => pathsCollide(reference, path))) {
         names.push({ name: token, unknownBase: false });
@@ -580,14 +585,15 @@ export const r29: RuleCheck = (context) => {
   return entries.flatMap((entry, i) =>
     entry.kind !== "automated"
       ? []
-      : uncoveredNames(entry.check, references, files).flatMap(({ name, unknownBase }) =>
-          warn(
-            context,
-            "R29",
-            unknownBase
-              ? `test plan entry #${i + 1} names ${name}; the base file list is unknown, so only a Reference file of that name covers it; add it to the References or drop it from the plan`
-              : `test plan entry #${i + 1} names ${name}, which no Reference covers; add it to the References or drop it from the plan`,
-          ),
+      : uncoveredNames(entry.check, references, files, context.input.storyFolders).flatMap(
+          ({ name, unknownBase }) =>
+            warn(
+              context,
+              "R29",
+              unknownBase
+                ? `test plan entry #${i + 1} names ${name}; the base file list is unknown, so only a Reference file of that name covers it; add it to the References or drop it from the plan`
+                : `test plan entry #${i + 1} names ${name}, which no Reference covers; add it to the References or drop it from the plan`,
+            ),
         ),
   );
 };

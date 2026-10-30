@@ -41,6 +41,7 @@ import {
   type PartPark,
   type PartRun,
   partStageRoot,
+  refusedDetail,
 } from "../../src/box/parts";
 import { BOX_GIT_ENV, boxGitInitCommand } from "../../src/box/box-git";
 import { BOX_WORKDIR } from "../../src/box/code";
@@ -593,4 +594,79 @@ describe("the box's own git repository and the parts (DIPO-346)", () => {
       { tar: "excludes", gitCalls },
     );
   });
+});
+
+// The parts guard on the story folders (DIPO-379, R30): the folders come from the real Backlog.md
+// store (`storyFolders`), read from the story branch's tip. The old barrier's paths and the bypass
+// forms as data are in box/tracker-folder.test.ts; here whole parts on real git.
+/** Each park of the part: its reason, and whether it names protected files. */
+function parksOn(w: World): (string | boolean)[][] {
+  return w.parks.map((p) => [p.reason, p.detail.includes("protected files")]);
+}
+
+describe("the story folders, on real git", () => {
+  it("parks a write into the folder through a symlink the worker made, and a rename into it", () =>
+    inParts(async (w) => {
+      mkdirSync(join(w.work, "docs"), { recursive: true });
+      symlinkSync("../backlog/tasks", join(w.work, "docs/tasks"));
+      writeFileSync(join(w.work, "docs/tasks/dipo-9 - Nine.md"), "---\nid: DIPO-9\n---\n");
+      await w.parts.onPart(part("Write through a link"));
+      expect(parksOn(w)).toEqual([["scope-violation", true]]);
+      expect(await tip(w)).toBe(w.claimTip);
+    }));
+
+  it("parks a rename into the folder, and a name in another case", () =>
+    inParts(async (w) => {
+      mkdirSync(join(w.work, "Backlog/Tasks"), { recursive: true });
+      renameSync(join(w.work, "src/a.ts"), join(w.work, "Backlog/Tasks/a.md"));
+      await w.parts.onPart(part("Move a into the folder"));
+      expect(parksOn(w)).toEqual([["scope-violation", true]]);
+      expect(await tip(w)).toBe(w.claimTip);
+    }));
+
+  it("commits a folder that only shares the prefix", () =>
+    inParts(async (w) => {
+      write(w.work, { "backlog-x/notes.md": "Notes.\n" });
+      await w.parts.onPart(part("Add notes"));
+      expect(w.parks).toEqual([]);
+      expect(await tip(w)).not.toBe(w.claimTip);
+    }));
+
+  it("parks a change in the folder backlog.config.yml names, and in backlog/ beside it", async () => {
+    const start = {
+      "backlog.config.yml": 'project_name: x\nbacklog_directory: "planning"\n',
+      "planning/config.yml": "project_name: x\n",
+    };
+    for (const change of [
+      { "planning/tasks/task-9 - Nine.md": "---\nid: TASK-9\n---\n" },
+      { "backlog/tasks/dipo-9 - Nine.md": "---\nid: DIPO-9\n---\n" },
+    ]) {
+      await inParts(
+        async (w) => {
+          write(w.work, change);
+          await w.parts.onPart(part("Add a story"));
+          expect([Object.keys(change)[0], parksOn(w)]).toEqual([
+            Object.keys(change)[0],
+            [["scope-violation", true]],
+          ]);
+          expect(await tip(w)).toBe(w.claimTip);
+        },
+        { start },
+      );
+    }
+  });
+
+  it("fails closed: with the real store whose folder lookup fails, it parks and commits nothing", () =>
+    inParts(
+      async (w) => {
+        write(w.work, { "src/a.ts": "export const a = 2;\n" });
+        await w.parts.onPart(part("Change a"));
+        expect(w.parks).toEqual([
+          { reason: "scope-violation", detail: refusedDetail("storyFolder", 0) },
+        ]);
+        expect(await tip(w)).toBe(w.claimTip);
+        expect(await tip(w, "remote")).toBe(w.claimTip);
+      },
+      { start: { "backlog.config.yml": "backlog_directory: ../outside\n" } },
+    ));
 });

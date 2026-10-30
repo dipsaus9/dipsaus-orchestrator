@@ -2,10 +2,13 @@
 // R30): the parts guard (`protectedKind`), which refuses a part that adds, changes or deletes a path
 // in it, and the collisions guard, which never writes the folder into a box on a catch-up
 // (`boxChangesOf`) and never counts it as a story's changed file (`storyChangedFiles`). The tables
-// below are what each guard refused before the folder came from the store; the adapters are the
-// only lines that follow the guards' signatures.
+// below are what each guard refused before the folder came from the store, kept unchanged; the
+// adapters are the only lines that follow the guards' signatures, and they take the folders from the
+// real Backlog.md store (`backlogLayout`). Then the bypass forms of each guard, and the guards with
+// the real store whose folder lookup fails: they refuse. The parts guard's bypass forms and its
+// fail-closed test through a whole part on real git are in run/parts-commit.test.ts.
 
-import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
@@ -13,10 +16,20 @@ import { describe, expect, it } from "bun:test";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { ManualClock, type TempRepo, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
-import { boxChangesOf, parseBoxChanges, storyChangedFiles } from "../../src/box/collisions";
+import { BacklogFolderError } from "../../src/backlog/folder";
+import {
+  boxChangesOf,
+  MERGE_REFUSED,
+  parseBoxChanges,
+  storyChangedFiles,
+} from "../../src/box/collisions";
 import { protectedHits, protectedKind } from "../../src/box/parts";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
+import type { RepoFileRead } from "../../src/story-store/folder";
+import { inStoryFolder } from "../../src/story-store/paths";
+import { FakeStoryStore } from "../story-store/fake";
+import { backlogLayout } from "../story-store/backlog";
 
 // ---- what each guard refused before ---------------------------------------------------------------
 
@@ -76,53 +89,74 @@ const COLLISIONS_KEPT: readonly string[] = [
 
 // ---- the adapters ------------------------------------------------------------------------------------
 
+/** A repository with only a root `backlog.config.yml` holding `text`, or none, read by path. */
+function rootConfig(text: string | null): RepoFileRead {
+  return async (path) => (path === "backlog.config.yml" ? text : null);
+}
+
+/** The folders the real Backlog.md store names where `backlog.config.yml` names `named`, if any. */
+function foldersOf(named?: string): Promise<readonly string[]> {
+  return backlogLayout.storyFolders(
+    rootConfig(named === undefined ? null : `backlog_directory: ${named}\n`),
+  );
+}
+
 /** The parts guard on `path`, in a repository whose `backlog.config.yml` names `named`, if any. */
-function partsGuard(path: string, named?: string): string | null {
-  return protectedKind(path, named ?? null);
+async function partsGuard(path: string, named?: string): Promise<string | null> {
+  return protectedKind(path, await foldersOf(named));
 }
 
 /** The parts guard on a part that deletes each of `paths`. */
-function partsGuardOnPart(paths: readonly string[]): readonly string[] {
+async function partsGuardOnPart(paths: readonly string[]): Promise<readonly string[]> {
   return protectedHits(
     paths.map((path) => ({ path, kind: "deleted" as const })),
     [],
+    await foldersOf(),
   ).paths;
 }
 
-/** What the collisions guard writes into a box of a merge changing each of `paths`. */
-function collisionsGuard(paths: readonly string[]): readonly string[] {
+/** The raw `git diff-tree -r -z` output of a merge that changes each of `paths`. */
+function diffOf(paths: readonly string[]): string {
   const tree = "a".repeat(40);
-  return parseBoxChanges(
-    [...paths.flatMap((path) => [`:100644 100644 ${tree} ${tree} M`, path]), ""].join("\0"),
-  ).written;
+  return [...paths.flatMap((path) => [`:100644 100644 ${tree} ${tree} M`, path]), ""].join("\0");
 }
 
-// ---- the tests ---------------------------------------------------------------------------------------
+/** What the collisions guard writes into a box of a merge changing each of `paths`. */
+async function collisionsGuard(
+  paths: readonly string[],
+  named?: string,
+): Promise<readonly string[]> {
+  return parseBoxChanges(diffOf(paths), await foldersOf(named)).written;
+}
+
+// ---- the old barriers --------------------------------------------------------------------------------
 
 describe("the parts guard keeps refusing what it refused", () => {
-  it("refuses every path in the story folder", () => {
+  it("refuses every path in the story folder", async () => {
     for (const path of PARTS_REFUSED) {
-      expect([path, partsGuard(path)]).toEqual([path, "backlog"]);
+      expect([path, await partsGuard(path)]).toEqual([path, "backlog"]);
     }
-    expect(partsGuardOnPart([...PARTS_REFUSED, "src/a.ts"])).toEqual([...PARTS_REFUSED].toSorted());
+    expect(await partsGuardOnPart([...PARTS_REFUSED, "src/a.ts"])).toEqual(
+      [...PARTS_REFUSED].toSorted(),
+    );
   });
 
-  it("refuses the configuration of the folder backlog.config.yml names", () => {
+  it("refuses the configuration of the folder backlog.config.yml names", async () => {
     for (const [path, named] of PARTS_REFUSED_NAMED) {
-      expect([path, partsGuard(path, named)]).not.toEqual([path, null]);
+      expect([path, await partsGuard(path, named)]).not.toEqual([path, null]);
     }
   });
 
-  it("leaves paths that only share a name with the folder", () => {
+  it("leaves paths that only share a name with the folder", async () => {
     for (const path of PARTS_ALLOWED) {
-      expect([path, partsGuard(path)]).toEqual([path, null]);
+      expect([path, await partsGuard(path)]).toEqual([path, null]);
     }
   });
 });
 
 describe("the collisions guard keeps leaving out what it left out", () => {
-  it("never writes the story folder into a box", () => {
-    expect(collisionsGuard([...COLLISIONS_LEFT_OUT, ...COLLISIONS_KEPT])).toEqual(
+  it("never writes the story folder into a box", async () => {
+    expect(await collisionsGuard([...COLLISIONS_LEFT_OUT, ...COLLISIONS_KEPT])).toEqual(
       [...COLLISIONS_KEPT].toSorted(),
     );
   });
@@ -136,11 +170,224 @@ describe("the collisions guard keeps leaving out what it left out", () => {
       );
       const tip = await commit(repo, changed);
       const files = await git.run((session) =>
-        storyChangedFiles(session, { branch: "DIPO-1/story", startSha: start, baseRef: null }),
+        storyChangedFiles(session, {
+          stories: backlogLayout,
+          branch: "DIPO-1/story",
+          startSha: start,
+          baseRef: null,
+        }),
       );
       expect(files?.files).toEqual([...COLLISIONS_KEPT].toSorted());
-      const box = await git.run((session) => boxChangesOf(session, start, tip));
+      const box = await git.run((session) => boxChangesOf(session, start, tip, backlogLayout));
       expect(box.written).toEqual([...COLLISIONS_KEPT].toSorted());
+    }));
+});
+
+// ---- the bypass forms ----------------------------------------------------------------------------------
+
+/** Every way of naming a path in the folder that a plain prefix check would miss. */
+const BYPASS_FORMS: readonly (readonly [string, string])[] = [
+  ["a ./ segment", "./backlog/tasks/dipo-9 - Nine.md"],
+  ["a ../ segment", "src/../backlog/tasks/dipo-9 - Nine.md"],
+  ["repeated slashes", "backlog//tasks/dipo-9 - Nine.md"],
+  ["an absolute path", "/backlog/tasks/dipo-9 - Nine.md"],
+  ["a trailing slash", "backlog/tasks/"],
+  ["the folder itself with a trailing slash", "backlog/"],
+  ["another case, as the Mac's volume finds it", "BackLog/Tasks/dipo-9 - Nine.md"],
+  [
+    "a Kelvin sign for the k, as the volume folds it",
+    `bac${String.fromCodePoint(0x212a)}log/tasks/x.md`,
+  ],
+  ["Backlog.md's other folder", ".backlog/tasks/task-1 - x.md"],
+];
+
+describe("the parts guard refuses the bypass forms", () => {
+  it("in every spelling of a path in the folder", async () => {
+    for (const [form, path] of BYPASS_FORMS) {
+      expect([form, await partsGuard(path)]).toEqual([form, "backlog"]);
+    }
+  });
+
+  it("a rename into the folder, as a part delivers it: a deletion and an addition", async () => {
+    const hits = protectedHits(
+      [
+        { path: "src/a.ts", kind: "deleted" },
+        { path: "backlog/tasks/a.md", kind: "added", mode: "100644", id: "1", at: "/x" },
+      ],
+      [],
+      await foldersOf(),
+    );
+    expect(hits).toEqual({ kinds: ["backlog"], paths: ["backlog/tasks/a.md"] });
+  });
+
+  it("a symlink into the folder: every link a part adds is a hit, whatever it points at", async () => {
+    const hits = protectedHits([], ["docs/tasks"], await foldersOf());
+    expect(hits).toEqual({ kinds: ["link"], paths: ["docs/tasks"] });
+  });
+
+  it("but not a folder that only shares the prefix", async () => {
+    for (const path of ["backlog-x/tasks/a.md", "backlogs/a.md", "backlog.d/a.md", "x/backlog/a"]) {
+      expect([path, await partsGuard(path)]).toEqual([path, null]);
+    }
+  });
+
+  it("a configured folder other than backlog/, and backlog/ beside it", async () => {
+    for (const path of ["planning/tasks/task-1 - x.md", "Planning/config.yml", "./planning/x"]) {
+      expect([path, await partsGuard(path, "planning")]).toEqual([path, "backlog"]);
+    }
+    expect(await partsGuard("backlog/tasks/a.md", "planning")).toBe("backlog");
+    expect(await partsGuard("planning-notes/a.md", "planning")).toBeNull();
+  });
+
+  it("the folders another store names, and only those", () => {
+    const tracker = ["tracker"];
+    expect(protectedKind("tracker/items/1.md", tracker)).toBe("backlog");
+    expect(protectedKind("./Tracker/", tracker)).toBe("backlog");
+    expect(protectedKind("backlog/tasks/a.md", tracker)).toBeNull();
+  });
+});
+
+describe("the collisions guard leaves out the bypass forms", () => {
+  it("in every spelling of a path in the folder", async () => {
+    const paths = BYPASS_FORMS.map(([, path]) => path);
+    expect(await collisionsGuard([...paths, "src/a.ts"])).toEqual(["src/a.ts"]);
+  });
+
+  it("but not a folder that only shares the prefix", async () => {
+    const paths = ["backlog-x/tasks/a.md", "backlogs/a.md"];
+    expect(await collisionsGuard(paths)).toEqual(paths);
+  });
+
+  it("a configured folder other than backlog/, and backlog/ beside it", async () => {
+    const paths = ["planning/tasks/task-1 - x.md", "backlog/tasks/a.md", "planning-notes/a.md"];
+    expect(await collisionsGuard(paths, "planning")).toEqual(["planning-notes/a.md"]);
+  });
+
+  it("on real git: a rename into the folder only removes, and its new path is no changed file", () =>
+    inRepo(async ({ repo, git }) => {
+      const start = await commit(repo, { "src/a.ts": "a\n", "backlog/config.yml": "x: 1\n" });
+      await repo.git("checkout", "--quiet", "-b", "DIPO-1/story");
+      await repo.git("mv", "src/a.ts", "backlog/a.md");
+      const tip = await repo.commitAll("rename into the folder");
+      const box = await git.run((session) => boxChangesOf(session, start, tip, backlogLayout));
+      expect(box).toEqual({ written: [], removed: ["src/a.ts"] });
+      const files = await git.run((session) =>
+        storyChangedFiles(session, {
+          stories: backlogLayout,
+          branch: "DIPO-1/story",
+          startSha: start,
+          baseRef: null,
+        }),
+      );
+      expect(files?.files).toEqual(["src/a.ts"]);
+    }));
+
+  it("on real git: a symlink a merge writes into the folder refuses the copy", () =>
+    inRepo(async ({ repo, git }) => {
+      const start = await commit(repo, { "src/a.ts": "a\n", "backlog/config.yml": "x: 1\n" });
+      for (const [link, target] of [
+        ["docs/tasks", "../backlog/tasks"],
+        ["docs/hidden", "../.Backlog"],
+        ["docs/deep", "./../backlog/../backlog/drafts/"],
+      ] as const) {
+        await repo.git("checkout", "--quiet", "-B", "DIPO-1/story", start);
+        mkdirSync(join(repo.dir, "docs"), { recursive: true });
+        symlinkSync(target, join(repo.dir, link));
+        const tip = await repo.commitAll(`link ${link}`);
+        const refused = await git
+          .run((session) => boxChangesOf(session, start, tip, backlogLayout))
+          .then(
+            () => null,
+            (error: unknown) => error,
+          );
+        expect([link, (refused as { code?: string } | null)?.code]).toEqual([link, MERGE_REFUSED]);
+      }
+      // A symlink that points anywhere else is copied as before, a folder that only shares the
+      // prefix included.
+      await repo.git("checkout", "--quiet", "-B", "DIPO-1/story", start);
+      symlinkSync("src/a.ts", join(repo.dir, "a-link"));
+      symlinkSync("backlog-x/notes", join(repo.dir, "b-link"));
+      symlinkSync("../../outside", join(repo.dir, "c-link"));
+      const tip = await repo.commitAll("link elsewhere");
+      const box = await git.run((session) => boxChangesOf(session, start, tip, backlogLayout));
+      expect(box.written).toEqual(["a-link", "b-link", "c-link"]);
+    }));
+
+  it("the folders another store names: a fake store with its own folder", () =>
+    inRepo(async ({ repo, git }) => {
+      const start = await commit(repo, { "src/a.ts": "a\n" });
+      const tip = await commit(repo, { "tracker/1.md": "x\n", "backlog/b.md": "y\n" });
+      const store = new FakeStoryStore();
+      store.folders = ["tracker"];
+      const box = await git.run((session) => boxChangesOf(session, start, tip, store));
+      expect(box.written).toEqual(["backlog/b.md"]);
+    }));
+});
+
+// ---- fail closed -----------------------------------------------------------------------------------------
+
+/** A repository whose files cannot be read. */
+const unreadable: RepoFileRead = async () => {
+  throw new Error("EACCES");
+};
+
+/** Root configurations the real Backlog.md store cannot resolve a folder from. */
+const UNRESOLVED: readonly string[] = [
+  "backlog_directory: ../outside\n",
+  "backlog_directory: /etc\n",
+  'backlog_directory: ""\n',
+  "backlog_directory: .\n",
+];
+
+describe("with the real Backlog.md store whose folder lookup fails", () => {
+  it("the lookup refuses every root configuration it cannot resolve", async () => {
+    for (const text of UNRESOLVED) {
+      const refused = await backlogLayout.storyFolders(rootConfig(text)).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect([text, refused instanceof BacklogFolderError]).toEqual([text, true]);
+    }
+    await expect(backlogLayout.storyFolders(unreadable)).rejects.toThrow("EACCES");
+  });
+
+  it("on real git: the collisions guard copies nothing and counts nothing", () =>
+    inRepo(async ({ repo, git }) => {
+      const start = await commit(repo, {
+        "src/a.ts": "a\n",
+        "backlog.config.yml": UNRESOLVED[0]!,
+      });
+      await repo.git("checkout", "--quiet", "-b", "DIPO-1/story");
+      const tip = await commit(repo, { "src/a.ts": "b\n", "backlog/tasks/x.md": "x\n" });
+      await expect(
+        git.run((session) => boxChangesOf(session, start, tip, backlogLayout)),
+      ).rejects.toBeInstanceOf(BacklogFolderError);
+      await expect(
+        git.run((session) =>
+          storyChangedFiles(session, {
+            stories: backlogLayout,
+            branch: "DIPO-1/story",
+            startSha: start,
+            baseRef: null,
+          }),
+        ),
+      ).rejects.toBeInstanceOf(BacklogFolderError);
+    }));
+
+  it("on real git: a root configuration that is a symlink refuses too", () =>
+    inRepo(async ({ repo, git }) => {
+      writeFileSync(join(repo.dir, "config-target.yml"), "backlog_directory: planning\n");
+      symlinkSync("config-target.yml", join(repo.dir, "backlog.config.yml"));
+      const start = await commit(repo, { "src/a.ts": "a\n" });
+      const tip = await commit(repo, { "src/a.ts": "b\n" });
+      const refused = await git
+        .run((session) => boxChangesOf(session, start, tip, backlogLayout))
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      expect(refused).not.toBeNull();
+      expect(inStoryFolder("src/a.ts", await foldersOf())).toBe(false);
     }));
 });
 

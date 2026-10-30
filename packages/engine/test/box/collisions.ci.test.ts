@@ -338,6 +338,7 @@ async function tipOf(w: World, s: Story, where: "local" | "remote" = "local"): P
 async function changed(w: World, s: Story): Promise<string[]> {
   const found = await w.git.run((session) =>
     storyChangedFiles(session, {
+      stories: backlogLayout,
       branch: s.run.branch,
       startSha: s.run.startSha,
       baseRef: "refs/remotes/origin/main",

@@ -5,8 +5,9 @@
 // - Changed files. A story's changed files are the paths its delivered parts changed: the story
 //   branch's tip against its start commit, read from git (`storyChangedFiles`), never from the
 //   worker's own list. After a catch-up the branch holds the new base, so the start point is the
-//   merge base of the tip and the base when the start commit lies below it. `backlog/` is left out:
-//   only dipo writes it, never a part (`protectedKind`).
+//   merge base of the tip and the base when the start commit lies below it. The story folders
+//   (`StoryStore.storyFolders`, read from the tip, compared as `story-store/paths.ts` does) are
+//   left out: only dipo writes them, never a part (`protectedKind`).
 // - Overlaps. Every pass compares the changed files of the live box runs of each office with the
 //   prefix rule (0012, 0010 section 10): two paths overlap when they are equal or one is a folder
 //   above the other. A new overlap (another pair of stories, or more paths) is told to the maintainer
@@ -19,8 +20,9 @@
 //   box's work is taken as a part, so the branch tip is the box's code. Then, in the run's turn of
 //   `BoxParts` (no other part is taken in between):
 //   1. dipo commits the merge from git objects (`commit-tree` with the tip and the base as parents);
-//   2. it stages the paths the merge changed against the tip, outside `backlog/` (dipo's task-file
-//      commits never reach the box, `readView`), from a `git archive` of the merge, and checks that
+//   2. it stages the paths the merge changed against the tip, outside the story folders (dipo's
+//      task-file commits never reach the box, `readView`; a symlink the merge writes that points
+//      into one refuses the catch-up), from a `git archive` of the merge, and checks that
 //      every staged path is there with the mode and blob of the merge: `export-ignore` or
 //      `export-subst` attributes would otherwise drop or rewrite a file, which fails the catch-up;
 //   3. it takes one more part from the box: a worker that changed files since the first part would
@@ -48,7 +50,7 @@
 //   file is dipo's: the merge takes the base's version of it (a temporary index in dipo's stage
 //   folder, from git objects), and once the branch moved the branch's status is written back
 //   through the single field write path (`taskStatus`). A conflict in any other protected path
-//   (`protectedKind`: the rest of `backlog/`, `.dipo/`, `.github/`, the Claude settings, git's
+//   (`protectedKind`: the rest of the story folders, `.dipo/`, `.github/`, the Claude settings, git's
 //   attribute files, and the configuration of the Backlog CLI, Bun and Claude Code's MCP servers),
 //   or a task-file conflict other than in its content, merges nothing, into neither the branch nor
 //   the box, and parks `conflict`.
@@ -82,10 +84,13 @@ import type { OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
 import { BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
+import { listTree } from "../git/tree";
 import { commitTree, moveBranch, type PushResult, pushBranch } from "../git/write";
 import conflictMarkersTemplate from "../prompts/feedback/conflict-markers.md" with { type: "text" };
 import conflictTemplate from "../prompts/feedback/conflict.md" with { type: "text" };
 import { neutraliseTags, renderTemplate } from "../prompts/templates";
+import { folderLookupRefused, treeFiles } from "../story-store/folder";
+import { inStoryFolder, linkTargetOf } from "../story-store/paths";
 import type { StoryStore } from "../story-store/store";
 import { BOX_WORKDIR, type BoxCodeDeps, filtersOffConfig, unpack } from "./code";
 import { cleanDoorText } from "./door";
@@ -560,32 +565,40 @@ export function catchUpCommitMessage(
 
 // ---- reading git ---------------------------------------------------------------------------------
 
-function inBacklog(path: string): boolean {
-  return path === "backlog" || path.startsWith("backlog/");
+/**
+ * The story folders of the tree of `commit` (`StoryStore.storyFolders`); throws when the store
+ * refuses to tell (`folderLookupRefused`), so nothing that follows copies or counts a path.
+ */
+async function foldersAt(
+  session: GitSession,
+  stories: Pick<StoryStore, "storyFolders">,
+  commit: string,
+): Promise<readonly string[]> {
+  return stories.storyFolders(treeFiles(session, await listTree(session, commit)));
 }
 
 function nulList(output: string): string[] {
   return output.split("\0").filter((item) => item !== "");
 }
 
-/** What a merge changes in the box: the paths to write and to remove, outside `backlog/`. */
+/** What a merge changes in the box: the paths to write and to remove, outside the story folders. */
 export interface BoxChanges {
   readonly written: readonly string[];
   readonly removed: readonly string[];
 }
 
 /**
- * Pure: the box changes of `git diff-tree -r -z --no-renames <tip> <merge>` output. A submodule is
- * never written; a path that became one is removed.
+ * Pure: the box changes of `git diff-tree -r -z --no-renames <tip> <merge>` output, without the
+ * story `folders`. A submodule is never written; a path that became one is removed.
  */
-export function parseBoxChanges(output: string): BoxChanges {
+export function parseBoxChanges(output: string, folders: readonly string[]): BoxChanges {
   const items = output.split("\0");
   const written: string[] = [];
   const removed: string[] = [];
   for (let at = 0; at + 1 < items.length; at += 2) {
     const head = items[at]!;
     const path = items[at + 1]!;
-    if (!head.startsWith(":") || inBacklog(path)) continue;
+    if (!head.startsWith(":") || inStoryFolder(path, folders)) continue;
     const [, newMode = ""] = head.slice(1).split(" ");
     const status = head.split(" ").at(-1) ?? "";
     if (status.startsWith("D") || newMode === "160000") removed.push(path);
@@ -617,7 +630,12 @@ async function isAncestor(session: GitSession, older: string, newer: string): Pr
   return checked.code === 0;
 }
 
-async function namesBetween(session: GitSession, from: string, to: string): Promise<string[]> {
+async function namesBetween(
+  session: GitSession,
+  from: string,
+  to: string,
+  folders: readonly string[],
+): Promise<string[]> {
   return nulList(
     await session.ok(session.repository, [
       "diff",
@@ -628,7 +646,7 @@ async function namesBetween(session: GitSession, from: string, to: string): Prom
       to,
       "--",
     ]),
-  ).filter((path) => !inBacklog(path));
+  ).filter((path) => !inStoryFolder(path, folders));
 }
 
 async function objectFormat(session: GitSession): Promise<"sha1" | "sha256"> {
@@ -719,16 +737,23 @@ async function startPoint(
 /**
  * A story's changed files (criterion 1): the paths the branch tip changed against the start
  * commit, or against the merge base with `baseRef` once a catch-up brought the base in, without
- * `backlog/`. Read from git, never from the worker. Null when the branch is gone.
+ * the story folders the tip names. Read from git, never from the worker. Null when the branch is
+ * gone.
  */
 export async function storyChangedFiles(
   session: GitSession,
-  input: { readonly branch: string; readonly startSha: string; readonly baseRef: string | null },
+  input: {
+    readonly branch: string;
+    readonly startSha: string;
+    readonly baseRef: string | null;
+    readonly stories: Pick<StoryStore, "storyFolders">;
+  },
 ): Promise<{ readonly tip: string; readonly from: string; readonly files: string[] } | null> {
   const tip = await revParse(session, `refs/heads/${input.branch}^{commit}`);
   if (tip === null) return null;
   const { from } = await startPoint(session, tip, input.startSha, input.baseRef);
-  return { tip, from, files: await namesBetween(session, from, tip) };
+  const folders = await foldersAt(session, input.stories, tip);
+  return { tip, from, files: await namesBetween(session, from, tip, folders) };
 }
 
 /** What a catch-up check found. */
@@ -739,7 +764,7 @@ export type CatchUpPlan =
   | { readonly kind: "apart"; readonly onto: string }
   /**
    * The merge conflicts in paths the worker cannot write (0019 section 10): any protected path
-   * (`protectedKind`: `backlog/`, `.dipo/`, `.github/`, the Claude settings, git's attribute
+   * (`protectedKind`: the story folders, `.dipo/`, `.github/`, the Claude settings, git's attribute
    * files, and the configuration of the Backlog CLI, Bun and Claude Code's MCP servers) other than
    * the story's own task file, or that task file conflicting other than in its content. Nothing is
    * merged.
@@ -818,8 +843,8 @@ export async function planCatchUp(
     readonly mode?: CatchUpMode;
     /** A folder of dipo's own for the temporary index; needed to write a task-file resolution. */
     readonly scratch?: string;
-    /** The store that finds the story's own file at the branch tip. */
-    readonly stories: Pick<StoryStore, "fileAt">;
+    /** The store that finds the story's own file and its folders at the branch tip. */
+    readonly stories: Pick<StoryStore, "fileAt" | "storyFolders">;
   },
 ): Promise<CatchUpPlan> {
   const repo = session.repository;
@@ -830,9 +855,10 @@ export async function planCatchUp(
   }
   const { from, mergeBase } = await startPoint(session, tip, input.startSha, input.baseRef);
   if (mergeBase === null) return { kind: "apart", onto };
+  const folders = await foldersAt(session, input.stories, tip);
   const overlap = overlappingPaths(
-    await namesBetween(session, from, tip),
-    await namesBetween(session, mergeBase, onto),
+    await namesBetween(session, from, tip, folders),
+    await namesBetween(session, mergeBase, onto, folders),
   );
   if (overlap.length === 0 && input.mode !== "always") return { kind: "apart", onto };
   const merged = await session.step(
@@ -856,7 +882,7 @@ export async function planCatchUp(
   const conflicts = parsed.conflicts.filter((file) => file.path !== own);
   const unwritable = conflicts
     .map((file) => file.path)
-    .filter((path) => protectedKind(path) !== null);
+    .filter((path) => protectedKind(path, folders) !== null);
   const baseTask =
     ownConflict === undefined || own === null ? null : await revParse(session, `${onto}:${own}`);
   if (ownConflict !== undefined && (ownConflict.kind !== "content" || baseTask === null)) {
@@ -885,19 +911,47 @@ export async function planCatchUp(
   return { kind: "merge", tip, onto, tree, commit, overlap, conflicts, taskFile };
 }
 
-/** The box changes of the merge `commit` against the tip it was made on. */
+/** The `BoxError` code of a merge dipo does not copy into a box: nothing of it is copied. */
+export const MERGE_REFUSED = "box.mergeRefused";
+
+/**
+ * The box changes of the merge `commit` against the tip it was made on, without the story folders
+ * `commit` names. A symlink the merge writes that points into a story folder refuses
+ * (`MERGE_REFUSED`): in the box it would lead a worker's write into the folder.
+ */
 export async function boxChangesOf(
   session: GitSession,
   tip: string,
   commit: string,
+  stories: Pick<StoryStore, "storyFolders">,
 ): Promise<BoxChanges> {
+  const entries = await listTree(session, commit);
+  const folders = await stories.storyFolders(treeFiles(session, entries));
   const changes = parseBoxChanges(
     await session.ok(session.repository, ["diff-tree", "-r", "-z", "--no-renames", tip, commit]),
+    folders,
   );
   if (![...changes.written, ...changes.removed].every(plainPath)) {
     throw new GitError("git.failed", "the merge holds a path dipo does not copy into a box.");
   }
+  for (const path of changes.written) {
+    const entry = entries.get(path);
+    if (entry?.mode !== "120000") continue;
+    const target = await session.ok(session.repository, ["cat-file", "blob", entry.id]);
+    const into = linkTargetOf(path, target);
+    if (into !== null && inStoryFolder(into, folders)) {
+      throw new BoxError(
+        MERGE_REFUSED,
+        `the merge writes the symlink ${path}, which points into a story folder; dipo does not copy it into a box.`,
+      );
+    }
+  }
   return changes;
+}
+
+/** True when `error` refuses a catch-up for good: a merge dipo does not copy, or no story folders. */
+function catchUpRefused(error: unknown): boolean {
+  return folderLookupRefused(error) || (error instanceof BoxError && error.code === MERGE_REFUSED);
 }
 
 function chunks<T>(items: readonly T[]): T[][] {
@@ -1035,7 +1089,7 @@ export type SyncMode =
 export interface BoxCollisionsDeps {
   readonly boxes: Pick<BoxPort, "copyIn" | "exec">;
   /** The story store: the story's own file at a tip, and the status it holds. */
-  readonly stories: Pick<StoryStore, "fileAt" | "statusIn">;
+  readonly stories: Pick<StoryStore, "fileAt" | "statusIn" | "storyFolders">;
   /** The `tar` that unpacks a merge for the box, and the clock of the poll. */
   readonly code: BoxCodeDeps;
   /** dipo's temp root; each catch-up's stage folder is made in it. */
@@ -1290,7 +1344,7 @@ export class BoxCollisions {
   }
 
   /**
-   * Copies into the run's box what the story branch's tip holds outside `backlog/` and the tip
+   * Copies into the run's box what the story branch's tip holds outside the story folders and the tip
    * `from` did not (DIPO-324): the merges dipo committed on the branch outside the box since
    * `from` (the auto-merge's conflict hand-off), staged and checked as a catch-up's are, then removed and
    * written in the box. The box must run, and no part is taken meanwhile: the run's session has
@@ -1301,7 +1355,9 @@ export class BoxCollisions {
     if (git === undefined) throw new BoxError("box.failed", `office ${run.office} has no git.`);
     const tip = await git.run((session) => revParse(session, `refs/heads/${run.branch}^{commit}`));
     if (tip === null) throw new BoxError("box.failed", `the branch ${run.branch} is gone.`);
-    const changes = await git.run((session) => boxChangesOf(session, from, tip));
+    const changes = await git.run((session) =>
+      boxChangesOf(session, from, tip, this.#deps.stories),
+    );
     if (changes.written.length === 0 && changes.removed.length === 0) return changes;
     const staged = await this.#stage(git, tip, changes);
     try {
@@ -1364,6 +1420,7 @@ export class BoxCollisions {
       const out: StoryChanges[] = [];
       for (const run of runs) {
         const changed = await storyChangedFiles(session, {
+          stories: this.#deps.stories,
           branch: run.branch,
           startSha: run.startSha,
           baseRef: base?.ref ?? null,
@@ -1547,7 +1604,18 @@ export class BoxCollisions {
       if (plan.kind === "unwritable") return { kind: "park", park: this.#unwritable(run, plan) };
       const commit = plan.commit;
       if (commit === null) return { kind: "none" };
-      const changes = await git.run((session) => boxChangesOf(session, plan.tip, commit));
+      let changes: BoxChanges;
+      try {
+        changes = await git.run((session) =>
+          boxChangesOf(session, plan.tip, commit, this.#deps.stories),
+        );
+      } catch (error) {
+        if (!catchUpRefused(error)) throw error;
+        return this.#fail(
+          run,
+          `dipo did not copy the merge of ${plan.base} into the box: ${messageOf(error)} Nothing of it was copied and the branch was not moved.`,
+        );
+      }
       const copyFailed = (error: unknown): SyncOutcome => {
         this.#deps.warn?.("a catch-up could not be copied into the box", {
           run: run.runId,

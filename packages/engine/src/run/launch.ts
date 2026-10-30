@@ -62,6 +62,7 @@ import { ensurePrivateDir } from "../platform/paths";
 import { type PromptPart, type PromptText, promptParts } from "../prompts/parts";
 import type { LaunchedHost } from "../runs/worker-hosts";
 import { runDirectory } from "../runs/worker-hosts";
+import type { StoryStore } from "../story-store/store";
 import type { PlainTask } from "../story-store/story";
 import { holdMessage } from "../workers/hold";
 import type { RunLaunchPaths, WorkerPort } from "../workers/port";
@@ -156,6 +157,8 @@ export interface RunIngest {
 }
 
 export interface RunLauncherDeps {
+  /** The story store: the folders a box's tree takes from the start commit (`BoxLifetime`). */
+  readonly stories: Pick<StoryStore, "storyFolders">;
   readonly worker: WorkerPort;
   /** The office's git, attached by its load step. */
   readonly git: (office: OfficeId) => OfficeGit | undefined;
@@ -419,6 +422,7 @@ export class RunLauncher {
         ? null
         : new BoxLifetime({
             boxes,
+            stories: this.#deps.stories,
             ...(this.#deps.profile === undefined ? {} : { profile: this.#deps.profile }),
             tmpRoot: this.#deps.tmpRoot,
           });

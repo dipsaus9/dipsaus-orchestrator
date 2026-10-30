@@ -14,6 +14,7 @@ import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 
+import type { RepoFileRead } from "./folder";
 import type { PlannedPark, PlanningHold } from "./planning";
 import type { PlainList, PlainTask, StoryKind } from "./story";
 
@@ -153,13 +154,28 @@ export interface StoryStore {
    * Runs inside the office's git queue item `session`.
    */
   fileAt(session: GitSession, commit: string, id: string): Promise<string | null>;
+  /**
+   * The commit of `ref` that last changed the file of the story `id`, or null when git finds none.
+   * Runs inside the office's git queue item `session`.
+   */
+  lastFileCommit(session: GitSession, ref: string, id: string): Promise<string | null>;
   /** The status a story file's text `text` holds, or null when it holds none. */
   statusIn(text: string): string | null;
+
+  // ---- where the store keeps its stories (`folder.ts`) -----------------------------------------------
+
   /**
-   * The folder the store's root configuration text `text` names for its stories, or null when it
-   * names none or one that does not resolve: that folder's configuration is the store's too.
+   * Every folder the store keeps stories or their configuration in, repo-relative, in the
+   * repository whose files `read` reads: only dipo and the maintainer write them, never a worker
+   * (0008). Throws a `StoryStoreError` when the repository's configuration names a folder the
+   * store cannot resolve, and whatever `read` throws: every guard that asks then refuses.
    */
-  configuredFolder(text: string): string | null;
+  storyFolders(read: RepoFileRead): Promise<readonly string[]>;
+  /**
+   * True when the repository whose files `read` reads holds a project of the store (an office can
+   * open it, 0006); throws as `storyFolders` does.
+   */
+  isProject(read: RepoFileRead): Promise<boolean>;
 
   // ---- the planning lane (0010), read from the office's state database ----------------------------
 

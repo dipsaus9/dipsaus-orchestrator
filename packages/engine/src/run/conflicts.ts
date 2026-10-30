@@ -614,7 +614,7 @@ export type DoneConflictDecision =
 export interface StoryConflictsDeps {
   readonly clock: { now(): number };
   /** The story store: the story's own file at a tip. */
-  readonly stories: Pick<StoryStore, "fileAt">;
+  readonly stories: Pick<StoryStore, "fileAt" | "storyFolders">;
   readonly ids: IdSource;
   readonly offices: {
     get(office: OfficeId): OfficeHandle | undefined;
@@ -927,7 +927,7 @@ export const REMOTE_COMMITS_SHOWN = 20;
 /** What `ConflictResumes` needs; the daemon's are the office git and the box collisions. */
 export interface ConflictResumesDeps {
   /** The story store: the story's own file at a tip. */
-  readonly stories: Pick<StoryStore, "fileAt">;
+  readonly stories: Pick<StoryStore, "fileAt" | "storyFolders">;
   readonly offices: {
     get(office: OfficeId): OfficeHandle | undefined;
     config(office: OfficeId): OfficeConfig | undefined;

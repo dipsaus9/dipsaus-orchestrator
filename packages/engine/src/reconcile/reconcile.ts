@@ -57,6 +57,7 @@ import { endRunMarked } from "../run/markers";
 import { activeRuns, findRun, parkedFromInReview, type StoredRun, unparkRun } from "../run/records";
 import { runDirectory } from "../runs/worker-hosts";
 import type { IndexResult } from "../stories/index-stories";
+import type { StoryStore } from "../story-store/store";
 import { readsOnBranch } from "../stories/index-stories";
 import { lifecycleOf } from "../views/story";
 import { type ClaimRecord, liveClaims } from "../worktree/records";
@@ -117,8 +118,11 @@ export interface ReconcileRuns {
 }
 
 export interface ReconcileDeps {
-  /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
-  readonly stories: ParkStore;
+  /**
+   * The story store: the park a pending planning change writes (`plannedPark`, 0010) and the
+   * commit that last changed a story's file (`lastFileCommit`).
+   */
+  readonly stories: ParkStore & Pick<StoryStore, "lastFileCommit">;
   readonly officeId: OfficeId;
   readonly office: OfficeHandle;
   readonly git: OfficeGit;

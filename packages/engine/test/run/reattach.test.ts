@@ -901,6 +901,7 @@ function realResumer(
     sessionFacts: () => ({ contextTokens: null, contextWindow: null, lastReport: null }),
   };
   return new RunResumer({
+    stories: backlogLayout,
     clock: w.f.t.clock,
     ids: w.f.t.ids,
     offices: {

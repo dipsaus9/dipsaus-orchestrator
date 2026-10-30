@@ -126,6 +126,20 @@ describe("office.open", () => {
     });
   });
 
+  it("refuses a repository whose root backlog.config.yml names a folder the store cannot resolve", async () => {
+    await withTempRepo(
+      async (repo) => {
+        const s = await officeSetup(repo.root);
+        writeFileSync(join(repo.dir, "backlog.config.yml"), "backlog_directory: ../outside\n");
+        const refused = await send(s, "office.open", { path: repo.dir });
+        expect(errorOf(refused)).toBe("office.notProject");
+        expect(JSON.stringify(refused)).toContain("cannot resolve");
+        expect(officeRows(s.state)).toEqual([]);
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
   it("refuses an office.json that is not a marker", async () => {
     await withTempRepo(
       async (repo) => {
