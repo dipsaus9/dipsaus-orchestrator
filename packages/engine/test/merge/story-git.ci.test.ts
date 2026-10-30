@@ -9,7 +9,7 @@
 // - the release path read from git: CODEOWNERS from the base as last fetched, the PR's diff from its
 //   merge base with the base; such a PR never gets auto-merge.
 
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
@@ -607,9 +607,20 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       it("counts Docs/Decisions/ in another case, which a case-insensitive file system folds", () =>
         adrScenario(
           async (checkout, repo) => {
-            mkdirSync(join(checkout, "Docs/Decisions"), { recursive: true });
-            writeFileSync(join(checkout, "Docs/Decisions/0002-review.md"), "# folded\n");
-            await git(checkout, repo.home, "add", "Docs");
+            // Straight into the index: on a case-insensitive file system the work tree folds the
+            // folder onto `docs/decisions`, so `git add Docs` has no pathspec to match.
+            const file = join(checkout, "folded.tmp");
+            writeFileSync(file, "# folded\n");
+            const blob = (await git(checkout, repo.home, "hash-object", "-w", file)).trim();
+            rmSync(file);
+            await git(
+              checkout,
+              repo.home,
+              "update-index",
+              "--add",
+              "--cacheinfo",
+              `100644,${blob},Docs/Decisions/0002-review.md`,
+            );
           },
           ["Docs/Decisions/0002-review.md"],
         ));
