@@ -1,10 +1,10 @@
 ---
 id: DIPO-386
 title: Keep tracking a worker host that binds its socket late
-status: In Review
+status: In Progress
 assignee: []
 created_date: '2026-10-30 09:31'
-updated_date: '2026-10-30 18:40'
+updated_date: '2026-10-30 18:55'
 labels:
   - 'tier:S'
   - 'slice:prune'
