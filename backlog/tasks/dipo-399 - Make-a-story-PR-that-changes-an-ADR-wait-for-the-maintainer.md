@@ -4,9 +4,9 @@ title: Make a story PR that changes an ADR wait for the maintainer
 status: Ready
 assignee: []
 created_date: '2026-10-30 21:55'
-updated_date: '2026-10-30 22:41'
+updated_date: '2026-10-30 22:42'
 labels:
-  - 'tier:S'
+  - 'tier:M'
   - 'slice:prune'
   - 'track:2'
 milestone: m-1
