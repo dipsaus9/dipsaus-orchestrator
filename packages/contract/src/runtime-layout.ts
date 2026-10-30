@@ -36,7 +36,12 @@ export const DIR_ERROR_CODES = {
   noRuntimeDir: "paths.noRuntimeDir",
 } as const;
 
-/** The lock in `<state>` (0005). */
+/**
+ * The daemon lock in `<state>` (0005): an exclusive SQLite lock the holder keeps for its whole life.
+ * Only the engine's platform lock module opens it.
+ */
+export const LOCK_FILE = "dipo.lock";
+/** The lock holder's record in `<state>` (0005): PID, start time, version, runtime directory. */
 export const PID_FILE = "dipo.pid";
 /** The record in `<state>` that names the socket, written after the lock is held. */
 export const RUNTIME_FILE = "runtime.json";
@@ -225,7 +230,7 @@ export interface PidRecord {
   readonly runtimeDir: string | null;
 }
 
-/** A parsed `dipo.pid`; null for a record being written, damage, or another shape. */
+/** A parsed `dipo.pid`; null for damage or another shape. */
 export function parsePidRecord(raw: string): PidRecord | null {
   try {
     const value = JSON.parse(raw) as Partial<PidRecord>;
@@ -245,7 +250,7 @@ export function parsePidRecord(raw: string): PidRecord | null {
       };
     }
   } catch {
-    // Not JSON: a record being written, or damage. The caller decides.
+    // Not JSON: damage. The caller decides.
   }
   return null;
 }

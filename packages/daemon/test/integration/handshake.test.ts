@@ -1,4 +1,4 @@
-// The PID lock's step 1 (0005, DIPO-24 AC #10): the handshake is `engine.hello` and then
+// The daemon lock's step 3 (0005, DIPO-24 AC #10): the handshake is `engine.hello` and then
 // `daemon.status` over `ws+unix://`, and it counts only when the status names the record's PID.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";

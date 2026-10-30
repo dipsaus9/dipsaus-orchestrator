@@ -1,8 +1,8 @@
 // The daemon's Unix socket `<runtime>/dipo.sock` (0006 decisions 6 and 9). Binding is not a lock (a
 // second bind on a live path fails with EADDRINUSE on Bun 1.4.2, and a leftover file must be
-// unlinked first), so the PID lock in `<state>` guards the socket. `serve.ts` serves the contract
+// unlinked first), so the daemon lock in `<state>` guards the socket. `serve.ts` serves the contract
 // on it; this module removes leftovers and holds the daemon side's own small `ws+unix://` client,
-// which the lock's step 1 uses to send `engine.hello` and `daemon.status` to the running daemon.
+// which the lock's step 3 uses to send `engine.hello` and `daemon.status` to the running daemon.
 
 import { rmSync } from "node:fs";
 
