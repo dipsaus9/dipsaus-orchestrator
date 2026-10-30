@@ -1,10 +1,10 @@
 ---
 id: DIPO-386
 title: Keep tracking a worker host that binds its socket late
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-10-30 09:31'
-updated_date: '2026-10-30 18:31'
+updated_date: '2026-10-30 18:32'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -37,10 +37,6 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(engine) a pending host that binds after the ask times out is found and stopped or re-attached"
-park:
-  reason: "budget-exceeded"
-  from: "In Progress"
-  note: "turn cap (--max-turns) after 33 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -75,4 +71,6 @@ Parked 2026-10-30 18:31 UTC: budget-exceeded
 - Review rounds: 0, failed 0 of 3
 - Budget used: 280,318 of 300,000 tokens; 91 of 90 turns; 10 of 45 minutes
 - Last good commit: 9ed2ef3f0c99e696d15dc4f37985a5fbc7a81294
+
+Resumed 2026-10-30 18:32 UTC; grants: budget +150,000 tokens, +45 turns, +23 minutes; note: Top-up for the real-process tests and the 0008 sentence asked in the answer; finish them, report done.
 <!-- SECTION:NOTES:END -->
