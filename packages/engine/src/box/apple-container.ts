@@ -45,6 +45,7 @@ import {
   BOX_CALL_TIMEOUT_MS,
   BOX_LABEL,
   BOX_PULL_TIMEOUT_MS,
+  BOX_STATE_LABEL,
   BoxError,
   type BoxCallOptions,
   type BoxCheck,
@@ -100,6 +101,11 @@ export interface AppleContainerDeps {
   readonly netToolsRoot?: string;
   /** The default deadline of a call; `BOX_CALL_TIMEOUT_MS` when absent. */
   readonly timeoutMs?: number;
+  /**
+   * The `BOX_STATE_LABEL` value every box it makes carries (DIPO-374): `stateFolderLabel` of the
+   * daemon's state folder. Absent: no box gets one.
+   */
+  readonly stateLabel?: string;
 }
 
 interface CliResult {
@@ -180,7 +186,10 @@ export interface BoxNetworkFound {
 
 const STATES: readonly BoxState[] = ["running", "stopped"];
 
-/** dipo's boxes from `container list --all --format json`: named `dipo-<run id>`, labelled so. */
+/**
+ * dipo's boxes from `container list --all --format json`: named `dipo-<run id>`, labelled so, each
+ * with its `BOX_STATE_LABEL` value when it has a string one (DIPO-374).
+ */
 export function dipoBoxes(listed: readonly unknown[]): BoxInfo[] {
   const boxes: BoxInfo[] = [];
   for (const entry of listed) {
@@ -189,12 +198,15 @@ export function dipoBoxes(listed: readonly unknown[]): BoxInfo[] {
     const name = configuration["id"] ?? item["id"];
     if (typeof name !== "string") continue;
     const runId = runIdOfBox(name);
-    if (runId === null || record(configuration["labels"])[BOX_LABEL] !== runId) continue;
+    const labels = record(configuration["labels"]);
+    if (runId === null || labels[BOX_LABEL] !== runId) continue;
     const state = record(item["status"])["state"];
+    const stateLabel = labels[BOX_STATE_LABEL];
     boxes.push({
       name,
       runId,
       state: STATES.find((known) => known === state) ?? "unknown",
+      stateLabel: typeof stateLabel === "string" ? stateLabel : null,
     });
   }
   return boxes;
@@ -287,12 +299,14 @@ async function readAll(stream: ReadableStream<Uint8Array>): Promise<string> {
 
 export class AppleContainerBoxes implements BoxPort {
   readonly id = APPLE_CONTAINER_BACKEND_ID;
+  readonly stateLabel: string | null;
   readonly #deps: AppleContainerDeps;
   readonly #cli: string;
 
   constructor(deps: AppleContainerDeps) {
     this.#deps = deps;
     this.#cli = deps.cli ?? "container";
+    this.stateLabel = deps.stateLabel ?? null;
   }
 
   async check(options: BoxCallOptions = {}): Promise<BoxCheck> {
@@ -367,6 +381,7 @@ export class AppleContainerBoxes implements BoxPort {
       network: spec.network,
       host: this.#deps.host ?? systemHostResources(),
       home: this.#deps.home ?? homedir(),
+      ...(this.stateLabel === null ? {} : { stateLabel: this.stateLabel }),
     };
     // The tools mount gets the real path, and only one under dipo's tools root that holds the
     // tools (DIPO-281); checked as text first, so a refused spec reads no folder.

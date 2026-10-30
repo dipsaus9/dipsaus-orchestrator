@@ -27,7 +27,7 @@ import {
   netToolCommand,
   rootStepCommand,
 } from "../../src/box/firewall";
-import { BOX_PACKAGE_CACHE_PATH, BoxError } from "../../src/box/port";
+import { BOX_PACKAGE_CACHE_PATH, BoxError, stateFolderLabel } from "../../src/box/port";
 import {
   BOX_USER_ENV,
   DIPO_PART_PATH,
@@ -419,6 +419,28 @@ describe("the Apple container argument builder", () => {
           : [`type=bind,source=${input.netTools},target=${BOX_NET_TOOLS_PATH},readonly`]),
       ]);
       expect(args.slice(-keepalive.length)).toEqual([input.image, ...keepalive.slice(1)]);
+    }
+  });
+
+  it("labels a box with its state folder's label after its run id, and refuses any other value (DIPO-374)", () => {
+    const label = stateFolderLabel("/Users/someone/Library/Application Support/dipo");
+    const flags = readFlags(createArgs({ ...VALID, stateLabel: label }), SHAPES["createArgs"]!);
+    expect(flags.filter(([name]) => name === "--label").map(([, value]) => value)).toEqual([
+      `dipo=${VALID.runId}`,
+      `dipo.state=${label}`,
+    ]);
+    for (const stateLabel of [
+      "",
+      "-x",
+      "--rm",
+      "a=b",
+      "A",
+      "a b",
+      "a,b",
+      "a\nb",
+      "x".repeat(129),
+    ]) {
+      refused(() => createArgs({ ...VALID, stateLabel }));
     }
   });
 

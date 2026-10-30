@@ -63,6 +63,7 @@ import { planInBox } from "../../src/workers/claude-cli/box-plan";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { AdapterHolds } from "../../src/workers/hold";
 import { PlanError, type WorkerSpec } from "../../src/workers/types";
+import { cleanUpRealBoxes } from "./real-box-cleanup";
 
 const registers =
   process.env["DIPO_TEST_BOX"] === "1" &&
@@ -172,12 +173,13 @@ interface Setup {
  * A repository whose head holds a symlink out of the copy, a listed file outside git with the
  * marker, and the box workers on the real backend. `firewallSet: false` leaves the backend's set
  * step out of the firewall while keeping its real check (the fail-closed case). With `live` the
- * real model proxy reads the box login; else a stand-in listens on the box network.
+ * real model proxy reads the box login; else a stand-in listens on the box network. Every box
+ * carries `stateLabel`, the run's clean-up label (DIPO-374).
  */
 async function setup(
   repo: TempRepo,
   tmp: string,
-  options: { readonly firewallSet?: boolean; readonly live?: boolean } = {},
+  options: { readonly stateLabel: string; readonly firewallSet?: boolean; readonly live?: boolean },
 ): Promise<Setup> {
   const home = homedir();
   const env = cleanEnv();
@@ -208,6 +210,7 @@ async function setup(
   });
   const netToolsRoot = join(tmp, "state", "box-net-tools");
   const backend = new AppleContainerBoxes({
+    stateLabel: options.stateLabel,
     spawn: systemSpawn,
     clock: systemClock,
     cli: "/usr/local/bin/container",
@@ -324,13 +327,15 @@ function reviewerSpec(systemFile: string, overrides: Partial<WorkerSpec> = {}): 
 }
 
 if (registers) {
+  // Every box this run makes is deleted after its tests, and one an earlier run left is reported.
+  const cleanup = cleanUpRealBoxes(import.meta.path);
   describe("the reviewer's read-only box on a real box (DIPO-347)", () => {
     it(
       "holds only the head, refuses every write and reaches nothing of the Mac, and fails closed without its firewall",
       async () => {
         await withTempDir(async (tmp) => {
           await withTempRepo(async (repo) => {
-            const s = await setup(repo, realpathSync(tmp));
+            const s = await setup(repo, realpathSync(tmp), { stateLabel: cleanup.stateLabel });
             const agent = `agt_${crypto.randomUUID().replaceAll("-", "").slice(0, 20)}`;
             const box = reviewBoxName(agent);
             const services: Server[] = [];
@@ -477,7 +482,10 @@ if (registers) {
       async () => {
         await withTempDir(async (tmp) => {
           await withTempRepo(async (repo) => {
-            const s = await setup(repo, realpathSync(tmp), { firewallSet: false });
+            const s = await setup(repo, realpathSync(tmp), {
+              stateLabel: cleanup.stateLabel,
+              firewallSet: false,
+            });
             const agent = `agt_${crypto.randomUUID().replaceAll("-", "").slice(0, 20)}`;
             const box = reviewBoxName(agent);
             try {
@@ -510,7 +518,10 @@ if (registers) {
         }
         await withTempDir(async (tmp) => {
           await withTempRepo(async (repo) => {
-            const s = await setup(repo, realpathSync(tmp), { live: true });
+            const s = await setup(repo, realpathSync(tmp), {
+              stateLabel: cleanup.stateLabel,
+              live: true,
+            });
             const agent = `agt_${crypto.randomUUID().replaceAll("-", "").slice(0, 20)}`;
             const box = reviewBoxName(agent);
             try {

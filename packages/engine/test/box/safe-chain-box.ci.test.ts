@@ -42,6 +42,7 @@ import {
 import { BoxWebRoute, type RunningBoxWebRoute, type WebProxyEvent } from "../../src/box/web-proxy";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
+import { cleanUpRealBoxes } from "./real-box-cleanup";
 
 /** The CI guard of every *.ci.test.ts file (0017 section 1). */
 const inCi = process.env["DIPO_TEST_CI"] === "1";
@@ -112,11 +113,14 @@ function curl(target: string, proxyUrl: string | null, more = ""): string {
 }
 
 if (registers) {
+  // Every box this run makes is deleted after its tests, and one an earlier run left is reported.
+  const cleanup = cleanUpRealBoxes(import.meta.path);
   const root = makeTempDir();
   const env = cleanEnv();
   const cliEnv = { PATH: env["PATH"] ?? "/usr/bin:/bin:/usr/local/bin", HOME: homedir() };
   const toolsRoot = join(root, "box-net-tools");
   const boxes = new AppleContainerBoxes({
+    stateLabel: cleanup.stateLabel,
     spawn: systemSpawn,
     clock: systemClock,
     env: cliEnv,

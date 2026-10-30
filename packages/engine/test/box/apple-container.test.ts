@@ -294,6 +294,26 @@ describe("box lifecycle", () => {
       ]);
     }));
 
+  it("labels every box it makes with its state folder label (DIPO-374)", async () => {
+    const { port, fake } = boxes(() => ({ stdout: "dipo-build-1\n" }), { stateLabel: "abc123" });
+    expect(port.stateLabel).toBe("abc123");
+    await port.create({ runId: "build-1", image: "alpine:3.20", network: NETWORK });
+    expect(fake.args()[0]?.slice(0, 7)).toEqual([
+      "create",
+      "--name",
+      "dipo-build-1",
+      "--label",
+      "dipo=build-1",
+      "--label",
+      "dipo.state=abc123",
+    ]);
+    // Without one, no box gets the label.
+    const { port: unlabelled, fake: plain } = boxes(() => ({ stdout: "dipo-build-1\n" }));
+    expect(unlabelled.stateLabel).toBeNull();
+    await unlabelled.create({ runId: "build-1", image: "alpine:3.20", network: NETWORK });
+    expect(plain.args()[0]?.filter((arg) => arg.startsWith("dipo.state"))).toEqual([]);
+  });
+
   it("refuses box network tools without a tools root, outside it, or missing a tool (DIPO-281)", () =>
     withTempDir(async (dir) => {
       const tools = netTools(dir);
@@ -540,9 +560,9 @@ describe("memory and the list", () => {
   it("lists only dipo's boxes: named dipo-<run id> and labelled with that run id", async () => {
     const { port, fake } = boxes(() => ({
       stdout: JSON.stringify([
-        boxJson(BOX, "running", { dipo: RUN }),
+        boxJson(BOX, "running", { dipo: RUN, "dipo.state": "abc123" }),
         boxJson("dipo-run_2", "stopped", { dipo: "run_2" }),
-        boxJson("dipo-run_3", "stopping", { dipo: "run_3" }),
+        boxJson("dipo-run_3", "stopping", { dipo: "run_3", "dipo.state": 7 }),
         boxJson("probe-box", "running", { dipo: "probe-box" }),
         boxJson("dipo-unlabelled", "running"),
         boxJson("dipo-run_4", "running", { dipo: "run_5" }),
@@ -550,9 +570,10 @@ describe("memory and the list", () => {
       ]),
     }));
     expect(await port.list()).toEqual([
-      { name: BOX, runId: RUN, state: "running" },
-      { name: "dipo-run_2", runId: "run_2", state: "stopped" },
-      { name: "dipo-run_3", runId: "run_3", state: "unknown" },
+      // The state folder label (DIPO-374): its string value, else null (none, or not a string).
+      { name: BOX, runId: RUN, state: "running", stateLabel: "abc123" },
+      { name: "dipo-run_2", runId: "run_2", state: "stopped", stateLabel: null },
+      { name: "dipo-run_3", runId: "run_3", state: "unknown", stateLabel: null },
     ]);
     expect(fake.args()[0]).toEqual(["list", "--all", "--format", "json"]);
   });

@@ -5,6 +5,10 @@
 // the backend's client program, not what it already set going: after `box.timedOut` the caller
 // stops or deletes the box (see `create` and `exec`).
 
+import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+
 import type { ChildExit, ChildStdin, Signal } from "@dipsaus-orchestrator/contract";
 
 import type { BoxFirewall } from "./firewall";
@@ -13,6 +17,14 @@ import type { BoxFirewall } from "./firewall";
 export const BOX_NAME_PREFIX = "dipo-";
 /** The label key every box and network dipo makes carries; a box's value is its run id. */
 export const BOX_LABEL = "dipo";
+/**
+ * The second label key every box dipo makes carries (DIPO-374): its value names the state folder
+ * whose daemon made the box (`stateFolderLabel`), so a daemon-start sweep deletes only its own
+ * helper boxes. A backend made without it (`BoxPort.stateLabel` null) labels none.
+ */
+export const BOX_STATE_LABEL = "dipo.state";
+/** A `BOX_STATE_LABEL` value: lowercase letters, digits, dots and dashes, never an option. */
+export const STATE_LABEL_VALUE = /^[a-z0-9][a-z0-9.-]{0,127}$/;
 /** Where the office package cache (0021 section 5, DIPO-267) appears in a box, read-only. */
 export const BOX_PACKAGE_CACHE_PATH = "/dipo/package-cache";
 /** The deadline of one box call unless the call names another. */
@@ -60,6 +72,34 @@ export class BoxError extends Error {
 /** True when `error` is a box call killed at its deadline. */
 export function isBoxTimedOut(error: unknown): error is BoxError {
   return error instanceof BoxError && error.code === "box.timedOut";
+}
+
+/**
+ * The `BOX_STATE_LABEL` value of the state folder `stateDir` (DIPO-374): the sha256 of its real
+ * path, so one folder always gets one value and two folders never share one. For a folder that
+ * does not exist yet, the real path of its deepest existing parent with the rest appended, so
+ * `/tmp/x` and `/private/tmp/x` share one value before `x` exists too.
+ */
+export function stateFolderLabel(stateDir: string): string {
+  return createHash("sha256")
+    .update(realPathOf(resolve(stateDir)))
+    .digest("hex");
+}
+
+/** The real path of the absolute `path`, through its deepest existing parent when it is missing. */
+function realPathOf(path: string): string {
+  const missing: string[] = [];
+  let at = path;
+  for (;;) {
+    try {
+      return join(realpathSync(at), ...missing.toReversed());
+    } catch {
+      const parent = dirname(at);
+      if (parent === at) return path;
+      missing.push(basename(at));
+      at = parent;
+    }
+  }
 }
 
 /** The box name of `runId`; refuses a run id the name cannot carry. */
@@ -127,6 +167,11 @@ export interface BoxInfo {
   readonly name: string;
   readonly runId: string;
   readonly state: BoxState;
+  /**
+   * Its `BOX_STATE_LABEL` value; null when it has none or it cannot be read (a box made before
+   * DIPO-374), and then no daemon-start sweep deletes it.
+   */
+  readonly stateLabel: string | null;
 }
 
 /** Options of a command run in a box. */
@@ -192,6 +237,11 @@ export interface BoxCallOptions {
 export interface BoxPort {
   /** The backend id, for example `apple-container`. */
   readonly id: string;
+  /**
+   * The `BOX_STATE_LABEL` value every box this backend makes carries: its daemon's state folder's
+   * (`stateFolderLabel`, DIPO-374). Null: it labels none, and its daemon-start sweep deletes none.
+   */
+  readonly stateLabel: string | null;
   /** The start check: refuses with a reason when boxes cannot run on this machine. */
   check(options?: BoxCallOptions): Promise<BoxCheck>;
   /** Prepares the host-only box network, or reuses it; refuses one that is not host-only. */

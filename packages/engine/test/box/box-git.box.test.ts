@@ -58,6 +58,7 @@ import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
 import { AdapterHolds } from "../../src/workers/hold";
 import { backlogLayout } from "../story-store/backlog";
+import { cleanUpRealBoxes } from "./real-box-cleanup";
 
 const registers =
   process.env["DIPO_TEST_BOX"] === "1" &&
@@ -94,6 +95,8 @@ async function macState(repo: TempRepoWithRemote): Promise<string> {
 }
 
 if (registers) {
+  // Every box this run makes is deleted after its tests, and one an earlier run left is reported.
+  const cleanup = cleanUpRealBoxes(import.meta.path);
   describe("the box's own git repository and the verify at done, on a real box", () => {
     it(
       "makes the repository, runs a git test as the verify, and keeps every form of .git out of the parts",
@@ -122,6 +125,7 @@ if (registers) {
               clock: new ManualClock(),
             });
             const boxes = new AppleContainerBoxes({
+              stateLabel: cleanup.stateLabel,
               spawn: systemSpawn,
               clock: systemClock,
               cli: "/usr/local/bin/container",

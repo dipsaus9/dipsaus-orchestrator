@@ -50,6 +50,7 @@ import { systemListenHttp } from "../../src/platform/box-host";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
 import { AdapterHolds } from "../../src/workers/hold";
+import { cleanUpRealBoxes } from "./real-box-cleanup";
 
 const registers =
   process.env["DIPO_TEST_BOX"] === "1" &&
@@ -122,6 +123,8 @@ async function routeOf(address: string): Promise<string> {
 }
 
 if (registers) {
+  // Every box this run makes is deleted after its tests, and one an earlier run left is reported.
+  const cleanup = cleanUpRealBoxes(import.meta.path);
   describe("the test box on real boxes (DIPO-309)", () => {
     it(
       "is reached through the forwarder on the Mac's loopback only, answers only the Mac on its dev port, and fails closed",
@@ -146,6 +149,7 @@ if (registers) {
               clock: new ManualClock(),
             });
             const boxes = new AppleContainerBoxes({
+              stateLabel: cleanup.stateLabel,
               spawn: systemSpawn,
               clock: systemClock,
               cli: "/usr/local/bin/container",
