@@ -3,10 +3,10 @@ id: DIPO-320
 title: >-
   Serve reads concurrently with deadlines, share client rules, build dipo watch
   on the store
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-22 21:00'
-updated_date: '2026-10-25 09:57'
+updated_date: '2026-10-30 15:59'
 labels:
   - 'tier:L'
   - 'slice:prune'
@@ -64,11 +64,17 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Reads are dispatched concurrently on each connection, keyed by request id. Only subscribes to the same stream stay in order. Each read has a deadline, after which it answers a coded `timedOut`.
-- [ ] #2 The command and read executors write one structured log line per request: name, request id, office, outcome code and milliseconds.
-- [ ] #3 The runtime layout rules live in one runtime-free module that both engine and client import, and the parity test is removed.
-- [ ] #4 `dipo watch` builds its state on `OfficeStore`. The percent formatter, the health labels, the output-range codec and `storyRef` exist once in client and are used by cli and tui.
-- [ ] #5 The TUI reads from the command definitions which commands confirm, as the CLI does.
-- [ ] #6 Every colour in the TUI goes through one place that honours `NO_COLOR` and `--no-color`, shown by a test with `NO_COLOR` set. `App`'s key handling is split per mode.
-- [ ] #7 Tests cover a slow read next to a fast one, the read deadline, the log line, and watch on the store.
+- [x] #1 Reads are dispatched concurrently on each connection, keyed by request id. Only subscribes to the same stream stay in order. Each read has a deadline, after which it answers a coded `timedOut`.
+- [x] #2 The command and read executors write one structured log line per request: name, request id, office, outcome code and milliseconds.
+- [x] #3 The runtime layout rules live in one runtime-free module that both engine and client import, and the parity test is removed.
+- [x] #4 `dipo watch` builds its state on `OfficeStore`. The percent formatter, the health labels, the output-range codec and `storyRef` exist once in client and are used by cli and tui.
+- [x] #5 The TUI reads from the command definitions which commands confirm, as the CLI does.
+- [x] #6 Every colour in the TUI goes through one place that honours `NO_COLOR` and `--no-color`, shown by a test with `NO_COLOR` set. `App`'s key handling is split per mode.
+- [x] #7 Tests cover a slow read next to a fast one, the read deadline, the log line, and watch on the store.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Delivered in four PRs. Part 1 (#466): the daemon serves a connection's reads side by side, keyed by request id. At most 32 reads and subscribes run at once per connection; only subscribes and unsubscribes of one stream keep their order. Each read and subscribe has a 90 s deadline that answers request.timedOut, a generic contract code. Every command and read a client sends writes one log line with name, request id, office, the outcome the client got, and milliseconds; the engine's own desk read writes none. Part 2 (#467): the runtime layout rules (folders, dipo.pid, runtime.json, process identity, the detached environment and the log names) live once in the contract's runtime-free runtime-layout.ts, which the engine, the client and testkit import. Paths are normalised before a containment check, and an unknown uid refuses the runtime folder. The lifecycle parity test is removed. Part 3 (#468): dipo watch builds its state on the OfficeStore. The percent formatter, the health words, the output-range codec and storyRef exist once in the client and are used by the CLI and the TUI. Part 4 (#469): the TUI reads from the command definitions which actions confirm, sends every colour through one Colored that honours NO_COLOR and --no-color (tested by a child render with FORCE_COLOR=3), and splits App's key handling per mode. The maintainer approved the ADR changes: 0005 says the daemon serves a connection's frames side by side, a command never waits behind a read or subscribe, request.timedOut is a generic code, and request.reused on a read or subscribe means its id is still running; 0004's contract row now holds the runtime layout, with the parity-test copy in its Replaced list. Follow-up G13: a run can end without a closing event, so dipo watch keeps a 15 s idle check of story.detail, skipping stories a closing event just checked.
+<!-- SECTION:FINAL_SUMMARY:END -->
