@@ -18,6 +18,7 @@
 import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { parseSafeChainRecord, type SafeChainRecord } from "../box/safe-chain";
+import { appendEntries } from "../changelog/log";
 import { canonicalJson } from "../config/merge";
 import type { OfficeHandle } from "../db/office";
 import { finalizeRunAgents } from "../ingest/usage";
@@ -511,8 +512,9 @@ export function capsStartedAt(
  * parks, loops, review rounds, verify failures, budget tokens used, minutes worked, the story's
  * criteria count and the declared scope size. A park writes its `parks` row before it ends the
  * run, so its reason is counted. An end that closes the run's active period also makes the usage
- * of every agent whose exit was not ingested final (`finalizeRunAgents`, DIPO-51). True when this
- * call ended the run, false when the end did not apply.
+ * of every agent whose exit was not ingested final (`finalizeRunAgents`, DIPO-51). It also writes
+ * the run's `run.ended` entry on the office stream (0005, DIPO-397). True when this call ended the
+ * run, false when the end did not apply.
  *
  * One end is not always the last (DIPO-75, DIPO-142): a parked run reopens on resume
  * (`reopenRun`), and its next end rewrites the provisional row with every park and round of the
@@ -538,7 +540,45 @@ export function endRun(
   // 2026-10-14, DIPO-51); what ingestion adds later feeds only its change.
   if (ended.before.endedAt === null) finalizeRunAgents(office, runId, at);
   writeRunOutcome(office, runId, ending);
+  appendRunEnded(office, runId, at, ended.after.endedAt ?? at, ending);
   return true;
+}
+
+/**
+ * Appends the `run.ended` entry of the end `endRun` applied (0005 section 6), in the caller's
+ * transaction. It names the run, and its story when the run has one; `endedAt` is the end of the
+ * run's last active period, the time `runs.ended_at` keeps.
+ */
+function appendRunEnded(
+  office: OfficeHandle,
+  runId: RunId,
+  at: number,
+  endedAt: number,
+  ending: RunEnd,
+): void {
+  const run = findRun(office, runId);
+  if (run === null) return;
+  const key = run.key === null ? {} : { key: run.key };
+  const story = run.story === null ? {} : { story: run.story };
+  appendEntries(
+    office,
+    [
+      {
+        type: "run.ended",
+        run: runId,
+        ...key,
+        delta: {
+          run: runId,
+          kind: run.kind,
+          ending,
+          endedAt: new Date(endedAt).toISOString(),
+          ...key,
+          ...story,
+        },
+      },
+    ],
+    { at },
+  );
 }
 
 /**

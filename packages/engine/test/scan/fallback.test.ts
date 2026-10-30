@@ -550,8 +550,8 @@ describe("endLostScanSessions", () => {
   it("ends only the scan session runs left open, so the office is not kept busy", () =>
     withHarness(async (h) => {
       for (const [run, role] of [
-        ["run_scan", "scanner"],
-        ["run_other", "planner"],
+        ["run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D", "scanner"],
+        ["run_01J9ZK5Q8W3V4X6Y7Z8A9B0C2E", "planner"],
       ] as const) {
         h.office.run(
           `insert into runs (office_id, run_id, kind, role, model, budget_unit, budget_limit,
@@ -560,13 +560,30 @@ describe("endLostScanSessions", () => {
           { run, role },
         );
       }
-      expect(endLostScanSessions(h.office, h.t.clock.now())).toEqual(["run_scan"]);
-      expect(activeRuns(h.office).map((run) => String(run.runId))).toEqual(["run_other"]);
+      expect(endLostScanSessions(h.office, h.t.clock.now())).toEqual([
+        "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+      ]);
+      expect(activeRuns(h.office).map((run) => String(run.runId))).toEqual([
+        "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C2E",
+      ]);
       expect(
         h.office.get<{ end_kind: string }>(
-          "select end_kind from runs where office_id = $office_id and run_id = 'run_scan'",
+          "select end_kind from runs where office_id = $office_id and run_id = 'run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D'",
         )?.end_kind,
       ).toBe("dropped");
+      // Each end is on the office stream once, so a client sees it without polling (DIPO-397).
+      expect(
+        entriesAfter(h.office)
+          .filter((entry) => entry.type === "run.ended")
+          .map((entry) => entry.delta),
+      ).toEqual([
+        {
+          run: "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+          kind: "session",
+          ending: "dropped",
+          endedAt: new Date(h.t.clock.now()).toISOString(),
+        },
+      ]);
       expect(endLostScanSessions(h.office, h.t.clock.now())).toEqual([]);
     }));
 });

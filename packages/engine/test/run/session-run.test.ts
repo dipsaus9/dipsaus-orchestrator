@@ -33,6 +33,7 @@ import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-che
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
 import type { HostOp, LaunchPlan, ParseState } from "../../src/workers/types";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
+import { entriesAfter } from "../stories/helpers";
 
 const MODEL = "claude-sonnet-5";
 const ANSWER = { proposals: [] };
@@ -236,6 +237,16 @@ async function until(done: () => boolean): Promise<void> {
 const limit = (info: Record<string, unknown>) =>
   line({ type: "rate_limit_event", rate_limit_info: info, session_id: "session-s" });
 
+/** The `run.ended` entries of the office stream, reduced to their kind and ending. */
+function runEnds(office: OfficeHandle): { kind: string; ending: string }[] {
+  return entriesAfter(office)
+    .filter((entry) => entry.type === "run.ended")
+    .map((entry) => {
+      const { kind, ending } = entry.delta as { kind: string; ending: string };
+      return { kind, ending };
+    });
+}
+
 describe("a scan session run", () => {
   it("reports a plan limit with its reset time, and whether it is credits_required (0020)", () =>
     withWorld(async (w) => {
@@ -312,6 +323,8 @@ describe("a scan session run", () => {
         w.office.get<{ end_kind: string }>("select end_kind from runs where office_id = $office_id")
           ?.end_kind,
       ).toBe("dropped");
+      // The end is on the office stream too (DIPO-397).
+      expect(runEnds(w.office)).toEqual([{ kind: "session", ending: "dropped" }]);
     }));
 
   it("is stopped at daemon stop, so its caps hold after the daemon is gone", () =>
@@ -330,6 +343,7 @@ describe("a scan session run", () => {
         "dipo stopped it: the daemon stopped",
       );
       expect(w.runs.liveRuns()).toEqual([]);
+      expect(runEnds(w.office)).toEqual([{ kind: "session", ending: "dropped" }]);
       // Nothing left to stop.
       await w.runs.stopAll();
       expect(w.sent).toHaveLength(1);

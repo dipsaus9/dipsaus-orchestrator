@@ -507,6 +507,14 @@ const officeEventFixtures: Record<string, unknown> = {
     lastGoodCommit: "4f2a9c1",
     actions: ["work.answer", "work.resume", "work.discard", "story.drop"],
   },
+  "run.ended": {
+    run: ids.run,
+    kind: "story",
+    ending: "done",
+    endedAt: "2026-10-12T09:03:00Z",
+    key: ids.storyKey,
+    story: "DIPO-26",
+  },
   "story.pr": {
     story: "DIPO-21",
     key: ids.storyKey,
