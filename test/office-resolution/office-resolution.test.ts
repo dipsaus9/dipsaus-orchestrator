@@ -32,7 +32,7 @@ import {
   type Workspace,
 } from "../../packages/cli/src/workspace";
 import { executeCommand } from "../../packages/engine/src/commands/execute";
-import { resolveRepository } from "../../packages/engine/src/office/repository";
+import { resolveRepository } from "../../packages/engine/src/git/repository";
 import { systemSpawn } from "../../packages/engine/src/platform/process";
 import {
   BACKLOG_FIXTURE,

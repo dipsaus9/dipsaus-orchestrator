@@ -615,6 +615,8 @@
                 "group": [
                   "**/gate",
                   "**/gate/**",
+                  "**/gate-decisions",
+                  "**/gate-decisions/**",
                   "**/gates",
                   "**/gates/**",
                   "**/budget",
@@ -841,7 +843,7 @@
         "packages/engine/src/backlog/pr/feature.ts",
         "packages/engine/src/commands/execute.ts",
         "packages/engine/src/context/default-provider.ts",
-        "packages/engine/src/gate/store/read.ts",
+        "packages/engine/src/gate-decisions/read.ts",
         "packages/engine/src/prompts/parts.ts",
         "packages/engine/src/run/control-endings.ts",
         "packages/engine/src/run/control-turns.ts",

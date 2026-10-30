@@ -12,22 +12,24 @@ import { parseView } from "../../src/backlog/plain";
 import type { OfficeHandle } from "../../src/db/office";
 import type { GitSession } from "../../src/git/office";
 import {
-  BaseTreeCache,
   evaluateGate,
-  findPassingDecision,
   gateContentHash,
-  gateDecisionsOf,
   type GateMode,
+  rulesFor,
+  WARNING_RULES,
+} from "../../src/gate";
+import {
+  BaseTreeCache,
+  findPassingDecision,
+  gateDecisionsOf,
   listTreeFiles,
   ruleNamesFor,
   ruleResults,
-  rulesFor,
   storeGateDecision,
   treePaths,
-  WARNING_RULES,
-} from "../../src/gate";
+} from "../../src/gate-decisions";
 import { isStoryNotFound, parseMilestones } from "../../src/backlog";
-import { gateInputOf } from "../../src/gate/store/read";
+import { gateInputOf } from "../../src/gate-decisions/read";
 import { BacklogCommandError } from "../../src/backlog/runner";
 import { addStory, type StoryIdentity } from "../../src/stories/keys";
 import { readManifest, recorded } from "../backlog/helpers";
@@ -40,7 +42,7 @@ import {
   input,
   PASSING_BLOCK,
   PASSING_STORY,
-} from "./fixtures";
+} from "../gate/fixtures";
 
 describe("gate content hash", () => {
   const base = gateContentHash(PASSING_STORY);

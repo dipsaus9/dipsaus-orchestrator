@@ -3,10 +3,10 @@ id: DIPO-389
 title: >-
   Move office discovery, backup files, gate decisions and the worktree list to
   their layers
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-30 11:22'
-updated_date: '2026-10-30 11:44'
+updated_date: '2026-10-30 22:18'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -58,10 +58,16 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `office/repository.ts`, `backup/files.ts`, `gate/store/` (its hash to `gate/`, the rest to `gate-decisions/`) and `reconcile/git-facts.ts` move with their tests, and every importer, barrel (`index.ts`), path-scoped override in .oxlintrc.json, lint test and comment that names an old path names the new one; no barrel re-exports a file from another directory
-- [ ] #2 Only paths and import lines change: no function, type or behaviour changes, and no test is removed or skipped
-- [ ] #3 The coarse dipo/engine-layers rule still passes with no exception, and `bun run verify` passes
-- [ ] #4 `bun scripts/engine-graph.ts --layers scripts/engine-layers-target.json --files` lists none of the back-edges this story names as removed, and no import it did not list before the story, except `worktree/git-facts.ts -> story-pr/records.ts`, which stays on worktree -> story-pr until DIPO-391
-- [ ] #5 `gate/index.ts` no longer re-exports `gate/store`, no `gate/store/` directory remains, ENGINE_LAYERS lists `gate-decisions` and no longer lists `pricing`, and `scripts/engine-layers-target.json` no longer lists `gate/store`
-- [ ] #6 `bun scripts/engine-graph.ts` lists no cycle of backup, db and retention
+- [x] #1 `office/repository.ts`, `backup/files.ts`, `gate/store/` (its hash to `gate/`, the rest to `gate-decisions/`) and `reconcile/git-facts.ts` move with their tests, and every importer, barrel (`index.ts`), path-scoped override in .oxlintrc.json, lint test and comment that names an old path names the new one; no barrel re-exports a file from another directory
+- [x] #2 Only paths and import lines change: no function, type or behaviour changes, and no test is removed or skipped
+- [x] #3 The coarse dipo/engine-layers rule still passes with no exception, and `bun run verify` passes
+- [x] #4 `bun scripts/engine-graph.ts --layers scripts/engine-layers-target.json --files` lists none of the back-edges this story names as removed, and no import it did not list before the story, except `worktree/git-facts.ts -> story-pr/records.ts`, which stays on worktree -> story-pr until DIPO-391
+- [x] #5 `gate/index.ts` no longer re-exports `gate/store`, no `gate/store/` directory remains, ENGINE_LAYERS lists `gate-decisions` and no longer lists `pricing`, and `scripts/engine-layers-target.json` no longer lists `gate/store`
+- [x] #6 `bun scripts/engine-graph.ts` lists no cycle of backup, db and retention
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+First engine-layer move of the DIPO-381 plan, paths and import lines only: office/repository.ts to git/, backup/files.ts to db/, gate/store/ split into its hash in gate/ and the rest in a new top-level gate-decisions/, reconcile/git-facts.ts to worktree/, each with its tests, importers, barrels and lint overrides. The backup/db/retention cycle is gone; against the target layers 30 back-edges (75 statements) became 25 (71). One extra edge the spike did not see (prompts/feedback.ts -> box/safe-chain, from DIPO-376) now belongs to DIPO-394. ENGINE_LAYERS lists gate-decisions and no longer pricing; the gate purity test allows the hash's two imports in gate/hash.ts only; the worker host's import ban covers gate-decisions, with a lint fixture. Follow-up DIPO-400 renames the stale feature names.
+<!-- SECTION:FINAL_SUMMARY:END -->

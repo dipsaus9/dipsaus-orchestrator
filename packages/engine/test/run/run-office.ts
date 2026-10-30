@@ -24,7 +24,7 @@ import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { systemClock } from "../../src/platform/clock";
 import { BacklogLane } from "../../src/backlog/lane";
 import type { OfficeHandle } from "../../src/db/office";
-import { GateStore } from "../../src/gate";
+import { GateStore } from "../../src/gate-decisions";
 import { EngineGit } from "../../src/git";
 import { WorkerHost } from "../../src/host/main";
 import { EVENTS_FILE, hostSocketPath, HOSTS_DIR, LAUNCH_FILE } from "../../src/host/protocol";

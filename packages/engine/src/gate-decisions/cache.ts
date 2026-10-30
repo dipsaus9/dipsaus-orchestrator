@@ -5,9 +5,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { OfficeHandle } from "../../db/office";
-import type { OfficeGit } from "../../git/office";
-import type { GateTask } from "../types";
+import type { OfficeHandle } from "../db/office";
+import type { OfficeGit } from "../git/office";
+import type { GateTask } from "../gate/types";
 
 interface CachedRow {
   story_id: string;

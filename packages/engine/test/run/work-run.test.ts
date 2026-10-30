@@ -32,7 +32,7 @@ import { buildRegistry, type Registry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
-import { storeGateDecision } from "../../src/gate/store/decisions";
+import { storeGateDecision } from "../../src/gate-decisions/decisions";
 import type { GateMode, GateResult } from "../../src/gate/types";
 import { executeRead } from "../../src/reads/execute";
 import { GitError } from "../../src/git/runner";

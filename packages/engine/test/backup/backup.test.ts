@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { backupsDirectory, prunePreMigrationBackups } from "../../src/backup/files";
+import { backupsDirectory, prunePreMigrationBackups } from "../../src/db/backup-files";
 import { openStateDatabase } from "../../src/db/database";
 import { DatabaseTooNewError } from "../../src/db/migrations";
 import { MIGRATIONS } from "../../src/db/schema";

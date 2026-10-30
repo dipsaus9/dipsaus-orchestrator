@@ -10,7 +10,7 @@ import { initKind } from "../backlog/init/ops";
 import { OfficeInit } from "../backlog/init/init";
 import { BacklogPrs } from "../backlog/pr/feature";
 import { boxTokenHoldPath, boxTokenStickyHolds } from "../box/token-hold";
-import { GateStore } from "../gate/store/feature";
+import { GateStore } from "../gate-decisions/feature";
 import type { AutoMergeGuard } from "../merge/guard";
 import { gitParkWriter } from "../run/park";
 import { officeHoldStore } from "../run/starts-paused";

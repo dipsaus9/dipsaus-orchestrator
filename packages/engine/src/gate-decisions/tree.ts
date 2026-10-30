@@ -6,7 +6,7 @@
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
-import type { GitSession } from "../../git/office";
+import type { GitSession } from "../git/office";
 
 /** The paths of `git ls-tree -r -z --name-only` output, in the order listed. */
 export function treePaths(listing: string): string[] {

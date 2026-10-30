@@ -3,15 +3,15 @@
 // mirror when the caller has it for this commit, DIPO-180, else the whole task list and one read
 // each) and the milestones. The office configuration comes from the caller.
 
-import { openDependencies } from "../../run/select";
-import { isProvisionalId } from "../../stories/keys";
-import { mapLimited, VIEW_CONCURRENCY } from "../../stories/read";
-import { StoryParseError } from "../../story-store/errors";
-import { checkoutFiles } from "../../story-store/folder";
-import type { StoryStore } from "../../story-store/store";
-import type { PlainListEntry, PlainTask } from "../../story-store/story";
-import { gateStoryFromView, gateTaskFromView } from "../input";
-import type { GateConfig, GateDependency, GateInput, GateTask } from "../types";
+import { openDependencies } from "../run/select";
+import { isProvisionalId } from "../stories/keys";
+import { mapLimited, VIEW_CONCURRENCY } from "../stories/read";
+import { StoryParseError } from "../story-store/errors";
+import { checkoutFiles } from "../story-store/folder";
+import type { StoryStore } from "../story-store/store";
+import type { PlainListEntry, PlainTask } from "../story-store/story";
+import { gateStoryFromView, gateTaskFromView } from "../gate/input";
+import type { GateConfig, GateDependency, GateInput, GateTask } from "../gate/types";
 
 /** The dependencies of `task` that are not Done, with the status the CLI read for each (DIPO-179). */
 export function waitingOnOf(task: PlainTask): GateDependency[] {

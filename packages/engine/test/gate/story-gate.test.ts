@@ -12,7 +12,7 @@ import { describe, expect, it } from "bun:test";
 import { type OfficeId, StoryId } from "@dipsaus-orchestrator/contract";
 
 import { CommandError } from "../../src/commands/errors";
-import { cachedGateTasks, GateStore } from "../../src/gate";
+import { cachedGateTasks, GateStore } from "../../src/gate-decisions";
 import { systemSpawn } from "../../src/platform/process";
 import { countRows } from "../commands/helpers";
 import { backlog, CLI, failed, key, publish, read, withGatedOffice } from "./gated-office";

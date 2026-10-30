@@ -27,7 +27,7 @@ import {
 import { collectPrDiff } from "../packages/engine/src/backlog/pr/diff";
 import type { BacklogCli } from "../packages/engine/src/backlog/runner";
 import { gateStoryFromView } from "../packages/engine/src/gate/input";
-import { gateContentHash } from "../packages/engine/src/gate/store/hash";
+import { gateContentHash } from "../packages/engine/src/gate/hash";
 import type { GitLocation } from "../packages/engine/src/git/hardened";
 import type { GitSession } from "../packages/engine/src/git/office";
 import {

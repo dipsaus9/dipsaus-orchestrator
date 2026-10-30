@@ -7,7 +7,7 @@ import { describe, expect, it } from "bun:test";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { withBareRemote } from "@dipsaus-orchestrator/testkit";
 
-import { StoryNotFoundError, readGateInput } from "../../src/gate/store/read";
+import { StoryNotFoundError, readGateInput } from "../../src/gate-decisions/read";
 import { EngineGit } from "../../src/git";
 import type { OfficeGit } from "../../src/git/office";
 import { closeOutFields } from "../../src/merge/close-out";

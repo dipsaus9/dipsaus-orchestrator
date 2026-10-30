@@ -18,7 +18,8 @@ import { allEntries, LANE_NOTICES, OfficeLane, pendingLaneOp } from "../../../sr
 import { insertEntry, updateEntry } from "../../../src/backlog/lane/journal";
 import { BacklogMerges, BacklogPrs, findPr, PR_NOTICES } from "../../../src/backlog/pr";
 import { gateStoryFromView } from "../../../src/gate/input";
-import { gateContentHash, storeGateDecision } from "../../../src/gate/store";
+import { gateContentHash } from "../../../src/gate";
+import { storeGateDecision } from "../../../src/gate-decisions";
 import { AutoMerge } from "../../../src/merge";
 import type { RequiredCheck } from "../../../src/platform/host";
 import { addStory } from "../../../src/stories/keys";

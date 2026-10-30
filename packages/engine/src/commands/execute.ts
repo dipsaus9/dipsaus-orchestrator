@@ -31,7 +31,7 @@ import {
 import { appendEntries, headCursor, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
-import { canonicalPath } from "../office/repository";
+import { canonicalPath } from "../git/repository";
 
 import { errorFromThrown } from "./errors";
 import type { OfficeDirectory } from "./offices";

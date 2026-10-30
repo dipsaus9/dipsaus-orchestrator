@@ -17,7 +17,7 @@ import {
   runGitStep,
   spawnGitExec,
 } from "../../src/git/runner";
-import { resolveRepository } from "../../src/office/repository";
+import { resolveRepository } from "../../src/git/repository";
 import { KILL_GRACE_MS } from "../../src/platform/deadline";
 import { hangingSpawn, settle } from "../platform/hanging";
 

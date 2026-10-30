@@ -15,7 +15,7 @@ import {
   type SqliteConnection,
   type SqlRunner,
 } from "../platform/sqlite";
-import { prunePreMigrationBackups, removeDailyBackups } from "../backup/files";
+import { prunePreMigrationBackups, removeDailyBackups } from "./backup-files";
 
 /** What a TypeScript step may use: statements and multi-statement SQL, inside its transaction. */
 export interface MigrationContext extends SqlRunner {

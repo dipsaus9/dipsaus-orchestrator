@@ -13,15 +13,15 @@ import { type OfficeId, StoryId } from "@dipsaus-orchestrator/contract";
 import { CommandError } from "../../src/commands/errors";
 import { systemSpawn } from "../../src/platform/process";
 
+import { gateContentHash } from "../../src/gate";
 import {
   findPassingDecision,
   gateConfigOf,
-  gateContentHash,
   gateDecisionsOf,
   GateStore,
   readGateInput,
   ruleNamesFor,
-} from "../../src/gate";
+} from "../../src/gate-decisions";
 import { countRows } from "../commands/helpers";
 import { backlog, CLI, key, publish, read, withGatedOffice } from "./gated-office";
 import { backlogStoryStore } from "../../src/backlog/store";

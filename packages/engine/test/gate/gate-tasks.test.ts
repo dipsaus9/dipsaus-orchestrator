@@ -8,7 +8,8 @@ import { describe, expect, it } from "bun:test";
 import type { Spawn } from "@dipsaus-orchestrator/contract";
 
 import type { BacklogCli } from "../../src/backlog/runner";
-import { cachedGateTasks, evaluateGate, readGateInput } from "../../src/gate";
+import { evaluateGate } from "../../src/gate";
+import { cachedGateTasks, readGateInput } from "../../src/gate-decisions";
 import { applyIndex, applyStory } from "../../src/stories/apply";
 import { storyRead } from "../../src/backlog/read";
 import { storyFromRead } from "../../src/stories/read";

@@ -1,7 +1,7 @@
 // The worktree list reconcile reads (DIPO-56): `git worktree list --porcelain -z` parsed into
 // paths, HEADs, branches, prunable reasons and locks, and the worktrees whose directory is gone,
 // including a locked one, which git never marks prunable. The other git cases run in
-// reconcile.ci.test.ts.
+// reconcile/reconcile.ci.test.ts.
 
 import { describe, expect, it } from "bun:test";
 import { rmSync } from "node:fs";
@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { canonicalFuturePath } from "../../src/git/paths";
-import { clearCommands, goneWorktrees, parseWorktreeList } from "../../src/reconcile";
+import { clearCommands, goneWorktrees, parseWorktreeList } from "../../src/worktree";
 
 describe("parseWorktreeList", () => {
   it("reads each entry's path, HEAD, branch, prunable reason and lock", () => {

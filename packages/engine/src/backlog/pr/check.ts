@@ -18,7 +18,7 @@
 import type { StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { gateStoryFromView } from "../../gate/input";
-import { gateContentHash } from "../../gate/store/hash";
+import { gateContentHash } from "../../gate/hash";
 import { FieldBlockError, parseFieldBlock } from "../../story-store/fields/block";
 import type { PlainTask } from "../../story-store/story";
 

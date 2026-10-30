@@ -8,7 +8,7 @@ import { describe, expect, it } from "bun:test";
 
 import { RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
 
-import { GateStore } from "../../src/gate";
+import { GateStore } from "../../src/gate-decisions";
 import { insertRun } from "../../src/run/records";
 import { insertClaim } from "../../src/worktree/records";
 import { systemSpawn } from "../../src/platform/process";

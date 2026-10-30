@@ -10,7 +10,7 @@ import { type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/t
 
 import type { OfficeHandle } from "../../src/db/office";
 import type { Logger } from "../../src/log/logger";
-import { GateStore } from "../../src/gate";
+import { GateStore } from "../../src/gate-decisions";
 import { EngineGit } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import { executeRead } from "../../src/reads/execute";

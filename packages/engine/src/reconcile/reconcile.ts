@@ -14,7 +14,7 @@
 //    The stories are indexed again after a release; a claim skipped because `_base` moved is
 //    retried once after a reindex.
 // 2. Git: `git worktree list` and the claimed branches. A running story whose branch changed by
-//    hand (gone, or no longer holding the commits dipo recorded, `git-facts.ts`) parks
+//    hand (gone, or no longer holding the commits dipo recorded, `worktree/git-facts.ts`) parks
 //    `scope-violation` with the evidence; a claimed story that is not running gets a notice.
 //    Prunable worktrees get a notice; `git worktree prune` runs only after the maintainer confirms
 //    it by running it.
@@ -44,7 +44,7 @@ import { join } from "node:path";
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import { findPassingDecision } from "../gate/store/decisions";
+import { findPassingDecision } from "../gate-decisions/decisions";
 import type { OfficeGit } from "../git/office";
 import type { CodeHost, PrStateHost } from "../platform/host";
 import { LAUNCH_FILE } from "../host/protocol";
@@ -63,7 +63,7 @@ import { lifecycleOf } from "../views/story";
 import { type ClaimRecord, liveClaims } from "../worktree/records";
 
 import { releaseDoneOnBase } from "./done-on-base";
-import { clearCommands, goneWorktrees, readGitFacts } from "./git-facts";
+import { clearCommands, goneWorktrees, readGitFacts } from "../worktree/git-facts";
 
 /** The launch file a run's worker host is started with (DIPO-44), in its run directory. */
 function launchFileOf(git: OfficeGit, runId: string): string {

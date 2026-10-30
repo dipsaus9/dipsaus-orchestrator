@@ -12,7 +12,7 @@ import { OfficeId, type StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { FeatureModule } from "../../src/commands/registry";
 import type { OfficeHandle } from "../../src/db/office";
-import { storeGateDecision } from "../../src/gate/store/decisions";
+import { storeGateDecision } from "../../src/gate-decisions/decisions";
 import type { GateResult } from "../../src/gate/types";
 import { LAUNCH_FILE } from "../../src/host/protocol";
 import { officeDirectory, writeMarker } from "../../src/office/marker";
