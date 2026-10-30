@@ -247,13 +247,11 @@ describe("tests that start a daemon", () => {
       expect.arrayContaining([
         "client/test/integration/daemon.test.ts",
         "client/test/integration/lifecycle.ci.test.ts",
-        "daemon/test/integration/crash-loop.test.ts",
         "daemon/test/integration/db-close.ci.test.ts",
         "daemon/test/integration/drain.ci.test.ts",
         "daemon/test/integration/foreground.ci.test.ts",
         "daemon/test/integration/reattach-kill.ci.test.ts",
         "daemon/test/integration/reconcile.ci.test.ts",
-        "daemon/test/integration/upgrade-restart.test.ts",
         "daemon/src/foreground-bootout.test.ts",
         "daemon/src/index.test.ts",
       ]),
@@ -279,9 +277,7 @@ describe("tests that start a daemon", () => {
     const names = inProcess.map((file) => relative(packages, file));
     expect(names).toEqual(
       expect.arrayContaining([
-        "daemon/test/integration/crash-loop.test.ts",
         "daemon/test/integration/uncaught-error.test.ts",
-        "daemon/test/integration/upgrade-restart.test.ts",
         "daemon/src/foreground-bootout.test.ts",
         "daemon/src/index.test.ts",
       ]),

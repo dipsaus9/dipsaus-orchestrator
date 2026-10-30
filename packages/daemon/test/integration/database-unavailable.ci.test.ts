@@ -1,11 +1,10 @@
 // CI only (0017 section 1, DIPO-225): real git repositories and processes, too slow for the local
 // run.
-// A state database the daemon cannot open or migrate (DIPO-111, 0007 sections 9 and 10), against
-// real `dipo daemon --foreground` processes: the daemon stays up in `recovering` and serves
+// A state database the daemon cannot open or migrate (DIPO-111, 0005, 0007), against real
+// `dipo daemon --foreground` processes: the daemon stays up in `recovering` and serves
 // `engine.hello`, `daemon.status`, `daemon.setLogLevel` and `daemon.stop`, refuses office commands
 // and reads with the non-retryable `database.unavailable`, and its notice and `daemon.status` say
-// what to do. After an unclean exit it runs `PRAGMA quick_check` and reports damage the same way;
-// the check stays pending across a clean exit until a check passes.
+// what to do. A file SQLite finds damaged at open is reported the same way.
 // From the kept-up state, `daemon.stop` (what `dipo daemon stop` sends without a supervisor) and
 // then copying the named pre-migration backup over `dipo.db` by hand (0007) bring it back. State, runtime directory and temp files
 // stay under the test's temp directory, and every daemon is stopped in a `finally`.
@@ -178,64 +177,23 @@ async function refusals(dir: string): Promise<Refusal> {
   }
 }
 
-/** Why each start ran quick_check, from the daemon log, oldest first. */
-function checks(dir: string): string[] {
-  return readFileSync(join(dir, "state", "logs", "daemon.log"), "utf8")
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line) as { msg: string; because?: string })
-    .filter((line) => line.msg === "checking the state database with quick_check")
-    .map((line) => line.because ?? "");
-}
-
 /**
- * Overwrites the root page of every table and index in `path` with 0xff, so `PRAGMA quick_check`
- * reports each one, and returns those page numbers. The pages come from `sqlite_schema.rootpage`
- * and `PRAGMA page_size`, not from a layout the test assumes: which pages hold which table moves
- * as migrations add tables and rows. Root pages of other b-trees are never pages of the schema
- * b-tree, so the schema read at open still succeeds and only quick_check finds the damage. The
- * write-ahead log is folded into the file first, so no newer copy of a page in it hides the damage.
+ * Overwrites the 100-byte header of `path` with 0xff after folding the write-ahead log into the
+ * file, so SQLite finds no database there at the next open.
  */
-function damageRootPages(path: string): number[] {
+function damageHeader(path: string): void {
   const db = new Database(path, { readwrite: true, strict: true });
-  let pageSize: number;
-  let roots: number[];
   try {
     db.run("pragma wal_checkpoint(TRUNCATE)");
-    pageSize = (db.query("pragma page_size").get() as { page_size: number }).page_size;
-    roots = (
-      db
-        .query(
-          "select rootpage from sqlite_schema where type in ('table', 'index') and rootpage > 1 order by rootpage",
-        )
-        .all() as { rootpage: number }[]
-    ).map((row) => row.rootpage);
   } finally {
     db.close();
   }
-  expect(roots.length).toBeGreaterThan(0);
   const fd = openSync(path, "r+");
   try {
-    for (const page of roots) {
-      writeSync(fd, Buffer.alloc(pageSize, 0xff), 0, pageSize, (page - 1) * pageSize);
-    }
+    writeSync(fd, Buffer.alloc(100, 0xff), 0, 100, 0);
   } finally {
     closeSync(fd);
   }
-  return roots;
-}
-
-function crashFile(dir: string): Record<string, unknown> {
-  return JSON.parse(readFileSync(join(dir, "state", "crashes.json"), "utf8")) as Record<
-    string,
-    unknown
-  >;
-}
-
-function crashMarker(dir: string): unknown {
-  return (
-    JSON.parse(readFileSync(join(dir, "state", "crashes.json"), "utf8")) as { running: unknown }
-  ).running;
 }
 
 /** Recovery by hand (0007): the backup copied over `dipo.db`, its sidecars gone. */
@@ -304,8 +262,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(daemon.exitCode).toBeNull();
 
             expect(await stopOverSocket(dir, daemon)).toBe(0);
-            // A clean exit: the next start counts no crash.
-            expect(crashMarker(dir)).toBeNull();
             expect(existsSync(join(dir, "state", "dipo.pid"))).toBe(false);
           } finally {
             await kill(daemon);
@@ -363,7 +319,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     );
 
     it(
-      "runs quick_check after an unclean exit, reports damage, and copying the backup in brings it back",
+      "stays up for a damaged file with the recovery-by-hand text, and copying the backup in brings it back",
       async () => {
         await withDaemonTempDir(async (dir) => {
           const env = daemonTestEnv(dir);
@@ -372,35 +328,20 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const backup = join(dir, "state", "backups", "pre-v1-20261016T000000.db");
           mkdirSync(join(dir, "state", "backups"), { recursive: true });
           copyFileSync(live, backup);
-
-          // An unclean exit: the daemon is killed while it runs.
-          const killed = start(env);
-          try {
-            await waitForStatus(dir, killed, running);
-            killed.kill("SIGKILL");
-            await killed.exited;
-          } finally {
-            await kill(killed);
-          }
-
-          // Damage the root page of every table and index; the schema b-tree stays readable, so only
-          // quick_check notices.
-          damageRootPages(live);
+          damageHeader(live);
+          const damagedBytes = readFileSync(live);
 
           const damaged = start(env);
           try {
             const status = await waitForStatus(dir, damaged, held);
-            expect(checks(dir)).toEqual(["unclean exit"]);
             const refused = await refusals(dir);
             expect(refused).toMatchObject({
               code: "database.unavailable",
               retryable: false,
+              message: status.stateReason,
               details: { reason: "damaged", backup },
             });
-            // quick_check at open found it, before any other read could.
-            expect(status.stateReason).toContain(
-              "The state database is damaged (PRAGMA quick_check reported: ",
-            );
+            expect(status.stateReason).toContain("The state database is damaged (");
             expect(status.stateReason).toContain(
               `Run \`dipo daemon stop\`, move ${join(dir, "state", "dipo.db")} and its -wal and -shm files away, or delete those two files and copy ${backup} over ${join(dir, "state", "dipo.db")}, then start the daemon again.`,
             );
@@ -409,26 +350,13 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             await kill(damaged);
           }
 
-          // A clean exit while held for damage keeps the check pending: a restart (or an upgrade
-          // restart) without a new file checks the file again and stays held.
-          expect(crashFile(dir)).toMatchObject({ running: null, needsCheck: true });
-          const again = start(env);
-          try {
-            await waitForStatus(dir, again, held);
-            expect(checks(dir)).toEqual(["unclean exit", "check pending from an earlier start"]);
-            expect(await stopOverSocket(dir, again)).toBe(0);
-          } finally {
-            await kill(again);
-          }
-
+          // The daemon left the damaged file as it was: recovery is by hand (0007).
+          expect(readFileSync(live).equals(damagedBytes)).toBe(true);
           restoreByHand(dir, backup);
 
-          // The copied file passes the pending check, which clears it.
           const daemon = start(env);
           try {
             await waitForStatus(dir, daemon, running);
-            expect(checks(dir)).toHaveLength(3);
-            expect(crashFile(dir)).not.toHaveProperty("needsCheck");
           } finally {
             await kill(daemon);
           }

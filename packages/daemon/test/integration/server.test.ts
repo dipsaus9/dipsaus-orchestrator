@@ -8,7 +8,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import {
-  CONTRACT_VERSION,
   type Cursor,
   type Event,
   type OfficeSummary,
@@ -98,29 +97,6 @@ describe("handshake", () => {
     expect((await client.read("daemon.status")).ok).toBe(true);
     // Nothing but the handshake and the read after it reached the engine.
     expect(h.engine.heard.map((heard) => heard.name)).toEqual(["engine.hello", "daemon.status"]);
-  });
-
-  it("gives a client of another major only the frozen surface", async () => {
-    const h = await start();
-    const client = await connect(h, false);
-    const hello = await client.hello({ major: CONTRACT_VERSION.major + 1, minor: 0 });
-    if (hello.ok) throw new Error("expected contract.unsupported");
-    expect(hello.error.code).toBe("contract.unsupported");
-
-    const status = okResult<{ state: string; pid: number; version: string }>(
-      await client.read("daemon.status"),
-    );
-    expect(status).toMatchObject({ state: "running", pid: process.pid, version: TEST_VERSION });
-    expect(errorCode(await client.read("commands.describe"))).toBe("contract.unsupported");
-    expect(errorCode(await client.subscribe("software"))).toBe("contract.unsupported");
-    const stop = await client.command("daemon.stop", { stopWorkers: false });
-    expect(stop.ok).toBe(true);
-    // commands.describe and the subscription never reached the engine.
-    expect(h.engine.heard.map((heard) => heard.name)).toEqual([
-      "engine.hello",
-      "daemon.status",
-      "daemon.stop",
-    ]);
   });
 
   it("closes a connection that sends something other than JSON", async () => {

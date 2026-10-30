@@ -61,8 +61,11 @@ describe("office switcher", () => {
 
     // Enter sent the read office.switch; the store left the old stream and follows the new one
     // after the cursor the read returned (0005 section 8).
-    // The overview reads the new office's output tails after it (DIPO-81).
-    expect(session.reads.filter((read) => read.name !== "work.outputRange").at(-1)).toEqual({
+    // The overview reads the new office's output tails and its digest after it (DIPO-81).
+    const reads = session.reads.filter(
+      (read) => read.name !== "work.outputRange" && read.name !== "office.digest",
+    );
+    expect(reads.at(-1)).toEqual({
       name: "office.switch",
       args: { office: OFFICES.slaydoku },
     });
@@ -171,7 +174,7 @@ describe("connection and daemon states", () => {
     expect(ui.frame()).not.toContain("open repository path");
   });
 
-  it("shows the recovering, draining and safe banners", async () => {
+  it("shows the recovering and draining banners", async () => {
     const { ui, session } = await open();
     await ui.waitFor("· live");
     const software = session.active("software");
@@ -179,15 +182,7 @@ describe("connection and daemon states", () => {
     await ui.waitFor("Daemon recovering – office data after reconcile");
     software?.options.onEvent(daemonState("draining", 51));
     await ui.waitFor("Daemon stopping – will reconnect");
-    software?.options.onEvent(daemonState("safe", 52));
-    const frame = await ui.waitFor("Scheduling off after repeated crashes – [S] resume scheduling");
-    expect(frame).toContain("daemon safe");
-
-    await ui.press("S");
-    await ui.waitFor("Resume scheduling? [y/N]");
-    await ui.press("y");
-    await ui.waitFor("scheduling resumed");
-    expect(session.commands).toEqual([{ name: "daemon.resumeScheduling", args: {} }]);
+    expect(session.commands).toEqual([]);
   });
 
   it("after a draining daemon goes away, shows offline instead of the stale draining state", async () => {

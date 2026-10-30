@@ -39,7 +39,6 @@ async function openTest() {
   const view = await mount({
     columns: 120,
     rows: 30,
-    capabilities: ["desk", "test.sessions"],
   });
   mounted.push(view.ui);
   await view.ui.waitFor("· live");

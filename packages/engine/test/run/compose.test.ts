@@ -100,7 +100,7 @@ const CONTROL: NonNullable<RunPorts["control"]> = {
 
 const REATTACH: NonNullable<RunPorts["reattach"]> = {
   probe: async () => null,
-  steering: { send: async () => ({ ok: true }) },
+  signal: () => false,
   adapter: () => null,
   initialState: () => ({}),
   caps: () => null,

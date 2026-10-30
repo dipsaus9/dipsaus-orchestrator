@@ -32,13 +32,11 @@ import { GitError } from "../../src/git/runner";
 import { gatherHandoff, renderHandoff } from "../../src/prompts/handoff";
 import { latestWorkerNotes, WORKER_NOTES_MAX } from "../../src/prompts/notes";
 import { Steering } from "../../src/host/steering";
-import type { ProcessInfo } from "../../src/platform/process";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
 import {
   type BranchPark,
   CAP_TICK_MS,
   findRun,
-  hostSocketSteering,
   insertRun,
   type ParkBranchRequest,
   recordGrant,
@@ -730,119 +728,6 @@ describe("story.park of a running story", () => {
       .filter((event) => event.type === "engine.notice")
       .map((event) => (event.data as { code: string }).code);
     expect(codes).toEqual(["run.stopNotSent"]);
-  });
-});
-
-/** The codes of the notices written so far, in order. */
-function noticeCodes(): string[] {
-  return loggedEvents(w.f.office)
-    .filter((event) => event.type === "engine.notice")
-    .map((event) => (event.data as { code: string }).code);
-}
-
-describe("story.park of a run on a follow-only host (DIPO-93)", () => {
-  const START = 1_767_225_600_000;
-  const signals: [number, string][] = [];
-
-  /** The host row as re-attach leaves a follow-only host: mode follow, its real start time. */
-  function followOnly(): void {
-    signals.length = 0;
-    w.f.office.immediate(() =>
-      w.f.office.run(
-        `update worker_hosts set mode = 'follow', start_time_ms = $start
-          where office_id = $office_id and run_id = $run`,
-        { start: START, run: w.f.run },
-      ),
-    );
-  }
-
-  function realSteering(info: Partial<ProcessInfo> | null): void {
-    w.steer = hostSocketSteering({
-      clock: w.f.t.clock,
-      probe: async (pid) =>
-        info === null
-          ? null
-          : {
-              pid,
-              startTimeMs: START,
-              zombie: false,
-              command: `/opt/dipo daemon worker-host ${w.f.run}`,
-              ...info,
-            },
-      signal: (pid, signal) => {
-        signals.push([pid, signal]);
-        return true;
-      },
-    }).send;
-  }
-
-  it("sends one SIGTERM to the verified host PID and parks as for any stop (AC #1)", async () => {
-    track();
-    followOnly();
-    realSteering({});
-    const reply = await stopCommand("DIPO-1");
-    expect(reply.ok).toBe(true);
-    // One signal, to the host PID alone (not a group), and no socket op.
-    expect(signals).toEqual([[4242, "SIGTERM"]]);
-    expect(parks().map((p) => [p.reason, p.detail])).toEqual([["by-maintainer", PARKED_NOTE]]);
-    expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
-      ["stop", "sent"],
-    ]);
-    expect(noticeCodes()).toEqual(["run.stopSignalled"]);
-    expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
-  });
-
-  it("never signals a PID it cannot verify; the story still parks with the reason", async () => {
-    for (const info of [
-      null,
-      { startTimeMs: START + 60_000 },
-      { command: "/usr/bin/vim notes.txt" },
-      { zombie: true },
-    ]) {
-      track();
-      followOnly();
-      w.f.office.immediate(() =>
-        w.f.office.run(
-          "update runs set ended_at = null, end_kind = null where office_id = $office_id",
-        ),
-      );
-      realSteering(info);
-      const before = parks().length;
-      const reply = await stopCommand("DIPO-1");
-      expect(reply.ok).toBe(true);
-      expect(signals).toEqual([]);
-      expect(parks().length).toBe(before + 1);
-      expect(parks().at(-1)?.reason).toBe("by-maintainer");
-      expect(runIntents(w.f.office, w.f.run).at(-1)?.state).toBe("failed");
-      expect(runIntents(w.f.office, w.f.run).at(-1)?.error).toContain("dipo sent no signal");
-      expect(noticeCodes().at(-1)).toBe("run.stopNotSent");
-    }
-  });
-
-  it("never signals a host an older dipo started, which does not stop its worker on SIGTERM", async () => {
-    track();
-    followOnly();
-    w.f.office.immediate(() =>
-      w.f.office.run("update worker_hosts set signal_stop = 0 where office_id = $office_id"),
-    );
-    realSteering({});
-    expect((await stopCommand("DIPO-1")).ok).toBe(true);
-    expect(signals).toEqual([]);
-    expect(runIntents(w.f.office, w.f.run).at(-1)?.error).toContain("older dipo");
-    expect(parks().map((p) => p.reason)).toEqual(["by-maintainer"]);
-  });
-
-  it("still refuses ops that are not a stop: a steer, a stdin close", async () => {
-    followOnly();
-    realSteering({});
-    const steering = w.steer;
-    if (steering === null) throw new Error("no steering");
-    for (const ops of [encode({ kind: "steer", text: "hi" }), [{ closeStdin: true } as const]]) {
-      const sent = await steering(w.f.office, w.f.run, ops);
-      expect(sent.ok).toBe(false);
-      expect(sent.ok ? "" : sent.reason).toContain("follow-only");
-    }
-    expect(signals).toEqual([]);
   });
 });
 

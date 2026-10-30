@@ -150,12 +150,17 @@ describe("dipo daemon status", () => {
     expect(none.out).toEqual(["not running"]);
 
     const stale = fake({
-      inspect: { kind: "not running", cleaned: ["/state/dipo.pid", "/state/runtime.json"] },
+      inspect: {
+        kind: "not running",
+        cleaned: ["/state/runtime.json"],
+        staleLock: "/state/dipo.pid",
+      },
     });
     expect(await main(["daemon", "status"], stale.deps)).toBe(3);
     expect(stale.out).toEqual([
       "stale",
-      "  removed leftovers of a daemon that is gone: /state/dipo.pid, /state/runtime.json",
+      "  removed leftovers of a daemon that is gone: /state/runtime.json",
+      "  stale lock of a daemon that is gone, left for the next daemon start: /state/dipo.pid",
     ]);
   });
 
@@ -180,6 +185,11 @@ describe("dipo daemon status", () => {
         3,
         { status: "stale", cleaned: ["/state/runtime.json"] },
       ],
+      [
+        { kind: "not running", cleaned: [], staleLock: "/state/dipo.pid" },
+        3,
+        { status: "stale", cleaned: [], staleLock: "/state/dipo.pid" },
+      ],
     ];
     for (const [inspect, code, json] of cases) {
       const ctx = fake({ inspect });
@@ -188,16 +198,11 @@ describe("dipo daemon status", () => {
     }
   });
 
-  it("reports a daemon of another contract major as running with the restart hint", async () => {
-    const ctx = fake({
-      inspect: {
-        kind: "foreign",
-        record: RECORD,
-        details: { contract: { major: 2, minor: 0 }, version: "2.0.0" },
-      },
-    });
+  it("reports a daemon of another version as running with the restart hint (0005)", async () => {
+    const ctx = fake({ inspect: { kind: "foreign", record: RECORD, version: "2.0.0" } });
     expect(await main(["daemon", "status"], ctx.deps)).toBe(0);
     expect(ctx.out[0]).toBe("running");
+    expect(ctx.out[2]).toBe("  version:    2.0.0 (another version)");
     expect(ctx.err).toEqual([
       "dipo: daemon runs v2.0.0, this binary is v0.0.0-dev, run `dipo daemon restart`",
     ]);

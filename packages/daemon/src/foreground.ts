@@ -1,12 +1,9 @@
-// `dipo daemon --foreground` (0006 decisions 3, 5, 6, 7 and 13): take the PID lock, choose the
-// runtime directory, bind the socket and re-read the lock in `starting`; open and migrate the state
-// database as the first recovery step in `recovering` (0007 section 1), with `PRAGMA quick_check`
-// after an unclean exit (0007 section 10); then `running`, or `safe` after a crash loop. A database
-// it cannot open or migrate keeps it in `recovering`, serving software commands with a notice that
-// says what to do (0007 sections 9 and 10, DIPO-111). SIGTERM, SIGINT, or the minute check finding
-// another live daemon holding the lock, move it to `draining`, and it exits once the drain is done
-// or capped. An error no code caught drains it too, and that exit is a crash: exit 1 with the crash
-// marker kept (DIPO-117).
+// `dipo daemon --foreground` (0005): take the PID lock, choose the runtime directory and bind the
+// socket in `starting`; open and migrate the state database as the first recovery step in
+// `recovering` (0007); then `running`. A database it cannot open or migrate keeps it in
+// `recovering`, serving software commands with a notice that says what to do. SIGTERM or SIGINT
+// move it to `draining`, and it exits once the drain is done or capped. An error no code caught
+// drains it too, and then it exits 1.
 
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -16,7 +13,6 @@ import {
   type LogLevel,
   type SoftwareConfig,
   type Spawn,
-  type TimerHandle,
   type ToolPaths,
 } from "@dipsaus-orchestrator/contract";
 import {
@@ -35,7 +31,6 @@ import {
   chooseRuntimeDir,
   createLogger,
   currentPlatform,
-  detachedEnv,
   ensurePrivateDir,
   errorCodeOf,
   helloHandshake,
@@ -56,7 +51,6 @@ import {
   systemExecutableStamp,
   systemProcessProbe,
   systemSpawn,
-  systemSpawnDetached,
   systemPostNotification,
   systemSpawnKeepAwake,
   underLaunchdJob,
@@ -71,17 +65,12 @@ import {
   type PostNotification,
   type ReadExecutableStamp,
   type ServedSocket,
-  type SpawnDetached,
   type SpawnKeepAwake,
 } from "@dipsaus-orchestrator/engine/platform";
 
-import { CrashCounter, STABLE_RUN_MS } from "./crash-counter";
 import { noOrphansActive, type DaemonIo, type UncaughtEvent, type UncaughtSource } from "./io";
 import { ContractServer } from "./server";
-import { UPGRADE_REASON, UpgradeWatcher } from "./upgrade";
-
-/** How often the daemon checks that `dipo.pid` still holds its own record (0006 decision 6). */
-export const LOCK_CHECK_MS = 60_000;
+import { UpgradeWatcher } from "./upgrade";
 
 export const FOREGROUND_USAGE =
   "dipo daemon --foreground [--log-level error|warn|info|debug|trace]";
@@ -97,8 +86,6 @@ export interface ForegroundOptions {
   readonly features?: readonly FeatureModule[];
   /** How the upgrade check reads the executable; tests replace the file system. */
   readonly readExecutableStamp?: ReadExecutableStamp;
-  /** How the daemon starts the new binary after an upgrade drain; tests record the call. */
-  readonly spawnDetached?: SpawnDetached;
   /** Starts the keep-awake process (0006 decision 12); tests take no real assertion. */
   readonly spawnKeepAwake?: SpawnKeepAwake;
   /** Posts the desk notifications (DIPO-357); tests post nothing to the real notification centre. */
@@ -157,8 +144,7 @@ export function onUncaughtErrors(
 }
 
 /**
- * The first stop request wins: a signal, a lost lock, later `daemon.stop` (DIPO-24), or an error no
- * code caught (DIPO-117).
+ * The first stop request wins: a signal, `daemon.stop`, or an error no code caught (DIPO-117).
  */
 class StopRequests {
   #requested: DrainRequest | null = null;
@@ -291,15 +277,16 @@ export async function runForeground(
     level: parsed.level,
     component: "daemon",
   });
-  // An error no code caught (DIPO-117) drains the daemon and makes its exit a crash: the crash
-  // marker stays and the exit code is 1, so the crash loop counts it (0006 decision 7).
+  // An error no code caught (DIPO-117) drains the daemon, and its exit code is 1.
   const removeUncaught = onUncaughtErrors(logger, () => stops.crash(), io.uncaughtErrors);
   try {
-    // Software-level settings (0006 amendment of 2026-10-12), read once at start. An invalid or
-    // newer file stops the start: the daemon never guesses its own settings (0017 section 5). It
-    // exits with EXIT_CONFIG (78), so a supervisor does not restart it in a loop (DIPO-63).
+    // Software-level settings (0005, 0017), read once at start. An invalid or newer file stops the
+    // start: the daemon never guesses its own settings. It exits with EXIT_CONFIG (78), so a
+    // supervisor does not restart it in a loop (DIPO-63). A retired key an older file sets is
+    // dropped with a warning.
     const settings = await loadSoftwareConfig(dirs.state);
     if (!settings.ok) return await refuseSettings(settings.errors, io, logger, options);
+    for (const warning of settings.warnings) logger.warn(warning);
     logger.info("software configuration", {
       fromFile: settings.fromFile,
       ...settings.config.daemon,
@@ -334,7 +321,7 @@ interface Run {
   readonly io: DaemonIo;
   readonly logger: Logger;
   readonly logFile: LogFile;
-  /** The software-level settings read at start; DIPO-70 acts on `daemon.autoRestartOnUpgrade`. */
+  /** The software-level settings read at start. */
   readonly settings: SoftwareConfig;
   readonly stateDir: string;
   readonly platform: ReturnType<typeof currentPlatform>;
@@ -393,7 +380,7 @@ async function runWithLog(run: Run): Promise<number> {
   return serve(run, outcome.lock);
 }
 
-/** Where the daemon listens: its runtime directory and socket (0006 decision 13). */
+/** Where the daemon listens: its runtime directory and socket (0005). */
 interface Place {
   readonly uid: number;
   readonly runtimeDir: string;
@@ -403,46 +390,14 @@ interface Place {
 }
 
 /**
- * The daemon's timers, the minute lock check and the stable-run reset of the crash counter, and
- * whether the lock check found another live daemon holding the lock.
+ * Chooses the runtime directory and the socket path in it, once the lock is held (0005). Null when
+ * the lock no longer holds this process: a starter that lost the race leaves the winner's socket
+ * alone. Exported for its test.
  */
-interface Timers {
-  lock: TimerHandle | null;
-  stable: TimerHandle | null;
-  lockLost: boolean;
-}
-
-/**
- * The crash counter (0006 decision 7), opened right after the lock is taken so an unclean exit
- * anywhere later, also early in `starting`, counts as a crash: a marker left by the previous daemon
- * is one crash. After an unclean exit the database may be damaged (0007 section 10): the open runs
- * `PRAGMA quick_check`. An unreadable counter cannot tell, so it counts as one, and so does a check
- * an earlier daemon left pending (`needsCheck`, DIPO-111).
- */
-function openCrashes(
-  run: Run,
-  lock: HeldLock,
-): { readonly crashes: CrashCounter; readonly checkBecause: string | null } {
-  const { logger, stateDir, io } = run;
-  const opened = CrashCounter.open(stateDir, lock.record(), io.clock);
-  if (opened.damaged) logger.warn("the crash counter was unreadable; starting it afresh");
-  if (opened.previousCrashed) {
-    logger.warn("the previous daemon did not exit cleanly", {
-      recentCrashes: opened.counter.recentCrashes,
-    });
-  }
-  const checkBecause = opened.previousCrashed
-    ? "unclean exit"
-    : opened.damaged
-      ? "crash counter unreadable"
-      : opened.needsCheck
-        ? "check pending from an earlier start"
-        : null;
-  return { crashes: opened.counter, checkBecause };
-}
-
-/** Chooses the runtime directory and the socket path in it (0006 decision 13). */
-function choosePlace(run: Run, lock: HeldLock): Place {
+export function choosePlace(
+  run: Pick<Run, "io" | "logger">,
+  lock: Pick<HeldLock, "holds" | "setRuntimeDir" | "path">,
+): Place | null {
   const { io, logger } = run;
   const uid = process.getuid?.() ?? -1;
   const tmpRoot = io.env["DIPO_TMP"] || "/tmp";
@@ -456,6 +411,7 @@ function choosePlace(run: Run, lock: HeldLock): Place {
     logger.warn("runtime directory candidate rejected", { ...rejected });
   }
   logger.info("runtime directory chosen", { path: choice.path, source: choice.source });
+  if (!lock.holds()) return null;
   lock.setRuntimeDir(choice.path);
   const socketPath = join(choice.path, SOCKET_FILE);
   removeSocketFile(socketPath);
@@ -474,11 +430,11 @@ function daemonTools(run: Run): ToolPaths {
 }
 
 /**
- * Upgrades (0006 decision 14): checked every minute; an automatic restart waits while the engine
- * is busy. Once any stop is requested the watcher counts as busy and stops, so a daemon someone
- * stopped never starts a new binary on its own.
+ * The upgrade check (0005): every minute, until a stop is requested. The same tick checks that
+ * `dipo.pid` still holds this daemon's record; a daemon that lost it drains and exits 1, so two
+ * daemons never keep running on one `dipo.db`.
  */
-function upgradeWatcher(run: Run): UpgradeWatcher {
+function upgradeWatcher(run: Run, lock: HeldLock, lost: { lockLost: boolean }): UpgradeWatcher {
   const { io, logger, stops, options } = run;
   const command = selfCommand();
   const watcher = new UpgradeWatcher({
@@ -486,8 +442,12 @@ function upgradeWatcher(run: Run): UpgradeWatcher {
     logger,
     executable: command[command.length - 1] ?? process.execPath,
     readStamp: options.readExecutableStamp ?? systemExecutableStamp,
-    autoRestart: run.settings.daemon.autoRestartOnUpgrade,
-    restart: () => stops.request({ reason: UPGRADE_REASON, stopWorkers: false }),
+    onTick: () => {
+      if (stops.requested !== null || lock.holds()) return;
+      logger.error("dipo.pid no longer holds this daemon's record; draining", { path: lock.path });
+      lost.lockLost = true;
+      stops.request({ reason: "lock lost", stopWorkers: false });
+    },
   });
   void stops.promise.then(() => watcher.stop());
   return watcher;
@@ -497,12 +457,7 @@ function upgradeWatcher(run: Run): UpgradeWatcher {
 function startEngine(
   run: Run,
   place: Place,
-  parts: {
-    readonly lock: HeldLock;
-    readonly crashes: CrashCounter;
-    readonly checkBecause: string | null;
-    readonly upgrade: UpgradeWatcher;
-  },
+  parts: { readonly lock: HeldLock; readonly upgrade: UpgradeWatcher },
 ): Engine {
   const { io, logger, stateDir, options } = run;
   const record = parts.lock.record();
@@ -514,7 +469,7 @@ function startEngine(
     probe,
     spawnKeepAwake: options.spawnKeepAwake ?? systemSpawnKeepAwake,
     postNotification: options.postNotification ?? systemPostNotification(systemSpawn, io.clock),
-    // Worker hosts run detached as `dipo daemon worker-host <run>` (0006 decision 8).
+    // Worker hosts run detached as `dipo daemon worker-host <run>` (0005).
     hosts: systemHostStarter({
       clock: io.clock,
       runtimeDir: place.runtimeDir,
@@ -538,10 +493,6 @@ function startEngine(
       upgradePending: () => parts.upgrade.pending,
       requestStop: (request) => run.stops.request(request),
     },
-    databaseCheck: {
-      because: parts.checkBecause,
-      needsCheck: (value) => parts.crashes.setNeedsCheck(value),
-    },
     ...(options.extraMigrations === undefined ? {} : { extraMigrations: options.extraMigrations }),
     ...(options.recoverySteps === undefined ? {} : { recoverySteps: options.recoverySteps }),
     ...(options.features === undefined ? {} : { features: options.features }),
@@ -549,115 +500,59 @@ function startEngine(
   });
 }
 
-/**
- * The stale-break window (0006 decision 6): the lock is read again after binding and before any
- * state is touched; then `runtime.json` names the socket, and every minute the lock is checked.
- */
-function claimPlace(run: Run, lock: HeldLock, place: Place, timers: Timers): boolean {
-  const { io, logger, stops, stateDir } = run;
-  if (!lock.verify()) {
-    logger.error("the daemon lock does not hold this process after binding; exiting", {
-      path: lock.path,
-    });
-    io.writeError("dipo: another daemon took the lock while this one started; exiting.");
-    return false;
-  }
+/** `runtime.json` names the socket once it is bound, so clients find it (0005). */
+function announcePlace(run: Run, lock: HeldLock, place: Place): void {
   const record = lock.record();
-  writeRuntimeRecord(stateDir, {
+  writeRuntimeRecord(run.stateDir, {
     runtimeDir: place.runtimeDir,
     socket: place.socketPath,
     pid: record.pid,
     startTimeMs: record.startTimeMs,
     version: record.version,
   });
-  logger.info("listening", { socket: place.socketPath });
-  const tick = () => {
-    timers.lock = io.clock.setTimeout(() => {
-      timers.lock = null;
-      lock.check().then(
-        (result) => {
-          if (result.kind === "lost") {
-            logger.error("another live daemon holds the lock; draining", {
-              holder: result.holder.pid,
-            });
-            timers.lockLost = true;
-            stops.request({ reason: "lock lost", stopWorkers: false });
-            return;
-          }
-          if (stops.requested === null) tick();
-        },
-        (error: unknown) => {
-          logger.error("lock check failed", { error });
-          if (stops.requested === null) tick();
-        },
-      );
-    }, LOCK_CHECK_MS);
-  };
-  tick();
-  return true;
+  run.logger.info("listening", { socket: place.socketPath });
 }
 
 /**
- * Recovery (0006 decision 7), unless a stop came first: a stop during recovery lets the current
- * step finish and the drain follows. In `running` or `safe`, ten stable minutes reset the crash
- * counter.
+ * Recovery (0005), unless a stop came first: a stop during recovery lets the current step finish
+ * and the drain follows.
  */
-async function recover(
-  run: Run,
-  engine: Engine,
-  crashes: CrashCounter,
-  timers: Timers,
-): Promise<void> {
-  const { stops, io, logger } = run;
-  if (stops.requested === null) {
-    const recovery = engine.recover({ crashLoop: crashes.crashLoop }).then(
-      () => ({ kind: "settled" as const }),
-      (error: unknown) => ({ kind: "failed" as const, error }),
-    );
-    const first = await Promise.race([
-      recovery,
-      stops.promise.then(() => ({ kind: "stop" as const })),
-    ]);
-    if (first.kind === "failed") throw first.error;
-  }
-  const state = engine.state();
-  if (state !== "running" && state !== "safe") return;
-  timers.stable = io.clock.setTimeout(() => {
-    timers.stable = null;
-    const now = engine.state();
-    if (now !== "running" && now !== "safe") return;
-    crashes.reset();
-    logger.info("stable for 10 minutes; crash counter reset");
-  }, STABLE_RUN_MS);
+async function recover(run: Run, engine: Engine): Promise<void> {
+  const { stops } = run;
+  if (stops.requested !== null) return;
+  const recovery = engine.recover().then(
+    () => ({ kind: "settled" as const }),
+    (error: unknown) => ({ kind: "failed" as const, error }),
+  );
+  const first = await Promise.race([
+    recovery,
+    stops.promise.then(() => ({ kind: "stop" as const })),
+  ]);
+  if (first.kind === "failed") throw first.error;
 }
 
 /** What the daemon closes down at its exit. */
 interface Held {
   readonly lock: HeldLock;
-  readonly timers: Timers;
   upgrade: UpgradeWatcher | null;
   engine: Engine | null;
   server: ContractServer | null;
   socket: ServedSocket | null;
-  crashes: CrashCounter | null;
 }
 
 /**
- * Closes down in order: the timers and the upgrade check, the engine's services, the server, the
- * socket, then the database (0007 section 10), the crash marker on a clean exit and the lock. A
- * daemon that lost the lock leaves the socket path alone: it may belong to the daemon that holds
- * the lock now.
+ * Closes down in order: the upgrade check, the engine's services, the server, the socket, then the
+ * database (0007) and the lock (0005). A socket path whose lock another daemon holds now is left
+ * alone.
  */
-async function closeDown(run: Run, held: Held, clean: boolean): Promise<void> {
-  const { io, logger, logFile, stops } = run;
-  const { lock, timers } = held;
-  if (timers.lock !== null) io.clock.clearTimeout(timers.lock);
-  if (timers.stable !== null) io.clock.clearTimeout(timers.stable);
+async function closeDown(run: Run, held: Held): Promise<void> {
+  const { logger, logFile } = run;
+  const { lock } = held;
   held.upgrade?.stop();
   await held.engine?.stop();
   // No more debounced office summaries once the daemon stops.
   held.server?.close();
-  const ownsLock = lock.verify();
+  const ownsLock = lock.holds();
   try {
     if (held.socket !== null) {
       await held.socket.stop({ removeFile: ownsLock });
@@ -668,59 +563,26 @@ async function closeDown(run: Run, held: Held, clean: boolean): Promise<void> {
     // reaches a closed database. A failure is a warn, never a crash (DIPO-87).
     held.engine?.closeDatabase();
   }
-  // Only a clean exit clears the crash marker; any other exit counts as a crash next start. An
-  // error no code caught while the daemon closed down makes it unclean too (DIPO-117).
-  const cleanExit = clean && !stops.crashed;
-  if (cleanExit) held.crashes?.cleanExit();
   lock.release();
   if (ownsLock) logger.info("lock released", { path: lock.path });
-  // An upgrade drain ends in the new binary (0006 decision 14), started only now that the lock and
-  // the socket are free, with the same environment minus the Bun flag variables.
-  if (
-    cleanExit &&
-    stops.requested?.reason === UPGRADE_REASON &&
-    held.upgrade?.restarting === true
-  ) {
-    startNewBinary(run);
-  }
   logger.info("daemon stopped", { log: logFile.path });
-}
-
-function startNewBinary(run: Run): void {
-  const { io, logger, options } = run;
-  try {
-    const started = (options.spawnDetached ?? systemSpawnDetached)({
-      cmd: [...selfCommand(), "daemon", "--foreground", "--log-level", logger.level()],
-      cwd: process.cwd(),
-      env: detachedEnv(io.env),
-      outputFile: "/dev/null",
-    });
-    logger.info("started the new binary", { pid: started.pid });
-  } catch (error) {
-    logger.error("could not start the new binary; run `dipo daemon start`", { error });
-  }
 }
 
 /** Serves the engine on the socket until a stop, then drains; resolves to the exit code. */
 async function serve(run: Run, lock: HeldLock): Promise<number> {
   const { io, logger, stops, options } = run;
-  const held: Held = {
-    lock,
-    timers: { lock: null, stable: null, lockLost: false },
-    upgrade: null,
-    engine: null,
-    server: null,
-    socket: null,
-    crashes: null,
-  };
-  let clean = false;
+  const held: Held = { lock, upgrade: null, engine: null, server: null, socket: null };
+  const lost = { lockLost: false };
   try {
-    const { crashes, checkBecause } = openCrashes(run, lock);
-    held.crashes = crashes;
     const place = choosePlace(run, lock);
-    const upgrade = upgradeWatcher(run);
+    if (place === null) {
+      logger.error("the daemon lock does not hold this process; exiting", { path: lock.path });
+      io.writeError("dipo: another daemon took the lock while this one started; exiting.");
+      return 1;
+    }
+    const upgrade = upgradeWatcher(run, lock, lost);
     held.upgrade = upgrade;
-    const engine = startEngine(run, place, { lock, crashes, checkBecause, upgrade });
+    const engine = startEngine(run, place, { lock, upgrade });
     held.engine = engine;
     const server = new ContractServer({
       engine,
@@ -732,23 +594,29 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     held.server = server;
     server.onPresenceChanged(() => engine.setTuiPresent(server.presence.tuiConnected()));
     held.socket = serveUnixSocket(place.socketPath, (connection) => server.accept(connection));
-    if (!claimPlace(run, lock, place, held.timers)) return 1;
-    upgrade.start(() => stops.requested !== null || engine.busy());
-    await recover(run, engine, crashes, held.timers);
-    const request = await stops.promise;
-    if (held.timers.stable !== null) io.clock.clearTimeout(held.timers.stable);
-    held.timers.stable = null;
-    await engine.drain(request, options.drainCaps);
-    // A requested drain exits 0 and is no crash, even at its cap (DIPO-68). After an error no code
-    // caught it is a crash, whichever reason the drain has.
-    if (stops.crashed) {
-      logger.error("exiting 1 after an uncaught error; the next start counts a crash", {
-        reason: request.reason,
+    // Once, after the bind and before any state is touched (0005): a starter that lost a race for
+    // the lock exits here and leaves the socket and the runtime record to the winner.
+    if (!lock.holds()) {
+      logger.error("the daemon lock does not hold this process after binding; exiting", {
+        path: lock.path,
       });
+      io.writeError("dipo: another daemon took the lock while this one started; exiting.");
+      return 1;
     }
-    clean = !held.timers.lockLost && !stops.crashed;
-    return clean ? 0 : 1;
+    announcePlace(run, lock, place);
+    upgrade.start();
+    await recover(run, engine);
+    const request = await stops.promise;
+    await engine.drain(request, options.drainCaps);
+    // A requested drain exits 0, even at its cap (DIPO-68). After an error no code caught it exits
+    // 1, whichever reason the drain has.
+    if (stops.crashed) {
+      logger.error("exiting 1 after an uncaught error", { reason: request.reason });
+      return 1;
+    }
+    // A daemon that lost its lock exits 1 too: another daemon owns the state now.
+    return lost.lockLost ? 1 : 0;
   } finally {
-    await closeDown(run, held, clean);
+    await closeDown(run, held);
   }
 }

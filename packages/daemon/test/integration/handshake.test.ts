@@ -1,12 +1,10 @@
-// The PID lock's step 1 (0006 decision 6, DIPO-24 AC #10): the handshake is `engine.hello` and
-// then `daemon.status` over `ws+unix://`, and it counts only when the status names the record's
-// PID. A daemon of another contract major still answers through the frozen surface.
+// The PID lock's step 1 (0005, DIPO-24 AC #10): the handshake is `engine.hello` and then
+// `daemon.status` over `ws+unix://`, and it counts only when the status names the record's PID.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { CONTRACT_VERSION, type ContractVersion } from "@dipsaus-orchestrator/contract";
 import {
   helloHandshake,
   systemClock,
@@ -45,12 +43,11 @@ afterEach(async () => {
   removeTempDir(dir);
 });
 
-function handshake(contract: ContractVersion = CONTRACT_VERSION) {
+function handshake() {
   return helloHandshake({
     stateDir: join(dir, "state"),
     clock: systemClock,
     client: { name: "test", version: "0" },
-    contract,
     timeoutMs: 2000,
   });
 }
@@ -58,12 +55,6 @@ function handshake(contract: ContractVersion = CONTRACT_VERSION) {
 describe("helloHandshake", () => {
   it("reports a daemon that answers engine.hello and daemon.status with the record's PID", async () => {
     expect(await handshake()(record(process.pid))).toBe(true);
-  });
-
-  it("counts a contract.unsupported hello from a daemon of another major as an answer", async () => {
-    expect(
-      await handshake({ major: CONTRACT_VERSION.major + 1, minor: 0 })(record(process.pid)),
-    ).toBe(true);
   });
 
   it("does not count a runtime record or status of another PID", async () => {

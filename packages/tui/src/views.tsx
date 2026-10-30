@@ -145,9 +145,6 @@ export function bannerLines(state: OfficeStoreState, ascii: boolean): string[] {
     case "draining":
       lines.push(`Daemon stopping ${dash} will reconnect`);
       break;
-    case "safe":
-      lines.push(`Scheduling off after repeated crashes ${dash} [S] resume scheduling`);
-      break;
     default:
       break;
   }

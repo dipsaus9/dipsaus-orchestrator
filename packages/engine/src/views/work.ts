@@ -27,7 +27,6 @@ import { runCaps } from "../run/caps";
 import { runCriteriaMet } from "../run/criteria";
 import { activeRuns, findRun, runPhase, runRoundCounts, type StoredRun } from "../run/records";
 import { activeSignals } from "../run/signals";
-import { followedOnly } from "../runs/worker-hosts";
 
 /** The phase a run is in before any phase step is recorded. */
 const FIRST_PHASE: Phase = "setup";
@@ -194,7 +193,6 @@ function viewOf(office: OfficeHandle, run: StoredRun): WorkView | null {
       budgetLimit: runCaps(office, run).budgetTokens,
     }),
     health,
-    ...(followedOnly(office, run.runId) ? { followOnly: true as const } : {}),
     ...(output === null ? {} : { lastOutputAt: iso(output) }),
     startedAt: iso(run.startedAt),
   };

@@ -5,10 +5,9 @@
 // - `work.steer { story, text }`: a worker with a live session gets one next-priority user message
 //   wrapped in `feedback/steer.md`; the reply says `next-turn`. A parked story, or a run between
 //   two sessions, holds the steer once, and the first message of the next session carries it; the
-//   reply says `on-resume`. A story
-//   whose live (or next) session is its reviewer, or whose host is followed only, answers
-//   `story.notSteerable`: the reviewer gets no maintainer text (0002), and a follow-only host takes
-//   no input (0005). A story with no run and no park answers `story.notRunning`.
+//   reply says `on-resume`. A story whose live (or next) session is its reviewer answers
+//   `story.notSteerable`: the reviewer gets no maintainer text (0002). A story with no run and no
+//   park answers `story.notRunning`.
 //
 // A re-run is target-state: a steer finds its stored intent by its request.
 
@@ -20,7 +19,6 @@ import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../comm
 import type { OfficeHandle } from "../db/office";
 import steerTemplate from "../prompts/feedback/steer.md" with { type: "text" };
 import { renderTemplate } from "../prompts/templates";
-import { followedOnly } from "../runs/worker-hosts";
 
 import { type RunControlDeps, STORY_NOT_RUNNING } from "./control-types";
 import { findSteer, sendFeedback } from "./feedback";
@@ -128,19 +126,12 @@ export class Interventions {
     });
   }
 
-  /** The reviewer gets no maintainer text (0002); a follow-only host takes no input (0006). */
+  /** The reviewer gets no maintainer text (0002). */
   #refuseUnsteerable(office: OfficeHandle, run: StoredRun, story: string): void {
     if (placeOfRun(office, run) === "reviewer") {
       throw new CommandError(
         STORY_NOT_STEERABLE,
         `${story}'s live session is its reviewer, which takes no maintainer text.`,
-        { story },
-      );
-    }
-    if (followedOnly(office, run.runId)) {
-      throw new CommandError(
-        STORY_NOT_STEERABLE,
-        `${story}'s worker host is followed only after a daemon restart, so dipo cannot steer it.`,
         { story },
       );
     }

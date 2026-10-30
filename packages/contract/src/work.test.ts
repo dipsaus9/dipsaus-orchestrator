@@ -73,7 +73,7 @@ describe("closed enums", () => {
   });
 
   it("DaemonState has the exact states of 0006 and an unknown one fails", () => {
-    expect(DaemonState.options).toEqual(["starting", "recovering", "running", "draining", "safe"]);
+    expect(DaemonState.options).toEqual(["starting", "recovering", "running", "draining"]);
     expect(DaemonState.safeParse("sleeping").success).toBe(false);
   });
 });
@@ -84,7 +84,7 @@ describe("open enums", () => {
     { name: "ParkReason", schema: ParkReason, known: KNOWN_PARK_REASONS, size: 8 },
     { name: "SkipReason", schema: SkipReason, known: KNOWN_SKIP_REASONS, size: 7 },
     { name: "Phase", schema: Phase, known: KNOWN_PHASES, size: 5 },
-    { name: "WatchdogSignal", schema: WatchdogSignal, known: KNOWN_WATCHDOG_SIGNALS, size: 4 },
+    { name: "WatchdogSignal", schema: WatchdogSignal, known: KNOWN_WATCHDOG_SIGNALS, size: 3 },
     { name: "Health", schema: Health, known: KNOWN_HEALTH, size: 5 },
   ];
 
@@ -116,12 +116,7 @@ describe("open enums", () => {
   });
 
   it("keeps the watchdog facts as evidence only, not as health words (0009)", () => {
-    expect([...KNOWN_WATCHDOG_SIGNALS]).toEqual([
-      "no-output",
-      "same-failure",
-      "host-lost",
-      "follow-only",
-    ]);
+    expect([...KNOWN_WATCHDOG_SIGNALS]).toEqual(["no-output", "same-failure", "host-lost"]);
     for (const word of ["asking", "limited", "paused"]) {
       expect(KNOWN_HEALTH as readonly string[]).not.toContain(word);
     }
@@ -231,31 +226,6 @@ describe("views", () => {
 });
 
 describe("office commands and reads", () => {
-  // Shipped after minor 0, by name.
-  const shippedLater: Record<string, number> = {
-    "office.stats": 1,
-    "story.gate": 1,
-    "story.losses": 1,
-    "work.preview": 1,
-    "work.prompt": 1,
-    "office.desk": 1,
-    "office.digest": 1,
-    "office.switch": 1,
-    "work.resume": 1,
-    "work.steer": 1,
-    "story.park": 1,
-    "story.drop": 1,
-    "work.discard": 1,
-    "gate.approve": 1,
-    "gate.reject": 1,
-    "proposal.accept": 1,
-    "proposal.dismiss": 1,
-    "test.start": 1,
-    "test.record": 1,
-  };
-  // No command or read is provisional since DIPO-309.
-  const provisional: readonly string[] = [];
-
   it("defines every command and read of this story", () => {
     expect(officeCommands.map((d): string => d.name).toSorted()).toEqual(
       [
@@ -294,21 +264,6 @@ describe("office commands and reads", () => {
       expect(names).toContain(definition.name);
     }
   });
-
-  for (const definition of [...officeCommands, ...officeReads]) {
-    if (provisional.includes(definition.name)) {
-      it(`${definition.name} is provisional with no since`, () => {
-        expect(definition.provisional).toBe(true);
-        expect(definition.since).toBeUndefined();
-      });
-    } else {
-      const since = shippedLater[definition.name] ?? 0;
-      it(`${definition.name} ships with since 1.${since}`, () => {
-        expect(definition.since).toBe(since);
-        expect(definition.provisional).toBeUndefined();
-      });
-    }
-  }
 
   it("marks office commands as office-level", () => {
     for (const definition of officeCommands) expect(definition.level).toBe("office");
@@ -411,7 +366,6 @@ describe("the desk", () => {
   });
 
   it("office.desk takes an office and returns the items as a list", () => {
-    expect(officeDesk.since).toBe(1);
     expect(officeDesk.result.safeParse([item]).success).toBe(true);
     expect(officeDesk.args.safeParse({}).success).toBe(false);
   });

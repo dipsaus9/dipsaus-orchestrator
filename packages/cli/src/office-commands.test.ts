@@ -4,17 +4,11 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { type OfficeId, workRun } from "@dipsaus-orchestrator/contract";
+import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { RECOVERY_POLL_MS } from "@dipsaus-orchestrator/client";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
-import {
-  type DaemonControl,
-  type DaemonSession,
-  engineFailure,
-  REPLY_TIMEOUT_MS,
-  withDaemon,
-} from "./daemon-commands";
+import { type DaemonControl, type DaemonSession, REPLY_TIMEOUT_MS } from "./daemon-commands";
 import { type FakeWorkspaceOptions, fakeWorkspace } from "../test/support/fake-workspace";
 import { main, type CliDeps } from "./index";
 
@@ -583,37 +577,6 @@ describe("a command against a recovering daemon", () => {
     expect(await code).toBe(0);
     expect(ctx.err).toEqual(["dipo: waiting for the daemon to finish recovering"]);
     expect(ctx.out).toEqual([`opened /work/app/src as office ${OFFICE}`]);
-  });
-
-  it("names safe mode and resume-scheduling when recovery ends in safe", async () => {
-    const ctx = recovering(1, ["recovering", "safe"], undefined, "crash loop");
-    const code = main(["office", "open"], ctx.deps);
-    await ctx.advance(2 * RECOVERY_POLL_MS);
-    // Office commands run in safe (0006 decision 7); the maintainer is told scheduling is off.
-    expect(await code).toBe(0);
-    expect(ctx.err).toEqual([
-      "dipo: the daemon finished recovering in safe mode (crash loop): scheduling is off until you run `dipo daemon resume-scheduling`.",
-    ]);
-  });
-
-  it("fails a command that schedules work in safe with the safe-mode line, not a timeout", async () => {
-    const off = {
-      code: "scheduling.off",
-      message: "Scheduling is off (crash loop); run `dipo daemon resume-scheduling` to turn it on.",
-      retryable: true,
-    };
-    const ctx = recovering(1, ["safe"], { ok: false, error: off }, "crash loop");
-    const deps = { ...ctx.deps, version: "0.0.0-test" };
-    const code = withDaemon(deps, async (session) => {
-      const outcome = await session.command(workRun, {}, { office: OFFICE });
-      return outcome.ok ? 0 : engineFailure(deps, outcome.error);
-    });
-    await ctx.advance(RECOVERY_POLL_MS);
-    expect(await code).toBe(1);
-    expect(ctx.err).toEqual([
-      "dipo: the daemon finished recovering in safe mode (crash loop): scheduling is off until you run `dipo daemon resume-scheduling`.",
-      "dipo: scheduling.off: Scheduling is off (crash loop); run `dipo daemon resume-scheduling` to turn it on.",
-    ]);
   });
 
   it("ends a command sent before the migrations failed with database.unavailable", async () => {

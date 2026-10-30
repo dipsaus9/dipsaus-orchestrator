@@ -12,6 +12,7 @@ import {
   DaemonStartError,
   describeStartFailure,
   logsDir,
+  OtherVersionError,
   SoftwareConfigError,
   versionHint,
   type DaemonObservation,
@@ -28,7 +29,6 @@ import {
   cleanText,
   type Clock,
   type ConfigError,
-  ContractUnsupportedDetails,
   daemonResumeScheduling,
   daemonSetLogLevel,
   type EngineError,
@@ -103,12 +103,6 @@ export const START_HINT = "Start it with `dipo daemon start`.";
 
 /** Printed once when a command has waited about a second for a recovering daemon (DIPO-86). */
 export const RECOVERY_WAIT = "waiting for the daemon to finish recovering";
-
-/** Printed once when the daemon a command waited for ended its recovery in `safe` (DIPO-86). */
-export function safeModeLine(reason: string | undefined): string {
-  const why = reason === undefined ? "" : ` (${reason})`;
-  return `the daemon finished recovering in safe mode${why}: scheduling is off until you run \`dipo daemon resume-scheduling\`.`;
-}
 
 /** Exit codes of `dipo daemon status` (0006 decision 5). */
 export const STATUS_EXIT = { running: 0, unresponsive: 1, notRunning: 3 } as const;
@@ -234,15 +228,18 @@ function statusJson(observed: DaemonObservation): Record<string, unknown> {
       return {
         status: "running",
         pid: observed.record.pid,
-        version: observed.details?.version ?? observed.record.version,
-        contract: observed.details?.contract ?? null,
-        contractSupported: false,
+        version: observed.version ?? observed.record.version,
+        otherVersion: true,
       };
     case "unresponsive":
       return { status: "unresponsive", pid: observed.record.pid };
     default:
-      return observed.cleaned.length > 0
-        ? { status: "stale", cleaned: observed.cleaned }
+      return observed.cleaned.length > 0 || observed.staleLock !== undefined
+        ? {
+            status: "stale",
+            cleaned: observed.cleaned,
+            ...(observed.staleLock === undefined ? {} : { staleLock: observed.staleLock }),
+          }
         : { status: "not running" };
   }
 }
@@ -272,10 +269,10 @@ async function statusCommand(args: readonly string[], deps: DaemonCommandDeps): 
       break;
     }
     case "foreign": {
-      const version = observed.details?.version ?? observed.record.version;
+      const version = observed.version ?? observed.record.version;
       deps.writeLine("running");
       deps.writeLine(`  pid:        ${observed.record.pid}`);
-      deps.writeLine(`  version:    ${version} (another contract major)`);
+      deps.writeLine(`  version:    ${version} (another version)`);
       deps.writeError(`dipo: ${versionHint(deps.version, version) ?? "run `dipo daemon restart`"}`);
       break;
     }
@@ -286,11 +283,18 @@ async function statusCommand(args: readonly string[], deps: DaemonCommandDeps): 
       );
       break;
     default:
-      if (observed.cleaned.length > 0) {
+      if (observed.cleaned.length > 0 || observed.staleLock !== undefined) {
         deps.writeLine("stale");
-        deps.writeLine(
-          `  removed leftovers of a daemon that is gone: ${observed.cleaned.join(", ")}`,
-        );
+        if (observed.cleaned.length > 0) {
+          deps.writeLine(
+            `  removed leftovers of a daemon that is gone: ${observed.cleaned.join(", ")}`,
+          );
+        }
+        if (observed.staleLock !== undefined) {
+          deps.writeLine(
+            `  stale lock of a daemon that is gone, left for the next daemon start: ${observed.staleLock}`,
+          );
+        }
       } else {
         deps.writeLine("not running");
       }
@@ -360,6 +364,9 @@ function printStop(deps: DaemonCommandDeps, result: StopResult): number {
           ? `dipo daemon is not running (removed stale ${result.cleaned.join(", ")})`
           : "dipo daemon is not running",
       );
+      if (result.staleLock !== undefined) {
+        deps.writeLine(`  stale lock left for the next daemon start: ${result.staleLock}`);
+      }
       return 0;
     case "stopped":
       deps.writeLine(
@@ -469,9 +476,7 @@ export const DAEMON_SUBCOMMANDS: ReadonlyMap<string, Subcommand> = new Map<strin
       return withDaemon(deps, async (session) => {
         const outcome = await session.command(daemonResumeScheduling, {});
         if (!outcome.ok) return engineFailure(deps, outcome.error);
-        deps.writeLine(
-          `scheduling resumed and starts unpaused; daemon state: ${outcome.result.state}`,
-        );
+        deps.writeLine(`starts unpaused in every office; daemon state: ${outcome.result.state}`);
         return 0;
       });
     },
@@ -501,7 +506,6 @@ export async function withDaemon(
     session = waitForRecovery(await deps.connectDaemon(mode), {
       clock: deps.clock,
       onWaiting: () => deps.writeError(`dipo: ${RECOVERY_WAIT}`),
-      onSafe: (reason) => deps.writeError(`dipo: ${safeModeLine(reason)}`),
     });
   } catch (error) {
     return failure(deps, error);
@@ -541,13 +545,12 @@ function failure(deps: DaemonCommandDeps, error: unknown): number {
     deps.writeError(`dipo: ${error.message}`);
     return 1;
   }
+  if (error instanceof OtherVersionError) {
+    deps.writeError(`dipo: ${error.message}`);
+    return 1;
+  }
   if (error instanceof ClientError) {
     deps.writeError(`dipo: ${error.code}: ${error.message}`);
-    if (error.code === "contract.unsupported") {
-      const details = ContractUnsupportedDetails.safeParse(error.engineError?.details);
-      const hint = details.success ? versionHint(deps.version, details.data.version) : null;
-      deps.writeError(`dipo: ${hint ?? "run `dipo daemon restart`"}`);
-    }
     return 1;
   }
   deps.writeError(`dipo: ${error instanceof Error ? error.message : String(error)}`);

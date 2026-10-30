@@ -67,14 +67,14 @@ import {
   useDesk,
 } from "./desk";
 import { Checklist, firstUnticked } from "./checklist";
-import { answerHint, Detail, type DetailTarget, type ReadOutput, type ReadPrompt } from "./detail";
+import { Detail, type DetailTarget, type ReadOutput, type ReadPrompt } from "./detail";
 import { skipReason, widthOf } from "./format";
 import { useLatestLines } from "./latest";
 import type { Display } from "./options";
 import { OUTPUT_TAIL_BYTES } from "./output";
-import { boardEntries, EVIDENCE_LEGEND, evidenceEnabled, Overview } from "./overview";
+import { boardEntries, EVIDENCE_LEGEND, EVIDENCE_MARKERS, Overview } from "./overview";
 import { digestLine, type ReadDigest, useDigest } from "./digest";
-import { type ActionId, allowed, binding, rowKeys, viewKeys } from "./keys";
+import { type ActionId, rowKeys, viewKeys } from "./keys";
 import { Queue, queueRows } from "./queue";
 import { appliesWords, confirmPrompt, privacySettings, Settings, settingName } from "./settings";
 import { type CardOutcome, StoryCard } from "./story-card";
@@ -153,8 +153,6 @@ export interface TuiActions {
   }): Promise<StoryOutcome>;
   /** `office.open` for a path the maintainer typed. */
   openPath(path: string): Promise<ActionResult<OfficeId>>;
-  /** `daemon.resumeScheduling`, after the maintainer agreed. */
-  resumeScheduling(): Promise<ActionResult<null>>;
   /** `office.setPrivacy` for the setting the maintainer confirmed (DIPO-136). */
   setPrivacy(request: PrivacyRequest): Promise<ActionResult<null>>;
   /** `work.run` with `origin: "tui"` and the given request id (0009 section 5). */
@@ -175,7 +173,6 @@ type Mode =
   | { readonly kind: "home" }
   | { readonly kind: "switcher"; readonly index: number }
   | { readonly kind: "path"; readonly index: number; readonly text: string }
-  | { readonly kind: "confirm-resume" }
   | { readonly kind: "confirm-privacy"; readonly key: string; readonly value: boolean };
 
 type View = "overview" | "queue" | "settings" | "desk" | "checklist";
@@ -346,7 +343,7 @@ export function App(props: AppProps) {
     clock,
     readDesk: actions.readDesk,
     office: state.office,
-    active: view === "desk" && detail === null && state.capabilities.includes("desk"),
+    active: view === "desk" && detail === null,
     snapshots: state.snapshots,
   });
   const deskAll = desk.items === null ? [] : deskRows(desk.items).all;
@@ -363,7 +360,6 @@ export function App(props: AppProps) {
   };
   const digest = useDigest({
     office: state.office,
-    enabled: state.capabilities.includes("digest"),
     readDigest: actions.readDigest,
   });
   const acts = useActions({
@@ -397,8 +393,6 @@ export function App(props: AppProps) {
   const recordTest = (id: "pass" | "fail") => {
     if (checklistTest === null) {
       setMessage("no test is open to record");
-    } else if (!allowed(binding(id), state.capabilities)) {
-      setMessage(`this daemon cannot record a test (capability ${binding(id).flag})`);
     } else {
       const ticked = ticks[checklistTest.test] ?? [];
       act(id, {
@@ -417,8 +411,6 @@ export function App(props: AppProps) {
       .toSorted((a, b) => Date.parse(a.askedAt) - Date.parse(b.askedAt))[0];
     if (question === undefined) {
       setMessage("no question waits on this run");
-    } else if (!allowed(binding("answer"), state.capabilities)) {
-      setMessage(`this daemon cannot take answers here; type ${answerHint(question)}`);
     } else {
       act("answer", {
         story: String(question.work.story),
@@ -436,10 +428,6 @@ export function App(props: AppProps) {
           ? "this run has ended; there is no worker to steer"
           : "this run has ended; park its story from the queue or the desk",
       );
-    } else if (!viewKeys("detail", state.capabilities).some((entry) => entry.id === id)) {
-      setMessage(`this daemon cannot ${id} a worker (capability ${binding(id).flag})`);
-    } else if (id === "steer" && live.followOnly === true) {
-      setMessage("this run is followed only; it cannot be steered");
     } else {
       act(id, { story: String(live.work.story) });
     }
@@ -631,19 +619,6 @@ export function App(props: AppProps) {
       return;
     }
 
-    if (mode.kind === "confirm-resume") {
-      setMode({ kind: "home" });
-      if (input !== "y" && input !== "Y") {
-        setMessage("scheduling stays off");
-        return;
-      }
-      setMessage(`resuming scheduling${ellipsis}`);
-      void actions.resumeScheduling().then((outcome) => {
-        setMessage(outcome.ok ? "scheduling resumed" : outcome.message);
-      });
-      return;
-    }
-
     if (mode.kind === "confirm-privacy") {
       setMode({ kind: "home" });
       if (input !== "y" && input !== "Y") {
@@ -719,9 +694,7 @@ export function App(props: AppProps) {
       }
       const leaves =
         input === "1" || input === "2" || input === "3" || input === "4" || input === "o";
-      if (!leaves && !(input === "S" && state.daemon === "safe") && !(key.ctrl && input === "r")) {
-        return;
-      }
+      if (!leaves && !(key.ctrl && input === "r")) return;
       if (leaves) setDetail(null);
     }
 
@@ -754,7 +727,7 @@ export function App(props: AppProps) {
       }
       const leaves =
         input === "1" || input === "2" || input === "3" || input === "4" || input === "o";
-      if (!leaves && !(input === "S" && state.daemon === "safe")) return;
+      if (!leaves) return;
       if (leaves) setCard(null);
     }
     if (input === "1") {
@@ -778,12 +751,6 @@ export function App(props: AppProps) {
       if (view === "settings") setView("overview");
       // Esc leaves the test open: nothing is sent (DIPO-365).
       if (view === "checklist") setView(checklistBack);
-    } else if (input === "S" && state.daemon === "safe") {
-      if (offline) {
-        setMessage("offline: actions are disabled");
-        return;
-      }
-      setMode({ kind: "confirm-resume" });
     } else if (view === "overview") {
       const count = board.length;
       const select = (index: number) => {
@@ -872,9 +839,7 @@ export function App(props: AppProps) {
       } else if (key.return && deskItem !== null) {
         openCard(deskItem);
       } else if (deskItem !== null) {
-        const bound = rowKeys(deskItem, state.capabilities).bound.find(
-          (entry) => entry.binding.key === input,
-        );
+        const bound = rowKeys(deskItem).bound.find((entry) => entry.binding.key === input);
         if (bound === undefined) return;
         setDeskSelection({ id: deskRowId(deskItem), key: deskItem.key ?? null, index: deskIndex });
         if (bound.binding.id === "test" && deskItem.key !== undefined) {
@@ -932,15 +897,13 @@ export function App(props: AppProps) {
       : state.work.find((candidate) => candidate.work.run === detail.target.run);
   const detailLive = detailRun !== undefined;
   const asks = (runId: string | null) =>
-    runId !== null &&
-    allowed(binding("answer"), state.capabilities) &&
-    state.questions.some((question) => question.work.run === runId);
+    runId !== null && state.questions.some((question) => question.work.run === runId);
   // The key table's hints for what is selected (DIPO-308).
   const rowHintList: Hint[] = [];
   if (inDetail) {
     if (detail !== null && asks(detail.target.run)) rowHintList.push(["[a]nswer", 85]);
-    if (detailLive && detailRun?.followOnly !== true) {
-      for (const entry of viewKeys("detail", state.capabilities)) {
+    if (detailLive) {
+      for (const entry of viewKeys("detail")) {
         rowHintList.push([entry.hint, 72]);
       }
     }
@@ -948,12 +911,12 @@ export function App(props: AppProps) {
     if (overviewEntry !== null && asks(overviewEntry.run)) rowHintList.push(["[a]nswer", 85]);
   } else if (view === "queue") {
     if (queue[queueSelected]?.kind === "story") {
-      for (const entry of viewKeys("queue", state.capabilities)) {
+      for (const entry of viewKeys("queue")) {
         rowHintList.push([entry.hint, 25]);
       }
     }
   } else if (view === "desk" && card === null && deskItem !== null) {
-    const hints = rowHints(deskItem, state.capabilities);
+    const hints = rowHints(deskItem);
     if (hints !== "") rowHintList.push([hints, 85]);
   }
   const keys = footerKeys(
@@ -993,10 +956,9 @@ export function App(props: AppProps) {
   const panel = !inSwitcher && run !== null ? runLines(run, state, ellipsis) : [];
   // The selected desk row's actions no key sends, as the command line to type, and (below 80
   // columns, where the row has no second line) its hand action.
-  const deskShown =
-    !inSwitcher && detail === null && view === "desk" && state.capabilities.includes("desk");
+  const deskShown = !inSwitcher && detail === null && view === "desk";
   if (deskShown && card === null && deskItem !== null) {
-    for (const action of rowKeys(deskItem, state.capabilities).unbound) {
+    for (const action of rowKeys(deskItem).unbound) {
       panel.push(`type: ${action.cli}`);
     }
     if (deskItem.hand !== undefined && columns < DESK_WIDE_COLUMNS) {
@@ -1061,7 +1023,7 @@ export function App(props: AppProps) {
           item={card.item}
           outcome={card.outcome}
           now={clock.now()}
-          evidence={evidenceEnabled(state)}
+          evidence={EVIDENCE_MARKERS}
           display={display}
           columns={columns}
           height={height}
@@ -1070,12 +1032,10 @@ export function App(props: AppProps) {
       ) : view === "desk" ? (
         <Desk
           desk={desk}
-          available={state.capabilities.includes("desk")}
           selected={deskIndex}
           columns={columns}
           height={height}
           now={clock.now()}
-          capabilities={state.capabilities}
           display={display}
         />
       ) : view === "queue" ? (
@@ -1117,7 +1077,6 @@ export function App(props: AppProps) {
         <Text key={i} wrap="truncate-end">{` ${line}`}</Text>
       ))}
       {mode.kind === "path" ? <Text>{` open repository path: ${mode.text}_`}</Text> : null}
-      {mode.kind === "confirm-resume" ? <Text>{" Resume scheduling? [y/N]"}</Text> : null}
       {mode.kind === "confirm-privacy" ? (
         <Text>{` ${confirmPrompt(mode.key, mode.value)} [y/N]`}</Text>
       ) : null}
@@ -1178,14 +1137,6 @@ function footerKeys(
         ],
         width,
       );
-    case "confirm-resume":
-      return fitHints(
-        [
-          ["[y] resume scheduling", QUIT],
-          ["[any other key] cancel", 50],
-        ],
-        width,
-      );
     case "confirm-privacy":
       return fitHints(
         [
@@ -1206,7 +1157,7 @@ function footerKeys(
       hints.push(...extras.row);
       if (view === "card") {
         hints.push(["[j/k] scroll", 30], ["[Esc] back", 90], quit);
-        if (evidenceEnabled(state)) hints.push([EVIDENCE_LEGEND, 10]);
+        if (EVIDENCE_MARKERS) hints.push([EVIDENCE_LEGEND, 10]);
         return fitHints(hints, width);
       }
       if (view === "detail" || view === "ended") {
@@ -1217,7 +1168,7 @@ function footerKeys(
         );
         hints.push(["[Esc] back", 90]);
         hints.push(quit);
-        if (evidenceEnabled(state)) hints.push([EVIDENCE_LEGEND, 10]);
+        if (EVIDENCE_MARKERS) hints.push([EVIDENCE_LEGEND, 10]);
         return fitHints(hints, width);
       }
       if (view === "settings") {
@@ -1254,9 +1205,8 @@ function footerKeys(
         hints.push(["[2] queue", 50], ["[3] desk", 48], ["[p] privacy", 45]);
       }
       hints.push(["[o] offices", 40]);
-      if (state.daemon === "safe") hints.push(["[S] resume scheduling", 60]);
       hints.push(quit);
-      if (evidenceEnabled(state)) hints.push([EVIDENCE_LEGEND, 10]);
+      if (EVIDENCE_MARKERS) hints.push([EVIDENCE_LEGEND, 10]);
       return fitHints(hints, width);
   }
 }

@@ -137,7 +137,7 @@ const HOST_EXIT_POLL_MS = 250;
  * The facts a run's new session clears: what a restart observed of the old host (DIPO-57), and the
  * old session's silence, so a resumed run is not stuck before its first line (DIPO-352).
  */
-const HOST_SIGNALS = ["host-lost", "follow-only", "no-output"] as const;
+const HOST_SIGNALS = ["host-lost", "no-output"] as const;
 
 /** `engine.notice` codes of a run's next session. */
 export const RESUME_NOTICES = {

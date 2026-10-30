@@ -22,7 +22,7 @@ function lines(frame: string): string[] {
 
 describe("the since-you-left line", () => {
   it("reads office.digest without since and shows its line under the count line", async () => {
-    const view = await mount({ columns: 120, rows: 30, capabilities: ["digest"] });
+    const view = await mount({ columns: 120, rows: 30 });
     mounted.push(view.ui);
     view.session.digest = {
       since: SINCE,
@@ -44,15 +44,6 @@ describe("the since-you-left line", () => {
     const reads = view.session.reads.filter((read) => read.name === "office.digest");
     expect(reads.length).toBeGreaterThan(0);
     for (const read of reads) expect(read.args).not.toHaveProperty("since");
-  });
-
-  it("shows no line without the digest capability", async () => {
-    const view = await mount({ columns: 120, rows: 30 });
-    mounted.push(view.ui);
-    view.session.digest = { since: SINCE, counts: { done: 1 }, lines: [] };
-    await view.ui.waitFor("· live");
-    expect(view.ui.frame()).not.toContain("since you left");
-    expect(view.session.reads.some((read) => read.name === "office.digest")).toBe(false);
   });
 
   it("says nothing changed when every count is zero", () => {

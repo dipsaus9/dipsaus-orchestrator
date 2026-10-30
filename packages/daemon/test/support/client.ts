@@ -3,9 +3,7 @@
 // asserts that list is empty (DIPO-24 test plan).
 
 import {
-  CONTRACT_VERSION,
   type CommandReply,
-  type ContractVersion,
   type Cursor,
   type Event,
   type ReadReply,
@@ -78,8 +76,8 @@ export class TestClient {
     return this.request({ kind: "command", name, args, origin: "other", ...extra });
   }
 
-  hello(contract: ContractVersion = CONTRACT_VERSION): Promise<Reply> {
-    return this.read("engine.hello", { contract, client: { name: "test", version: "0" } });
+  hello(): Promise<Reply> {
+    return this.read("engine.hello", { client: { name: "test", version: "0" } });
   }
 
   subscribe(stream: string, after?: Cursor, filter?: string[]): Promise<Reply> {

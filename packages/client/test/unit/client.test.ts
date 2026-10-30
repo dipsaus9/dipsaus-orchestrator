@@ -5,7 +5,6 @@
 import { describe, expect, it } from "bun:test";
 
 import {
-  CONTRACT_VERSION,
   type Cursor,
   daemonResumeScheduling,
   daemonSetLogLevel,
@@ -34,11 +33,9 @@ function cursor(seq: number): Cursor {
   return { stream: SOFTWARE, seq };
 }
 
-function hello(daemon: "running" | "safe" = "running", seq = 0) {
+function hello(daemon: "running" | "recovering" = "running", seq = 0) {
   return {
     engine: "0.0.0-test",
-    contract: CONTRACT_VERSION,
-    capabilities: [],
     daemon,
     offices: [],
     cursor: cursor(seq),
@@ -128,11 +125,11 @@ describe("DipoClient handshake and requests", () => {
     expect(connection.sent[0]).toMatchObject({
       kind: "read",
       name: "engine.hello",
-      args: { contract: CONTRACT_VERSION, client: { name: "test", version: "1" } },
+      args: { client: { name: "test", version: "1" } },
     });
-    connection.deliver(reply(requestIdOf(connection, 0), hello("safe")));
-    expect((await done).daemon).toBe("safe");
-    expect(client.hello?.daemon).toBe("safe");
+    connection.deliver(reply(requestIdOf(connection, 0), hello("recovering")));
+    expect((await done).daemon).toBe("recovering");
+    expect(client.hello?.daemon).toBe("recovering");
     expect(states).toEqual(["connecting", "open"]);
     // The read went out only after the hello reply.
     expect(connection.sent[1]).toMatchObject({ kind: "read", name: "daemon.status" });
@@ -153,12 +150,12 @@ describe("DipoClient handshake and requests", () => {
       origin: "cli",
       confirmed: false,
     });
-    connection.deliver(errorReply(b, "daemon.notSafe", "not safe"));
+    connection.deliver(errorReply(b, "not.permitted", "not here"));
     connection.deliver(reply(a, { level: "debug" }, true));
     expect(await first).toEqual({ ok: true, result: { level: "debug" }, changed: true });
     expect(await second).toEqual({
       ok: false,
-      error: { code: "daemon.notSafe", message: "not safe", retryable: false },
+      error: { code: "not.permitted", message: "not here", retryable: false },
     });
   });
 
@@ -315,7 +312,7 @@ describe("DipoClient reconnect", () => {
     first.deliver({
       kind: "events",
       events: [
-        event(1, "daemon.state", { from: "safe", to: "running" }),
+        event(1, "daemon.state", { from: "recovering", to: "running" }),
         event(2, "daemon.state", { from: "running", to: "draining" }),
         event(2, "stream.mark", { caughtUp: true }),
       ],

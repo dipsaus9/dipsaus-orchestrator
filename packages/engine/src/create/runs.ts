@@ -183,7 +183,7 @@ export interface RunsOptions {
   readonly stories?: StoryIndex;
   /** Whether a TUI is connected, for live questions (DIPO-279); none by default. */
   readonly presence?: Presence;
-  /** False while the daemon schedules no work (`safe`): a starts paused lifts later (0020). */
+  /** False while the daemon schedules no work (recovering, draining): a starts paused lifts later (0020). */
   readonly scheduling?: () => boolean;
   /**
    * The box backend (DIPO-271); by default Apple `container` when the daemon's PATH has it, and
@@ -951,7 +951,7 @@ function baseRunPorts(options: RunsOptions, parts: RunPortParts): Omit<RunPorts,
             refreshStory.refreshStory(office, key, { quiet: true }),
         }),
     release: (office, claim, reason) => options.claims.releaseUnstarted(office, claim, reason),
-    // The permission wait (DIPO-59) asks the maintainer when present, and holds while `safe`.
+    // The permission wait (DIPO-59) asks the maintainer when present, and holds while no work is scheduled.
     ...(options.presence === undefined ? {} : { presence: options.presence }),
     ...(options.scheduling === undefined ? {} : { scheduling: options.scheduling }),
   };
@@ -1044,14 +1044,14 @@ function controlRunPorts(
   };
 }
 
-/** Re-attach after a restart (DIPO-57): every active run's newest worker host is followed again. */
+/** Re-attach after a restart (0005): every active run's newest worker host is re-attached or parked. */
 function reattachRunPorts(options: RunsOptions, parts: RunPortParts): Partial<RunPorts> {
   const { worker, paths } = parts;
   return {
     reattach: {
       probe: options.probe,
-      // A living host of an ended run whose stop did not reach it is stopped again (DIPO-93).
-      steering: parts.steering,
+      // One verified SIGTERM to a host that does not answer after the restart (0005).
+      signal: signalProcess,
       adapter: (office, run) => {
         const runPaths = paths.runPaths(office, run);
         const config = options.offices.config(office);
@@ -1176,11 +1176,7 @@ export function buildRuns(options: RunsOptions): EngineRuns {
     boxed,
     worker: workerOf(options, boxed?.workers ?? null),
     // One steering for every run service: it keeps no state between sends.
-    steering: hostSocketSteering({
-      clock: options.clock,
-      probe: options.probe,
-      signal: signalProcess,
-    }),
+    steering: hostSocketSteering({ clock: options.clock }),
     isBoxRun,
     finisher: finisherOf(options, boxed, isBoxRun, storyConflicts),
     sweeps: { temp: sweepTempDirs, boxes: () => passes.finishEndedBoxes() },

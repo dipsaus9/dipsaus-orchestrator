@@ -106,8 +106,7 @@ export interface IntentSteering {
     runId: RunId,
     ops: readonly HostOp[],
   ): Promise<
-    | { readonly ok: true; readonly via?: "socket" | "signal" }
-    | { readonly ok: false; readonly reason: string; readonly code?: string }
+    { readonly ok: true } | { readonly ok: false; readonly reason: string; readonly code?: string }
   >;
 }
 
@@ -126,8 +125,6 @@ export interface SendAsIntent<R> {
 export interface IntentSent<R> {
   /** The failure reason the host gave, or null when the ops were sent. */
   readonly error: string | null;
-  /** `signal` when a verified SIGTERM stopped a follow-only host instead (DIPO-93). */
-  readonly via: "socket" | "signal" | undefined;
   readonly marked: R | undefined;
 }
 
@@ -166,12 +163,10 @@ export function sendAsIntent<R = undefined>(
   const done = (async (): Promise<IntentSent<R>> => {
     spec.beforeSend?.();
     let error: string | null = null;
-    let via: "socket" | "signal" | undefined;
     if (spec.ops.length > 0) {
       try {
         const sent = await steering.send(office, runId, spec.ops);
         if (!sent.ok) error = sent.reason;
-        else via = sent.via;
       } catch (thrown) {
         error = thrown instanceof Error ? thrown.message : String(thrown);
       }
@@ -181,7 +176,7 @@ export function sendAsIntent<R = undefined>(
       markIntentSent(office, runId, intentId, at, error);
       return spec.inMark?.(error, at);
     });
-    return { error, via, marked };
+    return { error, marked };
   })();
   return { intentId, done };
 }

@@ -15,7 +15,6 @@ import { openStateDatabase } from "../../src/db/database";
 import type { OfficeHandle } from "../../src/db/office";
 import { MIGRATIONS } from "../../src/db/schema";
 import { executeRead } from "../../src/reads/execute";
-import { capabilityFlags } from "../../src/reads/hello";
 import { DIGEST_COUNTS, recordTuiLeft, tuiLeftAt } from "../../src/views/digest";
 import { viewsFeature } from "./views-feature";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
@@ -108,10 +107,6 @@ async function withOffice(fn: (t: TestState, office: OfficeHandle) => Promise<vo
 }
 
 describe("office.digest", () => {
-  it("is shipped behind the capability flag digest", () => {
-    expect(capabilityFlags(buildRegistry([viewsFeature]))).toContain("digest");
-  });
-
   it("without since counts from the stored time the office's last TUI client disconnected", () =>
     withOffice(async (t, office) => {
       t.clock.advance(5 * MINUTE);

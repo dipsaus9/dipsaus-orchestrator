@@ -136,8 +136,10 @@ There is one daemon process per user. Inside it each office is its own engine in
 `dipo.pid` holds the PID, the process start time and the version. On start:
 
 1. If the PID in it is alive, has the same start time and runs `dipo daemon`, a daemon runs. Handshake with it, or report it unresponsive.
-2. Otherwise the record is stale. Delete it.
-3. Create `dipo.pid` with `O_EXCL`. If that fails, another starter won, so go back to step 1 once. Only after the lock is held does the daemon choose the runtime directory, remove a leftover socket there and bind.
+2. Otherwise the record is stale. Delete it, unless the file changed since it was read: then another starter won.
+3. Create `dipo.pid` with `O_EXCL`. If that fails, another starter won, so go back to step 1 once. Only while it holds the lock does the daemon choose the runtime directory, remove a leftover socket there and bind, and it checks the lock once more right after the bind.
+
+A running daemon checks at its minute upgrade check (section 19) that `dipo.pid` still holds its record. One that lost it drains, exits 1 and leaves the record and the socket path to the daemon that holds them, so two daemons never run on one database. Only a starting daemon deletes `dipo.pid`; a client reports a stale one.
 
 The start time comes from the `kern.proc` sysctls through `bun:ffi` on macOS, because sandboxed processes cannot run `/bin/ps`. On clean exit the daemon removes the socket, then `dipo.pid`.
 
@@ -192,7 +194,7 @@ The daemon never owns a worker process. Each session gets a worker host, `dipo d
 - A `confirmed` flag for a conversation layer (2026-10-10). It returns with M5.
 - Story identity after a database loss matched by frozen branch, then created date (2026-10-10). Replaced by: a vanished id is Removed, a new id is a new story (2026-10-24).
 - `work.pause`, `work.reassign`, `work.stop`, `story.hold`, `office.purge`, `daemon.webBootstrap`, `office.usage` and the `office.switch` alias. Replaced by `story.park` (0020), or removed.
-- A crash-loop `safe` state, a held `recovering` state with crash markers and `needsCheck`, and a minute-by-minute lock self-check (2026-10-10 to 2026-10-16). Replaced by the plain states of section 16 (2026-10-24).
+- A crash-loop `safe` state, a held `recovering` state with crash markers and `needsCheck`, and a minute-by-minute lock self-check that recreated a missing record and took a foreign one back (2026-10-10 to 2026-10-16). Replaced by the plain states of section 16 (2026-10-24) and a check that only stops a daemon that lost its lock (section 15, 2026-10-30).
 - A PID lock broken by rename-and-verify with a `link()` restore and a stale-break window re-check (2026-10-10). Replaced by the plain lock of section 15 (2026-10-24).
 - Follow-only worker hosts, a verified-SIGTERM protocol for them, and a `launch.json` claim and rename protocol for pending hosts (2026-10-15). Replaced by re-attach or park (2026-10-24).
 - Linux support: systemd units and scopes, `systemd-inhibit`, lingering checks (2026-10-10). macOS only (0004, 2026-10-24).

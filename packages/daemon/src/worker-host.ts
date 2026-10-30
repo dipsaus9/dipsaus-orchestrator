@@ -52,8 +52,8 @@ export async function runWorkerHostForm(runId: string, io: DaemonIo): Promise<nu
         signalGroup(pgid, signal);
       },
       pid: process.pid,
-      // SIGTERM to the host stops its worker and still writes exit.json (DIPO-93): the engine stops
-      // a follow-only host this way after a daemon restart.
+      // SIGTERM to the host stops its worker and still writes exit.json (DIPO-93): after a daemon
+      // restart the engine stops a host whose socket does not answer this way (0005).
       onTerminate: (stop) => {
         process.on("SIGTERM", stop);
         return () => {

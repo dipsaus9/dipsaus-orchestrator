@@ -1,6 +1,6 @@
 // The "since you left" line of the overview (0009 sections 4 and 8, DIPO-308): `office.digest`
 // without `since` counts from when the office's last TUI client disconnected, as the engine
-// stored it. The TUI reads it once per office it opens, with the `digest` capability, and shows
+// stored it. The TUI reads it once per office it opens and shows
 // the engine's non-zero counts in the engine's order; it counts nothing itself.
 
 import type { EngineError, OfficeId } from "@dipsaus-orchestrator/contract";
@@ -42,16 +42,15 @@ export function digestLine(digest: DigestResult, dot: string): string {
   return `${since}: ${parts.length === 0 ? "nothing changed" : parts.join(` ${dot} `)}`;
 }
 
-/** The digest of the open office, read once when it opens; null without one or the capability. */
+/** The digest of the open office, read once when it opens; null without one. */
 export function useDigest(options: {
   readonly office: OfficeId | null;
-  readonly enabled: boolean;
   readonly readDigest: ReadDigest;
 }): DigestResult | null {
-  const { office, enabled, readDigest } = options;
+  const { office, readDigest } = options;
   const [digest, setDigest] = useState<{ office: OfficeId; result: DigestResult } | null>(null);
   useEffect(() => {
-    if (office === null || !enabled) return;
+    if (office === null) return;
     let current = true;
     void readDigest(office).then((outcome) => {
       if (current && outcome.ok) setDigest({ office, result: outcome.result });
@@ -59,6 +58,6 @@ export function useDigest(options: {
     return () => {
       current = false;
     };
-  }, [office, enabled, readDigest]);
+  }, [office, readDigest]);
   return digest !== null && digest.office === office ? digest.result : null;
 }

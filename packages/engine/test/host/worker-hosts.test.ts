@@ -173,7 +173,6 @@ describe("worker_hosts", () => {
             exitSignalInferred: false,
             finalOffset: null,
             endedAt: null,
-            mode: "steer",
             startedAt: clock.now(),
             // Recorded over the pending row written before the spawn (DIPO-93); this host stops
             // its worker on SIGTERM.

@@ -12,7 +12,6 @@ import {
 } from "@dipsaus-orchestrator/client";
 import {
   type Clock,
-  daemonResumeScheduling,
   type EngineError,
   findCommand,
   officeDesk,
@@ -149,15 +148,6 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
           const outcome = await connected.command(officeOpen, { path: deps.resolvePath(path) });
           if (!outcome.ok) return { ok: false, message: engineMessage(outcome.error) };
           return { ok: true, value: outcome.result.office };
-        } catch (error) {
-          return { ok: false, message: errorText(error) };
-        }
-      },
-      resumeScheduling: async () => {
-        try {
-          const outcome = await connected.command(daemonResumeScheduling, {});
-          if (!outcome.ok) return { ok: false, message: engineMessage(outcome.error) };
-          return { ok: true, value: null };
         } catch (error) {
           return { ok: false, message: errorText(error) };
         }

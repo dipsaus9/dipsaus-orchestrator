@@ -1,6 +1,6 @@
 // The registry of commands and reads (M0 review, DIPO-15). Each feature module exports
 // `register(registry)`, which adds its handlers next to the contract definition they serve: args and
-// result schemas, `since` or `provisional`, and for commands `confirm` and `irreversible`.
+// result schemas, and for commands `confirm` and `irreversible`.
 // `features.ts` lists the modules, so a later story adds a command or read in its own directory
 // plus one line there, without editing `commands/` or `reads/`. Modules also add office load steps
 // and active-work checks here (DIPO-27), which `office/` runs without knowing the modules, and
@@ -8,7 +8,6 @@
 // and story refreshes (DIPO-104), which the executor calls before an unknown story reference fails.
 
 import {
-  checkVersioning,
   type Clock,
   type CommandDefinition,
   type IdSource,
@@ -323,7 +322,6 @@ export class Registry {
     const module = feature.name;
     const addCommand = (entry: RegisteredCommand): void => {
       const { definition } = entry;
-      this.#checkVersioning(module, definition);
       if (definition.level !== entry.level) {
         throw new InvalidRegistrationError(
           module,
@@ -339,7 +337,6 @@ export class Registry {
     };
     const addRead = (entry: RegisteredRead): void => {
       const { definition } = entry;
-      this.#checkVersioning(module, definition);
       const existing = this.#reads.get(definition.name);
       if (existing !== undefined) {
         throw new DuplicateRegistrationError("read", definition.name, [existing.module, module]);
@@ -416,11 +413,6 @@ export class Registry {
         this.#storyRefreshes.set(name, { module, name, refresh });
       },
     });
-  }
-
-  #checkVersioning(module: string, definition: CommandDefinition | ReadDefinition): void {
-    const problem = checkVersioning(definition);
-    if (problem !== undefined) throw new InvalidRegistrationError(module, definition.name, problem);
   }
 }
 

@@ -200,11 +200,11 @@ export function heldParkDeskItems(office: OfficeHandle, stories: ParkStore): Han
   });
 }
 
-/** Whether a command is registered and shipped, so the desk may offer it. */
+/** Whether a command is registered, so the desk may offer it. */
 export type Implemented = (command: CommandName) => boolean;
 
 export function implementedIn(registry: Registry): Implemented {
-  return (command) => registry.command(command)?.definition.since !== undefined;
+  return (command) => registry.command(command) !== undefined;
 }
 
 // The groups of 0020, in order.

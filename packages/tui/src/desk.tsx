@@ -198,8 +198,8 @@ export function parkWords(item: DeskItem): string {
 }
 
 /** The key hints of a row, as the footer and wide rows show them. */
-export function rowHints(item: DeskItem, capabilities: readonly string[]): string {
-  return rowKeys(item, capabilities)
+export function rowHints(item: DeskItem): string {
+  return rowKeys(item)
     .bound.map((entry) => entry.binding.hint)
     .join(" ");
 }
@@ -212,7 +212,6 @@ export function rowLines(options: {
   readonly widths: { readonly kind: number; readonly story: number; readonly hints: number };
   readonly columns: number;
   readonly now: number;
-  readonly capabilities: readonly string[];
   readonly display: Display;
 }): string[] {
   const { item, widths, columns, now, display } = options;
@@ -223,7 +222,7 @@ export function rowLines(options: {
   const park = parkWords(item);
   const middle = park === "" ? item.detail : `${park} ${dot} ${item.detail}`;
   const when = age(now - Date.parse(item.since));
-  const hints = wide ? rowHints(item, options.capabilities) : "";
+  const hints = wide ? rowHints(item) : "";
   const tail = `  ${when.padStart(3)}${widths.hints === 0 ? "" : `  ${hints.padEnd(widths.hints)}`}`;
   const room = Math.max(0, columns - 1 - head.length - 2 - tail.length);
   const lines = [`${head}  ${truncate(middle, room, ellipsis).padEnd(room)}${tail}`];
@@ -241,14 +240,11 @@ export function rowLines(options: {
 
 export function Desk(props: {
   readonly desk: DeskState;
-  /** True when the engine has `office.desk` (capability `desk`). */
-  readonly available: boolean;
   /** The selected row in `deskRows(...).all`, -1 for none. */
   readonly selected: number;
   readonly columns: number;
   readonly height: number;
   readonly now: number;
-  readonly capabilities: readonly string[];
   readonly display: Display;
 }) {
   const { desk, columns, display } = props;
@@ -272,17 +268,6 @@ export function Desk(props: {
       </Text>
     );
   };
-  if (!props.available) {
-    return (
-      <Box flexDirection="column">
-        {line("Your desk", "title", "title")}
-        {line(
-          "This daemon has no office.desk read (capability desk); restart it with this binary.",
-          "missing",
-        )}
-      </Box>
-    );
-  }
   if (desk.items === null) {
     return (
       <Box flexDirection="column">
@@ -301,9 +286,7 @@ export function Desk(props: {
     kind: Math.max(0, ...all.map((item) => item.kind.length)),
     story: Math.max(0, ...all.map((item) => (item.story ?? "").length)),
     hints:
-      columns >= DESK_WIDE_COLUMNS
-        ? Math.max(0, ...all.map((item) => rowHints(item, props.capabilities).length))
-        : 0,
+      columns >= DESK_WIDE_COLUMNS ? Math.max(0, ...all.map((item) => rowHints(item).length)) : 0,
   };
   const rendered = all.map((item, i) =>
     rowLines({
@@ -312,7 +295,6 @@ export function Desk(props: {
       widths,
       columns,
       now: props.now,
-      capabilities: props.capabilities,
       display,
     }),
   );

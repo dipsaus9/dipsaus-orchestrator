@@ -17,7 +17,6 @@ import {
   systemClock,
   systemLifecycleDeps,
   uninstallDaemon,
-  versionHint,
 } from "@dipsaus-orchestrator/client/node";
 import { type Clock, EXIT_CONFIG } from "@dipsaus-orchestrator/contract";
 
@@ -111,8 +110,8 @@ Usage:
                     set the running daemon's log level until it restarts
                     (error, warn, info, debug or trace)
   dipo daemon resume-scheduling
-                    leave safe mode and lift every office's starts paused, so
-                    the daemon schedules work again
+                    lift every office's starts paused, so the daemon starts
+                    work again
   dipo office open [path]
                     register the git repository with Backlog.md at path (default:
                     the current directory) as an office
@@ -260,7 +259,7 @@ Options:
 export const DAEMON_FORMS: ReadonlySet<string> = new Set(["--foreground", "worker-host"]);
 
 /** The two ways to reach the daemon: only a running one, or one started when none runs. */
-export interface ConnectWays<S extends { readonly hello?: { readonly engine: string } | null }> {
+export interface ConnectWays<S> {
   readonly running: () => Promise<S>;
   readonly orStart: () => Promise<{
     readonly session: S;
@@ -270,29 +269,22 @@ export interface ConnectWays<S extends { readonly hello?: { readonly engine: str
 
 /**
  * Connects the way `mode` asks: read-only commands (`running`) never start the daemon (DIPO-187);
- * every other command may start it, and says so. Both print the version hint.
+ * every other command may start it, and says so. A daemon of another version refuses the connect
+ * (`OtherVersionError`, 0005).
  */
-export async function connectFor<S extends { readonly hello?: { readonly engine: string } | null }>(
+export async function connectFor<S>(
   mode: ConnectMode,
   ways: ConnectWays<S>,
-  version: string,
   writeError: (line: string) => void,
 ): Promise<S> {
-  let session: S;
-  if (mode === "running") {
-    session = await ways.running();
-  } else {
-    const connected = await ways.orStart();
-    session = connected.session;
-    if (connected.started !== null) {
-      writeError(
-        `dipo: started the daemon (pid ${connected.started.pid}, version ${connected.started.version})`,
-      );
-    }
+  if (mode === "running") return ways.running();
+  const connected = await ways.orStart();
+  if (connected.started !== null) {
+    writeError(
+      `dipo: started the daemon (pid ${connected.started.pid}, version ${connected.started.version})`,
+    );
   }
-  const hint = versionHint(version, session.hello?.engine);
-  if (hint !== null) writeError(`dipo: ${hint}`);
-  return session;
+  return connected.session;
 }
 
 export function defaultDeps(): CliDeps {
@@ -316,7 +308,6 @@ export function defaultDeps(): CliDeps {
       connectFor(
         mode,
         { running: () => connectRunning(lifecycle), orStart: () => connectOrStart(lifecycle) },
-        version,
         (line) => process.stderr.write(`${line}\n`),
       ),
     daemon: {

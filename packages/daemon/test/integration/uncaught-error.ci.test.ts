@@ -1,9 +1,9 @@
 // CI only (0017 section 1): a real daemon process, started as the `dipo` binary starts it (a
 // top-level await that sets the exit code), meets errors no code catches (DIPO-110, DIPO-117). The
 // daemon logs each once with its code, drains with the reason "uncaught error" (capped as usual,
-// then the socket closes and the database is checkpointed and closed), keeps its crash marker and
-// exits 1, so the next start counts a crash and three within 10 minutes start in `safe`. A
-// requested stop without such an error still exits 0 and is not counted.
+// then the socket closes and the database is checkpointed and closed) and exits 1. No crash marker
+// is kept: the next start recovers as after a clean stop (0005). A requested stop without such an
+// error still exits 0.
 //
 // Measured on Bun 1.4.2 (macOS arm64), under a top-level await that sets `process.exitCode`:
 // - An unhandled rejection with no listener is reported on stderr (`error: <message>`), the process
@@ -32,7 +32,7 @@ const FIXTURE = resolve(import.meta.dir, "fixtures/uncaught-daemon.ts");
 const TIMEOUT_MS = 30_000;
 const REJECTION = "an unhandled rejection reached the daemon";
 const EXCEPTION = "an uncaught exception reached the daemon";
-const CRASH_EXIT = "exiting 1 after an uncaught error; the next start counts a crash";
+const CRASH_EXIT = "exiting 1 after an uncaught error";
 
 type Line = {
   msg: string;
@@ -45,8 +45,6 @@ type Line = {
   error?: { message?: string };
 };
 
-type CrashFile = { running: { pid: number } | null; crashes: number[] };
-
 function readLog(dir: string): Line[] {
   const path = join(dir, "state", "logs", "daemon.log");
   if (!existsSync(path)) return [];
@@ -55,10 +53,6 @@ function readLog(dir: string): Line[] {
     .split("\n")
     .filter((line) => line !== "")
     .map((line) => JSON.parse(line) as Line);
-}
-
-function readCrashFile(dir: string): CrashFile {
-  return JSON.parse(readFileSync(join(dir, "state", "crashes.json"), "utf8")) as CrashFile;
 }
 
 function start(dir: string, args: readonly string[]): Bun.Subprocess<"ignore", "ignore", "pipe"> {
@@ -132,7 +126,7 @@ function expectClosedDown(dir: string, log: Line[]): void {
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("an error no code catches in a real daemon process", () => {
     it(
-      "an unhandled rejection is logged once, drains under the cap with its own reason, closes down and exits 1 with the crash marker kept; a second one starts no second drain",
+      "an unhandled rejection is logged once, drains under the cap with its own reason, closes down and exits 1; a second one starts no second drain",
       () =>
         withDaemonTempDir(async (dir) => {
           // The child outlives the 1 s cap, so the drain lasts until the cap and the second
@@ -166,8 +160,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expectClosedDown(dir, log);
             if (child !== 0) expect(alive(child)).toBe(false);
 
-            // The crash marker stays: the next start counts this exit as a crash.
-            expect(readCrashFile(dir).running).toMatchObject({ pid: daemon.pid });
+            expect(existsSync(join(dir, "state", "crashes.json"))).toBe(false);
             // Logged once by the daemon; Bun does not report it again.
             const stderr = await new Response(daemon.stderr).text();
             expect(stderr).not.toMatch(/^error: /m);
@@ -179,7 +172,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     );
 
     it(
-      "a synchronous throw from a timer is logged once, drains, closes down and exits 1 with the crash marker kept",
+      "a synchronous throw from a timer is logged once, drains, closes down and exits 1",
       () =>
         withDaemonTempDir(async (dir) => {
           const daemon = start(dir, ["timer-throw"]);
@@ -200,7 +193,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(messages).toContain("drained");
             expect(messages).toContain(CRASH_EXIT);
             expectClosedDown(dir, log);
-            expect(readCrashFile(dir).running).toMatchObject({ pid: daemon.pid });
             const stderr = await new Response(daemon.stderr).text();
             expect(stderr).not.toMatch(/^error: /m);
           } finally {
@@ -211,7 +203,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     );
 
     it(
-      "an uncaught error during a SIGTERM drain keeps the drain's reason, exits 1 and keeps the crash marker",
+      "an uncaught error during a SIGTERM drain keeps the drain's reason and exits 1",
       () =>
         withDaemonTempDir(async (dir) => {
           // A long child holds the SIGTERM drain open (cap 20 s) until the test ends it, once the
@@ -237,7 +229,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(messages.indexOf(EXCEPTION)).toBeLessThan(messages.indexOf("drained"));
             expect(log.find((line) => line.msg === CRASH_EXIT)?.reason).toBe("SIGTERM");
             expectClosedDown(dir, log);
-            expect(readCrashFile(dir).running).toMatchObject({ pid: daemon.pid });
           } finally {
             await cleanup(daemon, child === 0 ? [] : [child]);
           }
@@ -246,14 +237,13 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     );
 
     it(
-      "each such exit counts as a crash at the next start, three start in safe, and a clean stop exits 0 and is not counted",
+      "starts in running after three such exits in a row, with no crash marker (0005)",
       () =>
         withDaemonTempDir(async (dir) => {
           for (let crash = 0; crash < 3; crash++) {
             const daemon = start(dir, ["timer-throw"]);
             try {
               expect(await daemon.exited).toBe(1);
-              expect(readCrashFile(dir).crashes).toHaveLength(crash);
             } finally {
               await cleanup(daemon);
             }
@@ -261,21 +251,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const before = readLog(dir).length;
           const daemon = start(dir, ["none"]);
           try {
-            await waitForLog(dir, daemon, "safe state", reachedState("safe"), before);
-            const transition = readLog(dir).slice(before).find(reachedState("safe"));
-            expect(transition?.reason).toBe("crash loop");
-            expect(readCrashFile(dir)).toMatchObject({
-              running: { pid: daemon.pid },
-              crashes: expect.any(Array),
-            });
-            expect(readCrashFile(dir).crashes).toHaveLength(3);
+            await waitForLog(dir, daemon, "running state", reachedState("running"), before);
+            expect(existsSync(join(dir, "state", "crashes.json"))).toBe(false);
             daemon.kill("SIGTERM");
             expect(await daemon.exited).toBe(0);
             const log = readLog(dir).slice(before);
             expect(log.map((line) => line.msg)).not.toContain(CRASH_EXIT);
-            // A clean stop clears the marker: the next start records no crash for it.
-            expect(readCrashFile(dir).running).toBeNull();
-            expect(readCrashFile(dir).crashes).toHaveLength(3);
           } finally {
             await cleanup(daemon);
           }

@@ -4,7 +4,39 @@
 // means is the caller's business. Engine code reaches `Bun.serve` only through this module (0004
 // amendment c).
 
+import { existsSync, linkSync, rmSync } from "node:fs";
+
 import { removeSocketFile } from "./socket";
+
+/**
+ * Stops `server` and leaves the file at `path` as it was. Bun unlinks a unix socket's path when
+ * its server stops, also when the path now names another daemon's socket (a daemon that lost its
+ * lock): the file is linked aside first and linked back once the server stopped.
+ */
+async function stopKeepingFile(server: { stop(close: boolean): Promise<void> }, path: string) {
+  const aside = `${path}.${process.pid}.keep`;
+  let kept = false;
+  try {
+    rmSync(aside, { force: true });
+    if (existsSync(path)) {
+      linkSync(path, aside);
+      kept = true;
+    }
+  } catch {
+    // Nothing to keep: the stop goes on.
+  }
+  try {
+    await server.stop(true);
+  } finally {
+    if (kept) {
+      try {
+        if (!existsSync(path)) linkSync(aside, path);
+      } finally {
+        rmSync(aside, { force: true });
+      }
+    }
+  }
+}
 
 /** WebSocket close codes the daemon uses (RFC 6455 section 7.4.1). */
 export const CLOSE_GOING_AWAY = 1001;
@@ -142,8 +174,12 @@ export function serveUnixSocket(
       }
       const deadline = performance.now() + CLOSE_GRACE_MS;
       while (open.size > 0 && performance.now() < deadline) await Bun.sleep(10);
+      if (stopOptions.removeFile === false) {
+        await stopKeepingFile(server, path);
+        return;
+      }
       await server.stop(true);
-      if (stopOptions.removeFile !== false) removeSocketFile(path);
+      removeSocketFile(path);
     },
   };
 }

@@ -16,12 +16,13 @@ describe("readSoftwareConfig", () => {
       expect(readSoftwareConfig(state)).toEqual({
         ok: true,
         config: {
-          version: 3,
-          daemon: { autostart: true, autoRestartOnUpgrade: false },
+          version: 4,
+          daemon: { autostart: true },
           usage: { alerts: { level: 0.8 } },
           notify: { desk: true },
         },
         fromFile: false,
+        warnings: [],
       });
     }));
 
@@ -30,7 +31,7 @@ describe("readSoftwareConfig", () => {
       writeFileSync(join(state, "config.yaml"), "version: 1\ndaemon:\n  autostart: false\n");
       expect(readSoftwareConfig(state)).toMatchObject({
         ok: true,
-        config: { daemon: { autostart: false, autoRestartOnUpgrade: false } },
+        config: { daemon: { autostart: false } },
         fromFile: true,
       });
     }));
@@ -65,7 +66,7 @@ describe("readSoftwareConfig", () => {
         ok: false,
         errors: [{ path: "version", expected: "integer" }],
       });
-      writeFileSync(path, "version: 4\n");
+      writeFileSync(path, "version: 5\n");
       const result = readSoftwareConfig(state);
       if (result.ok) throw new Error("expected a refusal");
       expect(result.errors[0]?.message).toContain("upgrade dipo");

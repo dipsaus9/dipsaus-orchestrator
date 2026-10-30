@@ -189,9 +189,7 @@ describe("connectFor (DIPO-187)", () => {
   it("reaches only a running daemon for a read-only command and never the start path", async () => {
     const w = ways({ pid: 42, version: "0.0.0-dev" });
     const err: string[] = [];
-    expect(await connectFor("running", w.value, "0.0.0-dev", (line) => err.push(line))).toBe(
-      w.session,
-    );
+    expect(await connectFor("running", w.value, (line) => err.push(line))).toBe(w.session);
     expect(w.calls).toEqual(["running"]);
     expect(err).toEqual([]);
   });
@@ -199,9 +197,7 @@ describe("connectFor (DIPO-187)", () => {
   it("may start the daemon for any other command and says so", async () => {
     const w = ways({ pid: 42, version: "0.0.0-dev" });
     const err: string[] = [];
-    expect(await connectFor("start", w.value, "0.0.0-dev", (line) => err.push(line))).toBe(
-      w.session,
-    );
+    expect(await connectFor("start", w.value, (line) => err.push(line))).toBe(w.session);
     expect(w.calls).toEqual(["orStart"]);
     expect(err).toEqual(["dipo: started the daemon (pid 42, version 0.0.0-dev)"]);
   });

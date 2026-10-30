@@ -6,9 +6,10 @@
 // loudly when it is called.
 
 import { describe, expect, it } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { CONTRACT_VERSION, type CommandReply, type OfficeId } from "@dipsaus-orchestrator/contract";
+import { type CommandReply, type OfficeId } from "@dipsaus-orchestrator/contract";
 import { withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { buildCore } from "../../src/create/core";
@@ -31,7 +32,7 @@ describe("createEngine", () => {
         const engine = createEngine(deps);
         try {
           expect(engine.state()).toBe("starting");
-          await engine.recover({ crashLoop: false });
+          await engine.recover();
           expect(engine.state()).toBe("running");
 
           const opened = resultOf<{ office: OfficeId; registered: boolean }>(
@@ -49,7 +50,7 @@ describe("createEngine", () => {
             await engine.executeRead({
               requestId: requestId(),
               name: "engine.hello",
-              args: { client: { name: "test", version: "0.0.0-test" }, contract: CONTRACT_VERSION },
+              args: { client: { name: "test", version: "0.0.0-test" } },
             }),
           );
           expect(hello.offices.map((summary) => summary.office)).toEqual([opened.office]);
@@ -64,6 +65,39 @@ describe("createEngine", () => {
       },
       { fixture: BACKLOG_FIXTURE },
     ));
+
+  it("stays in recovering with database.unavailable and the recovery-by-hand text for a damaged file", () =>
+    withTempRepo(async (repo) => {
+      const { deps } = fakeDeps(repo.root, join(repo.root, "home"));
+      // The real open path on a file that holds no database (0005, 0007).
+      const db = join(deps.paths.stateDir, "dipo.db");
+      mkdirSync(deps.paths.stateDir, { recursive: true, mode: 0o700 });
+      writeFileSync(db, Buffer.alloc(4096, 0xff), { mode: 0o600 });
+      const engine = createEngine(deps);
+      try {
+        await engine.recover();
+        expect(engine.state()).toBe("recovering");
+        const opened = await engine.executeCommand({
+          requestId: requestId(),
+          name: "office.open",
+          args: { path: repo.dir },
+          origin: "cli",
+          confirmed: false,
+        });
+        expect(opened).toMatchObject({
+          ok: false,
+          error: { code: "database.unavailable", retryable: false, details: { reason: "damaged" } },
+        });
+        const message = opened.ok ? "" : opened.error.message;
+        expect(message).toStartWith("The state database is damaged (");
+        expect(message).toContain(
+          `No office is loaded. Run \`dipo daemon stop\`, move ${db} and its -wal and -shm files away`,
+        );
+      } finally {
+        await engine.stop();
+        engine.closeDatabase();
+      }
+    }));
 
   it("fails loudly when a service calls a partner the engine has not connected", () =>
     withTempRepo(async (repo) => {

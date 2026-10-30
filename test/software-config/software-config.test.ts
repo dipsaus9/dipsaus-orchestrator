@@ -21,7 +21,7 @@ const FILES: Record<string, string | undefined> = {
   "no version": "daemon:\n  autostart: true\n",
   "a string version": 'version: "1"\n',
   "two documents": "version: 1\n---\nversion: 1\n",
-  "a newer version": "version: 2\n",
+  "a newer version": "version: 5\n",
   "invalid YAML": "daemon: {\n",
   "a list": "- version: 1\n",
   empty: "",

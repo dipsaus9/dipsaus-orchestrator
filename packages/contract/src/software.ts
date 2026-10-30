@@ -12,11 +12,10 @@ import {
 } from "./definition";
 import { ConfigErrorData } from "./config";
 import { Cursor, OfficeId } from "./ids";
-import { ContractVersion } from "./version";
 import { EvidenceMap, openEnum } from "./work";
 
-// 0006 section 7. Closed enum: a new state is a major change (0005 section 11).
-export const DaemonState = z.enum(["starting", "recovering", "running", "draining", "safe"]);
+// The daemon states of 0005. Closed enum.
+export const DaemonState = z.enum(["starting", "recovering", "running", "draining"]);
 export type DaemonState = z.infer<typeof DaemonState>;
 
 export const LogLevel = z.enum(["error", "warn", "info", "debug", "trace"]);
@@ -54,10 +53,10 @@ export const OfficeSummary = z.object({
   // Since minor 1 (DIPO-81): the stories in the `ready` column, engine-derived, so the office
   // switcher shows Ready for offices that are not open. A minor-1 engine always sends it.
   ready: Count.optional(),
-  dayUsage: DayUsage.optional(), // [`usage.alerts`]
+  dayUsage: DayUsage.optional(),
   // Since minor 1 (DIPO-311): the same for the UTC calendar month. `tokens` are the office's own;
   // `limit`, `share` and `alert` are those of the all-office total.
-  monthUsage: DayUsage.optional(), // [`usage.alerts`]
+  monthUsage: DayUsage.optional(),
   evidence: EvidenceMap.optional(), // [`evidence`]
   // The privacy opt-ins on for the office, as full keys such as `privacy.storeCommandBodies`
   // (0007 section 8: the overview shows when one is on). Absent when none is on. Minor 1, DIPO-83.
@@ -107,7 +106,6 @@ export const officeOpen = defineCommand({
   }),
   confirm: false,
   irreversible: false,
-  since: 0,
 });
 
 export const officeForget = defineCommand({
@@ -117,7 +115,6 @@ export const officeForget = defineCommand({
   result: z.object({ office: OfficeId, path: z.string().optional() }), // never deletes repository data; path since minor 1
   confirm: true,
   irreversible: false,
-  since: 0,
 });
 
 // Since minor 1 (DIPO-36): runs office init (0010 section 6) through one backlog PR. `changed` in
@@ -139,7 +136,6 @@ export const officeInit = defineCommand({
   }),
   confirm: false,
   irreversible: false,
-  since: 1,
 });
 
 export const officeRescan = defineCommand({
@@ -149,7 +145,6 @@ export const officeRescan = defineCommand({
   result: z.object({ scan: z.literal("started") }),
   confirm: false,
   irreversible: false,
-  since: 0,
 });
 
 // Re-reads the office configuration (0017 section 5, DIPO-27). An invalid file keeps the previous
@@ -167,7 +162,6 @@ export const officeReloadConfig = defineCommand({
   }),
   confirm: false,
   irreversible: false,
-  since: 1,
 });
 
 // Changes one privacy setting of an office in `.dipo/office.local.yaml` and reloads the
@@ -190,7 +184,6 @@ export const officeSetPrivacy = defineCommand({
   }),
   confirm: true,
   irreversible: false,
-  since: 1,
 });
 
 export const daemonStop = defineCommand({
@@ -200,7 +193,6 @@ export const daemonStop = defineCommand({
   result: z.object({ state: z.literal("draining") }),
   confirm: true,
   irreversible: false,
-  since: 0,
 });
 
 export const daemonSetLogLevel = defineCommand({
@@ -210,17 +202,15 @@ export const daemonSetLogLevel = defineCommand({
   result: z.object({ level: LogLevel }), // until restart
   confirm: false,
   irreversible: false,
-  since: 0,
 });
 
 export const daemonResumeScheduling = defineCommand({
   name: "daemon.resumeScheduling",
   level: "software",
   args: z.object({}),
-  result: z.object({ state: DaemonState }), // leaves safe, and lifts every office's starts paused (0020)
+  result: z.object({ state: DaemonState }), // lifts every office's starts paused (0020)
   confirm: false,
   irreversible: false,
-  since: 0,
 });
 
 // Reads
@@ -230,19 +220,13 @@ export const TUI_CLIENT_NAME = "dipo-tui";
 
 export const engineHello = defineRead({
   name: "engine.hello",
-  args: z.object({
-    contract: ContractVersion,
-    client: z.object({ name: z.string(), version: z.string() }),
-  }),
+  args: z.object({ client: z.object({ name: z.string(), version: z.string() }) }),
   result: z.object({
-    engine: z.string(), // engine version
-    contract: ContractVersion,
-    capabilities: z.array(z.string()),
+    engine: z.string(), // the daemon's binary version; a client of another version stops (0005)
     daemon: DaemonState,
     offices: z.array(OfficeSummary),
     cursor: Cursor, // software stream position read together with offices
   }),
-  since: 0,
 });
 
 export const commandsDescribe = defineRead({
@@ -252,7 +236,6 @@ export const commandsDescribe = defineRead({
     commands: z.array(CommandDescription),
     reads: z.array(ReadDescription),
   }),
-  since: 0,
 });
 
 export const daemonStatus = defineRead({
@@ -281,7 +264,6 @@ export const daemonStatus = defineRead({
       .array(z.object({ office: OfficeId, name: z.string().optional(), commits: Count }))
       .optional(),
   }),
-  since: 0,
 });
 
 // Events

@@ -14,7 +14,6 @@
 
 import {
   type Clock,
-  CONTRACT_VERSION,
   type Cursor,
   type DaemonState,
   daemonStateChanged,
@@ -120,7 +119,6 @@ export interface OfficeStoreState {
   readonly live: boolean;
   readonly daemon: DaemonState | null;
   readonly engine: string | null;
-  readonly capabilities: readonly string[];
   /** Registered offices in `engine.hello` order, then in order of registration. */
   readonly offices: readonly OfficeEntry[];
   /** The selected office; client state (0006). */
@@ -265,7 +263,6 @@ export class OfficeStore {
       live: false,
       daemon: null,
       engine: null,
-      capabilities: [],
       offices: [],
       office: null,
       loading: false,
@@ -591,10 +588,7 @@ export class OfficeStore {
   /** A history gap: drop the view, read `engine.hello` and the snapshot again, say so once. */
   async #reload(office: OfficeId): Promise<void> {
     const generation = this.#generation;
-    const hello = await this.#read(engineHello, {
-      contract: CONTRACT_VERSION,
-      client: this.#clientInfo,
-    });
+    const hello = await this.#read(engineHello, { client: this.#clientInfo });
     // A switch during the read owns the state now; reloading the old office would undo it.
     if (this.#closed || generation !== this.#generation) return;
     if (hello.ok) this.#applyHello(hello.result);
@@ -644,10 +638,7 @@ export class OfficeStore {
   }
 
   async #reloadSoftware(): Promise<void> {
-    const hello = await this.#read(engineHello, {
-      contract: CONTRACT_VERSION,
-      client: this.#clientInfo,
-    });
+    const hello = await this.#read(engineHello, { client: this.#clientInfo });
     if (this.#closed) return;
     if (!hello.ok) {
       this.#softwareEndedWith(hello.error);
@@ -663,7 +654,6 @@ export class OfficeStore {
     this.#update({
       daemon: hello.daemon,
       engine: hello.engine,
-      capabilities: hello.capabilities,
       offices: hello.offices.map((summary) => ({
         office: summary.office,
         name: summary.name,
@@ -718,7 +708,7 @@ export class OfficeStore {
         const retry = this.#retry;
         if (to === "running" && retry !== null) void this.#load(retry.office, retry.read);
         // Out of `recovering`, the daemon serves office streams again (DIPO-322).
-        if (to === "running" || to === "safe") this.#resumeNow();
+        if (to === "running") this.#resumeNow();
         if (to === "recovering" && this.#state.office === null) void this.#probeDatabase();
         return;
       }

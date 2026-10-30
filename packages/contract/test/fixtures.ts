@@ -694,7 +694,7 @@ export const eventFixtures: Record<string, unknown> = {
   "office.registered": { office: ids.office, path: officeSummary.path, name: officeSummary.name },
   "office.forgotten": { office: ids.office },
   "office.summary": officeSummary,
-  "daemon.state": { from: "recovering", to: "safe", reason: "crash loop" },
+  "daemon.state": { from: "recovering", to: "running", reason: "recovered" },
   "scan.finished": {
     scripts: { verify: "bun run verify" },
     warnings: [],
@@ -717,8 +717,6 @@ const event = {
 };
 
 export const clientFrameFixtures: Record<string, unknown> = {
-  "auth with code": { kind: "auth", requestId: ids.request, code: "c0de" },
-  "auth with token": { kind: "auth", requestId: ids.request, token: "t0ken" },
   command: {
     kind: "command",
     requestId: ids.request,
@@ -764,10 +762,10 @@ export const serverFrameFixtures: Record<string, unknown> = {
       ok: false,
       requestId: ids.request,
       error: {
-        code: "contract.unsupported",
-        message: "The daemon speaks contract 2.0.",
+        code: "database.unavailable",
+        message: "The state database is damaged. No office is loaded.",
         retryable: false,
-        details: { contract: { major: 2, minor: 0 }, version: "2.0.0" },
+        details: { reason: "damaged" },
       },
     },
   },
@@ -776,13 +774,9 @@ export const serverFrameFixtures: Record<string, unknown> = {
 
 export const malformedClientFrames: Record<string, unknown> = {
   "unknown kind": { kind: "hello", requestId: ids.request },
-  "auth with code and token": {
-    kind: "auth",
-    requestId: ids.request,
-    code: "c0de",
-    token: "t0ken",
-  },
-  "auth with neither": { kind: "auth", requestId: ids.request },
+  // The auth frame went with the browser listener (0005): the Unix socket needs none.
+  "auth with code": { kind: "auth", requestId: ids.request, code: "c0de" },
+  "auth with token": { kind: "auth", requestId: ids.request, token: "t0ken" },
   "bad request id": { kind: "read", requestId: "not-a-ulid", name: "daemon.status", args: {} },
   "bad origin": { ...(clientFrameFixtures["command"] as object), origin: "robot" },
   "bad stream": { kind: "unsubscribe", stream: "office:nope" },

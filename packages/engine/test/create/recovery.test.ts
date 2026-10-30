@@ -1,5 +1,4 @@
-// Recovery steps (DIPO-68): registration order with the migrations first, `running` or `safe` at
-// the end, and a drain during recovery lets the current step finish and runs no further step. An
+// Recovery steps (DIPO-68): registration order with the migrations first, `running` at the end, and a drain during recovery lets the current step finish and runs no further step. An
 // unavailable state database (DIPO-111) ends recovery in `recovering`, and `databaseFailure` says
 // what to do for each kind of failure.
 
@@ -14,14 +13,13 @@ import {
 } from "../../src/db/migrations";
 import { createLogger } from "../../src/log/logger";
 import { ChildProcesses } from "../../src/platform/process";
-import { IntegrityCheckError, NetworkFileSystemError } from "../../src/platform/sqlite";
+import { NetworkFileSystemError } from "../../src/platform/sqlite";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { DaemonLifecycle } from "../../src/create/lifecycle";
 import {
   databaseFailure,
   MIGRATIONS_STEP,
-  needsCheckAfter,
   newestBackup,
   RecoverySteps,
   runRecovery,
@@ -58,19 +56,9 @@ describe("runRecovery", () => {
     const states: string[] = [];
     lifecycle.onTransition((change) => states.push(`${change.to}:${change.reason}`));
 
-    expect(await runRecovery({ lifecycle, steps, context: context(), crashLoop: false })).toBe(
-      true,
-    );
+    expect(await runRecovery({ lifecycle, steps, context: context() })).toBe(true);
     expect(order).toEqual([MIGRATIONS_STEP, "reconcile", "re-attach"]);
     expect(states).toEqual(["recovering:running recovery steps", "running:recovered"]);
-  });
-
-  it("enters safe with reason crash loop when the crash counter requires it", async () => {
-    const steps = new RecoverySteps(recordingStep(MIGRATIONS_STEP, []));
-    const lifecycle = new DaemonLifecycle();
-    await runRecovery({ lifecycle, steps, context: context(), crashLoop: true });
-    expect(lifecycle.state).toBe("safe");
-    expect(lifecycle.reason).toBe("crash loop");
   });
 
   it("keeps office access closed while a step runs", async () => {
@@ -82,7 +70,7 @@ describe("runRecovery", () => {
         seen.push(lifecycle.officeAccess()?.code ?? null);
       },
     });
-    await runRecovery({ lifecycle, steps, context: context(), crashLoop: false });
+    await runRecovery({ lifecycle, steps, context: context() });
     expect(seen).toEqual(["engine.recovering"]);
     expect(lifecycle.officeAccess()).toBeNull();
   });
@@ -105,7 +93,7 @@ describe("runRecovery", () => {
       },
     });
     steps.register(recordingStep("reconcile", order));
-    const running = runRecovery({ lifecycle, steps, context: context(), crashLoop: false });
+    const running = runRecovery({ lifecycle, steps, context: context() });
     await Promise.resolve();
     expect(lifecycle.inFlight).toBe(1);
     lifecycle.transition("draining", "SIGTERM");
@@ -125,16 +113,16 @@ describe("runRecovery", () => {
         throw new Error("migration 3 failed");
       },
     });
-    await expect(
-      runRecovery({ lifecycle, steps, context: context(), crashLoop: false }),
-    ).rejects.toThrow("migration 3 failed");
+    await expect(runRecovery({ lifecycle, steps, context: context() })).rejects.toThrow(
+      "migration 3 failed",
+    );
     await lifecycle.idle();
     expect(lifecycle.state).toBe("recovering");
   });
 });
 
 describe("an unavailable state database (DIPO-111)", () => {
-  it("runs no further step and enters neither running nor safe", async () => {
+  it("runs no further step and does not enter running", async () => {
     const order: string[] = [];
     const lifecycle = new DaemonLifecycle();
     const steps = new RecoverySteps({
@@ -145,9 +133,7 @@ describe("an unavailable state database (DIPO-111)", () => {
       },
     });
     steps.register(recordingStep("reconcile", order));
-    expect(await runRecovery({ lifecycle, steps, context: context(), crashLoop: true })).toBe(
-      false,
-    );
+    expect(await runRecovery({ lifecycle, steps, context: context() })).toBe(false);
     expect(order).toEqual([MIGRATIONS_STEP]);
     expect(lifecycle.state).toBe("recovering");
     expect(lifecycle.inFlight).toBe(0);
@@ -203,16 +189,16 @@ describe("databaseFailure", () => {
       );
     }));
 
-  it("names stop and the backup to copy in for a damaged file, from quick_check or from SQLite", () =>
+  it("names stop and the backup to copy in for a file SQLite finds damaged", () =>
     withTempDir((dir) => {
       const backup = backupFile(dir, "pre-v30-20261015T080000.db", 29, 1_000_000);
-      const checked = databaseFailure(
-        new IntegrityCheckError(join(dir, "dipo.db"), ["Tree 5 page 5: btreeInitPage error 11"]),
-        dir,
-      );
+      const malformed = Object.assign(new Error("database disk image is malformed"), {
+        code: "SQLITE_CORRUPT",
+      });
+      const checked = databaseFailure(malformed, dir);
       expect(checked.details).toEqual({ reason: "damaged", backup });
       expect(checked.text).toBe(
-        `The state database is damaged (PRAGMA quick_check reported: Tree 5 page 5: btreeInitPage error 11). No office is loaded. Run \`dipo daemon stop\`, move ${join(dir, "dipo.db")} and its -wal and -shm files away, or delete those two files and copy ${backup} over ${join(dir, "dipo.db")}, then start the daemon again.`,
+        `The state database is damaged (database disk image is malformed). No office is loaded. Run \`dipo daemon stop\`, move ${join(dir, "dipo.db")} and its -wal and -shm files away, or delete those two files and copy ${backup} over ${join(dir, "dipo.db")}, then start the daemon again.`,
       );
       const notADatabase = Object.assign(new Error("file is not a database"), {
         code: "SQLITE_NOTADB",
@@ -228,7 +214,10 @@ describe("databaseFailure", () => {
 
   it("says where a backup would be when there is none", () =>
     withTempDir((dir) => {
-      const failure = databaseFailure(new IntegrityCheckError(join(dir, "dipo.db"), ["x"]), dir);
+      const notADatabase = Object.assign(new Error("file is not a database"), {
+        code: "SQLITE_NOTADB",
+      });
+      const failure = databaseFailure(notADatabase, dir);
       expect(failure.details).toEqual({ reason: "damaged" });
       expect(failure.text).toContain(
         `Run \`dipo daemon stop\`, move ${join(dir, "dipo.db")} and its -wal and -shm files away (${join(dir, "backups")} holds no backup), then start the daemon again; \`dipo office open\` registers each repository again.`,
@@ -269,22 +258,4 @@ describe("databaseFailure", () => {
         `The state database could not be opened (EACCES: permission denied). No office is loaded. Run \`dipo daemon stop\`, move ${join(dir, "dipo.db")} and its -wal and -shm files away, or delete those two files and copy ${backup} over ${join(dir, "dipo.db")}, then start the daemon again.`,
       );
     }));
-});
-
-describe("needsCheckAfter", () => {
-  it("keeps a check pending after damage, and after a failure before the check could pass", () => {
-    expect(needsCheckAfter("damaged", false)).toBe(true);
-    expect(needsCheckAfter("damaged", true)).toBe(true);
-    expect(needsCheckAfter("networkFilesystem", true)).toBe(true);
-    expect(needsCheckAfter("open", true)).toBe(true);
-  });
-
-  it("clears it when quick_check passed before the failure, and sets none without a check", () => {
-    for (const reason of ["tooNew", "migration", "checksum"]) {
-      expect(needsCheckAfter(reason, true)).toBe(false);
-    }
-    for (const reason of ["tooNew", "migration", "checksum", "networkFilesystem", "open"]) {
-      expect(needsCheckAfter(reason, false)).toBe(false);
-    }
-  });
 });

@@ -9,8 +9,6 @@ import type { DeskItem } from "@dipsaus-orchestrator/contract";
 
 import { KEY_TABLE, rowKeys, viewKeys } from "./keys";
 
-const FLAGS = ["work.intervene", "review", "proposals", "test.sessions"];
-
 function row(item: Partial<DeskItem>): DeskItem {
   return {
     kind: "PARKED",
@@ -39,23 +37,12 @@ describe("the key table", () => {
   it("offers each desk command's key only on a row whose actions list it", () => {
     for (const entry of desk) {
       const listed = row({ actions: [actionFor(entry.id, entry.command)] });
-      expect(rowKeys(listed, FLAGS).bound.map((bound) => bound.binding.id)).toEqual([entry.id]);
+      expect(rowKeys(listed).bound.map((bound) => bound.binding.id)).toEqual([entry.id]);
       const others = desk
         .filter((other) => other.command !== entry.command)
         .map((other) => actionFor(other.id, other.command));
-      const without = rowKeys(row({ actions: others }), FLAGS);
+      const without = rowKeys(row({ actions: others }));
       expect(without.bound.map((bound) => bound.binding.id)).not.toContain(entry.id);
-    }
-  });
-
-  it("offers a key only while the engine reports its capability flag", () => {
-    for (const entry of desk.filter((candidate) => candidate.flag !== null)) {
-      const listed = row({ actions: [actionFor(entry.id, entry.command)] });
-      const flags = FLAGS.filter((flag) => flag !== entry.flag);
-      const keys = rowKeys(listed, flags);
-      expect(keys.bound).toEqual([]);
-      // Not offered as a key, it shows as the command line to type.
-      expect(keys.unbound.map((action) => action.command)).toEqual([entry.command]);
     }
   });
 
@@ -68,7 +55,6 @@ describe("the key table", () => {
           { command: "proposal.dismiss", cli: "dipo propose dismiss ab" },
         ],
       }),
-      FLAGS,
     );
     expect(keys.bound.map((bound) => [bound.binding.key, bound.binding.id])).toEqual([
       ["y", "accept"],
@@ -85,7 +71,6 @@ describe("the key table", () => {
           { command: "proposal.dismiss", cli: "dipo propose dismiss ab" },
         ],
       }),
-      FLAGS,
     );
     // `n` rejects the merge; the dismiss that would take it too shows its command line.
     expect(keys.bound.map((bound) => bound.binding.id)).toEqual(["reject"]);
@@ -95,9 +80,8 @@ describe("the key table", () => {
     ]);
   });
 
-  it("gives the detail steer and park and the queue park and drop, steer behind its flag", () => {
-    expect(viewKeys("detail", FLAGS).map((entry) => entry.key)).toEqual(["P", "s"]);
-    expect(viewKeys("detail", []).map((entry) => entry.key)).toEqual(["P"]);
-    expect(viewKeys("queue", []).map((entry) => entry.key)).toEqual(["P", "d"]);
+  it("gives the detail steer and park and the queue park and drop", () => {
+    expect(viewKeys("detail").map((entry) => entry.key)).toEqual(["P", "s"]);
+    expect(viewKeys("queue").map((entry) => entry.key)).toEqual(["P", "d"]);
   });
 });

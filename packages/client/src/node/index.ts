@@ -5,7 +5,12 @@
 
 export { systemClock } from "./clock";
 export { readSoftwareConfig, softwareConfigPath } from "./config";
-export { connectToDaemon, DaemonNotRunningError } from "./connect";
+export {
+  connectToDaemon,
+  DaemonNotRunningError,
+  OTHER_VERSION,
+  OtherVersionError,
+} from "./connect";
 export type { ConnectToDaemonOptions } from "./connect";
 export * from "./lifecycle/index";
 export * from "./logs/index";

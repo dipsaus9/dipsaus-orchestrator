@@ -1,7 +1,6 @@
 // The watchdog facts of a run (0009, 0008): `run_signals` rows, one per fact raised, cleared when
 // the condition ends. A fact is in effect while its row has no `cleared_at`. The words are the
-// evidence of `work.observed` (`no-output`, `same-failure`, `host-lost`, and `follow-only` while
-// that mode lasts); `stuck_at` marks a `no-output` that lasted past the stall wait. The writers run
+// evidence of `work.observed` (`no-output`, `same-failure` and `host-lost`); `stuck_at` marks a `no-output` that lasted past the stall wait. The writers run
 // inside the caller's immediate transaction; health is derived from the facts in effect
 // (`views/work.ts`), never stored.
 

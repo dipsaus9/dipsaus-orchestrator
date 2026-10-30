@@ -12,7 +12,7 @@
 //    lifts, and repeats the launch checks, which lift it when they pass), a failed
 //    fetch (the retryable `git.fetchFailed`), statuses the base lacks (`run.refused`,
 //    `officeStatusesReady`) and an unresolved verify (`run.refused`, `verifyResolved`). The daemon
-//    answers the retryable `scheduling.off` in `safe` before the command reaches the engine.
+//    answers the retryable `scheduling.off` while draining before the command reaches the engine.
 // 2. The stories are indexed (DIPO-32) and the run profile refreshed (DIPO-72).
 // 3. Without `stories`, the candidates are the Ready stories on the base in pickup order; with
 //    `stories`, only those, in the order given.

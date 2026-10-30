@@ -7,7 +7,7 @@ export const packageName = "@dipsaus-orchestrator/engine";
 
 // The one factory and the engine it gives (0005).
 export { createEngine } from "./create/create-engine";
-export type { DaemonFacts, DatabaseCheck, Engine, EngineDeps, EnginePaths } from "./create/deps";
+export type { DaemonFacts, Engine, EngineDeps, EnginePaths } from "./create/deps";
 export type { EngineSurface, OfficePage, Subscribed } from "./create/surface";
 export type { DrainCaps, DrainRequest, DrainResult } from "./create/drain";
 export type { RecoveryContext, RecoveryStep } from "./create/recovery";

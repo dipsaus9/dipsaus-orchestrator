@@ -50,8 +50,6 @@ export interface MountOptions extends RenderSize {
   readonly display?: Display;
   /** The office opened at start; null starts in the switcher. */
   readonly office?: OfficeId | null;
-  /** Capability flags `engine.hello` reports; none by default, as in the golden log. */
-  readonly capabilities?: readonly string[];
   /** Bytes an output pane keeps while following; small values make scroll-back read sooner. */
   readonly outputTailBytes?: number;
   /** Snapshots answered instead of the golden ones, by office (DIPO-81 board scenarios). */
@@ -62,9 +60,6 @@ export async function mount(options: MountOptions = {}) {
   const session = new FakeSession();
   for (const [office, snapshot] of options.snapshots ?? [])
     session.nextSnapshots.set(office, snapshot);
-  if (options.capabilities !== undefined && session.hello !== null) {
-    session.hello = { ...session.hello, capabilities: [...options.capabilities] };
-  }
   const clock = new TestClock();
   const store = new OfficeStore({
     client: session,
@@ -83,10 +78,6 @@ export async function mount(options: MountOptions = {}) {
       return outcome.ok
         ? { ok: true, value: (outcome.result as { office: OfficeId }).office }
         : { ok: false, message: `${outcome.error.code}: ${outcome.error.message}` };
-    },
-    resumeScheduling: async () => {
-      await session.command({ name: "daemon.resumeScheduling" } as never, {} as never);
-      return { ok: true, value: null };
     },
     setPrivacy: async (request) => {
       const outcome = await session.command(

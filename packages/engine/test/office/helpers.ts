@@ -32,9 +32,8 @@ import { backlogLayout } from "../story-store/backlog";
 /** The Backlog.md fixture project: copied into a temp repository it gives `backlog/config.yml`. */
 export const BACKLOG_FIXTURE = join(import.meta.dir, "..", "fixtures", "backlog");
 
-const { provisional: _provisional, since: _since, ...rescan } = officeRescan;
 /** An office-level command that only answers, so a test can make an office load. */
-export const pingCommand = defineCommand({ ...rescan, name: "fixture.ping", since: 0 });
+export const pingCommand = defineCommand({ ...officeRescan, name: "fixture.ping" });
 
 export const pingFeature: FeatureModule = {
   name: "fixture/ping",

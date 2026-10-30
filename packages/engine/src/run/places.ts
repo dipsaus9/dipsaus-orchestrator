@@ -221,7 +221,7 @@ export interface PlacesDeps {
   readonly offices: { get(office: OfficeId): OfficeHandle | undefined };
   /** Why no new session starts in the office now (its starts paused, 0020), or null. */
   readonly startsPaused?: (office: OfficeId) => string | null;
-  /** False while the daemon schedules no work (`safe`); true by default. */
+  /** False while the daemon schedules no work (recovering, draining); true by default. */
   readonly scheduling?: () => boolean;
   /**
    * Pending reviews of the office, oldest In Review first: stories at In Review whose code tree has

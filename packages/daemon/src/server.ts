@@ -1,8 +1,6 @@
-// The contract on `dipo.sock` (0005 sections 3, 7, 8 and 11; 0006 decision 9). Each WebSocket text
-// frame holds one `ClientFrame` or `ServerFrame`. A connection starts with the `engine.hello` read;
-// a client of another contract major may then use only the frozen surface (`engine.hello`,
-// `daemon.status`, `daemon.stop`). Commands and reads go to the engine's surface, which runs the
-// lifecycle checks of 0006 decision 7 (DIPO-318). `subscribe` replays the software ring buffer or an office
+// The contract on `dipo.sock` (0005). Each WebSocket text frame holds one `ClientFrame` or
+// `ServerFrame`. A connection starts with the `engine.hello` read. Commands and reads go to the
+// engine's surface, which runs the lifecycle checks (DIPO-318). `subscribe` replays the software ring buffer or an office
 // change log after the client's cursor, marks the end of catch-up, then sends live events, with a
 // `stream.mark` heartbeat on an idle subscription. The engine keeps no per-connection state beyond
 // the subscriptions and the handshake. When the last TUI that follows an office stops following it
@@ -55,10 +53,6 @@ export const EVENTS_PER_FRAME = 500;
  */
 const REPLAY_PAGE = 100;
 
-/** The frozen surface a client of another contract major may use (0005 section 11). */
-const FROZEN_READS: ReadonlySet<string> = new Set(["engine.hello", "daemon.status"]);
-const FROZEN_COMMANDS: ReadonlySet<string> = new Set(["daemon.stop"]);
-
 export interface ContractServerDeps {
   /** The engine's surface: commands, reads and the streams (DIPO-318). */
   readonly engine: EngineSurface;
@@ -85,7 +79,7 @@ interface Subscription {
   catchingUp: boolean;
 }
 
-type HandshakeState = "new" | "ready" | "foreign";
+type HandshakeState = "new" | "ready";
 
 function requestIdOf(raw: unknown): RequestId | null {
   if (typeof raw !== "object" || raw === null) return null;
@@ -369,10 +363,6 @@ class Connection implements ConnectionSession {
       await this.#handshake(frame);
       return;
     }
-    if (this.#state === "foreign") {
-      await this.#foreign(frame);
-      return;
-    }
     await this.#ready(frame);
   }
 
@@ -385,7 +375,7 @@ class Connection implements ConnectionSession {
         this.#tui = isTuiHello(frame.args);
         this.#client = helloClient(frame.args);
         if (this.#tui) this.#server.presenceMayHaveChanged();
-      } else if (reply.error.code === "contract.unsupported") this.#state = "foreign";
+      }
       this.#reply(reply);
       return;
     }
@@ -401,24 +391,6 @@ class Connection implements ConnectionSession {
         "The first frame on a connection must be the engine.hello read.",
         { expected: "engine.hello" },
       ),
-    });
-  }
-
-  /** A client of another major: only the frozen surface (0005 section 11). */
-  async #foreign(frame: ClientFrame): Promise<void> {
-    if (frame.kind === "read" && FROZEN_READS.has(frame.name)) {
-      this.#reply(await this.#read(frame));
-      return;
-    }
-    if (frame.kind === "command" && FROZEN_COMMANDS.has(frame.name)) {
-      this.#command(frame);
-      return;
-    }
-    if (frame.kind === "unsubscribe") return;
-    this.#reply({
-      ok: false,
-      requestId: frame.requestId,
-      error: this.#deps.engine.contractUnsupported(),
     });
   }
 
@@ -438,10 +410,6 @@ class Connection implements ConnectionSession {
         if (subscription !== undefined) this.#dropSubscription(subscription);
         return;
       }
-      case "auth":
-        // The Unix socket needs no auth (0006 decision 11): the runtime directory guards it.
-        this.#reply({ ok: true, requestId: frame.requestId, result: {} });
-        return;
     }
   }
 

@@ -14,7 +14,6 @@ import {
   type Clock,
   type CommandDefinition,
   type CommandReply,
-  CONTRACT_VERSION,
   type Cursor,
   type EngineError,
   engineHello,
@@ -66,8 +65,8 @@ export type ConnectionState = "idle" | "connecting" | "open" | "reconnecting" | 
  * Codes of failures on the client side, never sent by the engine: `client.unreachable` (the first
  * connection failed), `client.closed` (the client closed with the request unanswered),
  * `client.invalidArgs` (the args do not match the contract schema) and `client.invalidReply` (a
- * reply does not match it). A failed `engine.hello` keeps the engine's code, such as
- * `contract.unsupported`, and carries the engine error.
+ * reply does not match it). A failed `engine.hello` keeps the engine's code and carries the engine
+ * error.
  */
 export class ClientError extends Error {
   readonly code: string;
@@ -370,7 +369,7 @@ export class DipoClient {
           kind: "read",
           requestId: helloId,
           name: engineHello.name,
-          args: { contract: CONTRACT_VERSION, client: this.#client },
+          args: { client: this.#client },
         });
       },
       onMessage: (text) => {

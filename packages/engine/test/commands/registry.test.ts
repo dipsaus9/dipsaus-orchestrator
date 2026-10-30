@@ -13,7 +13,6 @@ import {
   buildRegistry,
   DuplicateRegistrationError,
   type FeatureModule,
-  InvalidRegistrationError,
 } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import { engineRegistry, FEATURES } from "../../src/features";
@@ -156,23 +155,7 @@ describe("registry", () => {
       }
     }));
 
-  it("refuses a definition with a broken since/provisional pair or the wrong level", () => {
-    const bad: FeatureModule = {
-      name: "test/bad",
-      register(registry) {
-        registry.addOfficeCommand({
-          definition: {
-            ...touchCommand,
-            name: "fixture.bad",
-            since: 999,
-          } as unknown as typeof touchCommand,
-          handle: () => ({ result: { run: "unused", delivered: "next-turn" as const } }),
-        });
-      },
-    };
-    expect(() => buildRegistry([bad])).toThrow(InvalidRegistrationError);
-    expect(() => buildRegistry([bad])).toThrow("test/bad registers fixture.bad");
-
+  it("refuses a command registered at the wrong level", () => {
     const wrongLevel: FeatureModule = {
       name: "test/level",
       register(registry) {
@@ -191,7 +174,7 @@ describe("registry", () => {
     expect(registry.read("commands.describe")?.module).toBe("reads/describe");
   });
 
-  it("describes the registered commands and reads, leaving out provisional ones", () =>
+  it("describes the registered commands and reads", () =>
     withTempDir(async (dir) => {
       const t = await openTestState(dir);
       try {
@@ -212,8 +195,8 @@ describe("registry", () => {
           level: "office",
           confirm: false,
           irreversible: false,
-          since: 0,
         });
+        expect(result.commands[0]).not.toHaveProperty("since");
       } finally {
         t.state.close();
       }

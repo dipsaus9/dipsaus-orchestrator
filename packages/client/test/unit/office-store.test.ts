@@ -9,7 +9,6 @@
 import { describe, expect, it } from "bun:test";
 
 import {
-  CONTRACT_VERSION,
   type Cursor,
   type Event,
   type OfficeId,
@@ -57,8 +56,6 @@ function cursor(stream: string, seq: number): Cursor {
 function hello(seq = 10): HelloResult {
   return {
     engine: "0.1.0",
-    contract: CONTRACT_VERSION,
-    capabilities: [],
     daemon: "running",
     offices: [summary(A, "alpha", 1), summary(B, "beta")],
     cursor: cursor("software", seq),
@@ -367,8 +364,11 @@ describe("OfficeStore", () => {
     expect(store.state.offices.at(-1)?.summary?.running).toBe(2);
     client.emit("software", event("software", 13, "office.forgotten", { office: B }));
     expect(store.state.offices.map((entry) => entry.name)).toEqual(["alpha", "gamma"]);
-    client.emit("software", event("software", 14, "daemon.state", { from: "running", to: "safe" }));
-    expect(store.state.daemon).toBe("safe");
+    client.emit(
+      "software",
+      event("software", 14, "daemon.state", { from: "running", to: "draining" }),
+    );
+    expect(store.state.daemon).toBe("draining");
   });
 
   it("retries a read refused with engine.recovering once the daemon runs", async () => {

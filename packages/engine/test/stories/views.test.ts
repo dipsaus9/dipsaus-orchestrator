@@ -5,7 +5,6 @@
 import { describe, expect, it } from "bun:test";
 
 import {
-  CONTRACT_VERSION,
   LIFECYCLES,
   OfficeSummary,
   RequestId,
@@ -245,7 +244,7 @@ describe("office summary", () => {
         {
           requestId: RequestId.parse("01J9ZK5Q8W3V4X6Y7Z00000001"),
           name: "engine.hello",
-          args: { contract: { ...CONTRACT_VERSION }, client: { name: "test", version: "0" } },
+          args: { client: { name: "test", version: "0" } },
         },
       );
       expect(reply).toMatchObject({ ok: true, result: { offices: source() } });

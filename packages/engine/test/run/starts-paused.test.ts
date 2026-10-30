@@ -77,8 +77,8 @@ function adapterHolds(): AdapterHolds {
     },
     store: officeHoldStore(w.t.clock, {
       get: (office) => offices.get(office),
-      config: () => OFFICE_DEFAULTS,
       loaded: () => [...offices.keys()],
+      connection: () => w.t.state.connection,
     }),
     sticky: {
       checks: new Set(["box-token"]),
@@ -374,6 +374,83 @@ describe("one record that survives a restart (0020, DIPO-359)", () => {
         "select adapter from starts_paused where office_id = $office_id and reason = 'adapter'",
       )?.adapter,
     ).toBe(ADAPTER);
+  });
+
+  it("keeps a hold set while no office is loaded, and pauses an office that loads later (DIPO-355)", () => {
+    offices.clear();
+    holds.hold(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
+    // Both registered offices hold the record, though neither was loaded.
+    for (const office of [w.office, other]) {
+      expect(
+        office.get<{ adapter: string }>(
+          "select adapter from starts_paused where office_id = $office_id and reason = 'adapter'",
+        )?.adapter,
+      ).toBe(ADAPTER);
+    }
+    // A restart: the office loads and finds the hold.
+    paused.close();
+    holds = adapterHolds();
+    paused = startsPaused();
+    offices.set(id(w.office), w.office);
+    paused.recover(id(w.office), w.office);
+    expect(holds.adapterHeld(ADAPTER)?.check).toBe("probe");
+    expect(paused.state(id(w.office))?.reason).toBe("adapter");
+  });
+
+  it("lifts a hold in an office that was not loaded, so it does not come back when it loads (DIPO-355)", () => {
+    holds.hold(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
+    // The other office is not loaded when the check passes again.
+    offices.delete(id(other));
+    expect(holds.lift(ADAPTER)).toBe(true);
+    expect(other.get("select 1 as x from starts_paused where office_id = $office_id")).toBeNull();
+    // A restart, and the other office loads: nothing holds it.
+    paused.close();
+    holds = adapterHolds();
+    paused = startsPaused();
+    offices.set(id(other), other);
+    paused.recover(id(other), other);
+    expect(holds.adapterHeld(ADAPTER)).toBeNull();
+    expect(paused.state(id(other))).toBeNull();
+    expect(paused.state(id(w.office))).toBeNull();
+  });
+
+  it("keeps a hold written before the database opened or with no office registered, and writes it once one registers (DIPO-355)", () => {
+    let open = false;
+    const early = new AdapterHolds({
+      clock: w.t.clock,
+      notify: () => {},
+      store: officeHoldStore(w.t.clock, {
+        get: (office) => offices.get(office),
+        loaded: () => [],
+        connection: () => (open ? w.t.state.connection : null),
+      }),
+    });
+    const rows = () =>
+      w.t.state.connection.all<{ office_id: string }>(
+        "select office_id from starts_paused where reason = 'adapter' order by office_id",
+      );
+    // Before the database opened: the hold is kept, not lost.
+    early.hold(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
+    expect(early.adapterHeld(ADAPTER)?.check).toBe("probe");
+    // The database opened, but no office is registered: still kept, no row yet.
+    open = true;
+    w.t.state.connection.immediate(() =>
+      w.t.state.connection.run("update offices set forgotten_at = 1"),
+    );
+    expect(early.adapterHeld(ADAPTER)?.check).toBe("probe");
+    expect(rows()).toEqual([]);
+    // An office registers: the next look writes the hold to its row.
+    w.t.state.connection.immediate(() =>
+      w.t.state.connection.run("update offices set forgotten_at = null where office_id = $office", {
+        office: id(w.office),
+      }),
+    );
+    expect(early.adapterHeld(ADAPTER)?.check).toBe("probe");
+    expect(rows()).toEqual([{ office_id: id(w.office) }]);
+    // A lift clears it.
+    expect(early.lift(ADAPTER)).toBe(true);
+    expect(rows()).toEqual([]);
+    expect(early.adapterHeld(ADAPTER)).toBeNull();
   });
 
   it("names what lifts a pause truly: never the command for the box token, never a check for the command", () => {

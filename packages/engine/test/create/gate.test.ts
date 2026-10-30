@@ -1,6 +1,6 @@
-// The lifecycle check in front of every command and read (0006 decision 7, DIPO-24 AC #9): office
-// commands and reads get `engine.recovering` in `starting` and `recovering`, scheduling commands
-// get `scheduling.off` in `safe`, and the handshake, `commands.describe` and `daemon.*` always run.
+// The lifecycle check in front of every command and read (0005, DIPO-24 AC #9): office commands and
+// reads get `engine.recovering` in `starting` and `recovering`, and the handshake,
+// `commands.describe` and `daemon.*` always run.
 
 import { describe, expect, it } from "bun:test";
 
@@ -13,7 +13,6 @@ const PATH: Record<DaemonState, DaemonState[]> = {
   starting: [],
   recovering: ["recovering"],
   running: ["recovering", "running"],
-  safe: ["recovering", "safe"],
   draining: ["draining"],
 };
 
@@ -37,13 +36,6 @@ describe("lifecycleGate", () => {
     });
   }
 
-  it("answers scheduling commands with the retryable scheduling.off in safe", () => {
-    const error = lifecycleGate(lifecycleIn("safe"), "command", "work.run");
-    expect(error).toMatchObject({ code: "scheduling.off", retryable: true });
-    expect(code("safe", "command", "story.park")).toBeNull();
-    expect(code("safe", "read", "office.snapshot")).toBeNull();
-  });
-
   it("lets everything run in running", () => {
     expect(code("running", "command", "work.run")).toBeNull();
     expect(code("running", "read", "office.snapshot")).toBeNull();
@@ -55,7 +47,7 @@ describe("lifecycleGate", () => {
     expect(code("draining", "command", "daemon.stop")).toBeNull();
   });
 
-  for (const state of ["starting", "recovering", "safe", "draining"] as const) {
+  for (const state of ["starting", "recovering", "draining"] as const) {
     it(`always lets the handshake, commands.describe and daemon.* run in ${state}`, () => {
       expect(code(state, "read", "engine.hello")).toBeNull();
       expect(code(state, "read", "commands.describe")).toBeNull();

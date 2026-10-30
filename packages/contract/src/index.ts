@@ -16,7 +16,6 @@ export * from "./profile";
 export * from "./git-hardening";
 export * from "./repository";
 export * from "./software";
-export * from "./version";
 export * from "./work";
 
 export type {

@@ -134,8 +134,8 @@ describe("sendAsIntent", () => {
     expect(runIntents(f.office, f.run)[0]?.state).toBe("failed");
   });
 
-  it("only marks an intent with no ops, and reports a signalled stop", async () => {
-    const s = steering(async () => ({ ok: true, via: "signal" }));
+  it("only marks an intent with no ops", async () => {
+    const s = steering(async () => ({ ok: true }));
     const none = await sendAsIntent(f.office, s, f.run, {
       kind: "cap",
       detail: "d",
@@ -144,14 +144,7 @@ describe("sendAsIntent", () => {
     }).done;
     expect(none.error).toBeNull();
     expect(calls).toEqual([]);
-    const signalled = await sendAsIntent(f.office, s, f.run, {
-      kind: "stop",
-      detail: "d",
-      ops: OPS,
-      clock: f.t.clock,
-    }).done;
-    expect(signalled.via).toBe("signal");
-    expect(runIntents(f.office, f.run).map((i) => i.state)).toEqual(["sent", "sent"]);
+    expect(runIntents(f.office, f.run).map((i) => i.state)).toEqual(["sent"]);
   });
 
   it("runs beforeSend after the store and sends nothing when it throws", async () => {

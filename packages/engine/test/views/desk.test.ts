@@ -21,7 +21,6 @@ import { buildRegistry } from "../../src/commands/registry";
 import type { OfficeHandle } from "../../src/db/office";
 import { insertWorkerQuestion } from "../../src/questions/questions";
 import { executeRead } from "../../src/reads/execute";
-import { capabilityFlags } from "../../src/reads/hello";
 import { storeDecisionNotes, storeProposals } from "../../src/run/report-data";
 import { insertTest } from "../../src/run/test-records";
 import { StoryDiscard } from "../../src/stories/discard";
@@ -608,10 +607,6 @@ async function readDesk(t: TestState, office: OfficeHandle): Promise<DeskItem[]>
 }
 
 describe("the office.desk read", () => {
-  it("is behind the capability flag desk", () => {
-    expect(capabilityFlags(buildRegistry([viewsFeature]))).toContain("desk");
-  });
-
   it("returns an empty desk for an office with nothing waiting", () =>
     withTempDir(async (dir) => {
       const t = await openTestState(dir);

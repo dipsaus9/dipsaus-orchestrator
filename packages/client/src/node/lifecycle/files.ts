@@ -2,9 +2,10 @@
 // and 6): the lock `dipo.pid` and `runtime.json`. The record format is DIPO-23's; `client` may not
 // import `engine` (0004), so the parser is repeated here and `test/lifecycle-parity` runs both.
 //
-// The client never deletes a file it judged stale on a guess: a starting daemon may replace it at
-// any moment. It renames the file aside, checks the renamed content is what it judged, and deletes
-// it; otherwise it puts the newer file back with `link()`, which never clobbers (0006 decision 6).
+// The client never deletes `dipo.pid`: the starting daemon is the lock's one deleter (0005). A stale
+// `runtime.json` it removes only when it still holds what was judged stale: it renames the file
+// aside, checks the renamed content, and deletes it; otherwise it puts the newer file back with
+// `link()`, which never clobbers.
 
 import { linkSync, readFileSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
