@@ -1,10 +1,10 @@
 ---
 id: DIPO-397
 title: Emit a closing event when a run ends
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-30 16:01'
-updated_date: '2026-10-30 20:47'
+updated_date: '2026-10-30 20:48'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -37,6 +37,10 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(engine) every run end path emits one closing event on the office stream"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "May DIPO-397 add a new office-stream event `run.ended` (run id, kind, ending, endedAt, and the story's key and story id when the run has one), written by `endRun` in packages/engine/src/run/records.ts for every run end, and list it in the event catalog of docs/decisions/0005-command-and-event-model.md? That event is what lets scan session runs and runs with no agent reach the stream, and it is what would let watch drop its idle check."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -47,3 +51,16 @@ test_plan:
 - [ ] #3 dipo watch drops its idle check (#armIdle and the idle #recheck) and still prints every run end, with a test that a run ending at recovery and a scan session end are printed
 - [ ] #4 No event is emitted twice for one end
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-10-30 20:48 UTC: ambiguous-spec
+- Detail: May DIPO-397 add a new office-stream event `run.ended` (run id, kind, ending, endedAt, and the story's key and story id when the run has one), written by `endRun` in packages/engine/src/run/records.t…
+- Run: run_01M6792FJEXJMN6E62KBT99PSA
+- Criteria met: 0 of 4 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 56,321 of 300,000 tokens; 14 of 90 turns; 1 of 45 minutes
+- Last good commit: 1aee7583f3f7481ee179fe48093eb2e7ff37a9ed
+<!-- SECTION:NOTES:END -->
