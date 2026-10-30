@@ -18,7 +18,9 @@
 //   without a cache and say why; two runs share one fill; the install takes the cached packages,
 //   and runs again without them when that fails;
 // - two passes over the ended runs at once finish and report each run once (DIPO-307), and at
-//   daemon start the fill boxes a stopped daemon left are deleted, never one that fills now.
+//   daemon start the fill boxes a stopped daemon left are deleted, never one that fills now;
+// - that sweep deletes only helper boxes labelled with its own state folder (DIPO-374): one
+//   without the label or with another folder's is kept, and run and test boxes are never touched.
 
 import {
   appendFileSync,
@@ -60,6 +62,7 @@ import {
 import { BOX_PLACEHOLDER_API_KEY, type RunningModelProxy } from "../../src/box/model-proxy";
 import {
   boxCacheEnv,
+  FILL_BOX_RUN_PREFIX,
   officePackageCacheRoot,
   PACKAGE_CACHE_DIR,
   readBaseLockfile,
@@ -67,11 +70,16 @@ import {
 import {
   BOX_PACKAGE_CACHE_PATH,
   BoxError,
+  BUILD_BOX_RUN_PREFIX,
   type BoxExecResult,
   type BoxNetwork,
   boxName,
+  STATE_LABEL_VALUE,
+  stateFolderLabel,
+  TEST_BOX_RUN_PREFIX,
 } from "../../src/box/port";
 import {
+  REVIEW_BOX_RUN_PREFIX,
   REVIEW_CODE_DIR,
   REVIEW_ROOT,
   REVIEW_SESSION_DIR,
@@ -108,7 +116,13 @@ import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
 import { AdapterHolds, type HoldNotice } from "../../src/workers/hold";
-import { BOX_HOST_ADDRESS, FakeBoxes, type FakeBoxesOptions, writeNetTools } from "./fake-boxes";
+import {
+  BOX_HOST_ADDRESS,
+  FAKE_STATE_LABEL,
+  FakeBoxes,
+  type FakeBoxesOptions,
+  writeNetTools,
+} from "./fake-boxes";
 import { backlogLayout } from "../story-store/backlog";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z00000271" as OfficeId;
@@ -1878,6 +1892,81 @@ describe("the box firewall, the listed local ports and the box network's address
       await w.workers.finishEnded(() => false, { listBoxes: true });
       expect(w.boxes.boxes.has(left)).toBe(false);
       expect(w.boxes.boxes.has(BOX)).toBe(true);
+    }));
+});
+
+/** The helper box kinds the sweep deletes: fill, build, Safe-Chain and reviewer. */
+const HELPERS = [
+  FILL_BOX_RUN_PREFIX,
+  BUILD_BOX_RUN_PREFIX,
+  SAFE_CHAIN_BOX_RUN_PREFIX,
+  REVIEW_BOX_RUN_PREFIX,
+] as const;
+const TEST_RUN = `${TEST_BOX_RUN_PREFIX}01J9ZK5Q8W3V4X6Y7Z0000TEST`;
+
+/** Makes box `runId` on the fake backend and gives it state folder label `label`. */
+const made = async (w: World, runId: string, label: string | null): Promise<string> => {
+  const name = await w.boxes.create({
+    runId,
+    image: "dipo-box:x",
+    network: await w.boxes.network(),
+  });
+  w.boxes.boxes.get(name)!.stateLabel = label;
+  return name;
+};
+
+describe("the daemon-start sweep of one state folder's helper boxes (DIPO-374)", () => {
+  it("deletes only helper boxes with its own label; another folder's, an unlabelled, a run and a test box stay", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      const own: string[] = [];
+      const kept: string[] = [];
+      for (const prefix of HELPERS) {
+        own.push(await made(w, `${prefix}own0`, FAKE_STATE_LABEL));
+        // Made before DIPO-374 (no label), by another state folder, or with a label that only
+        // starts or ends like this folder's: each is kept.
+        kept.push(await made(w, `${prefix}none0`, null));
+        kept.push(await made(w, `${prefix}other0`, stateFolderLabel(join(tmp, "other-state"))));
+        kept.push(await made(w, `${prefix}longer0`, `${FAKE_STATE_LABEL}-2`));
+        kept.push(await made(w, `${prefix}shorter0`, FAKE_STATE_LABEL.slice(0, -1)));
+      }
+      // A run box and a test box with this folder's label are no helper boxes.
+      kept.push(await made(w, RUN, FAKE_STATE_LABEL));
+      kept.push(await made(w, TEST_RUN, FAKE_STATE_LABEL));
+      mkdirSync(w.indexDir, { recursive: true });
+      w.log.length = 0;
+      expect(await w.workers.finishEnded(() => null, { listBoxes: true })).toEqual([]);
+      expect(w.log).toEqual(["list", ...own.map((name) => `delete ${name}`)]);
+      expect([...w.boxes.boxes.keys()].toSorted()).toEqual(kept.toSorted());
+    }));
+
+  it("deletes no box when its backend labels none, also one without a label", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, { boxes: { stateLabel: null } });
+      expect(w.boxes.stateLabel).toBeNull();
+      const names: string[] = [];
+      for (const prefix of HELPERS) {
+        names.push(await made(w, `${prefix}none0`, null));
+        names.push(await made(w, `${prefix}some0`, FAKE_STATE_LABEL));
+      }
+      mkdirSync(w.indexDir, { recursive: true });
+      w.log.length = 0;
+      await w.workers.finishEnded(() => null, { listBoxes: true });
+      expect(w.log).toEqual(["list"]);
+      expect([...w.boxes.boxes.keys()].toSorted()).toEqual(names.toSorted());
+    }));
+
+  it("names one state folder with one label, by its real path, and two folders with two", () =>
+    withTempDir(async (dir) => {
+      const state = join(dir, "state");
+      mkdirSync(state);
+      symlinkSync(state, join(dir, "linked"));
+      const label = stateFolderLabel(state);
+      expect(label).toMatch(STATE_LABEL_VALUE);
+      expect(stateFolderLabel(`${state}/`)).toBe(label);
+      expect(stateFolderLabel(join(dir, "linked"))).toBe(label);
+      expect(stateFolderLabel(join(dir, "linked", "..", "state"))).toBe(label);
+      expect(stateFolderLabel(join(dir, "other"))).not.toBe(label);
     }));
 });
 

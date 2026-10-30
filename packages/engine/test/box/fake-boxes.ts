@@ -9,7 +9,8 @@
 // does, in a build box: its tools stream out as a small archive of stand-in files, and the commit
 // makes the image. Each firewall a box gets is kept (`firewalls`). A copy for the box user
 // (`copyInAsUser`, DIPO-334) is logged and kept as one copy to its target, as before; its stage
-// steps are kept in `stageSteps`.
+// steps are kept in `stageSteps`. Every box it makes carries its state folder label
+// (`FAKE_STATE_LABEL` by default, DIPO-374), which a test may change on a box (`stateLabel`).
 
 import { cpSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -47,6 +48,8 @@ import { tarBytes } from "./tar-bytes";
 export const FAKE_CONTAINER = "/usr/local/bin/container";
 /** The client environment of the fake backend. */
 export const FAKE_CLIENT_ENV = { PATH: "/usr/bin:/bin", HOME: "/Users/maintainer" };
+/** The state folder label of the fake backend unless a test names another (DIPO-374). */
+export const FAKE_STATE_LABEL = "fake-state-folder";
 /** A documentation address (RFC 5737) for the box network's host address. */
 export const BOX_HOST_ADDRESS = "192.0.2.10";
 
@@ -83,6 +86,8 @@ export interface FakeBoxState {
   readonly copies: { readonly to: string; readonly listing: readonly string[] }[];
   /** True while a worker process runs in the box (an exec the host started). */
   workerRunning: boolean;
+  /** Its state folder label as `list` shows it (DIPO-374); null: none, or unreadable. */
+  stateLabel: string | null;
 }
 
 /** The relative paths under `dir`, folders ending in `/`, sorted. */
@@ -105,6 +110,8 @@ export function listing(dir: string): string[] {
 }
 
 export interface FakeBoxesOptions {
+  /** The backend's state folder label (DIPO-374); `FAKE_STATE_LABEL` by default, null for none. */
+  readonly stateLabel?: string | null;
   /** A shared log the test also writes to (the proxies' starts), for the order of events. */
   readonly log?: string[];
   readonly check?: BoxCheck;
@@ -167,6 +174,7 @@ export function unwrapped(command: readonly string[]): readonly string[] {
 
 export class FakeBoxes implements BoxPort {
   readonly id = "fake";
+  readonly stateLabel: string | null;
   readonly log: string[];
   readonly boxes = new Map<string, FakeBoxState>();
   readonly images: Set<string>;
@@ -186,6 +194,7 @@ export class FakeBoxes implements BoxPort {
 
   constructor(options: FakeBoxesOptions = {}) {
     this.#options = options;
+    this.stateLabel = options.stateLabel === undefined ? FAKE_STATE_LABEL : options.stateLabel;
     this.log = options.log ?? [];
     this.images = new Set(options.images ?? []);
   }
@@ -233,6 +242,7 @@ export class FakeBoxes implements BoxPort {
       state: "stopped",
       copies: [],
       workerRunning: false,
+      stateLabel: this.stateLabel,
     });
     return name;
   }
@@ -468,6 +478,7 @@ export class FakeBoxes implements BoxPort {
       name: box.name,
       runId: box.runId,
       state: box.state,
+      stateLabel: box.stateLabel,
     }));
   }
 

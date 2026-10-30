@@ -54,9 +54,11 @@
 //   finish at most `BOX_FINISH_WAIT_MS`, so a finish that hangs cannot hold the passes after it
 //   (the daemon-start sweep among them); the finish goes on, and a later pass waits for it again. At daemon start it also
 //   deletes the fill, build and Safe-Chain boxes (`dipo-fill-*`, `dipo-build-*`,
-//   `dipo-safe-chain-*`, DIPO-343) and reviewer boxes (`dipo-review-*`) a stopped daemon left,
-//   never one this daemon uses now; the index folder is made before the first fill or reviewer
-//   box, so the backend is asked after a crash in the first one too.
+//   `dipo-safe-chain-*`, DIPO-343) and reviewer boxes (`dipo-review-*`) a stopped daemon of this
+//   state folder left: only those whose state folder label is exactly the backend's own
+//   (DIPO-374), so another daemon's, a test's and an unlabelled box are kept, and never one this
+//   daemon uses now; the index folder is made before the first fill or reviewer box, so the
+//   backend is asked after a crash in the first one too.
 // - `review` and `endReview` (0002): a new box for each review session, from the office image,
 //   with a read-only copy of the pushed head and no `box.files` (`review-box.ts`), deleted when the
 //   session ends; `close` deletes the ones left at daemon stop.
@@ -1638,7 +1640,8 @@ export class BoxWorkers {
    * Finishes the box of every indexed run whose claim ended (`ended` says true: merge, drop or
    * discard, its worker hosts exited), and stops the box of every run that waits (`BOX_WAITING`,
    * DIPO-278); false is a run still going, null a run no loaded office knows (left alone).
-   * With `listBoxes` (daemon start) also every box the backend lists, and the fill boxes a stopped daemon left are deleted. A pass waits for the one before it, so each run is
+   * With `listBoxes` (daemon start) also every box the backend lists, and the helper boxes a
+   * stopped daemon of this state folder left are deleted (`#deleteLeftFills`). A pass waits for the one before it, so each run is
    * finished and reported by one pass. Never rejects; resolves to the run ids it finished, without
    * those whose finish failed (they stay in the index for the next pass).
    */
@@ -1657,6 +1660,8 @@ export class BoxWorkers {
     // one. Only where boxes ran before, so a daemon that never made a box never calls the backend.
     if (options.listBoxes === true && existsSync(this.#index)) {
       const fills: string[] = [];
+      // Only helper boxes this state folder made (DIPO-374): a backend without a label sweeps none.
+      const own = this.#deps.boxes.stateLabel;
       try {
         for (const box of await this.#deps.boxes.list()) {
           if (
@@ -1665,7 +1670,7 @@ export class BoxWorkers {
             box.runId.startsWith(SAFE_CHAIN_BOX_RUN_PREFIX) ||
             box.runId.startsWith(REVIEW_BOX_RUN_PREFIX)
           ) {
-            fills.push(box.name);
+            if (own !== null && box.stateLabel === own) fills.push(box.name);
           } else {
             runs.add(box.runId);
             this.#indexAgain(box.runId, ended, options.runDirOf);
@@ -1748,8 +1753,8 @@ export class BoxWorkers {
   }
 
   /**
-   * Deletes the listed fill, build, Safe-Chain and reviewer boxes nothing here uses: a stopped
-   * daemon left them mid-fill, mid-build or mid-review.
+   * Deletes the listed fill, build, Safe-Chain and reviewer boxes of this state folder nothing here
+   * uses: a stopped daemon of this folder left them mid-fill, mid-build or mid-review.
    */
   async #deleteLeftFills(fills: readonly string[]): Promise<void> {
     for (const name of fills) {

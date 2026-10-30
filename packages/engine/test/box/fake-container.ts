@@ -144,7 +144,7 @@ export function networkJson(name: string, mode: string, gateway = "192.0.2.1"): 
 export function boxJson(
   id: string,
   state: string,
-  labels: Readonly<Record<string, string>> = {},
+  labels: Readonly<Record<string, unknown>> = {},
 ): unknown {
   return {
     id,

@@ -40,7 +40,7 @@ import { readBaseBox } from "../box/image";
 import { boxInstallInput, boxVerifyInput } from "../box/lifetime";
 import { startModelProxy, type ListenHttp } from "../box/model-proxy";
 import { BoxParts, partStageRoot, type BoxPartsDeps, type PartRun } from "../box/parts";
-import { boxName, type BoxNetwork, type BoxPort } from "../box/port";
+import { boxName, type BoxNetwork, type BoxPort, stateFolderLabel } from "../box/port";
 import { startBoxWebRoute } from "../box/safe-chain-box";
 import { TestBoxes, type TestBoxesDeps } from "../box/test-box";
 import {
@@ -335,6 +335,8 @@ function boxBackend(options: RunsOptions): BoxPort | null {
     packageCacheRoot: join(options.stateDir, PACKAGE_CACHE_DIR),
     // A box mounts only box network tools under dipo's own folder of them (DIPO-281).
     netToolsRoot: join(options.stateDir, BOX_NET_TOOLS_DIR),
+    // Every box names this state folder, so a daemon-start sweep deletes only its own (DIPO-374).
+    stateLabel: stateFolderLabel(options.stateDir),
   });
 }
 

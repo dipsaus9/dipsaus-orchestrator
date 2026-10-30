@@ -13,6 +13,7 @@
 //   other box only `isRootStep`, with the smaller allow list of the fixed steps (DIPO-336);
 // - an image is made only by committing a build box, and pulled only by a reference that is no
 //   option.
+// - every box is labelled with its run id and, given one, its state folder's label (DIPO-374).
 // Inputs that could be read as another option or split into another mount are refused here.
 // Pure: no I/O.
 
@@ -30,12 +31,14 @@ import {
   BOX_IMAGE_REPOSITORY,
   BOX_LABEL,
   BOX_PACKAGE_CACHE_PATH,
+  BOX_STATE_LABEL,
   BoxError,
   BUILD_BOX_RUN_PREFIX,
   BOX_NAME_PREFIX,
   type BoxNetwork,
   boxName,
   runIdOfBox,
+  STATE_LABEL_VALUE,
   TEST_BOX_RUN_PREFIX,
 } from "./port";
 import { BOX_USER_ENV, isRootStep } from "./user";
@@ -73,6 +76,8 @@ export interface CreateInput {
   readonly host: HostResources;
   /** The maintainer's home folder: the cache may be neither it nor a folder above it. */
   readonly home: string;
+  /** The box's `BOX_STATE_LABEL` value (DIPO-374); absent: the box gets no such label. */
+  readonly stateLabel?: string;
 }
 
 export interface ExecInput {
@@ -272,6 +277,9 @@ export function createArgs(input: CreateInput): string[] {
   if (!build && input.netTools === undefined) {
     refuse("a box needs the box network tools of its image.", { runId: input.runId });
   }
+  if (input.stateLabel !== undefined && !STATE_LABEL_VALUE.test(input.stateLabel)) {
+    refuse("the state folder label is not a label value.", { stateLabel: input.stateLabel });
+  }
   const [entrypoint, ...keepalive] = build ? BOX_KEEPALIVE : CONTAINED_KEEPALIVE;
   return [
     "create",
@@ -279,6 +287,9 @@ export function createArgs(input: CreateInput): string[] {
     name,
     "--label",
     `${BOX_LABEL}=${input.runId}`,
+    ...(input.stateLabel === undefined
+      ? []
+      : ["--label", `${BOX_STATE_LABEL}=${input.stateLabel}`]),
     "--network",
     BOX_NETWORK_NAME,
     ...resourceArgs(input.host),

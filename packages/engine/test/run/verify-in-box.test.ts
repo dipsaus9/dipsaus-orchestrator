@@ -348,7 +348,8 @@ function listed(box: ScriptedBox, running = true): Pick<BoxPort, "execLive" | "l
   return {
     execLive: (name, command, options) => box.execLive(name, command, options),
     stop: (name) => box.stop(name),
-    list: async () => (running ? [{ name: "dipo-run_1", runId: "run_1", state: "running" }] : []),
+    list: async () =>
+      running ? [{ name: "dipo-run_1", runId: "run_1", state: "running", stateLabel: null }] : [],
   };
 }
 
