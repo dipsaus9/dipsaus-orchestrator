@@ -18,10 +18,10 @@ export type CommandDefinition<
   result: R;
   confirm: boolean; // every client asks before sending
   irreversible: boolean; // clients ask for typed confirmation (0009 section 5)
-  // Since minor 1 (DIPO-160, 0020 section 14): argument names that make a call irreversible when
+  // (DIPO-160, 0020 section 14): argument names that make a call irreversible when
   // they are set to something other than false, such as `story.drop` with `deleteBranch`.
   irreversibleWhen?: readonly string[] | undefined;
-  // Since minor 1 (DIPO-155, 0020 section 4): argument names that make a call need the yes/no
+  // (DIPO-155, 0020 section 4): argument names that make a call need the yes/no
   // confirmation of `confirm` when they are set, such as `work.resume` with `budget`: every client
   // asks first, the CLI showing the caps before and after.
   confirmWhen?: readonly string[] | undefined;

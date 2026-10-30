@@ -198,7 +198,7 @@ describe("errors", () => {
     );
   });
 
-  it("exports the office-level codes of minor 1 (DIPO-71, DIPO-48, DIPO-59, DIPO-163, DIPO-155, DIPO-310)", () => {
+  it("exports the office-level codes (DIPO-71, DIPO-48, DIPO-59, DIPO-163, DIPO-155, DIPO-310)", () => {
     expect([...OFFICE_ERROR_CODES]).toEqual([
       "config.invalid",
       "backlog.unreadable",

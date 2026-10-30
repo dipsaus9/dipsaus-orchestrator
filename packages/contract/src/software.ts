@@ -50,24 +50,24 @@ export const OfficeSummary = z.object({
   running: Count,
   parked: Count, // includes the stories parked by the maintainer
   waitingOnMaintainer: Count, // open gates, questions, tests and parked stories
-  // Since minor 1 (DIPO-81): the stories in the `ready` column, engine-derived, so the office
-  // switcher shows Ready for offices that are not open. A minor-1 engine always sends it.
+  // (DIPO-81): the stories in the `ready` column, engine-derived, so the office
+  // switcher shows Ready for offices that are not open.
   ready: Count.optional(),
   dayUsage: DayUsage.optional(),
-  // Since minor 1 (DIPO-311): the same for the UTC calendar month. `tokens` are the office's own;
+  // (DIPO-311): the same for the UTC calendar month. `tokens` are the office's own;
   // `limit`, `share` and `alert` are those of the all-office total.
   monthUsage: DayUsage.optional(),
   evidence: EvidenceMap.optional(), // [`evidence`]
   // The privacy opt-ins on for the office, as full keys such as `privacy.storeCommandBodies`
-  // (0007 section 8: the overview shows when one is on). Absent when none is on. Minor 1, DIPO-83.
+  // (0007 section 8: the overview shows when one is on). Absent when none is on. DIPO-83.
   optIns: z.array(z.string().min(1)).optional(),
   // The days stored output is kept (`retention.days`, 0007), so a client can say
   // that output was removed after this period. Absent when the office has no valid configuration.
-  // Minor 1, DIPO-97.
+  // DIPO-97.
   outputRetentionDays: z.int().positive().optional(),
   // The three privacy settings with their effective value and where it comes from, so a client can
   // show and change them (0007 section 8). Absent when the office has no valid configuration.
-  // Minor 1, DIPO-136.
+  // DIPO-136.
   privacy: z.array(PrivacySetting).optional(),
 });
 export type OfficeSummary = z.infer<typeof OfficeSummary>;
@@ -86,7 +86,7 @@ export const ToolPaths = z.object({
 export type ToolPaths = z.infer<typeof ToolPaths>;
 
 const OfficeArgs = z.object({ office: OfficeId });
-// Since minor 1 (DIPO-27): `from` is the main worktree a client resolved the office from (its
+// (DIPO-27): `from` is the main worktree a client resolved the office from (its
 // current directory). The daemon answers `office.unknown` when it is not the office's registered
 // path, so a copied repository that still carries the original's marker never acts on it.
 const OfficeTargetArgs = z.object({ office: OfficeId, from: z.string().min(1).optional() });
@@ -100,7 +100,7 @@ export const officeOpen = defineCommand({
   result: z.object({
     office: OfficeId,
     registered: z.boolean(), // true when new
-    // Since minor 1: what the maintainer should know, also sent as `engine.notice` (a copied
+    // what the maintainer should know, also sent as `engine.notice` (a copied
     // repository that got a new id, a network filesystem).
     warnings: z.array(z.string()).optional(),
   }),
@@ -112,12 +112,12 @@ export const officeForget = defineCommand({
   name: "office.forget",
   level: "software",
   args: OfficeTargetArgs,
-  result: z.object({ office: OfficeId, path: z.string().optional() }), // never deletes repository data; path since minor 1
+  result: z.object({ office: OfficeId, path: z.string().optional() }), // never deletes repository data
   confirm: true,
   irreversible: false,
 });
 
-// Since minor 1 (DIPO-36): runs office init (0010 section 6) through one backlog PR. `changed` in
+// (DIPO-36): runs office init (0010 section 6) through one backlog PR. `changed` in
 // the reply is false when every step was already on the base or on the open backlog branch. `pr`
 // is the open backlog PR of the init steps; without one, `branch` is the engine branch waiting for
 // it and `waiting` says why (no remote, `gh` unusable, its PR has auto-merge on, a failed apply).
@@ -254,10 +254,10 @@ export const daemonStatus = defineRead({
     keepAwake: z.object({ held: z.boolean(), reason: z.string().optional() }),
     upgradePending: z.boolean(),
     tools: ToolPaths,
-    // Since minor 1 (DIPO-198): the commit the binary was built from, `-dirty` for a dirty tree.
+    // (DIPO-198): the commit the binary was built from, `-dirty` for a dirty tree.
     // Absent when the daemon runs from source.
     buildCommit: z.string().min(1).optional(),
-    // Since minor 1 (DIPO-198): per loaded office whose repository holds the build commit, the
+    // (DIPO-198): per loaded office whose repository holds the build commit, the
     // base commits after it that change files under `packages/` (0 when the build is current).
     // Offices without the commit are absent.
     engineBehind: z
@@ -297,7 +297,7 @@ export const daemonStateChanged = defineEvent({
 });
 
 // What started a scan (0007 section 4). Open enum.
-// Since minor 1 (DIPO-310): `infer` (the fallback session's proposals) and `confirm` (a confirm command).
+// (DIPO-310): `infer` (the fallback session's proposals) and `confirm` (a confirm command).
 export const ScanTrigger = openEnum(["start", "run", "test", "rescan", "infer", "confirm"]);
 export type ScanTrigger = z.infer<typeof ScanTrigger>;
 
@@ -306,7 +306,7 @@ export const ConformanceLevel = openEnum(["conforming", "partial", "non-standard
 export type ConformanceLevel = z.infer<typeof ConformanceLevel>;
 
 // Run knowledge; the shape is owned by the scan (0013). `scripts` holds the resolved capabilities
-// by name, `warnings` what the maintainer should know, each deviation included. Since minor 1
+// by name, `warnings` what the maintainer should know, each deviation included.
 // (DIPO-72), all optional: `trigger`, the conformance `level`, the `deviations` alone, the `diff`
 // from the previous profile (one line per changed fact) and `error` when the scan failed (no
 // profile is stored then).

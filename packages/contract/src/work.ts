@@ -147,7 +147,7 @@ export const Progress = z.object({
   loopCap: Count,
   verify: VerifyState,
   reviewRound: Count,
-  // Since minor 1 (DIPO-140, 0019 section 14): the review rounds the story may run and how many
+  // (DIPO-140, 0019 section 14): the review rounds the story may run and how many
   // of its rounds failed, so a client shows "round 2, 1 of 3 failed" without computing it.
   reviewRoundCap: Count.optional(),
   reviewRoundsFailed: Count.optional(),
@@ -194,13 +194,13 @@ export type ParkRecord = z.infer<typeof ParkRecord>;
 export const GateRuleFailure = z.object({ rule: z.string(), message: z.string() });
 export type GateRuleFailure = z.infer<typeof GateRuleFailure>;
 
-// A failed Ready gate rule of a Refined story (minor 1, DIPO-97): the rule id and full line of
+// A failed Ready gate rule of a Refined story (DIPO-97): the rule id and full line of
 // `GateRuleFailure`, and `text`, the line after `ready <ID> failed <rule>: `, so a client shows
 // the rule and what failed without parsing the line.
 export const StoryGateFailure = GateRuleFailure.extend({ text: z.string() });
 export type StoryGateFailure = z.infer<typeof StoryGateFailure>;
 
-// The story's PR on the code host (0019 section 3). Since minor 1 (DIPO-140).
+// The story's PR on the code host (0019 section 3). (DIPO-140).
 export const KNOWN_STORY_PR_STATES = ["open", "merged", "closed"] as const;
 export const StoryPrState = openEnum(KNOWN_STORY_PR_STATES);
 export type StoryPrState = z.infer<typeof StoryPrState>;
@@ -299,11 +299,11 @@ export const StoryView = z.object({
   parked: ParkRecord.optional(),
   waitingOn: z.array(StoryId).optional(), // dependencies not yet Done (column `waiting`)
   gateMessages: z.array(z.string()).optional(), // first Ready gate failures, for Refined
-  // Since minor 1 (DIPO-97): the failed rules among `gateMessages`, in the same order, each with
+  // (DIPO-97): the failed rules among `gateMessages`, in the same order, each with
   // its rule id. A message no rule gave (a pickup check that could not size the story) is only in
   // `gateMessages`.
   gateFailures: z.array(StoryGateFailure).optional(),
-  // Since minor 1 (DIPO-140): the story's PR, once one is open.
+  // (DIPO-140): the story's PR, once one is open.
   pr: StoryPr.optional(),
   evidence: EvidenceMap.optional(),
 });
@@ -399,7 +399,7 @@ export const KNOWN_OUTPUT_MARKER_KINDS = ["phase", "ended"] as const;
 export const OutputMarkerKind = openEnum(KNOWN_OUTPUT_MARKER_KINDS);
 export type OutputMarkerKind = z.infer<typeof OutputMarkerKind>;
 
-// An engine-written marker in the stored worker output (DIPO-83), flagged as such since minor 1
+// An engine-written marker in the stored worker output (DIPO-83), flagged as such
 // (DIPO-95): the byte range of its line, what it marks (`phase build`, `ended parked`) and
 // when. Only the engine sets it; worker text that reads like a marker carries no flag, so clients
 // show it as text.

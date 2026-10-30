@@ -34,7 +34,7 @@ export const ProfileCommands = z
 // A repo-relative working directory; `.` is the root.
 export const ProfileCwd = z.string().min(1).max(300);
 
-// Since minor 1 (DIPO-310) [`scan.fallback`]: starts the fallback for the capabilities the current
+// (DIPO-310) [`scan.fallback`]: starts the fallback for the capabilities the current
 // profile leaves unresolved or in conflict (0013 section 6), only when the maintainer asks, never
 // on its own. `started`: its session runs now; `queued`: it starts once the office's running one
 // ends (one session run per office at a time, 0019 amendment of 2026-10-22); `nothing`: code and
@@ -86,7 +86,7 @@ export const ConfirmArgs = z.discriminatedUnion("action", [
 ]);
 export type ConfirmArgs = z.infer<typeof ConfirmArgs>;
 
-// Since minor 1 (DIPO-310) [`scan.fallback`]: the maintainer's answer to a capability (0013 section
+// (DIPO-310) [`scan.fallback`]: the maintainer's answer to a capability (0013 section
 // 6 steps 4 and 5). It writes only the database, recomputes the `run` refusal and emits
 // `scan.finished` with trigger `confirm` and the diff. `source` and `confirmed` are the
 // capability's after the command; `runRefusal` is absent when `run` may start. Errors:
@@ -163,7 +163,7 @@ export const ProfileDeviation = z.object({
   fix: z.string().optional(),
 });
 
-// Since minor 1 (DIPO-310) [`scan.fallback`]: the office's current run profile. `scanned` is false
+// (DIPO-310) [`scan.fallback`]: the office's current run profile. `scanned` is false
 // before the first scan, with no other field but `office`, `inferring` and `capabilities` empty.
 export const ProfileView = z.object({
   office: OfficeId,
