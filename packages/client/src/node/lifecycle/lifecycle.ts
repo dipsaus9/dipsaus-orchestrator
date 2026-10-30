@@ -21,7 +21,13 @@ import {
   type ConfigError,
   daemonStatus,
   daemonStop,
+  detachedEnv,
+  isDaemonCommand,
+  isSameProcess,
   type Origin,
+  parsePidRecord,
+  type PidRecord,
+  type ProcessProbe,
 } from "@dipsaus-orchestrator/contract";
 import { userInfo } from "node:os";
 
@@ -32,17 +38,9 @@ import { systemClock } from "../clock";
 import { readSoftwareConfig, softwareConfigPath } from "../config";
 import { connectToDaemon, DaemonNotRunningError, OtherVersionError } from "../connect";
 import { type Env, logsDir, readRuntimeInfo, stateDir } from "../runtime";
-import {
-  parsePidRecord,
-  pidFilePath,
-  type PidRecord,
-  readRaw,
-  removeIfUnchanged,
-  runtimeFilePath,
-  runtimeIdentity,
-} from "./files";
-import { isDaemonCommand, isSameProcess, type ProcessProbe, systemProcessProbe } from "./process";
-import { daemonEnv, selfCommand, type SpawnDaemon, systemSpawnDaemon } from "./spawn";
+import { pidFilePath, readRaw, removeIfUnchanged, runtimeFilePath, runtimeIdentity } from "./files";
+import { systemProcessProbe } from "./process";
+import { selfCommand, type SpawnDaemon, systemSpawnDaemon } from "./spawn";
 import {
   isInstalled,
   supervisorEnable,
@@ -356,7 +354,7 @@ async function spawnAndWait(deps: LifecycleDeps, options: StartOptions): Promise
       "--foreground",
       ...(options.logLevel === undefined ? [] : ["--log-level", options.logLevel]),
     ],
-    env: daemonEnv(deps.env),
+    env: detachedEnv(deps.env),
   });
   return waitForStart(deps, spawned.pid, logs);
 }

@@ -8,13 +8,17 @@ import { describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
+import {
+  type Clock,
+  detachedEnv,
+  type ProcessInfo,
+  type TimerHandle,
+} from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
   autostartReport,
   DaemonNotRunningError,
-  daemonEnv,
   type DaemonSession,
   type DaemonStatusResult,
   installDaemon,
@@ -22,7 +26,6 @@ import {
   launchdPlist,
   LIFECYCLE_TIMINGS,
   type LifecycleDeps,
-  type ProcessInfo,
   restartDaemon,
   startDaemon,
   stopDaemon,
@@ -327,9 +330,9 @@ describe("start, stop and restart when installed", () => {
     }));
 });
 
-describe("daemonEnv", () => {
+describe("detachedEnv", () => {
   it("drops XPC_SERVICE_NAME, so a started daemon never looks like the launchd job", () => {
-    expect(daemonEnv({ XPC_SERVICE_NAME: "dipo.daemon", PATH, BUN_OPTIONS: "--smol" })).toEqual({
+    expect(detachedEnv({ XPC_SERVICE_NAME: "dipo.daemon", PATH, BUN_OPTIONS: "--smol" })).toEqual({
       PATH,
     });
   });

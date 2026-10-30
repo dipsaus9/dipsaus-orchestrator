@@ -1,17 +1,22 @@
 // The log reader behind `dipo daemon logs` (0006 decisions 5 and 13, DIPO-64). It reads
 // `<logs>/daemon.log` and its rotated files directly, so it works with the daemon stopped (named
 // offline maintenance, 0006 amendment of 2026-10-12), filters the JSON lines by office, run and
-// level, and renders them for people. `client` may not import `engine` (0004), so the file names
-// the daemon's log module rotates (`daemon.log`, then `daemon.log.1` to `.5`) are repeated here.
+// level, and renders them for people. The file names the daemon's log module rotates
+// (`daemon.log`, then `daemon.log.1` to `.5`) are the contract's runtime layout (DIPO-320).
 
 import { closeSync, fstatSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { cleanText, type Clock, LogLevel, type TimerHandle } from "@dipsaus-orchestrator/contract";
+import {
+  cleanText,
+  type Clock,
+  DAEMON_LOG_FILE,
+  DAEMON_LOG_KEEP,
+  LogLevel,
+  type TimerHandle,
+} from "@dipsaus-orchestrator/contract";
 
-export const DAEMON_LOG_FILE = "daemon.log";
-/** Rotated files next to `daemon.log`, `.1` the newest (0006 decision 13). */
-export const DAEMON_LOG_KEEP = 5;
+export { DAEMON_LOG_FILE, DAEMON_LOG_KEEP } from "@dipsaus-orchestrator/contract";
 /** How often `-f` looks for new lines. */
 export const FOLLOW_INTERVAL_MS = 250;
 

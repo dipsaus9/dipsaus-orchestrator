@@ -32,18 +32,9 @@ export type {
   SystemLifecycleOptions,
   UninstallResult,
 } from "./lifecycle";
-export { PID_FILE, parsePidRecord, removeIfUnchanged } from "./files";
-export type { PidRecord } from "./files";
-export {
-  isDaemonCommand,
-  isSameProcess,
-  parseKinfoProc,
-  parseProcArgs,
-  parseProcStat,
-  systemProcessProbe,
-} from "./process";
-export type { ProcessInfo, ProcessProbe } from "./process";
-export { BUN_FLAG_VARIABLES, daemonEnv, selfCommand, systemSpawnDaemon } from "./spawn";
+export { removeIfUnchanged } from "./files";
+export { systemProcessProbe } from "./process";
+export { selfCommand, systemSpawnDaemon } from "./spawn";
 export type { SpawnDaemon, SpawnDaemonOptions, SpawnedDaemon } from "./spawn";
 export {
   autostartReport,

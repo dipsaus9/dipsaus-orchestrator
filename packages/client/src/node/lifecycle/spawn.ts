@@ -3,32 +3,7 @@
 // caller's, `PATH` included, so the daemon resolves the same tools as the maintainer's shell, minus
 // the variables that carry Bun flags: `BUN_OPTIONS` and `BUN_FEATURE_FLAG_NO_ORPHANS`, which a Bun
 // started with `--no-orphans` passes on (DIPO-44). Either one would end the daemon with this client.
-
-import type { Env } from "../runtime";
-
-/** Variables that carry Bun flags into a child; the same list as the engine's (DIPO-44). */
-export const BUN_FLAG_VARIABLES: readonly string[] = ["BUN_OPTIONS", "BUN_FEATURE_FLAG_NO_ORPHANS"];
-
-/**
- * Variables a supervisor sets for its own job and a child must not inherit: launchd's
- * `XPC_SERVICE_NAME` names the job, and a child carrying `dipo.daemon` would look like the
- * installed agent (DIPO-63).
- */
-export const SUPERVISOR_VARIABLES: readonly string[] = ["XPC_SERVICE_NAME"];
-
-/** The daemon's environment: the caller's, without the Bun flag and supervisor variables. */
-export function daemonEnv(env: Env): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [name, value] of Object.entries(env)) {
-    if (
-      value !== undefined &&
-      !BUN_FLAG_VARIABLES.includes(name) &&
-      !SUPERVISOR_VARIABLES.includes(name)
-    )
-      out[name] = value;
-  }
-  return out;
-}
+// The caller builds it with the contract's `detachedEnv`, the daemon's own rule (DIPO-320).
 
 /**
  * How this process runs `dipo` again: the compiled binary alone, or Bun with the entry script when
