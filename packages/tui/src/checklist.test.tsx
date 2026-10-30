@@ -5,13 +5,13 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 
-import { DeskItem, type Event } from "@dipsaus-orchestrator/contract";
+import { DeskItem, type Event, StreamName } from "@dipsaus-orchestrator/contract";
 
 import { OFFICES } from "../test/support/fake-session";
 import { mount } from "../test/support/setup";
 
 const mounted: { unmount(): Promise<void> }[] = [];
-const STREAM = `office:${OFFICES.dipsaus}`;
+const STREAM = StreamName.parse(`office:${OFFICES.dipsaus}`);
 const KEY_19 = "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C19";
 const TEST_19 = "tst_01J9ZK5Q8W3V4X6Y7Z8A9B0T19";
 
