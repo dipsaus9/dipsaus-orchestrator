@@ -6,6 +6,7 @@
 import { describe, expect, it } from "bun:test";
 import { chmodSync, readdirSync, symlinkSync } from "node:fs";
 
+import { runBacklog } from "../packages/engine/src/backlog/runner";
 import { type TempRepo, withTempRepo } from "../packages/testkit/src/index";
 
 import { checkBacklogPrIn } from "./check-backlog-pr";
@@ -82,6 +83,10 @@ async function pr(
   await Bun.write(`${repo.dir}/backlog/milestones/m-0 - m0-fixture.md`, MILESTONE.join("\n"));
   await Bun.write(`${repo.dir}/${path(1)}`, taskFile(1, "Refined", CLEAN_PLAN));
   await Bun.write(`${repo.dir}/${path(2)}`, taskFile(2, "Refined", NO_EXPECT));
+  // The Backlog CLI rewrites a config.yml that lacks its defaults on its first read, and the list
+  // and its count run at once: one of them can read the file half-written and see no tasks
+  // (DIPO-377). One read here, before the base commit, leaves the normalized file in the fixture.
+  await runBacklog(REPO_BACKLOG_CLI, repo.dir, ["task", "list", "--plain"]);
   const base = await repo.commitAll("base");
   for (const [file, text] of Object.entries(change)) await Bun.write(`${repo.dir}/${file}`, text);
   await more();
