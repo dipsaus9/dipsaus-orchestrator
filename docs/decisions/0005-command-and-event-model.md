@@ -92,7 +92,7 @@ Every event about running work carries a `WorkRef` (story, key, run, agent, role
 
 `EngineError = { code, message, retryable, details? }`, with dotted codes such as `story.unknown`. Codes are part of the contract; messages are not.
 
-The generic codes are `args.invalid`, `office.unknown`, `story.unknown`, `request.reused`, `stream.resetRequired`, `database.unavailable` and `internal`. Three of them mean the request may succeed later: `engine.recovering` (wait for `running`), `run.hostAlive` (an old worker host still runs) and `git.fetchFailed`.
+The generic codes are `args.invalid`, `office.unknown`, `story.unknown`, `request.reused`, `stream.resetRequired`, `database.unavailable`, `request.timedOut` (a read or subscribe the daemon did not answer within its 90 s deadline; the daemon serves the reads of one connection side by side) and `internal`. Three of them mean the request may succeed later: `engine.recovering` (wait for `running`), `run.hostAlive` (an old worker host still runs) and `git.fetchFailed`.
 
 ### 11. One version
 
