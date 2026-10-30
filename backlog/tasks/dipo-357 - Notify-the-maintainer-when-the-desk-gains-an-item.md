@@ -1,10 +1,10 @@
 ---
 id: DIPO-357
 title: Notify the maintainer when the desk gains an item
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-25 09:51'
-updated_date: '2026-10-30 07:03'
+updated_date: '2026-10-30 07:13'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -42,7 +42,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A new desk item posts one notification with the office, the story and the kind of wait, and an item already shown is not shown again
-- [ ] #2 notify.desk in <state>/config.yaml turns notifications off, and it defaults to on
-- [ ] #3 The notification goes through the platform module, and a failed post is logged and never stops the daemon
+- [x] #1 A new desk item posts one notification with the office, the story and the kind of wait, and an item already shown is not shown again
+- [x] #2 notify.desk in <state>/config.yaml turns notifications off, and it defaults to on
+- [x] #3 The notification goes through the platform module, and a failed post is logged and never stops the daemon
 <!-- AC:END -->
