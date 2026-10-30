@@ -425,7 +425,7 @@ export function App(props: AppProps) {
   };
 
   // Read-your-writes: a run is done once the office stream passes its reply cursor, once the store
-  // read a snapshot again after the reply (a history gap, whatever the epoch), or once the
+  // read a snapshot again after the reply (a history gap), or once the
   // maintainer switched to another office, whose stream will never carry it.
   useEffect(() => {
     if (run?.status !== "syncing") return;

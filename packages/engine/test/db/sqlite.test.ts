@@ -320,7 +320,7 @@ describe("sqliteWorkerUrl", () => {
 });
 
 describe("vacuumInto", () => {
-  it("writes a 0600 snapshot from a Worker and checks it", () =>
+  it("writes a 0600 snapshot from a Worker", () =>
     withTempDir(async (dir) => {
       const db = await openSqlite({
         stateDir: join(dir, "state"),
@@ -330,7 +330,7 @@ describe("vacuumInto", () => {
       try {
         db.immediate(() => db.exec("create table t (x integer) strict; insert into t values (7);"));
         const target = join(dir, "state", "backups", "copy.db");
-        await vacuumInto(db.path, target, { quickCheck: true });
+        await vacuumInto(db.path, target);
         expect(mode(target)).toBe(0o600);
         expect(mode(join(dir, "state", "backups"))).toBe(0o700);
         const copy = new Database(target, { readonly: true });

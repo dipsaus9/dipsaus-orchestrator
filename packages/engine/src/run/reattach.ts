@@ -52,7 +52,6 @@ import type { HostExitFile } from "../host/protocol";
 import type { IngestAdapter, IngestedExit, IngestTarget, PassResult } from "../ingest/ingestor";
 import { recoverLostUsage } from "../ingest/transcript";
 import type { ProcessProbe } from "../platform/process";
-import type { PriceBook } from "../pricing/estimate";
 import { endAgent } from "../runs/agents";
 import {
   exitFileOf,
@@ -185,8 +184,6 @@ export interface RunReattacherDeps {
   }) => ParseState;
   /** The run's caps by its tier; the run's budget alone when null. */
   readonly caps: (office: OfficeId, run: StoredRun) => Caps | null;
-  /** The pricing catalog, to estimate the usage read from a dead host's transcript (DIPO-134). */
-  readonly pricing?: () => PriceBook | null;
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   /** How often a followed host's liveness is checked; `FOLLOW_CHECK_MS` by default. */
@@ -662,7 +659,6 @@ export class RunReattacher {
         office,
         scope: target,
         read: target.adapter.readTranscript,
-        pricing: deps.pricing?.() ?? null,
         at,
         warn: deps.warn,
       });

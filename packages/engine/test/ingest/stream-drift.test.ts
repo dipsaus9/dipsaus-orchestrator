@@ -65,7 +65,7 @@ function ingestor(f: IngestFixture, decided: Decided[]): Ingestor {
   const hooks: IngestHooks = {
     onStreamDrift: (run, _agent, event, count) => decided.push({ run, event, count }),
   };
-  return new Ingestor({ office: f.office, clock: f.t.clock, pricing: null, hooks });
+  return new Ingestor({ office: f.office, clock: f.t.clock, hooks });
 }
 
 const driftLines = (f: IngestFixture): number =>

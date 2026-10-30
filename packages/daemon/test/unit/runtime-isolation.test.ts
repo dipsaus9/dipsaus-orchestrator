@@ -253,7 +253,6 @@ describe("tests that start a daemon", () => {
         "daemon/test/integration/foreground.ci.test.ts",
         "daemon/test/integration/reattach-kill.ci.test.ts",
         "daemon/test/integration/reconcile.ci.test.ts",
-        "daemon/test/integration/restore.ci.test.ts",
         "daemon/test/integration/upgrade-restart.test.ts",
         "daemon/src/foreground-bootout.test.ts",
         "daemon/src/index.test.ts",

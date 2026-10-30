@@ -1,14 +1,6 @@
 export { officeFeature } from "./feature";
 export { OfficeManager } from "./manager";
-export type {
-  ForgetResult,
-  OfficeManagerDeps,
-  OpenResult,
-  PurgeResult,
-  ReloadConfigResult,
-} from "./manager";
-export { deleteOrder, officeTables, purgeOfficeRows } from "./purge";
-export type { PurgeRowsOptions, PurgeRowsReport } from "./purge";
+export type { ForgetResult, OfficeManagerDeps, OpenResult, ReloadConfigResult } from "./manager";
 export {
   MARKER_FILE,
   markerPath,

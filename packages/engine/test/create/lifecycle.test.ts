@@ -182,7 +182,7 @@ describe("work tracking", () => {
 describe("an unavailable state database (DIPO-111)", () => {
   const failure = {
     details: { reason: "migration", backup: "/s/backups/pre-v3-20261016T090000.db" },
-    text: "Migration 3 failed. No office is loaded. Run `dipo daemon stop`, then `dipo restore /s/backups/pre-v3-20261016T090000.db`.",
+    text: "Migration 3 failed. No office is loaded. Run `dipo daemon stop`, move /s/dipo.db and its -wal and -shm files away, or delete those two files and copy /s/backups/pre-v3-20261016T090000.db over /s/dipo.db, then start the daemon again.",
   } as const;
 
   it("holds recovering with the text as reason and refuses office access, not retryable", () => {

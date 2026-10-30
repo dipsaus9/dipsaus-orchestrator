@@ -24,7 +24,7 @@ export const USAGE_SNAPSHOT_MS = 60_000;
 
 export type UsageWindow = "day" | "month";
 
-/** Tokens and the estimated cost in micro-dollars (null when no row has an estimate). */
+/** Tokens and the cost the CLI reported, in micro-dollars (null when no row has one, 0008). */
 export interface WindowSum {
   readonly tokens: number;
   readonly costMicros: number | null;
@@ -91,13 +91,13 @@ export function sumUsage(database: StateDatabase, at: number): UsageSnapshot {
   const finals = (from: string) =>
     db.all<SumRow>(
       `select office_id, coalesce(sum(input + output + cache_create), 0) as tokens,
-         sum(est_cost_micros) as cost
+         sum(cost_micros) as cost
        from usage_daily where day >= $from and day <= $to group by office_id`,
       { from, to: dayKey },
     );
   const lives = db.all<SumRow>(
     `select office_id, coalesce(sum(input + output + cache_create + live_output), 0) as tokens,
-       sum(est_cost_micros) as cost
+       sum(cost_micros) as cost
      from usage_totals where final = 0 group by office_id`,
   );
   const rowSum = (rows: readonly SumRow[], office: string): WindowSum => {

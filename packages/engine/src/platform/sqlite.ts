@@ -308,37 +308,6 @@ function quickCheck(db: Database): string[] {
   return lines.length === 1 && lines[0] === "ok" ? [] : lines;
 }
 
-/** A connection to one database file outside the daemon, for offline maintenance (restore). */
-export interface SqliteFile extends SqliteConnection {
-  /** The problems `PRAGMA quick_check` reports; empty for an intact file. */
-  quickCheck(): string[];
-}
-
-/**
- * Opens an existing database file read-write in rollback-journal mode, so no `-wal` or `-shm`
- * file appears next to it, with foreign keys on. `dipo restore` (0007 section 10) checks and
- * prepares a copy of a backup through it before the copy replaces `dipo.db`; the daemon switches
- * the file back to WAL at its next open. Throws when the file is not a database.
- */
-export function openSqliteFile(path: string): SqliteFile {
-  const db = new Database(path, { readwrite: true, create: false, strict: true });
-  try {
-    const one = <T>(sql: string) => db.query(sql).get() as T | null;
-    const mode = one<{ journal_mode: string }>("pragma journal_mode = DELETE")?.journal_mode;
-    if (mode !== "delete") throw new Error(`${path} could not leave WAL (journal_mode ${mode})`);
-    db.run("pragma synchronous = FULL");
-    db.run("pragma foreign_keys = ON");
-    const sqliteVersion = one<{ v: string }>("select sqlite_version() as v")?.v ?? "unknown";
-    return {
-      ...createConnection(db, path, sqliteVersion, false),
-      quickCheck: () => quickCheck(db),
-    };
-  } catch (error) {
-    db.close();
-    throw error;
-  }
-}
-
 function createConnection(
   db: Database,
   path: string,
@@ -447,23 +416,17 @@ export function sqliteWorkerUrl(moduleUrl: string = import.meta.url): string {
 export interface VacuumRequest {
   readonly source: string;
   readonly target: string;
-  readonly quickCheck: boolean;
 }
 export type VacuumReply = { readonly ok: true } | { readonly ok: false; readonly error: string };
 
 /**
  * Writes a consistent snapshot of `source` to `target` with `VACUUM INTO`, on a read-only
- * connection in a Bun Worker so the daemon thread is not blocked (0007 section 10). The target's
- * directory is created with mode 0700 and the copy gets mode 0600. With `quickCheck`, the
- * Worker also runs `PRAGMA quick_check` on the copy.
+ * connection in a Bun Worker so the daemon thread is not blocked (0007): the pre-migration
+ * backup. The target's directory is created with mode 0700 and the copy gets mode 0600.
  */
-export async function vacuumInto(
-  source: string,
-  target: string,
-  options: { readonly quickCheck?: boolean } = {},
-): Promise<void> {
+export async function vacuumInto(source: string, target: string): Promise<void> {
   ensureDir(dirname(target));
-  const request: VacuumRequest = { source, target, quickCheck: options.quickCheck === true };
+  const request: VacuumRequest = { source, target };
   const worker = new Worker(sqliteWorkerUrl());
   try {
     const reply = await new Promise<VacuumReply>((resolve, reject) => {

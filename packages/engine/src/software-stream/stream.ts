@@ -1,8 +1,9 @@
-// The software stream (0005 section 6, 0006 decision 9): office list and daemon events kept in an
-// in-memory ring buffer of the last 1000 entries, with a random epoch at every daemon start. A
-// cursor of another epoch, below the oldest entry still kept, or past the head cannot be replayed
-// and gets `stream.resetRequired { oldest }`, so every client re-reads `engine.hello` after a
-// daemon restart. Losing the buffer is harmless: the office list itself is the `offices` table.
+// The software stream (0005): office list and daemon events kept in an in-memory ring buffer of
+// the last 1000 entries. Its seqs start at the daemon's start time in milliseconds, so a cursor of
+// an earlier daemon is older than anything this one holds. A cursor older than the oldest entry
+// still kept, or past the head, cannot be replayed and gets `stream.resetRequired { oldest }`, so
+// every client re-reads `engine.hello` after a daemon restart. Losing the buffer is harmless: the
+// office list itself is the `offices` table.
 
 import {
   type Clock,
@@ -15,10 +16,7 @@ import {
   SOFTWARE_STREAM,
 } from "@dipsaus-orchestrator/contract";
 
-import { newEpoch } from "../changelog/log";
-import type { RandomFill } from "../platform/ids";
-
-/** How many entries the software stream keeps (0006 decision 9). */
+/** How many entries the software stream keeps (0005). */
 export const SOFTWARE_STREAM_CAPACITY = 1000;
 
 export type SoftwareReplay =
@@ -30,8 +28,6 @@ export type SoftwareListener = (event: Event) => void;
 export interface SoftwareStreamOptions {
   readonly clock: Clock;
   readonly capacity?: number;
-  /** Randomness for the epoch; tests pass a fixed one. */
-  readonly fill?: RandomFill;
 }
 
 /** The definition of `type`; throws unless it is a stored (not derived) event the software stream may carry. */
@@ -44,12 +40,11 @@ function softwareFactDefinition(type: string): EventDefinition {
 }
 
 export class SoftwareStream {
-  readonly epoch: string;
   readonly #clock: Clock;
   readonly #capacity: number;
   readonly #entries: Event[] = [];
-  /** Seq of the last entry appended; 0 before the first. */
-  #headSeq = 0;
+  /** Seq of the last entry appended; the start time before the first. */
+  #headSeq: number;
   readonly #listeners = new Set<SoftwareListener>();
 
   constructor(options: SoftwareStreamOptions) {
@@ -58,10 +53,11 @@ export class SoftwareStream {
     if (!Number.isSafeInteger(this.#capacity) || this.#capacity < 1) {
       throw new RangeError(`The software stream needs a positive capacity, got ${this.#capacity}.`);
     }
-    this.epoch = newEpoch(options.fill);
+    // An earlier daemon appended fewer entries than milliseconds passed between the two starts.
+    this.#headSeq = Math.max(0, Math.floor(options.clock.now()));
   }
 
-  /** The cursor of the last entry appended (seq 0 before the first). */
+  /** The cursor of the last entry appended (the start seq before the first). */
   head(): Cursor {
     return this.#cursor(this.#headSeq);
   }
@@ -95,10 +91,7 @@ export class SoftwareStream {
   since(after: Cursor): SoftwareReplay {
     const oldest = this.oldest();
     const valid =
-      after.stream === SOFTWARE_STREAM &&
-      after.epoch === this.epoch &&
-      after.seq >= oldest.seq &&
-      after.seq <= this.#headSeq;
+      after.stream === SOFTWARE_STREAM && after.seq >= oldest.seq && after.seq <= this.#headSeq;
     if (!valid) {
       return {
         ok: false,
@@ -120,6 +113,6 @@ export class SoftwareStream {
   }
 
   #cursor(seq: number): Cursor {
-    return { stream: SOFTWARE_STREAM, epoch: this.epoch, seq };
+    return { stream: SOFTWARE_STREAM, seq };
   }
 }

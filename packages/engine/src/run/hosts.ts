@@ -16,8 +16,6 @@ import { Ingestor, type IngestHooks, type IngestTarget, type PassResult } from "
 import type { OutputPrivacy } from "../ingest/output";
 import type { Env } from "../platform/paths";
 import type { ProcessProbe, SignalProcess, SpawnDetached } from "../platform/process";
-import { CostDriftWarnings } from "../pricing/drift";
-import type { PriceBook } from "../pricing/estimate";
 import type { HostOp, WorkerEvent } from "../workers/types";
 import {
   type LaunchedHost,
@@ -79,8 +77,6 @@ export function systemHostStarter(options: SystemHostStarterOptions): HostStarte
 
 export interface OfficeIngestOptions {
   readonly clock: Clock;
-  /** The pricing catalog (`StateDatabase.pricing`), read when an office's ingestor is made. */
-  readonly pricing: () => PriceBook | null;
   readonly hooks?: IngestHooks;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   /**
@@ -124,8 +120,6 @@ export class OfficeIngest implements RunIngest {
   readonly #ingestors = new Map<OfficeId, Ingestor>();
   /** Set by `close`: a connection attempt still under way stops and watches nothing. */
   #closed = false;
-  /** One per daemon, so a drifting model is warned about once per day across offices (DIPO-89). */
-  readonly #costDrift = new CostDriftWarnings();
 
   constructor(options: OfficeIngestOptions) {
     this.#options = options;
@@ -139,9 +133,7 @@ export class OfficeIngest implements RunIngest {
       ingestor = new Ingestor({
         office,
         clock: this.#options.clock,
-        pricing: this.#options.pricing(),
         hooks: this.#hooksFor(office),
-        costDrift: this.#costDrift,
         ...(redact === undefined
           ? {}
           : { redactOutput: (run: string, text: string) => redact(office, run, text) }),

@@ -14,8 +14,6 @@
 // Both are idempotent: a second pass reads from the stored offset and counts nothing twice.
 
 import type { OfficeHandle } from "../db/office";
-import { priceAgentUsage } from "../pricing/usage";
-import type { PriceBook } from "../pricing/estimate";
 import type { TranscriptMessage, TranscriptRead } from "../workers/types";
 import { readCompleteLines, statEventFile } from "./event-file";
 import { feedFinalChanges, finalRows, recordTranscriptUsage, type UsageScope } from "./usage";
@@ -143,7 +141,6 @@ export interface RecoverTranscriptOptions {
   readonly office: OfficeHandle;
   readonly scope: UsageScope;
   readonly read: TranscriptReader;
-  readonly pricing: PriceBook | null;
   readonly mode: "lost" | "detail";
   readonly at: number;
 }
@@ -205,7 +202,6 @@ export function recoverTranscriptUsage(options: RecoverTranscriptOptions): Trans
       sub.offset = fresh.end;
     }
 
-    if (counted > 0) priceAgentUsage(office, options.pricing, scope.run, scope.agent);
     writeCursor(office, scope, { path: row.path, offset, state }, at);
     if (counted > 0) feedFinalChanges(office, scope.run, scope.agent, finalBefore, at);
     return { counted, detailed, refused };

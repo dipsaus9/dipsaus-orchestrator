@@ -46,7 +46,6 @@ describe("the engine watches a host that binds its socket after OfficeIngest.sta
       const warnings: { message: string; fields: Readonly<Record<string, unknown>> }[] = [];
       const ingest = new OfficeIngest({
         clock,
-        pricing: () => null,
         warn: (message, fields) => warnings.push({ message, fields }),
       });
       try {
@@ -75,7 +74,6 @@ describe("the engine watches a host that binds its socket after OfficeIngest.sta
       const warnings: string[] = [];
       const ingest = new OfficeIngest({
         clock,
-        pricing: () => null,
         warn: (message) => warnings.push(message),
       });
       ingest.start(

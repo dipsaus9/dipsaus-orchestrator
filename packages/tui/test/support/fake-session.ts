@@ -259,7 +259,7 @@ export class FakeSession implements TuiSession {
         for (const event of goldenSoftware) if (entry.active) options.onEvent(event);
       }
       // Replay is done: the daemon's `stream.mark { caughtUp: true }`, as the client reports it.
-      const cursor = (options.after ?? { stream, epoch: "e1", seq: 0 }) as Cursor;
+      const cursor = (options.after ?? { stream, seq: 0 }) as Cursor;
       if (entry.active) options.onCaughtUp?.(cursor);
     });
     return {

@@ -38,7 +38,7 @@ describe("migration 32: run caps and run grants", () => {
           "client",
           "at",
         ]);
-        expect(TABLE_RETENTION.run_grants?.tier).toBe("S");
+        expect(TABLE_RETENTION.run_grants?.aged).toBe(true);
       } finally {
         state.close();
       }

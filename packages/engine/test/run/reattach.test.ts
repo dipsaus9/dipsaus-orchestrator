@@ -206,7 +206,7 @@ function daemon(
     },
     caps: () => w.caps,
   });
-  const ingest = new OfficeIngest({ clock: f.t.clock, pricing: () => null, hooks: control.hooks });
+  const ingest = new OfficeIngest({ clock: f.t.clock, hooks: control.hooks });
   const reattacher = new RunReattacher({
     clock: f.t.clock,
     offices,
@@ -309,7 +309,7 @@ afterEach(() => {
 function beforeRestart(name: string, before: number, upTo?: number): void {
   const lines = hostLines(readRecording(join(RECORDINGS_DIR, name)));
   appendLines(w.f.eventFile, lines.slice(0, before));
-  const ingestor = new Ingestor({ office: w.f.office, clock: w.f.t.clock, pricing: null });
+  const ingestor = new Ingestor({ office: w.f.office, clock: w.f.t.clock });
   ingestor.track(target(w.f, claude, START, { budgetLimit: ROOMY.budgetTokens }));
   ingestor.close();
   appendLines(w.f.eventFile, lines.slice(before, upTo ?? lines.length));
@@ -507,11 +507,13 @@ describe("re-attach (0006 decision 8)", () => {
     w.f.t.clock.advance(1_000);
     await d.control.idle();
     expect(agentRow()?.end_reason).toBe("exited");
-    expect(hostRow().endedAt).toBeNull();
+    // The ingested exit line ended the host row already, at its final offset (DIPO-330).
+    expect(hostRow().endedAt).not.toBeNull();
+    expect(hostRow().finalOffset).toBe(statSync(w.f.eventFile).size);
     writeExitFile({ code: 0 });
     w.alive = false;
     w.f.t.clock.advance(FOLLOW_CHECK_MS);
-    for (let i = 0; i < 50 && hostRow().endedAt === null; i += 1) await Bun.sleep(1);
+    for (let i = 0; i < 50 && signals().includes("follow-only"); i += 1) await Bun.sleep(1);
     expect(hostRow().exitCode).toBe(0);
     expect(hostRow().endedAt).not.toBeNull();
     expect(signals()).not.toContain("follow-only");

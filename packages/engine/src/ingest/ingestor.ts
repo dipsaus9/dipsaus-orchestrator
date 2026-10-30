@@ -29,9 +29,6 @@ import type { Clock, Cursor, RunId, TimerHandle, WorkRef } from "@dipsaus-orches
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import { agentCostDrifts, type CostDrift, CostDriftWarnings } from "../pricing/drift";
-import type { PriceBook } from "../pricing/estimate";
-import { checkCatalogGap, priceAgentUsage, recordCliCost } from "../pricing/usage";
 import { STREAM_DRIFT_LINES } from "../run/caps";
 import { recordReportedCriteria } from "../run/criteria";
 import { clearSignals, LIVENESS_SIGNALS } from "../run/signals";
@@ -49,6 +46,7 @@ import {
   recordCompaction,
   finalRows,
   readUsage,
+  recordReportedCost,
   recordUsageMessage,
   setElapsed,
   setLiveUsage,
@@ -184,12 +182,6 @@ export function exitRecordOf(data: string): ExitRecord {
 export interface IngestorOptions {
   readonly office: OfficeHandle;
   readonly clock: Clock;
-  /**
-   * The pricing catalog usage is estimated with (`StateDatabase.pricing`, DIPO-62). Required so
-   * a caller cannot leave it out by accident; with null, `est_cost_micros` stays null and no
-   * catalog check runs.
-   */
-  readonly pricing: PriceBook | null;
   readonly hooks?: IngestHooks;
   readonly timings?: Partial<IngestTimings>;
   /** Called for a host line that is not a `{ t, ch, data }` object; the line is skipped. */
@@ -200,11 +192,6 @@ export interface IngestorOptions {
    * stored.
    */
   readonly privacy?: () => OutputPrivacy;
-  /**
-   * Remembers the cost drift warnings already logged today (DIPO-89); shared by every office's
-   * ingestor so a model is warned about once per day. Without it the ingestor keeps its own.
-   */
-  readonly costDrift?: CostDriftWarnings;
   /**
    * Rewrites a pass's output text of `run` before it is stored in `output_chunks`, in the pass
    * transaction: the web check redacts env values from web lines (0020 section 11b, DIPO-164).
@@ -291,24 +278,20 @@ export function fileChangedRuns(office: OfficeHandle): FileChangedReport[] {
 export class Ingestor {
   readonly #office: OfficeHandle;
   readonly #clock: Clock;
-  readonly #pricing: PriceBook | null;
   readonly #hooks: IngestHooks;
   readonly #timings: IngestTimings;
   readonly #warn: NonNullable<IngestorOptions["warn"]>;
   readonly #privacy: () => OutputPrivacy;
-  readonly #costDrift: CostDriftWarnings;
   readonly #redactOutput: (run: string, text: string) => string;
   readonly #tracked = new Map<string, Tracked>();
 
   constructor(options: IngestorOptions) {
     this.#office = options.office;
     this.#clock = options.clock;
-    this.#pricing = options.pricing;
     this.#hooks = options.hooks ?? {};
     this.#timings = { ...INGEST_DEFAULTS, ...options.timings };
     this.#warn = options.warn ?? (() => {});
     this.#privacy = options.privacy ?? (() => DEFAULT_OUTPUT_PRIVACY);
-    this.#costDrift = options.costDrift ?? new CostDriftWarnings();
     this.#redactOutput = options.redactOutput ?? ((_run, text) => text);
   }
 
@@ -456,7 +439,6 @@ export class Ingestor {
     let endState: ParseState = {};
     let usageDirty = false;
     let usageSent = false;
-    let drifts: CostDrift[] = [];
     // Unreadable lines this pass added to the agent's count (DIPO-315).
     let driftAdded = 0;
     const end = lines[lines.length - 1]?.end ?? offset;
@@ -470,7 +452,6 @@ export class Ingestor {
       let lastT = cursor.last_line_t;
       let model = this.#agentModel(target);
       let usageChanged = false;
-      let turnEnded = false;
       // The criteria count shown before the pass's first report; undefined when none came.
       let criteriaBefore: number | null | undefined;
       // The run's unreadable lines before this pass, over all its agents (DIPO-315).
@@ -516,11 +497,11 @@ export class Ingestor {
                 { model, count: event.numTurns },
                 now,
               );
-              for (const missing of recordCliCost(
+              for (const missing of recordReportedCost(
                 this.#office,
                 run,
                 agent,
-                event.costUsd ?? null,
+                event.costUsd ?? {},
               )) {
                 this.#warn("the CLI reported a cost for a model without a usage row", {
                   run,
@@ -529,7 +510,6 @@ export class Ingestor {
                 });
               }
               usageChanged = true;
-              turnEnded = true;
               // The criteria the report marks met are the run's progress now (DIPO-85).
               if (event.report !== null && target.work !== undefined) {
                 criteriaBefore ??= runProgress(this.#office, run as RunId)?.criteriaMet ?? null;
@@ -583,11 +563,6 @@ export class Ingestor {
       if (firstT !== null && lastT !== null && (usageChanged || this.#hasTotals(target))) {
         setElapsed(this.#office, target, model, lastT - firstT, now);
       }
-      // Estimated cost follows every usage update, in the same transaction (0008 section 4).
-      if (usageChanged) priceAgentUsage(this.#office, this.#pricing, run, agent);
-      const stale = turnEnded
-        ? checkCatalogGap(this.#office, this.#pricing, run, target.work, now)
-        : null;
 
       const last = lines[lines.length - 1]?.text ?? "";
       const lastStart = lines.length > 1 ? (lines[lines.length - 2]?.end ?? offset) : offset;
@@ -624,7 +599,6 @@ export class Ingestor {
       if (exited || rejected.length > 0 || pending >= this.#timings.outputFlushBytes) {
         entries.push(...this.#outputEntries(target));
       }
-      if (stale !== null) entries.push(stale);
       entries.push(...versionNotices);
       // A `work.progress` only when the count the view shows changed (DIPO-85).
       const progress =
@@ -665,30 +639,29 @@ export class Ingestor {
       feedFinalChanges(this.#office, run, agent, finalBefore, now);
       if (exited) {
         endState = state;
-        // The finished agent's models whose estimate drifts from the CLI cost (DIPO-89).
-        if (this.#pricing !== null) drifts = agentCostDrifts(this.#office, run, agent);
         if (target.adapter.readTranscript !== undefined) {
           // The subagents' transcripts give the per-subagent detail the stream lacked (DIPO-134).
           recoverTranscriptUsage({
             office: this.#office,
             scope: target,
             read: target.adapter.readTranscript,
-            pricing: this.#pricing,
             mode: "detail",
             at: now,
           });
         }
-        // The cursor ended with the update above; its host row ends with `exit.json`.
+        // The cursor ended with the update above, and the host row ends here too (DIPO-330), so
+        // retention and keep-awake see an exited host without a daemon restart.
         endAgent(this.#office, {
           runId: run,
           agentId: agent,
           at: now,
           reason: "exited",
           finalizeUsage: true,
-          endHost: false,
+          endHost: true,
         });
-        // The exit as the host wrote it, for a decision after a restart (DIPO-51).
-        recordExitLine(this.#office, run, agent, exit);
+        // The exit as the host wrote it, for a decision after a restart (DIPO-51). The exit line
+        // is the host's last line, so its end is the host's final offset.
+        recordExitLine(this.#office, run, agent, exit, end);
       }
       this.#append(entries, now);
     });
@@ -708,7 +681,6 @@ export class Ingestor {
     if (events.length > 0) this.#hooks.onWorkerEvents?.(run, agent, events);
     for (const reason of rejected) this.#hooks.onInitRejected?.(run, agent, reason);
     // Logged only once the pass committed, so a rolled-back pass warns again when it is redone.
-    this.#costDrift.report(drifts, now, this.#warn, { run, agent });
     if (driftAdded > 0) {
       this.#warn("worker stream lines could not be read", {
         run,

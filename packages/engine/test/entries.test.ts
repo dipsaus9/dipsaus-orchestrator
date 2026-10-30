@@ -76,7 +76,6 @@ const ENGINE_ENTRY = [
 
 const PLATFORM_ENTRY = [
   "acquireLock",
-  "BackupRestoreError",
   "bootoutOwnLaunchdJob",
   "boxTokenHoldPath",
   "chooseRuntimeDir",
@@ -114,7 +113,6 @@ const PLATFORM_ENTRY = [
   "removeSocketFile",
   "resolveSoftwareDirs",
   "resolveTools",
-  "restoreBackup",
   "RUN_DIR_ENV",
   "RUN_ID_PATTERN",
   "runtimeCandidates",

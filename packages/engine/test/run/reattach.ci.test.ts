@@ -86,7 +86,7 @@ function engine() {
     ender: () => control,
     caps: () => CAPS,
   });
-  const ingest = new OfficeIngest({ clock: f.t.clock, pricing: () => null, hooks: control.hooks });
+  const ingest = new OfficeIngest({ clock: f.t.clock, hooks: control.hooks });
   closers.push(() => {
     control.close();
     ingest.close();

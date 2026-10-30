@@ -86,14 +86,11 @@ describe("ids", () => {
   }
 
   it("Cursor names the software stream or one office stream", () => {
-    expect(Cursor.safeParse({ stream: "software", epoch: "e", seq: 0 }).success).toBe(true);
-    expect(Cursor.safeParse({ stream: `office:${ids.office}`, epoch: "e", seq: 3 }).success).toBe(
-      true,
-    );
-    expect(Cursor.safeParse({ stream: "office:DIPO", epoch: "e", seq: 3 }).success).toBe(false);
-    expect(Cursor.safeParse({ stream: "software", epoch: "", seq: 3 }).success).toBe(false);
-    expect(Cursor.safeParse({ stream: "software", epoch: "e", seq: -1 }).success).toBe(false);
-    expect(Cursor.safeParse({ stream: "software", epoch: "e", seq: 1.5 }).success).toBe(false);
+    expect(Cursor.safeParse({ stream: "software", seq: 0 }).success).toBe(true);
+    expect(Cursor.safeParse({ stream: `office:${ids.office}`, seq: 3 }).success).toBe(true);
+    expect(Cursor.safeParse({ stream: "office:DIPO", seq: 3 }).success).toBe(false);
+    expect(Cursor.safeParse({ stream: "software", seq: -1 }).success).toBe(false);
+    expect(Cursor.safeParse({ stream: "software", seq: 1.5 }).success).toBe(false);
   });
 });
 

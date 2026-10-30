@@ -71,11 +71,10 @@ export type StreamName = z.infer<typeof StreamName>;
 /** The software stream: daemon states, notices and office summaries (0005 section 8). */
 export const SOFTWARE_STREAM: StreamName = StreamName.parse("software");
 
-// A position in one stream. `epoch` is random per change log, so a cursor from a recreated or
-// restored log never matches a new position.
+// A position in one stream (0005). A cursor older than the oldest stored entry, or beyond the
+// last one, gets `stream.resetRequired`.
 export const Cursor = z.object({
   stream: StreamName,
-  epoch: z.string().min(1),
   seq: z.int().nonnegative(),
 });
 export type Cursor = z.infer<typeof Cursor>;

@@ -190,7 +190,7 @@ describe("office summary", () => {
 
   it("sends the office's stored-output retention period, absent without a config (DIPO-97)", () =>
     withOffice(async (t, office) => {
-      const config = { ...OFFICE_DEFAULTS, retention: { shortDays: 3, stateDays: 365 } };
+      const config = { ...OFFICE_DEFAULTS, retention: { days: 3 } };
       const settingsOf = () => summarySettings(config);
       const summary = officeSummaryOfSource(() => t.state, settingsOf)(office.officeId);
       expect(summary?.outputRetentionDays).toBe(3);
@@ -236,7 +236,7 @@ describe("office summary", () => {
         helloFeature({
           engineVersion: "0.0.0-test",
           daemonState: () => "running",
-          softwareCursor: () => ({ stream: StreamName.parse("software"), epoch: "e", seq: 0 }),
+          softwareCursor: () => ({ stream: StreamName.parse("software"), seq: 0 }),
           officeSummaries: source,
         }),
       ]);

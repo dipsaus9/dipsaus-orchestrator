@@ -1008,7 +1008,6 @@ function controlRunPorts(
   const writers = branchWriters(options);
   return {
     ingest: {
-      pricing: () => options.database()?.pricing ?? null,
       // The watchdog (DIPO-52) writes `quiet` and `no-output` by the office's `timeouts`, and every
       // entry ingestion or the watchdog appends reaches subscribers at once.
       watchdog: new Watchdog({

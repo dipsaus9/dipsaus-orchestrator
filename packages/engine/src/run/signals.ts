@@ -9,6 +9,8 @@ import type { RunId, WatchdogSignal } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
 
+import { retiredRun } from "./retired";
+
 /** One fact of a run as stored. */
 export interface StoredSignal {
   readonly signal: WatchdogSignal;
@@ -90,3 +92,17 @@ export function clearSignals(
 
 /** The facts the next line from the worker clears (0009). */
 export const LIVENESS_SIGNALS: readonly WatchdogSignal[] = ["no-output"];
+
+/**
+ * Retention (0007): deletes at most `limit` facts of runs retired at `cutoff` (`retiredRun`),
+ * inside the caller's transaction; returns how many it deleted.
+ */
+export function deleteRetiredSignals(office: OfficeHandle, cutoff: number, limit: number): number {
+  return office.run(
+    `delete from run_signals where rowid in (select rowid from run_signals s
+       where s.office_id = $office_id and exists (select 1 from runs r
+         where r.office_id = s.office_id and r.run_id = s.run_id and ${retiredRun("r")})
+       limit $limit)`,
+    { cutoff, limit },
+  ).changes;
+}

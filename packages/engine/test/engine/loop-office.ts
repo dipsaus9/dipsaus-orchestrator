@@ -754,7 +754,7 @@ async function buildDaemon(
     warn,
     refreshStory: (office, key) => index.refreshStory(office, key, { quiet: true }),
     mergeReentry: () => mergeRef ?? undefined,
-    ingest: { pricing: () => null },
+    ingest: {},
     control: { writer: parkWriter, finisher, implemented },
     outcomes: {
       holds,

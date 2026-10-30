@@ -22,7 +22,6 @@
     ],
     "cursor": {
       "stream": "software",
-      "epoch": "e1",
       "seq": 40
     }
   },
@@ -30,7 +29,6 @@
     {
       "cursor": {
         "stream": "software",
-        "epoch": "e1",
         "seq": 41
       },
       "at": "2026-10-14T10:00:01.000Z",
@@ -44,7 +42,6 @@
     {
       "cursor": {
         "stream": "software",
-        "epoch": "e1",
         "seq": 42
       },
       "at": "2026-10-14T10:00:02.000Z",
@@ -58,7 +55,6 @@
     {
       "cursor": {
         "stream": "software",
-        "epoch": "e1",
         "seq": 42
       },
       "at": "2026-10-14T10:00:03.000Z",
@@ -76,7 +72,6 @@
     {
       "cursor": {
         "stream": "software",
-        "epoch": "e1",
         "seq": 42
       },
       "at": "2026-10-14T10:00:03.000Z",
@@ -100,7 +95,6 @@
     {
       "cursor": {
         "stream": "software",
-        "epoch": "e1",
         "seq": 42
       },
       "at": "2026-10-14T10:00:03.000Z",
@@ -114,7 +108,6 @@
     "off_01J9ZK5Q8W3V4X6Y7Z8A9B0CAA": {
       "cursor": {
         "stream": "office:off_01J9ZK5Q8W3V4X6Y7Z8A9B0CAA",
-        "epoch": "e2",
         "seq": 7
       },
       "stories": [
@@ -413,7 +406,6 @@
     "off_01J9ZK5Q8W3V4X6Y7Z8A9B0CBB": {
       "cursor": {
         "stream": "office:off_01J9ZK5Q8W3V4X6Y7Z8A9B0CBB",
-        "epoch": "e3",
         "seq": 3
       },
       "stories": [
@@ -435,7 +427,6 @@
     "off_01J9ZK5Q8W3V4X6Y7Z8A9B0CCC": {
       "cursor": {
         "stream": "office:off_01J9ZK5Q8W3V4X6Y7Z8A9B0CCC",
-        "epoch": "e4",
         "seq": 12
       },
       "stories": [

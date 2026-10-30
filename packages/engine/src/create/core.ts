@@ -82,7 +82,7 @@ function lifecycleOf(logger: Logger, software: SoftwareStream): DaemonLifecycle 
 
 export function buildCore(deps: EngineDeps): Core {
   const { clock, logger, spawn, tools } = deps;
-  // The software stream: a ring buffer with a new random epoch at every start (0006 decision 9).
+  // The software stream: a ring buffer whose seqs start at the daemon's start time (0005).
   const software = new SoftwareStream({ clock });
   const lifecycle = lifecycleOf(logger, software);
   const changes = new OfficeChanges();

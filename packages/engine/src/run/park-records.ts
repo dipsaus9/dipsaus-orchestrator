@@ -143,3 +143,19 @@ export function openParkIds(office: OfficeHandle, key: string, runId?: string): 
     )
     .map((row) => row.park_id);
 }
+
+/**
+ * Retention (0007): deletes at most `limit` parks resolved before `cutoff`, inside the caller's
+ * transaction; returns how many it deleted. An open park is the history of a story still parked.
+ */
+export function deleteParksResolvedBefore(
+  office: OfficeHandle,
+  cutoff: number,
+  limit: number,
+): number {
+  return office.run(
+    `delete from parks where rowid in (select rowid from parks
+       where office_id = $office_id and resolved_at < $cutoff limit $limit)`,
+    { cutoff, limit },
+  ).changes;
+}

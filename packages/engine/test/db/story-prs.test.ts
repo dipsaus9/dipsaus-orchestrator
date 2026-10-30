@@ -70,6 +70,6 @@ describe("migration 36", () => {
       } finally {
         state.close();
       }
-      expect(TABLE_RETENTION["story_prs"]?.tier).toBe("S");
+      expect(TABLE_RETENTION["story_prs"]?.aged).toBe(true);
     }));
 });

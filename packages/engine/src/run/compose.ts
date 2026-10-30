@@ -69,7 +69,7 @@ export interface RunPorts {
   /** False while no work is scheduled: the permission wait and the office's starts paused. */
   readonly scheduling?: () => boolean;
   /** Ingestion; every entry it appends reaches `onChanged` at once. */
-  readonly ingest: Pick<OfficeIngestOptions, "pricing" | "watchdog"> & {
+  readonly ingest: Pick<OfficeIngestOptions, "watchdog"> & {
     /** Hears each run's worker exit after the live question rule did. */
     readonly onEnded?: OfficeRunListener["onEnded"];
   };
@@ -126,7 +126,7 @@ export interface RunPorts {
   /** Re-attach after a restart; needs `control`. */
   readonly reattach?: Omit<
     RunReattacherDeps,
-    "clock" | "offices" | "ingest" | "control" | "outcomes" | "onChanged" | "warn" | "pricing"
+    "clock" | "offices" | "ingest" | "control" | "outcomes" | "onChanged" | "warn"
   >;
 }
 
@@ -274,7 +274,6 @@ function buildIngest(
   const { runEvents, webCalls } = listeners;
   return new OfficeIngest({
     clock: ports.clock,
-    pricing: ports.ingest.pricing,
     ...(control === null ? {} : { hooks: control.hooks }),
     runEvents,
     // No env value of the listed files reaches the stored web lines (0020 section 11b, DIPO-164).
@@ -343,7 +342,6 @@ function buildOutcomes(
       steering: ports.steering,
       encode: (op) => ports.worker.encode(op),
       worker: ports.worker,
-      pricing: ports.ingest.pricing,
       ender: () => control,
       resumer,
       release: ports.release,
@@ -557,7 +555,6 @@ function buildReattacher(
     control,
     // A developer runs only in its box: a living Mac session of an earlier binary is stopped.
     boxRecord: (runDir) => existsSync(join(runDir, BOX_RUN_FILE)),
-    pricing: ports.ingest.pricing,
     ...given("outcomes", outcomes ?? undefined),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
@@ -683,7 +680,6 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
       git: ports.git,
       hosts: ports.hosts,
       steering: ports.steering,
-      pricing: ports.ingest.pricing,
       runtimeDir: ports.runtimeDir,
       tmpRoot: ports.tmpRoot,
       ...given("tempOwner", ports.tempOwner),

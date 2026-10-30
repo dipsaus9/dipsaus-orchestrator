@@ -110,6 +110,6 @@ describe("migration 39", () => {
       } finally {
         state.close();
       }
-      expect(TABLE_RETENTION["review_verdicts"]?.tier).toBe("S");
+      expect(TABLE_RETENTION["review_verdicts"]?.aged).toBe(true);
     }));
 });

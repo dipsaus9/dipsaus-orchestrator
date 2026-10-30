@@ -37,7 +37,6 @@ import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
 import { Ingestor, type IngestAdapter, type IngestedExit } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
-import type { PriceBook } from "../pricing/estimate";
 import { recordAgent } from "../runs/agents";
 import {
   SCAN_ROLE,
@@ -74,8 +73,6 @@ export interface SessionRunsDeps {
   readonly hosts: HostStarter;
   /** Sends host ops to the running session: the stop at a cap. */
   readonly steering: RunSteering;
-  /** The pricing catalog its usage is estimated with. */
-  readonly pricing: () => PriceBook | null;
   readonly runtimeDir: string;
   /** dipo's temp root: the run temp directories and the session's folder. */
   readonly tmpRoot: string;
@@ -341,7 +338,6 @@ export class SessionRuns implements ScanSessionRunner {
     const ingestor = new Ingestor({
       office,
       clock: deps.clock,
-      pricing: deps.pricing(),
       hooks: {
         // Inside the pass, once a usage or turn event is in the stored totals; it only reads.
         onEventApplied: (_run, _agent, event) => {

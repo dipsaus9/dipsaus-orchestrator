@@ -237,7 +237,6 @@ async function ingestRecording(name: string): Promise<void> {
   const ingestor = new Ingestor({
     office: w.f.office,
     clock: w.f.t.clock,
-    pricing: null,
     hooks: w.control.hooks,
   });
   w.ingestor = ingestor;
@@ -443,7 +442,6 @@ describe("caps as of each event in one pass", () => {
     const ingestor = new Ingestor({
       office: w.f.office,
       clock: w.f.t.clock,
-      pricing: null,
       hooks: w.control.hooks,
     });
     w.ingestor = ingestor;
@@ -1482,7 +1480,6 @@ async function ingestLines(lines: readonly HostLine[]): Promise<void> {
     w.ingestor = new Ingestor({
       office: w.f.office,
       clock: w.f.t.clock,
-      pricing: null,
       hooks: w.control.hooks,
     });
     w.ingestor.track(

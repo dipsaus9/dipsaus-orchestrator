@@ -266,7 +266,7 @@ describe("a box worker's stream through the worker host (criteria 1 and 3)", () 
       const f = await ingestFixture(join(dir, "ingest"));
       try {
         appendLines(f.eventFile, lines);
-        const ingestor = new Ingestor({ office: f.office, clock: f.t.clock, pricing: null });
+        const ingestor = new Ingestor({ office: f.office, clock: f.t.clock });
         ingestor.track(
           target(f, boxAdapter, initialState({ plannedModel: "haiku" }) as unknown as ParseState),
         );
@@ -383,7 +383,6 @@ describe("the caps on a box worker's stream (criterion 3)", () => {
     ingestor = new Ingestor({
       office: f.office,
       clock: f.t.clock,
-      pricing: null,
       hooks: control.hooks,
     });
     ingestor.track(
@@ -535,7 +534,7 @@ async function liveSteps(
 ): Promise<LiveStep[]> {
   const f = await ingestFixture(dir);
   try {
-    const ingestor = new Ingestor({ office: f.office, clock: f.t.clock, pricing: null });
+    const ingestor = new Ingestor({ office: f.office, clock: f.t.clock });
     const tracked = target(
       f,
       adapter,
@@ -621,7 +620,7 @@ describe("the live usage of a session (DIPO-296)", () => {
       const lines = hostLines(withoutSkills(loadRecording(NAME)));
       const f = await ingestFixture(dir);
       try {
-        const ingestor = new Ingestor({ office: f.office, clock: f.t.clock, pricing: null });
+        const ingestor = new Ingestor({ office: f.office, clock: f.t.clock });
         const tracked = target(
           f,
           macAdapter,

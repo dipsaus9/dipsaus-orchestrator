@@ -51,7 +51,7 @@ describe("migration 46 on a database at version 45", () => {
       try {
         const db = state.connection;
         expect(MIGRATIONS.find((step) => step.version === 46)?.name).toBe("catch ups");
-        expect(TABLE_RETENTION["catch_ups"]?.tier).toBe("S");
+        expect(TABLE_RETENTION["catch_ups"]?.aged).toBe(true);
         expect(db.all("select run_id from runs")).toEqual([{ run_id: "run-1" }]);
         db.exec(insert(1, "merged", "c1"));
         db.exec(insert(2, "found", null));

@@ -175,8 +175,8 @@ export const DATABASE_UNAVAILABLE_REASONS = [
 export const DatabaseUnavailableReason = openEnum(DATABASE_UNAVAILABLE_REASONS);
 export type DatabaseUnavailableReason = z.infer<typeof DatabaseUnavailableReason>;
 
-// `details` of `database.unavailable`: the reason, and the newest backup when the fix is
-// `dipo restore` and one exists.
+// `details` of `database.unavailable`: the reason, and the newest pre-migration backup when one
+// exists (0007: the maintainer copies it in by hand).
 export const DatabaseUnavailableDetails = z.object({
   reason: DatabaseUnavailableReason,
   backup: z.string().optional(),

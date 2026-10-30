@@ -134,7 +134,7 @@ async function open(
 function outputEvent(seq: number, run: string, source: string, from: number, text: string) {
   const view = golden().work.find((candidate) => candidate.work.run === run)!;
   return {
-    cursor: { stream: STREAM, epoch: "e2", seq },
+    cursor: { stream: STREAM, seq },
     at: "2026-10-14T10:05:00.000Z",
     type: "work.output",
     data: { work: view.work, source, from, to: from + text.length, text },
@@ -320,7 +320,7 @@ describe("office overview board", () => {
     const before = golden().work[1]!;
     const view = { ...before, phase: "review", health: "busy" };
     stream?.options.onEvent({
-      cursor: { stream: STREAM, epoch: "e2", seq: 8 },
+      cursor: { stream: STREAM, seq: 8 },
       at: "2026-10-14T10:05:00.000Z",
       type: "work.phase",
       data: { work: view.work, phase: "review", progress: view.progress, view },
@@ -497,7 +497,7 @@ describe("opening any board row (DIPO-81)", () => {
     const shows = async (days: number | undefined, endedAt: string, line: string) => {
       const { ui, session } = await open(120, 30, boardSnapshot());
       session.active("software")?.options.onEvent({
-        cursor: { stream: "software", epoch: "e1", seq: 90 },
+        cursor: { stream: "software", seq: 90 },
         at: "2026-10-14T10:04:00.000Z",
         type: "office.summary",
         data: days === undefined ? summary : { ...summary, outputRetentionDays: days },
@@ -545,7 +545,7 @@ describe("opening any board row (DIPO-81)", () => {
     expect(ui.frame()).not.toContain("stores");
     const summary = goldenHello.offices.find((entry) => entry.office === OFFICES.dipsaus);
     session.active("software")?.options.onEvent({
-      cursor: { stream: "software", epoch: "e1", seq: 90 },
+      cursor: { stream: "software", seq: 90 },
       at: "2026-10-14T10:04:00.000Z",
       type: "office.summary",
       data: { ...summary, optIns: ["privacy.storeCommandBodies"] },

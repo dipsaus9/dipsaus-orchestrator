@@ -158,11 +158,6 @@ export interface ClaudeParseState {
    */
   readonly costCommitted?: Readonly<Record<string, number>>;
   readonly costBaseline?: Readonly<Record<string, number>>;
-  /**
-   * Set once a turn end kept live numbers above the CLI's totals (an aborted or crashed turn):
-   * the CLI's cost then leaves counted spend out, and turn events stop carrying it.
-   */
-  readonly costDrift?: boolean;
   /** Models seen in `system/init` or `modelUsage`, first one first. */
   readonly models: readonly string[];
   /** Tool use ids already reported as `denied`. */
@@ -303,7 +298,6 @@ export function initialState(options: InitialStateOptions = {}): ClaudeParseStat
     baseline: options.baseline ?? totals,
     costCommitted: options.costUsd ?? {},
     costBaseline: options.costBaseline ?? options.costUsd ?? {},
-    costDrift: false,
     models: [],
     denied: [],
     lastTurn: null,
@@ -1168,13 +1162,9 @@ function result(value: unknown, state: ClaudeParseState): Step {
           : resumedDelta(usage, base, floor[model] ?? ZERO_USAGE, next.live[model] ?? ZERO_USAGE);
     }
   }
-  let drift = next.costDrift === true;
   if (none || !completed) {
     for (const model of new Set([...Object.keys(change), ...Object.keys(next.live)])) {
-      const before = change[model] ?? ZERO_USAGE;
-      change[model] = larger(before, next.live[model] ?? ZERO_USAGE);
-      // Spend the CLI's totals leave out is now counted, so its cost no longer covers the run.
-      if (FIELDS.some((field) => change[model]?.[field] !== before[field])) drift = true;
+      change[model] = larger(change[model] ?? ZERO_USAGE, next.live[model] ?? ZERO_USAGE);
     }
   }
   const { restoredFloor: _floor, costFloor: _costFloor, ...rest } = next;
@@ -1185,7 +1175,6 @@ function result(value: unknown, state: ClaudeParseState): Step {
     live: {},
     baseline: none ? next.baseline : { ...next.baseline, ...reported },
     ...cost,
-    costDrift: drift,
   };
   for (const model of Object.keys(reported)) {
     if (next.plannedModel === null) {
@@ -1258,8 +1247,9 @@ function result(value: unknown, state: ClaudeParseState): Step {
       next = { ...next, planLimit: "turn ended by a 429 rate-limit error" };
   }
 
+  // The cost as the CLI reports it, stored as reported (0008).
   const costUsd = next.costCommitted ?? {};
-  const comparable = !drift && Object.keys(costUsd).length > 0;
+  const reportedCost = Object.keys(costUsd).length > 0;
   const trouble = turnProblem(msg.subtype, turn, next);
   events.push({
     t: "turn",
@@ -1267,7 +1257,7 @@ function result(value: unknown, state: ClaudeParseState): Step {
     ...(review === undefined ? {} : { review }),
     ...(answer === undefined ? {} : { answer }),
     totals: next.committed,
-    ...(comparable ? { costUsd } : {}),
+    ...(reportedCost ? { costUsd } : {}),
     numTurns: msg.num_turns,
     terminal,
     ...(msg.subtype === "error_max_turns"

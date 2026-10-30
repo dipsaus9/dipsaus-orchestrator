@@ -20,7 +20,6 @@ import {
 
 import { Renderer } from "../../src/changelog/render";
 import type { Engine } from "../../src/create/deps";
-import { newLogState } from "../../src/changelog/log";
 import { CAPABILITY_FLAGS } from "../../src/reads/hello";
 import { TEST_VERSION, withEngine, type EngineFixture } from "./engine-fixture";
 
@@ -84,7 +83,8 @@ describe("engine.hello and commands.describe", () => {
         expect(hello.contract).toEqual({ ...CONTRACT_VERSION });
         expect(hello.daemon).toBe("running");
         expect(hello.offices).toEqual([]);
-        expect(hello.cursor.seq).toBe(2); // starting -> recovering -> running
+        // starting -> recovering -> running, counted from the stream's start time (0005).
+        expect(hello.cursor.seq).toBe(f.clock.now() + 2);
         // The whole engine backs every flag; a flag whose commands are not registered is left out
         // (reads/hello.test.ts).
         expect(hello.capabilities).toEqual(Object.keys(CAPABILITY_FLAGS));
@@ -325,7 +325,7 @@ describe("lifecycle checks", () => {
 
 describe("the software stream", () => {
   it(
-    "replays after a cursor and sends live events, and asks a cursor of another epoch to reset",
+    "replays after a cursor and sends live events, and asks a cursor of an earlier daemon to reset",
     () =>
       withEngine(async (f) => {
         const hello = okResult<{ cursor: Cursor }>(await f.hello());
@@ -333,15 +333,17 @@ describe("the software stream", () => {
         const subscribed = await f.engine.subscribe("software" as StreamName, hello.cursor);
         if (!subscribed.ok || subscribed.office !== null) throw new Error("expected a replay");
         expect(subscribed.from).toEqual(hello.cursor);
+        // Seqs count from the stream's start, the daemon's start time (0005).
+        const at = (n: number) => hello.cursor.seq + n;
         expect(subscribed.events.map((e) => [e.cursor.seq, e.type, e.data])).toEqual([
           [
-            1,
+            at(1),
             "daemon.state",
             { from: "starting", to: "recovering", reason: "running recovery steps" },
           ],
-          [2, "daemon.state", { from: "recovering", to: "running", reason: "recovered" }],
+          [at(2), "daemon.state", { from: "recovering", to: "running", reason: "recovered" }],
         ]);
-        expect(subscribed.head.seq).toBe(2);
+        expect(subscribed.head.seq).toBe(at(2));
 
         const live = softwareEvents(f.engine);
         await f.engine.drain({ reason: "SIGTERM", stopWorkers: false });
@@ -352,15 +354,11 @@ describe("the software stream", () => {
         // The ring buffer's own limits are tested with the stream (software-stream/stream.test.ts).
         const reset = await f.engine.subscribe(
           "software" as StreamName,
-          {
-            stream: "software",
-            epoch: "an-earlier-daemon",
-            seq: 0,
-          } as Cursor,
+          { stream: "software", seq: hello.cursor.seq - 1 } as Cursor,
         );
         if (reset.ok) throw new Error("expected stream.resetRequired");
         expect(reset.error.code).toBe("stream.resetRequired");
-        expect(reset.error.details).toEqual({ oldest: { ...hello.cursor, seq: 0 } });
+        expect(reset.error.details).toEqual({ oldest: hello.cursor });
       }),
     TIMEOUT_MS,
   );
@@ -459,15 +457,15 @@ describe("an office's change log", () => {
   );
 
   it(
-    "asks a cursor of another epoch to reset, and does not know a forgotten office",
+    "asks a cursor beyond the last entry to reset, and does not know a forgotten office",
     () =>
       withEngine(async (f) => {
         await f.engine.recover({ crashLoop: false });
         const office = await f.open();
+        // A log that was lost and started again: the cursor is beyond its last entry.
         const reset = await f.engine.subscribe(stream(office), {
           stream: stream(office),
-          epoch: "restored-elsewhere",
-          seq: 0,
+          seq: 1_000,
         } as Cursor);
         if (reset.ok) throw new Error("expected stream.resetRequired");
         expect(reset.error.code).toBe("stream.resetRequired");
@@ -478,14 +476,12 @@ describe("an office's change log", () => {
 
         // An office row that was forgotten.
         const other = "off_01J9ZK5Q8W3V4X6Y7Z00000777" as OfficeId;
-        const log = newLogState();
         const state = await f.state();
         state.connection.immediate(() =>
           state.connection.run(
-            `insert into offices (office_id, path, display_name, added_at, epoch, next_seq,
-                 replay_floor_seq, forgotten_at)
-               values ($office, '/repos/other', 'other', 0, $epoch, $next, $floor, 1)`,
-            { office: other, epoch: log.epoch, next: log.nextSeq, floor: log.replayFloorSeq },
+            `insert into offices (office_id, path, display_name, added_at, next_seq, forgotten_at)
+               values ($office, '/repos/other', 'other', 0, 1, 1)`,
+            { office: other },
           ),
         );
         expect(errorCode(await f.engine.subscribe(stream(other), undefined))).toBe(
@@ -508,8 +504,8 @@ describe("an office's change log", () => {
         const state = await f.state();
         state.connection.immediate(() => {
           state.connection.run(
-            `insert into change_log (office_id, seq, at, type, tier, key, run_id, caused_by, delta, view)
-             values ($office, $seq, 1, 'story.state', 'S', null, null, null, '{"story":"DIPO-1"}', null)`,
+            `insert into change_log (office_id, seq, at, type, key, run_id, caused_by, delta, view)
+             values ($office, $seq, 1, 'story.state', null, null, null, '{"story":"DIPO-1"}', null)`,
             { office, seq: bad },
           );
           state.connection.run("update offices set next_seq = $next where office_id = $office", {

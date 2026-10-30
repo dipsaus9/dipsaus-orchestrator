@@ -45,7 +45,7 @@ function fake(
   const emit = (type: string, data: unknown) => {
     seq += 1;
     const event = {
-      cursor: { stream: `office:${OFFICE}`, epoch: "e1", seq },
+      cursor: { stream: `office:${OFFICE}`, seq },
       at: "2026-10-14T09:00:00Z",
       type,
       data,
