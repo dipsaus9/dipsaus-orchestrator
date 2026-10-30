@@ -1,10 +1,10 @@
 ---
 id: DIPO-384
 title: 'Park a worker host found dead at recovery, as 0005 and 0008 say'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-30 09:30'
-updated_date: '2026-10-30 17:59'
+updated_date: '2026-10-30 18:01'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -16,6 +16,23 @@ references:
   - packages/engine/src/run/reattach.ts
   - packages/engine/src/run/
   - docs/decisions/0008-worker-adapter.md
+modified_files:
+  - packages/engine/src/run/compose.ts
+  - packages/engine/src/run/control.ts
+  - packages/engine/src/run/index.ts
+  - packages/engine/src/run/outcome-exits.ts
+  - packages/engine/src/run/outcome-restart.ts
+  - packages/engine/src/run/outcome-types.ts
+  - packages/engine/src/run/outcomes.ts
+  - packages/engine/src/run/reattach.ts
+  - packages/engine/src/run/review-launch.ts
+  - packages/engine/src/run/reviews.ts
+  - packages/engine/src/run/temp-dirs.ts
+  - packages/engine/test/run/compose.test.ts
+  - packages/engine/test/run/outcomes.test.ts
+  - packages/engine/test/run/reattach.test.ts
+  - packages/engine/test/run/reviews.test.ts
+  - packages/engine/test/run/temp-dirs.test.ts
 priority: medium
 type: chore
 ordinal: 364000
@@ -44,3 +61,18 @@ test_plan:
 - [x] #2 The one-resume path for a lost host is removed: RunOutcomesPort.onHostLost, its control callers, temp-dirs.ts and the tests that call it; the host-lost signal and HOST_LOST_END stay only as far as the park needs them, and the PR says which
 - [x] #3 0005 and 0008 stay true to the code; any sentence that mentions a resume for a lost host is corrected
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-10-30 18:01 UTC
+- Criteria met: 3 of 3 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 1
+- Budget used: 222,268 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 3
+<!-- SECTION:FINAL_SUMMARY:END -->
