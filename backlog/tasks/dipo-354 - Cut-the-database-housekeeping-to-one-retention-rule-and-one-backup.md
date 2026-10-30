@@ -4,7 +4,7 @@ title: Cut the database housekeeping to one retention rule and one backup
 status: Done
 assignee: []
 created_date: '2026-10-25 09:51'
-updated_date: '2026-10-30 07:07'
+updated_date: '2026-10-30 07:39'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -55,5 +55,5 @@ test_plan:
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Usage rows store the cost the Claude CLI reports (cost_micros), and the pricing catalogs, rate tables and checks are gone. One retention rule, retention.days (default 30, in office config version 14; shortDays and stateDays retired), runs at office load and hourly in batches of at most 5,000 rows and removes run detail only for runs that ended done or dropped, or parked with no live claim and no open park, before the cutoff; a run open at In Review is kept. Daily VACUUM INTO backups, dipo restore and office purge are removed; the pre-migration backup stays (two newest), and leftover daily copies go after a successful open. Cursors carry no epoch: the oldest stored row and the last seq decide stream.resetRequired, and the software stream's seqs start at the daemon start time. An ingested exit line ends the worker host row (DIPO-330). Migration 0068 drops the pricing tables and columns, change_log.tier, offices.epoch and replay_floor_seq and backfills open host rows. ADR 0005's list of the daemon's other forms no longer names restore (approved by the maintainer). Follow-up: DIPO-382 removes the quick_check after an unclean exit.
+Usage rows store the cost the Claude CLI reports (cost_micros), and the pricing catalogs, rate tables and checks are gone. One retention rule, retention.days (default 30, in office config version 14; shortDays and stateDays retired), runs at office load and hourly in batches of at most 5,000 rows and removes run detail only for runs that ended done or dropped, or parked with no live claim and no open park, before the cutoff; a run open at In Review is kept. Daily VACUUM INTO backups, dipo restore and office purge are removed; the pre-migration backup stays (two newest), and leftover daily copies go after a successful open. Cursors carry no epoch: the oldest stored row and the last seq decide stream.resetRequired, and the software stream's seqs start at the daemon start time. An ingested exit line ends the worker host row (DIPO-330). Migration 0069 drops the pricing tables and columns, change_log.tier, offices.epoch and replay_floor_seq and backfills open host rows. ADR 0005's list of the daemon's other forms no longer names restore (approved by the maintainer). Follow-up: DIPO-382 removes the quick_check after an unclean exit.
 <!-- SECTION:FINAL_SUMMARY:END -->
