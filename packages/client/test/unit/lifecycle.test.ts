@@ -351,7 +351,7 @@ describe("startDaemon and autostart", () => {
       expect((error as SoftwareConfigError).errors[0]?.message).toContain("daemon.autostart");
       expect(w.spawns).toEqual([]);
 
-      writeFileSync(join(w.state, "config.yaml"), "version: 3\n");
+      writeFileSync(join(w.state, "config.yaml"), "version: 4\n");
       expect(await startDaemon(w.deps)).toMatchObject({ kind: "config" });
       expect(w.spawns).toEqual([]);
     }));

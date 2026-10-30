@@ -57,6 +57,7 @@ import {
   systemProcessProbe,
   systemSpawn,
   systemSpawnDetached,
+  systemPostNotification,
   systemSpawnKeepAwake,
   underLaunchdJob,
   writeRuntimeRecord,
@@ -67,6 +68,7 @@ import {
   type HeldLock,
   type LogFile,
   type PidRecord,
+  type PostNotification,
   type ReadExecutableStamp,
   type ServedSocket,
   type SpawnDetached,
@@ -99,6 +101,8 @@ export interface ForegroundOptions {
   readonly spawnDetached?: SpawnDetached;
   /** Starts the keep-awake process (0006 decision 12); tests take no real assertion. */
   readonly spawnKeepAwake?: SpawnKeepAwake;
+  /** Posts the desk notifications (DIPO-357); tests post nothing to the real notification centre. */
+  readonly postNotification?: PostNotification;
   /** Runs `launchctl` for the bootout after a refused `config.yaml`; tests record the call. */
   readonly supervisorSpawn?: Spawn;
   /** This process's parent PID, for the launchd bootout check; tests stand in for launchd (1). */
@@ -509,6 +513,7 @@ function startEngine(
     spawn: systemSpawn,
     probe,
     spawnKeepAwake: options.spawnKeepAwake ?? systemSpawnKeepAwake,
+    postNotification: options.postNotification ?? systemPostNotification(systemSpawn, io.clock),
     // Worker hosts run detached as `dipo daemon worker-host <run>` (0006 decision 8).
     hosts: systemHostStarter({
       clock: io.clock,

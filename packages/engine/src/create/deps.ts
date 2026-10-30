@@ -20,6 +20,7 @@ import type { Renderer } from "../changelog/render";
 import type { FeatureModule } from "../commands/registry";
 import type { Logger } from "../log/logger";
 import type { SpawnKeepAwake } from "../platform/keepawake";
+import type { PostNotification } from "../platform/notify";
 import type { ProcessProbe } from "../platform/process";
 import type { HostStarter } from "../run/launch";
 import type { WorkerPort } from "../workers/port";
@@ -85,6 +86,11 @@ export interface EngineDeps {
   readonly tools: ToolPaths;
   /** The software-level settings read at start. */
   readonly settings: SoftwareConfig;
+  /**
+   * Posts a desk notification (DIPO-357); the daemon gives the system's, a test a fake. Without it
+   * no desk notification is posted.
+   */
+  readonly postNotification?: PostNotification;
   readonly daemon: DaemonFacts;
   readonly databaseCheck: DatabaseCheck;
   /**

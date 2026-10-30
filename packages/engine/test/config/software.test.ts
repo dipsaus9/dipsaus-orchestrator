@@ -15,9 +15,10 @@ describe("loadSoftwareConfig", () => {
       expect(await loadSoftwareConfig(state)).toEqual({
         ok: true,
         config: {
-          version: 2,
+          version: 3,
           daemon: { autostart: true, autoRestartOnUpgrade: false },
           usage: { alerts: { level: 0.8 } },
+          notify: { desk: true },
         },
         fromFile: false,
       });
@@ -32,9 +33,10 @@ describe("loadSoftwareConfig", () => {
       expect(await loadSoftwareConfig(state)).toEqual({
         ok: true,
         config: {
-          version: 2,
+          version: 3,
           daemon: { autostart: true, autoRestartOnUpgrade: true },
           usage: { alerts: { level: 0.8 } },
+          notify: { desk: true },
         },
         fromFile: true,
       });
@@ -66,7 +68,7 @@ describe("loadSoftwareConfig", () => {
         ok: false,
         errors: [{ file: path, path: "(top level)", expected: "exactly one YAML document" }],
       });
-      writeFileSync(path, "version: 3\n");
+      writeFileSync(path, "version: 4\n");
       const result = await loadSoftwareConfig(state);
       if (result.ok) throw new Error("expected a refusal");
       expect(result.errors[0]?.message).toContain("upgrade dipo");

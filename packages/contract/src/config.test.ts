@@ -11,6 +11,7 @@ import {
   SOFTWARE_CONFIG_VERSION,
   SoftwareConfigV1,
   SoftwareConfigV2,
+  SoftwareConfigV3,
   softwareConfigJsonSchema,
 } from "./config";
 import { schemaKeyPaths } from "./config-keys";
@@ -43,6 +44,15 @@ const KEY_PATHS: Record<number, readonly string[]> = {
     "usage.alerts.monthTokens",
     "version",
   ],
+  3: [
+    "daemon.autoRestartOnUpgrade",
+    "daemon.autostart",
+    "notify.desk",
+    "usage.alerts.dayTokens",
+    "usage.alerts.level",
+    "usage.alerts.monthTokens",
+    "version",
+  ],
 };
 
 describe("config.yaml key paths", () => {
@@ -63,22 +73,25 @@ describe("config.yaml key paths", () => {
 });
 
 const DEFAULT_ALERTS = { usage: { alerts: { level: 0.8 } } };
+const DEFAULT_NOTIFY = { notify: { desk: true } };
 
 describe("resolveSoftwareConfig", () => {
   it("gives the defaults when the file is absent", () => {
     expect(resolve(undefined)).toEqual({
       ok: true,
       config: {
-        version: 2,
+        version: 3,
         daemon: { autostart: true, autoRestartOnUpgrade: false },
         ...DEFAULT_ALERTS,
+        ...DEFAULT_NOTIFY,
       },
       fromFile: false,
     });
     expect(SOFTWARE_CONFIG_DEFAULTS).toEqual({
-      version: 2,
+      version: 3,
       daemon: { autostart: true, autoRestartOnUpgrade: false },
       ...DEFAULT_ALERTS,
+      ...DEFAULT_NOTIFY,
     });
   });
 
@@ -86,9 +99,10 @@ describe("resolveSoftwareConfig", () => {
     expect(resolve("version: 1\ndaemon:\n  autostart: false\n")).toEqual({
       ok: true,
       config: {
-        version: 2,
+        version: 3,
         daemon: { autostart: false, autoRestartOnUpgrade: false },
         ...DEFAULT_ALERTS,
+        ...DEFAULT_NOTIFY,
       },
       fromFile: true,
     });
@@ -194,16 +208,35 @@ describe("resolveSoftwareConfig", () => {
   it("migrates version 1 in memory and refuses version 2 keys in it", () => {
     expect(resolve("version: 1\ndaemon:\n  autostart: false\n")).toMatchObject({
       ok: true,
-      config: { version: 2, daemon: { autostart: false }, ...DEFAULT_ALERTS },
+      config: { version: 3, daemon: { autostart: false }, ...DEFAULT_ALERTS, ...DEFAULT_NOTIFY },
     });
     expect(errorsOf("version: 1\nusage:\n  alerts:\n    dayTokens: 5\n")).toMatchObject([
       { path: "usage" },
     ]);
   });
 
+  it("reads notify.desk at version 3, on unless the file turns it off (DIPO-357)", () => {
+    expect(resolve("version: 3\nnotify:\n  desk: false\n")).toMatchObject({
+      ok: true,
+      config: { notify: { desk: false } },
+    });
+    expect(resolve("version: 3\n")).toMatchObject({ ok: true, config: { notify: { desk: true } } });
+    expect(errorsOf("version: 3\nnotify:\n  desk: 1\n")).toMatchObject([
+      { path: "notify.desk", expected: "boolean" },
+    ]);
+  });
+
+  it("refuses notify.desk at version 2 and fills it in when migrating from version 2", () => {
+    expect(errorsOf("version: 2\nnotify:\n  desk: false\n")).toMatchObject([{ path: "notify" }]);
+    expect(resolve("version: 2\n")).toMatchObject({
+      ok: true,
+      config: { version: 3, notify: { desk: true } },
+    });
+  });
+
   it("refuses a newer version with upgrade dipo", () => {
-    const [error] = errorsOf("version: 3\nweb:\n  enabled: true\n");
-    expect(error).toMatchObject({ file: FILE, path: "version", expected: "integer from 1 to 2" });
+    const [error] = errorsOf("version: 4\nweb:\n  enabled: true\n");
+    expect(error).toMatchObject({ file: FILE, path: "version", expected: "integer from 1 to 3" });
     expect(error?.message).toContain("upgrade dipo");
   });
 });
@@ -228,9 +261,11 @@ describe("config.yaml JSON Schema", () => {
 
   it("accepts what the zod schema accepts", () => {
     expect(SoftwareConfigV2.safeParse({ version: 2 }).success).toBe(true);
-    expect(SoftwareConfigV2.safeParse({ version: 2, extra: 1 }).success).toBe(false);
+    expect(SoftwareConfigV2.safeParse({ version: 3, extra: 1 }).success).toBe(false);
     expect(SoftwareConfigV1.safeParse({ version: 1 }).success).toBe(true);
     expect(SoftwareConfigV1.safeParse({ version: 1, extra: 1 }).success).toBe(false);
+    expect(SoftwareConfigV3.safeParse({ version: 3 }).success).toBe(true);
+    expect(SoftwareConfigV3.safeParse({ version: 3, notify: { extra: 1 } }).success).toBe(false);
   });
 });
 

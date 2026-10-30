@@ -4,7 +4,7 @@
   "properties": {
     "version": {
       "type": "number",
-      "const": 2
+      "const": 3
     },
     "daemon": {
       "default": {
@@ -61,6 +61,20 @@
             }
           },
           "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "notify": {
+      "default": {
+        "desk": true
+      },
+      "type": "object",
+      "properties": {
+        "desk": {
+          "default": true,
+          "description": "The daemon posts one macOS notification when an item is added to an office's desk: the office, the story and the kind of wait. false turns them off.",
+          "type": "boolean"
         }
       },
       "additionalProperties": false
