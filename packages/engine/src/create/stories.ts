@@ -134,6 +134,8 @@ function laneOf(
     held: (office) => partners.autoMerge.get().holding(office),
     // A merged hold or resume stops counting as the story's park: the base's read replaces it.
     refreshStory: (office, key) => partners.storyIndex.get().refreshStory(office, key),
+    // Each flush that holds, fails or leaves operations waiting says why (DIPO-401).
+    logger: core.logger.child({ component: "backlog-lane" }),
   });
   return { backlogPrs, lane };
 }

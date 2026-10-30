@@ -1,9 +1,15 @@
 // `dipo propose accept|dismiss <proposal> [--office <id>]` (DIPO-166; 0020 sections 11c and 16):
 // sends `proposal.accept` or `proposal.dismiss` for a worker's proposal that `dipo desk` lists, in
 // the office of `--office` or of the current directory. Neither asks for confirmation. The proposal
-// is named by the id the desk prints, or by its first 8 or more characters.
+// is named by the id the desk prints, or by its first 8 or more characters. Accept prints what the
+// planning lane did with the draft: the backlog PR it opened or updated, or why it waits (DIPO-401).
 
-import { ProposalRef, proposalAccept, proposalDismiss } from "@dipsaus-orchestrator/contract";
+import {
+  type LaneFlush,
+  ProposalRef,
+  proposalAccept,
+  proposalDismiss,
+} from "@dipsaus-orchestrator/contract";
 
 import { engineFailure, usage } from "./daemon-commands";
 import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
@@ -12,6 +18,41 @@ import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-comma
 export const PROPOSE_TIMEOUT_MS = 180_000;
 
 const short = (id: string) => id.slice(0, 12);
+
+/**
+ * Where an accepted proposal stands, from what the planning lane's flush did with its draft
+ * (DIPO-401): a backlog PR only when the flush opened or updated one.
+ */
+export function acceptedText(result: {
+  readonly draft?: string | undefined;
+  readonly flush?: LaneFlush | undefined;
+}): string {
+  const draft = result.draft === undefined ? "its draft" : `Backlog draft ${result.draft}`;
+  const flush = result.flush;
+  if (flush === undefined) {
+    return result.draft === undefined
+      ? "dipo files it as a Backlog draft through the backlog PR"
+      : `filed as Backlog draft ${result.draft} through the backlog PR`;
+  }
+  switch (flush.state) {
+    case "opened":
+      return `${draft} is on the new backlog PR ${flush.pr}`;
+    case "updated":
+      return `${draft} was added to the backlog PR ${flush.pr}`;
+    case "pushed":
+      return `${draft} is pushed on ${flush.branch}; its backlog PR is not open yet, see dipo desk`;
+    case "merged":
+      return `${draft} is on the base already`;
+    case "held":
+      return `${draft} waits for the next backlog PR: ${flush.reason}`;
+    case "waiting":
+      return `${draft} waits: ${flush.reason}`;
+    case "failed":
+      return `the planning lane could not file ${draft}, it stays journaled: ${flush.reason}`;
+    case "closed":
+      return `${draft} was not filed: ${flush.reason}`;
+  }
+}
 
 export async function proposeCommand(
   args: readonly string[],
@@ -79,10 +120,7 @@ export async function proposeCommand(
           : engineFailure(deps, outcome.error);
       }
       const name = short(outcome.result.proposal);
-      const where =
-        outcome.result.draft === undefined
-          ? "dipo files it as a Backlog draft through the backlog PR"
-          : `filed as Backlog draft ${outcome.result.draft} through the backlog PR`;
+      const where = acceptedText(outcome.result);
       deps.writeLine(
         outcome.changed
           ? `accepted proposal ${name}: ${where}`

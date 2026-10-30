@@ -4,7 +4,9 @@
 // hold, `work.discard` (DIPO-161), the pickup check's move to Refined (DIPO-48) and an accepted
 // proposal (DIPO-166) reach the lane only through it.
 
-import type { StoryKey } from "@dipsaus-orchestrator/contract";
+import type { LaneFlush, StoryKey } from "@dipsaus-orchestrator/contract";
+
+import type { OfficeHandle } from "../../db/office";
 
 import {
   DISCARD_KIND,
@@ -18,8 +20,8 @@ import {
   type PlanningLane,
 } from "../../story-store/planning";
 
-import { allEntries, type JournalEntry, type LaneOp, updateEntry } from "./journal";
-import { LaneFlushError, type OfficeLane } from "./lane";
+import { allEntries, findEntry, type JournalEntry, type LaneOp, updateEntry } from "./journal";
+import { type FlushReport, LaneFlushError, type OfficeLane } from "./lane";
 import { proposeTarget } from "./propose";
 
 /** The Backlog.md statuses a hold applies from; `To Do` is what office init migrates to Refined. */
@@ -48,6 +50,78 @@ export function discardOp(key: StoryKey, story: string): LaneOp & { readonly key
     target: { from: DISCARDABLE_STATUSES, status: "Refined", unset: ["park"] },
     releasesClaim: true,
   };
+}
+
+/** The branches with a backlog PR recorded on an open operation. */
+function branchesWithPr(office: OfficeHandle): Set<string> {
+  const branches = new Set<string>();
+  for (const entry of allEntries(office)) {
+    if (OPEN_STATES.includes(entry.state) && entry.branch !== null && entry.prRef !== null) {
+      branches.add(entry.branch);
+    }
+  }
+  return branches;
+}
+
+/** The backlog PR recorded on an open operation of `branch`, or null. */
+function prOf(office: OfficeHandle, branch: string): string | null {
+  return (
+    allEntries(office).find(
+      (entry) =>
+        entry.branch === branch && OPEN_STATES.includes(entry.state) && entry.prRef !== null,
+    )?.prRef ?? null
+  );
+}
+
+/** What a flush left of `entry` when it is not on a branch: merged, closed or still unapplied. */
+function offBranch(lane: OfficeLane, report: FlushReport, entry: JournalEntry): LaneFlush | null {
+  switch (entry.state) {
+    case "merged":
+      return { state: "merged" };
+    case "dropped":
+    case "failed":
+    case "withdrawn":
+      return { state: "closed", reason: entry.notice ?? `it was ${entry.state}` };
+    case "pending":
+    case "applied":
+      return {
+        state: "waiting",
+        branch: report.branch ?? "",
+        reason: lane.stall()?.reason ?? "the flush did not apply it",
+      };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Read from the journal: what the flush `report` did with `change`, given the branches that had a
+ * backlog PR before it (DIPO-401); null when the journal no longer has it.
+ */
+function flushOf(
+  lane: OfficeLane,
+  report: FlushReport,
+  before: ReadonlySet<string>,
+  change: PlannedChange,
+): LaneFlush | null {
+  const office = lane.office;
+  if (report.held === true) {
+    const branch = report.branch ?? "";
+    return { state: "held", branch, reason: lane.heldReason(branch) };
+  }
+  const entry = findEntry(office, change.opId);
+  if (entry === null) return null;
+  const left = offBranch(lane, report, entry);
+  if (left !== null) return left;
+  const branch = entry.branch ?? report.branch;
+  if (branch === null) return null;
+  const waiting = report.waiting;
+  if (waiting !== null && waiting.branch === branch && entry.state !== "pushed") {
+    return { state: "waiting", branch, reason: waiting.detail };
+  }
+  const pr = prOf(office, branch);
+  if (pr === null) return { state: "pushed", branch };
+  return { state: before.has(branch) ? "updated" : "opened", branch, pr };
 }
 
 /** The office's `PlanningLane` on its `OfficeLane`. */
@@ -100,11 +174,17 @@ export function planningLane(lane: OfficeLane): PlanningLane {
         updateEntry(office, change.opId, { state: "withdrawn" }, lane.clock.now()),
       );
     },
-    async flush() {
-      // A failed flush put its own notice on the office and leaves the operations journaled.
-      await lane.flush().catch((error: unknown) => {
+    async flush(change) {
+      const before = branchesWithPr(lane.office);
+      let report: FlushReport;
+      try {
+        report = await lane.flush();
+      } catch (error) {
+        // A failed flush put its own notice on the office and leaves the operations journaled.
         if (!(error instanceof LaneFlushError)) throw error;
-      });
+        return { state: "failed", reason: error.message };
+      }
+      return change === undefined ? null : flushOf(lane, report, before, change);
     },
     isOpen: (key, kind) => open(key, kind) !== undefined,
     dropping: () =>

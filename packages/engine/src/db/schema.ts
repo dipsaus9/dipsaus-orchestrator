@@ -72,6 +72,7 @@ import { dropEngineToken } from "./migrations/0068-drop-engine-token";
 import { oneRetentionRule } from "./migrations/0069-one-retention-rule";
 import { safeChainRefusals } from "./migrations/0070-safe-chain-refusals";
 import { noTranscriptTailer } from "./migrations/0071-no-transcript-tailer";
+import { laneFailedOp } from "./migrations/0072-lane-failed-op";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -174,4 +175,5 @@ create table offices (
   oneRetentionRule,
   safeChainRefusals,
   noTranscriptTailer,
+  laneFailedOp,
 ];

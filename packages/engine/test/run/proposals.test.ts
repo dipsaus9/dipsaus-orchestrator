@@ -30,7 +30,7 @@ import {
   proposeTarget,
   type ProposeTarget,
 } from "../../src/backlog/lane";
-import { insertEntry, updateEntry } from "../../src/backlog/lane/journal";
+import { insertEntry, recordPrRef, updateEntry } from "../../src/backlog/lane/journal";
 import { stateOfficeDirectory } from "../../src/commands/offices";
 import { executeCommand } from "../../src/commands/execute";
 import { buildRegistry } from "../../src/commands/registry";
@@ -44,6 +44,8 @@ import { viewsFeature } from "../views/views-feature";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 
 const RUN = RunId.parse("run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D");
+const BRANCH = "dipo/backlog-20260101T000000";
+const PR_URL = "https://github.com/acme/app/pull/7";
 
 interface World {
   readonly dir: string;
@@ -63,10 +65,31 @@ function fakeLane(office: OfficeHandle, t: TestState, ops: LaneOp[], flushes: { 
       ops.push(op);
       return office.immediate(() => insertEntry(office, op, t.clock.now()));
     },
+    // The flush pushes every pending entry on one branch and records its backlog PR, as the lane
+    // and `BacklogPrs.afterFlush` do.
     flush: async () => {
       flushes.n += 1;
-      return {};
+      const committed: number[] = [];
+      office.immediate(() => {
+        for (const entry of allEntries(office)) {
+          if (entry.state !== "pending") continue;
+          updateEntry(office, entry.opId, { state: "pushed", branch: BRANCH }, t.clock.now());
+          committed.push(entry.opId);
+        }
+        recordPrRef(office, BRANCH, PR_URL, t.clock.now());
+      });
+      return {
+        branch: BRANCH,
+        committed,
+        merged: [],
+        dropped: [],
+        rebuiltFrom: null,
+        pushed: true,
+        waiting: null,
+      };
     },
+    stall: () => null,
+    heldReason: () => "held",
     office,
     clock: t.clock,
   } as unknown as OfficeLane;
@@ -231,10 +254,15 @@ describe("proposal.accept (criterion 3)", () => {
     const hash = proposalHash(FOLLOW_UP);
     // A unique prefix of 8 characters names it.
     const reply = await send("proposal.accept", { proposal: hash.slice(0, 8) });
+    // The result says what the flush did with the draft (DIPO-401).
     expect(reply).toMatchObject({
       ok: true,
       changed: true,
-      result: { proposal: hash, state: "accepted" },
+      result: {
+        proposal: hash,
+        state: "accepted",
+        flush: { state: "opened", branch: BRANCH, pr: PR_URL },
+      },
     });
     expect(w.ops).toHaveLength(1);
     const op = w.ops[0];

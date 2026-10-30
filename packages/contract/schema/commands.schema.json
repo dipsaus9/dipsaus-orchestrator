@@ -747,6 +747,123 @@
         },
         "draft": {
           "type": "string"
+        },
+        "flush": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "opened"
+                },
+                "branch": {
+                  "type": "string"
+                },
+                "pr": {
+                  "type": "string"
+                }
+              },
+              "required": ["state", "branch", "pr"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "updated"
+                },
+                "branch": {
+                  "type": "string"
+                },
+                "pr": {
+                  "type": "string"
+                }
+              },
+              "required": ["state", "branch", "pr"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "pushed"
+                },
+                "branch": {
+                  "type": "string"
+                }
+              },
+              "required": ["state", "branch"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "merged"
+                }
+              },
+              "required": ["state"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "held"
+                },
+                "branch": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": ["state", "branch", "reason"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "waiting"
+                },
+                "branch": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": ["state", "branch", "reason"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "failed"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": ["state", "reason"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "closed"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": ["state", "reason"]
+            }
+          ]
         }
       },
       "required": ["proposal", "state"]

@@ -7,7 +7,12 @@
 // (`plannedPark`): that park counts as the story's park before its backlog PR merges
 // (`records/park-state.ts`).
 
-import type { FieldBlockPark, Lifecycle, StoryKey } from "@dipsaus-orchestrator/contract";
+import type {
+  FieldBlockPark,
+  LaneFlush,
+  Lifecycle,
+  StoryKey,
+} from "@dipsaus-orchestrator/contract";
 import { z } from "zod";
 
 import type { StoryKind } from "./story";
@@ -20,7 +25,9 @@ export type JournalState =
   | "pushed"
   | "merged"
   | "dropped"
-  | "withdrawn";
+  | "withdrawn"
+  /** The Backlog CLI failed on it; closed with a notice so the others go on (DIPO-401). */
+  | "failed";
 
 /** States of a change that is not yet on the base and not given up. */
 export const OPEN_STATES: readonly JournalState[] = ["pending", "applied", "committed", "pushed"];
@@ -118,8 +125,11 @@ export interface PlanningLane {
   fileDraft(subject: string, draft: ProposedDraft): Promise<PlannedChange>;
   /** Gives a journaled change up before anything of it was applied. */
   withdraw(change: PlannedChange): void;
-  /** Applies every journaled change; a failure is a notice on the office, never a throw. */
-  flush(): Promise<void>;
+  /**
+   * Applies every journaled change; a failure is a notice on the office, never a throw. Says what
+   * the flush did with `change` (DIPO-401); without one, null unless the flush failed.
+   */
+  flush(change?: PlannedChange): Promise<LaneFlush | null>;
 
   /** True while a drop (or a discard) of the story `key` is journaled and not merged. */
   isOpen(key: StoryKey, kind: typeof DROP_KIND | typeof DISCARD_KIND): boolean;

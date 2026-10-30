@@ -14,6 +14,8 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { LANE_STUCK_MS, laneDeskItems } from "../../src/backlog/lane";
+import { insertEntry } from "../../src/backlog/lane/journal";
 import { backlogPrDeskItems } from "../../src/backlog/pr/desk";
 import { insertPr, recordCheck } from "../../src/backlog/pr/records";
 import type { OfficeDirectory } from "../../src/commands/offices";
@@ -989,6 +991,42 @@ describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
         expect(
           desk(office, all, { ...DESK_SOURCES, stories: backlogLayout }).map((item) => item.kind),
         ).toEqual(["PARKED"]);
+      } finally {
+        t.state.close();
+      }
+    }));
+});
+
+describe("a stuck planning lane on the desk (DIPO-401)", () => {
+  it("is a hand action with the lane's reason once an operation waits 30 minutes, and none before", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        const at = t.clock.now();
+        office.immediate(() =>
+          insertEntry(office, { kind: "propose", subject: "DIPO-300", target: {} }, at),
+        );
+        const sources: DeskSources = {
+          stories: backlogLayout,
+          ...DESK_SOURCES,
+          officeItems: (handle, now) =>
+            laneDeskItems(handle, { reason: "the backlog branch waits: push failed", at }, now),
+        };
+        expect(desk(office, all, sources, at + LANE_STUCK_MS - 1)).toEqual([]);
+        // Without the time of the read there is no such item.
+        expect(desk(office, all, sources)).toEqual([]);
+        expect(desk(office, all, sources, at + LANE_STUCK_MS + 60_000)).toEqual([
+          {
+            kind: "PLANNING LANE",
+            detail:
+              "the planning lane is stuck: 1 backlog operation waits for a backlog PR, the oldest for 31 minutes · the backlog branch waits: push failed",
+            since: new Date(at).toISOString(),
+            blocks: [],
+            actions: [],
+            hand: "fix what the reason names; dipo applies the operations at the next backlog change or office load, and the daemon log has a line for each flush that stops",
+          },
+        ]);
       } finally {
         t.state.close();
       }

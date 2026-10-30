@@ -90,11 +90,15 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
   const { story, commands, office } = services;
   const { runs } = commands;
   return [
-    // The desk shows the office's starts paused first (0020).
+    // The desk shows the office's starts paused first (0020), and a stuck planning lane among
+    // its hand actions (DIPO-401).
     ...engineFeatures({
       backlog: core.backlogCli,
       stories: core.stories,
-      desk: { startsPaused: (handle) => runs.startsPaused.state(handle.officeId as OfficeId) },
+      desk: {
+        startsPaused: (handle) => runs.startsPaused.state(handle.officeId as OfficeId),
+        officeItems: (handle, now) => story.lane.deskItems(handle, now),
+      },
     }),
     core.engineGit.feature,
     // Claims pin their worktree snapshots on the office git, so after it.

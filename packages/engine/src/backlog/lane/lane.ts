@@ -34,6 +34,12 @@
 // configured, and the push) are killed after `EXTERNAL_STEP_TIMEOUT_MS` on the injected clock, so
 // the office queue never hangs; the operation stays journaled and a `backlog.lane.commitStuck`
 // notice names the likely cause. Every failed flush puts an `engine.notice` on the office.
+//
+// An operation the Backlog CLI fails on (it exits non-zero, or what it wrote does not read back) is
+// closed as `failed` with an `engine.notice`, and the flush goes on with the operations after it,
+// so one operation never blocks the lane (DIPO-401). A flush that holds, fails or leaves operations
+// waiting writes a log line with the reason and keeps it as the lane's `stall`; the desk names a
+// lane whose operations wait longer than `LANE_STUCK_MS` (`desk.ts`).
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -50,6 +56,7 @@ import {
   WORKTREE_ADD_CONFIG,
 } from "../../git/hardened";
 import type { GitSession, OfficeGit } from "../../git/office";
+import type { Logger } from "../../log/logger";
 import {
   EXTERNAL_STEP_TIMEOUT_MS,
   GitError,
@@ -66,7 +73,8 @@ import {
 } from "../../git/write";
 import { findStoryByKey } from "../../records/story-keys";
 import { LIVE_CLAIM_REFUSAL, PlanningRefusedError } from "../../story-store/errors";
-import type { BacklogCli } from "../runner";
+import { FieldWriteError } from "../fields/write";
+import { BacklogCommandError, type BacklogCli, BacklogTimedOutError } from "../runner";
 
 import {
   type EntryChange,
@@ -99,7 +107,36 @@ export const LANE_NOTICES = {
   commitStuck: "backlog.lane.commitStuck",
   baseUnset: "backlog.lane.baseUnset",
   adoptedAbandoned: "backlog.lane.adoptedAbandoned",
+  failed: "backlog.lane.failed",
 } as const;
+
+/**
+ * How long an operation may wait unapplied, on the engine clock, before the desk names the lane as
+ * stuck (DIPO-401): 30 minutes.
+ */
+export const LANE_STUCK_MS = 30 * 60_000;
+
+/** Why the lane's last flush left operations unapplied or unpushed (DIPO-401); null after a clean one. */
+export interface LaneStall {
+  readonly reason: string;
+  /** When the flush that found it ran, in ms. */
+  readonly at: number;
+}
+
+/**
+ * True when `error`, thrown by an operation kind's `apply`, belongs to that operation alone: the
+ * Backlog CLI exited non-zero on it, or what it wrote did not read back. Such an operation is
+ * closed as `failed` and the flush goes on. A CLI that was killed, refused a file, or could not
+ * start fails the whole flush, since the next operation would meet it too.
+ */
+function failsTheOperation(error: unknown): boolean {
+  if (error instanceof FieldWriteError) return true;
+  return (
+    error instanceof BacklogCommandError &&
+    !(error instanceof BacklogTimedOutError) &&
+    error.exitCode !== null
+  );
+}
 
 /** Why a commit made by the engine may fail or wait: config the maintainer controls. */
 const COMMIT_CAUSE =
@@ -183,6 +220,11 @@ export interface FlushReport {
    * stays open on the host for the maintainer. Absent or null otherwise.
    */
   readonly abandoned?: string | null;
+  /**
+   * Operations the Backlog CLI failed on in this flush (DIPO-401): each is closed as `failed`
+   * with a notice, and the flush went on with the rest. Absent when none.
+   */
+  readonly failed?: readonly number[];
 }
 
 export interface OfficeLaneOptions {
@@ -212,6 +254,8 @@ export interface OfficeLaneOptions {
    * pending state then (`backlogPark`), so the mirror must hold the base's read at once.
    */
   readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
+  /** Where each flush that stops early, fails or leaves operations waiting says why (DIPO-401). */
+  readonly logger?: Pick<Logger, "info" | "warn">;
 }
 
 export interface BaseRef {
@@ -246,7 +290,9 @@ export class OfficeLane {
   readonly #onFlushed: ((office: OfficeId, report: FlushReport) => Promise<void>) | undefined;
   readonly #held: (office: OfficeId) => string | null;
   readonly #refreshStory: ((office: OfficeId, key: StoryKey) => Promise<unknown>) | undefined;
+  readonly #logger: Pick<Logger, "info" | "warn"> | undefined;
   #waiting: Waiting | null = null;
+  #stall: LaneStall | null = null;
 
   constructor(options: OfficeLaneOptions) {
     this.officeId = options.officeId;
@@ -260,6 +306,26 @@ export class OfficeLane {
     this.#onFlushed = options.onFlushed;
     this.#held = options.held ?? (() => null);
     this.#refreshStory = options.refreshStory;
+    this.#logger = options.logger;
+  }
+
+  /** Why the last flush left operations unapplied or unpushed, or null (DIPO-401). */
+  stall(): LaneStall | null {
+    return this.#stall;
+  }
+
+  /** The reason a held flush gives (0002). */
+  heldReason(branch: string): string {
+    return `the backlog PR of ${branch} has auto-merge on, or dipo has not read it since it started; new operations wait until it merges or auto-merge goes off`;
+  }
+
+  /** Logs why a flush stopped early, failed or left operations waiting, and keeps it (DIPO-401). */
+  #stalled(level: "info" | "warn", message: string, reason: string): void {
+    this.#stall = { reason, at: this.#clock.now() };
+    const pending = openEntries(this.#office).filter(
+      (entry) => entry.state === "pending" || entry.state === "applied",
+    ).length;
+    this.#logger?.[level](message, { office: this.officeId, reason, pending });
   }
 
   get git(): OfficeGit {
@@ -348,7 +414,7 @@ export class OfficeLane {
     options: { readonly replay?: boolean; readonly rebuild?: string } = {},
   ): Promise<FlushReport> {
     const held = this.#heldReport();
-    if (held !== null) return held;
+    if (held !== null) return this.#heldOut(held);
     let report: FlushReport;
     try {
       const has = await this.#git.run((git) => this.#hasRemote(git));
@@ -358,18 +424,79 @@ export class OfficeLane {
         remote = outcome.ok
           ? { has, fetched: true, detail: "" }
           : { has, fetched: false, detail: outcome.error.message };
+        if (!outcome.ok) {
+          this.#logger?.warn(
+            "the planning lane could not fetch; it applies to the last fetched base",
+            {
+              office: this.officeId,
+              reason: outcome.error.message,
+            },
+          );
+        }
       }
       report = await this.#git.run(
         async (git) => this.#heldReport() ?? this.#flush(git, remote, options.rebuild ?? null),
       );
     } catch (error) {
-      throw this.#failed(error, options.replay === true);
+      const failed = this.#failed(error, options.replay === true);
+      this.#stalled("warn", "the planning lane's flush failed", failed.message);
+      throw failed;
     }
-    if (report.held === true) return report;
+    if (report.held === true) return this.#heldOut(report);
+    this.#flushed(report);
     await this.#refreshMerged(report.merged);
-    // The hook reports its own failures as notices; a failure there is no failed flush.
-    await this.#onFlushed?.(this.officeId, report).catch(() => undefined);
+    // The hook reports its own failures as notices; a failure there is no failed flush, but the
+    // log says so (DIPO-401).
+    await this.#onFlushed?.(this.officeId, report).catch((error: unknown) => {
+      this.#logger?.warn("the planning lane's after-flush step failed", {
+        office: this.officeId,
+        branch: report.branch,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    });
     return report;
+  }
+
+  /** A held flush: logged and kept as the lane's stall, then returned. */
+  #heldOut(report: FlushReport): FlushReport {
+    this.#stalled(
+      "info",
+      "the planning lane holds its operations",
+      this.heldReason(report.branch ?? ""),
+    );
+    return report;
+  }
+
+  /** Logs what a flush that ran did, and keeps what still waits as the lane's stall. */
+  #flushed(report: FlushReport): void {
+    if (report.waiting !== null) {
+      this.#stalled(
+        "warn",
+        "the planning lane's branch waits",
+        `the backlog branch ${report.waiting.branch} waits: ${report.waiting.detail}`,
+      );
+      return;
+    }
+    this.#stall = null;
+    const failed = report.failed ?? [];
+    const did =
+      report.committed.length + report.merged.length + report.dropped.length + failed.length;
+    if (report.branch === null && did === 0) {
+      this.#logger?.info("the planning lane has nothing to flush", {
+        office: this.officeId,
+        reason: "no operation is open",
+      });
+      return;
+    }
+    this.#logger?.info("the planning lane flushed", {
+      office: this.officeId,
+      branch: report.branch,
+      committed: report.committed.length,
+      merged: report.merged.length,
+      dropped: report.dropped.length,
+      failed: failed.length,
+      pushed: report.pushed,
+    });
   }
 
   /**
@@ -460,6 +587,7 @@ export class OfficeLane {
     const committed: number[] = [];
     const merged: number[] = [];
     const dropped: number[] = [];
+    const failed: number[] = [];
     let rebuiltFrom: string | null = null;
     let abandoned: string | null = null;
     let open = openEntries(this.#office);
@@ -618,7 +746,11 @@ export class OfficeLane {
         );
       } catch (error) {
         await this.#discard(git, location, before);
-        throw error;
+        if (!failsTheOperation(error)) throw error;
+        // The CLI failed on this operation alone: it is closed, the others go on (DIPO-401).
+        this.#close(entry, error instanceof Error ? error.message : String(error));
+        failed.push(entry.opId);
+        continue;
       }
       // Only the engine commits in `_backlog`. A CLI that committed by itself (Backlog.md
       // `auto_commit: true`) made a commit without the trailer and outside the journal: undo it.
@@ -694,6 +826,7 @@ export class OfficeLane {
       pushed,
       waiting: this.#waiting,
       abandoned,
+      ...(failed.length === 0 ? {} : { failed }),
     };
   }
 
@@ -818,6 +951,25 @@ export class OfficeLane {
     this.#write(() => {
       this.#update(entry.opId, { state: "dropped", notice: text });
       return [this.#notice(level, LANE_NOTICES.dropped, text, entry.key)];
+    });
+  }
+
+  /**
+   * Closes an operation the Backlog CLI failed on as `failed`, with a notice and a log line, so the
+   * operations after it are applied (DIPO-401). It is not tried again: the maintainer runs it again.
+   */
+  #close(entry: JournalEntry, reason: string): void {
+    const text = `The backlog operation \`${messageOf(entry)}\` failed and is closed, so the operations after it go on: ${sentence(reason)} Run it again once the cause is fixed.`;
+    this.#write(() => {
+      this.#update(entry.opId, { state: "failed", notice: text });
+      return [this.#notice("warn", LANE_NOTICES.failed, text, entry.key)];
+    });
+    this.#logger?.warn("a planning lane operation failed and is closed", {
+      office: this.officeId,
+      op: entry.opId,
+      kind: entry.kind,
+      subject: entry.subject,
+      reason,
     });
   }
 
@@ -1061,6 +1213,8 @@ export interface BacklogLaneDeps {
   readonly held?: (office: OfficeId) => string | null;
   /** Reads a story whose operation merged again on the base (DIPO-360). */
   readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
+  /** Where each lane logs why a flush stopped, failed or waits (DIPO-401). */
+  readonly logger?: Pick<Logger, "info" | "warn">;
 }
 
 /** The load step that replays open journal entries (0007 section 6 step 2). */

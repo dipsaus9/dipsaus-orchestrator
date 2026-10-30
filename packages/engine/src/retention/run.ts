@@ -53,7 +53,7 @@ export interface RetentionReport {
   readonly slowestMs: number;
 }
 
-const CLOSED_JOURNAL = "state in ('merged', 'dropped', 'withdrawn')";
+const CLOSED_JOURNAL = "state in ('merged', 'dropped', 'withdrawn', 'failed')";
 /** The rows of agents that ended before the cutoff, of a run that may not reopen. */
 const ENDED_AGENT = `agent_id in (select agent_id from agents where office_id = $office_id
   and ended_at < $cutoff and ${ofNoOpenRun("agents")})`;

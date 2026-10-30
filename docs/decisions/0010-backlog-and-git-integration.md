@@ -32,7 +32,7 @@ Each edit runs the CLI in a fresh folder of dipo's own. The folder holds only th
 
 **The planning lane.** Changes that belong to no story PR go on an engine branch `dipo/backlog-<UTC time>`: office init, park and resume of a story that has no run, drop, accepted proposals, and later the M3 rituals.
 
-- **Journaled.** Each operation is a target-state entry in the database journal: `pending`, `committed`, `pushed`, `merged`, or `dropped`. It is applied through the CLI in the `_backlog` worktree and committed as `backlog: <op> <ID>`.
+- **Journaled.** Each operation is a target-state entry in the database journal: `pending`, `committed`, `pushed`, `merged`, `dropped`, or `failed`. It is applied through the CLI in the `_backlog` worktree and committed as `backlog: <op> <ID>`. An operation the CLI fails on is closed as `failed` with a notice, and the operations after it go on.
 - **One PR per office.** dipo pushes the branch and opens or updates one backlog-only PR. Later operations append to it until it merges, so many stories can change in one bulk PR.
 - **Fast.** A backlog-only PR runs the light CI path (0016), so it merges in minutes. It blocks nothing but its own stories.
 - **A structural check by code,** with no model, stands in for the reviewer (0002). The PR passes only when:
@@ -139,6 +139,7 @@ There are no git hooks, no changes to existing ignore files or `info/exclude`, a
 - A conflict merge left in progress in a worktree (2026-10-16). Replaced by a merge committed with markers (0002).
 - A reused branch merged with the base at claim, with a conflict as the worker's first feedback (2026-10-10). Replaced (2026-10-28) by reuse at the kept tip, then the conflict check and base sync (0002).
 - Seven separate places that made commits, and pushes from eight. Replaced by one git module (2026-10-24).
+- A lane flush that failed as a whole when the CLI failed on one operation, so every operation after it waited (2026-10-10). Replaced by closing that operation as `failed` (2026-10-30).
 - Draft promotion with a journaled snapshot (2026-10-10). It moved to M3 and is designed when it is built (0003).
 - An optional component map for collision checks (2026-10-10). It is M2 work and is designed then (0003).
 - `amend` releasing a claim with its task file restored to the merge base. That is M3 work (0003).
