@@ -78,8 +78,15 @@ import {
 export const WEB_PROXY_HEAD_LIMIT = 8 * 1024;
 /** How long a client may take to send its request head. */
 export const WEB_PROXY_HEAD_TIMEOUT_MS = 30_000;
-/** How long one upstream connection may take to open. */
+/** How long one upstream connection of the box listener may take to open. */
 export const WEB_PROXY_CONNECT_TIMEOUT_MS = 30_000;
+/**
+ * How long one connection of the upstream listener may take to open (DIPO-383): short, so a dead
+ * address of a host Safe-Chain reaches never holds Safe-Chain's fetch up.
+ */
+export const SAFE_CHAIN_UPSTREAM_CONNECT_TIMEOUT_MS = 5_000;
+/** How long after one try at an address the next one starts while it still waits (DIPO-383). */
+export const WEB_PROXY_CONNECT_STAGGER_MS = 250;
 /** The connection caps and the idle timeout of a tunnel, unless the caller names others. */
 export const WEB_PROXY_LIMITS = {
   /** Client connections open at once, over all boxes. */
@@ -1004,6 +1011,7 @@ export function startBoxWebProxy(
       boxHostAddress: () => options.network.hostAddress,
       kind: { box: options.safeChain },
       port: options.port ?? 0,
+      connectTimeoutMs: WEB_PROXY_CONNECT_TIMEOUT_MS,
       limits: options.limits ?? {},
       admissions: options.admissions ?? null,
     },
@@ -1035,6 +1043,7 @@ export function startSafeChainUpstreamProxy(
       boxHostAddress: () => options.network.hostAddress,
       kind: { upstream: options.source },
       port: 0,
+      connectTimeoutMs: SAFE_CHAIN_UPSTREAM_CONNECT_TIMEOUT_MS,
       // Every connection comes from the one Safe-Chain box, so its cap is the overall one.
       limits: {
         maxConnectionsPerSource: options.limits?.maxConnections ?? WEB_PROXY_LIMITS.maxConnections,
@@ -1061,6 +1070,8 @@ interface WebProxyListener {
     | { readonly box: () => SafeChainTarget | null }
     | { readonly upstream: () => string | null };
   readonly port: number;
+  /** How long one upstream connection may take to open. */
+  readonly connectTimeoutMs: number;
   readonly limits: NonNullable<BoxWebProxyOptions["limits"]>;
   /** The boxes and their listed local ports (DIPO-282); null: no local port is reachable. */
   readonly admissions: BoxAdmissions | null;
@@ -1114,47 +1125,82 @@ async function startWebProxy(
               (deps.connect as NonNullable<typeof deps.connect>)(target.host, target.port)),
     );
 
-  /** Opens an upstream to the first of `addresses` that answers, within the deadline each. */
+  /**
+   * Opens an upstream to the first of `addresses` that answers (DIPO-383): one try at a time,
+   * the next started after `WEB_PROXY_CONNECT_STAGGER_MS` or as soon as one fails, each within
+   * the listener's deadline, so one dead address cannot hold a tunnel up. The first that opens wins
+   * and every other try is closed. With none, `done` gets why each failed.
+   */
   const connectFirst = (
     addresses: readonly string[],
     port: number,
-    done: (upstream: Socket | null, address: string | null) => void,
+    done: (upstream: Socket | null, address: string | null, failure: string) => void,
     opener: (address: string, port: number) => Socket = open,
   ) => {
-    const [address, ...rest] = addresses;
-    if (address === undefined || stopped) {
-      done(null, null);
-      return;
-    }
-    let opened: Socket;
-    try {
-      opened = opener(address, port);
-    } catch {
-      // Fail-closed: a connection that cannot leave the right way is not opened at all.
-      done(null, null);
-      return;
-    }
-    const upstream = track(opened);
-    let timer: TimerHandle | null = deps.clock.setTimeout(
-      () => upstream.destroy(),
-      WEB_PROXY_CONNECT_TIMEOUT_MS,
-    );
-    const settle = (ok: boolean) => {
-      if (timer === null) return;
-      deps.clock.clearTimeout(timer);
-      timer = null;
-      upstream.off("connect", onConnect);
-      if (ok) {
-        done(upstream, address);
-      } else {
+    const deadlineMs = options.connectTimeoutMs;
+    const failures: string[] = [];
+    const tries = new Set<() => void>();
+    let next = 0;
+    let settled = false;
+    let stagger: TimerHandle | null = null;
+    const finish = (upstream: Socket | null, address: string | null) => {
+      if (settled) return;
+      settled = true;
+      if (stagger !== null) deps.clock.clearTimeout(stagger);
+      stagger = null;
+      for (const close of tries) close();
+      done(upstream, address, failures.join("; "));
+    };
+    const startNext = () => {
+      if (settled) return;
+      if (stagger !== null) deps.clock.clearTimeout(stagger);
+      stagger = null;
+      const address = addresses[next];
+      if (address === undefined || stopped) {
+        if (tries.size === 0) finish(null, null);
+        return;
+      }
+      next += 1;
+      let opened: Socket;
+      try {
+        opened = opener(address, port);
+      } catch (error) {
+        // Fail-closed: a connection that cannot leave the right way is not opened at all.
+        failures.push(`${address}: ${error instanceof Error ? error.message : String(error)}`);
+        finish(null, null);
+        return;
+      }
+      const upstream = track(opened);
+      let waiting = true;
+      const end = () => {
+        waiting = false;
+        tries.delete(close);
+        deps.clock.clearTimeout(timer);
+      };
+      const close = () => {
+        end();
         upstream.destroy();
-        connectFirst(rest, port, done, opener);
+      };
+      const fail = (why: string) => {
+        if (!waiting) return;
+        close();
+        failures.push(`${address}: ${why}`);
+        startNext();
+      };
+      const timer = deps.clock.setTimeout(() => fail(`no answer in ${deadlineMs} ms`), deadlineMs);
+      tries.add(close);
+      upstream.once("connect", () => {
+        if (!waiting) return;
+        end();
+        finish(upstream, address);
+      });
+      upstream.once("error", (error: Error) => fail(error.message));
+      upstream.once("close", () => fail("closed"));
+      if (next < addresses.length) {
+        stagger = deps.clock.setTimeout(startNext, WEB_PROXY_CONNECT_STAGGER_MS);
       }
     };
-    const onConnect = () => settle(true);
-    upstream.once("connect", onConnect);
-    upstream.once("error", () => settle(false));
-    upstream.once("close", () => settle(false));
+    startNext();
   };
 
   /** A tunnel to a listed local port of the Mac, on its loopback (DIPO-282). */
@@ -1308,12 +1354,18 @@ async function startWebProxy(
           return;
         }
         const checked = verdicts.flatMap((verdict) => (verdict.ok ? [verdict.connectTo] : []));
-        connectFirst(checked, port, (upstream, address) => {
+        connectFirst(checked, port, (upstream, address, failure) => {
           if (client.destroyed) {
             upstream?.destroy();
             return;
           }
           if (upstream === null || address === null) {
+            // Said, so a failed start of the web route shows where Safe-Chain's fetch ended (DIPO-383).
+            emit({
+              kind: "refused",
+              target,
+              reason: `no address of ${host} answered (${failure})`,
+            });
             client.end(answer(502));
             return;
           }
