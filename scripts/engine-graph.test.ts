@@ -2,7 +2,14 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { backEdges, cycles, parseLayers, readGraph, suggestOrder } from "./engine-graph";
+import {
+  backEdges,
+  cycles,
+  findImports,
+  parseLayers,
+  readGraph,
+  suggestOrder,
+} from "./engine-graph";
 
 // Temp files only under DIPO_TMP (0017), falling back to /tmp.
 const TMP_ROOT = process.env["DIPO_TMP"] || "/tmp";
@@ -24,6 +31,20 @@ write("workers/hold.ts", "export const hold = 1;\n");
 write("workers/claude-cli/adapter.ts", 'import { q } from "../../box/q";\nexport const a = q;\n');
 write("box/q.ts", 'import { hold } from "../workers/hold";\nexport const q = hold;\n');
 write("index.ts", 'import { x } from "./a/x";\nexport { x };\n');
+// d: a type and a value import of one path, `import.meta.require`, and imports in comments.
+write(
+  "d/m.ts",
+  [
+    'import type { Y } from "../b/y";',
+    'import { y } from "../b/y";',
+    'export const r = import.meta.require("../a/x");',
+    '// import { q } from "../box/q";',
+    '/* import "../box/q"; */',
+    "export type Z = Y;",
+    "export const m = y;",
+    "",
+  ].join("\n"),
+);
 
 const edge = (graph: ReturnType<typeof readGraph>, from: string, to: string) =>
   graph.edges.find((e) => e.from === from && e.to === to);
@@ -31,12 +52,45 @@ const edge = (graph: ReturnType<typeof readGraph>, from: string, to: string) =>
 describe("the engine import graph (DIPO-381)", () => {
   it("counts value imports per directory, type-only imports apart, and leaves tests out", () => {
     const graph = readGraph(src);
-    expect(graph.nodes).toEqual(["a", "b", "box", "c", "index.ts", "workers"]);
+    expect(graph.nodes).toEqual(["a", "b", "box", "c", "d", "index.ts", "workers"]);
     expect(edge(graph, "a", "b")?.value.length).toBe(1);
     expect(edge(graph, "b", "a")).toEqual({ from: "b", to: "a", value: [], types: 1 });
     // A re-export and a dynamic import are value imports.
     expect(edge(graph, "c", "b")?.value.length).toBe(2);
     expect(edge(graph, "index.ts", "a")?.value[0]?.line).toBe(1);
+  });
+
+  it("counts import.meta.require as the lint rule does, and gives a value import its own line", () => {
+    const graph = readGraph(src);
+    expect(edge(graph, "d", "a")?.value.map((site) => site.line)).toEqual([3]);
+    // The value import of ../b/y is on line 2; the type import of the same path on line 1.
+    expect(edge(graph, "d", "b")?.value.map((site) => site.line)).toEqual([2]);
+    expect(edge(graph, "d", "b")?.types).toBe(1);
+    // Imports inside comments count nowhere, as values or as types.
+    expect(edge(graph, "d", "box")).toBeUndefined();
+  });
+
+  it("classifies each import form", () => {
+    const found = findImports(
+      [
+        'import { type A, type B } from "./all-types";',
+        'import { type C, D } from "./mixed";',
+        'export * from "./star";',
+        'type E = typeof import("./typeof");',
+        'import "./side";',
+        'const f = require("./req");',
+        'import g = require("./eq");',
+      ].join("\n"),
+    );
+    expect(found.map(({ specifier, typeOnly }) => `${specifier}:${typeOnly}`)).toEqual([
+      "./all-types:true",
+      "./mixed:false",
+      "./star:false",
+      "./typeof:true",
+      "./side:false",
+      "./req:false",
+      "./eq:false",
+    ]);
   });
 
   it("finds the cycles between directories, and a listed subdirectory counts apart", () => {
@@ -49,15 +103,15 @@ describe("the engine import graph (DIPO-381)", () => {
     expect(cycles(split)).toEqual([["b", "c"]]);
   });
 
-  it("lists the value edges up a layer, and with strict those inside one layer", () => {
+  it("lists the value edges up a layer, and leaves an edge inside one layer to the cycle check", () => {
     const graph = readGraph(src, ["workers/claude-cli"]);
-    const layers = parseLayers("workers;box;workers/claude-cli;c;b,a;index.ts,missing");
+    const layers = parseLayers("workers;box;workers/claude-cli;c;b,a;d;index.ts,missing");
     const loose = backEdges(graph, layers);
     expect(loose.edges.map((e) => `${e.from}>${e.to}`)).toEqual(["c>b"]);
     expect(loose.unplaced).toEqual([]);
     expect(loose.missing).toEqual(["missing"]);
-    const strict = backEdges(graph, layers, true);
-    expect(strict.edges.map((e) => `${e.from}>${e.to}`)).toEqual(["a>b", "c>b"]);
+    // a -> b inside one layer is allowed; b <-> c is a cycle, found apart.
+    expect(cycles(graph)).toEqual([["b", "c"]]);
   });
 
   it("suggests an order that leaves only the edges a cycle forces", () => {

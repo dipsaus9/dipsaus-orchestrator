@@ -1,26 +1,30 @@
 // Measures the directory import graph of packages/engine/src (0004, DIPO-381): which engine
 // directory imports which, the import cycles between directories, and the back-edges a layer order
-// leaves, each with its import-statement count.
+// leaves (a value import into a higher layer), each with its import-statement count. 0004 allows an
+// import between two directories of one layer as long as it closes no cycle, so the cycles are the
+// other half of the check.
 //
 // A node is a directory of packages/engine/src, a file at its top, or a subdirectory a layer lists
 // (`workers/claude-cli`), which then counts apart from its parent. Test files are left out, as
 // the `dipo/engine-layers` rule leaves them out. Value imports are read with Bun's own scanner
 // (unused imports kept), so they are the imports that rule checks: `import type`, all-`type`
 // specifier lists and `typeof import()` are not counted; a dynamic `import()`, a re-export and a
-// side-effect import are. Type-only imports are counted apart, for information only.
+// side-effect import are, and so is `import.meta.require`, which the scanner leaves out. Type-only
+// imports are counted apart, for information only. Commented-out imports count nowhere.
 //
 // Usage:
 //   bun scripts/engine-graph.ts                 graph, cycles, back-edges of ENGINE_LAYERS
 //   bun scripts/engine-graph.ts --layers <x>    back-edges of another order: a JSON file holding
 //                                               [["a", "b"], ["c"]] (lowest layer first), or the
 //                                               inline form "a,b;c"
-//   bun scripts/engine-graph.ts --strict        count an import between two nodes of one layer too
+//   bun scripts/engine-graph.ts --check         exit 1 when a back-edge or a directory cycle is left
 //   bun scripts/engine-graph.ts --suggest       also print a directory order with few back-edges
 //   bun scripts/engine-graph.ts --files         list the importing file and line of each back-edge
 //   bun scripts/engine-graph.ts --json          print the whole measurement as JSON
 //
 // `scripts/engine-layers-target.json` holds the layers of 0004 until the lint plugin holds them; the
-// moves toward them are measured with `--layers scripts/engine-layers-target.json --strict`.
+// moves toward them are measured with `--layers scripts/engine-layers-target.json`. DIPO-395 moves
+// that list into the plugin and deletes the file.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -93,8 +97,50 @@ export function nodeOf(
     : `${first}.ts`;
 }
 
-/** Specifiers of every import statement, value and type, in the text (comments not stripped). */
-const ANY_IMPORT = /(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s+)(["'])([^"'\n]+)\1/gm;
+/** `text` with every comment blanked out, line breaks kept, so a commented import counts nowhere. */
+export function withoutComments(text: string): string {
+  let out = "";
+  let quote: string | null = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i] ?? "";
+    if (quote !== null) {
+      out += c;
+      if (c === "\\") {
+        out += text[i + 1] ?? "";
+        i++;
+      } else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      quote = c;
+      out += c;
+    } else if (c === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+      out += "\n";
+    } else if (c === "/" && text[i + 1] === "*") {
+      const close = text.indexOf("*/", i + 2);
+      const stop = close === -1 ? text.length : close + 2;
+      out += text.slice(i, stop).replace(/[^\n]/g, " ");
+      i = stop - 1;
+    } else out += c;
+  }
+  return out;
+}
+
+/** One import statement found in a file's text: its specifier, line and whether it is type-only. */
+interface FoundImport {
+  specifier: string;
+  line: number;
+  typeOnly: boolean;
+  /** `import.meta.require(x)`, which Bun's scanner does not report. */
+  metaRequire: boolean;
+}
+
+/** `import ... from` and `export ... from`: 1 `type`, 2 the specifier list, 4 the specifier. */
+const STATIC_FORM = /\b(?:import|export)\s+(type\s+)?([^;"'`]*?)\s*from\s*(["'])([^"'\n]+)\3/g;
+/** `import "x"`, `import(x)`, `typeof import(x)`, `require(x)`, `import.meta.require(x)`: 1 `typeof`, 4 the specifier. */
+const CALL_FORM =
+  /(typeof\s+)?\b(import\.meta\.require\s*\(\s*|import\s*\(\s*|import\s+|require\s*\(\s*)(["'])([^"'\n]+)\3/g;
 
 function lineOf(text: string, index: number): number {
   let line = 1;
@@ -102,24 +148,65 @@ function lineOf(text: string, index: number): number {
   return line;
 }
 
-/** The import sites of one file, value imports and the count of all imports per specifier. */
-function scanFile(path: string): { value: ImportSite[]; all: Map<string, number> } {
+/** True when a specifier list such as `{ type A, type B }` names only types. */
+function allTypes(list: string): boolean {
+  const braces = /^\{([^}]*)\}$/.exec(list.trim());
+  if (braces === null) return false;
+  const names = (braces[1] ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  return names.length > 0 && names.every((name) => name.startsWith("type "));
+}
+
+/** Every import statement in a file's text, comments left out, in text order. */
+export function findImports(source: string): FoundImport[] {
+  const text = withoutComments(source);
+  const found: Array<FoundImport & { at: number }> = [];
+  for (const match of text.matchAll(STATIC_FORM)) {
+    const typeOnly = match[1] !== undefined || allTypes(match[2] ?? "");
+    found.push({
+      specifier: match[4] ?? "",
+      line: lineOf(text, match.index),
+      typeOnly,
+      metaRequire: false,
+      at: match.index,
+    });
+  }
+  for (const match of text.matchAll(CALL_FORM)) {
+    found.push({
+      specifier: match[4] ?? "",
+      line: lineOf(text, match.index),
+      typeOnly: match[1] !== undefined,
+      metaRequire: (match[2] ?? "").startsWith("import.meta"),
+      at: match.index,
+    });
+  }
+  return found.toSorted((x, y) => x.at - y.at).map(({ at: _at, ...site }) => site);
+}
+
+/**
+ * The import sites of one file: its value imports, as Bun's scanner reads them plus
+ * `import.meta.require` (which the scanner leaves out and the lint rule counts), each with the line
+ * of its own statement, and its type-only imports.
+ */
+function scanFile(path: string): { value: ImportSite[]; types: string[] } {
   const text = readFileSync(path, "utf8");
   const file = relative(ROOT, path);
-  const all = new Map<string, number>();
-  const positions = new Map<string, number[]>();
-  for (const match of text.matchAll(ANY_IMPORT)) {
-    const specifier = match[2] ?? "";
-    all.set(specifier, (all.get(specifier) ?? 0) + 1);
-    const at = positions.get(specifier) ?? [];
-    at.push(lineOf(text, match.index));
-    positions.set(specifier, at);
+  const found = findImports(text);
+  const lines = new Map<string, number[]>();
+  for (const site of found) {
+    if (site.typeOnly) continue;
+    lines.set(site.specifier, [...(lines.get(site.specifier) ?? []), site.line]);
   }
-  const value = scanner.scanImports(text).map(({ path: specifier }) => {
-    const line = positions.get(specifier)?.shift() ?? 0;
+  const scanned = scanner.scanImports(text).map(({ path: specifier }) => specifier);
+  const metaRequires = found.filter((site) => site.metaRequire).map((site) => site.specifier);
+  const value = [...scanned, ...metaRequires].map((specifier) => {
+    const line = lines.get(specifier)?.shift() ?? 0;
     return { file, line, specifier };
   });
-  return { value, all };
+  const types = found.filter((site) => site.typeOnly).map((site) => site.specifier);
+  return { value, types };
 }
 
 /**
@@ -151,19 +238,14 @@ export function readGraph(src: string = ENGINE_SRC, subdirectories: readonly str
   for (const path of sourceFiles(src)) {
     const from = nodeOf(src, path, subdirectories);
     if (from === null) continue;
-    const { value, all } = scanFile(path);
-    const valueCount = new Map<string, number>();
+    const { value, types } = scanFile(path);
     for (const site of value) {
       const to = target(path, site.specifier);
-      if (to === null || to === from) continue;
-      edgeFor(from, to).value.push(site);
-      valueCount.set(site.specifier, (valueCount.get(site.specifier) ?? 0) + 1);
+      if (to !== null && to !== from) edgeFor(from, to).value.push(site);
     }
-    for (const [specifier, count] of all) {
+    for (const specifier of types) {
       const to = target(path, specifier);
-      if (to === null || to === from) continue;
-      const types = count - (valueCount.get(specifier) ?? 0);
-      if (types > 0) edgeFor(from, to).types += types;
+      if (to !== null && to !== from) edgeFor(from, to).types += 1;
     }
   }
   const list = [...edges.values()].toSorted((a, b) =>
@@ -232,7 +314,7 @@ function layerIndex(layers: Layers): Map<string, number> {
 
 /** What a layer order leaves to fix. */
 export interface LayerCheck {
-  /** Value edges up a layer, and with `strict` also between two nodes of one layer. */
+  /** Value edges into a higher layer. */
   edges: Edge[];
   /** Nodes of the graph that no layer lists. */
   unplaced: string[];
@@ -241,10 +323,10 @@ export interface LayerCheck {
 }
 
 /**
- * The value edges that go from a lower layer up to a higher one. With `strict`, an edge between two
- * nodes of one layer counts too, so the layers hold no cycle at all.
+ * The value edges that go from a lower layer up to a higher one. An edge inside one layer is no
+ * back-edge; a cycle it closes shows in `cycles`.
  */
-export function backEdges(graph: Graph, layers: Layers, strict = false): LayerCheck {
+export function backEdges(graph: Graph, layers: Layers): LayerCheck {
   const at = layerIndex(layers);
   const unplaced = graph.nodes.filter((node) => !at.has(node));
   const missing = layers.flat().filter((entry) => !graph.nodes.includes(entry));
@@ -253,7 +335,7 @@ export function backEdges(graph: Graph, layers: Layers, strict = false): LayerCh
     const from = at.get(edge.from);
     const to = at.get(edge.to);
     if (from === undefined || to === undefined) return false;
-    return to > from || (strict && to === from);
+    return to > from;
   });
   return { edges, unplaced, missing };
 }
@@ -333,7 +415,8 @@ async function pluginLayers(): Promise<Layers> {
 
 const sum = (edges: Edge[]) => edges.reduce((s, e) => s + e.value.length, 0);
 
-function printReport(graph: Graph, layers: Layers, flags: Set<string>): void {
+/** Prints the measurement; returns the number of back-edges plus the number of cycles. */
+function printReport(graph: Graph, layers: Layers, flags: Set<string>): number {
   const valueEdges = graph.edges.filter((e) => e.value.length > 0);
   console.log(`engine nodes: ${graph.nodes.length}`);
   console.log(`value edges: ${valueEdges.length} (${sum(valueEdges)} import statements)`);
@@ -345,7 +428,7 @@ function printReport(graph: Graph, layers: Layers, flags: Set<string>): void {
   const found = cycles(graph);
   console.log(`\ncycles (strongly connected sets of directories): ${found.length}`);
   for (const component of found) console.log(`  ${component.length}: ${component.join(", ")}`);
-  const { edges, unplaced, missing } = backEdges(graph, layers, flags.has("--strict"));
+  const { edges, unplaced, missing } = backEdges(graph, layers);
   console.log(`\nlayer order (lowest first):`);
   layers.forEach((layer, i) => console.log(`  ${i}: ${layer.join(", ")}`));
   if (unplaced.length > 0) console.log(`  in no layer: ${unplaced.join(", ")}`);
@@ -367,6 +450,8 @@ function printReport(graph: Graph, layers: Layers, flags: Set<string>): void {
     );
     console.log(`  ${order.join(", ")}`);
   }
+  console.log(`\nresult: ${edges.length} back-edges, ${found.length} cycles`);
+  return edges.length + found.length;
 }
 
 async function main(argv: string[]): Promise<void> {
@@ -379,11 +464,12 @@ async function main(argv: string[]): Promise<void> {
     layers.flat().filter((entry) => entry.includes("/")),
   );
   if (flags.has("--json")) {
-    const back = backEdges(graph, layers, flags.has("--strict"));
+    const back = backEdges(graph, layers);
     console.log(JSON.stringify({ graph, cycles: cycles(graph), layers, backEdges: back }, null, 2));
     return;
   }
-  printReport(graph, layers, flags);
+  const problems = printReport(graph, layers, flags);
+  if (flags.has("--check") && problems > 0) process.exitCode = 1;
 }
 
 if (import.meta.main) await main(Bun.argv.slice(2));
