@@ -1,10 +1,10 @@
 ---
 id: DIPO-378
 title: Reap orphaned processes in every box
-status: Ready
+status: Refined
 assignee: []
 created_date: '2026-10-29 12:45'
-updated_date: '2026-10-30 07:58'
+updated_date: '2026-10-29 12:47'
 labels:
   - 'tier:S'
   - 'slice:prune'
