@@ -41,6 +41,7 @@ import {
   type PartPark,
   type PartRun,
   partStageRoot,
+  protectedDetail,
   refusedDetail,
 } from "../../src/box/parts";
 import { BOX_GIT_ENV, boxGitInitCommand } from "../../src/box/box-git";
@@ -615,13 +616,29 @@ describe("the story folders, on real git", () => {
       expect(await tip(w)).toBe(w.claimTip);
     }));
 
-  it("parks a rename into the folder, and a name in another case", () =>
+  it("parks a rename into the folder", () =>
     inParts(async (w) => {
-      mkdirSync(join(w.work, "Backlog/Tasks"), { recursive: true });
-      renameSync(join(w.work, "src/a.ts"), join(w.work, "Backlog/Tasks/a.md"));
+      renameSync(join(w.work, "src/a.ts"), join(w.work, "backlog/tasks/a.md"));
       await w.parts.onPart(part("Move a into the folder"));
       expect(parksOn(w)).toEqual([["scope-violation", true]]);
       expect(await tip(w)).toBe(w.claimTip);
+    }));
+
+  it("parks a name in another case, on a case-insensitive file system and on a case-sensitive one", () =>
+    inParts(async (w) => {
+      mkdirSync(join(w.work, "BACKLOG/Tasks"), { recursive: true });
+      renameSync(join(w.work, "src/a.ts"), join(w.work, "BACKLOG/Tasks/a.md"));
+      await w.parts.onPart(part("Move a into the folder"));
+      // On the Mac's volume the name is the folder itself, which the guard refuses; on a
+      // case-sensitive one (Linux CI) `BACKLOG/` sits beside `backlog/`, and the extractor refuses
+      // the two names that fold to one before the guard runs (the guard folds too, as data in
+      // box/tracker-folder.test.ts). Either way the part is refused and nothing is committed.
+      expect(w.parks.map((p) => p.reason)).toEqual(["scope-violation"]);
+      expect([protectedDetail(["backlog"]), refusedDetail("archive", 0)]).toContain(
+        w.parks[0]?.detail ?? "",
+      );
+      expect(await tip(w)).toBe(w.claimTip);
+      expect(await tip(w, "remote")).toBe(w.claimTip);
     }));
 
   it("commits a folder that only shares the prefix", () =>
