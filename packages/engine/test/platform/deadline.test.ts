@@ -206,9 +206,7 @@ describe("the calls the daemon's stop ends", () => {
 });
 
 /**
- * True once no process of the group `pgid` runs, polled on the system clock for `ms`. A zombie
- * counts as gone: in a box made before DIPO-378 PID 1 reaps no orphan (testkit `groupRunning`,
- * DIPO-372).
+ * True once no process of the group `pgid` runs, polled on the system clock for `ms`.
  */
 async function groupGone(pgid: number, ms: number): Promise<boolean> {
   const until = systemClock.now() + ms;
