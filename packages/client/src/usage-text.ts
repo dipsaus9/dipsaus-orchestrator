@@ -2,10 +2,17 @@
 // by the TUI and the CLI so every view says the same: `today 1.2M of 4M tokens (30%, resets 00:00
 // UTC)` and `this month 20M of 90M tokens (22%, ALERT, resets 1 Nov 00:00 UTC)`. The windows are the
 // UTC calendar day and month; the reset time always says UTC. Without a limit only the tokens show.
+// The percentage and the token counts are the ones every view prints (DIPO-320).
 
 import type { DayUsage, OfficeSummary } from "@dipsaus-orchestrator/contract";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** A share as a percentage: one decimal under 10% (`0.5%`, `4.2%`), else whole (`52%`). */
+export function percent(share: number): string {
+  const value = share * 100;
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)}%`;
+}
 
 /** Tokens as `812`, `45k` or `1.2M`. */
 export function usageTokens(value: number): string {
@@ -41,7 +48,7 @@ export function usageWindowText(
     usage.limit === undefined
       ? []
       : [
-          ...(usage.share === undefined ? [] : [`${Math.round(usage.share * 100)}%`]),
+          ...(usage.share === undefined ? [] : [percent(usage.share)]),
           ...(usage.alert ? ["ALERT"] : []),
           `resets ${resetText(window, nowMs)}`,
         ];

@@ -9,12 +9,11 @@
 // asks yes or no first (`--yes` answers for a script, and without a terminal it refuses); its note
 // goes to the worker in a fix round.
 
+import { storyRef } from "@dipsaus-orchestrator/client";
 import {
   gateApprove,
   type GateId,
   gateReject,
-  StoryId,
-  StoryKey,
   type StoryRefValue,
   storyDetail,
 } from "@dipsaus-orchestrator/contract";
@@ -29,13 +28,6 @@ const YES = /^\s*y(es)?\s*$/i;
  * call and a push) before it answers.
  */
 export const APPROVE_TIMEOUT_MS = 120_000;
-
-function storyRef(text: string): StoryRefValue | null {
-  const key = StoryKey.safeParse(text);
-  if (key.success) return key.data;
-  const id = StoryId.safeParse(text.toUpperCase());
-  return id.success ? id.data : null;
-}
 
 interface Parsed {
   readonly story: StoryRefValue;

@@ -1,7 +1,7 @@
 // Text pieces of the overview and the queue (0009 sections 3, 4 and 9): the budget bar, elapsed
 // time, short roles, evidence markers, the first Ready gate failure of a story and the words for
 // `work.run` skip reasons. Pure functions of the views the engine sent; nothing here derives a
-// status.
+// status. The percentage, token counts and health words every view shares are the client's.
 
 import type { Evidence, EvidenceMap, StoryView, Usage } from "@dipsaus-orchestrator/contract";
 
@@ -63,11 +63,6 @@ export function evidenceOf(
   return enabled ? map?.[path] : undefined;
 }
 
-/** The share as a whole percentage, `52%`. */
-export function percent(share: number): string {
-  return `${Math.round(share * 100)}%`;
-}
-
 /** An eight-cell bar of the budget share, `[####----]`, full past 100%. */
 export function budgetBar(usage: Usage): string {
   const cells = 8;
@@ -88,13 +83,6 @@ export function age(ms: number): string {
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
-}
-
-/** Token counts as `1.2M`, `340k` or `950`. */
-export function tokens(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
-  return String(Math.round(value));
 }
 
 /**

@@ -3,9 +3,10 @@
 // model, start, end, outcome and usage), since the engine sends no `WorkView` for an ended run.
 // When the stored output is gone the pane says why rather than looking empty.
 
+import { usageTokens } from "@dipsaus-orchestrator/client";
 import type { RunRecord, StoryView } from "@dipsaus-orchestrator/contract";
 
-import { age, elapsed, tokens } from "./format";
+import { age, elapsed } from "./format";
 
 /** `DIPO-28 Show the merge queue · developer · L · claude-haiku · run_01J…`. */
 export function recordHeaderLine(
@@ -32,8 +33,8 @@ function ended(record: RunRecord, now: number): string {
 function usageParts(record: RunRecord) {
   const { usage } = record;
   return {
-    io: `in ${tokens(usage.inputTokens)} out ${tokens(usage.outputTokens)}`,
-    cache: `cw ${tokens(usage.cacheCreateTokens)} cr ${tokens(usage.cacheReadTokens)}`,
+    io: `in ${usageTokens(usage.inputTokens)} out ${usageTokens(usage.outputTokens)}`,
+    cache: `cw ${usageTokens(usage.cacheCreateTokens)} cr ${usageTokens(usage.cacheReadTokens)}`,
     turns: `turns ${usage.turns}`,
     cost: usage.estimatedCost === undefined ? "" : `~$${usage.estimatedCost.toFixed(2)}`,
     time: elapsed(usage.elapsedMs),

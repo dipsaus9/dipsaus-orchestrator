@@ -13,7 +13,12 @@
 // story's live detail (DIPO-55), or the latest run of a story that ran (DIPO-81). Lines are
 // memoised by their text and cut to the width.
 
-import { type OfficeStoreState, usageParts } from "@dipsaus-orchestrator/client";
+import {
+  healthLabel,
+  type OfficeStoreState,
+  percent,
+  usageParts,
+} from "@dipsaus-orchestrator/client";
 import type {
   Clock,
   GateView,
@@ -26,20 +31,11 @@ import type {
 import { Box, Text } from "ink";
 import { memo, useEffect, useState } from "react";
 
-import {
-  age,
-  budgetBar,
-  elapsed,
-  evidenceOf,
-  marked,
-  percent,
-  truncate,
-  type Width,
-} from "./format";
+import { age, budgetBar, elapsed, evidenceOf, marked, truncate, type Width } from "./format";
 import type { LatestLines } from "./latest";
 import { boardNow } from "./now";
 import type { Display } from "./options";
-import { glyphs, healthLabel, officeOptIns, storedLabel } from "./views";
+import { glyphs, officeOptIns, storedLabel } from "./views";
 
 /** The legend for evidence markers, shown in the footer while they are on. */
 export const EVIDENCE_LEGEND = "* claimed ~ estimated ? none";

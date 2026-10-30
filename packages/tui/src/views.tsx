@@ -2,7 +2,12 @@
 // office switcher, the narrow list and the footer. They render store state as
 // the engine sent it; every state is a word plus an ASCII glyph, colour is extra.
 
-import type { OfficeEntry, OfficeStoreState } from "@dipsaus-orchestrator/client";
+import {
+  healthLabel,
+  type OfficeEntry,
+  type OfficeStoreState,
+  percent,
+} from "@dipsaus-orchestrator/client";
 import type { DatabaseUnavailableDetails } from "@dipsaus-orchestrator/contract";
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
@@ -15,19 +20,6 @@ export const NARROW_ROWS = 16;
 
 export function glyphs(ascii: boolean) {
   return { dot: ascii ? "-" : "·", dash: ascii ? "-" : "–", ellipsis: ascii ? "..." : "…" };
-}
-
-/** The five health words and glyphs of 0009; an unknown state shows as its plain word. */
-const HEALTH_LABEL: Readonly<Record<string, string>> = {
-  lost: "LOST !!",
-  looping: "looping @",
-  stuck: "stuck ~",
-  quiet: "quiet .",
-  busy: "busy >",
-};
-
-export function healthLabel(health: string): string {
-  return HEALTH_LABEL[health] ?? health;
 }
 
 /** The privacy opt-ins on for the selected office, from its `office.summary` (DIPO-83). */
@@ -180,7 +172,7 @@ export function switcherCells(entry: OfficeEntry, full: boolean): string[] {
   const summary = entry.summary;
   if (summary === undefined) return [entry.name, "?", "?", "?", ""];
   const day = summary.dayUsage;
-  const share = day?.share === undefined ? "" : `${Math.round(day.share * 100)}%`;
+  const share = day?.share === undefined ? "" : percent(day.share);
   const alert = day?.alert === true ? (full ? "  ALERT day usage" : " !") : "";
   return [
     summary.name,

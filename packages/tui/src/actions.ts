@@ -20,7 +20,7 @@
 // `changed: false` ends at once with "already so; nothing changed", such as a resume of a story
 // that already runs.
 
-import { cursorReached, type OfficeStore } from "@dipsaus-orchestrator/client";
+import { cursorReached, type OfficeStore, storyRef } from "@dipsaus-orchestrator/client";
 import {
   type Cursor,
   type EngineError,
@@ -481,7 +481,9 @@ export function useActions(deps: ActionDeps) {
         } else if (pressed.return) {
           const text = flow.draft.trim();
           if (step.kind === "typed") {
-            if (text.toUpperCase() !== (flow.target.story ?? "").toUpperCase()) {
+            // The typed id reads as every story reference does; only the story's own id passes.
+            const typed = storyRef(text);
+            if (typed === null || typed !== storyRef(flow.target.story ?? "")) {
               setMessage(`type ${flow.target.story} to confirm, or Esc to cancel`);
               return true;
             }

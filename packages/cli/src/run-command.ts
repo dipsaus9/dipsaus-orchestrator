@@ -12,13 +12,12 @@
 // and task message the worker would get. It claims, creates and starts nothing. Exit 0 when it shows
 // a launch, else 1.
 
+import { storyRef } from "@dipsaus-orchestrator/client";
 import {
   type Clock,
   engineNotice,
   type Event,
   type OfficeId,
-  StoryId,
-  StoryKey,
   type StoryRefValue,
   StreamName,
   storyState,
@@ -263,14 +262,6 @@ async function dryRun(
     RUN_TIMEOUT_MS,
     "running",
   );
-}
-
-/** A story id as typed (Backlog.md prints ids upper-cased), or a story key as is. */
-export function storyRef(text: string): StoryRefValue | null {
-  const key = StoryKey.safeParse(text);
-  if (key.success) return key.data;
-  const id = StoryId.safeParse(text.toUpperCase());
-  return id.success ? id.data : null;
 }
 
 export async function runCommand(

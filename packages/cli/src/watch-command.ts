@@ -1,33 +1,48 @@
 // `dipo watch`: follows one story or the whole office from the terminal without the TUI and shows
-// what the engine does, in plain text without Ink. It reads `office.snapshot` (and `story.detail`
-// for a story), prints the state of each running story (phase, health, loop, verify, criteria,
-// budget share, usage), then subscribes after the snapshot's cursor and prints one readable line
-// per event as it comes: run start, phases, worker output, usage and turns, health changes and the
-// watchdog facts behind them, notices, parks and story moves. A run's end comes from
-// `story.detail` (`endedAt`, `outcome`), which it reads again after every event that may end a run
-// and on idle stream marks, because a run can end without a closing work event (a failed host
-// start ends it with only a notice).
+// what the engine does, in plain text without Ink. Its state is the client's `OfficeStore`, the
+// one the TUI renders (DIPO-320): the store reads `office.snapshot`, follows the office stream
+// after its cursor, re-reads after a history gap and subscribes again after a stream the daemon
+// ended while it may retry. Watch prints the state of each running story from the store (phase,
+// health, loop, verify, criteria, budget share, usage), then one readable line per event the store
+// applied: run start, phases, worker output, usage and turns, health changes and the watchdog
+// facts behind them, notices, parks and story moves. A run's end comes from `story.detail`
+// (`endedAt`, `outcome`), which it reads again after every event that may end a run and every
+// `STREAM_MARK_MS` while idle, because a run can end without a closing work event (a failed host
+// start ends it with only a notice). The percentage, the health words, the output-range codec and
+// the story reference are the client's, the TUI's own.
 //
-// It runs until it is stopped (Ctrl-C). A history gap (`stream.resetRequired`) reads the snapshot
-// again and says so. The client reconnects on its own after a lost or hung connection.
+// It runs until it is stopped (Ctrl-C) or the store's stream ends with an error that does not
+// retry. The client reconnects on its own after a lost or hung connection.
 
-import { usageParts } from "@dipsaus-orchestrator/client";
 import {
+  healthLabel,
+  healthMeaning,
+  markerRule,
+  OfficeStore,
+  type OutputRange,
+  outputPieces,
+  percent,
+  RELOADED_NOTICE,
+  type StoreClient,
+  storyRef,
+  STREAM_MARK_MS,
+  usageParts,
+} from "@dipsaus-orchestrator/client";
+import {
+  type EngineError,
   type Event,
   engineNotice,
   gateDecided,
   gateReached,
   type OfficeId,
-  type OutputMarker,
   questionAsked,
   questionClosed,
-  officeSnapshot,
   type RunRecord,
   storyDetail,
   storyParked,
   type StoryRefValue,
   storyState,
-  StreamName,
+  type TimerHandle,
   type Usage,
   usageUpdated,
   workAssigned,
@@ -39,25 +54,14 @@ import {
   workProgress,
 } from "@dipsaus-orchestrator/contract";
 
-import { markerRule } from "@dipsaus-orchestrator/client";
-
 import { cleanedOutput, type DaemonSession, engineFailure, usage } from "./daemon-commands";
 import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
-import { storyRef } from "./run-command";
 
-/** One output range of `work.output`, with the engine markers it holds (DIPO-95). */
-interface OutputRange {
-  readonly from: number;
-  readonly to: number;
-  readonly text: string;
-  readonly markers?: readonly OutputMarker[] | undefined;
-}
-
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
-
-/** How long `dipo watch` waits for a snapshot or a story's detail before it reconnects. */
+/** How long `dipo watch` waits for a story's detail before it reconnects. */
 export const WATCH_READ_DEADLINE_MS = 15_000;
+
+/** The client name the store's `engine.hello` sends again after a history gap. */
+const WATCH_CLIENT_NAME = "dipo-cli";
 
 function pad(n: number): string {
   return String(n).padStart(2, "0");
@@ -73,19 +77,10 @@ function count(value: number): string {
   return value.toLocaleString("en-US");
 }
 
-function percent(share: number): string {
-  const value = share * 100;
-  return `${value < 10 ? value.toFixed(1) : Math.round(value)}%`;
+/** One health value: its label and what it means. */
+function healthText(health: string): string {
+  return `${healthLabel(health)} (${healthMeaning(health)})`;
 }
-
-/** What each health state means, for people (0009 section 3). */
-const HEALTH_MEANING: Readonly<Record<string, string>> = {
-  busy: "the worker is producing output",
-  quiet: "no output for a few minutes (timeouts.workerQuietMinutes)",
-  stuck: "no output for a long time (timeouts.workerStallMinutes); the worker may hang",
-  looping: "the same failure repeats, or the worker is on its last allowed loop",
-  lost: "the worker exited or its host is gone, and dipo has not processed that yet",
-};
 
 /** What each watchdog fact means when it is raised: the evidence behind a health value (0009). */
 const SIGNAL_MEANING: Readonly<Record<string, string>> = {
@@ -106,7 +101,7 @@ export function workLines(view: WorkView): string[] {
   const { work, progress } = view;
   return [
     `  run ${work.run} · ${work.role} · tier ${work.tier} · model ${work.model} · started ${clockTime(view.startedAt)}`,
-    `  phase ${view.phase} · health ${view.health} · loop ${progress.loop}/${progress.loopCap} · verify ${progress.verify} · criteria ${progress.criteriaMet}/${progress.criteriaTotal} · budget ${percent(view.usage.budgetShare)} of ${count(view.usage.budget.limit)} tokens`,
+    `  phase ${view.phase} · health ${healthLabel(view.health)} · loop ${progress.loop}/${progress.loopCap} · verify ${progress.verify} · criteria ${progress.criteriaMet}/${progress.criteriaTotal} · budget ${percent(view.usage.budgetShare)} of ${count(view.usage.budget.limit)} tokens`,
     `  ${usageLine(view.usage)}`,
     ...(view.lastOutputAt === undefined ? [] : [`  last output ${clockTime(view.lastOutputAt)}`]),
   ];
@@ -148,10 +143,25 @@ function keyOf(event: Event): string | null {
   return null;
 }
 
-/** Follows one office: its stories' runs, their health and their output, as plain lines. */
+/**
+ * The store's client from the CLI's session. The session already waits out a recovering daemon
+ * and its client reconnects and subscribes again by itself, so the store sees one open connection.
+ */
+function storeClientOf(session: DaemonSession): StoreClient {
+  return {
+    state: "open",
+    hello: session.hello ?? null,
+    onState: () => () => undefined,
+    read: session.read.bind(session),
+    subscribe: session.subscribe.bind(session),
+  };
+}
+
+/** Follows one office from its `OfficeStore`: the stories' runs, their health and their output. */
 class Watch {
   readonly #deps: OfficeCommandDeps;
   readonly #session: DaemonSession;
+  readonly #store: OfficeStore;
   readonly #office: OfficeId;
   /** The story watched, by key and id; null watches the whole office. */
   readonly #story: { readonly key: string; readonly id: string } | null;
@@ -165,9 +175,20 @@ class Watch {
   readonly #running = new Map<string, string>();
   /** A partial output line per run, until its newline arrives. */
   readonly #partial = new Map<string, string>();
-  /** A check of run ends is running; `#recheck` asks for one more after it. */
+  /** Events the store applied while the header was still being printed. */
+  #held: Event[] | null = [];
+  /** The store snapshots the header was printed for. */
+  #snapshots = 0;
+  /** A history gap made the store read the office again; a failed re-read ends the watch. */
+  #reloading = false;
+  /** A check of run ends is running; `#recheck` asks for one more after it, of every story or idle. */
   #checking = false;
-  #recheck = false;
+  #recheck: "all" | "idle" | null = null;
+  /** When an event that may end a run (a park, a story move) last arrived, by story key. */
+  readonly #closedAt = new Map<string, number>();
+  #idle: TimerHandle | null = null;
+  readonly #stops: (() => void)[] = [];
+  #finish: ((code: number) => void) | null = null;
 
   constructor(
     deps: OfficeCommandDeps,
@@ -179,6 +200,11 @@ class Watch {
     this.#session = session;
     this.#office = office;
     this.#story = story;
+    this.#store = new OfficeStore({
+      client: storeClientOf(session),
+      clock: deps.clock,
+      clientInfo: { name: WATCH_CLIENT_NAME, version: deps.version },
+    });
   }
 
   #line(text: string): void {
@@ -193,25 +219,60 @@ class Watch {
     return this.#story === null || key === this.#story.key;
   }
 
-  /** Reads the snapshot, prints the state, and returns its cursor; null when the read failed. */
-  async start(): Promise<number> {
-    const snapshot = await this.#session.read(
-      officeSnapshot,
-      { office: this.#office },
-      { deadlineMs: WATCH_READ_DEADLINE_MS },
-    );
-    if (!snapshot.ok) return engineFailure(this.#deps, snapshot.error);
-    const { stories, work } = snapshot.result;
+  /** Opens the office in the store, prints its state, then follows it until its stream ends. */
+  async run(): Promise<number> {
+    const done = new Promise<number>((resolve) => {
+      this.#finish = resolve;
+    });
+    this.#store.start();
+    this.#stops.push(this.#store.onOfficeEvent((event) => this.#take(event)));
+    const failed = await this.#open();
+    if (failed !== null) {
+      this.#end(engineFailure(this.#deps, failed));
+      return done;
+    }
+    this.#snapshots = this.#store.state.snapshots;
+    await this.#header();
+    this.#stops.push(this.#store.subscribe(() => this.#changed()));
+    this.#armIdle();
+    this.#changed();
+    return done;
+  }
+
+  /**
+   * Opens the office: null once the store applied its snapshot, else the error that ends the
+   * watch. A daemon still recovering is waited for; the store reads again on its own.
+   */
+  async #open(): Promise<EngineError | null> {
+    const first = await this.#store.open(this.#office);
+    if (first.ok) return null;
+    if (first.error.code !== "engine.recovering") return first.error;
+    return new Promise((resolve) => {
+      const stop = this.#store.subscribe(() => {
+        const { snapshots, error } = this.#store.state;
+        if (snapshots > 0) resolve(null);
+        else if (error !== null && error.code !== "engine.recovering") resolve(error);
+        else return;
+        stop();
+      });
+    });
+  }
+
+  /** Prints the state of the watched runs from the store, ended by `--`. */
+  async #header(): Promise<void> {
+    this.#held ??= [];
+    const state = this.#store.state;
     const target = this.#story;
-    const watched = target === null ? stories : stories.filter((view) => view.key === target.key);
-    const running = work.filter((view) => this.#watches(view.work.key));
+    const watched =
+      target === null ? state.stories : state.stories.filter((view) => view.key === target.key);
+    const running = state.work.filter((view) => this.#watches(view.work.key));
     this.#line(
       target === null
         ? `dipo watch: office ${this.#office} · ${running.length} running · Ctrl-C to stop`
         : `dipo watch: ${target.id} in office ${this.#office} · Ctrl-C to stop`,
     );
     const usageText = usageParts(
-      this.#session.hello?.offices.find((entry) => entry.office === this.#office),
+      state.offices.find((entry) => entry.office === this.#office)?.summary,
       this.#deps.clock.now(),
     );
     if (usageText.length > 0) this.#line(`  usage ${usageText.join(" · ")}`);
@@ -226,8 +287,8 @@ class Watch {
     }
     if (target !== null && running.length === 0) {
       const story = watched[0];
-      const state = story === undefined ? "" : ` is ${story.lifecycle} (${story.column})`;
-      this.#line(`${target.id}${state}; no run is active. Waiting for one to start.`);
+      const where = story === undefined ? "" : ` is ${story.lifecycle} (${story.column})`;
+      this.#line(`${target.id}${where}; no run is active. Waiting for one to start.`);
       if (story?.waitingOn !== undefined) this.#line(`  waiting on ${story.waitingOn.join(", ")}`);
       for (const message of story?.gateMessages ?? []) this.#line(`  ${message}`);
       if (story?.parked !== undefined) {
@@ -242,7 +303,7 @@ class Watch {
     if (target === null && running.length === 0) {
       this.#line("no story is running. Waiting for a run to start (dipo run).");
     }
-    for (const question of snapshot.result.questions) {
+    for (const question of state.questions) {
       if (!this.#watches(question.work.key)) continue;
       this.#questions.add(question.question);
       this.#line(
@@ -250,7 +311,9 @@ class Watch {
       );
     }
     this.#line("--");
-    return this.#subscribe(snapshot.result.cursor);
+    const held = this.#held;
+    this.#held = null;
+    for (const event of held) this.#onEvent(event);
   }
 
   async #detail(key: string) {
@@ -262,30 +325,62 @@ class Watch {
     return detail.ok ? detail.result : null;
   }
 
-  /** Subscribes after `cursor` and resolves only when the subscription cannot go on. */
-  #subscribe(cursor: Parameters<DaemonSession["subscribe"]>[1]["after"]): Promise<number> {
-    return new Promise<number>((resolve) => {
-      this.#session.subscribe(StreamName.parse(`office:${this.#office}`), {
-        ...(cursor === undefined ? {} : { after: cursor }),
-        onEvent: (event) => this.#onEvent(event),
-        onEnded: (error) => {
-          if (error.code !== "stream.resetRequired") {
-            resolve(engineFailure(this.#deps, error));
-            return;
-          }
-          this.#line("-- view reloaded (history gap) --");
-          void this.start().then(resolve);
-        },
-      });
-    });
+  /** The store changed: a history gap, a new snapshot, or a stream that ended for good. */
+  #changed(): void {
+    if (this.#finish === null) return;
+    const state = this.#store.state;
+    if (state.notice === RELOADED_NOTICE) {
+      this.#store.dismissNotice();
+      // A gap in the office stream empties the office view (no cursor) and reads it again; a gap
+      // in the software stream reads only `engine.hello` again, which watch does not print.
+      if (state.cursor !== null) return;
+      this.#reloading = true;
+      this.#line("-- view reloaded (history gap) --");
+      return;
+    }
+    if (state.snapshots > this.#snapshots) {
+      this.#snapshots = state.snapshots;
+      this.#reloading = false;
+      void this.#header();
+      return;
+    }
+    const failed =
+      state.streamError ??
+      (this.#reloading && !state.loading && state.error?.code !== "engine.recovering"
+        ? state.error
+        : null);
+    if (failed !== null) this.#end(engineFailure(this.#deps, failed));
+  }
+
+  /** Ends the watch with `code`: it stops listening and closes the store. */
+  #end(code: number): void {
+    const finish = this.#finish;
+    if (finish === null) return;
+    this.#finish = null;
+    if (this.#idle !== null) this.#deps.clock.clearTimeout(this.#idle);
+    this.#idle = null;
+    for (const stop of this.#stops.splice(0)) stop();
+    this.#store.close();
+    finish(code);
+  }
+
+  /** While idle, a run may end without an event (a failed start, a release): look every mark. */
+  #armIdle(): void {
+    if (this.#finish === null) return;
+    this.#idle = this.#deps.clock.setTimeout(() => {
+      this.#idle = null;
+      void this.#checkEnds("idle");
+      this.#armIdle();
+    }, STREAM_MARK_MS);
+  }
+
+  /** An event the store applied: printed now, or after the header that is being printed. */
+  #take(event: Event): void {
+    if (this.#held !== null) this.#held.push(event);
+    else this.#onEvent(event);
   }
 
   #onEvent(event: Event): void {
-    if (event.type === "stream.mark") {
-      // Idle: a run may have ended without an event (a failed start, a release).
-      void this.#checkEnds();
-      return;
-    }
     if (event.type === engineNotice.type) {
       this.#notice(event);
       return;
@@ -327,7 +422,7 @@ class Watch {
           "run",
           `started ${work.run} · ${work.role} · tier ${work.tier} · model ${work.model}`,
         );
-        this.#view(event, work, data.data.view);
+        this.#view(event, work);
         break;
       }
       case workPhase.type: {
@@ -340,7 +435,7 @@ class Watch {
           "phase",
           `${phase} · loop ${progress.loop}/${progress.loopCap} · verify ${progress.verify} · criteria ${progress.criteriaMet}/${progress.criteriaTotal}`,
         );
-        this.#view(event, work, data.data.view);
+        this.#view(event, work);
         break;
       }
       case workProgress.type: {
@@ -353,14 +448,14 @@ class Watch {
           "prog",
           `loop ${progress.loop}/${progress.loopCap} · verify ${progress.verify} · criteria ${progress.criteriaMet}/${progress.criteriaTotal} · review round ${progress.reviewRound}`,
         );
-        this.#view(event, work, data.data.view);
+        this.#view(event, work);
         break;
       }
       case workOutput.type: {
         const data = workOutput.data.safeParse(event.data);
         if (!data.success) break;
         this.#output(event, data.data.work, data.data.source, data.data);
-        this.#view(event, data.data.work, data.data.view);
+        this.#view(event, data.data.work);
         break;
       }
       case usageUpdated.type: {
@@ -372,7 +467,7 @@ class Watch {
           this.#usage.set(work.run, text);
           this.#event(event, work.story, "usage", text.slice("usage ".length));
         }
-        this.#view(event, work, data.data.view);
+        this.#view(event, work);
         break;
       }
       case workObserved.type: {
@@ -391,7 +486,7 @@ class Watch {
               ? `${signal} since ${clockTime(since)}, stuck: no output line past timeouts.workerStallMinutes`
               : `${signal} since ${clockTime(since)}: ${SIGNAL_MEANING[signal] ?? signal}`,
         );
-        this.#view(event, work, data.data.view);
+        this.#view(event, work);
         break;
       }
       case storyParked.type: {
@@ -407,6 +502,7 @@ class Watch {
         if (park.actions.length > 0) {
           this.#event(event, park.story, "parked", `you can: ${park.actions.join(", ")}`);
         }
+        this.#closedAt.set(park.key, this.#deps.clock.now());
         void this.#checkEnds();
         break;
       }
@@ -416,6 +512,7 @@ class Watch {
         const move = data.data;
         this.#event(event, move.story, "state", `${move.from} -> ${move.to} (${move.view.column})`);
         for (const line of move.detail ?? []) this.#event(event, move.story, "state", `  ${line}`);
+        this.#closedAt.set(move.key, this.#deps.clock.now());
         void this.#checkEnds();
         break;
       }
@@ -446,32 +543,23 @@ class Watch {
   }
 
   /**
-   * Worker output, one line per output line; a partial line waits for its newline. An engine
-   * marker, known only by its flag (DIPO-95), ends the partial line and prints as the TUI's rule
-   * with its local time, in ASCII when the output is not a terminal. Worker text that reads like a
-   * marker has no flag and prints as text.
+   * Worker output, one line per output line; a partial line waits for its newline. The range is
+   * cut at its flagged engine markers (DIPO-95) with the client's codec; a marker ends the partial
+   * line and prints as the TUI's rule with its local time, in ASCII when the output is not a
+   * terminal. Worker text that reads like a marker has no flag and prints as text.
    */
   #output(event: Event, work: WorkRef, source: string, range: OutputRange): void {
     const tag = source === "worker" ? "out" : source;
-    const markers = (range.markers ?? [])
-      .filter((marker) => marker.to > range.from && marker.from < range.to)
-      .toSorted((a, b) => a.from - b.from);
-    if (markers.length === 0) {
-      this.#text(event, work, tag, range.text);
-      return;
-    }
-    const bytes = encoder.encode(range.text);
-    let at = 0;
-    for (const marker of markers) {
-      const from = Math.max(at, marker.from - range.from);
-      this.#text(event, work, tag, decoder.decode(bytes.subarray(at, from)));
+    for (const piece of outputPieces(range.text, range.from, range.markers ?? [])) {
+      if (typeof piece === "string") {
+        this.#text(event, work, tag, piece);
+        continue;
+      }
       const partial = this.#partial.get(work.run);
       this.#partial.delete(work.run);
       if (partial !== undefined) this.#event(event, work.story, tag, partial);
-      this.#event(event, work.story, tag, markerRule(marker, !this.#deps.workspace.interactive));
-      at = Math.min(bytes.length, Math.max(from, marker.to - range.from));
+      this.#event(event, work.story, tag, markerRule(piece, !this.#deps.workspace.interactive));
     }
-    this.#text(event, work, tag, decoder.decode(bytes.subarray(at)));
   }
 
   /** Output text, one line per output line; a partial line waits for its newline. */
@@ -485,17 +573,12 @@ class Watch {
     for (const line of lines) this.#event(event, work.story, tag, line);
   }
 
-  /** Prints the run's health when the view the event carries changed it. */
-  #view(event: Event, work: WorkRef, view: WorkView | undefined): void {
-    if (view === undefined) return;
-    if (this.#health.get(work.run) === view.health) return;
+  /** Prints the run's health when the store's view of the run changed it. */
+  #view(event: Event, work: WorkRef): void {
+    const view = this.#store.state.work.find((candidate) => candidate.work.run === work.run);
+    if (view === undefined || this.#health.get(work.run) === view.health) return;
     this.#health.set(work.run, view.health);
-    this.#event(
-      event,
-      work.story,
-      "health",
-      `${view.health}: ${HEALTH_MEANING[view.health] ?? view.health}`,
-    );
+    this.#event(event, work.story, "health", healthText(view.health));
   }
 
   #notice(event: Event): void {
@@ -507,28 +590,37 @@ class Watch {
     void this.#checkEnds();
   }
 
-  /** Prints the end of every run seen running that has ended since (`runs.ended_at`). */
-  async #checkEnds(): Promise<void> {
+  /**
+   * Prints the end of every run seen running that has ended since (`runs.ended_at`). The idle
+   * check every `STREAM_MARK_MS` leaves out the stories an event that may end a run named within
+   * that time: that event read their detail already.
+   */
+  async #checkEnds(which: "all" | "idle" = "all"): Promise<void> {
     if (this.#checking) {
-      this.#recheck = true;
+      if (this.#recheck !== "all") this.#recheck = which;
       return;
     }
     this.#checking = true;
     try {
-      do {
-        this.#recheck = false;
-        await this.#checkEndsOnce();
-      } while (this.#recheck);
+      let next: "all" | "idle" | null = which;
+      while (next !== null) {
+        this.#recheck = null;
+        await this.#checkEndsOnce(next);
+        next = this.#recheck;
+      }
     } finally {
       this.#checking = false;
     }
   }
 
   /** One pass: the end of every run seen running that has ended since. */
-  async #checkEndsOnce(): Promise<void> {
+  async #checkEndsOnce(which: "all" | "idle"): Promise<void> {
     const keys = new Set(this.#running.values());
     if (this.#story !== null) keys.add(this.#story.key);
+    const now = this.#deps.clock.now();
     for (const key of keys) {
+      const closedAt = this.#closedAt.get(key);
+      if (which === "idle" && closedAt !== undefined && now - closedAt < STREAM_MARK_MS) continue;
       const detail = await this.#detail(key);
       if (detail === null) continue;
       for (const run of detail.runs) {
@@ -600,7 +692,7 @@ export async function watchCommand(
         }
         target = { key: detail.result.view.key, id: detail.result.view.story };
       }
-      return new Watch(deps, session, office, target).start();
+      return new Watch(deps, session, office, target).run();
     },
     undefined,
     Number.POSITIVE_INFINITY,

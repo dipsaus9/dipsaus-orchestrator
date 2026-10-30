@@ -17,7 +17,13 @@
 // view and output, and says where the story went. A story that is not running opens its latest
 // stored run the same way, read-only, with facts from the stored run (`past.ts`, DIPO-81).
 
-import type { OfficeStore, OfficeStoreState } from "@dipsaus-orchestrator/client";
+import {
+  healthLabel,
+  type OfficeStore,
+  type OfficeStoreState,
+  percent,
+  usageTokens,
+} from "@dipsaus-orchestrator/client";
 import { cleanText } from "@dipsaus-orchestrator/contract";
 import type {
   AgentId,
@@ -36,7 +42,7 @@ import type {
 import { Box, Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { budgetBar, evidenceOf, marked, percent, tokens, truncate } from "./format";
+import { budgetBar, evidenceOf, marked, truncate } from "./format";
 import type { Display } from "./options";
 import { endedLine, nowLine, shortAge } from "./now";
 import { EVIDENCE_MARKERS } from "./overview";
@@ -50,7 +56,7 @@ import {
   visibleRows,
   wrapLines,
 } from "./output";
-import { glyphs, healthLabel, officeOptIns, storedLabel } from "./views";
+import { glyphs, officeOptIns, storedLabel } from "./views";
 
 // The `now` line is shared with the overview (DIPO-81).
 export { nowLine, shortAge } from "./now";
@@ -195,14 +201,14 @@ function facts(view: WorkView, evidence: boolean) {
     review: `round ${progress.reviewRound}`,
     criteria: mark(`${progress.criteriaMet}/${progress.criteriaTotal}`, "progress.criteriaMet"),
     boxes: criteriaBoxes(progress.criteriaMet, progress.criteriaTotal),
-    input: `in ${mark(tokens(run.inputTokens), "usage.run.inputTokens")}`,
-    output: `out ${mark(tokens(run.outputTokens), "usage.run.outputTokens")}`,
-    cacheWrite: `cw ${mark(tokens(run.cacheCreateTokens), "usage.run.cacheCreateTokens")}`,
-    cacheRead: `cr ${mark(tokens(run.cacheReadTokens), "usage.run.cacheReadTokens")}`,
+    input: `in ${mark(usageTokens(run.inputTokens), "usage.run.inputTokens")}`,
+    output: `out ${mark(usageTokens(run.outputTokens), "usage.run.outputTokens")}`,
+    cacheWrite: `cw ${mark(usageTokens(run.cacheCreateTokens), "usage.run.cacheCreateTokens")}`,
+    cacheRead: `cr ${mark(usageTokens(run.cacheReadTokens), "usage.run.cacheReadTokens")}`,
     turns: `turns ${mark(String(run.turns), "usage.run.turns")}`,
     // Dollars are the cost the worker CLI reports, itself an estimate (0008).
     cost: run.estimatedCost === undefined ? "" : `~$${run.estimatedCost.toFixed(2)}`,
-    budget: `${budgetBar(usage)} ${mark(percent(usage.budgetShare), "usage.budgetShare")} of ${tokens(usage.budget.limit)}`,
+    budget: `${budgetBar(usage)} ${mark(percent(usage.budgetShare), "usage.budgetShare")} of ${usageTokens(usage.budget.limit)}`,
   };
 }
 
