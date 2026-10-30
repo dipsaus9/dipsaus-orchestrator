@@ -769,11 +769,13 @@ describe("purity", () => {
     /^\.\.\/story-store\/story$/,
     /^\.\.\/story-store\/paths$/,
     /^\.\.\/config\/schema$/,
-    // The content hash (`hash.ts`): a sha256 over canonical JSON, both pure.
-    /^\.\.\/config\/merge$/,
-    /^node:crypto$/,
     /^@dipsaus-orchestrator\/contract$/,
   ];
+  /** Only the content hash may also import these: a sha256 over canonical JSON, both pure. */
+  const HASH_IMPORTS = [/^\.\.\/config\/merge$/, /^node:crypto$/];
+
+  const allowedIn = (file: string) =>
+    file === "hash.ts" ? [...ALLOWED_IMPORTS, ...HASH_IMPORTS] : ALLOWED_IMPORTS;
 
   it("imports nothing that reaches files, processes, clocks, databases or models", async () => {
     const dir = new URL("../../src/gate/", import.meta.url).pathname;
@@ -783,7 +785,7 @@ describe("purity", () => {
       const source = await Bun.file(`${dir}${file}`).text();
       const imports = [...source.matchAll(/from "([^"]+)"/g)].map((match) => match[1] ?? "");
       for (const path of imports) {
-        expect({ file, path, allowed: ALLOWED_IMPORTS.some((re) => re.test(path)) }).toEqual({
+        expect({ file, path, allowed: allowedIn(file).some((re) => re.test(path)) }).toEqual({
           file,
           path,
           allowed: true,

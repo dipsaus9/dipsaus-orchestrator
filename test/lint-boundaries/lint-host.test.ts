@@ -14,6 +14,7 @@ const banned = [
   "host-imports-sqlite.ts",
   "host-imports-git.ts",
   "host-imports-gate.ts",
+  "host-imports-gate-decisions.ts",
   "host-imports-budget.ts",
   "host-imports-runs.ts",
 ];
@@ -48,6 +49,10 @@ describe("oxlint worker host boundary", () => {
         { fixture: "host-allowed.ts", target: `${HOST}/host-allowed.ts` },
         { fixture: "host-imports-db.ts", target: "packages/engine/src/runs/uses-db.ts" },
         { fixture: "host-imports-budget.ts", target: "packages/engine/src/runs/uses-budget.ts" },
+        {
+          fixture: "host-imports-gate-decisions.ts",
+          target: "packages/engine/src/run/uses-gate-decisions.ts",
+        },
       ]);
       expect(diagnostics).toEqual([]);
       expect(exitCode).toBe(0);
