@@ -1,10 +1,10 @@
 ---
 id: DIPO-386
 title: Keep tracking a worker host that binds its socket late
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-30 09:31'
-updated_date: '2026-10-30 18:27'
+updated_date: '2026-10-30 18:31'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -37,6 +37,10 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(engine) a pending host that binds after the ask times out is found and stopped or re-attached"
+park:
+  reason: "budget-exceeded"
+  from: "In Progress"
+  note: "turn cap (--max-turns) after 33 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -62,4 +66,13 @@ Parked 2026-10-30 18:26 UTC: ambiguous-spec
 - Last good commit: f45bc38010cc777e62c4b0781b0934b8aaac1d49
 
 Resumed 2026-10-30 18:27 UTC; grants: none; note: 1. ADR 0008: write the sentence that names the launch deadline in 0008's worker host section in this PR, and quote it in your done report and the PR body; the maintainer approves ADR wording before t…
+
+Parked 2026-10-30 18:31 UTC: budget-exceeded
+- Detail: turn cap (--max-turns) after 33 turns
+- Run: run_01M670NFA73EJSYZP05FVTH9TC
+- Criteria met: 2 of 5 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 280,318 of 300,000 tokens; 91 of 90 turns; 10 of 45 minutes
+- Last good commit: 9ed2ef3f0c99e696d15dc4f37985a5fbc7a81294
 <!-- SECTION:NOTES:END -->
