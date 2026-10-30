@@ -1,10 +1,10 @@
 ---
 id: DIPO-385
 title: Make 0005's error codes and the contract's list one list
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-30 09:30'
-updated_date: '2026-10-30 11:15'
+updated_date: '2026-10-30 16:09'
 labels:
   - 'tier:S'
   - 'slice:prune'
