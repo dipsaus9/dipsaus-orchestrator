@@ -687,6 +687,14 @@
         "root": {
           "type": "string",
           "minLength": 1
+        },
+        "rebuildable": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Ignored paths a leftover story worktree may hold and still be removed: a name without a slash matches a file or folder at any depth (a trailing / for a folder only); a path with a slash matches that exact path from the root (DIPO-375)."
         }
       },
       "additionalProperties": false

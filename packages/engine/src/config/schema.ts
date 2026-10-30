@@ -284,8 +284,21 @@ const officeShape = {
   prompt: Prompt,
   // 0010: the base branch; without it `origin/HEAD` decides.
   base: text().optional(),
-  // 0010: where dipo's own worktrees `_base` and `_backlog` live.
-  worktree: z.strictObject({ root: text() }),
+  // 0010: where dipo's own worktrees `_base` and `_backlog` live; DIPO-375: the ignored paths a
+  // leftover story worktree may hold and still be removed (a build cache, rebuilt by a build).
+  worktree: z.strictObject({
+    root: text(),
+    rebuildable: z
+      .array(
+        text().refine(
+          (path) => !path.startsWith("/"),
+          "must be a path relative to the worktree root, without a leading /",
+        ),
+      )
+      .describe(
+        "Ignored paths a leftover story worktree may hold and still be removed: a name without a slash matches a file or folder at any depth (a trailing / for a folder only); a path with a slash matches that exact path from the root (DIPO-375).",
+      ),
+  }),
   // 0013: script overrides; the run profile from the scan decides the rest.
   scripts: z.record(text(), text()),
   timeouts: Timeouts,
@@ -649,7 +662,10 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
     contractMax: 12_000,
   },
   // 0010. `base` has no default: `origin/HEAD` decides when it is absent.
-  worktree: { root: "../{repo}.worktrees" },
+  worktree: {
+    root: "../{repo}.worktrees",
+    rebuildable: ["node_modules/", ".DS_Store", ".tsbuild/", ".claude/.cc-writes/"],
+  },
   // 0013: no overrides; the run profile from the scan decides.
   scripts: {},
   // 0009, 0013 and 0002.

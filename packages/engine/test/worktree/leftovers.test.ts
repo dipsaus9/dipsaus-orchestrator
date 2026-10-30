@@ -10,8 +10,10 @@ import { join } from "node:path";
 
 import { git, type TempRepo, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
+import { OFFICE_DEFAULTS } from "../../src/config";
 import {
   heldBlobs,
+  isRebuildable,
   keepingPaths,
   LEFTOVER_WORKTREE_DESK,
   leftoverWorktreeDeskItems,
@@ -19,6 +21,8 @@ import {
   sweepLeftoverWorktrees,
 } from "../../src/worktree";
 import { BACKLOG_FIXTURE, claimSetup, type ClaimSetup, publish } from "./helpers";
+
+const REBUILDABLE = OFFICE_DEFAULTS.worktree.rebuildable;
 
 /** Adds a worktree of a new branch `branch` at `<root>/<name>`, locked with `lock` when given. */
 async function addWorktree(
@@ -85,7 +89,7 @@ describe("the leftover story worktrees at an office load", () => {
         const builder = await addWorktree(repo, s, "DIPO-5", "DIPO-5/builder", null);
         const foreign = await addWorktree(repo, s, "DIPO-6", "DIPO-6/foreign", "on a USB disk");
 
-        const sweep = await sweepLeftoverWorktrees(s.git);
+        const sweep = await sweepLeftoverWorktrees(s.git, REBUILDABLE);
 
         expect(sweep.removed).toEqual([clean]);
         expect(existsSync(clean)).toBe(false);
@@ -120,14 +124,14 @@ describe("the leftover story worktrees at an office load", () => {
         // The next load finds the same kept worktrees and keeps their first sighting.
         const first = items[0]?.since;
         s.t.clock.advance(60_000);
-        const again = await sweepLeftoverWorktrees(s.git);
+        const again = await sweepLeftoverWorktrees(s.git, REBUILDABLE);
         expect(again.removed).toEqual([]);
         recordKeptWorktrees(s.office, again.kept, s.t.clock);
         expect(leftoverWorktreeDeskItems(s.office)[0]?.since).toBe(first);
 
         // Once the maintainer cleaned one by hand, it goes too and its desk item with it.
         await git(dirty, repo.home, "clean", "--quiet", "-f");
-        const third = await sweepLeftoverWorktrees(s.git);
+        const third = await sweepLeftoverWorktrees(s.git, REBUILDABLE);
         expect(third.removed).toEqual([dirty]);
         recordKeptWorktrees(s.office, third.kept, s.t.clock);
         expect(leftoverWorktreeDeskItems(s.office)).toHaveLength(2);
@@ -147,7 +151,7 @@ describe("the leftover story worktrees at an office load", () => {
         const modified = await addWorktree(repo, s, "DIPO-8", "DIPO-8/modified", "dipo run_01F");
         writeFileSync(join(modified, "backlog", "config.yml"), "changed\n");
 
-        const sweep = await sweepLeftoverWorktrees(s.git);
+        const sweep = await sweepLeftoverWorktrees(s.git, REBUILDABLE);
 
         expect(sweep.removed).toEqual([]);
         expect(sweep.kept.map((k) => k.path)).toEqual([staged, modified]);
@@ -184,7 +188,7 @@ describe("a leftover of a box run, whose files lag its branch", () => {
         writeFileSync(join(unsaved, "src.txt"), "new work!\n");
         expect(await git(saved, repo.home, "status", "--porcelain")).not.toBe("");
 
-        const sweep = await sweepLeftoverWorktrees(s.git);
+        const sweep = await sweepLeftoverWorktrees(s.git, REBUILDABLE);
 
         expect(sweep.removed).toEqual([saved]);
         expect(existsSync(saved)).toBe(false);
@@ -220,6 +224,58 @@ describe("the paths that keep a leftover", () => {
       "a.ts",
       "",
     ].join("\0");
-    expect(keepingPaths(status)).toEqual(["src/a.ts", "notes.txt", ".env.local", "b.ts"]);
+    expect(keepingPaths(status, REBUILDABLE)).toEqual([
+      "src/a.ts",
+      "notes.txt",
+      ".env.local",
+      "b.ts",
+    ]);
+  });
+});
+
+describe("the rebuildable paths of a leftover", () => {
+  it("names a rebuildable path by its folder at any depth, or by its exact nested path", () => {
+    expect(isRebuildable("node_modules/", REBUILDABLE)).toBe(true);
+    expect(isRebuildable("packages/a/node_modules/", REBUILDABLE)).toBe(true);
+    expect(isRebuildable("packages/a/.tsbuild/", REBUILDABLE)).toBe(true);
+    expect(isRebuildable("packages/a/.DS_Store", REBUILDABLE)).toBe(true);
+    expect(isRebuildable(".claude/.cc-writes/", REBUILDABLE)).toBe(true);
+    // A file named like a folder is not the folder, and a nested path is not the exact one.
+    expect(isRebuildable("node_modules", REBUILDABLE)).toBe(false);
+    expect(isRebuildable("tools/node_modules", REBUILDABLE)).toBe(false);
+    expect(isRebuildable("x/.claude/.cc-writes/", REBUILDABLE)).toBe(false);
+    expect(isRebuildable(".env", REBUILDABLE)).toBe(false);
+  });
+
+  it("is removed when its only ignored paths are build caches, and kept for an ignored env file", async () => {
+    await withTempRepo(
+      async (repo) => {
+        await publish(repo);
+        const s = await claimSetup(repo);
+        appendFileSync(
+          join(repo.dir, ".git", "info", "exclude"),
+          ".tsbuild/\n.claude/.cc-writes/\n.env.local\n",
+        );
+        const cache = await addWorktree(repo, s, "DIPO-1", "DIPO-1/cache", "dipo run_01J");
+        mkdirSync(join(cache, "packages", "a", ".tsbuild"), { recursive: true });
+        writeFileSync(join(cache, "packages", "a", ".tsbuild", "x.json"), "{}\n");
+        mkdirSync(join(cache, ".claude", ".cc-writes"), { recursive: true });
+        writeFileSync(join(cache, ".claude", ".cc-writes", "1.json"), "{}\n");
+        const withEnv = await addWorktree(repo, s, "DIPO-2", "DIPO-2/env", "dipo run_01K");
+        mkdirSync(join(withEnv, ".tsbuild"), { recursive: true });
+        writeFileSync(join(withEnv, ".tsbuild", "x.json"), "{}\n");
+        writeFileSync(join(withEnv, ".env.local"), "SECRET=1\n");
+
+        const sweep = await sweepLeftoverWorktrees(s.git, REBUILDABLE);
+
+        expect(sweep.removed).toEqual([cache]);
+        expect(existsSync(cache)).toBe(false);
+        expect(sweep.kept.map((k) => [k.path, k.branch])).toEqual([[withEnv, "DIPO-2/env"]]);
+        // The desk names only the path that keeps the worktree.
+        expect(sweep.kept[0]?.why).toContain(".env.local");
+        expect(sweep.kept[0]?.why).not.toContain(".tsbuild");
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
   });
 });

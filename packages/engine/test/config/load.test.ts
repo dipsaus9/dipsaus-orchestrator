@@ -84,7 +84,10 @@ describe("version 14", () => {
       "privacy",
       "retention",
     ]);
-    expect(OFFICE_DEFAULTS.worktree).toEqual({ root: "../{repo}.worktrees" });
+    expect(OFFICE_DEFAULTS.worktree).toEqual({
+      root: "../{repo}.worktrees",
+      rebuildable: ["node_modules/", ".DS_Store", ".tsbuild/", ".claude/.cc-writes/"],
+    });
     expect(OFFICE_DEFAULTS.caps).toEqual({ ciAttempts: 2, conflictAttempts: 2 });
     expect(OFFICE_DEFAULTS.merge).toEqual({
       autoMerge: true,
@@ -464,7 +467,10 @@ describe("the migration from every earlier version", () => {
         expect(config.tiers.S.budgetTokens).toBe(250_000);
         expect(config.timeouts.workerStallMinutes).toBe(25);
         expect(config.base).toBe("main");
-        expect(config.worktree).toEqual({ root: "../{repo}.trees" });
+        expect(config.worktree).toEqual({
+          root: "../{repo}.trees",
+          rebuildable: ["node_modules/", ".DS_Store", ".tsbuild/", ".claude/.cc-writes/"],
+        });
         expect(config.story.titleMax).toBe(90);
         expect(config.prompt.contractMax).toBe(11_000);
         expect(config.prompt.budgets.context).toEqual({ S: 1000, M: 2000, L: 3000, XL: 4000 });
