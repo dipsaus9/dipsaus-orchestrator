@@ -1,10 +1,10 @@
 ---
 id: DIPO-399
 title: Make a story PR that changes an ADR wait for the maintainer
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-30 21:55'
-updated_date: '2026-10-30 22:51'
+updated_date: '2026-10-30 22:57'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -42,10 +42,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A story PR's merge gate waits for the maintainer (a new MergeWait kind naming the ADR paths, approvable with dipo approve) when the diff from the merge base to the head, read fresh at each gate decision with --no-renames, adds, changes or deletes any file under docs/decisions/ (subfolders and non-.md files included); the fact also reaches waitsForGreen and heldBack as the release path does
-- [ ] #2 A backlog-only PR (backlog/pr/merge.ts) is stopped the same way when it touches docs/decisions/, and waits for the maintainer instead of merging by rule
-- [ ] #3 What the gates caught before still holds, each with a test: the existing waiting reasons, the release path, and the by-rule path for a PR without ADR changes
-- [ ] #4 Bypass forms are tested against real git: an ADR change pushed in a later head after the review approved or after a by-rule decision, a rename into or out of docs/decisions/, a change only to an ADR's Replaced list, a subfolder or non-.md file, and Docs/Decisions/ in another case on the case-insensitive file system
-- [ ] #5 Fail-closed against real git: when the changed files cannot be read, the gate waits for the maintainer with a named notice (the releasePathUnknown notice or a sibling) instead of opening by rule
-- [ ] #6 0002's list of reasons the gate waits for the maintainer names the ADR change, with one Replaced line; the maintainer approves the wording
+- [x] #1 A story PR's merge gate waits for the maintainer (a new MergeWait kind naming the ADR paths, approvable with dipo approve) when the diff from the merge base to the head, read fresh at each gate decision with --no-renames, adds, changes or deletes any file under docs/decisions/ (subfolders and non-.md files included); the fact also reaches waitsForGreen and heldBack as the release path does
+- [x] #2 A backlog-only PR (backlog/pr/merge.ts) is stopped the same way when it touches docs/decisions/, and waits for the maintainer instead of merging by rule
+- [x] #3 What the gates caught before still holds, each with a test: the existing waiting reasons, the release path, and the by-rule path for a PR without ADR changes
+- [x] #4 Bypass forms are tested against real git: an ADR change pushed in a later head after the review approved or after a by-rule decision, a rename into or out of docs/decisions/, a change only to an ADR's Replaced list, a subfolder or non-.md file, and Docs/Decisions/ in another case on the case-insensitive file system
+- [x] #5 Fail-closed against real git: when the changed files cannot be read, the gate waits for the maintainer with a named notice (the releasePathUnknown notice or a sibling) instead of opening by rule
+- [x] #6 0002's list of reasons the gate waits for the maintainer names the ADR change, with one Replaced line; the maintainer approves the wording
 <!-- AC:END -->
