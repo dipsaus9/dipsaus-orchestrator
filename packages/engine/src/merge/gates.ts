@@ -1,7 +1,10 @@
 // Merge gates (0002). A merge gate is a `gates` row of kind `merge` for one PR head
-// (`gates.head_sha`), opened when the review verdict holds for the head and its required checks are
-// green on it (or no CI ran for it), so the maintainer only ever approves something that can merge.
-// dipo turns GitHub's auto-merge on for a story PR only once its gate for the head is approved.
+// (`gates.head_sha`), opened when the review verdict holds for the head. A gate decided by rule
+// opens on the verdict alone: dipo commits the close-out at once, and GitHub's auto-merge waits for
+// the required checks on the close-out head, so CI runs once. A gate that waits for the maintainer
+// opens only once the head's required checks are green (or no CI ran for it), so the maintainer
+// only ever approves something that can merge (`StoryMerges`, `stories.ts`). dipo turns GitHub's
+// auto-merge on for a story PR only once its gate for the head is approved.
 //
 // - Waiting. The gate waits for the maintainer when the run's configuration snapshot sets
 //   `merge.autoMerge` false, the story is flagged test-before-merge, the reviewer marked a
@@ -210,7 +213,7 @@ export function mergeGateSummary(facts: MergeSummaryFacts): string {
   const head = facts.head.slice(0, 12);
   if (facts.waits.length === 0) {
     const tested = testLine(facts.head, facts.test, false);
-    return `${facts.story}: PR #${facts.pr.number} at ${head} passed review and its required checks; dipo commits the close-out and turns GitHub's auto-merge on.${tested === null ? "" : ` ${tested}`}`;
+    return `${facts.story}: PR #${facts.pr.number} at ${head} passed review; dipo commits the close-out and turns GitHub's auto-merge on, and GitHub merges it once its required checks pass on the close-out head.${tested === null ? "" : ` ${tested}`}`;
   }
   const lines = [
     `${facts.story}: PR #${facts.pr.number} (${facts.pr.url}) at ${head} passed review and its required checks, and its merge waits for the maintainer:`,

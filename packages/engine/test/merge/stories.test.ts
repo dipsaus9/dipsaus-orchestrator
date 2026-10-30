@@ -7,7 +7,12 @@
 //   hold label or a head dipo did not push turn it off and reopen the merge gate;
 // - a release-path PR and a PR labelled `autorelease: pending` never get auto-merge, also when the
 //   label or the release path comes after auto-merge went on;
-// - the merge gate opens and is decided by rule or waits for the maintainer as before.
+// - the merge gate opens and is decided by rule or waits for the maintainer;
+// - by rule (DIPO-382) the gate opens on the approved verdict without waiting for the head's checks:
+//   verdict, close-out, auto-merge, one wait for the close-out head's checks, merge; red checks
+//   there turn auto-merge off, and the next close-out replaces the final summary;
+// - every path that waits for the maintainer keeps green checks, then the maintainer, then the
+//   close-out, so no task file reads Done on a PR that waits.
 //
 // The real decision functions run (`StoryMerges` through `AutoMerge`); only git, `gh` and the
 // branch writes are fakes.
@@ -39,9 +44,12 @@ import {
   type UnparkBranchRequest,
   type UnparkWriter,
 } from "../../src/run/park";
-import { findRun, recordConfigSnapshot, runSteps } from "../../src/run/records";
+import { appendRunStep, findRun, recordConfigSnapshot, runSteps } from "../../src/run/records";
+import { reopen } from "../../src/run/rounds";
 import { insertTest, recordTestResult } from "../../src/run/test-records";
-import { findStoryPr } from "../../src/story-pr/records";
+import { findStoryPr, updateStoryPr } from "../../src/story-pr/records";
+import type { JudgedReview } from "../../src/review/verdict";
+import { reviewedAt } from "../run/in-review";
 
 import {
   APPROVED,
@@ -152,7 +160,7 @@ describe("an approved merge gate", () => {
     );
   });
 
-  it("tells a refused auto-merge once and tries again when the head's checks are green", async () => {
+  it("tells a refused auto-merge once and tries again at the next round, with no second close-out", async () => {
     s = await storyWorld();
     s.host.enableError = new CodeHostError(
       "failed",
@@ -163,12 +171,11 @@ describe("an approved merge gate", () => {
     expect(s.host.armedAt).toEqual([]);
     expect(noticeTexts(s.w.office, STORY_MERGE_NOTICES.autoMergeFailed)).toHaveLength(1);
     s.host.enableError = null;
-    // The PR is at C1 now: it waits for green checks on that head first.
-    await s.tick();
-    expect(s.host.armedAt).toEqual([]);
-    s.ci.set(s.run, { kind: "green", head: C1 });
+    // The PR is at C1 now, whose checks run: the gate decided by rule holds for it (DIPO-382).
+    s.ci.set(s.run, { kind: "pending", head: C1 });
     await s.tick();
     expect(s.host.armedAt).toEqual([{ number: PR, head: C1 }]);
+    expect(s.git.heads.get(BRANCH)).toBe(C1);
   });
 
   it("hands a conflict GitHub reports to the worker instead of turning auto-merge on", async () => {
@@ -549,17 +556,46 @@ describe("the merge gate", () => {
     expect(gates()[0]?.summary).toContain("override");
   });
 
-  it("opens no gate before the verdict holds for the head and its checks are green on it", async () => {
-    s = await storyWorld();
-    s.ci.set(s.run, { kind: "pending", head: H1 });
-    await s.tick();
-    s.ci.set(s.run, { kind: "green", head: "0".repeat(40) });
+  it("opens no gate before an approved verdict holds for the head", async () => {
+    s = await storyWorld({ judged: { ...APPROVED, verdict: "blocked" } });
     await s.tick();
     expect(gates()).toEqual([]);
-    // A box run's head with no CI holds like green.
-    s.ci.set(s.run, { kind: "none", head: H1 });
+    expect(s.git.calls).toEqual([]);
+  });
+
+  // DIPO-382: a gate decided by rule does not wait for the reviewed head's checks.
+  for (const [name, state] of [
+    ["pending on the head", { kind: "pending", head: H1 }],
+    ["stuck on the head", { kind: "stuck", head: H1 }],
+    ["green on another head", { kind: "green", head: "0".repeat(40) }],
+    ["not watched yet", null],
+  ] as const) {
+    it(`opens a gate decided by rule on the approved verdict with checks ${name}`, async () => {
+      s = await storyWorld();
+      if (state === null) s.ci.delete(s.run);
+      else s.ci.set(s.run, state);
+      await s.tick();
+      expect(gates()).toEqual([
+        expect.objectContaining({
+          head: H1,
+          waitingOn: "rule",
+          decision: expect.objectContaining({ decision: "approved", by: "rule" }),
+        }),
+      ]);
+      expect(gates()[0]?.summary).toContain(
+        "GitHub merges it once its required checks pass on the close-out head",
+      );
+      expect(s.host.armedAt).toEqual([{ number: PR, head: C1 }]);
+    });
+  }
+
+  it("opens no gate while the head's checks are red: the CI path's fix round takes it", async () => {
+    s = await storyWorld();
+    s.ci.set(s.run, { kind: "red", head: H1, items: [] });
     await s.tick();
-    expect(s.host.armedAt).toEqual([{ number: PR, head: C1 }]);
+    expect(gates()).toEqual([]);
+    expect(s.git.calls).toEqual([]);
+    expect(s.git.task.status).toBe("In Review");
   });
 
   it("opens a new gate for a new head and closes the open one of the old head as superseded", async () => {
@@ -960,4 +996,234 @@ describe("the release path read again before auto-merge goes on", () => {
       "the fetch of the base failed",
     );
   });
+});
+
+/** A short name of the heads these tests push, for an order log. */
+const nameOf = (sha: string): string => ({ [H1]: "H1", [C1]: "C1" })[sha] ?? sha.slice(0, 12);
+
+// DIPO-382 (0002): a gate decided by rule opens on the approved verdict, and CI runs once, on the
+// close-out head, while GitHub's auto-merge waits for it.
+describe("the by-rule path", () => {
+  it("goes verdict, close-out commit, auto-merge, one wait for checks, merge", async () => {
+    s = await storyWorld();
+    // storyWorld recorded the approved verdict on H1.
+    const order: string[] = [`verdict ${nameOf(s.verdict.commit)}`];
+    const closeOut = s.git.closeOut.bind(s.git);
+    s.git.closeOut = async (office, run, summary) => {
+      const ci = s.ci.get(s.run);
+      const commit = await closeOut(office, run, summary);
+      if (commit !== null) {
+        order.push(`close-out ${nameOf(commit)}, checks ${ci?.kind} on ${nameOf(ci?.head ?? "")}`);
+      }
+      return commit;
+    };
+    const enable = s.host.enableAutoMerge.bind(s.host);
+    s.host.enableAutoMerge = async (repo, number, merge) => {
+      await enable(repo, number, merge);
+      order.push(`auto-merge ${nameOf(merge.headSha)}`);
+    };
+    // The verdict came minutes after the In Review push: H1's checks still run.
+    s.ci.set(s.run, { kind: "pending", head: H1 });
+    await s.tick();
+    // The close-out push cancelled H1's run; the PR poll watches C1, whose checks run once.
+    s.ci.set(s.run, { kind: "pending", head: C1 });
+    for (let i = 0; i < 3; i++) await s.tick();
+    expect(s.host.prs.get(PR)?.state).toBe("open");
+    s.ci.set(s.run, { kind: "green", head: C1 });
+    order.push("checks green on C1");
+    await s.tick();
+    // GitHub merges once the required checks pass on the head auto-merge was given.
+    s.host.githubMerges(PR);
+    order.push(`merged at ${nameOf(s.host.prs.get(PR)?.headSha ?? "")}`);
+    await s.tick();
+    expect(order).toEqual([
+      "verdict H1",
+      "close-out C1, checks pending on H1",
+      "auto-merge C1",
+      "checks green on C1",
+      "merged at C1",
+    ]);
+    // One close-out, one auto-merge, never turned off.
+    expect(s.git.calls.filter((call) => call.startsWith("push"))).toHaveLength(1);
+    expect(s.host.armedAt).toEqual([{ number: PR, head: C1 }]);
+    expect(s.host.disarmed).toEqual([]);
+    expect(s.git.task.status).toBe("Done");
+    expect(s.git.task.finalSummary).toStartWith("Closed ");
+  });
+
+  it("turns auto-merge off on red checks of the close-out head; after the fix round the next close-out replaces the final summary", async () => {
+    s = await storyWorld();
+    s.ci.set(s.run, { kind: "pending", head: H1 });
+    await toArmed();
+    const first = s.git.task.finalSummary;
+    expect(first).toContain(
+      "CI attempts: 0 (red heads, reviewed or closed out, before this close-out)",
+    );
+    // The close-out head's checks turn red: auto-merge goes off, and the CI path takes the round.
+    s.ci.set(s.run, { kind: "red", head: C1, items: [] });
+    await s.tick();
+    expect(s.host.disarmed).toEqual([PR]);
+    expect(noticeTexts(s.w.office, STORY_MERGE_NOTICES.autoMergeOff)[0]).toContain(
+      "its required checks are red",
+    );
+    // As the PR poll records the red head and the fix round reopens the run and commits its status
+    // through the auto-merge guard (fix-rounds.test.ts runs the round itself).
+    s.w.office.immediate(() => {
+      appendRunStep(s.w.office, s.run, "ci", C1, s.w.t.clock.now());
+      const run = findRun(s.w.office, s.run);
+      if (run !== null) reopen(s.w.office, run, s.w.t.clock.now(), { kind: "fix" });
+    });
+    await guardedUnparkWriter(
+      {
+        lift: async (_office, request) => {
+          s.git.task.status = request.to;
+          return { commit: "f".repeat(40), pushed: true, pushError: null };
+        },
+      },
+      guard(),
+    ).lift(s.officeId, { story: "DIPO-7", branch: BRANCH, to: "In Progress" });
+    expect(s.git.task.status).toBe("In Progress");
+    await s.tick();
+    expect(s.host.armedAt).toHaveLength(1);
+
+    // The worker's fix comes back In Review at H2, and the review approves it.
+    const H2 = "2".repeat(40);
+    const C2 = "d".repeat(40);
+    s.w.t.clock.advance(60_000);
+    s.git.heads.set(BRANCH, H2);
+    s.git.trees.set(H2, "tree-2");
+    s.git.closeOutCommit = C2;
+    s.w.office.immediate(() => {
+      updateStoryPr(s.w.office, s.run, { headSha: H2, title: TITLE, bodyHash: "hash" });
+      recordReviewVerdict(s.w.office, s.w.t.ids, {
+        runId: s.run,
+        key: s.key,
+        round: 2,
+        agent: null,
+        model: "opus",
+        commit: H2,
+        codeTreeKey: "tree-2",
+        judged: APPROVED,
+        at: s.w.t.clock.now(),
+      });
+    });
+    reviewedAt(s.w.office, s.run, s.w.t.clock.now());
+    s.host.prs.set(PR, hostPr(H2));
+    s.ci.set(s.run, { kind: "pending", head: H2 });
+    await s.tick();
+    expect(s.host.armedAt).toEqual([
+      { number: PR, head: C1 },
+      { number: PR, head: C2 },
+    ]);
+    expect(s.git.task.status).toBe("Done");
+    expect(s.git.task.finalSummary).not.toBe(first);
+    expect(s.git.task.finalSummary).toContain(
+      "CI attempts: 1 (red heads, reviewed or closed out, before this close-out)",
+    );
+  });
+});
+
+/** A path on which the merge gate waits for the maintainer (0002). */
+interface WaitingPath {
+  readonly name: string;
+  readonly judged?: JudgedReview;
+  /** Makes the gate wait for the maintainer. */
+  readonly setup: () => void;
+  /** The maintainer's decision; null: only a merge by hand on GitHub merges the PR. */
+  readonly decide: ((gate: string) => void) | null;
+}
+
+const HOLD = { ...OFFICE_DEFAULTS.merge, holdLabels: ["hold"] };
+
+const WAITING: readonly WaitingPath[] = [
+  {
+    name: "merge.autoMerge off (dipo approve)",
+    setup: () => {
+      s.config = { ...OFFICE_DEFAULTS, merge: { ...OFFICE_DEFAULTS.merge, autoMerge: false } };
+    },
+    decide: approve,
+  },
+  { name: "test before merge", setup: flag, decide: () => tested(H1, "pass") },
+  {
+    name: "a maintainer criterion",
+    judged: {
+      ...APPROVED,
+      criteria: [
+        { n: 1, status: "met", evidence: "fine" },
+        { n: 2, status: "maintainer", evidence: "an approval only the maintainer gives" },
+      ],
+    },
+    setup: () => undefined,
+    decide: approve,
+  },
+  {
+    name: "an override",
+    judged: { ...APPROVED, verdict: "blocked" },
+    setup: () =>
+      s.w.office.immediate(() =>
+        recordReviewOverride(s.w.office, s.verdict.gate, { note: "fine", at: s.w.t.clock.now() }),
+      ),
+    decide: approve,
+  },
+  {
+    name: "a hold label",
+    setup: () => {
+      s.config = { ...OFFICE_DEFAULTS, merge: HOLD };
+      s.host.prLabelsOf.set(PR, ["hold"]);
+    },
+    decide: (gate) => {
+      approve(gate);
+      s.host.prLabelsOf.set(PR, []);
+    },
+  },
+  {
+    name: "the release path",
+    setup: () => s.git.release.set(H1, [".github/workflows/ci.yml"]),
+    decide: null,
+  },
+  {
+    name: "autorelease: pending",
+    setup: () => s.host.prLabelsOf.set(PR, ["autorelease: pending"]),
+    decide: null,
+  },
+];
+
+// DIPO-382 (0002): every path where the gate waits for the maintainer keeps its order: green
+// checks on the head, then the maintainer, then the close-out. No task file reads Done meanwhile.
+describe("a merge gate that waits for the maintainer", () => {
+  for (const path of WAITING) {
+    it(`${path.name}: green checks on the head, then the maintainer, then the close-out`, async () => {
+      s = await storyWorld(path.judged === undefined ? {} : { judged: path.judged });
+      path.setup();
+      s.ci.set(s.run, { kind: "pending", head: H1 });
+      await s.tick();
+      await s.tick();
+      // No gate and no close-out while the head's checks run.
+      expect(gates()).toEqual([]);
+      expect(s.git.calls).toEqual([]);
+      expect(s.git.task.status).toBe("In Review");
+      s.ci.set(s.run, { kind: "green", head: H1 });
+      await s.tick();
+      const gate = gates()[0];
+      expect(gate).toMatchObject({ head: H1, waitingOn: "maintainer", decision: null });
+      // The gate waits for the maintainer: still nothing on the branch.
+      await s.tick();
+      expect(s.git.calls).toEqual([]);
+      expect(s.git.task.status).toBe("In Review");
+      if (path.decide === null) {
+        // Even an approval in the database never closes out a PR only a hand merge merges.
+        approve(gate!.gate);
+        await s.tick();
+        expect(s.git.calls).toEqual([]);
+        expect(s.git.task.status).toBe("In Review");
+        expect(s.host.armedAt).toEqual([]);
+        return;
+      }
+      path.decide(gate!.gate);
+      await s.tick();
+      expect(s.git.calls[0]).toBe(`closeOut ${BRANCH}`);
+      expect(s.git.task.status).toBe("Done");
+      expect(s.host.armedAt).toEqual([{ number: PR, head: C1 }]);
+    });
+  }
 });
