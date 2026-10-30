@@ -40,13 +40,15 @@ export function acceptedText(result: {
     case "updated":
       return `${draft} was added to the backlog PR ${flush.pr}`;
     case "pushed":
-      return `${draft} is pushed on ${flush.branch}; its backlog PR is not open yet, see dipo desk`;
+      return `${draft} is pushed on ${flush.branch}; its backlog PR is not open yet, and dipo opens or updates it at the next backlog change`;
     case "merged":
       return `${draft} is on the base already`;
     case "held":
       return `${draft} waits for the next backlog PR: ${flush.reason}`;
     case "waiting":
-      return `${draft} waits: ${flush.reason}`;
+      return flush.branch === undefined
+        ? `${draft} waits: ${flush.reason}`
+        : `${draft} is on ${flush.branch} and waits: ${flush.reason}`;
     case "failed":
       return `the planning lane could not file ${draft}, it stays journaled: ${flush.reason}`;
     case "closed":

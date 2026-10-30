@@ -100,7 +100,7 @@ describe("dipo propose accept", () => {
     ],
     [
       { state: "pushed", branch: "dipo/backlog-1" },
-      "Backlog draft DRAFT-4 is pushed on dipo/backlog-1; its backlog PR is not open yet, see dipo desk",
+      "Backlog draft DRAFT-4 is pushed on dipo/backlog-1; its backlog PR is not open yet, and dipo opens or updates it at the next backlog change",
     ],
     [{ state: "merged" }, "Backlog draft DRAFT-4 is on the base already"],
     [
@@ -109,7 +109,11 @@ describe("dipo propose accept", () => {
     ],
     [
       { state: "waiting", branch: "dipo/backlog-1", reason: "pushing to origin failed" },
-      "Backlog draft DRAFT-4 waits: pushing to origin failed",
+      "Backlog draft DRAFT-4 is on dipo/backlog-1 and waits: pushing to origin failed",
+    ],
+    [
+      { state: "waiting", reason: "the flush did not apply it" },
+      "Backlog draft DRAFT-4 waits: the flush did not apply it",
     ],
     [
       { state: "failed", reason: "git fetch failed." },

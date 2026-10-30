@@ -248,8 +248,8 @@ export const ProposalRef = z
 // What a flush of the planning lane did with one journaled change (DIPO-401, 0010): `opened` or
 // `updated` the office's backlog PR `pr` (its URL) on `branch`; `pushed` the branch but no PR is
 // recorded yet; `merged`, the change is on the base already; `held`, the open backlog PR has
-// auto-merge on and the change waits for it; `waiting`, the branch waits on a remote, a fetch or a
-// push; `failed`, the flush failed and the change stays journaled; `closed`, the change itself
+// auto-merge on and the change waits for it; `waiting`, the change waits on a remote, a fetch or a
+// push, with the branch it is on when it is on one; `failed`, the flush failed and the change stays journaled; `closed`, the change itself
 // was dropped or failed and is not applied. `reason` is code-built text.
 export const LaneFlush = z.discriminatedUnion("state", [
   z.object({ state: z.literal("opened"), branch: z.string(), pr: z.string() }),
@@ -257,7 +257,7 @@ export const LaneFlush = z.discriminatedUnion("state", [
   z.object({ state: z.literal("pushed"), branch: z.string() }),
   z.object({ state: z.literal("merged") }),
   z.object({ state: z.literal("held"), branch: z.string(), reason: z.string() }),
-  z.object({ state: z.literal("waiting"), branch: z.string(), reason: z.string() }),
+  z.object({ state: z.literal("waiting"), branch: z.string().optional(), reason: z.string() }),
   z.object({ state: z.literal("failed"), reason: z.string() }),
   z.object({ state: z.literal("closed"), reason: z.string() }),
 ]);

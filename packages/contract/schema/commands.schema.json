@@ -835,7 +835,7 @@
                   "type": "string"
                 }
               },
-              "required": ["state", "branch", "reason"]
+              "required": ["state", "reason"]
             },
             {
               "type": "object",
