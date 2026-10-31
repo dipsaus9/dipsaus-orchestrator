@@ -18,6 +18,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import type { Clock } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
@@ -84,6 +85,23 @@ function options(
     // A local disk; one test reads the system mount table.
     readMounts: async () => null,
     ...overrides,
+  };
+}
+
+/**
+ * A clock on which only the poll sleeps pass time, each firing on the next turn of the event loop.
+ * An attempt on a held lock blocks for SQLite's busy timeout; with this clock that real time does
+ * not use up the wait, so the number of attempts a wait allows is fixed: `waitMs / pollMs`.
+ */
+function pollClock(): Clock {
+  let now = T0;
+  return {
+    now: () => now,
+    setTimeout(callback, delayMs) {
+      now += delayMs;
+      return systemClock.setTimeout(callback, 0);
+    },
+    clearTimeout: (handle) => systemClock.clearTimeout(handle),
   };
 }
 
@@ -164,9 +182,15 @@ describe("acquireLock", () => {
         const table: Table = new Map([[OTHER.pid, daemonInfo(OTHER)]]);
         let calls = 0;
         const outcome = await acquireLock(
-          options(dir, table, { waitMs: 1000, handshake: async () => ++calls > 3 }),
+          // Ten attempts; the fourth handshake answers.
+          options(dir, table, {
+            clock: pollClock(),
+            waitMs: 100,
+            handshake: async () => ++calls > 3,
+          }),
         );
         expect(outcome.kind).toBe("running");
+        expect(calls).toBe(4);
       }),
     );
   });
@@ -240,7 +264,7 @@ describe("acquireLock", () => {
   it("takes a lock that comes free during the wait", async () => {
     await withTempDir(async (dir) => {
       const other = await held(dir, OTHER);
-      const outcome = acquireLock(options(dir, new Map(), { waitMs: 2000 }));
+      const outcome = acquireLock(options(dir, new Map(), { clock: pollClock(), waitMs: 2000 }));
       await Bun.sleep(50);
       other.release();
       const taken = await outcome;
