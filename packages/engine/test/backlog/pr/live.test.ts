@@ -20,7 +20,7 @@ import { BacklogPrs, findPr } from "../../../src/backlog/pr";
 import { OfficeGit, spawnGitExec } from "../../../src/git";
 import { GhHost } from "../../../src/platform/host";
 import { systemSpawn } from "../../../src/platform/process";
-import { addStory } from "../../../src/stories/keys";
+import { addStory } from "../../../src/records/story-keys";
 import { addOffice, openTestState } from "../../commands/helpers";
 import { BACKLOG_CLI, BACKLOG_FIXTURE } from "../helpers";
 

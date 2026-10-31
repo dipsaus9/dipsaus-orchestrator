@@ -31,7 +31,7 @@ import {
 import { isStoryNotFound, parseMilestones } from "../../src/backlog";
 import { gateInputOf } from "../../src/gate-decisions/read";
 import { BacklogCommandError } from "../../src/backlog/runner";
-import { addStory, type StoryIdentity } from "../../src/stories/keys";
+import { addStory, type StoryIdentity } from "../../src/records/story-keys";
 import { readManifest, recorded } from "../backlog/helpers";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
 import {

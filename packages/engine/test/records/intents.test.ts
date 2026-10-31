@@ -18,7 +18,7 @@ import {
   runIntents,
   sendAsIntent,
 } from "../../src/records/intents";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import type { HostOp, WorkerOutcome } from "../../src/workers/types";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";
 

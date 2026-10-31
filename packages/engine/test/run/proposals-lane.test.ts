@@ -26,7 +26,7 @@ import { checkBacklogPr } from "../../src/backlog/pr/check";
 import { collectPrDiff } from "../../src/backlog/pr/diff";
 import { proposalDraft } from "../../src/run/proposals";
 import { proposalHash, storeProposals } from "../../src/run/report-data";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import {
   BACKLOG_FIXTURE,
   inRemote,

@@ -59,7 +59,7 @@ import {
 import { evidenceProblems, type ReviewFacts, validateReport } from "../review/validate";
 import { judgeReview } from "../review/verdict";
 import { recordCrashedEnd } from "../records/agents";
-import { findStoryPr } from "../story-pr/records";
+import { findStoryPr } from "../records/story-prs";
 import { withWorkViews } from "../views/work";
 import { holdMessage, type AdapterHold, type LaunchCheckFailure } from "../workers/hold";
 import type {

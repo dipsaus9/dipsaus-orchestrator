@@ -103,7 +103,7 @@ import {
   openStoryPrs,
   recordBranchPush,
   type StoryPrRecord,
-} from "../story-pr/records";
+} from "../records/story-prs";
 import type { StoryEditor } from "../story-store/store";
 import { withWorkViews } from "../views/work";
 import { latestRecordedTest, testPassedFor } from "../run/test-records";

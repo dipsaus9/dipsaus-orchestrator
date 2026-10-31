@@ -59,7 +59,7 @@ import {
 import { endRun, findRun, hasActiveRun, insertRun, runSteps, type NewRun } from "../../src/records";
 import type { StoredRun } from "../../src/records/run-records";
 import { SoftwareStream } from "../../src/software-stream";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { AdapterHolds } from "../../src/workers/hold";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { ClaimOutcome, ClaimRequest } from "../../src/worktree/claim";

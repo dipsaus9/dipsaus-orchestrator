@@ -13,7 +13,7 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { git, type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
-import { insertStoryPr } from "../../src/story-pr/records";
+import { insertStoryPr } from "../../src/records/story-prs";
 import {
   type ClaimOutcome,
   claimStory,

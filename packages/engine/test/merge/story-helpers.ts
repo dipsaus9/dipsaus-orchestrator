@@ -25,7 +25,7 @@ import { recordCatchUp } from "../../src/run/conflicts";
 import type { ParkBranchRequest } from "../../src/run/park";
 import { reviewedAt } from "../run/in-review";
 import type { CiHeadState } from "../../src/story-pr/prs";
-import { insertStoryPr, updateStoryPr } from "../../src/story-pr/records";
+import { insertStoryPr, updateStoryPr } from "../../src/records/story-prs";
 import type { StoryEditor } from "../../src/story-store/store";
 import { REPO } from "../backlog/pr/helpers";
 import {

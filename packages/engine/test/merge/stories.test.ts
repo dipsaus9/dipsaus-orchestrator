@@ -52,7 +52,7 @@ import {
 } from "../../src/records/run-records";
 import { reopen } from "../../src/run/rounds";
 import { insertTest, recordTestResult } from "../../src/run/test-records";
-import { findStoryPr, updateStoryPr } from "../../src/story-pr/records";
+import { findStoryPr, updateStoryPr } from "../../src/records/story-prs";
 import type { JudgedReview } from "../../src/review/verdict";
 import { reviewedAt } from "../run/in-review";
 

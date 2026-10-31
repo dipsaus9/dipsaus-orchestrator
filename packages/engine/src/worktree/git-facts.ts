@@ -12,7 +12,7 @@ import { existsSync } from "node:fs";
 
 import type { GitSession, OfficeGit } from "../git/office";
 import { canonicalFuturePath } from "../git/paths";
-import { findStoryPr } from "../story-pr/records";
+import { findStoryPr } from "../records/story-prs";
 import type { ClaimRecord } from "./records";
 import type { OfficeHandle } from "../db/office";
 

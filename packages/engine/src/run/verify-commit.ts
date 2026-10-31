@@ -96,7 +96,7 @@ import {
 import { BoxError } from "../box/port";
 import { BOX_WORKDIR } from "../box/code";
 import type { BoxVerifyResult } from "../box/verify";
-import { recordBranchPush } from "../story-pr/records";
+import { recordBranchPush } from "../records/story-prs";
 import { findClaim } from "../worktree/records";
 
 import { runBudgetFacts } from "../records/budget-line";

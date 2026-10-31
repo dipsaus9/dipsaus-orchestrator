@@ -57,7 +57,7 @@ import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
 import { decideTestedMergeGates } from "../merge/gates";
 import { currentProfile, type StoredProfile } from "../scan/store";
-import { findStoryPr } from "../story-pr/records";
+import { findStoryPr } from "../records/story-prs";
 import { storyView } from "../views/story";
 import { withWorkViews } from "../views/work";
 import { DISCARD_RELEASE_REASON, DROP_RELEASE_REASON } from "../worktree/release";

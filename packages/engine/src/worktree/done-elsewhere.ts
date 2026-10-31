@@ -36,7 +36,7 @@ import { forgetWorkerNotes } from "../prompts/notes";
 import { openParkIds, resolvePark } from "../run/park-records";
 import { heldByPark, type ParkStore } from "../records/park-state";
 import { findRun } from "../records/run-records";
-import { latestStoryPr, setStoryPrState } from "../story-pr/records";
+import { latestStoryPr, setStoryPrState } from "../records/story-prs";
 import type { StoryStore } from "../story-store/store";
 import { storyView } from "../views/story";
 

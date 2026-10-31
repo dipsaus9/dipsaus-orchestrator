@@ -37,7 +37,7 @@ import { finalizeRunAgents, readUsage } from "../../src/records/usage";
 import { systemClock } from "../../src/platform/clock";
 import { type BranchPark, CAP_TICK_MS, RunControl } from "../../src/run";
 import { findRun, insertRun } from "../../src/records";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { CLAUDE_LINE_SCRUB, claudeCliAdapter } from "../../src/workers/claude-cli/adapter";
 import { planInBox } from "../../src/workers/claude-cli/box-plan";
 import { encode, STOP_SIGTERM_AFTER_MS } from "../../src/workers/claude-cli/encode";

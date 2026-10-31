@@ -19,7 +19,7 @@ import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry, type FeatureModule } from "../../src/commands/registry";
 import { MemoryRequestTable, REQUEST_TTL_MS } from "../../src/commands/requests";
 import type { OfficeHandle } from "../../src/db/office";
-import { addStory, removeStory, renumberStory } from "../../src/stories/keys";
+import { addStory, removeStory, renumberStory } from "../../src/records/story-keys";
 import { type FixtureCalls, fixtureFeature } from "./fixtures";
 import { addOffice, countRows, createFactTable, openTestState, type TestState } from "./helpers";
 

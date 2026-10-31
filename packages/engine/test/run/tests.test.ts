@@ -30,7 +30,7 @@ import { findTest, openTestOf, openTestViews, testPassedFor } from "../../src/ru
 import { StoryTests, type TestBoxPort } from "../../src/run/tests";
 import { detect, type Probe } from "../../src/scan/detect";
 import { insertProfile } from "../../src/scan/store";
-import { insertStoryPr, updateStoryPr } from "../../src/story-pr/records";
+import { insertStoryPr, updateStoryPr } from "../../src/records/story-prs";
 import { releaseClaim } from "../../src/worktree/records";
 
 import { H1, type StoryWorld, storyWorld } from "../merge/story-helpers";

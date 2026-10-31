@@ -22,12 +22,18 @@ import {
   type RequiredCheck,
 } from "../../src/platform/host";
 import { stopAtInReview } from "../../src/run";
-import { appendRunStep, insertRun, recordGrant, runRoundCounts, runSteps } from "../../src/records";
+import {
+  appendRunStep,
+  insertRun,
+  noCiRan,
+  recordGrant,
+  runRoundCounts,
+  runSteps,
+} from "../../src/records";
 import type { BranchPark, ParkBranchRequest, ParkWriter } from "../../src/run/park";
 import {
   CI_STUCK_POLL_MS,
   NO_CI_WAIT_MS,
-  noCiRan,
   type StoryPrFacts,
   StoryPrs,
   STORY_PR_NOTICES,

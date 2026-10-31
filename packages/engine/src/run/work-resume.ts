@@ -16,7 +16,7 @@ import type {
   FeatureModule,
   FeatureRegistry,
 } from "../commands/registry";
-import type { StoryIdentity } from "../stories/keys";
+import type { StoryIdentity } from "../records/story-keys";
 import { storyView } from "../views/story";
 
 import { openPark } from "./park";

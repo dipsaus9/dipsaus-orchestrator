@@ -7,7 +7,7 @@ import { describe, expect, it } from "bun:test";
 
 import { Event, StoryId, StoryKey } from "@dipsaus-orchestrator/contract";
 
-import { addStory, resolveStoryRef } from "../../src/stories/keys";
+import { addStory, resolveStoryRef } from "../../src/records/story-keys";
 import {
   CREATED,
   draft,

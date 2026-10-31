@@ -43,7 +43,7 @@ import { openPark, type ParkWriter, resolvePark, type UnparkWriter } from "../ru
 import { mirrorUnpark, type ParkStore } from "../records/park-state";
 import { appendRunStep, findRun, type StoredRun, unparkRun } from "../records/run-records";
 import { enterPhase } from "../run/rounds";
-import { type BranchPush, findStoryPr, recordBranchPush } from "../story-pr/records";
+import { type BranchPush, findStoryPr, recordBranchPush } from "../records/story-prs";
 import { deriveStoryView, storyView } from "../views/story";
 import { withWorkViews } from "../views/work";
 import { repoOfPrUrl } from "../worktree/release";

@@ -28,7 +28,7 @@ import {
   TEARDOWN_STEP,
   tearDown,
 } from "../../src/worktree";
-import { insertStoryPr } from "../../src/story-pr/records";
+import { insertStoryPr } from "../../src/records/story-prs";
 import { HOST_FAILURES_NOTICED } from "../../src/worktree/done";
 import { insertClaim, markTeardownStarted } from "../../src/worktree/records";
 import { notices } from "../backlog/lane/helpers";

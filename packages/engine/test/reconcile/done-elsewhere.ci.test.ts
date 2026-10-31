@@ -15,7 +15,7 @@ import type { OfficeHandle } from "../../src/db/office";
 import type { OfficeGit } from "../../src/git/office";
 import { insertWorkerQuestion } from "../../src/questions/questions";
 import { reconcileOffice, type ReconcileReport } from "../../src/reconcile";
-import { insertStoryPr, latestStoryPr } from "../../src/story-pr/records";
+import { insertStoryPr, latestStoryPr } from "../../src/records/story-prs";
 import { StoryTeardown } from "../../src/worktree/done";
 import {
   DONE_ELSEWHERE_DESK,

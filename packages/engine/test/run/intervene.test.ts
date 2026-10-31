@@ -31,7 +31,7 @@ import {
 import { endRun, findRun, insertRun, runIntents } from "../../src/records";
 import { Places } from "../../src/run/places";
 import { reopen, type RoundKind, stopAtInReview } from "../../src/run/rounds";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { Caps, HostOp } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";

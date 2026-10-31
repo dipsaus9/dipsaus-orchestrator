@@ -21,7 +21,7 @@ import {
   storeDoneReport,
   storeProposals,
 } from "../../src/run/report-data";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { openDecisionNotes, openProposals, proposalItems } from "../../src/views/proposals";
 import { addOffice, openTestState } from "../commands/helpers";
 import { localMounts, memoryLogger } from "./helpers";

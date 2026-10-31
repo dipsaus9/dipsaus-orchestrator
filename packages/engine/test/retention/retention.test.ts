@@ -21,7 +21,7 @@ import { officeDirectory } from "../../src/office/marker";
 import { Retention, RETENTION_INTERVAL_MS, RETENTION_STEP } from "../../src/retention/feature";
 import { DAY_MS, runRetention } from "../../src/retention/run";
 import { MAX_BATCH_ROWS } from "../../src/retention/slices";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { runDirectory } from "../../src/records/worker-hosts";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
 

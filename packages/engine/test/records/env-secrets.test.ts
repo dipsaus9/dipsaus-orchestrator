@@ -22,7 +22,7 @@ import {
   readEnvSecrets,
 } from "../../src/records/env-secrets";
 import { WebCalls } from "../../src/run/web-calls";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import type { WorkerEvent } from "../../src/workers/types";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 

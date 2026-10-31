@@ -12,7 +12,7 @@ import { withBareRemote, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { allEntries } from "../../../src/backlog/lane";
 import { backlogPrMergeable, findPr, PR_NOTICES, TITLE_PREFIX } from "../../../src/backlog/pr";
-import { addStory } from "../../../src/stories/keys";
+import { addStory } from "../../../src/records/story-keys";
 import { BACKLOG_FIXTURE, notices, publish } from "../lane/helpers";
 
 import { laneSetup, prSetup, REPO } from "./helpers";

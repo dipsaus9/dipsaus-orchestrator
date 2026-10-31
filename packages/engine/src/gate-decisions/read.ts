@@ -4,7 +4,7 @@
 // each) and the milestones. The office configuration comes from the caller.
 
 import { openDependencies } from "../records/select";
-import { isProvisionalId } from "../stories/keys";
+import { isProvisionalId } from "../records/story-keys";
 import { mapLimited, VIEW_CONCURRENCY } from "../stories/read";
 import { StoryParseError } from "../story-store/errors";
 import { checkoutFiles } from "../story-store/folder";

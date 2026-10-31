@@ -76,7 +76,7 @@ import { resolveIntent, runIntents } from "../records/intents";
 import type { RunView } from "./outcome-types";
 import { type BranchUnpark, type UnparkWriter } from "./park";
 import { heldByPark, type ParkStore } from "../records/park-state";
-import { recordBranchPush } from "../story-pr/records";
+import { recordBranchPush } from "../records/story-prs";
 import type { Places, PlaceStart } from "./places";
 import { findRun, openAtInReview, RUN_PHASE_SQL, type StoredRun } from "../records/run-records";
 import type { RunStoryFacts } from "./resume";

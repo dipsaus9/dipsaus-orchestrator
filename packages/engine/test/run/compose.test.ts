@@ -28,7 +28,7 @@ import {
 } from "../../src/run";
 import { insertRun } from "../../src/records";
 import { insertClaim, updateClaim } from "../../src/worktree/records";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { WorkerPort } from "../../src/workers/port";
 import type { Caps } from "../../src/workers/types";

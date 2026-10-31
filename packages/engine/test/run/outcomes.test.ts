@@ -54,7 +54,7 @@ import {
   LEGACY_PLAN_LIMIT_DETAIL,
 } from "../../src/run/outcome-restart";
 import { recordWorkerHost } from "../../src/records/worker-hosts";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { claudeCliAdapter } from "../../src/workers/claude-cli/adapter";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {

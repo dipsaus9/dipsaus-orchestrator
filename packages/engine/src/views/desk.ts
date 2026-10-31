@@ -61,7 +61,7 @@ import { openTestOf } from "../run/test-records";
 import { parkResumeNeed, SUGGESTED_SHARE } from "../records/resume-policy";
 import { LIFT_COMMAND, type StartsPausedState } from "../run/starts-paused";
 import { profileDeskItems } from "../scan/profile-view";
-import { findStoryPr, latestStoryPr } from "../story-pr/records";
+import { findStoryPr, latestStoryPr } from "../records/story-prs";
 import { doneElsewhereDeskItems } from "../worktree/done-elsewhere";
 import { leftoverWorktreeDeskItems } from "../worktree/leftovers";
 

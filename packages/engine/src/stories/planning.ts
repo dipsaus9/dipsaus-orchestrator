@@ -57,7 +57,8 @@ import { insertPark } from "../run/park-records";
 import type { ParkStore } from "../records/park-state";
 import { activeRuns } from "../records/run-records";
 import { hostAlive, workerHostsOf } from "../records/worker-hosts";
-import { latestStoryPr, setStoryPrState } from "../story-pr/records";
+import type { StoryIdentity } from "../records/story-keys";
+import { latestStoryPr, setStoryPrState } from "../records/story-prs";
 import { LIVE_CLAIM_REFUSAL, PlanningRefusedError } from "../story-store/errors";
 import { DROP_KIND, type PlanningLane } from "../story-store/planning";
 import { deriveStoryView, lifecycleOf, storyView } from "../views/story";
@@ -74,8 +75,6 @@ import {
   type ClaimRecord,
   type ReleasedBranch,
 } from "../worktree/records";
-
-import type { StoryIdentity } from "./keys";
 
 /** `engine.notice` codes of park and drop. */
 export const PLANNING_NOTICES = {

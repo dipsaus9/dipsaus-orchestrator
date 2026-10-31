@@ -18,7 +18,7 @@ import { buildRegistry, type FeatureModule } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import { createLogger } from "../../src/log/logger";
 import { executeRead } from "../../src/reads/execute";
-import { addStory } from "../../src/stories/keys";
+import { addStory } from "../../src/records/story-keys";
 import { fixtureFeature, levelCommand } from "./fixtures";
 import { addOffice, createFactTable, openTestState, type TestState } from "./helpers";
 

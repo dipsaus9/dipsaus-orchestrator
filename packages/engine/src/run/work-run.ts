@@ -78,7 +78,7 @@ import { assembleContract, ContractTooLargeError } from "../prompts/contract";
 import { recordPromptParts, recordPromptTexts } from "../prompts/parts";
 import { promptStoryOf } from "../prompts/story";
 import { recordAgent } from "../records/agents";
-import { resolveStoryRef } from "../stories/keys";
+import { resolveStoryRef } from "../records/story-keys";
 import { mapLimited, VIEW_CONCURRENCY } from "../stories/read";
 import { PlanningRefusedError, StoryParseError } from "../story-store/errors";
 import { parseFieldBlock } from "../story-store/fields/block";

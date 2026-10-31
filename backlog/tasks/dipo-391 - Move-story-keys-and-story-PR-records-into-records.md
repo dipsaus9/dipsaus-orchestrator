@@ -1,10 +1,10 @@
 ---
 id: DIPO-391
 title: Move story keys and story PR records into records/
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-30 11:22'
-updated_date: '2026-10-30 11:44'
+updated_date: '2026-10-31 03:30'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -48,8 +48,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `stories/keys.ts` and `story-pr/records.ts` move with their tests, and every importer, barrel (`index.ts`), path-scoped override in .oxlintrc.json, lint test and comment that names an old path names the new one; no barrel re-exports a file from another directory
-- [ ] #2 Only paths and import lines change: no function, type or behaviour changes, and no test is removed or skipped
-- [ ] #3 The coarse dipo/engine-layers rule still passes with no exception, and `bun run verify` passes
-- [ ] #4 `bun scripts/engine-graph.ts --layers scripts/engine-layers-target.json --files` lists none of the back-edges this story names as removed, and no import it did not list before the story
+- [x] #1 `stories/keys.ts` and `story-pr/records.ts` move with their tests, and every importer, barrel (`index.ts`), path-scoped override in .oxlintrc.json, lint test and comment that names an old path names the new one; no barrel re-exports a file from another directory
+- [x] #2 Only paths and import lines change: no function, type or behaviour changes, and no test is removed or skipped
+- [x] #3 The coarse dipo/engine-layers rule still passes with no exception, and `bun run verify` passes
+- [x] #4 `bun scripts/engine-graph.ts --layers scripts/engine-layers-target.json --files` lists none of the back-edges this story names as removed, and no import it did not list before the story
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Third engine-layer move of the DIPO-381 plan, paths and import lines only: stories/keys.ts became records/story-keys.ts and story-pr/records.ts became records/story-prs.ts, with their barrel blocks moved into records/index.ts so no barrel re-exports from another directory. Against the target layers 18 back-edges (43 statements) became 12 (27); the 16 imports the story names are gone and none was added. The big cycle is down to 7 directories (ingest, merge, questions, run, stories, views, worktree), plus box/prompts, which DIPO-394 owns. The worker host's ban on records already covers the moved files.
+<!-- SECTION:FINAL_SUMMARY:END -->
