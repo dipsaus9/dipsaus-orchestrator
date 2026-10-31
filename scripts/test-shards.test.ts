@@ -169,24 +169,36 @@ describe("the coverage check of the test-shards job", () => {
 describe("a shard's bun test", () => {
   it("runs exactly its own files, and the shards together run each file once", async () => {
     await withTempRepo(async (repo) => {
-      // Each file notes in RAN_LOG that it ran. x/t/a.test.ts holds t/a.test.ts in its path, so a
-      // filter on file names would run it twice.
+      // Each file notes in RAN_LOG that it ran, and whether the repository's own CLIs were on its
+      // PATH (CI's Backlog CLI is one; DIPO-406 found a shard without them). x/t/a.test.ts holds
+      // t/a.test.ts in its path, so a filter on file names would run it twice.
       const names = ["t/a", "t/b", "t/c", "t/d", "t/e", "x/t/a"];
       for (const name of names) {
         await Bun.write(
           join(repo.dir, `${name}.test.ts`),
           `import { it } from "bun:test";\nimport { appendFileSync } from "node:fs";\n` +
-            `it("runs", () => appendFileSync(process.env["RAN_LOG"] ?? "", "${name}\\n"));\n`,
+            `const bin = (process.env["PATH"] ?? "").includes("node_modules/.bin");\n` +
+            `it("runs", () => appendFileSync(process.env["RAN_LOG"] ?? "", \`${name} \${bin}\\n\`));\n`,
         );
       }
+      // The shard runs through `bun run test`, as `bun run verify` does.
+      await Bun.write(
+        join(repo.dir, "package.json"),
+        JSON.stringify({ scripts: { test: "bun test" } }),
+      );
       const log = join(repo.root, "ran.log");
+      // Under `bun run verify` this test's own PATH holds node_modules/.bin already.
+      const withoutBins = (process.env["PATH"] ?? "")
+        .split(":")
+        .filter((entry) => !entry.includes("node_modules/.bin"))
+        .join(":");
       const timings: TimingFile = { Linux: { "t/a.test.ts": 50, "t/b.test.ts": 40 } };
       await Bun.write(join(repo.dir, TIMINGS_PATH), JSON.stringify(timings));
       await repo.commitAll("tests");
       for (const shard of ["1", "2", "3"]) {
         const child = Bun.spawn([process.execPath, SCRIPT, "run", "Linux", shard, "3"], {
           cwd: repo.dir,
-          env: { ...process.env, DIPO_TEST_CI: "", RAN_LOG: log },
+          env: { ...process.env, DIPO_TEST_CI: "", RAN_LOG: log, PATH: withoutBins },
           stdout: "pipe",
           stderr: "pipe",
         });
@@ -195,7 +207,7 @@ describe("a shard's bun test", () => {
         expect(out).toContain(`Linux shard ${shard}/3: 2 files`);
       }
       const ran = readFileSync(log, "utf8").split("\n").filter(Boolean);
-      expect(ran.toSorted()).toEqual(names.toSorted());
+      expect(ran.toSorted()).toEqual(names.map((name) => `${name} true`).toSorted());
     });
   }, 30_000);
 

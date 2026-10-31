@@ -11,8 +11,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { testArgs } from "./test";
-
 /** Where the per-file times live, relative to the repository root. */
 export const TIMINGS_PATH = "scripts/test-timings.json";
 
@@ -201,8 +199,11 @@ export async function main(args: string[], root: string = process.cwd()): Promis
     );
     // `bun test` with no path runs every file, so an empty shard runs nothing.
     if (files.length === 0) return 0;
-    // A leading ./ makes each argument one file, never a filter on file names.
-    const child = Bun.spawn([process.execPath, ...testArgs(files.map((file) => `./${file}`))], {
+    // Through `bun run test`, the test step of `bun run verify`: its CI timeout, and the PATH of
+    // `bun run`, which holds the repository's own CLIs (Backlog's among them). A leading ./ makes
+    // each argument one file, never a filter on file names.
+    const paths = files.map((file) => `./${file}`);
+    const child = Bun.spawn([process.execPath, "run", "test", ...paths], {
       cwd: root,
       stdio: ["inherit", "inherit", "inherit"],
     });
