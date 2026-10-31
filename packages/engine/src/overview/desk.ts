@@ -716,7 +716,7 @@ class DeskBuilder {
         since: iso(proposal.createdAt),
         blocks: this.#blocks(story),
         actions: note
-          ? []
+          ? this.#action("proposal.dismiss", `dipo propose dismiss ${id}`)
           : [
               ...this.#action("proposal.accept", `dipo propose accept ${id}`),
               ...this.#action("proposal.dismiss", `dipo propose dismiss ${id}`),
