@@ -29,6 +29,7 @@ import {
   isRegistryHost,
   normaliseHost,
   parseTunnelRequest,
+  RegistryTunnels,
   SAFE_CHAIN_UPSTREAM_CONNECT_TIMEOUT_MS,
   type BoxWebProxyDeps,
   type BoxWebProxyOptions,
@@ -520,6 +521,8 @@ interface Harness {
   readonly safeChain: { heads: string[] };
   /** Makes the Safe-Chain box stop or run again for the proxy (DIPO-343). */
   readonly setSafeChain: (running: boolean) => void;
+  /** The registry tunnels the proxy kept, by the harness clock (DIPO-396). */
+  readonly tunnels: RegistryTunnels;
   readonly upstream: { endpoint: Endpoint; sockets: Socket[] };
 }
 
@@ -544,11 +547,13 @@ async function harness(
   let safeChain: typeof SAFE_CHAIN_TARGET | null = SAFE_CHAIN_TARGET;
   const upstream = await echoServer(transport);
   const closed = await transport.closed();
+  const tunnels = new RegistryTunnels(clock);
   const { proxy, endpoint } = await transport.startProxy(
     {
       network: { hostAddress: LOOPBACK },
       safeChain: () => safeChain,
       limits,
+      tunnels,
       ...(admissions === undefined ? {} : { admissions }),
     },
     {
@@ -583,8 +588,15 @@ async function harness(
     setSafeChain: (running) => {
       safeChain = running ? SAFE_CHAIN_TARGET : null;
     },
+    tunnels,
     upstream,
   };
+}
+
+/** Waits, a few real ms at a time, until `done` holds; fails after two seconds. */
+async function until(done: () => boolean): Promise<void> {
+  for (let tries = 0; tries < 100 && !done(); tries += 1) await Bun.sleep(20);
+  expect(done()).toBe(true);
 }
 
 /**
@@ -801,6 +813,84 @@ for (const transport of [TCP, UNIX]) {
         { kind: "registry", host: "registry.npmjs.org", port: 443 },
         { kind: "registry", host: "files.pythonhosted.org", port: 443 },
       ]);
+    });
+
+    it("keeps each registry tunnel with the box its password names, and none for a wrong, stale or missing one (DIPO-396)", async () => {
+      const passwords = ["pw-a", "pw-b", "pw-a-again"];
+      const admissions = new BoxAdmissions(() => passwords.shift() ?? "spent");
+      admissions.admit("dipo-a", []);
+      admissions.admit("dipo-b", []);
+      const h = await harness(transport, { "cdn.example": [["203.0.113.7"]] }, [], {}, admissions);
+      const seen = (ecosystem: "npm" | "pypi", from: number, to: number) => {
+        const clients = h.tunnels.during(ecosystem, from, to);
+        return clients.kind === "seen" ? clients.boxes : clients.kind;
+      };
+      /** One registry tunnel to Safe-Chain, closed by the box at once; when it opened. */
+      const tunnel = async (target: string, extra: string): Promise<number> => {
+        const opened = h.clock.now();
+        const result = await exchange(h.endpoint, connectHead(target, extra), {
+          payload: "x",
+          until: (got) => got.includes("safe-chain:x"),
+        });
+        expect(result.text).toStartWith("HTTP/1.1 200 Connection Established\r\n\r\n");
+        h.clock.advance(1_000);
+        result.socket.destroy();
+        const ecosystem = target.startsWith("pypi") ? "pypi" : "npm";
+        // Closed once the proxy saw it close: no longer open just after now.
+        await until(() => seen(ecosystem, h.clock.now() + 1, h.clock.now() + 1).length === 0);
+        h.clock.advance(10_000);
+        return opened;
+      };
+      const a = await tunnel("registry.npmjs.org:443", auth("pw-a"));
+      const b = await tunnel("registry.npmjs.org:443", auth("pw-b"));
+      const bPypi = await tunnel("pypi.org:443", auth("pw-b"));
+      const missing = await tunnel("registry.npmjs.org:443", "");
+      const wrong = await tunnel("registry.npmjs.org:443", auth("guessed"));
+      // Admitted again: its earlier password names no box any more.
+      admissions.admit("dipo-a", []);
+      const stale = await tunnel("registry.npmjs.org:443", auth("pw-a"));
+      const again = await tunnel("registry.npmjs.org:443", auth("pw-a-again"));
+      expect(seen("npm", a, a + 1_000)).toEqual(["dipo-a"]);
+      expect(seen("npm", b, b + 1_000)).toEqual(["dipo-b"]);
+      expect(seen("pypi", bPypi, bPypi + 1_000)).toEqual(["dipo-b"]);
+      // Another ecosystem's tunnel at that time is not the npm process's.
+      expect(seen("npm", bPypi, bPypi + 1_000)).toEqual([]);
+      for (const at of [missing, wrong, stale]) expect(seen("npm", at, at + 1_000)).toEqual([null]);
+      expect(seen("npm", again, again + 1_000)).toEqual(["dipo-a"]);
+      // A span over two tunnels names both.
+      expect(seen("npm", a, b)).toEqual(["dipo-a", "dipo-b"]);
+      // Still a tunnel to Safe-Chain, each of them: a password only names the box.
+      expect(h.safeChain.heads).toHaveLength(7);
+
+      // What does not go to Safe-Chain is no registry tunnel: an alias or a zone's other name, a
+      // registry on another port, a direct tunnel, and a registry while no Safe-Chain box runs.
+      const quiet = h.clock.now();
+      for (const target of [
+        "registry.npmjs.com:443",
+        "www.npmjs.org:443",
+        "registry.npmjs.org:80",
+      ]) {
+        const refused = await exchange(h.endpoint, connectHead(target, auth("pw-a-again")));
+        expect(refused.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
+      }
+      const direct = await exchange(
+        h.endpoint,
+        connectHead("cdn.example:443", auth("pw-a-again")),
+        {
+          payload: hello("cdn.example").toString("latin1"),
+          until: (got) => got.includes("upstream:"),
+        },
+      );
+      expect(direct.text).toStartWith("HTTP/1.1 200 Connection Established\r\n\r\n");
+      h.setSafeChain(false);
+      const down = await exchange(
+        h.endpoint,
+        connectHead("registry.npmjs.org:443", auth("pw-a-again")),
+      );
+      expect(down.text).toStartWith("HTTP/1.1 503 Service Unavailable\r\n");
+      expect(seen("npm", quiet, h.clock.now())).toEqual([]);
+      expect(seen("pypi", quiet, h.clock.now())).toEqual([]);
+      direct.socket.destroy();
     });
 
     it("refuses a registry on any port but the TLS port, so it never goes direct", async () => {
@@ -1390,5 +1480,45 @@ describe("the web route of the boxes", () => {
     fail = false;
     await route.acquire("dipo-a");
     expect(route.running).toBe(true);
+  });
+});
+
+describe("the registry tunnels of the web route (DIPO-396)", () => {
+  it("names who had a tunnel of an ecosystem open in a span, open tunnels to the end of time", () => {
+    const clock = new ManualClock(1_000);
+    const tunnels = new RegistryTunnels(clock);
+    const closeA = tunnels.opened("dipo-a", "npm", 1_000);
+    clock.advance(500);
+    closeA();
+    closeA();
+    tunnels.opened(null, "npm", 3_000);
+    tunnels.opened("dipo-b", "pypi", 3_000);
+    expect(tunnels.during("npm", 0, 999)).toEqual({ kind: "seen", boxes: [] });
+    expect(tunnels.during("npm", 1_200, 1_200)).toEqual({ kind: "seen", boxes: ["dipo-a"] });
+    expect(tunnels.during("npm", 1_501, 2_999)).toEqual({ kind: "seen", boxes: [] });
+    expect(tunnels.during("npm", 2_000, 9_999_999)).toEqual({ kind: "seen", boxes: [null] });
+    expect(tunnels.during("pypi", 0, 9_999_999)).toEqual({ kind: "seen", boxes: ["dipo-b"] });
+  });
+
+  it("keeps the last closed tunnels it may, and calls a span from before them forgotten", () => {
+    const clock = new ManualClock(0);
+    const tunnels = new RegistryTunnels(clock, 10);
+    const open = tunnels.opened("dipo-long", "npm", 0);
+    for (let n = 0; n < 11; n += 1) {
+      clock.advance(1_000);
+      tunnels.opened(`dipo-${n}`, "npm", clock.now())();
+    }
+    // Eleven closed, ten kept at most: the oldest two went at once, so up to their close is forgotten.
+    expect(tunnels.during("npm", 2_000, 2_000)).toEqual({ kind: "forgotten" });
+    expect(tunnels.during("npm", 2_001, 3_000)).toEqual({
+      kind: "seen",
+      boxes: ["dipo-long", "dipo-2"],
+    });
+    // A tunnel still open is never forgotten.
+    open();
+    expect(tunnels.during("npm", 11_000, 11_000)).toEqual({
+      kind: "seen",
+      boxes: ["dipo-10", "dipo-long"],
+    });
   });
 });

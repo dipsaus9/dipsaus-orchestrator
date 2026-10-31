@@ -90,11 +90,12 @@ import {
   SAFE_CHAIN_LOG_DIR,
   type SafeChainFound,
   type SafeChainRecord,
+  type SafeChainUnknown,
 } from "../../src/box/safe-chain";
 import { SecretToken } from "../../src/box/token";
 import { BOX_TOKEN_CHECK } from "../../src/box/token-check";
 import { boxTokenHoldPath, boxTokenStickyHolds } from "../../src/box/token-hold";
-import type { BoxWebRouteStart } from "../../src/box/web-proxy";
+import { type BoxWebRouteStart, RegistryTunnels } from "../../src/box/web-proxy";
 import {
   BOX_CA_FILE,
   BOX_INDEX_DIR,
@@ -177,6 +178,15 @@ interface World {
   readonly tmp: string;
   readonly indexDir: string;
   readonly base: string;
+  /** The web route's registry tunnels, by the Mac's clock (DIPO-396): tests open them. */
+  readonly tunnels: RegistryTunnels;
+  /** Keeps a registry tunnel of `client` that was open from `opened` to `closed` (the Mac's ms). */
+  readonly tunnel: (
+    client: string | null,
+    ecosystem: "npm" | "pypi",
+    opened: number,
+    closed: number,
+  ) => void;
 }
 
 interface WorldOptions {
@@ -264,6 +274,14 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
   });
   const caFile = join(tmp, "route-ca.pem");
   writeFileSync(caFile, CA);
+  let closing: number | null = null;
+  const tunnels = new RegistryTunnels({ now: () => closing ?? systemClock.now() });
+  const tunnel: World["tunnel"] = (client, ecosystem, opened, closed) => {
+    const close = tunnels.opened(client, ecosystem, opened);
+    closing = closed;
+    close();
+    closing = null;
+  };
   const route =
     (what: string) =>
     async (network: BoxNetwork, ids?: RouteBoxIds): Promise<BoxWebRouteStart> => {
@@ -291,6 +309,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
             log.push(`${what} admitted ${box} ${ports.join(",")}`);
             return `http://dipo:pw-${box}@${network.hostAddress}:3128`;
           },
+          tunnels,
           stop: async () => {
             log.push(`${what} stopped`);
             if (safeChain !== null) await boxes.delete(safeChain);
@@ -362,6 +381,8 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     tmp,
     indexDir,
     base,
+    tunnels,
+    tunnel,
   };
 }
 
@@ -2112,16 +2133,28 @@ describe("the reviewer's box (0002, DIPO-347)", () => {
     }));
 });
 
-/** One line of Safe-Chain's log file, as 1.5.12 writes it. */
-const logLine = (message: string): string =>
-  `${JSON.stringify({ timestamp: "2026-10-30T10:57:30.565Z", level: "verbose", message })}\n`;
-const refusalOf = (pkg: string, url: string): string =>
-  logLine(`Safe-chain: Package ${pkg} is marked as malware: MALWARE`) +
-  logLine(`Safe-chain: Blocking request to ${url}`);
-const NPM_REFUSAL = refusalOf(
-  "safe-chain-test@0.0.1-security",
-  "https://registry.npmjs.org/safe-chain-test/-/safe-chain-test-0.0.1-security.tgz",
-);
+/** One line of Safe-Chain's log file, as 1.5.12 writes it, at `at` (now by default). */
+const logLine = (message: string, at: number = systemClock.now()): string =>
+  `${JSON.stringify({ timestamp: new Date(at).toISOString(), level: "verbose", message })}\n`;
+const refusalOf = (pkg: string, url: string, at?: number): string =>
+  logLine(`Safe-chain: Package ${pkg} is marked as malware: MALWARE`, at) +
+  logLine(`Safe-chain: Blocking request to ${url}`, at);
+const npmRefusal = (at?: number): string =>
+  refusalOf(
+    "safe-chain-test@0.0.1-security",
+    "https://registry.npmjs.org/safe-chain-test/-/safe-chain-test-0.0.1-security.tgz",
+    at,
+  );
+const NPM_REFUSAL = npmRefusal();
+
+/** The npm tarball of `name` at 1.0.0. */
+const url = (name: string) => `https://registry.npmjs.org/${name}/-/${name}-1.0.0.tgz`;
+/** A refusal of `pkg` by Aikido's malware list, as a run's record keeps it. */
+const malware = (ecosystem: "npm" | "pypi", pkg: string) => ({
+  ecosystem,
+  package: pkg,
+  reason: "Aikido's malware list marks it MALWARE",
+});
 
 /** The Safe-Chain box's commands run with `sh` on logs in `dir`; every other box's as before. */
 const safeChainExec =
@@ -2168,6 +2201,9 @@ describe("Safe-Chain's refusals of each session (DIPO-376)", () => {
         boxes: { exec: safeChainExec(logs) },
       });
       await created(w);
+      // The run's box keeps a registry tunnel of each ecosystem open (DIPO-396).
+      w.tunnels.opened(BOX, "npm", systemClock.now() - 60_000);
+      w.tunnels.opened(BOX, "pypi", systemClock.now() - 60_000);
       await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
       const box = [...w.boxes.boxes.keys()].find((name) =>
         name.startsWith(`dipo-${SAFE_CHAIN_BOX_RUN_PREFIX}`),
@@ -2175,9 +2211,9 @@ describe("Safe-Chain's refusals of each session (DIPO-376)", () => {
       expect(safeChain.records.get(RUN)).toEqual({
         refusals: [],
         unknown: [],
-        mark: { box: box ?? "", lines: { npm: 2, pypi: 0 } },
+        mark: { box: box ?? "", lines: { npm: 2, pypi: 0 }, clock: expect.any(Object) },
       });
-      appendFileSync(join(logs, "npm.ndjson"), NPM_REFUSAL);
+      appendFileSync(join(logs, "npm.ndjson"), npmRefusal());
       await w.workers.sessionEnded(RUN);
       const refusal = {
         ecosystem: "npm",
@@ -2229,7 +2265,11 @@ describe("Safe-Chain's refusals of each session (DIPO-376)", () => {
       safeChain.records.set(RUN, {
         refusals: [],
         unknown: [],
-        mark: { box: "dipo-safe-chain-0000000000000000", lines: { npm: 0, pypi: 0 } },
+        mark: {
+          box: "dipo-safe-chain-0000000000000000",
+          lines: { npm: 0, pypi: 0 },
+          clock: { low: 0, high: 0 },
+        },
       });
       await w.workers.rest(RUN);
       expect(safeChain.records.get(RUN)).toEqual({
@@ -2240,5 +2280,93 @@ describe("Safe-Chain's refusals of each session (DIPO-376)", () => {
         ],
         mark: null,
       });
+    }));
+
+  it("keeps on each run only its own box's refusals while the sessions of two runs overlap (DIPO-396)", () =>
+    inBoxes(async (repo, tmp) => {
+      const logs = join(tmp, "sc-log");
+      mkdirSync(logs);
+      // The route's own check, before either session.
+      writeFileSync(join(logs, "npm.ndjson"), NPM_REFUSAL);
+      writeFileSync(join(logs, "pypi.ndjson"), "");
+      const safeChain = safeChainStore();
+      const w = await world(repo, tmp, {
+        safeChainBox: true,
+        safeChain,
+        boxes: { exec: safeChainExec(logs) },
+      });
+      const box2 = boxName(RUN_2);
+      await created(w);
+      await created(w, RUN_2);
+      // Both sessions start, and both are open while each box asks.
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN_2,
+        runDir: join(tmp, "runs", RUN_2),
+        systemFile: w.systemFile,
+      });
+      const now = systemClock.now();
+      // Run 1's box, then run 2's, each refused its own package and the same test package.
+      w.tunnel(BOX, "npm", now - 40_000, now - 39_000);
+      w.tunnel(box2, "npm", now - 30_000, now - 29_000);
+      // Run 1's box on PyPI while run 2's is on npm: another Safe-Chain process.
+      w.tunnel(BOX, "pypi", now - 20_000, now - 19_000);
+      w.tunnel(box2, "npm", now - 20_000, now - 19_000);
+      // A tunnel with a wrong, stale or no password: Safe-Chain refuses, the box is not known.
+      w.tunnel(null, "npm", now - 10_000, now - 9_000);
+      // Both boxes at once.
+      w.tunnel(BOX, "npm", now - 5_000, now - 4_000);
+      w.tunnel(box2, "npm", now - 5_000, now - 4_000);
+      appendFileSync(
+        join(logs, "npm.ndjson"),
+        refusalOf("first@1.0.0", url("first"), now - 39_500) +
+          npmRefusal(now - 39_200) +
+          refusalOf("second@1.0.0", url("second"), now - 29_500) +
+          npmRefusal(now - 29_200) +
+          refusalOf("unnamed@1.0.0", url("unnamed"), now - 9_500) +
+          refusalOf("shared@1.0.0", url("shared"), now - 4_500),
+      );
+      appendFileSync(
+        join(logs, "pypi.ndjson"),
+        refusalOf(
+          "ghostrules@0.4.1",
+          "https://files.pythonhosted.org/packages/xx/yy/ghostrules-0.4.1.tar.gz",
+          now - 19_500,
+        ),
+      );
+      await w.workers.sessionEnded(RUN);
+      await w.workers.sessionEnded(RUN_2);
+      const unknown: SafeChainUnknown[] = [
+        {
+          ecosystem: "npm",
+          why: "Safe-Chain refused a package while a registry tunnel that named no box dipo admitted was open, so dipo cannot tell which box asked for it",
+        },
+        {
+          ecosystem: "npm",
+          why: "Safe-Chain refused a package while more than one box had a registry tunnel open, so dipo cannot tell which box asked for it",
+        },
+      ];
+      expect(safeChain.records.get(RUN)).toEqual({
+        refusals: [
+          malware("npm", "first@1.0.0"),
+          malware("npm", "safe-chain-test@0.0.1-security"),
+          malware("pypi", "ghostrules@0.4.1"),
+        ],
+        unknown,
+        mark: null,
+      });
+      expect(safeChain.records.get(RUN_2)).toEqual({
+        refusals: [
+          malware("npm", "second@1.0.0"),
+          malware("npm", "safe-chain-test@0.0.1-security"),
+        ],
+        unknown,
+        mark: null,
+      });
+      // No run's row names a package its box did not ask for.
+      const rows = JSON.stringify([...safeChain.records.values()]);
+      expect(rows).not.toMatch(/unnamed|shared/);
+      expect(JSON.stringify(safeChain.records.get(RUN))).not.toContain("second@");
+      expect(JSON.stringify(safeChain.records.get(RUN_2))).not.toMatch(/first@|ghostrules/);
     }));
 });

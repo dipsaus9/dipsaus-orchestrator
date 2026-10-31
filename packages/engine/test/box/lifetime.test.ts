@@ -47,7 +47,7 @@ import {
   BoxWorkers,
   readBoxRun,
 } from "../../src/box/workers";
-import type { BoxWebRouteStart } from "../../src/box/web-proxy";
+import { type BoxWebRouteStart, RegistryTunnels } from "../../src/box/web-proxy";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
@@ -157,6 +157,7 @@ async function world(
       url: `http://${network.hostAddress}:3128`,
       caFile,
       admit: (box) => `http://dipo:pw-${box}@${network.hostAddress}:3128`,
+      tunnels: new RegistryTunnels(systemClock),
       stop: async () => {
         log.push("web route stopped");
       },

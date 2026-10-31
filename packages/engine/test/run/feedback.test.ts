@@ -230,7 +230,11 @@ describe("Safe-Chain's refusals of a session (DIPO-376)", () => {
     } as const;
     const unknown = { ecosystem: "pypi", why: "the Safe-Chain box it ran with is gone" } as const;
     // The mark a session starts with holds nothing for the worker.
-    const mark = { box: "dipo-safe-chain-1", lines: { npm: 2, pypi: 0 } };
+    const mark = {
+      box: "dipo-safe-chain-1",
+      lines: { npm: 2, pypi: 0 },
+      clock: { low: -5, high: 5 },
+    };
     store.store(f.run, { refusals: [], unknown: [], mark }, { refusals: [], unknown: [] });
     expect(store.of(f.run)).toEqual({ refusals: [], unknown: [], mark });
     expect(heldFeedback(f.office, f.run).texts).toEqual([]);

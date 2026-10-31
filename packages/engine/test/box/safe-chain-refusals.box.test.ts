@@ -5,12 +5,19 @@
 //
 //   DIPO_TEST_BOX=1 bun test packages/engine/test/box/safe-chain-refusals.box.test.ts
 //
-// One web route, as dipo starts it, and a box of the office image behind it, as a session sets it:
-// - The session's mark is taken, then the box installs Safe-Chain's npm test package with npm and
-//   with bun, and asks for a PyPI file on Aikido's malware list. Each is refused. Safe-Chain's log
-//   then holds each refusal with its reason, and only the session's: the route's own check refused
-//   the npm test package before the mark. So a Safe-Chain release that words its log otherwise
-//   fails here, instead of dropping refusals without a word.
+// One web route, as dipo starts it, and two boxes of the office image behind it, each as a session
+// of its own run sets it, the two sessions open at once:
+// - Each session's mark is taken, then box A installs Safe-Chain's npm test package with npm and
+//   asks for a PyPI file on Aikido's malware list; then box B installs the same npm test package
+//   with bun and asks for another PyPI file on the list. Each is refused, and the install fails.
+//   Safe-Chain's log then holds each refusal with its reason, and each session keeps only its own
+//   box's (DIPO-396): A's row holds the npm test package and its PyPI file, B's the npm test
+//   package and its own, and the route's own check before the marks is in neither. So a
+//   Safe-Chain release that words its log otherwise fails here, instead of dropping refusals
+//   without a word.
+// - The bypass forms: a tunnel with a wrong, a stale (B admitted again) or no proxy password still
+//   goes to Safe-Chain, which still refuses, and its refusal is unknown on both open runs, never
+//   one run's. A registry alias never reaches Safe-Chain: the proxy refuses it.
 // - Fail-closed on the real path: once the route stopped, its Safe-Chain box and its logs are gone,
 //   and the session's refusals are unknown, never "no refusals".
 // Every log line and outcome is printed as a `fact:` line.
@@ -27,13 +34,19 @@ import { AppleContainerBoxes } from "../../src/box/apple-container";
 import { ensureBoxImage } from "../../src/box/build-box";
 import { BOX_DEFAULTS, BOX_IMAGE_ENV, describeBox } from "../../src/box/image";
 import { type BoxNetwork, boxName } from "../../src/box/port";
-import { SAFE_CHAIN_ECOSYSTEMS, safeChainLogFile } from "../../src/box/safe-chain";
+import {
+  SAFE_CHAIN_ECOSYSTEMS,
+  type SafeChainFound,
+  safeChainLogFile,
+  uniqueFound,
+} from "../../src/box/safe-chain";
 import {
   markSafeChain,
   readSafeChain,
   type SafeChainBoxInfo,
   startBoxWebRoute,
 } from "../../src/box/safe-chain-box";
+import type { SafeChainMark, SafeChainUnknown } from "../../src/box/safe-chain";
 import { BoxWebRoute, type RunningBoxWebRoute } from "../../src/box/web-proxy";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
@@ -57,23 +70,30 @@ function fact(text: string): void {
   console.log(`fact: ${text}`);
 }
 
-/** A package on Aikido's PyPI malware list now, with a plain name: the list changes over time. */
-async function pypiMalware(): Promise<{ readonly name: string; readonly version: string }> {
+/** Three packages on Aikido's PyPI malware list now, with plain names: the list changes over time. */
+async function pypiMalware(): Promise<{ readonly name: string; readonly version: string }[]> {
   const response = await fetch(PYPI_MALWARE_LIST);
   const list = (await response.json()) as {
     package_name: string;
     version: string;
     reason: string;
   }[];
-  const entry = list.find(
-    (item) =>
+  const names = new Set<string>();
+  const entries = list.filter((item) => {
+    const plain =
       item.reason === "MALWARE" &&
       /^[a-z]+$/.test(item.package_name) &&
-      /^[0-9.]+$/.test(item.version),
-  );
-  if (entry === undefined) throw new Error("Aikido's PyPI malware list holds no plain entry");
-  return { name: entry.package_name, version: entry.version };
+      /^[0-9.]+$/.test(item.version) &&
+      !names.has(item.package_name);
+    if (plain) names.add(item.package_name);
+    return plain;
+  });
+  if (entries.length < 3) throw new Error("Aikido's PyPI malware list holds too few plain entries");
+  return entries.slice(0, 3).map((entry) => ({ name: entry.package_name, version: entry.version }));
 }
+
+/** Longer than a refusal's span on the Mac's clock, so two steps' tunnels never share one. */
+const APART_MS = 3_000;
 
 if (registers) {
   // Every box this run makes is deleted after its tests, and one an earlier run left is reported.
@@ -125,9 +145,9 @@ if (registers) {
     return { code: done.code, out: `${done.stdout}${done.stderr}` };
   };
 
-  describe("Safe-Chain's refusals in its log, in a real box (DIPO-376)", () => {
+  describe("Safe-Chain's refusals in its log, each on its own box's run, in real boxes (DIPO-376, DIPO-396)", () => {
     it(
-      "names each refusal of a session with Safe-Chain's reason, and none from before it",
+      "keeps each refusal of two overlapping sessions on its own box's run only, with Safe-Chain's reason",
       async () => {
         expect(await boxes.check()).toMatchObject({ ok: true });
         network = await boxes.network();
@@ -141,110 +161,201 @@ if (registers) {
           ).image,
         );
         fact(`office image ${office.tag} ${office.built ? "built" : "reused"}`);
-        const malware = await pypiMalware();
-        fact(`PyPI package on Aikido's malware list: ${malware.name}@${malware.version}`);
-        const runId = `test-${crypto.randomUUID().slice(0, 8)}`;
-        const name = boxName(runId);
+        const [forA, forB, unnamed] = (await pypiMalware()) as [Malware, Malware, Malware];
+        fact(
+          `PyPI packages on Aikido's malware list: ${[forA, forB, unnamed].map(label).join(", ")}`,
+        );
+        const names = [boxName(`test-${crypto.randomUUID().slice(0, 8)}`), ""];
+        names[1] = boxName(`test-${crypto.randomUUID().slice(0, 8)}`);
+        const [nameA, nameB] = names as [string, string];
         let info: SafeChainBoxInfo | null = null;
         try {
-          await boxes.create({ runId, image: office.tag, network, netTools: office.netTools });
-          await boxes.start(name);
-          const web = await route.acquire(name);
+          const web = await (async () => {
+            let got: RunningBoxWebRoute | null = null;
+            for (const name of [nameA, nameB]) {
+              const runId = name.replace(/^dipo-/, "");
+              await boxes.create({ runId, image: office.tag, network, netTools: office.netTools });
+              await boxes.start(name);
+              got = await route.acquire(name);
+              await boxes.firewall(name, { hostAddress: network.hostAddress, ports: [got.port] });
+              const stage = join(root, `dipo-files-${runId}`);
+              mkdirSync(stage, { recursive: true });
+              writeFileSync(join(stage, "safe-chain-ca.pem"), readFileSync(got.caFile));
+              await boxes.copyIn(name, `${stage}/.`, "/dipo");
+            }
+            return got as RunningBoxWebRoute;
+          })();
           info = safeChain as SafeChainBoxInfo | null;
           if (info === null) throw new Error("the route reported no Safe-Chain box");
-          fact(`Safe-Chain box ${info.name}`);
-          await boxes.firewall(name, { hostAddress: network.hostAddress, ports: [web.port] });
-          const stage = join(root, "dipo-files");
-          mkdirSync(stage, { recursive: true });
-          writeFileSync(join(stage, "safe-chain-ca.pem"), readFileSync(web.caFile));
-          await boxes.copyIn(name, `${stage}/.`, "/dipo");
-          const proxy = web.admit(name, []);
-          const through = { HTTPS_PROXY: proxy, HTTP_PROXY: proxy, NODE_EXTRA_CA_CERTS: BOX_CA };
+          const scBox = info.name;
+          fact(`Safe-Chain box ${scBox}, boxes ${nameA} and ${nameB}`);
+          const through = (proxy: string) => ({
+            HTTPS_PROXY: proxy,
+            HTTP_PROXY: proxy,
+            NODE_EXTRA_CA_CERTS: BOX_CA,
+          });
+          const proxyA = web.admit(nameA, []);
+          const proxyB = web.admit(nameB, []);
+          /** A PyPI file on the malware list through `proxy` from `box`: curl's status. */
+          const pypiFile = async (box: string, proxy: string, malware: Malware) => {
+            const file = `https://files.pythonhosted.org/packages/xx/yy/${malware.name}-${malware.version}.tar.gz`;
+            const got = await sh(
+              box,
+              `curl -sS -m 60 -o /dev/null -w '%{http_code}' --cacert ${BOX_CA} -x "$HTTPS_PROXY" ${file}`,
+              through(proxy),
+            );
+            fact(
+              `${box}: a PyPI file of ${label(malware)}: exit ${got.code}, status ${got.out.trim()}`,
+            );
+            return got.out.trim();
+          };
 
-          // The session starts: its mark is after the route's own check of safe-chain-test.
-          const mark = await markSafeChain(boxes, info.name);
-          fact(`mark at the session's start: ${JSON.stringify(mark)}`);
-          expect(mark.box).toBe(info.name);
-          expect(mark.lines.npm).toBeGreaterThan(0);
-          expect(mark.lines.pypi).not.toBeNull();
+          // Both sessions start: their marks are after the route's own check of safe-chain-test.
+          const markA = await markSafeChain(boxes, scBox, systemClock);
+          const markB = await markSafeChain(boxes, scBox, systemClock);
+          fact(`marks at the sessions' start: ${JSON.stringify([markA, markB])}`);
+          for (const mark of [markA, markB]) {
+            expect(mark.box).toBe(scBox);
+            expect(mark.lines.npm).toBeGreaterThan(0);
+            expect(mark.lines.pypi).not.toBeNull();
+            expect(mark.clock).not.toBeNull();
+          }
 
+          // Box A: npm and a PyPI file. A bare 403 to the installer: it names no reason.
           const npm = await sh(
-            name,
+            nameA,
             "npm install --prefix /tmp/n --cache /tmp/n-cache --no-audit --no-fund safe-chain-test 2>&1",
-            through,
+            through(proxyA),
           );
-          fact(
-            `npm install safe-chain-test: exit ${npm.code}: ${npm.out.trim().split("\n").slice(-3).join(" | ")}`,
-          );
-          // A bare 403 to the installer: it names no reason (DIPO-376 found it with bun).
+          fact(`${nameA}: npm install safe-chain-test: exit ${npm.code}: ${tail(npm.out)}`);
           expect(npm.code).toBe(1);
           expect(npm.out).toContain("403");
+          expect(await pypiFile(nameA, proxyA, forA)).toBe("403");
+          await Bun.sleep(APART_MS);
+
+          // Box B: the same npm package with bun, and another PyPI file.
           const bun = await sh(
-            name,
+            nameB,
             "mkdir -p /tmp/b && cd /tmp/b && bun add safe-chain-test 2>&1",
-            through,
+            through(proxyB),
           );
-          fact(
-            `bun add safe-chain-test: exit ${bun.code}: ${bun.out.trim().split("\n").slice(-3).join(" | ")}`,
-          );
+          fact(`${nameB}: bun add safe-chain-test: exit ${bun.code}: ${tail(bun.out)}`);
           expect(bun.code).toBe(1);
           expect(bun.out).toContain("403");
-          const file = `https://files.pythonhosted.org/packages/xx/yy/${malware.name}-${malware.version}.tar.gz`;
-          const pypi = await sh(
-            name,
-            `curl -sS -m 60 -o /dev/null -w '%{http_code}' --cacert ${BOX_CA} -x "$HTTPS_PROXY" ${file}`,
-            through,
+          expect(await pypiFile(nameB, proxyB, forB)).toBe("403");
+          await Bun.sleep(APART_MS);
+
+          // The bypass forms from box B: a wrong, a stale and no password. Safe-Chain still
+          // refuses each; the tunnel names no box.
+          const wrong = proxyB.replace(/:[^:@/]+@/, ":not-the-password@");
+          const bare = proxyB.replace(/\/\/[^@]+@/, "//");
+          const proxyB2 = web.admit(nameB, []);
+          expect(proxyB2).not.toBe(proxyB);
+          for (const proxy of [wrong, bare, proxyB]) {
+            expect(await pypiFile(nameB, proxy, unnamed)).toBe("403");
+          }
+          await Bun.sleep(APART_MS);
+          // A registry alias skips Safe-Chain only to be refused by the proxy: no tunnel at all.
+          const alias = await sh(
+            nameA,
+            `curl -sS -m 60 -o /dev/null -w '%{http_connect}' --cacert ${BOX_CA} -x "$HTTPS_PROXY" https://registry.npmjs.com/safe-chain-test/-/safe-chain-test-0.0.1-security.tgz`,
+            through(proxyA),
           );
-          fact(`a PyPI file on the malware list: exit ${pypi.code}, status ${pypi.out.trim()}`);
-          expect(pypi.out.trim()).toBe("403");
+          fact(
+            `${nameA}: a registry alias: exit ${alias.code}, CONNECT status ${alias.out.trim()}`,
+          );
+          expect(alias.code).not.toBe(0);
+          expect(alias.out).toContain("403");
 
           // What Safe-Chain wrote, as it wrote it.
           for (const ecosystem of SAFE_CHAIN_ECOSYSTEMS) {
-            const log = await boxes.exec(info.name, ["cat", "--", safeChainLogFile(ecosystem)]);
+            const log = await boxes.exec(scBox, ["cat", "--", safeChainLogFile(ecosystem)]);
             for (const line of log.stdout.trim().split("\n")) fact(`${ecosystem} log: ${line}`);
           }
 
-          // The session ends: its refusals, and only its, each with Safe-Chain's reason.
-          const found = await readSafeChain(boxes, info.name, mark);
-          fact(`the session's refusals: ${JSON.stringify(found)}`);
-          expect(found.unknown).toEqual([]);
-          const npmRefusals = found.refusals.filter((refusal) => refusal.ecosystem === "npm");
-          // npm and bun each asked for the test package at least once.
-          expect(npmRefusals.length).toBeGreaterThanOrEqual(2);
-          for (const refusal of npmRefusals) {
-            expect(refusal).toEqual({
-              ecosystem: "npm",
-              package: "safe-chain-test@0.0.1-security",
-              reason: MALWARE,
-            });
-          }
-          expect(found.refusals.filter((refusal) => refusal.ecosystem === "pypi")).toEqual([
-            { ecosystem: "pypi", package: `${malware.name}@${malware.version}`, reason: MALWARE },
-          ]);
-          // Read from the session's end on, the logs hold nothing more of it.
-          const after = await markSafeChain(boxes, info.name);
-          expect(await readSafeChain(boxes, info.name, after)).toEqual({
-            refusals: [],
-            unknown: [],
+          // Both sessions end: each keeps its own box's refusals, with Safe-Chain's reason, and
+          // the tunnels that named no box as unknown on both.
+          const read = async (mark: SafeChainMark, client: string): Promise<SafeChainFound> =>
+            uniqueFound(
+              await readSafeChain(boxes, scBox, mark, {
+                clock: systemClock,
+                client,
+                tunnels: web.tunnels,
+              }),
+            );
+          const foundA = await read(markA, nameA);
+          const foundB = await read(markB, nameB);
+          fact(`run A's refusals: ${JSON.stringify(foundA)}`);
+          fact(`run B's refusals: ${JSON.stringify(foundB)}`);
+          const malwareOf = (ecosystem: "npm" | "pypi", pkg: string) => ({
+            ecosystem,
+            package: pkg,
+            reason: MALWARE,
           });
+          const untied: SafeChainUnknown[] = [
+            {
+              ecosystem: "pypi",
+              why: "Safe-Chain refused a package while a registry tunnel that named no box dipo admitted was open, so dipo cannot tell which box asked for it",
+            },
+          ];
+          expect(foundA).toEqual({
+            refusals: [
+              malwareOf("npm", "safe-chain-test@0.0.1-security"),
+              malwareOf("pypi", label(forA)),
+            ],
+            unknown: untied,
+          });
+          expect(foundB).toEqual({
+            refusals: [
+              malwareOf("npm", "safe-chain-test@0.0.1-security"),
+              malwareOf("pypi", label(forB)),
+            ],
+            unknown: untied,
+          });
+          expect(JSON.stringify(foundA)).not.toContain(forB.name);
+          expect(JSON.stringify(foundB)).not.toContain(forA.name);
+          expect(JSON.stringify([foundA, foundB])).not.toContain(unnamed.name);
+          // Read from the sessions' end on, the logs hold nothing more of them.
+          const after = await markSafeChain(boxes, scBox, systemClock);
+          expect(await read(after, nameA)).toEqual({ refusals: [], unknown: [] });
 
           // Fail-closed: the route stops, its Safe-Chain box goes, and the session's log with it.
-          await route.release(name);
+          await route.release(nameA);
+          await route.release(nameB);
           expect(route.running).toBe(false);
-          const gone = await readSafeChain(boxes, info.name, mark);
-          fact(`the session's refusals once the Safe-Chain box is gone: ${JSON.stringify(gone)}`);
+          const gone = await readSafeChain(boxes, scBox, markA, {
+            clock: systemClock,
+            client: nameA,
+            tunnels: web.tunnels,
+          });
+          fact(`run A's refusals once the Safe-Chain box is gone: ${JSON.stringify(gone)}`);
           expect(gone.refusals).toEqual([]);
           expect(gone.unknown.map((log) => log.ecosystem)).toEqual(["npm", "pypi"]);
         } finally {
-          await route.release(name).catch(() => {});
-          await boxes.delete(name).catch(() => {});
+          for (const name of [nameA, nameB]) {
+            await route.release(name).catch(() => {});
+            await boxes.delete(name).catch(() => {});
+          }
         }
-        // This test's Safe-Chain box went with its route.
+        // These boxes and this test's Safe-Chain box went with the route.
         const left = (await boxes.list()).map((box) => box.name);
-        expect(left).not.toContain(name);
+        expect(left).not.toContain(nameA);
+        expect(left).not.toContain(nameB);
         if (info !== null) expect(left).not.toContain((info as SafeChainBoxInfo).name);
       },
       TIMEOUT_MS,
     );
   });
+}
+
+type Malware = { readonly name: string; readonly version: string };
+
+/** `name@version`, as Safe-Chain names a package. */
+function label(malware: Malware): string {
+  return `${malware.name}@${malware.version}`;
+}
+
+/** The last three lines of an installer's output, on one line. */
+function tail(out: string): string {
+  return out.trim().split("\n").slice(-3).join(" | ");
 }

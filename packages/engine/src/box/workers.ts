@@ -32,8 +32,10 @@
 //   Safe-Chain box's logs (`markSafeChain`), and when it ends (`sessionEnded`, before its exit is
 //   decided; else at its rest or finish, whichever is first) the lines since are read
 //   (`readSafeChain`) and kept on the run, each package once and at most `SAFE_CHAIN_RECORD_MAX`, so
-//   they outlive the Safe-Chain box. A log that cannot be read is kept as unknown, never as no
-//   refusals.
+//   they outlive the Safe-Chain box. Only the refusals the run's own box asked for are kept, by the
+//   web route's registry tunnels (DIPO-396): one Safe-Chain box serves every box of every office.
+//   A log that cannot be read, and a refusal whose box cannot be told, is kept as unknown, never as
+//   no refusals and never as another run's refusal.
 // - `rest` (the story waits, DIPO-278): the box stopped and started again (so no earlier claude
 //   outlives its host into the check), the post-run token check, then the box stopped with its
 //   files and its routes released; the record says it rests until the next session. A session
@@ -132,7 +134,12 @@ import {
 } from "./safe-chain";
 import { markSafeChain, readSafeChain } from "./safe-chain-box";
 import { type BoxInstallResult, type BoxVerifyResult, runBoxInstall, runBoxVerify } from "./verify";
-import { BoxWebRoute, type BoxWebRouteStart, type RunningBoxWebRoute } from "./web-proxy";
+import {
+  BoxWebRoute,
+  type BoxWebRouteStart,
+  type RegistryTunnels,
+  type RunningBoxWebRoute,
+} from "./web-proxy";
 
 /** The run directory's record that the run's developer works in a box. */
 export const BOX_RUN_FILE = "box-run.json";
@@ -523,6 +530,8 @@ export class BoxWorkers {
   #pass: Promise<unknown> = Promise.resolve();
   /** The Safe-Chain box of the running web route, whose logs hold the refusals (DIPO-376). */
   #safeChainBox: string | null = null;
+  /** The running web route's registry tunnels, which tie each refusal to its box (DIPO-396). */
+  #registryTunnels: RegistryTunnels | null = null;
   /** Per run, its Safe-Chain mark or read in flight; the next waits for it (DIPO-376). */
   readonly #safeChainReads = new Map<string, Promise<void>>();
 
@@ -581,12 +590,15 @@ export class BoxWorkers {
       throw new BoxError("box.routeFailed", `the box web route did not start: ${started.reason}`);
     }
     const route = started.route;
-    // Its logs hold the refusals of the sessions while the route runs (DIPO-376).
+    // Its logs hold the refusals of the sessions while the route runs (DIPO-376), and its tunnels
+    // which box asked for each (DIPO-396).
     this.#safeChainBox = safeChainBox;
+    this.#registryTunnels = route.tunnels;
     return {
       ...route,
       stop: async () => {
         if (this.#safeChainBox === safeChainBox) this.#safeChainBox = null;
+        if (this.#registryTunnels === route.tunnels) this.#registryTunnels = null;
         try {
           await route.stop();
         } finally {
@@ -1174,7 +1186,11 @@ export class BoxWorkers {
     const stored = store?.of(runId) ?? null;
     if (store === undefined || stored === null || stored.mark === null) return;
     const found = uniqueFound(
-      await readSafeChain(this.#deps.boxes, this.#safeChainBox, stored.mark),
+      await readSafeChain(this.#deps.boxes, this.#safeChainBox, stored.mark, {
+        clock: this.#deps.code.clock,
+        client: boxName(runId),
+        tunnels: this.#registryTunnels,
+      }),
     );
     store.store(runId, addSafeChainFound(stored, found), found);
     if (found.unknown.length > 0) {
@@ -1194,7 +1210,7 @@ export class BoxWorkers {
       const store = this.#deps.safeChain;
       if (store === undefined) return;
       await this.#keepSafeChain(runId);
-      const mark = await markSafeChain(this.#deps.boxes, this.#safeChainBox);
+      const mark = await markSafeChain(this.#deps.boxes, this.#safeChainBox, this.#deps.code.clock);
       const stored = store.of(runId) ?? EMPTY_SAFE_CHAIN_RECORD;
       store.store(runId, { ...stored, mark }, { refusals: [], unknown: [] });
     });
