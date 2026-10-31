@@ -37,10 +37,16 @@ const malwareLines = (pkg: string, url: string, at?: number): string =>
   logLine(`Safe-chain: Package ${pkg} is marked as malware: MALWARE`, at) +
   logLine(`Safe-chain: Blocking request to ${url}`, at);
 
-const ROUTE_CHECK = malwareLines(
-  "safe-chain-test@0.0.1-security",
-  "https://registry.npmjs.org/safe-chain-test/-/safe-chain-test-0.0.1-security.tgz",
-);
+/**
+ * The route's own check of safe-chain-test, stamped when it is written to the log: a stamp taken at
+ * module load would fall before a session's mark on a slow run (DIPO-408).
+ */
+const routeCheck = (at?: number): string =>
+  malwareLines(
+    "safe-chain-test@0.0.1-security",
+    "https://registry.npmjs.org/safe-chain-test/-/safe-chain-test-0.0.1-security.tgz",
+    at,
+  );
 
 /**
  * Box calls that run each command with `sh` here, the box's log folder being `dir`; only `box`
@@ -94,7 +100,7 @@ async function logs(run: (dir: string) => Promise<void>): Promise<void> {
     mkdirSync(dir);
     writeFileSync(
       join(dir, "npm.ndjson"),
-      logLine("Log started, command: bun install") + ROUTE_CHECK,
+      logLine("Log started, command: bun install") + routeCheck(),
     );
     writeFileSync(join(dir, "pypi.ndjson"), logLine("Log started, command: pip3 install x"));
     await run(dir);
@@ -116,7 +122,7 @@ describe("the refusals of one session in Safe-Chain's logs (DIPO-376)", () => {
         join(dir, "npm.ndjson"),
         logLine("Safe-chain: Package left-pad@1.3.0 is clean"),
       );
-      appendFileSync(join(dir, "npm.ndjson"), ROUTE_CHECK);
+      appendFileSync(join(dir, "npm.ndjson"), routeCheck());
       appendFileSync(
         join(dir, "pypi.ndjson"),
         logLine("Safe-chain: Package six@1.16.0 is clean") +
@@ -208,12 +214,23 @@ describe("the refusals of one session in Safe-Chain's logs (DIPO-376)", () => {
       ]);
     }));
 
+  it("keeps a refusal stamped before the mark but written after it unknown (DIPO-408)", () =>
+    logs(async (dir) => {
+      const boxes = boxesIn(dir);
+      const mark = await markSafeChain(boxes, BOX, systemClock);
+      // Stamped two seconds before the mark, as a check of a slow run is: outside the session's span.
+      appendFileSync(join(dir, "npm.ndjson"), routeCheck(mark.markedAt! - 2_000));
+      const found = await readSafeChain(boxes, BOX, mark, reader());
+      expect(found.refusals).toEqual([]);
+      expect(found.unknown.map((unknown) => unknown.ecosystem)).toEqual(["npm"]);
+    }));
+
   it("keeps a log as unknown, not as no refusals, when it holds fewer lines than at the mark", () =>
     logs(async (dir) => {
       const boxes = boxesIn(dir);
       const mark = await markSafeChain(boxes, BOX, systemClock);
       // The log was cut or replaced in the same box: a refusal written since is not lost unseen.
-      writeFileSync(join(dir, "npm.ndjson"), ROUTE_CHECK.split("\n")[0] + "\n");
+      writeFileSync(join(dir, "npm.ndjson"), routeCheck().split("\n")[0] + "\n");
       expect(await readSafeChain(boxes, BOX, mark, reader())).toEqual({
         refusals: [],
         unknown: [
@@ -423,7 +440,7 @@ describe("the refusals of one session's own box (DIPO-396)", () => {
   it("keeps every refusal as unknown when the box's clock cannot be read or moved during the session", () =>
     logs(async (dir) => {
       const mark = await markSafeChain(boxesIn(dir), BOX, systemClock);
-      appendFileSync(join(dir, "npm.ndjson"), ROUTE_CHECK);
+      appendFileSync(join(dir, "npm.ndjson"), routeCheck());
       for (const [clock, why] of [
         [() => "not-a-time", "while the Safe-Chain box's clock could not be read"],
         // A minute ahead at the end of the session: its clock moved.
@@ -440,13 +457,13 @@ describe("the refusals of one session's own box (DIPO-396)", () => {
       // A clock that could not be read at the start: the same.
       const unclocked = await markSafeChain(boxesIn(dir, { clock: () => "x" }), BOX, systemClock);
       expect(unclocked.clock).toBeNull();
-      appendFileSync(join(dir, "npm.ndjson"), ROUTE_CHECK);
+      appendFileSync(join(dir, "npm.ndjson"), routeCheck());
       expect((await readSafeChain(boxesIn(dir), BOX, unclocked, reader())).unknown).toEqual([
         untied("npm", "while the Safe-Chain box's clock could not be read"),
       ]);
       // No registry tunnels known: never a refusal of this box.
       const later = await markSafeChain(boxesIn(dir), BOX, systemClock);
-      appendFileSync(join(dir, "npm.ndjson"), ROUTE_CHECK);
+      appendFileSync(join(dir, "npm.ndjson"), routeCheck());
       expect(await readSafeChain(boxesIn(dir), BOX, later, reader(null))).toEqual({
         refusals: [],
         unknown: [untied("npm", "longer ago than dipo keeps its registry tunnels")],
