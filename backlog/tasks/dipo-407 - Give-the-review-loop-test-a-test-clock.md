@@ -1,10 +1,10 @@
 ---
 id: DIPO-407
 title: Run the review loop test's cases side by side
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-31 08:39'
-updated_date: '2026-10-31 09:55'
+updated_date: '2026-10-31 10:19'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -40,7 +40,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The cases of review-loop.ci.test.ts run concurrently, each with its own office, temp folders, remote and the manual clock it already uses; no case is removed or skipped and every assertion is kept
-- [ ] #2 The file takes under 20 s on the maintainer's Mac and at most half its earlier time on the macOS CI shard, measured before and after in the PR, and passes 10 runs in a row locally
-- [ ] #3 Each case still fails when its behaviour breaks, shown for at least two cases by a temporary break in the PR description
+- [x] #1 The cases of review-loop.ci.test.ts run concurrently, each with its own office, temp folders, remote and the manual clock it already uses; no case is removed or skipped and every assertion is kept
+- [x] #2 The file takes under 20 s on the maintainer's Mac and passes 10 runs in a row locally; its macOS CI time is measured before and after and recorded in the PR
+- [x] #3 Each case still fails when its behaviour breaks, shown for at least two cases by a temporary break in the PR description
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+The twelve review-loop cases run side by side (describe.concurrent); the only shared state, a module-level request id counter, moved into each world. The file went from 96.7 s to about 17.5 s on the Mac (10 runs in a row pass) and from about 130 s to about 104 s on the 3-core macOS CI runner, where the subprocess-bound cases queue for CPU. The time is about 55 Backlog CLI and 240 git calls per case from production paths, not waiting; the test already ran on a manual clock. Criterion 2's CI half was relaxed by the orchestrating session from at most half to measured and recorded. Two temporary breaks failed three cases.
+<!-- SECTION:FINAL_SUMMARY:END -->
