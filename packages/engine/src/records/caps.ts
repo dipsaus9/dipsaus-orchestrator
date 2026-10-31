@@ -19,9 +19,9 @@ import type { StoredRun } from "./run-records";
 
 /**
  * The ms the run's worker questions waited live up to `now` (0020 section 7, DIPO-159, the
- * `questions` table of `questions/questions.ts`): from each question's `asked_at` to the first of its
- * close, its park (the park's own time is the run's `parked_ms`), the end of its wait and `now`.
- * The minute cap leaves them out.
+ * `questions` table of `run-state/questions.ts`): from each question's `asked_at` to the first of
+ * its close, its park (the park's own time is the run's `parked_ms`), the end of its wait and
+ * `now`. The minute cap leaves them out.
  */
 export function questionWaitMs(office: OfficeHandle, runId: string, now: number): number {
   const row = office.get<{ total: number | null }>(

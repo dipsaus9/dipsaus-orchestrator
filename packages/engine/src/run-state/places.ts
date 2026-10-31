@@ -14,7 +14,7 @@
 //   new pickups by `work.run`; the reviewer place starts maintainer resumes of a review first,
 //   then pending reviews, oldest In Review first. Within a rank the oldest wait goes first. A story
 //   that waits for CI, for the maintainer or in the merge slot has an ended run and holds no place.
-// - Starts paused (0020, `starts-paused.ts`): while the office's starts are paused, no waiting
+// - Starts paused (0020, `run/starts-paused.ts`): while the office's starts are paused, no waiting
 //   session starts in either place; it keeps waiting and starts once the pause lifted.
 // - Caps. A fix round or conflict hand-off whose run already reached its caps (a done path that
 //   crossed one, DIPO-205) is not started: `Places.drain` parks the story `budget-exceeded`
@@ -36,7 +36,7 @@ import { background } from "../platform/background";
 import { workRefOf } from "../views/work";
 
 import { REVIEWER_ROLE } from "../records/caps";
-import type { RunEnding } from "./control-types";
+import type { RunEnding } from "../run/control-types";
 import { preStartEnding, reachedCaps, resolvePreStartIntent } from "./pre-start-caps";
 import {
   activeRuns,

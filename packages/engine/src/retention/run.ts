@@ -17,7 +17,7 @@ import { appendEntries } from "../changelog/log";
 import { REQUEST_TTL_MS } from "../commands/requests";
 import type { OfficeHandle } from "../db/office";
 import type { SqlParams } from "../platform/sqlite";
-import { deleteParksResolvedBefore } from "../run/park-records";
+import { deleteParksResolvedBefore } from "../run-state/park-records";
 import { deleteRetiredRuns } from "../records/run-records";
 import { ofNoOpenRun, retiredRun } from "../records/retired";
 import { deleteRetiredSignals } from "../records/signals";

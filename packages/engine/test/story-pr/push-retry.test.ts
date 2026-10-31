@@ -11,7 +11,8 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import type { PushResult } from "../../src/git/write";
 import type { CodeHost, HostPr, NewPr } from "../../src/platform/host";
-import { pendingReviews, stopAtInReview } from "../../src/run";
+import { pendingReviews } from "../../src/run";
+import { stopAtInReview } from "../../src/run-state";
 import {
   appendRunStep,
   findStoryPr,

@@ -37,7 +37,7 @@ import {
   reviewVerdictsOf,
   type StoredReviewVerdict,
 } from "../../src/review";
-import { stopAtInReview } from "../../src/run";
+import { stopAtInReview } from "../../src/run-state";
 import { appendRunStep, findStoryPr, insertRun } from "../../src/records";
 import { doneReportOf, storedDoneReport } from "../../src/run/done-report";
 import { storeRunSummary } from "../../src/records/verify-records";

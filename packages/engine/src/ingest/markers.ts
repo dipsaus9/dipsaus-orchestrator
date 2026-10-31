@@ -24,10 +24,10 @@ import { AgentId, type OutputMarker, type RunId } from "@dipsaus-orchestrator/co
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import { byteLength } from "../ingest/output";
-import { HOST_EVENTS_SOURCE, pendingWorkerOutput } from "../ingest/pending";
 import { withWorkViews, workRefOf } from "../views/work";
 
+import { byteLength } from "./output";
+import { HOST_EVENTS_SOURCE, pendingWorkerOutput } from "./pending";
 import type { RunEnd } from "../records/lifecycle";
 import { appendRunStep, endRun } from "../records/run-records";
 

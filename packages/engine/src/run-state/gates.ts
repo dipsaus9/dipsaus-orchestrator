@@ -3,8 +3,8 @@
 // opens on the verdict alone: dipo commits the close-out at once, and GitHub's auto-merge waits for
 // the required checks on the close-out head, so CI runs once. A gate that waits for the maintainer
 // opens only once the head's required checks are green (or no CI ran for it), so the maintainer
-// only ever approves something that can merge (`StoryMerges`, `stories.ts`). dipo turns GitHub's
-// auto-merge on for a story PR only once its gate for the head is approved.
+// only ever approves something that can merge (`StoryMerges`, `merge/stories.ts`). dipo turns
+// GitHub's auto-merge on for a story PR only once its gate for the head is approved.
 //
 // - Waiting. The gate waits for the maintainer when the run's configuration snapshot sets
 //   `merge.autoMerge` false, the story is flagged test-before-merge, the reviewer marked a
@@ -15,9 +15,9 @@
 //   A gate reopened because a hold label appeared or a head dipo did not push showed up while
 //   auto-merge was on waits too.
 // - The release path. A PR whose diff changes a path the base's CODEOWNERS gives an owner
-//   (`release-path.ts`) needs the maintainer's code owner approval, which for a PR opened with the
-//   maintainer's login is the maintainer's merge on the host. Its gate waits for the maintainer and
-//   is marked hand-merge only (`gates.hand_merge` `release-path`): `dipo approve` refuses it,
+//   (`merge/release-path.ts`) needs the maintainer's code owner approval, which for a PR opened with
+//   the maintainer's login is the maintainer's merge on the host. Its gate waits for the maintainer
+//   and is marked hand-merge only (`gates.hand_merge` `release-path`): `dipo approve` refuses it,
 //   dipo never turns auto-merge on for it and never passes `--admin`, and only the hand merge
 //   (below) or a reject decides it.
 // - The test (DIPO-309). A flagged story waits only while no test pass is recorded for the head
@@ -35,7 +35,7 @@
 // - The override gate. A story parked `review-blocked` gets a merge gate waiting
 //   for the maintainer whose summary lists the blocking findings and whose `override_of` names the
 //   blocked verdict's review gate. Approving it needs a note and records the override
-//   (`commands.ts`); that approval is the story's merge decision.
+//   (`merge/commands.ts`); that approval is the story's merge decision.
 // - A hand merge. When the Done poll finds the story's PR merged on the host, the open gate is
 //   decided `approved` by `maintainer` with the note "merged on the host".
 //
@@ -52,9 +52,10 @@ import {
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { StoredReviewVerdict } from "../review/store";
-import { enterPhase } from "../run/rounds";
 import { TEST_BEFORE_MERGE } from "../story-store/fields/labels";
 import { workRefOf } from "../views/work";
+
+import { enterPhase } from "./rounds";
 
 /** The gate kind of a merge gate. */
 export const MERGE_GATE_KIND = "merge";

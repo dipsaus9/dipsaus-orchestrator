@@ -55,7 +55,7 @@ import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
-import { decideTestedMergeGates } from "../merge/gates";
+import { decideTestedMergeGates } from "../run-state/gates";
 import { currentProfile, type StoredProfile } from "../scan/store";
 import { findStoryPr } from "../records/story-prs";
 import { storyView } from "../views/story";

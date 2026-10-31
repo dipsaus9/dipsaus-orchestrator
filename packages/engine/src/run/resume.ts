@@ -100,7 +100,7 @@ import {
   type WorkspaceAt,
 } from "./launch";
 import { openFeedbackOf } from "../records/open-feedback";
-import { placeOfRole } from "./places";
+import { placeOfRole } from "../run-state/places";
 import { renderRunPrompts, sessionUuid } from "./prompts";
 import type { StoredRun } from "../records/run-records";
 import { clearSignals } from "../records/signals";

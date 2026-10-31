@@ -74,7 +74,7 @@ import type { ClaimRecord } from "../worktree/records";
 
 import { withWorkViews } from "../views/work";
 
-import { markPhase } from "./markers";
+import { markPhase } from "../ingest/markers";
 import { type RunPrompts, renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 import { runTempDir, SHORT_TEMP_PREFIX, shortTempDir } from "./temp-dirs";
 

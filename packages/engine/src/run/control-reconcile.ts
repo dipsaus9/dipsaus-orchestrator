@@ -20,7 +20,7 @@ import {
 } from "./control-types";
 import { sendAsIntent } from "../records/intents";
 import type { RunEnd } from "../records/lifecycle";
-import { endRunMarked } from "./markers";
+import { endRunMarked } from "../ingest/markers";
 import { type ParkOutcome } from "./park";
 import type { StoredRun } from "../records/run-records";
 

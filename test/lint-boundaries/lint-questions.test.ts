@@ -9,6 +9,8 @@ import { LINT_TIMEOUT_MS, lintTree } from "./lint-tree";
 
 const IMPORTS = "eslint(no-restricted-imports)";
 const QUESTIONS = "packages/engine/src/questions";
+/** The questions table moved to run-state/ (DIPO-392) and keeps the same boundary. */
+const RUN_STATE_QUESTIONS = "packages/engine/src/run-state/questions.ts";
 
 describe("oxlint questions boundary", () => {
   it(
@@ -16,6 +18,7 @@ describe("oxlint questions boundary", () => {
     () => {
       const { exitCode, diagnostics } = lintTree([
         { fixture: "questions-imports-claude-cli.ts", target: `${QUESTIONS}/leak.ts` },
+        { fixture: "questions-imports-claude-cli.ts", target: RUN_STATE_QUESTIONS },
         { fixture: "questions-allowed.ts", target: `${QUESTIONS}/allowed.ts` },
         {
           fixture: "claude-cli-internal.ts",
@@ -24,8 +27,9 @@ describe("oxlint questions boundary", () => {
       ]);
       expect(exitCode).not.toBe(0);
       const hits = diagnostics.filter((d) => d.code === IMPORTS && d.severity === "error");
-      expect(hits.map((d) => d.filename)).toEqual([`${QUESTIONS}/leak.ts`]);
-      expect(diagnostics.filter((d) => d.filename !== `${QUESTIONS}/leak.ts`)).toEqual([]);
+      const leaks = [`${QUESTIONS}/leak.ts`, RUN_STATE_QUESTIONS];
+      expect(hits.map((d) => d.filename).toSorted()).toEqual(leaks.toSorted());
+      expect(diagnostics.filter((d) => !leaks.includes(d.filename))).toEqual([]);
     },
     LINT_TIMEOUT_MS,
   );

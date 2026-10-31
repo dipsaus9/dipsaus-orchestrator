@@ -23,7 +23,7 @@ import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import type { OfficeGit } from "../../src/git/office";
-import { placeHolders } from "../../src/run/places";
+import { placeHolders } from "../../src/run-state/places";
 import { SESSION_FOLDER_PREFIX, SessionRuns } from "../../src/run/session-run";
 import { recordWorkerHost, type LaunchedHost } from "../../src/records/worker-hosts";
 import { SCAN_ANSWER_JSON_SCHEMA } from "../../src/scan/answer";

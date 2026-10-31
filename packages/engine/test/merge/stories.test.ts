@@ -24,13 +24,11 @@ import { OFFICE_DEFAULTS } from "../../src/config";
 import { appendEntries } from "../../src/changelog/log";
 import {
   type AutoMergeGuard,
-  decideMergeGate,
-  decideTestedMergeGates,
   guardedParkWriter,
   guardedUnparkWriter,
-  mergeGatesOfRun,
   STORY_MERGE_NOTICES,
 } from "../../src/merge";
+import { decideMergeGate, decideTestedMergeGates, mergeGatesOfRun } from "../../src/run-state";
 import { CodeHostError } from "../../src/platform/host";
 import { recordReviewOverride, recordReviewVerdict } from "../../src/review/store";
 import { recordCatchUp } from "../../src/run/conflicts";
@@ -50,7 +48,7 @@ import {
   recordConfigSnapshot,
   runSteps,
 } from "../../src/records/run-records";
-import { reopen } from "../../src/run/rounds";
+import { reopen } from "../../src/run-state/rounds";
 import { insertTest, recordTestResult } from "../../src/run/test-records";
 import { findStoryPr, updateStoryPr } from "../../src/records/story-prs";
 import type { JudgedReview } from "../../src/review/verdict";

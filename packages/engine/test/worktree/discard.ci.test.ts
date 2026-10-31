@@ -25,7 +25,7 @@ import { CRASH, crashAfterHandler } from "../commands/crash";
 import type { FeatureModule } from "../../src/commands/registry";
 import type { OfficeHandle } from "../../src/db/office";
 import type { OfficeGit } from "../../src/git/office";
-import { insertWorkerQuestion } from "../../src/questions/questions";
+import { insertWorkerQuestion } from "../../src/run-state/questions";
 import { executeRead } from "../../src/reads/execute";
 import { reconcileOffice } from "../../src/reconcile";
 import { insertStoryPr, latestStoryPr } from "../../src/records/story-prs";

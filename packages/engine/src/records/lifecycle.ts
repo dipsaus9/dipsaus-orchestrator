@@ -7,12 +7,12 @@
 // A run ends in one of three ways (0020): `done` (its story is Done), `parked` (with one of the
 // eight reasons, kept on its park) or `dropped` (its story was dropped or discarded, or its start
 // failed). Until then it is open. An open run is active while a session works or waits for its
-// place (`waiting`, `places.ts`). At In Review its active period ends (`endedAt`), but the run
-// stays open, in phase review, test or merge (its `phase` run steps), until its story is Done; a
-// review, a fix round or a conflict hand-off makes it active again. `done` and `dropped` are
-// final; a parked run reopens on resume, or stands open at In Review again when the maintainer's
-// override or a resume with no session lifts the park. `parkedMs` is the time the run stood ended,
-// at In Review or waiting, which its minute cap leaves out.
+// place (`waiting`, `run-state/places.ts`). At In Review its active period ends (`endedAt`), but
+// the run stays open, in phase review, test or merge (its `phase` run steps), until its story is
+// Done; a review, a fix round or a conflict hand-off makes it active again. `done` and `dropped`
+// are final; a parked run reopens on resume, or stands open at In Review again when the
+// maintainer's override or a resume with no session lifts the park. `parkedMs` is the time the run
+// stood ended, at In Review or waiting, which its minute cap leaves out.
 
 /** How a run ends (0020). */
 export const RUN_ENDS = ["done", "parked", "dropped"] as const;

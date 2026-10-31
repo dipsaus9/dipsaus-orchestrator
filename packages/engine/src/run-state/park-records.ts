@@ -6,9 +6,9 @@
 
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import { closeQuestion, openParkQuestions } from "../questions/questions";
 import { workRefOf } from "../views/work";
 
+import { closeQuestion, openParkQuestions } from "./questions";
 import type { StoredRun } from "../records/run-records";
 
 /** A park's detail and history row (0007): the reason it was made with, never read as current. */

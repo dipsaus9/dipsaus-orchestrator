@@ -37,35 +37,6 @@ export { SESSION_FOLDER_PREFIX, SessionRuns } from "./session-run";
 export type { SessionRunsDeps } from "./session-run";
 export { renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 export type { RunPrompts, RunPromptsInput } from "./prompts";
-// The office's worker and reviewer places and the run across review rounds (DIPO-142).
-export {
-  claimPlace,
-  PLACE_NOTICES,
-  PLACE_TICK_MS,
-  placeHolders,
-  placeOfRole,
-  placeOfRun,
-  placeOfStart,
-  Places,
-  PLACES,
-  PLACES_STEP,
-  placeTaken,
-  START_KINDS,
-  startOrder,
-  waitForPlace,
-  waitingStarts,
-} from "./places";
-export type { Place, PlacesDeps, PlaceStart, PlaceStarter, StartKind } from "./places";
-export {
-  endReviewPeriod,
-  enterPhase,
-  phaseAfterVerdict,
-  reopen,
-  reviewedInReview,
-  stopAtInReview,
-  waitsForReview,
-} from "./rounds";
-export type { ReopenFor, RoundKind } from "./rounds";
 export {
   feedbackItems,
   feedbackOfIntent,
@@ -190,7 +161,6 @@ export type {
   StopAllResult,
   TrackedRun,
 } from "./control";
-export { preStartEnding, reachedCaps } from "./pre-start-caps";
 export {
   gitParkWriter,
   gitUnparkWriter,

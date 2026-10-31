@@ -7,7 +7,7 @@ import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import type { OfficeHandle } from "../../src/db/office";
-import { endRunMarked } from "../../src/run/markers";
+import { endRunMarked } from "../../src/ingest/markers";
 import { endRun, insertRun, type NewRun } from "../../src/records/run-records";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { entriesAfter } from "../stories/helpers";

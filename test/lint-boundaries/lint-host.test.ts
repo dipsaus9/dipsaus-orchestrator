@@ -18,6 +18,8 @@ const banned = [
   "host-imports-budget.ts",
   "host-imports-records.ts",
   "host-imports-records-barrel.ts",
+  "host-imports-run-state.ts",
+  "host-imports-run-state-barrel.ts",
 ];
 
 let run: { exitCode: number; diagnostics: Diagnostic[] } | undefined;
@@ -53,6 +55,10 @@ describe("oxlint worker host boundary", () => {
         {
           fixture: "host-imports-records-barrel.ts",
           target: "packages/engine/src/run/uses-records-barrel.ts",
+        },
+        {
+          fixture: "host-imports-run-state-barrel.ts",
+          target: "packages/engine/src/run/uses-run-state-barrel.ts",
         },
         {
           fixture: "host-imports-gate-decisions.ts",

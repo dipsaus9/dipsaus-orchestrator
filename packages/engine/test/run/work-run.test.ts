@@ -42,20 +42,22 @@ import { systemSpawn } from "../../src/platform/process";
 import { runCriteriaMet } from "../../src/records/criteria";
 import {
   createRunOutcomes,
-  placeHolders,
-  Places,
-  PLACE_NOTICES,
   planLimitPause,
   type Resumption,
   type RunEnder,
-  START_KINDS,
   StartsPaused,
   type BaseRead,
-  waitForPlace,
-  waitingStarts,
   WorkRun,
   type WorkRunDeps,
 } from "../../src/run";
+import {
+  placeHolders,
+  Places,
+  PLACE_NOTICES,
+  START_KINDS,
+  waitForPlace,
+  waitingStarts,
+} from "../../src/run-state";
 import { endRun, findRun, hasActiveRun, insertRun, runSteps, type NewRun } from "../../src/records";
 import type { StoredRun } from "../../src/records/run-records";
 import { SoftwareStream } from "../../src/software-stream";

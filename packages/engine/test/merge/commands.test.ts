@@ -20,13 +20,8 @@ import { appendEntries, type NewEntry } from "../../src/changelog/log";
 import { CommandError } from "../../src/commands/errors";
 import type { AsyncCommandContext } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS } from "../../src/config";
-import {
-  decideMergeGate,
-  MergeGates,
-  type MergeGatesDeps,
-  mergeGate,
-  mergeGatesOfRun,
-} from "../../src/merge";
+import { MergeGates, type MergeGatesDeps } from "../../src/merge";
+import { decideMergeGate, mergeGate, mergeGatesOfRun } from "../../src/run-state";
 import { reviewVerdictOfGate } from "../../src/review/store";
 import type { ParkBranchRequest, UnparkBranchRequest } from "../../src/run/park";
 import { findRun, runPhase, runSteps } from "../../src/records/run-records";

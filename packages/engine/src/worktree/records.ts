@@ -7,7 +7,7 @@ import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
 import type { RunEnd } from "../records/lifecycle";
-import { endRunMarked } from "../run/markers";
+import { endRunMarked } from "../ingest/markers";
 
 export interface ClaimRecord {
   readonly runId: RunId;

@@ -23,7 +23,7 @@ import { renderTemplate } from "../prompts/templates";
 import { type RunControlDeps, STORY_NOT_RUNNING } from "./control-types";
 import { findSteer, sendFeedback } from "./feedback";
 import { openPark } from "./park";
-import { placeOfRun } from "./places";
+import { placeOfRun } from "../run-state/places";
 import { activeRuns, type StoredRun } from "../records/run-records";
 
 /** `work.steer` on a story it cannot reach (0020). */

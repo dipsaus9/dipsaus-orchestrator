@@ -13,7 +13,7 @@ import { type OfficeId, type RunId, type StoryKey } from "@dipsaus-orchestrator/
 import { OFFICE_DEFAULTS } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import type { OfficeGit } from "../../src/git/office";
-import { insertWorkerQuestion } from "../../src/questions/questions";
+import { insertWorkerQuestion } from "../../src/run-state/questions";
 import { reconcileOffice, type ReconcileReport } from "../../src/reconcile";
 import { insertStoryPr, latestStoryPr } from "../../src/records/story-prs";
 import { StoryTeardown } from "../../src/worktree/done";

@@ -4,7 +4,7 @@
 import type { RunId } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../../src/db/office";
-import { enterPhase, stopAtInReview } from "../../src/run/rounds";
+import { enterPhase, stopAtInReview } from "../../src/run-state/rounds";
 
 /** The run's developer period ends at In Review at `at`: it waits for its review. */
 export function atInReview(office: OfficeHandle, runId: string, at: number): void {

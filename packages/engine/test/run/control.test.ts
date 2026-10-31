@@ -46,8 +46,8 @@ import { findRun, insertRun, recordGrant, runIntents, STREAM_DRIFT_LINES } from 
 import { openPark, PARK_NOT_WRITTEN } from "../../src/run/park";
 import { heldByPark } from "../../src/records/park-state";
 import { activeRuns, openAtInReview } from "../../src/records/run-records";
-import { placeHolders, waitingStarts } from "../../src/run/places";
-import { reopen } from "../../src/run/rounds";
+import { placeHolders, waitingStarts } from "../../src/run-state/places";
+import { reopen } from "../../src/run-state/rounds";
 import {
   desk,
   PARK_NOT_WRITTEN as PARK_NOT_WRITTEN_DESK,

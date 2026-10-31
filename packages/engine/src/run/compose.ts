@@ -22,7 +22,7 @@ import { RunControl, type RunControlDeps, type RunSteering } from "./control";
 import { OfficeIngest, type OfficeIngestOptions, type OfficeRunListener } from "./hosts";
 import { RunLauncher, type HostStarter, type RunIngest, type RunLauncherDeps } from "./launch";
 import type { RunOutcomes, RunOutcomesDeps, RunOutcomesPort } from "./outcomes";
-import { Places, type PlacesDeps } from "./places";
+import { Places, type PlacesDeps } from "../run-state/places";
 import { RunReattacher, type RunReattacherDeps } from "./reattach";
 import { baseStoryFacts, RunResumer, type RunResumerDeps } from "./resume";
 import { gitReviewOps, ReviewLauncher } from "./review-launch";

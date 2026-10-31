@@ -34,7 +34,7 @@ import { FETCH_CONFIG } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitResult, isTimedOut } from "../git/runner";
 import { branchTip, createBranch, deleteBranch, moveBranch, pushBranch } from "../git/write";
-import { endRunMarked } from "../run/markers";
+import { endRunMarked } from "../ingest/markers";
 import { PENDING_LANE_NOTICE } from "../story-store/planning";
 import type { StoryStore } from "../story-store/store";
 

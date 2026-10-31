@@ -18,7 +18,7 @@ import {
   mergeWaits,
   openMaintainerMergeGate,
   openMergeGate,
-} from "../../src/merge";
+} from "../../src/run-state";
 import { storyVerdicts } from "../../src/views/feature";
 import { addAgent, type RoundsWorld, roundsWorld, storyRun } from "../run/rounds-helpers";
 
