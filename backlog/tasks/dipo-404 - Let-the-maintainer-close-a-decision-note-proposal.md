@@ -1,10 +1,10 @@
 ---
 id: DIPO-404
 title: Let the maintainer close a decision-note proposal
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-31 08:22'
-updated_date: '2026-10-31 09:48'
+updated_date: '2026-10-31 09:49'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -16,6 +16,14 @@ references:
   - packages/engine/src/run/proposals.ts
   - packages/engine/src/views/
   - packages/cli/src/propose-command.ts
+modified_files:
+  - packages/cli/src/propose-command.ts
+  - packages/engine/src/overview/desk.ts
+  - packages/engine/src/reconcile/held-notes.ts
+  - packages/engine/src/reconcile/reconcile.ts
+  - packages/engine/src/run/proposals.ts
+  - packages/engine/src/run/report-data.ts
+  - packages/engine/test/run/proposals.test.ts
 priority: medium
 type: bug
 ordinal: 382000
@@ -44,3 +52,18 @@ test_plan:
 - [x] #2 A decision note whose exact text already appears under the section it names in that ADR on the base is closed with a notice, and one whose text is absent or differs stays, with a test for each
 - [x] #3 dipo still never writes a decision record itself
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-10-31 09:49 UTC
+- Criteria met: 3 of 3 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 138,239 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
