@@ -4,6 +4,7 @@ title: Give the review loop test a test clock
 status: Refined
 assignee: []
 created_date: '2026-10-31 08:39'
+updated_date: '2026-10-31 08:41'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -37,7 +38,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every case of review-loop.ci.test.ts keeps its assertions and runs against a test clock or event waits instead of real sleeps and polls
+- [ ] #1 Every case of review-loop.ci.test.ts keeps its assertions and runs against a test clock or event waits instead of real sleeps and polls; where the engine has no clock seam for a poll the test drives (the Done poll, the PR poll), the story adds the smallest one and says so
 - [ ] #2 The file takes under 20 s on the Mac, measured before and after in the PR
-- [ ] #3 No case is removed or skipped, and each still fails when its behaviour breaks (shown for at least two cases by a temporary break in the PR description)
+- [ ] #3 No case is removed or skipped, and each still fails when its behaviour breaks (shown for at least two cases by a temporary break described in the PR)
 <!-- AC:END -->

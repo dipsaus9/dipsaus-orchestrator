@@ -4,6 +4,7 @@ title: Pick the reviewer's model per tier
 status: Refined
 assignee: []
 created_date: '2026-10-31 08:39'
+updated_date: '2026-10-31 08:41'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -39,8 +40,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The office config can set the reviewer's model (and effort) per tier, for example `review.tiers.S.model`, optional with the office-wide `review.model` as the fallback, in config version 14 with a default and the regenerated office.schema.json
-- [ ] #2 A review session takes the model and effort of its story's tier when set, else the office-wide values, shown by a test per tier
-- [ ] #3 This repository's .dipo/office.yaml sets sonnet for tier:S reviews and keeps opus for M and L, at medium effort
+- [ ] #1 The office config can set the reviewer's model and effort per tier (for example review.tiers.S.model), optional, with the office-wide review.model and review.effort as the fallback, in config version 14 with defaults and the regenerated office.schema.json
+- [ ] #2 The tier lookup happens where reviewerSettings reads the run's start snapshot (runConfigOf), so a run uses the tier settings it started with; a test per tier and one for a run started before a config change
+- [ ] #3 This repository's .dipo/office.yaml has an explicit review block: sonnet for tier S, opus for M and L, effort medium (PR #502 already sets the effort)
 - [ ] #4 The dipo review comment on the PR names the model and effort it used, as it does now
 <!-- AC:END -->
