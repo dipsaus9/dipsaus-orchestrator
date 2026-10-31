@@ -1,10 +1,10 @@
 ---
 id: DIPO-404
 title: Let the maintainer close a decision-note proposal
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-31 08:22'
-updated_date: '2026-10-31 08:24'
+updated_date: '2026-10-31 08:31'
 labels:
   - 'tier:S'
   - 'slice:prune'
