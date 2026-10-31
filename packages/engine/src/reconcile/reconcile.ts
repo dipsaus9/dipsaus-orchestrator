@@ -69,6 +69,7 @@ import { lifecycleOf } from "../views/story";
 import { type ClaimRecord, liveClaims } from "../worktree/records";
 
 import { releaseDoneOnBase } from "./done-on-base";
+import { closeHeldNotes } from "./held-notes";
 import { clearCommands, goneWorktrees, readGitFacts } from "../worktree/git-facts";
 
 /** The launch file a run's worker host is started with (DIPO-44), in its run directory. */
@@ -291,6 +292,9 @@ export async function reconcileOffice(
     const retry = await releaseDoneOnBase(deps, pass, record, new Set(first.skippedRuns), found);
     if (retry.released > 0) pass = await input.reindex();
   }
+
+  // 1c. Decision notes the decision record on `_base` already holds (DIPO-404).
+  await closeHeldNotes(deps, record);
 
   // 2. Git facts of the live claims.
   const claims = liveClaims(office).filter(readsOnBranch);

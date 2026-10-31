@@ -109,6 +109,41 @@ export function noteMiss(note: WorkerDecisionNote, fileText: string | null): Not
   return hasSection(fileText, note.section) ? null : "section";
 }
 
+/**
+ * Pure: the text under each heading that `section` names, up to the next heading of the same or a
+ * higher level (fenced lines are never headings).
+ */
+export function sectionBodies(text: string, section: string): string[] {
+  const wanted = normal(section.replace(/^\s*#+\s*/, ""));
+  if (wanted === "") return [];
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const headings: { line: number; level: number; matches: boolean }[] = [];
+  let fence = false;
+  lines.forEach((line, index) => {
+    if (/^\s*(```|~~~)/.test(line)) fence = !fence;
+    if (fence) return;
+    const match = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
+    if (match?.[1] === undefined || match[2] === undefined) return;
+    const shown = normal(match[2]);
+    const matches = shown === wanted || unnumbered(shown) === unnumbered(wanted);
+    headings.push({ line: index, level: match[1].length, matches });
+  });
+  return headings.flatMap((heading, index) => {
+    if (!heading.matches) return [];
+    const next = headings.slice(index + 1).find((later) => later.level <= heading.level);
+    return [lines.slice(heading.line + 1, next?.line ?? lines.length).join("\n")];
+  });
+}
+
+/**
+ * Pure: whether the decision record's text (null when the file is missing) already holds the
+ * note's exact text under the section it names (DIPO-404): such a note is answered by the record.
+ */
+export function noteHeld(note: WorkerDecisionNote, fileText: string | null): boolean {
+  if (fileText === null) return false;
+  return sectionBodies(fileText, note.section).some((body) => body.includes(note.text));
+}
+
 /** The send-once signature of a note that missed: its file and section. */
 export function noteSignature(note: WorkerDecisionNote): string {
   return hashOf([note.file, normal(note.section)]);

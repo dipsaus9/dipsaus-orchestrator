@@ -38,7 +38,8 @@ import { MemoryRequestTable } from "../../src/commands/requests";
 import type { OfficeHandle } from "../../src/db/office";
 import { executeRead } from "../../src/reads/execute";
 import { ProposalCommands, proposalDraft, type StoredProposal } from "../../src/run/proposals";
-import { proposalHash, storeProposals } from "../../src/run/report-data";
+import { proposalHash, storeDecisionNotes, storeProposals } from "../../src/run/report-data";
+import { closeHeldNotes } from "../../src/reconcile/held-notes";
 import { addStory } from "../../src/records/story-keys";
 import { viewsFeature } from "../overview/views-feature";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
@@ -497,5 +498,126 @@ describe("the draft of an accepted proposal", () => {
     const draft = proposalDraft({ ...base, story: null, title: " -- " });
     expect(draft.title).toBe(`Proposal from an unknown story (key ${base.key})`);
     expect(draft.description).toContain(`Source story: an unknown story (key ${base.key})`);
+  });
+});
+
+/** A git stand-in: `base()` names the base, and `show` reads `files` at it. */
+function fakeGit(files: Record<string, string>) {
+  return {
+    resolveBase: async () => "origin/main",
+    run: async (fn: (session: unknown) => Promise<unknown>) =>
+      fn({
+        repository: "repo",
+        step: async (_location: unknown, args: readonly string[]) => {
+          const text = files[args[1]?.replace("origin/main:", "") ?? ""];
+          return text === undefined ? { code: 128, stdout: "" } : { code: 0, stdout: text };
+        },
+      }),
+  };
+}
+
+function openNoteIds(): string[] {
+  return w.office
+    .all<{ hash: string }>(
+      "select hash from decision_notes where office_id = $office_id and state = 'open' order by hash",
+    )
+    .map((row) => row.hash);
+}
+
+describe("decision notes (criterion 1 and 2, DIPO-404)", () => {
+  const NOTE = {
+    file: "docs/decisions/0019-review-loop.md",
+    section: "4. The reviewer session",
+    text: "The reviewer also reads the worker's deviations.",
+  };
+  const RECORD = [
+    "# 0019 Review loop",
+    "",
+    "## 4. The reviewer session",
+    "",
+    "The reviewer also reads the worker's deviations.",
+    "",
+    "## 5. Next",
+    "",
+    "Something else.",
+    "",
+  ].join("\n");
+
+  function storeNotes(notes: readonly (typeof NOTE)[]): void {
+    w.office.immediate(() =>
+      storeDecisionNotes(w.office, { key: w.key, runId: RUN, notes, at: w.t.clock.now() }),
+    );
+  }
+
+  it("is listed with dipo propose dismiss, and dismissing it closes it with proposal.closed", async () => {
+    storeNotes([NOTE]);
+    const [item] = (await readDesk()).filter((entry) => entry.kind === "PROPOSAL");
+    const id = item?.proposal?.id ?? "";
+    expect(item?.actions).toEqual([
+      { command: "proposal.dismiss", cli: `dipo propose dismiss ${id}` },
+    ]);
+    const reply = await send("proposal.dismiss", { proposal: id.slice(0, 12) });
+    expect(reply).toMatchObject({
+      ok: true,
+      changed: true,
+      result: { proposal: id, state: "dismissed" },
+    });
+    expect(openNoteIds()).toEqual([]);
+    expect(logged("proposal.closed")).toEqual([{ proposal: id, key: w.key, state: "dismissed" }]);
+    expect((await readDesk()).filter((entry) => entry.kind === "PROPOSAL")).toEqual([]);
+    expect(await send("proposal.dismiss", { proposal: id })).toMatchObject({
+      ok: true,
+      changed: false,
+    });
+  });
+
+  it("refuses to accept a note, which is never filed", async () => {
+    storeNotes([NOTE]);
+    const id = (await readDesk()).find((entry) => entry.kind === "PROPOSAL")?.proposal?.id ?? "";
+    const reply = await send("proposal.accept", { proposal: id });
+    expect(reply).toMatchObject({ ok: false, error: { code: "proposal.decisionNote" } });
+    expect(openNoteIds()).toEqual([id]);
+    expect(w.ops).toEqual([]);
+  });
+
+  it("closes a note whose exact text the record on the base holds, and keeps the others open", async () => {
+    const differs = { ...NOTE, text: "The reviewer also reads the deviations." };
+    const absent = { ...NOTE, section: "9. Gone" };
+    storeNotes([NOTE, differs, absent]);
+    const records = { [NOTE.file]: RECORD };
+    const findings: string[] = [];
+    await closeHeldNotes(
+      {
+        office: w.office,
+        clock: w.t.clock,
+        git: fakeGit(records),
+      } as unknown as Parameters<typeof closeHeldNotes>[0],
+      (finding, facts) => {
+        findings.push(finding.code);
+        facts?.();
+      },
+    );
+    expect(findings).toEqual(["reconcile.decisionNoteHeld"]);
+    expect(
+      w.office.all<{ text: string }>(
+        "select text from decision_notes where office_id = $office_id and state = 'open' order by text",
+      ),
+    ).toEqual([{ text: differs.text }, { text: absent.text }]);
+  });
+
+  it("keeps a note open when its file is missing on the base", async () => {
+    storeNotes([NOTE]);
+    const findings: string[] = [];
+    await closeHeldNotes(
+      { office: w.office, clock: w.t.clock, git: fakeGit({}) } as unknown as Parameters<
+        typeof closeHeldNotes
+      >[0],
+      (finding, facts) => {
+        findings.push(finding.code);
+        facts?.();
+      },
+    );
+    expect(findings).toEqual([]);
+    expect(openNoteIds()).toHaveLength(1);
   });
 });

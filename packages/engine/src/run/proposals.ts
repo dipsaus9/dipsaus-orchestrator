@@ -11,10 +11,13 @@
 //   and the result says what the flush did with the draft (DIPO-401).
 //   A re-run finds the proposal accepted and its journal entry, and journals nothing new.
 // - Dismiss closes the proposal (`dismissed`, `proposal.closed`); nothing is filed.
+// - A decision note (DIPO-404) is not a proposal and is never accepted: dismiss closes its row in
+//   `decision_notes` (`dismissed`, `proposal.closed`). Reconcile closes a note whose exact text the
+//   ADR on the base already holds (`reconcile/held-notes.ts`). dipo never writes decision records,
+//   and the maintainer adds a note by hand.
 //
-// A proposal is named by its id (the stored hash) or a unique prefix of at least 8 characters.
-// Decision notes (also on the desk) are not proposals here: dipo never writes decision records,
-// and the maintainer adds a note by hand.
+// A proposal or note is named by its id (the stored hash) or a unique prefix of at least 8
+// characters, across both tables.
 
 import {
   cleanText,
@@ -33,12 +36,15 @@ import type {
   FeatureModule,
   FeatureRegistry,
 } from "../commands/registry";
+import { type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { PlanningLane, ProposedDraft } from "../story-store/planning";
 
 export const PROPOSAL_UNKNOWN = "proposal.unknown";
 export const PROPOSAL_AMBIGUOUS = "proposal.ambiguous";
 export const PROPOSAL_NOT_OPEN = "proposal.notOpen";
+/** `proposal.accept` on a decision note: a note is dismissed, never filed (DIPO-404). */
+export const PROPOSAL_DECISION_NOTE = "proposal.decisionNote";
 
 /** The caps of a filed draft's texts, in characters: the report's own caps (DIPO-186). */
 export const DRAFT_CAPS = { title: 120, outcome: 500, why: 1_000, paths: 20, path: 200 } as const;
@@ -101,9 +107,55 @@ function proposalsByPrefix(office: OfficeHandle, ref: string): StoredProposal[] 
     }));
 }
 
-/** The one proposal `ref` names; throws `proposal.unknown` or `proposal.ambiguous`. */
-export function resolveProposal(office: OfficeHandle, ref: string): StoredProposal {
-  const found = proposalsByPrefix(office, ref.toLowerCase());
+/** A stored decision note, as the commands read it (DIPO-404). */
+export interface StoredNote {
+  readonly hash: string;
+  readonly key: StoryKey;
+  readonly file: string;
+  readonly section: string;
+  readonly text: string;
+  readonly state: "open" | "accepted" | "dismissed";
+}
+
+interface NoteRow {
+  hash: string;
+  story_key: string;
+  file: string;
+  section: string;
+  text: string;
+  state: "open" | "accepted" | "dismissed";
+}
+
+/** The decision notes whose id starts with `ref` (a hex prefix), at most two. */
+function notesByPrefix(office: OfficeHandle, ref: string): StoredNote[] {
+  return office
+    .all<NoteRow>(
+      `select hash, story_key, file, section, text, state from decision_notes
+        where office_id = $office_id and substr(hash, 1, length($ref)) = $ref
+        order by hash
+        limit 2`,
+      { ref },
+    )
+    .map((row) => ({
+      hash: row.hash,
+      key: row.story_key as StoryKey,
+      file: row.file,
+      section: row.section,
+      text: row.text,
+      state: row.state,
+    }));
+}
+
+/** The one stored item (a proposal or a decision note) `ref` names; throws the unknown/ambiguous errors. */
+export function resolveItem(
+  office: OfficeHandle,
+  ref: string,
+): { readonly proposal: StoredProposal } | { readonly note: StoredNote } {
+  const prefix = ref.toLowerCase();
+  const found = [
+    ...proposalsByPrefix(office, prefix).map((proposal) => ({ proposal })),
+    ...notesByPrefix(office, prefix).map((note) => ({ note })),
+  ];
   const [first, second] = found;
   if (first === undefined) {
     throw new CommandError(
@@ -120,6 +172,57 @@ export function resolveProposal(office: OfficeHandle, ref: string): StoredPropos
     );
   }
   return first;
+}
+
+/** The one proposal `ref` names; throws `proposal.unknown`, `proposal.ambiguous`, or for a note `proposal.decisionNote`. */
+export function resolveProposal(office: OfficeHandle, ref: string): StoredProposal {
+  const found = resolveItem(office, ref);
+  if ("note" in found) {
+    throw new CommandError(
+      PROPOSAL_DECISION_NOTE,
+      `${ref} is a decision note, which is never filed; \`dipo propose dismiss ${found.note.hash.slice(0, 12)}\` closes it, and the maintainer adds the note by hand if they agree.`,
+      { proposal: found.note.hash },
+    );
+  }
+  return found.proposal;
+}
+
+/** The decision notes still open in the office, oldest first. */
+export function openNotes(office: OfficeHandle): StoredNote[] {
+  return office
+    .all<NoteRow>(
+      `select hash, story_key, file, section, text, state from decision_notes
+        where office_id = $office_id and state = 'open'
+        order by created_at, hash`,
+    )
+    .map((row) => ({
+      hash: row.hash,
+      key: row.story_key as StoryKey,
+      file: row.file,
+      section: row.section,
+      text: row.text,
+      state: row.state,
+    }));
+}
+
+/**
+ * The `decision_notes` update that dismisses an open note, with its `proposal.closed` event; no
+ * event when the note is not open (DIPO-404). The caller commits it in its own transaction.
+ */
+export function dismissNote(office: OfficeHandle, note: StoredNote, at: number): NewEntry[] {
+  const done = office.run(
+    `update decision_notes set state = 'dismissed', updated_at = $at
+      where office_id = $office_id and hash = $hash and state = 'open'`,
+    { hash: note.hash, at },
+  ).changes;
+  if (done === 0) return [];
+  return [
+    {
+      type: "proposal.closed",
+      key: note.key,
+      delta: { proposal: note.hash, key: note.key, state: "dismissed" },
+    },
+  ];
 }
 
 /** Runs of whitespace become one space, and the text is trimmed. */
@@ -310,7 +413,18 @@ export class ProposalCommands {
     args: ProposalArgs,
   ): Promise<CommandOutcome<DismissResult>> {
     const office = ctx.office;
-    const proposal = resolveProposal(office, args.proposal);
+    const item = resolveItem(office, args.proposal);
+    if ("note" in item) {
+      const note = item.note;
+      let changed = false;
+      ctx.commit(() => {
+        const entries = dismissNote(office, note, ctx.clock.now());
+        changed = entries.length > 0;
+        return entries;
+      });
+      return { result: { proposal: note.hash, state: "dismissed" }, changed };
+    }
+    const proposal = item.proposal;
     const result: DismissResult = { proposal: proposal.hash, state: "dismissed" };
     if (proposal.state === "dismissed") return { result, changed: false };
     if (proposal.state === "accepted") {
