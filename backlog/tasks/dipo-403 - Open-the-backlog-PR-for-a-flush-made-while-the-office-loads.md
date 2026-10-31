@@ -4,6 +4,7 @@ title: Open the backlog PR for a flush made while the office loads
 status: Refined
 assignee: []
 created_date: '2026-10-31 08:22'
+updated_date: '2026-10-31 08:24'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -14,7 +15,6 @@ dependencies:
 references:
   - packages/engine/src/backlog/lane/lane.ts
   - packages/engine/src/backlog/pr/feature.ts
-  - packages/engine/src/create/
 priority: medium
 type: bug
 ordinal: 381000
@@ -40,6 +40,6 @@ test_plan:
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 A flush during office load that pushes a branch gets its backlog PR opened or updated once the office has loaded, with no further lane operation
-- [ ] #2 The after-flush step that cannot run yet is retried, not dropped, and a failure after the office loaded is a warn line and a desk item
+- [ ] #2 The after-flush step that cannot run before the office has loaded is run again when the office-loaded event fires, not dropped; a failure after the office loaded is a warn line and a desk item
 - [ ] #3 A test with a real git remote reproduces the 2026-10-31 case: replay at load pushes, then the PR opens
 <!-- AC:END -->
