@@ -24,6 +24,7 @@ import { deleteRetiredSignals } from "../records/signals";
 import { deleteRetiredAgents } from "../records/agents";
 import { deleteRetiredHosts } from "../records/worker-hosts";
 
+import { failedHoldInForce, liftsJournaledFailedHold } from "./failed-holds";
 import { cleanRunDirectories, runSummaryExists, type SummaryCheck } from "./run-files";
 import { Slicer, type SliceOptions } from "./slices";
 
@@ -53,7 +54,7 @@ export interface RetentionReport {
   readonly slowestMs: number;
 }
 
-const CLOSED_JOURNAL = "state in ('merged', 'dropped', 'withdrawn')";
+const CLOSED_JOURNAL = "state in ('merged', 'dropped', 'withdrawn', 'failed')";
 /** The rows of agents that ended before the cutoff, of a run that may not reopen. */
 const ENDED_AGENT = `agent_id in (select agent_id from agents where office_id = $office_id
   and ended_at < $cutoff and ${ofNoOpenRun("agents")})`;
@@ -220,7 +221,13 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
     await rows("run_profiles", older, kept);
   }
   await batches("worker_hosts", (limit) => deleteRetiredHosts(office, cutoff, limit));
-  await rows("backlog_journal", `${CLOSED_JOURNAL} and closed_at < $cutoff`);
+  // A failed hold in force holds its story from pickup, and the change that lifted one is kept
+  // while that hold is journaled, so it never comes back in force (DIPO-401).
+  await rows(
+    "backlog_journal",
+    `${CLOSED_JOURNAL} and closed_at < $cutoff and not ${failedHoldInForce("backlog_journal")}
+      and not ${liftsJournaledFailedHold("backlog_journal")}`,
+  );
   // Backlog and story PRs merged or closed, and blocks a later backlog PR cleared; an open PR or
   // a block in force is kept.
   await rows("backlog_prs", "closed_at < $cutoff");

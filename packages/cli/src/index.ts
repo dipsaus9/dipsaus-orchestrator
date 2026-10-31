@@ -204,8 +204,9 @@ Usage:
   dipo propose accept|dismiss <proposal> [--office <id>]
                     decide a worker's follow-up, spike or tool proposal from
                     dipo desk: accept files it as a Backlog draft through the
-                    backlog PR, the worker's words marked as theirs; dismiss
-                    closes it and files nothing
+                    backlog PR, the worker's words marked as theirs, and says
+                    which PR took it or why it waits; dismiss closes it and
+                    files nothing
   dipo watch [<id>] [--office <id>]
                     follow the office, or one story, in plain text until Ctrl-C:
                     each running story's phase, health, loop, verify, criteria

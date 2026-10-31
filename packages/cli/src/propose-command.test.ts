@@ -70,11 +70,17 @@ function fake(reply: (sent: Sent) => unknown, workspace: FakeWorkspaceOptions = 
 }
 
 describe("dipo propose accept", () => {
-  it("sends proposal.accept for the id, without asking, and prints the draft it filed", async () => {
+  it("sends proposal.accept for the id, without asking, and prints the backlog PR the flush opened", async () => {
+    const pr = "https://github.com/acme/app/pull/12";
     const ctx = fake(() => ({
       ok: true,
       changed: true,
-      result: { proposal: PROPOSAL, state: "accepted", draft: "DRAFT-4" },
+      result: {
+        proposal: PROPOSAL,
+        state: "accepted",
+        draft: "DRAFT-4",
+        flush: { state: "opened", branch: "dipo/backlog-20261030T080300", pr },
+      },
     }));
     expect(await main(["propose", "accept", PROPOSAL], ctx.deps)).toBe(0);
     expect(ctx.sent).toEqual([
@@ -82,7 +88,60 @@ describe("dipo propose accept", () => {
     ]);
     expect(ctx.ws.questions).toEqual([]);
     expect(ctx.out).toEqual([
-      "accepted proposal 3f3f3f3f3f3f: filed as Backlog draft DRAFT-4 through the backlog PR",
+      `accepted proposal 3f3f3f3f3f3f: Backlog draft DRAFT-4 is on the new backlog PR ${pr}`,
+    ]);
+  });
+
+  // DIPO-401: the line follows what the flush did, and promises no PR it did not open.
+  it.each([
+    [
+      { state: "updated", branch: "dipo/backlog-1", pr: "https://github.com/acme/app/pull/12" },
+      "Backlog draft DRAFT-4 was added to the backlog PR https://github.com/acme/app/pull/12",
+    ],
+    [
+      { state: "pushed", branch: "dipo/backlog-1" },
+      "Backlog draft DRAFT-4 is pushed on dipo/backlog-1; its backlog PR is not open yet, and dipo opens or updates it at the next backlog change",
+    ],
+    [{ state: "merged" }, "Backlog draft DRAFT-4 is on the base already"],
+    [
+      { state: "held", branch: "dipo/backlog-1", reason: "the backlog PR has auto-merge on" },
+      "Backlog draft DRAFT-4 waits for the next backlog PR: the backlog PR has auto-merge on",
+    ],
+    [
+      { state: "waiting", branch: "dipo/backlog-1", reason: "pushing to origin failed" },
+      "Backlog draft DRAFT-4 is on dipo/backlog-1 and waits: pushing to origin failed",
+    ],
+    [
+      { state: "waiting", reason: "the flush did not apply it" },
+      "Backlog draft DRAFT-4 waits: the flush did not apply it",
+    ],
+    [
+      { state: "failed", reason: "git fetch failed." },
+      "the planning lane could not file Backlog draft DRAFT-4, it stays journaled: git fetch failed.",
+    ],
+    [
+      { state: "closed", reason: "the Backlog CLI exited 1." },
+      "Backlog draft DRAFT-4 was not filed: the Backlog CLI exited 1.",
+    ],
+  ])("says what the flush did: %o", async (flush, text) => {
+    const ctx = fake(() => ({
+      ok: true,
+      changed: true,
+      result: { proposal: PROPOSAL, state: "accepted", draft: "DRAFT-4", flush },
+    }));
+    expect(await main(["propose", "accept", PROPOSAL], ctx.deps)).toBe(0);
+    expect(ctx.out).toEqual([`accepted proposal 3f3f3f3f3f3f: ${text}`]);
+  });
+
+  it("names the draft it filed earlier when no flush ran", async () => {
+    const ctx = fake(() => ({
+      ok: true,
+      changed: false,
+      result: { proposal: PROPOSAL, state: "accepted", draft: "DRAFT-4" },
+    }));
+    expect(await main(["propose", "accept", PROPOSAL], ctx.deps)).toBe(0);
+    expect(ctx.out).toEqual([
+      "proposal 3f3f3f3f3f3f was accepted already: filed as Backlog draft DRAFT-4 through the backlog PR",
     ]);
   });
 

@@ -910,3 +910,40 @@ describe("the retention load step", () => {
       await s.retention.stop();
     }));
 });
+
+describe("retention of a failed hold (DIPO-401)", () => {
+  it("keeps a failed hold in force past retention.days, and what lifted one until the hold is gone", () =>
+    withOffice(async (t, office) => {
+      const day = (n: number) => t.clock.now() + n * DAY_MS;
+      const journal = (op: number, key: string, kind: string, state: string, closed: number) =>
+        office.immediate(() =>
+          office.run(
+            `insert into backlog_journal (office_id, op_id, key, subject, op_kind, target, state,
+               created_at, updated_at, closed_at)
+             values ($office_id, $op, $key, $key, $kind, '{}', $state, 0, $closed, $closed)`,
+            { op, key, kind, state, closed },
+          ),
+        );
+      // A: a failed hold nothing lifted.
+      journal(1, "sto-a", "hold", "failed", day(0));
+      // B: a failed hold the park sent again lifted once it merged.
+      journal(2, "sto-b", "hold", "failed", day(0));
+      journal(3, "sto-b", "hold", "merged", day(1));
+      // C: a drop journaled after the failed hold and withdrawn lifts nothing.
+      journal(4, "sto-c", "hold", "failed", day(0));
+      journal(5, "sto-c", "drop", "withdrawn", day(1));
+      t.clock.advanceTo(day(40));
+      const ops = () =>
+        office
+          .all<{ op: number }>(
+            "select op_id as op from backlog_journal where office_id = $office_id order by op_id",
+          )
+          .map((row) => row.op);
+
+      await runRetention({ office, clock: t.clock, days: DAYS, pause: noPause });
+      expect(ops()).toEqual([1, 3, 4]);
+      // The lifted hold is gone, so the change that lifted it goes at the next pass.
+      await runRetention({ office, clock: t.clock, days: DAYS, pause: noPause });
+      expect(ops()).toEqual([1, 4]);
+    }));
+});

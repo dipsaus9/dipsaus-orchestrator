@@ -32,7 +32,7 @@ Each edit runs the CLI in a fresh folder of dipo's own. The folder holds only th
 
 **The planning lane.** Changes that belong to no story PR go on an engine branch `dipo/backlog-<UTC time>`: office init, park and resume of a story that has no run, drop, accepted proposals, and later the M3 rituals.
 
-- **Journaled.** Each operation is a target-state entry in the database journal: `pending`, `committed`, `pushed`, `merged`, or `dropped`. It is applied through the CLI in the `_backlog` worktree and committed as `backlog: <op> <ID>`.
+- **Journaled.** Each operation is a target-state entry in the database journal: `pending`, `applied`, `committed`, `pushed`, `merged`, `dropped`, `withdrawn`, or `failed`. It is applied through the CLI in the `_backlog` worktree and committed as `backlog: <op> <ID>`. When the CLI exits with a code other than 0 on an operation, or what it wrote does not read back, that operation is closed as `failed` with a notice, and the operations after it go on. A killed, timed-out or unstarted CLI, a refused file or a git error still fails the whole flush, and its operations stay journaled.
 - **One PR per office.** dipo pushes the branch and opens or updates one backlog-only PR. Later operations append to it until it merges, so many stories can change in one bulk PR.
 - **Fast.** A backlog-only PR runs the light CI path (0016), so it merges in minutes. It blocks nothing but its own stories.
 - **A structural check by code,** with no model, stands in for the reviewer (0002). The PR passes only when:
@@ -42,7 +42,7 @@ Each edit runs the CLI in a fresh folder of dipo's own. The folder holds only th
   - each new `Ready` matches a passing gate decision for that task's content;
   - it touches no story with a live claim.
 - **Merged by GitHub.** When the check passes, dipo runs `gh pr merge --auto --squash`, as for story PRs (0002). When the maintainer merges by hand, the check runs again afterwards, and on a failure `work.run` skips the affected stories, with a notice, until a new backlog PR fixes them.
-- **A pending operation wins over pickup.** `work.run` skips any story with an unmerged journaled operation. A park on a Ready story takes effect the moment it is journaled.
+- **A pending operation wins over pickup.** `work.run` skips any story with an unmerged journaled operation. A park on a Ready story takes effect the moment it is journaled. A park whose operation `failed` still holds its story from pickup until the maintainer sends the park again and it is written, drops or discards the story, or dismisses the park with `dipo resume`, whatever the story's status; retention keeps it while it holds.
 - **Rebuild, never force.** When the base moves under the open branch and the changes conflict, dipo resets `_backlog` to the base and applies the unmerged operations again. An operation that no longer applies is dropped with a notice. A rebuilt branch gets a new name and its old PR is closed.
 
 **Pickup reads the base.** `work.run` reads stories from `_base`, a detached worktree moved to `origin/<base>` after every fetch, and picks only stories that are `Ready` there.
@@ -139,6 +139,7 @@ There are no git hooks, no changes to existing ignore files or `info/exclude`, a
 - A conflict merge left in progress in a worktree (2026-10-16). Replaced by a merge committed with markers (0002).
 - A reused branch merged with the base at claim, with a conflict as the worker's first feedback (2026-10-10). Replaced (2026-10-28) by reuse at the kept tip, then the conflict check and base sync (0002).
 - Seven separate places that made commits, and pushes from eight. Replaced by one git module (2026-10-24).
+- A lane flush that failed as a whole when the CLI failed on one operation, so every operation after it waited (2026-10-10). Replaced by closing that operation as `failed` (2026-10-30).
 - Draft promotion with a journaled snapshot (2026-10-10). It moved to M3 and is designed when it is built (0003).
 - An optional component map for collision checks (2026-10-10). It is M2 work and is designed then (0003).
 - `amend` releasing a claim with its task file restored to the merge base. That is M3 work (0003).

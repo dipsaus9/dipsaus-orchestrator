@@ -7,9 +7,12 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries } from "../../changelog/log";
 import type { FeatureModule } from "../../commands/registry";
+import type { OfficeHandle } from "../../db/office";
 import type { OfficeLoadContext } from "../../office/steps";
 import type { PlanningLane } from "../../story-store/planning";
+import type { OfficeHandItem } from "../../views/desk";
 
+import { laneDeskItems } from "./desk";
 import { openEntries } from "./journal";
 import {
   type BacklogLaneDeps,
@@ -88,6 +91,7 @@ export class BacklogLane {
       ...(this.#deps.onFlushed === undefined ? {} : { onFlushed: this.#deps.onFlushed }),
       ...(this.#deps.held === undefined ? {} : { held: this.#deps.held }),
       ...(this.#deps.refreshStory === undefined ? {} : { refreshStory: this.#deps.refreshStory }),
+      ...(this.#deps.logger === undefined ? {} : { logger: this.#deps.logger }),
     });
     this.#offices.set(ctx.officeId, lane);
     return lane;
@@ -122,6 +126,12 @@ export class BacklogLane {
       this.#deps.onChanged?.(ctx.officeId);
     }
     return null;
+  }
+
+  /** The desk item of the office's lane when it is stuck (DIPO-401); none otherwise. */
+  deskItems(office: OfficeHandle, now: number): OfficeHandItem[] {
+    const lane = this.#offices.get(office.officeId);
+    return laneDeskItems(office, lane?.stall() ?? null, now);
   }
 
   /** The feature module that adds the replay load step. */

@@ -20,7 +20,8 @@
 //    marked hand-merge only for the release path), and that gate gets
 //    no MERGE row of its own;
 // 4. the stories parked `by-maintainer`, listed apart as "Parked by you";
-// 5. hand actions: a backlog PR whose structural check failed or could not run, the items of
+// 5. hand actions: a backlog PR whose structural check failed or could not run, a planning lane
+//    whose operations wait for a backlog PR longer than 30 minutes (DIPO-401), the items of
 //    `DeskSources.handItems` (DIPO-161's DONE ELSEWHERE and LEFTOVERS), the story worktrees of an
 //    earlier binary that hold changes (DIPO-349's LEFTOVER WORKTREE), and the run profile's rows
 //    (DIPO-310): each pending proposal of the scan fallback and each stale confirmation, an office
@@ -92,6 +93,18 @@ export interface PrHandItem {
   readonly hand: string;
 }
 
+/**
+ * A hand-action item of the office with no story and no PR, such as a stuck planning lane
+ * (DIPO-401): it puts it on the desk through `DeskSources.officeItems`.
+ */
+export interface OfficeHandItem {
+  readonly kind: string;
+  readonly detail: string;
+  /** When it began to wait, in ms. */
+  readonly since: number;
+  readonly hand: string;
+}
+
 /** An open merge gate, as `DeskSources.handMergeOnly` sees it. */
 export interface DeskGate {
   readonly gate: string;
@@ -125,6 +138,11 @@ export interface DeskSources {
   ) => readonly HandDeskItem[])[];
   /** Hand-action items of PRs no story owns, first in group 4; none without it. */
   readonly prItems?: (office: OfficeHandle) => readonly PrHandItem[];
+  /**
+   * Hand-action items of the office with no story, at the time of the read (a stuck planning lane,
+   * DIPO-401); none without it or without a time.
+   */
+  readonly officeItems?: (office: OfficeHandle, now: number) => readonly OfficeHandItem[];
   /** The office's starts paused (`StartsPaused.state`, 0020); none without it. */
   readonly startsPaused?: (office: OfficeHandle) => StartsPausedState | null;
 }
@@ -635,6 +653,19 @@ class DeskBuilder {
           since: iso(hand.since),
           blocks: this.#blocks(story),
           actions: hand.actions.flatMap((action) => this.#action(action.command, action.cli)),
+        });
+      }
+    }
+    // Office items with no story, such as a stuck planning lane (DIPO-401).
+    if (this.#now !== undefined) {
+      for (const item of this.#sources.officeItems?.(this.#office, this.#now) ?? []) {
+        this.#add(GROUP.hand, 0, item.since, {
+          kind: item.kind,
+          detail: deskText(item.detail),
+          since: iso(item.since),
+          blocks: [],
+          actions: [],
+          hand: item.hand,
         });
       }
     }

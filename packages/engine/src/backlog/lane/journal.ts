@@ -6,6 +6,7 @@
 import { FieldBlockPark, type StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../../db/office";
+import { failedHoldInForce } from "../../retention/failed-holds";
 import {
   DROP_KIND,
   EditTarget,
@@ -336,4 +337,59 @@ export function journaledPark(
     if (park !== undefined) return park;
   }
   return undefined;
+}
+
+/** A hold whose write the Backlog CLI failed on, still in force (DIPO-401, `failedHoldInForce`). */
+export interface FailedHold {
+  readonly opId: number;
+  readonly key: StoryKey;
+  readonly subject: string;
+  /** The status the hold parked the story from. */
+  readonly from: string | null;
+  /** The notice the lane closed it with. */
+  readonly notice: string | null;
+  /** When it was closed. */
+  readonly at: number;
+}
+
+function failedHoldOf(row: JournalRow): FailedHold {
+  const parsed = EditTarget.safeParse(JSON.parse(row.target));
+  const park = parsed.success ? FieldBlockPark.safeParse(parsed.data.fields?.["park"]) : null;
+  return {
+    opId: row.op_id,
+    key: row.key as StoryKey,
+    subject: row.subject,
+    from: park?.success === true ? park.data.from : null,
+    notice: row.notice,
+    at: row.closed_at ?? row.updated_at,
+  };
+}
+
+/** The failed holds in force, newest first. */
+const IN_FORCE = `select ${COLUMNS} from backlog_journal j
+  where office_id = $office_id and ${failedHoldInForce("j")}`;
+
+/**
+ * The newest failed hold in force of each story (DIPO-401): the park the maintainer asked for was
+ * never written, so the story stays out of pickup (fail closed) until the park is sent again and
+ * not given up, a resume, drop or discard of the story is, or the maintainer dismisses it.
+ */
+export function failedHolds(office: OfficeHandle): FailedHold[] {
+  const newest = new Map<string, FailedHold>();
+  for (const row of office.all<JournalRow>(`${IN_FORCE} order by op_id desc`)) {
+    if (row.key !== null && !newest.has(row.key)) newest.set(row.key, failedHoldOf(row));
+  }
+  return [...newest.values()].toSorted((a, b) => a.opId - b.opId);
+}
+
+/** Every failed hold in force of the story `key`, newest first; the dismiss withdraws them all. */
+export function failedHoldsOf(office: OfficeHandle, key: StoryKey | string): FailedHold[] {
+  return office
+    .all<JournalRow>(`${IN_FORCE} and key = $key order by op_id desc`, { key })
+    .map(failedHoldOf);
+}
+
+/** The newest failed hold in force of the story `key`, or null. */
+export function failedHold(office: OfficeHandle, key: StoryKey | string): FailedHold | null {
+  return failedHoldsOf(office, key)[0] ?? null;
 }

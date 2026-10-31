@@ -24,7 +24,7 @@ import type { OfficeHandle } from "../db/office";
 import type { StoryStore } from "../story-store/store";
 
 /** What a park read asks the StoryStore (0010): the park a pending planning change writes. */
-export type ParkStore = Pick<StoryStore, "plannedPark">;
+export type ParkStore = Pick<StoryStore, "plannedPark" | "planningHold">;
 
 /** The park record Backlog.md holds for a story. */
 export interface BacklogPark {
@@ -288,17 +288,24 @@ export function heldParks(
       order by at, park_id`,
   );
   const resuming = parksBeingResumed(office);
-  return rows
-    .filter((row) => backlogPark(stories, office, row.key) === null)
-    .map((row) => ({
-      key: row.key,
-      story: row.story_id,
-      detail: row.detail,
-      at: row.at,
-      why: resuming.has(row.park_id)
-        ? ("resuming" as const)
-        : row.run_id !== null && row.last_good_commit === null
-          ? ("unwritten" as const)
-          : ("lifted" as const),
-    }));
+  return (
+    rows
+      // A park whose hold failed to write is the planning lane's desk item (DIPO-401).
+      .filter(
+        (row) =>
+          backlogPark(stories, office, row.key) === null &&
+          stories.planningHold(office, row.key as StoryKey) !== "holdFailed",
+      )
+      .map((row) => ({
+        key: row.key,
+        story: row.story_id,
+        detail: row.detail,
+        at: row.at,
+        why: resuming.has(row.park_id)
+          ? ("resuming" as const)
+          : row.run_id !== null && row.last_good_commit === null
+            ? ("unwritten" as const)
+            : ("lifted" as const),
+      }))
+  );
 }

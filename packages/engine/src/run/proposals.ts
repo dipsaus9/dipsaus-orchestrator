@@ -7,7 +7,8 @@
 //   story in the description. Every text is the worker's: it is cleaned of terminal control
 //   characters, put on one line, capped, kept from starting a heading, an option or a Backlog.md
 //   section marker, and marked in the description as the worker's words. The operation is
-//   journaled first, then the proposal is `accepted` with `proposal.closed`, then the lane flushes.
+//   journaled first, then the proposal is `accepted` with `proposal.closed`, then the lane flushes,
+//   and the result says what the flush did with the draft (DIPO-401).
 //   A re-run finds the proposal accepted and its journal entry, and journals nothing new.
 // - Dismiss closes the proposal (`dismissed`, `proposal.closed`); nothing is filed.
 //
@@ -290,13 +291,15 @@ export class ProposalCommands {
             ];
       });
     }
-    if (entry?.open === true) await lane.flush();
+    // What the flush did with the draft (DIPO-401): the CLI says it, never a PR it did not open.
+    const flush = entry?.open === true ? await lane.flush(entry) : null;
     const draft = draftIdOf(office, proposal.hash);
     return {
       result: {
         proposal: proposal.hash,
         state: "accepted",
         ...(draft === null ? {} : { draft }),
+        ...(flush === null ? {} : { flush }),
       },
       changed,
     };

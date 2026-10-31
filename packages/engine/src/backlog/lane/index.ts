@@ -1,6 +1,7 @@
 // The planning lane (DIPO-34; 0010 section 2, lane b): the journal, operation kinds, the per-office
 // lane and its replay load step.
 
+export { failedHoldDeskItems, laneDeskItems, PLANNING_LANE_DESK } from "./desk";
 export { BacklogLane } from "./feature";
 export {
   allEntries,
@@ -15,6 +16,7 @@ export {
   LANE_BRANCH_PREFIX,
   LANE_NOTICES,
   LANE_REPLAY_STEP,
+  LANE_STUCK_MS,
   LANE_WORKTREE,
   LaneError,
   LaneFlushError,
@@ -25,6 +27,7 @@ export type {
   BacklogLaneDeps,
   BaseRef,
   FlushReport,
+  LaneStall,
   OfficeLaneOptions,
   Waiting,
   WaitingReason,

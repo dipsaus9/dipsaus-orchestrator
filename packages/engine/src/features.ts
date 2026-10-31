@@ -3,6 +3,7 @@
 // in its own line, and never edits `commands/` or `reads/`.
 
 import { backlogFeature } from "./backlog";
+import { failedHoldDeskItems } from "./backlog/lane/desk";
 import { backlogPrDeskItems } from "./backlog/pr/desk";
 import type { BacklogCli } from "./backlog/runner";
 import { backlogStoryStore } from "./backlog/store";
@@ -11,7 +12,7 @@ import { systemSpawn } from "./platform/process";
 import { describeFeature } from "./reads/describe";
 import { statsFeature } from "./retention/stats";
 import type { StoryStore } from "./story-store/store";
-import type { DeskSources } from "./views/desk";
+import { DESK_SOURCES, type DeskSources } from "./views/desk";
 import { viewsFeatureWith } from "./views/feature";
 
 export interface EngineFeatureOptions {
@@ -35,8 +36,14 @@ export function engineFeatures(options: EngineFeatureOptions): readonly FeatureM
     // lists `Retention.feature` next to it.
     statsFeature,
     // `office.snapshot`, `office.switch`, `story.detail` and `work.outputRange` (DIPO-52); the
-    // desk shows the backlog PRs whose check failed (0010).
-    viewsFeatureWith({ prItems: backlogPrDeskItems, stories: options.stories, ...options.desk }),
+    // desk shows the backlog PRs whose check failed (0010), and the parks whose hold failed to
+    // write (DIPO-401).
+    viewsFeatureWith({
+      prItems: backlogPrDeskItems,
+      handItems: [...DESK_SOURCES.handItems, failedHoldDeskItems],
+      stories: options.stories,
+      ...options.desk,
+    }),
   ];
 }
 

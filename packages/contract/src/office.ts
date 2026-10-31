@@ -166,6 +166,9 @@ export const workResume = defineCommand({
     run: RunId.optional(),
     queued: z.boolean().optional(),
     grants: z.array(ResumeGrant).optional(),
+    // (DIPO-401) True when the story was not parked but held by a park that failed to write: the
+    // resume dismissed that park, and pickup may take the story again.
+    dismissed: z.boolean().optional(),
   }),
   confirm: false,
   confirmWhen: ["budget"],
@@ -245,13 +248,32 @@ export const ProposalRef = z
   .string()
   .regex(/^[0-9a-f]{8,64}$/, "expected a proposal id, or at least its first 8 characters");
 
+// What a flush of the planning lane did with one journaled change (DIPO-401, 0010): `opened` or
+// `updated` the office's backlog PR `pr` (its URL) on `branch`; `pushed` the branch but no PR is
+// recorded yet; `merged`, the change is on the base already; `held`, the open backlog PR has
+// auto-merge on and the change waits for it; `waiting`, the change waits on a remote, a fetch or a
+// push, with the branch it is on when it is on one; `failed`, the flush failed and the change stays journaled; `closed`, the change itself
+// was dropped or failed and is not applied. `reason` is code-built text.
+export const LaneFlush = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("opened"), branch: z.string(), pr: z.string() }),
+  z.object({ state: z.literal("updated"), branch: z.string(), pr: z.string() }),
+  z.object({ state: z.literal("pushed"), branch: z.string() }),
+  z.object({ state: z.literal("merged") }),
+  z.object({ state: z.literal("held"), branch: z.string(), reason: z.string() }),
+  z.object({ state: z.literal("waiting"), branch: z.string().optional(), reason: z.string() }),
+  z.object({ state: z.literal("failed"), reason: z.string() }),
+  z.object({ state: z.literal("closed"), reason: z.string() }),
+]);
+export type LaneFlush = z.infer<typeof LaneFlush>;
+
 // (DIPO-166; 0020 sections 11c and 14) [`proposals`]: files an open follow-up, spike
 // or tool proposal of a worker as a Backlog draft through the planning lane, with the title, the
 // outcome line, the paths as references and the source story in the description, the worker's
 // text marked as the worker's words. `draft` is the draft's id once the lane created it; draft ids
 // are reused by Backlog.md, so it names the draft only until it is promoted or archived. Accepting
 // an accepted proposal changes nothing. Errors: `proposal.unknown`, `proposal.ambiguous` (a prefix
-// of several), `proposal.notOpen` (dismissed already).
+// of several), `proposal.notOpen` (dismissed already). `flush` says what the lane's flush did with
+// the draft (DIPO-401); it is absent when nothing was flushed (the proposal was filed already).
 export const proposalAccept = defineCommand({
   name: "proposal.accept",
   level: "office",
@@ -260,6 +282,7 @@ export const proposalAccept = defineCommand({
     proposal: ProposalId,
     state: z.literal("accepted"),
     draft: z.string().optional(),
+    flush: LaneFlush.optional(),
   }),
   confirm: false,
   irreversible: false,
@@ -610,7 +633,9 @@ export const officeStats = defineRead({
 // `PROFILE`, a pending proposal or stale confirmation of the run profile, with no story; DIPO-359
 // `STARTS PAUSED`, the office's starts paused with its reason and what lifts it, with no story;
 // DIPO-349 `LEFTOVER WORKTREE`, a story worktree of an earlier binary that holds changes, with no
-// story; DIPO-380 `LOADING`, an office whose load is still running, with no story).
+// story; DIPO-380 `LOADING`, an office whose load is still running, with no story; DIPO-401
+// `PLANNING LANE`, a planning lane whose operations wait for a backlog PR longer than 30 minutes,
+// with no story).
 export const KNOWN_DESK_KINDS = [
   "STARTS PAUSED",
   "QUESTION",
@@ -621,6 +646,7 @@ export const KNOWN_DESK_KINDS = [
   "DONE ELSEWHERE",
   "LEFTOVERS",
   "BACKLOG PR",
+  "PLANNING LANE",
   "NOTICE",
   "PROPOSAL",
   "PARKED BY YOU",

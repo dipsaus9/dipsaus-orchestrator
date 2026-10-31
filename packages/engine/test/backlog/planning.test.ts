@@ -18,6 +18,7 @@ import {
 
 import {
   allEntries,
+  failedHoldDeskItems,
   LaneError,
   type LaneOp,
   type OfficeLane,
@@ -25,7 +26,8 @@ import {
   planningLane,
 } from "../../src/backlog/lane";
 import { insertPark, mirrorParked } from "../run/park-fixture";
-import { insertEntry } from "../../src/backlog/lane/journal";
+import { insertEntry, updateEntry } from "../../src/backlog/lane/journal";
+import { heldParkDeskItems } from "../../src/views/desk";
 import { executeCommand } from "../../src/commands/execute";
 import { CRASH, crashAfterHandler } from "../commands/crash";
 import { executeRead } from "../../src/reads/execute";
@@ -542,6 +544,153 @@ describe("work.resume of a story parked with no run", () => {
   it("still answers story.notParked for a story that is not parked", async () => {
     story("DIPO-7", { status: "Ready" });
     expect(errorOf(await send("work.resume", { story: "DIPO-7" })).code).toBe("story.notParked");
+  });
+});
+
+/** Parks DIPO-7 from Ready, then closes its hold as `failed`, as the lane does when the CLI fails. */
+async function parkThatFails(): Promise<StoryKey> {
+  const key = story("DIPO-7", { status: "Ready" });
+  await send("story.park", { story: "DIPO-7", note: "later" });
+  const hold = allEntries(w.office)[0];
+  w.office.immediate(() =>
+    updateEntry(
+      w.office,
+      hold?.opId ?? 0,
+      {
+        state: "failed",
+        notice: "The backlog operation `backlog: hold DIPO-7` failed and is closed.",
+      },
+      w.t.clock.now(),
+    ),
+  );
+  return key;
+}
+
+/** Journals a change of DIPO-7 of `kind` and moves it to `state`. */
+function later(key: StoryKey, kind: string, state: "withdrawn" | "dropped" | "failed" | "merged") {
+  w.office.immediate(() => {
+    const entry = insertEntry(
+      w.office,
+      { kind, key, subject: "DIPO-7", target: {} },
+      w.t.clock.now(),
+    );
+    updateEntry(w.office, entry.opId, { state }, w.t.clock.now());
+  });
+}
+
+describe("a park whose hold failed to write (DIPO-401)", () => {
+  it("keeps the story out of pickup and on the desk with dipo park and dipo resume", async () => {
+    const key = await parkThatFails();
+    // No operation is open, yet the story stays held: fail closed.
+    expect(pendingLaneOp(w.office, key)).toBeNull();
+    expect(backlogLayout.planningHold(w.office, key)).toBe("holdFailed");
+    expect(failedHoldDeskItems(w.office)).toEqual([
+      {
+        kind: "PARK NOT WRITTEN",
+        key,
+        story: "DIPO-7",
+        detail:
+          "your park of DIPO-7 failed to write to Backlog.md, so dipo does not pick it: The backlog operation `backlog: hold DIPO-7` failed and is closed.",
+        since: w.t.clock.now(),
+        actions: [
+          { command: "story.park", cli: `dipo park DIPO-7 --note "<why>"` },
+          { command: "work.resume", cli: "dipo resume DIPO-7" },
+        ],
+      },
+    ]);
+    // Its open park row is not listed a second time as a park Backlog.md no longer holds.
+    expect(heldParkDeskItems(w.office, backlogLayout)).toEqual([]);
+  });
+
+  it("is sent again by dipo park, which replaces the earlier park row", async () => {
+    const key = await parkThatFails();
+    const reply = await send("story.park", { story: "DIPO-7", note: "later, again" });
+    expect(reply).toMatchObject({ ok: true, changed: true });
+    expect(allEntries(w.office).map((entry) => [entry.kind, entry.state])).toEqual([
+      ["hold", "failed"],
+      ["hold", "pending"],
+    ]);
+    expect(backlogLayout.planningHold(w.office, key)).toBe("pending");
+    expect(
+      w.office.all<{ how: string | null; detail: string }>(
+        "select resolved_how as how, detail from parks where office_id = $office_id and key = $key order by park_id",
+        { key },
+      ),
+    ).toEqual([
+      { how: "reconcile", detail: "later" },
+      { how: null, detail: "later, again" },
+    ]);
+  });
+
+  it("is dismissed by dipo resume: the hold is withdrawn and pickup may take the story again", async () => {
+    const key = await parkThatFails();
+    const reply = await send("work.resume", { story: "DIPO-7", note: "never mind" });
+    expect(reply).toMatchObject({
+      ok: true,
+      changed: true,
+      result: { story: "DIPO-7", key, to: "Ready" },
+    });
+    expect(allEntries(w.office)[0]?.state).toBe("withdrawn");
+    expect(backlogLayout.planningHold(w.office, key)).toBeNull();
+    expect(failedHoldDeskItems(w.office)).toEqual([]);
+    expect(
+      w.office.get<{ how: string }>(
+        "select resolved_how as how from parks where office_id = $office_id and key = $key",
+        { key },
+      )?.how,
+    ).toBe("resume");
+    // Nothing is left to dismiss.
+    expect(errorOf(await send("work.resume", { story: "DIPO-7" })).code).toBe("story.notParked");
+  });
+
+  it("stays in force when a later drop or discard of the story is withdrawn, dropped or fails", async () => {
+    const key = await parkThatFails();
+    later(key, "drop", "withdrawn");
+    expect(backlogLayout.planningHold(w.office, key)).toBe("holdFailed");
+    later(key, "discard", "dropped");
+    expect(backlogLayout.planningHold(w.office, key)).toBe("holdFailed");
+    later(key, "hold", "failed");
+    later(key, "resume", "failed");
+    expect(backlogLayout.planningHold(w.office, key)).toBe("holdFailed");
+    expect(failedHoldDeskItems(w.office)).toHaveLength(1);
+    // A change that is not the maintainer's answer to the park lifts nothing either.
+    later(key, "edit", "merged");
+    expect(backlogLayout.planningHold(w.office, key)).toBe("holdFailed");
+    // The dismiss withdraws both failed holds: nothing older comes back in force.
+    expect(await send("work.resume", { story: "DIPO-7" })).toMatchObject({
+      ok: true,
+      result: { dismissed: true },
+    });
+    expect(backlogLayout.planningHold(w.office, key)).toBeNull();
+    expect(
+      allEntries(w.office)
+        .filter((entry) => entry.kind === "hold")
+        .map((entry) => entry.state),
+    ).toEqual(["withdrawn", "withdrawn"]);
+  });
+
+  it("is lifted by a later drop of the story that merged", async () => {
+    const key = await parkThatFails();
+    later(key, "drop", "merged");
+    expect(backlogLayout.planningHold(w.office, key)).toBeNull();
+    expect(failedHoldDeskItems(w.office)).toEqual([]);
+  });
+
+  it("is dismissed by dipo resume first, whatever status a hand edit gave the story", async () => {
+    const key = await parkThatFails();
+    w.office.immediate(() =>
+      w.office.run(
+        "update backlog_mirror set status = 'In Progress' where office_id = $office_id and key = $key",
+        { key },
+      ),
+    );
+    const reply = await send("work.resume", { story: "DIPO-7" });
+    expect(reply).toMatchObject({
+      ok: true,
+      changed: true,
+      result: { story: "DIPO-7", key, to: "In Progress", dismissed: true },
+    });
+    expect(backlogLayout.planningHold(w.office, key)).toBeNull();
   });
 });
 
