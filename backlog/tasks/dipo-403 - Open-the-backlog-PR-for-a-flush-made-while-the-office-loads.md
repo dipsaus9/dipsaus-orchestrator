@@ -1,10 +1,10 @@
 ---
 id: DIPO-403
 title: Open the backlog PR for a flush made while the office loads
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-31 08:22'
-updated_date: '2026-10-31 08:31'
+updated_date: '2026-10-31 09:18'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -15,6 +15,15 @@ dependencies:
 references:
   - packages/engine/src/backlog/lane/lane.ts
   - packages/engine/src/backlog/pr/feature.ts
+modified_files:
+  - packages/engine/src/backlog/pr/desk.ts
+  - packages/engine/src/backlog/pr/feature.ts
+  - packages/engine/src/backlog/pr/index.ts
+  - packages/engine/src/create/steps.ts
+  - packages/engine/src/create/stories.ts
+  - packages/engine/src/office/manager.ts
+  - packages/engine/test/backlog/pr/helpers.ts
+  - packages/engine/test/backlog/pr/loaded.test.ts
 priority: medium
 type: bug
 ordinal: 381000
@@ -39,7 +48,22 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A flush during office load that pushes a branch gets its backlog PR opened or updated once the office has loaded, with no further lane operation
-- [ ] #2 The after-flush step that cannot run before the office has loaded is run again when the office-loaded event fires, not dropped; a failure after the office loaded is a warn line and a desk item
-- [ ] #3 A test with a real git remote reproduces the 2026-10-31 case: replay at load pushes, then the PR opens
+- [x] #1 A flush during office load that pushes a branch gets its backlog PR opened or updated once the office has loaded, with no further lane operation
+- [x] #2 The after-flush step that cannot run before the office has loaded is run again when the office-loaded event fires, not dropped; a failure after the office loaded is a warn line and a desk item
+- [x] #3 A test with a real git remote reproduces the 2026-10-31 case: replay at load pushes, then the PR opens
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-10-31 09:18 UTC
+- Criteria met: 3 of 3 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 1
+- Budget used: 216,847 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 2
+<!-- SECTION:FINAL_SUMMARY:END -->

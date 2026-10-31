@@ -97,7 +97,11 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
       stories: core.stories,
       desk: {
         startsPaused: (handle) => runs.startsPaused.state(handle.officeId as OfficeId),
-        officeItems: (handle, now) => story.lane.deskItems(handle, now),
+        // The stuck lane (DIPO-401), and a backlog PR that did not open after the office loaded (DIPO-403).
+        officeItems: (handle, now) => [
+          ...story.lane.deskItems(handle, now),
+          ...story.backlogPrs.loadFailureDeskItems(handle.officeId as OfficeId),
+        ],
       },
     }),
     core.engineGit.feature,
