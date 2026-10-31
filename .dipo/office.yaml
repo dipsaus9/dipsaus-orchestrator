@@ -4,3 +4,7 @@ version: 14
 # which reads the needs context with jq, so bun run verify needs it in the box as on the runner.
 box:
   packages: [jq]
+
+# 2026-10-31, maintainer: the reviewer runs at normal effort to make reviews faster (0002).
+review:
+  effort: medium
