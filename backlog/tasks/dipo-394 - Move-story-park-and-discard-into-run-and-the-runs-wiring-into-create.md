@@ -1,10 +1,10 @@
 ---
 id: DIPO-394
 title: Move story park and discard into run/ and the run's wiring into create/
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-30 11:22'
-updated_date: '2026-10-30 22:16'
+updated_date: '2026-10-31 09:37'
 labels:
   - 'tier:S'
   - 'slice:prune'

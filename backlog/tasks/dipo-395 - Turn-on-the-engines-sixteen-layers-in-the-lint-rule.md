@@ -1,10 +1,10 @@
 ---
 id: DIPO-395
 title: Turn on the engine's fine layer order and the directory cycle check
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-30 11:22'
-updated_date: '2026-10-30 11:44'
+updated_date: '2026-10-31 09:37'
 labels:
   - 'tier:M'
   - 'slice:prune'
