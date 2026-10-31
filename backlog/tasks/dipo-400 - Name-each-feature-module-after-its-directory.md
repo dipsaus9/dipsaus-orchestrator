@@ -1,10 +1,10 @@
 ---
 id: DIPO-400
 title: Name each feature module after its directory
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-30 22:14'
-updated_date: '2026-10-31 11:17'
+updated_date: '2026-10-31 11:18'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -75,11 +75,11 @@ test_plan:
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Closed 2026-10-31 10:58 UTC
+Closed 2026-10-31 11:18 UTC
 - Criteria met: 2 of 2 (as the worker reported them)
-- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Loops: 0; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
 - Review rounds: 1, failed 0
-- Budget used: 78,263 of 300,000 tokens
+- Budget used: 107,932 of 300,000 tokens
 - Runs: 1; resumes: 0
 - Parks: none
 - Grants: none
