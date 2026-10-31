@@ -1,10 +1,10 @@
 ---
 id: DIPO-407
-title: Give the review loop test a test clock
+title: Run the review loop test's cases side by side
 status: Ready
 assignee: []
 created_date: '2026-10-31 08:39'
-updated_date: '2026-10-31 09:37'
+updated_date: '2026-10-31 09:55'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -26,19 +26,21 @@ Outcome: review-loop.ci.test.ts runs in seconds instead of minutes.
 
 Measured 2026-10-31 on verify-macos: packages/engine/test/engine/review-loop.ci.test.ts took 150 s, ten cases of 10 to 18 s each (a review next to a working session, a conflict hand-off, park and resume, a blocking security finding, red CI then green, and more), most of it real waiting. 0002.
 
+Measured again 2026-10-31, it is not waiting: the file already runs on the manual clock, each case runs only 3 to 8 polls with at most 131 ms of sleep, and its time is about 55 Backlog CLI calls (about 80 ms each) and 240 git calls per case from production paths (packages/engine/src/backlog/fields/write.ts via backlog/story-copy.ts, run/work-run.ts, worktree/claim.ts and merge/close-out.ts; backlog/read.ts via stories/read.ts; backlog/list.ts via run/work-run.ts). A test clock cannot help, so the cases run side by side.
+
 ```dipo
 branch: "DIPO-407/review-loop-test-clock"
 unknowns: []
 test_plan:
   entries:
     - kind: "automated"
-      check: "(engine) review-loop.ci.test.ts runs every case against a test clock in under 20 s on macOS"
+      check: "(engine) review-loop.ci.test.ts runs its cases side by side in under 20 s on the maintainer's Mac"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every case of review-loop.ci.test.ts keeps its assertions and runs against a test clock or event waits instead of real sleeps and polls; where the engine has no clock seam for a poll the test drives (the Done poll, the PR poll), the story adds the smallest one and says so
-- [ ] #2 The file takes under 20 s on the Mac, measured before and after in the PR
-- [ ] #3 No case is removed or skipped, and each still fails when its behaviour breaks (shown for at least two cases by a temporary break described in the PR)
+- [ ] #1 The cases of review-loop.ci.test.ts run concurrently, each with its own office, temp folders, remote and the manual clock it already uses; no case is removed or skipped and every assertion is kept
+- [ ] #2 The file takes under 20 s on the maintainer's Mac and at most half its earlier time on the macOS CI shard, measured before and after in the PR, and passes 10 runs in a row locally
+- [ ] #3 Each case still fails when its behaviour breaks, shown for at least two cases by a temporary break in the PR description
 <!-- AC:END -->
