@@ -1,10 +1,10 @@
 ---
 id: DIPO-404
 title: Let the maintainer close a decision-note proposal
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-31 08:22'
-updated_date: '2026-10-31 09:35'
+updated_date: '2026-10-31 09:48'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -40,7 +40,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The maintainer can dismiss a decision-note item from the desk: the desk shows its id and a dismiss action, and the dismiss acts on wherever decision notes are stored (they are not rows of the proposals table), with a test
-- [ ] #2 A decision note whose exact text already appears under the section it names in that ADR on the base is closed with a notice, and one whose text is absent or differs stays, with a test for each
-- [ ] #3 dipo still never writes a decision record itself
+- [x] #1 The maintainer can dismiss a decision-note item from the desk: the desk shows its id and a dismiss action, and the dismiss acts on wherever decision notes are stored (they are not rows of the proposals table), with a test
+- [x] #2 A decision note whose exact text already appears under the section it names in that ADR on the base is closed with a notice, and one whose text is absent or differs stays, with a test for each
+- [x] #3 dipo still never writes a decision record itself
 <!-- AC:END -->
