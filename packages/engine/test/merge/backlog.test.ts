@@ -265,3 +265,30 @@ describe("the release path of a backlog PR", () => {
     expect(s.host.disarmed).toEqual([1]);
   });
 });
+
+describe("the ADR folder of a backlog PR", () => {
+  it("gives no auto-merge to a backlog PR that changes docs/decisions/, and merges one that does not by rule", async () => {
+    await openBacklogPr(s);
+    s.git.adr.set(HEAD, ["docs/decisions/0002-review-and-testing.md"]);
+    await s.merge.tick(s.officeId);
+    expect(s.host.armedAt).toEqual([]);
+    expect(noticeTexts(s.office, "merge.held")[0]).toContain("docs/decisions/");
+    s.git.adr.delete(HEAD);
+    await s.merge.tick(s.officeId);
+    expect(s.host.armedAt).toEqual([{ number: 1, head: HEAD }]);
+  });
+
+  it("gives none when git cannot tell, and turns it off when an ADR change shows up later", async () => {
+    await openBacklogPr(s);
+    s.git.adr.set(HEAD, null);
+    await s.merge.tick(s.officeId);
+    expect(s.host.armedAt).toEqual([]);
+    expect(noticeTexts(s.office, "merge.held")[0]).toContain("could not read");
+    s.git.adr.delete(HEAD);
+    await s.merge.tick(s.officeId);
+    expect(s.host.armedAt).toHaveLength(1);
+    s.git.adr.set(HEAD, ["docs/decisions/sub/x.txt"]);
+    await s.merge.tick(s.officeId);
+    expect(s.host.disarmed).toEqual([1]);
+  });
+});

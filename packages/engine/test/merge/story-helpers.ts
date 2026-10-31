@@ -102,6 +102,8 @@ export class FakeStoryGit implements StoryMergeGit {
   pushAnswer: PushOutcome = { ok: true, pushed: true };
   /** The release paths each head changes; null: git cannot tell. None by default. */
   readonly release = new Map<string, readonly string[] | null>();
+  /** The paths under docs/decisions/ each head changes; null: git cannot tell. None by default. */
+  readonly adr = new Map<string, readonly string[] | null>();
 
   async fetch(): Promise<boolean> {
     this.calls.push("fetch");
@@ -168,6 +170,11 @@ export class FakeStoryGit implements StoryMergeGit {
 
   async releasePaths(_office: OfficeId, head: string): Promise<readonly string[] | null> {
     const paths = this.release.get(head);
+    return paths === undefined ? [] : paths;
+  }
+
+  async adrPaths(_office: OfficeId, head: string): Promise<readonly string[] | null> {
+    const paths = this.adr.get(head);
     return paths === undefined ? [] : paths;
   }
 }

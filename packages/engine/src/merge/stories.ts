@@ -416,13 +416,15 @@ export class StoryMerges {
     const checks = this.#checksOf(ctx, run, head);
     if (checks === "red") return false;
     const green = checks === "green";
-    if (!green && this.#waitsForGreen(ctx, run, head, verdict)) return false;
+    const adr = await this.#adrPaths(ctx, run, head);
+    if (adr === null) return false;
+    if (!green && this.#waitsForGreen(ctx, run, head, verdict, adr)) return false;
     const held = await this.#held(ctx, pr);
     if (!green && held.length > 0) return false;
     const release = await this.#releasePaths(ctx, run, head);
     if (release === null || (!green && release.length > 0)) return false;
-    const gate = await this.#gateFor(ctx, pr, { head, verdict, held, release });
-    if (gate?.decision?.decision !== "approved") return false;
+    const gate = await this.#gateFor(ctx, pr, { head, verdict, held, release, adr });
+    if (gate?.decision?.decision !== "approved" || !coversAdr(gate, adr)) return false;
     if (!green && gate.waitingOn === "maintainer") return false;
     return !this.#heldBack(ctx, run, { number: stored.number, head, held, release });
   }
@@ -438,9 +440,10 @@ export class StoryMerges {
     run: StoredRun,
     head: string,
     verdict: StoredReviewVerdict,
+    adr: readonly string[],
   ): boolean {
     if (mirrorFlagged(ctx.office, run.key as StoryKey)) return true;
-    return this.#waits(ctx, run, { head, verdict, held: [], release: [] }).length > 0;
+    return this.#waits(ctx, run, { head, verdict, held: [], release: [], adr }).length > 0;
   }
 
   /** The verdict of the head's code tree when it is approved or overridden, else null. */
@@ -496,13 +499,34 @@ export class StoryMerges {
     return null;
   }
 
+  /**
+   * The paths under `docs/decisions/` `head` changes, read fresh, or null with a notice (once per
+   * head) when git cannot tell: then the gate does not open by rule and nothing turns auto-merge on.
+   */
+  async #adrPaths(
+    ctx: StoryMergeContext,
+    run: StoredRun,
+    head: string,
+  ): Promise<readonly string[] | null> {
+    const paths = await this.#deps.git.adrPaths(ctx.officeId, head).catch((error: unknown) => {
+      ctx.logger?.warn("reading the ADR changes of a story PR failed", {
+        run: run.runId,
+        reason: messageOf(error),
+      });
+      return null;
+    });
+    if (paths !== null) return paths;
+    this.#releaseUnknownNotice(ctx, run, head, "its changes under docs/decisions/");
+    return null;
+  }
+
   /** The `merge.releasePathUnknown` notice, once per head: nothing turns auto-merge on for it. */
   #releaseUnknownNotice(ctx: StoryMergeContext, run: StoredRun, head: string, what: string): void {
     ctx.once(`story:${run.runId}`, STORY_MERGE_NOTICES.releaseUnknown, head, () =>
       notice(
         "warn",
         STORY_MERGE_NOTICES.releaseUnknown,
-        `${run.story}: dipo could not read whether ${short(head)} changes the release path (${what}), so it does not turn auto-merge on. It tries again at the next poll.`,
+        `${run.story}: dipo could not read whether ${short(head)} changes the release path or the decision records (${what}), so it does not turn auto-merge on. It tries again at the next poll.`,
         run.key,
         run.runId,
       ),
@@ -586,8 +610,10 @@ export class StoryMerges {
   async #approvedFor(ctx: StoryMergeContext, run: StoredRun, head: string): Promise<boolean> {
     if (head === "") return false;
     if ((await this.#passedVerdict(ctx, run, head)) === null) return false;
+    const adr = await this.#adrPaths(ctx, run, head);
+    if (adr === null) return false;
     for (const gate of mergeGatesOfRun(ctx.office, run.runId).toReversed()) {
-      if (gate.decision?.decision !== "approved") continue;
+      if (gate.decision?.decision !== "approved" || !coversAdr(gate, adr)) continue;
       if (await this.#holds(ctx.officeId, ctx.office, run, gate, head)) return true;
     }
     return false;
@@ -623,6 +649,7 @@ export class StoryMerges {
       readonly verdict: StoredReviewVerdict;
       readonly held: readonly string[];
       readonly release: readonly string[];
+      readonly adr: readonly string[];
     },
   ): Promise<StoredMergeGate | null> {
     const { run } = pr;
@@ -633,12 +660,12 @@ export class StoryMerges {
         break;
       }
     }
-    if (found !== null && !gateOutdated(found, input.release)) return found;
+    if (found !== null && !gateOutdated(found, input.release, input.adr)) return found;
     const waits = this.#waits(ctx, run, input);
     const note =
       found === null
         ? `superseded: the PR head moved to ${short(input.head)}`
-        : `superseded: the release path of ${short(input.head)} changed`;
+        : `superseded: the release path or the decision records of ${short(input.head)} changed`;
     return this.#openGate(ctx, pr, { head: input.head, waits, note });
   }
 
@@ -654,6 +681,7 @@ export class StoryMerges {
       readonly verdict: StoredReviewVerdict;
       readonly held: readonly string[];
       readonly release: readonly string[];
+      readonly adr: readonly string[];
     },
   ): MergeWait[] {
     const config = runConfigOf(ctx.office, run, ctx.config);
@@ -665,6 +693,7 @@ export class StoryMerges {
       verdict: input.verdict,
       holdLabels: input.held,
       releasePaths: input.release,
+      adrPaths: input.adr,
     });
   }
 
@@ -969,7 +998,8 @@ export class StoryMerges {
     const head = pr.stored.headSha;
     const verdict = await this.#verdictFor(ctx.officeId, ctx.office, pr.run, head);
     if (verdict === null) return;
-    const waits = this.#waits(ctx, pr.run, { head, verdict, held, release: [] });
+    const adr = (await this.#adrPaths(ctx, pr.run, head)) ?? [];
+    const waits = this.#waits(ctx, pr.run, { head, verdict, held, release: [], adr });
     await this.#openGate(ctx, pr, {
       head,
       waits,
@@ -1189,11 +1219,30 @@ export class StoryMerges {
  * head changes: it is no hand-merge-only gate and the head changes one (and the maintainer did not
  * reject it), or it is an open hand-merge-only gate and the head changes none.
  */
-function gateOutdated(gate: StoredMergeGate, release: readonly string[]): boolean {
+function gateOutdated(
+  gate: StoredMergeGate,
+  release: readonly string[],
+  adr: readonly string[],
+): boolean {
   if (release.length > 0) {
     return gate.handMerge === null && gate.decision?.decision !== "rejected";
   }
-  return gate.handMerge !== null && gate.decision === null;
+  if (gate.handMerge !== null && gate.decision === null) return true;
+  if (adr.length > 0) return !namesAdr(gate) && gate.decision?.decision !== "rejected";
+  return namesAdr(gate) && gate.decision === null;
+}
+
+/** True when the gate was opened knowing the head changes the decision records. */
+function namesAdr(gate: StoredMergeGate): boolean {
+  return gate.waits?.includes("adrChange") === true;
+}
+
+/**
+ * True when `gate` may merge a head that changes `adr` (0002): none, or the gate waited for the
+ * maintainer for them. A gate decided by rule or opened before the change never covers it.
+ */
+function coversAdr(gate: StoredMergeGate, adr: readonly string[]): boolean {
+  return adr.length === 0 || namesAdr(gate);
 }
 
 /**

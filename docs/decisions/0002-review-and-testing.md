@@ -92,6 +92,7 @@ The gate opens when the review approved the head. It is decided **by rule**, and
 - the story passed review only through a maintainer override;
 - the PR has a hold label from `merge.holdLabels`;
 - the diff changes a path that the base's `CODEOWNERS` gives an owner (the release path). Such a gate is decided only by a hand merge on GitHub: `dipo approve` refuses it, and dipo never merges it or uses `--admin`;
+- the diff, read fresh from the merge base to the head with renames as a delete and an add, adds, changes or deletes any file under `docs/decisions/` (any depth, any file type, any letter case), so no ADR change merges without the maintainer's approval of its wording. `dipo approve` decides this gate; when git cannot read the changed files, the gate waits too and nothing merges. A backlog PR that touches `docs/decisions/` gets no auto-merge for the same reason (0010);
 - the PR is labelled `autorelease: pending`. dipo never merges such a PR. This rule is in code, and no setting removes it.
 
 The maintainer's actions:
@@ -146,3 +147,4 @@ An office runs at most one developer session per story, at most one developer se
 - A forwarder inside the test box on the box's address, with that address as the test URL (2026-10-22). Replaced by a forwarder on the Mac's loopback (2026-10-28): the Mac does not reach a box address while a VPN routes the box network's range.
 - Schema validity in the report gate, a bad report parked `ambiguous-spec`, and markers left at done failing the hand-off (2026-10-24). Replaced by one correction turn and then `worker-failed` for a report that does not parse or match the schema (0008), and by markers as report gate feedback against the tier `loops` (2026-10-28).
 - A merge gate that opened only once the required checks were green on the reviewed head, so every story waited for CI twice, on the reviewed head and again on the close-out head (2026-10-24). Replaced by a gate decided by rule that opens on the approved review, with CI once, on the close-out head; a gate that waits for the maintainer still opens only on green checks (2026-10-30).
+- A story PR that changed `docs/decisions/` and merged by rule after an approved review (2026-10-30). Replaced by a merge gate that waits for the maintainer for any change under `docs/decisions/`, in story PRs and in backlog PRs (2026-10-30).

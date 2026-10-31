@@ -44,6 +44,7 @@ import type { StoryEditor, StoryStore } from "../story-store/store";
 import { BRANCH_READ_PREFIX } from "../worktree/sweep";
 
 import { closeOutFields, DONE_STATUS } from "./close-out";
+import { adrPathsOf } from "./adr-path";
 import { CODEOWNERS_LOCATIONS, parseCodeowners, releasePathsOf } from "./release-path";
 
 /** The most modified files the close-out writes; the rest are left out. */
@@ -121,6 +122,12 @@ export interface StoryMergeGit {
    * no auto-merge on.
    */
   releasePaths(office: OfficeId, head: string): Promise<readonly string[] | null>;
+  /**
+   * The paths `head` changes under `docs/decisions/` (`adrPathsOf`), read fresh from the diff of
+   * its merge base with the base as last fetched, sorted. Null when git cannot tell: the gate then
+   * waits for the maintainer.
+   */
+  adrPaths(office: OfficeId, head: string): Promise<readonly string[] | null>;
 }
 
 async function revParse(session: GitSession, ref: string): Promise<string | null> {
@@ -216,6 +223,8 @@ export function gitStoryMergeOps(deps: {
 
     releasePaths: (office, head) => releasePathsOnBase(gitOf(office), head),
 
+    adrPaths: (office, head) => adrPathsOnBase(gitOf(office), head),
+
     treeKey: (office, story, head) =>
       gitOf(office).run(async (session) => {
         const listed = await session.step(session.repository, ["ls-tree", "-r", "-z", head]);
@@ -275,16 +284,12 @@ async function codeownersAt(session: GitSession, commit: string): Promise<string
   return blob.code === 0 ? blob.stdout : null;
 }
 
-/** The release paths `head` changes against its merge base with `onto`; null when unreadable. */
-async function releasePathsAt(
+/** The paths `head` changes against its merge base with `onto`, renames as a delete and an add. */
+async function changedPathsAt(
   session: GitSession,
   onto: string,
   head: string,
 ): Promise<string[] | null> {
-  const owners = await codeownersAt(session, onto);
-  if (owners === null) return null;
-  const rules = parseCodeowners(owners);
-  if (!rules.some((rule) => rule.owned)) return [];
   const base = await session.step(session.repository, ["merge-base", head, onto]);
   if (base.code !== 0 || base.stdout.trim() === "") return null;
   const diff = await session.step(session.repository, [
@@ -296,10 +301,32 @@ async function releasePathsAt(
     head,
   ]);
   if (diff.code !== 0) return null;
-  return releasePathsOf(
-    rules,
-    diff.stdout.split("\0").filter((path) => path !== ""),
-  );
+  return diff.stdout.split("\0").filter((path) => path !== "");
+}
+
+/** The release paths `head` changes against its merge base with `onto`; null when unreadable. */
+async function releasePathsAt(
+  session: GitSession,
+  onto: string,
+  head: string,
+): Promise<string[] | null> {
+  const owners = await codeownersAt(session, onto);
+  if (owners === null) return null;
+  const rules = parseCodeowners(owners);
+  if (!rules.some((rule) => rule.owned)) return [];
+  const changed = await changedPathsAt(session, onto, head);
+  return changed === null ? null : releasePathsOf(rules, changed);
+}
+
+/** The paths `head` changes under `docs/decisions/` against the base as last fetched; null when unreadable. */
+export function adrPathsOnBase(git: OfficeGit, head: string): Promise<string[] | null> {
+  return git.run(async (session) => {
+    const base = await baseRefOf(git, session);
+    const onto = base === null ? null : await revParse(session, base.ref);
+    if (onto === null) return null;
+    const changed = await changedPathsAt(session, onto, head);
+    return changed === null ? null : adrPathsOf(changed);
+  });
 }
 
 /** The close-out commit on the story branch (see the file comment); its commit or null. */

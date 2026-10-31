@@ -1,10 +1,10 @@
 ---
 id: DIPO-399
 title: Make a story PR that changes an ADR wait for the maintainer
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-30 21:55'
-updated_date: '2026-10-30 22:42'
+updated_date: '2026-10-31 03:30'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -18,6 +18,20 @@ references:
   - packages/engine/src/backlog/pr/merge.ts
   - packages/engine/src/backlog/pr/merge-git.ts
   - docs/decisions/0002-review-and-testing.md
+modified_files:
+  - docs/decisions/0002-review-and-testing.md
+  - packages/engine/src/backlog/pr/merge-git.ts
+  - packages/engine/src/backlog/pr/merge.ts
+  - packages/engine/src/merge/adr-path.ts
+  - packages/engine/src/merge/gates.ts
+  - packages/engine/src/merge/stories.ts
+  - packages/engine/src/merge/story-git.ts
+  - packages/engine/test/merge/adr-path.test.ts
+  - packages/engine/test/merge/backlog.test.ts
+  - packages/engine/test/merge/helpers.ts
+  - packages/engine/test/merge/stories.test.ts
+  - packages/engine/test/merge/story-git.ci.test.ts
+  - packages/engine/test/merge/story-helpers.ts
 priority: high
 type: bug
 ordinal: 377000
@@ -42,10 +56,25 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A story PR's merge gate waits for the maintainer (a new MergeWait kind naming the ADR paths, approvable with dipo approve) when the diff from the merge base to the head, read fresh at each gate decision with --no-renames, adds, changes or deletes any file under docs/decisions/ (subfolders and non-.md files included); the fact also reaches waitsForGreen and heldBack as the release path does
-- [ ] #2 A backlog-only PR (backlog/pr/merge.ts) is stopped the same way when it touches docs/decisions/, and waits for the maintainer instead of merging by rule
-- [ ] #3 What the gates caught before still holds, each with a test: the existing waiting reasons, the release path, and the by-rule path for a PR without ADR changes
-- [ ] #4 Bypass forms are tested against real git: an ADR change pushed in a later head after the review approved or after a by-rule decision, a rename into or out of docs/decisions/, a change only to an ADR's Replaced list, a subfolder or non-.md file, and Docs/Decisions/ in another case on the case-insensitive file system
-- [ ] #5 Fail-closed against real git: when the changed files cannot be read, the gate waits for the maintainer with a named notice (the releasePathUnknown notice or a sibling) instead of opening by rule
-- [ ] #6 0002's list of reasons the gate waits for the maintainer names the ADR change, with one Replaced line; the maintainer approves the wording
+- [x] #1 A story PR's merge gate waits for the maintainer (a new MergeWait kind naming the ADR paths, approvable with dipo approve) when the diff from the merge base to the head, read fresh at each gate decision with --no-renames, adds, changes or deletes any file under docs/decisions/ (subfolders and non-.md files included); the fact also reaches waitsForGreen and heldBack as the release path does
+- [x] #2 A backlog-only PR (backlog/pr/merge.ts) is stopped the same way when it touches docs/decisions/, and waits for the maintainer instead of merging by rule
+- [x] #3 What the gates caught before still holds, each with a test: the existing waiting reasons, the release path, and the by-rule path for a PR without ADR changes
+- [x] #4 Bypass forms are tested against real git: an ADR change pushed in a later head after the review approved or after a by-rule decision, a rename into or out of docs/decisions/, a change only to an ADR's Replaced list, a subfolder or non-.md file, and Docs/Decisions/ in another case on the case-insensitive file system
+- [x] #5 Fail-closed against real git: when the changed files cannot be read, the gate waits for the maintainer with a named notice (the releasePathUnknown notice or a sibling) instead of opening by rule
+- [x] #6 0002's list of reasons the gate waits for the maintainer names the ADR change, with one Replaced line; the maintainer approves the wording
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-10-31 03:30 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 165,325 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -82,6 +82,8 @@ export type MergeWait =
   | { readonly kind: "override" }
   | { readonly kind: "holdLabel"; readonly labels: readonly string[] }
   | { readonly kind: "releasePath"; readonly paths: readonly string[] }
+  /** The PR changes files under `docs/decisions/`: the maintainer approves the wording (0002). */
+  | { readonly kind: "adrChange"; readonly paths: readonly string[] }
   /** The PR's head on GitHub is one dipo did not push (0002): only a hand merge or a discard. */
   | { readonly kind: "foreignHead"; readonly head: string };
 
@@ -107,6 +109,8 @@ export interface MergeWaitFacts {
   readonly holdLabels: readonly string[];
   /** The release paths the PR's diff changes (`StoryMergeGit.releasePaths`); none by default. */
   readonly releasePaths?: readonly string[];
+  /** The paths under `docs/decisions/` the PR's diff changes (`StoryMergeGit.adrPaths`); none by default. */
+  readonly adrPaths?: readonly string[];
 }
 
 /** Pure: every reason the merge gate waits for the maintainer; none: it is decided by rule. */
@@ -122,6 +126,8 @@ export function mergeWaits(facts: MergeWaitFacts): MergeWait[] {
   if (facts.holdLabels.length > 0) waits.push({ kind: "holdLabel", labels: facts.holdLabels });
   const release = facts.releasePaths ?? [];
   if (release.length > 0) waits.push({ kind: "releasePath", paths: release });
+  const adr = facts.adrPaths ?? [];
+  if (adr.length > 0) waits.push({ kind: "adrChange", paths: adr });
   return waits;
 }
 
@@ -140,6 +146,8 @@ export function waitLine(wait: MergeWait): string {
       return `the PR carries ${wait.labels.length === 1 ? "the hold label" : "the hold labels"} ${wait.labels.map((label) => `"${label}"`).join(", ")}`;
     case "releasePath":
       return `it changes the release path, which needs the maintainer's code owner approval: ${releasePathList(wait.paths)}`;
+    case "adrChange":
+      return `it changes the decision records, whose wording the maintainer approves: ${releasePathList(wait.paths)}`;
     case "foreignHead":
       return `its head on GitHub is ${wait.head.slice(0, 12)}, which dipo did not push, so dipo turned auto-merge off`;
   }

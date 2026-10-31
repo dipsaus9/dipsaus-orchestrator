@@ -9,7 +9,7 @@
 // - the release path read from git: CODEOWNERS from the base as last fetched, the PR's diff from its
 //   merge base with the base; such a PR never gets auto-merge.
 
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
@@ -510,6 +510,157 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         },
         { fixture: BACKLOG_FIXTURE },
       );
+    });
+
+    describe("the ADR folder of a story PR on real git", () => {
+      const DECISIONS = {
+        "docs/decisions/0002-review.md": "# 0002\n\nReplaced: none\n",
+        "docs/decisions/notes/sketch.txt": "sketch\n",
+        "docs/vision.md": "vision\n",
+      };
+
+      /** The scenario over a base with ADRs, the worker's `change`, and what the PR is expected to hold. */
+      async function adrScenario(
+        change: (checkout: string, repo: TempRepoWithRemote) => Promise<void>,
+        paths: string[],
+      ): Promise<void> {
+        await withBareRemote(
+          async (repo) => {
+            releaseBase(repo, DECISIONS);
+            await scenario(
+              repo,
+              async ({ merge, host, officeId, run, head, s, mergeGit }) => {
+                expect(await mergeGit.adrPaths(officeId, head)).toEqual(paths);
+                await merge.tick(officeId);
+                await merge.tick(officeId);
+                const gates = mergeGatesOfRun(s.office, run);
+                if (paths.length === 0) {
+                  expect(host.merges).toHaveLength(1);
+                  expect(gates[0]).toMatchObject({ waitingOn: "rule" });
+                  return;
+                }
+                // The gate waits for the maintainer, who can approve it with dipo approve.
+                expect(host.merges).toEqual([]);
+                expect(gates).toHaveLength(1);
+                expect(gates[0]).toMatchObject({
+                  head,
+                  waitingOn: "maintainer",
+                  handMerge: null,
+                  decision: null,
+                });
+                expect(gates[0]?.waits).toContain("adrChange");
+                expect(gates[0]?.summary).toContain(paths[0] as string);
+              },
+              change,
+            );
+          },
+          { fixture: BACKLOG_FIXTURE },
+        );
+      }
+
+      it("waits for the maintainer for a change to an ADR's Replaced list alone", () =>
+        adrScenario(
+          async (checkout, repo) => {
+            writeFileSync(
+              join(checkout, "docs/decisions/0002-review.md"),
+              "# 0002\n\nReplaced: 2026-10-30 one line\n",
+            );
+            await git(checkout, repo.home, "add", "docs");
+          },
+          ["docs/decisions/0002-review.md"],
+        ));
+
+      it("waits for a file in a subfolder that is not markdown", () =>
+        adrScenario(
+          async (checkout, repo) => {
+            writeFileSync(join(checkout, "docs/decisions/notes/sketch.txt"), "changed\n");
+            writeFileSync(join(checkout, "docs/decisions/notes/new.json"), "{}\n");
+            await git(checkout, repo.home, "add", "docs");
+          },
+          ["docs/decisions/notes/new.json", "docs/decisions/notes/sketch.txt"],
+        ));
+
+      it("waits for a file deleted from the folder", () =>
+        adrScenario(
+          async (checkout, repo) => {
+            await git(checkout, repo.home, "rm", "--quiet", "docs/decisions/0002-review.md");
+          },
+          ["docs/decisions/0002-review.md"],
+        ));
+
+      it("counts a rename out of the folder as a change to it", () =>
+        adrScenario(
+          async (checkout, repo) => {
+            await git(checkout, repo.home, "mv", "docs/decisions/0002-review.md", "docs/review.md");
+          },
+          ["docs/decisions/0002-review.md"],
+        ));
+
+      it("counts a rename into the folder as a change to it", () =>
+        adrScenario(
+          async (checkout, repo) => {
+            await git(checkout, repo.home, "mv", "docs/vision.md", "docs/decisions/vision.md");
+          },
+          ["docs/decisions/vision.md"],
+        ));
+
+      it("counts Docs/Decisions/ in another case, which a case-insensitive file system folds", () =>
+        adrScenario(
+          async (checkout, repo) => {
+            // Straight into the index: on a case-insensitive file system the work tree folds the
+            // folder onto `docs/decisions`, so `git add Docs` has no pathspec to match.
+            const file = join(checkout, "folded.tmp");
+            writeFileSync(file, "# folded\n");
+            const blob = (await git(checkout, repo.home, "hash-object", "-w", file)).trim();
+            rmSync(file);
+            await git(
+              checkout,
+              repo.home,
+              "update-index",
+              "--add",
+              "--cacheinfo",
+              `100644,${blob},Docs/Decisions/0002-review.md`,
+            );
+          },
+          ["Docs/Decisions/0002-review.md"],
+        ));
+
+      it("decides a PR that leaves the folder alone by rule", () => adrScenario(writeExport, []));
+
+      it("reads a later head fresh: an ADR change pushed after the earlier head was reviewed", async () => {
+        await withBareRemote(
+          async (repo) => {
+            releaseBase(repo, DECISIONS);
+            await scenario(repo, async ({ officeId, head, mergeGit }) => {
+              expect(await mergeGit.adrPaths(officeId, head)).toEqual([]);
+              const later = await byHandOn(repo, BRANCH_1, async (dir) => {
+                writeFileSync(join(dir, "docs/decisions/0002-review.md"), "# later\n");
+                await git(dir, repo.home, "commit", "--quiet", "-am", "docs: later");
+                await git(dir, repo.home, "push", "--quiet", "origin", BRANCH_1);
+                return (await git(dir, repo.home, "rev-parse", "HEAD")).trim();
+              });
+              await mergeGit.fetch(officeId);
+              expect(await mergeGit.adrPaths(officeId, later)).toEqual([
+                "docs/decisions/0002-review.md",
+              ]);
+              expect(await mergeGit.adrPaths(officeId, head)).toEqual([]);
+            });
+          },
+          { fixture: BACKLOG_FIXTURE },
+        );
+      });
+
+      it("fails closed: a head git cannot read has no answer, and nothing merges", async () => {
+        await withBareRemote(
+          async (repo) => {
+            releaseBase(repo, DECISIONS);
+            await scenario(repo, async ({ officeId, mergeGit }) => {
+              expect(await mergeGit.adrPaths(officeId, "0".repeat(40))).toBeNull();
+            });
+          },
+          { fixture: BACKLOG_FIXTURE },
+        );
+      });
     });
   });
 }
