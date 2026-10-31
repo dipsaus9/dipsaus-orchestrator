@@ -1,10 +1,10 @@
 ---
 id: DIPO-400
 title: Name each feature module after its directory
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-30 22:14'
-updated_date: '2026-10-30 22:16'
+updated_date: '2026-10-31 10:17'
 labels:
   - 'tier:S'
   - 'slice:prune'
