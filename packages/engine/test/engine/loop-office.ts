@@ -340,12 +340,6 @@ export interface LoopOptions {
   readonly officeYaml?: string;
 }
 
-let requests = 0;
-function requestId(): RequestId {
-  requests += 1;
-  return RequestId.parse(`01J9ZK5Q8W3V4X6Y7Z${(60_000 + requests).toString().padStart(8, "0")}`);
-}
-
 /** The Backlog fixture on a bare `origin` with TASK-1 made to pass the Ready gate. */
 export async function withLoopOffice(
   options: LoopOptions,
@@ -386,6 +380,14 @@ export async function withLoopOffice(
       let daemon: Daemon | null = null;
       let officeId: OfficeId | null = null;
       const counts: Record<SessionKind, number> = { implement: 0, review: 0 };
+      // Each world counts its own request ids: its scenario may run next to others (DIPO-407).
+      let requests = 0;
+      const requestId = (): RequestId => {
+        requests += 1;
+        return RequestId.parse(
+          `01J9ZK5Q8W3V4X6Y7Z${(60_000 + requests).toString().padStart(8, "0")}`,
+        );
+      };
       const world: LoopWorld = {
         repo,
         host,
