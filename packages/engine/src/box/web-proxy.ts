@@ -6,7 +6,10 @@
 // - A tunnel to a package registry Safe-Chain checks (host name normalised: lower case, one
 //   trailing dot dropped) goes to the Safe-Chain box (DIPO-343, `safe-chain-box.ts`), on the port
 //   of the registry's ecosystem, and only on the TLS port. While no Safe-Chain box runs, it is
-//   refused: no registry is reached but through Safe-Chain.
+//   refused: no registry is reached but through Safe-Chain. Each one is kept with its client box,
+//   the box its proxy password names, and when it opened and closed (`RegistryTunnels`, DIPO-396),
+//   so a refusal in Safe-Chain's log is tied to the box that asked. A tunnel with no password dipo
+//   admitted still goes to Safe-Chain; its refusals are tied to no box.
 // - A tunnel to another name of a registry (DIPO-281, `registryRefusal`) is refused: a known alias,
 //   a CDN name or a public mirror of a registry Safe-Chain checks, or any name under a zone that
 //   only serves a registry. Safe-Chain checks only its own names, so none of them goes to it.
@@ -68,6 +71,7 @@ import { type BoxConnector, connectToBox } from "./box-connect";
 import type { BoxNetwork } from "./port";
 import {
   ecosystemOf,
+  type RegistryClients,
   SAFE_CHAIN_REGISTRY_HOSTS,
   SAFE_CHAIN_TLS_PORT,
   SAFE_CHAIN_UPSTREAM_HOSTS,
@@ -728,6 +732,8 @@ export const BOX_PROXY_USER = "dipo";
 export class BoxAdmissions {
   readonly #byBox = new Map<string, string>();
   readonly #ports = new Map<string, readonly number[]>();
+  /** The box of each password (DIPO-396). */
+  readonly #boxes = new Map<string, string>();
   readonly #token: () => string;
 
   constructor(token: () => string = () => randomBytes(24).toString("hex")) {
@@ -739,6 +745,7 @@ export class BoxAdmissions {
     this.forget(box);
     const token = this.#token();
     this.#byBox.set(box, token);
+    this.#boxes.set(token, box);
     this.#ports.set(
       token,
       [...new Set(ports)].toSorted((a, b) => a - b),
@@ -749,13 +756,89 @@ export class BoxAdmissions {
   /** Forgets `box`: its password stops working. */
   forget(box: string): void {
     const token = this.#byBox.get(box);
-    if (token !== undefined) this.#ports.delete(token);
+    if (token !== undefined) {
+      this.#ports.delete(token);
+      this.#boxes.delete(token);
+    }
     this.#byBox.delete(box);
+  }
+
+  /** The box whose password is `token` (DIPO-396); null for none or an unknown or stale one. */
+  boxOf(token: string | null): string | null {
+    return token === null ? null : (this.#boxes.get(token) ?? null);
   }
 
   /** The listed ports of the box whose password is `token`; null for none or an unknown one. */
   portsOf(token: string | null): readonly number[] | null {
     return token === null ? null : (this.#ports.get(token) ?? null);
+  }
+}
+
+/** How many closed registry tunnels `RegistryTunnels` keeps; older ones are forgotten. */
+export const REGISTRY_TUNNELS_KEPT = 50_000;
+
+/** One registry tunnel the web proxy sent to Safe-Chain (DIPO-396). */
+interface RegistryTunnel {
+  /** The box whose proxy password it carried; null when it carried none dipo admitted. */
+  readonly client: string | null;
+  readonly ecosystem: SafeChainEcosystem;
+  /** The Mac's time the CONNECT reached the proxy, in ms. */
+  readonly opened: number;
+  /** The Mac's time it closed, in ms; null while it is open. */
+  closed: number | null;
+}
+
+/**
+ * The registry tunnels the web proxy sent to Safe-Chain (DIPO-396), each with its client box and
+ * the Mac's time it opened and closed, so a refusal in Safe-Chain's log, which names no client, is
+ * tied to the box that asked (`refusalsOfBox`). It keeps every open tunnel and the last
+ * `REGISTRY_TUNNELS_KEPT` closed ones; a span that reaches back past those is `forgotten`.
+ */
+export class RegistryTunnels {
+  readonly #clock: Pick<Clock, "now">;
+  readonly #kept: number;
+  readonly #open = new Set<RegistryTunnel>();
+  #closed: RegistryTunnel[] = [];
+  /** The latest close time of a tunnel forgotten; a span from before it is not known whole. */
+  #forgottenUntil = Number.NEGATIVE_INFINITY;
+
+  constructor(clock: Pick<Clock, "now">, kept: number = REGISTRY_TUNNELS_KEPT) {
+    this.#clock = clock;
+    this.#kept = kept;
+  }
+
+  /**
+   * Keeps a tunnel of `client` (null: no box dipo admitted) to the Safe-Chain process of
+   * `ecosystem`, opened at `opened` (the Mac's ms); the returned call closes it, once.
+   */
+  opened(client: string | null, ecosystem: SafeChainEcosystem, opened: number): () => void {
+    const tunnel: RegistryTunnel = { client, ecosystem, opened, closed: null };
+    this.#open.add(tunnel);
+    return () => {
+      if (!this.#open.delete(tunnel)) return;
+      tunnel.closed = this.#clock.now();
+      this.#closed.push(tunnel);
+      if (this.#closed.length > this.#kept) {
+        // A tenth more at once, so a close does not move the whole list each time.
+        const drop = this.#closed.length - Math.floor(this.#kept * 0.9);
+        for (const gone of this.#closed.slice(0, drop)) {
+          this.#forgottenUntil = Math.max(this.#forgottenUntil, gone.closed ?? 0);
+        }
+        this.#closed = this.#closed.slice(drop);
+      }
+    };
+  }
+
+  /** Who had a tunnel of `ecosystem` open at any time from `from` to `to` (the Mac's ms). */
+  during(ecosystem: SafeChainEcosystem, from: number, to: number): RegistryClients {
+    if (from <= this.#forgottenUntil) return { kind: "forgotten" };
+    const boxes: (string | null)[] = [];
+    for (const tunnel of [...this.#open, ...this.#closed]) {
+      if (tunnel.ecosystem !== ecosystem || tunnel.opened > to) continue;
+      if (tunnel.closed !== null && tunnel.closed < from) continue;
+      boxes.push(tunnel.client);
+    }
+    return { kind: "seen", boxes };
   }
 }
 
@@ -815,6 +898,11 @@ export interface BoxWebProxyOptions {
    * it no tunnel reaches a local port.
    */
   readonly admissions?: BoxAdmissions;
+  /**
+   * Where each registry tunnel sent to Safe-Chain is kept with its client box (DIPO-396), by the
+   * proxy password it carried (`admissions`).
+   */
+  readonly tunnels?: RegistryTunnels;
 }
 
 export interface BoxWebProxyDeps {
@@ -1014,6 +1102,7 @@ export function startBoxWebProxy(
       connectTimeoutMs: WEB_PROXY_CONNECT_TIMEOUT_MS,
       limits: options.limits ?? {},
       admissions: options.admissions ?? null,
+      tunnels: options.tunnels ?? null,
     },
     deps,
   );
@@ -1050,6 +1139,7 @@ export function startSafeChainUpstreamProxy(
         ...options.limits,
       },
       admissions: null,
+      tunnels: null,
     },
     deps,
   );
@@ -1075,13 +1165,15 @@ interface WebProxyListener {
   readonly limits: NonNullable<BoxWebProxyOptions["limits"]>;
   /** The boxes and their listed local ports (DIPO-282); null: no local port is reachable. */
   readonly admissions: BoxAdmissions | null;
+  /** Where registry tunnels are kept with their client box (DIPO-396); null: nowhere. */
+  readonly tunnels: RegistryTunnels | null;
 }
 
 async function startWebProxy(
   options: WebProxyListener,
   deps: BoxWebProxyDeps,
 ): Promise<RunningBoxWebProxy> {
-  const { listenHost, kind, admissions } = options;
+  const { listenHost, kind, admissions, tunnels } = options;
   const safeChain = "box" in kind ? kind.box : null;
   const upstreamSource = "upstream" in kind ? kind.upstream : null;
   const parsed = parseAddress(listenHost);
@@ -1246,15 +1338,17 @@ async function startWebProxy(
 
   /**
    * A tunnel to a registry Safe-Chain checks: through the Safe-Chain box, on the port of the
-   * registry's ecosystem, on the TLS port only; refused while no Safe-Chain box runs.
+   * registry's ecosystem, on the TLS port only; refused while no Safe-Chain box runs. Each one sent
+   * to Safe-Chain is kept in `tunnels` with the box its proxy password names (DIPO-396), or none.
    */
   const registry = (
     client: Socket,
-    host: string,
-    port: number,
+    asked: { readonly host: string; readonly port: number; readonly headText: string },
     rest: Buffer,
     safeChainOf: () => SafeChainTarget | null,
   ) => {
+    const opened = deps.clock.now();
+    const { host, port, headText } = asked;
     const target = `${host}:${port}`;
     if (port !== SAFE_CHAIN_TLS_PORT) {
       refuse(
@@ -1297,6 +1391,10 @@ async function startWebProxy(
         }
         // Only once the Safe-Chain box took it: a registry tunnel never goes anywhere else.
         emit({ kind: "registry", host, port });
+        if (tunnels !== null) {
+          const clientBox = admissions?.boxOf(proxyPassword(headText)) ?? null;
+          client.once("close", tunnels.opened(clientBox, ecosystem, opened));
+        }
         pipeSockets(client, upstream, forwarded, {
           clock: deps.clock,
           idleMs: limits.idleTimeoutMs,
@@ -1330,7 +1428,7 @@ async function startWebProxy(
     }
     const boxListener = safeChain !== null;
     if (safeChain !== null && isRegistryHost(host)) {
-      registry(client, host, port, rest, safeChain);
+      registry(client, { host, port, headText }, rest, safeChain);
       return;
     }
     const otherName = boxListener ? registryRefusal(host) : null;
@@ -1530,6 +1628,8 @@ export interface RunningBoxWebRoute extends RunningBoxWebProxy {
    * gets: `url` with the box's own proxy password. An earlier URL of the box stops naming it.
    */
   admit(box: string, ports: readonly number[]): string;
+  /** The registry tunnels it sent to Safe-Chain, each with its client box (DIPO-396). */
+  readonly tunnels: RegistryTunnels;
 }
 
 export type BoxWebRouteStart =

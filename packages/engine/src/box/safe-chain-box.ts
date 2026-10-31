@@ -34,7 +34,10 @@
 // Its refusals (DIPO-376): each Safe-Chain process writes its log file in the box as it goes
 // (`safeChainLogFile`). `markSafeChain` counts each log's lines when a session starts, and
 // `readSafeChain` reads the refusals among the lines each gained when it ends; a log that cannot be
-// read then is unknown. The box workers keep both on the run (`BoxWorkers.sessionEnded`).
+// read then is unknown. Both read the box's clock against the Mac's, and the read keeps only the
+// refusals the session's own box asked for, by their time and the web proxy's registry tunnels
+// (`refusalsOfBox`, DIPO-396); one whose box cannot be told is unknown. The box workers keep both
+// on the run (`BoxWorkers.sessionEnded`).
 
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { connect as tlsConnect } from "node:tls";
@@ -48,7 +51,10 @@ import { cleanDoorText } from "./door";
 import { type BoxImageDeps, ensureSafeChainImage } from "./build-box";
 import { type BoxNetwork, type BoxPort, type BoxProcess, boxName } from "./port";
 import {
+  boxClockOffset,
+  type ClockOffset,
   isCertificateBundle,
+  refusalsOfBox,
   SAFE_CHAIN_BOX_PORTS,
   SAFE_CHAIN_BOX_RUN_PREFIX,
   SAFE_CHAIN_LOAD_SECONDS_ENV,
@@ -64,11 +70,13 @@ import {
   type SafeChainUnknown,
   safeChainLogFile,
   safeChainRefusalsOf,
+  sessionClockOffset,
 } from "./safe-chain";
 import {
   admittedUrl,
   BoxAdmissions,
   type BoxWebProxyDeps,
+  RegistryTunnels,
   type BoxWebRouteStart,
   type RunningBoxWebProxy,
   type RunningBoxWebRoute,
@@ -582,9 +590,10 @@ export async function startBoxWebRoute(
   let target: SafeChainTarget | null = null;
   let source: string | null = null;
   const admissions = new BoxAdmissions();
+  const tunnels = new RegistryTunnels(proxyDeps.clock);
   try {
     const proxy = await startBoxWebProxy(
-      { network, safeChain: () => target, admissions },
+      { network, safeChain: () => target, admissions, tunnels },
       proxyDeps,
     );
     started.proxy = proxy;
@@ -638,7 +647,7 @@ export async function startBoxWebRoute(
     const reason = `the box web route did not start: ${messageOf(error)}`;
     return { ok: false, reason: detail === "" ? reason : `${reason}\n${detail}` };
   }
-  return { ok: true, route: running(deps, started, admissions) };
+  return { ok: true, route: running(deps, started, admissions, tunnels) };
 }
 
 /** The started route as the boxes use it; `stop` ends all of it, the Safe-Chain box included. */
@@ -646,6 +655,7 @@ function running(
   deps: SafeChainRouteDeps,
   started: Started,
   admissions: BoxAdmissions,
+  tunnels: RegistryTunnels,
 ): RunningBoxWebRoute {
   const proxy = started.proxy as RunningBoxWebProxy;
   let stopping: Promise<void> | null = null;
@@ -655,6 +665,7 @@ function running(
     url: proxy.url,
     caFile: deps.caFile,
     admit: (box, ports) => admittedUrl(proxy.url, admissions.admit(box, ports)),
+    tunnels,
     stop() {
       stopping ??= stopStarted(deps, started);
       return stopping;
@@ -671,58 +682,117 @@ export const SAFE_CHAIN_LOG_READ_TIMEOUT_MS = 4_000;
 /** The exit of `READ_REFUSALS` for a log shorter than at the session's start: cut or replaced. */
 const LOG_SHRANK = 4;
 
-/** Prints the complete lines of the log `$1`; exit 3 when it is not there to read. */
-const COUNT_LINES = '[ -r "$1" ] || exit 3; wc -l < "$1"';
+/** Prints the box's clock as one line `clock <seconds>.<nanoseconds>` (DIPO-396). */
+const PRINT_CLOCK = `printf 'clock %s\\n' "$(date -u +%s.%N)"`;
+/** Prints the box's clock, then the complete lines of the log `$1`; exit 3 when it is not there. */
+const COUNT_LINES = `[ -r "$1" ] || exit 3; ${PRINT_CLOCK}; wc -l < "$1"`;
 /**
- * Prints the lines of the log `$1` after its first `$2` lines (the mark) that hold either refusal
- * line (`$3`, `$4`); exit 3 when it is not there to read, `LOG_SHRANK` when it holds fewer lines
- * than the mark (it was cut or replaced, so `tail` would print nothing), grep's 2 when grep failed.
+ * Prints the box's clock, then the lines of the log `$1` after its first `$2` lines (the mark)
+ * that hold either refusal line (`$3`, `$4`); exit 3 when it is not there to read, `LOG_SHRANK`
+ * when it holds fewer lines than the mark (it was cut or replaced, so `tail` would print nothing),
+ * grep's 2 when grep failed.
  */
 const READ_REFUSALS = [
   '[ -r "$1" ] || exit 3',
   'n=$(wc -l < "$1") || exit 3',
   `[ "$n" -ge "$2" ] || exit ${LOG_SHRANK}`,
+  PRINT_CLOCK,
   'tail -n "+$(($2 + 1))" -- "$1" | grep -F -e "$3" -e "$4"; [ "$?" -le 1 ]',
 ].join("; ");
 
+/** One command in the Safe-Chain box: its exit, its output after the clock line, and the clock. */
+async function execTimed(
+  boxes: Pick<BoxPort, "exec">,
+  box: string,
+  clock: Pick<Clock, "now">,
+  command: readonly [string, ...string[]],
+): Promise<{
+  readonly code: number | null;
+  readonly rest: string;
+  readonly clock: ClockOffset | null;
+  /** The Mac's time the command ended. */
+  readonly after: number;
+}> {
+  const before = clock.now();
+  const got = await boxes.exec(box, command, { timeoutMs: SAFE_CHAIN_LOG_READ_TIMEOUT_MS });
+  const after = clock.now();
+  const end = got.stdout.indexOf("\n");
+  const first = end === -1 ? got.stdout : got.stdout.slice(0, end);
+  if (!first.startsWith("clock ")) return { code: got.code, rest: got.stdout, clock: null, after };
+  return {
+    code: got.code,
+    rest: end === -1 ? "" : got.stdout.slice(end + 1),
+    clock: boxClockOffset(first.slice("clock ".length), before, after),
+    after,
+  };
+}
+
 /**
  * Where a session starts in the Safe-Chain logs of box `box` (DIPO-376): the complete lines each log
- * holds now; null for a log that cannot be read. Never rejects.
+ * holds now; null for a log that cannot be read. With the box's clock against the Mac's `clock`
+ * (DIPO-396), the narrowest range a count bounds it to, and the Mac's time the mark began; both
+ * null when no count could read the clock. Never rejects.
  */
 export async function markSafeChain(
   boxes: Pick<BoxPort, "exec">,
   box: string | null,
+  clock: Pick<Clock, "now">,
 ): Promise<SafeChainMark> {
   const lines: Record<SafeChainEcosystem, number | null> = { npm: null, pypi: null };
-  if (box === null) return { box, lines };
+  let offset: ClockOffset | null = null;
+  if (box === null) return { box, lines, clock: offset, markedAt: null };
+  // Before its first count: every line the session reads was written after it.
+  const markedAt = clock.now();
   for (const ecosystem of SAFE_CHAIN_ECOSYSTEMS) {
     try {
-      const got = await boxes.exec(
-        box,
-        ["sh", "-c", COUNT_LINES, "sh", safeChainLogFile(ecosystem)],
-        { timeoutMs: SAFE_CHAIN_LOG_READ_TIMEOUT_MS },
-      );
-      const count = Number(got.stdout.trim());
-      if (got.code === 0 && got.stdout.trim() !== "" && Number.isSafeInteger(count) && count >= 0) {
+      const got = await execTimed(boxes, box, clock, [
+        "sh",
+        "-c",
+        COUNT_LINES,
+        "sh",
+        safeChainLogFile(ecosystem),
+      ]);
+      const count = Number(got.rest.trim());
+      if (got.code === 0 && got.rest.trim() !== "" && Number.isSafeInteger(count) && count >= 0) {
         lines[ecosystem] = count;
+      }
+      if (got.clock !== null && (offset === null || width(got.clock) < width(offset))) {
+        offset = got.clock;
       }
     } catch {
       // Unknown: the end of the session says so.
     }
   }
-  return { box, lines };
+  return { box, lines, clock: offset, markedAt: offset === null ? null : markedAt };
+}
+
+function width(offset: ClockOffset): number {
+  return offset.high - offset.low;
+}
+
+/** Whose refusals `readSafeChain` reads (DIPO-396). */
+export interface SafeChainReader {
+  /** The Mac's clock, the one `tunnels` keeps its times by. */
+  readonly clock: Pick<Clock, "now">;
+  /** The box of the session: only the refusals it asked for are its. */
+  readonly client: string;
+  /** The web route's registry tunnels; null when none runs, so no refusal is tied to a box. */
+  readonly tunnels: Pick<RegistryTunnels, "during"> | null;
 }
 
 /**
  * The refusals of one session (DIPO-376): the lines each Safe-Chain log of box `box` gained since
- * `mark`. A log is unknown, never empty, when the session's start could not count it, when the
- * Safe-Chain box is another than at its start (the route started again, so its logs are gone), or
- * when it cannot be read now. Never rejects.
+ * `mark`, of which only those the session's own box asked for (`reader`, DIPO-396); a refusal
+ * another box asked for is left out, and one whose box cannot be told is unknown. A log is unknown,
+ * never empty, when the session's start could not count it, when the Safe-Chain box is another
+ * than at its start (the route started again, so its logs are gone), or when it cannot be read now.
+ * Never rejects.
  */
 export async function readSafeChain(
   boxes: Pick<BoxPort, "exec">,
   box: string | null,
   mark: SafeChainMark,
+  reader: SafeChainReader,
 ): Promise<SafeChainFound> {
   const refusals: SafeChainRefusal[] = [];
   const unknown: SafeChainUnknown[] = [];
@@ -742,22 +812,18 @@ export async function readSafeChain(
       });
       continue;
     }
-    let got: { readonly code: number | null; readonly stdout: string };
+    let got: Awaited<ReturnType<typeof execTimed>>;
     try {
-      got = await boxes.exec(
-        box,
-        [
-          "sh",
-          "-c",
-          READ_REFUSALS,
-          "sh",
-          safeChainLogFile(ecosystem),
-          String(from),
-          SAFE_CHAIN_REFUSAL_LINES.blocking,
-          SAFE_CHAIN_REFUSAL_LINES.malware,
-        ],
-        { timeoutMs: SAFE_CHAIN_LOG_READ_TIMEOUT_MS },
-      );
+      got = await execTimed(boxes, box, reader.clock, [
+        "sh",
+        "-c",
+        READ_REFUSALS,
+        "sh",
+        safeChainLogFile(ecosystem),
+        String(from),
+        SAFE_CHAIN_REFUSAL_LINES.blocking,
+        SAFE_CHAIN_REFUSAL_LINES.malware,
+      ]);
     } catch (error) {
       unknown.push({ ecosystem, why: `its Safe-Chain log could not be read: ${messageOf(error)}` });
       continue;
@@ -776,7 +842,15 @@ export async function readSafeChain(
       });
       continue;
     }
-    refusals.push(...safeChainRefusalsOf(ecosystem, got.stdout));
+    const tunnels = reader.tunnels;
+    const own = refusalsOfBox(
+      safeChainRefusalsOf(ecosystem, got.rest),
+      reader.client,
+      sessionClockOffset(mark, { clock: got.clock, at: got.after }),
+      (of, start, end) => tunnels?.during(of, start, end) ?? { kind: "forgotten" },
+    );
+    refusals.push(...own.refusals);
+    unknown.push(...own.unknown);
   }
   return { refusals, unknown };
 }
