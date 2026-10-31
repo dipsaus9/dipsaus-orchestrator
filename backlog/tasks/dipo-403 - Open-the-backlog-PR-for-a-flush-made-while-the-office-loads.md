@@ -1,10 +1,10 @@
 ---
 id: DIPO-403
 title: Open the backlog PR for a flush made while the office loads
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-31 08:22'
-updated_date: '2026-10-31 08:31'
+updated_date: '2026-10-31 08:42'
 labels:
   - 'tier:S'
   - 'slice:prune'
