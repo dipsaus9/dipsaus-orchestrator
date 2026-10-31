@@ -1,10 +1,10 @@
 ---
 id: DIPO-405
 title: Pick the reviewer's model per tier
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-31 08:39'
-updated_date: '2026-10-31 08:41'
+updated_date: '2026-10-31 09:37'
 labels:
   - 'tier:S'
   - 'slice:prune'
