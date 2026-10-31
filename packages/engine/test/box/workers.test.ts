@@ -2211,7 +2211,12 @@ describe("Safe-Chain's refusals of each session (DIPO-376)", () => {
       expect(safeChain.records.get(RUN)).toEqual({
         refusals: [],
         unknown: [],
-        mark: { box: box ?? "", lines: { npm: 2, pypi: 0 }, clock: expect.any(Object) },
+        mark: {
+          box: box ?? "",
+          lines: { npm: 2, pypi: 0 },
+          clock: expect.any(Object),
+          markedAt: expect.any(Number),
+        },
       });
       appendFileSync(join(logs, "npm.ndjson"), npmRefusal());
       await w.workers.sessionEnded(RUN);
@@ -2269,6 +2274,7 @@ describe("Safe-Chain's refusals of each session (DIPO-376)", () => {
           box: "dipo-safe-chain-0000000000000000",
           lines: { npm: 0, pypi: 0 },
           clock: { low: 0, high: 0 },
+          markedAt: 0,
         },
       });
       await w.workers.rest(RUN);
@@ -2305,6 +2311,16 @@ describe("Safe-Chain's refusals of each session (DIPO-376)", () => {
         runDir: join(tmp, "runs", RUN_2),
         systemFile: w.systemFile,
       });
+      // Both sessions started a minute before their boxes asked.
+      for (const run of [RUN, RUN_2]) {
+        const record = safeChain.records.get(run);
+        const mark = record?.mark;
+        if (record === undefined || mark === null || mark === undefined) throw new Error("no mark");
+        safeChain.records.set(run, {
+          ...record,
+          mark: { ...mark, markedAt: (mark.markedAt ?? 0) - 60_000 },
+        });
+      }
       const now = systemClock.now();
       // Run 1's box, then run 2's, each refused its own package and the same test package.
       w.tunnel(BOX, "npm", now - 40_000, now - 39_000);

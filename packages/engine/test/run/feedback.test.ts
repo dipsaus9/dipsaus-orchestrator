@@ -234,6 +234,7 @@ describe("Safe-Chain's refusals of a session (DIPO-376)", () => {
       box: "dipo-safe-chain-1",
       lines: { npm: 2, pypi: 0 },
       clock: { low: -5, high: 5 },
+      markedAt: 1_000,
     };
     store.store(f.run, { refusals: [], unknown: [], mark }, { refusals: [], unknown: [] });
     expect(store.of(f.run)).toEqual({ refusals: [], unknown: [], mark });

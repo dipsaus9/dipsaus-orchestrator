@@ -155,6 +155,7 @@ describe("the refusals of one session in Safe-Chain's logs (DIPO-376)", () => {
         box: "dipo-safe-chain-gone",
         lines: { npm: 0, pypi: 0 },
         clock: { low: 0, high: 0 },
+        markedAt: 0,
       };
       const found = await readSafeChain(boxes, BOX, mark, reader());
       expect(found.refusals).toEqual([]);
@@ -172,7 +173,12 @@ describe("the refusals of one session in Safe-Chain's logs (DIPO-376)", () => {
       const failing = boxesIn(dir, { fail: true });
       // No count at the start: the end reads nothing and says so.
       const unmarked = await markSafeChain(failing, BOX, systemClock);
-      expect(unmarked).toEqual({ box: BOX, lines: { npm: null, pypi: null }, clock: null });
+      expect(unmarked).toEqual({
+        box: BOX,
+        lines: { npm: null, pypi: null },
+        clock: null,
+        markedAt: null,
+      });
       expect((await readSafeChain(boxesIn(dir), BOX, unmarked, reader())).unknown).toEqual([
         { ecosystem: "npm", why: "its Safe-Chain log could not be read when the session started" },
         { ecosystem: "pypi", why: "its Safe-Chain log could not be read when the session started" },
@@ -181,6 +187,7 @@ describe("the refusals of one session in Safe-Chain's logs (DIPO-376)", () => {
         box: null,
         lines: { npm: null, pypi: null },
         clock: null,
+        markedAt: null,
       });
       // A call that fails at the end, and a log that is gone at the end.
       const mark = await markSafeChain(boxesIn(dir), BOX, systemClock);
@@ -241,11 +248,12 @@ describe("the refusals of one session in Safe-Chain's logs (DIPO-376)", () => {
       box: BOX,
       lines: { npm: null, pypi: null },
       clock: null,
+      markedAt: null,
     });
     const found = await readSafeChain(
       slow,
       BOX,
-      { box: BOX, lines: { npm: 0, pypi: 0 }, clock: { low: 0, high: 0 } },
+      { box: BOX, lines: { npm: 0, pypi: 0 }, clock: { low: 0, high: 0 }, markedAt: 0 },
       reader(),
     );
     expect(found).toEqual({
@@ -284,11 +292,89 @@ function ledger(spans: ReadonlyArray<readonly [string | null, number, number]>):
   return tunnels;
 }
 
+/** A mark as `markSafeChain` takes it, of a session that started a minute ago. */
+async function startedAMinuteAgo(boxes: ReturnType<typeof boxesIn>): Promise<SafeChainMark> {
+  const mark = await markSafeChain(boxes, BOX, systemClock);
+  return { ...mark, markedAt: (mark.markedAt ?? 0) - 60_000 };
+}
+
 describe("the refusals of one session's own box (DIPO-396)", () => {
+  it("keeps two scoped packages with the same base name each on the run of the box that asked", () =>
+    logs(async (dir) => {
+      const boxes = boxesIn(dir);
+      const mark = await startedAMinuteAgo(boxes);
+      const now = systemClock.now();
+      const tunnels = ledger([
+        [CLIENT, now - 40_000, now - 39_000],
+        ["dipo-run_b", now - 30_000, now - 29_000],
+      ]);
+      // Both malware lines before either Blocking line: a pair by base name would swap them.
+      appendFileSync(
+        join(dir, "npm.ndjson"),
+        logLine("Safe-chain: Package @a/foo@1.0.0 is marked as malware: MALWARE", now - 39_500) +
+          logLine(
+            "Safe-chain: Package @b/foo@1.0.0 is marked as malware: PROTESTWARE",
+            now - 39_400,
+          ) +
+          logLine(
+            "Safe-chain: Blocking request to https://registry.npmjs.org/@a/foo/-/foo-1.0.0.tgz",
+            now - 39_300,
+          ) +
+          logLine(
+            "Safe-chain: Blocking request to https://registry.npmjs.org/@b/foo/-/foo-1.0.0.tgz",
+            now - 29_500,
+          ),
+      );
+      const of = (client: string) =>
+        readSafeChain(boxes, BOX, mark, { clock: systemClock, client, tunnels });
+      expect(await of(CLIENT)).toEqual({
+        refusals: [
+          {
+            ecosystem: "npm",
+            package: "@a/foo@1.0.0",
+            reason: "Aikido's malware list marks it MALWARE",
+          },
+        ],
+        unknown: [],
+      });
+      expect(await of("dipo-run_b")).toEqual({
+        refusals: [
+          {
+            ecosystem: "npm",
+            package: "@b/foo@1.0.0",
+            reason: "Aikido's malware list marks it PROTESTWARE",
+          },
+        ],
+        unknown: [],
+      });
+    }));
+
+  it("keeps a refusal from before the session's mark as unknown: the box's clock jumped and came back", () =>
+    logs(async (dir) => {
+      const boxes = boxesIn(dir);
+      // The clock agrees at the mark and at the read.
+      const mark = await markSafeChain(boxes, BOX, systemClock);
+      const now = systemClock.now();
+      const tunnels = ledger([[CLIENT, now - 3_600_000, now]]);
+      // Written after the mark, by its line, but stamped ten minutes before it.
+      appendFileSync(join(dir, "npm.ndjson"), malwareLines("x@1.0.0", url("x"), now - 600_000));
+      expect(
+        await readSafeChain(boxes, BOX, mark, { clock: systemClock, client: CLIENT, tunnels }),
+      ).toEqual({
+        refusals: [],
+        unknown: [
+          untied(
+            "npm",
+            "at a time outside the session, while the Safe-Chain box's clock moved against the Mac's",
+          ),
+        ],
+      });
+    }));
+
   it("keeps only the refusals its box asked for: another box's are left out, a shared span's unknown", () =>
     logs(async (dir) => {
       const boxes = boxesIn(dir);
-      const mark = await markSafeChain(boxes, BOX, systemClock);
+      const mark = await startedAMinuteAgo(boxes);
       const now = systemClock.now();
       // Its box, then another box, then both at once, then a tunnel with no admitted password.
       const tunnels = ledger([

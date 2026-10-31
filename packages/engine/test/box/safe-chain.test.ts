@@ -274,6 +274,15 @@ describe("the start script's load of the malware lists (DIPO-383)", () => {
 
 const LOGGED_AT = "2026-10-30T10:57:30.565Z";
 
+/** A PyPI file's URL. */
+const file = (name: string) => `https://files.pythonhosted.org/packages/xx/yy/${name}`;
+
+/** A mark's clock and time, as `sessionClockOffset` reads them. */
+const marked = (clock: { low: number; high: number } | null, markedAt: number | null = 1_000) => ({
+  clock,
+  markedAt,
+});
+
 /** One line of Safe-Chain 1.5.12's log file, as it wrote them in a box (DIPO-376). */
 function logLine(message: string, level = "verbose", timestamp: unknown = LOGGED_AT): string {
   return JSON.stringify({ timestamp, level, message });
@@ -365,9 +374,66 @@ describe("Safe-Chain's refusals in its log (DIPO-376)", () => {
         "Safe-chain: Blocking request to https://registry.npmjs.org/@evil/pkg/-/pkg-1.0.0.tgz",
       ),
     ].join("\n");
-    expect(refusalsIn("npm", log).map((refusal) => [refusal.package, refusal.reason])).toEqual([
+    // Each process logs its own ecosystem; read as each, the other's lines pair with nothing.
+    const named = (ecosystem: "npm" | "pypi") =>
+      safeChainRefusalsOf(ecosystem, log)
+        .filter((logged) => logged.ambiguous !== true)
+        .map((logged) => [logged.refusal.package, logged.refusal.reason]);
+    expect(named("pypi")).toEqual([
       ["Foo_Bar@2.0.0", "Aikido's malware list marks it PROTESTWARE"],
-      ["@evil/pkg@1.0.0", "Aikido's malware list marks it MALWARE"],
+    ]);
+    expect(named("npm")).toEqual([["@evil/pkg@1.0.0", "Aikido's malware list marks it MALWARE"]]);
+  });
+
+  it("pairs two scoped packages with the same base name by their full names, in any order (DIPO-396)", () => {
+    const a = "https://registry.npmjs.org/@a/foo/-/foo-1.0.0.tgz";
+    const b = "https://registry.npmjs.org/@b%2ffoo/-/foo-1.0.0.tgz";
+    const log = [
+      logLine("Safe-chain: Package @a/foo@1.0.0 is marked as malware: MALWARE"),
+      logLine("Safe-chain: Package @b/foo@1.0.0 is marked as malware: PROTESTWARE"),
+      logLine(`Safe-chain: Blocking request to ${a}`),
+      logLine(`Safe-chain: Blocking request to ${b}`),
+      // Unscoped foo at the same version, refused by its age: no malware line is its.
+      logLine("Safe-chain: Package @c/foo@1.0.0 is marked as malware: MALWARE"),
+      logLine("Safe-chain: Blocking request to https://registry.npmjs.org/@c/foo/-/foo-1.0.0.tgz"),
+    ].join("\n");
+    expect(refusalsIn("npm", log).map((refusal) => [refusal.package, refusal.reason])).toEqual([
+      ["@a/foo@1.0.0", "Aikido's malware list marks it MALWARE"],
+      ["@b/foo@1.0.0", "Aikido's malware list marks it PROTESTWARE"],
+      ["@c/foo@1.0.0", "Aikido's malware list marks it MALWARE"],
+    ]);
+    expect(safeChainRefusalsOf("npm", log).some((logged) => logged.ambiguous === true)).toBe(false);
+  });
+
+  it("pairs a PyPI file by its whole name: name and version of a wheel or a source distribution (DIPO-396)", () => {
+    const log = [
+      // foo-bar 1.0 and foo 1.0: the old base-name match took either for the other.
+      logLine("Safe-chain: Package foo@1.0 is marked as malware: MALWARE"),
+      logLine("Safe-chain: Package Foo.Bar@1.0 is marked as malware: PROTESTWARE"),
+      logLine(`Safe-chain: Blocking request to ${file("foo_bar-1.0-py3-none-any.whl")}`),
+      logLine(`Safe-chain: Blocking request to ${file("foo-1.0.tar.gz")}`),
+    ].join("\n");
+    expect(refusalsIn("pypi", log).map((refusal) => [refusal.package, refusal.reason])).toEqual([
+      ["Foo.Bar@1.0", "Aikido's malware list marks it PROTESTWARE"],
+      ["foo@1.0", "Aikido's malware list marks it MALWARE"],
+    ]);
+  });
+
+  it("marks a refusal ambiguous when no malware line is its package by full name but one may be (DIPO-396)", () => {
+    const log = [
+      logLine("Safe-chain: Package @a/foo@1.0.0 is marked as malware: MALWARE"),
+      // A path dipo cannot read a package from, and a scope no malware line names.
+      logLine("Safe-chain: Blocking request to https://registry.npmjs.org/odd/path/foo-1.0.0.tgz"),
+      logLine("Safe-chain: Blocking request to https://registry.npmjs.org/@z/foo/-/foo-1.0.0.tgz"),
+      // No malware line may be it: the minimum package age check, as before.
+      logLine("Safe-chain: Blocking request to https://registry.npmjs.org/bar/-/bar-2.0.0.tgz"),
+    ].join("\n");
+    expect(
+      safeChainRefusalsOf("npm", log).map((logged) => [logged.refusal.package, logged.ambiguous]),
+    ).toEqual([
+      ["foo-1.0.0.tgz", true],
+      ["foo-1.0.0.tgz", true],
+      ["bar-2.0.0.tgz", undefined],
     ]);
   });
 
@@ -393,6 +459,7 @@ describe("Safe-Chain's refusals in its log (DIPO-376)", () => {
         box: "dipo-safe-chain-1",
         lines: { npm: 3, pypi: "x" },
         clock: { low: -20, high: 30 },
+        markedAt: 1_000,
       },
     };
     expect(parseSafeChainRecord(JSON.stringify(record))).toEqual({
@@ -402,6 +469,7 @@ describe("Safe-Chain's refusals in its log (DIPO-376)", () => {
         box: "dipo-safe-chain-1",
         lines: { npm: 3, pypi: null },
         clock: { low: -20, high: 30 },
+        markedAt: 1_000,
       },
     });
     // A clock that does not read as a range is none, so its refusals are tied to no box.
@@ -476,7 +544,7 @@ describe("the size of a run's Safe-Chain record (DIPO-376)", () => {
     // Three sessions of 60 packages, the second repeating the first's.
     for (const from of [0, 0, 60, 120]) {
       record = addSafeChainFound(
-        { ...record, mark: { box: "b", lines: { npm: 0, pypi: 0 }, clock: null } },
+        { ...record, mark: { box: "b", lines: { npm: 0, pypi: 0 }, clock: null, markedAt: null } },
         { refusals: Array.from({ length: 60 }, (_, i) => refusal(from + i)), unknown: [] },
       );
     }
@@ -497,6 +565,13 @@ const logged = (
 ): SafeChainLogRefusal => ({
   refusal: { ecosystem, package: pkg, reason: "Aikido's malware list marks it MALWARE" },
   at,
+});
+
+/** A session's clock with `offset` over a session that spans every time these tests use. */
+const session = (offset: { low: number; high: number }) => ({
+  ...offset,
+  from: -1_000_000,
+  to: 1_000_000,
 });
 
 /** Tunnels as `[client, ecosystem, opened, closed]`, by the Mac's ms. */
@@ -536,26 +611,88 @@ describe("which box asked for each refusal (DIPO-396)", () => {
   });
 
   it("takes the range the start and the end of a session both allow, and none when the clock moved", () => {
-    expect(sessionClockOffset({ low: -100, high: 100 }, { low: 0, high: 300 })).toEqual({
+    expect(
+      sessionClockOffset(marked({ low: -100, high: 100 }), {
+        clock: { low: 0, high: 300 },
+        at: 9_000,
+      }),
+    ).toEqual({
       low: -SAFE_CHAIN_CLOCK_DRIFT_MS,
       high: 100 + SAFE_CHAIN_CLOCK_DRIFT_MS,
+      from: 1_000,
+      to: 9_000,
     });
-    expect(sessionClockOffset({ low: -100, high: 100 }, { low: 5_000, high: 5_100 })).toBe(
-      "while the Safe-Chain box's clock moved against the Mac's",
-    );
+    expect(
+      sessionClockOffset(marked({ low: -100, high: 100 }), {
+        clock: { low: 5_000, high: 5_100 },
+        at: 9_000,
+      }),
+    ).toBe("while the Safe-Chain box's clock moved against the Mac's");
+    // A read that ends before its mark: the Mac's own clock went back.
+    expect(
+      sessionClockOffset(marked({ low: 0, high: 1 }), { clock: { low: 0, high: 1 }, at: 500 }),
+    ).toBe("while the Safe-Chain box's clock moved against the Mac's");
     for (const [mark, read] of [
-      [null, { low: 0, high: 1 }],
-      [{ low: 0, high: 1 }, null],
+      [marked(null), { low: 0, high: 1 }],
+      [marked({ low: 0, high: 1 }), null],
+      [marked({ low: 0, high: 1 }, null), { low: 0, high: 1 }],
     ] as const) {
-      expect(sessionClockOffset(mark, read)).toBe(
+      expect(sessionClockOffset(mark, { clock: read, at: 9_000 })).toBe(
         "while the Safe-Chain box's clock could not be read",
       );
     }
   });
 
+  it("keeps a refusal as unknown when its time falls outside the session: a jump undone by the end", () => {
+    // The clock agreed at the mark and the read, but the refusal's time lies before the mark or
+    // after the read on the Mac's clock, so the box's clock jumped in between.
+    const offset = { low: 0, high: 0, from: 10_000, to: 20_000 };
+    const clients = clientsFrom([["dipo-a", "npm", 0, null]]);
+    for (const at of [9_000, 21_000, 9_000 - 60_000]) {
+      expect(refusalsOfBox([logged("x@1", at)], "dipo-a", offset, clients)).toEqual({
+        refusals: [],
+        unknown: [
+          untied(
+            "npm",
+            "at a time outside the session, while the Safe-Chain box's clock moved against the Mac's",
+          ),
+        ],
+      });
+    }
+    // Within the session, the slack included: its own.
+    for (const at of [
+      10_000 - SAFE_CHAIN_TIME_SLACK_MS,
+      15_000,
+      20_000 + SAFE_CHAIN_TIME_SLACK_MS,
+    ]) {
+      expect(refusalsOfBox([logged("x@1", at)], "dipo-a", offset, clients).refusals).toHaveLength(
+        1,
+      );
+    }
+  });
+
+  it("keeps its own box's refusal of a package dipo cannot name as unknown, and another box's out", () => {
+    const offset = session({ low: 0, high: 0 });
+    const clients = clientsFrom([["dipo-a", "npm", 10_000, 11_000]]);
+    const unnamed = { ...logged("foo-1.0.0.tgz", 10_500), ambiguous: true } as const;
+    expect(refusalsOfBox([unnamed], "dipo-a", offset, clients)).toEqual({
+      refusals: [],
+      unknown: [
+        {
+          ecosystem: "npm",
+          why: "Safe-Chain refused a package whose log lines dipo cannot pair with one package name",
+        },
+      ],
+    });
+    expect(refusalsOfBox([unnamed], "dipo-b", offset, clients)).toEqual({
+      refusals: [],
+      unknown: [],
+    });
+  });
+
   it("keeps a refusal on the box that alone had a registry tunnel of its ecosystem open then", () => {
     // The box's clock runs 2 s ahead of the Mac's.
-    const offset = { low: 2_000, high: 2_000 };
+    const offset = session({ low: 2_000, high: 2_000 });
     const clients = clientsFrom([
       ["dipo-a", "npm", 10_000, 11_000],
       ["dipo-b", "npm", 20_000, 21_000],
@@ -577,7 +714,7 @@ describe("which box asked for each refusal (DIPO-396)", () => {
   });
 
   it("ties the same package to each box that asked for it at its own time", () => {
-    const offset = { low: 0, high: 0 };
+    const offset = session({ low: 0, high: 0 });
     const clients = clientsFrom([
       ["dipo-a", "npm", 10_000, 11_000],
       ["dipo-b", "npm", 20_000, 21_000],
@@ -600,7 +737,7 @@ describe("which box asked for each refusal (DIPO-396)", () => {
   });
 
   it("widens each refusal's span by the clock's range and the slack, so a near tunnel makes it unknown", () => {
-    const offset = { low: -300, high: 300 };
+    const offset = session({ low: -300, high: 300 });
     // dipo-b's tunnel closed just inside the span of a refusal in dipo-a's.
     const edge = 10_500 - 300 - SAFE_CHAIN_TIME_SLACK_MS;
     const clients = clientsFrom([
@@ -620,7 +757,7 @@ describe("which box asked for each refusal (DIPO-396)", () => {
   });
 
   it("keeps a refusal whose box cannot be told as unknown, naming no package, never as one box's", () => {
-    const offset = { low: 0, high: 0 };
+    const offset = session({ low: 0, high: 0 });
     const cases: ReadonlyArray<readonly [ReturnType<typeof clientsFrom>, string]> = [
       [clientsFrom([]), "while no box had a registry tunnel open"],
       [

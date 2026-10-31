@@ -710,24 +710,28 @@ async function execTimed(
   readonly code: number | null;
   readonly rest: string;
   readonly clock: ClockOffset | null;
+  /** The Mac's time the command ended. */
+  readonly after: number;
 }> {
   const before = clock.now();
   const got = await boxes.exec(box, command, { timeoutMs: SAFE_CHAIN_LOG_READ_TIMEOUT_MS });
   const after = clock.now();
   const end = got.stdout.indexOf("\n");
   const first = end === -1 ? got.stdout : got.stdout.slice(0, end);
-  if (!first.startsWith("clock ")) return { code: got.code, rest: got.stdout, clock: null };
+  if (!first.startsWith("clock ")) return { code: got.code, rest: got.stdout, clock: null, after };
   return {
     code: got.code,
     rest: end === -1 ? "" : got.stdout.slice(end + 1),
     clock: boxClockOffset(first.slice("clock ".length), before, after),
+    after,
   };
 }
 
 /**
  * Where a session starts in the Safe-Chain logs of box `box` (DIPO-376): the complete lines each log
  * holds now; null for a log that cannot be read. With the box's clock against the Mac's `clock`
- * (DIPO-396), the narrowest range a count bounds it to; null when none could. Never rejects.
+ * (DIPO-396), the narrowest range a count bounds it to, and the Mac's time the mark began; both
+ * null when no count could read the clock. Never rejects.
  */
 export async function markSafeChain(
   boxes: Pick<BoxPort, "exec">,
@@ -736,7 +740,9 @@ export async function markSafeChain(
 ): Promise<SafeChainMark> {
   const lines: Record<SafeChainEcosystem, number | null> = { npm: null, pypi: null };
   let offset: ClockOffset | null = null;
-  if (box === null) return { box, lines, clock: offset };
+  if (box === null) return { box, lines, clock: offset, markedAt: null };
+  // Before its first count: every line the session reads was written after it.
+  const markedAt = clock.now();
   for (const ecosystem of SAFE_CHAIN_ECOSYSTEMS) {
     try {
       const got = await execTimed(boxes, box, clock, [
@@ -757,7 +763,7 @@ export async function markSafeChain(
       // Unknown: the end of the session says so.
     }
   }
-  return { box, lines, clock: offset };
+  return { box, lines, clock: offset, markedAt: offset === null ? null : markedAt };
 }
 
 function width(offset: ClockOffset): number {
@@ -840,7 +846,7 @@ export async function readSafeChain(
     const own = refusalsOfBox(
       safeChainRefusalsOf(ecosystem, got.rest),
       reader.client,
-      sessionClockOffset(mark.clock, got.clock),
+      sessionClockOffset(mark, { clock: got.clock, at: got.after }),
       (of, start, end) => tunnels?.during(of, start, end) ?? { kind: "forgotten" },
     );
     refusals.push(...own.refusals);

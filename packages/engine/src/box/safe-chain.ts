@@ -411,13 +411,14 @@ export interface ClockOffset {
 /**
  * Where a session started in each Safe-Chain log (DIPO-376): the box whose logs they are and the
  * complete lines each held then; null for a log that could not be read then, and a null box when
- * no Safe-Chain box ran. With the box's clock against the Mac's then (DIPO-396); null when it
- * could not be read.
+ * no Safe-Chain box ran. With the box's clock against the Mac's then and the Mac's time the mark
+ * began, in ms (DIPO-396); null when either could not be read.
  */
 export interface SafeChainMark {
   readonly box: string | null;
   readonly lines: Readonly<Record<SafeChainEcosystem, number | null>>;
   readonly clock: ClockOffset | null;
+  readonly markedAt: number | null;
 }
 
 /**
@@ -511,7 +512,85 @@ function normalName(text: string): string {
   return text.toLowerCase().replaceAll(/[-_.]+/g, "-");
 }
 
-/** True when the file `url` asks for is `pkg` (`name@version`): its name starts `name-version`. */
+/** A package as its registry names it, from a refused URL or a malware line (DIPO-396). */
+interface PackageId {
+  readonly name: string;
+  readonly version: string;
+}
+
+/** The wheel suffix and the source distribution suffixes of a PyPI file. */
+const PYPI_SDIST = [".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".zip"] as const;
+
+/**
+ * Pure: the package a refused `url` asks for (DIPO-396), by its whole path: for npm the full name,
+ * its scope included, from `/<name>/-/<base>-<version>.tgz`; for PyPI the name and version of the
+ * whole file name, a wheel's or a source distribution's. Null for a path of another shape.
+ */
+function packageOfUrl(ecosystem: SafeChainEcosystem, url: string): PackageId | null {
+  let path: string;
+  try {
+    path = decodeURIComponent(new URL(url).pathname);
+  } catch {
+    return null;
+  }
+  if (ecosystem === "npm") {
+    const match = /^\/((?:@[^/@]+\/)?[^/@]+)\/-\/([^/]+)\.tgz$/.exec(path);
+    const name = match?.[1];
+    const file = match?.[2];
+    if (name === undefined || file === undefined) return null;
+    const base = name.slice(name.lastIndexOf("/") + 1);
+    const version = file.startsWith(`${base}-`) ? file.slice(base.length + 1) : "";
+    return version === "" ? null : { name, version };
+  }
+  const file = path.slice(path.lastIndexOf("/") + 1);
+  if (file.endsWith(".whl")) {
+    // name-version(-build)?-python-abi-platform.whl
+    const parts = file.slice(0, -".whl".length).split("-");
+    const [name, version] = parts;
+    return parts.length < 5 ||
+      name === undefined ||
+      version === undefined ||
+      name === "" ||
+      version === ""
+      ? null
+      : { name, version };
+  }
+  const suffix = PYPI_SDIST.find((end) => file.endsWith(end));
+  if (suffix === undefined) return null;
+  const stem = file.slice(0, -suffix.length);
+  const cut = stem.lastIndexOf("-");
+  return cut <= 0 || cut === stem.length - 1
+    ? null
+    : { name: stem.slice(0, cut), version: stem.slice(cut + 1) };
+}
+
+/** `name@version` of a malware line as a package; null when it names no version. */
+function packageOfLine(pkg: string): PackageId | null {
+  const at = pkg.lastIndexOf("@");
+  return at <= 0 || at === pkg.length - 1
+    ? null
+    : { name: pkg.slice(0, at), version: pkg.slice(at + 1) };
+}
+
+/**
+ * True when both name the same package: npm by its full name and version, PyPI by its normalised
+ * name (PEP 503) and version.
+ */
+function samePackage(ecosystem: SafeChainEcosystem, a: PackageId, b: PackageId | null): boolean {
+  if (b === null) return false;
+  if (ecosystem === "npm") {
+    return a.name.toLowerCase() === b.name.toLowerCase() && a.version === b.version;
+  }
+  return (
+    normalName(a.name) === normalName(b.name) && a.version.toLowerCase() === b.version.toLowerCase()
+  );
+}
+
+/**
+ * True when the file `url` asks for may be `pkg` (`name@version`) by its base name only: its name
+ * starts `base-version`. A malware line that may be the package but is not it by its full identity
+ * makes the pair ambiguous (DIPO-396).
+ */
 function fileOf(url: string, pkg: string): boolean {
   const at = pkg.lastIndexOf("@");
   if (at <= 0) return false;
@@ -559,6 +638,11 @@ function messageOfLine(
 export interface SafeChainLogRefusal {
   readonly refusal: SafeChainRefusal;
   /**
+   * True when its Blocking line does not pair with one malware line by the package's full identity
+   * while a malware line not paired yet may be its package: its name and reason are not known.
+   */
+  readonly ambiguous?: true;
+  /**
    * The `timestamp` of its `Blocking request` line, by the Safe-Chain box's clock, in milliseconds
    * since the epoch; null when the line names none.
    */
@@ -568,9 +652,11 @@ export interface SafeChainLogRefusal {
 /**
  * Pure: the refusals in lines of one Safe-Chain log file (`safeChainLogFile`), in log order. Each
  * `Blocking request` line is one refusal, at its own time. Its package and reason come from the
- * latest earlier malware line of the same file not paired yet (requests run side by side, so
- * lines interleave); without one it was the minimum package age check. Lines of any other kind are
- * left out.
+ * latest earlier malware line of the same file not paired yet that names the same package as the
+ * requested URL, by its full identity (`packageOfUrl`: the npm scope included, the whole PyPI
+ * file name), since requests run side by side and lines interleave. Without one it was the minimum
+ * package age check, unless a malware line not paired yet may still be its package by base name:
+ * then it is `ambiguous` (DIPO-396). Lines of any other kind are left out.
  */
 export function safeChainRefusalsOf(
   ecosystem: SafeChainEcosystem,
@@ -590,11 +676,19 @@ export function safeChainRefusalsOf(
     const blocking = BLOCKING_LINE.exec(message);
     if (blocking === null) continue;
     const url = blocking[1] ?? "";
-    const verdict = malware.findLast((entry) => !entry.paired && fileOf(url, entry.pkg));
+    const asked = packageOfUrl(ecosystem, url);
+    const verdict =
+      asked === null
+        ? undefined
+        : malware.findLast(
+            (entry) => !entry.paired && samePackage(ecosystem, asked, packageOfLine(entry.pkg)),
+          );
     if (verdict === undefined) {
+      const ambiguous = malware.some((entry) => !entry.paired && fileOf(url, entry.pkg));
       refusals.push({
         refusal: { ecosystem, package: cleanLogText(fileName(url)), reason: MINIMUM_AGE_REASON },
         at,
+        ...(ambiguous ? { ambiguous } : {}),
       });
       continue;
     }
@@ -650,18 +744,36 @@ export function boxClockOffset(text: string, before: number, after: number): Clo
 }
 
 /**
- * Pure: the box's clock against the Mac's over a session, from its start (`mark`) and its end
- * (`read`): the range both allow, widened by `SAFE_CHAIN_CLOCK_DRIFT_MS`. A string says why there
- * is none: a clock that could not be read, or one that moved further than that.
+ * A session's clock (DIPO-396): the box's clock against the Mac's over it, and the Mac's time from
+ * its mark to the end of its read, in ms, within which every refusal it read was written.
+ */
+export interface SessionClock extends ClockOffset {
+  readonly from: number;
+  readonly to: number;
+}
+
+/** The unknown cause of a box clock that moved against the Mac's. */
+const CLOCK_MOVED = "while the Safe-Chain box's clock moved against the Mac's";
+
+/**
+ * Pure: the session's clock, from its start (`mark`) and its end (`read`, with the Mac's time its
+ * read ended): the range of the box's clock both allow, widened by `SAFE_CHAIN_CLOCK_DRIFT_MS`. A
+ * string says why there is none: a clock or a mark time that could not be read, or a clock that
+ * moved further than that. A jump undone by the end passes here; `refusalsOfBox` catches it when
+ * it moves a refusal out of the session.
  */
 export function sessionClockOffset(
-  mark: ClockOffset | null,
-  read: ClockOffset | null,
-): ClockOffset | string {
-  if (mark === null || read === null) return "while the Safe-Chain box's clock could not be read";
-  const low = Math.max(mark.low, read.low) - SAFE_CHAIN_CLOCK_DRIFT_MS;
-  const high = Math.min(mark.high, read.high) + SAFE_CHAIN_CLOCK_DRIFT_MS;
-  return low > high ? "while the Safe-Chain box's clock moved against the Mac's" : { low, high };
+  mark: Pick<SafeChainMark, "clock" | "markedAt">,
+  read: { readonly clock: ClockOffset | null; readonly at: number },
+): SessionClock | string {
+  if (mark.clock === null || mark.markedAt === null || read.clock === null) {
+    return "while the Safe-Chain box's clock could not be read";
+  }
+  const low = Math.max(mark.clock.low, read.clock.low) - SAFE_CHAIN_CLOCK_DRIFT_MS;
+  const high = Math.min(mark.clock.high, read.clock.high) + SAFE_CHAIN_CLOCK_DRIFT_MS;
+  return low > high || mark.markedAt > read.at
+    ? CLOCK_MOVED
+    : { low, high, from: mark.markedAt, to: read.at };
 }
 
 /** The unknown of a refusal whose box cannot be told, by why. */
@@ -671,6 +783,12 @@ function untied(ecosystem: SafeChainEcosystem, why: string): SafeChainUnknown {
     why: `Safe-Chain refused a package ${why}, so dipo cannot tell which box asked for it`,
   };
 }
+
+/** The unknown of its own box's refusal whose package dipo cannot name (`ambiguous`). */
+const UNNAMED = (ecosystem: SafeChainEcosystem): SafeChainUnknown => ({
+  ecosystem,
+  why: "Safe-Chain refused a package whose log lines dipo cannot pair with one package name",
+});
 
 /** Why a refusal is tied to none of `boxes`, the clients of the tunnels open then. */
 function whyUntied(boxes: readonly (string | null)[]): string {
@@ -685,17 +803,19 @@ function whyUntied(boxes: readonly (string | null)[]): string {
  * for each one whose box cannot be told (file section above). A refusal another box asked for, the
  * only one with a registry tunnel of its ecosystem open then, is left out. `offset` is the session's
  * `sessionClockOffset`; `clientsDuring` names who had a tunnel open in a span of the Mac's time.
- * The unknown names no package, since it may be another box's.
+ * A refusal whose span on the Mac's clock lies outside the session is unknown: the box's clock
+ * jumped. One its box asked for whose package is `ambiguous` is unknown too. The unknown names no
+ * package, since it may be another box's.
  */
 export function refusalsOfBox(
   logged: readonly SafeChainLogRefusal[],
   client: string,
-  offset: ClockOffset | string,
+  offset: SessionClock | string,
   clientsDuring: (ecosystem: SafeChainEcosystem, from: number, to: number) => RegistryClients,
 ): { readonly refusals: SafeChainRefusal[]; readonly unknown: SafeChainUnknown[] } {
   const refusals: SafeChainRefusal[] = [];
   const unknown: SafeChainUnknown[] = [];
-  for (const { refusal, at } of logged) {
+  for (const { refusal, at, ambiguous } of logged) {
     const { ecosystem } = refusal;
     if (typeof offset === "string") {
       unknown.push(untied(ecosystem, offset));
@@ -705,11 +825,13 @@ export function refusalsOfBox(
       unknown.push(untied(ecosystem, "on a log line that names no time"));
       continue;
     }
-    const clients = clientsDuring(
-      ecosystem,
-      at - offset.high - SAFE_CHAIN_TIME_SLACK_MS,
-      at - offset.low + SAFE_CHAIN_TIME_SLACK_MS,
-    );
+    const from = at - offset.high - SAFE_CHAIN_TIME_SLACK_MS;
+    const to = at - offset.low + SAFE_CHAIN_TIME_SLACK_MS;
+    if (to < offset.from || from > offset.to) {
+      unknown.push(untied(ecosystem, `at a time outside the session, ${CLOCK_MOVED}`));
+      continue;
+    }
+    const clients = clientsDuring(ecosystem, from, to);
     if (clients.kind === "forgotten") {
       unknown.push(untied(ecosystem, "longer ago than dipo keeps its registry tunnels"));
       continue;
@@ -717,7 +839,8 @@ export function refusalsOfBox(
     const boxes = [...new Set(clients.boxes)];
     const only = boxes.length === 1 ? boxes[0] : undefined;
     // One another box asked for, the only one that could have then, is neither its nor unknown.
-    if (only === client) refusals.push(refusal);
+    if (only === client && ambiguous === true) unknown.push(UNNAMED(ecosystem));
+    else if (only === client) refusals.push(refusal);
     else if (typeof only !== "string") unknown.push(untied(ecosystem, whyUntied(boxes)));
   }
   return { refusals, unknown };
@@ -754,14 +877,26 @@ function clockOf(value: unknown): ClockOffset | null {
 }
 
 function markOf(value: unknown): SafeChainMark | null {
-  const mark = value as { box?: unknown; lines?: Record<string, unknown>; clock?: unknown } | null;
+  const mark = value as {
+    box?: unknown;
+    lines?: Record<string, unknown>;
+    clock?: unknown;
+    markedAt?: unknown;
+  } | null;
   if (mark === null || typeof mark !== "object") return null;
   const box = typeof mark.box === "string" ? mark.box : null;
   const count = (ecosystem: SafeChainEcosystem): number | null => {
     const lines = mark.lines?.[ecosystem];
     return typeof lines === "number" && Number.isSafeInteger(lines) && lines >= 0 ? lines : null;
   };
-  return { box, lines: { npm: count("npm"), pypi: count("pypi") }, clock: clockOf(mark.clock) };
+  const markedAt =
+    typeof mark.markedAt === "number" && Number.isFinite(mark.markedAt) ? mark.markedAt : null;
+  return {
+    box,
+    lines: { npm: count("npm"), pypi: count("pypi") },
+    clock: clockOf(mark.clock),
+    markedAt,
+  };
 }
 
 /**
