@@ -16,7 +16,7 @@ import { gitParkWriter } from "../run/park";
 import { officeHoldStore } from "../run/starts-paused";
 import { storyRunBase, type RunBase } from "../run/work-run";
 import { StoryIndex } from "../stories/feature";
-import { StoryPlanning, type StoryPlanningDeps } from "../stories/planning";
+import { StoryPlanning, type StoryPlanningDeps } from "../run/planning";
 import { gitStoryPrOps } from "../story-pr/git";
 import { StoryPrs } from "../story-pr/prs";
 import { guardedParkWriter } from "../merge/guard";

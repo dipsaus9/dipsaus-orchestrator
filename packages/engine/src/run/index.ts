@@ -257,11 +257,11 @@ export {
   PR_NOT_CLOSED,
   STORY_ACTIVE,
   StoryPlanning,
-} from "../stories/planning";
-export type { StoryPlanningDeps } from "../stories/planning";
+} from "./planning";
+export type { StoryPlanningDeps } from "./planning";
 // `work.discard` (DIPO-161): a story's work thrown away through the backlog lane.
-export { DISCARD_NOTICES, NOT_DISCARDABLE, PR_MERGED, StoryDiscard } from "../stories/discard";
-export type { DiscardStop, StoryDiscardDeps } from "../stories/discard";
+export { DISCARD_NOTICES, NOT_DISCARDABLE, PR_MERGED, StoryDiscard } from "./discard";
+export type { DiscardStop, StoryDiscardDeps } from "./discard";
 // `proposal.accept` and `proposal.dismiss` (DIPO-166): a worker's proposal filed as a Backlog draft
 // through the planning lane, or dismissed.
 export {
@@ -307,9 +307,6 @@ export type {
   RunResumerDeps,
   RunStoryFacts,
 } from "./resume";
-// The one wiring of the run services, for the daemon and the tests (DIPO-129).
-export { composeRuns } from "./compose";
-export type { ComposedRuns, RunPorts } from "./compose";
 // Re-attach after a daemon restart (DIPO-57).
 export {
   EXIT_CHECK_MS,

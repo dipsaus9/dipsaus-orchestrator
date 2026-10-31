@@ -50,7 +50,7 @@ import type { OfficeGit } from "../git/office";
 import { closeQuestion, openQuestions } from "../run-state/questions";
 import { type CodeHost, CodeHostError } from "../platform/host";
 import type { ProcessProbe } from "../platform/process";
-import { openParkIds, resolvePark } from "../run/park";
+import { openParkIds, resolvePark } from "./park";
 import { activeRuns } from "../records/run-records";
 import { hostAlive, workerHostsOf } from "../records/worker-hosts";
 import type { StoryIdentity } from "../records/story-keys";

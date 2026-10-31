@@ -12,7 +12,6 @@ import { StoryId } from "@dipsaus-orchestrator/contract";
 
 import { PermissionAsks } from "../../src/questions/permissions";
 import {
-  composeRuns,
   FixRounds,
   pendingReviews,
   OfficeIngest,
@@ -20,11 +19,11 @@ import {
   RunControl,
   RunLauncher,
   RunOutcomes,
-  type RunPorts,
   RunReattacher,
   RunResumer,
   Reviews,
 } from "../../src/run";
+import { composeRuns, type RunPorts } from "../../src/create/compose";
 import { stopAtInReview } from "../../src/run-state";
 import { insertRun } from "../../src/records";
 import { insertClaim, updateClaim } from "../../src/worktree/records";
@@ -248,7 +247,7 @@ describe("the run service wiring sites", () => {
 
 describe("the reviewer boxes (0002, DIPO-347)", () => {
   test("reach each review session through the engine's box workers", () => {
-    const source = readFileSync(join(ROOT, "engine", "src", "run", "compose.ts"), "utf8");
+    const source = readFileSync(join(ROOT, "engine", "src", "create", "compose.ts"), "utf8");
     expect(source).toContain('...given("boxes", ports.reviewBoxes),');
     const factory = readFileSync(join(ROOT, "engine", "src", "create", "runs.ts"), "utf8");
     expect(factory).toContain("reviewBoxes: boxWorkers");

@@ -34,7 +34,7 @@ import { openPark } from "../../src/run";
 import { WorkResumeCommand } from "../../src/run/work-resume";
 import { writeMirror } from "../../src/stories/apply";
 import { addStory } from "../../src/records/story-keys";
-import { StoryPlanning } from "../../src/stories/planning";
+import { StoryPlanning } from "../../src/run/planning";
 import {
   claimStory,
   hasLiveClaim,

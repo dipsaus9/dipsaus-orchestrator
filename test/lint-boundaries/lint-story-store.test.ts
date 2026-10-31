@@ -35,8 +35,8 @@ const FORMER_IMPORTERS = [
   "run/conflicts.ts",
   "run/proposals.ts",
   "run/work-run.ts",
-  "stories/discard.ts",
-  "stories/planning.ts",
+  "run/discard.ts",
+  "run/planning.ts",
   "overview/desk.ts",
   "worktree/claim.ts",
 ];
