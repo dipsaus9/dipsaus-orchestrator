@@ -1,10 +1,10 @@
 ---
 id: DIPO-408
 title: Make the Safe-Chain log clock test pass every time
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-10-31 09:39'
-updated_date: '2026-10-31 10:22'
+updated_date: '2026-10-31 10:23'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -29,15 +29,14 @@ Seen 2026-10-31 on PR #505 (run 41187639776, attempt 3, verify-macos shard 4): t
 
 ```dipo
 branch: "DIPO-408/safe-chain-clock-flake"
-unknowns: []
+unknowns:
+  - q: "Can someone run `bun test packages/engine/test/box/safe-chain-log.test.ts` 50 times in a row on the Mac and record the result on the PR? That is the only part of criterion 2 left, and this box cannot run it."
+    status: "resolved"
+    answer: "Run the file 50 times in a row in the box instead and record that result in the PR body; that meets criterion 2 for you. The maintainer's session runs the 50 Mac runs against the PR's head after it opens and adds them as a comment. Go on and open the PR."
 test_plan:
   entries:
     - kind: "automated"
       check: "(engine) safe-chain-log.test.ts passes 50 runs in a row on the Mac, the clock case included"
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "Can someone run `bun test packages/engine/test/box/safe-chain-log.test.ts` 50 times in a row on the Mac and record the result on the PR? That is the only part of criterion 2 left, and this box cannot run it."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -59,4 +58,6 @@ Parked 2026-10-31 10:22 UTC: ambiguous-spec
 - Review rounds: 0, failed 0 of 3
 - Budget used: 49,939 of 300,000 tokens; 14 of 90 turns; 1 of 45 minutes
 - Last good commit: 2b5d459e0f6a7a68b035744d559fccc4efc9194a
+
+Resumed 2026-10-31 10:23 UTC; grants: none; note: Run the file 50 times in a row in the box instead and record that result in the PR body; that meets criterion 2 for you. The maintainer's session runs the 50 Mac runs against the PR's head after it o…
 <!-- SECTION:NOTES:END -->
