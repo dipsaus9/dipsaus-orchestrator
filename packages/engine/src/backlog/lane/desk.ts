@@ -10,7 +10,7 @@
 // `DeskSources.handItems`.
 
 import type { OfficeHandle } from "../../db/office";
-import { findStoryByKey } from "../../stories/keys";
+import { findStoryByKey } from "../../records/story-keys";
 import {
   deskText,
   type HandDeskItem,
