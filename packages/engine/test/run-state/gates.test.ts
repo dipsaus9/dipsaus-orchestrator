@@ -19,7 +19,7 @@ import {
   openMaintainerMergeGate,
   openMergeGate,
 } from "../../src/run-state";
-import { storyVerdicts } from "../../src/views/feature";
+import { storyVerdicts } from "../../src/overview/feature";
 import { addAgent, type RoundsWorld, roundsWorld, storyRun } from "../run/rounds-helpers";
 
 const HEAD = "1".repeat(40);

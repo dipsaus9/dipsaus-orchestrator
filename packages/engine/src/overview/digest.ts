@@ -137,7 +137,7 @@ export function digest(office: OfficeHandle, since: number): z.input<typeof offi
   return { since: new Date(since).toISOString(), counts, lines };
 }
 
-/** Registers `office.digest`; `views/feature.ts` calls it. */
+/** Registers `office.digest`; `overview/feature.ts` calls it. */
 export function registerDigest(registry: FeatureRegistry): void {
   registry.addRead({
     definition: officeDigest,

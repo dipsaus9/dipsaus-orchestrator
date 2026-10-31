@@ -15,7 +15,7 @@ import { FIX_ROUNDS_RECOVERY_STEP } from "../run/fix-rounds";
 import { TEST_RECOVERY_STEP } from "../run/tests";
 import { RUN_TEMP_SWEEP_STEP } from "../run/temp-dirs";
 import { RECONCILE_STEP } from "../reconcile/feature";
-import { activeRunCount } from "../views/summary";
+import { activeRunCount } from "../overview/summary";
 import type { CommandServices } from "./commands";
 import { controlFeature, sumActiveRuns } from "./control";
 import type { Core } from "./core";

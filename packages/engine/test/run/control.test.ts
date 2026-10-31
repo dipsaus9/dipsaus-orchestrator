@@ -52,7 +52,7 @@ import {
   desk,
   PARK_NOT_WRITTEN as PARK_NOT_WRITTEN_DESK,
   DESK_SOURCES,
-} from "../../src/views/desk";
+} from "../../src/overview/desk";
 import { addStory } from "../../src/records/story-keys";
 import { encode, STOP_MESSAGE } from "../../src/workers/claude-cli/encode";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";

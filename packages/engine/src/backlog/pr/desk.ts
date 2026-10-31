@@ -3,7 +3,7 @@
 // The desk reads them through `DeskSources.prItems`.
 
 import type { OfficeHandle } from "../../db/office";
-import { deskText, type PrHandItem } from "../../views/desk";
+import { deskText, type PrHandItem } from "../../overview/desk";
 
 import { openPrs } from "./records";
 
