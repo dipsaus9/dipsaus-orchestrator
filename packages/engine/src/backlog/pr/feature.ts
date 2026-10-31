@@ -31,7 +31,7 @@ import { gateDecisionsOf } from "../../gate-decisions/decisions";
 import type { GitSession } from "../../git/office";
 import { GitError } from "../../git/runner";
 import type { Logger } from "../../log/logger";
-import type { OfficeHandItem } from "../../views/desk";
+import type { OfficeHandItem } from "../../overview/desk";
 import {
   type CodeHost,
   CodeHostError,
