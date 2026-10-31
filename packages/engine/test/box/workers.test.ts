@@ -88,10 +88,9 @@ import {
 import {
   SAFE_CHAIN_BOX_RUN_PREFIX,
   SAFE_CHAIN_LOG_DIR,
-  type SafeChainFound,
   type SafeChainRecord,
-  type SafeChainUnknown,
 } from "../../src/box/safe-chain";
+import type { SafeChainFound, SafeChainUnknown } from "../../src/prompts/safe-chain";
 import { SecretToken } from "../../src/box/token";
 import { BOX_TOKEN_CHECK } from "../../src/box/token-check";
 import { boxTokenHoldPath, boxTokenStickyHolds } from "../../src/box/token-hold";

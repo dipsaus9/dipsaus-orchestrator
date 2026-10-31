@@ -86,6 +86,7 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeGit } from "../git/office";
 import { ensurePrivateDir } from "../platform/paths";
+import { type SafeChainFound, uniqueFound } from "../prompts/safe-chain";
 import { type AdapterHolds, holdMessage } from "../workers/hold";
 import { ensureBoxImage } from "./build-box";
 import {
@@ -128,8 +129,6 @@ import {
   addSafeChainFound,
   EMPTY_SAFE_CHAIN_RECORD,
   SAFE_CHAIN_BOX_RUN_PREFIX,
-  uniqueFound,
-  type SafeChainFound,
   type SafeChainRecord,
 } from "./safe-chain";
 import { markSafeChain, readSafeChain } from "./safe-chain-box";
