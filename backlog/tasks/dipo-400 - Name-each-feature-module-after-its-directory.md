@@ -1,10 +1,10 @@
 ---
 id: DIPO-400
 title: Name each feature module after its directory
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-30 22:14'
-updated_date: '2026-10-31 10:52'
+updated_date: '2026-10-31 10:57'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -41,6 +41,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every feature module registers under its directory's name (gate-decisions, backlog/init and any other stale name found), and no test or message still names the old ones
-- [ ] #2 A test reads every registered feature name and fails when one does not match its module's directory
+- [x] #1 Every feature module registers under its directory's name (gate-decisions, backlog/init and any other stale name found), and no test or message still names the old ones
+- [x] #2 A test reads every registered feature name and fails when one does not match its module's directory
 <!-- AC:END -->
