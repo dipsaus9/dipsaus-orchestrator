@@ -20,7 +20,7 @@ import {
 } from "../../src/run/park";
 import { recordIntent } from "../../src/records/intents";
 import { heldByPark, MAINTAINER_RESUME_TAG, parkedRun } from "../../src/records/park-state";
-import { desk, PARK_HELD, PARK_NOT_WRITTEN, DESK_SOURCES } from "../../src/views/desk";
+import { desk, PARK_HELD, PARK_NOT_WRITTEN, DESK_SOURCES } from "../../src/overview/desk";
 import { storyView } from "../../src/views/story";
 import { FakeStoryStore } from "../story-store/fake";
 import { insertPark, mirrorParked, mirrorStory } from "../run/park-fixture";

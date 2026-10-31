@@ -48,7 +48,7 @@ import {
   STORY_PR_NOTICES,
   storyPrBody,
 } from "../../src/story-pr";
-import { storyRuns } from "../../src/views/feature";
+import { storyRuns } from "../../src/overview/feature";
 import type { WorkerReport } from "../../src/workers/types";
 import { insertClaim, updateClaim } from "../../src/worktree/records";
 import { loggedEvents } from "../ingest/helpers";

@@ -1,7 +1,7 @@
 // The office's starts paused (0020, 0008): the one state for problems that belong to the office and
 // not to a story. While it holds, no new session starts in the office: no pickup (`work.run`), no
 // session waiting for its place (`run-state/places.ts`), no resume (`park-resume.ts`) and no scan
-// fallback session. The desk shows it first, with what lifts it (`views/desk.ts`).
+// fallback session. The desk shows it first, with what lifts it (`overview/desk.ts`).
 //
 // It has two reasons:
 //

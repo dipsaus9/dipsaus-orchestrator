@@ -25,12 +25,12 @@ import { recordPromptTexts } from "../../src/prompts/parts";
 import { executeRead } from "../../src/reads/execute";
 import { endRun } from "../../src/records/run-records";
 import { stopAtInReview } from "../../src/run-state/rounds";
-import { OUTPUT_RANGE_MAX_BYTES, outputRange, storedPrompt } from "../../src/views/feature";
+import { OUTPUT_RANGE_MAX_BYTES, outputRange, storedPrompt } from "../../src/overview/feature";
 import { viewsFeature } from "./views-feature";
 import { withWorkViews } from "../../src/views/work";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { pass, task } from "../stories/helpers";
-import { type StartedRun, startRun } from "./helpers";
+import { type StartedRun, startRun } from "../views/helpers";
 
 let request = 0;
 function nextRequest(): RequestId {

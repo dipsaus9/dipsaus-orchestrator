@@ -8,8 +8,8 @@
 
 import { stopEngineCalls } from "../platform/deadline";
 import { createUlid } from "../platform/ids";
-import { recordTuiLeft } from "../views/digest";
-import { DeskNotifier, watchDesk } from "../views/desk-notify";
+import { recordTuiLeft } from "../overview/digest";
+import { DeskNotifier, watchDesk } from "../overview/desk-notify";
 import { MemoryRequestTable } from "../commands/requests";
 import { buildCommandServices } from "./commands";
 import { buildCore, type Core } from "./core";

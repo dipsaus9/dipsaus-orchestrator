@@ -21,15 +21,13 @@ import { executeRead } from "../../src/reads/execute";
 import { helloFeature } from "../../src/reads/hello";
 import {
   columnCounts,
-  columnOf,
   deriveOfficeSummary,
-  deriveStoryView,
-  lifecycleOf,
   officeSummaries,
   officeSummaryOfSource,
   officeSummarySource,
   summarySettings,
-} from "../../src/views";
+} from "../../src/overview";
+import { columnOf, deriveStoryView, lifecycleOf } from "../../src/views";
 import { addOffice } from "../commands/helpers";
 import { draft, pass, task, withOffice } from "./helpers";
 

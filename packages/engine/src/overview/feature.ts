@@ -34,12 +34,12 @@ import { storedDoneReport } from "../run/done-report";
 import { storedMarker } from "../ingest/markers";
 import { findRun } from "../records/run-records";
 import { openTestViews } from "../run/test-records";
+import { activeStoryViews, storyView } from "../views/story";
+import { activeWorkViews, workView } from "../views/work";
 
 import { DESK_SOURCES, type DeskSources, registerDesk } from "./desk";
 import { registerDigest } from "./digest";
-import { activeStoryViews, storyView } from "./story";
 import { openGateViews } from "./summary";
-import { activeWorkViews, workView } from "./work";
 
 /** `work.outputRange` returns at most this many bytes; the client asks again from `to`. */
 export const OUTPUT_RANGE_MAX_BYTES = 1024 * 1024;

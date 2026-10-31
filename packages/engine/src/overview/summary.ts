@@ -18,10 +18,9 @@ import type { StateDatabase } from "../db/database";
 import type { OfficeHandle } from "../db/office";
 import { openQuestions } from "../run-state/questions";
 import { activeRuns } from "../records/run-records";
-
-import { activeStoryViews } from "./story";
-import type { SummaryUsage } from "./usage";
-import { workRefOf } from "./work";
+import { activeStoryViews } from "../views/story";
+import type { SummaryUsage } from "../views/usage";
+import { workRefOf } from "../views/work";
 
 /** How many stories that are not removed show in each column; columns with none are absent. */
 export function columnCounts(office: OfficeHandle): Partial<Record<QueueColumn, number>> {
