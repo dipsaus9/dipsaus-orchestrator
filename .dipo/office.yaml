@@ -6,5 +6,10 @@ box:
   packages: [jq]
 
 # 2026-10-31, maintainer: the reviewer runs at normal effort to make reviews faster (0002).
+# 2026-10-31, maintainer: tier:S stories get a faster reviewer; M and L keep opus (0002, DIPO-405).
 review:
   effort: medium
+  tiers:
+    S: { model: sonnet }
+    M: { model: opus }
+    L: { model: opus }
