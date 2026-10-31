@@ -1,10 +1,10 @@
 ---
 id: DIPO-403
 title: Open the backlog PR for a flush made while the office loads
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-31 08:22'
-updated_date: '2026-10-31 08:42'
+updated_date: '2026-10-31 08:48'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -39,7 +39,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A flush during office load that pushes a branch gets its backlog PR opened or updated once the office has loaded, with no further lane operation
-- [ ] #2 The after-flush step that cannot run before the office has loaded is run again when the office-loaded event fires, not dropped; a failure after the office loaded is a warn line and a desk item
-- [ ] #3 A test with a real git remote reproduces the 2026-10-31 case: replay at load pushes, then the PR opens
+- [x] #1 A flush during office load that pushes a branch gets its backlog PR opened or updated once the office has loaded, with no further lane operation
+- [x] #2 The after-flush step that cannot run before the office has loaded is run again when the office-loaded event fires, not dropped; a failure after the office loaded is a warn line and a desk item
+- [x] #3 A test with a real git remote reproduces the 2026-10-31 case: replay at load pushes, then the PR opens
 <!-- AC:END -->
