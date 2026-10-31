@@ -29,7 +29,11 @@
 // one until DIPO-328, and dipo's conflict merge reaching the worker's box (its markers, and
 // what the base changed kept on main after the merge) one until DIPO-324.
 //
-// Each scenario needs many CLI calls, pushes and an office load: far over the local budget.
+// Each scenario needs many CLI calls, pushes and an office load: far over the local budget. Its time
+// is the engine's own Backlog CLI and git calls (about 55 and 240 a scenario), not waiting: every
+// poll already runs on the scenario's manual clock. So the scenarios run side by side
+// (`describe.concurrent`, DIPO-407), each in a world of its own: its office and state database,
+// temp folders, bare remote, code host, request ids and manual clock.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -226,7 +230,7 @@ async function conflictHandOff(w: LoopWorld): Promise<{ run: RunId; markers: str
 }
 
 if (process.env["DIPO_TEST_CI"] === "1") {
-  describe("the review loop end to end", () => {
+  describe.concurrent("the review loop end to end", () => {
     it(
       "approve and merge",
       () =>
