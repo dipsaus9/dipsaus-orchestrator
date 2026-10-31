@@ -477,8 +477,9 @@
         "dipo/no-claude-cli-import": "error"
       }
     },
-    // The engine's layers (0004): base, domain, composition, listed once in ENGINE_LAYERS in the
-    // plugin. The domain is one layer until the layering spike sets finer ones.
+    // The engine's layers (0004), listed once in ENGINE_LAYERS in the plugin: no value import into a
+    // higher layer. The directory cycle check of scripts/engine-graph.ts is the other half, run by
+    // test/lint-boundaries/lint-engine-layers.test.ts.
     {
       "files": ["packages/engine/src/**"],
       "rules": {

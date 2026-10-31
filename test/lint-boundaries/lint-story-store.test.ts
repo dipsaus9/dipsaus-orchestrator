@@ -26,6 +26,12 @@ const FORMS = 8;
 /** The forms of `backlog-import.ts` that load a value: all but the type-only import and `typeof import`. */
 const VALUE_FORMS = 6;
 
+/**
+ * backlog/ is a higher engine layer than every directory below but create/ (0004), so there each
+ * value form of `backlog-import.ts` also crosses up a layer.
+ */
+const UP = Array(VALUE_FORMS).fill(LAYERS);
+
 /** The files that imported backlog/ before DIPO-356 moved them behind the store (AC #2). */
 const FORMER_IMPORTERS = [
   "box/collisions.ts",
@@ -45,13 +51,12 @@ const violations: Case[] = [
   {
     fixture: "backlog-import.ts",
     target: `${ENGINE}/run/stories.ts`,
-    rules: Array(FORMS).fill(RULE),
+    rules: [...Array(FORMS).fill(RULE), ...UP],
   },
   {
     fixture: "backlog-import.ts",
     target: `${ENGINE}/story-store/leak.ts`,
-    // The store is in the engine's base layer too, so each value form also crosses up a layer.
-    rules: [...Array(FORMS).fill(RULE), ...Array(VALUE_FORMS).fill(LAYERS)],
+    rules: [...Array(FORMS).fill(RULE), ...UP],
   },
   // In create/, only the wiring files of createEngine are the composition root (DIPO-318).
   {
@@ -62,18 +67,18 @@ const violations: Case[] = [
   ...FORMER_IMPORTERS.map((file) => ({
     fixture: "backlog-import.ts",
     target: `${ENGINE}/${file}`,
-    rules: Array(FORMS).fill(RULE),
+    rules: [...Array(FORMS).fill(RULE), ...UP],
   })),
   // Office init and the backlog PR merge now live in backlog/; their old places are engine code.
   {
     fixture: "backlog-import-nested.ts",
     target: `${ENGINE}/office/init/init.ts`,
-    rules: [RULE, RULE, DEEP],
+    rules: [RULE, RULE, DEEP, LAYERS],
   },
   {
     fixture: "backlog-import-nested.ts",
     target: `${ENGINE}/scan/detect/leak.ts`,
-    rules: [RULE, RULE, DEEP],
+    rules: [RULE, RULE, DEEP, LAYERS],
   },
 ];
 

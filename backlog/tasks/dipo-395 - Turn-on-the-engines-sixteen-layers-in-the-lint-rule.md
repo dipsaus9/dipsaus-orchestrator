@@ -1,10 +1,10 @@
 ---
 id: DIPO-395
 title: Turn on the engine's fine layer order and the directory cycle check
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-30 11:22'
-updated_date: '2026-10-31 09:37'
+updated_date: '2026-10-31 10:23'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -52,12 +52,18 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ENGINE_LAYERS holds the order of `scripts/engine-layers-target.json` with no domain layer and no `runs` or `gate/store` entry, every directory in a band of 0004 sits in a layer of that band, the rule and `scripts/engine-graph.ts` both read that one list, and `scripts/engine-layers-target.json` is deleted
-- [ ] #2 For each boundary between adjacent layers, a test/lint-boundaries fixture shows a value import up the boundary refused and the same import down passing
-- [ ] #3 A fixture shows a value import between two entries of one layer passing, a type-only import up a layer passing, and a file under `workers/claude-cli` placed in its own layer, not in `workers`
-- [ ] #4 A test in `bun run verify` runs the directory cycle check on packages/engine/src and fails on a cycle: shown with a fixture tree where two directories of one layer import each other
-- [ ] #5 The old rule's cases still fail: a directory in no layer is reported, and a value import from the platform into a higher layer is refused (old rule test kept)
-- [ ] #6 Each import form is refused up a layer, the bypass forms included: static import, `export ... from`, `export * from`, dynamic `import()`, `require`, `import.meta.require` and `import x = require()`
-- [ ] #7 The rule and the cycle check run on the real path, the repository's packages/engine/src, in `bun run verify` with no exception and no disable comment
-- [ ] #8 0004 no longer mentions the coarse layers or the target file, and states what the rule and the cycle check enforce
+- [x] #1 ENGINE_LAYERS holds the order of `scripts/engine-layers-target.json` with no domain layer and no `runs` or `gate/store` entry, every directory in a band of 0004 sits in a layer of that band, the rule and `scripts/engine-graph.ts` both read that one list, and `scripts/engine-layers-target.json` is deleted
+- [x] #2 For each boundary between adjacent layers, a test/lint-boundaries fixture shows a value import up the boundary refused and the same import down passing
+- [x] #3 A fixture shows a value import between two entries of one layer passing, a type-only import up a layer passing, and a file under `workers/claude-cli` placed in its own layer, not in `workers`
+- [x] #4 A test in `bun run verify` runs the directory cycle check on packages/engine/src and fails on a cycle: shown with a fixture tree where two directories of one layer import each other
+- [x] #5 The old rule's cases still fail: a directory in no layer is reported, and a value import from the platform into a higher layer is refused (old rule test kept)
+- [x] #6 Each import form is refused up a layer, the bypass forms included: static import, `export ... from`, `export * from`, dynamic `import()`, `require`, `import.meta.require` and `import x = require()`
+- [x] #7 The rule and the cycle check run on the real path, the repository's packages/engine/src, in `bun run verify` with no exception and no disable comment
+- [x] #8 0004 no longer mentions the coarse layers or the target file, and states what the rule and the cycle check enforce
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+The lint plugin's ENGINE_LAYERS holds the engine's 16 layers, each in its 0004 band; dipo/engine-layers refuses a value import into a higher layer in every import form (9 forms tested, 4 type-only forms pass), and the cycle check of scripts/engine-graph.ts, which reads the same list, refuses directory cycles. Both run on the real engine in verify with no exception. The coarse list and scripts/engine-layers-target.json are removed. log and host moved to layer 1 to match their band. ADR 0004's fine-order paragraph describes what runs.
+<!-- SECTION:FINAL_SUMMARY:END -->

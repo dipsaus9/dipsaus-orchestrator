@@ -64,8 +64,8 @@ const violations: Case[] = [
   {
     fixture: "imports-engine-entry.ts",
     target: `${ENGINE}/run/entry.ts`,
-    // The entry is also the composition layer, which the domain layer imports nothing from.
-    rules: [CLAUDE_CLI, CLAUDE_CLI, CLAUDE_CLI, LAYERS],
+    // The entry is the top layer, which run/ imports no value from: `../index` and `..`.
+    rules: [CLAUDE_CLI, CLAUDE_CLI, CLAUDE_CLI, LAYERS, LAYERS],
   },
 ];
 

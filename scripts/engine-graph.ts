@@ -14,17 +14,17 @@
 //
 // Usage:
 //   bun scripts/engine-graph.ts                 graph, cycles, back-edges of ENGINE_LAYERS
-//   bun scripts/engine-graph.ts --layers <x>    back-edges of another order: a JSON file holding
-//                                               [["a", "b"], ["c"]] (lowest layer first), or the
-//                                               inline form "a,b;c"
-//   bun scripts/engine-graph.ts --check         exit 1 when a back-edge or a directory cycle is left
+//   bun scripts/engine-graph.ts --layers <x>    back-edges of another order to try, "a,b;c"
+//                                               (lowest layer first)
+//   bun scripts/engine-graph.ts --check         exit 1 when a back-edge, a directory cycle, a
+//                                               node in no layer or an entry naming no node is left
 //   bun scripts/engine-graph.ts --suggest       also print a directory order with few back-edges
 //   bun scripts/engine-graph.ts --files         list the importing file and line of each back-edge
 //   bun scripts/engine-graph.ts --json          print the whole measurement as JSON
 //
-// `scripts/engine-layers-target.json` holds the layers of 0004 until the lint plugin holds them; the
-// moves toward them are measured with `--layers scripts/engine-layers-target.json`. DIPO-395 moves
-// that list into the plugin and deletes the file.
+// The layers are ENGINE_LAYERS of the lint plugin, the one list (0004). `dipo/engine-layers` refuses
+// a back-edge where it is written; the cycle check here is the other half, and
+// `test/lint-boundaries/lint-engine-layers.test.ts` runs it (`checkEngine`) in `bun run verify`.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -388,15 +388,8 @@ export function suggestOrder(graph: Graph): string[] {
   return [...low, ...high];
 }
 
-/** Parses `--layers`: a JSON file of `string[][]`, or the inline form "a,b;c". */
+/** Parses `--layers`, the inline form "a,b;c" (lowest layer first). */
 export function parseLayers(arg: string): Layers {
-  if (existsSync(arg)) {
-    const parsed: unknown = JSON.parse(readFileSync(arg, "utf8"));
-    if (!Array.isArray(parsed) || !parsed.every((l) => Array.isArray(l))) {
-      throw new Error(`${arg} holds no list of layers`);
-    }
-    return parsed.map((layer: unknown[]) => layer.map(String));
-  }
   return arg.split(";").map((layer) =>
     layer
       .split(",")
@@ -405,17 +398,48 @@ export function parseLayers(arg: string): Layers {
   );
 }
 
+/** One layer of the lint plugin's ENGINE_LAYERS: the band of 0004 it sits in, and its entries. */
+export interface EngineLayer {
+  band: number;
+  entries: string[];
+}
+
 /** The layers the lint plugin holds (ENGINE_LAYERS), the one list (0004). */
-async function pluginLayers(): Promise<Layers> {
-  const plugin: { ENGINE_LAYERS?: Array<{ entries: string[] }> } = await import(PLUGIN);
+export async function engineLayers(): Promise<EngineLayer[]> {
+  const plugin: { ENGINE_LAYERS?: EngineLayer[] } = await import(PLUGIN);
   if (plugin.ENGINE_LAYERS === undefined)
     throw new Error("the lint plugin exports no ENGINE_LAYERS");
-  return plugin.ENGINE_LAYERS.map((layer) => layer.entries);
+  return plugin.ENGINE_LAYERS;
+}
+
+/** What the check finds: the back-edges and placement of a layer order, and the directory cycles. */
+export interface EngineCheck extends LayerCheck {
+  cycles: string[][];
+}
+
+/** Checks a graph against a layer order. */
+export function checkGraph(graph: Graph, layers: Layers): EngineCheck {
+  return { ...backEdges(graph, layers), cycles: cycles(graph) };
+}
+
+/** The entries of `layers` below the top of the engine, which count apart from their parents. */
+function subdirectoriesOf(layers: Layers): string[] {
+  return layers.flat().filter((entry) => entry.includes("/"));
+}
+
+/** Reads the engine sources at `src` and checks them against `layers`: the check `--check` runs. */
+export function checkEngine(src: string, layers: Layers): EngineCheck {
+  return checkGraph(readGraph(src, subdirectoriesOf(layers)), layers);
+}
+
+/** How many problems a check found; `--check` fails on any. */
+export function problemsOf(check: EngineCheck): number {
+  return check.edges.length + check.cycles.length + check.unplaced.length + check.missing.length;
 }
 
 const sum = (edges: Edge[]) => edges.reduce((s, e) => s + e.value.length, 0);
 
-/** Prints the measurement; returns the number of back-edges plus the number of cycles. */
+/** Prints the measurement; returns the number of problems the check found. */
 function printReport(graph: Graph, layers: Layers, flags: Set<string>): number {
   const valueEdges = graph.edges.filter((e) => e.value.length > 0);
   console.log(`engine nodes: ${graph.nodes.length}`);
@@ -425,10 +449,10 @@ function printReport(graph: Graph, layers: Layers, flags: Set<string>): number {
     const types = edge.types > 0 ? ` [+${edge.types} type]` : "";
     console.log(`  ${edge.from} -> ${edge.to}: ${edge.value.length}${types}`);
   }
-  const found = cycles(graph);
+  const check = checkGraph(graph, layers);
+  const { edges, unplaced, missing, cycles: found } = check;
   console.log(`\ncycles (strongly connected sets of directories): ${found.length}`);
   for (const component of found) console.log(`  ${component.length}: ${component.join(", ")}`);
-  const { edges, unplaced, missing } = backEdges(graph, layers);
   console.log(`\nlayer order (lowest first):`);
   layers.forEach((layer, i) => console.log(`  ${i}: ${layer.join(", ")}`));
   if (unplaced.length > 0) console.log(`  in no layer: ${unplaced.join(", ")}`);
@@ -450,19 +474,23 @@ function printReport(graph: Graph, layers: Layers, flags: Set<string>): number {
     );
     console.log(`  ${order.join(", ")}`);
   }
-  console.log(`\nresult: ${edges.length} back-edges, ${found.length} cycles`);
-  return edges.length + found.length;
+  const placement =
+    unplaced.length + missing.length > 0
+      ? `, ${unplaced.length} in no layer, ${missing.length} listed but not found`
+      : "";
+  console.log(`\nresult: ${edges.length} back-edges, ${found.length} cycles${placement}`);
+  return problemsOf(check);
 }
 
 async function main(argv: string[]): Promise<void> {
   const flags = new Set(argv.filter((a) => a.startsWith("--")));
   const layersAt = argv.indexOf("--layers");
   const layersArg = layersAt === -1 ? undefined : argv[layersAt + 1];
-  const layers = layersArg === undefined ? await pluginLayers() : parseLayers(layersArg);
-  const graph = readGraph(
-    ENGINE_SRC,
-    layers.flat().filter((entry) => entry.includes("/")),
-  );
+  const layers =
+    layersArg === undefined
+      ? (await engineLayers()).map((layer) => layer.entries)
+      : parseLayers(layersArg);
+  const graph = readGraph(ENGINE_SRC, subdirectoriesOf(layers));
   if (flags.has("--json")) {
     const back = backEdges(graph, layers);
     console.log(JSON.stringify({ graph, cycles: cycles(graph), layers, backEdges: back }, null, 2));

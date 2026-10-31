@@ -685,14 +685,18 @@ const packageImports = {
 };
 
 /**
- * The engine's layers, lowest first (0004), the one list: every directory of `packages/engine/src`
- * and every file at its top. A file imports a value only from its own layer or a lower one;
- * types may cross. Until the layering spike sets finer layers, all the engine's orchestration is
- * one domain layer between the base and the composition root.
+ * The engine's layers, lowest first (0004), the one list: `scripts/engine-graph.ts` reads it too.
+ * Each layer sits in one band of 0004's table (`band`, 1 to 6). An entry is a directory of
+ * `packages/engine/src`, a file at its top, or a subdirectory that counts apart from its parent
+ * (`scan/detect`, `workers/claude-cli`); a file belongs to the longest entry that holds it. A file
+ * imports a value only from its own layer or a lower one; types may cross. An import inside one
+ * layer passes this rule; the directory cycle it may close is refused by the cycle check of
+ * `scripts/engine-graph.ts`, which a test in `bun run verify` runs.
  */
 export const ENGINE_LAYERS = [
+  { band: 1, entries: ["platform"] },
   {
-    name: "base",
+    band: 1,
     entries: [
       "changelog",
       "config",
@@ -701,69 +705,66 @@ export const ENGINE_LAYERS = [
       "host",
       "keepawake",
       "log",
-      "platform",
       "software-stream",
       "story-store",
       "wiring",
-    ],
-  },
-  {
-    name: "domain",
-    entries: [
-      "backlog",
-      "backup",
-      "box",
-      "commands",
-      "db",
-      "gate",
-      "gate-decisions",
-      "ingest",
-      "merge",
-      "office",
-      "overview",
-      "prompts",
-      "questions",
-      "reads",
-      "reconcile",
-      "records",
-      "retention",
-      "review",
-      "run",
-      "run-state",
-      "scan",
-      "stories",
-      "story-pr",
-      "views",
       "workers",
-      "worktree",
     ],
   },
-  {
-    name: "composition",
-    entries: ["create", "features.ts", "index.ts", "platform-entry.ts"],
-  },
+  { band: 2, entries: ["gate", "scan/detect"] },
+  { band: 2, entries: ["prompts"] },
+  { band: 3, entries: ["box", "db", "records"] },
+  { band: 4, entries: ["commands", "review", "views"] },
+  { band: 4, entries: ["ingest", "office", "reads", "scan"] },
+  { band: 4, entries: ["run-state", "workers/claude-cli"] },
+  { band: 4, entries: ["worktree"] },
+  { band: 4, entries: ["stories"] },
+  { band: 5, entries: ["gate-decisions", "retention", "run"] },
+  { band: 5, entries: ["backup", "merge", "overview", "questions", "reconcile", "story-pr"] },
+  { band: 5, entries: ["backlog"] },
+  { band: 6, entries: ["features.ts"] },
+  { band: 6, entries: ["create"] },
+  { band: 6, entries: ["index.ts", "platform-entry.ts"] },
 ];
 
-const ENGINE_SRC = /\/packages\/engine\/src\/(.+)$/;
+/** A path inside `packages/engine/src`, or that folder itself (the entry `index.ts`). */
+const ENGINE_SRC = /\/packages\/engine\/src(?:\/(.*))?$/;
 
-/** The layer index of a path inside `packages/engine/src`, -1 for an unlisted entry, null outside. */
+/** True when `entry` holds `inside`, a path in `packages/engine/src` (`bare`: without extension). */
+function holds(entry, inside, bare) {
+  if (entry.endsWith(".ts")) return bare === entry.slice(0, -3);
+  return inside === entry || inside.startsWith(`${entry}/`);
+}
+
+/**
+ * The layer of a path inside `packages/engine/src`: the index of the layer whose entry is the
+ * longest that holds it, and that entry; index -1 and the top directory or file for a path no entry
+ * holds; null outside the engine's sources.
+ */
 function engineLayer(path) {
   const match = ENGINE_SRC.exec(path.replaceAll("\\", "/"));
   if (match === null) return null;
-  const inside = match[1];
-  const entry = inside.includes("/") ? inside.slice(0, inside.indexOf("/")) : inside;
-  const candidates = [entry, `${entry}.ts`, entry.replace(/\.[cm]?[jt]sx?$/, ".ts")];
-  const index = ENGINE_LAYERS.findIndex((layer) =>
-    layer.entries.some((name) => candidates.includes(name)),
-  );
-  return { index, entry };
+  // `..` from a top directory resolves to `src` itself, which is the entry.
+  const inside = match[1] || "index.ts";
+  const bare = inside.replace(/\.[cm]?[jt]sx?$/, "");
+  let found = null;
+  ENGINE_LAYERS.forEach((layer, index) => {
+    for (const entry of layer.entries) {
+      if (holds(entry, inside, bare) && (found === null || entry.length > found.entry.length)) {
+        found = { index, entry };
+      }
+    }
+  });
+  if (found !== null) return found;
+  const slash = inside.indexOf("/");
+  return { index: -1, entry: slash === -1 ? inside : inside.slice(0, slash) };
 }
 
-/** No value import from a higher engine layer into a lower one (0004). */
+/** No value import from a lower engine layer into a higher one (0004). */
 const engineLayers = {
   meta: {
     type: "problem",
-    docs: { description: "Refuse a value import from a higher engine layer into a lower one." },
+    docs: { description: "Refuse a value import from a lower engine layer into a higher one." },
   },
   create(context) {
     const own = engineLayer(context.filename);
@@ -783,11 +784,11 @@ const engineLayers = {
       if (typeOnly || specifier === null || !specifier.startsWith(".")) return;
       const target = engineLayer(resolve(dirname(context.filename), specifier));
       if (target === null || target.index <= own.index) return;
-      const from = ENGINE_LAYERS[own.index].name;
-      const to = target.index === -1 ? "no layer" : ENGINE_LAYERS[target.index].name;
+      const band = ENGINE_LAYERS[own.index].band;
+      const to = ENGINE_LAYERS[target.index].band;
       context.report({
         node: source,
-        message: `The ${from} layer of the engine imports no value from the ${to} layer (0004): ${own.entry} may not import ${target.entry}.`,
+        message: `Engine layer ${own.index} (band ${band}) imports no value from the higher layer ${target.index} (band ${to}) (0004): ${own.entry} may not import ${target.entry}. Import only types, or move the code down.`,
       });
     });
   },
