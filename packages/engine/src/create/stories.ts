@@ -123,8 +123,10 @@ function laneOf(
     logger: core.logger.child({ component: "backlog-pr" }),
   });
   // A flush that ran while its office loaded (the replay step) opens its PR once the office has
-  // loaded (DIPO-403).
-  core.offices.onLoaded((office) => void backlogPrs.loaded(office));
+  // loaded, then auto-merge looks at it (DIPO-403).
+  core.offices.onLoaded((office) => {
+    void backlogPrs.loaded(office).then(() => partners.autoMerge.get().kick(office));
+  });
   const lane = new BacklogLane({
     cli: core.backlogCli,
     git: core.gitOf,

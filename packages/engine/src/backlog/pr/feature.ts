@@ -31,6 +31,7 @@ import { gateDecisionsOf } from "../../gate-decisions/decisions";
 import type { GitSession } from "../../git/office";
 import { GitError } from "../../git/runner";
 import type { Logger } from "../../log/logger";
+import type { OfficeHandItem } from "../../views/desk";
 import {
   type CodeHost,
   CodeHostError,
@@ -52,6 +53,7 @@ import type { BacklogCli } from "../runner";
 
 import { placeBranch, readBranch } from "./adopt";
 import { checkBacklogPr, type CheckResult, type PrDiff, type PrFacts } from "./check";
+import { loadFailureDeskItems } from "./desk";
 import { collectPrDiff } from "./diff";
 import {
   type BacklogPrRecord,
@@ -138,6 +140,16 @@ interface OfficeState {
   readonly notAdopted: Map<number, string>;
   /** The last flush that ran before the office loaded; its PR waits for `loaded` (DIPO-403). */
   unpublished: FlushReport | null;
+  /** Why the PR of a flush that ran while the office loaded did not open, until one does (DIPO-403). */
+  loadFailure: LoadFailure | null;
+}
+
+/** A backlog PR `loaded` could not open or update, for the desk (DIPO-403). */
+export interface LoadFailure {
+  readonly branch: string;
+  readonly reason: string;
+  /** When it failed, in ms. */
+  readonly at: number;
 }
 
 export class BacklogPrs {
@@ -165,7 +177,18 @@ export class BacklogPrs {
     return this.#serial(office, async () => {
       await this.#sync(office);
       await this.#publish(office, report);
+      this.#stateOf(office).loadFailure = null;
     });
+  }
+
+  /** The PR that did not open after the office loaded, or null (DIPO-403). */
+  loadFailure(office: OfficeId): LoadFailure | null {
+    return this.#stateOf(office).loadFailure;
+  }
+
+  /** The desk item of that PR, until a later flush opens or updates it (DIPO-403). */
+  loadFailureDeskItems(office: OfficeId): OfficeHandItem[] {
+    return loadFailureDeskItems(this.#stateOf(office).loadFailure);
   }
 
   /**
@@ -179,17 +202,19 @@ export class BacklogPrs {
     state.unpublished = null;
     return this.afterFlush(office, report).catch((error: unknown) => {
       const reason = error instanceof Error ? error.message : String(error);
+      const branch = report.branch ?? "the lane's branch";
       this.#deps.logger?.warn("the backlog PR after a flush during office load failed", {
         office,
-        branch: report.branch,
+        branch,
         reason,
       });
+      state.loadFailure = { branch, reason, at: this.#deps.clock.now() };
       if (this.#deps.offices.get(office) === undefined) return;
       this.#write(office, () => [
         notice(
           "warn",
           PR_NOTICES.loadedFailed,
-          `dipo could not open or update the backlog PR for ${report.branch ?? "the lane's branch"} after the office loaded: ${reason}`,
+          `dipo could not open or update the backlog PR for ${branch} after the office loaded: ${reason}`,
         ),
       ]);
     });
@@ -727,7 +752,13 @@ export class BacklogPrs {
   #stateOf(office: OfficeId): OfficeState {
     let state = this.#state.get(office);
     if (state === undefined) {
-      state = { busy: Promise.resolve(), waiting: null, notAdopted: new Map(), unpublished: null };
+      state = {
+        busy: Promise.resolve(),
+        waiting: null,
+        notAdopted: new Map(),
+        unpublished: null,
+        loadFailure: null,
+      };
       this.#state.set(office, state);
     }
     return state;

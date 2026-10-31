@@ -3,8 +3,9 @@
 // The desk reads them through `DeskSources.prItems`.
 
 import type { OfficeHandle } from "../../db/office";
-import { deskText, type PrHandItem } from "../../views/desk";
+import { deskText, type OfficeHandItem, type PrHandItem } from "../../views/desk";
 
+import type { LoadFailure } from "./feature";
 import { openPrs } from "./records";
 
 /** The office's open backlog PRs whose check failed or cannot run, as desk items. */
@@ -26,4 +27,20 @@ export function backlogPrDeskItems(office: OfficeHandle): PrHandItem[] {
     });
   }
   return items;
+}
+
+/**
+ * The desk item of a backlog PR that did not open after the office loaded (DIPO-403), until a
+ * later flush opens or updates it. The desk reads it through `DeskSources.officeItems`.
+ */
+export function loadFailureDeskItems(failure: LoadFailure | null): OfficeHandItem[] {
+  if (failure === null) return [];
+  return [
+    {
+      kind: "BACKLOG PR",
+      detail: `dipo could not open or update the backlog PR for ${deskText(failure.branch)} after the office loaded: ${deskText(failure.reason)}`,
+      since: failure.at,
+      hand: "fix what the reason names; dipo tries the PR again at the next backlog change",
+    },
+  ];
 }
