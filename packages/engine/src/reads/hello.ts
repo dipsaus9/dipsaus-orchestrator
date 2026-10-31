@@ -32,7 +32,7 @@ export interface HelloSource {
 /** Registers `engine.hello` answered from `source`. */
 export function helloFeature(source: HelloSource): FeatureModule {
   return {
-    name: "reads/hello",
+    name: "reads",
     register(registry) {
       registry.addRead({
         definition: engineHello,

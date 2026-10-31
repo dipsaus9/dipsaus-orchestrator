@@ -64,7 +64,7 @@ export function tableStats(office: OfficeHandle): TableStats[] {
 
 /** Registers `office.stats`; the read executor runs it in one deferred transaction. */
 export const statsFeature: FeatureModule = {
-  name: "retention/stats",
+  name: "retention",
   register(registry) {
     registry.addRead({
       definition: officeStats,

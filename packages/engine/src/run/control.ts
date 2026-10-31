@@ -720,7 +720,7 @@ export class RunControl implements RunEnder {
   get feature(): FeatureModule {
     const intervene = this.#interventions.feature;
     return {
-      name: "run-control",
+      name: "run",
       register: (registry) => {
         intervene.register(registry);
       },

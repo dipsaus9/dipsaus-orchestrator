@@ -109,7 +109,7 @@ export class MergeGates {
   /** `gate.approve` and `gate.reject` on the waiting command path. */
   get feature(): FeatureModule {
     return {
-      name: "merge/gates",
+      name: "merge",
       register: (registry) => {
         registry.addAsyncOfficeCommand({
           definition: gateApprove,
