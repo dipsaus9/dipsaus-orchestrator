@@ -28,6 +28,10 @@ const VERSION_14_KEY_PATHS = [
   ...tier("L"),
   "review.model",
   "review.effort",
+  ...["S", "M", "L"].flatMap((name) => [
+    `review.tiers.${name}.model`,
+    `review.tiers.${name}.effort`,
+  ]),
   "review.maxRounds",
   "review.maxTurns",
   "review.maxMinutes",
@@ -244,6 +248,7 @@ describe("defaults", () => {
     expect(OFFICE_DEFAULTS.review).toEqual({
       model: "opus",
       effort: "high",
+      tiers: {},
       maxRounds: 3,
       maxTurns: 60,
       maxMinutes: 30,
