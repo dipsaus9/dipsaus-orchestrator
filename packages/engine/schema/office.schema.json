@@ -125,6 +125,61 @@
           "type": "string",
           "minLength": 1
         },
+        "tiers": {
+          "type": "object",
+          "properties": {
+            "S": {
+              "type": "object",
+              "properties": {
+                "model": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The model of the review worker for a story of this tier."
+                },
+                "effort": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The effort of the review worker for a story of this tier."
+                }
+              },
+              "additionalProperties": false
+            },
+            "M": {
+              "type": "object",
+              "properties": {
+                "model": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The model of the review worker for a story of this tier."
+                },
+                "effort": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The effort of the review worker for a story of this tier."
+                }
+              },
+              "additionalProperties": false
+            },
+            "L": {
+              "type": "object",
+              "properties": {
+                "model": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The model of the review worker for a story of this tier."
+                },
+                "effort": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The effort of the review worker for a story of this tier."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false,
+          "description": "The reviewer's model and effort per story tier (the story's tier: label), for example review.tiers.S.model. A key left out, and a story without a tier, take review.model and review.effort."
+        },
         "maxRounds": {
           "type": "integer",
           "exclusiveMinimum": 0,
@@ -147,7 +202,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Limits of the review loop (0002): the model and effort of the review worker, the rounds of review and fixes before it stops, and the turns, minutes and tokens of one review."
+      "description": "Limits of the review loop (0002): the model and effort of the review worker, office-wide and per tier, the rounds of review and fixes before it stops, and the turns, minutes and tokens of one review."
     },
     "caps": {
       "type": "object",

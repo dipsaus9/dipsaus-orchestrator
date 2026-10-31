@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
-import { reviewerSettings } from "../../src/run";
+import { reviewerSettings, reviewModelOf } from "../../src/run";
 import { findRun, recordConfigSnapshot } from "../../src/records";
 import { layered, runConfigOf } from "../../src/records/config-snapshot";
 import { type RoundsWorld, roundsWorld, storyRun } from "../run/rounds-helpers";
@@ -83,6 +83,98 @@ describe("runConfigOf", () => {
     expect(reviewerSettings(w.office, findRun(w.office, story.run)!, inForce)).toMatchObject({
       model: "sonnet",
       effort: "low",
+    });
+  });
+});
+
+// DIPO-405: the reviewer's model and effort per story tier, from the run's start snapshot. The
+// office sets sonnet for tier S and only an effort for tier M; tier L and a story with no tier
+// label take the office-wide values.
+const PER_TIER: OfficeConfig["review"] = {
+  ...OFFICE_DEFAULTS.review,
+  model: "opus",
+  effort: "high",
+  tiers: { S: { model: "sonnet", effort: "medium" }, M: { effort: "medium" } },
+};
+
+/** A story run of `tier` with the reviewer's caps kept, so no caps snapshot is written. */
+const tierRun = (story: string, tier: string | null) =>
+  storyRun(w, { story, tier, reviewMaxTurns: 60, reviewMaxMinutes: 30 });
+
+describe("the reviewer's model per tier (DIPO-405)", () => {
+  const cases: ReadonlyArray<{ tier: string | null; model: string; effort: string }> = [
+    { tier: "S", model: "sonnet", effort: "medium" },
+    { tier: "M", model: "opus", effort: "medium" },
+    { tier: "L", model: "opus", effort: "high" },
+    { tier: null, model: "opus", effort: "high" },
+  ];
+
+  for (const entry of cases) {
+    const name = entry.tier === null ? "a story without a tier" : `a tier ${entry.tier} story`;
+    it(`gives ${name} ${entry.model} at effort ${entry.effort}`, async () => {
+      w = await roundsWorld("config-snapshot-");
+      const story = tierRun("DIPO-7", entry.tier);
+      const started: OfficeConfig = { ...OFFICE_DEFAULTS, review: PER_TIER };
+      w.office.immediate(() => recordConfigSnapshot(w.office, "h", started, 0));
+      expect(
+        reviewerSettings(w.office, findRun(w.office, story.run)!, OFFICE_DEFAULTS),
+      ).toMatchObject({ model: entry.model, effort: entry.effort });
+    });
+  }
+
+  it("takes the office-wide values for a tier the office does not know", () => {
+    expect(reviewModelOf(PER_TIER, "XL")).toEqual({ model: "opus", effort: "high" });
+    expect(reviewModelOf(OFFICE_DEFAULTS.review, "S")).toEqual({ model: "opus", effort: "high" });
+  });
+
+  it("keeps the tier settings a run started with after the office config changes", async () => {
+    w = await roundsWorld("config-snapshot-");
+    const s = tierRun("DIPO-7", "S");
+    const m = tierRun("DIPO-8", "M");
+    w.office.immediate(() =>
+      recordConfigSnapshot(w.office, "h", { ...OFFICE_DEFAULTS, review: PER_TIER }, 0),
+    );
+    // A base change since: tier S moves to haiku, and tier M gets a model of its own.
+    const inForce: OfficeConfig = {
+      ...OFFICE_DEFAULTS,
+      review: {
+        ...PER_TIER,
+        tiers: { S: { model: "haiku", effort: "low" }, M: { model: "haiku" } },
+      },
+    };
+    expect(reviewerSettings(w.office, findRun(w.office, s.run)!, inForce)).toMatchObject({
+      model: "sonnet",
+      effort: "medium",
+    });
+    expect(reviewerSettings(w.office, findRun(w.office, m.run)!, inForce)).toMatchObject({
+      model: "opus",
+      effort: "medium",
+    });
+  });
+
+  it("gives a run started without tier settings the office-wide values after a tier is added", async () => {
+    w = await roundsWorld("config-snapshot-");
+    const s = tierRun("DIPO-7", "S");
+    w.office.immediate(() => recordConfigSnapshot(w.office, "h", OFFICE_DEFAULTS, 0));
+    const inForce: OfficeConfig = { ...OFFICE_DEFAULTS, review: PER_TIER };
+    expect(runConfigOf(w.office, findRun(w.office, s.run)!, inForce).review.tiers).toEqual({});
+    expect(reviewerSettings(w.office, findRun(w.office, s.run)!, inForce)).toMatchObject({
+      model: "opus",
+      effort: "high",
+    });
+  });
+
+  it("lets a run whose snapshot predates review.tiers take the tiers in force", async () => {
+    w = await roundsWorld("config-snapshot-");
+    const s = tierRun("DIPO-7", "S");
+    const { tiers: _tiers, ...before } = OFFICE_DEFAULTS.review;
+    w.office.immediate(() =>
+      recordConfigSnapshot(w.office, "h", { ...OFFICE_DEFAULTS, review: before }, 0),
+    );
+    const inForce: OfficeConfig = { ...OFFICE_DEFAULTS, review: PER_TIER };
+    expect(reviewerSettings(w.office, findRun(w.office, s.run)!, inForce)).toMatchObject({
+      model: "sonnet",
+      effort: "medium",
     });
   });
 });

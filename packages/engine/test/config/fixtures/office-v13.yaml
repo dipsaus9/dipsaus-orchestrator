@@ -3,3 +3,6 @@ version: 13
 scan: { maxMinutes: 7 }
 mergeSlot: { autoMerge: false, requiredChecks: [ci-ok, pr-title] }
 worktree: { root: "../{repo}.trees", maxSlots: 20 }
+# The reviewer at normal effort, for every tier.
+review:
+  effort: medium

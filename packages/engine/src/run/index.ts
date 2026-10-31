@@ -97,6 +97,7 @@ export {
   reviewCommitFile,
   ReviewLauncher,
   reviewerSettings,
+  reviewModelOf,
   snapshotReviewCaps,
   sweepOldReviewFolders,
 } from "./review-launch";
