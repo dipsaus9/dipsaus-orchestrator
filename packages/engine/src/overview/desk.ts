@@ -65,9 +65,9 @@ import { profileDeskItems } from "../scan/profile-view";
 import { findStoryPr, latestStoryPr } from "../records/story-prs";
 import { doneElsewhereDeskItems } from "../worktree/done-elsewhere";
 import { leftoverWorktreeDeskItems } from "../worktree/leftovers";
+import { lifecycleOf } from "../views/story";
 
 import { proposalItems, type ProposalItem } from "./proposals";
-import { lifecycleOf } from "./story";
 
 /** An item another module puts on the desk's hand-action group, such as DIPO-161's LEFTOVERS. */
 export interface HandDeskItem {
@@ -763,7 +763,7 @@ export function desk(
   return builder.sorted();
 }
 
-/** Registers `office.desk`; `views/feature.ts` calls it with this engine's sources. */
+/** Registers `office.desk`; `overview/feature.ts` calls it with this engine's sources. */
 export function registerDesk(registry: FeatureRegistry, sources: DeskSources): void {
   registry.addRead({
     definition: officeDesk,

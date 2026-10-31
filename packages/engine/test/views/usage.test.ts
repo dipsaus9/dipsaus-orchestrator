@@ -9,7 +9,7 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { SoftwareStream } from "../../src/software-stream";
 import { UsageAlerts, USAGE_NOTICES } from "../../src/run/usage-alerts";
-import { deriveOfficeSummary, summarySettings } from "../../src/views";
+import { deriveOfficeSummary, summarySettings } from "../../src/overview";
 import { UsageMeter, sumUsage, summaryUsage, windowUsage } from "../../src/views/usage";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import type { OfficeHandle } from "../../src/db/office";

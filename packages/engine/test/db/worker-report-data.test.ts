@@ -22,7 +22,7 @@ import {
   storeProposals,
 } from "../../src/run/report-data";
 import { addStory } from "../../src/records/story-keys";
-import { openDecisionNotes, openProposals, proposalItems } from "../../src/views/proposals";
+import { openDecisionNotes, openProposals, proposalItems } from "../../src/overview/proposals";
 import { addOffice, openTestState } from "../commands/helpers";
 import { localMounts, memoryLogger } from "./helpers";
 

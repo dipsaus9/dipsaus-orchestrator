@@ -12,7 +12,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { TASK_FIELD_ERROR } from "../../src/story-store/errors";
 import { GitError } from "../../src/git";
 import { releaseClaim } from "../../src/worktree/records";
-import { snapshot } from "../../src/views/feature";
+import { snapshot } from "../../src/overview/feature";
 import { storyView } from "../../src/views/story";
 import { backlogPark } from "../../src/records/park-state";
 import { BRANCH_UNREAD_NOTICE } from "../../src/stories/index-stories";

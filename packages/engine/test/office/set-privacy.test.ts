@@ -16,7 +16,7 @@ import type { ConfigError, OfficeId } from "@dipsaus-orchestrator/contract";
 import { withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_CONFIG_VERSION } from "../../src/config";
-import { summarySettings } from "../../src/views";
+import { summarySettings } from "../../src/overview";
 import { BACKLOG_FIXTURE, officeSetup, resultOf, send } from "./helpers";
 
 interface SetResult {

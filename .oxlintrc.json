@@ -606,7 +606,9 @@
                   "**/records",
                   "**/records/**",
                   "**/run-state",
-                  "**/run-state/**"
+                  "**/run-state/**",
+                  "**/overview",
+                  "**/overview/**"
                 ],
                 "message": "The worker host has no database or engine state code (0006 decision 8)."
               },

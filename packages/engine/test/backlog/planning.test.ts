@@ -27,7 +27,7 @@ import {
 } from "../../src/backlog/lane";
 import { insertPark, mirrorParked } from "../run/park-fixture";
 import { insertEntry, updateEntry } from "../../src/backlog/lane/journal";
-import { heldParkDeskItems } from "../../src/views/desk";
+import { heldParkDeskItems } from "../../src/overview/desk";
 import { executeCommand } from "../../src/commands/execute";
 import { CRASH, crashAfterHandler } from "../commands/crash";
 import { executeRead } from "../../src/reads/execute";

@@ -8,7 +8,7 @@ import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import type { OfficeAccess, OfficeDirectory } from "../commands/offices";
 import { Registry } from "../commands/registry";
-import { registerDesk, type DeskSources } from "../views/desk";
+import { registerDesk, type DeskSources } from "../overview/desk";
 import { executeRead } from "./execute";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D" as OfficeId;
@@ -16,7 +16,7 @@ const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D" as OfficeId;
 describe("office.desk while the office loads", () => {
   test("answers at once with the office marked loading while its load is held", async () => {
     const registry = new Registry();
-    registry.load({ name: "views/desk", register: (r) => registerDesk(r, {} as DeskSources) });
+    registry.load({ name: "overview/desk", register: (r) => registerDesk(r, {} as DeskSources) });
     // The load starts with the read and never settles: the held load of the office, as the
     // directory reports it while the load runs.
     const held = new Promise<OfficeAccess>(() => {});

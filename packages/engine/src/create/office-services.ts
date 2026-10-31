@@ -13,7 +13,7 @@ import { detachedEnv } from "../platform/process";
 import type { OfficeSummarySource } from "../reads/hello";
 import { Retention } from "../retention/feature";
 import { UsageAlerts } from "../run/usage-alerts";
-import { officeSummaryOfSource, officeSummarySource, summarySettings } from "../views/summary";
+import { officeSummaryOfSource, officeSummarySource, summarySettings } from "../overview/summary";
 import { UsageMeter } from "../views/usage";
 import type { Core } from "./core";
 import { EngineBehindCache } from "./engine-behind";
