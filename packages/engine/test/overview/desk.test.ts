@@ -25,7 +25,7 @@ import { insertWorkerQuestion } from "../../src/run-state/questions";
 import { executeRead } from "../../src/reads/execute";
 import { storeDecisionNotes, storeProposals } from "../../src/run/report-data";
 import { insertTest } from "../../src/run/test-records";
-import { StoryDiscard } from "../../src/stories/discard";
+import { StoryDiscard } from "../../src/run/discard";
 import {
   desk,
   DESK_DETAIL_MAX,

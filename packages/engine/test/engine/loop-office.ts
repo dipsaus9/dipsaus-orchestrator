@@ -58,8 +58,6 @@ import {
   baseStoryFacts,
   capsOf,
   storyRunBase,
-  composeRuns,
-  type ComposedRuns,
   gitParkWriter,
   gitStoryOps,
   gitUnparkWriter,
@@ -72,6 +70,7 @@ import {
   VerifyCommit,
   WorkRun,
 } from "../../src/run";
+import { composeRuns, type ComposedRuns } from "../../src/create/compose";
 import { findRun, runCaps, type StoredRun } from "../../src/records";
 import { type LaunchedHost, recordWorkerHost, runDirectory } from "../../src/records/worker-hosts";
 import { detect } from "../../src/scan/detect";

@@ -17,7 +17,7 @@ import { planLimitPause } from "../run/starts-paused";
 import { StoryTests, TEST_BOX_DIR } from "../run/tests";
 import { WorkRun } from "../run/work-run";
 import { RunProfiles } from "../scan/feature";
-import { StoryDiscard } from "../stories/discard";
+import { StoryDiscard } from "../run/discard";
 import { StoryTeardown } from "../worktree/done";
 import { join } from "node:path";
 import type { Core } from "./core";

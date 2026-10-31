@@ -29,8 +29,8 @@ import { insertWorkerQuestion } from "../../src/run-state/questions";
 import { executeRead } from "../../src/reads/execute";
 import { reconcileOffice } from "../../src/reconcile";
 import { insertStoryPr, latestStoryPr } from "../../src/records/story-prs";
-import { StoryDiscard } from "../../src/stories/discard";
-import { StoryPlanning } from "../../src/stories/planning";
+import { StoryDiscard } from "../../src/run/discard";
+import { StoryPlanning } from "../../src/run/planning";
 import { doneElsewhereDeskItems, findDoneElsewhere } from "../../src/worktree/done-elsewhere";
 import {
   findClaim,

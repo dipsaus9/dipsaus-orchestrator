@@ -7,11 +7,11 @@
 // DIPO-254), as the worker's own account; never its summary, notes, handoff, reasoning or
 // transcript (0002): the input has no field for them. Pure and deterministic.
 
-import type { SafeChainFound } from "../box/safe-chain";
 import { formatCount } from "../context/truncate";
 import type { ReviewFinding, WorkerDeviation, WorkerTestPlanEntry } from "../workers/types";
 import { assembleContract, CONTRACT_MAX_DEFAULT } from "./contract";
 import { safeChainLines } from "./feedback";
+import type { SafeChainFound } from "./safe-chain";
 import type { PromptStory } from "./story";
 import { renderTemplate, TASK_TEMPLATES } from "./templates";
 import workerReportTemplate from "./task/review-worker-report.md" with { type: "text" };

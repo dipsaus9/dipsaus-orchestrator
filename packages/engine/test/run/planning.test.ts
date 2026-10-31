@@ -25,7 +25,7 @@ import {
   pendingLaneOp,
   planningLane,
 } from "../../src/backlog/lane";
-import { insertPark, mirrorParked } from "../run/park-fixture";
+import { insertPark, mirrorParked } from "./park-fixture";
 import { insertEntry, updateEntry } from "../../src/backlog/lane/journal";
 import { heldParkDeskItems } from "../../src/overview/desk";
 import { executeCommand } from "../../src/commands/execute";
@@ -43,7 +43,7 @@ import { insertStoryPr, latestStoryPr } from "../../src/records/story-prs";
 import { addStory } from "../../src/records/story-keys";
 import type { BacklogStory } from "../../src/stories/read";
 import { writeMirror } from "../../src/stories/apply";
-import { StoryPlanning } from "../../src/stories/planning";
+import { StoryPlanning } from "../../src/run/planning";
 import { insertClaim, liveClaimOf, releasedBranchFor } from "../../src/worktree/records";
 import { CodeHostError } from "../../src/platform/host";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
