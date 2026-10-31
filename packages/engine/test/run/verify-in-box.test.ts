@@ -63,7 +63,8 @@ import {
 } from "../../src/box/verify";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
-import { pendingReviews, reopen, RunControl, type StoryGit, VerifyCommit } from "../../src/run";
+import { pendingReviews, RunControl, type StoryGit, VerifyCommit } from "../../src/run";
+import { reopen } from "../../src/run-state";
 import {
   findRun,
   openAtInReview,

@@ -21,7 +21,7 @@ import {
   type PrReviewHost,
   type RequiredCheck,
 } from "../../src/platform/host";
-import { stopAtInReview } from "../../src/run";
+import { stopAtInReview } from "../../src/run-state";
 import {
   appendRunStep,
   insertRun,

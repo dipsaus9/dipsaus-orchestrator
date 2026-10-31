@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import type { Caps } from "../../src/workers/types";
-import { claimPlace, endReviewPeriod, reopen, stopAtInReview } from "../../src/run";
+import { claimPlace, endReviewPeriod, reopen, stopAtInReview } from "../../src/run-state";
 import {
   appendRunStep,
   capsStartedAt,
@@ -18,7 +18,7 @@ import {
   runPhase,
   runTotals,
 } from "../../src/records";
-import { endRunMarked } from "../../src/run/markers";
+import { endRunMarked } from "../../src/ingest/markers";
 import { runProgress } from "../../src/views/work";
 import { DONE_RELEASE_REASON } from "../../src/worktree/teardown";
 import { releaseClaim } from "../../src/worktree/records";
@@ -32,7 +32,7 @@ import {
   roundsWorld,
   storyRun,
   type StoryRun,
-} from "./rounds-helpers";
+} from "../run/rounds-helpers";
 
 let w: RoundsWorld;
 let s: StoryRun;

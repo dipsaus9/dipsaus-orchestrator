@@ -94,9 +94,9 @@ import { type ClaimRecord, liveClaimOf } from "../worktree/records";
 
 import { recordRunCriteria } from "../records/criteria";
 import { planRefusedText, type PreparedRun, type RunFacts, type RunLauncher } from "./launch";
-import { markPhase } from "./markers";
+import { markPhase } from "../ingest/markers";
 
-import { placeTaken, type Places, START_KINDS } from "./places";
+import { placeTaken, type Places, START_KINDS } from "../run-state/places";
 import {
   currentProfileId,
   hasActiveRun,

@@ -39,7 +39,7 @@ import { describe, expect, it } from "bun:test";
 import { type RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
 import { git } from "@dipsaus-orchestrator/testkit";
 
-import { mergeGatesOfRun } from "../../src/merge";
+import { mergeGatesOfRun } from "../../src/run-state";
 import { reviewVerdictsOf } from "../../src/review/store";
 import { openPark } from "../../src/run";
 import { findRun, findStoryPr } from "../../src/records";

@@ -7,7 +7,7 @@
 import type { OfficeHandle } from "../db/office";
 
 import { type FiredCap, firedCap, runCaps, runTotals } from "../records/caps";
-import type { RunEnding } from "./control-types";
+import type { RunEnding } from "../run/control-types";
 import { resolveIntent, runIntents } from "../records/intents";
 import { capsStartedAt, type StoredRun } from "../records/run-records";
 

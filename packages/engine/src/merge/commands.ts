@@ -42,13 +42,18 @@ import { recordReviewOverride } from "../review/store";
 import { openPark, type ParkWriter, resolvePark, type UnparkWriter } from "../run/park";
 import { mirrorUnpark, type ParkStore } from "../records/park-state";
 import { appendRunStep, findRun, type StoredRun, unparkRun } from "../records/run-records";
-import { enterPhase } from "../run/rounds";
+import { enterPhase } from "../run-state/rounds";
 import { type BranchPush, findStoryPr, recordBranchPush } from "../records/story-prs";
 import { deriveStoryView, storyView } from "../views/story";
 import { withWorkViews } from "../views/work";
 import { repoOfPrUrl } from "../worktree/release";
 
-import { autoreleasePending, decideMergeGate, mergeGate, type StoredMergeGate } from "./gates";
+import {
+  autoreleasePending,
+  decideMergeGate,
+  mergeGate,
+  type StoredMergeGate,
+} from "../run-state/gates";
 
 type ApproveArgs = z.output<typeof gateApprove.args>;
 type RejectArgs = z.output<typeof gateReject.args>;

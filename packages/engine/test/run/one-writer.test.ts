@@ -17,7 +17,7 @@ const REPO = join(import.meta.dir, "..", "..", "..", "..");
 /** The one module that writes each table. */
 const WRITERS: Readonly<Record<string, string>> = {
   runs: "packages/engine/src/records/run-records.ts",
-  parks: "packages/engine/src/run/park-records.ts",
+  parks: "packages/engine/src/run-state/park-records.ts",
   agents: "packages/engine/src/records/agents.ts",
   worker_hosts: "packages/engine/src/records/worker-hosts.ts",
   run_signals: "packages/engine/src/records/signals.ts",
@@ -175,7 +175,9 @@ describe("one writer per run table", () => {
   });
 
   it("refuses a table written outside its writer and an unnamed table outside the short list", () => {
-    expect(stray({ file: "packages/engine/src/run/places.ts", line: 1, table: "runs" })).toBe(true);
+    expect(stray({ file: "packages/engine/src/run-state/places.ts", line: 1, table: "runs" })).toBe(
+      true,
+    );
     expect(stray({ file: WRITERS.runs as string, line: 1, table: "runs" })).toBe(false);
     expect(stray({ file: WRITERS.runs as string, line: 1, table: "parks" })).toBe(true);
     expect(stray({ file: RETENTION, line: 1, table: "runs" })).toBe(true);

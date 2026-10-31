@@ -10,7 +10,7 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { appendEntries } from "../../src/changelog/log";
 import { Ingestor } from "../../src/ingest/ingestor";
-import { endRunMarked, markerLine, markPhase, storedMarker } from "../../src/run/markers";
+import { endRunMarked, markerLine, markPhase, storedMarker } from "../../src/ingest/markers";
 import { runSteps } from "../../src/records/run-records";
 import { outputRange, workView } from "../../src/views";
 import type { WorkerEvent } from "../../src/workers/types";
@@ -22,7 +22,7 @@ import {
   loggedEvents,
   storedOutput,
   target,
-} from "../ingest/helpers";
+} from "./helpers";
 
 const T0 = Date.parse("2026-10-15T12:04:31.000Z");
 

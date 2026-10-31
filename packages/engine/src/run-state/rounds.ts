@@ -1,12 +1,13 @@
 // The rounds of a run at In Review (0002, 0020): one story run per claim, whose active period ends
 // at In Review or at a park. At In Review the run stays open (DIPO-373), in phase review while it
-// waits for its review, and in phase merge (or test, `merge/gates.ts`) once its head's verdict is
+// waits for its review, and in phase merge (or test, `gates.ts`) once its head's verdict is
 // in, or build when a blocked verdict waits for its fix round. It is active again on the same run,
 // through `reopen`, for a review, a fix round, a conflict hand-off or a park resume. The time it
 // stood idle is added to `parked_ms`, and so is a review's own time when the review ends, so the
 // developer's minute cap counts only the time the developer worked; the reviewer has its own caps.
 // The run keeps its loop and round counts, which are its `run_steps`. A round waits for its place
-// (`places.ts`) until its session starts; a park resume decides its own wait (`park-resume.ts`).
+// (`places.ts`) until its session starts; a park resume decides its own wait
+// (`run/park-resume.ts`).
 
 import { type Lifecycle, type Phase, type RunId, StoryId } from "@dipsaus-orchestrator/contract";
 
@@ -15,7 +16,7 @@ import type { OfficeHandle } from "../db/office";
 import { deriveStoryView, storyView } from "../views/story";
 import { runProgress, withWorkViews, workRefOf } from "../views/work";
 
-import { markPhase } from "./markers";
+import { markPhase } from "../ingest/markers";
 import { resolvePark } from "./park-records";
 import { START_KINDS, type StartKind, waitForPlace } from "./places";
 import {

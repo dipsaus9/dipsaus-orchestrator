@@ -95,7 +95,7 @@ import { storyHoldsWork } from "../run/outcome-types";
 import { RunOutcomes } from "../run/outcomes";
 import { gitParkWriter, gitUnparkWriter, type UnparkWriter, type ParkWriter } from "../run/park";
 import type { MergeReentry } from "../run/park-resume";
-import type { Places } from "../run/places";
+import type { Places } from "../run-state/places";
 import { RunReattacher } from "../run/reattach";
 import { sendFeedback } from "../run/feedback";
 import { findRun, recordSafeChain, type StoredRun } from "../records/run-records";

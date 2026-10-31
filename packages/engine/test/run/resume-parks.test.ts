@@ -27,27 +27,24 @@ import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import type { AsyncCommandContext } from "../../src/commands/registry";
 import { workerAnswerText } from "../../src/questions/permissions";
-import { closeQuestion, findQuestion, insertWorkerQuestion } from "../../src/questions/questions";
+import { closeQuestion, findQuestion, insertWorkerQuestion } from "../../src/run-state/questions";
 import { HANDOFF_NOTE_MAX } from "../../src/prompts/handoff";
 import { recordReviewVerdict } from "../../src/review/store";
 import {
   createRunOutcomes,
-  enterPhase,
   MAINTAINER_RESUME_TAG,
   noteText,
   PARK_RESUME_NOTICES,
   parkActions,
-  Places,
   type Resumption,
   type ResumptionOptions,
   type RunEnder,
   share,
   smallestShare,
-  START_KINDS,
   type StartsPausedState,
-  stopAtInReview,
   type UnparkBranchRequest,
 } from "../../src/run";
+import { enterPhase, Places, START_KINDS, stopAtInReview } from "../../src/run-state";
 import {
   appendRunStep,
   endRun,

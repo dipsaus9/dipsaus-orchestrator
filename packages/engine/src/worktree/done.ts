@@ -37,7 +37,7 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
-import { decideOnHandMerge } from "../merge/gates";
+import { decideOnHandMerge } from "../run-state/gates";
 import { type CodeHost, type PrStateHost, repoOfRemoteUrl } from "../platform/host";
 import type { PrStatePoll } from "../story-pr/pr-state";
 import type { StoryStore } from "../story-store/store";

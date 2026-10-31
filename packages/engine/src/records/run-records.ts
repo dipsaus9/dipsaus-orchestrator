@@ -10,10 +10,10 @@
 // teardown or a rollback never leaves an office busy; a session run is active until it ends.
 //
 // One story run spans every round of its claim (0019 section 13, DIPO-142): its active period ends
-// at a park and at In Review, and `reopen` (`rounds.ts`) makes it active again for a resume, a
-// review, a fix round or a conflict hand-off, adding the time it stood ended to `parked_ms`. A run
-// ends done, parked or dropped (0020, `lifecycle.ts`); at In Review it stays open. Each end writes
-// its `run_outcomes` row, provisional until Done writes the final one.
+// at a park and at In Review, and `reopen` (`run-state/rounds.ts`) makes it active again for a
+// resume, a review, a fix round or a conflict hand-off, adding the time it stood ended to
+// `parked_ms`. A run ends done, parked or dropped (0020, `lifecycle.ts`); at In Review it stays
+// open. Each end writes its `run_outcomes` row, provisional until Done writes the final one.
 
 import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
@@ -84,8 +84,8 @@ export interface StoredRun extends NewRun {
    */
   readonly parkedMs?: number;
   /**
-   * What the reopened run waits for its place as (`places.ts`, DIPO-142), with the time it began
-   * waiting; null when its session started or it waits for nothing.
+   * What the reopened run waits for its place as (`run-state/places.ts`, DIPO-142), with the time
+   * it began waiting; null when its session started or it waits for nothing.
    */
   readonly waiting?: string | null;
   readonly waitingSince?: number | null;

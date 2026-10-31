@@ -21,7 +21,7 @@ import type { Logger } from "../log/logger";
 import type { AutoMergeHost, CodeHost } from "../platform/host";
 import type { PrStatePoll, PrStateReads } from "../story-pr/pr-state";
 
-import type { StoredMergeGate } from "./gates";
+import type { StoredMergeGate } from "../run-state/gates";
 import { type StoryMergeContext, type StoryMergeDeps, StoryMerges } from "./stories";
 
 /** The load step that starts the office's auto-merge poll. */

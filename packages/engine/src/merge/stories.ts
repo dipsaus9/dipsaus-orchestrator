@@ -4,8 +4,8 @@
 //
 // - The gate (`#approvedGate`). Once the review verdict of the head's code tree is approved or
 //   overridden, the host is read: the PR's state, head, labels and whether GitHub can merge it.
-//   The head's merge gate opens (`gates.ts`) unless one holds for it already, decided by rule or
-//   waiting for the maintainer. Two paths (0002):
+//   The head's merge gate opens (`run-state/gates.ts`) unless one holds for it already, decided by
+//   rule or waiting for the maintainer. Two paths (0002):
 //   - By rule (nothing makes the gate wait): the gate opens on the verdict alone, without waiting
 //     for the head's checks, so CI runs once, on the close-out head, and GitHub's auto-merge waits
 //     for it. Only checks already red on the head hold it, or a required check that already failed
@@ -124,7 +124,7 @@ import {
   overrideGateSummary,
   releasePathList,
   type StoredMergeGate,
-} from "./gates";
+} from "../run-state/gates";
 import type { PushOutcome, StoryMergeGit, StoryMergeRun } from "./story-git";
 
 /** `engine.notice` codes of story PRs and the auto-merge (0002). */

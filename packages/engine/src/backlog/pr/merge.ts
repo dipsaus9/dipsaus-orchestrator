@@ -27,7 +27,7 @@ import type { OfficeId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { NewEntry } from "../../changelog/log";
 import type { OfficeHandle } from "../../db/office";
-import { autoreleasePending, holdLabelsOn } from "../../merge/gates";
+import { autoreleasePending, holdLabelsOn } from "../../run-state/gates";
 import type { BacklogAutoMerge, BacklogRoundContext } from "../../merge/merger";
 import {
   type AutoMergeHost,

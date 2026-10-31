@@ -18,13 +18,8 @@ import { type OfficeId, type RunId, StoryId } from "@dipsaus-orchestrator/contra
 import { git, type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
-import {
-  AutoMerge,
-  gitStoryMergeOps,
-  mergeGatesOfRun,
-  RELEASE_PATH_HOLD,
-  writeCloseOutSummary,
-} from "../../src/merge";
+import { AutoMerge, gitStoryMergeOps, writeCloseOutSummary } from "../../src/merge";
+import { mergeGatesOfRun, RELEASE_PATH_HOLD } from "../../src/run-state";
 import type { HostPr, RequiredCheck } from "../../src/platform/host";
 import { recordReviewVerdict } from "../../src/review/store";
 import { gitParkWriter } from "../../src/run/park";

@@ -14,7 +14,6 @@ import { PermissionAsks } from "../../src/questions/permissions";
 import {
   composeRuns,
   FixRounds,
-  stopAtInReview,
   pendingReviews,
   OfficeIngest,
   StartsPaused,
@@ -26,6 +25,7 @@ import {
   RunResumer,
   Reviews,
 } from "../../src/run";
+import { stopAtInReview } from "../../src/run-state";
 import { insertRun } from "../../src/records";
 import { insertClaim, updateClaim } from "../../src/worktree/records";
 import { addStory } from "../../src/records/story-keys";
