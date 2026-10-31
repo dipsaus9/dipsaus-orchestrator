@@ -357,7 +357,7 @@ export class Places {
   /** The load step that starts what waited for a place when the daemon stopped. */
   get feature(): FeatureModule {
     return {
-      name: "places",
+      name: "run-state",
       register: (registry) => {
         registry.registerLoadStep(PLACES_STEP, (ctx) => {
           this.#background(ctx.officeId);

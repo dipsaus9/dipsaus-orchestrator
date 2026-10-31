@@ -55,7 +55,7 @@ export class UsageAlerts {
   /** The feature module: the first office load starts the minute timer. */
   get feature(): FeatureModule {
     return {
-      name: "usage.alerts",
+      name: "run",
       register: (features) => {
         features.registerLoadStep("usage.alerts", () => {
           this.start();

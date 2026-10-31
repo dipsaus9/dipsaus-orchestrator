@@ -298,7 +298,7 @@ export function viewsFeatureWith(
 ): FeatureModule {
   const sources: DeskSources = { ...DESK_SOURCES, ...desk };
   return {
-    name: "views",
+    name: "overview",
     register(registry) {
       registry.addRead({
         definition: officeSnapshot,

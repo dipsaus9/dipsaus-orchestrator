@@ -125,7 +125,7 @@ export class StoryDiscard {
   /** `work.discard` on the waiting command path. */
   get feature(): FeatureModule {
     return {
-      name: "stories/discard",
+      name: "run",
       register: (registry: FeatureRegistry) => {
         registry.addAsyncOfficeCommand({
           definition: workDiscard,

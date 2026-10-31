@@ -132,7 +132,7 @@ export class StoryPlanning {
   /** `story.park` and `story.drop` on the waiting command path. */
   get feature(): FeatureModule {
     return {
-      name: "stories/planning",
+      name: "run",
       register: (registry: FeatureRegistry) => {
         registry.addAsyncOfficeCommand({
           definition: storyPark,

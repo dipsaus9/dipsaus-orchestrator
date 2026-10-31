@@ -98,7 +98,7 @@ describe("registry", () => {
       "The read fixture.detail is registered by both test/fixture and test/twin",
     );
     expect(() => buildRegistry([describeFeature, describeFeature])).toThrow(
-      "The read commands.describe is registered by both reads/describe and reads/describe",
+      "The read commands.describe is registered by both reads and reads",
     );
     const waiting: FeatureModule = {
       name: "test/waiting",
@@ -171,7 +171,7 @@ describe("registry", () => {
   it("builds the engine registry from features.ts", () => {
     const registry = engineRegistry();
     expect(FEATURES.length).toBeGreaterThan(0);
-    expect(registry.read("commands.describe")?.module).toBe("reads/describe");
+    expect(registry.read("commands.describe")?.module).toBe("reads");
   });
 
   it("describes the registered commands and reads", () =>

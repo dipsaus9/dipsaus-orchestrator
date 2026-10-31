@@ -364,7 +364,7 @@ export class OfficeInit {
   /** The software command `office.init` and the load step that raises the statuses notice. */
   get feature(): FeatureModule {
     return {
-      name: "office/init",
+      name: "backlog/init",
       register: (registry) => {
         registry.addSoftwareCommand({
           definition: officeInit,

@@ -34,7 +34,7 @@ export interface Services {
 /** The summary names the privacy opt-ins that are on (DIPO-83): sent again when they may change. */
 function privacySummaryFeature(core: Core): FeatureModule {
   return {
-    name: "privacy.summary",
+    name: "create",
     register: (features) => {
       features.registerLoadStep("privacy.summary", (ctx) => core.changes.notify(ctx.officeId));
       features.registerConfigReload("privacy.summary", (ctx) => core.changes.notify(ctx.officeId));

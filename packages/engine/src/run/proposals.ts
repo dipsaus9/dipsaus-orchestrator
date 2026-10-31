@@ -334,7 +334,7 @@ export class ProposalCommands {
   /** `proposal.accept` and `proposal.dismiss` on the waiting command path. */
   get feature(): FeatureModule {
     return {
-      name: "run/proposals",
+      name: "run",
       register: (registry: FeatureRegistry) => {
         registry.addAsyncOfficeCommand({
           definition: proposalAccept,

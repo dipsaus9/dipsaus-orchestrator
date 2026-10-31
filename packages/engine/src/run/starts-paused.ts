@@ -555,7 +555,7 @@ export class StartsPaused {
   /** The load step that pauses an office again after a restart (`recover`). */
   get feature(): FeatureModule {
     return {
-      name: "starts-paused",
+      name: "run",
       register: (registry) => {
         registry.registerLoadStep(STARTS_PAUSED_STEP, (ctx) => {
           this.recover(ctx.officeId, ctx.office);

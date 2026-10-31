@@ -52,7 +52,7 @@ export class Interventions {
   /** The command `work.steer`. */
   get feature(): FeatureModule {
     return {
-      name: "run-intervene",
+      name: "run",
       register: (registry) => {
         registry.addAsyncOfficeCommand({
           definition: workSteer,
