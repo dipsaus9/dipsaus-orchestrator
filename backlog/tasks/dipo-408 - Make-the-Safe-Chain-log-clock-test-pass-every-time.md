@@ -1,10 +1,10 @@
 ---
 id: DIPO-408
 title: Make the Safe-Chain log clock test pass every time
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-31 09:39'
-updated_date: '2026-10-31 10:21'
+updated_date: '2026-10-31 10:22'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -34,6 +34,10 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(engine) safe-chain-log.test.ts passes 50 runs in a row on the Mac, the clock case included"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "Can someone run `bun test packages/engine/test/box/safe-chain-log.test.ts` 50 times in a row on the Mac and record the result on the PR? That is the only part of criterion 2 left, and this box cannot run it."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -43,3 +47,16 @@ test_plan:
 - [ ] #2 safe-chain-log.test.ts passes 50 runs in a row on the Mac after the fix, recorded in the PR
 - [ ] #3 No case is removed or skipped, and a refusal that cannot be tied to one box still stays unknown, shown by the existing tests
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-10-31 10:22 UTC: ambiguous-spec
+- Detail: Can someone run `bun test packages/engine/test/box/safe-chain-log.test.ts` 50 times in a row on the Mac and record the result on the PR? That is the only part of criterion 2 left, and this box cannot…
+- Run: run_01M68QN7MA1EJHVXRPP2ENS8DZ
+- Criteria met: 2 of 3 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 49,939 of 300,000 tokens; 14 of 90 turns; 1 of 45 minutes
+- Last good commit: 2b5d459e0f6a7a68b035744d559fccc4efc9194a
+<!-- SECTION:NOTES:END -->
