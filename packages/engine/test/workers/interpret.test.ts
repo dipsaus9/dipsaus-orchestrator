@@ -530,6 +530,17 @@ describe("interpret (0008 section 3)", () => {
     expect(result(ended.state, { code: 1, signal: null }).outcome).toBe("crashed");
   });
 
+  it("keeps the CLI's own error line of a run that ends with no result (DIPO-413)", () => {
+    const refusal =
+      'Error: --json-schema is not a valid JSON Schema: no schema with key or ref "https://json-schema.org/draft/2020-12/schema"';
+    const printed = interpret({ t: 1, ch: "stdout", data: `${refusal}\n` }, initialState());
+    expect(printed.state.unparsedLine).toBe(refusal);
+    const ended = interpret(EXIT_OK, printed.state);
+    const exited = result(ended.state, { code: 1, signal: null });
+    expect(exited.outcome).toBe("crashed");
+    expect(exited.park?.detail).toBe(`no result before exit 1, its last stdout line: ${refusal}`);
+  });
+
   it("logs an unknown message type once per run and drops it, each line a dropped drift", () => {
     const logged: string[] = [];
     let state = initialState();
