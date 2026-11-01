@@ -1,10 +1,10 @@
 ---
 id: DIPO-414
 title: Refuse a typed confirmation that ends without input
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-01 15:39'
-updated_date: '2026-11-01 16:27'
+updated_date: '2026-11-01 16:32'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -36,6 +36,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When input ends during `systemWorkspace().ask` (the real readline path, fed a closed input stream), ask returns no answer instead of throwing, and the command refuses with the same message as a wrong answer and exits non-zero without a stack trace, shown by a test
-- [ ] #2 A wrong answer and a right answer behave as now, shown by the existing tests
+- [x] #1 When input ends during `systemWorkspace().ask` (the real readline path, fed a closed input stream), ask returns no answer instead of throwing, and the command refuses with the same message as a wrong answer and exits non-zero without a stack trace, shown by a test
+- [x] #2 A wrong answer and a right answer behave as now, shown by the existing tests
 <!-- AC:END -->
