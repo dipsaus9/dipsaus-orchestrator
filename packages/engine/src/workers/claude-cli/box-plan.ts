@@ -42,6 +42,9 @@ export const BOX_CLAUDE_ENV: Readonly<Record<string, string>> = {
   CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1",
 };
 
+/** The flag that makes Claude Code echo each user message as it reads it (DIPO-412). */
+export const REPLAY_USER_MESSAGES = "--replay-user-messages";
+
 /** The argv of Claude Code inside the box for one session. */
 export function boxClaudeArgv(spec: WorkerSpec, session: BoxSession): [string, ...string[]] {
   return [
@@ -54,6 +57,9 @@ export function boxClaudeArgv(spec: WorkerSpec, session: BoxSession): [string, .
     "--verbose",
     // As on the Mac: the live view counts the session's output from the stream events (DIPO-296).
     INCLUDE_PARTIAL_MESSAGES,
+    // Each user message is echoed as the session reads it, so dipo sees when a steer is read
+    // (DIPO-412, `interpret.ts`).
+    REPLAY_USER_MESSAGES,
     spec.session.resume ? "--resume" : "--session-id",
     spec.session.id,
     "--model",

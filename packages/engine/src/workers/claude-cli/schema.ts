@@ -123,6 +123,23 @@ export const UserLine = z.object({
   parent_tool_use_id: z.string().nullable().optional(),
 });
 
+/**
+ * A user message the session echoes as it reads it (`--replay-user-messages`, DIPO-412): the task
+ * message, and each message dipo wrote to stdin later, at the moment Claude Code takes it into the
+ * conversation. Its content is the text dipo sent, so its text is read.
+ */
+export const ReplayedUserLine = z.object({
+  type: z.literal("user"),
+  isReplay: z.literal(true),
+  parent_tool_use_id: z.null().optional(),
+  message: z.object({
+    content: z.union([
+      z.string(),
+      z.array(z.object({ type: z.string(), text: z.string().optional() })),
+    ]),
+  }),
+});
+
 export const ModelUsageEntry = z.object({
   inputTokens: Tokens,
   outputTokens: Tokens,
@@ -315,6 +332,7 @@ export const ClaudeWorkerEventSchema = z.union([
     agentId: Name,
   }),
   z.strictObject({ t: z.literal("output"), text: z.string() }),
+  z.strictObject({ t: z.literal("messageRead"), text: z.string() }),
   z
     .strictObject({
       t: z.literal("usage"),
