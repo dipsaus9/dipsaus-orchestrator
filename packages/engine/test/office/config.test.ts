@@ -39,13 +39,16 @@ async function reload(
   return { r: resultOf<Reloaded>(reply), changed: reply.ok && reply.changed };
 }
 
+// These repositories have no remote, so every load reads the checkout and says so (DIPO-410); the
+// notice is not what these tests check.
 function notices(s: OfficeSetup, office: OfficeId): unknown[] {
   const handle = s.state.office(office);
   const result = replay(handle, cursorAt(office, 0));
   if (!result.ok) throw new Error(result.error.message);
   return result.entries
     .filter((entry) => entry.type === "engine.notice")
-    .map((entry) => entry.delta);
+    .map((entry) => entry.delta)
+    .filter((delta) => (delta as { code?: string }).code !== "config.fromCheckout");
 }
 
 describe("office configuration", () => {
@@ -81,7 +84,8 @@ describe("office configuration", () => {
         expect(notice).toMatchObject({ level: "error", code: "config.invalid" });
         expect(notice?.text).toContain("running work keeps the previous configuration");
         expect(notice?.text).toContain(invalid.r.errors[0]?.message ?? "?");
-        expect(s.changed).toEqual([office]);
+        // Each read from the checkout (no remote here, DIPO-410) notices the office.
+        expect(s.changed).toEqual([office, office, office]);
 
         writeOfficeYaml(repo.dir, VALID_2);
         const fixed = await reload(s, office);

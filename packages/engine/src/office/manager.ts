@@ -40,7 +40,8 @@ import {
 } from "../config";
 import type { StateDatabase } from "../db/database";
 import type { OfficeHandle } from "../db/office";
-import type { OfficeGit } from "../git/office";
+import { type GitSettings, OfficeGit } from "../git/office";
+import { clockSleep, spawnGitExec } from "../git/runner";
 import type { Logger } from "../log/logger";
 import type { MountReader } from "../platform/sqlite";
 import type { SoftwareStream } from "../software-stream";
@@ -116,32 +117,21 @@ class OfficeInstance {
   } | null = null;
   configErrors: readonly ConfigError[] = [];
   /**
-   * The `.dipo/office.yaml` text the configuration was last read from, the checkout's or
-   * the base's (DIPO-303); undefined when that file did not exist or could not be read.
-   */
-  officeText: string | undefined = undefined;
-  /**
-   * What `reloadIfChanged` last saw of `.dipo/office.yaml` on the base (DIPO-303), null before its
-   * first read. Only a change of this reads the configuration again, so an explicit reload of the
-   * checkout's file stays in force until the base changes.
+   * What `reloadIfChanged` last saw of `.dipo/office.yaml` on the base (DIPO-303), and the file the
+   * configuration was read from (DIPO-410). Only a change of this reads the configuration again.
    */
   seenOnBase: BaseOfficeFile | null = null;
+  /** True while no `<remote>/<base>` ref exists, so the configuration came from the checkout. */
+  fromCheckout = false;
 
   constructor(
     readonly officeId: OfficeId,
     readonly office: OfficeHandle,
     readonly path: string,
     readonly commonDir: string,
+    /** Reads the committed `.dipo/office.yaml`; its base is set on each configuration read. */
+    readonly git: OfficeGit,
   ) {}
-}
-
-/** The text of `.dipo/office.yaml` under `dir`, or undefined when it is missing or unreadable. */
-function readOfficeText(dir: string): string | undefined {
-  try {
-    return readFileSync(join(dir, OFFICE_FILE), "utf8");
-  } catch {
-    return undefined;
-  }
 }
 
 /** `.dipo/office.yaml` as committed on `<remote>/<base>` (DIPO-303). */
@@ -179,6 +169,11 @@ export function readBaseOfficeFile(git: OfficeGit): Promise<BaseOfficeFile | nul
 
 function sameBaseFile(a: BaseOfficeFile, b: BaseOfficeFile): boolean {
   return a.kind === "file" && b.kind === "file" ? a.text === b.text : a.kind === b.kind;
+}
+
+/** The settings the committed file is read with: the remote is always origin (0010). */
+function committedSettings(base: string | undefined): GitSettings {
+  return { remote: "origin", ...(base === undefined ? {} : { base }) };
 }
 
 const ROW_COLUMNS = "office_id, path, display_name, added_at, forgotten_at";
@@ -335,7 +330,8 @@ export class OfficeManager implements OfficeDirectory {
       );
     }
 
-    const instance = new OfficeInstance(officeId, db.office(officeId), row.path, commonDir);
+    const git = this.#committedReader(officeId, row.path, commonDir);
+    const instance = new OfficeInstance(officeId, db.office(officeId), row.path, commonDir, git);
     await this.#readConfig(instance);
     for (const step of this.#deps.registry().loadSteps()) {
       const outcome = await runStep(step.run, {
@@ -374,33 +370,42 @@ export class OfficeManager implements OfficeDirectory {
   }
 
   /**
+   * The office's `.dipo/office.yaml` is read from the base commit, never the checkout (DIPO-410):
+   * the same read the poll and `office.rescan` make, so the configuration in force is what the base
+   * says whatever commit the checkout is on. `office.local.yaml` is read from the checkout. The
+   * base is `origin`'s HEAD (`office.local.yaml` cannot set one); a committed file that names
+   * another base is read once more at that base. With no `<remote>/<base>` ref yet (a new
+   * repository) the checkout's `office.yaml` is read, with a `config.fromCheckout` notice, until a
+   * fetch creates the ref.
+   *
    * Reads the office's configuration (DIPO-26). A valid result replaces the one in force and clears
    * the errors; an invalid one keeps it, records the errors and puts an `engine.notice` on the
    * office stream. A valid result's warnings, such as a retired key it still sets (DIPO-285), each
-   * become a `config.warning` notice there. Returns whether anything changed. Without `from` it
-   * reads the checkout's files; with it, `office.yaml` as read from the base (DIPO-303) and the
-   * checkout's machine-local `office.local.yaml`.
+   * become a `config.warning` notice there. Returns whether anything changed.
    */
-  async #readConfig(instance: OfficeInstance, from?: BaseOfficeFile): Promise<boolean> {
-    let result: OfficeConfigResult;
-    if (from === undefined) {
-      instance.officeText = readOfficeText(instance.path);
-      result = await loadOfficeConfig(instance.path);
-    } else if (from.kind === "file") {
-      instance.officeText = from.text;
-      result = await loadOfficeConfig(instance.path, { office: { text: from.text } });
-    } else {
-      result = {
-        ok: false,
-        errors: [
-          configError(
-            OFFICE_FILE,
-            "(top level)",
-            "regular file",
-            `the file on ${from.base} is not a regular file`,
-          ),
-        ],
-      };
+  async #readConfig(instance: OfficeInstance): Promise<boolean> {
+    instance.git.configure(committedSettings(undefined));
+    let committed = await readBaseOfficeFile(instance.git);
+    let result = await this.#configFrom(instance, committed);
+    const named = result.ok ? result.config.base : undefined;
+    if (committed?.kind === "file" && named !== undefined) {
+      // A named base without a ref yet keeps the file read at the first base: the checkout is only
+      // read when the repository has no base ref at all.
+      instance.git.configure(committedSettings(named));
+      const atNamed = await readBaseOfficeFile(instance.git);
+      if (atNamed !== null) {
+        committed = atNamed;
+        result = await this.#configFrom(instance, committed);
+      }
+    }
+    instance.seenOnBase = committed;
+    instance.fromCheckout = committed === null;
+    if (instance.fromCheckout) {
+      this.#officeNotice(instance, {
+        level: "warn",
+        code: "config.fromCheckout",
+        text: `${OFFICE_FILE} is read from the checkout until the base has a commit; a fetch creates it, and the file is read from the base then.`,
+      });
     }
     if (result.ok) {
       const changed =
@@ -435,11 +440,60 @@ export class OfficeManager implements OfficeDirectory {
   }
 
   /**
+   * The configuration that `committed` (the base's `office.yaml`, DIPO-410) and the checkout's
+   * `office.local.yaml` make. Null `committed` means no base ref yet: the checkout's file.
+   */
+  async #configFrom(
+    instance: OfficeInstance,
+    committed: BaseOfficeFile | null,
+  ): Promise<OfficeConfigResult> {
+    if (committed === null) return loadOfficeConfig(instance.path);
+    if (committed.kind === "notRegular") {
+      return {
+        ok: false,
+        errors: [
+          configError(
+            OFFICE_FILE,
+            "(top level)",
+            "regular file",
+            `the file on ${committed.base} is not a regular file`,
+          ),
+        ],
+      };
+    }
+    return loadOfficeConfig(instance.path, { office: { text: committed.text } });
+  }
+
+  /**
+   * The git that reads the committed `.dipo/office.yaml` at load and reload (DIPO-410). Load runs
+   * before the engine's git exists, so the manager makes its own read-only one: it runs no queue
+   * items of its own, and reads refs and objects only.
+   */
+  #committedReader(officeId: OfficeId, path: string, commonDir: string): OfficeGit {
+    const { spawn, git, env } = this.#deps.git;
+    const clock = this.#deps.clock;
+    return new OfficeGit({
+      officeId,
+      mainWorktree: path,
+      commonDir,
+      settings: committedSettings(undefined),
+      runner: {
+        exec: spawnGitExec(spawn, git),
+        env: env ?? process.env,
+        sleep: clockSleep(clock),
+        clock,
+      },
+      clock,
+    });
+  }
+
+  /**
    * Reads the configuration again when `.dipo/office.yaml` on the base changed (DIPO-303). The poll
    * after a fetch and `office.rescan` call it with the office's git, so a change that reached the
    * base is in force without a daemon restart, whatever the maintainer's checkout holds. The file
-   * is read at `<remote>/<base>` and compared with what the last call saw there; the first call
-   * compares it with the text the configuration was read from at load. A valid change goes to the
+   * is read at `<remote>/<base>` and compared with what the last read saw there (DIPO-410: load
+   * seeds that, so the first poll reads nothing new); a configuration read from the checkout, with
+   * no base ref yet, is read again as soon as the ref exists. A valid change goes to the
    * config-reload listeners; a refused one keeps the configuration in force and raises the
    * `config.invalid` notice once. An office that is not loaded, has no office git or no base is
    * left alone.
@@ -452,14 +506,10 @@ export class OfficeManager implements OfficeDirectory {
       if (onBase === null) return;
       const seen = instance.seenOnBase;
       instance.seenOnBase = onBase;
-      if (seen === null) {
-        if (onBase.kind === "file" && onBase.text === instance.officeText) return;
-      } else if (sameBaseFile(seen, onBase)) {
-        return;
-      }
+      if (!instance.fromCheckout && seen !== null && sameBaseFile(seen, onBase)) return;
       // Refused or loaded again while the base was read: only the instance in force reads it.
       if (this.#instances.get(office) !== instance) return;
-      const changed = await this.#readConfig(instance, onBase);
+      const changed = await this.#readConfig(instance);
       this.#deps.logger.info("office configuration read from the base", {
         office,
         valid: instance.configErrors.length === 0,

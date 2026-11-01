@@ -91,6 +91,8 @@ YAML 1.2, parsed with `Bun.YAML.parse` behind the platform module and validated 
 <state>/config.yaml  # software settings: daemon.autostart, spend alerts, notify.desk (0005, 0009)
 ```
 
+`dipo config migrate` writes the checkout's `office.yaml`; that file reaches the base through a PR, and the daemon reads it once the PR merges.
+
 A sample `office.yaml`. Every key is optional and has a default; the keys and their meaning belong to the ADRs named in the comments.
 
 ```yaml
@@ -117,7 +119,7 @@ scripts: { verify: bun run verify }                                # 0013
 - **Precedence**, lowest to highest: built-in defaults, then `office.yaml`, then the allowlisted keys of `office.local.yaml`, then flags on a single command. Objects merge per key, and lists and scalars replace. There is no user-level layer, because offices are isolated.
 - **The local file** accepts only `timeouts.*`, `privacy.*` and `retention.*`. `privacy.*` and `retention.*` are accepted only there: in the committed file they are an error that names the key and points to the local file.
 - **Strict schemas.** `z.strictObject` turns an unknown key into an error that names the file, the key path and "this key may need a newer dipo". An office with an invalid file starts no new runs and shows the error; other offices are unaffected.
-- **When config is read.** At daemon start, on `office.reloadConfig`, and whenever a fetch changes the file on the base. A run keeps the configuration snapshot it started with (`runs.config_hash`, 0007).
+- **When config is read.** At daemon start, on `office.reloadConfig`, and whenever a fetch changes the file on the base. The base commit (`refs/remotes/<remote>/<base>`) is the one source of the committed `office.yaml` at each of these, never the maintainer's checkout; only `office.local.yaml` is read from the checkout, and a repository with no remote base ref yet reads the checkout with a notice until the first fetch creates the ref. A run keeps the configuration snapshot it started with (`runs.config_hash`, 0007).
 - **JSON Schema.** The schemas are exported to `office.schema.json` and `config.schema.json` for editor completion. A contract test fails when the committed files differ from the export.
 
 ### 7. Versioning
