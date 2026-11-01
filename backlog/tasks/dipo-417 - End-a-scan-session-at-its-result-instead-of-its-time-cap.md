@@ -4,6 +4,7 @@ title: End a scan session at its result instead of its time cap
 status: Refined
 assignee: []
 created_date: '2026-11-01 18:00'
+updated_date: '2026-11-01 18:02'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -42,5 +43,5 @@ test_plan:
 <!-- AC:BEGIN -->
 - [ ] #1 When a scan session's turn event arrives, the session runner sends the host `closeStdin` once, and the session ends answered with that turn's answer, shown by a test whose fake worker keeps stdin open until it is closed
 - [ ] #2 A session that never sends a turn still ends at its time or budget cap as now, shown by the existing tests
-- [ ] #3 The runner's file comment says the session ends at its first turn
+- [ ] #3 The runner's file comment says the session ends at its first turn: dipo closes its stdin there, and the schema retry is the CLI's own, inside that turn
 <!-- AC:END -->
