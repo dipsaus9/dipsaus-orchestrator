@@ -1,10 +1,10 @@
 ---
 id: DIPO-415
 title: Show the whole desk command and no lost health between sessions
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-01 15:39'
-updated_date: '2026-11-01 15:47'
+updated_date: '2026-11-01 15:54'
 labels:
   - 'tier:S'
 milestone: m-1

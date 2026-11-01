@@ -1,10 +1,10 @@
 ---
 id: DIPO-412
 title: Deliver a maintainer steer to a running developer session
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-01 15:39'
-updated_date: '2026-11-01 15:47'
+updated_date: '2026-11-01 15:54'
 labels:
   - 'tier:M'
 milestone: m-1

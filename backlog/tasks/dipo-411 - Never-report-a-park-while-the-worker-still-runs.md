@@ -1,10 +1,10 @@
 ---
 id: DIPO-411
 title: Never report a park while the worker still runs
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-01 15:39'
-updated_date: '2026-11-01 15:47'
+updated_date: '2026-11-01 15:54'
 labels:
   - 'tier:M'
 milestone: m-1

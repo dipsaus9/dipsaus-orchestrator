@@ -1,10 +1,10 @@
 ---
 id: DIPO-413
 title: Drop the JSON Schema dialect from the scan fallback's output schema
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-01 15:39'
-updated_date: '2026-11-01 15:47'
+updated_date: '2026-11-01 15:54'
 labels:
   - 'tier:S'
 milestone: m-1
