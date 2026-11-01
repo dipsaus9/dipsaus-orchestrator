@@ -1,10 +1,10 @@
 ---
 id: DIPO-416
 title: Require the test plan in the worker's report schema
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-01 16:07'
-updated_date: '2026-11-01 16:09'
+updated_date: '2026-11-01 16:28'
 labels:
   - 'tier:S'
 milestone: m-1
