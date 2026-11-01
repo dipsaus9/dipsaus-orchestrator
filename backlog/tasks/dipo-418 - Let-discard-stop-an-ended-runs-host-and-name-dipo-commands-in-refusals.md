@@ -1,10 +1,10 @@
 ---
 id: DIPO-418
 title: 'Let discard stop an ended run''s host, and name dipo commands in refusals'
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-01 18:45'
-updated_date: '2026-11-01 19:00'
+updated_date: '2026-11-01 19:27'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -46,8 +46,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `work.discard` of a story whose run ended with a verified worker host still alive sends that host SIGTERM through `stopHostsOfEndedRun`, refuses with `run.hostAlive` in drop's text naming the pid and `dipo discard <ID> --note <text>`, and succeeds once the host exited, shown by a test with a real process
-- [ ] #2 A host whose PID was reused, whose identity cannot be checked, or whose run has not ended gets no signal from discard, and discard still refuses and says why, shown by a test with a real process
-- [ ] #3 No engine CommandError or LaneError text names a contract command (`work.`, `story.`, `office.`, `daemon.`); those that ask to send again name the `dipo` command (`dipo resume <ID>`, `dipo resume <ID> --budget <amount> --yes`, `dipo park <ID> --note <text>`), shown by a test that scans those texts in packages/engine/src
-- [ ] #4 discard's `#liveHostPid` is removed, shown by the diff
+- [x] #1 `work.discard` of a story whose run ended with a verified worker host still alive sends that host SIGTERM through `stopHostsOfEndedRun`, refuses with `run.hostAlive` in drop's text naming the pid and `dipo discard <ID> --note <text>`, and succeeds once the host exited, shown by a test with a real process
+- [x] #2 No engine CommandError or LaneError text names a contract command (`work.`, `story.`, `office.`, `daemon.`); those that ask to send again name the `dipo` command (`dipo resume <ID>`, `dipo resume <ID> --budget <amount> --yes`, `dipo park <ID> --note <text>`), shown by a test that scans those texts in packages/engine/src
+- [x] #3 discard's `#liveHostPid` is removed, shown by the diff
+- [x] #4 A host whose identity cannot be checked, whose PID and start time match but runs another program, or whose run has not ended gets no signal from discard, and discard refuses and says why; a PID that now belongs to another process (a different start time) counts as a host that is gone, so discard sends nothing and goes on, shown by tests with real processes
 <!-- AC:END -->
