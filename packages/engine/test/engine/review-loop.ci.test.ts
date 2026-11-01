@@ -229,6 +229,10 @@ async function conflictHandOff(w: LoopWorld): Promise<{ run: RunId; markers: str
   return { run, markers };
 }
 
+// Side by side, every scenario lasts about as long as the whole file: on a 3-core macOS runner
+// that came to 104 s and once past 120 s (PR #515). So each scenario gets 300 s (DIPO-407).
+const CASE_TIMEOUT_MS = 300_000;
+
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe.concurrent("the review loop end to end", () => {
     it(
@@ -270,7 +274,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           await expectMergedOnce(w, run, CSV_V1);
           expect(parks(w)).toEqual([]);
         }),
-      120_000,
+      CASE_TIMEOUT_MS,
     );
 
     it(
@@ -282,7 +286,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           await w.until("the merge", () => merged(w));
           await w.until("Done", () => findRun(w.office, run)?.ending === "done", 40);
         }),
-      120_000,
+      CASE_TIMEOUT_MS,
     );
 
     for (const [name, kind, quote, text, versions] of [
@@ -352,7 +356,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(parks(w)).toEqual([]);
             await expectMergedOnce(w, run, versions[1]);
           }),
-        120_000,
+        CASE_TIMEOUT_MS,
       );
     }
 
@@ -397,7 +401,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect(parks(w)).toEqual([]);
           await expectMergedOnce(w, run, CSV_V2);
         }),
-      120_000,
+      CASE_TIMEOUT_MS,
     );
 
     it(
@@ -429,7 +433,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect(merges.trim().split("\n")).toHaveLength(1);
           expect(parks(w)).toEqual([]);
         }),
-      120_000,
+      CASE_TIMEOUT_MS,
     );
 
     it(
@@ -442,7 +446,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect(markers).toContain("<<<<<<< ");
           expect(await remoteFile(w, "main", NOTES)).toBe(NOTES_TEXT);
         }),
-      120_000,
+      CASE_TIMEOUT_MS,
     );
 
     it(
@@ -480,7 +484,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           ]);
           await expectMergedOnce(w, run, CSV_V1);
         }),
-      120_000,
+      CASE_TIMEOUT_MS,
     );
 
     it(
@@ -534,7 +538,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             `${TASK_1}: status Parked`,
           ]);
         }),
-      120_000,
+      CASE_TIMEOUT_MS,
     );
 
     it(
@@ -619,7 +623,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(await remoteFile(w, "main", CSV)).toBe(CSV_V1);
           },
         ),
-      120_000,
+      CASE_TIMEOUT_MS,
     );
 
     it(
@@ -661,7 +665,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             ["review", 1],
           ]);
         }),
-      120_000,
+      CASE_TIMEOUT_MS,
     );
 
     it(
@@ -724,7 +728,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           ).toEqual([{ kind: "round" }]);
           await expectMergedOnce(w, run, CSV_V2);
         }),
-      120_000,
+      CASE_TIMEOUT_MS,
     );
   });
 }
