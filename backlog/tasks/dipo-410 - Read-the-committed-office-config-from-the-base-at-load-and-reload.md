@@ -1,10 +1,10 @@
 ---
 id: DIPO-410
 title: Read the committed office config from the base at load and reload
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-11-01 08:57'
-updated_date: '2026-11-01 12:51'
+updated_date: '2026-11-01 13:25'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -37,14 +37,13 @@ unknowns:
   - q: "Criterion 5 asks me to write the base-commit sentence into docs/decisions/0017 and to say that `dipo config migrate` writes the checkout file that reaches the base through a PR. The worker contract says I never write decision records. Should dipo apply decisionNotes[0] to section \"5. Format and files\" of 0017, or may I edit that ADR directly?"
     status: "resolved"
     answer: "Write it yourself in this PR: the maintainer approved this design on 2026-11-01 (the story's Design paragraph), and dipo's merge gate (DIPO-399) shows the maintainer the ADR 0017 wording before it merges. Keep it to the base-commit sentence and the config migrate sentence. Do not edit anything under backlog/."
+  - q: "The macOS verify fails only on 'keeps every refusal as unknown when the box's clock cannot be read or moved (DIPO-396)' in packages/engine/test/box/safe-chain-log.test.ts, and the feedback lacks the assertion diff. Can you paste the macOS failure output for that test (the expected and received values at line 450), or confirm it is a known flake to rerun? Without it I cannot fix it without weakening the test."
+    status: "resolved"
+    answer: "That failure is not yours: it is the Safe-Chain clock flake that DIPO-408 (#515) fixed; #515 is now on main. Change nothing in safe-chain-log.test.ts; take main into your branch so CI runs with the fix. One more item for this story (criterion 6): when the base office.yaml names base X and the re-read at X finds a file that names no base, keep X for the configuration and the poll instead of falling back to origin/HEAD (gitSettings(config) in the re-read path); add a test. Do not edit anything under backlog/."
 test_plan:
   entries:
     - kind: "automated"
       check: "(engine) office load and reload-config read .dipo/office.yaml from the base commit, not the checkout, and a fetch reads the same source"
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "The macOS verify fails only on 'keeps every refusal as unknown when the box's clock cannot be read or moved (DIPO-396)' in packages/engine/test/box/safe-chain-log.test.ts, and the feedback lacks the assertion diff. Can you paste the macOS failure output for that test (the expected and received values at line 450), or confirm it is a known flake to rerun? Without it I cannot fix it without weakening the test."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -80,4 +79,6 @@ Parked 2026-11-01 12:51 UTC: ambiguous-spec
 - Review rounds: 1, failed 0 of 3
 - Budget used: 264,622 of 300,000 tokens; 71 of 90 turns; 15 of 45 minutes
 - Last good commit: a5563b57a2a1c718ba2f23e85643d4db7376abec
+
+Resumed 2026-11-01 13:25 UTC; grants: none; note: That failure is not yours: it is the Safe-Chain clock flake that DIPO-408 (#515) fixed; #515 is now on main. Change nothing in safe-chain-log.test.ts; take main into your branch so CI runs with the f…
 <!-- SECTION:NOTES:END -->
