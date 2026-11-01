@@ -1,10 +1,10 @@
 ---
 id: DIPO-410
 title: Read the committed office config from the base at load and reload
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-01 08:57'
-updated_date: '2026-11-01 12:30'
+updated_date: '2026-11-01 12:34'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -46,12 +46,12 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Office load and `office.reloadConfig` read .dipo/office.yaml from the base commit (`refs/remotes/<remote>/<base>`) through the same function the poll and rescan use, shown by a test with a real git remote whose checkout is on an older commit with a different office.yaml: the loaded config and its hash are the base's
-- [ ] #2 The checkout read of office.yaml is removed; office.local.yaml is still read from the checkout, shown by a test
-- [ ] #3 A repository with no remote base ref loads the checkout's office.yaml with a named notice (for example `config.fromCheckout`), and switches to the base on the first fetch that creates the ref, shown by a test
-- [ ] #4 An invalid office.yaml on the base still blocks new runs with config.invalid as now, and a reload after a fixed base clears it, shown by a test
-- [ ] #5 ADR 0017 names the base commit as the one source of the committed office config at start, reload and fetch, and says `dipo config migrate` writes the checkout file that reaches the base through a PR
-- [ ] #6 When the base office.yaml names a `base` or remote other than the one load started from, load reads the file again at that base once, shown by a test; the first poll after load does not reload when the base is unchanged
+- [x] #1 Office load and `office.reloadConfig` read .dipo/office.yaml from the base commit (`refs/remotes/<remote>/<base>`) through the same function the poll and rescan use, shown by a test with a real git remote whose checkout is on an older commit with a different office.yaml: the loaded config and its hash are the base's
+- [x] #2 The checkout read of office.yaml is removed; office.local.yaml is still read from the checkout, shown by a test
+- [x] #3 A repository with no remote base ref loads the checkout's office.yaml with a named notice (for example `config.fromCheckout`), and switches to the base on the first fetch that creates the ref, shown by a test
+- [x] #4 An invalid office.yaml on the base still blocks new runs with config.invalid as now, and a reload after a fixed base clears it, shown by a test
+- [x] #5 ADR 0017 names the base commit as the one source of the committed office config at start, reload and fetch, and says `dipo config migrate` writes the checkout file that reaches the base through a PR
+- [x] #6 When the base office.yaml names a `base` or remote other than the one load started from, load reads the file again at that base once, shown by a test; the first poll after load does not reload when the base is unchanged
 <!-- AC:END -->
 
 ## Implementation Notes
