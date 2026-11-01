@@ -1,10 +1,10 @@
 ---
 id: DIPO-408
 title: Make the Safe-Chain log clock test pass every time
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-31 09:39'
-updated_date: '2026-11-01 12:52'
+updated_date: '2026-11-01 12:54'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -48,7 +48,7 @@ test_plan:
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 The cause of the one-off failure is named in the PR, with a test that forces it and fails on main (for example a fixed clock at the boundary, or the delay that causes it)
-- [ ] #2 safe-chain-log.test.ts passes 50 runs in a row on the Mac after the fix, recorded in the PR
+- [x] #2 safe-chain-log.test.ts passes 50 runs in a row on the Mac after the fix, recorded in the PR
 - [x] #3 No case is removed or skipped, and a refusal that cannot be tied to one box still stays unknown, shown by the existing tests
 <!-- AC:END -->
 
