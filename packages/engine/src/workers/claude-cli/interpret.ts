@@ -32,6 +32,7 @@ import type {
 } from "../types";
 import { WEB_LINE_PREFIX } from "../types";
 import { WEB_TOOLS, webCallOf } from "./tools";
+import { cleanDoorText } from "../../box/door";
 import { flatInput } from "../../ingest/output";
 import { pluginRefusal, refusedPlugins } from "./plugins";
 import { CHECKED_CLAUDE_VERSION, compareVersions } from "./probe";
@@ -177,6 +178,11 @@ export interface ClaudeParseState {
   readonly unknownTypes: readonly string[];
   /** Known lines that failed their schema or did not parse, with a short reason. */
   readonly problems: readonly string[];
+  /**
+   * The last stdout line that was not JSON, cleaned and capped (DIPO-413): the CLI prints its own
+   * errors that way, such as an invalid `--json-schema`, and a run that ends with no result says it.
+   */
+  readonly unparsedLine?: string;
   /**
    * The CLI totals a resumed session restored (DIPO-51): the previous session's totals at its
    * last turn end. Set only until the first turn end of the resumed session; a field the CLI
@@ -600,6 +606,12 @@ function merge(first: Step, next: Step): Step {
   return { events: [...first.events, ...next.events], state: next.state };
 }
 
+const UNPARSED_LINE_MAX_CHARS = 300;
+
+function cleanLine(text: string): string {
+  return cleanDoorText(text).slice(0, UNPARSED_LINE_MAX_CHARS);
+}
+
 function tryParse(text: string): { ok: true; value: unknown } | { ok: false } {
   try {
     return { ok: true, value: JSON.parse(text) as unknown };
@@ -613,7 +625,10 @@ function completeLine(text: string, state: ClaudeParseState): Step {
   if (!parsed.ok) {
     return withDrift(
       state,
-      { events: [], state: problem(state, "unparseable stdout line") },
+      {
+        events: [],
+        state: { ...problem(state, "unparseable stdout line"), unparsedLine: cleanLine(text) },
+      },
       "schema",
     );
   }

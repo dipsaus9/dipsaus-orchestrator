@@ -15,6 +15,7 @@ import { posix } from "node:path";
 import { z } from "zod";
 
 import { cleanDoorStrings } from "../box/door";
+import { toJsonSchema } from "../workers/json-schema";
 import type { JsonSchema } from "../workers/types";
 
 import { CAPABILITIES, type CapabilityName, type CommandSpec, type Confidence } from "./detect";
@@ -51,9 +52,7 @@ export const ScanAnswerSchema = z.strictObject({
 export type ScanAnswer = z.infer<typeof ScanAnswerSchema>;
 
 /** The JSON Schema the session's `--json-schema` gets (the structured output of its result). */
-export const SCAN_ANSWER_JSON_SCHEMA: JsonSchema = z.toJSONSchema(ScanAnswerSchema, {
-  io: "input",
-}) as JsonSchema;
+export const SCAN_ANSWER_JSON_SCHEMA: JsonSchema = toJsonSchema(ScanAnswerSchema, "input");
 
 /** What the base copy holds, for the existence checks. */
 export interface BaseFacts {

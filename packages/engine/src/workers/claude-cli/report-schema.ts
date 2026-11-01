@@ -12,6 +12,7 @@
 import { z } from "zod";
 
 import { cleanDoorStrings, doorKeysClean } from "../../box/door";
+import { toJsonSchema } from "../json-schema";
 import {
   REVIEW_SUMMARY_MAX,
   type JsonSchema,
@@ -218,16 +219,11 @@ const reviewFromContract = (report: ReviewReport): ParsedReview => ({
 void reviewToContract;
 void reviewFromContract;
 
-function buildJsonSchema(schema: z.ZodType): JsonSchema {
-  const { $schema: _dialect, ...rest } = z.toJSONSchema(schema, { io: "output" });
-  return rest;
-}
-
 /** The JSON Schema of `WorkerReport` for `--json-schema`. */
-export const WORKER_REPORT_JSON_SCHEMA: JsonSchema = buildJsonSchema(WorkerReportSchema);
+export const WORKER_REPORT_JSON_SCHEMA: JsonSchema = toJsonSchema(WorkerReportSchema, "output");
 
 /** The JSON Schema of `ReviewReport` for `--json-schema` (0019 section 5). */
-export const REVIEW_REPORT_JSON_SCHEMA: JsonSchema = buildJsonSchema(ReviewReportSchema);
+export const REVIEW_REPORT_JSON_SCHEMA: JsonSchema = toJsonSchema(ReviewReportSchema, "output");
 
 /** The report schema of each report kind, as `WorkerPort.reportSchema` hands it out. */
 export const REPORT_JSON_SCHEMAS: Readonly<Record<SchemaKind, JsonSchema>> = {

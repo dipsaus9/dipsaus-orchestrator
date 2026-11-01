@@ -74,7 +74,11 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
   if (state.truncated || state.pending !== "") {
     return crashed(`stream ended in a partial line, ${exitText(exit)}`);
   }
-  if (turn === null) return crashed(`no result before ${exitText(exit)}`);
+  if (turn === null) {
+    const line =
+      state.unparsedLine === undefined ? "" : `, its last stdout line: ${state.unparsedLine}`;
+    return crashed(`no result before ${exitText(exit)}${line}`);
+  }
 
   if (turn.terminal === "prompt_too_long") {
     // 0008 section 7: one new session with a 0014 handoff, then `budget-exceeded`.
