@@ -1,10 +1,10 @@
 ---
 id: DIPO-410
 title: Read the committed office config from the base at load and reload
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-01 08:57'
-updated_date: '2026-11-01 12:48'
+updated_date: '2026-11-01 12:51'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -41,6 +41,10 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(engine) office load and reload-config read .dipo/office.yaml from the base commit, not the checkout, and a fetch reads the same source"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "The macOS verify fails only on 'keeps every refusal as unknown when the box's clock cannot be read or moved (DIPO-396)' in packages/engine/test/box/safe-chain-log.test.ts, and the feedback lacks the assertion diff. Can you paste the macOS failure output for that test (the expected and received values at line 450), or confirm it is a known flake to rerun? Without it I cannot fix it without weakening the test."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -67,4 +71,13 @@ Parked 2026-11-01 12:29 UTC: ambiguous-spec
 - Last good commit: bc45e49270ebb97a39b25820593c831654300c3b
 
 Resumed 2026-11-01 12:30 UTC; grants: none; note: Write it yourself in this PR: the maintainer approved this design on 2026-11-01 (the story's Design paragraph), and dipo's merge gate (DIPO-399) shows the maintainer the ADR 0017 wording before it me…
+
+Parked 2026-11-01 12:51 UTC: ambiguous-spec
+- Detail: The macOS verify fails only on 'keeps every refusal as unknown when the box's clock cannot be read or moved (DIPO-396)' in packages/engine/test/box/safe-chain-log.test.ts, and the feedback lacks the…
+- Run: run_01M6BGXNG9Y50SFRQHF58RJ5DD
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 1 of 2
+- Review rounds: 1, failed 0 of 3
+- Budget used: 264,622 of 300,000 tokens; 71 of 90 turns; 15 of 45 minutes
+- Last good commit: a5563b57a2a1c718ba2f23e85643d4db7376abec
 <!-- SECTION:NOTES:END -->
