@@ -1,10 +1,10 @@
 ---
 id: DIPO-409
 title: Refuse at pickup a story whose References name a protected path
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-31 10:18'
-updated_date: '2026-11-01 09:01'
+updated_date: '2026-11-01 09:08'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -38,6 +38,10 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(engine) the pickup gate refuses a story whose References name a path the box protects, before any claim, box or worker"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "Criterion 1 says a pickup refused by the new rule keeps the story Ready, but every pickup gate failure today moves it to Refined (`#toRefined` in work-run.ts, the path the existing DIPO-48 tests assert). Should the R31 refusal keep the story Ready, or follow the same Refined move as the other pickup failures? The code follows the other failures; a Ready-keeping refusal would need a change to that shared path."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -49,3 +53,16 @@ test_plan:
 - [ ] #4 The Ready-mode gate gives the same result as before for every story (a Ready-mode test with a `.github/` reference still passes), and the scope-violation park after a run is unchanged
 - [ ] #5 ADR 0012 lists the new rule with its mode in the same PR
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-01 09:08 UTC: ambiguous-spec
+- Detail: Criterion 1 says a pickup refused by the new rule keeps the story Ready, but every pickup gate failure today moves it to Refined (`#toRefined` in work-run.ts, the path the existing DIPO-48 tests asse…
+- Run: run_01M6B5E9BH0A04V8RYCMQH6YNR
+- Criteria met: 2 of 5 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 155,729 of 300,000 tokens; 60 of 90 turns; 8 of 45 minutes
+- Last good commit: 5d960fade23aa7604ef7765eef5e9f874fd6b054
+<!-- SECTION:NOTES:END -->
