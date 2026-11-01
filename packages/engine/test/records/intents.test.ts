@@ -13,8 +13,10 @@ import { insertRun } from "../../src/records";
 import {
   type IntentKind,
   type IntentSteering,
+  markIntentSent,
   outcomeOfIntent,
   recordIntent,
+  resolveIntent,
   runIntents,
   sendAsIntent,
 } from "../../src/records/intents";
@@ -90,6 +92,30 @@ describe("sendAsIntent", () => {
     const [intent] = runIntents(f.office, f.run);
     expect(intent?.state).toBe("sent");
     expect(intent?.sentAt).not.toBeNull();
+  });
+
+  it("records the send of an intent the worker's exit resolved before the host replied (DIPO-411)", async () => {
+    // The stop's SIGTERM ends the worker, and its exit is ingested before the host's reply.
+    const s = steering(async () => {
+      const [intent] = runIntents(f.office, f.run);
+      f.office.immediate(() =>
+        resolveIntent(f.office, f.run, intent?.intentId ?? 0, "stopped", f.t.clock.now()),
+      );
+      return { ok: true };
+    });
+    const { done } = sendAsIntent(f.office, s, f.run, {
+      kind: "stop",
+      detail: "d",
+      ops: OPS,
+      clock: f.t.clock,
+    });
+    await done;
+    expect(
+      runIntents(f.office, f.run).map((i) => [i.state, i.outcome, i.sentAt !== null, i.error]),
+    ).toEqual([["resolved", "stopped", true, null]]);
+    // A second mark changes nothing.
+    f.office.immediate(() => markIntentSent(f.office, f.run, 1, f.t.clock.now() + 5, "late"));
+    expect(runIntents(f.office, f.run)[0]?.error).toBeNull();
   });
 
   it("sends nothing and throws when the intent cannot be stored", () => {
