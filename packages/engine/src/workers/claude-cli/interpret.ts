@@ -17,6 +17,14 @@
 // which is how the result's `num_turns` counts in the recordings) and the final output of each
 // main-agent message, from the `message_delta` stream event `--include-partial-messages` sends.
 // The turn end replaces both, and the exit sets both to 0.
+//
+// Read messages (DIPO-412): a developer session runs with `--replay-user-messages`, so Claude Code
+// echoes each user message, marked `isReplay`, as it takes it into the conversation. A main-agent
+// replay is a `messageRead` event with the message's text: the task message at the start, and each
+// message dipo wrote later at the moment it was read. A steer sent while a tool call runs is read
+// once the call ends, in the same turn; one sent after the turn's last tool call is read only after
+// the turn's result, as the first message of a new turn (live probe, Claude Code 2.1.316). A replay
+// is no model turn of its own: the tool result or the turn it joins counts.
 
 import type {
   HostLine,
@@ -57,6 +65,7 @@ import {
   THINKING_BLOCK_TYPES,
   ThinkingTokensMessage,
   ToolUseBlock,
+  ReplayedUserLine,
   UserLine,
 } from "./schema";
 import type { z } from "zod";
@@ -467,11 +476,18 @@ function liveStep(before: ClaudeParseState, next: ClaudeParseState): Step {
 }
 
 /**
- * A main-agent `user` line after the turn's first message: tool results, or a message dipo sent
- * while the turn ran (a steer, an answer), is one more of the main agent's model turns, as the
- * result's `num_turns` counts it.
+ * A main-agent replayed user message is a `messageRead` (file comment). Any other main-agent `user`
+ * line after the turn's first message, tool results, is one more of the main agent's model turns,
+ * as the result's `num_turns` counts it.
  */
 function userLine(value: unknown, state: ClaudeParseState): Step {
+  const replayed = ReplayedUserLine.safeParse(value);
+  if (replayed.success) {
+    const content = replayed.data.message.content;
+    const text =
+      typeof content === "string" ? content : content.map((block) => block.text ?? "").join("");
+    return { events: [{ t: "messageRead", text }], state };
+  }
   const parsed = UserLine.safeParse(value);
   if (!parsed.success || (parsed.data.parent_tool_use_id ?? null) !== null) {
     return { events: [], state };

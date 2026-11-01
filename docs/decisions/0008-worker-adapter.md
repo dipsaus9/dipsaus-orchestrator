@@ -122,6 +122,7 @@ dipo computes each story's real changed files from its parts. When two stories i
 
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages
+  --replay-user-messages                      # each user message is echoed as it is read
   --session-id <uuid>
   --model <m> --effort <e>                    # from the tier
   --max-turns <tier maxTurns>                 # backstop; the engine enforces the caps
@@ -137,7 +138,8 @@ The task message is the first stdin line, never on argv. The box's environment h
 
 **Steering and stop.**
 - Every op the engine sends is first stored as an intent on the run, so the result is read from the intent and never guessed from the exit.
-- A message is one user message with priority `next`, so it lands once the running tool calls finish.
+- A message is one user message with priority `next`, so it lands once the running tool calls finish. One that comes after the turn's last tool call is read only after the turn's result, and starts a new turn.
+- The session echoes each user message as it reads it, which marks a steer read. A done report while a steer is unread waits for the turn that steer starts, whose report decides. A steer still unread when its session ends goes with the run's next developer session's first message.
 - A stop is a `now` message, then stdin closes, then SIGTERM after 10 s and SIGKILL after 30 s.
 
 **How a session ends:**

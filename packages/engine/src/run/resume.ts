@@ -14,9 +14,10 @@
 //   The context pack the task message was built from is recorded for the branch
 //   (`recordContextPack`) when the new session starts with it.
 // - The one feedback path (0002): every message held for the run's next developer session
-//   (`heldFeedback`: a fix round's findings, a resumed park's reason and note, a steer) follows the
-//   delta or the task message, and is marked delivered in the transaction that records the new
-//   agent. The caller passes no text of its own.
+//   (`heldFeedback`: a fix round's findings, a resumed park's reason and note, a steer, also one
+//   the last session was sent and did not read) follows the delta or the task message, and is
+//   marked delivered in the transaction that records the new agent; the start's notice says when
+//   it carries an unread steer (DIPO-412). The caller passes no text of its own.
 // - The launch checks run again before every launch or resume (`WorkerPort.prepare`), with the
 //   office's resolved verify for the verify tools check (DIPO-173); a refused check is
 //   `startFailed` with the adapter hold set, a refused verify tool `failed` with the plan's
@@ -122,7 +123,7 @@ export function noteText(note: string): string {
  */
 export function sessionFeedback(office: OfficeHandle, run: StoredRun): HeldFeedback {
   return placeOfRole(run.role) === "reviewer"
-    ? { ids: [], texts: [] }
+    ? { ids: [], texts: [], unread: 0 }
     : heldFeedback(office, run.runId);
 }
 
@@ -633,9 +634,13 @@ export class RunResumer implements NextSession {
       initialState: deps.worker.initialState(spec, previous.state),
     });
     const story = run.story ?? run.runId;
-    const text = resume
+    const started = resume
       ? `${story}: dipo resumed the worker's session after ${request.why}.`
       : `${story}: dipo started a new session with a handoff after ${request.why}${notResumed === undefined ? "" : ` (no resume: ${notResumed})`}.`;
+    const text =
+      held.unread === 0
+        ? started
+        : `${started} Its first message carries the steer${held.unread === 1 ? "" : "s"} the last session ended before reading.`;
     this.#write(office, request.office, () => [
       { type: "work.assigned", key: work.key, run: run.runId, delta: { work } },
       {

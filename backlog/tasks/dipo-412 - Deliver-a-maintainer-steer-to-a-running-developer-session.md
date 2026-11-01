@@ -1,10 +1,10 @@
 ---
 id: DIPO-412
 title: Deliver a maintainer steer to a running developer session
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-01 15:39'
-updated_date: '2026-11-01 15:54'
+updated_date: '2026-11-01 18:44'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -51,8 +51,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A steer sent during a running turn reaches the developer session's stdin through the real worker host (and box, when the run is boxed), shown by a test that finds where today's steers are lost and proves the fix there
-- [ ] #2 The Claude adapter launches with `--replay-user-messages`, and the replayed user message carrying a steer's text resolves that steer's intent as read, shown by a test on a stream-json fixture with a replayed message
-- [ ] #3 A steer still unread when its session ends goes with the run's next developer session's first message, and none stays `sent` after its run ends, shown by a test
-- [ ] #4 A steer on a story that is parked, or parks before the steer is read, reaches the resume's first message beside the resume note; `dipo steer` says which of these happens, shown by a test
+- [x] #1 A steer sent during a running turn reaches the developer session's stdin through the real worker host (and box, when the run is boxed), shown by a test that finds where today's steers are lost and proves the fix there
+- [x] #2 The Claude adapter launches with `--replay-user-messages`, and the replayed user message carrying a steer's text resolves that steer's intent as read, shown by a test on a stream-json fixture with a replayed message
+- [x] #3 A steer still unread when its session ends goes with the run's next developer session's first message, and none stays `sent` after its run ends, shown by a test
+- [x] #4 A steer on a story that is parked, or parks before the steer is read, reaches the resume's first message beside the resume note; `dipo steer` says which of these happens, shown by a test
 <!-- AC:END -->

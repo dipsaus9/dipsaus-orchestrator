@@ -638,6 +638,90 @@ const problemOf = (lines: readonly HostLine[]) =>
     (event): event is Extract<WorkerEvent, { t: "turn" }> => event.t === "turn",
   )?.problem;
 
+/** A user message as `--replay-user-messages` echoes it, in the probe's shape (DIPO-412). */
+const replayLine = (content: unknown, extra: Record<string, unknown> = {}) =>
+  out({
+    type: "user",
+    message: { role: "user", content },
+    session_id: "session-1",
+    parent_tool_use_id: null,
+    uuid: "0b8c5d1e-0000-4000-8000-000000000001",
+    timestamp: "2026-11-01T15:20:11.191Z",
+    isReplay: true,
+    ...extra,
+  });
+
+const toolResult = () =>
+  out({
+    type: "user",
+    message: {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "toolu-1", content: "slept" }],
+    },
+    parent_tool_use_id: null,
+    session_id: "session-1",
+    uuid: "0b8c5d1e-0000-4000-8000-000000000002",
+    timestamp: "2026-11-01T15:20:11.154Z",
+    tool_use_result: { stdout: "slept" },
+  });
+
+describe("read messages (DIPO-412)", () => {
+  it("a replayed user message is a messageRead with its text, mid-turn and after the result, and no model turn", () => {
+    const steer = "The maintainer says: add a JSDoc.";
+    const { events } = run([
+      init(),
+      replayLine("The task."),
+      assistant("msg-1", [
+        { type: "tool_use", id: "toolu-1", name: "Bash", input: { command: "sleep 8" } },
+      ]),
+      // The steer sent during the Bash call is read right after its result, in the same turn.
+      toolResult(),
+      replayLine(steer),
+      resultLine(),
+      // One sent after the turn's last tool call is read after the result: a new turn.
+      init(),
+      replayLine([
+        { type: "text", text: "The maintainer says: " },
+        { type: "text", text: "test it." },
+      ]),
+      resultLine(),
+    ]);
+    expect(
+      events
+        .filter(
+          (event) => event.t === "messageRead" || event.t === "turn" || event.t === "liveUsage",
+        )
+        .map((event) =>
+          event.t === "messageRead"
+            ? event.text
+            : event.t === "liveUsage"
+              ? `live ${event.turns}`
+              : `turn ${event.report?.status}`,
+        ),
+    ).toEqual([
+      "The task.",
+      "live 1",
+      // The tool result is the turn's second model turn; the replay beside it is none.
+      "live 2",
+      steer,
+      "turn done",
+      "The maintainer says: test it.",
+      "turn done",
+    ]);
+    // Every event is one the adapter's schema allows; no line is drift.
+    expect(events.some((event) => event.t === "streamDrift")).toBe(false);
+  });
+
+  it("a subagent's replay, and a user line that is no replay, read nothing", () => {
+    const { events } = run([
+      replayLine("inner", { parent_tool_use_id: "toolu-9" }),
+      replayLine("not a replay", { isReplay: false }),
+      toolResult(),
+    ]);
+    expect(events.filter((event) => event.t === "messageRead")).toEqual([]);
+  });
+});
+
 describe("worker outcomes (DIPO-51)", () => {
   it("records a classifier switch once, and the next system/init on it is accepted", () => {
     const { events, state } = run([

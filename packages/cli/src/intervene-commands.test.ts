@@ -82,7 +82,9 @@ describe("dipo steer", () => {
       { name: "work.steer", args: { story: "DIPO-7", text: "use the helper" }, office: OFFICE },
     ]);
     expect(ctx.ws.questions).toEqual([]);
-    expect(ctx.out[0]).toContain("with its next turn");
+    // It says both ways the steer reaches the developer (DIPO-412).
+    expect(ctx.out[0]).toContain("reads it in its turn (dipo watch shows when)");
+    expect(ctx.out[0]).toContain("the next session's first message carries it");
   });
 
   it("says the steer waits for the resume when the story is paused or parked", async () => {

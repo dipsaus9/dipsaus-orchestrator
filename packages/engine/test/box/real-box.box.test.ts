@@ -5,7 +5,8 @@
 //
 //   DIPO_TEST_BOX=1 bun test packages/engine/test/box/real-box.box.test.ts
 //
-// It checks the start check, the start time, copy in and out, exec, a long-running exec, memory,
+// It checks the start check, the start time, copy in and out, exec, a long-running exec (also one
+// that gets a line seconds after its first, as a steer reaches claude, DIPO-412), memory,
 // the list, files kept after stop and start, and delete. The box network stays for later runs.
 // It also prints, with `fact:` lines, three behaviours of `container` the backend relies on:
 // - what `container copy` out does with a symlink in the box that points outside the copied folder;
@@ -244,6 +245,24 @@ if (registers) {
             live.stdin.end();
             expect(await new Response(live.stdout).text()).toBe("echoed\n");
             expect((await live.exited).code).toBe(0);
+
+            // A line written seconds after the first, while the exec runs, reaches its process
+            // too: how a steer reaches claude in the box (DIPO-412).
+            const later = boxes.execLive(name, ["cat"], { fullPrivilege: true });
+            const reader = later.stdout.getReader();
+            const decoder = new TextDecoder();
+            const nextOut = async (): Promise<string> => {
+              const { value } = await reader.read();
+              return decoder.decode(value);
+            };
+            later.stdin.write("first\n");
+            expect(await nextOut()).toBe("first\n");
+            await Bun.sleep(2000);
+            later.stdin.write("steer\n");
+            expect(await nextOut()).toBe("steer\n");
+            later.stdin.end();
+            reader.releaseLock();
+            expect((await later.exited).code).toBe(0);
 
             // A long-running exec whose client is killed.
             const sleeper = boxes.execLive(name, ["sleep", "6061"], { fullPrivilege: true });

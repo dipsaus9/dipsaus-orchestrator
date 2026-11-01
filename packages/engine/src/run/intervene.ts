@@ -3,9 +3,12 @@
 // request).
 //
 // - `work.steer { story, text }`: a worker with a live session gets one next-priority user message
-//   wrapped in `feedback/steer.md`; the reply says `next-turn`. A parked story, or a run between
-//   two sessions, holds the steer once, and the first message of the next session carries it; the
-//   reply says `on-resume`. A story whose live (or next) session is its reviewer answers
+//   wrapped in `feedback/steer.md`; the reply says `next-turn`. The session reads it in its running
+//   turn, or right after it, and run control marks it read; if the session ends first (a park, an
+//   exit), the first message of the run's next developer session carries it (`feedback.ts`,
+//   DIPO-412). A parked story, a run between two sessions, and a run whose decision is under way
+//   (verify and commit of a done report, a claimed end; DIPO-412) hold the steer once, and the
+//   first message of the next session carries it; the reply says `on-resume`. A story whose live (or next) session is its reviewer answers
 //   `story.notSteerable`: the reviewer gets no maintainer text (0002). A story with no run and no
 //   park answers `story.notRunning`.
 //
@@ -44,9 +47,16 @@ type Deps = Pick<
 
 export class Interventions {
   readonly #deps: Deps;
+  readonly #deciding: (run: string) => boolean;
 
-  constructor(deps: Deps) {
+  /**
+   * `deciding` is true for a run whose decision is under way (DIPO-412): its done report is being
+   * verified and committed, or its end was claimed. Its idle session would start a turn with a
+   * steer that edits the tree meanwhile, so the steer waits for the next session.
+   */
+  constructor(deps: Deps, deciding: (run: string) => boolean = () => false) {
     this.#deps = deps;
+    this.#deciding = deciding;
   }
 
   /** The command `work.steer`. */
@@ -93,7 +103,7 @@ export class Interventions {
       return { result: { run: park.runId as SteerResult["run"], delivered: "on-resume" } };
     }
     this.#refuseUnsteerable(handle, run, identity.story);
-    if (standsStill(handle, run)) {
+    if (standsStill(handle, run) || this.#deciding(run.runId)) {
       this.#hold(ctx, run.runId, args.text);
       return { result: { run: run.runId, delivered: "on-resume" } };
     }

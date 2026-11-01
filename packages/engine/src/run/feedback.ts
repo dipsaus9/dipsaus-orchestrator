@@ -17,6 +17,12 @@
 //   agent (`deliverHeld`), so a stop after the start never sends them twice. A `now` message
 //   left `pending` by a stop between its store and its send is never replayed: only `next`
 //   messages are held. A reviewer session never gets one (0002).
+// - Read or held (DIPO-412). A steer sent now is read when the session replays it
+//   (`messageRead`): run control resolves its intent `read` (`markSteerRead`). A steer still `sent`
+//   when its session ends was never read, so it is held like a `next` one: the first message of the
+//   run's next developer session carries it, beside a resume note, and it is resolved `resumed`.
+//   A steer the run ends `done` or `dropped` with, held or unread, is resolved `unread` with a
+//   notice (`closeUnreadSteers`, `records/feedback-intents.ts`), so none stays `sent` or `pending` after its run.
 // - A fix round (0002) is one held message of the round's first source, keyed on the pushed head
 //   it answers; its feedback items point at the message's intent.
 
@@ -28,17 +34,28 @@ import type { HostOp, SteerOp } from "../workers/types";
 
 import { CONTROL_NOTICES } from "./control-types";
 import { markFeedbackSent } from "./feedback-items";
-import { type IntentSteering, markIntentSent, recordIntent, runIntents } from "../records/intents";
+import { type IntentSteering, markIntentSent, recordIntent } from "../records/intents";
 import type { StoredRun } from "../records/run-records";
+import {
+  FEEDBACK_TAG,
+  type FeedbackIntent,
+  type FeedbackVia,
+  feedbackIntents,
+  parseFeedback,
+} from "../records/feedback-intents";
 
-/** The tag every feedback intent's detail starts with. */
-export const FEEDBACK_TAG = "feedback";
+// The stored form and its one reader live in the records layer (`records/feedback-intents.ts`).
+export {
+  closeUnreadSteers,
+  FEEDBACK_TAG,
+  type FeedbackIntent,
+  type FeedbackVia,
+  feedbackIntents,
+  parseFeedback,
+} from "../records/feedback-intents";
 
 /** The key of a message that answers nothing in particular. */
 const NO_KEY = "-";
-
-/** How a message is delivered: to the live session now, or with the next session. */
-export type FeedbackVia = "now" | "next";
 
 /** Where a message to the developer comes from (0002's one feedback path). */
 export type FeedbackSource =
@@ -91,17 +108,6 @@ export interface FeedbackSender {
   readonly clock: Pick<Clock, "now">;
 }
 
-/** A stored feedback intent, read back. */
-export interface FeedbackIntent {
-  readonly intentId: number;
-  readonly source: string;
-  readonly key: string;
-  readonly via: FeedbackVia;
-  readonly text: string;
-  readonly state: string;
-  readonly resolvedAt: number | null;
-}
-
 /** What `sendFeedback` did. */
 export interface FeedbackSent {
   readonly intentId: number;
@@ -116,27 +122,6 @@ function detailOf(feedback: Feedback, via: FeedbackVia): string {
   const key = feedback.key ?? NO_KEY;
   if (key === "" || /\s/.test(key)) throw new Error(`a feedback key holds no spaces: ${key}`);
   return `${FEEDBACK_TAG} ${feedback.source} ${key} ${via} ${feedback.text}`;
-}
-
-/**
- * Pure: the source, key, delivery and text of a feedback intent's detail; null for any other
- * detail.
- */
-export function parseFeedback(detail: string): {
-  readonly source: string;
-  readonly key: string;
-  readonly via: FeedbackVia;
-  readonly text: string;
-} | null {
-  const prefix = `${FEEDBACK_TAG} `;
-  if (!detail.startsWith(prefix)) return null;
-  const [source, key, via] = detail.slice(prefix.length).split(" ", 3);
-  if (source === undefined || key === undefined || (via !== "now" && via !== "next")) {
-    return null;
-  }
-  const head = `${prefix}${source} ${key} ${via}`;
-  if (detail.length > head.length && detail[head.length] !== " ") return null;
-  return { source, key, via, text: detail.slice(head.length + 1) };
 }
 
 /**
@@ -186,27 +171,6 @@ export function sendFeedback(
   return { intentId, delivered: "now", done };
 }
 
-/** The run's feedback intents, oldest first; only those of `source` when it is given. */
-export function feedbackIntents(
-  office: OfficeHandle,
-  runId: RunId | string,
-  source?: FeedbackSource,
-): FeedbackIntent[] {
-  const out: FeedbackIntent[] = [];
-  for (const intent of runIntents(office, runId as RunId)) {
-    if (intent.kind !== "steer") continue;
-    const parsed = parseFeedback(intent.detail);
-    if (parsed === null || (source !== undefined && parsed.source !== source)) continue;
-    out.push({
-      intentId: intent.intentId,
-      ...parsed,
-      state: intent.state,
-      resolvedAt: intent.resolvedAt,
-    });
-  }
-  return out;
-}
-
 /** The steer stored for the request `request` (`key`), unless its send failed; `held` for `next`. */
 export function findSteer(
   office: OfficeHandle,
@@ -228,6 +192,45 @@ export function findSteer(
 export interface HeldFeedback {
   readonly ids: readonly number[];
   readonly texts: readonly string[];
+  /** How many of them are steers an earlier session was sent and did not read (DIPO-412). */
+  readonly unread: number;
+}
+
+/** True for a steer sent to a live session that has not read it yet (DIPO-412). */
+function unreadNow(item: FeedbackIntent): boolean {
+  return item.source === "steer" && item.via === "now" && item.state === "sent";
+}
+
+/**
+ * The run's steers sent to its live session, or being sent, that the session has not read yet
+ * (DIPO-412), oldest first.
+ */
+export function unreadSteers(office: OfficeHandle, runId: RunId | string): FeedbackIntent[] {
+  return feedbackIntents(office, runId, "steer").filter(
+    (item) => item.via === "now" && (item.state === "sent" || item.state === "pending"),
+  );
+}
+
+/**
+ * Inside the caller's transaction: the session read `text` (DIPO-412). The oldest steer sent to it
+ * with that text, not yet read, is resolved `read`; returns it, or null when `text` is no such
+ * steer (the task message, another message).
+ */
+export function markSteerRead(
+  office: OfficeHandle,
+  runId: RunId | string,
+  text: string,
+  at: number,
+): FeedbackIntent | null {
+  const steer = unreadSteers(office, runId).find((item) => item.text === text);
+  if (steer === undefined) return null;
+  office.run(
+    `update run_intents set state = 'resolved', resolved_at = $at, outcome = 'read'
+      where office_id = $office_id and run_id = $run and intent_id = $id
+        and state in ('pending', 'sent')`,
+    { run: runId, id: steer.intentId, at },
+  );
+  return steer;
 }
 
 /**
@@ -242,17 +245,23 @@ const MAINTAINER_WORDS: ReadonlySet<string> = new Set<FeedbackSource>([
 
 /**
  * The run's held messages: the findings and other code-built messages first, then the
- * maintainer's own words, each group oldest first (see the file comment).
+ * maintainer's own words, each group oldest first (see the file comment). A steer an earlier
+ * session was sent and never read counts as held (DIPO-412): it is asked for only when no session
+ * of the run is live.
  */
 export function heldFeedback(office: OfficeHandle, runId: RunId | string): HeldFeedback {
   const pending = feedbackIntents(office, runId).filter(
-    (item) => item.via === "next" && item.state === "pending",
+    (item) => (item.via === "next" && item.state === "pending") || unreadNow(item),
   );
   const held = [
     ...pending.filter((item) => !MAINTAINER_WORDS.has(item.source)),
     ...pending.filter((item) => MAINTAINER_WORDS.has(item.source)),
   ];
-  return { ids: held.map((item) => item.intentId), texts: held.map((item) => item.text) };
+  return {
+    ids: held.map((item) => item.intentId),
+    texts: held.map((item) => item.text),
+    unread: held.filter(unreadNow).length,
+  };
 }
 
 /**
@@ -267,9 +276,10 @@ export function deliverHeld(
 ): void {
   for (const id of ids) {
     office.run(
-      `update run_intents set state = 'resolved', sent_at = $at, resolved_at = $at,
+      `update run_intents set state = 'resolved', sent_at = coalesce(sent_at, $at), resolved_at = $at,
          outcome = 'resumed'
-        where office_id = $office_id and run_id = $run and intent_id = $id and state = 'pending'`,
+        where office_id = $office_id and run_id = $run and intent_id = $id
+          and state in ('pending', 'sent')`,
       { run: runId, id, at },
     );
     markFeedbackSent(office, runId, id, at);

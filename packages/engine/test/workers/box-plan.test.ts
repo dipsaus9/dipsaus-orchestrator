@@ -109,6 +109,8 @@ describe("the box worker's plan (criteria 1 and 2)", () => {
       "stream-json",
       "--verbose",
       "--include-partial-messages",
+      // Each user message is echoed as the session reads it, so a steer is seen read (DIPO-412).
+      "--replay-user-messages",
       "--session-id",
       spec().session.id,
       "--model",

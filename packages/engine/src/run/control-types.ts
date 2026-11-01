@@ -19,6 +19,7 @@ import type { OfficeHandle } from "../db/office";
 import type { Caps, HostOp, SteerOp, WorkerReport } from "../workers/types";
 
 import type { FiredCap } from "../records/caps";
+import { STEER_UNREAD_NOTICE } from "../records/feedback-intents";
 import type { IntentKind } from "../records/intents";
 import type { LiveQuestions } from "../records/live-question";
 import type { RunAct, RunOutcomesPort, RunView } from "./outcome-types";
@@ -53,6 +54,12 @@ export const DAEMON_STOPPED_DETAIL =
 export const CONTROL_NOTICES = {
   notSent: "run.stopNotSent",
   feedbackNotSent: "run.feedbackNotSent",
+  /** The worker read a maintainer steer (DIPO-412). */
+  steerRead: "run.steerRead",
+  /** A done turn waits for the turn a steer the worker has not read starts (DIPO-412). */
+  steerAwaited: "run.steerAwaited",
+  /** A run ended with a steer its worker never read (DIPO-412). */
+  steerUnread: STEER_UNREAD_NOTICE,
 } as const;
 
 /** Sends host ops to a run's worker host. */
@@ -154,7 +161,31 @@ export interface Tracked extends TrackedRun {
    * and no cap ends it while verify and commit run.
    */
   capped: FiredCap | null;
+  /**
+   * A done turn held back while the session has a steer it has not read (DIPO-412): the session
+   * reads it after the turn's result and starts a new turn, whose report decides. While no steer
+   * was read (`timer` runs) the held report is taken after all: `take` when the wait of
+   * `STEER_READ_WAIT_MS` ends or the worker exits, and the capped-done path when a cap fires. Once
+   * a read came, `timer` is null: the steer's turn decides, and an exit or a cap before its report
+   * decides as for any turn in progress.
+   */
+  heldDone: {
+    readonly report: WorkerReport;
+    readonly take: () => void;
+    timer: TimerHandle | null;
+  } | null;
+  /**
+   * True while the finisher verifies and commits a done report (DIPO-412): a steer then waits for
+   * the next session instead of reaching the idle one.
+   */
+  finishing: boolean;
 }
+
+/**
+ * How long a done turn waits for the session to read a steer it was sent and has not read
+ * (DIPO-412). Claude Code reads it right after the turn's result (1.6 s in the live probe).
+ */
+export const STEER_READ_WAIT_MS = 60_000;
 
 /** What ending a run does: the intent, the ops it sends and the park that follows. */
 export interface RunEnding {
@@ -211,10 +242,12 @@ export function messageOf(error: unknown): string {
 
 export type Ending = RunEnding;
 
-/** Stops the cap tick of a tracked run. */
+/** Stops the cap tick of a tracked run, and drops a held done turn with its wait (DIPO-412). */
 export function disarm(clock: Clock, tracked: Tracked): void {
   if (tracked.timer !== null) clock.clearTimeout(tracked.timer);
   tracked.timer = null;
+  if (tracked.heldDone?.timer != null) clock.clearTimeout(tracked.heldDone.timer);
+  tracked.heldDone = null;
 }
 
 /** A tracked run as worker outcomes see it. */

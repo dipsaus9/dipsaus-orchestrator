@@ -64,7 +64,7 @@ export async function steerCommand(
       }
       deps.writeLine(
         outcome.result.delivered === "next-turn"
-          ? `steered ${story} (run ${outcome.result.run}); the worker reads it with its next turn`
+          ? `steered ${story} (run ${outcome.result.run}); sent to the running session, which reads it in its turn (dipo watch shows when); if the session ends first, the next session's first message carries it`
           : `steered ${story} (run ${outcome.result.run}); the worker gets it with the first message on resume`,
       );
       return 0;

@@ -69,7 +69,7 @@ A resume of a story whose reviewer was the one that stopped (a reviewer cap or a
 |---|---|---|
 | `dipo drop <id> [--delete-branch]` | Draft, Refined, Ready, Parked | Archives the story as Removed through the backlog lane, closes its PR with a comment, and deletes its box. The branch is kept unless `--delete-branch` is given. Refused while another live story depends on it |
 | `dipo discard <id> --note <why>` | In Progress, In Review, Parked, or the leftovers of a story Done elsewhere | Shows what is lost (commits not on the base), then stops the worker, closes the PR, deletes the box and the branch, and moves the story back to Refined, so it must pass the Ready gate again |
-| `dipo steer <id> <text>` | In Progress, Parked | Sends the text to the developer through the one feedback path (0002). A steer to a parked story is stored and sent on resume. A steer is never sent to the reviewer |
+| `dipo steer <id> <text>` | In Progress, Parked | Sends the text to the developer through the one feedback path (0002). A steer to a parked story is stored and sent on resume, and so is one the session ended or parked before reading (0008). A steer is never sent to the reviewer |
 
 - **Remote branches.** dipo deletes a remote branch only when its tip is one dipo pushed, and pushes the delete with a lease on that tip. Any other tip is kept and named.
 - **Confirmation.** `discard`, and `drop --delete-branch`, ask for the typed story id after showing the loss.

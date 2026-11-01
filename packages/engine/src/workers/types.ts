@@ -280,6 +280,12 @@ export type WorkerEvent =
       readonly agentId?: string;
     }
   | { readonly t: "output"; readonly text: string }
+  /**
+   * The session read a message dipo wrote to its stdin (DIPO-412): `text` is the message as the
+   * session read it, so the engine can tell which steer it was. A message the session reads only
+   * after its turn ended starts a new turn.
+   */
+  | { readonly t: "messageRead"; readonly text: string }
   | {
       readonly t: "usage";
       readonly messageId: string;

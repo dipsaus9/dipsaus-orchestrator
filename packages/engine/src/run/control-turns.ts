@@ -113,6 +113,9 @@ export class AfterTurns {
       return true;
     };
     const write = this.#endings.writer(office, tracked.office);
+    // While a done report is verified and committed, a steer waits for the next session
+    // (DIPO-412): the idle session would start a turn with it that edits the tree meanwhile.
+    tracked.finishing = report?.status === "done";
     try {
       const decision = await finisher.afterTurn({
         office,
@@ -168,6 +171,7 @@ export class AfterTurns {
           return "decided";
       }
     } finally {
+      tracked.finishing = false;
       settle(null);
     }
   }
