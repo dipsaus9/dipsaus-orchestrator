@@ -43,6 +43,7 @@ export {
   r26,
   r29,
   r30,
+  r31,
   SHARED_RULES,
   WARNING_RULES,
   TEST_PLAN_TEXT_MIN,

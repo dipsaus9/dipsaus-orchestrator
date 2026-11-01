@@ -400,6 +400,14 @@ const CASES: readonly Case[] = [
       barrier("deny rule", R30_CLOSED),
     ],
   },
+  {
+    name: "R31 pickup reference that names dipo's configuration",
+    input: input({ status: "Ready", references: ["packages/export/", ".dipo/office.yaml"] }),
+    mode: "pickup",
+    expected: [
+      `${prefix("R31")}reference ".dipo/office.yaml" names dipo's configuration (.dipo/), which only dipo or the maintainer writes; a builder or the maintainer takes such a story`,
+    ],
+  },
 ];
 
 describe("evaluateGate", () => {
@@ -768,6 +776,7 @@ describe("purity", () => {
     /^\.\.\/story-store\/fields\/(block|labels)$/,
     /^\.\.\/story-store\/story$/,
     /^\.\.\/story-store\/paths$/,
+    /^\.\.\/story-store\/protected$/,
     /^\.\.\/config\/schema$/,
     /^@dipsaus-orchestrator\/contract$/,
   ];

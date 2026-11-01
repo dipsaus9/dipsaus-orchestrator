@@ -4,7 +4,10 @@
 
 import type { OfficeConfig } from "../config/schema";
 
-/** `ready` evaluates R01a, `pickup` (the re-check inside `work.run`) R01b; both add R02 to R30. */
+/**
+ * `ready` evaluates R01a, `pickup` (the re-check inside `work.run`) R01b; both add R02 to R30, and
+ * `pickup` adds R31.
+ */
 export type GateMode = "ready" | "pickup";
 
 export const GATE_RULES = [
@@ -37,6 +40,7 @@ export const GATE_RULES = [
   "R26",
   "R29",
   "R30",
+  "R31",
 ] as const;
 export type GateRule = (typeof GATE_RULES)[number];
 

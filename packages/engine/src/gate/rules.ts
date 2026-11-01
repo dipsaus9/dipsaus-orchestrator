@@ -8,6 +8,7 @@
 
 import type { FieldBlock } from "@dipsaus-orchestrator/contract";
 
+import { PROTECTED_TEXT, protectedKind } from "../story-store/protected";
 import type { StoryLabels } from "../story-store/fields/labels";
 import { inStoryFolder } from "../story-store/paths";
 import { characters, clean, looksLikePath, runCores, wordMatch } from "./text";
@@ -222,6 +223,24 @@ export const r12: RuleCheck = (context) =>
       ? []
       : fail(context, "R12", `scope path "${path}" is not a valid repo-relative path`),
   );
+
+/**
+ * R31 (pickup mode only): no reference names a path the box protects, by the same `protectedKind`
+ * the scope-violation park uses. A story for a builder or the maintainer may name such a path and
+ * stay Ready, so Ready mode does not check it. A leading `./` is dropped first, since a reference is
+ * written by hand. A link is never a reference, so it is not refused.
+ */
+export const r31: RuleCheck = (context) =>
+  context.story.references.flatMap((path) => {
+    const kind = protectedKind(path.replace(/^(?:\.\/)+/, ""), context.input.storyFolders);
+    return kind === null || kind === "link"
+      ? []
+      : fail(
+          context,
+          "R31",
+          `reference "${path}" names ${PROTECTED_TEXT[kind]}, which only dipo or the maintainer writes; a builder or the maintainer takes such a story`,
+        );
+  });
 
 /** R13: every dependency is an active task other than the story itself. */
 export const r13: RuleCheck = (context) =>
