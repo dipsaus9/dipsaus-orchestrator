@@ -1,10 +1,10 @@
 ---
 id: DIPO-410
 title: Read the committed office config from the base at load and reload
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-11-01 08:57'
-updated_date: '2026-11-01 13:26'
+updated_date: '2026-11-01 13:30'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -44,10 +44,6 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(engine) office load and reload-config read .dipo/office.yaml from the base commit, not the checkout, and a fetch reads the same source"
-park:
-  reason: "budget-exceeded"
-  from: "In Progress"
-  note: "token budget reached: 300,277 of 300,000 budget tokens (input, output and cache creation)"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -94,4 +90,6 @@ Parked 2026-11-01 13:26 UTC: budget-exceeded
 - Review rounds: 1, failed 0 of 3
 - Budget used: 303,248 of 300,000 tokens; 81 of 90 turns; 15 of 45 minutes
 - Last good commit: 63e78f45e869b64d82963bd0228c1ea4d155d578
+
+Resumed 2026-11-01 13:30 UTC; grants: budget +150,000 tokens, +45 turns, +23 minutes; note: Maintainer approved a 50% top-up on 2026-11-01. Finish the criterion 6 edge case and its test, take main into the branch for the clock-flake fix, then hand off.
 <!-- SECTION:NOTES:END -->
