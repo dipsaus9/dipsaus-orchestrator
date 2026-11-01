@@ -1,10 +1,10 @@
 ---
 id: DIPO-413
 title: Drop the JSON Schema dialect from the scan fallback's output schema
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-01 15:39'
-updated_date: '2026-11-01 16:00'
+updated_date: '2026-11-01 16:03'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -36,6 +36,10 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(engine) the scan fallback's --json-schema carries no $schema key and comes from the same function as the worker report schema"
+park:
+  reason: "verify-failing"
+  from: "In Progress"
+  note: "the report gate refused the done report 3 times (the loop cap is 3). Your report says done, but these automated test-plan entries are not done:\n- #1 (not reported): (engine) the scan fallback's --json-schema carries no $schema key and comes from the same function as the worker report schema\nWrite the tests they ask for and run them. Then report done again with one testPlan entry for each entry of the test plan: its number, done, not-done or manual, and the evidence. If an entry cannot be done in this story, report blocked and say why."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -45,3 +49,16 @@ test_plan:
 - [ ] #2 The scan fallback and the worker report schema get their JSON Schema from one function, and the separate strip in report-schema.ts is removed, shown by a test of that function
 - [ ] #3 A failed scan fallback session shows the session's own error line in the `dipo office infer` refusal, not only "no result before exit 1", shown by a test
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-01 16:03 UTC: verify-failing
+- Detail: the report gate refused the done report 3 times (the loop cap is 3). Your report says done, but these automated test-plan entries are not done:
+- Run: run_01M6BXDVZ1Q05NXYVD2VA6QT6A
+- Criteria met: 3 of 3 (as the worker reported them)
+- Loops: 3 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 73,717 of 300,000 tokens; 27 of 90 turns; 3 of 45 minutes
+- Last good commit: dc151494ab17476fe43a0c2443e02e10276dba78
+<!-- SECTION:NOTES:END -->
