@@ -1,10 +1,10 @@
 ---
 id: DIPO-408
 title: Make the Safe-Chain log clock test pass every time
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-31 09:39'
-updated_date: '2026-11-01 12:54'
+updated_date: '2026-11-01 13:10'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -81,15 +81,16 @@ Resumed 2026-11-01 12:52 UTC; grants: none; note: Both are done. The 50 Mac runs
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Closed 2026-11-01 08:55 UTC
-- Criteria met: 2 of 3 (as the worker reported them)
-- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+Closed 2026-11-01 13:10 UTC
+- Criteria met: 3 of 3 (as the worker reported them)
+- Loops: 0; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
 - Review rounds: 1, failed 0
-- Budget used: 85,261 of 300,000 tokens
-- Runs: 1; resumes: 1
-- Parks: 1
+- Budget used: 148,568 of 300,000 tokens
+- Runs: 1; resumes: 2
+- Parks: 2
   - 2026-10-31 10:22 UTC ambiguous-spec: Can someone run `bun test packages/engine/test/box/safe-chain-log.test.ts` 50 times in a row on the Mac and record the result on the PR? That is the only part of criterion 2 left, and this box cannot…
+  - 2026-11-01 09:48 UTC ambiguous-spec: Can you run the 50 consecutive `safe-chain-log.test.ts` runs on the Mac against the PR head and post the result as a PR comment (criterion 2 and test plan #1)? Also, the macOS verify failure was four…
 - Grants: none
 - Web calls: 0 searches, 0 fetches
-- Proposals filed: 0
+- Proposals filed: 1
 <!-- SECTION:FINAL_SUMMARY:END -->
