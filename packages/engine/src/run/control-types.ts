@@ -19,6 +19,7 @@ import type { OfficeHandle } from "../db/office";
 import type { Caps, HostOp, SteerOp, WorkerReport } from "../workers/types";
 
 import type { FiredCap } from "../records/caps";
+import { STEER_UNREAD_NOTICE } from "../records/feedback-intents";
 import type { IntentKind } from "../records/intents";
 import type { LiveQuestions } from "../records/live-question";
 import type { RunAct, RunOutcomesPort, RunView } from "./outcome-types";
@@ -57,6 +58,8 @@ export const CONTROL_NOTICES = {
   steerRead: "run.steerRead",
   /** A done turn waits for the turn a steer the worker has not read starts (DIPO-412). */
   steerAwaited: "run.steerAwaited",
+  /** A run ended with a steer its worker never read (DIPO-412). */
+  steerUnread: STEER_UNREAD_NOTICE,
 } as const;
 
 /** Sends host ops to a run's worker host. */
@@ -160,11 +163,22 @@ export interface Tracked extends TrackedRun {
   capped: FiredCap | null;
   /**
    * A done turn held back while the session has a steer it has not read (DIPO-412): the session
-   * reads it after the turn's result and starts a new turn, whose report decides. `take` takes the
-   * held turn's report after all: when no steer was read `STEER_READ_WAIT_MS` after the turn, or
-   * when the worker exits first. `timer` is null once a read came.
+   * reads it after the turn's result and starts a new turn, whose report decides. While no steer
+   * was read (`timer` runs) the held report is taken after all: `take` when the wait of
+   * `STEER_READ_WAIT_MS` ends or the worker exits, and the capped-done path when a cap fires. Once
+   * a read came, `timer` is null: the steer's turn decides, and an exit or a cap before its report
+   * decides as for any turn in progress.
    */
-  heldDone: { readonly take: () => void; timer: TimerHandle | null } | null;
+  heldDone: {
+    readonly report: WorkerReport;
+    readonly take: () => void;
+    timer: TimerHandle | null;
+  } | null;
+  /**
+   * True while the finisher verifies and commits a done report (DIPO-412): a steer then waits for
+   * the next session instead of reaching the idle one.
+   */
+  finishing: boolean;
 }
 
 /**

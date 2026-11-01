@@ -20,10 +20,10 @@ import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 import { parseSafeChainRecord, type SafeChainRecord } from "../box/safe-chain";
 import { appendEntries } from "../changelog/log";
 import { canonicalJson } from "../config/merge";
+import { closeUnreadSteers } from "./feedback-intents";
 import type { OfficeHandle } from "../db/office";
 
 import { runTotals } from "./caps";
-import { closeUnreadSteers } from "./intents";
 import { nextRunState, type RunEnd, type RunEvent, type RunState } from "./lifecycle";
 import { retiredRun } from "./retired";
 import { finalizeRunAgents } from "./usage";
@@ -352,10 +352,6 @@ export function applyRunEvent(
       parked_ms: after.parkedMs,
     },
   );
-  // A steer the run ends with, held or unread, reaches no session any more (DIPO-412).
-  if (event.kind === "end" && (after.ending === "done" || after.ending === "dropped")) {
-    closeUnreadSteers(office, runId as RunId, event.at);
-  }
   return { before, after };
 }
 
@@ -556,6 +552,11 @@ export function endRun(
   // 2026-10-14, DIPO-51); what ingestion adds later feeds only its change.
   if (ended.before.endedAt === null) finalizeRunAgents(office, runId, at);
   writeRunOutcome(office, runId, ending);
+  // A steer the run ends with, held or unread, reaches no session any more (DIPO-412).
+  if (ending === "done" || ending === "dropped") {
+    const run = findRun(office, runId);
+    if (run !== null) appendEntries(office, closeUnreadSteers(office, run, at), { at });
+  }
   appendRunEnded(office, runId, at, ended.after.endedAt ?? at, ending);
   return true;
 }

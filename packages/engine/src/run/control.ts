@@ -47,8 +47,12 @@
 //   `messageRead` event resolves the steer the session read `read`, with a notice (DIPO-412). A
 //   done turn while a steer sent to the session is unread is held back: Claude Code reads a steer
 //   that came after the turn's last tool call only after the result, and starts a new turn with
-//   it, whose report decides. With no read within `STEER_READ_WAIT_MS`, or an exit first, the held
-//   turn decides after all, and the unread steer goes with the run's next developer session.
+//   it, whose report decides. While no steer was read, the held turn decides after all when the
+//   wait of `STEER_READ_WAIT_MS` ends or the worker exits, and takes the capped done path when a
+//   cap fires; the unread steer goes with the run's next developer session. Once a read came, the
+//   steer's turn decides, and an exit or a cap before its report decides as for any turn. While a
+//   done report is verified and committed, or the run's end was claimed, `work.steer` holds the
+//   steer for the next session. A daemon restart during the hold loses it: the caps decide.
 //
 // - Notes (0020 section 6, DIPO-154). The `notes` of every turn report are stored for the next
 //   session's handoff (`recordWorkerNotes`), keyed by the run's branch and the agent, replacing
@@ -189,7 +193,11 @@ export class RunControl implements RunEnder {
     });
     this.#turns = new AfterTurns(deps, this.#endings, this.#inflight);
     this.#reconcile = new ReconcileStops(deps, this.#tracked, this.#endings);
-    this.#interventions = new Interventions(deps);
+    // A run whose decision is under way holds a steer for its next session (DIPO-412).
+    this.#interventions = new Interventions(deps, (run) => {
+      const tracked = this.#tracked.get(run);
+      return tracked !== undefined && (tracked.ending !== null || tracked.finishing);
+    });
   }
 
   /** The ingestion hooks: caps and reports after every committed pass, intents at the exit. */
@@ -257,6 +265,7 @@ export class RunControl implements RunEnder {
       lastReport: null,
       capped: null,
       heldDone: null,
+      finishing: false,
     };
     this.#tracked.set(run.runId, tracked);
     this.#arm(tracked);
@@ -451,7 +460,9 @@ export class RunControl implements RunEnder {
           // A done report while the session has a steer it has not read: the session reads it
           // after this result and starts a new turn, which decides (DIPO-412).
           const held =
-            report?.status === "done" && problem === undefined && this.#holdDone(tracked, take);
+            report?.status === "done" &&
+            problem === undefined &&
+            this.#holdDone(tracked, report, take);
           if (!held) take();
         }
       }
@@ -687,7 +698,7 @@ export class RunControl implements RunEnder {
    * after all when no steer was read within `STEER_READ_WAIT_MS`, or the worker exits first. True
    * when it held the turn.
    */
-  #holdDone(tracked: Tracked, take: () => void): boolean {
+  #holdDone(tracked: Tracked, report: WorkerReport, take: () => void): boolean {
     if (this.#deps.finisher === undefined) return false;
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined || unreadSteers(office, tracked.runId).length === 0) return false;
@@ -698,7 +709,7 @@ export class RunControl implements RunEnder {
       if (tracked.heldDone === held) tracked.heldDone = null;
       if (tracked.ending === null && this.#tracked.get(tracked.runId) === tracked) take();
     };
-    const held: NonNullable<Tracked["heldDone"]> = { take: once, timer: null };
+    const held: NonNullable<Tracked["heldDone"]> = { report, take: once, timer: null };
     held.timer = this.#deps.clock.setTimeout(() => {
       held.timer = null;
       once();
@@ -739,10 +750,12 @@ export class RunControl implements RunEnder {
   onEnded(run: string, agent?: string, end?: IngestedExit): void {
     const tracked = this.#tracked.get(run);
     if (tracked === undefined) return;
-    // A done turn held back for a steer decides after all, before the exit (DIPO-412).
+    // A done turn held back for a steer no session read decides after all, before the exit
+    // (DIPO-412). Once a read came, the steer's turn had begun: the exit decides, as for any turn.
     const held = tracked.heldDone;
+    const unread = held !== null && held.timer !== null;
     disarm(this.#deps.clock, tracked);
-    if (held !== null && tracked.ending === null) held.take();
+    if (unread && tracked.ending === null) held.take();
     // A maintainer's park waiting for this exit parks now (DIPO-411).
     tracked.markExited();
     const outcomes = this.#deps.outcomes?.();
@@ -960,6 +973,14 @@ export class RunControl implements RunEnder {
   }
 
   #cap(tracked: Tracked, cap: CapName, detail: string): void {
+    // A done turn held back for a steer no session read yet crossed the cap as it waited: it takes
+    // the capped done path as a crossing done turn does (DIPO-412, DIPO-205).
+    const held = tracked.heldDone;
+    if (held !== null && held.timer !== null && this.#deps.finisher !== undefined) {
+      tracked.lastReport = held.report;
+      this.#cappedDone(tracked, held.report, { cap, detail });
+      return;
+    }
     const ending = reviewing(tracked)
       ? reviewCapEnding(this.#deps.encode, cap, detail)
       : capEnding(this.#deps.encode, cap, detail);

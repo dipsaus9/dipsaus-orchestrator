@@ -37,7 +37,7 @@ import { LAUNCH_FILE, type HostLaunch } from "../../src/host/protocol";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
-import { insertRun, runIntents } from "../../src/records";
+import { endRun, insertRun, runIntents } from "../../src/records";
 import { addStory } from "../../src/records/story-keys";
 import { RunControl } from "../../src/run";
 import { STEER_READ_WAIT_MS } from "../../src/run/control-types";
@@ -133,8 +133,19 @@ afterEach(async () => {
   rmSync(w.dir, { recursive: true, force: true });
 });
 
-/** Run control with a finisher that takes each done report and ends the run at In Review. */
-function control(steering: ConstructorParameters<typeof RunControl>[0]["steering"]): RunControl {
+/**
+ * Run control with a finisher that takes each done report and ends the run at In Review; with
+ * `gate` the finisher waits for it, as verify and commit take their time.
+ */
+function control(
+  steering: ConstructorParameters<typeof RunControl>[0]["steering"],
+  options: {
+    readonly caps?: { budgetTokens: number; maxTurns: number; maxMinutes: number };
+    readonly startedAt?: number;
+    readonly gate?: Promise<void>;
+    readonly entered?: () => void;
+  } = {},
+): RunControl {
   const made = new RunControl({
     stories: backlogLayout,
     clock: w.f.t.clock,
@@ -145,6 +156,8 @@ function control(steering: ConstructorParameters<typeof RunControl>[0]["steering
     finisher: {
       afterTurn: async (ctx) => {
         w.taken.push(ctx.report?.summary ?? "(no report)");
+        options.entered?.();
+        await options.gate;
         return { kind: "ended" };
       },
       summarize: async () => undefined,
@@ -153,8 +166,8 @@ function control(steering: ConstructorParameters<typeof RunControl>[0]["steering
   made.track(w.f.office.officeId, {
     runId: w.f.run,
     work: w.work,
-    caps: { budgetTokens: 1_000_000, maxTurns: 90, maxMinutes: 45 },
-    startedAt: w.f.t.clock.now(),
+    caps: options.caps ?? { budgetTokens: 1_000_000, maxTurns: 90, maxMinutes: 45 },
+    startedAt: options.startedAt ?? w.f.t.clock.now(),
   });
   return made;
 }
@@ -376,6 +389,103 @@ describe("a done turn while a steer is unread (AC #1, #3)", () => {
       expect(w.taken).toEqual(["turn 1"]);
       expect(steerStates()).toEqual([["resolved", "read"]]);
       expect(noticeCodes()).toEqual(["run.steerRead"]);
+    } finally {
+      made.close();
+    }
+  });
+});
+
+/**
+ * A steer's replay exactly as Claude Code 2.1.316 printed it (live, Haiku, 2026-11-01), for the
+ * steer `work.steer` sends as "add a JSDoc." (review of DIPO-412).
+ */
+const REAL_REPLAY =
+  '{"type":"user","message":{"role":"user","content":"The maintainer says: add a JSDoc."},"session_id":"be169cce-4001-4803-8d82-a538b1dbe0ca","parent_tool_use_id":null,"uuid":"c06eac8c-0bce-4070-9f23-4f028fe74a7e","timestamp":"2026-11-01T18:38:24.010Z","isReplay":true}';
+
+describe("the review of DIPO-412", () => {
+  it("reads the steer in a real replayed line of Claude Code 2.1.316", async () => {
+    const made = control(recording());
+    try {
+      expect((await steer(made, "add a JSDoc.")).ok).toBe(true);
+      const step = interpret(
+        { t: 0, ch: "stdout", data: REAL_REPLAY },
+        initialState({ plannedModel: "haiku" }),
+      );
+      expect(step.events).toEqual([{ t: "messageRead", text: steerText("add a JSDoc.") }]);
+      made.onWorkerEvents(w.f.run, step.events);
+      expect(steerStates()).toEqual([["resolved", "read"]]);
+    } finally {
+      made.close();
+    }
+  });
+
+  it("holds a steer sent while verify and commit run for the next session, and closes it with a notice when the run goes Done", async () => {
+    const { promise: gate, resolve: open } = Promise.withResolvers<void>();
+    const { promise: entered, resolve: enter } = Promise.withResolvers<void>();
+    const made = control(recording(), { gate, entered: enter });
+    try {
+      made.onWorkerEvents(w.f.run, [doneTurn("turn 1")]);
+      await entered;
+      const reply = await steer(made, "Add a JSDoc.");
+      // Nothing reaches the idle session, which would start a turn with it during the commit.
+      expect(reply.ok ? reply.result : reply.error).toEqual({
+        run: w.f.run,
+        delivered: "on-resume",
+      });
+      expect(w.sent).toEqual([]);
+      open();
+      await made.idle();
+      expect(w.sent).toEqual([[{ closeStdin: true }]]);
+      // A next developer session (a fix round) would carry it.
+      expect(heldFeedback(w.f.office, w.f.run).texts).toEqual([steerText("Add a JSDoc.")]);
+      // The run goes Done instead: the steer ends unread, with a notice for `dipo watch`.
+      w.f.office.immediate(() => endRun(w.f.office, w.f.run, w.f.t.clock.now(), "done"));
+      expect(steerStates()).toEqual([["resolved", "unread"]]);
+      expect(noticeCodes()).toEqual(["run.steerUnread"]);
+    } finally {
+      open();
+      made.close();
+    }
+  });
+
+  it("lets the exit decide, not the held report, when the worker exits after it read the steer", async () => {
+    const made = control(recording());
+    try {
+      expect((await steer(made, "Add a JSDoc.")).ok).toBe(true);
+      made.onWorkerEvents(w.f.run, [
+        doneTurn("turn 1"),
+        // Read after the result: the steer's turn began and edits the tree.
+        { t: "messageRead", text: steerText("Add a JSDoc.") },
+      ]);
+      made.onEnded(w.f.run);
+      await made.idle();
+      // Turn 1's report is not committed with the steer turn's half-made edits.
+      expect(w.taken).toEqual([]);
+      expect(steerStates()).toEqual([["resolved", "read"]]);
+    } finally {
+      made.close();
+    }
+  });
+
+  it("takes the held report on the capped done path when a cap fires while no steer was read", async () => {
+    const at = w.f.t.clock.now();
+    const made = control(recording(), {
+      caps: { budgetTokens: 1_000_000, maxTurns: 90, maxMinutes: 1 },
+      // A minute of the run's one-minute cap is used up once the turn is held.
+      startedAt: at - 60_000,
+    });
+    try {
+      expect((await steer(made, "Add a JSDoc.")).ok).toBe(true);
+      made.onWorkerEvents(w.f.run, [doneTurn("turn 1")]);
+      await made.idle();
+      expect(w.taken).toEqual([]);
+      // The minute cap fires as the turn waits, before the wait ends.
+      expect(made.checkCaps(w.f.run)).toBe(true);
+      await made.idle();
+      // As a done report on a crossing turn (DIPO-205): verify and commit, no cap park.
+      expect(w.taken).toEqual(["turn 1"]);
+      // No cap park: the run ended at In Review, closing stdin after the steer it sent.
+      expect(w.sent.at(-1)).toEqual([{ closeStdin: true }]);
     } finally {
       made.close();
     }

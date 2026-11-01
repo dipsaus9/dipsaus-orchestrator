@@ -21,8 +21,8 @@
 //   (`messageRead`): run control resolves its intent `read` (`markSteerRead`). A steer still `sent`
 //   when its session ends was never read, so it is held like a `next` one: the first message of the
 //   run's next developer session carries it, beside a resume note, and it is resolved `resumed`.
-//   A steer the run ends `done` or `dropped` with, held or unread, is resolved `unread`
-//   (`records/intents.ts`), so none stays `sent` or `pending` after its run.
+//   A steer the run ends `done` or `dropped` with, held or unread, is resolved `unread` with a
+//   notice (`closeUnreadSteers`, `records/feedback-intents.ts`), so none stays `sent` or `pending` after its run.
 // - A fix round (0002) is one held message of the round's first source, keyed on the pushed head
 //   it answers; its feedback items point at the message's intent.
 
@@ -34,17 +34,28 @@ import type { HostOp, SteerOp } from "../workers/types";
 
 import { CONTROL_NOTICES } from "./control-types";
 import { markFeedbackSent } from "./feedback-items";
-import { type IntentSteering, markIntentSent, recordIntent, runIntents } from "../records/intents";
+import { type IntentSteering, markIntentSent, recordIntent } from "../records/intents";
 import type { StoredRun } from "../records/run-records";
+import {
+  FEEDBACK_TAG,
+  type FeedbackIntent,
+  type FeedbackVia,
+  feedbackIntents,
+  parseFeedback,
+} from "../records/feedback-intents";
 
-/** The tag every feedback intent's detail starts with. */
-export const FEEDBACK_TAG = "feedback";
+// The stored form and its one reader live in the records layer (`records/feedback-intents.ts`).
+export {
+  closeUnreadSteers,
+  FEEDBACK_TAG,
+  type FeedbackIntent,
+  type FeedbackVia,
+  feedbackIntents,
+  parseFeedback,
+} from "../records/feedback-intents";
 
 /** The key of a message that answers nothing in particular. */
 const NO_KEY = "-";
-
-/** How a message is delivered: to the live session now, or with the next session. */
-export type FeedbackVia = "now" | "next";
 
 /** Where a message to the developer comes from (0002's one feedback path). */
 export type FeedbackSource =
@@ -97,17 +108,6 @@ export interface FeedbackSender {
   readonly clock: Pick<Clock, "now">;
 }
 
-/** A stored feedback intent, read back. */
-export interface FeedbackIntent {
-  readonly intentId: number;
-  readonly source: string;
-  readonly key: string;
-  readonly via: FeedbackVia;
-  readonly text: string;
-  readonly state: string;
-  readonly resolvedAt: number | null;
-}
-
 /** What `sendFeedback` did. */
 export interface FeedbackSent {
   readonly intentId: number;
@@ -122,27 +122,6 @@ function detailOf(feedback: Feedback, via: FeedbackVia): string {
   const key = feedback.key ?? NO_KEY;
   if (key === "" || /\s/.test(key)) throw new Error(`a feedback key holds no spaces: ${key}`);
   return `${FEEDBACK_TAG} ${feedback.source} ${key} ${via} ${feedback.text}`;
-}
-
-/**
- * Pure: the source, key, delivery and text of a feedback intent's detail; null for any other
- * detail.
- */
-export function parseFeedback(detail: string): {
-  readonly source: string;
-  readonly key: string;
-  readonly via: FeedbackVia;
-  readonly text: string;
-} | null {
-  const prefix = `${FEEDBACK_TAG} `;
-  if (!detail.startsWith(prefix)) return null;
-  const [source, key, via] = detail.slice(prefix.length).split(" ", 3);
-  if (source === undefined || key === undefined || (via !== "now" && via !== "next")) {
-    return null;
-  }
-  const head = `${prefix}${source} ${key} ${via}`;
-  if (detail.length > head.length && detail[head.length] !== " ") return null;
-  return { source, key, via, text: detail.slice(head.length + 1) };
 }
 
 /**
@@ -190,27 +169,6 @@ export function sendFeedback(
     return error;
   })();
   return { intentId, delivered: "now", done };
-}
-
-/** The run's feedback intents, oldest first; only those of `source` when it is given. */
-export function feedbackIntents(
-  office: OfficeHandle,
-  runId: RunId | string,
-  source?: FeedbackSource,
-): FeedbackIntent[] {
-  const out: FeedbackIntent[] = [];
-  for (const intent of runIntents(office, runId as RunId)) {
-    if (intent.kind !== "steer") continue;
-    const parsed = parseFeedback(intent.detail);
-    if (parsed === null || (source !== undefined && parsed.source !== source)) continue;
-    out.push({
-      intentId: intent.intentId,
-      ...parsed,
-      state: intent.state,
-      resolvedAt: intent.resolvedAt,
-    });
-  }
-  return out;
 }
 
 /** The steer stored for the request `request` (`key`), unless its send failed; `held` for `next`. */
