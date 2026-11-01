@@ -104,6 +104,7 @@ function features(seen: Seen) {
       git: (office) => engineGit.forOffice(office),
       host,
       probe,
+      signal: () => false,
       stop: async (_ctx, args) => {
         seen.stops.push(args.story);
         seen.onStop?.();

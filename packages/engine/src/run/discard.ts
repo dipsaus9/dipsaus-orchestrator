@@ -5,8 +5,9 @@
 // is `irreversible`. It removes nothing that list did not show.
 //
 // From In Progress, In Review or Parked with a claim, in the order of 0010 section 2a:
-// 1. An active run is stopped as `story.park` stops it; a worker host of the run that still runs
-//    answers the retryable `run.hostAlive`, with nothing changed.
+// 1. An active run is stopped as `story.park` stops it. A worker host of the ended run that still
+//    runs gets one verified SIGTERM, as at a resume or a drop (DIPO-418), and the discard answers
+//    the retryable `run.hostAlive` with nothing changed; a host dipo cannot verify gets no signal.
 // 2. The lane-b op is journaled (status Refined, the F16 park removed), so the pending-op skip
 //    covers the story at once. It applies only while the base status is not Done: lane b never
 //    writes over a Done story, and a story the Backlog CLI reads Done in `_base` gets no op at all.
@@ -49,10 +50,10 @@ import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
 import { closeQuestion, openQuestions } from "../run-state/questions";
 import { type CodeHost, CodeHostError } from "../platform/host";
-import type { ProcessProbe } from "../platform/process";
+import type { ProcessProbe, SignalProcess } from "../platform/process";
 import { openParkIds, resolvePark } from "./park";
 import { activeRuns } from "../records/run-records";
-import { hostAlive, workerHostsOf } from "../records/worker-hosts";
+import { liveRunHostsText, stopHostsOfEndedRun } from "../records/worker-hosts";
 import type { StoryIdentity } from "../records/story-keys";
 import { findStoryPr, latestStoryPr, setStoryPrState } from "../records/story-prs";
 import { DISCARD_KIND, type PlanningLane } from "../story-store/planning";
@@ -101,6 +102,8 @@ export interface StoryDiscardDeps {
   readonly host: Pick<CodeHost, "closePr">;
   /** Reads whether a worker host of the claim's run still runs. */
   readonly probe: ProcessProbe;
+  /** The one-process signal for the verified SIGTERM to a host of the ended run (DIPO-418). */
+  readonly signal: SignalProcess;
   /** Stops an active run as `story.park` does; without it a running story is refused. */
   readonly stop?: DiscardStop;
   /** Checks and deletes the boxes of ended runs (0021 section 6); best effort. */
@@ -174,13 +177,22 @@ export class StoryDiscard {
     if (claim === null && leftovers.length === 0) {
       return this.#rerun(ctx, identity, git, args.note);
     }
+    // A worker host of the run that still runs owns the story's box: refuse before anything is
+    // journaled, closed or removed. A host of the ended run gets one verified SIGTERM and stops its
+    // worker, as at a drop (DIPO-411, DIPO-418).
     if (claim !== null) {
-      const pid = await this.#liveHostPid(office, claim.runId);
-      if (pid !== null) {
+      const hosts = await stopHostsOfEndedRun(
+        office,
+        claim.runId,
+        this.#deps.probe,
+        this.#deps.signal,
+      );
+      const [first] = hosts;
+      if (first !== undefined) {
         throw new CommandError(
           DISCARD_HOST_ALIVE,
-          `A worker host of ${story} still runs (pid ${pid}), so its box is in use. Discard it again in a moment, once the host has exited.`,
-          { story, pid },
+          `A worker host of ${story} still runs, so its box is in use: ${liveRunHostsText(hosts)}. Send \`dipo discard ${story} --note <text>\` again in a moment, once the host has exited.`,
+          { story, pid: first.pid },
         );
       }
     }
@@ -453,13 +465,6 @@ export class StoryDiscard {
       ];
     });
     return pr.number;
-  }
-
-  async #liveHostPid(office: OfficeHandle, runId: RunId): Promise<number | null> {
-    for (const host of workerHostsOf(office, runId)) {
-      if (await hostAlive(host, this.#deps.probe)) return host.pid;
-    }
-    return null;
   }
 
   #lane(office: OfficeHandle): PlanningLane {

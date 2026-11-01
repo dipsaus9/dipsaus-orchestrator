@@ -747,6 +747,7 @@ async function readWithDiscard(t: TestState, office: OfficeHandle): Promise<Desk
     git: () => undefined,
     host: { closePr: async () => {} },
     probe: async () => null,
+    signal: () => false,
   });
   const reply = await executeRead(
     {

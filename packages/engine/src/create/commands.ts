@@ -13,6 +13,7 @@ import { gitStoryMergeOps } from "../merge/story-git";
 import { Reconciler } from "../reconcile/feature";
 import { gitParkWriter, gitUnparkWriter } from "../run/park";
 import { ProposalCommands } from "../run/proposals";
+import { signalProcess } from "../platform/process";
 import { planLimitPause } from "../run/starts-paused";
 import { StoryTests, TEST_BOX_DIR } from "../run/tests";
 import { WorkRun } from "../run/work-run";
@@ -263,6 +264,8 @@ function discardOf(core: Core, story: StoryServices, runs: EngineRuns): StoryDis
     git: core.gitOf,
     host: core.host,
     probe: core.deps.probe,
+    // A host still alive for the ended run gets one verified SIGTERM, as at a drop (DIPO-418).
+    signal: signalProcess,
     stop: (ctx, args) => runs.control.parkByMaintainer(ctx, args),
     finishBoxes: () => runs.finishEndedBoxes(),
     stories: core.stories,
