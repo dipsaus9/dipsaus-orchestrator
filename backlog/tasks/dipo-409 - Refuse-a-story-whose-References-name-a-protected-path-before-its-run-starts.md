@@ -1,10 +1,10 @@
 ---
 id: DIPO-409
 title: Refuse at pickup a story whose References name a protected path
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-10-31 10:18'
-updated_date: '2026-11-01 09:09'
+updated_date: '2026-11-01 09:12'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -41,6 +41,10 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(engine) the pickup gate refuses a story whose References name a path the box protects, before any claim, box or worker"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "Approve the R31 wording for ADR 0012 section \"3. The Ready gate\" (DIPO-399): a pickup-only rule R31 that refuses a Ready story whose References name a path `protectedKind` protects, except a link, moving it to Refined like any pickup gate failure. Once approved I will add the rule row and its mode to the ADR and the Replaced line only if the rule replaces something, which it does not."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -66,4 +70,13 @@ Parked 2026-11-01 09:08 UTC: ambiguous-spec
 - Last good commit: 5d960fade23aa7604ef7765eef5e9f874fd6b054
 
 Resumed 2026-11-01 09:09 UTC; grants: none; note: Follow the same Refined move as every other pickup gate failure (#toRefined); no second path (0001). Criterion 1's 'its status stays Ready' was wrong: in the PR, change criterion 1 through the Backlo…
+
+Parked 2026-11-01 09:12 UTC: ambiguous-spec
+- Detail: Approve the R31 wording for ADR 0012 section "3. The Ready gate" (DIPO-399): a pickup-only rule R31 that refuses a Ready story whose References name a path `protectedKind` protects, except a link, mo…
+- Run: run_01M6B5E9BH0A04V8RYCMQH6YNR
+- Criteria met: 4 of 5 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 202,161 of 300,000 tokens; 76 of 90 turns; 10 of 45 minutes
+- Last good commit: 8c4c6f23572d7789a02dbf49b4cfddfa87f33bf5
 <!-- SECTION:NOTES:END -->
