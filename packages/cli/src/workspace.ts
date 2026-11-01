@@ -135,8 +135,10 @@ export function systemWorkspace(): Workspace {
     interactive: process.stdin.isTTY === true && process.stdout.isTTY === true,
     ask: async (question) => {
       const prompt = createInterface({ input: process.stdin, output: process.stderr });
+      // Input ended before an answer (Ctrl+D, or a closed pipe): no answer, so a confirmation refuses.
+      const ended = new Promise<string>((done) => prompt.once("close", () => done("")));
       try {
-        return await prompt.question(question);
+        return await Promise.race([prompt.question(question).catch(() => ""), ended]);
       } finally {
         prompt.close();
       }
