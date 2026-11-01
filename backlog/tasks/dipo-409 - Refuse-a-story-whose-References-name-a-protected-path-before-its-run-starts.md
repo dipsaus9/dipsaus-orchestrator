@@ -1,7 +1,7 @@
 ---
 id: DIPO-409
 title: Refuse at pickup a story whose References name a protected path
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-31 10:18'
 updated_date: '2026-11-01 09:17'
@@ -43,9 +43,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A pickup-mode gate rule (the next free R number) fails a story whose References name a path that `protectedKind` protects, for every kind but `link`; the failure names the path and its kind and says a builder or the maintainer takes such a story. `dipo run` then refuses the story as for any pickup gate failure: no claim, no box, no worker, and the story moves to Refined as on every other pickup gate failure (`#toRefined` in work-run.ts)
-- [ ] #2 The rule calls the same `protectedKind` as the scope-violation park, not a copy, shown by tests on the real function: `.dipo/office.yaml`, `.dipo/`, `.github/workflows/ci.yml`, `.github/`, `.GitHub/x`, an NFKD look-alike of `.github`, `./.dipo/x`, `.dipo/x/` with a trailing slash, `.gitmodules`, `bunfig.toml` and a story-folder file are refused; `packages/engine/src/x.ts`, `packages/` and `.claude/` (only its settings file is protected) are not
-- [ ] #3 Fail closed: when the story folders cannot be read at pickup, the rule fails the story instead of passing it, shown by a test against the real gate input path
-- [ ] #4 The Ready-mode gate gives the same result as before for every story (a Ready-mode test with a `.github/` reference still passes), and the scope-violation park after a run is unchanged
-- [ ] #5 ADR 0012 lists the new rule with its mode in the same PR
+- [x] #1 A pickup-mode gate rule (the next free R number) fails a story whose References name a path that `protectedKind` protects, for every kind but `link`; the failure names the path and its kind and says a builder or the maintainer takes such a story. `dipo run` then refuses the story as for any pickup gate failure: no claim, no box, no worker, and the story moves to Refined as on every other pickup gate failure (`#toRefined` in work-run.ts)
+- [x] #2 The rule calls the same `protectedKind` as the scope-violation park, not a copy, shown by tests on the real function: `.dipo/office.yaml`, `.dipo/`, `.github/workflows/ci.yml`, `.github/`, `.GitHub/x`, an NFKD look-alike of `.github`, `./.dipo/x`, `.dipo/x/` with a trailing slash, `.gitmodules`, `bunfig.toml` and a story-folder file are refused; `packages/engine/src/x.ts`, `packages/` and `.claude/` (only its settings file is protected) are not
+- [x] #3 Fail closed: when the story folders cannot be read at pickup, the rule fails the story instead of passing it, shown by a test against the real gate input path
+- [x] #4 The Ready-mode gate gives the same result as before for every story (a Ready-mode test with a `.github/` reference still passes), and the scope-violation park after a run is unchanged
+- [x] #5 ADR 0012 lists the new rule with its mode in the same PR
 <!-- AC:END -->
