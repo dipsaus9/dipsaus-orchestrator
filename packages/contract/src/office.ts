@@ -100,7 +100,8 @@ export const workAnswer = defineCommand({
 });
 
 // (DIPO-163, 0020): a running worker gets the text as its next user message
-// (`next-turn`); a steer to a parked story is stored once and sent with the first message on
+// (`next-turn`), read in its running turn or, when its session ends first, carried by the next
+// session's first message (DIPO-412); a steer to a parked story is stored once and sent with the first message on
 // resume (`on-resume`). A story whose live session is its reviewer, or whose host is followed
 // only, answers `story.notSteerable`.
 export const workSteer = defineCommand({
