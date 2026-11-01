@@ -101,9 +101,9 @@ import {
   partPark,
   type PartRun,
   partSubject,
-  protectedKind,
   unsafePath,
 } from "./parts";
+import { protectedKind } from "../story-store/protected";
 import { BoxError, type BoxPort } from "./port";
 import { copyInAsUser } from "./user";
 

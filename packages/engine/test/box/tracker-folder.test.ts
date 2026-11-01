@@ -24,7 +24,8 @@ import {
   parseBoxChanges,
   storyChangedFiles,
 } from "../../src/box/collisions";
-import { type PartRun, protectedHits, protectedKind } from "../../src/box/parts";
+import { type PartRun, protectedHits } from "../../src/box/parts";
+import { protectedKind } from "../../src/story-store/protected";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import type { RepoFileRead } from "../../src/story-store/folder";

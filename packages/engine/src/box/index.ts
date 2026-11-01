@@ -412,10 +412,8 @@ export {
   partStuckText,
   partSubject,
   partUnstuckText,
-  PROTECTED_TEXT,
   protectedDetail,
   protectedHits,
-  protectedKind,
   refusedDetail,
   secretDetail,
   secretHits,
@@ -429,9 +427,10 @@ export type {
   PartOutcome,
   PartPark,
   PartRun,
-  ProtectedKind,
   TreeEntry,
 } from "./parts";
+export { PROTECTED_TEXT, protectedKind } from "../story-store/protected";
+export type { ProtectedKind } from "../story-store/protected";
 export { ignoreFileDir, IgnoreRules } from "./ignore";
 export type { IgnoreFile } from "./ignore";
 export {

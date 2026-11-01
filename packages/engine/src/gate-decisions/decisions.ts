@@ -32,7 +32,10 @@ export interface GateDecisionRecord {
 
 /** The rules a mode evaluates, by name, in the order `rulesFor(mode)` runs them. */
 export function ruleNamesFor(mode: GateMode): GateRule[] {
-  const shared = GATE_RULES.filter((rule) => rule !== "R01a" && rule !== "R01b");
+  // R31 is a pickup rule only: a Ready decision never names it.
+  const shared = GATE_RULES.filter(
+    (rule) => rule !== "R01a" && rule !== "R01b" && !(mode === "ready" && rule === "R31"),
+  );
   return [mode === "ready" ? "R01a" : "R01b", ...shared];
 }
 
