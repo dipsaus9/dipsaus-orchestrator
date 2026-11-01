@@ -151,6 +151,16 @@ export const WorkerReportSchema = z.strictObject({
     .describe("notes proposed for decision records, for the maintainer; never written there"),
 });
 
+// The schema the CLI checks a worker's report against (DIPO-416): the same shape, but `testPlan` is
+// required, an empty list when the story has no entries. The parser keeps it optional, so a report
+// without it still parses (0017 recordings and scripted turns).
+export const WorkerCliReportSchema = WorkerReportSchema.extend({
+  testPlan: z
+    .array(WorkerTestPlanEntrySchema)
+    .max(caps.testPlan)
+    .describe("one entry per test-plan entry of the story; an empty list when it has none"),
+});
+
 export const ReviewReportSchema = z.strictObject({
   criteria: z
     .array(
@@ -220,7 +230,7 @@ void reviewToContract;
 void reviewFromContract;
 
 /** The JSON Schema of `WorkerReport` for `--json-schema`. */
-export const WORKER_REPORT_JSON_SCHEMA: JsonSchema = toJsonSchema(WorkerReportSchema, "output");
+export const WORKER_REPORT_JSON_SCHEMA: JsonSchema = toJsonSchema(WorkerCliReportSchema, "output");
 
 /** The JSON Schema of `ReviewReport` for `--json-schema` (0019 section 5). */
 export const REVIEW_REPORT_JSON_SCHEMA: JsonSchema = toJsonSchema(ReviewReportSchema, "output");

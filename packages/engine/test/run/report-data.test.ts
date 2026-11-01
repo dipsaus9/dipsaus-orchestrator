@@ -33,6 +33,8 @@ describe("testPlanGaps", () => {
       { n: 3, check: "(unit) three", reported: "manual" },
     ]);
     expect(testPlanGaps(PLAN, undefined).map((gap) => gap.n)).toEqual([1, 3]);
+    // An empty list, which the CLI schema now requires when there is nothing to report (DIPO-416).
+    expect(testPlanGaps(PLAN, []).map((gap) => gap.n)).toEqual([1, 3]);
     expect(
       testPlanGaps(PLAN, [
         { n: 1, status: "done", evidence: "e" },
