@@ -84,8 +84,8 @@ describe("office configuration", () => {
         expect(notice).toMatchObject({ level: "error", code: "config.invalid" });
         expect(notice?.text).toContain("running work keeps the previous configuration");
         expect(notice?.text).toContain(invalid.r.errors[0]?.message ?? "?");
-        // Each read from the checkout (no remote here, DIPO-410) notices the office once more.
-        expect(s.changed.every((changed) => changed === office)).toBe(true);
+        // Each read from the checkout (no remote here, DIPO-410) notices the office.
+        expect(s.changed).toEqual([office, office, office]);
 
         writeOfficeYaml(repo.dir, VALID_2);
         const fixed = await reload(s, office);
