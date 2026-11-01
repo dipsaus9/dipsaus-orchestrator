@@ -43,7 +43,12 @@
 //   nothing was decided for yet is stopped as `story.park` stops one, and parks `by-maintainer` with
 //   `DAEMON_STOPPED_DETAIL`; the drain waits for the parks and for the workers' exits.
 //
-// - `work.steer` (DIPO-163, `intervene.ts`): the maintainer's message to a live worker.
+// - `work.steer` (DIPO-163, `intervene.ts`): the maintainer's message to a live worker. A
+//   `messageRead` event resolves the steer the session read `read`, with a notice (DIPO-412). A
+//   done turn while a steer sent to the session is unread is held back: Claude Code reads a steer
+//   that came after the turn's last tool call only after the result, and starts a new turn with
+//   it, whose report decides. With no read within `STEER_READ_WAIT_MS`, or an exit first, the held
+//   turn decides after all, and the unread steer goes with the run's next developer session.
 //
 // - Notes (0020 section 6, DIPO-154). The `notes` of every turn report are stored for the next
 //   session's handoff (`recordWorkerNotes`), keyed by the run's branch and the agent, replacing
@@ -94,6 +99,7 @@ import { capDetail, capEnding, reviewCapEnding, RunEndings } from "./control-end
 import { ReconcileStops } from "./control-reconcile";
 import {
   CAP_TICK_MS,
+  CONTROL_NOTICES,
   DAEMON_STOPPED_DETAIL,
   disarm,
   EVENT_FILE_CHANGED,
@@ -103,13 +109,20 @@ import {
   type RunEnding,
   type ParkRunArgs,
   type ParkRunResult,
+  STEER_READ_WAIT_MS,
   STOP_ALL_EXIT_WAIT_MS,
   type Tracked,
   type TrackedRun,
   viewOf,
 } from "./control-types";
 import { AfterTurns } from "./control-turns";
-import { type FeedbackSource, notSentNotice, sendFeedback } from "./feedback";
+import {
+  type FeedbackSource,
+  markSteerRead,
+  notSentNotice,
+  sendFeedback,
+  unreadSteers,
+} from "./feedback";
 import { Interventions } from "./intervene";
 import { outcomeOfIntent, resolveIntent } from "../records/intents";
 import { initRejectedEnding, type RunAct, type RunEnder, startRefusedAct } from "./outcome-types";
@@ -243,6 +256,7 @@ export class RunControl implements RunEnder {
       turns: Promise.resolve(),
       lastReport: null,
       capped: null,
+      heldDone: null,
     };
     this.#tracked.set(run.runId, tracked);
     this.#arm(tracked);
@@ -328,6 +342,10 @@ export class RunControl implements RunEnder {
     let pending: FiredCap | null = null;
     for (const [index, event] of events.entries()) {
       if (tracked.ending !== null) return;
+      if (event.t === "messageRead") {
+        this.#steerRead(tracked, event.text);
+        continue;
+      }
       // The worker's stream cannot be read, so its caps are blind (DIPO-315); a done turn that
       // already took the done path keeps it.
       const drift = this.#drifts.get(event);
@@ -367,6 +385,8 @@ export class RunControl implements RunEnder {
         this.#storeProposals(tracked, event.report as WorkerReport);
       }
       if (event.t === "turn") {
+        // A newer turn decides instead of a done turn held back for a steer (DIPO-412).
+        this.#dropHeldDone(tracked);
         // A done report on the turn that crosses a cap takes the done path (0008 amendment of
         // 2026-10-19, DIPO-205); without a finisher nothing could commit it, so the cap parks.
         const crossed =
@@ -427,7 +447,12 @@ export class RunControl implements RunEnder {
           !live &&
           (this.#deps.finisher !== undefined || problem !== undefined || review !== undefined)
         ) {
-          this.#turns.queue(tracked, report, problem, null, review);
+          const take = () => this.#turns.queue(tracked, report, problem, null, review);
+          // A done report while the session has a steer it has not read: the session reads it
+          // after this result and starts a new turn, which decides (DIPO-412).
+          const held =
+            report?.status === "done" && problem === undefined && this.#holdDone(tracked, take);
+          if (!held) take();
         }
       }
       // The cap as of this event, as the pass saw it (`onEventApplied`); the first crossing wins.
@@ -619,6 +644,94 @@ export class RunControl implements RunEnder {
   }
 
   /**
+   * The session read `text` (DIPO-412): the steer it was sent with that text is resolved `read`,
+   * with a notice the maintainer sees in `dipo watch`. A done turn held back for steers waits no
+   * longer once none is unread: the turn the read steer started decides.
+   */
+  #steerRead(tracked: Tracked, text: string): void {
+    const office = this.#deps.offices.get(tracked.office);
+    if (office === undefined) return;
+    let unread = 1;
+    this.#endings.writer(
+      office,
+      tracked.office,
+    )(() => {
+      const steer = markSteerRead(office, tracked.runId, text, this.#deps.clock.now());
+      unread = unreadSteers(office, tracked.runId).length;
+      if (steer === null) return [];
+      const story = tracked.work.story ?? tracked.runId;
+      return [
+        {
+          type: "engine.notice",
+          key: tracked.work.key,
+          run: tracked.runId,
+          delta: {
+            level: "info",
+            code: CONTROL_NOTICES.steerRead,
+            text: `${story}: the worker read the maintainer's steer.`,
+          },
+        },
+      ];
+    });
+    const held = tracked.heldDone;
+    if (held !== null && held.timer !== null && unread === 0) {
+      this.#deps.clock.clearTimeout(held.timer);
+      held.timer = null;
+    }
+  }
+
+  /**
+   * Holds back a done turn while the session has a steer it has not read (DIPO-412): Claude Code
+   * reads a steer that came after the turn's last tool call only after the turn's result, and
+   * starts a new turn with it, so that turn's report decides. `take` takes this turn's report
+   * after all when no steer was read within `STEER_READ_WAIT_MS`, or the worker exits first. True
+   * when it held the turn.
+   */
+  #holdDone(tracked: Tracked, take: () => void): boolean {
+    if (this.#deps.finisher === undefined) return false;
+    const office = this.#deps.offices.get(tracked.office);
+    if (office === undefined || unreadSteers(office, tracked.runId).length === 0) return false;
+    let taken = false;
+    const once = () => {
+      if (taken) return;
+      taken = true;
+      if (tracked.heldDone === held) tracked.heldDone = null;
+      if (tracked.ending === null && this.#tracked.get(tracked.runId) === tracked) take();
+    };
+    const held: NonNullable<Tracked["heldDone"]> = { take: once, timer: null };
+    held.timer = this.#deps.clock.setTimeout(() => {
+      held.timer = null;
+      once();
+    }, STEER_READ_WAIT_MS);
+    tracked.heldDone = held;
+    const story = tracked.work.story ?? tracked.runId;
+    this.#endings.writer(
+      office,
+      tracked.office,
+    )(() => [
+      {
+        type: "engine.notice",
+        key: tracked.work.key,
+        run: tracked.runId,
+        delta: {
+          level: "info",
+          code: CONTROL_NOTICES.steerAwaited,
+          text: `${story}: the worker reported done before it read the maintainer's steer; dipo waits for the turn the steer starts.`,
+        },
+      },
+    ]);
+    return true;
+  }
+
+  /** A newer turn came: a done turn held back for a steer no longer decides (DIPO-412). */
+  #dropHeldDone(tracked: Tracked): void {
+    const held = tracked.heldDone;
+    if (held === null) return;
+    if (held.timer !== null) this.#deps.clock.clearTimeout(held.timer);
+    tracked.heldDone = null;
+  }
+
+  /**
    * The worker's exit was ingested: the tick stops, and once the turns before the exit are
    * handled the run's outcomes decide what follows (DIPO-51). Without outcomes the intent that
    * explains the exit is resolved here.
@@ -626,7 +739,10 @@ export class RunControl implements RunEnder {
   onEnded(run: string, agent?: string, end?: IngestedExit): void {
     const tracked = this.#tracked.get(run);
     if (tracked === undefined) return;
+    // A done turn held back for a steer decides after all, before the exit (DIPO-412).
+    const held = tracked.heldDone;
     disarm(this.#deps.clock, tracked);
+    if (held !== null && tracked.ending === null) held.take();
     // A maintainer's park waiting for this exit parks now (DIPO-411).
     tracked.markExited();
     const outcomes = this.#deps.outcomes?.();

@@ -3,7 +3,10 @@
 // request).
 //
 // - `work.steer { story, text }`: a worker with a live session gets one next-priority user message
-//   wrapped in `feedback/steer.md`; the reply says `next-turn`. A parked story, or a run between
+//   wrapped in `feedback/steer.md`; the reply says `next-turn`. The session reads it in its running
+//   turn, or right after it, and run control marks it read; if the session ends first (a park, an
+//   exit), the first message of the run's next developer session carries it (`feedback.ts`,
+//   DIPO-412). A parked story, or a run between
 //   two sessions, holds the steer once, and the first message of the next session carries it; the
 //   reply says `on-resume`. A story whose live (or next) session is its reviewer answers
 //   `story.notSteerable`: the reviewer gets no maintainer text (0002). A story with no run and no

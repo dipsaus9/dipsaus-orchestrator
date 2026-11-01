@@ -239,3 +239,17 @@ export function resolveIntent(
     { at, outcome, run: runId, id: intentId },
   );
 }
+
+/**
+ * Inside the caller's transaction, as the run ends `done` or `dropped` (DIPO-412): every
+ * maintainer steer of the run no session read or carried (a `feedback steer` intent still pending
+ * or sent, `run/feedback.ts`) is resolved `unread`, so none stays open after its run.
+ */
+export function closeUnreadSteers(office: OfficeHandle, runId: RunId, at: number): void {
+  office.run(
+    `update run_intents set state = 'resolved', resolved_at = $at, outcome = 'unread'
+     where office_id = $office_id and run_id = $run and kind = 'steer'
+       and state in ('pending', 'sent') and detail like 'feedback steer %'`,
+    { at, run: runId },
+  );
+}

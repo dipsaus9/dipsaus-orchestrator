@@ -16,12 +16,14 @@ import {
   feedbackIntents,
   findSteer,
   heldFeedback,
+  markSteerRead,
   parseFeedback,
   sendFeedback,
+  unreadSteers,
 } from "../../src/run/feedback";
 import { safeChainStoreOf } from "../../src/create/runs";
 import type { OfficeManager } from "../../src/office/manager";
-import { findRun, insertRun } from "../../src/records";
+import { endRun, findRun, insertRun } from "../../src/records";
 import { runIntents } from "../../src/records/intents";
 import { addStory } from "../../src/records/story-keys";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -112,7 +114,13 @@ describe("a live developer session (0002)", () => {
     expect(
       feedbackIntents(f.office, f.run).map((item) => [item.source, item.text, item.state]),
     ).toEqual(SOURCES.map(([source, text]) => [source, text, "sent"]));
-    // Nothing is left for a next session.
+    // Only the steer the session has not read waits for a next session (DIPO-412); once it was
+    // read, nothing does.
+    expect(heldFeedback(f.office, f.run)).toMatchObject({
+      texts: ["The maintainer says: use bun."],
+      unread: 1,
+    });
+    f.office.immediate(() => markSteerRead(f.office, f.run, "The maintainer says: use bun.", 7));
     expect(heldFeedback(f.office, f.run).texts).toEqual([]);
   });
 
@@ -180,6 +188,77 @@ describe("no live developer session (0020)", () => {
       sendFeedback(f.office, f.run, { source: "answer", text: "Yes." }, { at: 1 });
     });
     expect(heldFeedback(f.office, f.run).texts).toEqual(["Yes."]);
+  });
+});
+
+/** A steer sent to the live session, keyed on its request `key`. */
+const live = (key: string, text: string) =>
+  sendFeedback(f.office, f.run, { source: "steer", key, text }, { sender }).done;
+
+describe("a steer read or held (DIPO-412)", () => {
+  it("is resolved read when the session reads its text, oldest first, and nothing else is", async () => {
+    await live("01A", "The maintainer says: add a JSDoc.");
+    await live("01B", "The maintainer says: add a JSDoc.");
+    await sendFeedback(f.office, f.run, { source: "verify", text: "verify failed." }, { sender })
+      .done;
+    // The task message, and a message that is no steer, resolve nothing.
+    expect(f.office.immediate(() => markSteerRead(f.office, f.run, "The task.", 3))).toBeNull();
+    expect(
+      f.office.immediate(() => markSteerRead(f.office, f.run, "verify failed.", 3)),
+    ).toBeNull();
+    const read = f.office.immediate(() =>
+      markSteerRead(f.office, f.run, "The maintainer says: add a JSDoc.", 4),
+    );
+    expect(read?.key).toBe("01A");
+    expect(unreadSteers(f.office, f.run).map((item) => item.key)).toEqual(["01B"]);
+    expect(
+      runIntents(f.office, f.run).map((intent) => [
+        intent.state,
+        intent.outcome,
+        intent.resolvedAt,
+      ]),
+    ).toEqual([
+      ["resolved", "read", 4],
+      ["sent", null, null],
+      ["sent", null, null],
+    ]);
+  });
+
+  it("goes unread with the next session's first message beside a resume note, keeping when it was sent", async () => {
+    await live("01A", "The maintainer says: add a JSDoc.");
+    const sentAt = runIntents(f.office, f.run)[0]?.sentAt ?? null;
+    // The session parked before it read the steer; the resume note comes later.
+    sendFeedback(f.office, f.run, { source: "park", text: "dipo parked it." }, { at: 20 });
+    sendFeedback(f.office, f.run, { source: "resume", text: "Note: go on." }, { at: 21 });
+    const held = heldFeedback(f.office, f.run);
+    expect(held.texts).toEqual([
+      "dipo parked it.",
+      "The maintainer says: add a JSDoc.",
+      "Note: go on.",
+    ]);
+    expect(held.unread).toBe(1);
+    f.office.immediate(() => deliverHeld(f.office, f.run, held.ids, 30));
+    expect(heldFeedback(f.office, f.run).texts).toEqual([]);
+    expect(runIntents(f.office, f.run).map((i) => [i.state, i.outcome, i.sentAt])).toEqual([
+      ["resolved", "resumed", sentAt],
+      ["resolved", "resumed", 30],
+      ["resolved", "resumed", 30],
+    ]);
+  });
+
+  it("leaves no steer sent or pending once its run ends done or dropped, and keeps a parked run's", async () => {
+    await live("01A", "The maintainer says: add a JSDoc.");
+    sendFeedback(f.office, f.run, { source: "steer", key: "01B", text: "Held." }, { at: 2 });
+    sendFeedback(f.office, f.run, { source: "verify", text: "verify failed." }, { at: 2 });
+    f.office.immediate(() => endRun(f.office, f.run, 40, "parked"));
+    expect(runIntents(f.office, f.run).map((i) => i.state)).toEqual(["sent", "pending", "pending"]);
+    f.office.immediate(() => endRun(f.office, f.run, 50, "dropped"));
+    expect(runIntents(f.office, f.run).map((i) => [i.state, i.outcome])).toEqual([
+      ["resolved", "unread"],
+      ["resolved", "unread"],
+      // Only steers: other held feedback is left as it was.
+      ["pending", null],
+    ]);
   });
 });
 

@@ -23,6 +23,7 @@ import { canonicalJson } from "../config/merge";
 import type { OfficeHandle } from "../db/office";
 
 import { runTotals } from "./caps";
+import { closeUnreadSteers } from "./intents";
 import { nextRunState, type RunEnd, type RunEvent, type RunState } from "./lifecycle";
 import { retiredRun } from "./retired";
 import { finalizeRunAgents } from "./usage";
@@ -351,6 +352,10 @@ export function applyRunEvent(
       parked_ms: after.parkedMs,
     },
   );
+  // A steer the run ends with, held or unread, reaches no session any more (DIPO-412).
+  if (event.kind === "end" && (after.ending === "done" || after.ending === "dropped")) {
+    closeUnreadSteers(office, runId as RunId, event.at);
+  }
   return { before, after };
 }
 

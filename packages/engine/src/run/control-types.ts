@@ -53,6 +53,10 @@ export const DAEMON_STOPPED_DETAIL =
 export const CONTROL_NOTICES = {
   notSent: "run.stopNotSent",
   feedbackNotSent: "run.feedbackNotSent",
+  /** The worker read a maintainer steer (DIPO-412). */
+  steerRead: "run.steerRead",
+  /** A done turn waits for the turn a steer the worker has not read starts (DIPO-412). */
+  steerAwaited: "run.steerAwaited",
 } as const;
 
 /** Sends host ops to a run's worker host. */
@@ -154,7 +158,20 @@ export interface Tracked extends TrackedRun {
    * and no cap ends it while verify and commit run.
    */
   capped: FiredCap | null;
+  /**
+   * A done turn held back while the session has a steer it has not read (DIPO-412): the session
+   * reads it after the turn's result and starts a new turn, whose report decides. `take` takes the
+   * held turn's report after all: when no steer was read `STEER_READ_WAIT_MS` after the turn, or
+   * when the worker exits first. `timer` is null once a read came.
+   */
+  heldDone: { readonly take: () => void; timer: TimerHandle | null } | null;
 }
+
+/**
+ * How long a done turn waits for the session to read a steer it was sent and has not read
+ * (DIPO-412). Claude Code reads it right after the turn's result (1.6 s in the live probe).
+ */
+export const STEER_READ_WAIT_MS = 60_000;
 
 /** What ending a run does: the intent, the ops it sends and the park that follows. */
 export interface RunEnding {
@@ -211,10 +228,12 @@ export function messageOf(error: unknown): string {
 
 export type Ending = RunEnding;
 
-/** Stops the cap tick of a tracked run. */
+/** Stops the cap tick of a tracked run, and drops a held done turn with its wait (DIPO-412). */
 export function disarm(clock: Clock, tracked: Tracked): void {
   if (tracked.timer !== null) clock.clearTimeout(tracked.timer);
   tracked.timer = null;
+  if (tracked.heldDone?.timer != null) clock.clearTimeout(tracked.heldDone.timer);
+  tracked.heldDone = null;
 }
 
 /** A tracked run as worker outcomes see it. */

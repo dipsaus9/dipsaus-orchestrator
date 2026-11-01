@@ -29,6 +29,7 @@ import {
   type RunEnder,
 } from "../../src/run";
 import { endRun, findRun, insertRun, runIntents } from "../../src/records";
+import { sendFeedback } from "../../src/run/feedback";
 import { Places } from "../../src/run-state/places";
 import { reopen, type RoundKind, stopAtInReview } from "../../src/run-state/rounds";
 import { addStory } from "../../src/records/story-keys";
@@ -299,6 +300,35 @@ describe("work.steer", () => {
     });
     expect(w.sent).toHaveLength(1);
     expect(steers()).toHaveLength(1);
+  });
+
+  it("sends a steer the session parked before reading with the resume's first message, beside the resume note (DIPO-412)", async () => {
+    // Sent to the live session, which parks before it reads it: the steer stays `sent`.
+    expect(ok(await steer("Mind the edge case."))).toEqual({
+      run: w.f.run,
+      delivered: "next-turn",
+    });
+    exitWorker();
+    park();
+    expect(steers().map((s) => s.state)).toEqual(["sent"]);
+    // A steer now says it waits for the resume.
+    expect(ok(await steer("And the other one.")).delivered).toBe("on-resume");
+    w.f.office.immediate(() =>
+      w.f.office.run("update runs set ended_at = null where office_id = $office_id"),
+    );
+    sendFeedback(
+      w.f.office,
+      w.f.run,
+      { source: "resume", text: "Note from the maintainer: go on." },
+      { at: w.f.t.clock.now() },
+    );
+    expect(await startSession()).toBe(true);
+    const message = w.sessions[0]?.message ?? "";
+    const unread = message.indexOf("The maintainer says: Mind the edge case.");
+    const held = message.indexOf("The maintainer says: And the other one.");
+    const note = message.indexOf("Note from the maintainer: go on.");
+    expect([unread >= 0, unread < held, held < note]).toEqual([true, true, true]);
+    expect(steers().map((s) => s.state)).toEqual(["resolved", "resolved", "resolved"]);
   });
 
   it("stores a steer to a parked story and sends it with the first message on resume", async () => {
