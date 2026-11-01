@@ -1,10 +1,10 @@
 ---
 id: DIPO-417
 title: End a scan session at its result instead of its time cap
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-01 18:00'
-updated_date: '2026-11-01 18:02'
+updated_date: '2026-11-01 18:07'
 labels:
   - 'tier:S'
 milestone: m-1
