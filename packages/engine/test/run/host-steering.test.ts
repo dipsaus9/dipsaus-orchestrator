@@ -82,6 +82,23 @@ describe("hostSocketSteering while the host starts (DIPO-411)", () => {
     expect(readFileSync(host.ops, "utf8").trim().split("\n")).toEqual(["closeStdin", "signal"]);
   });
 
+  it("stops asking a starting host once the daemon is closing", async () => {
+    const run = RunId.parse(t.ids.next("run"));
+    const host = lateHost(run, "c");
+    record(run, host);
+    let closing = false;
+    const steering = hostSocketSteering({ clock: systemClock, stopped: () => closing });
+    const sending = steering.send(office, run, [{ closeStdin: true }]);
+    await Bun.sleep(100);
+    closing = true;
+    const begun = performance.now();
+    expect(await sending).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining("unreachable"),
+    });
+    expect(performance.now() - begun).toBeLessThan(1_000);
+  });
+
   it("makes one attempt at a host past its launch deadline, as before", async () => {
     const run = RunId.parse(t.ids.next("run"));
     const host = lateHost(run, "b");

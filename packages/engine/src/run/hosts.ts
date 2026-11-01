@@ -303,6 +303,11 @@ export class OfficeIngest implements RunIngest {
       });
   }
 
+  /** True once `close` ran: the daemon is closing (DIPO-411). */
+  get closed(): boolean {
+    return this.#closed;
+  }
+
   /** Writes the run's pending `work.output` now, before a state change of the run (0005 section 6). */
   flushOutput(office: OfficeId, run: string): void {
     this.#ingestors.get(office)?.flushOutput(run);
@@ -335,6 +340,8 @@ export const PENDING_POLL_MS = 50;
 export interface HostSocketSteeringOptions {
   readonly clock: Clock;
   readonly timeoutMs?: number;
+  /** True once the daemon is closing: a send no longer waits for a host that is still starting. */
+  readonly stopped?: () => boolean;
 }
 
 /**
@@ -363,7 +370,7 @@ export function hostSocketSteering(options: HostSocketSteeringOptions): RunSteer
       const connected = await connectWhenBound(
         { socketPath: host.socketPath, runId, launchDeadline: hostLaunchDeadline(host.startedAt) },
         options.clock,
-        () => false,
+        options.stopped ?? (() => false),
         options.timeoutMs ?? STEER_TIMEOUT_MS,
       );
       if (!connected.ok) {
