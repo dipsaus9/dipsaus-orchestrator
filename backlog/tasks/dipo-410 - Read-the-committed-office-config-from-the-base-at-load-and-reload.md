@@ -1,10 +1,10 @@
 ---
 id: DIPO-410
 title: Read the committed office config from the base at load and reload
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-01 08:57'
-updated_date: '2026-11-01 13:35'
+updated_date: '2026-11-01 14:02'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -17,6 +17,12 @@ references:
   - packages/engine/src/git/office.ts
   - packages/engine/test/office/
   - docs/decisions/0017-testing-strategy-and-configuration.md
+modified_files:
+  - docs/decisions/0017-testing-strategy-and-configuration.md
+  - packages/engine/src/office/manager.ts
+  - packages/engine/test/office/committed.test.ts
+  - packages/engine/test/office/config.test.ts
+  - packages/engine/test/office/forget.test.ts
 priority: high
 type: bug
 ordinal: 388000
@@ -93,3 +99,22 @@ Parked 2026-11-01 13:26 UTC: budget-exceeded
 
 Resumed 2026-11-01 13:30 UTC; grants: budget +150,000 tokens, +45 turns, +23 minutes; note: Maintainer approved a 50% top-up on 2026-11-01. Finish the criterion 6 edge case and its test, take main into the branch for the clock-flake fix, then hand off.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-01 14:02 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 351,493 of 450,000 tokens
+- Runs: 1; resumes: 3
+- Parks: 3
+  - 2026-11-01 12:29 UTC ambiguous-spec: Criterion 5 asks me to write the base-commit sentence into docs/decisions/0017 and to say that `dipo config migrate` writes the checkout file that reaches the base through a PR. The worker contract s…
+  - 2026-11-01 12:51 UTC ambiguous-spec: The macOS verify fails only on 'keeps every refusal as unknown when the box's clock cannot be read or moved (DIPO-396)' in packages/engine/test/box/safe-chain-log.test.ts, and the feedback lacks the…
+  - 2026-11-01 13:26 UTC budget-exceeded: token budget reached: 300,277 of 300,000 budget tokens (input, output and cache creation)
+- Grants: 1
+  - 2026-11-01 13:30 UTC budget +150,000 tokens, +45 turns, +23 minutes
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 2
+<!-- SECTION:FINAL_SUMMARY:END -->
