@@ -1,10 +1,10 @@
 ---
 id: DIPO-410
 title: Read the committed office config from the base at load and reload
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-01 08:57'
-updated_date: '2026-11-01 12:21'
+updated_date: '2026-11-01 12:29'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -38,6 +38,10 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(engine) office load and reload-config read .dipo/office.yaml from the base commit, not the checkout, and a fetch reads the same source"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "Criterion 5 asks me to write the base-commit sentence into docs/decisions/0017 and to say that `dipo config migrate` writes the checkout file that reaches the base through a PR. The worker contract says I never write decision records. Should dipo apply decisionNotes[0] to section \"5. Format and files\" of 0017, or may I edit that ADR directly?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -50,3 +54,16 @@ test_plan:
 - [ ] #5 ADR 0017 names the base commit as the one source of the committed office config at start, reload and fetch, and says `dipo config migrate` writes the checkout file that reaches the base through a PR
 - [ ] #6 When the base office.yaml names a `base` or remote other than the one load started from, load reads the file again at that base once, shown by a test; the first poll after load does not reload when the base is unchanged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-01 12:29 UTC: ambiguous-spec
+- Detail: Criterion 5 asks me to write the base-commit sentence into docs/decisions/0017 and to say that `dipo config migrate` writes the checkout file that reaches the base through a PR. The worker contract s…
+- Run: run_01M6BGXNG9Y50SFRQHF58RJ5DD
+- Criteria met: 5 of 6 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 200,678 of 300,000 tokens; 49 of 90 turns; 8 of 45 minutes
+- Last good commit: bc45e49270ebb97a39b25820593c831654300c3b
+<!-- SECTION:NOTES:END -->
