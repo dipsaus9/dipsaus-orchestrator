@@ -1,15 +1,18 @@
 ---
 id: DIPO-417
 title: End a scan session at its result instead of its time cap
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-01 18:00'
-updated_date: '2026-11-01 18:15'
+updated_date: '2026-11-01 18:17'
 labels:
   - 'tier:S'
 milestone: m-1
 dependencies: []
 references:
+  - packages/engine/src/run/session-run.ts
+  - packages/engine/test/run/session-run.test.ts
+modified_files:
   - packages/engine/src/run/session-run.ts
   - packages/engine/test/run/session-run.test.ts
 priority: medium
@@ -45,3 +48,18 @@ test_plan:
 - [x] #2 A session that never sends a turn still ends at its time or budget cap as now, shown by the existing tests
 - [x] #3 The runner's file comment says the session ends at its first turn: dipo closes its stdin there, and the schema retry is the CLI's own, inside that turn
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-01 18:17 UTC
+- Criteria met: 3 of 3 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 46,446 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
