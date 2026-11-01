@@ -1,10 +1,10 @@
 ---
 id: DIPO-415
 title: Show the whole desk command and no lost health between sessions
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-01 15:39'
-updated_date: '2026-11-01 16:47'
+updated_date: '2026-11-01 16:52'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -38,6 +38,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A desk detail longer than `DESK_DETAIL_MAX` is cut before a backticked command or after its closing backtick, never inside one, shown by a test with the merge-gate text from run-state/gates.ts
-- [ ] #2 Between a developer session's end and the reviewer session's start, a run's health is not derived as lost, while a developer exit the engine has not processed still is, shown by a test of `deriveHealth`'s facts
+- [x] #1 A desk detail longer than `DESK_DETAIL_MAX` is cut before a backticked command or after its closing backtick, never inside one, shown by a test with the merge-gate text from run-state/gates.ts
+- [x] #2 Between a developer session's end and the reviewer session's start, a run's health is not derived as lost, while a developer exit the engine has not processed still is, shown by a test of `deriveHealth`'s facts
 <!-- AC:END -->
