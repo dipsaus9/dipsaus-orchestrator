@@ -1,10 +1,10 @@
 ---
 id: DIPO-409
 title: Refuse at pickup a story whose References name a protected path
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-31 10:18'
-updated_date: '2026-11-01 08:56'
+updated_date: '2026-11-01 09:01'
 labels:
   - 'tier:S'
   - 'slice:prune'
