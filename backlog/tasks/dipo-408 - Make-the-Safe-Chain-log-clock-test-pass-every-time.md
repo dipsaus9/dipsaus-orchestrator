@@ -1,10 +1,10 @@
 ---
 id: DIPO-408
 title: Make the Safe-Chain log clock test pass every time
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-31 09:39'
-updated_date: '2026-10-31 10:28'
+updated_date: '2026-11-01 08:55'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -15,6 +15,8 @@ references:
   - packages/engine/test/box/safe-chain-log.test.ts
   - packages/engine/src/box/safe-chain.ts
   - packages/engine/src/box/safe-chain-box.ts
+modified_files:
+  - packages/engine/test/box/safe-chain-log.test.ts
 priority: medium
 type: bug
 ordinal: 386000
@@ -61,3 +63,19 @@ Parked 2026-10-31 10:22 UTC: ambiguous-spec
 
 Resumed 2026-10-31 10:23 UTC; grants: none; note: Run the file 50 times in a row in the box instead and record that result in the PR body; that meets criterion 2 for you. The maintainer's session runs the 50 Mac runs against the PR's head after it o…
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-01 08:55 UTC
+- Criteria met: 2 of 3 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 85,261 of 300,000 tokens
+- Runs: 1; resumes: 1
+- Parks: 1
+  - 2026-10-31 10:22 UTC ambiguous-spec: Can someone run `bun test packages/engine/test/box/safe-chain-log.test.ts` 50 times in a row on the Mac and record the result on the PR? That is the only part of criterion 2 left, and this box cannot…
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
