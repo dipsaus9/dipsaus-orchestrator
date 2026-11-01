@@ -389,9 +389,14 @@ export class OfficeManager implements OfficeDirectory {
     let result = await this.#configFrom(instance, committed);
     const named = result.ok ? result.config.base : undefined;
     if (committed?.kind === "file" && named !== undefined) {
+      // A named base without a ref yet keeps the file read at the first base: the checkout is only
+      // read when the repository has no base ref at all.
       instance.git.configure(committedSettings(named));
-      committed = await readBaseOfficeFile(instance.git);
-      result = await this.#configFrom(instance, committed);
+      const atNamed = await readBaseOfficeFile(instance.git);
+      if (atNamed !== null) {
+        committed = atNamed;
+        result = await this.#configFrom(instance, committed);
+      }
     }
     instance.seenOnBase = committed;
     instance.fromCheckout = committed === null;

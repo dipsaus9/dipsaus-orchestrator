@@ -28,6 +28,7 @@ const NAMES_DEVELOP = "version: 14\nbase: develop\nreview:\n  maxRounds: 7\n";
 // On `develop` the file names its own base, as the base the poll reads must keep naming it.
 const DEVELOP_CLOSED = "version: 14\nbase: develop\nreview:\n  maxRounds: 2\n";
 const DEVELOP_OPEN = "version: 14\nbase: develop\nreview:\n  maxRounds: 4\n";
+const NAMES_STAGING = "version: 14\nbase: staging\nreview:\n  maxRounds: 7\n";
 
 function writeOffice(dir: string, text: string): void {
   mkdirSync(join(dir, ".dipo"), { recursive: true });
@@ -195,6 +196,24 @@ describe("office.yaml is read from the base (DIPO-410)", () => {
         await s.manager.reloadIfChanged(office, git);
         expect(s.manager.config(office)?.review.maxRounds).toBe(2);
         expect(readFileSync(join(repo.dir, OFFICE_YAML), "utf8")).toBe(OPEN);
+      },
+      { fixture: BACKLOG_FIXTURE },
+    ));
+
+  it("keeps the base's file when the base it names has no ref yet, and reads no checkout", () =>
+    withBareRemote(
+      async (repo) => {
+        await commitOffice(repo, NAMES_STAGING, "main names staging, which is not pushed");
+        await pushMain(repo);
+        // The checkout's own copy differs and is not committed: load must not read it.
+        writeOffice(repo.dir, CLOSED);
+
+        const s = await officeSetup(repo.root);
+        const office = await openAndLoad(s, repo.dir);
+        expect(s.manager.config(office)?.base).toBe("staging");
+        expect(s.manager.config(office)?.review.maxRounds).toBe(7);
+        expect(s.manager.configHash(office)).toBe(await hashOf(repo.dir, NAMES_STAGING));
+        expect(noticeCodes(s, office)).not.toContain("config.fromCheckout");
       },
       { fixture: BACKLOG_FIXTURE },
     ));
