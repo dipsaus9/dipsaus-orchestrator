@@ -1,10 +1,10 @@
 ---
 id: DIPO-410
 title: Read the committed office config from the base at load and reload
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-01 08:57'
-updated_date: '2026-11-01 13:25'
+updated_date: '2026-11-01 13:26'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -44,6 +44,10 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(engine) office load and reload-config read .dipo/office.yaml from the base commit, not the checkout, and a fetch reads the same source"
+park:
+  reason: "budget-exceeded"
+  from: "In Progress"
+  note: "token budget reached: 300,277 of 300,000 budget tokens (input, output and cache creation)"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -81,4 +85,13 @@ Parked 2026-11-01 12:51 UTC: ambiguous-spec
 - Last good commit: a5563b57a2a1c718ba2f23e85643d4db7376abec
 
 Resumed 2026-11-01 13:25 UTC; grants: none; note: That failure is not yours: it is the Safe-Chain clock flake that DIPO-408 (#515) fixed; #515 is now on main. Change nothing in safe-chain-log.test.ts; take main into your branch so CI runs with the f…
+
+Parked 2026-11-01 13:26 UTC: budget-exceeded
+- Detail: token budget reached: 300,277 of 300,000 budget tokens (input, output and cache creation)
+- Run: run_01M6BGXNG9Y50SFRQHF58RJ5DD
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 1 of 2
+- Review rounds: 1, failed 0 of 3
+- Budget used: 303,248 of 300,000 tokens; 81 of 90 turns; 15 of 45 minutes
+- Last good commit: 63e78f45e869b64d82963bd0228c1ea4d155d578
 <!-- SECTION:NOTES:END -->
