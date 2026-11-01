@@ -555,12 +555,30 @@ export interface LiveRunHost {
 }
 
 /**
- * Stops the worker hosts still alive for a run the engine recorded as ended (DIPO-411, 0005), as
- * `dipo resume` and `dipo drop` find them: each recorded host whose PID and start time match a live
- * process (`hostAlive`) gets one verified SIGTERM (`signalVerifiedHost`), and the host's own SIGTERM
- * stop then stops its worker. Any doubt sends nothing and says why: a check that throws, a host
- * that fails the verification, a run that has not ended. Returns every host found alive, or whose
- * check failed, with what dipo did; none means no host of the run runs.
+ * The one stop of a worker host still alive for a run the engine recorded as ended (DIPO-411,
+ * 0005), for re-attach's sweep and for `dipo resume` and `dipo drop`: a recorded host whose PID and
+ * start time match a live process (`hostAlive`) gets one verified SIGTERM (`signalVerifiedHost`),
+ * and the host's own SIGTERM stop then stops its worker. Any doubt sends nothing and says why: a
+ * host that fails the verification, a run that has not ended. Null when the host does not run; a
+ * probe that throws throws.
+ */
+export async function stopHostOfEndedRun(
+  host: WorkerHostRow,
+  runEnded: boolean,
+  probe: ProcessProbe,
+  signal: SignalProcess,
+): Promise<LiveRunHost | null> {
+  if (host.pending || !(await hostAlive(host, probe))) return null;
+  const refused = runEnded
+    ? await signalVerifiedHost(host, probe, signal)
+    : "its run has not ended";
+  return { pid: host.pid, refused };
+}
+
+/**
+ * `stopHostOfEndedRun` for every host of the run: a check that throws counts as a host found,
+ * with nothing sent (fail closed). Returns every host found alive, or whose check failed, with what
+ * dipo did; none means no host of the run runs.
  */
 export async function stopHostsOfEndedRun(
   office: OfficeHandle,
@@ -576,12 +594,8 @@ export async function stopHostsOfEndedRun(
   for (const host of workerHostsOf(office, runId)) {
     if (host.pending) continue;
     try {
-      if (!(await hostAlive(host, probe))) continue;
-      const refused =
-        run?.ended_at == null
-          ? "its run has not ended"
-          : await signalVerifiedHost(host, probe, signal);
-      found.push({ pid: host.pid, refused });
+      const live = await stopHostOfEndedRun(host, run?.ended_at != null, probe, signal);
+      if (live !== null) found.push(live);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       found.push({ pid: host.pid, refused: `checking it failed (${reason})` });
