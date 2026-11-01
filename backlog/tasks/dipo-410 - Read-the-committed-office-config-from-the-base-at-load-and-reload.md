@@ -1,10 +1,10 @@
 ---
 id: DIPO-410
 title: Read the committed office config from the base at load and reload
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-01 08:57'
-updated_date: '2026-11-01 13:30'
+updated_date: '2026-11-01 13:35'
 labels:
   - 'tier:S'
   - 'slice:prune'
