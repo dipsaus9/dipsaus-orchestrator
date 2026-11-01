@@ -1,10 +1,10 @@
 ---
 id: DIPO-416
 title: Require the test plan in the worker's report schema
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-01 16:07'
-updated_date: '2026-11-01 17:10'
+updated_date: '2026-11-01 17:15'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -42,8 +42,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The JSON Schema passed to the CLI lists `testPlan` as required, and a report without it fails validation against that schema, shown by a test (the existing required-list test in report-schema.test.ts becomes status, criteria, summary, commitSubject, testPlan)
-- [ ] #2 An empty `testPlan` list is valid, and a done report on a story with automated entries but an empty list is still sent back by the report gate as now, shown by a test
-- [ ] #3 The report section of packages/engine/src/prompts/contract/implement-box.md says `testPlan` is always present, empty when the story has no entries, shown by the prompt golden tests
-- [ ] #4 `parseWorkerReport` and the worker event schema still accept a report without `testPlan`, so every committed recording and scripted turn replays with its current outcome, shown by the existing recordings and scripted tests passing unchanged
+- [x] #1 The JSON Schema passed to the CLI lists `testPlan` as required, and a report without it fails validation against that schema, shown by a test (the existing required-list test in report-schema.test.ts becomes status, criteria, summary, commitSubject, testPlan)
+- [x] #2 An empty `testPlan` list is valid, and a done report on a story with automated entries but an empty list is still sent back by the report gate as now, shown by a test
+- [x] #3 The report section of packages/engine/src/prompts/contract/implement-box.md says `testPlan` is always present, empty when the story has no entries, shown by the prompt golden tests
+- [x] #4 `parseWorkerReport` and the worker event schema still accept a report without `testPlan`, so every committed recording and scripted turn replays with its current outcome, shown by the existing recordings and scripted tests passing unchanged
 <!-- AC:END -->
