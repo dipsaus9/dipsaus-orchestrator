@@ -1,10 +1,10 @@
 ---
 id: DIPO-413
 title: Drop the JSON Schema dialect from the scan fallback's output schema
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-11-01 15:39'
-updated_date: '2026-11-01 16:03'
+updated_date: '2026-11-01 16:06'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -36,10 +36,6 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(engine) the scan fallback's --json-schema carries no $schema key and comes from the same function as the worker report schema"
-park:
-  reason: "verify-failing"
-  from: "In Progress"
-  note: "the report gate refused the done report 3 times (the loop cap is 3). Your report says done, but these automated test-plan entries are not done:\n- #1 (not reported): (engine) the scan fallback's --json-schema carries no $schema key and comes from the same function as the worker report schema\nWrite the tests they ask for and run them. Then report done again with one testPlan entry for each entry of the test plan: its number, done, not-done or manual, and the evidence. If an entry cannot be done in this story, report blocked and say why."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -61,4 +57,6 @@ Parked 2026-11-01 16:03 UTC: verify-failing
 - Review rounds: 0, failed 0 of 3
 - Budget used: 73,717 of 300,000 tokens; 27 of 90 turns; 3 of 45 minutes
 - Last good commit: dc151494ab17476fe43a0c2443e02e10276dba78
+
+Resumed 2026-11-01 16:06 UTC; grants: +1 loop; note: Your work and tests are fine. Only the report was malformed: your last three StructuredOutput calls had no testPlan key; the test-plan list ended up as text inside another field. Report done again wi…
 <!-- SECTION:NOTES:END -->
