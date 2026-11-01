@@ -1,10 +1,10 @@
 ---
 id: DIPO-418
 title: 'Let discard stop an ended run''s host, and name dipo commands in refusals'
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-01 18:45'
-updated_date: '2026-11-01 18:48'
+updated_date: '2026-11-01 19:00'
 labels:
   - 'tier:M'
 milestone: m-1
