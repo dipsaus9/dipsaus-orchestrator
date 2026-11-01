@@ -4,13 +4,17 @@ title: Drop the JSON Schema dialect from the scan fallback's output schema
 status: Refined
 assignee: []
 created_date: '2026-11-01 15:39'
+updated_date: '2026-11-01 15:47'
 labels:
   - 'tier:S'
 milestone: m-1
 dependencies: []
 references:
   - packages/engine/src/scan/answer.ts
+  - packages/engine/src/scan/fallback.ts
   - packages/engine/src/workers/claude-cli/report-schema.ts
+  - packages/engine/src/workers/claude-cli/result.ts
+  - packages/engine/src/workers/claude-cli/interpret.ts
   - packages/engine/test/scan/
   - packages/engine/test/workers/
 priority: medium
@@ -23,7 +27,7 @@ ordinal: 391000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: `dipo office infer` runs its AI fallback session to the end and gives a proposal, instead of failing on every run.
 
-Found in the M1 hand-test wave of 2026-11-01 on the scratch office (binary 9c7d41238fbc). Two of two runs of `dipo office infer` failed with "The scan fallback's session failed … no result before exit 1". The session's events.ndjson says: `Error: --json-schema is not a valid JSON Schema: no schema with key or ref "https://json-schema.org/draft/2020-12/schema"`. packages/engine/src/scan/answer.ts (`SCAN_ANSWER_JSON_SCHEMA`) passes zod's `$schema` key on, while workers/claude-cli/report-schema.ts strips it (about line 222). Fix: one function turns a zod schema into the JSON Schema a session gets, without `$schema`, and both use it; the strip in report-schema.ts moves there (0001). 0008.
+Found in the M1 hand-test wave of 2026-11-01 on the scratch office (binary 9c7d41238fbc). Two of two runs of `dipo office infer` failed with "The scan fallback's session failed … no result before exit 1". The session's events.ndjson says: `Error: --json-schema is not a valid JSON Schema: no schema with key or ref "https://json-schema.org/draft/2020-12/schema"`. packages/engine/src/scan/answer.ts (`SCAN_ANSWER_JSON_SCHEMA`, about line 54) passes zod's `$schema` key on, while workers/claude-cli/report-schema.ts `buildJsonSchema` strips it (about line 222). Fix: one function turns a zod schema into the JSON Schema a session gets, without `$schema`, and both use it; the strip in report-schema.ts moves there (0001). The refusal text is built in workers/claude-cli/result.ts (about line 77) and scan/fallback.ts `#failed`; interpret.ts reads no stderr, so the session's own error line has to come from its events. 0008.
 
 ```dipo
 branch: "DIPO-413/scan-schema-dialect"

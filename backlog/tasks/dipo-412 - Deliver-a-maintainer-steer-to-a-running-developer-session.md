@@ -4,6 +4,7 @@ title: Deliver a maintainer steer to a running developer session
 status: Refined
 assignee: []
 created_date: '2026-11-01 15:39'
+updated_date: '2026-11-01 15:47'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -11,10 +12,13 @@ dependencies: []
 references:
   - packages/engine/src/run/intervene.ts
   - packages/engine/src/run/feedback.ts
-  - packages/engine/src/workers/claude-cli/encode.ts
+  - packages/engine/src/run/hosts.ts
+  - packages/engine/src/host/steering.ts
+  - packages/engine/src/workers/claude-cli/
   - packages/engine/src/run/control.ts
   - packages/engine/test/run/
   - packages/engine/test/workers/
+  - packages/engine/test/host/
 priority: high
 type: bug
 ordinal: 390000
@@ -23,26 +27,32 @@ ordinal: 390000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: `dipo steer <ID> "<text>"` on a running story always reaches the developer: in its next turn while the session lives, or in the next session's first message when the session ends first. The maintainer can see which happened.
+Outcome: `dipo steer <ID> "<text>"` on a running story always reaches the developer: in its running turn while the session lives, or in the next session's first message when the session ends first. The maintainer can see which happened.
 
 Found in the M1 hand-test wave of 2026-11-01 on the scratch office (binary 9c7d41238fbc). Two of two steers were lost. TASK-11: steer at 14:44:07, the worker finished at 14:44:16 without the asked JSDoc. TASK-16: steer at 15:02:08, then a park; the resume carried only the resume note. In both runs the steer's `run_intents` row stayed `sent` and was never resolved, and `dipo steer` printed "the worker reads it with its next turn".
 
-Today run/intervene.ts sends it through run/feedback.ts `sendFeedback`, which workers/claude-cli/encode.ts writes as one stream-json user message with priority `next` on the worker's stdin. Not yet known: whether Claude Code (2.1.316 on the host) reads a `next` message that arrives during a turn, or whether the run ends at the turn's result before the session reads stdin. The first step is to find which, from a recorded stream-json session; the fix keeps one delivery path for steers, held texts and answers (0001). 0008, 0020.
+Today run/intervene.ts sends it through run/feedback.ts `sendFeedback`, which workers/claude-cli/encode.ts writes as one stream-json user message with priority `next` on the worker's stdin through the worker host (run/hosts.ts, host/steering.ts). Claude Code itself reads such a message (see the unknown), so the steer is lost between dipo and the session's stdin, inside or outside the box; the first step is to find where, with a test on a real host and box path. Design: the Claude adapter launches with `--replay-user-messages`, and a replayed user message carrying a steer's text marks that steer read. One delivery path for steers, held texts and answers (0001). 0008, 0020.
 
 ```dipo
 branch: "DIPO-412/steer-reaches-worker"
-unknowns: []
+unknowns:
+  - q: "Does Claude Code read a priority-next stream-json user message sent during a turn, and can dipo see when it is read?"
+    status: "resolved"
+    answer: "Yes (live probe with Claude Code 2.1.316 and Haiku, 2026-11-01): a message sent 3 s into a Bash call was read right after the call finished, in the same turn, and with --replay-user-messages the stream echoed it then as a user event with isReplay true; the reply followed it. So the loss is on dipo's side, and the replayed message is how dipo sees a read."
 test_plan:
   entries:
     - kind: "automated"
-      check: "(engine) a steer sent during a running turn reaches the developer session as its next user message, or waits for the next session, and its intent is resolved"
+      check: "(engine) a steer sent during a running turn reaches the developer session, is marked read when the session replays it, and otherwise goes with the next session's first message"
+    - kind: "manual"
+      check: "(live) on the scratch office, start a tiny Ready story with dipo run --box and send dipo steer with an extra request a few seconds in"
+      expect: "the PR carries the steered change and dipo watch shows the steer as read"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A steer sent during a running turn reaches the developer session: its events show the steer text as a user message and the session's next turn follows it, shown by a test on a recorded Claude Code stream-json session; the maintainer's next hand-test wave checks it live
-- [ ] #2 A steer the session has not read when its turn ends does not get lost: the session takes it as its next turn, or, when the session ends, the run's next developer session gets it in its first message, shown by a test
-- [ ] #3 A steer's intent is resolved when a session reads it, and none stays `sent` after its run ends; `dipo steer` says what happens to the text, shown by a test
-- [ ] #4 A steer on a story that is parked, or parks before the steer is read, reaches the resume's first message beside the resume note, shown by a test
+- [ ] #1 A steer sent during a running turn reaches the developer session's stdin through the real worker host (and box, when the run is boxed), shown by a test that finds where today's steers are lost and proves the fix there
+- [ ] #2 The Claude adapter launches with `--replay-user-messages`, and the replayed user message carrying a steer's text resolves that steer's intent as read, shown by a test on a stream-json fixture with a replayed message
+- [ ] #3 A steer still unread when its session ends goes with the run's next developer session's first message, and none stays `sent` after its run ends, shown by a test
+- [ ] #4 A steer on a story that is parked, or parks before the steer is read, reaches the resume's first message beside the resume note; `dipo steer` says which of these happens, shown by a test
 <!-- AC:END -->
