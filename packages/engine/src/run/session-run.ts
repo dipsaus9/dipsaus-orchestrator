@@ -8,7 +8,8 @@
 // - The session runs on the Mac with no box, in an empty folder dipo makes in its temp root
 //   (`dipo-scan-<run>-<agent>/session`), every tool off: the worker port plans kind `session` with
 //   an empty tool list and the scan's answer schema, the office `scan` block's model, effort,
-//   budget and minutes, and one turn plus one schema retry. The launch checks run first, as for a
+//   budget and minutes. The session ends at its first turn: dipo closes its stdin there, and the
+//   schema retry is the CLI's own, inside that turn. The launch checks run first, as for a
 //   reviewer; a refused check holds the adapter and the session fails.
 // - It holds neither the worker nor the reviewer place (0019 amendment of 2026-10-22); the scan
 //   fallback runs one per office at a time.
@@ -315,6 +316,7 @@ export class SessionRuns implements ScanSessionRunner {
     let stopped: string | null = null;
     let resetsAt: number | undefined;
     let credits = false;
+    let closed = false;
     const timers: ReturnType<Clock["setTimeout"]>[] = [];
     const finish = (end: IngestedExit | null) => {
       if (settled) return;
@@ -336,6 +338,28 @@ export class SessionRuns implements ScanSessionRunner {
         },
         (error: unknown) => {
           deps.warn?.("stopping a scan session failed", { run: runId, reason: messageOf(error) });
+        },
+      );
+    };
+    // Once per session, at its first turn: the CLI then exits on its own, with the answer read
+    // from that turn (DIPO-417).
+    const closeStdin = () => {
+      if (closed || settled) return;
+      closed = true;
+      deps.steering.send(office, runId, [{ closeStdin: true }]).then(
+        (sent) => {
+          if (!sent.ok) {
+            deps.warn?.("closing a scan session's stdin failed", {
+              run: runId,
+              reason: sent.reason,
+            });
+          }
+        },
+        (error: unknown) => {
+          deps.warn?.("closing a scan session's stdin failed", {
+            run: runId,
+            reason: messageOf(error),
+          });
         },
       );
     };
@@ -364,6 +388,7 @@ export class SessionRuns implements ScanSessionRunner {
               if (Number.isFinite(at)) resetsAt = at;
             }
             if (event.t === "initRejected" || event.t === "startRefused") void stop(event.reason);
+            if (event.t === "turn") closeStdin();
           }
           if (overBudget) void stop(`its budget of ${settings.budgetTokens} tokens was reached`);
         },

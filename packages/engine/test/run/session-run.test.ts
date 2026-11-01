@@ -314,6 +314,20 @@ describe("a scan session run", () => {
       expect(existsSync(launched?.cwd ?? "")).toBe(false);
     }));
 
+  it("ends at its first turn: its stdin is closed there and it ends answered (DIPO-417)", () =>
+    withWorld(async (w) => {
+      // A worker that keeps stdin open: its exit comes only once the close reaches it.
+      w.lines = init + resultLine;
+      w.onStop = exitLine(0);
+      const pending = w.runs.run(request(w));
+      await until(() => w.sent.length === 1);
+      // The poll reads the exit the close wrote; the time cap (5 minutes) is not reached.
+      w.t.clock.advance(1_000);
+      const outcome = await pending;
+      expect(w.sent).toEqual([[{ closeStdin: true }]]);
+      expect(outcome).toMatchObject({ kind: "answered", answer: ANSWER });
+    }));
+
   it("is stopped when its budget tokens pass the scan block's", () =>
     withWorld(async (w) => {
       w.lines = init + assistant(5_000);
