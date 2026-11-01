@@ -31,9 +31,21 @@ export function columnCounts(office: OfficeHandle): Partial<Record<QueueColumn, 
   return counts;
 }
 
-/** The office's active runs (`records/run-records.ts`). */
+/**
+ * The office's active runs (`records/run-records.ts`), and each run that has ended while a worker
+ * host of it is still open (DIPO-411): its exit is not in yet, so its worker may still run, and
+ * keep-awake counts it as active too (0006). It stops counting once the host's exit is ingested or
+ * re-attach closes the host out.
+ */
 export function activeRunCount(office: OfficeHandle): number {
-  return activeRuns(office).length;
+  const ended =
+    office.get<{ n: number }>(
+      `select count(distinct h.run_id) as n from worker_hosts h
+         join runs r on r.office_id = h.office_id and r.run_id = h.run_id
+        where h.office_id = $office_id and h.ended_at is null and h.pending = 0
+          and r.ended_at is not null`,
+    )?.n ?? 0;
+  return activeRuns(office).length + ended;
 }
 
 interface OpenGateRow {
