@@ -1,10 +1,10 @@
 ---
 id: DIPO-414
 title: Refuse a typed confirmation that ends without input
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-01 15:39'
-updated_date: '2026-11-01 15:54'
+updated_date: '2026-11-01 16:27'
 labels:
   - 'tier:S'
 milestone: m-1
