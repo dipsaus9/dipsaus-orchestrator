@@ -11,7 +11,7 @@ import {
   REVIEW_REPORT_JSON_SCHEMA,
   ReviewReportSchema,
   WORKER_REPORT_JSON_SCHEMA,
-  WorkerReportSchema,
+  WorkerCliReportSchema,
 } from "../../src/workers/claude-cli/report-schema";
 
 describe("toJsonSchema", () => {
@@ -31,7 +31,7 @@ describe("toJsonSchema", () => {
 
   it("makes the scan fallback's and the worker report's schemas from the same function", () => {
     expect(SCAN_ANSWER_JSON_SCHEMA).toEqual(toJsonSchema(ScanAnswerSchema, "input"));
-    expect(WORKER_REPORT_JSON_SCHEMA).toEqual(toJsonSchema(WorkerReportSchema, "output"));
+    expect(WORKER_REPORT_JSON_SCHEMA).toEqual(toJsonSchema(WorkerCliReportSchema, "output"));
     expect(REVIEW_REPORT_JSON_SCHEMA).toEqual(toJsonSchema(ReviewReportSchema, "output"));
   });
 });
@@ -44,6 +44,6 @@ describe("test plan 1", () => {
   it("the scan fallback's --json-schema carries no $schema key and comes from the same function as the worker report schema", () => {
     expect(SCAN_ANSWER_JSON_SCHEMA).not.toHaveProperty("$schema");
     expect(SCAN_ANSWER_JSON_SCHEMA).toEqual(toJsonSchema(ScanAnswerSchema, "input"));
-    expect(WORKER_REPORT_JSON_SCHEMA).toEqual(toJsonSchema(WorkerReportSchema, "output"));
+    expect(WORKER_REPORT_JSON_SCHEMA).toEqual(toJsonSchema(WorkerCliReportSchema, "output"));
   });
 });

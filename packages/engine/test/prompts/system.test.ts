@@ -129,7 +129,7 @@ describe("box worker system file", () => {
   it("asks for the test-plan entries by number, the deviations and proposals instead of extra work", () => {
     const text = box();
     expect(text).toContain(
-      "- `testPlan`: one entry for each entry of the test plan, by its number: done when its test is written and passes, not-done otherwise, manual",
+      "- `testPlan`: always present, empty if none. One per plan entry, by number: done when its test is written and passes, not-done otherwise, manual",
     );
     expect(text).toContain("dipo refuses done while an automated entry is not done.");
     expect(text).toContain(

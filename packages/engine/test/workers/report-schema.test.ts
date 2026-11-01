@@ -4,6 +4,7 @@ import {
   parseWorkerReport,
   WORKER_REPORT_CAPS,
   WORKER_REPORT_JSON_SCHEMA,
+  WorkerCliReportSchema,
   WorkerReportSchema,
 } from "../../src/workers/claude-cli/report-schema";
 import type { WorkerReport } from "../../src/workers/types";
@@ -14,6 +15,7 @@ const done: WorkerReport = {
   summary: "The CLI prints hello.",
   commitSubject: "print a greeting",
 };
+const cliOk = (report: unknown) => WorkerCliReportSchema.safeParse(report).success;
 
 describe("worker report schema", () => {
   it("parses a done report and a blocked one with a question", () => {
@@ -28,14 +30,26 @@ describe("worker report schema", () => {
     expect(WorkerReportSchema.safeParse(partial).success).toBe(false);
   });
 
-  it("exports a JSON Schema without a dialect line that requires the core fields", () => {
+  it("exports a JSON Schema without a dialect line that requires the core fields and the test plan", () => {
     expect(WORKER_REPORT_JSON_SCHEMA).not.toHaveProperty("$schema");
     expect(WORKER_REPORT_JSON_SCHEMA["required"]).toEqual([
       "status",
       "criteria",
       "summary",
       "commitSubject",
+      "testPlan",
     ]);
+  });
+
+  it("refuses a report without testPlan against the CLI schema, and takes an empty list", () => {
+    expect(cliOk(done)).toBe(false);
+    expect(cliOk({ ...done, testPlan: [] })).toBe(true);
+    expect(cliOk({ ...done, testPlan: [{ n: 1, status: "done", evidence: "a.test.ts" }] })).toBe(
+      true,
+    );
+    // The parser still takes a report without it (0017 recordings and scripted turns).
+    expect(WorkerReportSchema.safeParse(done).success).toBe(true);
+    expect(parseWorkerReport(done)).toEqual({ ok: true, report: done });
   });
 });
 
