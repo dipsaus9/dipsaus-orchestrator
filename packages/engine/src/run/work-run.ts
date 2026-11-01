@@ -395,7 +395,7 @@ export class WorkRun {
     } catch (error) {
       throw new CommandError(
         "backlog.unreadable",
-        `work.run could not index the office's stories: ${error instanceof Error ? error.message : String(error)}`,
+        `dipo could not index the office's stories: ${error instanceof Error ? error.message : String(error)}`,
         { office },
       );
     }

@@ -266,7 +266,7 @@ export class StoryPlanning {
       if (error instanceof PlanningRefusedError && error.code === LIVE_CLAIM_REFUSAL) {
         throw new CommandError(
           NOT_PARKABLE,
-          `${story} was claimed meanwhile; send story.park again to park its run.`,
+          `${story} was claimed meanwhile; send \`dipo park ${story} --note <text>\` again to park its run.`,
           { story },
         );
       }

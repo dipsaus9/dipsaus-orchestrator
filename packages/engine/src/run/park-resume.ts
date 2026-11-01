@@ -586,7 +586,7 @@ export class ParkResumes {
     if (this.#options.scheduling?.() === false) {
       throw new CommandError(
         "scheduling.off",
-        `dipo schedules no work now, so ${story} cannot resume; send work.resume again once scheduling is back on.`,
+        `dipo schedules no work now, so ${story} cannot resume; send \`dipo resume ${story}\` again once scheduling is back on.`,
         { story },
       );
     }
@@ -619,7 +619,7 @@ export class ParkResumes {
     if (args.budget !== undefined && ctx.confirmed !== true) {
       throw new CommandError(
         "confirmation.required",
-        `Raising ${story}'s caps needs confirmation; send work.resume again with confirmed.`,
+        `Raising ${story}'s caps needs confirmation; send \`dipo resume ${story} --budget <amount> --yes\` again, or run it at a terminal to be asked.`,
         { before, after: afterCaps },
       );
     }
@@ -831,7 +831,7 @@ export class ParkResumes {
           : `it is parked as ${park.reason} now`;
       throw new CommandError(
         "story.notParked",
-        `${run.story ?? run.runId} is no longer parked as it was when work.resume checked it; ${state}.`,
+        `${run.story ?? run.runId} is no longer parked as it was when dipo checked the resume; ${state}.`,
         { story: run.story ?? run.runId },
       );
     };

@@ -216,7 +216,7 @@ export class RunEndings {
       // `story.park` once more writes it on the same row (DIPO-360).
       throw new CommandError(
         PARK_NOT_WRITTEN,
-        `dipo stopped ${identity.story}'s worker, but could not write its park to Backlog.md (${parked.writeError ?? "unknown error"}); its work is held. Send the park again to write it.`,
+        `dipo stopped ${identity.story}'s worker, but could not write its park to Backlog.md (${parked.writeError ?? "unknown error"}); its work is held. Send \`dipo park ${identity.story} --note <text>\` again to write it.`,
         { story: identity.story, run: run.runId },
       );
     }

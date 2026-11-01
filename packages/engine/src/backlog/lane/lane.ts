@@ -373,7 +373,7 @@ export class OfficeLane {
         ) {
           throw new LaneError(
             LIVE_CLAIM_REFUSAL,
-            `${op.subject} has a live claim, so its changes travel in its story PR; park it with \`story.park\` first.`,
+            `${op.subject} has a live claim, so its changes travel in its story PR; park it with \`dipo park ${op.subject} --note <text>\` first.`,
             { key: op.key, subject: op.subject },
           );
         }
