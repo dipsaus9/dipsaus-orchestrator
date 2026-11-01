@@ -14,6 +14,8 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { mergeGateSummary } from "../../src/run-state/gates";
+
 import { LANE_STUCK_MS, laneDeskItems } from "../../src/backlog/lane";
 import { insertEntry } from "../../src/backlog/lane/journal";
 import { backlogPrDeskItems } from "../../src/backlog/pr/desk";
@@ -1031,4 +1033,23 @@ describe("a stuck planning lane on the desk (DIPO-401)", () => {
         t.state.close();
       }
     }));
+});
+
+describe("a cut desk detail (DIPO-415)", () => {
+  it("never cuts a merge-gate summary inside a backticked command", () => {
+    // The approve line of this summary is cut at every offset around `DESK_DETAIL_MAX`: the URL
+    // length moves it one character at a time.
+    for (let pad = 0; pad < 320; pad++) {
+      const summary = mergeGateSummary({
+        story: "DIPO-1",
+        pr: { number: 7, url: `https://github.com/o/r/pull/7${"x".repeat(pad)}` },
+        head: "abcdef1234567890",
+        waits: [{ kind: "maintainerCriteria", criteria: [1, 2] }],
+      });
+      const detail = deskLine(summary);
+      expect(Array.from(detail).length).toBeLessThanOrEqual(DESK_DETAIL_MAX);
+      const shown = detail.endsWith("…") ? detail.slice(0, -1) : detail;
+      expect(shown.split("`").length % 2).toBe(1);
+    }
+  });
 });

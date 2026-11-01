@@ -489,6 +489,17 @@ export function runPhase(office: OfficeHandle, runId: string): string | null {
   );
 }
 
+/** When the run entered the phase its newest `phase` step names, or null when it has none. */
+export function runPhaseAt(office: OfficeHandle, runId: string): number | null {
+  return (
+    office.get<{ at: number }>(
+      `select at from run_steps where office_id = $office_id and run_id = $run
+        and kind = 'phase' order by step desc limit 1`,
+      { run: runId },
+    )?.at ?? null
+  );
+}
+
 /**
  * When the run's caps start counting (0008 sections 6 and 9): its first worker host's start, else
  * the run's own, moved later by the time it stood parked (DIPO-75) or ended between its rounds and

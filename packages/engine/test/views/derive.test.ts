@@ -17,6 +17,7 @@ import {
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { storeGateDecision } from "../../src/gate-decisions/decisions";
+import { appendRunStep } from "../../src/records/run-records";
 import { markStuck, raiseSignal } from "../../src/records/signals";
 import { activeStoryViews, deriveColumn, deriveStoryView, storyView } from "../../src/views/story";
 import { deriveHealth, workView } from "../../src/views/work";
@@ -229,6 +230,36 @@ describe("work view", () => {
             "select signal from run_signals where office_id = $office_id and cleared_at is null",
           ),
         ).toEqual([{ signal: "no-output" }]);
+      } finally {
+        t.state.close();
+      }
+    }));
+});
+
+describe("health across a developer's end and the reviewer's start (DIPO-415)", () => {
+  it("is lost only while the developer's exit is unprocessed, not while the reviewer waits to start", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("TASK-1", { status: "In Progress" })]);
+        const started = startRun(t, office, "TASK-1", dir);
+        t.clock.advance(60_000);
+        // The developer's session ended; the engine has not processed the exit yet.
+        office.immediate(() =>
+          office.run(
+            "update agents set ended_at = $at where office_id = $office_id and agent_id = $agent",
+            { agent: started.agent, at: t.clock.now() },
+          ),
+        );
+        expect(workView(office, started.run)?.health).toBe("lost");
+        // The engine processed the exit and reopened the run for its review: the phase step is
+        // written, and the reviewer's session has not started yet.
+        t.clock.advance(1_000);
+        office.immediate(() =>
+          appendRunStep(office, started.run, "phase", "review", t.clock.now()),
+        );
+        expect(workView(office, started.run)?.health).toBe("busy");
       } finally {
         t.state.close();
       }

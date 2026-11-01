@@ -282,10 +282,21 @@ export function deskLine(text: string): string {
   return cut(deskText(text), DESK_DETAIL_MAX);
 }
 
-/** At most `max` characters: a longer text is cut and ends in `…`. */
+/**
+ * At most `max` characters: a longer text is cut and ends in `…`. The cut never lands inside a
+ * backticked command (the text the maintainer types): it moves back to the command's opening
+ * backtick, so the command is shown whole or not at all.
+ */
 function cut(text: string, max: number): string {
   const chars = Array.from(text);
-  return chars.length <= max ? text : `${chars.slice(0, Math.max(0, max - 1)).join("")}…`;
+  if (chars.length <= max) return text;
+  let end = Math.max(0, max - 1);
+  let open = -1;
+  for (let i = 0; i < end; i++) {
+    if (chars[i] === "`") open = open === -1 ? i : -1;
+  }
+  if (open !== -1) end = open;
+  return `${chars.slice(0, end).join("")}…`;
 }
 
 function iso(ms: number): string {

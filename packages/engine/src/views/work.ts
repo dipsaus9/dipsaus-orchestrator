@@ -29,6 +29,7 @@ import {
   activeRuns,
   findRun,
   runPhase,
+  runPhaseAt,
   runRoundCounts,
   type StoredRun,
 } from "../records/run-records";
@@ -179,10 +180,18 @@ function viewOf(office: OfficeHandle, run: StoredRun): WorkView | null {
   // A run reopened for a round waits for its place with the last session's agent ended
   // (DIPO-142): not lost.
   const waiting = run.waiting != null;
+  // A reopened run's next session starts after the phase step its reopen wrote, so a session that
+  // ended before that step was processed and is not lost (DIPO-415).
+  const phaseAt = runPhaseAt(office, run.runId);
+  const exitUnprocessed =
+    agent.ended_at !== null &&
+    run.endedAt === null &&
+    !waiting &&
+    (phaseAt === null || agent.ended_at > phaseAt);
   const health = deriveHealth({
     signals: signals.map((signal) => signal.signal),
     stuck: signals.some((signal) => signal.signal === "no-output" && signal.stuckAt !== null),
-    exitUnprocessed: agent.ended_at !== null && run.endedAt === null && !waiting,
+    exitUnprocessed,
     loop: progress.loop,
     loopCap: progress.loopCap,
   });
