@@ -1,10 +1,10 @@
 ---
 id: DIPO-408
 title: Make the Safe-Chain log clock test pass every time
-status: Done
+status: In Progress
 assignee: []
 created_date: '2026-10-31 09:39'
-updated_date: '2026-11-01 08:55'
+updated_date: '2026-11-01 09:47'
 labels:
   - 'tier:S'
   - 'slice:prune'
