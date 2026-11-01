@@ -84,7 +84,11 @@ export function recordIntent(
   return next;
 }
 
-/** Marks an intent sent, or failed with the reason the host gave. */
+/**
+ * Marks an intent sent, or failed with the reason the host gave, once. An intent the worker's exit
+ * resolved before the host's reply came in (a stop whose SIGTERM ended the worker first, DIPO-411)
+ * stays resolved and still records when it was sent and how.
+ */
 export function markIntentSent(
   office: OfficeHandle,
   runId: RunId,
@@ -93,8 +97,10 @@ export function markIntentSent(
   error: string | null,
 ): void {
   office.run(
-    `update run_intents set state = $state, sent_at = $at, error = $error
-     where office_id = $office_id and run_id = $run and intent_id = $id and state = 'pending'`,
+    `update run_intents set state = case when state = 'pending' then $state else state end,
+       sent_at = $at, error = $error
+     where office_id = $office_id and run_id = $run and intent_id = $id and sent_at is null
+       and state in ('pending', 'resolved')`,
     { state: error === null ? "sent" : "failed", at, error, run: runId, id: intentId },
   );
 }

@@ -80,12 +80,14 @@ export interface SystemHostStarterOptions {
  * right after the detached host was spawned, and the host binds its socket a moment later
  * (DIPO-181). The caller then claims the host (`claimHost`), which stops its worker when no daemon
  * claimed it by its launch deadline (DIPO-386), so "unreachable" is retried up to that deadline; a
- * refusal, a silent socket or `stopped` ends it.
+ * refusal, a silent socket or `stopped` ends it. The steering's sends to a host that is still
+ * starting wait the same way (DIPO-411), with their own least hello time.
  */
 export async function connectWhenBound(
   host: Pick<LaunchedHost, "socketPath" | "runId" | "launchDeadline">,
   clock: Clock,
   stopped: () => boolean,
+  helloMinMs = HOST_HELLO_MIN_MS,
 ): Promise<ConnectHostResult> {
   const deadline = host.launchDeadline;
   for (;;) {
@@ -93,8 +95,8 @@ export async function connectWhenBound(
     const connected = await connectHost(host.socketPath, {
       runId: host.runId,
       clock,
-      // A host that binds late still gets a full second for its hello.
-      timeoutMs: Math.max(HOST_HELLO_MIN_MS, left),
+      // A host that binds late still gets its least time for the hello.
+      timeoutMs: Math.max(helloMinMs, left),
     });
     if (connected.ok || connected.reason !== "unreachable" || stopped()) return connected;
     if (deadline - clock.now() <= HOST_CONNECT_RETRY_MS) return connected;
@@ -301,6 +303,11 @@ export class OfficeIngest implements RunIngest {
       });
   }
 
+  /** True once `close` ran: the daemon is closing (DIPO-411). */
+  get closed(): boolean {
+    return this.#closed;
+  }
+
   /** Writes the run's pending `work.output` now, before a state change of the run (0005 section 6). */
   flushOutput(office: OfficeId, run: string): void {
     this.#ingestors.get(office)?.flushOutput(run);
@@ -333,13 +340,16 @@ export const PENDING_POLL_MS = 50;
 export interface HostSocketSteeringOptions {
   readonly clock: Clock;
   readonly timeoutMs?: number;
+  /** True once the daemon is closing: a send no longer waits for a host that is still starting. */
+  readonly stopped?: () => boolean;
 }
 
 /**
  * Sends host ops to a run's worker host over its socket (DIPO-44's protocol), to the newest host of
  * the run: one connection, the ops in order, then closed. A newest host whose row is still pending
- * (written before its spawn, DIPO-93) is waited for up to the timeout, so a stop in that window
- * reaches it.
+ * (written before its spawn, DIPO-93) is waited for up to the timeout, and a recorded host whose
+ * socket is not bound yet is asked again up to its launch deadline (`connectWhenBound`, DIPO-411),
+ * so a stop in either window reaches it.
  */
 export function hostSocketSteering(options: HostSocketSteeringOptions): RunSteering {
   const newestHost = async (office: OfficeHandle, runId: string) => {
@@ -357,11 +367,12 @@ export function hostSocketSteering(options: HostSocketSteeringOptions): RunSteer
       if (host.pending) {
         return { ok: false, reason: "the run's worker host is still being started" };
       }
-      const connected = await connectHost(host.socketPath, {
-        runId,
-        clock: options.clock,
-        timeoutMs: options.timeoutMs ?? STEER_TIMEOUT_MS,
-      });
+      const connected = await connectWhenBound(
+        { socketPath: host.socketPath, runId, launchDeadline: hostLaunchDeadline(host.startedAt) },
+        options.clock,
+        options.stopped ?? (() => false),
+        options.timeoutMs ?? STEER_TIMEOUT_MS,
+      );
       if (!connected.ok) {
         const why = connected.error === undefined ? "" : ` (${connected.error.message})`;
         return {

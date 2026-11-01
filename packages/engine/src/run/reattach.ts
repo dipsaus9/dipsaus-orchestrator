@@ -71,6 +71,7 @@ import {
   recordPendingPid,
   setProcessedOffset,
   signalVerifiedHost,
+  stopHostOfEndedRun,
   type WorkerHostRow,
   workerHostsOf,
 } from "../records/worker-hosts";
@@ -497,8 +498,15 @@ export class RunReattacher {
     if (run === null || host === undefined) return null;
     const target = this.#targetOf(office, run, hosts, host);
     if (target === null) return null;
-    if (await hostAlive(host, deps.probe)) {
-      await this.#signal(host);
+    const live = await stopHostOfEndedRun(host, true, deps.probe, deps.signal);
+    if (live !== null) {
+      if (live.refused !== null) {
+        deps.warn?.("a living host of an ended run was not signalled", {
+          run: run.runId,
+          agent: agentId,
+          reason: live.refused,
+        });
+      }
       this.#watchUntilExit(office, run, host, () => this.#closeOut(office, run, host, target));
       return { run: run.runId, agent: agentId, outcome: "stopEnded" };
     }

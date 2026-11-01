@@ -20,7 +20,7 @@ import { StoryPlanning, type StoryPlanningDeps } from "../run/planning";
 import { gitStoryPrOps } from "../story-pr/git";
 import { StoryPrs } from "../story-pr/prs";
 import { guardedParkWriter } from "../merge/guard";
-import type { ProcessProbe } from "../platform/process";
+import { type ProcessProbe, type SignalProcess, signalProcess } from "../platform/process";
 import { CLAUDE_CLI_ADAPTER_ID } from "../workers/claude-cli/plan";
 import { AdapterHolds, RELEASE_NOTICE_CODE } from "../workers/hold";
 import { StoryClaims } from "../worktree/feature";
@@ -44,14 +44,15 @@ export interface StoryServices {
 }
 
 /**
- * The dependencies of `StoryPlanning` (DIPO-227): the process probe is passed in, so a test can
- * check that the engine's planning gets the probe it was given.
+ * The dependencies of `StoryPlanning` (DIPO-227): the process probe and the signal (DIPO-411) are
+ * passed in, so a test can check that the engine's planning gets the ones it was given.
  */
 export function storyPlanningDeps(
-  parts: Omit<StoryPlanningDeps, "probe">,
+  parts: Omit<StoryPlanningDeps, "probe" | "signal">,
   probe: ProcessProbe,
+  signal: SignalProcess,
 ): StoryPlanningDeps {
-  return { ...parts, probe };
+  return { ...parts, probe, signal };
 }
 
 /**
@@ -219,6 +220,7 @@ function planningOf(core: Core, partners: EnginePartners, lane: BacklogLane): St
         parkRun: (ctx, args) => partners.runs.get().control.parkByMaintainer(ctx, args),
       },
       core.deps.probe,
+      signalProcess,
     ),
   );
 }

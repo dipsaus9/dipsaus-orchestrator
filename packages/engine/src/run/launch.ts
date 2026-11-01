@@ -187,6 +187,8 @@ export interface RunLauncherDeps {
         startedAt: number;
       },
     ): void;
+    /** Marks a start of the run's worker under way until the call it returns (DIPO-411). */
+    starting?(run: string): () => void;
   };
   /** Ends a live claim whose worker did not start: the branch kept as released. */
   readonly release: (office: OfficeId, claim: ClaimRecord, reason: string) => Promise<void>;
@@ -541,6 +543,14 @@ export class RunLauncher {
         void discardBox().finally(cleanup);
       },
     };
+  }
+
+  /**
+   * Marks the start of a new run's worker under way (DIPO-411), from its run row until the call it
+   * returns: a `story.park` in that window waits for the worker to be followed, then stops it.
+   */
+  starting(run: string): () => void {
+    return this.#deps.control?.starting?.(run) ?? (() => undefined);
   }
 
   /**

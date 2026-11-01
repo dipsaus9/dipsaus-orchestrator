@@ -299,7 +299,11 @@ export interface ReviewLauncherDeps {
   readonly hosts: HostStarter;
   readonly ingest: RunIngest;
   /** Run control: the session is tracked before its ingestion starts. */
-  readonly control: { track(office: OfficeId, run: TrackedRun): void };
+  readonly control: {
+    track(office: OfficeId, run: TrackedRun): void;
+    /** Marks a start of the run's worker under way until the call it returns (DIPO-411). */
+    starting?(run: string): () => void;
+  };
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
@@ -379,6 +383,16 @@ export class ReviewLauncher implements ReviewSessions {
   }
 
   async start(request: ReviewSessionRequest): Promise<ReviewSessionOutcome> {
+    // A park sent while the reviewer starts waits for it, then stops it (DIPO-411).
+    const started = this.#deps.control.starting?.(request.run.runId);
+    try {
+      return await this.#start(request);
+    } finally {
+      started?.();
+    }
+  }
+
+  async #start(request: ReviewSessionRequest): Promise<ReviewSessionOutcome> {
     const deps = this.#deps;
     const { run } = request;
     const git = deps.git(request.office);

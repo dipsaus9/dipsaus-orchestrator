@@ -53,12 +53,12 @@ import type {
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
 import { type CodeHost, CodeHostError } from "../platform/host";
-import type { ProcessProbe } from "../platform/process";
+import type { ProcessProbe, SignalProcess } from "../platform/process";
 import { openPark, openParkIds, parkActions, resolvePark } from "./park";
 import { insertPark } from "../run-state/park-records";
 import type { ParkStore } from "../records/park-state";
 import { activeRuns } from "../records/run-records";
-import { hostAlive, workerHostsOf } from "../records/worker-hosts";
+import { liveRunHostsText, stopHostsOfEndedRun } from "../records/worker-hosts";
 import type { StoryIdentity } from "../records/story-keys";
 import { latestStoryPr, setStoryPrState } from "../records/story-prs";
 import { LIVE_CLAIM_REFUSAL, PlanningRefusedError } from "../story-store/errors";
@@ -95,6 +95,8 @@ export interface StoryPlanningDeps {
   readonly implemented: (name: CommandName) => boolean;
   /** Reads whether a worker host of the claim's run still runs (0020 section 8). */
   readonly probe: ProcessProbe;
+  /** The one-process signal for the verified SIGTERM to a host of the ended run (DIPO-411). */
+  readonly signal: SignalProcess;
   /** Parks a story with a run (`RunControl.parkByMaintainer`); without it such a story is refused. */
   readonly parkRun?: (
     ctx: AsyncCommandContext,
@@ -460,14 +462,21 @@ export class StoryPlanning {
       throw new Error(`The office ${office.officeId} has no git attached.`);
     }
     // A worker host of the parked run that still runs owns the story's box: refuse before anything
-    // is journaled, closed or removed, with or without deleteBranch (0020 section 8).
+    // is journaled, closed or removed, with or without deleteBranch (0020 section 8). The run has
+    // ended, so the host gets one verified SIGTERM and stops its worker (DIPO-411).
     if (claim !== null) {
-      const pid = await this.#liveHostPid(office, claim.runId);
-      if (pid !== null) {
+      const hosts = await stopHostsOfEndedRun(
+        office,
+        claim.runId,
+        this.#deps.probe,
+        this.#deps.signal,
+      );
+      const [first] = hosts;
+      if (first !== undefined) {
         throw new CommandError(
           RUN_HOST_ALIVE,
-          `A worker host of ${story} still runs (pid ${pid}), so its box is in use. Drop it again in a moment, once the host has exited.`,
-          { story, pid },
+          `A worker host of ${story} still runs, so its box is in use: ${liveRunHostsText(hosts)}. Send \`dipo drop ${story}\` again in a moment, once the host has exited.`,
+          { story, pid: first.pid },
         );
       }
     }
@@ -509,14 +518,6 @@ export class StoryPlanning {
     });
     await lane.flush();
     return { result, changed: true };
-  }
-
-  /** The PID of the first worker host of `runId` that still runs, or null. */
-  async #liveHostPid(office: OfficeHandle, runId: RunId): Promise<number | null> {
-    for (const host of workerHostsOf(office, runId)) {
-      if (await hostAlive(host, this.#deps.probe)) return host.pid;
-    }
-    return null;
   }
 
   /** True when `story.drop` journaled the story's drop and left no claim, PR or park behind. */

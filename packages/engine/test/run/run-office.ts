@@ -603,6 +603,7 @@ export async function withRunOffice(
                   host: { closePr: async () => undefined },
                   implemented: () => true,
                   probe: systemProcessProbe(currentPlatform()),
+                  signal: () => false,
                   parkRun: (ctx, args) => control.parkByMaintainer(ctx, args),
                 }).feature,
               ]),

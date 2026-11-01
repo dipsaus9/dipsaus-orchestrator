@@ -125,6 +125,7 @@ function features(seen: Seen) {
       host,
       implemented: () => true,
       probe,
+      signal: () => false,
     });
     return [discarder.feature, planning.feature] as readonly FeatureModule[];
   };

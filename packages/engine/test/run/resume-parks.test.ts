@@ -646,6 +646,87 @@ describe("work.resume refusals", () => {
     const error = await refusal(resumption());
     expect(error.error.code).toBe("run.hostAlive");
     expect(error.error.retryable).toBe(true);
+    // The refusal names the CLI command, not the internal one (DIPO-411).
+    expect(error.message).toContain("`dipo resume DIPO-1`");
+    expect(error.message).not.toContain("work.resume");
+  });
+
+  it("sends a host still alive for the parked run one verified SIGTERM, and resumes once it exited (DIPO-411)", async () => {
+    park("by-maintainer");
+    const { office, run, t } = w.f;
+    const started = t.clock.now();
+    office.immediate(() => {
+      office.run("update agents set ended_at = null where office_id = $office_id");
+      office.run("update worker_hosts set start_time_ms = $at where office_id = $office_id", {
+        at: started,
+      });
+    });
+    const argv = ["/usr/local/bin/dipo", "daemon", "worker-host", run];
+    let alive = true;
+    const signals: [number, string][] = [];
+    const hostSignals = {
+      probe: async (pid: number) =>
+        alive && pid === 4242
+          ? { pid, startTimeMs: started, zombie: false, command: argv.join(" "), argv }
+          : null,
+      signal: (pid: number, signal: string) => {
+        signals.push([pid, signal]);
+        return true;
+      },
+    };
+    const of = resumption({
+      parks: { startsPaused: () => w.paused, hostSignals },
+    } as Partial<ResumptionOptions>);
+    const error = await refusal(of);
+    expect(error.error).toMatchObject({ code: "run.hostAlive", retryable: true });
+    expect(error.message).toContain(
+      "its worker host (pid 4242) still ran, so dipo sent it SIGTERM to stop its worker",
+    );
+    expect(error.message).toContain("`dipo resume DIPO-1`");
+    expect(signals).toEqual([[4242, "SIGTERM"]]);
+    expect(w.sessions).toEqual([]);
+
+    // The host stopped its worker and exited; its exit was ingested.
+    alive = false;
+    office.immediate(() =>
+      office.run("update agents set ended_at = $at where office_id = $office_id", { at: started }),
+    );
+    await resume(of);
+    expect(w.sessions).toHaveLength(1);
+    expect(signals).toHaveLength(1);
+  });
+
+  it("sends no signal to a host whose identity check fails, and says why (DIPO-411)", async () => {
+    park("by-maintainer");
+    const { office, t } = w.f;
+    const started = t.clock.now();
+    office.immediate(() => {
+      office.run("update agents set ended_at = null where office_id = $office_id");
+      office.run("update worker_hosts set start_time_ms = $at where office_id = $office_id", {
+        at: started,
+      });
+    });
+    const signals: number[] = [];
+    // The PID runs with the row's start time, but not `dipo daemon worker-host <run>`.
+    const hostSignals = {
+      probe: async (pid: number) => ({
+        pid,
+        startTimeMs: started,
+        zombie: false,
+        command: "/bin/sleep 600",
+        argv: ["/bin/sleep", "600"],
+      }),
+      signal: (pid: number) => {
+        signals.push(pid);
+        return true;
+      },
+    };
+    const error = await refusal(
+      resumption({ parks: { hostSignals } } as Partial<ResumptionOptions>),
+    );
+    expect(error.error.code).toBe("run.hostAlive");
+    expect(error.message).toContain("dipo sent it no signal, because");
+    expect(signals).toEqual([]);
   });
 
   it("answers scheduling.off while the daemon schedules no work", async () => {

@@ -109,6 +109,7 @@ export class AfterTurns {
       if (tracked.ending !== null) return tracked.ending === mine;
       disarm(this.#deps.clock, tracked);
       tracked.ending = mine;
+      tracked.deciding = "dipo is still verifying and committing its worker's done report";
       return true;
     };
     const write = this.#endings.writer(office, tracked.office);

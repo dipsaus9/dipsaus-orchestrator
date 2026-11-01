@@ -21,11 +21,14 @@ import {
   type ParkRunArgs,
   type ParkRunResult,
   type RunControlDeps,
+  STOP_ALL_EXIT_WAIT_MS,
   STORY_NOT_RUNNING,
   type Tracked,
 } from "./control-types";
 import type { CapName } from "../records/caps";
-import { sendAsIntent } from "../records/intents";
+import { resolveIntent, sendAsIntent } from "../records/intents";
+import { workerHostsOf } from "../records/worker-hosts";
+import { HOST_LAUNCH_DEADLINE_MS } from "./hosts";
 import type { RunAct } from "./outcome-types";
 import {
   openPark,
@@ -72,19 +75,37 @@ export function reviewCapEnding(
   };
 }
 
+/** What the endings need of run control's starts (DIPO-411). */
+export interface RunStarts {
+  /** Arms a tracked run's cap tick again: a maintainer's park that sent nothing leaves it running. */
+  readonly rearm: (tracked: Tracked) => void;
+  /** Settles once the worker start under way for the run ended; undefined when none is. */
+  readonly startOf: (run: string) => Promise<void> | undefined;
+}
+
 export class RunEndings {
   readonly #deps: RunControlDeps;
   readonly #tracked: Map<string, Tracked>;
   readonly #inflight: Set<Promise<unknown>>;
+  readonly #starts: RunStarts;
+  /** Runs a maintainer's park of an unfollowed run is ending now: a worker tracked meanwhile stops. */
+  readonly #parking = new Set<string>();
 
   constructor(
     deps: RunControlDeps,
     tracked: Map<string, Tracked>,
     inflight: Set<Promise<unknown>>,
+    starts: RunStarts = { rearm: () => undefined, startOf: () => undefined },
   ) {
     this.#deps = deps;
     this.#tracked = tracked;
     this.#inflight = inflight;
+    this.#starts = starts;
+  }
+
+  /** True while a maintainer's park of the unfollowed run is ending it (DIPO-411). */
+  parking(run: string): boolean {
+    return this.#parking.has(run);
   }
 
   /**
@@ -121,6 +142,7 @@ export class RunEndings {
     // these synchronous writes land before any op is sent.
     tracked.unstored = null;
     disarm(this.#deps.clock, tracked);
+    tracked.deciding = `dipo is still carrying out its ${act.intent} decision on the run`;
     // The intent's sent mark is written in the job; a failure there is logged (DIPO-110).
     tracked.ending = background(
       async () => {
@@ -154,6 +176,12 @@ export class RunEndings {
    * waits In Review with no live session (for its review, a gate or the merge) parks as it is: the
    * park is written on the branch and recorded, and the run ends parked with the end of its last
    * active period kept, so its resume returns it to In Review. A story with no run fails `story.notRunning`.
+   *
+   * The worker of a run this daemon follows is stopped before anything parks (DIPO-411): the story
+   * parks once its exit was ingested, and the reply waits for that up to `STOP_ALL_EXIT_WAIT_MS`. If
+   * no exit came by then, a stop that could not be sent parks nothing, and a sent one parks at the
+   * exit; both fail the retryable `run.hostAlive` naming what still runs, so `dipo park` never
+   * says parked while the run's worker runs.
    */
   async parkByMaintainer(
     ctx: AsyncCommandContext,
@@ -164,13 +192,8 @@ export class RunEndings {
     if (identity === undefined) throw new Error(`${args.story} was not resolved`);
     const find = () =>
       activeRuns(handle).find((run) => run.kind === "story" && run.key === identity.key);
-    let run = find();
-    // A decision already under way (a cap or a report) finishes first; then the run has ended.
-    const pending = run === undefined ? undefined : this.#tracked.get(run.runId)?.ending;
-    if (pending !== undefined && pending !== null) {
-      await pending.catch(() => null);
-      run = find();
-    }
+    const story = identity.story;
+    const run = await this.#settledRun(handle, find, story);
     const note = args.note.trim();
     if (run === undefined) return await this.#parkWaiting(ctx, identity, note);
     const ending: Ending = {
@@ -181,10 +204,11 @@ export class RunEndings {
     };
     const tracked = this.#tracked.get(run.runId);
     const work = tracked?.work ?? workRefOf(handle, run.runId) ?? undefined;
-    if (tracked !== undefined) disarm(this.#deps.clock, tracked);
-    const done = this.end(handle, run, work, ending, (fn) => ctx.commit(fn));
-    if (tracked !== undefined) tracked.ending = done;
-    const parked = await done;
+    const commit = (fn: () => readonly NewEntry[]) => ctx.commit(fn);
+    const parked =
+      tracked === undefined
+        ? await this.#parkUnfollowed(handle, run, work, ending, commit, story)
+        : await this.#stopThenPark(handle, run, tracked, work, ending, commit, story);
     // A tampered worktree turned it into a `scope-violation` park, which a retry cannot write.
     if (!parked.written && parked.reason === ending.reason) {
       // The worker was stopped, so the run ended and its park is recorded as held, unwritten
@@ -197,6 +221,157 @@ export class RunEndings {
       );
     }
     return { result: { run: run.runId } };
+  }
+
+  /**
+   * The story's active run once what is under way for it settled, or undefined when it ended. A
+   * worker being started is waited for (DIPO-411), up to its launch deadline, so the park stops it
+   * once it is followed instead of parking while it starts. A decision already under way (a cap, a
+   * report, an earlier park) finishes first; a park waiting for its worker's exit is waited for as
+   * long as a park waits. Either still under way fails `run.hostAlive` saying what it is.
+   */
+  async #settledRun(
+    handle: OfficeHandle,
+    find: () => StoredRun | undefined,
+    story: string,
+  ): Promise<StoredRun | undefined> {
+    let run = find();
+    const start =
+      run === undefined || this.#tracked.has(run.runId)
+        ? undefined
+        : this.#starts.startOf(run.runId);
+    if (run !== undefined && start !== undefined) {
+      if (!(await this.#within(start, HOST_LAUNCH_DEADLINE_MS))) {
+        throw this.#stillRuns(handle, run, story, "dipo is still starting its worker");
+      }
+      run = find();
+    }
+    const earlier = run === undefined ? undefined : this.#tracked.get(run.runId);
+    const pending = earlier?.ending;
+    if (run === undefined || earlier === undefined || pending == null) return run;
+    if (!(await this.#within(pending, STOP_ALL_EXIT_WAIT_MS))) {
+      const what = earlier.deciding ?? "dipo is still carrying out a decision on the run";
+      throw this.#stillRuns(handle, run, story, what);
+    }
+    return find();
+  }
+
+  /**
+   * The maintainer's park of an active run no worker of which is followed or being started here
+   * (DIPO-411): one waiting for its place, between sessions, or open at In Review with none.
+   * Nothing runs, so nothing is sent; a worker host row of it still open means a worker may run
+   * unfollowed, and nothing parks then (fail closed). While it parks, a worker tracked for the run
+   * is stopped at once (`RunControl.track`).
+   */
+  async #parkUnfollowed(
+    office: OfficeHandle,
+    run: StoredRun,
+    work: WorkRef | undefined,
+    ending: Ending,
+    commit: (fn: () => readonly NewEntry[]) => void,
+    story: string,
+  ): Promise<ParkOutcome> {
+    if (workerHostsOf(office, run.runId).some((host) => host.endedAt === null)) {
+      throw this.#stillRuns(office, run, story, "dipo does not follow the worker of its run");
+    }
+    this.#parking.add(run.runId);
+    try {
+      return await this.end(office, run, work, { ...ending, ops: [] }, commit);
+    } finally {
+      this.#parking.delete(run.runId);
+    }
+  }
+
+  /**
+   * The maintainer's park of a run this daemon follows (DIPO-411): the stop is sent (its sends wait
+   * for a host that is still starting, `hostSocketSteering`), then the story parks once the
+   * worker's exit was ingested. A stop that could not be sent parks only when the exit still comes
+   * within `STOP_ALL_EXIT_WAIT_MS` (its host had exited); otherwise it leaves the run as it was,
+   * its intent resolved `notSent` so it explains no later exit, and fails. A sent stop whose worker
+   * has not exited within that wait fails the reply, and its story parks at the exit.
+   */
+  async #stopThenPark(
+    office: OfficeHandle,
+    run: StoredRun,
+    tracked: Tracked,
+    work: WorkRef | undefined,
+    ending: Ending,
+    commit: (fn: () => readonly NewEntry[]) => void,
+    story: string,
+  ): Promise<ParkOutcome> {
+    disarm(this.#deps.clock, tracked);
+    const write = (fn: () => readonly NewEntry[]): void =>
+      commit(() => withWorkViews(office, fn()));
+    const sent = this.#send(office, run, ending, write);
+    const decision = sent.done.then(async ({ error }) => {
+      // A stop that was not sent may have met a host that exited already: its exit comes in soon.
+      if (error !== null && !(await this.#within(tracked.exited, STOP_ALL_EXIT_WAIT_MS))) {
+        const at = this.#deps.clock.now();
+        office.immediate(() => resolveIntent(office, run.runId, sent.intentId, "notSent", at));
+        tracked.ending = null;
+        this.#starts.rearm(tracked);
+        return null;
+      }
+      await tracked.exited;
+      return this.#parkAfterStop(
+        office,
+        run,
+        work,
+        { ...ending, report: tracked.lastReport },
+        write,
+      );
+    });
+    tracked.ending = decision;
+    tracked.deciding = "dipo sent its worker the stop of an earlier park";
+    // A park that outlives the reply (its worker exits later) logs its own failure.
+    decision.catch((thrown: unknown) => {
+      this.#deps.warn?.("parking a run failed", { run: run.runId, reason: messageOf(thrown) });
+    });
+    const { error } = await sent.done;
+    if (error !== null) {
+      const parked = await decision;
+      if (parked !== null) return parked;
+      throw this.#stillRuns(
+        office,
+        run,
+        story,
+        `dipo could not send its worker the stop (${error})`,
+      );
+    }
+    if (!(await this.#within(tracked.exited, STOP_ALL_EXIT_WAIT_MS))) {
+      throw this.#stillRuns(office, run, story, "dipo sent its worker the stop");
+    }
+    const parked = await decision;
+    if (parked === null) throw new Error(`${story}'s park sent its stop, yet parked nothing`);
+    return parked;
+  }
+
+  /**
+   * `run.hostAlive` for a park whose worker did not exit (DIPO-411): `what` dipo did, and the
+   * worker host of the run that has not exited, by its PID.
+   */
+  #stillRuns(office: OfficeHandle, run: StoredRun, story: string, what: string): CommandError {
+    const host = workerHostsOf(office, run.runId).at(-1);
+    const pid = host === undefined || host.pending ? "" : ` (pid ${host.pid})`;
+    const waits = this.#tracked.get(run.runId)?.ending != null;
+    return new CommandError(
+      "run.hostAlive",
+      `${what}; its worker has not exited, so its worker host${pid} and its worker still run and ${story} is not parked yet. ${waits ? "It parks once its worker exits." : `Send \`dipo park ${story} --note <why>\` again in a moment.`}`,
+      { story, run: run.runId, ...(host === undefined || host.pending ? {} : { pid: host.pid }) },
+    );
+  }
+
+  /** True when `promise` settles within `ms` on the engine clock, else false. */
+  #within(promise: Promise<unknown>, ms: number): Promise<boolean> {
+    const clock = this.#deps.clock;
+    return new Promise((resolve) => {
+      const timer = clock.setTimeout(() => resolve(false), ms);
+      const settled = () => {
+        clock.clearTimeout(timer);
+        resolve(true);
+      };
+      promise.then(settled, settled);
+    });
   }
 
   /**
@@ -262,6 +437,7 @@ export class RunEndings {
     };
     const done = this.end(office, run, tracked.work, ending, write);
     tracked.ending = done;
+    tracked.deciding = `dipo is still ending its run: a ${ending.intent} that parks it ${ending.reason}`;
     background(() => done, {
       failed: "parking a run failed",
       fields: { run: tracked.runId },
@@ -286,24 +462,7 @@ export class RunEndings {
   ): Promise<ParkOutcome> {
     const write = (fn: () => readonly NewEntry[]): void =>
       commit(() => withWorkViews(office, fn()));
-    const notice = ending.notice;
-    const { done } = sendAsIntent(office, this.#deps.steering, run.runId, {
-      kind: ending.intent,
-      detail: ending.intentDetail ?? ending.detail,
-      ops: ending.ops,
-      clock: this.#deps.clock,
-      beforeSend: () => {
-        if (notice === undefined) return;
-        write(() => [
-          {
-            type: "engine.notice",
-            ...(run.key === null ? {} : { key: run.key }),
-            run: run.runId,
-            delta: notice,
-          },
-        ]);
-      },
-    });
+    const { done } = this.#send(office, run, ending, write);
     return (async () => {
       const { error } = await done;
       if (error !== null) {
@@ -320,32 +479,71 @@ export class RunEndings {
           },
         ]);
       }
-      this.#deps.flushOutput?.(office.officeId, run.runId);
-      const parked = await parkStory(this.#parkDeps(office, write, writer), {
-        run,
-        ...(work === undefined ? {} : { work }),
-        reason: ending.reason,
-        detail: ending.detail,
-        ...(ending.capStep === undefined ? {} : { capStep: ending.capStep }),
-        ...(ending.question === undefined ? {} : { question: ending.question }),
-        ...(ending.mustWrite === true ? { mustWrite: true } : {}),
-        ...(ending.resumeOnLift === true ? { resumeOnLift: true } : {}),
-      });
-      // The run summary (DIPO-49): every run that ends here gets one.
-      await this.#deps.finisher
-        ?.summarize(office, run, this.#tracked.get(run.runId)?.lastReport ?? ending.report ?? null)
-        .catch((thrown: unknown) => {
-          this.#deps.warn?.("storing the run summary failed", {
-            run: run.runId,
-            reason: messageOf(thrown),
-          });
-        });
-      // The park commit is read again at the branch tip (DIPO-56), unless nothing was written there.
-      if (writer === this.#deps.writer) await this.refresh(office, run, "parked");
-      // A park to resume when the starts paused lifts may land while they are not paused (0020).
-      if (ending.resumeOnLift === true) this.#deps.parkedToResume?.(office.officeId as OfficeId);
-      return parked;
+      return this.#parkAfterStop(office, run, work, ending, write, writer);
     })();
+  }
+
+  /** Records the ending's intent (synchronously, before the first await) and sends its ops. */
+  #send(
+    office: OfficeHandle,
+    run: StoredRun,
+    ending: Ending,
+    write: (fn: () => readonly NewEntry[]) => void,
+  ): ReturnType<typeof sendAsIntent> {
+    const notice = ending.notice;
+    return sendAsIntent(office, this.#deps.steering, run.runId, {
+      kind: ending.intent,
+      detail: ending.intentDetail ?? ending.detail,
+      ops: ending.ops,
+      clock: this.#deps.clock,
+      beforeSend: () => {
+        if (notice === undefined) return;
+        write(() => [
+          {
+            type: "engine.notice",
+            ...(run.key === null ? {} : { key: run.key }),
+            run: run.runId,
+            delta: notice,
+          },
+        ]);
+      },
+    });
+  }
+
+  /** The park after the stop was sent: the story parks, the run summary, the branch read again. */
+  async #parkAfterStop(
+    office: OfficeHandle,
+    run: StoredRun,
+    work: WorkRef | undefined,
+    ending: Ending & { readonly capStep?: string },
+    write: (fn: () => readonly NewEntry[]) => void,
+    writer: ParkWriter = this.#deps.writer,
+  ): Promise<ParkOutcome> {
+    this.#deps.flushOutput?.(office.officeId, run.runId);
+    const parked = await parkStory(this.#parkDeps(office, write, writer), {
+      run,
+      ...(work === undefined ? {} : { work }),
+      reason: ending.reason,
+      detail: ending.detail,
+      ...(ending.capStep === undefined ? {} : { capStep: ending.capStep }),
+      ...(ending.question === undefined ? {} : { question: ending.question }),
+      ...(ending.mustWrite === true ? { mustWrite: true } : {}),
+      ...(ending.resumeOnLift === true ? { resumeOnLift: true } : {}),
+    });
+    // The run summary (DIPO-49): every run that ends here gets one.
+    await this.#deps.finisher
+      ?.summarize(office, run, this.#tracked.get(run.runId)?.lastReport ?? ending.report ?? null)
+      .catch((thrown: unknown) => {
+        this.#deps.warn?.("storing the run summary failed", {
+          run: run.runId,
+          reason: messageOf(thrown),
+        });
+      });
+    // The park commit is read again at the branch tip (DIPO-56), unless nothing was written there.
+    if (writer === this.#deps.writer) await this.refresh(office, run, "parked");
+    // A park to resume when the starts paused lifts may land while they are not paused (0020).
+    if (ending.resumeOnLift === true) this.#deps.parkedToResume?.(office.officeId as OfficeId);
+    return parked;
   }
 
   /**

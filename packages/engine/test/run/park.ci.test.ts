@@ -3,7 +3,8 @@
 // - replays `budget-engine-cap` through FakeProcess with the tier budget from its meta: run control
 //   stops the worker and parks `budget-exceeded` naming the token cap, with one park commit
 //   `TASK-1: status Parked` holding the F16 block, pushed to `origin`;
-// - with no worker events, `story.park` parks `by-maintainer` the same way, the branch kept.
+// - with no worker events, `story.park` parks `by-maintainer` the same way once the worker's
+//   exit came in, the branch kept.
 // A story has no worktree (DIPO-349): the park commit is read from the branch ref.
 // Each case needs several CLI calls, an office load, a fetch, a claim and a push, well over the
 // local per-test budget; the same rules run locally against fakes in control.test.ts.
@@ -106,8 +107,13 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       "story.park parks by-maintainer with the note, keeping the branch",
       () =>
         withRunOffice({ host: "stub", checks: { ok: true }, control: {} }, async (r) => {
-          await startRun(r);
-          const reply = await command(r, "story.park", { story: "TASK-1", note: "Not now." });
+          const run = await startRun(r);
+          const replying = command(r, "story.park", { story: "TASK-1", note: "Not now." });
+          // The stub host is gone; once the stop was tried, its worker's exit comes in, and only
+          // then does the story park (DIPO-411).
+          for (let i = 0; i < 500 && r.sent.length === 0; i += 1) await Bun.sleep(5);
+          r.control?.onEnded(run);
+          const reply = await replying;
           if (!reply.ok) throw new Error(`${reply.error.code}: ${reply.error.message}`);
           expect(parks(r).map((p) => [p.reason, p.detail])).toEqual([
             ["by-maintainer", "Not now."],

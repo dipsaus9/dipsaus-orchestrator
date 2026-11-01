@@ -30,6 +30,12 @@ import type { RunFinisher } from "./verify-commit";
 /** The error of `work.steer` for a story with no worker and no park (0005). */
 export const STORY_NOT_RUNNING = "story.notRunning";
 
+/**
+ * How long a stop waits for the stopped worker's exit (`stopAll`, and the reply of the
+ * maintainer's park, DIPO-411): past the host's SIGKILL at 30 s.
+ */
+export const STOP_ALL_EXIT_WAIT_MS = 45_000;
+
 /** How often the caps are rechecked without new events (DIPO-15 M0 review): one minute. */
 export const CAP_TICK_MS = 60_000;
 
@@ -132,6 +138,11 @@ export interface Tracked extends TrackedRun {
   timer: TimerHandle | null;
   /** Set at the first decision; nothing else is decided for the run after it. */
   ending: Promise<ParkOutcome | null> | null;
+  /** What `ending` carries out, in words, for a reply that waits on it (DIPO-411). */
+  deciding: string | null;
+  /** Resolves once the worker's exit was ingested (`onEnded`); the maintainer's park waits for it. */
+  readonly exited: Promise<void>;
+  readonly markExited: () => void;
   /** A turn problem's act whose intent could not be stored; the next cap tick tries it (DIPO-123). */
   unstored: RunAct | null;
   /** The after-turn work of the run, one turn at a time (DIPO-49). */

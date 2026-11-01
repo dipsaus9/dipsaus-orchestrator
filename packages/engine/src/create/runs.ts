@@ -1068,6 +1068,8 @@ function controlRunPorts(
     outcomes: {
       // No new host while an earlier host of the run still runs (DIPO-57, 0006 decision 8).
       probe: options.probe,
+      // A host still alive for a parked run gets one verified SIGTERM at its resume (DIPO-411).
+      signal: signalProcess,
       holds: options.holds,
       holdsWork: storyHoldsWork(storyGitOf(options)),
       // Lifting a park on the story branch before its run resumes (DIPO-75), and a fix round's
@@ -1211,13 +1213,18 @@ export function buildRuns(options: RunsOptions): EngineRuns {
     return runPaths !== null && boxed !== null && boxed.workers.isBoxRun(runPaths.runDir);
   };
   const storyConflicts = storyConflictsOf(options, boxed, paths, partners.collisions);
+  // Closed with the engine: a stop then no longer waits for a host that is still starting.
+  let ingest: OfficeIngest | null = null;
   const parts: RunPortParts = {
     tmpRoot,
     paths,
     boxed,
     worker: workerOf(options, boxed?.workers ?? null),
     // One steering for every run service: it keeps no state between sends.
-    steering: hostSocketSteering({ clock: options.clock }),
+    steering: hostSocketSteering({
+      clock: options.clock,
+      stopped: () => ingest?.closed === true,
+    }),
     isBoxRun,
     finisher: finisherOf(options, boxed, isBoxRun, storyConflicts),
     sweeps: { temp: sweepTempDirs, boxes: () => passes.finishEndedBoxes() },
@@ -1225,6 +1232,7 @@ export function buildRuns(options: RunsOptions): EngineRuns {
     collisions: partners.collisions,
   };
   const composed = requireComposed(composeRuns(runPortsOf(options, parts)));
+  ingest = composed.ingest;
   // Each head whose CI stops being pending may start its fix round (DIPO-148).
   const fixRounds = composed.fixRounds;
   options.storyPr?.onCiFinal?.((office, runId) => {

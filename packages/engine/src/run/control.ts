@@ -30,7 +30,9 @@
 // - `story.park { story, note }` of a story with a run (`parkByMaintainer`, 0020). The engine
 //   records a `stop` intent, sends the stop sequence through the host (the adapter's `encode`: a
 //   now-priority message, stdin closed, SIGTERM after 10 s, SIGKILL after 30 s) and parks the
-//   story `by-maintainer` with the note; branch and box are kept.
+//   story `by-maintainer` with the note; branch and box are kept. For a run followed here the
+//   story parks only once the worker's exit was ingested (DIPO-411); with no exit within the wait
+//   the reply names what still runs, and a stop that could not be sent parks nothing.
 //
 // - Stream drift (DIPO-315). A `streamDrift` event the ingestor marks as deciding (`onStreamDrift`:
 //   the run's unreadable lines reached `STREAM_DRIFT_LINES`, or a turn end's usage cannot be read)
@@ -101,6 +103,7 @@ import {
   type RunEnding,
   type ParkRunArgs,
   type ParkRunResult,
+  STOP_ALL_EXIT_WAIT_MS,
   type Tracked,
   type TrackedRun,
   viewOf,
@@ -113,6 +116,9 @@ import { initRejectedEnding, type RunAct, type RunEnder, startRefusedAct } from 
 import type { RunEnd } from "../records/lifecycle";
 import { type ParkOutcome } from "./park";
 import { findRun, type StoredRun } from "../records/run-records";
+
+/** The intent detail of the stop of a worker whose run ended before it was tracked (DIPO-411). */
+export const ENDED_BEFORE_START = "the run ended before its worker started";
 import { storeProposals } from "./report-data";
 
 export {
@@ -120,6 +126,7 @@ export {
   CONTROL_NOTICES,
   DAEMON_STOPPED_DETAIL,
   EVENT_FILE_CHANGED,
+  STOP_ALL_EXIT_WAIT_MS,
   STORY_NOT_RUNNING,
 } from "./control-types";
 export type {
@@ -130,8 +137,6 @@ export type {
   TrackedRun,
 } from "./control-types";
 
-/** How long `stopAll` waits for the stopped workers to exit: past the host's SIGKILL at 30 s. */
-export const STOP_ALL_EXIT_WAIT_MS = 45_000;
 /** How often `stopAll` looks whether the stopped workers exited. */
 const STOP_ALL_POLL_MS = 250;
 
@@ -157,10 +162,18 @@ export class RunControl implements RunEnder {
   readonly #turns: AfterTurns;
   readonly #reconcile: ReconcileStops;
   readonly #interventions: Interventions;
+  /** The runs whose next worker is being started here (DIPO-411): how many starts, and their end. */
+  readonly #starts = new Map<
+    string,
+    { count: number; readonly done: PromiseWithResolvers<void> }
+  >();
 
   constructor(deps: RunControlDeps) {
     this.#deps = deps;
-    this.#endings = new RunEndings(deps, this.#tracked, this.#inflight);
+    this.#endings = new RunEndings(deps, this.#tracked, this.#inflight, {
+      rearm: (tracked) => this.#arm(tracked),
+      startOf: (run) => this.#starts.get(run)?.done.promise,
+    });
     this.#turns = new AfterTurns(deps, this.#endings, this.#inflight);
     this.#reconcile = new ReconcileStops(deps, this.#tracked, this.#endings);
     this.#interventions = new Interventions(deps);
@@ -217,11 +230,15 @@ export class RunControl implements RunEnder {
   /** Starts tracking a started run; call it before ingestion starts, so no event is missed. */
   track(office: OfficeId, run: TrackedRun): void {
     if (this.#tracked.has(run.runId)) return;
+    const exit = Promise.withResolvers<void>();
     const tracked: Tracked = {
       ...run,
       office,
       timer: null,
       ending: null,
+      deciding: null,
+      exited: exit.promise,
+      markExited: () => exit.resolve(),
       unstored: null,
       turns: Promise.resolve(),
       lastReport: null,
@@ -229,6 +246,42 @@ export class RunControl implements RunEnder {
     };
     this.#tracked.set(run.runId, tracked);
     this.#arm(tracked);
+    // A worker started for a run that ended meanwhile, or that a park of an unfollowed run is
+    // ending, is stopped at once (DIPO-411): no worker outlives its run.
+    const handle = this.#deps.offices.get(office);
+    const stored = handle === undefined ? null : findRun(handle, run.runId);
+    if (stored?.endedAt != null || this.#endings.parking(run.runId)) {
+      this.act(run.runId, {
+        intent: "stop",
+        detail: ENDED_BEFORE_START,
+        ops: this.#deps.encode({ kind: "stop" }),
+      });
+    }
+  }
+
+  /**
+   * A worker of `run` is being started (DIPO-411): from the run row, or from the decision on its
+   * last session's exit, until its host is tracked or the start gave up. A `story.park` in that
+   * window waits for it, so the park stops the new worker instead of parking while one starts.
+   * Returns the call that ends it; each start ends its own.
+   */
+  starting(run: string): () => void {
+    let entry = this.#starts.get(run);
+    if (entry === undefined) {
+      entry = { count: 0, done: Promise.withResolvers<void>() };
+      this.#starts.set(run, entry);
+    }
+    const mine = entry;
+    mine.count += 1;
+    let ended = false;
+    return () => {
+      if (ended) return;
+      ended = true;
+      mine.count -= 1;
+      if (mine.count > 0) return;
+      if (this.#starts.get(run) === mine) this.#starts.delete(run);
+      mine.done.resolve();
+    };
   }
 
   /** True while the run is tracked (started here and not yet ended by an exit). */
@@ -411,16 +464,23 @@ export class RunControl implements RunEnder {
   async stopAll(exitWaitMs = STOP_ALL_EXIT_WAIT_MS): Promise<StopAllResult> {
     const all = [...this.#tracked.values()];
     let stopped = 0;
-    for (const tracked of all) {
-      if (tracked.ending !== null) continue;
-      this.#endings.begin(tracked, {
-        intent: "stop",
-        ops: this.#deps.encode({ kind: "stop" }),
-        reason: "by-maintainer",
-        detail: DAEMON_STOPPED_DETAIL,
-      });
-      if (tracked.ending !== null) stopped += 1;
-    }
+    const stopLive = (): void => {
+      for (const tracked of all) {
+        if (tracked.ending !== null || this.#tracked.get(tracked.runId) !== tracked) continue;
+        this.#endings.begin(tracked, {
+          intent: "stop",
+          ops: this.#deps.encode({ kind: "stop" }),
+          reason: "by-maintainer",
+          detail: DAEMON_STOPPED_DETAIL,
+        });
+        if (tracked.ending !== null) stopped += 1;
+      }
+    };
+    stopLive();
+    await Promise.allSettled(all.map((tracked) => tracked.ending ?? Promise.resolve(null)));
+    // A decision that ended without stopping its worker (a maintainer's park whose stop could not
+    // be sent, DIPO-411) leaves the run live: it is stopped like the others.
+    stopLive();
     await Promise.allSettled(all.map((tracked) => tracked.ending ?? Promise.resolve(null)));
     // The host sends SIGTERM 10 s after the stop and SIGKILL after 30 s; each exit is ingested and
     // decided before its run is untracked.
@@ -567,6 +627,8 @@ export class RunControl implements RunEnder {
     const tracked = this.#tracked.get(run);
     if (tracked === undefined) return;
     disarm(this.#deps.clock, tracked);
+    // A maintainer's park waiting for this exit parks now (DIPO-411).
+    tracked.markExited();
     const outcomes = this.#deps.outcomes?.();
     if (outcomes !== undefined && agent !== undefined && end !== undefined) {
       // The turns before the exit are decided first, with the run still tracked; then the run is
@@ -574,14 +636,20 @@ export class RunControl implements RunEnder {
       background(
         async () => {
           await tracked.turns.catch(() => undefined);
-          if (this.#tracked.get(run) === tracked) this.#tracked.delete(run);
-          await outcomes.onExit({
-            view: viewOf(tracked),
-            agent,
-            turns: Promise.resolve(),
-            ending: tracked.ending,
-            end,
-          });
+          // Until the exit is decided a next session may start: a park waits for it (DIPO-411).
+          const decided = this.starting(run);
+          try {
+            if (this.#tracked.get(run) === tracked) this.#tracked.delete(run);
+            await outcomes.onExit({
+              view: viewOf(tracked),
+              agent,
+              turns: Promise.resolve(),
+              ending: tracked.ending,
+              end,
+            });
+          } finally {
+            decided();
+          }
         },
         {
           failed: "deciding a worker's exit failed",

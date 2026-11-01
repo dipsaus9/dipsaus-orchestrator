@@ -156,6 +156,37 @@ describe("office summary", () => {
       });
     }));
 
+  it("counts an ended run as active while a worker host of it is still open (DIPO-411)", () =>
+    withOffice((_t, office) => {
+      const host = (run: string, agent: string, pending: 0 | 1) =>
+        office.run(
+          `insert into worker_hosts (office_id, run_id, agent_id, pid, start_time_ms, socket_path,
+             protocol_version, run_dir, event_file, started_at, pending)
+           values ($office_id, $run, $agent, 4242, 1, '/s', 3, '/d', '/e', 0, $pending)`,
+          { run, agent, pending },
+        );
+      office.immediate(() => {
+        office.run(
+          `insert into runs (office_id, run_id, kind, role, model, budget_unit, budget_limit,
+             loop_cap, config_hash, started_at, ended_at)
+           values ($office_id, 'run_2', 'session', 'developer', 'haiku', 'tokens', 1, 1, 'h', 0, 5)`,
+        );
+        // Two open hosts of one parked run count it once; a pending row is no live host.
+        host("run_2", "agent-1", 0);
+        host("run_2", "agent-2", 0);
+        host("run_3", "agent-3", 1);
+      });
+      const running = () =>
+        deriveOfficeSummary({ office: office.officeId, name: "demo", path: "/repos/demo" }, office)
+          .running;
+      expect(running()).toBe(1);
+      // Its hosts' exits are in: the run is not active any more.
+      office.immediate(() =>
+        office.run("update worker_hosts set ended_at = 6 where office_id = $office_id"),
+      );
+      expect(running()).toBe(0);
+    }));
+
   it("names the privacy opt-ins that are on, and leaves the field out when none is (DIPO-83)", () =>
     withOffice(async (t, office) => {
       const on = ["privacy.storeCommandBodies"];

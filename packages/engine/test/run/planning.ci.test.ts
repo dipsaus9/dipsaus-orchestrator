@@ -91,6 +91,7 @@ function world(s: ClaimSetup) {
     },
     implemented: () => true,
     probe: systemProcessProbe(currentPlatform()),
+    signal: () => false,
   });
   const registry = buildRegistry([
     planning.feature,
