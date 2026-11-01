@@ -1,10 +1,10 @@
 ---
 id: DIPO-409
 title: Refuse at pickup a story whose References name a protected path
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-31 10:18'
-updated_date: '2026-11-01 09:17'
+updated_date: '2026-11-01 12:21'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -17,6 +17,23 @@ references:
   - packages/engine/src/box/parts.ts
   - packages/engine/test/gate/
   - docs/decisions/0012-story-standard.md
+modified_files:
+  - docs/decisions/0012-story-standard.md
+  - packages/engine/src/box/collisions.ts
+  - packages/engine/src/box/index.ts
+  - packages/engine/src/box/parts.ts
+  - packages/engine/src/gate-decisions/decisions.ts
+  - packages/engine/src/gate/evaluate.ts
+  - packages/engine/src/gate/index.ts
+  - packages/engine/src/gate/rules.ts
+  - packages/engine/src/gate/types.ts
+  - packages/engine/src/story-store/protected.ts
+  - packages/engine/test/box/parts.test.ts
+  - packages/engine/test/box/tracker-folder.test.ts
+  - packages/engine/test/gate/gate.test.ts
+  - packages/engine/test/gate/pickup-protected.test.ts
+  - packages/engine/test/run/work-run.test.ts
+  - packages/engine/test/story-store/seam-literals.test.ts
 priority: medium
 type: bug
 ordinal: 387000
@@ -49,3 +66,20 @@ test_plan:
 - [x] #4 The Ready-mode gate gives the same result as before for every story (a Ready-mode test with a `.github/` reference still passes), and the scope-violation park after a run is unchanged
 - [x] #5 ADR 0012 lists the new rule with its mode in the same PR
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-01 12:21 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 225,438 of 300,000 tokens
+- Runs: 1; resumes: 2
+- Parks: 2
+  - 2026-11-01 09:08 UTC ambiguous-spec: Criterion 1 says a pickup refused by the new rule keeps the story Ready, but every pickup gate failure today moves it to Refined (`#toRefined` in work-run.ts, the path the existing DIPO-48 tests asse…
+  - 2026-11-01 09:12 UTC ambiguous-spec: Approve the R31 wording for ADR 0012 section "3. The Ready gate" (DIPO-399): a pickup-only rule R31 that refuses a Ready story whose References name a path `protectedKind` protects, except a link, mo…
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->
