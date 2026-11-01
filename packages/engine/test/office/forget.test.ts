@@ -73,7 +73,8 @@ describe("office.forget", () => {
         expect(resultOf<object>(reply)).toEqual({ office, path: repo.dir });
         expect(reply.ok && reply.changed).toBe(true);
         expect(officeRows(s.state)[0]?.forgotten_at).toBe(s.clock.now());
-        expect(changeLogRows(s, office)).toBe(1);
+        // The history notice and the `config.fromCheckout` notice of a repository with no remote.
+        expect(changeLogRows(s, office)).toBe(2);
         expect(s.events.at(-1)).toMatchObject({ type: "office.forgotten", data: { office } });
         expect(s.manager.loadedOffices()).toEqual([]);
         expect(errorOf(await send(s, "fixture.ping", {}, office))).toBe("office.unknown");
@@ -85,7 +86,7 @@ describe("office.forget", () => {
         expect(resultOf<object>(reopened)).toEqual({ office, registered: false });
         expect(reopened.ok && reopened.changed).toBe(true);
         expect(officeRows(s.state)[0]?.forgotten_at).toBeNull();
-        expect(changeLogRows(s, office)).toBe(1);
+        expect(changeLogRows(s, office)).toBe(2);
         expect(s.events.at(-1)).toMatchObject({ type: "office.registered", data: { office } });
         resultOf(await send(s, "fixture.ping", {}, office));
       },
