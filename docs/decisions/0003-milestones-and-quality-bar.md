@@ -43,17 +43,11 @@ Until M3, stories are written by hand or with the `dipsaus-ai` skills. Until M4 
 
 ## Current state
 
-M1 is paused since 2026-10-24. The code is first pruned toward the rewritten ADRs, following a plan the maintainer and Claude make together.
+M1 resumed on 2026-11-01, when the prune toward the rewritten ADRs ended (maintainer). The cutover gate DIPO-351 passed on 2026-10-29, and the last prune story merged on 2026-11-01. The prune stories keep the labels `slice:prune` and `track:1` or `track:2`.
 
-How dipo is built during the prune (maintainer, 2026-10-24):
+How dipo is built (maintainer, 2026-10-29): in two lanes. dipo builds the small stories (`tier:S`) itself, one at a time: the orchestrating Claude starts the runs, answers worker questions and files every gap a run shows as a story. Builder agents build the medium and large ones (`tier:M`, `tier:L`) in parallel from the stories already filed, ordered so that stories touching the same code do not run at once. A story that needs a real box test by hand goes to a builder.
 
-1. **Track 1, the run path,** is built by builder agents from the maintainer's orchestrating Claude session. These are the stories dipo needs to deliver one story the new way: the claim without a worktree, verify in the box, the reviewer box, one feedback path, GitHub auto-merge, one git module. A separate agent reviews each PR, and a scratch-repository run checks each story.
-2. **The cutover gate:** dipo delivers one real story of this repository end to end on the simplified path, and the maintainer confirms it.
-3. **Track 2, everything else,** is built in two lanes (maintainer, 2026-10-29). dipo builds the small stories (`tier:S`) itself, one at a time: the orchestrating Claude starts the runs, answers worker questions and files every gap a run shows as a story. Builder agents build the medium and large ones (`tier:M`, `tier:L`) in parallel, as in Track 1, from the stories already filed, ordered so that stories touching the same code do not run at once. A story that needs a real box test by hand goes to a builder.
-
-The prune stories sit in M1 with the labels `slice:prune` and `track:1` or `track:2`. The cutover gate is DIPO-351, and every Track 2 story depends on it.
-
-In both tracks dipo runs from a pinned binary that is upgraded only after a smoke run of the new build, every story names what it removes, and an ADR is rewritten in the same PR as the change it decides.
+dipo runs from a pinned binary that is upgraded only after a smoke run of the new build, every story names what it removes, and an ADR is rewritten in the same PR as the change it decides.
 
 ## Rationale
 
@@ -65,4 +59,5 @@ The riskiest unknowns were in the execution engine: the daemon, the worker adapt
 - An amendment log in every ADR. Replaced by rewriting the body plus a "Replaced" list (2026-10-24), because the bodies had stopped describing what runs.
 - M1 items that are now implementation details or later work: send-once feedback signatures, evidence on feedback, affected-files test selection and the codegraph backend (moved to Later).
 - Track 2 built only by dipo, one story at a time (2026-10-24). Replaced by two lanes, dipo for small stories and builders for the rest, to finish the prune sooner (2026-10-29).
+- M1 paused for the prune (2026-10-24 to 2026-11-01): Track 1, the run path, built by builder agents and ending in the cutover gate DIPO-351, then Track 2. Replaced by the two lanes for all work once the prune ended (2026-11-01).
 - M2 items for Mac worktrees (worktree locking, push serialisation, worktrees prepared during batch confirmation). The box replaced the Mac worktree.
