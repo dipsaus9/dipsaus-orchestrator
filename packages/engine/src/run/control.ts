@@ -30,7 +30,9 @@
 // - `story.park { story, note }` of a story with a run (`parkByMaintainer`, 0020). The engine
 //   records a `stop` intent, sends the stop sequence through the host (the adapter's `encode`: a
 //   now-priority message, stdin closed, SIGTERM after 10 s, SIGKILL after 30 s) and parks the
-//   story `by-maintainer` with the note; branch and box are kept.
+//   story `by-maintainer` with the note; branch and box are kept. For a run followed here the
+//   story parks only once the worker's exit was ingested (DIPO-411); with no exit within the wait
+//   the reply names what still runs, and a stop that could not be sent parks nothing.
 //
 // - Stream drift (DIPO-315). A `streamDrift` event the ingestor marks as deciding (`onStreamDrift`:
 //   the run's unreadable lines reached `STREAM_DRIFT_LINES`, or a turn end's usage cannot be read)
@@ -101,6 +103,7 @@ import {
   type RunEnding,
   type ParkRunArgs,
   type ParkRunResult,
+  STOP_ALL_EXIT_WAIT_MS,
   type Tracked,
   type TrackedRun,
   viewOf,
@@ -120,6 +123,7 @@ export {
   CONTROL_NOTICES,
   DAEMON_STOPPED_DETAIL,
   EVENT_FILE_CHANGED,
+  STOP_ALL_EXIT_WAIT_MS,
   STORY_NOT_RUNNING,
 } from "./control-types";
 export type {
@@ -130,8 +134,6 @@ export type {
   TrackedRun,
 } from "./control-types";
 
-/** How long `stopAll` waits for the stopped workers to exit: past the host's SIGKILL at 30 s. */
-export const STOP_ALL_EXIT_WAIT_MS = 45_000;
 /** How often `stopAll` looks whether the stopped workers exited. */
 const STOP_ALL_POLL_MS = 250;
 
@@ -160,7 +162,9 @@ export class RunControl implements RunEnder {
 
   constructor(deps: RunControlDeps) {
     this.#deps = deps;
-    this.#endings = new RunEndings(deps, this.#tracked, this.#inflight);
+    this.#endings = new RunEndings(deps, this.#tracked, this.#inflight, (tracked) =>
+      this.#arm(tracked),
+    );
     this.#turns = new AfterTurns(deps, this.#endings, this.#inflight);
     this.#reconcile = new ReconcileStops(deps, this.#tracked, this.#endings);
     this.#interventions = new Interventions(deps);
@@ -217,11 +221,14 @@ export class RunControl implements RunEnder {
   /** Starts tracking a started run; call it before ingestion starts, so no event is missed. */
   track(office: OfficeId, run: TrackedRun): void {
     if (this.#tracked.has(run.runId)) return;
+    const exit = Promise.withResolvers<void>();
     const tracked: Tracked = {
       ...run,
       office,
       timer: null,
       ending: null,
+      exited: exit.promise,
+      markExited: () => exit.resolve(),
       unstored: null,
       turns: Promise.resolve(),
       lastReport: null,
@@ -567,6 +574,8 @@ export class RunControl implements RunEnder {
     const tracked = this.#tracked.get(run);
     if (tracked === undefined) return;
     disarm(this.#deps.clock, tracked);
+    // A maintainer's park waiting for this exit parks now (DIPO-411).
+    tracked.markExited();
     const outcomes = this.#deps.outcomes?.();
     if (outcomes !== undefined && agent !== undefined && end !== undefined) {
       // The turns before the exit are decided first, with the run still tracked; then the run is

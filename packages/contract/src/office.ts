@@ -195,7 +195,9 @@ export const workDiscard = defineCommand({
 // the planning lane. `run` names the run the park ended or kept. Parking a story parked already
 // answers `changed: false`; any other status fails `story.notParkable`. A park whose write to
 // Backlog.md fails records nothing and fails `story.parkNotWritten`, so it can be sent again
-// (DIPO-360).
+// (DIPO-360). A story parks only once its worker exited: a stop that could not be sent, or a worker
+// still running after the wait, fails the retryable `run.hostAlive` naming what still runs
+// (DIPO-411).
 export const storyPark = defineCommand({
   name: "story.park",
   level: "office",

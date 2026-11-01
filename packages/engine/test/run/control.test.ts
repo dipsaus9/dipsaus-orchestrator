@@ -40,6 +40,7 @@ import {
   RunControl,
   type RunSteering,
   DAEMON_STOPPED_DETAIL,
+  STOP_ALL_EXIT_WAIT_MS,
   STORY_NOT_RUNNING,
 } from "../../src/run";
 import { findRun, insertRun, recordGrant, runIntents, STREAM_DRIFT_LINES } from "../../src/records";
@@ -101,6 +102,8 @@ interface World {
   readonly work: WorkRef;
   writer: "ok" | "taskField" | "fails" | "noSummary";
   steer: RunSteering["send"] | null;
+  /** The worker exits right after a send reached it, as after a stop (DIPO-411). */
+  exitOnSend: boolean;
   ingestor: Ingestor | null;
   /** What run control logged through its `warn` dependency. */
   readonly warnings: { message: string; fields: Readonly<Record<string, unknown>> }[];
@@ -122,6 +125,7 @@ beforeEach(async () => {
     refreshed,
     writer: "ok",
     steer: null,
+    exitOnSend: false,
     ingestor: null,
     warnings: [],
   } as unknown as World;
@@ -154,7 +158,12 @@ beforeEach(async () => {
     steering: {
       send: async (office, runId, ops) => {
         sent.push([...ops]);
-        return world.steer === null ? { ok: true } : world.steer(office, runId, ops);
+        const reply =
+          world.steer === null ? { ok: true as const } : await world.steer(office, runId, ops);
+        // Its exit is ingested once the send was marked.
+        if (reply.ok && world.exitOnSend)
+          void Bun.sleep(0).then(() => world.control.onEnded(runId));
+        return reply;
       },
     },
     encode,
@@ -600,6 +609,7 @@ describe("story.park of a running story", () => {
 
   it("ends the stopped run and holds its unwritten park when the write to Backlog.md fails, answers story.parkNotWritten, and a retry writes it on the same row (DIPO-360)", async () => {
     track();
+    w.exitOnSend = true;
     w.writer = "fails";
     const failed = await stopCommand("DIPO-1", "Not now.");
     expect(failed.ok ? null : failed.error.code).toBe(PARK_NOT_WRITTEN);
@@ -635,6 +645,7 @@ describe("story.park of a running story", () => {
 
   it("records the stop intent, sends the stop sequence the fake process sees, and parks by-maintainer", async () => {
     track();
+    w.exitOnSend = true;
     const recording = readRecording(join(RECORDINGS_DIR, "success-single"));
     const child = new FakeProcess({ lines: recording.lines, clock: w.f.t.clock, stdin: "pipe" });
     const steering = new Steering(child, w.f.t.clock);
@@ -666,9 +677,10 @@ describe("story.park of a running story", () => {
     const run = findRun(w.f.office, w.f.run);
     expect(run?.ending).toBe("parked");
     expect(run?.endedAt).not.toBeNull();
-    expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
-      ["stop", "sent"],
-    ]);
+    // Sent, then resolved by the worker's exit, which came before the park (DIPO-411).
+    expect(
+      runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.sentAt !== null, i.state]),
+    ).toEqual([["stop", true, "resolved"]]);
     // The branch is kept: the claim stays live.
     expect(countRows(w.f.office, "claims")).toBe(1);
     const claim = w.f.office.get<{ released_at: number | null }>(
@@ -679,6 +691,7 @@ describe("story.park of a running story", () => {
 
   it("sends no second stop and writes no second park when a crash before the requests row makes the retry run the handler again", async () => {
     track();
+    w.exitOnSend = true;
     const sends: unknown[] = [];
     w.steer = async (_office, _run, ops) => {
       sends.push(ops);
@@ -712,7 +725,8 @@ describe("story.park of a running story", () => {
     expect(parks()).toEqual([]);
   });
 
-  it("parks even when the host cannot be reached, with a notice", async () => {
+  it("parks a run this daemon does not follow even when its host cannot be reached, with a notice", async () => {
+    // No worker of the run is followed here, so no exit is waited for.
     w.steer = async () => ({ ok: false, reason: "the worker host socket is unreachable" });
     const reply = await stopCommand("DIPO-1");
     expect(reply.ok).toBe(true);
@@ -724,6 +738,88 @@ describe("story.park of a running story", () => {
       .filter((event) => event.type === "engine.notice")
       .map((event) => (event.data as { code: string }).code);
     expect(codes).toEqual(["run.stopNotSent"]);
+  });
+
+  it("parks nothing when the stop to a followed worker cannot be sent: run.hostAlive names its host, the run goes on, and the next park parks it (DIPO-411)", async () => {
+    track();
+    w.steer = async () => ({
+      ok: false,
+      reason: "the worker host socket /h/run.sock is unreachable",
+    });
+    const replying = stopCommand("DIPO-1", "Not now.");
+    // No exit comes within the wait: the host is alive, only its socket does not answer.
+    for (let i = 0; i < 100 && w.sent.length === 0; i += 1) await Bun.sleep(1);
+    await Bun.sleep(5);
+    w.f.t.clock.advance(STOP_ALL_EXIT_WAIT_MS);
+    const failed = await replying;
+    if (failed.ok) throw new Error("the park was answered parked");
+    expect(failed.error).toMatchObject({ code: "run.hostAlive", retryable: true });
+    expect(failed.error.message).toContain("could not send its worker the stop");
+    expect(failed.error.message).toContain("unreachable");
+    expect(failed.error.message).toContain("worker host (pid 4242) and its worker still run");
+    expect(failed.error.message).toContain("DIPO-1 is not parked yet");
+    expect(parks()).toEqual([]);
+    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
+    // The run goes on as it was: decisions reach it, and the failed stop explains no later exit.
+    expect(w.control.live(w.f.run)).toBe(true);
+    expect(
+      runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state, i.error !== null, i.outcome]),
+    ).toEqual([["stop", "resolved", true, "notSent"]]);
+
+    // The host answers now: the next park stops the worker and parks once it exited.
+    w.steer = null;
+    w.exitOnSend = true;
+    const parked = await stopCommand("DIPO-1", "Not now.");
+    expect(parked.ok).toBe(true);
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([["by-maintainer", "Not now."]]);
+    expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
+  });
+
+  it("parks when the stop met a host that had exited, once its worker's exit came in (DIPO-411)", async () => {
+    track();
+    w.steer = async (_office, runId) => {
+      // The host is gone; its exit line is ingested a moment later.
+      void Bun.sleep(5).then(() => w.control.onEnded(runId));
+      return { ok: false, reason: "the worker host has exited" };
+    };
+    const reply = await stopCommand("DIPO-1", "Not now.");
+    expect(reply.ok).toBe(true);
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([["by-maintainer", "Not now."]]);
+    expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
+  });
+
+  it("answers run.hostAlive while the stopped worker has not exited after the wait, and parks it at its exit (DIPO-411)", async () => {
+    track();
+    const settle = async (sends: number) => {
+      for (let i = 0; i < 100 && w.sent.length < sends; i += 1) await Bun.sleep(1);
+      await Bun.sleep(5);
+    };
+    const reply = stopCommand("DIPO-1", "Not now.");
+    await settle(1);
+    w.f.t.clock.advance(STOP_ALL_EXIT_WAIT_MS);
+    const failed = await reply;
+    if (failed.ok) throw new Error("the park was answered parked");
+    expect(failed.error).toMatchObject({ code: "run.hostAlive", retryable: true });
+    expect(failed.error.message).toContain("dipo sent its worker the stop");
+    expect(failed.error.message).toContain("pid 4242");
+    expect(failed.error.message).toContain("It parks once its worker exits.");
+    expect(parks()).toEqual([]);
+    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
+
+    // A second park while it waits sends no second stop and says the same.
+    const again = stopCommand("DIPO-1", "Not now.");
+    await settle(1);
+    w.f.t.clock.advance(STOP_ALL_EXIT_WAIT_MS);
+    const second = await again;
+    expect(second.ok ? null : second.error.code).toBe("run.hostAlive");
+    expect(w.sent).toHaveLength(1);
+    expect(parks()).toEqual([]);
+
+    // The worker exits: the story parks then.
+    w.control.onEnded(w.f.run);
+    for (let i = 0; i < 100 && parks().length === 0; i += 1) await Bun.sleep(1);
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([["by-maintainer", "Not now."]]);
+    expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
   });
 });
 
