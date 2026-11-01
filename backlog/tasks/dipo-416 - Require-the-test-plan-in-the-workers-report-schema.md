@@ -1,10 +1,10 @@
 ---
 id: DIPO-416
 title: Require the test plan in the worker's report schema
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-01 16:07'
-updated_date: '2026-11-01 17:15'
+updated_date: '2026-11-01 17:16'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -16,6 +16,14 @@ references:
   - packages/engine/src/prompts/contract/implement-box.md
   - packages/engine/test/prompts/
   - packages/engine/test/workers/
+modified_files:
+  - packages/engine/src/prompts/contract/implement-box.md
+  - packages/engine/src/workers/claude-cli/report-schema.ts
+  - packages/engine/test/prompts/golden/system-implement-box-developer.md
+  - packages/engine/test/prompts/system.test.ts
+  - packages/engine/test/run/report-data.test.ts
+  - packages/engine/test/workers/json-schema.test.ts
+  - packages/engine/test/workers/report-schema.test.ts
 priority: medium
 type: bug
 ordinal: 394000
@@ -47,3 +55,18 @@ test_plan:
 - [x] #3 The report section of packages/engine/src/prompts/contract/implement-box.md says `testPlan` is always present, empty when the story has no entries, shown by the prompt golden tests
 - [x] #4 `parseWorkerReport` and the worker event schema still accept a report without `testPlan`, so every committed recording and scripted turn replays with its current outcome, shown by the existing recordings and scripted tests passing unchanged
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-01 17:16 UTC
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 62,469 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
