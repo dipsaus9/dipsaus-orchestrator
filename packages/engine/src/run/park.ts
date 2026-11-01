@@ -533,7 +533,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
     } else if (request.mustWrite === true) {
       throw new CommandError(
         PARK_NOT_WRITTEN,
-        `${story} was not parked: writing the park on ${run.branch ?? "its branch"} failed (${messageOf(error)}). dipo recorded nothing; send the park again.`,
+        `${story} was not parked: writing the park on ${run.branch ?? "its branch"} failed (${messageOf(error)}). dipo recorded nothing; send \`dipo park ${story} --note <text>\` again.`,
         { story },
       );
     } else {

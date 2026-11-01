@@ -4,11 +4,13 @@
 // merged PR, a remote tip dipo did not push, the leftovers of a story Done on the base, a running
 // story, and a story with nothing to discard.
 //
-// Two cases stay local: a remote tip the loss list keeps, and the refusal of a merged PR. The rest
-// is in discard.ci.test.ts (CI only, DIPO-225).
+// Local cases: a remote tip the loss list keeps, the refusal of a merged PR, and a worker host of the
+// ended run that still runs, a real process (DIPO-418). The rest is in discard.ci.test.ts (CI only,
+// DIPO-225).
 
 import { describe, expect, it } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
 
 import {
   type CommandReply,
@@ -28,7 +30,15 @@ import type { FeatureModule } from "../../src/commands/registry";
 import type { OfficeHandle } from "../../src/db/office";
 import type { OfficeGit } from "../../src/git/office";
 import { executeRead } from "../../src/reads/execute";
+import { currentPlatform } from "../../src/platform/paths";
+import {
+  pidExists,
+  type ProcessProbe,
+  signalProcess,
+  systemProcessProbe,
+} from "../../src/platform/process";
 import { insertStoryPr } from "../../src/records/story-prs";
+import { recordWorkerHost } from "../../src/records/worker-hosts";
 import { StoryDiscard } from "../../src/run/discard";
 import { StoryPlanning } from "../../src/run/planning";
 import { liveClaimOf } from "../../src/worktree/records";
@@ -44,6 +54,7 @@ import {
 } from "../reconcile/helpers";
 import { backlogStoryStore } from "../../src/backlog/store";
 import { backlogLayout } from "../story-store/backlog";
+import { lateHostScript } from "../host/fixtures/late-host-script";
 
 interface Closed {
   readonly repo: string;
@@ -64,6 +75,10 @@ interface Seen {
   onStop?: () => void;
   /** The Backlog CLI the discard reads `_base` with; none by default. */
   spawn?: Spawn;
+  /** The discard's process probe in place of the fake one (DIPO-418: the real process table). */
+  probe?: ProcessProbe;
+  /** Every signal the discard sent, passed on to the real one. */
+  readonly signals: [number, string][];
 }
 
 const HOST_START = 1_767_225_600_000;
@@ -96,7 +111,11 @@ function features(seen: Seen) {
       lane: () => planningLane(lane),
       git: (office) => engineGit.forOffice(office),
       host,
-      probe,
+      probe: (pid) => (seen.probe ?? probe)(pid),
+      signal: (pid, signal) => {
+        seen.signals.push([pid, signal]);
+        return signalProcess(pid, signal);
+      },
       stop: async (_ctx, args) => {
         seen.stops.push(args.story);
         seen.onStop?.();
@@ -125,7 +144,7 @@ function features(seen: Seen) {
 }
 
 function seenOf(): Seen {
-  return { ops: [], closed: [], stops: [], boxes: 0, alive: [] };
+  return { ops: [], closed: [], stops: [], boxes: 0, alive: [], signals: [] };
 }
 
 let sequence = 0;
@@ -242,6 +261,213 @@ describe("work.discard removes nothing its loss list did not show (DIPO-161 revi
       expect(
         noticesAfter(o.office, seq).filter((n) => n.code === "discard.remoteBranchKept"),
       ).toHaveLength(1);
+    });
+  });
+});
+
+/** True once `pid` exits, within 3 s. */
+async function gone(pid: number): Promise<boolean> {
+  for (let i = 0; i < 300 && pidExists(pid); i += 1) await Bun.sleep(10);
+  return !pidExists(pid);
+}
+
+/** The error of a refused reply. */
+function refusal(reply: CommandReply): { code: string; message: string; retryable: boolean } {
+  if (reply.ok) throw new Error(`expected an error, got ${JSON.stringify(reply)}`);
+  return {
+    code: reply.error.code,
+    message: reply.error.message,
+    retryable: reply.error.retryable,
+  };
+}
+
+describe("work.discard of a story whose ended run's worker host still runs (DIPO-418)", () => {
+  // Real processes in the host's source form (`lateHostScript`), read through the real process
+  // table, as in test/host/ended-run-hosts.test.ts; the signals go to the real `signalProcess`.
+  const realProbe = systemProcessProbe(currentPlatform());
+  const HOUR = 3_600_000;
+
+  /** Runs `body` with a fresh folder for the stand-in host, killing what it started. */
+  async function withHosts(
+    body: (
+      start: (words: string[]) => Promise<{ pid: number; startTimeMs: number }>,
+      dir: string,
+    ) => Promise<void>,
+  ): Promise<void> {
+    const dir = mkdtempSync(join(process.env["DIPO_TMP"] || "/tmp", "discard-hosts-"));
+    const children: Bun.Subprocess[] = [];
+    const standIn = lateHostScript(dir);
+    const start = async (words: string[]) => {
+      const child = Bun.spawn([process.execPath, standIn, ...words], {
+        stdio: ["ignore", "ignore", "ignore"],
+      });
+      children.push(child);
+      const last = words.at(-1) ?? "";
+      for (let i = 0; i < 200; i += 1) {
+        const info = await realProbe(child.pid);
+        if (info !== null && info.command.endsWith(last)) return info;
+        await Bun.sleep(10);
+      }
+      throw new Error(`the stand-in ${words.join(" ")} did not come up`);
+    };
+    try {
+      await body(start, dir);
+    } finally {
+      for (const child of children) child.kill("SIGKILL");
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  /** Records a worker host row of `runId` for `pid`, with `startTimeMs` as its start time. */
+  function recordHost(
+    o: ReconcileOffice,
+    runId: RunId,
+    dir: string,
+    pid: number,
+    startTimeMs: number,
+  ) {
+    recordWorkerHost(
+      o.office,
+      {
+        pid,
+        startTimeMs,
+        runId,
+        agentId: "agt_01JZ0000000000000000000001",
+        socketPath: join(dir, "host.sock"),
+        protocolVersion: 3,
+        runDir: dir,
+        eventFile: join(dir, "events.ndjson"),
+        launchDeadline: o.s.clock.now() + HOUR,
+      },
+      o.s.clock,
+    );
+  }
+
+  it("sends a verified host one SIGTERM, refuses in drop's words, and discards once it exited", async () => {
+    const seen = { ...seenOf(), probe: realProbe };
+    await withReconcileOffice({ base: PARKED, features: features(seen) }, async (o) => {
+      seen.office = o.office;
+      const key = keyOf(o.office, "TASK-1");
+      const record = await claim(o, o.office, "TASK-1", key, { active: false });
+      await withHosts(async (start, dir) => {
+        const host = await start(["daemon", "worker-host", record.runId]);
+        recordHost(o, record.runId, dir, host.pid, host.startTimeMs);
+
+        const busy = refusal(await discard(o, "TASK-1"));
+        expect(busy.code).toBe("run.hostAlive");
+        expect(busy.retryable).toBe(true);
+        expect(busy.message).toBe(
+          `A worker host of TASK-1 still runs, so its box is in use: its worker host (pid ${host.pid}) still ran, so dipo sent it SIGTERM to stop its worker. Send \`dipo discard TASK-1 --note <text>\` again in a moment, once the host has exited.`,
+        );
+        expect(seen.signals).toEqual([[host.pid, "SIGTERM"]]);
+        // Nothing was journaled, closed or released.
+        expect(seen.ops).toEqual([]);
+        expect(liveClaimOf(o.office, key)).not.toBeNull();
+        expect(await gone(host.pid)).toBe(true);
+
+        expect(await discard(o, "TASK-1")).toMatchObject({ ok: true, changed: true });
+        expect(liveClaimOf(o.office, key)).toBeNull();
+        expect(await tipOf(o, `refs/heads/${record.branch}`)).toBeNull();
+        expect(seen.signals).toHaveLength(1);
+      });
+    });
+  });
+
+  it("sends no signal to a process on the host's PID and start time that does not run the host, and says why", async () => {
+    const seen = { ...seenOf(), probe: realProbe };
+    await withReconcileOffice({ base: PARKED, features: features(seen) }, async (o) => {
+      seen.office = o.office;
+      const key = keyOf(o.office, "TASK-1");
+      const record = await claim(o, o.office, "TASK-1", key, { active: false });
+      await withHosts(async (start, dir) => {
+        // The PID went to another program: Bun runs the stand-in with other words.
+        const other = await start(["logs", record.runId]);
+        recordHost(o, record.runId, dir, other.pid, other.startTimeMs);
+
+        const busy = refusal(await discard(o, "TASK-1"));
+        expect(busy.code).toBe("run.hostAlive");
+        expect(busy.message).toContain(
+          `its worker host (pid ${other.pid}) still runs, and dipo sent it no signal, because the process does not run \`dipo daemon worker-host ${record.runId}\``,
+        );
+        expect(busy.message).toContain("`dipo discard TASK-1 --note <text>`");
+        expect(seen.signals).toEqual([]);
+        expect(liveClaimOf(o.office, key)).not.toBeNull();
+        await Bun.sleep(100);
+        expect(pidExists(other.pid)).toBe(true);
+      });
+    });
+  });
+
+  it("sends no signal to a process whose start time is not the recorded host's: that host is gone", async () => {
+    const seen = { ...seenOf(), probe: realProbe };
+    await withReconcileOffice({ base: PARKED, features: features(seen) }, async (o) => {
+      seen.office = o.office;
+      const key = keyOf(o.office, "TASK-1");
+      const record = await claim(o, o.office, "TASK-1", key, { active: false });
+      await withHosts(async (start, dir) => {
+        // A reused PID: the live process started an hour after the recorded host.
+        const other = await start(["daemon", "worker-host", record.runId]);
+        recordHost(o, record.runId, dir, other.pid, other.startTimeMs - HOUR);
+
+        expect(await discard(o, "TASK-1")).toMatchObject({ ok: true, changed: true });
+        expect(seen.signals).toEqual([]);
+        await Bun.sleep(100);
+        expect(pidExists(other.pid)).toBe(true);
+      });
+    });
+  });
+
+  it("sends no signal when the host's identity cannot be checked, and says why", async () => {
+    const seen: Seen = { ...seenOf(), probe: realProbe };
+    await withReconcileOffice({ base: PARKED, features: features(seen) }, async (o) => {
+      seen.office = o.office;
+      const key = keyOf(o.office, "TASK-1");
+      const record = await claim(o, o.office, "TASK-1", key, { active: false });
+      await withHosts(async (start, dir) => {
+        const host = await start(["daemon", "worker-host", record.runId]);
+        recordHost(o, record.runId, dir, host.pid, host.startTimeMs);
+        // The liveness check answers, then the process table cannot be read.
+        let calls = 0;
+        seen.probe = async (pid) => {
+          calls += 1;
+          if (calls > 1) throw new Error("ps failed");
+          return realProbe(pid);
+        };
+
+        const busy = refusal(await discard(o, "TASK-1"));
+        expect(busy.code).toBe("run.hostAlive");
+        expect(busy.message).toContain(
+          `its worker host (pid ${host.pid}) still runs, and dipo sent it no signal, because checking it failed (ps failed)`,
+        );
+        expect(seen.signals).toEqual([]);
+        expect(liveClaimOf(o.office, key)).not.toBeNull();
+        expect(pidExists(host.pid)).toBe(true);
+      });
+    });
+  });
+
+  it("sends no signal to the host of a run that has not ended, and says why", async () => {
+    // The stop of the running story leaves the run active (a park that did not end it).
+    const seen = { ...seenOf(), probe: realProbe };
+    await withReconcileOffice({ base: PARKED, features: features(seen) }, async (o) => {
+      seen.office = o.office;
+      const key = keyOf(o.office, "TASK-1");
+      const record = await claim(o, o.office, "TASK-1", key);
+      await withHosts(async (start, dir) => {
+        const host = await start(["daemon", "worker-host", record.runId]);
+        recordHost(o, record.runId, dir, host.pid, host.startTimeMs);
+
+        const busy = refusal(await discard(o, "TASK-1"));
+        expect(seen.stops).toEqual([key]);
+        expect(busy.code).toBe("run.hostAlive");
+        expect(busy.message).toContain(
+          `its worker host (pid ${host.pid}) still runs, and dipo sent it no signal, because its run has not ended`,
+        );
+        expect(seen.signals).toEqual([]);
+        expect(liveClaimOf(o.office, key)).not.toBeNull();
+        await Bun.sleep(100);
+        expect(pidExists(host.pid)).toBe(true);
+      });
     });
   });
 });

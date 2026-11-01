@@ -595,7 +595,7 @@ export class OfficeManager implements OfficeDirectory {
 
   async #open(path: string): Promise<CommandOutcome<OpenResult>> {
     if (!isAbsolute(path)) {
-      throw new CommandError("args.invalid", `office.open needs an absolute path, got ${path}.`, {
+      throw new CommandError("args.invalid", `The office path must be absolute, got ${path}.`, {
         path,
       });
     }
