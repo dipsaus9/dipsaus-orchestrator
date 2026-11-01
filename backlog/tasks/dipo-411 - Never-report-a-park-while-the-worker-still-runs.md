@@ -1,10 +1,10 @@
 ---
 id: DIPO-411
 title: Never report a park while the worker still runs
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-01 15:39'
-updated_date: '2026-11-01 15:54'
+updated_date: '2026-11-01 17:08'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -45,8 +45,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A park sent while the run's worker host does not answer yet (still starting) keeps trying the stop until the host answers or its launch deadline passes, then stops the worker; the run ends parked only after the worker exited, shown by a test with a real worker host parked within its first second
-- [ ] #2 When dipo cannot confirm the worker stopped, `dipo park` says so and names what still runs; it never prints `parked` while a host or worker of the run is alive, shown by a test
-- [ ] #3 A worker host still alive for a run the engine recorded as ended gets SIGTERM from the daemon when re-attach, `dipo resume` or `dipo drop` finds it, only when its PID and start time match its worker_hosts row (`hostAlive`); a host whose PID was reused gets no signal; afterwards the story can be resumed or dropped, shown by a test
-- [ ] #4 The refusal while a host still runs names `dipo resume <ID>`, not `work.resume`, and while a worker host of a run is alive `dipo status` counts that run as active, shown by a test
+- [x] #1 A park sent while the run's worker host does not answer yet (still starting) keeps trying the stop until the host answers or its launch deadline passes, then stops the worker; the run ends parked only after the worker exited, shown by a test with a real worker host parked within its first second
+- [x] #2 When dipo cannot confirm the worker stopped, `dipo park` says so and names what still runs; it never prints `parked` while a host or worker of the run is alive, shown by a test
+- [x] #3 A worker host still alive for a run the engine recorded as ended gets SIGTERM from the daemon when re-attach, `dipo resume` or `dipo drop` finds it, only when its PID and start time match its worker_hosts row (`hostAlive`); a host whose PID was reused gets no signal; afterwards the story can be resumed or dropped, shown by a test
+- [x] #4 The refusal while a host still runs names `dipo resume <ID>`, not `work.resume`, and while a worker host of a run is alive `dipo status` counts that run as active, shown by a test
 <!-- AC:END -->
