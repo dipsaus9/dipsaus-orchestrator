@@ -97,7 +97,7 @@ export class WorkResumeCommand {
   /** `work.resume`. */
   get feature(): FeatureModule {
     return {
-      name: "resumption",
+      name: "run",
       register: (registry: FeatureRegistry) => {
         registry.addAsyncOfficeCommand({
           definition: workResume,

@@ -36,7 +36,6 @@ import {
   partUnstuckText,
   protectedDetail,
   protectedHits,
-  protectedKind,
   refusedDetail,
   secretDetail,
   secretHits,
@@ -44,6 +43,7 @@ import {
   type TreeEntry,
   unsafePath,
 } from "../../src/box/parts";
+import { protectedKind } from "../../src/story-store/protected";
 import { yieldToEventLoop } from "../../src/platform/clock";
 import {
   isSecretPartPath,

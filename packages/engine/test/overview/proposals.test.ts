@@ -8,7 +8,7 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { storeDecisionNotes, storeProposals } from "../../src/run/report-data";
 import { addStory } from "../../src/records/story-keys";
-import { openDecisionNotes, proposalItems } from "../../src/views/proposals";
+import { openDecisionNotes, proposalItems } from "../../src/overview/proposals";
 import { addOffice, openTestState } from "../commands/helpers";
 
 const RUN = RunId.parse("run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D");

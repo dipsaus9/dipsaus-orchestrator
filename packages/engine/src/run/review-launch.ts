@@ -323,10 +323,23 @@ export function snapshotReviewCaps(
 }
 
 /**
- * The reviewer's settings for the run (0002): model and effort from the office's `review` block,
- * its turn, minute and token caps per session only from the run's start snapshot. A run whose
- * snapshot has none gets the office's current caps written into it first (`snapshotReviewCaps`),
- * and keeps them.
+ * Pure: the reviewer's model and effort for a story of `tier` (its `tier:` label, as the run
+ * recorded it at pickup): the tier's own `review.tiers` entry, key by key, else the office-wide
+ * `review.model` and `review.effort`. A story without a tier takes the office-wide values (0002).
+ */
+export function reviewModelOf(
+  review: OfficeConfig["review"],
+  tier: string | null,
+): Pick<ReviewerSettings, "model" | "effort"> {
+  const own = tier === "S" || tier === "M" || tier === "L" ? (review.tiers[tier] ?? {}) : {};
+  return { model: own.model ?? review.model, effort: own.effort ?? review.effort };
+}
+
+/**
+ * The reviewer's settings for the run (0002): model and effort from the `review` block of the
+ * run's start snapshot, for the run's tier (`reviewModelOf`), its turn, minute and token caps per
+ * session only from the run's start snapshot. A run whose snapshot has none gets the office's
+ * current caps written into it first (`snapshotReviewCaps`), and keeps them.
  */
 export function reviewerSettings(
   office: OfficeHandle,
@@ -339,11 +352,11 @@ export function reviewerSettings(
     current = findRun(office, run.runId) ?? run;
   }
   const caps = runCaps(office, current);
-  // Model and effort as the run started with them (its configuration snapshot, DIPO-303 review).
+  // Model and effort as the run started with them (its configuration snapshot, DIPO-303 review),
+  // for the story's tier.
   const started = runConfigOf(office, current, config);
   return {
-    model: started.review.model,
-    effort: started.review.effort,
+    ...reviewModelOf(started.review, current.tier),
     // Null only for a run with no row: the snapshot was written above.
     maxTurns: caps.reviewMaxTurns ?? config.review.maxTurns,
     maxMinutes: caps.reviewMaxMinutes ?? config.review.maxMinutes,

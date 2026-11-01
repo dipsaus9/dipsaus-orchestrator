@@ -63,7 +63,7 @@ Every other transition is refused. Three more rules:
 - **Inputs:** the story, the other active tasks in the office's backlog (read through the CLI), and the office config (tier set, roster, banned phrases, contract size).
 - **No model, no file contents.** The gate reads no repository files and calls no model.
 - **Recorded.** Each result is stored as a gate decision keyed on the story's content hash.
-- **Two modes.** The `ready` mode checks R01a. The pickup mode, which `work.run` runs before every claim, checks R01b. Both modes check R02 to R26 and R30.
+- **Two modes.** The `ready` mode checks R01a. The pickup mode, which `work.run` runs before every claim, checks R01b. Both modes check R02 to R26 and R30; the pickup mode also checks R31.
 
 | Rule | Check |
 |---|---|
@@ -95,6 +95,7 @@ Every other transition is refused. Three more rules:
 | R25 | An input under `docs/design/<X>/` has `<X>` as a dependency |
 | R26 | The story contract (title, outcome, criteria, references, test plan, resolved unknowns, extra instructions) is at most `prompt.contractMax` characters (0014) |
 | R30 | A story whose title or outcome names a security phrase (`story.securityPhrases`) has criteria for what the old barrier caught, the bypass forms to test and a fail-closed test against the real path (CLAUDE.md). Spikes are exempt |
+| R31 | (pickup only) No reference names a path the box protects (`protectedKind`, the check the scope-violation park uses), except a link. A story for a builder or the maintainer may name such a path and stay Ready; the pickup refuses it before any claim |
 
 Each failure prints `ready <ID> failed <rule>: <message>`. Rule numbers are stable once released, and new rules get new numbers.
 

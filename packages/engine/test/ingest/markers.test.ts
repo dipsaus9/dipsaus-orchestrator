@@ -12,7 +12,8 @@ import { appendEntries } from "../../src/changelog/log";
 import { Ingestor } from "../../src/ingest/ingestor";
 import { endRunMarked, markerLine, markPhase, storedMarker } from "../../src/ingest/markers";
 import { runSteps } from "../../src/records/run-records";
-import { outputRange, workView } from "../../src/views";
+import { outputRange } from "../../src/overview";
+import { workView } from "../../src/views";
 import type { WorkerEvent } from "../../src/workers/types";
 import { scriptedWorker } from "../workers/scripts";
 import {

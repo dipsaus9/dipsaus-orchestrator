@@ -1,6 +1,5 @@
-// Views derived by the engine (0005 section 6, open question 4): story views, work views with
-// health, the office summary `engine.hello` and the software stream send, and the view reads
-// (`office.snapshot`, `office.switch`, `story.detail`, `work.outputRange`).
+// Views derived by the engine (0005): story views, work views with health, and the usage sums.
+// The office summary, the desk and the view reads that build on them are in `overview/` (0004).
 
 export {
   activeStoryViews,
@@ -16,18 +15,6 @@ export {
 } from "./story";
 export type { GateFailureFact, ParkFacts, StoryFacts } from "./story";
 export {
-  activeRunCount,
-  columnCounts,
-  deriveOfficeSummary,
-  officeSummaries,
-  officeSummaryOf,
-  officeSummaryOfSource,
-  officeSummarySource,
-  openGateViews,
-  summarySettings,
-} from "./summary";
-export type { OfficeIdentity, SummarySettings, SummarySettingsOf } from "./summary";
-export {
   activeWorkViews,
   deriveHealth,
   WORK_VIEW_TYPES,
@@ -36,36 +23,6 @@ export {
   workView,
 } from "./work";
 export type { HealthFacts } from "./work";
-export {
-  desk,
-  DESK_DETAIL_MAX,
-  DESK_SOURCES,
-  deskLine,
-  deskText,
-  implementedIn,
-  registerDesk,
-} from "./desk";
-export type { DeskGate, DeskSources, HandDeskItem, Implemented } from "./desk";
-export {
-  digest,
-  DIGEST_COUNTS,
-  DIGEST_LINES_MAX,
-  recordTuiLeft,
-  registerDigest,
-  tuiLeftAt,
-} from "./digest";
-export type { DigestCount } from "./digest";
-export { openDecisionNotes, openProposals, proposalItems } from "./proposals";
-export type { ProposalItem } from "./proposals";
-export {
-  detail,
-  OUTPUT_RANGE_MAX_BYTES,
-  outputRange,
-  snapshot,
-  storyRuns,
-  storedPrompt,
-  storyVerdicts,
-} from "./feature";
 export {
   DEFAULT_USAGE_LIMITS,
   sumUsage,

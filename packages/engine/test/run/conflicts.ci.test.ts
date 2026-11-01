@@ -43,7 +43,7 @@ import { atInReview } from "./in-review";
 import { codeTreeKeyOf } from "../../src/run/story-git";
 import { addStory } from "../../src/records/story-keys";
 import { insertStoryPr, setStoryPrState } from "../../src/records/story-prs";
-import { detail } from "../../src/views/feature";
+import { detail } from "../../src/overview/feature";
 import { insertClaim } from "../../src/worktree/records";
 import { type IngestFixture, ingestFixture, loggedEvents } from "../ingest/helpers";
 import { backlogLayout } from "../story-store/backlog";

@@ -523,7 +523,7 @@ export class PermissionAsks implements LiveQuestions {
   /** The command `work.answer`. */
   get feature(): FeatureModule {
     return {
-      name: "permission-asks",
+      name: "questions",
       register: (registry) => {
         registry.addAsyncOfficeCommand({
           definition: workAnswer,

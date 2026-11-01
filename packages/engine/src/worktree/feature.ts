@@ -207,7 +207,7 @@ export class StoryClaims {
   /** The feature module that adds the claims load step. */
   get feature(): FeatureModule {
     return {
-      name: "worktree/claims",
+      name: "worktree",
       register: (registry) => {
         registry.registerLoadStep(CLAIMS_STEP, async (ctx) => {
           const reason = this.attach(ctx);

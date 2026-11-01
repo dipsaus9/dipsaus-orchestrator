@@ -12,8 +12,8 @@ import { systemSpawn } from "./platform/process";
 import { describeFeature } from "./reads/describe";
 import { statsFeature } from "./retention/stats";
 import type { StoryStore } from "./story-store/store";
-import { DESK_SOURCES, type DeskSources } from "./views/desk";
-import { viewsFeatureWith } from "./views/feature";
+import { DESK_SOURCES, type DeskSources } from "./overview/desk";
+import { viewsFeatureWith } from "./overview/feature";
 
 export interface EngineFeatureOptions {
   /**

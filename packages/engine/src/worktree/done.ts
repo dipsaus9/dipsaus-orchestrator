@@ -160,7 +160,7 @@ export class StoryTeardown {
   /** The feature module that adds the load step arming the poll. */
   get feature(): FeatureModule {
     return {
-      name: "worktree/teardown",
+      name: "worktree",
       register: (registry) => {
         registry.registerLoadStep(TEARDOWN_STEP, (ctx) => {
           this.track(ctx.officeId, ctx.office, ctx.clock);

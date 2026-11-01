@@ -25,7 +25,7 @@ import {
 } from "../../src/reconcile";
 import { endRun, findRun } from "../../src/records/run-records";
 import { openPark } from "../../src/run/park";
-import { desk, DESK_SOURCES } from "../../src/views/desk";
+import { desk, DESK_SOURCES } from "../../src/overview/desk";
 import { storyView } from "../../src/views/story";
 import { runDirectory } from "../../src/records/worker-hosts";
 import { addStory } from "../../src/records/story-keys";

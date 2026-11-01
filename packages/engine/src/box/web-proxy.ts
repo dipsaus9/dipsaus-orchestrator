@@ -67,6 +67,7 @@ import { networkInterfaces } from "node:os";
 
 import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
 
+import type { SafeChainEcosystem } from "../prompts/safe-chain";
 import { type BoxConnector, connectToBox } from "./box-connect";
 import type { BoxNetwork } from "./port";
 import {
@@ -75,7 +76,6 @@ import {
   SAFE_CHAIN_REGISTRY_HOSTS,
   SAFE_CHAIN_TLS_PORT,
   SAFE_CHAIN_UPSTREAM_HOSTS,
-  type SafeChainEcosystem,
 } from "./safe-chain";
 
 /** The longest request head read before a tunnel opens. */

@@ -3,12 +3,23 @@
 
 import { FieldBlockError, parseFieldBlock } from "../story-store/fields/block";
 import { readLabels } from "../story-store/fields/labels";
-import { type GateContext, r01a, r01b, type RuleCheck, SHARED_RULES, WARNING_RULES } from "./rules";
+import {
+  type GateContext,
+  r01a,
+  r01b,
+  r31,
+  type RuleCheck,
+  SHARED_RULES,
+  WARNING_RULES,
+} from "./rules";
 import { BUILT_IN_ROSTER, type GateInput, type GateMode, type GateResult } from "./types";
 
-/** The rules a mode fails on: R01a or R01b, then R02 to R30 but R29, which only warns. */
+/**
+ * The rules a mode fails on: R01a or R01b, then R02 to R30 but R29, which only warns; R31 only at
+ * pickup.
+ */
 export function rulesFor(mode: GateMode): readonly RuleCheck[] {
-  return [mode === "ready" ? r01a : r01b, ...SHARED_RULES];
+  return [mode === "ready" ? r01a : r01b, ...SHARED_RULES, ...(mode === "pickup" ? [r31] : [])];
 }
 
 function readFields(description: string): Pick<GateContext, "fields" | "fieldError"> {

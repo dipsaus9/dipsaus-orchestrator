@@ -15,7 +15,7 @@ import { FIX_ROUNDS_RECOVERY_STEP } from "../run/fix-rounds";
 import { TEST_RECOVERY_STEP } from "../run/tests";
 import { RUN_TEMP_SWEEP_STEP } from "../run/temp-dirs";
 import { RECONCILE_STEP } from "../reconcile/feature";
-import { activeRunCount } from "../views/summary";
+import { activeRunCount } from "../overview/summary";
 import type { CommandServices } from "./commands";
 import { controlFeature, sumActiveRuns } from "./control";
 import type { Core } from "./core";
@@ -34,7 +34,7 @@ export interface Services {
 /** The summary names the privacy opt-ins that are on (DIPO-83): sent again when they may change. */
 function privacySummaryFeature(core: Core): FeatureModule {
   return {
-    name: "privacy.summary",
+    name: "create",
     register: (features) => {
       features.registerLoadStep("privacy.summary", (ctx) => core.changes.notify(ctx.officeId));
       features.registerConfigReload("privacy.summary", (ctx) => core.changes.notify(ctx.officeId));
@@ -97,7 +97,11 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
       stories: core.stories,
       desk: {
         startsPaused: (handle) => runs.startsPaused.state(handle.officeId as OfficeId),
-        officeItems: (handle, now) => story.lane.deskItems(handle, now),
+        // The stuck lane (DIPO-401), and a backlog PR that did not open after the office loaded (DIPO-403).
+        officeItems: (handle, now) => [
+          ...story.lane.deskItems(handle, now),
+          ...story.backlogPrs.loadFailureDeskItems(handle.officeId as OfficeId),
+        ],
       },
     }),
     core.engineGit.feature,

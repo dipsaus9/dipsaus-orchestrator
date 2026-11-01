@@ -1,10 +1,10 @@
 ---
 id: DIPO-393
 title: Move the maintainer's office reads from views/ to overview/
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-30 11:22'
-updated_date: '2026-10-30 11:44'
+updated_date: '2026-10-31 08:38'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -52,9 +52,15 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The six desk and read files of `views/` move with their tests, and every importer, barrel (`index.ts`), path-scoped override in .oxlintrc.json, lint test and comment that names an old path names the new one; no barrel re-exports a file from another directory
-- [ ] #2 Only paths and import lines change: no function, type or behaviour changes, and no test is removed or skipped
-- [ ] #3 The coarse dipo/engine-layers rule still passes with no exception, and `bun run verify` passes
-- [ ] #4 `bun scripts/engine-graph.ts --layers scripts/engine-layers-target.json --files` lists none of the back-edges this story names as removed, and no import it did not list before the story
-- [ ] #5 `views/` imports values only from bands 1 to 3 of 0004 and from directories below it in the target order, as `bun scripts/engine-graph.ts` shows
+- [x] #1 The six desk and read files of `views/` move with their tests, and every importer, barrel (`index.ts`), path-scoped override in .oxlintrc.json, lint test and comment that names an old path names the new one; no barrel re-exports a file from another directory
+- [x] #2 Only paths and import lines change: no function, type or behaviour changes, and no test is removed or skipped
+- [x] #3 The coarse dipo/engine-layers rule still passes with no exception, and `bun run verify` passes
+- [x] #4 `bun scripts/engine-graph.ts --layers scripts/engine-layers-target.json --files` lists none of the back-edges this story names as removed, and no import it did not list before the story
+- [x] #5 `views/` imports values only from bands 1 to 3 of 0004 and from directories below it in the target order, as `bun scripts/engine-graph.ts` shows
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Fifth engine-layer move of the DIPO-381 plan, paths and import lines only: views/desk, digest, feature, summary, proposals and desk-notify moved to a new overview/ (its barrel re-exports only its own files; views/ keeps story, work and usage). Against the target layers 8 back-edges (16 statements) became 3 (4); the 12 named imports are gone, including the four DIPO-392 left (views -> run-state, views -> ingest), and none was added. Left for DIPO-394: prompts -> box, run/compose -> questions, stories -> run/park twice. The worker host ban covers overview and its barrel, with lint fixtures. Checked by the orchestrating session (graph, lint, non-import lines) instead of an agent review, per the maintainer review-by-risk rule of 2026-10-31.
+<!-- SECTION:FINAL_SUMMARY:END -->

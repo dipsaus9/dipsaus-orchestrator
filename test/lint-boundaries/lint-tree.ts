@@ -1,7 +1,7 @@
 // Runs the repository's oxlint config over fixture files placed inside a scratch copy of the
 // package layout, and returns oxlint's diagnostics with paths relative to the scratch root.
 
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const REPO = join(import.meta.dir, "..", "..");
@@ -20,15 +20,18 @@ const TMP_ROOT = process.env["DIPO_TMP"] || "/tmp";
  */
 export const LINT_TIMEOUT_MS = 180_000;
 
+/** A fixture file copied to `target`. */
 export type Placement = { fixture: string; target: string };
-export type Diagnostic = { code: string; severity: string; filename: string };
+/** A file a test writes itself: `text` written to `target`. */
+export type Written = { text: string; target: string };
+export type Diagnostic = { code: string; severity: string; filename: string; message: string };
 
 /**
  * Lints `placements` in a scratch tree; `roots` are the top-level folders oxlint reads, `packages`
  * by default.
  */
 export function lintTree(
-  placements: readonly Placement[],
+  placements: readonly (Placement | Written)[],
   roots: readonly string[] = ["packages"],
 ): {
   exitCode: number;
@@ -44,7 +47,8 @@ export function lintTree(
     for (const placement of placements) {
       const target = join(dir, placement.target);
       mkdirSync(dirname(target), { recursive: true });
-      cpSync(join(FIXTURES, placement.fixture), target);
+      if ("text" in placement) writeFileSync(target, placement.text);
+      else cpSync(join(FIXTURES, placement.fixture), target);
     }
     const result = Bun.spawnSync(
       [OXLINT, "--config", ".oxlintrc.json", "--deny-warnings", "--format", "json", ...roots],

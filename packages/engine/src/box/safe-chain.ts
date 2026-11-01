@@ -33,6 +33,16 @@
 import { createHash } from "node:crypto";
 
 import {
+  refusalKey,
+  type SafeChainEcosystem,
+  type SafeChainFound,
+  type SafeChainRefusal,
+  type SafeChainUnknown,
+  uniqueBy,
+  unknownKey,
+} from "../prompts/safe-chain";
+
+import {
   apt,
   BOX_DEFAULTS,
   BUILD_BOOTSTRAP_SCRIPT,
@@ -66,7 +76,6 @@ export const SAFE_CHAIN_UPSTREAM_HOSTS: readonly string[] = [
 /** The only port a registry, and a host Safe-Chain reaches, is tunnelled to. */
 export const SAFE_CHAIN_TLS_PORT = 443;
 
-export type SafeChainEcosystem = "npm" | "pypi";
 export const SAFE_CHAIN_ECOSYSTEMS: readonly SafeChainEcosystem[] = ["npm", "pypi"];
 
 /** The ecosystem whose Safe-Chain checks `host` (normal form), or null for any other host. */
@@ -376,29 +385,6 @@ export const SAFE_CHAIN_REFUSAL_LINES = {
 const BLOCKING_LINE = /^Safe-chain: Blocking request to (\S+)$/;
 const MALWARE_LINE = /^Safe-chain: Package (\S+) is marked as malware: (\S.*)$/;
 
-/** One package Safe-Chain refused, as its log names it (DIPO-376). */
-export interface SafeChainRefusal {
-  readonly ecosystem: SafeChainEcosystem;
-  /** `name@version` as Safe-Chain names it; the requested file's name when its log names none. */
-  readonly package: string;
-  /** Why Safe-Chain refused it. */
-  readonly reason: string;
-}
-
-/** A log of a session that could not be read, so its refusals are unknown (DIPO-376). */
-export interface SafeChainUnknown {
-  readonly ecosystem: SafeChainEcosystem;
-  readonly why: string;
-}
-
-/** What one read of a session's Safe-Chain logs found. */
-export interface SafeChainFound {
-  readonly refusals: readonly SafeChainRefusal[];
-  readonly unknown: readonly SafeChainUnknown[];
-  /** Refusals left out of `refusals` past `SAFE_CHAIN_RECORD_MAX`; none when absent. */
-  readonly omitted?: number;
-}
-
 /**
  * The Safe-Chain box's clock against the Mac's (DIPO-396): the box's time minus the Mac's, in
  * milliseconds, as the range one command in the box bounds it to.
@@ -453,32 +439,6 @@ export function cleanLogText(text: string): string {
 /** A C0 or C1 control character, DEL, or a Unicode line or paragraph separator. */
 function isControl(code: number): boolean {
   return code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029;
-}
-
-const refusalKey = (refusal: SafeChainRefusal): string => `${refusal.ecosystem} ${refusal.package}`;
-const unknownKey = (log: SafeChainUnknown): string => `${log.ecosystem} ${log.why}`;
-
-/** Pure: `items` with each key once, first seen first. */
-function uniqueBy<T>(items: readonly T[], key: (item: T) => string): T[] {
-  const seen = new Set<string>();
-  return items.filter((item) => {
-    const id = key(item);
-    if (seen.has(id)) return false;
-    seen.add(id);
-    return true;
-  });
-}
-
-/**
- * Pure: `found` with each package refused once per ecosystem and each unknown log once (DIPO-376):
- * an install tried again is refused again, which says nothing new.
- */
-export function uniqueFound(found: SafeChainFound): SafeChainFound {
-  return {
-    refusals: uniqueBy(found.refusals, refusalKey),
-    unknown: uniqueBy(found.unknown, unknownKey),
-    ...(found.omitted === undefined || found.omitted === 0 ? {} : { omitted: found.omitted }),
-  };
 }
 
 /**

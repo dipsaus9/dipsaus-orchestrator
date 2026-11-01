@@ -477,8 +477,9 @@
         "dipo/no-claude-cli-import": "error"
       }
     },
-    // The engine's layers (0004): base, domain, composition, listed once in ENGINE_LAYERS in the
-    // plugin. The domain is one layer until the layering spike sets finer ones.
+    // The engine's layers (0004), listed once in ENGINE_LAYERS in the plugin: no value import into a
+    // higher layer. The directory cycle check of scripts/engine-graph.ts is the other half, run by
+    // test/lint-boundaries/lint-engine-layers.test.ts.
     {
       "files": ["packages/engine/src/**"],
       "rules": {
@@ -606,7 +607,9 @@
                   "**/records",
                   "**/records/**",
                   "**/run-state",
-                  "**/run-state/**"
+                  "**/run-state/**",
+                  "**/overview",
+                  "**/overview/**"
                 ],
                 "message": "The worker host has no database or engine state code (0006 decision 8)."
               },
@@ -735,12 +738,12 @@
         "packages/engine/src/box/web-proxy.ts",
         "packages/engine/src/box/workers.ts",
         "packages/engine/src/context/default-provider.ts",
+        "packages/engine/src/create/compose.ts",
         "packages/engine/src/host/client.ts",
         "packages/engine/src/host/main.ts",
         "packages/engine/src/ingest/ingestor.ts",
         "packages/engine/src/reconcile/reconcile.ts",
         "packages/engine/src/retention/run.ts",
-        "packages/engine/src/run/compose.ts",
         "packages/engine/src/run/conflicts.ts",
         "packages/engine/src/run/control.ts",
         "packages/engine/src/run/launch.ts",
@@ -749,6 +752,7 @@
         "packages/engine/src/run/outcome-sessions.ts",
         "packages/engine/src/run/park-resume.ts",
         "packages/engine/src/run/park.ts",
+        "packages/engine/src/run/planning.ts",
         "packages/engine/src/run/reattach.ts",
         "packages/engine/src/run/resume.ts",
         "packages/engine/src/run/resumption.ts",
@@ -760,7 +764,6 @@
         "packages/engine/src/scan/confirm-command.ts",
         "packages/engine/src/scan/detect/detect.ts",
         "packages/engine/src/stories/apply.ts",
-        "packages/engine/src/stories/planning.ts",
         "packages/engine/src/story-pr/prs.ts",
         "packages/engine/src/workers/claude-cli/interpret.ts",
         "packages/engine/src/workers/claude-cli/plan.ts",
@@ -803,12 +806,14 @@
         "packages/engine/src/run-state/places.ts",
         "packages/engine/src/run/control-turns.ts",
         "packages/engine/src/run/control.ts",
+        "packages/engine/src/run/discard.ts",
         "packages/engine/src/run/fix-rounds.ts",
         "packages/engine/src/run/outcome-exits.ts",
         "packages/engine/src/run/outcome-restart.ts",
         "packages/engine/src/run/outcome-sessions.ts",
         "packages/engine/src/run/park-resume.ts",
         "packages/engine/src/run/park.ts",
+        "packages/engine/src/run/planning.ts",
         "packages/engine/src/run/reattach.ts",
         "packages/engine/src/run/resume.ts",
         "packages/engine/src/run/resumption.ts",
@@ -822,8 +827,6 @@
         "packages/engine/src/scan/detect/probe.ts",
         "packages/engine/src/scan/evidence.ts",
         "packages/engine/src/stories/apply.ts",
-        "packages/engine/src/stories/discard.ts",
-        "packages/engine/src/stories/planning.ts",
         "packages/engine/src/story-pr/prs.ts",
         "packages/engine/src/workers/claude-cli/interpret.ts",
         "packages/engine/src/workers/claude-cli/plan.ts",
@@ -850,6 +853,7 @@
         "packages/engine/src/prompts/parts.ts",
         "packages/engine/src/run/control-endings.ts",
         "packages/engine/src/run/control-turns.ts",
+        "packages/engine/src/run/discard.ts",
         "packages/engine/src/run/launch.ts",
         "packages/engine/src/run/park-resume.ts",
         "packages/engine/src/run/park.ts",
@@ -859,7 +863,6 @@
         "packages/engine/src/run/session-run.ts",
         "packages/engine/src/scan/fallback.ts",
         "packages/engine/src/stories/apply.ts",
-        "packages/engine/src/stories/discard.ts",
         "packages/engine/src/story-pr/prs.ts",
         "packages/engine/src/worktree/claim.ts",
         "packages/engine/src/worktree/done.ts",

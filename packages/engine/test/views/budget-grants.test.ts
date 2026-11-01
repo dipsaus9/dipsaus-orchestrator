@@ -6,7 +6,7 @@ import { describe, expect, it } from "bun:test";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { recordGrant } from "../../src/records/grants";
-import { detail } from "../../src/views/feature";
+import { detail } from "../../src/overview/feature";
 import { workView } from "../../src/views/work";
 import { addOffice, openTestState } from "../commands/helpers";
 import { pass, task } from "../stories/helpers";

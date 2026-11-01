@@ -7,7 +7,7 @@ import { commandsDescribe, describeContract } from "@dipsaus-orchestrator/contra
 import type { FeatureModule } from "../commands/registry";
 
 export const describeFeature: FeatureModule = {
-  name: "reads/describe",
+  name: "reads",
   register(registry) {
     registry.addRead({
       definition: commandsDescribe,

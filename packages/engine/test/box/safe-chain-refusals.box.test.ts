@@ -34,19 +34,19 @@ import { AppleContainerBoxes } from "../../src/box/apple-container";
 import { ensureBoxImage } from "../../src/box/build-box";
 import { BOX_DEFAULTS, BOX_IMAGE_ENV, describeBox } from "../../src/box/image";
 import { type BoxNetwork, boxName } from "../../src/box/port";
-import {
-  SAFE_CHAIN_ECOSYSTEMS,
-  type SafeChainFound,
-  safeChainLogFile,
-  uniqueFound,
-} from "../../src/box/safe-chain";
+import { SAFE_CHAIN_ECOSYSTEMS, safeChainLogFile } from "../../src/box/safe-chain";
 import {
   markSafeChain,
   readSafeChain,
   type SafeChainBoxInfo,
   startBoxWebRoute,
 } from "../../src/box/safe-chain-box";
-import type { SafeChainMark, SafeChainUnknown } from "../../src/box/safe-chain";
+import type { SafeChainMark } from "../../src/box/safe-chain";
+import {
+  type SafeChainFound,
+  type SafeChainUnknown,
+  uniqueFound,
+} from "../../src/prompts/safe-chain";
 import { BoxWebRoute, type RunningBoxWebRoute } from "../../src/box/web-proxy";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";

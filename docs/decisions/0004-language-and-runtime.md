@@ -72,11 +72,10 @@ Type-only imports may cross both rules. Inside a band, one directory may import 
 | 5. Run and services | `run`, `gate-decisions`, `retention`, `backup`, `merge`, `overview`, `questions`, `reconcile`, `story-pr`, `backlog` | They act through the writers. `run` drives a story's run with park, resume, discard and tests. Around it sit stored gate decisions, retention and backups, the merge slot, `work.answer`, the story PR, reconcile at start, the Backlog.md implementation of the StoryStore, and `overview`, the reads the maintainer sees (snapshot, desk, digest, summary). |
 | 6. Composition | `features.ts`, `create`, `index.ts`, `platform-entry.ts` | The feature list, the composition root with the run's wiring, and the engine's two entries. |
 
-**The fine order.** The lint plugin holds one list, a finer order of layers inside the bands. `dipo/engine-layers` refuses a value import into a higher layer of that list. Directory cycles are found by `bun scripts/engine-graph.ts --check`, which `bun run verify` runs.
+**The fine order.** The lint plugin holds one list, a finer order of layers inside the bands, and each layer sits in one band. `dipo/engine-layers` refuses a value import into a higher layer of that list, in every import form, and reports a file whose directory is in no layer. It lets a value import between two entries of one layer pass. The directory cycle such an import can close is refused by the cycle check of `scripts/engine-graph.ts`, which reads the same list; a test in `bun run verify` runs it on `packages/engine/src`, and `bun scripts/engine-graph.ts --check` runs it by hand.
 
 - When a new import inside a band goes against that order, the fine order changes in the plugin; this ADR does not.
-- An entry of the list is a directory, a file at the top of `packages/engine/src`, or a listed subdirectory such as `workers/claude-cli`, which then counts apart from its parent.
-- Until DIPO-395, the plugin holds the coarse layers (the base, one domain layer and the composition root), and verify runs no cycle check yet. The target order waits in `scripts/engine-layers-target.json`, a temporary file that DIPO-395 moves into the plugin and deletes.
+- An entry of the list is a directory, a file at the top of `packages/engine/src`, or a listed subdirectory such as `workers/claude-cli`, which then counts apart from its parent. A file belongs to the longest entry that holds it.
 
 ## Tooling
 

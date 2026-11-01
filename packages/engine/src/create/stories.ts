@@ -16,7 +16,7 @@ import { gitParkWriter } from "../run/park";
 import { officeHoldStore } from "../run/starts-paused";
 import { storyRunBase, type RunBase } from "../run/work-run";
 import { StoryIndex } from "../stories/feature";
-import { StoryPlanning, type StoryPlanningDeps } from "../stories/planning";
+import { StoryPlanning, type StoryPlanningDeps } from "../run/planning";
 import { gitStoryPrOps } from "../story-pr/git";
 import { StoryPrs } from "../story-pr/prs";
 import { guardedParkWriter } from "../merge/guard";
@@ -120,6 +120,12 @@ function laneOf(
     offices: core.offices,
     clock: core.deps.clock,
     onChanged: core.onChanged,
+    logger: core.logger.child({ component: "backlog-pr" }),
+  });
+  // A flush that ran while its office loaded (the replay step) opens its PR once the office has
+  // loaded, then auto-merge looks at it (DIPO-403).
+  core.offices.onLoaded((office) => {
+    void backlogPrs.loaded(office).then(() => partners.autoMerge.get().kick(office));
   });
   const lane = new BacklogLane({
     cli: core.backlogCli,

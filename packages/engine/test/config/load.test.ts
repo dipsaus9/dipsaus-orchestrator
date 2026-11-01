@@ -308,6 +308,53 @@ describe("validation", () => {
   });
 });
 
+// DIPO-405: the reviewer's model and effort per story tier.
+describe("review.tiers", () => {
+  const PER_TIER = [
+    "version: 14",
+    "review:",
+    "  effort: medium",
+    "  tiers:",
+    "    S: { model: sonnet }",
+    "    M: { model: opus }",
+    "    L: { model: opus }",
+    "",
+  ].join("\n");
+
+  it("is empty by default, so every tier takes review.model and review.effort", () => {
+    expect(ok(resolveOfficeConfig({})).config.review).toMatchObject({
+      model: "opus",
+      effort: "high",
+      tiers: {},
+    });
+  });
+
+  it("loads a model per tier and keeps the office-wide effort beside it", () => {
+    const result = ok(resolveOfficeConfig({ office: PER_TIER }));
+    expect(result.warnings).toEqual([]);
+    expect(result.config.review).toEqual({
+      ...OFFICE_DEFAULTS.review,
+      effort: "medium",
+      tiers: { S: { model: "sonnet" }, M: { model: "opus" }, L: { model: "opus" } },
+    });
+  });
+
+  it("refuses a tier that is no story tier and a key a tier cannot set", () => {
+    expect(
+      errors(
+        resolveOfficeConfig({
+          office: "version: 14\nreview: { tiers: { XL: { model: opus } } }\n",
+        }),
+      ).map((error) => error.path),
+    ).toEqual(["review.tiers.XL"]);
+    expect(
+      errors(
+        resolveOfficeConfig({ office: "version: 14\nreview: { tiers: { S: { maxTurns: 9 } } }\n" }),
+      ).map((error) => error.path),
+    ).toEqual(["review.tiers.S.maxTurns"]);
+  });
+});
+
 describe("precedence and merge", () => {
   it("uses the built-in defaults without files", () => {
     const result = ok(resolveOfficeConfig({}));
@@ -556,6 +603,8 @@ describe("the migration from every earlier version", () => {
         expect(config.scan.maxMinutes).toBe(7);
         expect(config.merge.autoMerge).toBe(false);
         expect(config.worktree.root).toBe("../{repo}.trees");
+        // DIPO-405: no tier of the reviewer's own, so every tier takes review.model and effort.
+        expect(config.review).toMatchObject({ model: "opus", effort: "medium", tiers: {} });
       },
     },
   ];

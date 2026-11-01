@@ -183,7 +183,7 @@ export class PrStatePoll {
   /** The feature module whose load step arms the office's poll; register it after its consumers. */
   get feature(): FeatureModule {
     return {
-      name: "pr-state",
+      name: "story-pr",
       register: (registry) => {
         registry.registerLoadStep(PR_STATE_STEP, (ctx) => {
           this.watch(ctx.officeId, ctx.clock, ctx.config);

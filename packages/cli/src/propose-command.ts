@@ -1,6 +1,7 @@
 // `dipo propose accept|dismiss <proposal> [--office <id>]` (DIPO-166; 0020 sections 11c and 16):
 // sends `proposal.accept` or `proposal.dismiss` for a worker's proposal that `dipo desk` lists, in
-// the office of `--office` or of the current directory. Neither asks for confirmation. The proposal
+// the office of `--office` or of the current directory, and `proposal.dismiss` for a decision note
+// (DIPO-404). Neither asks for confirmation. The proposal
 // is named by the id the desk prints, or by its first 8 or more characters. Accept prints what the
 // planning lane did with the draft: the backlog PR it opened or updated, or why it waits (DIPO-401).
 

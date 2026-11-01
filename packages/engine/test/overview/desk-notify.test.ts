@@ -8,7 +8,7 @@ import { type DeskItem, OfficeId, StoryId } from "@dipsaus-orchestrator/contract
 
 import { createLogger } from "../../src/log/logger";
 import type { NotificationText } from "../../src/platform/notify";
-import { DeskNotifier, deskItemKey, deskNotice } from "../../src/views/desk-notify";
+import { DeskNotifier, deskItemKey, deskNotice } from "../../src/overview/desk-notify";
 import { systemClock } from "../../src/platform/clock";
 
 const OFFICE = OfficeId.parse("off_01HZZZZZZZZZZZZZZZZZZZZZZZ");

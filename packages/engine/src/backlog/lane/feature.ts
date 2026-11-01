@@ -10,7 +10,7 @@ import type { FeatureModule } from "../../commands/registry";
 import type { OfficeHandle } from "../../db/office";
 import type { OfficeLoadContext } from "../../office/steps";
 import type { PlanningLane } from "../../story-store/planning";
-import type { OfficeHandItem } from "../../views/desk";
+import type { OfficeHandItem } from "../../overview/desk";
 
 import { laneDeskItems } from "./desk";
 import { openEntries } from "./journal";

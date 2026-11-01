@@ -15,12 +15,12 @@ import { openStateDatabase } from "../../src/db/database";
 import type { OfficeHandle } from "../../src/db/office";
 import { MIGRATIONS } from "../../src/db/schema";
 import { executeRead } from "../../src/reads/execute";
-import { DIGEST_COUNTS, recordTuiLeft, tuiLeftAt } from "../../src/views/digest";
+import { DIGEST_COUNTS, recordTuiLeft, tuiLeftAt } from "../../src/overview/digest";
 import { viewsFeature } from "./views-feature";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { localMounts, memoryLogger } from "../db/helpers";
 import { pass, task } from "../stories/helpers";
-import { keyOf } from "./helpers";
+import { keyOf } from "../views/helpers";
 
 const MINUTE = 60_000;
 

@@ -30,6 +30,8 @@ import type { OfficeHandle } from "../../db/office";
 import { gateDecisionsOf } from "../../gate-decisions/decisions";
 import type { GitSession } from "../../git/office";
 import { GitError } from "../../git/runner";
+import type { Logger } from "../../log/logger";
+import type { OfficeHandItem } from "../../overview/desk";
 import {
   type CodeHost,
   CodeHostError,
@@ -51,6 +53,7 @@ import type { BacklogCli } from "../runner";
 
 import { placeBranch, readBranch } from "./adopt";
 import { checkBacklogPr, type CheckResult, type PrDiff, type PrFacts } from "./check";
+import { loadFailureDeskItems } from "./desk";
 import { collectPrDiff } from "./diff";
 import {
   type BacklogPrRecord,
@@ -77,6 +80,7 @@ export const PR_NOTICES = {
   adopted: "backlog.pr.adopted",
   notAdopted: "backlog.pr.notAdopted",
   letGo: "backlog.pr.letGo",
+  loadedFailed: "backlog.pr.loadedFailed",
 } as const;
 
 /** What `adopt` did with the open `dipo/backlog-*` PRs the office's database does not know. */
@@ -117,6 +121,7 @@ export interface BacklogPrsDeps {
   readonly offices: { get(office: OfficeId): OfficeHandle | undefined };
   readonly clock: Clock;
   readonly onChanged?: (office: OfficeId) => void;
+  readonly logger?: Pick<Logger, "warn">;
 }
 
 const HOST_REASONS: Record<CodeHostError["code"], PrWaitingReason> = {
@@ -133,6 +138,18 @@ interface OfficeState {
   waiting: PrWaiting | null;
   /** The reason last noticed for each PR `adopt` left alone, so a rescan does not repeat it. */
   readonly notAdopted: Map<number, string>;
+  /** The last flush that ran before the office loaded; its PR waits for `loaded` (DIPO-403). */
+  unpublished: FlushReport | null;
+  /** Why the PR of a flush that ran while the office loaded did not open, until one does (DIPO-403). */
+  loadFailure: LoadFailure | null;
+}
+
+/** A backlog PR `loaded` could not open or update, for the desk (DIPO-403). */
+export interface LoadFailure {
+  readonly branch: string;
+  readonly reason: string;
+  /** When it failed, in ms. */
+  readonly at: number;
 }
 
 export class BacklogPrs {
@@ -148,11 +165,58 @@ export class BacklogPrs {
     return this.#stateOf(office).waiting;
   }
 
-  /** The lane's flush hook: look for merged PRs, then open or update the branch's PR and check it. */
+  /**
+   * The lane's flush hook: look for merged PRs, then open or update the branch's PR and check it.
+   * A flush while the office loads (the replay step) has no handle yet: its PR waits for `loaded`.
+   */
   afterFlush(office: OfficeId, report: FlushReport): Promise<void> {
+    if (this.#deps.offices.get(office) === undefined) {
+      this.#stateOf(office).unpublished = report;
+      return Promise.resolve();
+    }
     return this.#serial(office, async () => {
       await this.#sync(office);
       await this.#publish(office, report);
+      this.#stateOf(office).loadFailure = null;
+    });
+  }
+
+  /** The PR that did not open after the office loaded, or null (DIPO-403). */
+  loadFailure(office: OfficeId): LoadFailure | null {
+    return this.#stateOf(office).loadFailure;
+  }
+
+  /** The desk item of that PR, until a later flush opens or updates it (DIPO-403). */
+  loadFailureDeskItems(office: OfficeId): OfficeHandItem[] {
+    return loadFailureDeskItems(this.#stateOf(office).loadFailure);
+  }
+
+  /**
+   * Called once the office has loaded (DIPO-403): opens or updates the PR of the flush that ran
+   * while it loaded. A failure is a warn line and a notice on the office, not a thrown error.
+   */
+  loaded(office: OfficeId): Promise<void> {
+    const state = this.#stateOf(office);
+    const report = state.unpublished;
+    if (report === null) return Promise.resolve();
+    state.unpublished = null;
+    return this.afterFlush(office, report).catch((error: unknown) => {
+      const reason = error instanceof Error ? error.message : String(error);
+      const branch = report.branch ?? "the lane's branch";
+      this.#deps.logger?.warn("the backlog PR after a flush during office load failed", {
+        office,
+        branch,
+        reason,
+      });
+      state.loadFailure = { branch, reason, at: this.#deps.clock.now() };
+      if (this.#deps.offices.get(office) === undefined) return;
+      this.#write(office, () => [
+        notice(
+          "warn",
+          PR_NOTICES.loadedFailed,
+          `dipo could not open or update the backlog PR for ${branch} after the office loaded: ${reason}`,
+        ),
+      ]);
     });
   }
 
@@ -688,7 +752,13 @@ export class BacklogPrs {
   #stateOf(office: OfficeId): OfficeState {
     let state = this.#state.get(office);
     if (state === undefined) {
-      state = { busy: Promise.resolve(), waiting: null, notAdopted: new Map() };
+      state = {
+        busy: Promise.resolve(),
+        waiting: null,
+        notAdopted: new Map(),
+        unpublished: null,
+        loadFailure: null,
+      };
       this.#state.set(office, state);
     }
     return state;

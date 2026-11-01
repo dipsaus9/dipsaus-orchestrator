@@ -41,7 +41,6 @@ import {
   SAFE_CHAIN_TIME_SLACK_MS,
   type SafeChainLogRefusal,
   sessionClockOffset,
-  uniqueFound,
   SAFE_CHAIN_BOX_PORTS,
   SAFE_CHAIN_BUILD_FILES,
   SAFE_CHAIN_MALWARE_LIST_HOST,
@@ -54,6 +53,7 @@ import {
   safeChainRefusalsOf,
   safeChainStartScript,
 } from "../../src/box/safe-chain";
+import { uniqueFound } from "../../src/prompts/safe-chain";
 
 const PEM =
   "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIBATAKBggqhkjOPQQDAjA=\n-----END CERTIFICATE-----\n";

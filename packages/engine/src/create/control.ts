@@ -81,7 +81,7 @@ export function sumActiveRuns(
 export function controlFeature(deps: ControlDeps): FeatureModule {
   const { lifecycle, logger, clock } = deps;
   return {
-    name: "daemon/control",
+    name: "create",
     register(registry) {
       registry.addRead({
         definition: daemonStatus,

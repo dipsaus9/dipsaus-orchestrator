@@ -67,7 +67,7 @@ export class Redispatch {
    */
   get feature(): FeatureModule {
     return {
-      name: "run-outcomes",
+      name: "run",
       register: (registry) => {
         registry.registerLoadStep(REDISPATCH_STEP, (ctx) => {
           ctx.clock.setTimeout(() => {

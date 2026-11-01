@@ -47,6 +47,7 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import { renderSystemFile } from "../../src/prompts/system";
+import { reviewComment, reviewerEffort, type StoredReviewVerdict } from "../../src/review";
 import { reviewCommitFile, ReviewLauncher, sweepOldReviewFolders } from "../../src/run";
 import { findRun, recordConfigSnapshot, type StoredRun } from "../../src/records";
 import type { LaunchedHost } from "../../src/records/worker-hosts";
@@ -642,6 +643,72 @@ describe("the reviewer of a running run (DIPO-150, the DIPO-303 review)", () => 
       expect(ingested.map((config) => config.review.model)).toEqual(["sonnet"]);
       expect(s.spec.model).toBe("sonnet");
       await w.launcher.finish(w.rounds.office.officeId as OfficeId, w.run.runId, s.agent);
+    }));
+});
+
+describe("the reviewer's model per tier (DIPO-405)", () => {
+  it("reviews a tier S story with the tier's model, and the review comment names it and the effort", () =>
+    withWorld(async (w) => {
+      const office = w.rounds.office;
+      // The story's tier: label as the pickup recorded it on the run.
+      office.immediate(() =>
+        office.run(`update runs set tier = 'S' where office_id = $office_id and run_id = $run`, {
+          run: w.run.runId,
+        }),
+      );
+      const run = findRun(office, w.run.runId)!;
+      const inForce: OfficeConfig = {
+        ...OFFICE_DEFAULTS,
+        review: {
+          ...OFFICE_DEFAULTS.review,
+          effort: "medium",
+          tiers: { S: { model: "sonnet" }, M: { model: "opus" }, L: { model: "opus" } },
+        },
+      };
+      w.launcher = new ReviewLauncher({
+        ...w.deps,
+        offices: { get: () => office, config: () => inForce },
+      });
+      const outcome = await w.launcher.start({
+        office: office.officeId as OfficeId,
+        run,
+        taskMessage: TASK,
+        head: w.tip,
+      });
+      if (outcome.kind !== "started") throw new Error(`not started: ${JSON.stringify(outcome)}`);
+      const spec = w.prepared.at(-1)!.spec;
+      expect({ model: spec.model, effort: spec.effort }).toEqual({
+        model: "sonnet",
+        effort: "medium",
+      });
+      // The comment reads the verdict's model and the agent's effort, both as the launch kept them.
+      const agentRow = office.get<{ model: string }>(
+        `select model from agents where office_id = $office_id and agent_id = $agent`,
+        { agent: outcome.agent },
+      );
+      const verdict: StoredReviewVerdict = {
+        gate: "gate_1" as StoredReviewVerdict["gate"],
+        runId: run.runId as StoredReviewVerdict["runId"],
+        key: run.key as StoredReviewVerdict["key"],
+        round: 1,
+        agent: outcome.agent,
+        model: agentRow!.model,
+        commit: w.tip,
+        codeTreeKey: "tree",
+        verdict: "approved",
+        criteria: [],
+        findings: [],
+        summary: "Fine.",
+        notes: [],
+        commentUrl: null,
+        carriedFrom: null,
+        override: null,
+        decidedAt: 0,
+      };
+      expect(reviewComment(verdict, { effort: reviewerEffort(office, outcome.agent) })).toContain(
+        `· reviewer sonnet (effort medium) ·`,
+      );
+      await w.launcher.finish(office.officeId as OfficeId, run.runId, outcome.agent);
     }));
 });
 

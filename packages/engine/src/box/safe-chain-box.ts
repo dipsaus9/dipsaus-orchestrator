@@ -46,6 +46,12 @@ import { dirname } from "node:path";
 import type { Clock } from "@dipsaus-orchestrator/contract";
 
 import { ignoreRejection } from "../platform/background";
+import type {
+  SafeChainEcosystem,
+  SafeChainFound,
+  SafeChainRefusal,
+  SafeChainUnknown,
+} from "../prompts/safe-chain";
 import { connectToBox } from "./box-connect";
 import { cleanDoorText } from "./door";
 import { type BoxImageDeps, ensureSafeChainImage } from "./build-box";
@@ -63,11 +69,7 @@ import {
   SAFE_CHAIN_REFUSAL_LINES,
   SAFE_CHAIN_START_SCRIPT,
   SAFE_CHAIN_TMP_DIR,
-  type SafeChainEcosystem,
-  type SafeChainFound,
   type SafeChainMark,
-  type SafeChainRefusal,
-  type SafeChainUnknown,
   safeChainLogFile,
   safeChainRefusalsOf,
   sessionClockOffset,

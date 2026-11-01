@@ -5,7 +5,7 @@ import { describe, expect, it } from "bun:test";
 
 import type { OfficeId, ReadReply, ReadRequest } from "@dipsaus-orchestrator/contract";
 import { createLogger } from "../../src/log/logger";
-import { DeskNotifier, watchDesk } from "../../src/views/desk-notify";
+import { DeskNotifier, watchDesk } from "../../src/overview/desk-notify";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D" as OfficeId;

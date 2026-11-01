@@ -75,7 +75,7 @@ import {
   sweepBoxPartStages,
   sweepBoxTokenChecks,
 } from "../run/box-runs";
-import { composeRuns, type ComposedRuns, type RunPorts } from "../run/compose";
+import { composeRuns, type ComposedRuns, type RunPorts } from "./compose";
 import { startedSessionState } from "../run/started-session";
 import type { RunSteering } from "../run/control";
 import { Partner } from "../wiring/partner";

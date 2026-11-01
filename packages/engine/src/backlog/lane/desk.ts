@@ -16,7 +16,7 @@ import {
   type HandDeskItem,
   type OfficeHandItem,
   PARK_NOT_WRITTEN,
-} from "../../views/desk";
+} from "../../overview/desk";
 
 import { failedHolds } from "./journal";
 

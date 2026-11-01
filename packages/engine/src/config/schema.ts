@@ -26,17 +26,32 @@ const TierCaps = z.strictObject({
   loops: count(),
 });
 
+// 0002: the reviewer's model and effort for the stories of one tier; a key left out takes the
+// office-wide `review.model` or `review.effort`.
+const ReviewTier = z
+  .strictObject({
+    model: text().describe("The model of the review worker for a story of this tier."),
+    effort: text().describe("The effort of the review worker for a story of this tier."),
+  })
+  .partial();
+
 const Review = z
   .strictObject({
     model: text(),
     effort: text(),
+    tiers: z
+      .strictObject({ S: ReviewTier, M: ReviewTier, L: ReviewTier })
+      .partial()
+      .describe(
+        "The reviewer's model and effort per story tier (the story's tier: label), for example review.tiers.S.model. A key left out, and a story without a tier, take review.model and review.effort.",
+      ),
     maxRounds: count(),
     maxTurns: count(),
     maxMinutes: count(),
     budgetTokens: count(),
   })
   .describe(
-    "Limits of the review loop (0002): the model and effort of the review worker, the rounds of review and fixes before it stops, and the turns, minutes and tokens of one review.",
+    "Limits of the review loop (0002): the model and effort of the review worker, office-wide and per tier, the rounds of review and fixes before it stops, and the turns, minutes and tokens of one review.",
   );
 
 const Caps = z
@@ -581,6 +596,8 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
   review: {
     model: "opus",
     effort: "high",
+    // No tier of its own: every tier takes the model and effort above.
+    tiers: {},
     maxRounds: 3,
     maxTurns: 60,
     maxMinutes: 30,

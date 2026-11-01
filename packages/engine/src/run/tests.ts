@@ -278,7 +278,7 @@ export class StoryTests {
   /** `test.start` and `test.record` on the waiting command path. */
   get feature(): FeatureModule {
     return {
-      name: "run/tests",
+      name: "run",
       register: (registry) => {
         registry.addAsyncOfficeCommand({
           definition: testStart,

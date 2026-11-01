@@ -46,6 +46,8 @@ export async function roundsWorld(prefix: string): Promise<RoundsWorld> {
 
 export interface StoryRunOptions {
   readonly story: string;
+  /** The story tier the run recorded at pickup; M by default. */
+  readonly tier?: string | null;
   readonly model?: string;
   readonly loopCap?: number;
   readonly reviewRoundCap?: number | null;
@@ -79,7 +81,7 @@ export function storyRun(w: RoundsWorld, options: StoryRunOptions): StoryRun {
       kind: "story",
       key,
       story: options.story,
-      tier: "M",
+      tier: options.tier === undefined ? "M" : options.tier,
       role: "developer",
       model: options.model ?? "sonnet",
       startSha: "b".repeat(40),

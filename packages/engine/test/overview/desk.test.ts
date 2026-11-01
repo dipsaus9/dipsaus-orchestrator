@@ -25,7 +25,7 @@ import { insertWorkerQuestion } from "../../src/run-state/questions";
 import { executeRead } from "../../src/reads/execute";
 import { storeDecisionNotes, storeProposals } from "../../src/run/report-data";
 import { insertTest } from "../../src/run/test-records";
-import { StoryDiscard } from "../../src/stories/discard";
+import { StoryDiscard } from "../../src/run/discard";
 import {
   desk,
   DESK_DETAIL_MAX,
@@ -33,12 +33,12 @@ import {
   deskText,
   type DeskSources,
   DESK_SOURCES,
-} from "../../src/views/desk";
+} from "../../src/overview/desk";
 import { viewsFeature } from "./views-feature";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { pass, task } from "../stories/helpers";
 import { insertPark as insertParkRow } from "../run/park-fixture";
-import { keyOf, startRun } from "./helpers";
+import { keyOf, startRun } from "../views/helpers";
 import { backlogLayout } from "../story-store/backlog";
 
 const HOUR = 3_600_000;

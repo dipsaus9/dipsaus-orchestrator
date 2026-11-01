@@ -34,7 +34,7 @@ import { RunProfiles } from "../../src/scan/feature";
 import type { ScanSessionRequest } from "../../src/scan/fallback";
 import { readMarks } from "../../src/scan/marks";
 import { currentProfile, verifyResolved } from "../../src/scan/store";
-import { viewsFeature } from "../views/views-feature";
+import { viewsFeature } from "../overview/views-feature";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";
 import { entriesAfter, lastSeq } from "../stories/helpers";
 

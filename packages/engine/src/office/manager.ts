@@ -187,11 +187,18 @@ export class OfficeManager implements OfficeDirectory {
   readonly #deps: OfficeManagerDeps;
   readonly #instances = new Map<OfficeId, OfficeInstance>();
   readonly #loading = new Map<OfficeId, Promise<OfficeAccess>>();
+  readonly #loadedListeners = new Set<(office: OfficeId) => void>();
   /** `office.open`, `office.forget` and `office.reloadConfig` run one at a time. */
   #serial: Promise<unknown> = Promise.resolve();
 
   constructor(deps: OfficeManagerDeps) {
     this.#deps = deps;
+  }
+
+  /** Calls `listener` each time an office finishes loading (DIPO-403); returns how to stop it. */
+  onLoaded(listener: (office: OfficeId) => void): () => void {
+    this.#loadedListeners.add(listener);
+    return () => this.#loadedListeners.delete(listener);
   }
 
   // Reads of the loaded state
@@ -355,6 +362,7 @@ export class OfficeManager implements OfficeDirectory {
     }
     this.#instances.set(officeId, instance);
     this.#deps.logger.info("office loaded", { office: officeId, path: row.path });
+    for (const listener of this.#loadedListeners) listener(officeId);
     return { ok: true, office: instance.office };
   }
 

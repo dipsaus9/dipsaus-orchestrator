@@ -255,7 +255,7 @@ export class GateStore {
   /** The feature module that adds the read `story.gate`. */
   get feature(): FeatureModule {
     return {
-      name: "gate/store",
+      name: "gate-decisions",
       register: (registry) => {
         registry.addAsyncRead({
           definition: storyGate,

@@ -35,11 +35,11 @@ describe("the StoryStore seam (DIPO-379)", () => {
 
   it("never has the folder's bare name as a string outside backlog/, but for three other names", () => {
     // Each allowed hit names something else: a PR kind in the merge slot's table, the Backlog CLI
-    // program among the tools the daemon resolves, and the parts guard's kind of a story folder.
+    // program among the tools the daemon resolves, and the protected-path check's kind of a story folder.
     const ALLOWED: Readonly<Record<string, string>> = {
       "db/migrations/0048-merge-slot.ts": "check (kind in ('story', 'backlog'))",
       "platform/tools.ts": `["claude", "backlog", "gh", "rg", "git"]`,
-      "box/parts.ts": `return "backlog";`,
+      "story-store/protected.ts": `return "backlog";`,
     };
     const hits = codeOutside(["backlog/"]).flatMap(({ file, code }) =>
       (code.match(/.{0,40}["'`]\.?backlog["'`].{0,30}/gi) ?? [])

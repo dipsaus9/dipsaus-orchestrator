@@ -22,7 +22,13 @@ export type {
 export { backlogPrDeskItems } from "./desk";
 export { collectPrDiff, RestoreError, taskOfPath } from "./diff";
 export { BacklogPrs, factsFor, PR_NOTICES, repoOfUrl } from "./feature";
-export type { AdoptReport, BacklogPrsDeps, PrWaiting, PrWaitingReason } from "./feature";
+export type {
+  AdoptReport,
+  BacklogPrsDeps,
+  LoadFailure,
+  PrWaiting,
+  PrWaitingReason,
+} from "./feature";
 export { BACKLOG_MERGE_NOTICES, BacklogMerges } from "./merge";
 export type { BacklogMergeContext, BacklogMergeDeps } from "./merge";
 export { laneMergeGit } from "./merge-git";

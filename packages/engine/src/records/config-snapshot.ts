@@ -28,6 +28,16 @@ export function layered(under: unknown, over: unknown): unknown {
   return out;
 }
 
+// A snapshot that holds `review.tiers` holds all of it: a tier it leaves out took the office-wide
+// review model and effort at the start, so a tier the configuration in force adds since must not
+// fill it in (DIPO-405). A snapshot from before the key falls back as any other lacking key does.
+function withStartedReviewTiers(started: unknown, snapshot: Record<string, unknown>): unknown {
+  const review = snapshot["review"];
+  if (!plain(started) || !plain(started["review"]) || !plain(review)) return started;
+  if (!plain(review["tiers"])) return started;
+  return { ...started, review: { ...started["review"], tiers: review["tiers"] } };
+}
+
 /**
  * The configuration the run started with: its `config_snapshots` row laid on `fallback` (the
  * configuration in force, or the defaults), so a key the snapshot lacks takes the fallback's
@@ -47,7 +57,8 @@ export function runConfigOf(
     const parsed = JSON.parse(row.config) as unknown;
     if (!plain(parsed)) return fallback;
     const version = typeof parsed["version"] === "number" ? parsed["version"] : 1;
-    return layered(fallback, migrateOfficeDocument(version, parsed).document) as OfficeConfig;
+    const started = layered(fallback, migrateOfficeDocument(version, parsed).document);
+    return withStartedReviewTiers(started, parsed) as OfficeConfig;
   } catch {
     return fallback;
   }

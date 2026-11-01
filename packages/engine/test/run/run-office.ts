@@ -44,7 +44,6 @@ import {
   type Resumption,
   RunControl,
   type RunSteering,
-  composeRuns,
   RunOutcomes,
   storyHoldsWork,
   WorkRun,
@@ -52,13 +51,14 @@ import {
   runTempDir,
   readRunTempOwner,
 } from "../../src/run";
+import { composeRuns } from "../../src/create/compose";
 import { findRun, type StoredRun } from "../../src/records";
 import { readShortTempRun, shortTempDir } from "../../src/run/temp-dirs";
 import { type LaunchedHost, recordWorkerHost, runDirectory } from "../../src/records/worker-hosts";
 import { standInPlan } from "./stand-in-plan";
 import type { RunProfile } from "../../src/scan/detect";
 import { StoryIndex } from "../../src/stories/feature";
-import { StoryPlanning } from "../../src/stories/planning";
+import { StoryPlanning } from "../../src/run/planning";
 import {
   claudeCliAdapter,
   claudeLaunchContext,

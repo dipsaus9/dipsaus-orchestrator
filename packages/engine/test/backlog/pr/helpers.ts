@@ -131,7 +131,11 @@ export interface PrSetup extends LaneSetup {
 }
 
 /** The lane with the PR hook on a repository whose `origin` git reaches as `REMOTE_URL`. */
-export async function prSetup(repo: TempRepoWithRemote | null, base: LaneSetup): Promise<PrSetup> {
+export async function prSetup(
+  repo: TempRepoWithRemote | null,
+  base: LaneSetup,
+  options: { readonly loading?: () => boolean } = {},
+): Promise<PrSetup> {
   if (repo !== null) {
     await repo.git("config", `url.${repo.remote}.insteadOf`, REMOTE_URL);
     await repo.git("remote", "set-url", "origin", REMOTE_URL);
@@ -143,7 +147,8 @@ export async function prSetup(repo: TempRepoWithRemote | null, base: LaneSetup):
     host,
     lane: () => lane,
     cli: base.cli,
-    offices: { get: () => base.office },
+    // A loading office has no handle in the directory yet (DIPO-403).
+    offices: { get: () => (options.loading?.() ? undefined : base.office) },
     clock: base.t.clock,
   });
   lane = new OfficeLane({

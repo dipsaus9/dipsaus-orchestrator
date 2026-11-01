@@ -17,10 +17,10 @@
 import { createHash } from "node:crypto";
 import { isAbsolute, relative, sep } from "node:path";
 
-import { type SafeChainFound, uniqueFound } from "../box/safe-chain";
 import { formatCount } from "../context/truncate";
 import { budgetLine, withBudgetLine, type BudgetFacts } from "./budget";
 import { cutHead, cutTailLines } from "./cut";
+import { type SafeChainFound, uniqueFound } from "./safe-chain";
 import decisionNoteTemplate from "./feedback/decision-note.md" with { type: "text" };
 import fixRoundOptionalTemplate from "./feedback/fix-round-optional.md" with { type: "text" };
 import fixRoundTemplate from "./feedback/fix-round.md" with { type: "text" };

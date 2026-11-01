@@ -654,6 +654,26 @@ describe("work.run picks and claims one Ready story", () => {
     expect(view).not.toHaveProperty("gateFailures");
   });
 
+  it("returns a Ready story whose References name a protected path to Refined at pickup, before any claim (DIPO-409)", async () => {
+    const key = story("TASK-1", "Ready");
+    const message =
+      'ready TASK-1 failed R31: reference ".dipo/office.yaml" names dipo\'s configuration (.dipo/), which only dipo or the maintainer writes; a builder or the maintainer takes such a story';
+    world.gate = () => ({ mode: "pickup", passed: false, failures: [{ rule: "R31", message }] });
+    const result = resultOf(await run());
+    expect(result).toEqual({
+      started: [],
+      skipped: [{ story: "TASK-1", key, reason: "pickupCheckFailed" }],
+    });
+    // Like every pickup gate failure, the story moves to Refined through the lane; no run row, box or worker.
+    expect(world.lane.journaled).toEqual([
+      { kind: "edit", key, subject: "TASK-1", target: { from: ["Ready"], status: "Refined" } },
+    ]);
+    expect(countRows(world.office, "runs")).toBe(0);
+    expect(entries().map((e) => e.delta)).toEqual([
+      { story: "TASK-1", key, from: "Ready", to: "Refined", detail: [message] },
+    ]);
+  });
+
   it("sends a story with no frozen branch through the pickup gate on its own", async () => {
     const key = story("TASK-1", "Ready", { description: "Outcome: a story." });
     world.gate = () => ({
