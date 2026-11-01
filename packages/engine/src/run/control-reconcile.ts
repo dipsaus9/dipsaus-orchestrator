@@ -62,6 +62,7 @@ export class ReconcileStops {
     if (tracked !== undefined) {
       disarm(this.#deps.clock, tracked);
       tracked.ending = mine;
+      tracked.deciding = "dipo is still stopping its run for reconcile";
     }
     try {
       await this.#stopForReconcile(office, run, notice, ending, tracked?.lastReport ?? null);
@@ -157,7 +158,10 @@ export class ReconcileStops {
           Promise.reject(new Error("its branch changed by hand, so dipo writes nothing there")),
       },
     );
-    if (tracked !== undefined) tracked.ending = done;
+    if (tracked !== undefined) {
+      tracked.ending = done;
+      tracked.deciding = "dipo is still parking it scope-violation for reconcile";
+    }
     return done;
   }
 }

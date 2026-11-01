@@ -749,19 +749,26 @@ export class WorkRun {
   ): Promise<SkipReason | null> {
     const { story, key } = c.candidate;
     const prepared = outcome.setup as PreparedRun | null;
-    // The claim commit set In Progress on the branch: the story view reads it from there now. A
-    // read that fails leaves the next pass to do it.
-    await this.#deps.stories.refreshStory?.(ctx.office.officeId, key).catch(() => undefined);
     const launcher = this.#deps.launcher;
-    if (launcher !== undefined && prepared !== null) {
-      const startedRun = await launcher.start(ctx, {
-        facts,
-        prepared,
-        claim: outcome.claim,
-        work: started.work,
-        progress: started.progress,
-      });
-      if (!startedRun.ok) return "pickupCheckFailed";
+    // From the run row until its worker is followed, a park waits for the start (DIPO-411).
+    const starting =
+      launcher !== undefined && prepared !== null ? launcher.starting(facts.runId) : null;
+    try {
+      // The claim commit set In Progress on the branch: the story view reads it from there now. A
+      // read that fails leaves the next pass to do it.
+      await this.#deps.stories.refreshStory?.(ctx.office.officeId, key).catch(() => undefined);
+      if (launcher !== undefined && prepared !== null) {
+        const startedRun = await launcher.start(ctx, {
+          facts,
+          prepared,
+          claim: outcome.claim,
+          work: started.work,
+          progress: started.progress,
+        });
+        if (!startedRun.ok) return "pickupCheckFailed";
+      }
+    } finally {
+      starting?.();
     }
     c.started.push({ story, key, run: facts.runId });
     return null;

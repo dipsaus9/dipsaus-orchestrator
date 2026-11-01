@@ -181,6 +181,8 @@ export interface RunResumerDeps {
         startedAt: number;
       },
     ): void;
+    /** Marks a start of the run's worker under way until the call it returns (DIPO-411). */
+    starting?(run: string): () => void;
   };
   readonly onChanged?: (office: OfficeId) => void;
   /**
@@ -338,6 +340,16 @@ export class RunResumer implements NextSession {
   }
 
   async next(request: NextSessionRequest): Promise<NextSessionOutcome> {
+    // A park sent while the session starts waits for it, then stops it (DIPO-411).
+    const started = this.#deps.control.starting?.(request.run.runId);
+    try {
+      return await this.#next(request);
+    } finally {
+      started?.();
+    }
+  }
+
+  async #next(request: NextSessionRequest): Promise<NextSessionOutcome> {
     const deps = this.#deps;
     const { run } = request;
     const office = deps.offices.get(request.office);

@@ -138,6 +138,8 @@ export interface Tracked extends TrackedRun {
   timer: TimerHandle | null;
   /** Set at the first decision; nothing else is decided for the run after it. */
   ending: Promise<ParkOutcome | null> | null;
+  /** What `ending` carries out, in words, for a reply that waits on it (DIPO-411). */
+  deciding: string | null;
   /** Resolves once the worker's exit was ingested (`onEnded`); the maintainer's park waits for it. */
   readonly exited: Promise<void>;
   readonly markExited: () => void;

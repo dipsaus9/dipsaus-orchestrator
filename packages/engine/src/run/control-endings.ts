@@ -28,6 +28,7 @@ import {
 import type { CapName } from "../records/caps";
 import { resolveIntent, sendAsIntent } from "../records/intents";
 import { workerHostsOf } from "../records/worker-hosts";
+import { HOST_LAUNCH_DEADLINE_MS } from "./hosts";
 import type { RunAct } from "./outcome-types";
 import {
   openPark,
@@ -74,23 +75,37 @@ export function reviewCapEnding(
   };
 }
 
+/** What the endings need of run control's starts (DIPO-411). */
+export interface RunStarts {
+  /** Arms a tracked run's cap tick again: a maintainer's park that sent nothing leaves it running. */
+  readonly rearm: (tracked: Tracked) => void;
+  /** Settles once the worker start under way for the run ended; undefined when none is. */
+  readonly startOf: (run: string) => Promise<void> | undefined;
+}
+
 export class RunEndings {
   readonly #deps: RunControlDeps;
   readonly #tracked: Map<string, Tracked>;
   readonly #inflight: Set<Promise<unknown>>;
-  /** Arms a tracked run's cap tick again: a maintainer's park that sent nothing leaves it running. */
-  readonly #rearm: (tracked: Tracked) => void;
+  readonly #starts: RunStarts;
+  /** Runs a maintainer's park of an unfollowed run is ending now: a worker tracked meanwhile stops. */
+  readonly #parking = new Set<string>();
 
   constructor(
     deps: RunControlDeps,
     tracked: Map<string, Tracked>,
     inflight: Set<Promise<unknown>>,
-    rearm: (tracked: Tracked) => void = () => undefined,
+    starts: RunStarts = { rearm: () => undefined, startOf: () => undefined },
   ) {
     this.#deps = deps;
     this.#tracked = tracked;
     this.#inflight = inflight;
-    this.#rearm = rearm;
+    this.#starts = starts;
+  }
+
+  /** True while a maintainer's park of the unfollowed run is ending it (DIPO-411). */
+  parking(run: string): boolean {
+    return this.#parking.has(run);
   }
 
   /**
@@ -127,6 +142,7 @@ export class RunEndings {
     // these synchronous writes land before any op is sent.
     tracked.unstored = null;
     disarm(this.#deps.clock, tracked);
+    tracked.deciding = `dipo is still carrying out its ${act.intent} decision on the run`;
     // The intent's sent mark is written in the job; a failure there is logged (DIPO-110).
     tracked.ending = background(
       async () => {
@@ -176,16 +192,8 @@ export class RunEndings {
     if (identity === undefined) throw new Error(`${args.story} was not resolved`);
     const find = () =>
       activeRuns(handle).find((run) => run.kind === "story" && run.key === identity.key);
-    let run = find();
-    // A decision already under way (a cap or a report) finishes first; then the run has ended.
-    const pending = run === undefined ? undefined : this.#tracked.get(run.runId)?.ending;
-    if (run !== undefined && pending !== undefined && pending !== null) {
-      // A park waiting for its worker's exit (an earlier `story.park`) is waited for as long.
-      if (!(await this.#within(pending, STOP_ALL_EXIT_WAIT_MS))) {
-        throw this.#stillRuns(handle, run, identity.story, "dipo sent its worker the stop");
-      }
-      run = find();
-    }
+    const story = identity.story;
+    const run = await this.#settledRun(handle, find, story);
     const note = args.note.trim();
     if (run === undefined) return await this.#parkWaiting(ctx, identity, note);
     const ending: Ending = {
@@ -199,8 +207,8 @@ export class RunEndings {
     const commit = (fn: () => readonly NewEntry[]) => ctx.commit(fn);
     const parked =
       tracked === undefined
-        ? await this.end(handle, run, work, ending, commit)
-        : await this.#stopThenPark(handle, run, tracked, work, ending, commit, identity.story);
+        ? await this.#parkUnfollowed(handle, run, work, ending, commit, story)
+        : await this.#stopThenPark(handle, run, tracked, work, ending, commit, story);
     // A tampered worktree turned it into a `scope-violation` park, which a retry cannot write.
     if (!parked.written && parked.reason === ending.reason) {
       // The worker was stopped, so the run ended and its park is recorded as held, unwritten
@@ -213,6 +221,65 @@ export class RunEndings {
       );
     }
     return { result: { run: run.runId } };
+  }
+
+  /**
+   * The story's active run once what is under way for it settled, or undefined when it ended. A
+   * worker being started is waited for (DIPO-411), up to its launch deadline, so the park stops it
+   * once it is followed instead of parking while it starts. A decision already under way (a cap, a
+   * report, an earlier park) finishes first; a park waiting for its worker's exit is waited for as
+   * long as a park waits. Either still under way fails `run.hostAlive` saying what it is.
+   */
+  async #settledRun(
+    handle: OfficeHandle,
+    find: () => StoredRun | undefined,
+    story: string,
+  ): Promise<StoredRun | undefined> {
+    let run = find();
+    const start =
+      run === undefined || this.#tracked.has(run.runId)
+        ? undefined
+        : this.#starts.startOf(run.runId);
+    if (run !== undefined && start !== undefined) {
+      if (!(await this.#within(start, HOST_LAUNCH_DEADLINE_MS))) {
+        throw this.#stillRuns(handle, run, story, "dipo is still starting its worker");
+      }
+      run = find();
+    }
+    const earlier = run === undefined ? undefined : this.#tracked.get(run.runId);
+    const pending = earlier?.ending;
+    if (run === undefined || earlier === undefined || pending == null) return run;
+    if (!(await this.#within(pending, STOP_ALL_EXIT_WAIT_MS))) {
+      const what = earlier.deciding ?? "dipo is still carrying out a decision on the run";
+      throw this.#stillRuns(handle, run, story, what);
+    }
+    return find();
+  }
+
+  /**
+   * The maintainer's park of an active run no worker of which is followed or being started here
+   * (DIPO-411): one waiting for its place, between sessions, or open at In Review with none.
+   * Nothing runs, so nothing is sent; a worker host row of it still open means a worker may run
+   * unfollowed, and nothing parks then (fail closed). While it parks, a worker tracked for the run
+   * is stopped at once (`RunControl.track`).
+   */
+  async #parkUnfollowed(
+    office: OfficeHandle,
+    run: StoredRun,
+    work: WorkRef | undefined,
+    ending: Ending,
+    commit: (fn: () => readonly NewEntry[]) => void,
+    story: string,
+  ): Promise<ParkOutcome> {
+    if (workerHostsOf(office, run.runId).some((host) => host.endedAt === null)) {
+      throw this.#stillRuns(office, run, story, "dipo does not follow the worker of its run");
+    }
+    this.#parking.add(run.runId);
+    try {
+      return await this.end(office, run, work, { ...ending, ops: [] }, commit);
+    } finally {
+      this.#parking.delete(run.runId);
+    }
   }
 
   /**
@@ -242,7 +309,7 @@ export class RunEndings {
         const at = this.#deps.clock.now();
         office.immediate(() => resolveIntent(office, run.runId, sent.intentId, "notSent", at));
         tracked.ending = null;
-        this.#rearm(tracked);
+        this.#starts.rearm(tracked);
         return null;
       }
       await tracked.exited;
@@ -255,6 +322,7 @@ export class RunEndings {
       );
     });
     tracked.ending = decision;
+    tracked.deciding = "dipo sent its worker the stop of an earlier park";
     // A park that outlives the reply (its worker exits later) logs its own failure.
     decision.catch((thrown: unknown) => {
       this.#deps.warn?.("parking a run failed", { run: run.runId, reason: messageOf(thrown) });
@@ -369,6 +437,7 @@ export class RunEndings {
     };
     const done = this.end(office, run, tracked.work, ending, write);
     tracked.ending = done;
+    tracked.deciding = `dipo is still ending its run: a ${ending.intent} that parks it ${ending.reason}`;
     background(() => done, {
       failed: "parking a run failed",
       fields: { run: tracked.runId },
