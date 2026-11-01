@@ -1,10 +1,10 @@
 ---
 id: DIPO-409
 title: Refuse at pickup a story whose References name a protected path
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-10-31 10:18'
-updated_date: '2026-11-01 09:12'
+updated_date: '2026-11-01 09:13'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -37,14 +37,13 @@ unknowns:
   - q: "Criterion 1 says a pickup refused by the new rule keeps the story Ready, but every pickup gate failure today moves it to Refined (`#toRefined` in work-run.ts, the path the existing DIPO-48 tests assert). Should the R31 refusal keep the story Ready, or follow the same Refined move as the other pickup failures? The code follows the other failures; a Ready-keeping refusal would need a change to that shared path."
     status: "resolved"
     answer: "Follow the same Refined move as every other pickup gate failure (#toRefined); no second path (0001). Criterion 1's 'its status stays Ready' was wrong: in the PR, change criterion 1 through the Backlog CLI to say the story moves to Refined as for any pickup gate failure, and test that path."
+  - q: "Approve the R31 wording for ADR 0012 section \"3. The Ready gate\" (DIPO-399): a pickup-only rule R31 that refuses a Ready story whose References name a path `protectedKind` protects, except a link, moving it to Refined like any pickup gate failure. Once approved I will add the rule row and its mode to the ADR and the Replaced line only if the rule replaces something, which it does not."
+    status: "resolved"
+    answer: "Approved: the maintainer approved this rule for ADR 0012 on 2026-11-01. Add the R31 row and its mode as you describe; dipo's merge gate (DIPO-399) shows the maintainer the final wording before it merges. Do not edit anything under backlog/."
 test_plan:
   entries:
     - kind: "automated"
       check: "(engine) the pickup gate refuses a story whose References name a path the box protects, before any claim, box or worker"
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "Approve the R31 wording for ADR 0012 section \"3. The Ready gate\" (DIPO-399): a pickup-only rule R31 that refuses a Ready story whose References name a path `protectedKind` protects, except a link, moving it to Refined like any pickup gate failure. Once approved I will add the rule row and its mode to the ADR and the Replaced line only if the rule replaces something, which it does not."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -79,4 +78,6 @@ Parked 2026-11-01 09:12 UTC: ambiguous-spec
 - Review rounds: 0, failed 0 of 3
 - Budget used: 202,161 of 300,000 tokens; 76 of 90 turns; 10 of 45 minutes
 - Last good commit: 8c4c6f23572d7789a02dbf49b4cfddfa87f33bf5
+
+Resumed 2026-11-01 09:13 UTC; grants: none; note: Approved: the maintainer approved this rule for ADR 0012 on 2026-11-01. Add the R31 row and its mode as you describe; dipo's merge gate (DIPO-399) shows the maintainer the final wording before it mer…
 <!-- SECTION:NOTES:END -->
