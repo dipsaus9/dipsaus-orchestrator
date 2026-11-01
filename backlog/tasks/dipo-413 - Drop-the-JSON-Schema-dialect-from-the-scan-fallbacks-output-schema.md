@@ -1,10 +1,10 @@
 ---
 id: DIPO-413
 title: Drop the JSON Schema dialect from the scan fallback's output schema
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-01 15:39'
-updated_date: '2026-11-01 16:06'
+updated_date: '2026-11-01 16:08'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -41,9 +41,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The JSON Schema the scan fallback session gets has no `$schema` key, shown by a test
-- [ ] #2 The scan fallback and the worker report schema get their JSON Schema from one function, and the separate strip in report-schema.ts is removed, shown by a test of that function
-- [ ] #3 A failed scan fallback session shows the session's own error line in the `dipo office infer` refusal, not only "no result before exit 1", shown by a test
+- [x] #1 The JSON Schema the scan fallback session gets has no `$schema` key, shown by a test
+- [x] #2 The scan fallback and the worker report schema get their JSON Schema from one function, and the separate strip in report-schema.ts is removed, shown by a test of that function
+- [x] #3 A failed scan fallback session shows the session's own error line in the `dipo office infer` refusal, not only "no result before exit 1", shown by a test
 <!-- AC:END -->
 
 ## Implementation Notes
