@@ -3,24 +3,27 @@
 
 import { describe, expect, it } from "bun:test";
 
-import type { ProcessProbe } from "../../src/platform/process";
+import type { ProcessProbe, SignalProcess } from "../../src/platform/process";
 
 import { storyPlanningDeps } from "../../src/create/stories";
 import { backlogLayout } from "../story-store/backlog";
 
 const probe: ProcessProbe = async () => null;
+const signal: SignalProcess = () => false;
 const host = { closePr: async () => undefined } as never;
 const implemented = () => true;
 const lane = () => undefined;
 
 describe("storyPlanningDeps (DIPO-227)", () => {
-  it("carries the probe it is given and the parts it is built from", () => {
+  it("carries the probe and the signal it is given and the parts it is built from", () => {
     const deps = storyPlanningDeps(
       { stories: backlogLayout, lane, git: lane, host, implemented },
       probe,
+      signal,
     );
 
     expect(deps.probe).toBe(probe);
+    expect(deps.signal).toBe(signal);
     expect(deps.lane).toBe(lane);
     expect(deps.host).toBe(host);
     expect(deps.implemented).toBe(implemented);

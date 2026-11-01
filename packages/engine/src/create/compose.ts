@@ -24,6 +24,7 @@ import { RunLauncher, type HostStarter, type RunIngest, type RunLauncherDeps } f
 import type { RunOutcomes, RunOutcomesDeps, RunOutcomesPort } from "../run/outcomes";
 import { Places, type PlacesDeps } from "../run-state/places";
 import { RunReattacher, type RunReattacherDeps } from "../run/reattach";
+import type { SignalProcess } from "../platform/process";
 import { baseStoryFacts, RunResumer, type RunResumerDeps } from "../run/resume";
 import { gitReviewOps, ReviewLauncher } from "../run/review-launch";
 import { FixRounds, type FixRoundsDeps } from "../run/fix-rounds";
@@ -89,6 +90,8 @@ export interface RunPorts {
   readonly outcomes?: Pick<RunOutcomesDeps, "holds" | "holdsWork" | "caps" | "unpark"> & {
     /** The liveness of earlier hosts a next session waits for (DIPO-57). */
     readonly probe?: RunResumerDeps["probe"];
+    /** With `probe`: one verified SIGTERM to a host still alive for a parked run (DIPO-411). */
+    readonly signal?: SignalProcess;
   };
   /** The planning lane's resume of a park with no run (DIPO-160), read when `work.resume` runs. */
   readonly holdResumer?: () => HoldResumer | undefined;
@@ -326,7 +329,7 @@ function buildOutcomes(
   partners: RunPartners,
 ): Outcomes | null {
   if (control === null || ports.outcomes === undefined) return null;
-  const { probe, ...outcomePorts } = ports.outcomes;
+  const { probe, signal, ...outcomePorts } = ports.outcomes;
   const resumer = new RunResumer({
     stories: ports.stories,
     clock: ports.clock,
@@ -380,6 +383,11 @@ function buildOutcomes(
           ports.offices.config(office)?.prompt.contractMax ?? CONTRACT_MAX_DEFAULT,
         // No resume while the office's starts are paused (0020).
         startsPaused: (office) => partners.startsPaused.get()?.state(office) ?? null,
+        // A host still alive for the parked run gets one verified SIGTERM (DIPO-411).
+        ...given(
+          "hostSignals",
+          probe === undefined || signal === undefined ? undefined : { probe, signal },
+        ),
       },
     },
   );

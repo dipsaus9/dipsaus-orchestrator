@@ -1068,6 +1068,8 @@ function controlRunPorts(
     outcomes: {
       // No new host while an earlier host of the run still runs (DIPO-57, 0006 decision 8).
       probe: options.probe,
+      // A host still alive for a parked run gets one verified SIGTERM at its resume (DIPO-411).
+      signal: signalProcess,
       holds: options.holds,
       holdsWork: storyHoldsWork(storyGitOf(options)),
       // Lifting a park on the story branch before its run resumes (DIPO-75), and a fix round's

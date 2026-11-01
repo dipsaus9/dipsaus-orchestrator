@@ -73,6 +73,10 @@ interface World {
     goneBranches: string[];
     /** The `story.park` calls handed to run control for a story with a run. */
     parkedRuns: { story: string; note: string }[];
+    /** The command line the fake probe shows for a live PID, when set (DIPO-411). */
+    argv: string[] | undefined;
+    /** Every signal the drop sent. */
+    signals: [number, string][];
   };
 }
 
@@ -168,6 +172,8 @@ beforeEach(async () => {
     calls: [] as string[][],
     goneBranches: [] as string[],
     parkedRuns: [] as { story: string; note: string }[],
+    argv: undefined as string[] | undefined,
+    signals: [] as [number, string][],
   };
   const planning = new StoryPlanning({
     stories: backlogLayout,
@@ -191,8 +197,18 @@ beforeEach(async () => {
     implemented: () => true,
     probe: async (pid) =>
       hooks.alive.includes(pid)
-        ? { pid, startTimeMs: HOST_START, zombie: false, command: "dipo daemon worker-host" }
+        ? {
+            pid,
+            startTimeMs: HOST_START,
+            zombie: false,
+            command: "dipo daemon worker-host",
+            ...(hooks.argv === undefined ? {} : { argv: hooks.argv }),
+          }
         : null,
+    signal: (pid, signal) => {
+      hooks.signals.push([pid, signal]);
+      return true;
+    },
   });
   const resume = new WorkResumeCommand(backlogLayout, () => planning);
   const registry = buildRegistry([planning.feature, resume.feature as FeatureModule]);
@@ -804,6 +820,57 @@ describe("story.drop", () => {
     });
   }
 
+  it("sends the live host of the parked, ended run one verified SIGTERM, refuses, and drops once it exited (DIPO-411)", async () => {
+    const key = parkedClaim("DIPO-7");
+    const runId = liveClaimOf(w.office, key)?.runId as RunId;
+    // The run ended parked, and its host row is one this binary started, which stops on SIGTERM.
+    const { office } = w;
+    office.immediate(() => {
+      insertRun(office, {
+        runId,
+        kind: "story",
+        key,
+        story: "DIPO-7",
+        tier: "M",
+        role: "developer",
+        model: "haiku",
+        startSha: "b".repeat(40),
+        branch: "DIPO-7/work",
+        budgetUnit: "tokens",
+        budgetLimit: 1000,
+        loopCap: 3,
+        reviewRoundCap: null,
+        configHash: "h",
+        overrideKeys: null,
+        runProfileId: null,
+        startedAt: 0,
+      });
+      office.run(
+        "update runs set ended_at = 1, end_kind = 'parked' where office_id = $office_id and run_id = $run",
+        { run: runId },
+      );
+      office.run("update worker_hosts set signal_stop = 1 where office_id = $office_id");
+    });
+    w.hooks.alive.push(4242);
+    w.hooks.argv = ["/usr/local/bin/dipo", "daemon", "worker-host", runId];
+    const error = errorOf(await send("story.drop", { story: "DIPO-7", deleteBranch: false }));
+    expect(error.code).toBe("run.hostAlive");
+    expect(error.message).toContain(
+      "its worker host (pid 4242) still ran, so dipo sent it SIGTERM to stop its worker",
+    );
+    expect(error.message).toContain("`dipo drop DIPO-7`");
+    expect(w.hooks.signals).toEqual([[4242, "SIGTERM"]]);
+    expect(liveClaimOf(w.office, key)).not.toBeNull();
+    // The host stopped its worker and exited: the drop goes on.
+    w.hooks.alive.length = 0;
+    expect(await send("story.drop", { story: "DIPO-7", deleteBranch: false })).toMatchObject({
+      ok: true,
+      changed: true,
+    });
+    expect(liveClaimOf(w.office, key)).toBeNull();
+    expect(w.hooks.signals).toHaveLength(1);
+  });
+
   it("drops a parked story once its worker host has exited", async () => {
     const key = parkedClaim("DIPO-7");
     w.hooks.alive.push(4242);
@@ -880,6 +947,7 @@ describe("story.drop", () => {
       },
       implemented: () => true,
       probe: async () => null,
+      signal: () => false,
     });
     const registry = buildRegistry([failing.feature]);
     const reply = await executeCommand(

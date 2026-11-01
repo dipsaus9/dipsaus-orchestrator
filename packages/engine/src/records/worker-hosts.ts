@@ -547,6 +547,60 @@ export async function signalVerifiedHost(
   return null;
 }
 
+/** A worker host of a run that still ran when it was looked at (DIPO-411). */
+export interface LiveRunHost {
+  readonly pid: number;
+  /** Null when dipo sent it one SIGTERM, else why it sent nothing. */
+  readonly refused: string | null;
+}
+
+/**
+ * Stops the worker hosts still alive for a run the engine recorded as ended (DIPO-411, 0005), as
+ * `dipo resume` and `dipo drop` find them: each recorded host whose PID and start time match a live
+ * process (`hostAlive`) gets one verified SIGTERM (`signalVerifiedHost`), and the host's own SIGTERM
+ * stop then stops its worker. Any doubt sends nothing and says why: a check that throws, a host
+ * that fails the verification, a run that has not ended. Returns every host found alive, or whose
+ * check failed, with what dipo did; none means no host of the run runs.
+ */
+export async function stopHostsOfEndedRun(
+  office: OfficeHandle,
+  runId: string,
+  probe: ProcessProbe,
+  signal: SignalProcess,
+): Promise<LiveRunHost[]> {
+  const run = office.get<{ ended_at: number | null }>(
+    "select ended_at from runs where office_id = $office_id and run_id = $run",
+    { run: runId },
+  );
+  const found: LiveRunHost[] = [];
+  for (const host of workerHostsOf(office, runId)) {
+    if (host.pending) continue;
+    try {
+      if (!(await hostAlive(host, probe))) continue;
+      const refused =
+        run?.ended_at == null
+          ? "its run has not ended"
+          : await signalVerifiedHost(host, probe, signal);
+      found.push({ pid: host.pid, refused });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      found.push({ pid: host.pid, refused: `checking it failed (${reason})` });
+    }
+  }
+  return found;
+}
+
+/** What `stopHostsOfEndedRun` did, as one sentence part per host. */
+export function liveRunHostsText(hosts: readonly LiveRunHost[]): string {
+  return hosts
+    .map((host) =>
+      host.refused === null
+        ? `its worker host (pid ${host.pid}) still ran, so dipo sent it SIGTERM to stop its worker`
+        : `its worker host (pid ${host.pid}) still runs, and dipo sent it no signal, because ${host.refused}`,
+    )
+    .join("; ");
+}
+
 /**
  * Retention (0007): deletes at most `limit` worker host rows that ended before `cutoff` and whose
  * run may not reopen (`ofNoOpenRun`), inside the caller's transaction; returns how many it deleted.

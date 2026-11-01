@@ -112,6 +112,8 @@ import {
   unparkRun,
 } from "../records/run-records";
 import { recordBranchPush } from "../records/story-prs";
+import { liveRunHostsText, stopHostsOfEndedRun } from "../records/worker-hosts";
+import type { ProcessProbe, SignalProcess } from "../platform/process";
 import {
   resumeRow,
   resumeSession,
@@ -241,6 +243,11 @@ export interface ParkResumeOptions {
   readonly contractMax?: (office: OfficeId) => number;
   /** The office's starts paused (0020): no resume while it holds; none without it. */
   readonly startsPaused?: (office: OfficeId) => StartsPausedState | null;
+  /**
+   * The liveness and the one-process signal for a worker host still alive for the parked run
+   * (DIPO-411): it gets one verified SIGTERM. Without them no host is looked at.
+   */
+  readonly hostSignals?: { readonly probe: ProcessProbe; readonly signal: SignalProcess };
 }
 
 /** The answer an `ambiguous-spec` park resumes with (0020, DIPO-159). */
@@ -551,7 +558,7 @@ export class ParkResumes {
       );
     }
     this.#refuseWhilePaused(office.officeId as OfficeId, story);
-    this.#refuseBusy(office, run, story);
+    if (this.#busy(office, run)) throw await this.#busyRefusal(office, run, story);
     // Held from here (no await before it) to the resume's transaction.
     this.#resuming.add(run.runId);
     const release = () => this.#resuming.delete(run.runId);
@@ -1369,17 +1376,39 @@ export class ParkResumes {
     throw startsPausedRefusal(`${story} cannot resume now`, paused, { story });
   }
 
-  /** `run.hostAlive` while a session of the run still runs or is being decided. */
-  #refuseBusy(office: OfficeHandle, run: StoredRun, story: string): void {
+  /** True while a session of the run still runs or is being decided. */
+  #busy(office: OfficeHandle, run: StoredRun): boolean {
+    return (
+      this.#liveAgent(office, run) || this.#s.guard.busy(run.runId) || this.#resuming.has(run.runId)
+    );
+  }
+
+  /** True while an agent of the run has not ended: its exit was not ingested. */
+  #liveAgent(office: OfficeHandle, run: StoredRun): boolean {
     const live = office.get<{ found: number }>(
       `select 1 as found from agents where office_id = $office_id and run_id = $run
         and ended_at is null limit 1`,
       { run: run.runId },
     );
-    if (live === null && !this.#s.guard.busy(run.runId) && !this.#resuming.has(run.runId)) return;
-    throw new CommandError(
+    return live !== null;
+  }
+
+  /**
+   * `run.hostAlive` while a session of the run still runs or is being decided. A worker host still
+   * alive for the parked run, whose exit nothing decides, gets one verified SIGTERM first
+   * (DIPO-411), so the next resume finds it gone; the reply says what dipo did.
+   */
+  async #busyRefusal(office: OfficeHandle, run: StoredRun, story: string): Promise<CommandError> {
+    const signals = this.#options.hostSignals;
+    const deciding = this.#s.guard.busy(run.runId) || this.#resuming.has(run.runId);
+    const hosts =
+      signals === undefined || deciding || !this.#liveAgent(office, run)
+        ? []
+        : await stopHostsOfEndedRun(office, run.runId, signals.probe, signals.signal);
+    const what = hosts.length === 0 ? "" : `: ${liveRunHostsText(hosts)}`;
+    return new CommandError(
       "run.hostAlive",
-      `${story}'s last worker has not exited yet; send work.resume again in a moment.`,
+      `${story}'s last worker has not exited yet${what}. Send \`dipo resume ${story}\` again in a moment.`,
       { story, run: run.runId },
     );
   }
