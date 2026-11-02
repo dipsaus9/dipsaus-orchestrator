@@ -2,9 +2,9 @@
 // client sends again with `engine.recovering` while it recovers; the header says `catching up`,
 // and once `daemon.state` reports `running` the store subscribes again after its last cursor, so
 // the overview, the queue and the live agent detail take the next events without the maintainer
-// leaving and entering the office. An open TUI drops a run from RUNNING on its `run.ended`, also
-// though the engine's `ended` marker that follows in the same write carries a view of the run
-// (DIPO-421). Frames are asserted with ANSI stripped.
+// leaving and entering the office. An open TUI drops a run from RUNNING on its `run.ended`; the
+// engine's `ended` marker that follows in the same write carries no view (DIPO-421). Frames are
+// asserted with ANSI stripped.
 
 import { afterEach, describe, expect, it } from "bun:test";
 
@@ -149,8 +149,8 @@ describe("an open TUI after a daemon restart", () => {
 
 /**
  * The write that ends a run done (`endRunMarked`): `run.ended`, then the `ended done` marker line
- * after the run's stored worker output, whose `work.output` carries the view the engine still
- * derives. The marker is stored in `session` too, as the engine stores it.
+ * after the run's stored worker output, whose `work.output` carries no view since the run ended.
+ * The marker is stored in `session` too, as the engine stores it.
  */
 function endedDone(session: FakeSession, seq: number, key: string): Event[] {
   const view = golden().work.find((candidate) => candidate.work.key === key);
@@ -179,7 +179,6 @@ function endedDone(session: FakeSession, seq: number, key: string): Event[] {
       to,
       text,
       markers: [flag],
-      view,
     }),
   ];
 }

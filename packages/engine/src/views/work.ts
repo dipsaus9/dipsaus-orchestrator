@@ -4,7 +4,10 @@
 // mirror's acceptance criteria, with the run's own criteria facts from its worker reports, DIPO-85)
 // whenever it is needed, and written as the `view` of each work change-log entry; never stored as
 // truth. A run reopened for a round shows its newest agent, a reviewer with its own role, and a
-// run waiting for its place is not lost (DIPO-142).
+// run waiting for its place is not lost (DIPO-142). A run that ended (done, parked or dropped, the
+// end `run.ended` sends) has no view until a resume reopens it, so the work entries written after
+// its end, such as its `ended` marker, carry none and an open client shows what a fresh snapshot
+// shows (DIPO-421). A run open at In Review has ended no run and keeps its view.
 
 import {
   AgentId,
@@ -171,6 +174,7 @@ function lastOutputAt(office: OfficeHandle, runId: string): number | null {
 }
 
 function viewOf(office: OfficeHandle, run: StoredRun): WorkView | null {
+  if (run.ending !== null) return null;
   const agent = latestAgent(office, run.runId);
   if (agent === null) return null;
   const work = refOf(run, agent);
@@ -213,7 +217,10 @@ function viewOf(office: OfficeHandle, run: StoredRun): WorkView | null {
   };
 }
 
-/** The view of the story run `runId` now; null for an unknown or session run, or one with no agent. */
+/**
+ * The view of the story run `runId` now; null for an unknown or session run, one with no agent, or
+ * one that ended (DIPO-421).
+ */
 export function workView(office: OfficeHandle, runId: RunId): WorkView | null {
   const run = findRun(office, runId);
   return run === null ? null : viewOf(office, run);

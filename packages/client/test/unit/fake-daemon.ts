@@ -5,9 +5,9 @@
 // drops every connection, starts the software stream again at a higher seq (the real one starts at
 // the daemon's start time) and comes back in `recovering`, where office reads and office
 // subscriptions are refused with `engine.recovering`, as the real lifecycle gate does; the office
-// log survives, as the state database does. Its snapshot's `work` holds no run a `run.ended`
-// ended until a `work.assigned` starts it again, as the engine's active runs (DIPO-421). Frames go
-// out in microtasks, so a client never sees a reply inside its own `send`.
+// log survives, as the state database does. A `run.ended` takes the run out of its snapshot's
+// `work`, as the engine's active runs (DIPO-421). Frames go out in microtasks, so a client never
+// sees a reply inside its own `send`.
 
 import {
   type Cursor,
@@ -68,8 +68,6 @@ export class FakeDaemon implements Transport {
   #softwareStart = 1_000_000;
   #softwareLog: Event[] = [];
   readonly #connections = new Set<Connection>();
-  /** The runs a `run.ended` ended and no `work.assigned` started again. */
-  readonly #ended = new Set<string>();
   /** Every subscribe frame and its answer, for assertions. */
   readonly subscribes: { readonly stream: string; readonly after?: Cursor; answer: string }[] = [];
 
@@ -146,11 +144,7 @@ export class FakeDaemon implements Transport {
     for (const { type, data } of write) {
       const definition = findEvent(type);
       if (definition === undefined) throw new Error(`unknown event ${type}`);
-      const parsed = definition.data.parse(data) as {
-        view?: unknown;
-        run?: string;
-        work?: { run: string };
-      };
+      const parsed = definition.data.parse(data) as { view?: unknown; run?: string };
       const event = EventSchema.parse({
         cursor: { ...this.officeHead, seq: this.#officeLog.length + 1 },
         at: AT,
@@ -158,16 +152,10 @@ export class FakeDaemon implements Transport {
         data: parsed,
       });
       this.#officeLog.push(event);
-      if (type === "run.ended" && parsed.run !== undefined) {
-        this.#ended.add(parsed.run);
+      if (type === "run.ended")
         this.work = this.work.filter((work) => work.work.run !== parsed.run);
-      }
-      if (type === "work.assigned" && parsed.work !== undefined)
-        this.#ended.delete(parsed.work.run);
       if (type === "story.state") this.#putStory(parsed.view as StoryView);
-      else if (parsed.view !== undefined && !this.#ended.has(parsed.work?.run ?? "")) {
-        this.#putWork(parsed.view as WorkView);
-      }
+      else if (parsed.view !== undefined) this.#putWork(parsed.view as WorkView);
     }
     for (const connection of this.#connections) this.#pumpOffice(connection);
     return this.officeHead;

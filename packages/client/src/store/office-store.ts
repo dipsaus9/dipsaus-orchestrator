@@ -3,9 +3,8 @@
 // events by subject (story `key`, `run`, `gate`, `question`, `test`, `office`), drops stored
 // events whose cursor it already has, and replaces the views the engine sends. It never computes
 // column, health, phase, evidence or cost: a work event without a view changes nothing it shows.
-// `run.ended` drops the run from `work` at once (DIPO-421), as the next snapshot would; the views
-// that later work events of the ended run carry (the engine's `ended` marker in `work.output`, a
-// late `usage.updated`) bring it back only after a `work.assigned` starts it again.
+// `run.ended` drops the run from `work` at once, as the next snapshot would (DIPO-421); the work
+// events the engine writes after a run ended carry no view, so they change nothing shown.
 // `work.output` text is passed to `onOutput` listeners and never kept in the state (DIPO-55).
 // A stream the daemon ends with any other error than `stream.resetRequired` (such as
 // `engine.recovering` right after a daemon restart) is subscribed again after the store's last
@@ -245,11 +244,6 @@ export class OfficeStore {
   #retries = 0;
   /** The last stored cursor applied, per stream. */
   readonly #last = new Map<StreamName, Cursor>();
-  /**
-   * The runs of the selected office a `run.ended` ended since its snapshot (DIPO-421): their work
-   * views are not shown again until a `work.assigned` starts the run again.
-   */
-  readonly #endedRuns = new Set<RunId>();
   /** Bumped on every office change; replies for an older one are dropped. */
   #generation = 0;
   /**
@@ -468,7 +462,6 @@ export class OfficeStore {
     const stream = StreamName.parse(`office:${office}`);
     for (const key of this.#last.keys()) if (key !== SOFTWARE) this.#last.delete(key);
     this.#last.set(stream, snapshot.cursor);
-    this.#endedRuns.clear();
     this.#update({
       office,
       loading: false,
@@ -741,7 +734,8 @@ export class OfficeStore {
     for (const definition of WORK_EVENTS) {
       if (event.type !== definition.type) continue;
       const data = definition.data.safeParse(event.data);
-      if (data.success) this.#applyWork(event.type, data.data.work.run, data.data.view);
+      // Without a view the event changes nothing shown: the store never derives one.
+      if (data.success && data.data.view !== undefined) this.#putWork(data.data.view);
       if (event.type === workOutput.type) this.#emitOutput(event);
       return;
     }
@@ -750,7 +744,6 @@ export class OfficeStore {
         const data = runEnded.data.safeParse(event.data);
         if (!data.success) return;
         const run = data.data.run;
-        this.#endedRuns.add(run);
         this.#update({ work: this.#state.work.filter((view) => view.work.run !== run) });
         return;
       }
@@ -849,17 +842,6 @@ export class OfficeStore {
       ...(markers === undefined ? {} : { markers }),
     };
     for (const listener of this.#outputListeners) listener(chunk);
-  }
-
-  /**
-   * A work event of `run` with the view the engine derived, if any. Without a view it changes
-   * nothing shown: the store never derives one. A run `run.ended` ended stays off `work` until
-   * a `work.assigned` starts it again (run start, re-attach on resume).
-   */
-  #applyWork(type: string, run: RunId, view: WorkView | undefined): void {
-    if (type === workAssigned.type) this.#endedRuns.delete(run);
-    if (view === undefined || this.#endedRuns.has(run)) return;
-    this.#putWork(view);
   }
 
   /** Replaces the run's view by `run`. */

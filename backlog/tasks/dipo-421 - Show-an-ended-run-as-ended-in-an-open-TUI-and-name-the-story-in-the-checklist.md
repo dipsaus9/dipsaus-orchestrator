@@ -4,7 +4,7 @@ title: 'Show an ended run as ended in an open TUI, and name the story in the che
 status: Refined
 assignee: []
 created_date: '2026-11-02 09:14'
-updated_date: '2026-11-02 09:16'
+updated_date: '2026-11-02 09:55'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -16,6 +16,8 @@ references:
   - packages/tui/src/overview.tsx
   - packages/client/test/
   - packages/tui/src/
+  - packages/engine/src/views/work.ts
+  - packages/engine/test/ingest/markers.test.ts
 priority: low
 type: bug
 ordinal: 399000

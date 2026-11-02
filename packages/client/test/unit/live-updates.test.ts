@@ -9,9 +9,9 @@
 // the current office's stream in force.
 //
 // A run that ends through a merge after the maintainer's test pass (DIPO-421) leaves `work` on its
-// `run.ended`, also though the engine's `ended done` marker in the same write carries a view of
-// the run. Before DIPO-421 the store applied no `run.ended` and put that marker's view, so the open
-// TUI listed the run under RUNNING until the story's `story.state` to Done, minutes later.
+// `run.ended`; the engine's `ended done` marker in the same write carries no view. Before DIPO-421
+// the store applied no `run.ended` and the marker carried a view of the ended run, which the store
+// put, so the open TUI listed the run under RUNNING until the story's `story.state` to Done.
 
 import { describe, expect, it } from "bun:test";
 
@@ -431,9 +431,9 @@ const MERGED: Write = [
 
 /**
  * The Done poll's teardown (`tearDown`, `releaseClaim`, `endRunMarked`): the claim is released and
- * the run ends done, with its `ended done` marker, whose `work.output` carries the view the engine
- * still derives for the ended run, then the teardown notice. The story stays In Review until the
- * story index reads Done on the base.
+ * the run ends done, with its `ended done` marker, whose `work.output` carries no view since the run
+ * ended, then the teardown notice. The story stays In Review until the story index reads Done on
+ * the base.
  */
 const TORN_DOWN: Write = [
   entry(runEnded, {
@@ -448,7 +448,6 @@ const TORN_DOWN: Write = [
     work: REVIEWER,
     source: "worker",
     ...marker("ended", "done", marker("phase", "test", 0).to),
-    view: reviewerView("test"),
   }),
   entry(engineNotice, {
     level: "info",
@@ -516,7 +515,7 @@ describe("a run that ends through a merge after a test pass", () => {
     expect(store.state.snapshots).toBe(1);
   });
 
-  it("shows a run again once a work.assigned starts it after its end, as a resume does", async () => {
+  it("shows a parked run again once its resume reopens it, as a fresh snapshot does", async () => {
     const clock = new ManualClock();
     const daemon = new FakeDaemon(OFFICE, [story("In Review", false)]);
     const tui = await connected(daemon, clock, "tui");
@@ -531,8 +530,24 @@ describe("a run that ends through a merge after a test pass", () => {
     await flush();
     expect(store.state.work).toEqual([]);
 
-    daemon.write([entry(workAssigned, { work: REF, view: view("build", 1) })]);
+    // The resume reopens the run into a review that waits for the reviewer place (`reopen`): its
+    // `review` marker carries the view again, before any reviewer session starts.
+    daemon.write([
+      entry(workOutput, {
+        work: REVIEWER,
+        source: "worker",
+        ...marker("phase", "review", 100),
+        view: reviewerView("review"),
+      }),
+    ]);
     await flush();
-    expect(shown(store).run).toBe("build 1/3");
+    expect(shown(store).run).toBe("review 3/3");
+    const fresh = await connected(daemon, clock, "tui");
+    const other = new OfficeStore({ client: fresh, clock, clientInfo: CLIENT });
+    other.start();
+    await other.open(OFFICE);
+    await flush();
+    expect(other.state.work.map((work) => work.phase)).toEqual(["review"]);
+    other.close();
   });
 });

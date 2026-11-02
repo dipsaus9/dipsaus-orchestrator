@@ -11,9 +11,9 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 import { appendEntries } from "../../src/changelog/log";
 import { Ingestor } from "../../src/ingest/ingestor";
 import { endRunMarked, markerLine, markPhase, storedMarker } from "../../src/ingest/markers";
-import { runSteps } from "../../src/records/run-records";
+import { reopenRun, runSteps } from "../../src/records/run-records";
 import { outputRange } from "../../src/overview";
-import { workView } from "../../src/views";
+import { workView, withWorkViews } from "../../src/views";
 import type { WorkerEvent } from "../../src/workers/types";
 import { scriptedWorker } from "../workers/scripts";
 import {
@@ -149,6 +149,34 @@ describe("phase markers (DIPO-83)", () => {
       expect(storedOutput(f.office, f.run)).toBe(
         markerLine("phase", "setup", T0) + markerLine("ended", "parked", T0 + 1),
       );
+    }));
+
+  it("sends the ended marker with no view, and a view again once a resume reopens the run (DIPO-421)", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      addStoryRun(f);
+      // A phase change as the engine writes it: its marker carries the run's view.
+      const viewedPhase = (name: string, at: number) =>
+        f.office.immediate(() => {
+          const entries = withWorkViews(f.office, markPhase(f.office, f.run, name, at));
+          appendEntries(f.office, entries, { at });
+        });
+      viewedPhase("build", T0);
+      f.office.immediate(() => endRunMarked(f.office, f.run, T0 + 1, "parked"));
+      const views = () =>
+        loggedEvents(f.office)
+          .filter((event) => event.type === "work.output")
+          .map((event) => (event.data as { view?: { phase: string } }).view?.phase ?? null);
+      // An open client applies run.ended and nothing after it shows the ended run again.
+      expect(views()).toEqual(["build", null]);
+      expect(workView(f.office, f.run)).toBeNull();
+
+      f.office.immediate(() => {
+        expect(reopenRun(f.office, f.run, T0 + 2)).toBe(true);
+      });
+      viewedPhase("review", T0 + 2);
+      expect(views()).toEqual(["build", null, "review"]);
+      expect(workView(f.office, f.run)?.phase).toBe("review");
     }));
 });
 
