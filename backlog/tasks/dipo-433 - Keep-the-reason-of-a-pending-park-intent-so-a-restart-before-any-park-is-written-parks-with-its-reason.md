@@ -3,10 +3,10 @@ id: DIPO-433
 title: >-
   Keep a pending park's reason, so a restart before the park is written parks
   with it
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-02 14:12'
-updated_date: '2026-11-02 14:33'
+updated_date: '2026-11-02 14:39'
 labels:
   - 'tier:M'
 milestone: m-1
