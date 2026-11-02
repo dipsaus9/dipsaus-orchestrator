@@ -2,7 +2,9 @@
 // client sends again with `engine.recovering` while it recovers; the header says `catching up`,
 // and once `daemon.state` reports `running` the store subscribes again after its last cursor, so
 // the overview, the queue and the live agent detail take the next events without the maintainer
-// leaving and entering the office. Frames are asserted with ANSI stripped.
+// leaving and entering the office. An open TUI drops a run from RUNNING on its `run.ended`, also
+// though the engine's `ended` marker that follows in the same write carries a view of the run
+// (DIPO-421). Frames are asserted with ANSI stripped.
 
 import { afterEach, describe, expect, it } from "bun:test";
 
@@ -17,6 +19,8 @@ const STREAM = `office:${OFFICES.dipsaus}`;
 const LAST = { stream: STREAM, seq: 7 };
 const KEY_24 = "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C24";
 const KEY_30 = "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C02";
+const KEY_19 = "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C19";
+const ENDED_AT = "2026-10-14T10:05:00.000Z";
 
 afterEach(async () => {
   for (const ui of mounted.splice(0)) await ui.unmount();
@@ -140,5 +144,75 @@ describe("an open TUI after a daemon restart", () => {
     );
     const frame = await ui.waitFor("run ended");
     expect(frame).toContain(" run ended · DIPO-24 is Parked (stopped)");
+  });
+});
+
+/**
+ * The write that ends a run done (`endRunMarked`): `run.ended`, then the `ended done` marker line
+ * after the run's stored worker output, whose `work.output` carries the view the engine still
+ * derives. The marker is stored in `session` too, as the engine stores it.
+ */
+function endedDone(session: FakeSession, seq: number, key: string): Event[] {
+  const view = golden().work.find((candidate) => candidate.work.key === key);
+  if (view === undefined) throw new Error(`no run of ${key}`);
+  const stored = `${view.work.run}:worker`;
+  const before = session.output.get(stored) ?? "";
+  const text = `[dipo] ${ENDED_AT} ended done\n`;
+  const from = before.length;
+  const to = from + text.length;
+  session.output.set(stored, before + text);
+  const flag = { from, to, kind: "ended", value: "done", at: ENDED_AT };
+  session.markers.set(stored, [...(session.markers.get(stored) ?? []), flag]);
+  return [
+    officeEvent(seq, "run.ended", {
+      run: view.work.run,
+      kind: "story",
+      ending: "done",
+      endedAt: ENDED_AT,
+      key,
+      story: view.work.story,
+    }),
+    officeEvent(seq + 1, "work.output", {
+      work: view.work,
+      source: "worker",
+      from,
+      to,
+      text,
+      markers: [flag],
+      view,
+    }),
+  ];
+}
+
+describe("an open TUI when a run ends (DIPO-421)", () => {
+  it("drops the run from RUNNING in the overview before its story moves", async () => {
+    const view = await mount({ columns: 120, rows: 30 });
+    mounted.push(view.ui);
+    const { ui, session } = view;
+    await ui.waitFor("· live");
+    expect(ui.frame()).toContain("3 running");
+    expect(ui.frame()).toContain("DIPO-19");
+
+    for (const event of endedDone(session, 8, KEY_19))
+      session.active(STREAM)?.options.onEvent(event);
+    const frame = await ui.waitFor("2 running");
+    expect(frame).not.toContain("DIPO-19");
+  });
+
+  it("says the run ended in the live agent detail", async () => {
+    const view = await mount({ columns: 120, rows: 24, outputTailBytes: 800 });
+    mounted.push(view.ui);
+    const { ui, session } = view;
+    await ui.waitFor("· live");
+    await ui.press("j");
+    await ui.waitFor(">DIPO-24");
+    await ui.press("enter");
+    await ui.waitFor("following the tail");
+
+    for (const event of endedDone(session, 8, KEY_24))
+      session.active(STREAM)?.options.onEvent(event);
+    const frame = await ui.waitFor(" run ended · DIPO-24 is In Progress");
+    // The engine marker the same write carried is drawn in the output pane.
+    expect(frame).toContain("run ended: done");
   });
 });

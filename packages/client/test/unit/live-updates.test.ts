@@ -7,17 +7,35 @@
 // keeps following. Before DIPO-322 it kept that refusal as its error and never subscribed again,
 // so an open view stayed frozen until the office was opened again. A failed office switch leaves
 // the current office's stream in force.
+//
+// A run that ends through a merge after the maintainer's test pass (DIPO-421) leaves `work` on its
+// `run.ended`, also though the engine's `ended done` marker in the same write carries a view of
+// the run. Before DIPO-421 the store applied no `run.ended` and put that marker's view, so the open
+// TUI listed the run under RUNNING until the story's `story.state` to Done, minutes later.
 
 import { describe, expect, it } from "bun:test";
 
 import {
+  type EventDefinition,
+  engineNotice,
+  gateDecided,
+  gateReached,
   type OfficeId,
   type RunId,
+  runEnded,
   StoryView,
+  storyPr,
+  storyState,
+  testRecorded,
+  testStarted,
   WorkView,
+  workAssigned,
+  workOutput,
+  workPhase,
   workRun,
   storyPark,
 } from "@dipsaus-orchestrator/contract";
+import type { z } from "zod";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import {
@@ -60,7 +78,14 @@ function story(lifecycle: "Ready" | "In Progress" | "In Review", running: boolea
 }
 
 function progress(criteriaMet: number) {
-  return { criteriaMet, criteriaTotal: 3, loop: 1, loopCap: 3, verify: "none", reviewRound: 0 };
+  return {
+    criteriaMet,
+    criteriaTotal: 3,
+    loop: 1,
+    loopCap: 3,
+    verify: "none" as const,
+    reviewRound: 0,
+  };
 }
 
 function view(phase: string, criteriaMet: number): WorkView {
@@ -311,5 +336,203 @@ describe("a failed office switch", () => {
     await cli.command(workRun, { stories: ["DIPO-1"] }, { office: OFFICE });
     await flush();
     expect(shown(store)).toEqual({ lifecycle: "In Progress", column: "running", run: "setup 0/3" });
+  });
+});
+
+/** One stored entry, its data checked against the engine's event definition in the contract. */
+function entry<D extends z.ZodType>(definition: EventDefinition<string, D>, data: z.input<D>) {
+  return { type: definition.type, data: definition.data.parse(data) };
+}
+
+/** The reviewer session of DIPO-1's run that the test and the merge gate wait in. */
+const REVIEWER = { ...REF, agent: "agt_01J9ZK5Q8W3V4X6Y7Z8A9B0C02", role: "reviewer", tier: "S" };
+
+function reviewerView(phase: string): WorkView {
+  return WorkView.parse({ ...view(phase, 3), work: REVIEWER, health: "busy" });
+}
+
+const TEST = "tst_01J9ZK5Q8W3V4X6Y7Z8A9B0T01";
+const TEST_GATE = "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0G01";
+const MERGE_GATE = "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0G02";
+const HEAD = "9f8e7d6c5b4a32109f8e7d6c5b4a32109f8e7d6c";
+const PR = { number: 36, url: "https://github.com/example/scratch/pull/36" };
+
+/** `marker`'s line at `[from, to)` of the worker output, as the engine writes it (`ended done`). */
+function marker(kind: "phase" | "ended", value: string, from: number) {
+  const text = `[dipo] ${AT} ${kind} ${value}\n`;
+  const to = from + text.length;
+  return { text, from, to, markers: [{ from, to, kind, value, at: AT }] };
+}
+
+/**
+ * DIPO-1 flagged test-before-merge, reviewed: the run enters phase `test` and its merge gate
+ * waits for the maintainer (`openMergeGate`), and `test.start` opens the test.
+ */
+const IN_TEST: Write = [
+  entry(workAssigned, { work: REVIEWER, view: reviewerView("review") }),
+  entry(workOutput, {
+    work: REVIEWER,
+    source: "worker",
+    ...marker("phase", "test", 0),
+    view: reviewerView("test"),
+  }),
+  entry(workPhase, {
+    work: REVIEWER,
+    phase: "test",
+    progress: progress(3),
+    view: reviewerView("test"),
+  }),
+  entry(gateReached, {
+    gate: MERGE_GATE,
+    work: REVIEWER,
+    kind: "merge",
+    waitingOn: "maintainer",
+    summary: "DIPO-1 waits for the maintainer's test before it merges",
+  }),
+  entry(testStarted, {
+    test: TEST,
+    story: "DIPO-1",
+    key: KEY,
+    checkout: "dipo-test-1",
+    head: HEAD,
+    steps: [{ check: "run the product" }],
+    shell: "dipo test shell DIPO-1",
+    startedAt: AT,
+  }),
+];
+
+/**
+ * `test.record` pass (`recordTestResult`): the test gate is reached and decided, the merge gate
+ * the pass answers is decided by the maintainer, and the test is recorded.
+ */
+const TEST_PASSED: Write = [
+  entry(gateReached, {
+    gate: TEST_GATE,
+    work: REVIEWER,
+    kind: "test",
+    waitingOn: "maintainer",
+    summary: "DIPO-1: the maintainer's test of 9f8e7d6c5b4a passed",
+  }),
+  entry(gateDecided, { gate: TEST_GATE, decision: "approved", by: "maintainer" }),
+  entry(gateDecided, {
+    gate: MERGE_GATE,
+    decision: "approved",
+    by: "maintainer",
+    note: `test ${TEST} passed`,
+  }),
+  entry(testRecorded, { test: TEST, story: "DIPO-1", key: KEY, result: "pass" }),
+];
+
+/** The auto-merge poll: the story PR, then GitHub merged it. */
+const MERGED: Write = [
+  entry(storyPr, { story: "DIPO-1", key: KEY, pr: { ...PR, state: "open" } }),
+  entry(storyPr, { story: "DIPO-1", key: KEY, pr: { ...PR, state: "merged" } }),
+];
+
+/**
+ * The Done poll's teardown (`tearDown`, `releaseClaim`, `endRunMarked`): the claim is released and
+ * the run ends done, with its `ended done` marker, whose `work.output` carries the view the engine
+ * still derives for the ended run, then the teardown notice. The story stays In Review until the
+ * story index reads Done on the base.
+ */
+const TORN_DOWN: Write = [
+  entry(runEnded, {
+    run: RUN,
+    kind: "story",
+    ending: "done",
+    endedAt: AT,
+    key: KEY,
+    story: "DIPO-1",
+  }),
+  entry(workOutput, {
+    work: REVIEWER,
+    source: "worker",
+    ...marker("ended", "done", marker("phase", "test", 0).to),
+    view: reviewerView("test"),
+  }),
+  entry(engineNotice, {
+    level: "info",
+    code: "teardown.done",
+    text: `DIPO-1 is Done: its PR #36 merged (${PR.url}). dipo deleted the branch DIPO-1/story.`,
+  }),
+];
+
+/** Later: the story index reads Done on the base. */
+const DONE: Write = [
+  entry(storyState, {
+    story: "DIPO-1",
+    key: KEY,
+    from: "In Review",
+    to: "Done",
+    view: StoryView.parse({ ...story("In Review", false), lifecycle: "Done", column: "done" }),
+  }),
+];
+
+describe("a run that ends through a merge after a test pass", () => {
+  it("leaves work on its run.ended, before the story turns Done, as a store opened then shows", async () => {
+    const clock = new ManualClock();
+    const daemon = new FakeDaemon(OFFICE, [story("In Review", false)]);
+    const tui = await connected(daemon, clock, "tui");
+    const store = new OfficeStore({ client: tui, clock, clientInfo: CLIENT });
+    store.start();
+    await store.open(OFFICE);
+    await flush();
+    const output: OutputChunk[] = [];
+    store.onOutput((chunk) => output.push(chunk));
+
+    daemon.write(IN_TEST);
+    await flush();
+    expect(shown(store).run).toBe("test 3/3");
+    expect(store.state.tests.map((test) => String(test.test))).toEqual([TEST]);
+
+    daemon.write(TEST_PASSED);
+    daemon.write(MERGED);
+    await flush();
+    // Still in phase test: nothing that ends the run came yet.
+    expect(shown(store).run).toBe("test 3/3");
+    expect(store.state.gates).toEqual([]);
+    expect(store.state.tests).toEqual([]);
+
+    daemon.write(TORN_DOWN);
+    await flush();
+    expect(shown(store)).toEqual({ lifecycle: "In Review", column: "review", run: null });
+    expect(store.state.work).toEqual([]);
+    expect(store.state.cursor).toEqual(daemon.officeHead);
+    // The marker still reaches an open output pane, so the detail shows how the run ended.
+    expect(output.at(-1)?.text).toBe(`[dipo] ${AT} ended done\n`);
+
+    // A TUI opened now shows the same: no run.
+    const fresh = await connected(daemon, clock, "tui");
+    const other = new OfficeStore({ client: fresh, clock, clientInfo: CLIENT });
+    other.start();
+    await other.open(OFFICE);
+    await flush();
+    expect(other.state.work).toEqual([]);
+    other.close();
+
+    daemon.write(DONE);
+    await flush();
+    expect(shown(store)).toEqual({ lifecycle: "Done", column: "done", run: null });
+    expect(store.state.snapshots).toBe(1);
+  });
+
+  it("shows a run again once a work.assigned starts it after its end, as a resume does", async () => {
+    const clock = new ManualClock();
+    const daemon = new FakeDaemon(OFFICE, [story("In Review", false)]);
+    const tui = await connected(daemon, clock, "tui");
+    const store = new OfficeStore({ client: tui, clock, clientInfo: CLIENT });
+    store.start();
+    await store.open(OFFICE);
+    await flush();
+    daemon.write(IN_TEST);
+    daemon.write([
+      entry(runEnded, { run: RUN, kind: "story", ending: "parked", endedAt: AT, key: KEY }),
+    ]);
+    await flush();
+    expect(store.state.work).toEqual([]);
+
+    daemon.write([entry(workAssigned, { work: REF, view: view("build", 1) })]);
+    await flush();
+    expect(shown(store).run).toBe("build 1/3");
   });
 });
