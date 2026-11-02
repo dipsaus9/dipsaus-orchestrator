@@ -1,10 +1,10 @@
 ---
 id: DIPO-422
 title: Stop the TUI output pane from spinning on a gap it cannot read
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-02 10:09'
-updated_date: '2026-11-02 10:16'
+updated_date: '2026-11-02 10:24'
 labels:
   - 'tier:S'
 milestone: m-1
