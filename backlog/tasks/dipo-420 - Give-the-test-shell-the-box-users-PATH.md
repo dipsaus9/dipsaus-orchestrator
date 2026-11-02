@@ -1,10 +1,10 @@
 ---
 id: DIPO-420
 title: Give the test shell the box user's PATH
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-02 09:14'
-updated_date: '2026-11-02 09:34'
+updated_date: '2026-11-02 09:35'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -42,8 +42,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The test shell starts with the same PATH as every other command dipo runs in a box as the box user, so `bun` and the other tools the worker used resolve, shown by an args test
-- [ ] #2 In a real test box, `command -v bun` in the test shell prints the box user's bun, shown by a box test (DIPO_TEST_BOX=1)
+- [x] #1 The test shell starts with the same PATH as every other command dipo runs in a box as the box user, so `bun` and the other tools the worker used resolve, shown by an args test
+- [x] #2 In a real test box, `command -v bun` in the test shell prints the box user's bun, shown by a box test (DIPO_TEST_BOX=1)
 <!-- AC:END -->
 
 ## Implementation Notes
