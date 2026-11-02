@@ -197,10 +197,7 @@ export interface RunEnding {
   readonly detail: string;
   /** The report that led to the end, when a turn decided it. */
   readonly report?: WorkerReport | null;
-  /**
-   * The worker's question an `ambiguous-spec` park asks when no open question of the run carries
-   * over to it (DIPO-159): the question of a blocked report with no TUI connected.
-   */
+  /** The worker's question an `ambiguous-spec` park asks (DIPO-159): the question of a blocked report. */
   readonly question?: string;
   /**
    * True for the maintainer's `story.park` (DIPO-360): a park whose write to Backlog.md fails is

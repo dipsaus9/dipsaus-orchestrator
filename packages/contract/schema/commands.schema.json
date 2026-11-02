@@ -398,7 +398,7 @@
         },
         "delivered": {
           "type": "string",
-          "enum": ["now", "on-resume"]
+          "const": "on-resume"
         },
         "run": {
           "type": "string",

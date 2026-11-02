@@ -23,6 +23,7 @@ import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
 import {
   type BranchPark,
   CAP_TICK_MS,
+  INTENT_TAGS,
   intentTag,
   type LiftedPark,
   type NextSessionOutcome,
@@ -170,6 +171,7 @@ beforeEach(async () => {
     },
     steering,
     encode,
+    ids: f.t.ids,
     outcomes: () => outcomes ?? undefined,
   });
   outcomes = new RunOutcomes({
@@ -346,6 +348,15 @@ function parks(): [string, string][] {
       "select reason, detail from parks where office_id = $office_id order by park_id",
     )
     .map((row) => [row.reason, row.detail]);
+}
+
+/** The texts of the worker questions the run asked. */
+function questionTexts(): string[] {
+  return w.f.office
+    .all<{ text: string }>(
+      "select text from questions where office_id = $office_id order by question_id",
+    )
+    .map((row) => row.text);
 }
 
 function intents(): [string, string, string | null][] {
@@ -843,7 +854,34 @@ describe("no next session while the office's starts are paused (0020)", () => {
   });
 });
 
+describe("a blocked report decided at exit (DIPO-430)", () => {
+  it("parks ambiguous-spec with the report's question", async () => {
+    await ingestRecording("worker-park-ambiguous", true);
+    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
+    const [park] = parks();
+    expect(park?.[0]).toBe("ambiguous-spec");
+    expect(park?.[1].length ?? 0).toBeGreaterThan(0);
+    expect(questionTexts()).toEqual([park?.[1] ?? ""]);
+  });
+});
+
 describe("after a restart (decision Q6)", () => {
+  it("parks ambiguous-spec with the question its park intent kept, when the restart came before the park (DIPO-430)", async () => {
+    // The daemon stopped after the park intent was stored, before the park was written.
+    await ingestRecording("terminated", true);
+    w.f.office.immediate(() =>
+      recordIntent(w.f.office, w.f.run, "park", `${INTENT_TAGS.question} Which greeting?`, 0),
+    );
+    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
+    expect(parks()).toEqual([["ambiguous-spec", "Which greeting?"]]);
+    expect(questionTexts()).toEqual(["Which greeting?"]);
+    expect(runIntents(w.f.office, w.f.run).every((intent) => intent.resolvedAt !== null)).toBe(
+      true,
+    );
+    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(0);
+    expect(parks()).toHaveLength(1);
+  });
+
   it("decides an exit that was ingested but not decided", async () => {
     w.onNext = startedAgent;
     await ingestRecording("terminated", true);

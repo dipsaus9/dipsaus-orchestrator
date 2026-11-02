@@ -27,6 +27,8 @@ export const INTENT_TAGS = {
   error: "new-session:error",
   initRejected: "init-rejected",
   startFailed: "start-failed",
+  /** A park intent of a blocked report: the worker's question follows (DIPO-430). */
+  question: "worker-question",
 } as const;
 
 /** `engine.notice` codes of worker outcomes. */

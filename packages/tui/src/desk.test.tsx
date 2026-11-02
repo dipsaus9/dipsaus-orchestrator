@@ -44,7 +44,7 @@ const question = DeskItem.parse({
   story: "DIPO-19",
   key: KEY_19,
   question: Q19,
-  detail: '"Is a 404 on an empty office ok?" · worker waiting',
+  detail: '"Is a 404 on an empty office ok?"',
   since: ago(6),
   blocks: [],
   actions: [{ command: "work.answer", cli: `dipo answer ${Q19} --text "<answer>"` }],
@@ -268,7 +268,7 @@ describe("key 3 shows Your desk", () => {
     ]);
     // Kind, story, reason, detail, age and the row's keys.
     expect(rows[0]).toMatch(
-      /^ > QUESTION +DIPO-19 +"Is a 404 on an empty office ok\?" · worker waiting +6m {2}\[a\]nswer$/,
+      /^ > QUESTION +DIPO-19 +"Is a 404 on an empty office ok\?" +6m {2}\[a\]nswer$/,
     );
     expect(rows[2]).toMatch(
       /^ {3}PARKED +DIPO-26 +ambiguous-spec · May the compose file start the database\? +40m {2}\[a\]nswer \[r\]esume$/,

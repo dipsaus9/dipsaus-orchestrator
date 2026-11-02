@@ -130,7 +130,13 @@ import {
 } from "./feedback";
 import { Interventions } from "./intervene";
 import { outcomeOfIntent, resolveIntent } from "../records/intents";
-import { initRejectedEnding, type RunAct, type RunEnder, startRefusedAct } from "./outcome-types";
+import {
+  INTENT_TAGS,
+  initRejectedEnding,
+  type RunAct,
+  type RunEnder,
+  startRefusedAct,
+} from "./outcome-types";
 import type { RunEnd } from "../records/lifecycle";
 import { type ParkOutcome } from "./park";
 import { findRun, type StoredRun } from "../records/run-records";
@@ -445,8 +451,14 @@ export class RunControl implements RunEnder {
             ops: [{ closeStdin: true }],
             reason: "ambiguous-spec",
             detail: report.question ?? report.summary,
-            // The park asks the question (DIPO-159).
-            ...(report.question !== undefined ? { question: report.question } : {}),
+            // The park asks the question (DIPO-159), and its intent keeps the question, so a restart
+            // before the park is written still parks with it (DIPO-430).
+            ...(report.question !== undefined
+              ? {
+                  question: report.question,
+                  intentDetail: `${INTENT_TAGS.question} ${report.question}`,
+                }
+              : {}),
           });
           return;
         }

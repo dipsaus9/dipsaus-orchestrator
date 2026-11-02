@@ -399,7 +399,7 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
         story: "DIPO-140",
         key: ids.storyKey,
         question: ids.question,
-        detail: '"Keep the old flag?" · worker waiting',
+        detail: '"Keep the old flag?"',
         since: "2026-10-23T10:00:00.000Z",
         blocks: [],
         actions: [{ command: "work.answer", cli: `dipo answer ${ids.question} "<answer>"` }],

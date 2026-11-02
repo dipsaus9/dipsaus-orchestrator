@@ -142,6 +142,21 @@ export class ExitOutcomes {
       await this.#sessions.startFailed(office, run, view.work, intentRest(intent.detail), null);
       return;
     }
+    // A blocked report's park a restart found unwritten: the run has no park yet (a written park
+    // ends the run), so it is written now with the question its intent kept (DIPO-430).
+    if (intent.kind === "park" && tag === INTENT_TAGS.question) {
+      const question = intentRest(intent.detail);
+      // The park stores its own intent, so this one is resolved first, as a legacy pause's is.
+      this.#s.resolve(office, view.runId, intent, "run-ended", at);
+      await this.#s.park(office, run, view.work, {
+        intent: "park",
+        ops: [],
+        reason: "ambiguous-spec",
+        detail: question,
+        question,
+      });
+      return;
+    }
     // A stop, cap or park whose park did not end the run: the exit is explained all the same.
     this.#s.resolve(office, view.runId, intent, this.#s.outcomeOf(intent), at);
   }
@@ -235,6 +250,8 @@ export class ExitOutcomes {
           reason: result.park?.reason ?? "ambiguous-spec",
           detail: result.park?.detail ?? "the worker is blocked",
           report: result.report,
+          // The park asks the report's question (DIPO-159, DIPO-430).
+          ...(result.report?.question === undefined ? {} : { question: result.report.question }),
         });
         return;
       case "crashed":

@@ -84,7 +84,7 @@ const EXAMPLE: DeskItem[] = officeDesk.result.parse([
     story: "DIPO-140",
     key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A",
     question: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A",
-    detail: '"Keep the old flag?" · worker waiting',
+    detail: '"Keep the old flag?"',
     since: ago(6),
     blocks: [],
     actions: [
@@ -142,7 +142,7 @@ function byYou(story: string): DeskItem {
 
 const EXAMPLE_LINES = [
   "dipsaus-orchestrator · desk 4 · parked by you 1",
-  'QUESTION  DIPO-140  "Keep the old flag?" · worker waiting  6m',
+  'QUESTION  DIPO-140  "Keep the old flag?"  6m',
   '          dipo answer qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A "<answer>"',
   "PARKED    DIPO-105  budget-exceeded · turn cap 61 of 60 · 7 files uncommitted  9h",
   '          dipo resume DIPO-105 --budget +50% --note "<why>"',

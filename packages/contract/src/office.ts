@@ -92,7 +92,7 @@ export const workAnswer = defineCommand({
   }),
   result: z.object({
     question: QuestionId,
-    delivered: z.enum(["now", "on-resume"]),
+    delivered: z.literal("on-resume"),
     run: RunId.optional(),
   }),
   confirm: false,
