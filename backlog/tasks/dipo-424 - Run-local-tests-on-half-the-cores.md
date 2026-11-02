@@ -1,10 +1,10 @@
 ---
 id: DIPO-424
 title: Run local tests on half the cores
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-02 10:16'
-updated_date: '2026-11-02 11:00'
+updated_date: '2026-11-02 11:02'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -38,6 +38,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `shardCount` returns half the cores rounded down, at least 2 (14 cores: 7; 3 cores: 2), shown by a test in scripts/test.test.ts
-- [ ] #2 Every test file still runs exactly once and a failing shard still fails the run, shown by the existing tests
+- [x] #1 `shardCount` returns half the cores rounded down, at least 2 (14 cores: 7; 3 cores: 2), shown by a test in scripts/test.test.ts
+- [x] #2 Every test file still runs exactly once and a failing shard still fails the run, shown by the existing tests
 <!-- AC:END -->
