@@ -21,8 +21,10 @@ It runs on `pull_request` and on `push` to `main`, with `concurrency` per ref.
 |---|---|---|
 | `changes` | `ubuntu-24.04` | Decides whether the PR changes only `backlog/`; the heavy jobs below skip when it does |
 | `ready-gate` | `ubuntu-24.04` | The Ready gate and the structural check of 0010 on every story the PR changes |
-| `verify` | `ubuntu-24.04` | `bun run verify` with `DIPO_TEST_CI=1`: the same command as locally, plus the CI-only tests |
-| `verify-macos` | `macos-26` | The same, on macOS, where the box and the platform code are real |
+| `checks` | `ubuntu-24.04` | `bun run check`: format, lint and typecheck, once, since both OS give the same result |
+| `test-shards` | `ubuntu-24.04` | The coverage check: every test file is in exactly one shard of `verify` and of `verify-macos` |
+| `verify` | `ubuntu-24.04` | `bun test` with `DIPO_TEST_CI=1`, so with the CI-only tests, as a matrix of three parallel shards; `scripts/test-shards.ts` splits the files by the per-file times in `scripts/test-timings.json` |
+| `verify-macos` | `macos-26` | The same in four shards, on macOS, where the box and the platform code are real |
 | `shellcheck` | `ubuntu-24.04` | `install.sh` and other shell scripts |
 | `actionlint` | `ubuntu-24.04` | The workflow files |
 | `dependency-review` | `ubuntu-24.04` | PRs only: fails on new dependencies with high or critical advisories, or with a licence outside the allow list |
@@ -31,7 +33,9 @@ It runs on `pull_request` and on `push` to `main`, with `concurrency` per ref.
 
 Runner labels are explicit, never `-latest`.
 
-**Backlog-only PRs take the light path.** When `changes` finds that a PR changes only `backlog/`, the `verify`, `verify-macos`, smoke, shellcheck, actionlint and dependency-review jobs skip by design, and only `ready-gate` and `pr-title` run. `ci-ok` stays required and passes on that path. Setting stories Ready, in bulk if needed, then takes minutes and changes no code.
+**Test shards.** Together `checks` and the shards run what `bun run verify` runs locally in one go. A failed or cancelled shard makes its matrix job failed or cancelled, so `ci-ok` fails. A test file with no recorded time goes to the shard with the least time. `bun scripts/test-timings.ts <run id>` refreshes the times from the logs of a green run.
+
+**Backlog-only PRs take the light path.** When `changes` finds that a PR changes only `backlog/`, the `checks`, `test-shards`, `verify`, `verify-macos`, smoke, shellcheck, actionlint and dependency-review jobs skip by design, and only `ready-gate` and `pr-title` run. `ci-ok` stays required and passes on that path. Setting stories Ready, in bulk if needed, then takes minutes and changes no code.
 
 **The PR title check** (`.github/workflows/pr-title.yml`, job `pr-title`) runs `scripts/check-pr-title.ts` on `opened`, `edited`, `synchronize` and `reopened`. It is the second required check. Accepted titles:
 

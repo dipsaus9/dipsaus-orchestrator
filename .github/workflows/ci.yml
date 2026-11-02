@@ -97,15 +97,62 @@ jobs:
         if: needs.changes.outputs.scope == 'backlog-only'
         run: bun scripts/check-backlog-pr.ts HEAD^1 HEAD
 
-  verify:
-    name: verify
+  # 0016: format, lint and typecheck, once, since they give the same result on Linux and macOS.
+  checks:
+    name: checks
     needs: changes
     if: needs.changes.outputs.scope != 'backlog-only'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+
+  # 0016, DIPO-406: the coverage check of the shards below. It splits the test files as each shard
+  # does, from scripts/test-timings.json, and fails when a file is in no shard or in two, or when a
+  # sharded job does not run its shard of 1..n.
+  test-shards:
+    name: test-shards
+    needs: changes
+    if: needs.changes.outputs.scope != 'backlog-only'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - run: bun scripts/test-shards.ts check
+
+  # 0016, 0017: bun test with the CI-only `*.ci.test.ts` files (DIPO_TEST_CI=1), in parallel shards
+  # split by recorded file time (scripts/test-shards.ts, DIPO-406). needs.verify.result is failure
+  # or cancelled when any shard is.
+  verify:
+    name: verify (${{ matrix.shard }})
+    needs: changes
+    if: needs.changes.outputs.scope != 'backlog-only'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     env:
-      # 0017 section 1: CI runs the same verify, plus the CI-only `*.ci.test.ts` files.
       DIPO_TEST_CI: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -119,14 +166,24 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile
-      - run: bun run verify
+      # 0017: every shard has its own short temp folder.
+      - name: Make this shard's DIPO_TMP
+        run: echo "DIPO_TMP=$(mktemp -d /tmp/d.XXXXXX)" >> "$GITHUB_ENV"
+      - name: bun test on this shard's files
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
+        run: bun scripts/test-shards.ts run "$RUNNER_OS" "$SHARD" "$SHARDS"
 
-  # DIPO-316: the same verify with the CI-only tests on macOS, where the maintainer runs the daemon
-  # and the boxes.
+  # DIPO-316: the same shards on macOS, where the maintainer runs the daemon and the boxes.
   verify-macos:
-    name: verify-macos
+    name: verify-macos (${{ matrix.shard }})
     needs: changes
     if: needs.changes.outputs.scope != 'backlog-only'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     runs-on: macos-26
     permissions:
       contents: read
@@ -144,7 +201,14 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile
-      - run: bun run verify
+      # 0017: every shard has its own short temp folder.
+      - name: Make this shard's DIPO_TMP
+        run: echo "DIPO_TMP=$(mktemp -d /tmp/d.XXXXXX)" >> "$GITHUB_ENV"
+      - name: bun test on this shard's files
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
+        run: bun scripts/test-shards.ts run "$RUNNER_OS" "$SHARD" "$SHARDS"
 
   dependency-review:
     name: dependency-review
@@ -252,7 +316,18 @@ jobs:
   ci-ok:
     name: ci-ok
     needs:
-      [changes, ready-gate, verify, verify-macos, shellcheck, actionlint, dependency-review, smoke]
+      [
+        changes,
+        ready-gate,
+        checks,
+        test-shards,
+        verify,
+        verify-macos,
+        shellcheck,
+        actionlint,
+        dependency-review,
+        smoke,
+      ]
     if: always()
     runs-on: ubuntu-24.04
     permissions: {}
@@ -275,7 +350,8 @@ jobs:
                 or (
                   (.key == "dependency-review" and $event != "pull_request")
                   or ($event == "pull_request" and $light
-                    and (.key | IN("verify", "verify-macos", "shellcheck", "actionlint", "dependency-review", "smoke")))
+                    and (.key | IN("checks", "test-shards", "verify", "verify-macos",
+                      "shellcheck", "actionlint", "dependency-review", "smoke")))
                   | not))
             | .key')
           if [ -n "$failed" ]; then

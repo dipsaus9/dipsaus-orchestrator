@@ -9,6 +9,7 @@ import { chmodSync, readFileSync, symlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { type TempRepo, withTempRepo } from "../packages/testkit/src/index";
+import { SHARD_RUN } from "./test-shards";
 
 const ROOT = resolve(import.meta.dir, "..");
 
@@ -18,12 +19,16 @@ interface Step {
   uses?: string;
   if?: string;
   run?: string;
+  env?: Record<string, string>;
   with?: Record<string, unknown>;
 }
 
 interface Job {
   needs?: string | string[];
   if?: string;
+  "runs-on"?: string;
+  env?: Record<string, string>;
+  strategy?: { "fail-fast"?: boolean; matrix?: { shard?: number[] } };
   steps?: Step[];
 }
 
@@ -59,7 +64,16 @@ function bash(run: string, env: Record<string, string>, cwd = ROOT) {
   return { code: result.exitCode, out: `${result.stdout.toString()}${result.stderr.toString()}` };
 }
 
-const HEAVY = ["verify", "verify-macos", "shellcheck", "actionlint", "dependency-review", "smoke"];
+const HEAVY = [
+  "checks",
+  "test-shards",
+  "verify",
+  "verify-macos",
+  "shellcheck",
+  "actionlint",
+  "dependency-review",
+  "smoke",
+];
 
 describe("ci.yml light path: the jobs", () => {
   it("skips every heavy job when the changes job finds a backlog-only PR", () => {
@@ -96,6 +110,40 @@ describe("ci.yml light path: the jobs", () => {
     for (const id of ["changes", "ready-gate"]) {
       const checkout = job(id).steps?.find((step) => step.uses?.startsWith("actions/checkout@"));
       expect(checkout?.with).toEqual({ "persist-credentials": false, "fetch-depth": 2 });
+    }
+  });
+});
+
+describe("ci.yml test shards (DIPO-406)", () => {
+  it("runs format, lint and typecheck once, in the checks job", () => {
+    const runs = (job("checks").steps ?? []).map((step) => step.run).filter(Boolean);
+    expect(runs).toEqual(["bun install --frozen-lockfile", "bun run check"]);
+    expect(job("checks")["runs-on"]).toBe("ubuntu-24.04");
+  });
+
+  it("runs the coverage check in the test-shards job", () => {
+    const runs = (job("test-shards").steps ?? []).map((step) => step.run).filter(Boolean);
+    expect(runs).toEqual(["bun scripts/test-shards.ts check"]);
+  });
+
+  it("keeps verify and verify-macos as matrices of at least three shards that run only bun test", () => {
+    for (const [id, runner] of [
+      ["verify", "ubuntu-24.04"],
+      ["verify-macos", "macos-26"],
+    ] as const) {
+      const sharded = job(id);
+      expect(sharded["runs-on"]).toBe(runner);
+      expect(sharded.strategy?.["fail-fast"]).toBe(false);
+      const shards = sharded.strategy?.matrix?.shard ?? [];
+      expect(shards.length).toBeGreaterThanOrEqual(3);
+      expect(shards).toEqual(shards.map((_, i) => i + 1));
+      expect(sharded.env).toEqual({ DIPO_TEST_CI: "1" });
+      const runs = (sharded.steps ?? []).map((step) => step.run).filter(Boolean);
+      expect(runs).toEqual([
+        "bun install --frozen-lockfile",
+        'echo "DIPO_TMP=$(mktemp -d /tmp/d.XXXXXX)" >> "$GITHUB_ENV"',
+        SHARD_RUN,
+      ]);
     }
   });
 });
@@ -269,6 +317,42 @@ describe("ci.yml light path: ci-ok", () => {
         1,
       );
     }
+  });
+
+  it("fails a full PR and a push when one shard of verify or verify-macos failed", () => {
+    // A matrix job's result in needs is failure when any of its shards failed.
+    for (const id of ["verify", "verify-macos"]) {
+      expect(ciOk("pull_request", results("success", { [id]: "failure" }), "full")).toBe(1);
+      expect(
+        ciOk(
+          "push",
+          results("success", { [id]: "failure", "dependency-review": "skipped" }),
+          "full",
+        ),
+      ).toBe(1);
+    }
+  });
+
+  it("fails a full PR and a push when one shard of verify or verify-macos was cancelled", () => {
+    for (const id of ["verify", "verify-macos"]) {
+      expect(ciOk("pull_request", results("success", { [id]: "cancelled" }), "full")).toBe(1);
+      expect(
+        ciOk(
+          "push",
+          results("success", { [id]: "cancelled", "dependency-review": "skipped" }),
+          "full",
+        ),
+      ).toBe(1);
+    }
+  });
+
+  it("fails a full PR whose checks or test-shards job failed, and passes the light path without them", () => {
+    for (const id of ["checks", "test-shards"]) {
+      for (const result of ["failure", "cancelled", "skipped"] as const) {
+        expect(ciOk("pull_request", results("success", { [id]: result }), "full")).toBe(1);
+      }
+    }
+    expect(ciOk("pull_request", results("skipped"), "backlog-only")).toBe(0);
   });
 
   it("fails a heavy job skipped for any other reason", () => {
