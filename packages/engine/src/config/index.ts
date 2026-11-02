@@ -47,7 +47,7 @@ export type {
   RetiredKey,
 } from "./schema";
 
-/** The JSON Schema of `.dipo/office.yaml` version 14, for editor completion (0017). */
+/** The JSON Schema of `.dipo/office.yaml` at the current version, for editor completion (0017). */
 export function officeJsonSchema(): Record<string, unknown> {
   return {
     ...(z.toJSONSchema(OfficeFileSchema, { io: "input" }) as Record<string, unknown>),

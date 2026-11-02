@@ -51,11 +51,12 @@ function fixture(name: string): string {
   return readFileSync(join(import.meta.dir, "fixtures", name), "utf8");
 }
 
-describe("version 14", () => {
+describe("version 15", () => {
   it("is the version this binary knows", () => {
-    expect(OFFICE_CONFIG_VERSION).toBe(14);
+    expect(OFFICE_CONFIG_VERSION).toBe(15);
   });
 
+  // The sample is version 14: it sets no key version 15 retired, so it loads as it is.
   it("parses the 0017 sample with no warning", () => {
     const result = ok(resolveOfficeConfig({ office: SAMPLE_0017 }));
     expect(result.warnings).toEqual([]);
@@ -97,21 +98,21 @@ describe("version 14", () => {
   });
 
   it("gives every key a default: an empty file loads as the defaults", () => {
-    const result = ok(resolveOfficeConfig({ office: "version: 14\n", local: "version: 14\n" }));
+    const result = ok(resolveOfficeConfig({ office: "version: 15\n", local: "version: 15\n" }));
     expect(result.config).toEqual(OFFICE_DEFAULTS);
   });
 
   it("has timeouts.testIdleMinutes (DIPO-309) with its default and accepts it in both files", () => {
     expect(OFFICE_DEFAULTS.timeouts.testIdleMinutes).toBe(240);
-    const office = "version: 14\ntimeouts: { testIdleMinutes: 30 }\n";
+    const office = "version: 15\ntimeouts: { testIdleMinutes: 30 }\n";
     expect(ok(resolveOfficeConfig({ office })).config.timeouts.testIdleMinutes).toBe(30);
-    const local = "version: 14\ntimeouts: { testIdleMinutes: 45 }\n";
+    const local = "version: 15\ntimeouts: { testIdleMinutes: 45 }\n";
     expect(ok(resolveOfficeConfig({ local })).config.timeouts.testIdleMinutes).toBe(45);
   });
 
   it("reads the moved keys at their new place", () => {
     const office = [
-      "version: 14",
+      "version: 15",
       "caps: { ciAttempts: 5 }",
       "merge: { autoMerge: false, holdLabels: [hold], checksWaitMinutes: 10 }",
       "",
@@ -129,7 +130,7 @@ describe("version 14", () => {
 describe("validation", () => {
   it("names the file, key path and 'may need a newer dipo' for an unknown key", () => {
     expect(
-      errors(resolveOfficeConfig({ office: "version: 14\ntiers: { S: { loopz: 1 } }\n" })),
+      errors(resolveOfficeConfig({ office: "version: 15\ntiers: { S: { loopz: 1 } }\n" })),
     ).toEqual([
       {
         file: ".dipo/office.yaml",
@@ -138,7 +139,7 @@ describe("validation", () => {
         message: `.dipo/office.yaml: tiers.S.loopz: unknown key; expected one of the keys model, effort, budgetTokens, maxTurns, maxMinutes, loops; ${NEWER_DIPO}`,
       },
     ]);
-    const [top] = errors(resolveOfficeConfig({ office: "version: 14\nnewSection: {}\n" }));
+    const [top] = errors(resolveOfficeConfig({ office: "version: 15\nnewSection: {}\n" }));
     expect(top?.path).toBe("newSection");
     expect(top?.message).toEndWith(NEWER_DIPO);
   });
@@ -153,9 +154,9 @@ describe("validation", () => {
     expect(error?.message).toEndWith(NEWER_DIPO);
   });
 
-  it("says why a retired or moved key is refused in a version 14 file", () => {
+  it("says why a retired or moved key is refused in a version 15 file", () => {
     const retired = errors(
-      resolveOfficeConfig({ office: "version: 14\nsandbox: { toolchainReadPaths: [~/.bun] }\n" }),
+      resolveOfficeConfig({ office: "version: 15\nsandbox: { toolchainReadPaths: [~/.bun] }\n" }),
     );
     expect(retired).toEqual([
       {
@@ -167,17 +168,17 @@ describe("validation", () => {
       },
     ]);
     const nested = errors(
-      resolveOfficeConfig({ office: "version: 14\nworktree: { files: [] }\n" }),
+      resolveOfficeConfig({ office: "version: 15\nworktree: { files: [] }\n" }),
     );
     expect(nested[0]?.message).toContain("version 14 removed worktree.files");
-    const moved = errors(resolveOfficeConfig({ office: "version: 14\nmergeSlot: {}\n" }));
+    const moved = errors(resolveOfficeConfig({ office: "version: 15\nmergeSlot: {}\n" }));
     expect(moved[0]?.path).toBe("mergeSlot");
     expect(moved[0]?.message).toEndWith(NEWER_DIPO);
   });
 
-  it("refuses a retention tier key in a version 14 local file and says why it is gone", () => {
+  it("refuses a retention tier key in a version 15 local file and says why it is gone", () => {
     const [error, ...rest] = errors(
-      resolveOfficeConfig({ local: "version: 14\nretention: { shortDays: 3 }\n" }),
+      resolveOfficeConfig({ local: "version: 15\nretention: { shortDays: 3 }\n" }),
     );
     expect(rest).toEqual([]);
     expect(error?.file).toBe(".dipo/office.local.yaml");
@@ -187,10 +188,54 @@ describe("validation", () => {
     );
   });
 
+  // DIPO-428: a worker's question parks at once (0020), so its wait is gone.
+  it("refuses timeouts.questionWaitMinutes in a version 15 file and says why it is gone", () => {
+    for (const sources of [
+      { office: "version: 15\ntimeouts: { questionWaitMinutes: 5 }\n" },
+      { local: "version: 15\ntimeouts: { questionWaitMinutes: 5 }\n" },
+    ]) {
+      const [error, ...rest] = errors(resolveOfficeConfig(sources));
+      expect(rest).toEqual([]);
+      expect(error?.path).toBe("timeouts.questionWaitMinutes");
+      expect(error?.message).toEndWith(
+        "timeouts.questionWaitMinutes: unknown key; version 15 removed timeouts.questionWaitMinutes, because a worker's question parks its story at once, whichever client is connected (0020). Delete it",
+      );
+    }
+  });
+
+  it("loads a version 14 file that sets timeouts.questionWaitMinutes, without the key and with a warning that names it", () => {
+    const result = ok(
+      resolveOfficeConfig({
+        office: fixture("office-v14.yaml"),
+        local: fixture("office-local-v14.yaml"),
+      }),
+    );
+    expect(result.config.version).toBe(15);
+    expect(result.config.timeouts).toEqual({ ...OFFICE_DEFAULTS.timeouts, workerStallMinutes: 30 });
+    expect(Object.keys(result.config.timeouts)).not.toContain("questionWaitMinutes");
+    expect(result.config.review.effort).toBe("medium");
+    expect(result.config.privacy.keepRawEvents).toBe(true);
+    expect(result.localOverrideKeys).toEqual(["privacy.keepRawEvents"]);
+    expect(result.warnings).toEqual([
+      {
+        file: ".dipo/office.yaml",
+        path: "timeouts.questionWaitMinutes",
+        message:
+          ".dipo/office.yaml: timeouts.questionWaitMinutes: ignored; version 15 removed it, because a worker's question parks its story at once, whichever client is connected (0020). dipo config migrate deletes it",
+      },
+      {
+        file: ".dipo/office.local.yaml",
+        path: "timeouts.questionWaitMinutes",
+        message:
+          ".dipo/office.local.yaml: timeouts.questionWaitMinutes: ignored; version 15 removed it, because a worker's question parks its story at once, whichever client is connected (0020). dipo config migrate deletes it",
+      },
+    ]);
+  });
+
   it("names the expected type of a wrong type", () => {
     expect(
       errors(
-        resolveOfficeConfig({ office: "version: 14\ntiers: { S: { budgetTokens: lots } }\n" }),
+        resolveOfficeConfig({ office: "version: 15\ntiers: { S: { budgetTokens: lots } }\n" }),
       ),
     ).toEqual([
       {
@@ -215,13 +260,13 @@ describe("validation", () => {
   });
 
   it("refuses a version that is not an integer", () => {
-    expect(errors(resolveOfficeConfig({ office: "version: '14'\n" }))[0]?.message).toBe(
+    expect(errors(resolveOfficeConfig({ office: "version: '15'\n" }))[0]?.message).toBe(
       ".dipo/office.yaml: version: expected integer, got string",
     );
   });
 
   it("refuses a file with two documents and a top level that is not a mapping", () => {
-    const [two] = errors(resolveOfficeConfig({ office: "version: 14\n---\nversion: 14\n" }));
+    const [two] = errors(resolveOfficeConfig({ office: "version: 15\n---\nversion: 15\n" }));
     expect(two?.message).toContain("more than one YAML document");
     expect(errors(resolveOfficeConfig({ office: "- version\n" }))[0]?.message).toBe(
       ".dipo/office.yaml: (top level): expected mapping, got list",
@@ -229,10 +274,10 @@ describe("validation", () => {
   });
 
   it("refuses a newer version with a message to upgrade dipo, in either file", () => {
-    const [office] = errors(resolveOfficeConfig({ office: "version: 15\nnewKey: true\n" }));
+    const [office] = errors(resolveOfficeConfig({ office: "version: 16\nnewKey: true\n" }));
     expect(office?.path).toBe("version");
     expect(office?.message).toContain("upgrade dipo");
-    const [local] = errors(resolveOfficeConfig({ local: "version: 15\n" }));
+    const [local] = errors(resolveOfficeConfig({ local: "version: 16\n" }));
     expect(local?.file).toBe(".dipo/office.local.yaml");
     expect(local?.message).toContain("upgrade dipo");
   });
@@ -240,7 +285,7 @@ describe("validation", () => {
   it("points privacy.* and retention.* in office.yaml to the local file", () => {
     const result = errors(
       resolveOfficeConfig({
-        office: "version: 14\nprivacy: { x: true }\nretention: { days: 3 }\n",
+        office: "version: 15\nprivacy: { x: true }\nretention: { days: 3 }\n",
       }),
     );
     expect(result.map((error) => error.path)).toEqual(["privacy.x", "retention.days"]);
@@ -250,7 +295,7 @@ describe("validation", () => {
   });
 
   it("refuses any local key outside timeouts.*, privacy.* and retention.*", () => {
-    expect(errors(resolveOfficeConfig({ local: "version: 14\ntiers: {}\n" }))).toEqual([
+    expect(errors(resolveOfficeConfig({ local: "version: 15\ntiers: {}\n" }))).toEqual([
       {
         file: ".dipo/office.local.yaml",
         path: "tiers",
@@ -258,9 +303,9 @@ describe("validation", () => {
         message: `.dipo/office.local.yaml: tiers: unknown key; .dipo/office.local.yaml accepts only version, timeouts.*, privacy.*, retention.*; ${NEWER_DIPO}`,
       },
     ]);
-    const [nested] = errors(resolveOfficeConfig({ local: "version: 14\ntimeouts: { nope: 1 }\n" }));
+    const [nested] = errors(resolveOfficeConfig({ local: "version: 15\ntimeouts: { nope: 1 }\n" }));
     expect(nested?.expected).toBe(
-      "one of the keys workerStallMinutes, workerQuietMinutes, questionWaitMinutes, scriptMinutes, testIdleMinutes",
+      "one of the keys workerStallMinutes, workerQuietMinutes, scriptMinutes, testIdleMinutes",
     );
   });
 
@@ -272,7 +317,7 @@ describe("validation", () => {
 
   it("refuses a box file without its noRealSecrets mark", () => {
     const [error] = errors(
-      resolveOfficeConfig({ office: "version: 14\nbox: { files: [{ path: .env }] }\n" }),
+      resolveOfficeConfig({ office: "version: 15\nbox: { files: [{ path: .env }] }\n" }),
     );
     expect(error?.path).toBe("box.files.0.noRealSecrets");
   });
@@ -280,8 +325,8 @@ describe("validation", () => {
   it("reports errors from every file at once", () => {
     const result = errors(
       resolveOfficeConfig({
-        office: "version: 14\nbase: 7\n",
-        local: "version: 14\nprivacy: { storePrompts: yes }\n",
+        office: "version: 15\nbase: 7\n",
+        local: "version: 15\nprivacy: { storePrompts: yes }\n",
         flags: { polling: { fetchSeconds: 0 } },
       }),
     );
@@ -297,7 +342,7 @@ describe("validation", () => {
       "tiers: [\n",
       "\u0000\u0001",
       ":::",
-      "version: 14\ntiers: 5\n",
+      "version: 15\ntiers: 5\n",
       "version: 1e400\n",
     ];
     for (const office of bad) {
@@ -311,7 +356,7 @@ describe("validation", () => {
 // DIPO-405: the reviewer's model and effort per story tier.
 describe("review.tiers", () => {
   const PER_TIER = [
-    "version: 14",
+    "version: 15",
     "review:",
     "  effort: medium",
     "  tiers:",
@@ -343,13 +388,13 @@ describe("review.tiers", () => {
     expect(
       errors(
         resolveOfficeConfig({
-          office: "version: 14\nreview: { tiers: { XL: { model: opus } } }\n",
+          office: "version: 15\nreview: { tiers: { XL: { model: opus } } }\n",
         }),
       ).map((error) => error.path),
     ).toEqual(["review.tiers.XL"]);
     expect(
       errors(
-        resolveOfficeConfig({ office: "version: 14\nreview: { tiers: { S: { maxTurns: 9 } } }\n" }),
+        resolveOfficeConfig({ office: "version: 15\nreview: { tiers: { S: { maxTurns: 9 } } }\n" }),
       ).map((error) => error.path),
     ).toEqual(["review.tiers.S.maxTurns"]);
   });
@@ -366,23 +411,23 @@ describe("precedence and merge", () => {
   it("orders defaults < office.yaml < local keys < command flags", () => {
     const result = ok(
       resolveOfficeConfig({
-        office: "version: 14\ntimeouts: { workerStallMinutes: 30, workerQuietMinutes: 4 }\n",
-        local: "version: 14\ntimeouts: { workerStallMinutes: 40, questionWaitMinutes: 5 }\n",
-        flags: { timeouts: { questionWaitMinutes: 6 } },
+        office: "version: 15\ntimeouts: { workerStallMinutes: 30, workerQuietMinutes: 4 }\n",
+        local: "version: 15\ntimeouts: { workerStallMinutes: 40, testIdleMinutes: 5 }\n",
+        flags: { timeouts: { testIdleMinutes: 6 } },
       }),
     );
     expect(result.config.timeouts).toEqual({
       ...OFFICE_DEFAULTS.timeouts,
       workerStallMinutes: 40,
       workerQuietMinutes: 4,
-      questionWaitMinutes: 6,
+      testIdleMinutes: 6,
     });
   });
 
   it("takes privacy.* and retention.* from the local file only", () => {
     const result = ok(
       resolveOfficeConfig({
-        local: "version: 14\nprivacy: { keepRawEvents: true }\nretention: { days: 10 }\n",
+        local: "version: 15\nprivacy: { keepRawEvents: true }\nretention: { days: 10 }\n",
       }),
     );
     expect(result.config.privacy).toEqual({ ...OFFICE_DEFAULTS.privacy, keepRawEvents: true });
@@ -394,13 +439,13 @@ describe("precedence and merge", () => {
     const result = ok(
       resolveOfficeConfig({
         office: [
-          "version: 14",
+          "version: 15",
           "tiers: { L: { model: opus-4 } }",
           "story: { types: [feature, spike] }",
           "scripts: { verify: bun run check }",
           "",
         ].join("\n"),
-        local: "version: 14\ntimeouts: { scriptMinutes: { verify: 45 } }\n",
+        local: "version: 15\ntimeouts: { scriptMinutes: { verify: 45 } }\n",
         flags: { story: { bannedPhrases: ["maybe"] }, scripts: { test: "bun test" } },
       }),
     );
@@ -414,9 +459,9 @@ describe("precedence and merge", () => {
   it("returns the active local override keys", () => {
     const result = ok(
       resolveOfficeConfig({
-        office: "version: 14\ntimeouts: { workerQuietMinutes: 4 }\n",
+        office: "version: 15\ntimeouts: { workerQuietMinutes: 4 }\n",
         local: [
-          "version: 14",
+          "version: 15",
           "timeouts: { workerStallMinutes: 40, scriptMinutes: { verify: 30 } }",
           "privacy: { storePrompts: true }",
           "",
@@ -450,28 +495,28 @@ describe("configHash", () => {
   it("is stable across key order and changes with any value", () => {
     const a = ok(
       resolveOfficeConfig({
-        office: "version: 14\npolling: { fetchSeconds: 9, prStateSeconds: 8 }\n",
+        office: "version: 15\npolling: { fetchSeconds: 9, prStateSeconds: 8 }\n",
       }),
     );
     const b = ok(
       resolveOfficeConfig({
-        office: "polling: { prStateSeconds: 8, fetchSeconds: 9 }\nversion: 14\n",
+        office: "polling: { prStateSeconds: 8, fetchSeconds: 9 }\nversion: 15\n",
       }),
     );
     expect(a.configHash).toBe(b.configHash);
     const changed = ok(
-      resolveOfficeConfig({ local: "version: 14\nretention: { days: 8 }\n" }),
+      resolveOfficeConfig({ local: "version: 15\nretention: { days: 8 }\n" }),
     ).configHash;
     expect(changed).not.toBe(ok(resolveOfficeConfig({})).configHash);
     expect(configHash({ list: [1, 2] })).not.toBe(configHash({ list: [2, 1] }));
   });
 
-  it("is the same for an older file and its version 14 form", () => {
+  it("is the same for an older file and its version 15 form", () => {
     const old = ok(resolveOfficeConfig({ office: fixture("office-v5.yaml") }));
     const migrated = ok(
       resolveOfficeConfig({
         office: [
-          "version: 14",
+          "version: 15",
           "review: { maxRounds: 2 }",
           "caps: { conflictAttempts: 4, ciAttempts: 3 }",
           "merge: { autoMerge: false, holdLabels: [hold], checksWaitMinutes: 45 }",
@@ -483,7 +528,7 @@ describe("configHash", () => {
   });
 });
 
-// One fixture per earlier version (test plan of DIPO-353): each migrates to version 14 in memory,
+// One fixture per earlier version (test plan of DIPO-353): each migrates to version 15 in memory,
 // names every key it dropped or moved, and keeps the rest.
 describe("the migration from every earlier version", () => {
   const cases: ReadonlyArray<{
@@ -581,8 +626,8 @@ describe("the migration from every earlier version", () => {
     },
     {
       version: 10,
-      warned: ["permissions"],
-      check: (config) => expect(config.timeouts.questionWaitMinutes).toBe(20),
+      warned: ["permissions", "timeouts.questionWaitMinutes"],
+      check: (config) => expect(config.timeouts).toEqual(OFFICE_DEFAULTS.timeouts),
     },
     {
       version: 11,
@@ -607,9 +652,17 @@ describe("the migration from every earlier version", () => {
         expect(config.review).toMatchObject({ model: "opus", effort: "medium", tiers: {} });
       },
     },
+    {
+      version: 14,
+      warned: ["timeouts.questionWaitMinutes"],
+      check: (config) => {
+        expect(config.timeouts.workerStallMinutes).toBe(30);
+        expect(config.review.effort).toBe("medium");
+      },
+    },
   ];
 
-  it("has a fixture for every version from 1 to 13", () => {
+  it("has a fixture for every version from 1 to 14", () => {
     expect(cases.map((entry) => entry.version)).toEqual(
       Array.from({ length: OFFICE_CONFIG_VERSION - 1 }, (_, index) => index + 1),
     );
@@ -715,7 +768,7 @@ describe("loadOfficeConfig", () => {
     await withTempDir(async (dir) => {
       writeDipo(dir, {
         "office.yaml": fixture("office-v7.yaml"),
-        "office.local.yaml": "version: 14\ntimeouts: { workerQuietMinutes: 5 }\n",
+        "office.local.yaml": "version: 15\ntimeouts: { workerQuietMinutes: 5 }\n",
       });
       const result = ok(await loadOfficeConfig(dir, { flags: { base: "develop" } }));
       expect(result.config.polling.prStateSeconds).toBe(90);
@@ -728,7 +781,7 @@ describe("loadOfficeConfig", () => {
 
   it("returns the error list for an invalid file and an unreadable file", async () => {
     await withTempDir(async (dir) => {
-      writeDipo(dir, { "office.yaml": "version: 14\ntiers: [\n" });
+      writeDipo(dir, { "office.yaml": "version: 15\ntiers: [\n" });
       expect(errors(await loadOfficeConfig(dir))[0]?.file).toBe(".dipo/office.yaml");
     });
     await withTempDir(async (dir) => {

@@ -1,5 +1,5 @@
 // Loads an office's configuration (0017): parse each file as one YAML document, check its version,
-// migrate a file of versions 1 to 13 in memory to version 14 (`migrateOfficeDocument`), validate it
+// migrate a file of versions 1 to 14 in memory to version 15 (`migrateOfficeDocument`), validate it
 // strictly, merge defaults < `.dipo/office.yaml` < allowed keys of `.dipo/office.local.yaml` <
 // command flags, and hash the result. Errors are values, never thrown, so the office can keep its
 // previous configuration. A retired key that an older file still sets is dropped by the migration
@@ -78,19 +78,20 @@ export interface OfficeConfigSources {
   readonly flags?: unknown;
 }
 
-// Why a version 14 file may not set `path` that an earlier version had: it moved or was retired.
+// Why a file of the current version may not set `path` that an earlier version had: it moved or
+// was retired.
 function formerKey(path: string): string | undefined {
   const moved = MOVED_KEYS.find((key) => key.from === path);
   if (moved !== undefined) return `version 14 moved it to ${moved.to}; set it there`;
   const retired = RETIRED_KEYS.find((key) => path === key.path || path.startsWith(`${key.path}.`));
   if (retired !== undefined) {
-    return `version 14 removed ${retired.path}, because ${retired.reason}. Delete it`;
+    return `version ${retired.version} removed ${retired.path}, because ${retired.reason}. Delete it`;
   }
   return undefined;
 }
 
 // The contract's wording, with the keys `office.local.yaml` accepts at its top level, and the
-// reason for a key version 14 moved or retired.
+// reason for a key a version moved or retired.
 function issueErrors(
   file: string,
   schema: z.ZodType,
@@ -153,12 +154,12 @@ export function migrationWarning(file: string, step: MigrationStep): ConfigWarni
   return {
     file,
     path,
-    message: `${file}: ${path}: ignored; version 14 removed it, because ${step.reason}. dipo config migrate deletes it`,
+    message: `${file}: ${path}: ignored; version ${step.version} removed it, because ${step.reason}. dipo config migrate deletes it`,
   };
 }
 
 /**
- * A file's document validated as version 14: migrated first when it is older, with a warning for
+ * A file's document validated as the current version: migrated first when it is older, with a warning for
  * each key the migration moved or dropped. The value has no `version`.
  */
 export function checkedFile(

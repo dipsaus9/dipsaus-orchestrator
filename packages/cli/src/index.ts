@@ -384,7 +384,8 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   }
   // The box login in the Keychain (DIPO-269): daemon-side code on this terminal, no daemon needed.
   if (args[0] === "login") return deps.runDaemon(args);
-  // Rewrites the office files of this repository at version 14 (0017): daemon-side code, no daemon.
+  // Rewrites the office files of this repository at the current version (0017): daemon-side code, no
+  // daemon.
   if (args[0] === "config") return configMigrate(args.slice(1), deps);
   const subcommand = args[0] === "daemon" ? DAEMON_SUBCOMMANDS.get(args[1] ?? "") : undefined;
   if (subcommand !== undefined) {

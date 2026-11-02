@@ -39,7 +39,7 @@ const FORMS: ReadonlyMap<string, Form> = new Map<string, Form>([
   ],
   // Sets the box login in the Keychain on the maintainer's terminal (DIPO-269), as `dipo login box`.
   ["login", { usage: LOGIN_USAGE, run: (args, io) => runLoginForm(args, io) }],
-  // Rewrites the office files at version 14 (0017), as `dipo config migrate`.
+  // Rewrites the office files at the current version (0017), as `dipo config migrate`.
   [
     "config-migrate",
     { usage: CONFIG_MIGRATE_USAGE, run: (args, io) => runConfigMigrateForm(args, io) },

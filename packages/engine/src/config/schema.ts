@@ -4,13 +4,15 @@
 // before comes with it (0017).
 //
 // Versions 1 to 13 bumped the version for every added key. One migration takes a file of any of
-// them to version 14 (`migrateOfficeDocument`): it moves the keys that changed section
-// (`MOVED_KEYS`) and drops the retired ones (`RETIRED_KEYS`), each named in a warning.
+// them to version 14: it moves the keys that changed section (`MOVED_KEYS`) and drops the keys
+// version 14 retired. Version 15 (DIPO-428) retires the question wait under `timeouts`, since a
+// worker's question parks at once (0020); its migration from 14 drops the key. Both run in
+// `migrateOfficeDocument`, and every key they drop (`RETIRED_KEYS`) is named in a warning.
 
 import { z } from "zod";
 
 /** The office configuration version this binary writes and reads natively. */
-export const OFFICE_CONFIG_VERSION = 14;
+export const OFFICE_CONFIG_VERSION = 15;
 export type OfficeConfigVersion = number;
 
 const count = () => z.int().positive();
@@ -258,8 +260,6 @@ const Timeouts = z.strictObject({
   // 0009: the health of a running worker.
   workerStallMinutes: count(),
   workerQuietMinutes: count(),
-  // How long a worker's question waits for an answer.
-  questionWaitMinutes: count(),
   // 0013: one timeout per script the engine runs, by script name.
   scriptMinutes: z.record(text(), count()),
   // 0002: how long an open test waits for its record before its box is deleted.
@@ -400,12 +400,21 @@ export const OfficeOverridesSchema = z.strictObject(
   fileShape(Object.fromEntries(Object.entries(officeShape).filter(([key]) => key !== "box"))),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
-/** A key that version 14 retired: nothing reads it, so a version 14 file refuses it. */
+/** A key that a version retired: nothing reads it, so a file of that version refuses it. */
 export interface RetiredKey {
   /** The key path, such as `permissions` or `mergeSlot.requiredChecks`. */
   readonly path: string;
   /** Why the key is gone, for the warning and the error. */
   readonly reason: string;
+  /** The version that retired it: 14 or 15. */
+  readonly version: number;
+}
+
+function retiredIn(
+  version: number,
+  keys: readonly Omit<RetiredKey, "version">[],
+): readonly RetiredKey[] {
+  return keys.map((key) => ({ ...key, version }));
 }
 
 const NO_MAC_WORKTREE =
@@ -414,41 +423,50 @@ const NO_MAC_SANDBOX = "the Mac sandbox is gone: the box is the boundary (0008)"
 const RETENTION_DAYS = "one retention rule, retention.days, replaced the two tiers (0007)";
 
 /**
- * Keys of versions 1 to 13 that version 14 retired (0017). The migration drops each one a file
- * sets, and the load and `dipo config migrate` name it in a warning.
+ * Keys that version 14 retired from versions 1 to 13, and that version 15 retired from 14 (0017).
+ * The migration drops each one an older file sets, and the load and `dipo config migrate` name it
+ * in a warning.
  */
 export const RETIRED_KEYS: readonly RetiredKey[] = [
-  { path: "worker.adapter", reason: "the worker is always the Claude CLI adapter (0008)" },
-  {
-    path: "worker.allowProjectSettings",
-    reason: "no session loads settings from the repository copy (0008)",
-  },
-  {
-    path: "worker.plugins",
-    reason: "no session loads plugins; every installed plugin is off (0008)",
-  },
-  { path: "worker.web", reason: "a developer in its box always has the web (0008)" },
-  { path: "permissions", reason: NO_MAC_SANDBOX },
-  { path: "sandbox", reason: NO_MAC_SANDBOX },
-  { path: "remote", reason: "the remote is always origin (0010)" },
-  { path: "worktree.files", reason: NO_MAC_WORKTREE },
-  { path: "worktree.ports", reason: NO_MAC_WORKTREE },
-  { path: "worktree.env", reason: NO_MAC_WORKTREE },
-  { path: "worktree.post_create", reason: NO_MAC_WORKTREE },
-  { path: "worktree.maxSlots", reason: NO_MAC_WORKTREE },
-  {
-    path: "mergeSlot.requiredChecks",
-    reason: "the required checks are the ones GitHub requires on the base (0002)",
-  },
-  { path: "storyPr", reason: "every story gets its PR: CI on it is the final gate (0002)" },
-  { path: "story.maintainerStepPhrases", reason: "the Ready gate rule R27 is removed (0012)" },
-  { path: "timeouts.permissionWaitSeconds", reason: "the permission relay is gone (0008)" },
-  { path: "prompt.budgets.contextItem", reason: "the per-item cap is fixed in code (0014)" },
-  { path: "prompt.budgets.inputsFile", reason: "the per-file cap is fixed in code (0014)" },
-  { path: "prompt.budgets.feedbackLogLines", reason: "the log line cap is fixed in code (0014)" },
-  { path: "prompt.budgets.nudge", reason: "nudges are gone with the developer's hooks (0008)" },
-  { path: "retention.shortDays", reason: RETENTION_DAYS },
-  { path: "retention.stateDays", reason: RETENTION_DAYS },
+  ...retiredIn(14, [
+    { path: "worker.adapter", reason: "the worker is always the Claude CLI adapter (0008)" },
+    {
+      path: "worker.allowProjectSettings",
+      reason: "no session loads settings from the repository copy (0008)",
+    },
+    {
+      path: "worker.plugins",
+      reason: "no session loads plugins; every installed plugin is off (0008)",
+    },
+    { path: "worker.web", reason: "a developer in its box always has the web (0008)" },
+    { path: "permissions", reason: NO_MAC_SANDBOX },
+    { path: "sandbox", reason: NO_MAC_SANDBOX },
+    { path: "remote", reason: "the remote is always origin (0010)" },
+    { path: "worktree.files", reason: NO_MAC_WORKTREE },
+    { path: "worktree.ports", reason: NO_MAC_WORKTREE },
+    { path: "worktree.env", reason: NO_MAC_WORKTREE },
+    { path: "worktree.post_create", reason: NO_MAC_WORKTREE },
+    { path: "worktree.maxSlots", reason: NO_MAC_WORKTREE },
+    {
+      path: "mergeSlot.requiredChecks",
+      reason: "the required checks are the ones GitHub requires on the base (0002)",
+    },
+    { path: "storyPr", reason: "every story gets its PR: CI on it is the final gate (0002)" },
+    { path: "story.maintainerStepPhrases", reason: "the Ready gate rule R27 is removed (0012)" },
+    { path: "timeouts.permissionWaitSeconds", reason: "the permission relay is gone (0008)" },
+    { path: "prompt.budgets.contextItem", reason: "the per-item cap is fixed in code (0014)" },
+    { path: "prompt.budgets.inputsFile", reason: "the per-file cap is fixed in code (0014)" },
+    { path: "prompt.budgets.feedbackLogLines", reason: "the log line cap is fixed in code (0014)" },
+    { path: "prompt.budgets.nudge", reason: "nudges are gone with the developer's hooks (0008)" },
+    { path: "retention.shortDays", reason: RETENTION_DAYS },
+    { path: "retention.stateDays", reason: RETENTION_DAYS },
+  ]),
+  ...retiredIn(15, [
+    {
+      path: "timeouts.questionWaitMinutes",
+      reason: "a worker's question parks its story at once, whichever client is connected (0020)",
+    },
+  ]),
 ];
 
 /** A key that moved to another section in version 14. */
@@ -466,12 +484,20 @@ export const MOVED_KEYS: readonly MovedKey[] = [
   { from: "mergeSlot.checksWaitMinutes", to: "merge.checksWaitMinutes" },
 ];
 
-/** One step of the migration to version 14, applied to a document in the same order. */
+/**
+ * One step of the migration to the current version, applied to a document in the same order. A
+ * drop names the version that removed the key; every move is version 14's.
+ */
 export type MigrationStep =
-  | { readonly kind: "drop"; readonly path: readonly string[]; readonly reason: string }
+  | {
+      readonly kind: "drop";
+      readonly path: readonly string[];
+      readonly reason: string;
+      readonly version: number;
+    }
   | { readonly kind: "move"; readonly from: readonly string[]; readonly to: readonly string[] };
 
-/** A document migrated to version 14 and the steps that took it there, in order. */
+/** A document migrated to the current version and the steps that took it there, in order. */
 export interface Migration {
   readonly document: Record<string, unknown>;
   readonly steps: readonly MigrationStep[];
@@ -518,11 +544,12 @@ function withValue(
 }
 
 /**
- * Pure: an office file's document of a version from 1 to 13 migrated to version 14 (0017). Each
- * moved key goes to its new place, unless the file sets that place already, then each retired key
- * is dropped. `steps` lists what it did, in order, for the warnings and for `dipo config migrate`,
- * which applies the same steps to the YAML document so its comments stay. A version 14 document
- * comes back unchanged. Works for both office files.
+ * Pure: an office file's document of a version from 1 to 14 migrated to version 15 (0017). From a
+ * version before 14, each moved key goes to its new place, unless the file sets that place already;
+ * then each key retired by a version after the file's is dropped. `steps` lists what it did, in
+ * order, for the warnings and for `dipo config migrate`, which applies the same steps to the YAML
+ * document so its comments stay. A version 15 document comes back unchanged. Works for both office
+ * files.
  */
 export function migrateOfficeDocument(
   version: number,
@@ -531,7 +558,7 @@ export function migrateOfficeDocument(
   if (version >= OFFICE_CONFIG_VERSION) return { document: { ...document }, steps: [] };
   let current: Record<string, unknown> = { ...document };
   const steps: MigrationStep[] = [];
-  for (const moved of MOVED_KEYS) {
+  for (const moved of version < 14 ? MOVED_KEYS : []) {
     const from = moved.from.split(".");
     const to = moved.to.split(".");
     const value = at(current, from);
@@ -541,15 +568,16 @@ export function migrateOfficeDocument(
       steps.push({ kind: "move", from, to });
     } else {
       current = without(current, from);
-      steps.push({ kind: "drop", path: from, reason: `${moved.to} is set already` });
+      steps.push({ kind: "drop", path: from, reason: `${moved.to} is set already`, version: 14 });
     }
   }
   // What is left of `mergeSlot` after the moves is retired too.
   for (const retired of RETIRED_KEYS) {
+    if (retired.version <= version) continue;
     const path = retired.path.split(".");
     if (at(current, path) === undefined) continue;
     current = without(current, path);
-    steps.push({ kind: "drop", path, reason: retired.reason });
+    steps.push({ kind: "drop", path, reason: retired.reason, version: retired.version });
   }
   return { document: { ...current, version: OFFICE_CONFIG_VERSION }, steps };
 }
@@ -689,7 +717,6 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
   timeouts: {
     workerStallMinutes: 20,
     workerQuietMinutes: 3,
-    questionWaitMinutes: 15,
     scriptMinutes: { install: 15, setup: 10, verify: 20 },
     testIdleMinutes: 240,
   },

@@ -1,5 +1,7 @@
 // This repository's own `.dipo/office.yaml`, migrated with `dipo config migrate` (DIPO-353): it is
-// version 14, loads with the version 14 loader with no warning, and a second migrate leaves it alone.
+// version 14 and loads with no warning. It stays at 14 so the pinned dipo binary, which knows no
+// version 15, still reads it until it is rebuilt (DIPO-428); `dipo config migrate` would change
+// only its version line, since it sets no key version 15 retired.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -20,13 +22,15 @@ describe("this repository's .dipo/office.yaml", () => {
     expect(result.warnings).toEqual([]);
   });
 
-  it("is left as it is by dipo config migrate", () => {
-    expect(migrateOfficeFileText(OFFICE_FILE, office)).toEqual({
-      ok: true,
-      from: 14,
-      text: office,
-      changes: [],
-    });
+  it("gets only its version raised by dipo config migrate", () => {
+    const migrated = migrateOfficeFileText(OFFICE_FILE, office);
+    if (!migrated.ok) throw new Error(migrated.errors.map((error) => error.message).join("\n"));
+    expect(migrated.from).toBe(14);
+    expect(migrated.changes).toEqual([]);
+    expect(migrated.text.startsWith("version: 15\n")).toBe(true);
+    const before = resolveOfficeConfig({ office });
+    const after = resolveOfficeConfig({ office: migrated.text });
+    expect(after.ok && after.configHash).toBe(before.ok && before.configHash);
   });
 
   // The ci-ok light-path tests run ci.yml's ci-ok step, which needs jq, so the box image has it
