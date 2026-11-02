@@ -1,10 +1,10 @@
 ---
 id: DIPO-429
 title: Hold a rule-decided merge for the maintainer when the base requires no checks
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-02 12:11'
-updated_date: '2026-11-02 12:47'
+updated_date: '2026-11-02 12:50'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -41,7 +41,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A merge gate whose base was read to require no checks waits for the maintainer with that reason in its summary and never turns auto-merge on by rule, shown by a test
-- [ ] #2 A failed read waits as today, no wired host behaves as today, and a base with required checks merges by rule as today, shown by tests
-- [ ] #3 The first empty read for an office in a daemon run emits one office notice and a log line, and later reads emit none, shown by a test
+- [x] #1 A merge gate whose base was read to require no checks waits for the maintainer with that reason in its summary and never turns auto-merge on by rule, shown by a test
+- [x] #2 A failed read waits as today, no wired host behaves as today, and a base with required checks merges by rule as today, shown by tests
+- [x] #3 The first empty read for an office in a daemon run emits one office notice and a log line, and later reads emit none, shown by a test
 <!-- AC:END -->
