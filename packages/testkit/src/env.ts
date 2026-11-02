@@ -1,7 +1,11 @@
 // Tests run with a cleaned environment: no ANTHROPIC_*, CLAUDE_* or GH_* variables
 // (0017 section 3), so no test can reach Claude or GitHub with the maintainer's credentials. A
 // daemon a test starts as a process also gets its state, runtime and temp directories under the
-// test's temp directory (DIPO-109).
+// test's temp directory (DIPO-109), and without the PATH directories that hold the Apple `container`
+// CLI unless DIPO_TEST_BOX=1 (DIPO-423): a test daemon never touches the maintainer's boxes.
+
+import { accessSync, constants, statSync } from "node:fs";
+import { delimiter, join } from "node:path";
 
 import { isolatedDaemonEnv } from "./runtime";
 
@@ -22,11 +26,23 @@ export function cleanEnv(
   return env;
 }
 
+/** True when `dir` holds an executable file named `container`, the Apple container CLI. */
+function holdsContainerCli(dir: string): boolean {
+  const path = join(dir, "container");
+  try {
+    accessSync(path, constants.X_OK);
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The environment of a `dipo daemon` process a test starts in `dir`: `cleanEnv(source)` without
  * `BUN_OPTIONS` and `DIPO_LOG`, with `isolatedDaemonEnv(dir)` on top. Every runtime directory
  * candidate is then under `dir` except the daemon's last one, `/tmp/dipo-<uid>`, which
- * `withDaemonTempDir` and `assertTestRuntimeDir` fail on.
+ * `withDaemonTempDir` and `assertTestRuntimeDir` fail on. Unless `DIPO_TEST_BOX=1`, the PATH has
+ * no directory that holds a `container` CLI, so the daemon finds no box backend (DIPO-423).
  */
 export function daemonTestEnv(
   dir: string,
@@ -35,6 +51,13 @@ export function daemonTestEnv(
   const env = cleanEnv(source);
   delete env["BUN_OPTIONS"];
   delete env["DIPO_LOG"];
+  const path = env["PATH"];
+  if (env["DIPO_TEST_BOX"] !== "1" && path !== undefined) {
+    env["PATH"] = path
+      .split(delimiter)
+      .filter((entry) => entry === "" || !holdsContainerCli(entry))
+      .join(delimiter);
+  }
   return { ...env, ...isolatedDaemonEnv(dir) };
 }
 
