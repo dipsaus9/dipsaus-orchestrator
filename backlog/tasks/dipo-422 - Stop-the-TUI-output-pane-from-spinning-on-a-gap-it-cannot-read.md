@@ -1,10 +1,10 @@
 ---
 id: DIPO-422
 title: Stop the TUI output pane from spinning on a gap it cannot read
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-02 10:09'
-updated_date: '2026-11-02 10:24'
+updated_date: '2026-11-02 10:29'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -39,7 +39,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A work.output range whose gap one read cannot fill makes the pane show the single line `[N bytes of output not stored]` with the missing byte count, outside the held text, and then the range's text; the next range continues from that range's end with no second gap, shown by a test whose read returns empty
-- [ ] #2 The pane reads the gap at most once per missed range: a test counts the reads and fails if a second one starts without a new range
-- [ ] #3 A gap the read does fill shows the read text and no gap line, as now, shown by the existing tests
+- [x] #1 A work.output range whose gap one read cannot fill makes the pane show the single line `[N bytes of output not stored]` with the missing byte count, outside the held text, and then the range's text; the next range continues from that range's end with no second gap, shown by a test whose read returns empty
+- [x] #2 The pane reads the gap at most once per missed range: a test counts the reads and fails if a second one starts without a new range
+- [x] #3 A gap the read does fill shows the read text and no gap line, as now, shown by the existing tests
 <!-- AC:END -->
