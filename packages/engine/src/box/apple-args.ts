@@ -418,8 +418,12 @@ export function execArgs(input: ExecInput): string[] {
   ];
 }
 
-/** The test box shell (DIPO-309): bash in `/work` as the box user, with a terminal. */
-export const TEST_SHELL_COMMAND: readonly [string, ...string[]] = ["/bin/bash", "-l"];
+/**
+ * The test box shell (DIPO-309): bash in `/work` as the box user, with a terminal. Not a login
+ * shell: a login shell reads `/etc/profile`, which sets PATH again and drops the box user's
+ * (DIPO-420).
+ */
+export const TEST_SHELL_COMMAND: readonly [string, ...string[]] = ["/bin/bash"];
 
 /**
  * The `container` arguments of `dipo test shell`: an interactive shell with a terminal in the test
