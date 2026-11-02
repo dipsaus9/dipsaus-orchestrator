@@ -37,9 +37,9 @@ export function timingKey(platform: NodeJS.Platform = process.platform): string 
   return platform === "darwin" ? "macOS" : "Linux";
 }
 
-/** How many shards a run starts: one per core, at least 2. */
+/** How many shards a run starts: half the cores, rounded down, at least 2 (DIPO-424). */
 export function shardCount(cores: number = availableParallelism()): number {
-  return Math.max(2, cores);
+  return Math.max(2, Math.floor(cores / 2));
 }
 
 /**
