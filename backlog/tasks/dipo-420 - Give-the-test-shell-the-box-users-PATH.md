@@ -1,15 +1,20 @@
 ---
 id: DIPO-420
 title: Give the test shell the box user's PATH
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-02 09:14'
-updated_date: '2026-11-02 09:35'
+updated_date: '2026-11-02 10:08'
 labels:
   - 'tier:S'
 milestone: m-1
 dependencies: []
 references:
+  - packages/engine/src/box/apple-args.ts
+  - packages/engine/test/box/args.test.ts
+  - packages/engine/test/box/test-box.box.test.ts
+modified_files:
+  - packages/daemon/src/test-shell.test.ts
   - packages/engine/src/box/apple-args.ts
   - packages/engine/test/box/args.test.ts
   - packages/engine/test/box/test-box.box.test.ts
@@ -60,3 +65,19 @@ Parked 2026-11-02 09:32 UTC: ambiguous-spec
 
 Resumed 2026-11-02 09:34 UTC; grants: none; note: Criterion 2's box test cannot run in your box; that is expected. Keep the box test you wrote in test-box.box.test.ts, make sure verify passes, and report done; the maintainer's session runs DIPO_TEST…
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-02 10:08 UTC
+- Criteria met: 2 of 2 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 74,372 of 300,000 tokens
+- Runs: 1; resumes: 1
+- Parks: 1
+  - 2026-11-02 09:32 UTC ambiguous-spec: The test shell's command was `/bin/bash -l`. The login shell reads /etc/profile, which resets PATH and drops the box user's PATH that execArgs passes. I removed `-l`, so TEST_SHELL_COMMAND is now `["…
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
