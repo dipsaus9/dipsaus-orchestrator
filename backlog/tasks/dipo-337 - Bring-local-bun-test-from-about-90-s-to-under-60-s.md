@@ -1,10 +1,10 @@
 ---
 id: DIPO-337
 title: Run local bun test in parallel shards to get it under 60 s
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-24 09:32'
-updated_date: '2026-11-01 13:32'
+updated_date: '2026-11-02 08:46'
 labels:
   - 'tier:M'
   - 'slice:prune'
