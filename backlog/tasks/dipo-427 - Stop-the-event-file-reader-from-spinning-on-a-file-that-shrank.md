@@ -1,10 +1,10 @@
 ---
 id: DIPO-427
 title: Stop the event-file reader from spinning on a file that shrank
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-02 12:11'
-updated_date: '2026-11-02 12:32'
+updated_date: '2026-11-02 12:34'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -39,6 +39,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `readCompleteLines` on a file shorter than the given size returns within a test timeout with no lines, shown by a test with a 3-byte file and size 100
-- [ ] #2 A file that grows between passes is still read in full on the next pass, shown by the existing tests
+- [x] #1 `readCompleteLines` on a file shorter than the given size returns within a test timeout with no lines, shown by a test with a 3-byte file and size 100
+- [x] #2 A file that grows between passes is still read in full on the next pass, shown by the existing tests
 <!-- AC:END -->
