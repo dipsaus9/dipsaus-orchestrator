@@ -1,10 +1,10 @@
 ---
 id: DIPO-420
 title: Give the test shell the box user's PATH
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-11-02 09:14'
-updated_date: '2026-11-02 09:32'
+updated_date: '2026-11-02 09:34'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -29,15 +29,14 @@ One PATH for every command in a box (0001): the shell keeps the one `execArgs` p
 
 ```dipo
 branch: "DIPO-420/test-shell-path"
-unknowns: []
+unknowns:
+  - q: "The test shell's command was `/bin/bash -l`. The login shell reads /etc/profile, which resets PATH and drops the box user's PATH that execArgs passes. I removed `-l`, so TEST_SHELL_COMMAND is now `[\"/bin/bash\"]` (packages/engine/src/box/apple-args.ts), and the shell keeps the one PATH every box command gets. I added the args test (criterion 1) and updated the old `-l` assertion in packages/daemon/src/test-shell.test.ts. I added the real-box check for criterion 2 to test-box.box.test.ts, which I could not run on this Linux box. Blocked because criterion 2 is unverified: it needs a macOS box with Apple container and DIPO_TEST_BOX=1. No question is needed; the maintainer runs `DIPO_TEST_BOX=1 bun test packages/engine/test/box/test-box.box.test.ts` on the Mac. Full `bun run verify` passed (all 14 shards). One DIPO-386 test failed once under load and passed on rerun, unrelated to this change."
+    status: "resolved"
+    answer: "Criterion 2's box test cannot run in your box; that is expected. Keep the box test you wrote in test-box.box.test.ts, make sure verify passes, and report done; the maintainer's session runs DIPO_TEST_BOX=1 on the Mac against your pushed branch before merge. The change to packages/daemon/src/test-shell.test.ts is fine: it is the old -l assertion."
 test_plan:
   entries:
     - kind: "automated"
       check: "(engine) the test shell's command keeps the box user's PATH, so bun resolves in the shell"
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "The test shell's command was `/bin/bash -l`. The login shell reads /etc/profile, which resets PATH and drops the box user's PATH that execArgs passes. I removed `-l`, so TEST_SHELL_COMMAND is now `[\"/bin/bash\"]` (packages/engine/src/box/apple-args.ts), and the shell keeps the one PATH every box command gets. I added the args test (criterion 1) and updated the old `-l` assertion in packages/daemon/src/test-shell.test.ts. I added the real-box check for criterion 2 to test-box.box.test.ts, which I could not run on this Linux box. Blocked because criterion 2 is unverified: it needs a macOS box with Apple container and DIPO_TEST_BOX=1. No question is needed; the maintainer runs `DIPO_TEST_BOX=1 bun test packages/engine/test/box/test-box.box.test.ts` on the Mac. Full `bun run verify` passed (all 14 shards). One DIPO-386 test failed once under load and passed on rerun, unrelated to this change."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -58,4 +57,6 @@ Parked 2026-11-02 09:32 UTC: ambiguous-spec
 - Review rounds: 0, failed 0 of 3
 - Budget used: 58,469 of 300,000 tokens; 24 of 90 turns; 3 of 45 minutes
 - Last good commit: b4e09592a7ce66125262802d4837bc91fde6d5ac
+
+Resumed 2026-11-02 09:34 UTC; grants: none; note: Criterion 2's box test cannot run in your box; that is expected. Keep the box test you wrote in test-box.box.test.ts, make sure verify passes, and report done; the maintainer's session runs DIPO_TEST…
 <!-- SECTION:NOTES:END -->
