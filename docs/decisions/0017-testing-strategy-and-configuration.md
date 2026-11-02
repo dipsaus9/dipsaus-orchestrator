@@ -128,7 +128,7 @@ scripts: { verify: bun run verify }                                # 0013
 - Every file has a required integer `version`. A file newer than the binary is refused with "upgrade dipo".
 - **One reset to version 14.** It keeps only the keys code reads, and gives every key a default. One migration takes any file from versions 1 to 13 to version 14, and drops retired keys with a warning that names them.
 - **After version 14,** adding a key with a default needs no version bump. A version changes only when a key's meaning or shape changes, and then a pure migration function from the previous version comes with it, tested on fixture files.
-- **Rewriting a file.** Only `dipo config migrate` rewrites a configuration file, with one exception: the privacy toggle rewrites `office.local.yaml` at the current version, migrating it first with the same function. It drops the file's comments and puts a header on top. It uses the `yaml` library's document API, which keeps comments, and the change shows as a normal git diff.
+- **Rewriting a file.** Only `dipo config migrate` rewrites a configuration file. It uses the `yaml` library's document API, which keeps comments, and the change shows as a normal git diff. One exception: the privacy toggle rewrites `office.local.yaml` at the current version, migrating it first with the same function; it drops that file's comments and puts a header on top.
 
 ## Replaced
 
