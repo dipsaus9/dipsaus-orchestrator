@@ -56,6 +56,9 @@ describe("migration 56 (DIPO-342)", () => {
             insert into offices (office_id, path, display_name, added_at, epoch, next_seq,
               replay_floor_seq)
               values ('off-1', '/repo', 'repo', 0, 'e', 1, 0);
+            insert into runs (office_id, run_id, kind, role, model, budget_unit, budget_limit,
+              loop_cap, config_hash, started_at)
+              values ('off-1', 'run-1', 'session', 'developer', 'sonnet', 'tokens', 1, 3, 'h', 0);
             insert into base_verifies values ('off-1', 'a', 'h', 'run-1', 1, '[]', null, 0);
             insert into nudge_sources (office_id, run_id, agent_id, kind, path, recorded_at)
               values ('off-1', 'run-1', 'agt-1', 'context', 'src/a.ts', 0);
