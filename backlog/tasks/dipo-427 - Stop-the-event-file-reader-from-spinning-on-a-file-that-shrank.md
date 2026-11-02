@@ -1,10 +1,10 @@
 ---
 id: DIPO-427
 title: Stop the event-file reader from spinning on a file that shrank
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-02 12:11'
-updated_date: '2026-11-02 12:25'
+updated_date: '2026-11-02 12:36'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -13,6 +13,9 @@ references:
   - packages/engine/src/ingest/event-file.ts
   - packages/engine/src/ingest/ingestor.ts
   - packages/engine/test/ingest/
+modified_files:
+  - packages/engine/src/ingest/event-file.ts
+  - packages/engine/test/ingest/event-file.test.ts
 priority: medium
 type: bug
 ordinal: 405000
@@ -39,6 +42,21 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `readCompleteLines` on a file shorter than the given size returns within a test timeout with no lines, shown by a test with a 3-byte file and size 100
-- [ ] #2 A file that grows between passes is still read in full on the next pass, shown by the existing tests
+- [x] #1 `readCompleteLines` on a file shorter than the given size returns within a test timeout with no lines, shown by a test with a 3-byte file and size 100
+- [x] #2 A file that grows between passes is still read in full on the next pass, shown by the existing tests
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-02 12:36 UTC
+- Criteria met: 2 of 2 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 26,150 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
