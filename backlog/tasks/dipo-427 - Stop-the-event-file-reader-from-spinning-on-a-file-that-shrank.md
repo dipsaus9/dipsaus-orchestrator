@@ -4,7 +4,7 @@ title: Stop the event-file reader from spinning on a file that shrank
 status: Refined
 assignee: []
 created_date: '2026-11-02 12:11'
-updated_date: '2026-11-02 12:12'
+updated_date: '2026-11-02 12:17'
 labels:
   - 'tier:S'
 milestone: m-1
