@@ -36,6 +36,7 @@ import { describe, expect, it } from "bun:test";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { cleanEnv, ManualClock, withBareRemote, withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { TEST_SHELL_COMMAND } from "../../src/box/apple-args";
 import { AppleContainerBoxes } from "../../src/box/apple-container";
 import { startForwarder, systemReach } from "../../src/box/forwarder";
 import { readBaseBox } from "../../src/box/image";
@@ -273,6 +274,16 @@ if (registers) {
               const proxied = await boxes.exec(boxA, ["/bin/cat", "/tmp/proxy.txt"]);
               expect(proxied.stdout.trim()).toBe("200");
               fact("dev reached the internet through the web route with its proxy password");
+              // DIPO-420: the test shell's own command finds the box user's bun, with no full path.
+              const bun = await boxes.exec(boxA, ["/bin/sh", "-c", "command -v bun"]);
+              const shellBun = await boxes.exec(boxA, [
+                ...TEST_SHELL_COMMAND,
+                "-c",
+                "command -v bun",
+              ]);
+              fact(`test shell: command -v bun prints ${shellBun.stdout.trim()}`);
+              expect(shellBun.stdout.trim()).not.toBe("");
+              expect(shellBun.stdout.trim()).toBe(bun.stdout.trim());
               const address = a.forward?.target.address ?? "";
               fact(`the Mac routes ${address} through ${await routeOf(address)}`);
               const url = a.url ?? "";

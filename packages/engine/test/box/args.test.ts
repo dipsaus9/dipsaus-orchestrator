@@ -16,9 +16,11 @@ import {
   createArgs,
   execArgs,
   type HostResources,
+  TEST_SHELL_COMMAND,
 } from "../../src/box/apple-args";
 import {
   BOX_NET_TOOLS_PATH,
+  BOX_USER_PATH,
   buildRootStepCommand,
   CONTAINED_KEEPALIVE,
   containedCommand,
@@ -624,6 +626,13 @@ describe("the Apple container argument builder", () => {
     expect(bootstrap.slice(-2)).toEqual(["/bin/sh", "/dipo-build/bootstrap.sh"]);
     const user = execArgs({ name: BUILD_NAME, command: ["/bin/sh", "x"] });
     expect(user.slice(user.indexOf(BUILD_NAME) + 1)).toEqual(containedCommand(["/bin/sh", "x"]));
+  });
+
+  it("starts the test shell with the box user's PATH, so bun resolves in it (DIPO-420)", () => {
+    const name = "dipo-tst_01J9ZK5Q8W3V4X6Y7Z8A9B0C7K";
+    const args = builders.testShellArgs(name);
+    expect(args).toContain(`PATH=${BOX_USER_PATH}`);
+    expect(args.slice(args.indexOf(name) + 1)).toEqual(containedCommand(TEST_SHELL_COMMAND));
   });
 
   it("runs dipo's root steps as root: only the fixed ones, with their own list, outside a build box (DIPO-334, DIPO-336)", () => {

@@ -56,7 +56,7 @@ describe("the test shell form", () => {
     expect(args).toContain(BOX);
     // Contained: the shell runs through setpriv as the box user, never as root.
     expect(args.join(" ")).toContain("--reuid=1000");
-    expect(args.slice(-2)).toEqual(["/bin/bash", "-l"]);
+    expect(args.slice(-1)).toEqual(["/bin/bash"]);
   });
 
   it("refuses a box that is not a test box, no terminal, and no container on the PATH", async () => {
