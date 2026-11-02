@@ -1,10 +1,10 @@
 ---
 id: DIPO-432
 title: Drop "now" from the questions table's delivered column
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-02 14:04'
-updated_date: '2026-11-02 14:39'
+updated_date: '2026-11-02 14:47'
 labels:
   - 'tier:S'
 milestone: m-1
