@@ -3,9 +3,13 @@
 // caps (`caps.ts`), the tier budget and the spend alerts (`usage_totals`, `usage_daily`) read, so
 // every model request a box makes counts against its run, whatever program in the box sent it.
 //
-// - `open` resolves the owner's run and agent in a write transaction of the run's office before the
-//   proxy forwards anything; an office that is not loaded, a run or an agent of that run it does
-//   not know, or a write that fails throws, and the proxy refuses the request.
+// - `open` resolves the owner's run and agent and writes the agent's row of the requested model
+//   (`openProxiedRow`) before the proxy forwards anything; an office that is not loaded, a run or
+//   an agent of that run it does not know, or a write that fails throws, and the proxy refuses the
+//   request. So after a failed write no request of that office goes on until a write succeeds.
+// - Once the run's token cap is reached (the reviewer's own cap for a reviewer, 0002), `open`
+//   throws `ModelUseCapped` and the proxy refuses new requests with 429, so a program that is not
+//   Claude Code cannot overrun the cap while the engine stops the session.
 // - The account adds each answer's tokens to the agent's row of the answer's model. A row a run's
 //   end already made final feeds only its change into `usage_daily` (`feedFinalChanges`), so an
 //   answer counted after the session ended still reaches the day's spend.
@@ -14,12 +18,23 @@
 
 import type { Clock, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 
-import type { ModelUsageLedger, ProxyAccount, ProxyOwner } from "../box/model-proxy";
+import {
+  type ModelUsageLedger,
+  ModelUseCapped,
+  type ProxyAccount,
+  type ProxyOwner,
+} from "../box/model-proxy";
 import type { OfficeHandle } from "../db/office";
 
-import { REVIEWER_ROLE, runCaps } from "./caps";
+import { REVIEWER_ROLE, reviewTotals, runCaps, runTotals } from "./caps";
 import { findRun } from "./run-records";
-import { feedFinalChanges, finalRows, recordProxiedUsage, type UsageScope } from "./usage";
+import {
+  feedFinalChanges,
+  finalRows,
+  openProxiedRow,
+  recordProxiedUsage,
+  type UsageScope,
+} from "./usage";
 
 export interface ProxiedUsageLedgerDeps {
   /** The box-address registry (`BoxWorkers.owner`). */
@@ -51,14 +66,32 @@ function scopeOf(office: OfficeHandle, owner: ProxyOwner): UsageScope {
   };
 }
 
+/** True when `scope`'s token cap is reached: the run's, or a reviewer's own (0002). */
+function capReached(office: OfficeHandle, scope: UsageScope): boolean {
+  const run = findRun(office, scope.run as RunId);
+  if (run === null) return false;
+  if (scope.role === REVIEWER_ROLE) {
+    const cap = run.reviewMaxTokens;
+    if (cap === null || cap === undefined) return false;
+    return reviewTotals(office, run.runId, scope.agent, 0, 0).budgetTokens >= cap;
+  }
+  return runTotals(office, run.runId, 0, 0).budgetTokens >= runCaps(office, run).budgetTokens;
+}
+
 /** The ledger the daemon's model proxy counts into. */
 export function proxiedUsageLedger(deps: ProxiedUsageLedgerDeps): ModelUsageLedger {
   return {
     owner: (address) => deps.owner(address),
-    open: (owner): ProxyAccount => {
+    open: (owner, model): ProxyAccount => {
       const office = deps.office(owner.office as OfficeId);
       if (office === undefined) throw new Error(`office ${owner.office} is not loaded`);
-      const scope = office.immediate(() => scopeOf(office, owner));
+      const scope = office.immediate(() => {
+        const found = scopeOf(office, owner);
+        if (capReached(office, found))
+          throw new ModelUseCapped(`run ${owner.run} reached its token cap`);
+        openProxiedRow(office, found, model, deps.clock.now());
+        return found;
+      });
       return (usage) => {
         const at = deps.clock.now();
         office.immediate(() => {

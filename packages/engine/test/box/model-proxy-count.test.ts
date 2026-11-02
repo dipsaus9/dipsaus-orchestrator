@@ -354,6 +354,54 @@ describe("a streamed answer (criterion 2)", () => {
     await reader.cancel();
     expect(stored(f.run)).toMatchObject({ input: 40, output: 1, create: 30, read: 500 });
   });
+
+  it("counts each change as the upstream sends it, while a box holds the stream open unread", async () => {
+    // The upstream sends message_start, later a delta, and stays open; the box reads nothing more
+    // than the first chunk and holds the connection (the review's B1).
+    let more!: (event: unknown) => void;
+    const upstream = upstreamOf(() => {
+      const encoder = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(MESSAGE_START)}\n\n`));
+          more = (event) =>
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        },
+      });
+      return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+    });
+    const handle = await realProxy(ledger(), upstream.fetch);
+    const response = await handle(boxRequest("/v1/messages"), BOX_A);
+    await response.body!.getReader().read();
+    await Bun.sleep(5);
+    // Input and cache count at message_start, before the stream ends.
+    expect(stored(f.run)).toMatchObject({ input: 40, output: 1, create: 30, read: 500 });
+    more({ type: "message_delta", delta: {}, usage: { output_tokens: 700 } });
+    await Bun.sleep(5);
+    // The box never read it; the proxy read it from the upstream and counted it.
+    expect(stored(f.run)).toMatchObject({ input: 40, output: 700, create: 30, read: 500 });
+  });
+
+  it("keeps the 1 hour share of the cache writes when a later report gives no split", async () => {
+    const upstream = upstreamOf(() =>
+      streamAnswer([
+        MESSAGE_START,
+        {
+          type: "message_delta",
+          delta: {},
+          usage: { output_tokens: 5, cache_creation_input_tokens: 30 },
+        },
+      ]),
+    );
+    const handle = await realProxy(ledger(), upstream.fetch);
+    await (await handle(boxRequest("/v1/messages"), BOX_A)).text();
+    const split = f.office.get<{ m5: number; h1: number }>(
+      `select sum(cache_create_5m) as m5, sum(cache_create_1h) as h1 from usage_totals
+       where office_id = $office_id and run_id = $run`,
+      { run: f.run },
+    );
+    expect(split).toEqual({ m5: 10, h1: 20 });
+  });
 });
 
 describe("a Claude Code turn (criterion 3)", () => {
@@ -406,10 +454,11 @@ describe("a Claude Code turn (criterion 3)", () => {
       `select model, turns, budget_used from usage_totals where office_id = $office_id and run_id = $run`,
       { run: f.run },
     );
-    expect(rows.find((row) => row.model === "claude-haiku-5-5")).toMatchObject({
-      budget_used: 2 + 155 + 1_662,
-    });
-    expect(rows.reduce((sum, row) => sum + row.turns, 0)).toBeGreaterThan(0);
+    // The turns and the proxy's tokens sit on one model row.
+    const row = rows.find((candidate) => candidate.model === "claude-haiku-5-5");
+    expect(row).toMatchObject({ budget_used: 2 + 155 + 1_662 });
+    expect(row?.turns).toBeGreaterThan(0);
+    expect(rows.reduce((sum, candidate) => sum + candidate.turns, 0)).toBe(row?.turns ?? -1);
   });
 });
 
@@ -504,6 +553,14 @@ describe("the old barrier (criterion 5)", () => {
     expect(stored(f.run)).toMatchObject({ input: 0, output: 0 });
   });
 
+  it("refuses count_tokens too when the run's office is not loaded", async () => {
+    const upstream = upstreamOf(() => jsonAnswer({ input_tokens: 1 }));
+    const handle = await realProxy(ledger(), upstream.fetch);
+    owners.set(BOX_A, { office: "off_not_loaded", run: f.run, agent: f.agent });
+    expect((await handle(boxRequest("/v1/messages/count_tokens"), BOX_A)).status).toBe(503);
+    expect(upstream.calls).toEqual([]);
+  });
+
   it("forwards count_tokens and adds no tokens for it", async () => {
     const upstream = upstreamOf(
       () =>
@@ -558,6 +615,46 @@ describe("fail closed (criterion 7)", () => {
     expect(upstream.calls).toEqual([]);
     // `afterEach` closes it again.
     f = { ...f, t: { ...f.t, state: { close: () => {} } as unknown as typeof f.t.state } };
+  });
+
+  it("refuses with nothing forwarded when only the write fails and reads still work", async () => {
+    const upstream = upstreamOf(() => jsonAnswer({ input_tokens: 1 }));
+    const handle = await realProxy(ledger(), upstream.fetch);
+    f.t.state.connection.exec("pragma query_only = 1");
+    // The run and its agent are read, but the account cannot be written.
+    expect(f.office.get("select 1 as found from runs where office_id = $office_id")).not.toBeNull();
+    const refused = await handle(boxRequest("/v1/messages"), BOX_A);
+    expect(refused.status).toBe(503);
+    expect(upstream.calls).toEqual([]);
+    f.t.state.connection.exec("pragma query_only = 0");
+    expect((await handle(boxRequest("/v1/messages"), BOX_A)).status).toBe(200);
+    expect(upstream.calls).toHaveLength(1);
+  });
+
+  it("forwards nothing more after an answer's count failed, until a write goes through", async () => {
+    const upstream = upstreamOf(() => {
+      // The database stops taking writes while the model answers.
+      f.t.state.connection.exec("pragma query_only = 1");
+      return jsonAnswer({ input_tokens: 9 });
+    });
+    const handle = await realProxy(ledger(), upstream.fetch);
+    expect((await handle(boxRequest("/v1/messages"), BOX_A)).status).toBe(503);
+    expect((await handle(boxRequest("/v1/messages"), BOX_A)).status).toBe(503);
+    // The retry was not forwarded: one request spent, none uncounted again.
+    expect(upstream.calls).toHaveLength(1);
+    f.t.state.connection.exec("pragma query_only = 0");
+  });
+
+  it("refuses new requests with 429 once the run's token cap is reached, forwarding nothing", async () => {
+    const upstream = upstreamOf(() => jsonAnswer({ input_tokens: BUDGET, output_tokens: 1 }));
+    const handle = await realProxy(ledger(), upstream.fetch);
+    expect((await handle(boxRequest("/v1/messages"), BOX_A)).status).toBe(200);
+    const capped = await handle(boxRequest("/v1/messages"), BOX_A);
+    expect(capped.status).toBe(429);
+    expect(await capped.text()).not.toContain(TOKEN_TEXT);
+    expect(upstream.calls).toHaveLength(1);
+    // Another run's box is not held by it.
+    expect((await handle(boxRequest("/v1/messages"), BOX_B)).status).toBe(200);
   });
 
   it("answers 503 instead of the body when an answer's usage cannot be added", async () => {

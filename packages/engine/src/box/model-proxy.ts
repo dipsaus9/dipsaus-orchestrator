@@ -19,13 +19,17 @@
 // - The sender is known only by its peer address: the box-address registry `BoxWorkers` keeps
 //   (`ModelUsageLedger.owner`) names the run and agent of the box at that address. A header or a
 //   body that names a run is never read. An address no running session owns is refused (403).
-// - Before a model request goes on, the owner's account is opened (`ModelUsageLedger.open`), a
-//   write to the run's records. When the owner cannot be told or the account cannot be opened, the
-//   request is refused (403, 503) and nothing is forwarded: no token is spent that nobody counts.
-// - The usage of each answer it passes is added to that run: the JSON body's `usage`, or a
-//   stream's `message_start` usage with every later `message_delta` usage over it (their numbers
-//   are totals so far). A stream cut off before its last event is counted from what arrived. A
-//   `count_tokens` request is forwarded and adds nothing.
+// - Before any request goes on, the owner's account is opened (`ModelUsageLedger.open`), a
+//   write to the run's records. When the owner cannot be told or the write fails, the request is
+//   refused (403, 503) and nothing is forwarded: no token is spent that nobody counts. Once the
+//   run's (or the reviewer's) token cap is reached, a new request is refused with 429.
+// - The usage of each answer it passes is added to that run as the upstream sends it: the JSON
+//   body's `usage`, or a stream's `message_start` usage (input and cache at once) and each later
+//   `message_delta` usage over it (their numbers are totals so far, so only the change is added).
+//   A stream is read from the upstream at the upstream's pace, whether or not the box reads it, so a
+//   box that holds a stream open unread still has what was spent counted; one that goes away ends
+//   the upstream stream. A stream cut off counts what arrived. A `count_tokens` request is
+//   forwarded and adds nothing.
 //
 // A box gets only `boxModelEnvironment`: a placeholder key, the proxy's URL and NO_PROXY for its
 // address, so Claude Code sends model requests here rather than to the web proxy.
@@ -128,8 +132,14 @@ export interface ProxiedUsage {
   readonly cacheRead: number;
 }
 
-/** Adds the usage of one answer to the account `open` opened; throws when it cannot. */
+/**
+ * Adds tokens of one answer, as they arrive, to the account `open` opened; throws when it cannot.
+ * Each call adds what is new since the one before.
+ */
 export type ProxyAccount = (usage: ProxiedUsage) => void;
+
+/** Thrown by `ModelUsageLedger.open` when the owner's token cap is reached: the proxy answers 429. */
+export class ModelUseCapped extends Error {}
 
 /**
  * Where the proxy counts (DIPO-425): the box-address registry of `BoxWorkers` and the run's usage
@@ -138,8 +148,11 @@ export type ProxyAccount = (usage: ProxiedUsage) => void;
 export interface ModelUsageLedger {
   /** The owner of a box address now; null when no running session's box has it. */
   owner(address: string): ProxyOwner | null;
-  /** Opens `owner`'s account for one model request: a write that must go through first. */
-  open(owner: ProxyOwner): ProxyAccount;
+  /**
+   * Opens `owner`'s account for one request to `model` (as the request names it): a write that
+   * must go through first. Throws `ModelUseCapped` once the owner's token cap is reached.
+   */
+  open(owner: ProxyOwner, model: string): ProxyAccount;
 }
 
 export interface ListeningHttp {
@@ -197,7 +210,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** The usage fields an answer reported so far; each later report replaces what it names. */
-type UsageFields = Partial<Record<keyof Omit<ProxiedUsage, "model" | "cacheCreate">, number>>;
+type UsageFields = Partial<Record<keyof Omit<ProxiedUsage, "model" | "cacheCreate5m">, number>>;
 
 /** `usage` as the Messages API reports it, the fields it names only. */
 function usageFields(usage: unknown): UsageFields | null {
@@ -208,14 +221,11 @@ function usageFields(usage: unknown): UsageFields | null {
   if ("cache_read_input_tokens" in usage)
     fields["cacheRead"] = tokens(usage["cache_read_input_tokens"]);
   if ("cache_creation_input_tokens" in usage) {
-    const create = tokens(usage["cache_creation_input_tokens"]);
-    const split = usage["cache_creation"];
-    const oneHour = isRecord(split)
-      ? Math.min(create, tokens(split["ephemeral_1h_input_tokens"]))
-      : 0;
-    fields["cacheCreate1h"] = oneHour;
-    fields["cacheCreate5m"] = create - oneHour;
+    fields["cacheCreate"] = tokens(usage["cache_creation_input_tokens"]);
   }
+  // A report without the split keeps the 1 hour share an earlier one gave.
+  const split = usage["cache_creation"];
+  if (isRecord(split)) fields["cacheCreate1h"] = tokens(split["ephemeral_1h_input_tokens"]);
   return fields;
 }
 
@@ -225,6 +235,8 @@ export class UsageMeter {
   #model: string | null = null;
   #seen = false;
   #pending = "";
+  /** What `take` handed out so far. */
+  #taken: ProxiedUsage | null = null;
   readonly #decoder = new TextDecoder();
 
   constructor(readonly requested: string) {}
@@ -283,17 +295,47 @@ export class UsageMeter {
   /** The tokens read so far. */
   usage(): ProxiedUsage {
     const f = this.#fields;
-    const cacheCreate5m = f.cacheCreate5m ?? 0;
-    const cacheCreate1h = f.cacheCreate1h ?? 0;
+    const cacheCreate = f.cacheCreate ?? 0;
+    const cacheCreate1h = Math.min(cacheCreate, f.cacheCreate1h ?? 0);
     return {
       model: this.#model ?? this.requested,
       input: f.input ?? 0,
       output: f.output ?? 0,
-      cacheCreate: cacheCreate5m + cacheCreate1h,
-      cacheCreate5m,
+      cacheCreate,
+      cacheCreate5m: cacheCreate - cacheCreate1h,
       cacheCreate1h,
       cacheRead: f.cacheRead ?? 0,
     };
+  }
+
+  /** What was read since the last `take`, never below 0; null when nothing grew. */
+  take(): ProxiedUsage | null {
+    const now = this.usage();
+    const before = this.#taken;
+    const grown = (field: Exclude<keyof ProxiedUsage, "model">): number =>
+      Math.max(0, now[field] - (before?.[field] ?? 0));
+    const change: ProxiedUsage = {
+      model: now.model,
+      input: grown("input"),
+      output: grown("output"),
+      cacheCreate: grown("cacheCreate"),
+      cacheCreate5m: grown("cacheCreate5m"),
+      cacheCreate1h: grown("cacheCreate1h"),
+      cacheRead: grown("cacheRead"),
+    };
+    this.#taken = {
+      model: now.model,
+      input: Math.max(now.input, before?.input ?? 0),
+      output: Math.max(now.output, before?.output ?? 0),
+      cacheCreate: Math.max(now.cacheCreate, before?.cacheCreate ?? 0),
+      cacheCreate5m: Math.max(now.cacheCreate5m, before?.cacheCreate5m ?? 0),
+      cacheCreate1h: Math.max(now.cacheCreate1h, before?.cacheCreate1h ?? 0),
+      cacheRead: Math.max(now.cacheRead, before?.cacheRead ?? 0),
+    };
+    const grew =
+      change.input + change.output + change.cacheCreate + change.cacheRead > 0 ||
+      change.cacheCreate5m + change.cacheCreate1h > 0;
+    return grew ? change : null;
   }
 }
 
@@ -316,6 +358,8 @@ export interface ModelProxyHandlerOptions {
   readonly upstream?: string;
   /** One line per request: method, path and status; never a header. */
   readonly log?: (line: string) => void;
+  /** A model answer whose usage could not be read or recorded (DIPO-425). */
+  readonly warn?: (line: string) => void;
   readonly maxBodyBytes?: number;
 }
 
@@ -329,6 +373,7 @@ export function createModelProxyHandler(
   const upstream = options.upstream ?? MODEL_UPSTREAM;
   const maxBodyBytes = options.maxBodyBytes ?? MODEL_PROXY_MAX_BODY_BYTES;
   const log = options.log ?? (() => {});
+  const warn = options.warn ?? log;
   return async (request, peer) => {
     // The parsed path: dot segments are resolved before the check, and only the checked path
     // is sent on, to the fixed upstream; the host the box named is never used.
@@ -352,12 +397,14 @@ export function createModelProxyHandler(
       log(`${request.method} ${shown} -> 413`);
       return refusal(413, "request too large");
     }
-    const opened = openAccount(ledger, peer, url.pathname === "/v1/messages");
+    const requested = requestedModel(body);
+    const opened = openAccount(ledger, peer, requested);
     if (opened instanceof Response) {
       log(`${request.method} ${shown} -> ${opened.status} (${opened.statusText})`);
       return opened;
     }
-    const account = opened.account;
+    // Only a model request is counted; a count of tokens spends none.
+    const account = url.pathname === "/v1/messages" ? opened.account : null;
     let response: Response;
     try {
       response = await upstreamFetch(`${upstream}${url.pathname}${url.search}`, {
@@ -380,22 +427,22 @@ export function createModelProxyHandler(
       return new Response(response.body, init);
     }
     return countedAnswer(response, init, {
-      meter: new UsageMeter(requestedModel(body)),
+      meter: new UsageMeter(requested),
       account,
-      log: (line) => log(`${request.method} ${shown}${line}`),
+      warn: (line) => warn(`${request.method} ${shown}${line}`),
     });
   };
 }
 
 /**
- * Who sent a request, by the peer address through the registry (DIPO-425), and for a counted one
- * its owner's account, opened before anything is spent; a refusal when either cannot be had.
+ * Who sent a request, by the peer address through the registry (DIPO-425), and its owner's
+ * account, opened before anything is spent; a refusal when either cannot be had.
  */
 function openAccount(
   ledger: ModelUsageLedger,
   peer: string | null,
-  counted: boolean,
-): Response | { readonly account: ProxyAccount | null } {
+  model: string,
+): Response | { readonly account: ProxyAccount } {
   const address = peerAddress(peer);
   let owner: ProxyOwner | null = null;
   try {
@@ -410,10 +457,12 @@ function openAccount(
       "no running session owns the sender",
     );
   }
-  if (!counted) return { account: null };
   try {
-    return { account: ledger.open(owner) };
-  } catch {
+    return { account: ledger.open(owner, model) };
+  } catch (error) {
+    if (error instanceof ModelUseCapped) {
+      return refusal(429, "the run's token budget is used up", "the token cap is reached");
+    }
     return refusal(
       503,
       "the model use cannot be counted now",
@@ -429,82 +478,82 @@ async function countedAnswer(
   how: {
     readonly meter: UsageMeter;
     readonly account: ProxyAccount;
-    readonly log: (line: string) => void;
+    readonly warn: (line: string) => void;
   },
 ): Promise<Response> {
-  const { meter, account, log } = how;
-  const keep = (): void => {
-    if (!meter.seen) log(": the answer reported no usage");
-    account(meter.usage());
-  };
+  const { meter, account, warn } = how;
   const streamed = (response.headers.get("content-type") ?? "").includes("text/event-stream");
   if (streamed && response.body !== null) {
-    return new Response(meteredStream(response.body, meter, keep), init);
+    return new Response(meteredStream(response.body, meter, account, warn), init);
   }
   const bytes = await response.arrayBuffer();
   try {
     meter.readJson(JSON.parse(new TextDecoder().decode(bytes)) as unknown);
   } catch {
-    // Not JSON: nothing to read, which `keep` logs.
+    // Not JSON: nothing to read, which the warning below says.
   }
+  if (!meter.seen) warn(": the answer reported no usage");
   try {
-    keep();
+    const change = meter.take();
+    if (change !== null) account(change);
   } catch {
-    log(" -> 503 (the answer's usage could not be recorded)");
+    warn(" -> 503 (the answer's usage could not be recorded)");
     return refusal(503, "the model use could not be counted");
   }
   return new Response(bytes, init);
 }
 
 /**
- * `body` passed on as it comes, each chunk read by `meter`; `keep` runs once, when the stream
- * ends, fails or the box goes away, so a cut-off stream counts what arrived. A `keep` that throws
- * at the end fails the stream for the box.
+ * `body` passed on to the box, read from the upstream at the upstream's pace whatever the box
+ * reads, so each change of its usage is added to `account` as it arrives. A box that goes away
+ * ends the upstream stream; a count that cannot be recorded ends both, and fails the box's.
  */
 function meteredStream(
   body: ReadableStream<Uint8Array>,
   meter: UsageMeter,
-  keep: () => void,
+  account: ProxyAccount,
+  warn: (line: string) => void,
 ): ReadableStream<Uint8Array> {
   const reader = body.getReader();
-  let kept = false;
-  const once = (): void => {
-    if (kept) return;
-    kept = true;
-    meter.end();
-    keep();
+  let box: ReadableStreamDefaultController<Uint8Array> | null = null;
+  let gone = false;
+  const count = (): void => {
+    const change = meter.take();
+    if (change !== null) account(change);
+  };
+  const pump = async (): Promise<void> => {
+    try {
+      for (;;) {
+        const next = await reader.read();
+        if (next.done) break;
+        meter.push(next.value);
+        count();
+        if (!gone) box?.enqueue(next.value);
+      }
+      meter.end();
+      count();
+      if (!meter.seen) warn(": the answer reported no usage");
+      if (!gone) box?.close();
+    } catch (error) {
+      // The upstream was cut, or a count could not be recorded: what arrived counts, if it can.
+      try {
+        meter.end();
+        count();
+      } catch {
+        warn(": the answer's usage could not be recorded");
+      }
+      await reader.cancel().catch(() => undefined);
+      if (!gone) box?.error(error);
+    }
   };
   return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      let next: Awaited<ReturnType<typeof reader.read>>;
-      try {
-        next = await reader.read();
-      } catch (error) {
-        try {
-          once();
-        } finally {
-          controller.error(error);
-        }
-        return;
-      }
-      if (next.done) {
-        try {
-          once();
-          controller.close();
-        } catch (error) {
-          controller.error(error);
-        }
-        return;
-      }
-      meter.push(next.value);
-      controller.enqueue(next.value);
+    start(controller) {
+      box = controller;
+      void pump();
     },
     async cancel(reason) {
-      try {
-        once();
-      } finally {
-        await reader.cancel(reason).catch(() => undefined);
-      }
+      gone = true;
+      await reader.cancel(reason).catch(() => undefined);
     },
   });
 }
@@ -550,6 +599,8 @@ export interface ModelProxyDeps {
   readonly fetch?: UpstreamFetch;
   readonly upstream?: string;
   readonly log?: (line: string) => void;
+  /** A model answer whose usage could not be read or recorded; `log` without it. */
+  readonly warn?: (line: string) => void;
 }
 
 /** A running model proxy. It looks for its token on request, but never hands it out. */
@@ -579,6 +630,7 @@ export async function startModelProxy(deps: ModelProxyDeps): Promise<RunningMode
     ...(deps.fetch === undefined ? {} : { fetch: deps.fetch }),
     ...(deps.upstream === undefined ? {} : { upstream: deps.upstream }),
     ...(deps.log === undefined ? {} : { log: deps.log }),
+    ...(deps.warn === undefined ? {} : { warn: deps.warn }),
   });
   const listening = deps.listen({
     hostname: hostAddress,

@@ -414,7 +414,10 @@ describe("the caps on a box worker's stream (criterion 3)", () => {
       office: () => f.office,
       clock: f.t.clock,
     });
-    const account = ledger.open({ office: f.office.officeId, run: f.run, agent: f.agent });
+    const account = ledger.open(
+      { office: f.office.officeId, run: f.run, agent: f.agent },
+      "claude-haiku-5-5",
+    );
     account({
       model: "claude-haiku-5-5",
       input,

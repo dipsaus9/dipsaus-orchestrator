@@ -143,6 +143,26 @@ export interface ProxiedTokens {
   readonly cacheRead: number;
 }
 
+/**
+ * The write the model proxy makes before it forwards a request (DIPO-425): the agent's canonical
+ * row of `model` made if missing and touched, so a database that cannot take writes refuses here,
+ * before anything is spent.
+ */
+export function openProxiedRow(
+  office: OfficeHandle,
+  scope: UsageScope,
+  model: string,
+  at: number,
+): void {
+  const canonical = canonicalModel(model);
+  ensureRow(office, scope, canonical, at);
+  office.run(
+    `update usage_totals set updated_at = $at
+     where office_id = $office_id and run_id = $run and agent_id = $agent and model = $model`,
+    { at, run: scope.run, agent: scope.agent, model: canonical },
+  );
+}
+
 /** Adds one answer's tokens, as the model proxy read them, to the agent's canonical model row. */
 export function recordProxiedUsage(
   office: OfficeHandle,

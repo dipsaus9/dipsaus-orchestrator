@@ -464,6 +464,7 @@ function engineBoxWorkers(
         keychain: { spawn: options.spawn, clock, env: { PATH: "/usr/bin:/bin", HOME: home } },
         listen: options.listenHttp,
         log: (line) => options.logger.debug("model proxy", { line }),
+        warn: (line) => options.logger.warn("model proxy", { line }),
       }),
     readBaseBox: (git) => readBaseBox(git),
     code: { spawn: options.spawn, clock },
