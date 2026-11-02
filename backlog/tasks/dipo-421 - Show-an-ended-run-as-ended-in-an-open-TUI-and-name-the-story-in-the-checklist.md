@@ -1,10 +1,10 @@
 ---
 id: DIPO-421
 title: 'Show an ended run as ended in an open TUI, and name the story in the checklist'
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-02 09:14'
-updated_date: '2026-11-02 09:16'
+updated_date: '2026-11-02 09:23'
 labels:
   - 'tier:M'
 milestone: m-1
