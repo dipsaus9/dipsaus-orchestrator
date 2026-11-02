@@ -1,10 +1,10 @@
 ---
 id: DIPO-337
 title: Run local bun test in parallel shards to get it under 60 s
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-24 09:32'
-updated_date: '2026-11-01 13:32'
+updated_date: '2026-11-02 09:02'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -15,10 +15,11 @@ dependencies:
   - DIPO-406
 references:
   - scripts/test.ts
+  - scripts/test.test.ts
   - scripts/test-shards.ts
+  - scripts/test-shards.test.ts
   - scripts/test-timings.json
   - scripts/test-timings.ts
-  - .github/workflows/ci.yml
   - package.json
   - docs/decisions/0017-testing-strategy-and-configuration.md
 priority: medium
