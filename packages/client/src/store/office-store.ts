@@ -2,7 +2,9 @@
 // `engine.hello`, the software stream, one office's snapshot and that office's stream. It applies
 // events by subject (story `key`, `run`, `gate`, `question`, `test`, `office`), drops stored
 // events whose cursor it already has, and replaces the views the engine sends. It never computes
-// column, health, phase, evidence or cost: an event without a view changes nothing it shows.
+// column, health, phase, evidence or cost: a work event without a view changes nothing it shows.
+// `run.ended` drops the run from `work` at once, as the next snapshot would (DIPO-421); the work
+// events the engine writes after a run ended carry no view, so they change nothing shown.
 // `work.output` text is passed to `onOutput` listeners and never kept in the state (DIPO-55).
 // A stream the daemon ends with any other error than `stream.resetRequired` (such as
 // `engine.recovering` right after a daemon restart) is subscribed again after the store's last
@@ -39,6 +41,7 @@ import {
   questionClosed,
   type QuestionView,
   type ReadDefinition,
+  runEnded,
   type RunId,
   storyRenumbered,
   storyState,
@@ -737,6 +740,13 @@ export class OfficeStore {
       return;
     }
     switch (event.type) {
+      case runEnded.type: {
+        const data = runEnded.data.safeParse(event.data);
+        if (!data.success) return;
+        const run = data.data.run;
+        this.#update({ work: this.#state.work.filter((view) => view.work.run !== run) });
+        return;
+      }
       case storyState.type: {
         const data = storyState.data.safeParse(event.data);
         if (data.success) this.#putStory(data.data.view);

@@ -1,7 +1,8 @@
 // The test checklist in the TUI (DIPO-365 test plan): `4` and `t` on a desk row show the open
 // test's manual steps, Space ticks one locally, `P` sends a pass, `F` pre-fills the note with the
-// first unticked step and sends a fail, and Esc leaves the test open. Frames are asserted with
-// ANSI stripped.
+// first unticked step and sends a fail, and Esc leaves the test open. While `test.start` runs the
+// checklist names the story by its id, never its internal key, and the open test shows its
+// `dipo test shell <ID>` line (DIPO-421). Frames are asserted with ANSI stripped.
 
 import { afterEach, describe, expect, it } from "bun:test";
 
@@ -141,5 +142,46 @@ describe("the test checklist", () => {
     await until(() => session.commands.length === 1, "test.start");
     expect(sent(session)).toEqual([{ name: "test.start", args: { story: "DIPO-19" } }]);
     await ui.waitFor("Test of DIPO-19");
+  });
+
+  it("names the story by its id until the test opens, then shows its shell line", async () => {
+    const view = await mount({ columns: 120, rows: 30 });
+    mounted.push(view.ui);
+    const { ui, session } = view;
+    await ui.waitFor("· live");
+    session.desk = [
+      DeskItem.parse({
+        kind: "IN REVIEW",
+        story: "DIPO-19",
+        key: KEY_19,
+        detail: "pushed head ready to test",
+        since: "2026-10-14T10:00:00.000Z",
+        blocks: [],
+        actions: [{ command: "test.start", cli: "dipo test DIPO-19" }],
+      }),
+    ];
+    await ui.press("3");
+    await ui.waitFor("Your desk (");
+    await ui.press("t");
+    await until(() => session.commands.length === 1, "test.start");
+    const waiting = await ui.waitFor("No test is open for DIPO-19.");
+    expect(waiting).not.toContain(KEY_19);
+
+    // The test box is ready: `test.started` carries the view the `test.start` reply named.
+    session.active(STREAM)?.options.onEvent(
+      event(20, "test.started", {
+        test: TEST_19,
+        story: "DIPO-19",
+        key: KEY_19,
+        checkout: "dipo-test-19",
+        head: "9f8e7d6c5b4a3210",
+        steps,
+        shell: "dipo test shell DIPO-19",
+        startedAt: "2026-10-14T10:03:00.000Z",
+      }),
+    );
+    const frame = await ui.waitFor("Test of DIPO-19: dipo-test-19 at 9f8e7d6");
+    expect(frame).toContain(" shell: dipo test shell DIPO-19");
+    expect(frame).not.toContain(KEY_19);
   });
 });

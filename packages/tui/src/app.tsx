@@ -306,6 +306,8 @@ export function App(props: AppProps) {
   // The checklist (DIPO-365): the story whose open test shows (null: the first open test), the view
   // Esc returns to, the step the cursor is on and the steps ticked, by test id, on this screen.
   const [checklistKey, setChecklistKey] = useState<string | null>(null);
+  // The story id the checklist names its story by, never the internal key (DIPO-421).
+  const [checklistStory, setChecklistStory] = useState<string | null>(null);
   const [checklistBack, setChecklistBack] = useState<View>("overview");
   const [checklistStep, setChecklistStep] = useState(0);
   const [ticks, setTicks] = useState<Readonly<Record<string, readonly number[]>>>({});
@@ -387,10 +389,14 @@ export function App(props: AppProps) {
   // The open test the checklist shows: the story's, else the first open one (DIPO-365).
   const checklistTest =
     state.tests.find((test) => checklistKey === null || String(test.key) === checklistKey) ?? null;
-  /** `4`, or `t` on a desk row: the checklist; Esc returns to `back`. */
-  const openChecklist = (key: string | null, back: View) => {
+  /** `4`, or `t` on a desk row: the checklist of `story`, else any; Esc returns to `back`. */
+  const openChecklist = (
+    story: { readonly key: string; readonly id: string } | null,
+    back: View,
+  ) => {
     setMessage(null);
-    setChecklistKey(key);
+    setChecklistKey(story?.key ?? null);
+    setChecklistStory(story?.id ?? null);
     setChecklistBack(back);
     setChecklistStep(0);
     setView("checklist");
@@ -852,7 +858,10 @@ export function App(props: AppProps) {
       if (bound === undefined) return;
       setDeskSelection({ id: deskRowId(deskItem), key: deskItem.key ?? null, index: deskIndex });
       if (bound.binding.id === "test" && deskItem.key !== undefined) {
-        openChecklist(String(deskItem.key), "desk");
+        const storyKey = String(deskItem.key);
+        const id =
+          deskItem.story ?? state.stories.find((story) => String(story.key) === storyKey)?.story;
+        openChecklist({ key: storyKey, id: id === undefined ? "this story" : String(id) }, "desk");
       }
       act(bound.binding.id, deskTarget(deskItem, bound.action.cli, bound.binding.id));
     }
@@ -1099,7 +1108,7 @@ export function App(props: AppProps) {
           empty={
             checklistKey === null
               ? "No test is open. t on a desk row starts one."
-              : `No test is open for ${checklistKey}.`
+              : `No test is open for ${checklistStory ?? "this story"}.`
           }
           ticked={checklistTest === null ? [] : (ticks[checklistTest.test] ?? [])}
           step={checklistStep}

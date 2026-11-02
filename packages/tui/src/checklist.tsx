@@ -2,7 +2,8 @@
 // order, with local ticks that the engine never sees. The open test comes from the office store
 // (`test.started`, `test.recorded`, `test.ended`); the TUI does not derive it. `P` passes the test
 // and `F` fails it with a note that starts as the first unticked step (`actions.ts`); Esc leaves
-// the view and the test open.
+// the view and the test open. It names the story by its id, and shows the test's `url` and its
+// `dipo test shell <ID>` line when the test carries them (DIPO-421).
 
 import type { TestStep, TestView } from "@dipsaus-orchestrator/contract";
 import { Box, Text } from "ink";
@@ -37,6 +38,7 @@ export function Checklist(props: ChecklistProps) {
     <Box flexDirection="column">
       <Text wrap="truncate-end">{` Test of ${test.story}: ${test.checkout} at ${test.head.slice(0, 7)}`}</Text>
       {test.url === undefined ? null : <Text wrap="truncate-end">{` open ${test.url}`}</Text>}
+      {test.shell === undefined ? null : <Text wrap="truncate-end">{` shell: ${test.shell}`}</Text>}
       {test.steps.length === 0 ? (
         <Text>{" no manual steps; P passes the test, F fails it"}</Text>
       ) : null}

@@ -1,10 +1,10 @@
 ---
 id: DIPO-421
 title: 'Show an ended run as ended in an open TUI, and name the story in the checklist'
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-02 09:14'
-updated_date: '2026-11-02 09:23'
+updated_date: '2026-11-02 10:10'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -16,6 +16,8 @@ references:
   - packages/tui/src/overview.tsx
   - packages/client/test/
   - packages/tui/src/
+  - packages/engine/src/views/work.ts
+  - packages/engine/test/ingest/markers.test.ts
 priority: low
 type: bug
 ordinal: 399000
@@ -42,7 +44,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The cause is named in the PR: which end event of a run the open store did not apply
-- [ ] #2 An open overview, queue and live agent view drop a run from RUNNING within 5 s of the stream's event that ends it, also when the run ends through a merge after a test pass, shown by a store test fed that event sequence
-- [ ] #3 The checklist names a story by its id (TASK-19 style), never by its internal key, and shows the test reply's shell line, shown by a TUI test
+- [x] #1 The cause is named in the PR: which end event of a run the open store did not apply
+- [x] #2 An open overview, queue and live agent view drop a run from RUNNING within 5 s of the stream's event that ends it, also when the run ends through a merge after a test pass, shown by a store test fed that event sequence
+- [x] #3 The checklist names a story by its id (TASK-19 style), never by its internal key, and shows the test reply's shell line, shown by a TUI test
 <!-- AC:END -->
