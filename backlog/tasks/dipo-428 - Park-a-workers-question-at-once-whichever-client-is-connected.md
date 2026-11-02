@@ -1,10 +1,10 @@
 ---
 id: DIPO-428
 title: 'Park a worker''s question at once, whichever client is connected'
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-02 12:11'
-updated_date: '2026-11-02 12:25'
+updated_date: '2026-11-02 13:20'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -54,8 +54,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A worker question parks the story at once with a TUI connected and without one, the same park record, shown by a test of each
-- [ ] #2 The live question route, `TuiPresence` with its daemon and engine plumbing, and `timeouts.questionWaitMinutes` are removed, shown by the diff and a source scan test that finds none of the three names
-- [ ] #3 The office config version is 15 with a migration from 14 that drops `timeouts.questionWaitMinutes`: a version 14 file that sets it loads, and `dipo config migrate` writes version 15 without it, shown by config tests on fixture files; the regenerated office.schema.json has no such key
-- [ ] #4 No ADR text changes: 0001 and 0020 already say this
+- [x] #1 A worker question parks the story at once with a TUI connected and without one, the same park record, shown by a test of each
+- [x] #2 The live question route, `TuiPresence` with its daemon and engine plumbing, and `timeouts.questionWaitMinutes` are removed, shown by the diff and a source scan test that finds none of the three names
+- [x] #3 The office config version is 15 with a migration from 14 that drops `timeouts.questionWaitMinutes`: a version 14 file that sets it loads, and `dipo config migrate` writes version 15 without it, shown by config tests on fixture files; the regenerated office.schema.json has no such key
+- [x] #4 No ADR text changes: 0001 and 0020 already say this
 <!-- AC:END -->
