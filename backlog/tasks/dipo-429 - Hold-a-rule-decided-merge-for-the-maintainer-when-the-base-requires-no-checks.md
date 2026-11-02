@@ -1,10 +1,10 @@
 ---
 id: DIPO-429
 title: Hold a rule-decided merge for the maintainer when the base requires no checks
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-11-02 12:11'
-updated_date: '2026-11-02 12:17'
+updated_date: '2026-11-02 12:51'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -15,6 +15,14 @@ references:
   - packages/engine/src/run-state/gates.ts
   - packages/engine/src/platform/host.ts
   - packages/engine/test/story-pr/
+modified_files:
+  - packages/engine/src/create/commands.ts
+  - packages/engine/src/merge/stories.ts
+  - packages/engine/src/run-state/gates.ts
+  - packages/engine/src/story-pr/prs.ts
+  - packages/engine/test/merge/stories.test.ts
+  - packages/engine/test/merge/story-helpers.ts
+  - packages/engine/test/story-pr/ci.test.ts
 priority: medium
 type: bug
 ordinal: 407000
@@ -41,7 +49,22 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A merge gate whose base was read to require no checks waits for the maintainer with that reason in its summary and never turns auto-merge on by rule, shown by a test
-- [ ] #2 A failed read waits as today, no wired host behaves as today, and a base with required checks merges by rule as today, shown by tests
-- [ ] #3 The first empty read for an office in a daemon run emits one office notice and a log line, and later reads emit none, shown by a test
+- [x] #1 A merge gate whose base was read to require no checks waits for the maintainer with that reason in its summary and never turns auto-merge on by rule, shown by a test
+- [x] #2 A failed read waits as today, no wired host behaves as today, and a base with required checks merges by rule as today, shown by tests
+- [x] #3 The first empty read for an office in a daemon run emits one office notice and a log line, and later reads emit none, shown by a test
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-02 12:51 UTC
+- Criteria met: 3 of 3 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 124,585 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

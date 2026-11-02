@@ -194,6 +194,8 @@ export interface StoryWorld {
   readonly prSyncs: RunId[];
   /** The record of a merge dipo made fails (the fake `recordMerge` throws). */
   failRecord: boolean;
+  /** The base was read to require no checks (`StoryPrs.requiresNoChecks`, DIPO-429). */
+  noneRequired: boolean;
   config: OfficeConfig;
   /** The verdict on H1. */
   readonly verdict: StoredReviewVerdict;
@@ -281,6 +283,7 @@ export async function storyWorld(
       ids: w.t.ids,
       labels: host,
       ci: (_office, runId) => ci.get(runId) ?? null,
+      requiresNoChecks: () => self.noneRequired,
       prSync: async (_office, runId) => {
         prSyncs.push(runId);
         // As `StoryPrs.sync` does: the PR follows the branch's pushed head.
@@ -341,6 +344,7 @@ export async function storyWorld(
     prSyncs,
     config: OFFICE_DEFAULTS,
     failRecord: false,
+    noneRequired: false,
     verdict: verdict as unknown as StoredReviewVerdict,
     merge,
     tick: () => merge.tick(officeId),

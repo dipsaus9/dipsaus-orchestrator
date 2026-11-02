@@ -55,6 +55,8 @@ export function readCompleteLines(
         if (n === 0) break;
         read += n;
       }
+      // Fewer bytes than asked: the file shrank or was replaced since its stat. The next pass re-stats it.
+      if (read < length) return [];
       const bytes = buffer.subarray(0, read);
       const last = bytes.lastIndexOf(0x0a);
       if (last < 0) {
