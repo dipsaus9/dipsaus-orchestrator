@@ -29,7 +29,7 @@ import type { CapName } from "../records/caps";
 import { resolveIntent, sendAsIntent } from "../records/intents";
 import { workerHostsOf } from "../records/worker-hosts";
 import { HOST_LAUNCH_DEADLINE_MS } from "./hosts";
-import type { RunAct } from "./outcome-types";
+import { parkIntentDetail, type RunAct } from "./outcome-types";
 import {
   openPark,
   openParkIds,
@@ -456,7 +456,7 @@ export class RunEndings {
     office: OfficeHandle,
     run: StoredRun,
     work: WorkRef | undefined,
-    ending: Ending & { readonly capStep?: string },
+    ending: Ending,
     commit: (fn: () => readonly NewEntry[]) => void,
     writer: ParkWriter = this.#deps.writer,
   ): Promise<ParkOutcome> {
@@ -483,7 +483,10 @@ export class RunEndings {
     })();
   }
 
-  /** Records the ending's intent (synchronously, before the first await) and sends its ops. */
+  /**
+   * Records the ending's intent (synchronously, before the first await) and sends its ops. A park
+   * intent keeps its park (`parkIntentDetail`), so a restart before the park parks with it.
+   */
   #send(
     office: OfficeHandle,
     run: StoredRun,
@@ -493,7 +496,9 @@ export class RunEndings {
     const notice = ending.notice;
     return sendAsIntent(office, this.#deps.steering, run.runId, {
       kind: ending.intent,
-      detail: ending.intentDetail ?? ending.detail,
+      detail:
+        ending.intentDetail ??
+        (ending.intent === "park" ? parkIntentDetail(ending) : ending.detail),
       ops: ending.ops,
       clock: this.#deps.clock,
       beforeSend: () => {
@@ -515,7 +520,7 @@ export class RunEndings {
     office: OfficeHandle,
     run: StoredRun,
     work: WorkRef | undefined,
-    ending: Ending & { readonly capStep?: string },
+    ending: Ending,
     write: (fn: () => readonly NewEntry[]) => void,
     writer: ParkWriter = this.#deps.writer,
   ): Promise<ParkOutcome> {

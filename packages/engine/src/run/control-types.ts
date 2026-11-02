@@ -206,6 +206,8 @@ export interface RunEnding {
   readonly mustWrite?: boolean;
   /** A plan limit's park, which resumes by itself when the office's starts paused lifts (0020). */
   readonly resumeOnLift?: boolean;
+  /** The `cap` run step of a done turn that crossed a cap (DIPO-222), written with the park. */
+  readonly capStep?: string;
   /** An `engine.notice` written before the park (DIPO-51). */
   readonly notice?: {
     readonly level: "info" | "warn" | "error";

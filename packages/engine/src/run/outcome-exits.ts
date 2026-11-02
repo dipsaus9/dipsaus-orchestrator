@@ -15,6 +15,7 @@ import {
   HOST_LOST_WHY,
   initRejectedEnding,
   INTENT_TAGS,
+  intentPark,
   intentRest,
   intentTag,
   planLimitEnding,
@@ -155,6 +156,14 @@ export class ExitOutcomes {
         detail: question,
         question,
       });
+      return;
+    }
+    // Any other park a restart found unwritten parks with the reason and facts its intent kept
+    // (DIPO-433); an intent an older dipo wrote keeps none and is only resolved, below.
+    const park = intent.kind === "park" ? intentPark(intent.detail) : null;
+    if (park !== null) {
+      this.#s.resolve(office, view.runId, intent, "run-ended", at);
+      await this.#s.park(office, run, view.work, { intent: "park", ops: [], ...park });
       return;
     }
     // A stop, cap or park whose park did not end the run: the exit is explained all the same.
