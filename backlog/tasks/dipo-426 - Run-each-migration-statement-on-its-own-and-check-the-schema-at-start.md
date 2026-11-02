@@ -1,10 +1,10 @@
 ---
 id: DIPO-426
 title: Run each migration statement on its own and check the schema at start
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-02 12:10'
-updated_date: '2026-11-02 12:25'
+updated_date: '2026-11-02 12:41'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -42,8 +42,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `SqliteConnection.exec` with several statements throws on a constraint failure in any statement, not only the last, on the Bun in .bun-version, shown by a test; inside a migration step the step rolls back and is left unrecorded, shown by a test
-- [ ] #2 SQL holding a trigger body, a quoted semicolon or a comment still runs as written, shown by a test
-- [ ] #3 The daemon refuses to open a database whose schema differs from the one the migrations build, naming each differing object and the backup file, shown by a test with a dropped index; a database newer than the engine is refused as today
-- [ ] #4 Every migration from 1 to the latest still builds the same schema as today, shown by the existing fresh-versus-migrated schema tests
+- [x] #1 `SqliteConnection.exec` with several statements throws on a constraint failure in any statement, not only the last, on the Bun in .bun-version, shown by a test; inside a migration step the step rolls back and is left unrecorded, shown by a test
+- [x] #2 SQL holding a trigger body, a quoted semicolon or a comment still runs as written, shown by a test
+- [x] #3 The daemon refuses to open a database whose schema differs from the one the migrations build, naming each differing object and the backup file, shown by a test with a dropped index; a database newer than the engine is refused as today
+- [x] #4 Every migration from 1 to the latest still builds the same schema as today, shown by the existing fresh-versus-migrated schema tests
 <!-- AC:END -->

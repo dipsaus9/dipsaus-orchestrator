@@ -1,6 +1,7 @@
 // Forward-only, numbered, checksummed migrations (0007 section 9). They run once for the whole
 // file, before any office loads: first a `VACUUM INTO` backup, then each pending step in its own
-// immediate transaction that also records the step and moves `PRAGMA user_version`.
+// immediate transaction that also records the step and moves `PRAGMA user_version`. Then the schema
+// must equal the one the same steps build in a fresh in-memory database.
 
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -10,12 +11,18 @@ import type { Clock } from "@dipsaus-orchestrator/contract";
 
 import {
   BACKUPS_DIR,
+  openMemorySqlite,
   vacuumInto,
   type DbLogger,
   type SqliteConnection,
   type SqlRunner,
 } from "../platform/sqlite";
-import { prunePreMigrationBackups, removeDailyBackups } from "./backup-files";
+import {
+  backupsDirectory,
+  preMigrationBackups,
+  prunePreMigrationBackups,
+  removeDailyBackups,
+} from "./backup-files";
 
 /** What a TypeScript step may use: statements and multi-statement SQL, inside its transaction. */
 export interface MigrationContext extends SqlRunner {
@@ -104,6 +111,33 @@ export class MigrationFailedError extends Error {
         : `The pre-migration backup is ${backup}.`;
     super(`Migration ${version} failed and was rolled back (${reason}). ${copy}`, { cause });
     this.name = "MigrationFailedError";
+  }
+}
+
+/** One table, index, trigger or view of a database (`sqlite_schema`), its SQL with spaces collapsed. */
+export interface SchemaObject {
+  readonly type: string;
+  readonly name: string;
+  readonly sql: string | null;
+}
+
+/**
+ * The database's schema differs from the one its migrations build (DIPO-426): a statement that was
+ * skipped, or a change made outside dipo. `objects` names each differing object.
+ */
+export class SchemaDriftError extends Error {
+  constructor(
+    readonly objects: readonly string[],
+    readonly backup: string | null,
+  ) {
+    const copy =
+      backup === null
+        ? "There is no pre-migration backup."
+        : `The newest pre-migration backup is ${backup}.`;
+    super(
+      `The state database's schema differs from the one its migrations build: ${objects.join("; ")}. ${copy}`,
+    );
+    this.name = "SchemaDriftError";
   }
 }
 
@@ -215,6 +249,72 @@ function applyStep(db: SqliteConnection, step: Migration, options: MigrateOption
   });
 }
 
+/** Every object of the database but SQLite's own (`sqlite_` names, such as `ANALYZE`'s tables). */
+export function readSchema(db: SqlRunner): SchemaObject[] {
+  return db
+    .all<SchemaObject>(
+      "select type, name, sql from sqlite_schema where substr(name, 1, 7) <> 'sqlite_' order by type, name",
+    )
+    .map((row) => ({ ...row, sql: row.sql === null ? null : row.sql.replace(/\s+/g, " ").trim() }));
+}
+
+// Built once per list of steps, so a daemon start pays for it once.
+const builtSchemas = new Map<string, readonly SchemaObject[]>();
+
+/** The schema `migrations` build in a fresh in-memory database. */
+export function migratedSchema(
+  migrations: readonly Migration[],
+  options: MigrateOptions,
+): readonly SchemaObject[] {
+  const key = migrations.map(migrationChecksum).join(" ");
+  const known = builtSchemas.get(key);
+  if (known !== undefined) return known;
+  const memory = openMemorySqlite();
+  try {
+    for (const step of migrations) applyStep(memory, step, options);
+    const schema = readSchema(memory);
+    builtSchemas.set(key, schema);
+    return schema;
+  } finally {
+    memory.close();
+  }
+}
+
+/** What differs between the live schema and the built one, one entry per object. */
+export function schemaDifferences(
+  live: readonly SchemaObject[],
+  built: readonly SchemaObject[],
+): string[] {
+  const key = (object: SchemaObject) => `${object.type} ${object.name}`;
+  const expected = new Map(built.map((object) => [key(object), object]));
+  const found = new Map(live.map((object) => [key(object), object]));
+  const differences: string[] = [];
+  for (const [name, object] of expected) {
+    const have = found.get(name);
+    if (have === undefined) differences.push(`${name} is missing`);
+    else if (have.sql !== object.sql) differences.push(`${name} has different SQL`);
+  }
+  for (const name of found.keys()) {
+    if (!expected.has(name)) differences.push(`${name} is not built by the migrations`);
+  }
+  return differences;
+}
+
+/** Throws `SchemaDriftError` unless the live schema equals the one the migrations build. */
+function verifySchema(db: SqliteConnection, options: MigrateOptions, backup: string | null): void {
+  const differences = schemaDifferences(
+    readSchema(db),
+    migratedSchema(options.migrations, options),
+  );
+  if (differences.length === 0) return;
+  const dir = backupsDirectory(db.path);
+  const newest = backup ?? preMigrationBackups(dir)[0];
+  throw new SchemaDriftError(
+    differences,
+    newest === undefined ? null : join(dir, basename(newest)),
+  );
+}
+
 /**
  * Deletes the daily copies an earlier dipo wrote, once this dipo opened the database: a refused or
  * failed open leaves them for the maintainer (0007).
@@ -227,7 +327,8 @@ function removeOldDailyBackups(db: SqliteConnection, logger: DbLogger): void {
 /**
  * Brings the database to the head of `migrations`. Refuses a database newer than the binary and
  * one whose recorded steps differ from the binary's; writes `backups/pre-v<N>-<time>.db` before
- * applying anything. A new database (version 0, no user tables) has nothing to copy, so it gets no
+ * applying anything. Then refuses a database whose schema differs from the one the steps build
+ * (`SchemaDriftError`). A new database (version 0, no user tables) has nothing to copy, so it gets no
  * backup and `backup` is null.
  */
 export async function migrate(
@@ -241,6 +342,7 @@ export async function migrate(
   if (from > head) throw new DatabaseTooNewError(from, head);
   verifyApplied(migrations, readApplied(db), from);
   if (from === head) {
+    verifySchema(db, options, null);
     removeOldDailyBackups(db, logger);
     return { from, to: head, backup: null };
   }
@@ -263,6 +365,7 @@ export async function migrate(
     }
     logger.info("applied migration", { version: step.version, name: step.name });
   }
+  verifySchema(db, options, backup);
   removeOldDailyBackups(db, logger);
   return { from, to: head, backup };
 }

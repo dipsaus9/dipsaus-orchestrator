@@ -15,6 +15,7 @@ import {
   MigrationChecksumError,
   MigrationFailedError,
   migrationChecksum,
+  SchemaDriftError,
   type Migration,
 } from "../../src/db/migrations";
 import { adapterVersion } from "../../src/db/migrations/0029-adapter-version";
@@ -107,12 +108,17 @@ describe("migrate", () => {
         legacy.close();
       }
 
+      // The backup is written and the steps run; the legacy table is not one of theirs, so the
+      // schema check refuses the database and names the backup (DIPO-426).
       const clock = new ManualClock();
-      const state = await openStateDatabase(options(dir, BASE, clock));
-      state.close();
+      const error = await failure(openStateDatabase(options(dir, BASE, clock)));
       const name = `pre-v1-${backupStamp(clock.now())}.db`;
       const expected = join(dir, "state", "backups", name);
-      expect(state.migration).toMatchObject({ from: 0, to: BASE.length, backup: expected });
+      expect(error).toBeInstanceOf(SchemaDriftError);
+      expect((error as SchemaDriftError).objects).toEqual([
+        "table legacy is not built by the migrations",
+      ]);
+      expect((error as SchemaDriftError).backup).toBe(expected);
       expect(backups(dir)).toEqual([name]);
 
       // The copy was taken before the first step: the legacy row, none of migration 1's tables.
@@ -146,10 +152,10 @@ describe("migrate", () => {
         }
 
         const clock = new ManualClock();
-        const state = await openStateDatabase(options(dir, BASE, clock));
-        state.close();
+        const error = await failure(openStateDatabase(options(dir, BASE, clock)));
         const name = `pre-v1-${backupStamp(clock.now())}.db`;
-        expect(state.migration.backup).toBe(join(dir, "state", "backups", name));
+        expect(error).toBeInstanceOf(SchemaDriftError);
+        expect((error as SchemaDriftError).backup).toBe(join(dir, "state", "backups", name));
         expect(backups(dir)).toEqual([name]);
       }));
   }
