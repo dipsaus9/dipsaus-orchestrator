@@ -8,7 +8,12 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { type OfficeId, StoryId, type WorkRef } from "@dipsaus-orchestrator/contract";
+import {
+  KNOWN_PARK_REASONS,
+  type OfficeId,
+  StoryId,
+  type WorkRef,
+} from "@dipsaus-orchestrator/contract";
 import {
   type FakeProcess,
   fakeSpawn,
@@ -30,8 +35,10 @@ import {
   type NextSessionRequest,
   PLAN_LIMIT_RESUME_AFTER_MS,
   type PlanLimitPause,
+  planLimitEnding,
   planLimitPause,
   reportFeedbackText,
+  type RunEnding,
   RunControl,
   RunOutcomes,
   StartsPaused,
@@ -46,6 +53,7 @@ import {
   resolveIntent,
   runIntents,
   runOutcome,
+  runSteps,
 } from "../../src/records";
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../../src/prompts/templates";
 import { sendFeedback } from "../../src/run/feedback";
@@ -54,6 +62,7 @@ import {
   LEGACY_PAUSE_TAG,
   LEGACY_PLAN_LIMIT_DETAIL,
 } from "../../src/run/outcome-restart";
+import { intentPark, parkIntentDetail } from "../../src/run/outcome-types";
 import { recordWorkerHost } from "../../src/records/worker-hosts";
 import { addStory } from "../../src/records/story-keys";
 import { claudeCliAdapter } from "../../src/workers/claude-cli/adapter";
@@ -115,6 +124,8 @@ interface World {
   onNext: ((request: NextSessionRequest) => Promise<void> | void) | null;
   holdsWork: boolean;
   ingestor: Ingestor | null;
+  /** True while no send to the worker host returns, as when the daemon stopped mid-send. */
+  stalled: boolean;
 }
 
 let w: World;
@@ -135,10 +146,12 @@ beforeEach(async () => {
     holdsWork: false,
     ingestor: null,
     onNext: null,
+    stalled: false,
   } as unknown as World;
   const steering = {
     send: async (_office: unknown, _run: unknown, ops: readonly HostOp[]) => {
       world.sent.push([...ops]);
+      if (world.stalled) await new Promise<never>(() => undefined);
       return { ok: true as const };
     },
   };
@@ -439,7 +452,7 @@ describe("a report that does not parse or match the schema (AC #1, DIPO-361)", (
     expect(parks()).toEqual([["worker-failed", "no valid report: no structured_output"]]);
     expect(intents()).toEqual([
       ["steer", "feedback", "answered"],
-      ["park", "no", "blocked"],
+      ["park", "park-reason:worker-failed", "blocked"],
     ]);
     expectEnded("parked");
     expect(runOutcome(w.f.office, w.f.run)?.parkReasons).toEqual(["worker-failed"]);
@@ -863,6 +876,104 @@ describe("a blocked report decided at exit (DIPO-430)", () => {
     expect(park?.[1].length ?? 0).toBeGreaterThan(0);
     expect(questionTexts()).toEqual([park?.[1] ?? ""]);
   });
+});
+
+/**
+ * A park run control decided while the worker ran, with the daemon stopped after its intent was
+ * stored and before the park was written: the stop it sent never returns, and nothing is tracked.
+ */
+async function stopAfterParkIntent(ending: Omit<RunEnding, "intent" | "ops">): Promise<void> {
+  // The worker exited while the daemon was down; its exit is ingested, not decided.
+  await ingestRecording("terminated", true);
+  track();
+  w.stalled = true;
+  expect(w.control.begin(w.f.run, { ...ending, intent: "park", ops: CLOSE })).toBe(true);
+  w.control.close();
+  w.stalled = false;
+}
+
+describe("a park intent keeps its park across a restart (DIPO-433)", () => {
+  for (const reason of KNOWN_PARK_REASONS) {
+    it(`parks ${reason} with the detail its intent kept`, async () => {
+      const detail = `dipo parked it: ${reason} (a "quoted" detail)`;
+      await stopAfterParkIntent({ reason, detail });
+      expect(parks()).toEqual([]);
+      const [stored] = runIntents(w.f.office, w.f.run);
+      expect(stored?.kind).toBe("park");
+      expect(stored?.detail).toBe(parkIntentDetail({ reason, detail }));
+      expect(intentPark(stored?.detail ?? "")).toEqual({ reason, detail });
+      expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
+      expect(parks()).toEqual([[reason, detail]]);
+      expectEnded("parked");
+      expect(runIntents(w.f.office, w.f.run).every((intent) => intent.resolvedAt !== null)).toBe(
+        true,
+      );
+      expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(0);
+      expect(parks()).toHaveLength(1);
+    });
+  }
+
+  it("keeps a budget-exceeded park's cap step", async () => {
+    const capStep = "maxTurns: turn cap: 100 turns reached";
+    await stopAfterParkIntent({ reason: "budget-exceeded", detail: "verify passed late", capStep });
+    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
+    expect(parks()).toEqual([["budget-exceeded", "verify passed late"]]);
+    expect(
+      runSteps(w.f.office, w.f.run)
+        .filter((step) => step.kind === "cap")
+        .map((step) => step.value),
+    ).toEqual([capStep]);
+  });
+
+  it("keeps a plan-limit park's resume on lift", async () => {
+    const pause = planLimitPause({ credits: false }, w.f.t.clock.now());
+    const { intent: _intent, ops: _ops, ...ending } = planLimitEnding(pause, []);
+    await stopAfterParkIntent(ending);
+    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
+    expect(parks()).toEqual([["worker-failed", pause.detail]]);
+    expect(
+      w.f.office.get<{ resume_on_lift: number }>(
+        "select resume_on_lift from parks where office_id = $office_id",
+      )?.resume_on_lift,
+    ).toBe(1);
+    // The office's starts are not paused here, so dipo resumes it at once (0020).
+    await w.starts.idle();
+    expect(w.lifted.map((park) => park.story)).toEqual(["DIPO-1"]);
+  });
+
+  it("keeps the question of a blocked report decided at the exit", async () => {
+    await stopAfterParkIntent({
+      reason: "ambiguous-spec",
+      detail: "the worker is blocked",
+      question: "Which greeting?",
+    });
+    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
+    expect(parks()).toEqual([["ambiguous-spec", "the worker is blocked"]]);
+    expect(questionTexts()).toEqual(["Which greeting?"]);
+  });
+
+  const OLD_OR_MALFORMED = [
+    // Written before DIPO-433: the park detail itself.
+    "no valid report: no structured_output",
+    `${INTENT_TAGS.parkReason}worker-failed`,
+    `${INTENT_TAGS.parkReason}worker-failed not json`,
+    `${INTENT_TAGS.parkReason}worker-failed {"detail":5}`,
+    `${INTENT_TAGS.parkReason}worker-failed {"detail":"x","resumeOnLift":false}`,
+    `${INTENT_TAGS.parkReason}worker-failed {"detail":"x","other":1}`,
+    `${INTENT_TAGS.parkReason}no-such-reason {"detail":"x"}`,
+    `${INTENT_TAGS.parkReason} {"detail":"x"}`,
+  ];
+  for (const detail of OLD_OR_MALFORMED) {
+    it(`decides a park intent ${JSON.stringify(detail)} as before: resolved, no park`, async () => {
+      await ingestRecording("terminated", true);
+      w.f.office.immediate(() => recordIntent(w.f.office, w.f.run, "park", detail, 0));
+      expect(intentPark(detail)).toBeNull();
+      expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
+      expect(parks()).toEqual([]);
+      expect(intents()).toEqual([["park", intentTag(detail), "blocked"]]);
+      expectActive();
+    });
+  }
 });
 
 describe("after a restart (decision Q6)", () => {

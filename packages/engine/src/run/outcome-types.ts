@@ -2,7 +2,16 @@
 // intent tags, notices and the ports between run control and the
 // outcome units. `outcomes.ts` re-exports all of it.
 
-import type { Clock, OfficeId, RunId, StoryKey, WorkRef } from "@dipsaus-orchestrator/contract";
+import {
+  type Clock,
+  KNOWN_PARK_REASONS,
+  type OfficeId,
+  type ParkReason,
+  type RunId,
+  type StoryKey,
+  type WorkRef,
+} from "@dipsaus-orchestrator/contract";
+import { z } from "zod";
 
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit } from "../ingest/ingestor";
@@ -29,6 +38,11 @@ export const INTENT_TAGS = {
   startFailed: "start-failed",
   /** A park intent of a blocked report: the worker's question follows (DIPO-430). */
   question: "worker-question",
+  /**
+   * The start of a park intent's tag, which ends with the park's reason; the park's facts follow
+   * as JSON (`parkIntentDetail`, DIPO-433).
+   */
+  parkReason: "park-reason:",
 } as const;
 
 /** `engine.notice` codes of worker outcomes. */
@@ -94,6 +108,64 @@ export function intentTag(detail: string): string {
 export function intentRest(detail: string): string {
   const space = detail.indexOf(" ");
   return space === -1 ? "" : detail.slice(space + 1);
+}
+
+/**
+ * What a park intent keeps of its park (DIPO-433), so a restart before the park was written parks
+ * with the same reason and facts.
+ */
+export interface IntentPark {
+  readonly reason: ParkReason;
+  readonly detail: string;
+  readonly capStep?: string;
+  readonly question?: string;
+  readonly resumeOnLift?: boolean;
+}
+
+const IntentParkReason = z.enum(KNOWN_PARK_REASONS);
+const IntentParkFacts = z.strictObject({
+  detail: z.string(),
+  capStep: z.string().optional(),
+  question: z.string().optional(),
+  resumeOnLift: z.literal(true).optional(),
+});
+
+/** The detail of a park intent: `park-reason:<reason>`, then the park's facts as JSON. */
+export function parkIntentDetail(park: IntentPark): string {
+  const facts = {
+    detail: park.detail,
+    ...(park.capStep === undefined ? {} : { capStep: park.capStep }),
+    ...(park.question === undefined ? {} : { question: park.question }),
+    ...(park.resumeOnLift === true ? { resumeOnLift: true } : {}),
+  };
+  return `${INTENT_TAGS.parkReason}${park.reason} ${JSON.stringify(facts)}`;
+}
+
+/**
+ * The park a park intent's detail keeps (`parkIntentDetail`); null for any other detail, one an
+ * older dipo wrote, or one whose reason or facts do not parse.
+ */
+export function intentPark(detail: string): IntentPark | null {
+  const tag = intentTag(detail);
+  if (!tag.startsWith(INTENT_TAGS.parkReason)) return null;
+  const reason = IntentParkReason.safeParse(tag.slice(INTENT_TAGS.parkReason.length));
+  if (!reason.success) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(intentRest(detail));
+  } catch {
+    return null;
+  }
+  const facts = IntentParkFacts.safeParse(raw);
+  if (!facts.success) return null;
+  const { detail: parkDetail, capStep, question, resumeOnLift } = facts.data;
+  return {
+    reason: reason.data,
+    detail: parkDetail,
+    ...(capStep === undefined ? {} : { capStep }),
+    ...(question === undefined ? {} : { question }),
+    ...(resumeOnLift === true ? { resumeOnLift } : {}),
+  };
 }
 
 /** A tracked run as run control hands it over. */
