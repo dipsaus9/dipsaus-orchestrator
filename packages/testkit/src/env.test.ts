@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { delimiter, join } from "node:path";
 
-import { cleanEnv, withCleanEnv } from "./env";
+import { cleanEnv, daemonTestEnv, withCleanEnv } from "./env";
+import { withTempDir } from "./temp";
 
 const SOURCE = {
   PATH: "/usr/bin",
@@ -41,4 +44,28 @@ describe("withCleanEnv", () => {
       for (const name of names) delete process.env[name];
     }
   });
+});
+
+describe("daemonTestEnv", () => {
+  it("drops every PATH directory that holds a container CLI unless DIPO_TEST_BOX=1 (DIPO-423)", () =>
+    withTempDir((root) => {
+      const withCli = join(root, "with-cli");
+      const withoutCli = join(root, "without-cli");
+      const notExecutable = join(root, "not-executable");
+      for (const dir of [withCli, withoutCli, notExecutable]) mkdirSync(dir);
+      writeFileSync(join(withCli, "container"), "#!/bin/sh\n");
+      chmodSync(join(withCli, "container"), 0o755);
+      writeFileSync(join(notExecutable, "container"), "");
+      chmodSync(join(notExecutable, "container"), 0o644);
+      const path = [withCli, "", withoutCli, notExecutable, join(root, "missing")].join(delimiter);
+      const dir = join(root, "daemon");
+
+      expect(daemonTestEnv(dir, { ...SOURCE, PATH: path }).PATH).toEqual(
+        ["", withoutCli, notExecutable, join(root, "missing")].join(delimiter),
+      );
+      expect(daemonTestEnv(dir, { ...SOURCE, PATH: path, DIPO_TEST_BOX: "1" }).PATH).toBe(path);
+      expect(daemonTestEnv(dir, { ...SOURCE, PATH: path, DIPO_TEST_BOX: "0" }).PATH).not.toContain(
+        withCli,
+      );
+    }));
 });
