@@ -35,7 +35,7 @@ import {
   type TimerHandle,
   TUI_CLIENT_NAME,
 } from "@dipsaus-orchestrator/contract";
-import type { EngineSurface, Logger, Presence } from "@dipsaus-orchestrator/engine";
+import type { EngineSurface, Logger } from "@dipsaus-orchestrator/engine";
 import {
   CLOSE_INVALID_PAYLOAD,
   CLOSE_POLICY_VIOLATION,
@@ -125,10 +125,7 @@ export class ContractServer {
   readonly #summaryTimers = new Map<OfficeId, ReturnType<Clock["setTimeout"]>>();
   /** The last summary sent per office, so an unchanged one is not sent again. */
   readonly #lastSummaries = new Map<OfficeId, string>();
-  /** `presence` as the listeners last heard it. */
-  #tuiPresent = false;
   readonly #stopListening: readonly (() => void)[];
-  readonly #presenceListeners = new Set<() => void>();
 
   constructor(deps: ContractServerDeps) {
     this.#deps = deps;
@@ -168,39 +165,6 @@ export class ContractServer {
     return this.#connections.size;
   }
 
-  /** Whether a TUI is connected right now, for live questions (0021 section 11, DIPO-279). */
-  get presence(): Presence {
-    return { tuiConnected: () => this.#tuiConnected() };
-  }
-
-  /**
-   * Calls `listener` each time `presence` changes: when the first TUI's handshake is accepted and
-   * when the last TUI's connection closes (DIPO-284). Returns the call that removes it.
-   */
-  onPresenceChanged(listener: () => void): () => void {
-    this.#presenceListeners.add(listener);
-    return () => this.#presenceListeners.delete(listener);
-  }
-
-  /** A connection became a TUI's or closed: tells the listeners when `presence` changed. */
-  presenceMayHaveChanged(): void {
-    const now = this.#tuiConnected();
-    if (now === this.#tuiPresent) return;
-    this.#tuiPresent = now;
-    this.#deps.logger.debug("tui presence changed", { tuiConnected: now });
-    for (const listener of this.#presenceListeners) {
-      try {
-        listener();
-      } catch (error) {
-        this.#deps.logger.warn("a presence listener failed", { error });
-      }
-    }
-  }
-
-  #tuiConnected(): boolean {
-    return [...this.#connections].some((connection) => connection.tui);
-  }
-
   /**
    * A TUI connection stopped following `offices`: for each one no other TUI follows, the office's
    * last TUI client has left (DIPO-308).
@@ -229,7 +193,6 @@ export class ContractServer {
     const connection = new Connection(this, socket, () => {
       this.#connections.delete(connection);
       this.#deps.logger.debug("connection closed", { connections: this.#connections.size });
-      this.presenceMayHaveChanged();
     });
     this.#connections.add(connection);
     this.#deps.logger.debug("connection opened", { connections: this.#connections.size });
@@ -435,7 +398,6 @@ class Connection implements ConnectionSession {
           this.#state = "ready";
           this.#tui = isTuiHello(frame.args);
           this.#client = helloClient(frame.args);
-          if (this.#tui) this.#server.presenceMayHaveChanged();
         } else {
           this.#state = "new";
         }
@@ -799,17 +761,16 @@ class Connection implements ConnectionSession {
   }
 }
 
-/**
- * True when `engine.hello` args name the TUI as the client. Any client on the socket can claim the
- * name; that only keeps a question live until its timeout, and holds while workers cannot reach the
- * socket (0021).
- */
 /** The client name `engine.hello` args give, or undefined. */
 function helloClient(args: unknown): string | undefined {
   const name = (args as { client?: { name?: unknown } } | null)?.client?.name;
   return typeof name === "string" && name !== "" ? name : undefined;
 }
 
+/**
+ * True when `engine.hello` args name the TUI as the client. Any client on the socket can claim the
+ * name; that only moves the time `office.digest` counts "since you left" from (DIPO-308).
+ */
 function isTuiHello(args: unknown): boolean {
   const client = (args as { client?: { name?: unknown } } | null)?.client;
   return client?.name === TUI_CLIENT_NAME;

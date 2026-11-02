@@ -547,8 +547,7 @@ export async function withRunOffice(
           ? { startsPaused: { holds, adapter: "claude-cli" } }
           : {}),
       });
-      const { ingest, permissions, control, outcomes, resumption, startsPaused, launcher } =
-        composed;
+      const { ingest, control, outcomes, resumption, startsPaused, launcher } = composed;
       // `work.run` refuses while the office's starts are paused: a plan limit, or the adapter holds.
       const paused =
         startsPaused ??
@@ -647,7 +646,6 @@ export async function withRunOffice(
         });
       } finally {
         startsPaused?.close();
-        permissions.close();
         control?.close();
         ingest.close();
         index.stop();

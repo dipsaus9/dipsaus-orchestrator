@@ -576,7 +576,6 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       tuiLeft: (office, at) => engine.tuiLeft(office, at),
     });
     held.server = server;
-    server.onPresenceChanged(() => engine.setTuiPresent(server.presence.tuiConnected()));
     held.socket = serveUnixSocket(place.socketPath, (connection) => server.accept(connection));
     announcePlace(run, lock, place);
     upgrade.start();

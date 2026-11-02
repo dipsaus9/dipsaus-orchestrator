@@ -1,8 +1,7 @@
 // The engine's core (DIPO-318): what every service is built on and reaches from its first call.
-// The lifecycle and the software stream, the office change notifier and the TUI presence, the
-// command registry (empty until the feature list is loaded into it), the state database once
-// recovery opened it, the office manager, git, the Backlog CLI and the story store, the code host
-// and the one PR-state poll.
+// The lifecycle and the software stream, the office change notifier, the command registry (empty
+// until the feature list is loaded into it), the state database once recovery opened it, the office
+// manager, git, the Backlog CLI and the story store, the code host and the one PR-state poll.
 
 import type { CommandName, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 
@@ -25,7 +24,7 @@ import { emitDaemonStates } from "./control";
 import type { EngineDeps } from "./deps";
 import { DaemonLifecycle } from "./lifecycle";
 import { backlogCliFor } from "./runs";
-import { OfficeChanges, TuiPresence } from "./notify";
+import { OfficeChanges } from "./notify";
 
 /** The state database: null until the migrations step opened it (0007 section 1). */
 export class StateDatabaseHolder {
@@ -52,7 +51,6 @@ export interface Core {
   readonly lifecycle: DaemonLifecycle;
   readonly software: SoftwareStream;
   readonly changes: OfficeChanges;
-  readonly presence: TuiPresence;
   readonly registry: Registry;
   /** True when the engine serves a command; a park offers only those (DIPO-50). */
   readonly implemented: (name: CommandName) => boolean;
@@ -136,7 +134,6 @@ export function buildCore(deps: EngineDeps): Core {
     lifecycle,
     software,
     changes,
-    presence: new TuiPresence(),
     registry,
     implemented: (name) => registry.command(name) !== undefined,
     ids,

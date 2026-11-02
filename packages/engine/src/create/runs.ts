@@ -90,7 +90,6 @@ import {
   type HostStarter,
   type TierCaps,
 } from "../run/launch";
-import type { Presence } from "../records/live-question";
 import { storyHoldsWork } from "../run/outcome-types";
 import { RunOutcomes } from "../run/outcomes";
 import { gitParkWriter, gitUnparkWriter, type UnparkWriter, type ParkWriter } from "../run/park";
@@ -188,8 +187,6 @@ export interface RunsOptions {
   readonly autoMergeGuard?: AutoMergeGuard;
   /** The story index, which reads a story again after its park or In Review commit (DIPO-56). */
   readonly stories?: StoryIndex;
-  /** Whether a TUI is connected, for live questions (DIPO-279); none by default. */
-  readonly presence?: Presence;
   /** False while the daemon schedules no work (recovering, draining): a starts paused lifts later (0020). */
   readonly scheduling?: () => boolean;
   /**
@@ -989,8 +986,7 @@ function baseRunPorts(options: RunsOptions, parts: RunPortParts): Omit<RunPorts,
             refreshStory.refreshStory(office, key, { quiet: true }),
         }),
     release: (office, claim, reason) => options.claims.releaseUnstarted(office, claim, reason),
-    // The permission wait (DIPO-59) asks the maintainer when present, and holds while no work is scheduled.
-    ...(options.presence === undefined ? {} : { presence: options.presence }),
+    // The office's starts paused lifts only while work is scheduled (0020).
     ...(options.scheduling === undefined ? {} : { scheduling: options.scheduling }),
   };
 }

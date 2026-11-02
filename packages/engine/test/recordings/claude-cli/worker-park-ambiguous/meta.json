@@ -3,7 +3,7 @@
   "source": "live",
   "claude_code_version": "2.1.296",
   "captured_at": "2026-10-12",
-  "expected": "Report status blocked with a fixture-controlled question: question.asked; with no answer within timeouts.questionWaitMinutes the story parks ambiguous-spec with the question as detail.",
+  "expected": "Report status blocked with a fixture-controlled question: question.asked; the story parks ambiguous-spec at once with the question as detail.",
   "usage_checksum": "4a018827647205bee1f8e9933a9fc2cdb5528226ad3cd92bd9fb27ec0b1656dc",
   "fixture": "greeter",
   "fixture_sha256": "7aa5c849f434696855ad8a8c464804959d8ea0840b3092b603ede2e8a63658c8",

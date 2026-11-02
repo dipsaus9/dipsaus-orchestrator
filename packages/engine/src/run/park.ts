@@ -354,38 +354,20 @@ export interface ParkDeps {
   readonly question?: { readonly id: () => string };
 }
 
-/**
- * Inside the park's transaction, after the park row (DIPO-272, DIPO-159): a worker question still
- * open when the run parks (asked live and then let go by a cap, a stop, the end of its wait, the
- * last TUI closing or the worker's own exit) becomes this park's question and stays open, so the
- * maintainer's question is not lost. So does one of the session that parks whose answer came while
- * the run was ending and is held for the next session. Nothing is emitted: the question was asked
- * already. Returns the park's id, or null.
- */
-function carryWorkerQuestions(office: OfficeHandle, run: StoredRun): number | null {
+/** Inside the park's transaction, after the park row: the id of the run's newest park, or null. */
+function newestParkId(office: OfficeHandle, run: StoredRun): number | null {
   const park = office.get<{ park_id: number }>(
     `select park_id from parks where office_id = $office_id and run_id = $run
       order by park_id desc limit 1`,
     { run: run.runId },
   );
-  if (park === null) return null;
-  office.run(
-    `update questions set park_id = $park
-      where office_id = $office_id and run_id = $run and kind = 'question' and park_id is null
-        and (closed_at is null
-          or (closed_how = 'answered' and delivered = 'on-resume'
-            and asked_at >= coalesce((select max(started_at) from agents
-              where office_id = $office_id and run_id = $run), 0)))`,
-    { park: park.park_id, run: run.runId },
-  );
-  return park.park_id;
+  return park?.park_id ?? null;
 }
 
 /**
- * Inside the park's transaction, after the carry (DIPO-159, 0020): an `ambiguous-spec` park that
- * carries no worker question asks its own (the worker's question when no TUI was connected), kind
- * `question`, linked to the run and the park, and emits `question.asked`, so the maintainer can
- * answer it with `dipo answer <question> --text`.
+ * Inside the park's transaction, after the park row (DIPO-159, 0020): an `ambiguous-spec` park asks
+ * the worker's question itself, kind `question`, linked to the run and the park, and emits
+ * `question.asked`, so the maintainer can answer it with `dipo answer <question> --text`.
  */
 function askWorkerQuestionOfPark(
   deps: ParkDeps,
@@ -396,22 +378,18 @@ function askWorkerQuestionOfPark(
   const { run } = request;
   const text = request.question?.trim() ?? "";
   if (park.reason !== "ambiguous-spec") return [];
-  if (park.parkId === null || deps.question === undefined || run.key === null) return [];
+  const parkId = park.parkId;
+  if (parkId === null || deps.question === undefined || run.key === null) return [];
   const office = deps.office;
-  const carried = office.get<{ found: number }>(
-    `select 1 as found from questions where office_id = $office_id and park_id = $park
-      and kind = 'question' limit 1`,
-    { park: park.parkId },
-  );
   const work = request.work ?? workRefOf(office, run.runId);
-  if (carried !== null || work === null || text === "") return [];
+  if (work === null || text === "") return [];
   const question = insertWorkerQuestion(office, {
     questionId: deps.question.id(),
     runId: run.runId,
     agentId: work.agent,
     text,
     at,
-    parkId: park.parkId,
+    parkId,
   });
   const view = questionViewOf(office, question);
   return view === null
@@ -428,8 +406,7 @@ export interface ParkRequest {
   /** The `cap` run step value of a done turn that crossed a cap, written with the run's end (DIPO-222). */
   readonly capStep?: string;
   /**
-   * The worker's question of an `ambiguous-spec` park (DIPO-159): asked as the park's question
-   * unless an open question of the run carries over to it.
+   * The worker's question of an `ambiguous-spec` park (DIPO-159), asked as the park's question.
    */
   readonly question?: string;
   /**
@@ -631,7 +608,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
       ...askWorkerQuestionOfPark(
         deps,
         request,
-        { parkId: carryWorkerQuestions(deps.office, request.run), reason },
+        { parkId: newestParkId(deps.office, request.run), reason },
         at,
       ),
     ];

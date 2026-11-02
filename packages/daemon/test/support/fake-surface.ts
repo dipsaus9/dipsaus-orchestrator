@@ -1,6 +1,6 @@
 // A hand-written engine surface for the socket server's tests (DIPO-318). The server takes only the
 // `EngineSurface` type from the engine, so its protocol (the handshake, the frozen surface, frames,
-// subscriptions, catch-up pages, heartbeats, derived summaries, backpressure, presence) is tested
+// subscriptions, catch-up pages, heartbeats, derived summaries, backpressure, TUI clients) is tested
 // here against in-memory streams; what the engine answers is the engine's own tests' concern
 // (`packages/engine/test/create/surface.test.ts`).
 

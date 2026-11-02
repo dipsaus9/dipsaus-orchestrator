@@ -52,7 +52,6 @@ async function stopServices(core: Core, services: Services): Promise<void> {
   runs.startsPaused.close();
   runs.places.close();
   runs.control.close();
-  runs.permissions.close();
   runs.ingest.close();
   runs.reattacher.close();
   runs.stopBoxPasses();
@@ -135,7 +134,6 @@ function engineOf(core: Core, services: Services, steps: RecoverySteps): Engine 
       });
     },
     busy: () => core.children.size > 0 || lifecycle.inFlight > 0,
-    setTuiPresent: (connected) => core.presence.set(connected),
     tuiLeft: (office, at) => {
       const handle = core.offices.get(office);
       if (handle !== undefined) recordTuiLeft(handle, at);
@@ -167,8 +165,5 @@ export function createEngine(deps: EngineDeps): Engine {
   core.logger.info("office load steps", {
     steps: core.registry.loadSteps().map((step) => step.name),
   });
-  // The last TUI closing ends every live question at once, so its story parks with it (0021,
-  // DIPO-284).
-  core.presence.listen(() => commands.runs.permissions.presenceChanged());
   return engineOf(core, services, recoveryList(core, services));
 }

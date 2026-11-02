@@ -108,7 +108,6 @@ function compose(extra: Partial<RunPorts> = {}) {
   const composed = composeRuns(portsOf(extra));
   closers.push(() => {
     composed.startsPaused?.close();
-    composed.permissions.close();
     composed.control?.close();
     composed.ingest.close();
   });
