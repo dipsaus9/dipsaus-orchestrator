@@ -1,10 +1,10 @@
 ---
 id: DIPO-429
 title: Hold a rule-decided merge for the maintainer when the base requires no checks
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-02 12:11'
-updated_date: '2026-11-02 12:17'
+updated_date: '2026-11-02 12:25'
 labels:
   - 'tier:S'
 milestone: m-1

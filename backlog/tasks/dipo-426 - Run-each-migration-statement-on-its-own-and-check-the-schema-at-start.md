@@ -1,10 +1,10 @@
 ---
 id: DIPO-426
 title: Run each migration statement on its own and check the schema at start
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-02 12:10'
-updated_date: '2026-11-02 12:17'
+updated_date: '2026-11-02 12:25'
 labels:
   - 'tier:M'
 milestone: m-1

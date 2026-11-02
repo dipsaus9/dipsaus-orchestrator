@@ -1,10 +1,10 @@
 ---
 id: DIPO-425
 title: Count every model request a box makes against its run's caps
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-02 12:10'
-updated_date: '2026-11-02 12:17'
+updated_date: '2026-11-02 12:25'
 labels:
   - 'tier:L'
 milestone: m-1
