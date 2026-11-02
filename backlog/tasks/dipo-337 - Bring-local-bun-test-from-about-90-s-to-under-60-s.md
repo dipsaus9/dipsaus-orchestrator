@@ -1,10 +1,10 @@
 ---
 id: DIPO-337
 title: Run local bun test in parallel shards to get it under 60 s
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-24 09:32'
-updated_date: '2026-11-02 09:02'
+updated_date: '2026-11-02 09:15'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -50,10 +50,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `bun run test` runs the test files in parallel shards (as many as the machine's cores allow, at least 2) chosen by `splitShards` from the OS's times in scripts/test-timings.json (macOS on darwin, Linux elsewhere, an even split for a missing key), each with its own short DIPO_TMP under the caller's DIPO_TMP, and exits non-zero when any shard fails, shown by a test with a failing file in one shard
-- [ ] #2 Every test file runs exactly once in a local run, shown by `coverage(files, shards)` from scripts/test-shards.ts, checked before the shards start and tested; `bun test <file>` and `bun run test <file>` for one file still run just that file
-- [ ] #3 `bun run verify` takes under 60 s on the maintainer's Mac with nothing else running, measured three times before and after and recorded in the PR; the output still names each failing test with its shard; if the slowest shard alone keeps it over 60 s, the PR names that file and splits or speeds it up
-- [ ] #4 In CI (`DIPO_TEST_CI=1`) each shard job still runs its own file list once, unchanged (a run with file arguments never shards, shown by a test); no test is removed, skipped or moved to CI-only by this story
+- [x] #1 `bun run test` runs the test files in parallel shards (as many as the machine's cores allow, at least 2) chosen by `splitShards` from the OS's times in scripts/test-timings.json (macOS on darwin, Linux elsewhere, an even split for a missing key), each with its own short DIPO_TMP under the caller's DIPO_TMP, and exits non-zero when any shard fails, shown by a test with a failing file in one shard
+- [x] #2 Every test file runs exactly once in a local run, shown by `coverage(files, shards)` from scripts/test-shards.ts, checked before the shards start and tested; `bun test <file>` and `bun run test <file>` for one file still run just that file
+- [x] #3 `bun run verify` takes under 60 s on the maintainer's Mac with nothing else running, measured three times before and after and recorded in the PR; the output still names each failing test with its shard; if the slowest shard alone keeps it over 60 s, the PR names that file and splits or speeds it up
+- [x] #4 In CI (`DIPO_TEST_CI=1`) each shard job still runs its own file list once, unchanged (a run with file arguments never shards, shown by a test); no test is removed, skipped or moved to CI-only by this story
 <!-- AC:END -->
 
 ## Comments

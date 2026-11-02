@@ -3,7 +3,7 @@
 // temporary repository.
 
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { withTempRepo } from "../packages/testkit/src/index";
@@ -39,11 +39,24 @@ describe("the test files", () => {
     }
   });
 
-  it("are every tracked test file of the repository", () => {
+  it("are every test file of the repository", () => {
     const files = testFiles(ROOT);
     expect(files).toContain("scripts/test.test.ts");
     expect(files.length).toBeGreaterThan(500);
     expect(files).toEqual(files.toSorted());
+  });
+
+  it("hold new files not added yet, and no ignored or deleted ones", async () => {
+    await withTempRepo(async (repo) => {
+      for (const name of ["kept", "gone", "ignored/x"]) {
+        await Bun.write(join(repo.dir, `${name}.test.ts`), "");
+      }
+      await Bun.write(join(repo.dir, ".gitignore"), "ignored/\n");
+      await repo.commitAll("tests");
+      rmSync(join(repo.dir, "gone.test.ts"));
+      await Bun.write(join(repo.dir, "new.test.ts"), "");
+      expect(testFiles(repo.dir)).toEqual(["kept.test.ts", "new.test.ts"]);
+    });
   });
 });
 

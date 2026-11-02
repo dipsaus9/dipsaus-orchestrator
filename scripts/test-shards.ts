@@ -1,14 +1,14 @@
 // CI runs `bun test` in parallel shards (0016, DIPO-406): the `verify` and `verify-macos` jobs are
 // matrices whose every shard runs one list of test files, split here by the per-file times in
-// scripts/test-timings.json (refreshed by scripts/test-timings.ts). Locally `bun run verify` still
-// runs every file in one `bun test`.
+// scripts/test-timings.json (refreshed by scripts/test-timings.ts). Locally `bun run verify`
+// runs them in parallel shards of the same split (scripts/test.ts, DIPO-337).
 //
 //   bun scripts/test-shards.ts run <os> <shard> <total>   runs shard <shard> of <total> for <os>
 //   bun scripts/test-shards.ts check                      the coverage check of the test-shards job
 //
 // Both run on the repository in the working directory.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** Where the per-file times live, relative to the repository root. */
@@ -31,15 +31,21 @@ export function isTestFile(path: string): boolean {
   return TEST_FILE.test(path) && !path.split("/").includes("node_modules");
 }
 
-/** Every tracked test file under `root`, sorted. */
+/**
+ * Every test file under `root` that git does not ignore, sorted: the tracked ones that are still
+ * there and the new ones not added yet, which a local `bun run test` runs too (DIPO-337).
+ */
 export function testFiles(root: string): string[] {
-  const listed = Bun.spawnSync(["git", "ls-files", "-z"], { cwd: root, stdout: "pipe" });
+  const listed = Bun.spawnSync(
+    ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+    { cwd: root, stdout: "pipe" },
+  );
   if (listed.exitCode !== 0) throw new Error("git ls-files failed");
-  return listed.stdout
+  const paths = listed.stdout
     .toString()
     .split("\0")
-    .filter((path) => path !== "" && isTestFile(path))
-    .toSorted();
+    .filter((path) => path !== "" && isTestFile(path) && existsSync(join(root, path)));
+  return [...new Set(paths)].toSorted();
 }
 
 /** Reads the timing file, or `{}` when there is none. */
