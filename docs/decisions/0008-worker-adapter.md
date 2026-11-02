@@ -57,6 +57,12 @@ The engine names no tools. The adapter names each kind's tools: the developer's,
 
 **The login.** Claude Code in the box sends model requests to dipo's **model proxy** on the Mac. The proxy passes only the model endpoints and adds the maintainer's subscription login on the way out. The token never enters the box.
 
+**The count.** Every program in a box may call the model through the proxy: Claude Code, a product's tests using the Anthropic SDK, or `curl`. The proxy counts all of it against the run of the box that sent it:
+- It knows the sender only by its peer address. `BoxWorkers` records each box's address with its session's run and agent when the session starts, and drops it when the box stops. A run named in a header or the body is ignored.
+- A request from an address no running session owns is refused and never forwarded. So is one whose run's usage cannot be recorded: the proxy opens the run's account before it forwards anything.
+- It reads the `usage` of each answer it passes: the JSON body, or a stream's `message_start` usage with every later `message_delta` usage over it. A stream cut off before its last event counts what arrived. A `count_tokens` request is forwarded and adds nothing.
+- It adds input, output, cache creation and cache read tokens to the run's records, which the caps, the tier budget and the spend alerts read (section 7).
+
 **The image and the package cache.**
 - The office config describes the image: toolchain, versions and system packages. Stories cannot change it. dipo detects a default from the repository (0013).
 - dipo builds the image once in a build box on the same closed network, through the same proxies, and saves it with `container commit`. No package install script runs before the firewall is set.
@@ -163,7 +169,9 @@ The task message is the first stdin line, never on argv. The box's environment h
 
 ## 7. Usage and cost
 
-- Per run, agent and model, dipo stores input, output, cache creation and cache read tokens, turns and durations. Live numbers come from assistant messages deduplicated by message id, and the turn's result replaces them.
+- Per run, agent and model, dipo stores input, output, cache creation and cache read tokens, turns and durations.
+- **The caps read the proxy's count.** For a session in a box, the model proxy's count is the token total (section 2). Its stream's usage events add no tokens: a turn's result adds its turns and keeps the cost the CLI reports, so a Claude Code turn is counted once. The caps see the proxy's count at the next usage or turn event of the stream, or at the minute tick.
+- The scan session runs on the Mac without the proxy, so its stream counts its tokens: live numbers from assistant messages deduplicated by message id, replaced by the turn's result.
 - **The budget is tokens:** input plus output plus cache creation. Cache reads are shown but do not count. Each tier has a fixed model, so a tier's tokens always mean the same thing.
 - **Cost is the cost the CLI reports** (`total_cost_usd`, `costUSD`). dipo stores it as reported and keeps no price catalog of its own (0007). The views show it; budgets and spend alerts count tokens (0009).
 
@@ -200,3 +208,4 @@ An adapter implements section 1. An Agent SDK adapter would share `interpret`, b
 - The reviewer on the Mac with a `PreToolUse` web-gate hook and its relay through the worker host (2026-10-17). Replaced by a read-only reviewer box (2026-10-24); no session has hooks.
 - `WorkerSpec.tools`, the tool names of each role picked by the engine (2026-10-10). Replaced by `web`: the adapter names each kind's tools, so Claude's tool names stay in it (2026-10-29).
 - The keepalive as the box's PID 1 (2026-10-22), which never reaped orphans, so zombies piled up in a long-lived box. Replaced by Apple container's init as PID 1 with the keepalive as its child (2026-10-30, DIPO-378).
+- Caps that counted only the usage of Claude Code's own stream (2026-10-10), so a product's tests or `curl` in a box spent the subscription unseen. Replaced by the model proxy's count of every request a box makes, by the sender's address (2026-11-02, DIPO-425).
