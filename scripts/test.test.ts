@@ -40,10 +40,11 @@ describe("the test runner's per-test timeout (DIPO-335)", () => {
 });
 
 describe("the local test shards (DIPO-337)", () => {
-  it("start one shard per core, at least 2", () => {
+  it("start half the cores, rounded down, at least 2", () => {
     expect(shardCount(1)).toBe(2);
-    expect(shardCount(2)).toBe(2);
-    expect(shardCount(14)).toBe(14);
+    expect(shardCount(3)).toBe(2);
+    expect(shardCount(4)).toBe(2);
+    expect(shardCount(14)).toBe(7);
     expect(shardCount()).toBeGreaterThanOrEqual(2);
   });
 
