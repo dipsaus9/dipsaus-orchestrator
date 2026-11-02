@@ -1,9 +1,10 @@
 ---
 id: DIPO-420
 title: Give the test shell the box user's PATH
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-02 09:14'
+updated_date: '2026-11-02 09:23'
 labels:
   - 'tier:S'
 milestone: m-1
