@@ -1,10 +1,10 @@
 ---
 id: DIPO-430
 title: 'Keep a blocked worker''s question on its park, also across a restart'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-02 13:23'
-updated_date: '2026-11-02 13:40'
+updated_date: '2026-11-02 13:46'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -50,7 +50,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A blocked result decided at exit parks with the report's question on the park, shown by a test
-- [ ] #2 A daemon restart between the park intent and the park still gives a park that asks the question, shown by a test that stops after the intent
-- [ ] #3 The live-route texts in control-types.ts and the desk's group 1 label are gone, and `delivered: "now"` is removed, shown by the diff and by `bun run contract:schema` leaving no change after it
+- [x] #1 A blocked result decided at exit parks with the report's question on the park, shown by a test
+- [x] #2 A daemon restart between the park intent and the park still gives a park that asks the question, shown by a test that stops after the intent
+- [x] #3 The live-route texts in control-types.ts and the desk's group 1 label are gone, and `delivered: "now"` is removed, shown by the diff and by `bun run contract:schema` leaving no change after it
 <!-- AC:END -->
