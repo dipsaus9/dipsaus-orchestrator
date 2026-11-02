@@ -134,11 +134,13 @@ if (registers) {
             });
             expect(await boxes.check()).toMatchObject({ ok: true });
             const workers = new BoxWorkers({
+              info: () => undefined,
               boxes,
               startWebRoute: (network, ids) =>
                 startBoxWebRoute(
                   network,
                   {
+                    info: () => undefined,
                     boxes,
                     clock: systemClock,
                     scratchRoot: tmp,

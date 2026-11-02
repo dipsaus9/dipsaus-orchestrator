@@ -159,6 +159,7 @@ if (registers) {
               return startBoxWebRoute(
                 network,
                 {
+                  info: () => undefined,
                   boxes: routeBoxes,
                   clock: systemClock,
                   scratchRoot: tmp,
@@ -172,6 +173,7 @@ if (registers) {
             };
             const holds = new AdapterHolds({ clock: systemClock, notify: () => {} });
             const workers = new BoxWorkers({
+              info: () => undefined,
               // Every box of the office image mounts its box network tools from here (DIPO-281).
               boxes: new AppleContainerBoxes({
                 stateLabel: cleanup.stateLabel,

@@ -134,6 +134,7 @@ if (registers) {
     const started = await startBoxWebRoute(
       network ?? (await boxes.network()),
       {
+        info: () => undefined,
         boxes,
         clock: systemClock,
         scratchRoot: join(root, "scratch"),
@@ -188,6 +189,7 @@ if (registers) {
         // test made.
         const office = await ensureBoxImage(
           {
+            info: () => undefined,
             boxes,
             route,
             scratchRoot: join(root, "scratch"),

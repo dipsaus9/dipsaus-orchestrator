@@ -159,11 +159,13 @@ if (registers) {
             });
             expect(await boxes.check()).toMatchObject({ ok: true });
             const workers = new BoxWorkers({
+              info: () => undefined,
               boxes,
               startWebRoute: (network, ids) =>
                 startBoxWebRoute(
                   network,
                   {
+                    info: () => undefined,
                     boxes,
                     clock: systemClock,
                     scratchRoot: tmp,
@@ -447,8 +449,8 @@ if (registers) {
               ).toBeNull();
               fact("after a restart a test is taken up again only while its dev answers");
             } finally {
-              await tests.close(testA).catch(() => {});
-              await tests.close(testB).catch(() => {});
+              await tests.close(testA, "the test ended").catch(() => {});
+              await tests.close(testB, "the test ended").catch(() => {});
               await boxes.delete(boxD).catch(() => {});
               await boxes.delete(boxName(reviewRun)).catch(() => {});
               await workers.close();

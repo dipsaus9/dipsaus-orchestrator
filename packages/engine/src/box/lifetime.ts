@@ -360,7 +360,7 @@ export class BoxLifetime {
       };
     }
     // A box the record still names may linger in the backend half made: it goes first.
-    if (had === "gone") await boxes.discard(request.runId);
+    if (had === "gone") await boxes.discard(request.runId, "its run's box is made again");
     const made = await this.#make(request, code, cacheSkipped);
     return made.ok
       ? { kind: "rebuilt", had, parts: code.parts }
@@ -394,7 +394,7 @@ export class BoxLifetime {
       ready = boxPrepareFailedText(error);
     }
     if (ready === null) return { ok: true, made };
-    await boxes.discard(request.runId);
+    await boxes.discard(request.runId, "it could not be made ready");
     return { ok: false, reason: ready };
   }
 

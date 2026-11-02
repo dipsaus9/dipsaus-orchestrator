@@ -1,10 +1,10 @@
 ---
 id: DIPO-419
 title: Keep an open test's box until its test closes
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-02 09:14'
-updated_date: '2026-11-02 09:23'
+updated_date: '2026-11-02 10:19'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -41,7 +41,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The cause is named in the PR: which code deleted the first test's box while its test was open
-- [ ] #2 A test box whose test is open is never deleted by a box tick, sweep or run finish; it goes only through the close paths of run/tests.ts or at recovery when its test is gone, shown by a test that runs the deleting path with an open test
-- [ ] #3 Every box deletion dipo makes logs the box and the reason at info through one logging helper, shown by a test
+- [x] #1 The cause is named in the PR: which code deleted the first test's box while its test was open
+- [x] #2 A test box whose test is open is never deleted by a box tick, sweep or run finish; it goes only through the close paths of run/tests.ts or at recovery when its test is gone, shown by a test that runs the deleting path with an open test
+- [x] #3 Every box deletion dipo makes logs the box and the reason at info through one logging helper, shown by a test
 <!-- AC:END -->

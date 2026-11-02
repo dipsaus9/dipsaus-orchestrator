@@ -431,7 +431,7 @@ export class RunLauncher {
     let boxMade = false;
     // The box goes before the run directory that records it.
     const discardBox = async (): Promise<void> => {
-      if (boxMade) await boxes?.discard(facts.runId);
+      if (boxMade) await boxes?.discard(facts.runId, "its launch failed");
     };
     const fail = async (reason: string): Promise<ClaimSetupFailed> => {
       await discardBox();

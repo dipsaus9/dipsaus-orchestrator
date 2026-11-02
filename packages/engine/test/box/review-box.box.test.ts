@@ -238,12 +238,14 @@ async function setup(
   let network: BoxNetwork | null = null;
   const standIns: Server[] = [];
   const workers = new BoxWorkers({
+    info: () => undefined,
     boxes,
     startWebRoute: (net: BoxNetwork, ids: RouteBoxIds) => {
       network = net;
       return startBoxWebRoute(
         net,
         {
+          info: () => undefined,
           boxes: backend,
           clock: systemClock,
           scratchRoot: tmp,

@@ -15,6 +15,7 @@ import { gitParkWriter, gitUnparkWriter } from "../run/park";
 import { ProposalCommands } from "../run/proposals";
 import { signalProcess } from "../platform/process";
 import { planLimitPause } from "../run/starts-paused";
+import { openTestIdsOfRegistered } from "../run/test-records";
 import { StoryTests, TEST_BOX_DIR } from "../run/tests";
 import { WorkRun } from "../run/work-run";
 import { RunProfiles } from "../scan/feature";
@@ -243,6 +244,10 @@ function storyTestsOf(
     story: (office, stored) => runs.merge.story(office, stored),
     boxes: runs.testBoxes,
     testDir: (testId) => join(core.deps.paths.stateDir, TEST_BOX_DIR, testId),
+    openTestIds: () => {
+      const db = core.database.get();
+      return db === null ? null : openTestIdsOfRegistered(db.connection);
+    },
     testFail: (office, runId, test) => runs.merge.testFail(office, runId, test),
     kick: (office) => autoMerge.kick(office),
     prSync: (office, runId) => story.storyPrs.sync(office, runId),

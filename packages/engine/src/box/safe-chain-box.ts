@@ -55,7 +55,14 @@ import type {
 import { connectToBox } from "./box-connect";
 import { cleanDoorText } from "./door";
 import { type BoxImageDeps, ensureSafeChainImage } from "./build-box";
-import { type BoxNetwork, type BoxPort, type BoxProcess, boxName } from "./port";
+import {
+  type BoxLog,
+  type BoxNetwork,
+  type BoxPort,
+  type BoxProcess,
+  boxName,
+  deleteBox,
+} from "./port";
 import {
   boxClockOffset,
   type ClockOffset,
@@ -143,6 +150,8 @@ export interface SafeChainRouteDeps {
   /** The Safe-Chain image build box's id; random by default. Told before the box exists. */
   readonly buildId?: () => string;
   readonly onEvent?: BoxImageDeps["onEvent"];
+  /** The daemon log's info line, for the deletes of the Safe-Chain box and its build box. */
+  readonly info: BoxLog;
   /** What happened to a running route's Safe-Chain box that dipo must hear of (the daemon logs it). */
   readonly onRoute?: (event: SafeChainRouteEvent) => void;
   /**
@@ -483,9 +492,11 @@ async function stopStarted(deps: SafeChainRouteDeps, started: Started): Promise<
   started.process?.kill("SIGKILL");
   const box = started.box;
   if (box !== null) {
-    await deps.boxes.delete(box).catch((error: unknown) => {
-      deps.onRoute?.({ kind: "safeChainDeleteFailed", box, reason: messageOf(error) });
-    });
+    await deleteBox(deps.boxes, box, "its web route stopped or did not start", deps.info).catch(
+      (error: unknown) => {
+        deps.onRoute?.({ kind: "safeChainDeleteFailed", box, reason: messageOf(error) });
+      },
+    );
   }
   await started.proxy?.stop().catch(() => undefined);
   await started.upstream?.stop().catch(() => undefined);
@@ -517,6 +528,7 @@ async function startSafeChainBox(
       clock: deps.clock,
       ...(deps.buildId === undefined ? {} : { buildId: deps.buildId }),
       ...(deps.onEvent === undefined ? {} : { onEvent: deps.onEvent }),
+      info: deps.info,
     },
     deps.imageTag,
   );

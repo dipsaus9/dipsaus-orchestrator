@@ -86,6 +86,7 @@ function build(dir: string, options: FakeBoxesOptions = {}, ca = CA): Build {
   const toolsRoot = join(dir, "state", "box-net-tools");
   const events: unknown[] = [];
   const deps: BoxImageDeps = {
+    info: () => undefined,
     boxes,
     route: {
       acquire: async (box) => {

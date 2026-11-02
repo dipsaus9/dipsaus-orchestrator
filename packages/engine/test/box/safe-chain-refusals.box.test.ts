@@ -115,6 +115,7 @@ if (registers) {
     const started = await startBoxWebRoute(
       network ?? (await boxes.network()),
       {
+        info: () => undefined,
         boxes,
         clock: systemClock,
         scratchRoot: join(root, "scratch"),
@@ -154,7 +155,14 @@ if (registers) {
         // An office image with Bun and pip, built (or reused) through the route: a test's own tag,
         // so no image dipo uses is replaced.
         const office = await ensureBoxImage(
-          { boxes, route, scratchRoot: join(root, "scratch"), toolsRoot, clock: systemClock },
+          {
+            info: () => undefined,
+            boxes,
+            route,
+            scratchRoot: join(root, "scratch"),
+            toolsRoot,
+            clock: systemClock,
+          },
           describeBox(
             { packages: ["file", "python3-pip"], toolchain: { bun: BOX_DEFAULTS.toolchain.bun } },
             {},

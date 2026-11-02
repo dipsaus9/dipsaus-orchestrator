@@ -103,6 +103,7 @@ if (registers) {
           info = box;
         },
         ...deps,
+        info: deps.info ?? (() => undefined),
       },
       {
         clock: systemClock,

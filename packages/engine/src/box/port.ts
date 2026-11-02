@@ -320,3 +320,33 @@ export interface BoxPort {
    */
   address(name: string, options?: BoxCallOptions): Promise<string | null>;
 }
+
+/** A line of the daemon's log, as its logger's `info` and `warn` write it. */
+export type BoxLog = (message: string, fields: Readonly<Record<string, unknown>>) => void;
+
+/**
+ * True when the state folder labelled `own` made `box` (DIPO-374): the one rule of which listed
+ * boxes a daemon-start sweep may delete, the helper boxes and the test boxes alike (DIPO-419). Apple
+ * `container` lists every box on the Mac, so a box of another state folder's daemon, a test's, and a
+ * box with no label are never this daemon's; a backend that labels none (`own` null) owns none.
+ */
+export function madeHere(box: Pick<BoxInfo, "stateLabel">, own: string | null): boolean {
+  return own !== null && box.stateLabel === own;
+}
+
+/**
+ * Deletes box `name` and logs at info which box went and `why` (DIPO-419): the one way dipo deletes
+ * a box, so the daemon's log names every box it deleted; `info` is required, so no caller deletes
+ * without the line. A delete that fails rejects as
+ * `BoxPort.delete` does and logs nothing here; its caller warns or swallows it.
+ */
+export async function deleteBox(
+  boxes: Pick<BoxPort, "delete">,
+  name: string,
+  why: string,
+  info: BoxLog,
+  options?: BoxCallOptions,
+): Promise<void> {
+  await boxes.delete(name, options);
+  info?.("deleted a box", { box: name, why });
+}

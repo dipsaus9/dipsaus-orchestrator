@@ -46,11 +46,12 @@
 // - `finish` (the claim ended: merge, drop, discard): the post-run token check, unless the box
 //   rests already (`checkBoxAfterRun`, which holds the adapter when the token is found or the
 //   check cannot finish), then the box deleted and its routes released. `discard` deletes a box
-//   whose worker never ran, without the check.
+//   whose worker never ran, or a closed test's (`TestBoxes.close`), without the check.
 // - `finishEnded` finishes the box of every run whose claim ended, and rests every waiting one
 //   (after an exit, on the daemon's minute tick and at daemon start; at daemon start also every
 //   dipo box the backend lists), and `close` stops every box at daemon stop, which ends the
-//   worker inside it. Its passes run one after another, so two callers at
+//   worker inside it. Neither touches a test box (DIPO-419): it lives as long as its test, and
+//   only run/tests.ts deletes it (`TestBoxes`). Its passes run one after another, so two callers at
 //   once (an exit decision and the end of its ingestion) finish and report each run once
 //   (DIPO-307); a run whose finish failed is not reported as finished. A pass waits for one run's
 //   finish at most `BOX_FINISH_WAIT_MS`, so a finish that hangs cannot hold the passes after it
@@ -58,9 +59,11 @@
 //   deletes the fill, build and Safe-Chain boxes (`dipo-fill-*`, `dipo-build-*`,
 //   `dipo-safe-chain-*`, DIPO-343) and reviewer boxes (`dipo-review-*`) a stopped daemon of this
 //   state folder left: only those whose state folder label is exactly the backend's own
-//   (DIPO-374), so another daemon's, a test's and an unlabelled box are kept, and never one this
-//   daemon uses now; the index folder is made before the first fill or reviewer box, so the
-//   backend is asked after a crash in the first one too.
+//   (`madeHere`, DIPO-374), so another daemon's, a test's and an unlabelled box are kept, and never
+//   one this daemon uses now; the index folder is made before the first fill or reviewer box, so
+//   the backend is asked after a crash in the first one too.
+// - Every box dipo deletes goes through `deleteBox` (DIPO-419), which logs at info which box went
+//   and why, so the daemon's log names every deletion.
 // - `review` and `endReview` (0002): a new box for each review session, from the office image,
 //   with a read-only copy of the pushed head and no `box.files` (`review-box.ts`), deleted when the
 //   session ends; `close` deletes the ones left at daemon stop.
@@ -117,8 +120,11 @@ import {
   BUILD_BOX_RUN_PREFIX,
   type BoxClientCommand,
   type BoxNetwork,
+  type BoxLog,
   type BoxPort,
   boxName,
+  deleteBox,
+  madeHere,
   runIdOfBox,
   TEST_BOX_RUN_PREFIX,
 } from "./port";
@@ -188,7 +194,7 @@ export const BOX_SESSION_REST_WAIT_MS = BOX_FINISH_WAIT_MS;
 /** The `BoxError` code of a session that waited past `BOX_SESSION_REST_WAIT_MS` for a rest. */
 export const BOX_REST_WAIT_CODE = "box.restPending";
 
-type Log = (message: string, fields: Readonly<Record<string, unknown>>) => void;
+type Log = BoxLog;
 
 /** The run directory's record. */
 export interface BoxRunRecord {
@@ -390,7 +396,8 @@ export interface BoxWorkersDeps {
   /** Overrides `BOX_SESSION_REST_WAIT_MS`. */
   readonly sessionRestWaitMs?: number;
   readonly warn?: Log;
-  readonly info?: Log;
+  /** The daemon log's info lines; every box this deletes is logged through it (`deleteBox`). */
+  readonly info: Log;
 }
 
 /** The ids of the boxes a web route start makes (DIPO-343), each told before its box exists. */
@@ -704,6 +711,7 @@ export class BoxWorkers {
         clock: this.#deps.code.clock,
         ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
         fillId,
+        info: this.#deps.info,
         onEvent: (event) =>
           this.#deps.warn?.("a fill box was not cleaned up", {
             run: runId,
@@ -759,6 +767,7 @@ export class BoxWorkers {
             this.#filling.add(building);
             return id;
           },
+          info: this.#deps.info,
           onEvent: (event) =>
             this.#deps.warn?.("a build box was not cleaned up", {
               run: runId,
@@ -834,7 +843,12 @@ export class BoxWorkers {
             code,
             message: messageOf(error),
           });
-          await boxes.delete(name).catch(() => undefined);
+          await deleteBox(
+            boxes,
+            name,
+            "it is made again without the package cache mounted",
+            this.#deps.info,
+          ).catch(() => undefined);
           cache = {
             kind: "skipped",
             reason: `the box could not be made with the package cache mounted (${code})`,
@@ -871,7 +885,7 @@ export class BoxWorkers {
         });
       }
     } catch (error) {
-      await this.discard(input.runId);
+      await this.discard(input.runId, "its setup failed");
       if (error instanceof BoxError) throw error;
       throw new BoxError("box.failed", `the box could not be made: ${messageOf(error)}`);
     }
@@ -1023,7 +1037,9 @@ export class BoxWorkers {
     }
     try {
       const listed = await this.#deps.boxes.list();
-      if (listed.some((box) => box.name === name)) await this.#deps.boxes.delete(name);
+      if (listed.some((box) => box.name === name)) {
+        await deleteBox(this.#deps.boxes, name, "its review session ended", this.#deps.info);
+      }
     } catch (error) {
       this.#deps.warn?.("deleting a reviewer box failed", { box: name, reason: messageOf(error) });
     }
@@ -1244,7 +1260,7 @@ export class BoxWorkers {
     // A session whose end was not read yet is read while the route still runs (DIPO-376).
     await this.sessionEnded(runId);
     const outcome = await this.#checked(runId, name, { skipCheck: rested }, (box) =>
-      this.#deps.boxes.delete(box),
+      deleteBox(this.#deps.boxes, box, "its run's claim ended", this.#deps.info),
     );
     await this.#release(name);
     // A box that could not be deleted stays in the index, for the next pass.
@@ -1583,12 +1599,15 @@ export class BoxWorkers {
     });
   }
 
-  /** Deletes the box of a run whose worker never ran (a failed launch); no token check. */
-  async discard(runId: string): Promise<void> {
+  /**
+   * Deletes, for `why`, the box of a run whose worker never ran (a failed launch), or of a test
+   * that closed (`TestBoxes.close`); no token check.
+   */
+  async discard(runId: string, why: string): Promise<void> {
     const name = boxName(runId);
     this.#door?.stop(runId);
     try {
-      await this.#deps.boxes.delete(name);
+      await deleteBox(this.#deps.boxes, name, why, this.#deps.info);
     } catch (error) {
       this.#deps.warn?.("deleting a box failed", {
         run: runId,
@@ -1654,8 +1673,8 @@ export class BoxWorkers {
   /**
    * Finishes the box of every indexed run whose claim ended (`ended` says true: merge, drop or
    * discard, its worker hosts exited), and stops the box of every run that waits (`BOX_WAITING`,
-   * DIPO-278); false is a run still going, null a run no loaded office knows (left alone).
-   * With `listBoxes` (daemon start) also every box the backend lists, and the helper boxes a
+   * DIPO-278); false is a run still going, null a run no loaded office knows (left alone). A test
+   * box is never asked about, whatever `ended` would say (DIPO-419). With `listBoxes` (daemon start) also every box the backend lists, and the helper boxes a
    * stopped daemon of this state folder left are deleted (`#deleteLeftFills`). A pass waits for the one before it, so each run is
    * finished and reported by one pass. Never rejects; resolves to the run ids it finished, without
    * those whose finish failed (they stay in the index for the next pass).
@@ -1685,7 +1704,7 @@ export class BoxWorkers {
             box.runId.startsWith(SAFE_CHAIN_BOX_RUN_PREFIX) ||
             box.runId.startsWith(REVIEW_BOX_RUN_PREFIX)
           ) {
-            if (own !== null && box.stateLabel === own) fills.push(box.name);
+            if (madeHere(box, own)) fills.push(box.name);
           } else {
             runs.add(box.runId);
             this.#indexAgain(box.runId, ended, options.runDirOf);
@@ -1698,6 +1717,9 @@ export class BoxWorkers {
     }
     const finished: string[] = [];
     for (const runId of runs) {
+      // A test box lives as long as its test (DIPO-419): only run/tests.ts deletes it, when the
+      // test closes or at recovery when its test is gone (`TestBoxes.close`, `TestBoxes.sweep`).
+      if (runId.startsWith(TEST_BOX_RUN_PREFIX)) continue;
       const state = ended(runId);
       if (state === BOX_WAITING) {
         // The story waits: its box stops, files kept, until its next session (DIPO-278).
@@ -1775,8 +1797,12 @@ export class BoxWorkers {
     for (const name of fills) {
       if (this.#filling.has(name) || this.#reviews.has(name)) continue;
       try {
-        await this.#deps.boxes.delete(name);
-        this.#deps.info?.("deleted a fill box a stopped daemon left", { box: name });
+        await deleteBox(
+          this.#deps.boxes,
+          name,
+          "a stopped daemon of this state folder left it",
+          this.#deps.info,
+        );
       } catch (error) {
         this.#deps.warn?.("deleting a fill box a stopped daemon left failed", {
           box: name,
@@ -1797,7 +1823,7 @@ export class BoxWorkers {
     // A reviewer box lives only as long as its session, which ends with this daemon's routes.
     for (const name of this.#reviews) {
       try {
-        await this.#deps.boxes.delete(name);
+        await deleteBox(this.#deps.boxes, name, "the daemon stopped", this.#deps.info);
       } catch (error) {
         this.#deps.warn?.("deleting a reviewer box at stop failed", {
           box: name,

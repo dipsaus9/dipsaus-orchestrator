@@ -26,7 +26,13 @@ import { heldTestNotes } from "../../src/run/fix-rounds";
 import { appendRunStep } from "../../src/records/run-records";
 import { stopAtInReview } from "../../src/run-state/rounds";
 import type { RunStoryFacts } from "../../src/run/resume";
-import { findTest, openTestOf, openTestViews, testPassedFor } from "../../src/run/test-records";
+import {
+  findTest,
+  openTestIdsOfRegistered,
+  openTestOf,
+  openTestViews,
+  testPassedFor,
+} from "../../src/run/test-records";
 import { StoryTests, type TestBoxPort } from "../../src/run/tests";
 import { detect, type Probe } from "../../src/scan/detect";
 import { insertProfile } from "../../src/scan/store";
@@ -63,6 +69,8 @@ class FakeTestBoxes implements TestBoxPort {
   reattachAnswer: { port: number | null } | null = { port: 52731 };
   fail: Error | null = null;
   readonly held = new Set<string>();
+  /** The open tests each sweep was given. */
+  readonly sweeps: string[][] = [];
 
   async start(request: TestBoxRequest): Promise<TestBoxRunning> {
     this.starts.push(request);
@@ -89,7 +97,10 @@ class FakeTestBoxes implements TestBoxPort {
   }
 
   async sweep(open: ReadonlySet<string>): Promise<string[]> {
-    return [...this.held].filter((id) => !open.has(id));
+    this.sweeps.push([...open].toSorted());
+    const gone = [...this.held].filter((id) => !open.has(id));
+    for (const id of gone) this.held.delete(id);
+    return gone;
   }
 
   holds(testId: string): boolean {
@@ -107,6 +118,8 @@ interface World {
   readonly scans: string[];
   readonly entries: NewEntry[];
   config: OfficeConfig;
+  /** Whether the office is loaded (DIPO-419: a registered office may fail to load at start). */
+  loaded: boolean;
   ctx(story?: StoryKey): AsyncCommandContext;
 }
 
@@ -120,6 +133,8 @@ async function world(
     readonly lockfiles?: readonly string[];
     readonly steps?: readonly unknown[];
     readonly flagged?: boolean;
+    /** `StoryTestsDeps.openTestIds`; read from the test's database by default. */
+    readonly openTestIds?: () => ReadonlySet<string> | null;
   } = {},
 ): Promise<World> {
   const s = await storyWorld();
@@ -144,14 +159,18 @@ async function world(
   const syncs: RunId[] = [];
   const scans: string[] = [];
   const entries: NewEntry[] = [];
-  const self = { config: OFFICE_DEFAULTS } as { config: OfficeConfig };
+  const self = { config: OFFICE_DEFAULTS, loaded: true } as {
+    config: OfficeConfig;
+    loaded: boolean;
+  };
   const tests = new StoryTests({
     stories: backlogLayout,
     offices: {
-      get: (id) => (id === s.officeId ? office : undefined),
+      get: (id) => (self.loaded && id === s.officeId ? office : undefined),
       config: () => self.config,
-      loadedOffices: () => [s.officeId],
+      loadedOffices: () => (self.loaded ? [s.officeId] : []),
     },
+    openTestIds: options.openTestIds ?? (() => openTestIdsOfRegistered(s.w.t.state.connection)),
     clock: s.w.t.clock,
     ids: s.w.t.ids,
     git: () => ({}) as never,
@@ -181,6 +200,12 @@ async function world(
     },
     set config(value) {
       self.config = value;
+    },
+    get loaded() {
+      return self.loaded;
+    },
+    set loaded(value) {
+      self.loaded = value;
     },
     ctx: (story) => {
       const now = s.w.t.clock.now();
@@ -503,5 +528,39 @@ describe("the test sweep (DIPO-309)", () => {
     w.boxes.reattachAnswer = null;
     await w.tests.recover();
     expect(findTest(w.s.w.office, test)?.endReason).toBe("box-lost");
+  });
+
+  it("keeps the box of an open test whose office did not load at daemon start (DIPO-419)", async () => {
+    const w = await world();
+    const { test } = await started(w);
+    // The next daemon: the office is registered, but its load failed, so recovery skips it.
+    w.loaded = false;
+    await w.tests.recover();
+    expect(w.boxes.reattached).toEqual([]);
+    expect(w.boxes.sweeps).toEqual([[test]]);
+    expect(w.boxes.held.has(test)).toBe(true);
+    expect(w.boxes.closed).toEqual([]);
+    expect(findTest(w.s.w.office, test)?.endedAt).toBeNull();
+    // Once the test closes, the next recovery's sweep no longer keeps its box.
+    w.loaded = true;
+    w.boxes.reattachAnswer = null;
+    await w.tests.recover();
+    expect(findTest(w.s.w.office, test)?.endReason).toBe("box-lost");
+    expect(w.boxes.sweeps.at(-1)).toEqual([]);
+  });
+
+  it("sweeps no test box when the open tests cannot be read", async () => {
+    const w = await world({ openTestIds: () => null });
+    await started(w);
+    await w.tests.recover();
+    expect(w.boxes.sweeps).toEqual([]);
+    const thrown = await world({
+      openTestIds: () => {
+        throw new Error("the database is locked");
+      },
+    });
+    await started(thrown);
+    await thrown.tests.recover();
+    expect(thrown.boxes.sweeps).toEqual([]);
   });
 });
