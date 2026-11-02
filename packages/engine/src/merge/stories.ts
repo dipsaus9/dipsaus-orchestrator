@@ -157,6 +157,8 @@ export interface StoryMergeDeps {
   readonly labels: Pick<PrReviewHost, "prLabels">;
   /** Where the CI of a run's pushed head stands (`StoryPrs.ciState`). */
   readonly ci: (office: OfficeId, runId: RunId) => CiHeadState | null;
+  /** Whether the base was read to require no checks for `head` (`StoryPrs.requiresNoChecks`). */
+  readonly requiresNoChecks?: (office: OfficeId, runId: RunId, head: string) => boolean;
   /** The code tree key of `head` (0010), or null when it cannot be read; `git.treeKey` by default. */
   readonly treeKey?: (office: OfficeId, run: StoredRun, head: string) => Promise<string | null>;
   /** Updates the story PR to the branch's pushed head (`StoryPrs.sync`). */
@@ -692,6 +694,7 @@ export class StoryMerges {
         mirrorFlagged(ctx.office, key) && !testPassedFor(ctx.office, key, input.head),
       verdict: input.verdict,
       holdLabels: input.held,
+      noRequiredChecks: this.#deps.requiresNoChecks?.(ctx.officeId, run.runId, input.head) === true,
       releasePaths: input.release,
       adrPaths: input.adr,
     });

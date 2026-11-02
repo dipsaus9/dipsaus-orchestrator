@@ -1379,3 +1379,21 @@ describe("the by-rule path's holds", () => {
     expect(s.host.armedAt).toEqual([{ number: PR, head: C1 }]);
   });
 });
+
+describe("a base that requires no checks (DIPO-429)", () => {
+  it("waits for the maintainer with the reason, and never turns auto-merge on by rule", async () => {
+    s = await storyWorld();
+    s.noneRequired = true;
+    await s.tick();
+    await s.tick();
+    expect(s.host.armedAt).toEqual([]);
+    expect(gates()).toHaveLength(1);
+    expect(gates()[0]).toMatchObject({ waitingOn: "maintainer", decision: null });
+    expect(gates()[0]?.waits).toEqual(["noRequiredChecks"]);
+    expect(gates()[0]?.summary).toContain("the base branch requires no checks on GitHub");
+    // The maintainer's approval is the merge decision: auto-merge goes on then.
+    approve(gates()[0]?.gate as string);
+    await s.tick();
+    expect(s.host.armedAt).toEqual([{ number: PR, head: C1 }]);
+  });
+});
