@@ -1,4 +1,4 @@
-// `dipo config migrate` rewrites an office file at version 14 (0017): the same steps as the load,
+// `dipo config migrate` rewrites an office file at version 15 (0017): the same steps as the load,
 // applied to the YAML document so comments stay, and a file that would not load is refused.
 
 import { describe, expect, it } from "bun:test";
@@ -36,7 +36,7 @@ describe("migrateOfficeFileText", () => {
     expect(result.text).toBe(
       [
         "# A version 5 office file: version 5 adds review and the rest of mergeSlot (DIPO-139).",
-        "version: 14",
+        "version: 15",
         "review: { maxRounds: 2 }",
         "caps:",
         "  ciAttempts: 3",
@@ -59,7 +59,7 @@ describe("migrateOfficeFileText", () => {
   });
 
   for (let version = 1; version < OFFICE_CONFIG_VERSION; version += 1) {
-    it(`writes the version ${version} fixture as a version 14 file that loads as the fixture does, with no warning`, () => {
+    it(`writes the version ${version} fixture as a version 15 file that loads as the fixture does, with no warning`, () => {
       const text = fixture(`office-v${version}.yaml`);
       const result = migrated(migrateOfficeFileText(OFFICE_FILE, text));
       expect(result.text).toStartWith(`# A version ${version} `);
@@ -73,7 +73,7 @@ describe("migrateOfficeFileText", () => {
   it("migrates an older local file and drops its sandbox key", () => {
     const text = fixture("office-local-v4.yaml");
     const result = migrated(migrateOfficeFileText(OFFICE_LOCAL_FILE, text));
-    expect(result.text).toContain("version: 14\n");
+    expect(result.text).toContain("version: 15\n");
     expect(result.text).toContain(
       "# accepts. sandbox.toolchainReadPaths is retired in version 14.",
     );
@@ -83,14 +83,14 @@ describe("migrateOfficeFileText", () => {
   });
 
   // DIPO-405: review.tiers is a key with a default, so it needs no version bump (0017).
-  it("keeps a version 13 review block and its comment, and leaves a version 14 review.tiers as it is", () => {
+  it("keeps a version 13 review block and its comment, and leaves a version 15 review.tiers as it is", () => {
     const result = migrated(migrateOfficeFileText(OFFICE_FILE, fixture("office-v13.yaml")));
     expect(result.text).toContain(
       "# The reviewer at normal effort, for every tier.\nreview:\n  effort: medium\n",
     );
     expect(configOf({ office: result.text }).config.review.tiers).toEqual({});
     const text = [
-      "version: 14",
+      "version: 15",
       "review:",
       "  effort: medium",
       "  tiers: # sonnet for small stories",
@@ -100,17 +100,55 @@ describe("migrateOfficeFileText", () => {
     expect(migrated(migrateOfficeFileText(OFFICE_FILE, text)).text).toBe(text);
   });
 
-  it("returns a version 14 file unchanged", () => {
-    const text = "# mine\nversion: 14\nbase: main\n";
+  it("returns a version 15 file unchanged", () => {
+    const text = "# mine\nversion: 15\nbase: main\n";
     expect(migrated(migrateOfficeFileText(OFFICE_FILE, text))).toEqual({
       ok: true,
-      from: 14,
+      from: 15,
       text,
       changes: [],
     });
   });
 
-  it("refuses a file that would not load as version 14, naming the key", () => {
+  // DIPO-428: version 15 retires timeouts.questionWaitMinutes, since a worker's question parks at
+  // once (0020); the migration from 14 drops it and keeps the comments and the keys around it.
+  it("writes a version 14 office file as version 15 without timeouts.questionWaitMinutes", () => {
+    const result = migrated(migrateOfficeFileText(OFFICE_FILE, fixture("office-v14.yaml")));
+    expect(result.from).toBe(14);
+    expect(result.text).toBe(
+      [
+        "# A version 14 office file: version 15 retires timeouts.questionWaitMinutes (DIPO-428).",
+        "version: 15",
+        "timeouts:",
+        "  workerStallMinutes: 30 # a slow box",
+        "# The reviewer at normal effort.",
+        "review: { effort: medium }",
+        "",
+      ].join("\n"),
+    );
+    expect(result.changes).toEqual([
+      "deleted timeouts.questionWaitMinutes, because a worker's question parks its story at once, whichever client is connected (0020)",
+    ]);
+    expect(configOf({ office: result.text }).warnings).toEqual([]);
+    // Migrating the version 15 text again changes nothing.
+    expect(migrated(migrateOfficeFileText(OFFICE_FILE, result.text)).changes).toEqual([]);
+  });
+
+  it("writes a version 14 local file as version 15, dropping a timeouts section the key leaves empty", () => {
+    const text = fixture("office-local-v14.yaml");
+    const result = migrated(migrateOfficeFileText(OFFICE_LOCAL_FILE, text));
+    expect(result.text).toBe(
+      [
+        "# A version 14 local file that sets only the question wait in its timeouts (DIPO-428).",
+        "version: 15",
+        "privacy: { keepRawEvents: true }",
+        "",
+      ].join("\n"),
+    );
+    expect(configOf({ local: result.text }).configHash).toBe(configOf({ local: text }).configHash);
+  });
+
+  it("refuses a file that would not load as version 15, naming the key", () => {
     const result = migrateOfficeFileText(OFFICE_FILE, "version: 9\ntimeouts: { typo: 1 }\n");
     expect(result.ok).toBe(false);
     if (result.ok) return;

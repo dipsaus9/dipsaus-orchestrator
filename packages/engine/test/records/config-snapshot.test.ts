@@ -56,7 +56,7 @@ describe("runConfigOf", () => {
     // The moved keys are read at their new place (the migration of 0017).
     expect(started.merge).toEqual({ ...inForce.merge, autoMerge: false });
     expect(started.caps).toEqual({ ...inForce.caps, ciAttempts: 7 });
-    expect(started.version).toBe(14);
+    expect(started.version).toBe(15);
     expect(Object.keys(started)).not.toContain("mergeSlot");
     expect(Object.keys(started)).not.toContain("storyPr");
     expect(Object.keys(started)).not.toContain("worker");

@@ -1,7 +1,7 @@
 // `dipo config migrate` (0017): the one command that rewrites a configuration file. It takes
 // `.dipo/office.yaml` and `.dipo/office.local.yaml` of a repository from an earlier version to
-// version 14 with `migrateOfficeFileText`, which keeps their comments, and says each key it moved
-// or deleted. A file that would not load as version 14 is left alone and its errors are printed;
+// the current version with `migrateOfficeFileText`, which keeps their comments, and says each key it
+// moved or deleted. A file that would not load at the current version is left alone and its errors are printed;
 // the other file is still migrated. It needs no daemon: the CLI calls it as a daemon-side form with
 // the main worktree of the repository it runs in.
 

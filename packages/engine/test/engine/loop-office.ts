@@ -920,7 +920,6 @@ async function buildDaemon(
       teardown.stop();
       startsPaused.close();
       places.close();
-      permissions.close();
       control.close();
       runs.ingest.close();
       runs.reattacher?.close();

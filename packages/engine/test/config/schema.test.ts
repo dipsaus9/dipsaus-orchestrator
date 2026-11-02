@@ -19,9 +19,9 @@ const tier = (name: string) =>
   );
 const box = (name: string) => `box.${name}`;
 
-// Version 14 (0017): only keys code reads. A key added later with a default needs no version bump,
+// Version 15 (0017): only keys code reads. A key added later with a default needs no version bump,
 // so a new key is added here and to the schema in the same change.
-const VERSION_14_KEY_PATHS = [
+const KEY_PATHS = [
   "version",
   ...tier("S"),
   ...tier("M"),
@@ -78,7 +78,6 @@ const VERSION_14_KEY_PATHS = [
   "scripts.*",
   "timeouts.workerStallMinutes",
   "timeouts.workerQuietMinutes",
-  "timeouts.questionWaitMinutes",
   "timeouts.scriptMinutes.*",
   "timeouts.testIdleMinutes",
   "polling.prStateSeconds",
@@ -94,23 +93,23 @@ const localAllowed = (path: string) =>
   path === "version" || /^(timeouts|privacy|retention)\./.test(path);
 
 function boxFile(section: object): boolean {
-  return OfficeFileSchema.safeParse({ version: 14, box: section }).success;
+  return OfficeFileSchema.safeParse({ version: 15, box: section }).success;
 }
 
-describe("version 14 key paths", () => {
+describe("version 15 key paths", () => {
   it("are the keys code reads", () => {
-    expect(schemaKeyPaths(OfficeConfigSchema)).toEqual(VERSION_14_KEY_PATHS.toSorted());
+    expect(schemaKeyPaths(OfficeConfigSchema)).toEqual(KEY_PATHS.toSorted());
   });
 
   it("office.yaml accepts every key except privacy.* and retention.*", () => {
     expect(schemaKeyPaths(OfficeFileSchema)).toEqual(
-      VERSION_14_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
+      KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
     );
   });
 
   it("office.local.yaml accepts only version, timeouts.*, privacy.* and retention.*", () => {
     expect(schemaKeyPaths(OfficeLocalFileSchema)).toEqual(
-      VERSION_14_KEY_PATHS.filter(localAllowed).toSorted(),
+      KEY_PATHS.filter(localAllowed).toSorted(),
     );
   });
 
@@ -172,16 +171,66 @@ describe("the box block", () => {
 });
 
 describe("migrateOfficeDocument", () => {
-  it("leaves a version 14 document as it is", () => {
-    const document = { version: 14, sandbox: {} };
-    expect(migrateOfficeDocument(14, document)).toEqual({ document, steps: [] });
+  it("leaves a version 15 document as it is", () => {
+    const document = { version: 15, sandbox: {}, timeouts: { questionWaitMinutes: 5 } };
+    expect(migrateOfficeDocument(15, document)).toEqual({ document, steps: [] });
   });
 
-  it("raises an older document to version 14 with no step when it sets no retired key", () => {
+  it("raises an older document to version 15 with no step when it sets no retired key", () => {
     expect(migrateOfficeDocument(3, { version: 3, base: "main" })).toEqual({
-      document: { version: 14, base: "main" },
+      document: { version: 15, base: "main" },
       steps: [],
     });
+    expect(migrateOfficeDocument(14, { version: 14, base: "main" })).toEqual({
+      document: { version: 15, base: "main" },
+      steps: [],
+    });
+  });
+
+  it("drops timeouts.questionWaitMinutes from version 14 as version 15's one step, keeping its neighbours (DIPO-428)", () => {
+    const before = {
+      version: 14,
+      timeouts: { workerStallMinutes: 40, questionWaitMinutes: 5 },
+      // A key version 14 retired is not version 15's to drop: the strict schema refuses it.
+      sandbox: {},
+    };
+    const migrated = migrateOfficeDocument(14, before);
+    expect(migrated.document).toEqual({
+      version: 15,
+      timeouts: { workerStallMinutes: 40 },
+      sandbox: {},
+    });
+    expect(migrated.steps).toEqual([
+      {
+        kind: "drop",
+        path: ["timeouts", "questionWaitMinutes"],
+        reason: "a worker's question parks its story at once, whichever client is connected (0020)",
+        version: 15,
+      },
+    ]);
+    // Pure: the input is left as it was.
+    expect(before.timeouts.questionWaitMinutes).toBe(5);
+    // A section left empty goes with it.
+    expect(
+      migrateOfficeDocument(14, { version: 14, timeouts: { questionWaitMinutes: 5 } }).document,
+    ).toEqual({ version: 15 });
+  });
+
+  it("drops the keys of both versions from a file before 14", () => {
+    const migrated = migrateOfficeDocument(10, {
+      version: 10,
+      remote: "origin",
+      timeouts: { questionWaitMinutes: 20 },
+    });
+    expect(migrated.document).toEqual({ version: 15 });
+    expect(
+      migrated.steps.map((step) =>
+        step.kind === "drop" ? [step.path.join("."), step.version] : [],
+      ),
+    ).toEqual([
+      ["remote", 14],
+      ["timeouts.questionWaitMinutes", 15],
+    ]);
   });
 
   it("moves mergeSlot into caps and merge and drops the rest, leaving no empty section", () => {
@@ -192,7 +241,7 @@ describe("migrateOfficeDocument", () => {
     };
     const migrated = migrateOfficeDocument(5, before);
     expect(migrated.document).toEqual({
-      version: 14,
+      version: 15,
       caps: { ciAttempts: 3 },
       merge: { holdLabels: ["hold"], autoMerge: false },
     });
@@ -203,6 +252,7 @@ describe("migrateOfficeDocument", () => {
         kind: "drop",
         path: ["mergeSlot", "requiredChecks"],
         reason: "the required checks are the ones GitHub requires on the base (0002)",
+        version: 14,
       },
     ]);
     expect(before.mergeSlot.ciAttempts).toBe(3);
@@ -217,7 +267,7 @@ describe("migrateOfficeDocument", () => {
       sandbox: { allowLocalBinding: true },
     });
     expect(migrated.document).toEqual({
-      version: 14,
+      version: 15,
       worktree: { root: "../x" },
       prompt: { contractMax: 9 },
     });
@@ -232,7 +282,7 @@ describe("migrateOfficeDocument", () => {
 });
 
 describe("defaults", () => {
-  it("are a complete version 14 configuration", () => {
+  it("are a complete version 15 configuration", () => {
     expect(OfficeConfigSchema.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
   });
 
@@ -263,7 +313,6 @@ describe("defaults", () => {
     expect(OFFICE_DEFAULTS.timeouts).toEqual({
       workerStallMinutes: 20,
       workerQuietMinutes: 3,
-      questionWaitMinutes: 15,
       scriptMinutes: { install: 15, setup: 10, verify: 20 },
       testIdleMinutes: 240,
     });

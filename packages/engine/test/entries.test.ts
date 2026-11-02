@@ -59,7 +59,6 @@ const ENGINE_ENTRY = [
   "type OfficePage",
   "packageName",
   "type PreparedWorker",
-  "type Presence",
   "type ProcessProbe",
   "type RecoveryContext",
   "type RecoveryStep",

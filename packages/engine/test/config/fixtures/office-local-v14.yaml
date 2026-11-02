@@ -1,0 +1,4 @@
+# A version 14 local file that sets only the question wait in its timeouts (DIPO-428).
+version: 14
+timeouts: { questionWaitMinutes: 5 }
+privacy: { keepRawEvents: true }

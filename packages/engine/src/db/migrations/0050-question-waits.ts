@@ -1,9 +1,10 @@
 // Migration 48 (DIPO-159): the live wait of a worker's question (0020 section 7, 0021 section 11).
 //
-// `questions.wait_until` is when the live wait of a worker question asked while a TUI was connected
-// ends (`asked_at` plus `timeouts.questionWaitMinutes`): the desk shows the time left from it, and
-// the run's minute cap leaves the wait out. Null for a question never asked live (a permission
-// question, or a question its park asked).
+// `questions.wait_until` was when the live wait of a worker question asked while a TUI was connected
+// ended (`asked_at` plus the office's question wait): the desk showed the time left from it, and
+// the run's minute cap left the wait out. Null for a question never asked live (a permission
+// question, or a question its park asked). Migration 73 drops it: every question parks at once
+// (DIPO-428).
 //
 // The trigger closes, as `expired`, every open question a park carried once that park is resolved
 // in any way (resume, drop, discard, reconcile, done elsewhere, override): such a question waits for

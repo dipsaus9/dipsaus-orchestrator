@@ -112,8 +112,6 @@ export interface Engine extends EngineSurface {
   drain(request: DrainRequest, caps?: DrainCaps): Promise<DrainResult>;
   /** True while an engine step runs: a child process the engine started, or a command's writes. */
   busy(): boolean;
-  /** What the socket server sees: whether a TUI is connected (0021, DIPO-279). */
-  setTuiPresent(connected: boolean): void;
   /** The last TUI client of `office` disconnected at `at` (DIPO-308). */
   tuiLeft(office: OfficeId, at: number): void;
   /** Stops every service, timer and engine call; the database stays open. */

@@ -78,8 +78,6 @@ function runsOf(core: Core, story: StoryServices, partners: EnginePartners): Eng
     ...(deps.workerPort === undefined ? {} : { workerPort: deps.workerPort }),
     stories: story.storyIndex,
     implemented: core.implemented,
-    // A question is live only while a TUI is connected at that moment (0021, DIPO-279).
-    presence: core.presence,
     // The office's starts paused lifts, and its parks resume, only while the engine schedules
     // work (0020).
     scheduling: () => core.lifecycle.state === "running",

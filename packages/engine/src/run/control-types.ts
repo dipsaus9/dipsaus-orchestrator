@@ -21,7 +21,6 @@ import type { Caps, HostOp, SteerOp, WorkerReport } from "../workers/types";
 import type { FiredCap } from "../records/caps";
 import { STEER_UNREAD_NOTICE } from "../records/feedback-intents";
 import type { IntentKind } from "../records/intents";
-import type { LiveQuestions } from "../records/live-question";
 import type { RunAct, RunOutcomesPort, RunView } from "./outcome-types";
 import type { ParkOutcome, ParkWriter } from "./park";
 import type { ParkStore } from "../records/park-state";
@@ -124,11 +123,6 @@ export interface RunControlDeps {
    * the decision at the worker's exit. Read when needed, so it can be built after run control.
    */
   readonly outcomes?: () => RunOutcomesPort | undefined;
-  /**
-   * The live wait of a blocked report's question (DIPO-272, 0021 section 11): read when a report
-   * asks one. Without it, or when it does not take the question, the story parks with it.
-   */
-  readonly questions?: () => LiveQuestions | undefined;
 }
 
 /** What a started run is tracked with. */

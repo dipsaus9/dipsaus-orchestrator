@@ -20,25 +20,6 @@ import type { Caps } from "../workers/types";
 import { grantTotals } from "./grants";
 import type { StoredRun } from "./run-records";
 
-/**
- * The ms the run's worker questions waited live up to `now` (0020 section 7, DIPO-159, the
- * `questions` table of `run-state/questions.ts`): from each question's `asked_at` to the first of
- * its close, its park (the park's own time is the run's `parked_ms`), the end of its wait and
- * `now`. The minute cap leaves them out.
- */
-export function questionWaitMs(office: OfficeHandle, runId: string, now: number): number {
-  const row = office.get<{ total: number | null }>(
-    `select sum(max(0, min(coalesce(q.closed_at, $now), coalesce(p.at, $now), q.wait_until, $now)
-         - q.asked_at)) as total
-       from questions q
-       left join parks p on p.office_id = q.office_id and p.park_id = q.park_id
-      where q.office_id = $office_id and q.run_id = $run and q.kind = 'question'
-        and q.wait_until is not null`,
-    { run: runId, now },
-  );
-  return row?.total ?? 0;
-}
-
 /** The cap that fired, as the park detail and the `cap` intent name it. */
 export type CapName = "budgetTokens" | "maxTurns" | "maxMinutes";
 
@@ -119,8 +100,7 @@ export const REVIEWER_ROLE = "reviewer";
 /**
  * The developer's totals of the run from the stored usage, and the wall-clock time from
  * `startedAt` (when its worker host started, moved by the time it stood parked, ended or in
- * review) to `now`, less the time its worker questions waited live (0020). The budget and the
- * turns count only the developer's agents: a reviewer's tokens, turns and minutes count against
+ * review) to `now`. The budget and the turns count only the developer's agents: a reviewer's tokens, turns and minutes count against
  * the reviewer's own caps and never against the story's (0002).
  */
 export function runTotals(
@@ -141,8 +121,7 @@ export function runTotals(
   return {
     budgetTokens: row?.budget ?? 0,
     turns: row?.turns ?? 0,
-    // The live wait of its worker questions (0020, DIPO-159) does not count.
-    elapsedMs: Math.max(0, now - startedAt - questionWaitMs(office, runId, now)),
+    elapsedMs: Math.max(0, now - startedAt),
   };
 }
 

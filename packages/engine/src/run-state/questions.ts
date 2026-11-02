@@ -1,4 +1,4 @@
-// The `questions` table (0007 section 4, migrations 22, 23 and 48) and its views (0005 `QuestionView`): what the
+// The `questions` table (0007 section 4, migrations 22, 23, 50 and 73) and its views (0005 `QuestionView`): what the
 // engine asks the maintainer for a run's agent, and how each question stopped waiting. The writers
 // run inside the caller's immediate transaction; nothing here sends anything.
 
@@ -38,11 +38,6 @@ export interface StoredQuestion {
   readonly parkId: number | null;
   /** When an allow of a park question let its one matching request through (DIPO-75). */
   readonly allowUsedAt: number | null;
-  /**
-   * When the live wait of a worker question ends (DIPO-159, migration 50): null for one never
-   * asked live.
-   */
-  readonly waitUntil: number | null;
   /** How the answer reached the worker: `now`, or with the next session (`on-resume`). */
   readonly delivered: "now" | "on-resume" | null;
   readonly answeredAt: number | null;
@@ -64,13 +59,12 @@ interface QuestionRow {
   closed_how: QuestionClose | null;
   park_id: number | null;
   allow_used_at: number | null;
-  wait_until: number | null;
   delivered: "now" | "on-resume" | null;
   answered_at: number | null;
 }
 
 const COLUMNS = `question_id, run_id, agent_id, kind, text, tool, input, hook, asked_at, answer,
-  decision, closed_at, closed_how, park_id, allow_used_at, wait_until, delivered, answered_at`;
+  decision, closed_at, closed_how, park_id, allow_used_at, delivered, answered_at`;
 
 function stored(row: QuestionRow): StoredQuestion {
   return {
@@ -89,7 +83,6 @@ function stored(row: QuestionRow): StoredQuestion {
     closedHow: row.closed_how,
     parkId: row.park_id,
     allowUsedAt: row.allow_used_at,
-    waitUntil: row.wait_until,
     delivered: row.delivered,
     answeredAt: row.answered_at,
   };
@@ -107,16 +100,13 @@ export interface NewWorkerQuestion {
   /** The question of the worker's report, cleaned at the door. */
   readonly text: string;
   readonly at: number;
-  /** When its live wait ends (DIPO-159); absent for a question its park asks. */
-  readonly waitUntil?: number;
-  /** The park that asks it, for a question asked with no TUI connected (DIPO-159). */
+  /** The `ambiguous-spec` park that asks it (DIPO-159). */
   readonly parkId?: number;
 }
 
 /**
- * Stores the open question of a worker's report (kind `question`): asked live with the end of its
- * wait (DIPO-272, DIPO-159), or asked by its `ambiguous-spec` park; no tool and no hook call.
- * Returns it.
+ * Stores the open question of a worker's report (kind `question`), asked by its `ambiguous-spec`
+ * park (DIPO-159, 0020); no tool and no hook call. Returns it.
  */
 export function insertWorkerQuestion(
   office: OfficeHandle,
@@ -124,15 +114,14 @@ export function insertWorkerQuestion(
 ): StoredQuestion {
   office.run(
     `insert into questions (office_id, question_id, run_id, agent_id, kind, text, asked_at,
-       wait_until, park_id)
-     values ($office_id, $question, $run, $agent, 'question', $text, $at, $wait, $park)`,
+       park_id)
+     values ($office_id, $question, $run, $agent, 'question', $text, $at, $park)`,
     {
       question: question.questionId,
       run: question.runId,
       agent: question.agentId,
       text: question.text,
       at: question.at,
-      wait: question.waitUntil ?? null,
       park: question.parkId ?? null,
     },
   );

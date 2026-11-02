@@ -5,8 +5,8 @@
 // The groups, in the order of 0020:
 // 0. the office's starts paused (DIPO-359, `starts-paused.ts`), with its reason and what lifts it,
 //    offering `dipo daemon resume-scheduling`; an office item with no story;
-// 1. a question a live worker waits on (no park took it over); it shows the time left on its wait (DIPO-159) and offers `dipo answer <question>
-//    --text "<answer>"`;
+// 1. an open question no park carries, with `dipo answer <question> --text "<answer>"`; a
+//    worker's question parks at once (0020), so it is on its PARKED row instead;
 // 2. merge gates that wait on the maintainer, with the PR from `story_prs`; a gate whose PR is
 //    labelled `autorelease: pending` offers a hand merge and no `dipo approve`; a gate marked
 //    hand-merge only because its PR changes the release path (DIPO-331, `gates.hand_merge`) names
@@ -427,16 +427,6 @@ class DeskBuilder {
     return this.#action("work.answer", `dipo answer ${id} --text "<answer>"`);
   }
 
-  /**
-   * `, <n> min left` while a worker question's live wait runs (rounded up, at least 1), `, its wait
-   * is over` once it has ended; empty for a question with no wait or a desk read without a time.
-   */
-  #timeLeft(question: StoredQuestion): string {
-    if (question.waitUntil === null || this.#now === undefined) return "";
-    const left = question.waitUntil - this.#now;
-    return left <= 0 ? ", its wait is over" : `, ${Math.max(1, Math.ceil(left / 60_000))} min left`;
-  }
-
   /** Group 0: the office's starts paused, with what lifts it; nothing else starts until then. */
   startsPaused(): void {
     const paused = this.#sources.startsPaused?.(this.#office) ?? null;
@@ -455,7 +445,7 @@ class DeskBuilder {
     });
   }
 
-  /** Group 1: questions a live worker waits on; a park's questions are on its PARKED row. */
+  /** Group 1: open questions no park carries; a park's questions are on its PARKED row. */
   liveQuestions(): void {
     for (const question of openQuestions(this.#office)) {
       if (question.parkId !== null) continue;
@@ -465,9 +455,7 @@ class DeskBuilder {
       );
       const key = run?.key ?? null;
       const story = key === null ? null : storyIdOf(this.#office, key);
-      // The time left on a worker question's live wait (0020, DIPO-159), kept whole when a long
-      // question is cut.
-      const waiting = ` · worker waiting${this.#timeLeft(question)}`;
+      const waiting = " · worker waiting";
       const room = DESK_DETAIL_MAX - Array.from(waiting).length - 2;
       const text = cut(deskText(question.text), room);
       this.#add(GROUP.live, 0, question.askedAt, {
@@ -757,7 +745,7 @@ class DeskBuilder {
 
 /**
  * What waits on the maintainer in `office`, in desk order (see the file comment). `now` is the time
- * of the read, for the time left on a worker question's wait; without it none is shown.
+ * of the read, for the office items with no story; without it none is shown.
  */
 export function desk(
   office: OfficeHandle,
