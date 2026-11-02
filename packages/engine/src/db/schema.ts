@@ -74,6 +74,7 @@ import { safeChainRefusals } from "./migrations/0070-safe-chain-refusals";
 import { noTranscriptTailer } from "./migrations/0071-no-transcript-tailer";
 import { laneFailedOp } from "./migrations/0072-lane-failed-op";
 import { noQuestionWaits } from "./migrations/0073-no-question-waits";
+import { deliveredOnResume } from "./migrations/0074-delivered-on-resume";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -178,4 +179,5 @@ create table offices (
   noTranscriptTailer,
   laneFailedOp,
   noQuestionWaits,
+  deliveredOnResume,
 ];
