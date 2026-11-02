@@ -1,10 +1,10 @@
 ---
 id: DIPO-431
 title: Let the privacy toggle bring an office.local.yaml up to the current version
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-02 13:23'
-updated_date: '2026-11-02 14:03'
+updated_date: '2026-11-02 14:05'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -43,7 +43,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 setPrivacy on a version 14 office.local.yaml writes it at the current version with the new privacy value and every other key kept, shown by a test on a fixture file
-- [ ] #2 setPrivacy still refuses an office.local.yaml that does not validate, and never rewrites office.yaml, shown by tests
-- [ ] #3 ADR 0017 says setPrivacy rewrites office.local.yaml at the current version, and its sample shows version 15
+- [x] #1 setPrivacy on a version 14 office.local.yaml writes it at the current version with the new privacy value and every other key kept, shown by a test on a fixture file
+- [x] #2 setPrivacy still refuses an office.local.yaml that does not validate, and never rewrites office.yaml, shown by tests
+- [x] #3 ADR 0017 says setPrivacy rewrites office.local.yaml at the current version, and its sample shows version 15
 <!-- AC:END -->
