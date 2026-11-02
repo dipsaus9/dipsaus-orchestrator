@@ -1,10 +1,10 @@
 ---
 id: DIPO-423
 title: Keep the local test suite's daemons off the real container CLI
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-02 10:09'
-updated_date: '2026-11-02 10:42'
+updated_date: '2026-11-02 10:44'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -40,6 +40,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `daemonTestEnv` drops every PATH directory holding `container` unless DIPO_TEST_BOX=1, shown by a unit test of packages/testkit/src/env.ts; and a daemon started through it past its start step, with a logging stand-in `container` first on the caller's PATH, never calls the stand-in, shown by a test in packages/daemon/test/integration/
-- [ ] #2 With DIPO_TEST_BOX=1 the box tests still reach the real CLI, shown by the existing box tests
+- [x] #1 `daemonTestEnv` drops every PATH directory holding `container` unless DIPO_TEST_BOX=1, shown by a unit test of packages/testkit/src/env.ts; and a daemon started through it past its start step, with a logging stand-in `container` first on the caller's PATH, never calls the stand-in, shown by a test in packages/daemon/test/integration/
+- [x] #2 With DIPO_TEST_BOX=1 the box tests still reach the real CLI, shown by the existing box tests
 <!-- AC:END -->
