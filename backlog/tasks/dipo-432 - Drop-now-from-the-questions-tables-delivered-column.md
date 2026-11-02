@@ -1,10 +1,10 @@
 ---
 id: DIPO-432
 title: Drop "now" from the questions table's delivered column
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-02 14:04'
-updated_date: '2026-11-02 14:47'
+updated_date: '2026-11-02 14:50'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -41,7 +41,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After the new migration `questions.delivered` accepts `on-resume` and null and refuses `now`, and a database with questions in every state keeps every row and column, a stored `now` read back as `on-resume`, shown by a migration test on fixture rows
-- [ ] #2 After the rebuild the table has exactly the indexes `questions_open` and `questions_allow_once` with today's definitions and its foreign key to `runs`, shown by a test that reads them from `sqlite_schema` and `pragma foreign_key_list`; a fresh and a migrated database have the same schema
-- [ ] #3 `"now"` is gone from `StoredQuestion`, `QuestionRow` and `closeQuestion` in run-state/questions.ts, shown by the diff and `tsc`
+- [x] #1 After the new migration `questions.delivered` accepts `on-resume` and null and refuses `now`, and a database with questions in every state keeps every row and column, a stored `now` read back as `on-resume`, shown by a migration test on fixture rows
+- [x] #2 After the rebuild the table has exactly the indexes `questions_open` and `questions_allow_once` with today's definitions and its foreign key to `runs`, shown by a test that reads them from `sqlite_schema` and `pragma foreign_key_list`; a fresh and a migrated database have the same schema
+- [x] #3 `"now"` is gone from `StoredQuestion`, `QuestionRow` and `closeQuestion` in run-state/questions.ts, shown by the diff and `tsc`
 <!-- AC:END -->
