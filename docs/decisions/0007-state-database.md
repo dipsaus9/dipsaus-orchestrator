@@ -115,9 +115,9 @@ The worker host appends the session's stream to `events.ndjson`. The engine read
 ## 10. Migrations and the one backup
 
 - **Migrations.** Forward-only, numbered steps compiled into the binary, each with a checksum. `PRAGMA user_version` holds the head, and `schema_migrations` records each step.
-- **Order.** They run once for the whole file in `recovering`, before any office loads. Each step runs in its own transaction.
+- **Order.** They run once for the whole file in `recovering`, before any office loads. Each step runs in its own transaction, and each of its statements runs on its own, so any failing statement fails the step.
 - **The backup.** Before the first step, dipo writes `VACUUM INTO backups/pre-v<N>-<time>.db`. A fresh database gets no backup. The two newest are kept. This is the only backup.
-- **Failure.** A failed step rolls back, and the daemon stays in `recovering` with `database.unavailable` and the backup's name (0005). An edited step (checksum mismatch) is treated the same way. A database newer than the binary is refused with "upgrade dipo".
+- **Failure.** A failed step rolls back, and the daemon stays in `recovering` with `database.unavailable` and the backup's name (0005). An edited step (checksum mismatch) is treated the same way, and so is a schema that differs from the one the steps build in a fresh in-memory database, with the differing objects named. A database newer than the binary is refused with "upgrade dipo".
 - **Tests.** A database built from all steps must equal one migrated from each released schema, compared by schema dump. Before 1.0 the steps may be squashed once.
 - **Losing the database** loses run history, never a project (0001). A new file is created. `office open` registers each repository again from its marker, and reconcile and a rescan rebuild the rest from Backlog.md, git and the repository.
 
