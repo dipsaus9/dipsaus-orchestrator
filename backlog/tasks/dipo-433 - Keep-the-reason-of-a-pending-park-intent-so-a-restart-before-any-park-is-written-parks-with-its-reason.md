@@ -3,10 +3,10 @@ id: DIPO-433
 title: >-
   Keep a pending park's reason, so a restart before the park is written parks
   with it
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-02 14:12'
-updated_date: '2026-11-02 14:39'
+updated_date: '2026-11-02 14:52'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -49,8 +49,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 For each park reason written through a `park` intent that `#byIntent` can reach after a restart, a test that stops after the intent and restarts parks the story with that reason and detail; the PR lists the reasons covered and, for any it cannot reach, why
-- [ ] #2 A budget-exceeded park keeps its `capStep` and a plan-limit park keeps its `resumeOnLift` across that restart, shown by tests
-- [ ] #3 A `worker-question` intent (DIPO-430) still parks with its question, and an intent written before this change (no `park-reason` tag) still decides as today, shown by tests
-- [ ] #4 `stop` and `cap` intents and `#parkPaused` behave as today, shown by the existing tests
+- [x] #1 For each park reason written through a `park` intent that `#byIntent` can reach after a restart, a test that stops after the intent and restarts parks the story with that reason and detail; the PR lists the reasons covered and, for any it cannot reach, why
+- [x] #2 A budget-exceeded park keeps its `capStep` and a plan-limit park keeps its `resumeOnLift` across that restart, shown by tests
+- [x] #3 A `worker-question` intent (DIPO-430) still parks with its question, and an intent written before this change (no `park-reason` tag) still decides as today, shown by tests
+- [x] #4 `stop` and `cap` intents and `#parkPaused` behave as today, shown by the existing tests
 <!-- AC:END -->
