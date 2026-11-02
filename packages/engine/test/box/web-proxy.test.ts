@@ -42,6 +42,7 @@ import {
   WEB_PROXY_LIMITS,
   type WebProxyEvent,
 } from "../../src/box/web-proxy";
+import { BOX_PLACEHOLDER_API_KEY } from "../../src/box/model-proxy";
 import { SAFE_CHAIN_REGISTRY_HOSTS } from "../../src/box/safe-chain";
 
 import { hello } from "./tls-hello";
@@ -684,6 +685,24 @@ for (const transport of [TCP, UNIX]) {
       expect(h.events).toEqual([
         { kind: "direct", host: "rebind.example", port: 443, address: "203.0.113.7" },
       ]);
+      result.socket.destroy();
+    });
+
+    it("adds no login to a model request a box sends through it to the model host (DIPO-425)", async () => {
+      // The bypass of the model proxy's count: the web route is a byte tunnel, so the model host
+      // gets only what the box sent, its placeholder key, and spends nothing of the maintainer's.
+      const h = await harness(transport, { "api.anthropic.com": [["203.0.113.30"]] });
+      const request =
+        "POST /v1/messages HTTP/1.1\r\nHost: api.anthropic.com\r\n" +
+        `x-api-key: ${BOX_PLACEHOLDER_API_KEY}\r\ncontent-length: 2\r\n\r\n{}`;
+      const result = await exchange(h.endpoint, connectHead("api.anthropic.com:443"), {
+        payload: request,
+        until: (text) => text.includes("{}"),
+      });
+      // What reached the model host is the box's own bytes, with no credential added.
+      expect(result.text).toContain(`upstream:${request}`);
+      expect(result.text.toLowerCase()).not.toContain("authorization");
+      expect(h.connects).toEqual(["203.0.113.30:443"]);
       result.socket.destroy();
     });
 

@@ -11,6 +11,12 @@
 // so the live view counts during a session; the caps, `budget_used` and `usage_daily` never read
 // them. The turn end and the agent's end set them to 0.
 //
+// A session in a box (DIPO-425, 0008): dipo's model proxy counts every model request the box makes
+// (`recordProxiedUsage`), and that count is the token total. The stream of such a session adds no
+// tokens: its turn end adds its turns to the model row (`applyProxiedTurn`) and keeps the cost the
+// CLI reports (`recordProxiedCost`), so a Claude Code turn is counted once. Both key a model by its
+// canonical id, so the proxy's tokens and the CLI's cost meet on one row.
+//
 // Every function here writes or reads through the office handle and must run inside the caller's
 // transaction.
 
@@ -124,6 +130,94 @@ export function recordUsageMessage(
   );
   setBudget(office, scope);
   return true;
+}
+
+/** The tokens of one model answer the model proxy passed (DIPO-425). */
+export interface ProxiedTokens {
+  readonly model: string;
+  readonly input: number;
+  readonly output: number;
+  readonly cacheCreate: number;
+  readonly cacheCreate5m: number;
+  readonly cacheCreate1h: number;
+  readonly cacheRead: number;
+}
+
+/** Adds one answer's tokens, as the model proxy read them, to the agent's canonical model row. */
+export function recordProxiedUsage(
+  office: OfficeHandle,
+  scope: UsageScope,
+  usage: ProxiedTokens,
+  at: number,
+): void {
+  const model = canonicalModel(usage.model);
+  ensureRow(office, scope, model, at);
+  office.run(
+    `update usage_totals set input = input + $input, output = output + $output,
+       cache_create = cache_create + $create, cache_create_5m = cache_create_5m + $create5m,
+       cache_create_1h = cache_create_1h + $create1h, cache_read = cache_read + $read,
+       updated_at = $at
+     where office_id = $office_id and run_id = $run and agent_id = $agent and model = $model`,
+    {
+      input: usage.input,
+      output: usage.output,
+      create: usage.cacheCreate,
+      create5m: usage.cacheCreate5m,
+      create1h: usage.cacheCreate1h,
+      read: usage.cacheRead,
+      at,
+      run: scope.run,
+      agent: scope.agent,
+      model,
+    },
+  );
+  setBudget(office, scope);
+}
+
+/**
+ * The turn end of a session whose tokens the model proxy counts (DIPO-425): the turn count joins
+ * the agent's canonical main model row and the live numbers end; no token changes.
+ */
+export function applyProxiedTurn(
+  office: OfficeHandle,
+  scope: UsageScope,
+  turns: { readonly model: string; readonly count: number },
+  at: number,
+): void {
+  const model = canonicalModel(turns.model);
+  ensureRow(office, scope, model, at);
+  office.run(
+    `update usage_totals set turns = turns + $turns, updated_at = $at
+     where office_id = $office_id and run_id = $run and agent_id = $agent and model = $model`,
+    { turns: turns.count, at, run: scope.run, agent: scope.agent, model },
+  );
+  clearLiveUsage(office, scope.run, scope.agent);
+}
+
+/**
+ * The cost the CLI reported at the turn end of a session whose tokens the model proxy counts
+ * (DIPO-425): as `recordReportedCost`, its run-cumulative USD per model stored as reported, keyed
+ * by the canonical model, so it sits on the row of the proxy's tokens.
+ */
+export function recordProxiedCost(
+  office: OfficeHandle,
+  scope: UsageScope,
+  costUsd: Readonly<Record<string, number>>,
+  at: number,
+): void {
+  const byModel = new Map<string, number>();
+  for (const [model, dollars] of Object.entries(costUsd)) {
+    const canonical = canonicalModel(model);
+    byModel.set(canonical, (byModel.get(canonical) ?? 0) + dollars);
+  }
+  for (const [model, dollars] of byModel) {
+    ensureRow(office, scope, model, at);
+    office.run(
+      `update usage_totals set cost_micros = $micros
+       where office_id = $office_id and run_id = $run and agent_id = $agent and model = $model`,
+      { micros: Math.round(dollars * 1_000_000), run: scope.run, agent: scope.agent, model },
+    );
+  }
 }
 
 function setBudget(office: OfficeHandle, scope: UsageScope): void {

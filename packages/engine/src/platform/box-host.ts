@@ -3,6 +3,7 @@
 // maintainer for the token itself, and the HTTP listener of the model proxy.
 
 import type { ListenHttp } from "../box/model-proxy";
+import { peerAddress } from "./peer";
 import type { SpawnInteractive } from "../box/token";
 
 /**
@@ -27,7 +28,8 @@ export const systemSpawnInteractive: SpawnInteractive = async (options) => {
 /**
  * An HTTP listener on one address. Idle connections are not cut, since a model answer may stream
  * with long pauses. Never in development mode, and an error the handler did not catch becomes a
- * plain 500 with fixed text, so no stack or error message reaches a box.
+ * plain 500 with fixed text, so no stack or error message reaches a box. The handler gets the
+ * peer's address as the connection shows it (DIPO-425), never one a request names.
  */
 export const systemListenHttp: ListenHttp = (options) => {
   const server = Bun.serve({
@@ -36,7 +38,7 @@ export const systemListenHttp: ListenHttp = (options) => {
     idleTimeout: 0,
     development: false,
     maxRequestBodySize: options.maxRequestBodyBytes,
-    fetch: options.fetch,
+    fetch: (request, bun) => options.fetch(request, peerAddress(bun.requestIP(request)?.address)),
     error: () =>
       new Response("model proxy error\n", {
         status: 500,

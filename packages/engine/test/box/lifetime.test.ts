@@ -58,6 +58,7 @@ import { backlogLayout } from "../story-store/backlog";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z00000278" as OfficeId;
 const RUN = "run_01J9ZK5Q8W3V4X6Y7Z00000278";
+const AGENT = "agt_01J9ZK5Q8W3V4X6Y7Z00000278";
 const BOX = boxName(RUN);
 const ADAPTER = "claude-cli";
 const STORY = "TASK-1";
@@ -222,7 +223,7 @@ async function made(w: World): Promise<void> {
 
 /** One session of the run in its box, which then ends (its host exits). */
 async function session(w: World): Promise<void> {
-  await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+  await w.workers.session({ runId: RUN, agent: AGENT, runDir: w.runDir, systemFile: w.systemFile });
 }
 
 /** The pass the daemon runs, with the state the daemon would read for the run. */

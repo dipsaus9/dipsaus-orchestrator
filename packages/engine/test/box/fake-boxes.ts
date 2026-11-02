@@ -137,6 +137,8 @@ export interface FakeBoxesOptions {
    * first (`unwrapped`). Without it a live exec is refused, as the worker host runs the worker's.
    */
   readonly live?: (box: string, command: readonly string[]) => LiveReply;
+  /** The address of a running box on the box network, by name (DIPO-425); `192.168.65.9` for others. */
+  readonly addresses?: Readonly<Record<string, string | null>>;
   /** Fails `firewall` with this error (a box whose firewall cannot be set, DIPO-281). */
   readonly firewallFails?: Error;
   /** How a build box's stream of its box network tools ends; their archive by default. */
@@ -218,7 +220,9 @@ export class FakeBoxes implements BoxPort {
   async address(name: string): Promise<string | null> {
     this.log.push(`address ${name}`);
     const box = this.boxes.get(name);
-    return box?.state === "running" ? "192.168.65.9" : null;
+    if (box?.state !== "running") return null;
+    const named = this.#options.addresses?.[name];
+    return named === undefined ? "192.168.65.9" : named;
   }
 
   async firewall(name: string, firewall: BoxFirewall): Promise<void> {

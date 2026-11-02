@@ -257,10 +257,12 @@ async function setup(
         { clock: systemClock },
       );
     },
-    startModelProxy: async (net): Promise<RunningModelProxy> => {
+    startModelProxy: async (net, owner): Promise<RunningModelProxy> => {
       if (options.live === true) {
         return startModelProxy({
           network: net,
+          // Counts nothing: a real box test needs no run records (DIPO-425).
+          ledger: { owner, open: () => () => undefined },
           keychain: {
             spawn: systemSpawn,
             clock: systemClock,
@@ -346,6 +348,8 @@ if (registers) {
             try {
               const made = performance.now();
               const session = await s.workers.review({
+                office: "off-review-box-test",
+                runId: "run_review_box_test",
                 agent,
                 git: s.git,
                 commit: s.commit,
@@ -492,7 +496,14 @@ if (registers) {
             const box = reviewBoxName(agent);
             try {
               const error = await s.workers
-                .review({ agent, git: s.git, commit: s.commit, systemFile: s.systemFile })
+                .review({
+                  office: "off-review-box-test",
+                  runId: "run_review_box_test",
+                  agent,
+                  git: s.git,
+                  commit: s.commit,
+                  systemFile: s.systemFile,
+                })
                 .then(() => null)
                 .catch((caught: unknown) => caught);
               fact(`a reviewer box with no firewall: ${String(error)}`);
@@ -528,6 +539,8 @@ if (registers) {
             const box = reviewBoxName(agent);
             try {
               const session = await s.workers.review({
+                office: "off-review-box-test",
+                runId: "run_review_box_test",
                 agent,
                 git: s.git,
                 commit: s.commit,

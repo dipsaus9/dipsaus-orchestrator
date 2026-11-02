@@ -218,7 +218,7 @@ describe("the Claude worker port with box workers", () => {
     expect(prepared.ok).toBe(true);
     if (!prepared.ok) return;
     expect(asked).toEqual([
-      { runId: "run-0001", runDir: RUN_DIR, systemFile: `${RUN_DIR}/system.md` },
+      { runId: "run-0001", agent: "agt-0001", runDir: RUN_DIR, systemFile: `${RUN_DIR}/system.md` },
     ]);
     expect(inBox(prepared.plan.argv)[0]).toBe(BOX_CLAUDE);
     expect(prepared.plan.lineScrub).toBeDefined();

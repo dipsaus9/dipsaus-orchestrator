@@ -12,10 +12,27 @@
 // - the token is read from the Keychain once, at start (`token.ts`), and lives only in this
 //   proxy's closure. The proxy lends it out only as a `TokenMatcher`, for the post-run check.
 //
+// The count (0008, DIPO-425): every program in a box that calls the model spends the maintainer's
+// subscription here, so the proxy counts it, and that count is the token total the caps, the tier
+// budget and the spend alerts read.
+//
+// - The sender is known only by its peer address: the box-address registry `BoxWorkers` keeps
+//   (`ModelUsageLedger.owner`) names the run and agent of the box at that address. A header or a
+//   body that names a run is never read. An address no running session owns is refused (403).
+// - Before a model request goes on, the owner's account is opened (`ModelUsageLedger.open`), a
+//   write to the run's records. When the owner cannot be told or the account cannot be opened, the
+//   request is refused (403, 503) and nothing is forwarded: no token is spent that nobody counts.
+// - The usage of each answer it passes is added to that run: the JSON body's `usage`, or a
+//   stream's `message_start` usage with every later `message_delta` usage over it (their numbers
+//   are totals so far). A stream cut off before its last event is counted from what arrived. A
+//   `count_tokens` request is forwarded and adds nothing.
+//
 // A box gets only `boxModelEnvironment`: a placeholder key, the proxy's URL and NO_PROXY for its
 // address, so Claude Code sends model requests here rather than to the web proxy.
 
 import { isIP } from "node:net";
+
+import { peerAddress } from "../platform/peer";
 
 import type { BoxNetwork } from "./port";
 import { BoxError } from "./port";
@@ -76,23 +93,67 @@ const DROPPED_RESPONSE_HEADERS: readonly string[] = [
 /** The upstream call; `fetch` in the daemon, a fake in tests. */
 export type UpstreamFetch = (url: string, init: RequestInit) => Promise<Response>;
 
+/**
+ * One request's handler: `peer` is the address the connection came from, as the listener saw it
+ * (an IPv4-mapped form already unmapped), or null when it cannot say.
+ */
+export type ProxyHandler = (request: Request, peer: string | null) => Promise<Response>;
+
 /** An HTTP listener on one address; `systemListenHttp` in the platform module. */
 export type ListenHttp = (options: {
   readonly hostname: string;
   /** 0 lets the system pick a free one. */
   readonly port: number;
   readonly maxRequestBodyBytes: number;
-  readonly fetch: (request: Request) => Promise<Response>;
+  readonly fetch: ProxyHandler;
 }) => ListeningHttp;
+
+/** Who sent a model request: the run and agent of the session whose box has the address. */
+export interface ProxyOwner {
+  readonly office: string;
+  readonly run: string;
+  readonly agent: string;
+}
+
+/** The tokens of one model answer, as the proxy read them from its `usage`. */
+export interface ProxiedUsage {
+  /** The model the answer names; the requested one when the answer names none. */
+  readonly model: string;
+  readonly input: number;
+  readonly output: number;
+  /** Cache creation, the sum of the two parts below. */
+  readonly cacheCreate: number;
+  readonly cacheCreate5m: number;
+  readonly cacheCreate1h: number;
+  readonly cacheRead: number;
+}
+
+/** Adds the usage of one answer to the account `open` opened; throws when it cannot. */
+export type ProxyAccount = (usage: ProxiedUsage) => void;
+
+/**
+ * Where the proxy counts (DIPO-425): the box-address registry of `BoxWorkers` and the run's usage
+ * records. Each may throw; the proxy then refuses the request.
+ */
+export interface ModelUsageLedger {
+  /** The owner of a box address now; null when no running session's box has it. */
+  owner(address: string): ProxyOwner | null;
+  /** Opens `owner`'s account for one model request: a write that must go through first. */
+  open(owner: ProxyOwner): ProxyAccount;
+}
 
 export interface ListeningHttp {
   readonly port: number;
   stop(): Promise<void>;
 }
 
-/** The text of a refusal; it names no header and no token. */
-function refusal(status: number, text: string): Response {
-  return new Response(`${text}\n`, { status, headers: { "content-type": "text/plain" } });
+/** The text of a refusal; it names no header and no token. `why` is for dipo's log only. */
+function refusal(status: number, text: string, why?: string): Response {
+  return new Response(`${text}\n`, {
+    status,
+    ...(why === undefined ? {} : { statusText: why }),
+    headers: { "content-type": "text/plain" },
+  });
 }
 
 /** `anthropic-beta` with the OAuth beta added once. */
@@ -126,6 +187,129 @@ export function isModelRequest(method: string, pathname: string): boolean {
   return method === MODEL_METHOD && MODEL_PATHS.has(pathname);
 }
 
+/** A non-negative whole count, 0 for anything else. */
+function tokens(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** The usage fields an answer reported so far; each later report replaces what it names. */
+type UsageFields = Partial<Record<keyof Omit<ProxiedUsage, "model" | "cacheCreate">, number>>;
+
+/** `usage` as the Messages API reports it, the fields it names only. */
+function usageFields(usage: unknown): UsageFields | null {
+  if (!isRecord(usage)) return null;
+  const fields: Record<string, number> = {};
+  if ("input_tokens" in usage) fields["input"] = tokens(usage["input_tokens"]);
+  if ("output_tokens" in usage) fields["output"] = tokens(usage["output_tokens"]);
+  if ("cache_read_input_tokens" in usage)
+    fields["cacheRead"] = tokens(usage["cache_read_input_tokens"]);
+  if ("cache_creation_input_tokens" in usage) {
+    const create = tokens(usage["cache_creation_input_tokens"]);
+    const split = usage["cache_creation"];
+    const oneHour = isRecord(split)
+      ? Math.min(create, tokens(split["ephemeral_1h_input_tokens"]))
+      : 0;
+    fields["cacheCreate1h"] = oneHour;
+    fields["cacheCreate5m"] = create - oneHour;
+  }
+  return fields;
+}
+
+/** What one answer used: its usage fields so far, and the model it names. */
+export class UsageMeter {
+  #fields: UsageFields = {};
+  #model: string | null = null;
+  #seen = false;
+  #pending = "";
+  readonly #decoder = new TextDecoder();
+
+  constructor(readonly requested: string) {}
+
+  /** True once any usage was read. */
+  get seen(): boolean {
+    return this.#seen;
+  }
+
+  /** A whole JSON answer (`stream: false`). */
+  readJson(body: unknown): void {
+    if (!isRecord(body)) return;
+    if (typeof body["model"] === "string") this.#model = body["model"];
+    this.#add(body["usage"]);
+  }
+
+  /** The next bytes of a server-sent event stream. */
+  push(chunk: Uint8Array): void {
+    this.#pending += this.#decoder.decode(chunk, { stream: true });
+    const lines = this.#pending.split("\n");
+    this.#pending = lines.pop() ?? "";
+    for (const line of lines) this.#line(line);
+  }
+
+  /** The stream ended or was cut off: a last line without its newline still counts. */
+  end(): void {
+    this.#pending += this.#decoder.decode();
+    if (this.#pending !== "") this.#line(this.#pending);
+    this.#pending = "";
+  }
+
+  #line(raw: string): void {
+    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+    if (!line.startsWith("data:")) return;
+    let event: unknown;
+    try {
+      event = JSON.parse(line.slice(5));
+    } catch {
+      return;
+    }
+    if (!isRecord(event)) return;
+    if (event["type"] === "message_start" && isRecord(event["message"])) {
+      this.readJson(event["message"]);
+    } else if (event["type"] === "message_delta") {
+      this.#add(event["usage"]);
+    }
+  }
+
+  #add(usage: unknown): void {
+    const fields = usageFields(usage);
+    if (fields === null) return;
+    this.#seen = true;
+    this.#fields = { ...this.#fields, ...fields };
+  }
+
+  /** The tokens read so far. */
+  usage(): ProxiedUsage {
+    const f = this.#fields;
+    const cacheCreate5m = f.cacheCreate5m ?? 0;
+    const cacheCreate1h = f.cacheCreate1h ?? 0;
+    return {
+      model: this.#model ?? this.requested,
+      input: f.input ?? 0,
+      output: f.output ?? 0,
+      cacheCreate: cacheCreate5m + cacheCreate1h,
+      cacheCreate5m,
+      cacheCreate1h,
+      cacheRead: f.cacheRead ?? 0,
+    };
+  }
+}
+
+/** The `model` a request body names, or `unknown`; the body is never kept. */
+function requestedModel(body: ArrayBuffer): string {
+  try {
+    const parsed = JSON.parse(new TextDecoder().decode(body)) as unknown;
+    if (isRecord(parsed) && typeof parsed["model"] === "string" && parsed["model"] !== "") {
+      return parsed["model"].slice(0, 200);
+    }
+  } catch {
+    // Not JSON: the upstream answers it.
+  }
+  return "unknown";
+}
+
 export interface ModelProxyHandlerOptions {
   readonly fetch?: UpstreamFetch;
   /** `MODEL_UPSTREAM` unless a test names a fake. */
@@ -135,16 +319,17 @@ export interface ModelProxyHandlerOptions {
   readonly maxBodyBytes?: number;
 }
 
-/** The proxy's request handler, holding `token`. */
+/** The proxy's request handler, holding `token` and counting into `ledger`. */
 export function createModelProxyHandler(
   token: SecretToken,
+  ledger: ModelUsageLedger,
   options: ModelProxyHandlerOptions = {},
-): (request: Request) => Promise<Response> {
+): ProxyHandler {
   const upstreamFetch: UpstreamFetch = options.fetch ?? ((url, init) => fetch(url, init));
   const upstream = options.upstream ?? MODEL_UPSTREAM;
   const maxBodyBytes = options.maxBodyBytes ?? MODEL_PROXY_MAX_BODY_BYTES;
   const log = options.log ?? (() => {});
-  return async (request) => {
+  return async (request, peer) => {
     // The parsed path: dot segments are resolved before the check, and only the checked path
     // is sent on, to the fixed upstream; the host the box named is never used.
     const url = new URL(request.url);
@@ -167,6 +352,12 @@ export function createModelProxyHandler(
       log(`${request.method} ${shown} -> 413`);
       return refusal(413, "request too large");
     }
+    const opened = openAccount(ledger, peer, url.pathname === "/v1/messages");
+    if (opened instanceof Response) {
+      log(`${request.method} ${shown} -> ${opened.status} (${opened.statusText})`);
+      return opened;
+    }
+    const account = opened.account;
     let response: Response;
     try {
       response = await upstreamFetch(`${upstream}${url.pathname}${url.search}`, {
@@ -183,12 +374,139 @@ export function createModelProxyHandler(
     log(`${request.method} ${shown} -> ${response.status}`);
     const headers = new Headers(response.headers);
     for (const name of DROPPED_RESPONSE_HEADERS) headers.delete(name);
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
+    const init = { status: response.status, statusText: response.statusText, headers };
+    // Only a model answer carries usage; an error, a redirect or a count goes back as it came.
+    if (account === null || response.status < 200 || response.status > 299) {
+      return new Response(response.body, init);
+    }
+    return countedAnswer(response, init, {
+      meter: new UsageMeter(requestedModel(body)),
+      account,
+      log: (line) => log(`${request.method} ${shown}${line}`),
     });
   };
+}
+
+/**
+ * Who sent a request, by the peer address through the registry (DIPO-425), and for a counted one
+ * its owner's account, opened before anything is spent; a refusal when either cannot be had.
+ */
+function openAccount(
+  ledger: ModelUsageLedger,
+  peer: string | null,
+  counted: boolean,
+): Response | { readonly account: ProxyAccount | null } {
+  const address = peerAddress(peer);
+  let owner: ProxyOwner | null = null;
+  try {
+    owner = address === null ? null : ledger.owner(address);
+  } catch {
+    owner = null;
+  }
+  if (owner === null) {
+    return refusal(
+      403,
+      "this address runs no session dipo counts",
+      "no running session owns the sender",
+    );
+  }
+  if (!counted) return { account: null };
+  try {
+    return { account: ledger.open(owner) };
+  } catch {
+    return refusal(
+      503,
+      "the model use cannot be counted now",
+      "the run's usage cannot be recorded",
+    );
+  }
+}
+
+/** A model answer passed back with its usage added to `account`: read whole, or as it streams. */
+async function countedAnswer(
+  response: Response,
+  init: ResponseInit,
+  how: {
+    readonly meter: UsageMeter;
+    readonly account: ProxyAccount;
+    readonly log: (line: string) => void;
+  },
+): Promise<Response> {
+  const { meter, account, log } = how;
+  const keep = (): void => {
+    if (!meter.seen) log(": the answer reported no usage");
+    account(meter.usage());
+  };
+  const streamed = (response.headers.get("content-type") ?? "").includes("text/event-stream");
+  if (streamed && response.body !== null) {
+    return new Response(meteredStream(response.body, meter, keep), init);
+  }
+  const bytes = await response.arrayBuffer();
+  try {
+    meter.readJson(JSON.parse(new TextDecoder().decode(bytes)) as unknown);
+  } catch {
+    // Not JSON: nothing to read, which `keep` logs.
+  }
+  try {
+    keep();
+  } catch {
+    log(" -> 503 (the answer's usage could not be recorded)");
+    return refusal(503, "the model use could not be counted");
+  }
+  return new Response(bytes, init);
+}
+
+/**
+ * `body` passed on as it comes, each chunk read by `meter`; `keep` runs once, when the stream
+ * ends, fails or the box goes away, so a cut-off stream counts what arrived. A `keep` that throws
+ * at the end fails the stream for the box.
+ */
+function meteredStream(
+  body: ReadableStream<Uint8Array>,
+  meter: UsageMeter,
+  keep: () => void,
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let kept = false;
+  const once = (): void => {
+    if (kept) return;
+    kept = true;
+    meter.end();
+    keep();
+  };
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      let next: Awaited<ReturnType<typeof reader.read>>;
+      try {
+        next = await reader.read();
+      } catch (error) {
+        try {
+          once();
+        } finally {
+          controller.error(error);
+        }
+        return;
+      }
+      if (next.done) {
+        try {
+          once();
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+        }
+        return;
+      }
+      meter.push(next.value);
+      controller.enqueue(next.value);
+    },
+    async cancel(reason) {
+      try {
+        once();
+      } finally {
+        await reader.cancel(reason).catch(() => undefined);
+      }
+    },
+  });
 }
 
 /** True for one unicast IP address that is not loopback, unspecified or IPv4-mapped. */
@@ -222,6 +540,8 @@ export function checkListenAddress(address: string): string {
 export interface ModelProxyDeps {
   /** The box network; the proxy listens on its host address only. */
   readonly network: Pick<BoxNetwork, "hostAddress">;
+  /** Who sent each request and where its usage is counted (DIPO-425). */
+  readonly ledger: ModelUsageLedger;
   /** How the token is read from the Keychain at start. */
   readonly keychain: TokenReadDeps;
   readonly listen: ListenHttp;
@@ -255,7 +575,7 @@ export function proxyUrl(hostAddress: string, port: number): string {
 export async function startModelProxy(deps: ModelProxyDeps): Promise<RunningModelProxy> {
   const hostAddress = checkListenAddress(deps.network.hostAddress);
   const token = await readBoxToken(deps.keychain);
-  const handler = createModelProxyHandler(token, {
+  const handler = createModelProxyHandler(token, deps.ledger, {
     ...(deps.fetch === undefined ? {} : { fetch: deps.fetch }),
     ...(deps.upstream === undefined ? {} : { upstream: deps.upstream }),
     ...(deps.log === undefined ? {} : { log: deps.log }),

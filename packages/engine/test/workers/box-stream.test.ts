@@ -1,7 +1,8 @@
 // A box worker's stream through the worker host, ingestion and run control (DIPO-271):
 // - criterion 3: budgets, the turn and minute caps and the live view work on a box worker's
 //   recorded stream as on a Mac worker's: the host writes the same lines, ingestion stores the
-//   same output and usage, and run control parks at the same caps;
+//   same output, and run control parks at the same caps. A box worker's tokens are the model
+//   proxy's count (DIPO-425): its stream adds none, so the token cap fires on that count;
 // - criterion 6: a stop (the cap's, the budget's or the stop command's stop sequence, or SIGTERM
 //   to the host) ends claude inside the box, not only the `container exec` client on the Mac,
 //   whose kill leaves its process running in the box.
@@ -33,6 +34,8 @@ import { connectHost, type HostClient } from "../../src/host/client";
 import { WorkerHost } from "../../src/host/main";
 import { EVENTS_FILE, hostSocketPath, LAUNCH_FILE, type HostLaunch } from "../../src/host/protocol";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
+import { recordAgent } from "../../src/records/agents";
+import { proxiedUsageLedger } from "../../src/records/proxied-usage";
 import { finalizeRunAgents, readUsage } from "../../src/records/usage";
 import { systemClock } from "../../src/platform/clock";
 import { type BranchPark, CAP_TICK_MS, RunControl } from "../../src/run";
@@ -395,10 +398,51 @@ describe("the caps on a box worker's stream (criterion 3)", () => {
     await control.idle();
   }
 
-  it("parks budget-exceeded at the token budget and sends the stop sequence", async () => {
+  /** What the box's model requests used, as dipo's model proxy adds it to the run (DIPO-425). */
+  function proxyCounted(input: number, output: number): void {
+    f.office.immediate(() =>
+      recordAgent(f.office, {
+        agentId: f.agent,
+        runId: f.run,
+        role: "developer",
+        model: "haiku",
+        startedAt: f.t.clock.now(),
+      }),
+    );
+    const ledger = proxiedUsageLedger({
+      owner: () => null,
+      office: () => f.office,
+      clock: f.t.clock,
+    });
+    const account = ledger.open({ office: f.office.officeId, run: f.run, agent: f.agent });
+    account({
+      model: "claude-haiku-5-5",
+      input,
+      output,
+      cacheCreate: 0,
+      cacheCreate5m: 0,
+      cacheCreate1h: 0,
+      cacheRead: 0,
+    });
+  }
+
+  it("adds no tokens from the stream: the recording alone stays under its token budget", async () => {
     const recording = boxRecording("budget-engine-cap");
     const budget = recording.meta.testConfig?.["budgetTokens"] as number;
     track({ ...ROOMY, budgetTokens: budget });
+    await ingest(recording);
+    expect(parks().map((park) => park.reason)).not.toContain("budget-exceeded");
+    const used = f.office.get<{ budget: number }>(
+      `select coalesce(sum(budget_used), 0) as budget from usage_totals where office_id = $office_id`,
+    );
+    expect(used?.budget).toBe(0);
+  });
+
+  it("parks budget-exceeded at the token budget the proxy counted and sends the stop sequence", async () => {
+    const recording = boxRecording("budget-engine-cap");
+    const budget = recording.meta.testConfig?.["budgetTokens"] as number;
+    track({ ...ROOMY, budgetTokens: budget });
+    proxyCounted(budget - 10, 10);
     await ingest(recording);
     expect(parks().map((park) => park.reason)).toEqual(["budget-exceeded"]);
     expect(parks()[0]?.detail).toContain("token budget reached");
@@ -586,12 +630,17 @@ describe("the live usage of a session (DIPO-296)", () => {
   const TURNS = 10;
   const OUTPUT = 2_057;
 
-  it("counts a box worker's turns and output while it runs, through the worker host", () =>
+  it("counts a box worker's turns while it runs, through the worker host; its output is the proxy's", () =>
     withTempDir(async (dir) => {
       const box = boxHost(dir, boxRecording(NAME));
       await box.host.done;
       const steps = await liveSteps(join(dir, "ingest"), boxAdapter, eventLines(box.runDir));
-      expectLiveCounting(steps, TURNS, OUTPUT);
+      const end = steps.findIndex((step) => step.result);
+      expect(end).toBeGreaterThan(0);
+      expect(steps.slice(0, end).some((step) => step.turns > 1 && step.turns < TURNS)).toBe(true);
+      expect(steps[end]).toEqual({ result: true, turns: TURNS, output: 0 });
+      // The model proxy counts each answer's output as it ends (DIPO-425); the stream adds none.
+      expect(steps.every((step) => step.output === 0)).toBe(true);
     }));
 
   it("counts a Mac worker's turns and output while it runs, from the same parser", () =>

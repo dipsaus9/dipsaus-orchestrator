@@ -61,7 +61,11 @@ import {
   type BoxImageDescription,
   NODE_TARBALL_SHA256,
 } from "../../src/box/image";
-import { BOX_PLACEHOLDER_API_KEY, type RunningModelProxy } from "../../src/box/model-proxy";
+import {
+  BOX_PLACEHOLDER_API_KEY,
+  type ProxyOwner,
+  type RunningModelProxy,
+} from "../../src/box/model-proxy";
 import {
   boxCacheEnv,
   FILL_BOX_RUN_PREFIX,
@@ -185,6 +189,8 @@ interface World {
   readonly base: string;
   /** The web route's registry tunnels, by the Mac's clock (DIPO-396): tests open them. */
   readonly tunnels: RegistryTunnels;
+  /** The box-address registry the model proxy was started with (DIPO-425); null before it. */
+  readonly proxyOwner: () => ((address: string) => ProxyOwner | null) | null;
   /** Keeps a registry tunnel of `client` that was open from `opened` to `closed` (the Mac's ms). */
   readonly tunnel: (
     client: string | null,
@@ -326,11 +332,13 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
   const warnings: World["warnings"] = [];
   const infos: World["infos"] = [];
   const indexDir = join(tmp, "state", BOX_INDEX_DIR);
+  let proxyOwner: ((address: string) => ProxyOwner | null) | null = null;
   const workers = new BoxWorkers({
     boxes,
     startWebRoute: route("web route"),
-    startModelProxy: async (network): Promise<RunningModelProxy> => {
+    startModelProxy: async (network, owner): Promise<RunningModelProxy> => {
       log.push(`model proxy started on ${network.hostAddress}`);
+      proxyOwner = owner;
       if (options.modelGate !== undefined) await options.modelGate;
       if (options.modelFails === true) throw new BoxError("token.missing", "no box login");
       return {
@@ -391,6 +399,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     base,
     tunnels,
     tunnel,
+    proxyOwner: () => proxyOwner,
   };
 }
 
@@ -528,6 +537,7 @@ describe("the box of a box run (criteria 4 and 10)", () => {
 
       const session = await w.workers.session({
         runId: RUN,
+        agent: AGENT,
         runDir: w.runDir,
         systemFile: w.systemFile,
       });
@@ -583,7 +593,12 @@ describe("the box of a box run (criteria 4 and 10)", () => {
       );
       expect(w.log).toContain(`exec ${BOX} /bin/chmod`);
       // Without the door no queue is read.
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       expect(w.workers.readDoor(RUN)).toBeNull();
     }));
 
@@ -649,7 +664,12 @@ describe("the box of a box run (criteria 4 and 10)", () => {
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp, { boxes: { files: join(tmp, "box-files") } });
       await created(w);
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       const dipo = w.boxes.filesOf(BOX, "/dipo");
       for (const file of ["system.md", "safe-chain-ca.pem"]) {
         expect(statSync(join(dipo, file)).mode & 0o777).toBe(0o644);
@@ -662,7 +682,12 @@ describe("the box of a box run (criteria 4 and 10)", () => {
       const w = await world(repo, tmp, { door: { pollMs: 60_000 } });
       await created(w);
       expect(w.workers.readDoor(RUN)).toBeNull();
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       // The fake backend runs no live exec, so the read reaches the box and fails there.
       const error = await w.workers.readDoor(RUN)?.catch((e: unknown) => e);
       expect(error).toBeInstanceOf(Error);
@@ -697,7 +722,12 @@ describe("the end of a box run (criterion 9)", () => {
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp);
       await created(w);
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       w.log.length = 0;
       const finished = await w.workers.finish(RUN);
       expect(finished).toEqual({
@@ -717,7 +747,7 @@ describe("the end of a box run (criterion 9)", () => {
       expect(w.workers.pending()).toEqual([]);
       // A later session of the run has no box: `BoxLifetime.ensure` rebuilds it first (DIPO-278).
       const gone = (await w.workers
-        .session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile })
+        .session({ runId: RUN, agent: AGENT, runDir: w.runDir, systemFile: w.systemFile })
         .catch((e: unknown) => e)) as BoxError;
       expect(gone.code).toBe("box.gone");
     }));
@@ -903,7 +933,12 @@ describe("a new session in a box that already runs (an orphaned claude)", () => 
       await created(w);
       // The first session right after create: no worker ran yet, so the box is not restarted.
       w.log.length = 0;
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       expect(w.log.filter((line) => line.startsWith("stop ") || line.startsWith("start "))).toEqual(
         [],
       );
@@ -911,7 +946,12 @@ describe("a new session in a box that already runs (an orphaned claude)", () => 
       const box = w.boxes.boxes.get(BOX)!;
       box.workerRunning = true;
       w.log.length = 0;
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       expect(w.log.slice(0, 3)).toEqual(["list", `stop ${BOX}`, `start ${BOX}`]);
       expect(box.workerRunning).toBe(false);
       expect(box.state).toBe("running");
@@ -921,10 +961,20 @@ describe("a new session in a box that already runs (an orphaned claude)", () => 
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp);
       await created(w);
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       await w.boxes.stop(BOX);
       w.log.length = 0;
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       expect(w.log.slice(0, 2)).toEqual(["list", `start ${BOX}`]);
     }));
 });
@@ -934,7 +984,12 @@ describe("the box awake before a session, for dipo's copy into it (DIPO-324)", (
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp);
       await created(w);
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       await w.boxes.stop(BOX);
       w.log.length = 0;
       expect(await w.workers.awake({ runId: RUN, runDir: w.runDir })).toBe(BOX);
@@ -942,7 +997,12 @@ describe("the box awake before a session, for dipo's copy into it (DIPO-324)", (
       expect(w.log).toEqual(["list", `start ${BOX}`, `firewall ${BOX} ${BOX_HOST_ADDRESS} 3128`]);
       expect(w.boxes.boxes.get(BOX)?.state).toBe("running");
       w.log.length = 0;
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       expect(w.log.filter((line) => line.startsWith("stop ") || line.startsWith("start "))).toEqual(
         [],
       );
@@ -962,7 +1022,12 @@ describe("daemon stop (criterion 6)", () => {
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp);
       await created(w);
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       const box = w.boxes.boxes.get(BOX)!;
       box.workerRunning = true;
       w.log.length = 0;
@@ -1026,6 +1091,7 @@ describe("the verify in the box at done", () => {
       await created(w);
       const session = await w.workers.session({
         runId: RUN,
+        agent: AGENT,
         runDir: w.runDir,
         systemFile: w.systemFile,
       });
@@ -1153,6 +1219,7 @@ describe("the install in the box before the worker (DIPO-294)", () => {
       w.log.length = 0;
       const session = await w.workers.session({
         runId: RUN,
+        agent: AGENT,
         runDir: w.runDir,
         systemFile: w.systemFile,
       });
@@ -1749,6 +1816,7 @@ describe("the package cache of a box run (DIPO-295)", () => {
       // The worker's session never names the cache.
       const session = await w.workers.session({
         runId: RUN,
+        agent: AGENT,
         runDir: w.runDir,
         systemFile: w.systemFile,
       });
@@ -1820,7 +1888,7 @@ describe("the box firewall, the listed local ports and the box network's address
       });
       await created(w);
       const error = (await w.workers
-        .session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile })
+        .session({ runId: RUN, agent: AGENT, runDir: w.runDir, systemFile: w.systemFile })
         .catch((e: unknown) => e)) as BoxError;
       expect(error).toBeInstanceOf(BoxError);
       expect(error.code).toBe("box.firewallFailed");
@@ -1846,8 +1914,18 @@ describe("the box firewall, the listed local ports and the box network's address
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp);
       await created(w);
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       const ofBox = w.boxes.firewalls.filter((entry) => entry.box === BOX);
       expect(ofBox).toEqual([
         { box: BOX, firewall: { hostAddress: BOX_HOST_ADDRESS, ports: [3128, 4000] } },
@@ -1860,7 +1938,12 @@ describe("the box firewall, the listed local ports and the box network's address
       const w = await world(repo, tmp, { localPorts: [5432, 8080] });
       await created(w);
       expect(readBoxRun(w.runDir)?.localPorts).toEqual([5432, 8080]);
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       expect(w.log).toContain(`web route admitted ${BOX} 5432,8080`);
       // A stop and a start keep the ports with the record (DIPO-278).
       await w.workers.rest(RUN);
@@ -2197,7 +2280,14 @@ const REVIEW_BOX = reviewBoxName(AGENT);
 
 /** A reviewer box of the world's start commit (0002). */
 function reviewed(w: World, agent = AGENT) {
-  return w.workers.review({ agent, git: w.git, commit: w.commit, systemFile: w.systemFile });
+  return w.workers.review({
+    office: "off-test",
+    runId: RUN,
+    agent,
+    git: w.git,
+    commit: w.commit,
+    systemFile: w.systemFile,
+  });
 }
 
 describe("the reviewer's box (0002, DIPO-347)", () => {
@@ -2372,7 +2462,12 @@ describe("Safe-Chain's refusals of each session (DIPO-376)", () => {
       // The run's box keeps a registry tunnel of each ecosystem open (DIPO-396).
       w.tunnels.opened(BOX, "npm", systemClock.now() - 60_000);
       w.tunnels.opened(BOX, "pypi", systemClock.now() - 60_000);
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       const box = [...w.boxes.boxes.keys()].find((name) =>
         name.startsWith(`dipo-${SAFE_CHAIN_BOX_RUN_PREFIX}`),
       );
@@ -2401,7 +2496,12 @@ describe("Safe-Chain's refusals of each session (DIPO-376)", () => {
       expect(safeChain.found).toHaveLength(stores);
 
       // The next session's refusal is read at the finish, when no exit read it first.
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       appendFileSync(
         join(logs, "pypi.ndjson"),
         refusalOf(
@@ -2433,7 +2533,12 @@ describe("Safe-Chain's refusals of each session (DIPO-376)", () => {
         boxes: { exec: safeChainExec(logs) },
       });
       await created(w);
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       // The session started with a Safe-Chain box the route no longer runs (a route started again).
       safeChain.records.set(RUN, {
         refusals: [],
@@ -2473,9 +2578,15 @@ describe("Safe-Chain's refusals of each session (DIPO-376)", () => {
       await created(w);
       await created(w, RUN_2);
       // Both sessions start, and both are open while each box asks.
-      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
       await w.workers.session({
         runId: RUN_2,
+        agent: AGENT,
         runDir: join(tmp, "runs", RUN_2),
         systemFile: w.systemFile,
       });
@@ -2552,5 +2663,80 @@ describe("Safe-Chain's refusals of each session (DIPO-376)", () => {
       expect(rows).not.toMatch(/unnamed|shared/);
       expect(JSON.stringify(safeChain.records.get(RUN))).not.toContain("second@");
       expect(JSON.stringify(safeChain.records.get(RUN_2))).not.toMatch(/first@|ghostrules/);
+    }));
+});
+
+describe("the box-address registry the model proxy counts by (DIPO-425)", () => {
+  const DEV_ADDRESS = "192.168.65.21";
+  const REVIEW_ADDRESS = "192.168.65.22";
+  const REVIEWER = "agt_01J9ZK5Q8W3V4X6Y7Z0000R425";
+
+  it("names a developer session's run and agent by its box's address, until the box rests", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, { boxes: { addresses: { [BOX]: DEV_ADDRESS } } });
+      await created(w);
+      expect(w.workers.owner(DEV_ADDRESS)).toBeNull();
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
+      const owner = { office: OFFICE, run: RUN, agent: AGENT };
+      expect(w.workers.owner(DEV_ADDRESS)).toEqual(owner);
+      // The proxy reads this registry, and nothing else.
+      expect(w.proxyOwner()?.(DEV_ADDRESS)).toEqual(owner);
+      expect(w.proxyOwner()?.("192.168.65.99")).toBeNull();
+      expect((await w.workers.rest(RUN)).kind).toBe("stopped");
+      expect(w.workers.owner(DEV_ADDRESS)).toBeNull();
+      expect(w.proxyOwner()?.(DEV_ADDRESS)).toBeNull();
+    }));
+
+  it("forgets a box when its run finishes", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, { boxes: { addresses: { [BOX]: DEV_ADDRESS } } });
+      await created(w);
+      await w.workers.session({
+        runId: RUN,
+        agent: AGENT,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
+      expect(w.workers.owner(DEV_ADDRESS)?.run).toBe(RUN);
+      await w.workers.finish(RUN);
+      expect(w.workers.owner(DEV_ADDRESS)).toBeNull();
+    }));
+
+  it("names a reviewer box's reviewer, and forgets it when the review ends", () =>
+    inBoxes(async (repo, tmp) => {
+      const box = reviewBoxName(REVIEWER);
+      const w = await world(repo, tmp, { boxes: { addresses: { [box]: REVIEW_ADDRESS } } });
+      await w.workers.review({
+        office: OFFICE,
+        runId: RUN,
+        agent: REVIEWER,
+        git: w.git,
+        commit: w.commit,
+        systemFile: w.systemFile,
+      });
+      expect(w.workers.owner(REVIEW_ADDRESS)).toEqual({
+        office: OFFICE,
+        run: RUN,
+        agent: REVIEWER,
+      });
+      await w.workers.endReview(REVIEWER);
+      expect(w.workers.owner(REVIEW_ADDRESS)).toBeNull();
+    }));
+
+  it("starts no session whose box has no address, since nothing it sends could be counted", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, { boxes: { addresses: { [BOX]: null } } });
+      await created(w);
+      const error = await w.workers
+        .session({ runId: RUN, agent: AGENT, runDir: w.runDir, systemFile: w.systemFile })
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(BoxError);
+      expect(String(error)).toContain("could not be counted");
+      expect(w.workers.owner("192.168.65.9")).toBeNull();
     }));
 });

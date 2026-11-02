@@ -304,6 +304,12 @@ export type WorkerEvent =
       /** Cache creation for the 1 hour cache. */
       readonly cacheCreate1h: number;
       readonly cacheRead: number;
+      /**
+       * Set for a session whose model requests go through dipo's model proxy (a box, DIPO-425):
+       * the proxy's count is the token total, so this event adds no tokens; the caps are still
+       * checked at it.
+       */
+      readonly proxied?: true;
     }
   | {
       /**
@@ -333,6 +339,11 @@ export type WorkerEvent =
        * reports one; the engine stores it as reported (0008).
        */
       readonly costUsd?: Readonly<Record<string, number>>;
+      /**
+       * Set for a session whose model requests go through dipo's model proxy (DIPO-425): `totals`
+       * add no tokens; the turn keeps `costUsd` and adds `numTurns`.
+       */
+      readonly proxied?: true;
       readonly numTurns: number;
       readonly terminal: string;
       /**
