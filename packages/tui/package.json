@@ -10,7 +10,7 @@
     "@dipsaus-orchestrator/client": "workspace:*",
     "@dipsaus-orchestrator/contract": "workspace:*",
     "ink": "8.0.0",
-    "react": "19.3.0"
+    "react": "19.3.1"
   },
   "devDependencies": {
     "@types/react": "19.3.0"
