@@ -1764,3 +1764,152 @@ describe("stopAll: daemon.stop with stopWorkers (DIPO-315)", () => {
     expect(w.sent).toEqual([]);
   });
 });
+
+// ---- a token crossing of the model proxy's count (DIPO-425) ----
+
+const proxiedDone = (): WorkerEvent => ({
+  t: "turn",
+  report: DONE_REPORT,
+  totals: {},
+  numTurns: 1,
+  terminal: "success",
+  proxied: true,
+});
+
+/** The proxy's count of 150 budget tokens against a budget of 100, as its ledger writes it. */
+function proxyCrossed(): void {
+  w.f.office.immediate(() => {
+    w.f.office.run(
+      `update runs set budget_limit = 100 where office_id = $office_id and run_id = $run`,
+      { run: w.f.run },
+    );
+    w.f.office.run(
+      `insert into agents (office_id, agent_id, run_id, role, model, session_id, started_at)
+       values ($office_id, $agent, $run, 'developer', $model, 's-1', 0)`,
+      { agent: w.f.agent, run: w.f.run, model: MODEL },
+    );
+    w.f.office.run(
+      `insert into usage_totals (office_id, run_id, agent_id, model, role, tier, input,
+         budget_used, updated_at)
+       values ($office_id, $run, $agent, $model, 'developer', 'M', 150, 150, 0)`,
+      { agent: w.f.agent, run: w.f.run, model: MODEL },
+    );
+  });
+}
+
+/** A control whose finisher keeps the cap each done turn came with. */
+function finishing(): { control: RunControl; capped: (string | null)[] } {
+  const capped: (string | null)[] = [];
+  const control = new RunControl({
+    stories: backlogLayout,
+    clock: w.f.t.clock,
+    offices: { get: () => w.f.office },
+    writer: {
+      write: async (): Promise<BranchPark> => ({
+        commit: "c".repeat(40),
+        lastGoodCommit: "a".repeat(40),
+        from: "In Progress",
+        pushed: true,
+        pushError: null,
+      }),
+    },
+    steering: {
+      send: async (_office, _run, ops) => {
+        w.sent.push([...ops]);
+        return { ok: true };
+      },
+    },
+    encode,
+    finisher: {
+      afterTurn: async (ctx) => {
+        capped.push(ctx.capped?.cap ?? null);
+        return { kind: "continue" };
+      },
+      summarize: async () => {},
+    },
+  });
+  control.track(w.f.office.officeId, {
+    runId: w.f.run,
+    work: w.work,
+    caps: ROOMY,
+    startedAt: w.f.t.clock.now(),
+  });
+  return { control, capped };
+}
+
+function pass(control: RunControl, events: readonly WorkerEvent[]): Promise<void> {
+  for (const event of events) control.onEventApplied(w.f.run, event);
+  control.onWorkerEvents(w.f.run, events);
+  return control.idle();
+}
+
+describe("a token crossing of the model proxy's count (DIPO-425)", () => {
+  const PROXIED_USAGE: WorkerEvent = {
+    t: "usage",
+    messageId: "msg-proxied",
+    model: MODEL,
+    input: 0,
+    output: 0,
+    cacheCreate: 0,
+    cacheCreate5m: 0,
+    cacheCreate1h: 0,
+    cacheRead: 0,
+    proxied: true,
+  };
+  it("honours a done report in the pass after a box session's usage event crossed", async () => {
+    proxyCrossed();
+    const { control, capped } = finishing();
+    try {
+      await pass(control, [PROXIED_USAGE]);
+      expect(parks()).toEqual([]);
+      expect(w.sent).toEqual([]);
+      await pass(control, [proxiedDone()]);
+      // The done path ran with the crossed cap, as on the crossing turn (0008).
+      expect(capped).toEqual(["budgetTokens"]);
+    } finally {
+      control.close();
+    }
+  });
+
+  it("caps in the next pass when it brings no done report", async () => {
+    proxyCrossed();
+    const { control, capped } = finishing();
+    try {
+      await pass(control, [PROXIED_USAGE]);
+      await pass(control, [{ t: "output", text: "still working" } as WorkerEvent]);
+      expect(parks().map((p) => p.reason)).toEqual(["budget-exceeded"]);
+      expect(parks()[0]?.detail).toContain("token budget reached");
+      expect(capped).toEqual([]);
+    } finally {
+      control.close();
+    }
+  });
+
+  it("waits one tick for a crossing only the tick sees, then caps", async () => {
+    proxyCrossed();
+    const { control } = finishing();
+    try {
+      w.f.t.clock.advance(CAP_TICK_MS);
+      await control.idle();
+      expect(parks()).toEqual([]);
+      w.f.t.clock.advance(CAP_TICK_MS);
+      await control.idle();
+      expect(parks().map((p) => p.reason)).toEqual(["budget-exceeded"]);
+    } finally {
+      control.close();
+    }
+  });
+
+  it("honours a done report in the pass after the tick saw the crossing", async () => {
+    proxyCrossed();
+    const { control, capped } = finishing();
+    try {
+      w.f.t.clock.advance(CAP_TICK_MS);
+      await control.idle();
+      await pass(control, [proxiedDone()]);
+      expect(capped).toEqual(["budgetTokens"]);
+    } finally {
+      control.close();
+    }
+  });
+});

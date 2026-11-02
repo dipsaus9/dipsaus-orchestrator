@@ -18,6 +18,10 @@ import {
   checkListenAddress,
   createModelProxyHandler,
   type ListenHttp,
+  type ModelProxyHandlerOptions,
+  type ModelUsageLedger,
+  type ProxiedUsage,
+  type ProxyOwner,
   MODEL_UPSTREAM,
   OAUTH_BETA,
   startModelProxy,
@@ -25,12 +29,46 @@ import {
   withOauthBeta,
 } from "../../src/box/model-proxy";
 import { BoxError } from "../../src/box/port";
+import { systemListenHttp } from "../../src/platform/box-host";
 import { SecretToken } from "../../src/box/token";
 import { type FakeContainer, fakeContainer } from "./fake-container";
 
 const TOKEN_TEXT = "fake-box-login-for-tests-0123456789";
 const TOKEN = new SecretToken(TOKEN_TEXT);
 const HOST = "192.0.2.1";
+/** A box's address on the box network, and the session the registry says owns it. */
+const PEER = "192.0.2.20";
+const OWNER: ProxyOwner = { office: "off-1", run: "run-1", agent: "agt-1" };
+
+/** A ledger that knows `owners` by address and keeps what each account was given. */
+function ledgerOf(
+  owners: Readonly<Record<string, ProxyOwner>> = { [PEER]: OWNER },
+): ModelUsageLedger & {
+  readonly opened: ProxyOwner[];
+  readonly counted: { owner: ProxyOwner; usage: ProxiedUsage }[];
+} {
+  const opened: ProxyOwner[] = [];
+  const counted: { owner: ProxyOwner; usage: ProxiedUsage }[] = [];
+  return {
+    opened,
+    counted,
+    owner: (address) => owners[address] ?? null,
+    open: (owner) => {
+      opened.push(owner);
+      return (usage) => void counted.push({ owner, usage });
+    },
+  };
+}
+
+/** The handler with `ledger`, every request coming from `peer`. */
+function proxyHandler(
+  options: ModelProxyHandlerOptions = {},
+  ledger: ModelUsageLedger = ledgerOf(),
+  peer: string | null = PEER,
+): (request: Request) => Promise<Response> {
+  const handle = createModelProxyHandler(TOKEN, ledger, options);
+  return (request) => handle(request, peer);
+}
 
 interface Forwarded {
   readonly url: string;
@@ -63,7 +101,7 @@ function headersOf(call: Forwarded | undefined): Headers {
 describe("the path rule", () => {
   it("passes the two model paths, with their query, to the fixed upstream", async () => {
     const upstream = fakeUpstream();
-    const handle = createModelProxyHandler(TOKEN, { fetch: upstream.fetch });
+    const handle = proxyHandler({ fetch: upstream.fetch });
     expect((await handle(boxRequest("/v1/messages?beta=true"))).status).toBe(200);
     expect((await handle(boxRequest("/v1/messages/count_tokens"))).status).toBe(200);
     expect(upstream.calls.map((call) => call.url)).toEqual([
@@ -74,7 +112,7 @@ describe("the path rule", () => {
 
   it("answers every other path with 404 and forwards nothing", async () => {
     const upstream = fakeUpstream();
-    const handle = createModelProxyHandler(TOKEN, { fetch: upstream.fetch });
+    const handle = proxyHandler({ fetch: upstream.fetch });
     for (const path of [
       "/",
       "/v1/messages/",
@@ -98,7 +136,7 @@ describe("the path rule", () => {
 
   it("answers another method on a model path with 405 and forwards nothing", async () => {
     const upstream = fakeUpstream();
-    const handle = createModelProxyHandler(TOKEN, { fetch: upstream.fetch });
+    const handle = proxyHandler({ fetch: upstream.fetch });
     for (const method of ["GET", "PUT", "DELETE", "PATCH"]) {
       const init: RequestInit = method === "GET" ? { method } : { method, body: "{}" };
       expect((await handle(boxRequest("/v1/messages", init))).status).toBe(405);
@@ -108,7 +146,7 @@ describe("the path rule", () => {
 
   it("sends the request to the fixed upstream whatever host the box names", async () => {
     const upstream = fakeUpstream();
-    const handle = createModelProxyHandler(TOKEN, { fetch: upstream.fetch });
+    const handle = proxyHandler({ fetch: upstream.fetch });
     await handle(
       new Request("http://elsewhere.example/v1/messages", { method: "POST", body: "{}" }),
     );
@@ -117,7 +155,7 @@ describe("the path rule", () => {
 
   it("refuses a body over the limit without forwarding it", async () => {
     const upstream = fakeUpstream();
-    const handle = createModelProxyHandler(TOKEN, { fetch: upstream.fetch, maxBodyBytes: 8 });
+    const handle = proxyHandler({ fetch: upstream.fetch, maxBodyBytes: 8 });
     expect((await handle(boxRequest("/v1/messages", { body: "0123456789" }))).status).toBe(413);
     expect(upstream.calls).toEqual([]);
   });
@@ -126,7 +164,7 @@ describe("the path rule", () => {
 describe("the headers", () => {
   it("drops every credential the box sends and adds the Bearer login and the OAuth beta", async () => {
     const upstream = fakeUpstream();
-    const handle = createModelProxyHandler(TOKEN, { fetch: upstream.fetch });
+    const handle = proxyHandler({ fetch: upstream.fetch });
     await handle(
       boxRequest("/v1/messages", {
         headers: {
@@ -155,7 +193,7 @@ describe("the headers", () => {
 
   it("drops the hop-by-hop headers and the ones the box lists in Connection", async () => {
     const upstream = fakeUpstream();
-    const handle = createModelProxyHandler(TOKEN, { fetch: upstream.fetch });
+    const handle = proxyHandler({ fetch: upstream.fetch });
     await handle(
       boxRequest("/v1/messages", {
         headers: {
@@ -194,7 +232,7 @@ describe("the headers", () => {
           },
         }),
     );
-    const handle = createModelProxyHandler(TOKEN, { fetch: upstream.fetch });
+    const handle = proxyHandler({ fetch: upstream.fetch });
     const response = await handle(boxRequest("/v1/messages"));
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("event: message_start\n\n");
@@ -207,7 +245,7 @@ describe("the headers", () => {
 
   it("answers 502 without the error when the upstream cannot be reached", async () => {
     const lines: string[] = [];
-    const handle = createModelProxyHandler(TOKEN, {
+    const handle = proxyHandler({
       fetch: async () => {
         throw new Error(`connect failed with Bearer ${TOKEN_TEXT}`);
       },
@@ -222,7 +260,7 @@ describe("the headers", () => {
   it("logs method, path and status only", async () => {
     const lines: string[] = [];
     const upstream = fakeUpstream();
-    const handle = createModelProxyHandler(TOKEN, {
+    const handle = proxyHandler({
       fetch: upstream.fetch,
       log: (l) => lines.push(l),
     });
@@ -230,6 +268,8 @@ describe("the headers", () => {
     await handle(boxRequest("/v1/models"));
     expect(lines).toEqual([
       'POST "/v1/messages" -> 200',
+      // The fake answer `{}` carries no usage, which the log says (DIPO-425).
+      'POST "/v1/messages": the answer reported no usage',
       'POST "/v1/models" -> 404 (not a model path)',
     ]);
   });
@@ -258,6 +298,32 @@ const TCP_RUNS = guardRuns(
   !(await sandboxRefusesLoopback()),
 );
 
+describe.skipIf(!TCP_RUNS)("the listener's peer address (DIPO-425)", () => {
+  it("hands the handler the address the connection came from, whatever the request names", async () => {
+    const peers: (string | null)[] = [];
+    const listening = systemListenHttp({
+      hostname: "127.0.0.1",
+      port: 0,
+      maxRequestBodyBytes: 1024,
+      fetch: async (_request, peer) => {
+        peers.push(peer);
+        return new Response("ok");
+      },
+    });
+    try {
+      const response = await fetch(`http://127.0.0.1:${listening.port}/v1/messages`, {
+        method: "POST",
+        headers: { "x-forwarded-for": "192.0.2.21", forwarded: "for=192.0.2.21" },
+        body: "{}",
+      });
+      expect(await response.text()).toBe("ok");
+      expect(peers).toEqual(["127.0.0.1"]);
+    } finally {
+      await listening.stop();
+    }
+  });
+});
+
 describe("redirects", () => {
   let server: ReturnType<typeof Bun.serve> | undefined;
   let dir: string | undefined;
@@ -270,7 +336,7 @@ describe("redirects", () => {
 
   it("asks fetch not to follow them", async () => {
     const upstream = fakeUpstream();
-    const handle = createModelProxyHandler(TOKEN, { fetch: upstream.fetch });
+    const handle = proxyHandler({ fetch: upstream.fetch });
     await handle(boxRequest("/v1/messages"));
     expect(upstream.calls[0]?.init.redirect).toBe("manual");
   });
@@ -323,7 +389,7 @@ describe("redirects", () => {
           }
           return new Response("followed", { status: 200 });
         });
-        const handle = createModelProxyHandler(TOKEN, {
+        const handle = proxyHandler({
           upstream: served.upstream,
           ...(served.fetch === undefined ? {} : { fetch: served.fetch }),
         });
@@ -401,6 +467,7 @@ describe("startModelProxy", () => {
     const listening = fakeListen();
     const proxy = await startModelProxy({
       network: { hostAddress: HOST },
+      ledger: ledgerOf(),
       keychain: { spawn: security.spawn, clock: new ManualClock(), env: { PATH: "/usr/bin:/bin" } },
       listen: listening.listen,
     });
@@ -426,6 +493,7 @@ describe("startModelProxy", () => {
     await expect(
       startModelProxy({
         network: { hostAddress: "0.0.0.0" },
+        ledger: ledgerOf(),
         keychain: { spawn: security.spawn, clock: new ManualClock(), env: {} },
         listen: listening.listen,
       }),
@@ -442,6 +510,7 @@ describe("startModelProxy", () => {
     const listening = fakeListen();
     const error = await startModelProxy({
       network: { hostAddress: HOST },
+      ledger: ledgerOf(),
       keychain: { spawn: missing.spawn, clock: new ManualClock(), env: {} },
       listen: listening.listen,
     }).catch((caught: unknown) => caught);

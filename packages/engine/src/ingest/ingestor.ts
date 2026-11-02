@@ -40,11 +40,13 @@ import { readCompleteLines, readRange, statEventFile, type FileIdentity } from "
 import { byteLength, DEFAULT_OUTPUT_PRIVACY, type OutputPrivacy, outputText } from "./output";
 import { HOST_EVENTS_SOURCE, pendingWorkerOutput } from "./pending";
 import {
+  applyProxiedTurn,
   applyTurnTotals,
   feedFinalChanges,
   recordCompaction,
   finalRows,
   readUsage,
+  recordProxiedCost,
   recordReportedCost,
   recordUsageMessage,
   setElapsed,
@@ -475,7 +477,11 @@ export class Ingestor {
           text += outputText(event, privacy);
           switch (event.t) {
             case "usage":
-              usageChanged = recordUsageMessage(this.#office, target, event, now) || usageChanged;
+              // A box session's tokens are the model proxy's count (DIPO-425): none added here,
+              // but the caps are checked as of this event.
+              if (event.proxied !== true) {
+                usageChanged = recordUsageMessage(this.#office, target, event, now) || usageChanged;
+              }
               this.#hooks.onEventApplied?.(run, agent, event);
               break;
             case "liveUsage":
@@ -484,24 +490,31 @@ export class Ingestor {
               usageChanged = true;
               break;
             case "turn":
-              applyTurnTotals(
-                this.#office,
-                target,
-                event.totals,
-                { model, count: event.numTurns },
-                now,
-              );
-              for (const missing of recordReportedCost(
-                this.#office,
-                run,
-                agent,
-                event.costUsd ?? {},
-              )) {
-                this.#warn("the CLI reported a cost for a model without a usage row", {
+              if (event.proxied === true) {
+                // The model proxy counted the turn's tokens (DIPO-425): the turn adds its turns
+                // and keeps the CLI's cost, so it is counted once.
+                applyProxiedTurn(this.#office, target, { model, count: event.numTurns }, now);
+                recordProxiedCost(this.#office, target, event.costUsd ?? {}, now);
+              } else {
+                applyTurnTotals(
+                  this.#office,
+                  target,
+                  event.totals,
+                  { model, count: event.numTurns },
+                  now,
+                );
+                for (const missing of recordReportedCost(
+                  this.#office,
                   run,
                   agent,
-                  model: missing,
-                });
+                  event.costUsd ?? {},
+                )) {
+                  this.#warn("the CLI reported a cost for a model without a usage row", {
+                    run,
+                    agent,
+                    model: missing,
+                  });
+                }
               }
               usageChanged = true;
               // The criteria the report marks met are the run's progress now (DIPO-85).

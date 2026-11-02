@@ -526,7 +526,14 @@ export class ReviewLauncher implements ReviewSessions {
     // The session's own read-only box (0002): the copy of the head, the firewall and the proxies.
     let place;
     try {
-      place = await boxes.review({ agent, git, commit: request.head, systemFile: spec.systemFile });
+      place = await boxes.review({
+        office: request.office,
+        runId: run.runId,
+        agent,
+        git,
+        commit: request.head,
+        systemFile: spec.systemFile,
+      });
     } catch (error) {
       return {
         kind: "failed",

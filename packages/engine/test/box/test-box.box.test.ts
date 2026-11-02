@@ -177,9 +177,11 @@ if (registers) {
                   { clock: systemClock },
                 ),
               // No session runs, so the model proxy never starts.
-              startModelProxy: (network) =>
+              startModelProxy: (network, owner) =>
                 startModelProxy({
                   network,
+                  // Counts nothing: a real box test needs no run records (DIPO-425).
+                  ledger: { owner, open: () => () => undefined },
                   keychain: { spawn: systemSpawn, clock: systemClock, env: cliEnv },
                   listen: systemListenHttp,
                 }),

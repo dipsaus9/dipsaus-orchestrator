@@ -39,6 +39,7 @@ import { BOX_NET_TOOLS_DIR } from "../box/firewall";
 import { readBaseBox } from "../box/image";
 import { boxInstallInput, boxVerifyInput } from "../box/lifetime";
 import { startModelProxy, type ListenHttp } from "../box/model-proxy";
+import { proxiedUsageLedger } from "../records/proxied-usage";
 import { BoxParts, partStageRoot, type BoxPartsDeps, type PartRun } from "../box/parts";
 import { boxName, type BoxNetwork, type BoxPort, stateFolderLabel } from "../box/port";
 import { startBoxWebRoute } from "../box/safe-chain-box";
@@ -451,12 +452,19 @@ function engineBoxWorkers(
   const workers = new BoxWorkers({
     boxes: backend,
     startWebRoute: boxRouteStarter(options, tmpRoot, backend),
-    startModelProxy: (network) =>
+    // Every model request a box makes counts against the run of the box that sent it (DIPO-425).
+    startModelProxy: (network, owner) =>
       startModelProxy({
         network,
+        ledger: proxiedUsageLedger({
+          owner,
+          office: (office) => options.offices.get(office),
+          clock,
+        }),
         keychain: { spawn: options.spawn, clock, env: { PATH: "/usr/bin:/bin", HOME: home } },
         listen: options.listenHttp,
         log: (line) => options.logger.debug("model proxy", { line }),
+        warn: (line) => options.logger.warn("model proxy", { line }),
       }),
     readBaseBox: (git) => readBaseBox(git),
     code: { spawn: options.spawn, clock },

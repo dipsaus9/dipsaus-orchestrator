@@ -162,6 +162,12 @@ export interface Tracked extends TrackedRun {
    */
   capped: FiredCap | null;
   /**
+   * A token crossing the model proxy's count made (DIPO-425), found at the minute tick or at a box
+   * session's usage event with no done turn after it in the pass: the next pass or tick decides.
+   * A done turn in that window takes the capped-done path, as on the crossing turn; else the cap.
+   */
+  waitingCrossing: FiredCap | null;
+  /**
    * A done turn held back while the session has a steer it has not read (DIPO-412): the session
    * reads it after the turn's result and starts a new turn, whose report decides. While no steer
    * was read (`timer` runs) the held report is taken after all: `take` when the wait of

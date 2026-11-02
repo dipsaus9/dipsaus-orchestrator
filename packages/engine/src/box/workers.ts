@@ -28,6 +28,11 @@
 //   earlier session's claude (a host killed with SIGKILL, or one that crashed, never ran its stop
 //   command), so it is stopped and started again first; only a box `create` just made is not. It returns how the worker host runs a command in the box and stops it.
 //   With `door`, the box's part queue is read while the session runs (`BoxDoor`, DIPO-272).
+// - The box-address registry (DIPO-425): each developer and reviewer session records its box's
+//   address on the box network with the session's office, run and agent, and the model proxy reads
+//   it (`owner`) to count every model request a box makes against that run. The entry goes when
+//   the box's routes are released (a rest, a finish, a discard, a review's end). A session whose
+//   box has no address does not start: its model requests could not be counted.
 // - Safe-Chain's refusals (DIPO-376, with `safeChain`): each session marks where it starts in the
 //   Safe-Chain box's logs (`markSafeChain`), and when it ends (`sessionEnded`, before its exit is
 //   decided; else at its rest or finish, whichever is first) the lines since are read
@@ -114,7 +119,7 @@ import {
   stageReviewCopy,
 } from "./review-box";
 import { BOX_IMAGE_ENV, type BaseBox, type BoxImageDescription, type BoxToolchain } from "./image";
-import { boxModelEnvironment, type RunningModelProxy } from "./model-proxy";
+import { boxModelEnvironment, type ProxyOwner, type RunningModelProxy } from "./model-proxy";
 import {
   BoxError,
   BUILD_BOX_RUN_PREFIX,
@@ -341,9 +346,13 @@ export interface BoxWorkersDeps {
    * so a daemon-start sweep leaves them alone (`startBoxWebRoute`'s `boxId` and `buildId`).
    */
   readonly startWebRoute: (network: BoxNetwork, ids: RouteBoxIds) => Promise<BoxWebRouteStart>;
-  /** Starts the model proxy on the box network's host address; it reads the token at start. */
+  /**
+   * Starts the model proxy on the box network's host address; it reads the token at start.
+   * `owner` is the box-address registry the proxy counts by (DIPO-425).
+   */
   readonly startModelProxy: (
     network: Pick<BoxNetwork, "hostAddress">,
+    owner: (address: string) => ProxyOwner | null,
   ) => Promise<RunningModelProxy>;
   /** Reads the office's box from its base branch (`readBaseBox`). */
   readonly readBaseBox: (git: OfficeGit) => Promise<BaseBox>;
@@ -540,12 +549,16 @@ export class BoxWorkers {
   #registryTunnels: RegistryTunnels | null = null;
   /** Per run, its Safe-Chain mark or read in flight; the next waits for it (DIPO-376). */
   readonly #safeChainReads = new Map<string, Promise<void>>();
+  /** The box-address registry (DIPO-425): per address on the box network, its box and owner. */
+  readonly #owners = new Map<string, { readonly box: string; readonly owner: ProxyOwner }>();
 
   constructor(deps: BoxWorkersDeps) {
     this.#deps = deps;
     this.#index = deps.indexDir;
     this.#web = new BoxWebRoute(() => this.#startWebRoute());
-    this.#model = new BoxWebRoute(async () => deps.startModelProxy(await this.#networkOf()));
+    this.#model = new BoxWebRoute(async () =>
+      deps.startModelProxy(await this.#networkOf(), (address) => this.owner(address)),
+    );
     this.#door =
       deps.door === undefined
         ? null
@@ -612,6 +625,37 @@ export class BoxWorkers {
         }
       },
     };
+  }
+
+  /**
+   * The session whose box has `address` on the box network now (DIPO-425); null when none does.
+   * The model proxy counts a request from that address against it.
+   */
+  owner(address: string): ProxyOwner | null {
+    return this.#owners.get(address)?.owner ?? null;
+  }
+
+  /**
+   * Records box `name`'s address for `owner`, replacing what the address or the box had. Throws a
+   * `BoxError` when the box has no address: the session would reach a proxy that refuses it.
+   */
+  async #register(name: string, owner: ProxyOwner): Promise<void> {
+    const address = await this.#deps.boxes.address(name);
+    if (address === null) {
+      throw new BoxError(
+        "box.failed",
+        `box ${name} has no address on the box network, so its model requests could not be counted.`,
+      );
+    }
+    this.#unregister(name);
+    this.#owners.set(address, { box: name, owner });
+  }
+
+  /** Drops box `name` from the box-address registry. */
+  #unregister(name: string): void {
+    for (const [address, entry] of this.#owners) {
+      if (entry.box === name) this.#owners.delete(address);
+    }
   }
 
   /** True when the run of `runDir` runs its developer in a box. */
@@ -914,6 +958,8 @@ export class BoxWorkers {
    */
   async session(input: {
     readonly runId: string;
+    /** The session's agent, whose usage the model proxy counts (DIPO-425). */
+    readonly agent: string;
     readonly runDir: string;
     readonly systemFile: string;
   }): Promise<BoxSession> {
@@ -958,6 +1004,9 @@ export class BoxWorkers {
    * `endReview` deletes it when the session ends.
    */
   async review(input: {
+    /** The office and run the reviewed story's run is, whose usage the proxy counts (DIPO-425). */
+    readonly office: string;
+    readonly runId: string;
     readonly agent: string;
     readonly git: OfficeGit;
     readonly commit: string;
@@ -1002,6 +1051,8 @@ export class BoxWorkers {
         ports: [portOf(web.url), model.port],
       });
       await this.#copyDipoFiles(name, input.systemFile, web.caFile);
+      // The model proxy counts what this box sends against the reviewer (DIPO-425).
+      await this.#register(name, { office: input.office, run: input.runId, agent: input.agent });
       // No local port of the Mac: a reviewer reaches no service of the Mac.
       const proxy = web.admit(name, []);
       const modelEnv = boxModelEnvironment(model);
@@ -1085,6 +1136,7 @@ export class BoxWorkers {
 
   async #session(input: {
     readonly runId: string;
+    readonly agent: string;
     readonly runDir: string;
     readonly systemFile: string;
   }): Promise<BoxSession> {
@@ -1113,6 +1165,8 @@ export class BoxWorkers {
       ports: [portOf(web.url), model.port],
     });
     await this.#copyDipoFiles(name, input.systemFile, web.caFile);
+    // The model proxy counts what this box sends against this session (DIPO-425).
+    await this.#register(name, { office: record.office, run: input.runId, agent: input.agent });
     // The part queue is read while the session runs (DIPO-272).
     this.#door?.start(input.runId, name, input.runDir);
     const proxy = web.admit(name, record.localPorts ?? []);
@@ -1634,6 +1688,7 @@ export class BoxWorkers {
   }
 
   async #release(name: string): Promise<void> {
+    this.#unregister(name);
     this.#admitted.delete(name);
     await this.#web.release(name).catch(() => undefined);
     await this.#model.release(name).catch(() => undefined);
@@ -1853,6 +1908,7 @@ export class BoxWorkers {
         }
       }
     }
+    this.#owners.clear();
     await this.#web.close().catch(() => undefined);
     await this.#model.close().catch(() => undefined);
   }

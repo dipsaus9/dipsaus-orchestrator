@@ -1,10 +1,10 @@
 ---
 id: DIPO-425
 title: Count every model request a box makes against its run's caps
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-02 12:10'
-updated_date: '2026-11-02 12:25'
+updated_date: '2026-11-02 13:19'
 labels:
   - 'tier:L'
 milestone: m-1
@@ -50,12 +50,12 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A model request sent through the proxy by a program other than Claude Code (a test with a fake upstream) adds its response's input, output, cache-creation and cache-read tokens to the sending box's run, and the run's token cap and the day's spend total include them, shown by a test against the real proxy with a fake upstream
-- [ ] #2 A streamed response's tokens are counted from its final usage event, and a stream cut off before it is counted from what arrived, never as zero by default, shown by a test
-- [ ] #3 A Claude Code turn is counted once: its stream usage event adds no tokens and keeps the CLI's cost, shown by a test that feeds both the proxy's count and the stream event of one turn
-- [ ] #4 The proxy knows the sender only by its peer address through the box-address registry that BoxWorkers keeps, and a run named in a header or body is ignored, shown by a test
-- [ ] #5 What the proxy's old barrier caught still fails, each with a test: a path other than POST /v1/messages and /v1/messages/count_tokens (404, not forwarded), another method (405), a body over the size limit (413), a credential the box sends (dropped, the proxy's own token set), and a 3xx answer (passed back without the token); count_tokens requests are forwarded and add no tokens
-- [ ] #6 The bypass forms are tested against the real proxy: a request from one box's address claiming another run by header or body, a request sent through the web proxy to the model host, and a request with its own Authorization or x-api-key
-- [ ] #7 Fail closed against the real path: when the proxy cannot tell which run owns the sending address, or cannot record the usage, it refuses the request and forwards nothing, shown by a test with the registry lookup and the usage write made to fail
-- [ ] #8 ADR 0008 says the caps read the proxy's count, with one Replaced line
+- [x] #1 A model request sent through the proxy by a program other than Claude Code (a test with a fake upstream) adds its response's input, output, cache-creation and cache-read tokens to the sending box's run, and the run's token cap and the day's spend total include them, shown by a test against the real proxy with a fake upstream
+- [x] #2 A streamed response's tokens are counted from its final usage event, and a stream cut off before it is counted from what arrived, never as zero by default, shown by a test
+- [x] #3 A Claude Code turn is counted once: its stream usage event adds no tokens and keeps the CLI's cost, shown by a test that feeds both the proxy's count and the stream event of one turn
+- [x] #4 The proxy knows the sender only by its peer address through the box-address registry that BoxWorkers keeps, and a run named in a header or body is ignored, shown by a test
+- [x] #5 What the proxy's old barrier caught still fails, each with a test: a path other than POST /v1/messages and /v1/messages/count_tokens (404, not forwarded), another method (405), a body over the size limit (413), a credential the box sends (dropped, the proxy's own token set), and a 3xx answer (passed back without the token); count_tokens requests are forwarded and add no tokens
+- [x] #6 The bypass forms are tested against the real proxy: a request from one box's address claiming another run by header or body, a request sent through the web proxy to the model host, and a request with its own Authorization or x-api-key
+- [x] #7 Fail closed against the real path: when the proxy cannot tell which run owns the sending address, or cannot record the usage, it refuses the request and forwards nothing, shown by a test with the registry lookup and the usage write made to fail
+- [x] #8 ADR 0008 says the caps read the proxy's count, with one Replaced line
 <!-- AC:END -->

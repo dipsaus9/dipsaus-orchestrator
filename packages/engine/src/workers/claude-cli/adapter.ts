@@ -189,6 +189,7 @@ async function prepareInBox(
     // stops this box while its session starts (`BoxWorkers.session`, DIPO-278).
     session = await boxes.session({
       runId: spec.run,
+      agent: spec.agent,
       runDir: paths.runDir,
       systemFile: spec.systemFile,
     });

@@ -4,6 +4,9 @@
 // worker started, sleep included. A cap fires at 100%. Caps are fixed at run start and grow only
 // by a recorded grant (`grants.ts`). The reviewer counts against caps of its own (0002).
 //
+// A box session's tokens are the model proxy's count of every model request its box made, whatever
+// program sent it (DIPO-425, `proxied-usage.ts`); its stream adds turns and the CLI's cost only.
+//
 // The caps see only the usage the adapter could read (DIPO-315). A run whose worker stream drifts
 // (lines that fail their schema or have a message type the adapter drops, `STREAM_DRIFT_LINES` of
 // them over the run's agents, or one turn end whose usage cannot be read) parks `worker-failed`

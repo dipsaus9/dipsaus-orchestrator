@@ -184,9 +184,11 @@ if (registers) {
                 netToolsRoot: join(tmp, "state", "box-net-tools"),
               }),
               startWebRoute: startRoute,
-              startModelProxy: (network) =>
+              startModelProxy: (network, owner) =>
                 startModelProxy({
                   network,
+                  // Counts nothing: a real box test needs no run records (DIPO-425).
+                  ledger: { owner, open: () => () => undefined },
                   keychain: { spawn: systemSpawn, clock: systemClock, env: keychainEnv },
                   listen: systemListenHttp,
                 }),
@@ -209,7 +211,12 @@ if (registers) {
               const before = performance.now();
               await workers.create({ office: OFFICE, runId, runDir, git, startCommit: commit });
               fact(`the box was ready in ${Math.round(performance.now() - before)} ms`);
-              const session = await workers.session({ runId, runDir, systemFile });
+              const session = await workers.session({
+                runId,
+                agent: "agt-box-test",
+                runDir,
+                systemFile,
+              });
               const plan = planInBox(
                 {
                   run: runId,

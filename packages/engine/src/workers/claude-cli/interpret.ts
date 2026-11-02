@@ -10,6 +10,11 @@
 // empty or zero (a crash, an aborted turn) keeps the live numbers instead: the DIPO-41 recording
 // `pause-now` shows the CLI's next totals leave an aborted turn's spend out.
 //
+// A session in a box (`placeholderKey`, DIPO-425) sends its model requests through dipo's model
+// proxy, whose count is the token total (0008). Its `usage` and `turn` events say so (`proxied`),
+// and the engine adds no tokens for them: the turn keeps the cost the CLI reports and its turns.
+// The live output of its turn in progress stays 0, since the proxy counts each answer's output.
+//
 // The turn in progress (DIPO-296): a worker session is one turn, one result at its end, so turns
 // and output would show 0 for the whole session. `liveUsage` reports what the stream says of the
 // turn so far, for the live view only: the main agent's model turns (one at its first message, one
@@ -511,6 +516,8 @@ function streamEvent(value: unknown, state: ClaudeParseState): Step {
   const streaming = state.streaming;
   if (!end.success || streaming === undefined) return { events: [], state };
   if ((end.data.parent_tool_use_id ?? null) !== null) return { events: [], state };
+  // The model proxy counts a box session's output, as each answer ends (DIPO-425).
+  if (state.placeholderKey === true) return { events: [], state };
   const output = end.data.event.usage.output_tokens;
   if (output <= streaming.counted) return { events: [], state };
   return liveStep(state, {
@@ -1065,6 +1072,7 @@ function assistant(value: unknown, state: ClaudeParseState): Step {
       cacheCreate5m: counted.cacheCreate - oneHour,
       cacheCreate1h: oneHour,
       cacheRead: counted.cacheRead,
+      ...(next.placeholderKey === true ? { proxied: true as const } : {}),
     });
     next = {
       ...next,
@@ -1289,6 +1297,7 @@ function result(value: unknown, state: ClaudeParseState): Step {
     ...(answer === undefined ? {} : { answer }),
     totals: next.committed,
     ...(reportedCost ? { costUsd } : {}),
+    ...(next.placeholderKey === true ? { proxied: true as const } : {}),
     numTurns: msg.num_turns,
     terminal,
     ...(msg.subtype === "error_max_turns"

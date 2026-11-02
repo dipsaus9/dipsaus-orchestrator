@@ -12,6 +12,10 @@
 //   turn that carries a `done` report is the exception (0008 amendment of 2026-10-19, DIPO-205):
 //   it takes the normal done path (verify and commit), a `cap` run step names the crossed cap, and
 //   no cap ends the run while that path runs.
+//   A box session's tokens are the model proxy's count (DIPO-425), written before its turn's result
+//   reaches the stream: a token crossing the tick finds, or a box session's usage event finds with
+//   no done turn after it in the pass, waits for the next pass or tick (`waitingCrossing`); a done
+//   turn in it takes the capped done path, else the cap fires.
 //   A reviewer session (0002) counts its own tokens, turns and minutes against the reviewer's own
 //   caps, never the story's budget; any of them reached parks `worker-failed`. Its valid report goes to worker outcomes after the backstop (`onReview`).
 // - Reports. A turn whose report is `blocked` parks the story `ambiguous-spec` with the question
@@ -264,6 +268,7 @@ export class RunControl implements RunEnder {
       turns: Promise.resolve(),
       lastReport: null,
       capped: null,
+      waitingCrossing: null,
       heldDone: null,
       finishing: false,
     };
@@ -349,6 +354,8 @@ export class RunControl implements RunEnder {
     const outcomes = this.#deps.outcomes?.();
     // A crossing at a usage event that a done turn of the same pass follows belongs to that turn.
     let pending: FiredCap | null = null;
+    // A crossing of the proxy's count from before this pass: this pass decides it (DIPO-425).
+    const waited = tracked.waitingCrossing;
     for (const [index, event] of events.entries()) {
       if (tracked.ending !== null) return;
       if (event.t === "messageRead") {
@@ -403,7 +410,7 @@ export class RunControl implements RunEnder {
             ? null
             : event.capped !== undefined
               ? { cap: "maxTurns" as const, detail: capDetail("maxTurns", event.capped) }
-              : (this.#crossings.get(event) ?? pending);
+              : (this.#crossings.get(event) ?? pending ?? tracked.waitingCrossing);
         if (event.report !== null) this.#keepNotes(tracked, event.report, agent);
         if (event.report?.status === "done" && crossed !== null) {
           tracked.lastReport = event.report;
@@ -473,9 +480,24 @@ export class RunControl implements RunEnder {
           pending = fired;
           continue;
         }
+        // The proxy counts an answer before its turn's result reaches the stream (DIPO-425): the
+        // next pass or tick decides, so a done report on the crossing turn is still honoured.
+        if (
+          event.t === "usage" &&
+          event.proxied === true &&
+          fired.cap === "budgetTokens" &&
+          tracked.waitingCrossing === null
+        ) {
+          tracked.waitingCrossing = fired;
+          continue;
+        }
         this.#cap(tracked, fired.cap, fired.detail);
         return;
       }
+    }
+    // A crossing that waited for this pass and saw no done turn caps now.
+    if (waited !== null && tracked.waitingCrossing === waited && tracked.capped === null) {
+      this.#cap(tracked, waited.cap, waited.detail);
     }
   }
 
@@ -650,6 +672,7 @@ export class RunControl implements RunEnder {
    */
   #cappedDone(tracked: Tracked, report: WorkerReport, crossed: FiredCap): void {
     tracked.capped = crossed;
+    tracked.waitingCrossing = null;
     disarm(this.#deps.clock, tracked);
     this.#turns.queue(tracked, report, undefined, crossed);
   }
@@ -934,17 +957,28 @@ export class RunControl implements RunEnder {
       // A turn problem whose intent failed is decided now, before the caps (DIPO-123).
       const retry = tracked.unstored;
       if (retry !== null && this.act(tracked.runId, retry)) return;
-      if (!this.#checkCaps(tracked)) this.#arm(tracked);
+      if (!this.#checkCaps(tracked, true)) this.#arm(tracked);
     }, this.#deps.tickMs ?? CAP_TICK_MS);
   }
 
   /** Compares the run's totals with its caps; true when one fired and the run is ending. */
-  #checkCaps(tracked: Tracked): boolean {
+  #checkCaps(tracked: Tracked, tick = false): boolean {
     if (tracked.capped !== null) return false;
+    const waited = tracked.waitingCrossing;
+    if (waited !== null) {
+      this.#cap(tracked, waited.cap, waited.detail);
+      return true;
+    }
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined) return false;
     const fired = this.#fired(office, tracked);
     if (fired === null) return false;
+    // At the tick, a token crossing only the proxy's count shows waits one pass or tick for its
+    // done turn (DIPO-425); the stream's own crossings are decided at their events.
+    if (tick && fired.cap === "budgetTokens") {
+      tracked.waitingCrossing = fired;
+      return false;
+    }
     this.#cap(tracked, fired.cap, fired.detail);
     return true;
   }
