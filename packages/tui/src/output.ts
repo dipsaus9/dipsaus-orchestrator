@@ -20,8 +20,17 @@ import { cleanText, type EngineError, type OutputMarker } from "@dipsaus-orchest
 
 export { byteLength, type OutputRange } from "@dipsaus-orchestrator/client";
 
-/** A held line: text as stored, or an engine marker drawn from its flag. */
-export type OutputLine = string | OutputMarker;
+/** A bytes-not-stored note: a gap read could not fill (DIPO-422). Drawn by the pane, never text. */
+export type OutputGap = { readonly gap: number };
+
+/** A held line: text as stored, an engine marker drawn from its flag, or a gap note. */
+export type OutputLine = string | OutputMarker | OutputGap;
+
+/** Stored bytes `[at, at + bytes)` that the held text does not hold; the note stands for them. */
+export interface HeldGap {
+  readonly at: number;
+  readonly bytes: number;
+}
 
 export type RangeOutcome =
   | { readonly ok: true; readonly result: OutputRange }
@@ -61,25 +70,53 @@ export function splitLines(text: string): string[] {
 /**
  * The held `text`, which starts at byte `start` of the stored output, as lines: each flagged
  * marker range becomes one marker line and the text around it splits as usual. A marker that
- * begins inside a line ends that line first.
+ * begins inside a line ends that line first. Each gap becomes one gap note between the text.
  */
 export function heldLines(
   text: string,
   start: number,
   markers: readonly OutputMarker[],
+  gaps: readonly HeldGap[] = [],
 ): OutputLine[] {
-  return outputPieces(text, start, markers).flatMap<OutputLine>((piece) =>
+  const bytes = encoder.encode(text);
+  const lines: OutputLine[] = [];
+  let at = 0;
+  let stored = start;
+  for (const gap of gaps) {
+    const to = at + gap.at - stored;
+    lines.push(...textLines(bytes.subarray(at, to), stored, markers));
+    lines.push({ gap: gap.bytes });
+    at = to;
+    stored = gap.at + gap.bytes;
+  }
+  lines.push(...textLines(bytes.subarray(at), stored, markers));
+  return lines;
+}
+
+/** The lines of stored `bytes` that start at byte `start` of the stored output. */
+function textLines(
+  bytes: Uint8Array,
+  start: number,
+  markers: readonly OutputMarker[],
+): OutputLine[] {
+  return outputPieces(decoder.decode(bytes), start, markers).flatMap<OutputLine>((piece) =>
     typeof piece === "string" ? splitLines(piece) : [piece],
   );
 }
 
 /** True for an engine marker line. */
 export function isMarker(line: OutputLine): line is OutputMarker {
-  return typeof line !== "string";
+  return typeof line !== "string" && !("gap" in line);
 }
 
-/** A line as the pane shows it: an engine marker as its rule, any other line as is. */
+/** True for a bytes-not-stored note. */
+export function isGap(line: OutputLine): line is OutputGap {
+  return typeof line !== "string" && "gap" in line;
+}
+
+/** A line as the pane shows it: a marker as its rule, a gap as its note, any other line as is. */
 export function displayLine(line: OutputLine, ascii = false): string {
+  if (isGap(line)) return `[${line.gap} bytes of output not stored]`;
   return isMarker(line) ? markerRule(line, ascii) : line;
 }
 
@@ -131,7 +168,7 @@ export function visibleRows(
 export function lastLine(lines: readonly OutputLine[]): string | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     const held = lines[i];
-    if (held === undefined || isMarker(held)) continue;
+    if (held === undefined || typeof held !== "string") continue;
     const line = held.trim();
     if (line !== "") return line;
   }
@@ -149,6 +186,8 @@ export class OutputFeed {
   #lines: OutputLine[] | null = null;
   /** The engine marker flags of the held text, oldest first. */
   #markers: OutputMarker[] = [];
+  /** The stored bytes a gap read could not fill, oldest first; `#text` holds none of them. */
+  #gaps: HeldGap[] = [];
   #loaded = false;
   /** Nothing is stored before `#start` (it is 0, or an earlier read came back empty). */
   #atStart = false;
@@ -167,7 +206,7 @@ export class OutputFeed {
 
   /** The held text as lines, oldest first. */
   get lines(): readonly OutputLine[] {
-    this.#lines ??= heldLines(this.#text, this.#start, this.#markers);
+    this.#lines ??= heldLines(this.#text, this.#start, this.#markers, this.#gaps);
     return this.#lines;
   }
 
@@ -210,11 +249,8 @@ export class OutputFeed {
   /** A live `work.output` range of this run and source. */
   push(range: OutputRange): void {
     if (this.#closed) return;
-    if (!this.#loaded || this.#busy) {
-      this.#queued.push(range);
-      return;
-    }
-    this.#apply(range);
+    this.#queued.push(range);
+    this.#drain();
   }
 
   /** Reads the text before what is held, one step of `tailBytes`; no-op at the start or busy. */
@@ -270,8 +306,9 @@ export class OutputFeed {
   #apply(range: OutputRange): void {
     if (range.to <= this.#end) return;
     if (range.from > this.#end) {
-      // A range was missed (sent before this pane subscribed, or dropped): read the gap.
-      this.#queued.push(range);
+      // A range was missed (sent before this pane subscribed, or dropped): read the gap once, then
+      // take the range from its start, a gap note standing for what could not be read (DIPO-422).
+      this.#queued.unshift(range);
       void this.#fill();
       return;
     }
@@ -289,8 +326,23 @@ export class OutputFeed {
     await this.#readOn(false);
     if (this.#closed) return;
     this.#busy = false;
+    // A failed read leaves the queue as it is: the next range retries it, one read per range.
+    if (this.#error === null) {
+      this.#skipGap();
+      this.#onChange("append");
+      this.#drain();
+      return;
+    }
     this.#onChange("append");
-    this.#drain();
+  }
+
+  /** After one read: the gap before the first queued range becomes a note; the held end moves on. */
+  #skipGap(): void {
+    const next = this.#queued[0];
+    if (next === undefined || next.from <= this.#end) return;
+    this.#gaps.push({ at: this.#end, bytes: next.from - this.#end });
+    this.#end = next.from;
+    this.#lines = null;
   }
 
   /** Reads from the held end until a read comes back empty. */
@@ -325,10 +377,17 @@ export class OutputFeed {
   }
 
   #drain(): void {
-    while (!this.#busy && this.#queued.length > 0 && !this.#closed) {
+    while (this.#loaded && !this.#busy && this.#queued.length > 0 && !this.#closed) {
       const range = this.#queued.shift();
       if (range !== undefined) this.#apply(range);
     }
+  }
+
+  /** The stored offset of byte `at` of `#text`, past the gaps that come before it. */
+  #storedAt(at: number): number {
+    let stored = this.#start + at;
+    for (const gap of this.#gaps) if (gap.at <= stored) stored += gap.bytes;
+    return stored;
   }
 
   /** Drops whole lines from the start until about `tailBytes` remain; true when it dropped. */
@@ -339,8 +398,9 @@ export class OutputFeed {
     let at = bytes.indexOf(0x0a, Math.max(0, cut - 1));
     if (at === -1 || at >= bytes.length - 1) return false;
     at += 1;
+    this.#start = this.#storedAt(at);
     this.#text = decoder.decode(bytes.subarray(at));
-    this.#start += at;
+    this.#gaps = this.#gaps.filter((gap) => gap.at >= this.#start);
     this.#markers = this.#markers.filter((marker) => marker.to > this.#start);
     this.#atStart = false;
     this.#lines = null;

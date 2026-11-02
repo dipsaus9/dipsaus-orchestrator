@@ -253,6 +253,40 @@ describe("live agent detail", () => {
     expect(rangeReads(session).slice(before)[0]).toMatchObject({ source: "worker", from: 1705 });
   });
 
+  it("shows one gap note when no read can fill a missed range, and goes on with the live output", async () => {
+    const { ui, session } = await openDetail();
+    const stored = session.output.get(`${RUN_24}:worker`)?.length ?? 0;
+    const before = rangeReads(session).length;
+    // 40 bytes past the stored output that nothing stored: the gap read finds nothing.
+    const deliver = (seq: number, from: number, text: string) =>
+      session.active(STREAM)?.options.onEvent(
+        event(seq, "work.output", {
+          work: golden24().work,
+          source: "worker",
+          from,
+          to: from + text.length,
+          text,
+        }),
+      );
+    deliver(20, stored + 40, "late line\n");
+    await ui.waitFor("[40 bytes of output not stored]");
+    // Reads of the stored output past the gap: one per feed of this run (the detail and the
+    // overview's now line), and none once the note is shown (DIPO-422).
+    const gapReads = () =>
+      rangeReads(session)
+        .slice(before)
+        .filter((read) => read.from === stored).length;
+    const settled = gapReads();
+    expect(settled).toBeLessThanOrEqual(2);
+    await Bun.sleep(50);
+    expect(gapReads()).toBe(settled);
+    deliver(21, stored + 50, "after gap\n");
+    const frame = await ui.waitFor("after gap");
+    expect(frame.indexOf("[40 bytes of output not stored]")).toBeLessThan(
+      frame.indexOf("late line"),
+    );
+  });
+
   it("P asks for a note and sends story.park with the story id", async () => {
     const { ui, session } = await openDetail();
     await ui.press("P");

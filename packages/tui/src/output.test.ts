@@ -109,6 +109,36 @@ describe("OutputFeed", () => {
     expect(store.reads.at(-2)).toEqual({ from: 24 });
   });
 
+  it("shows one gap note when a read cannot fill a missed range, then goes on from the range", async () => {
+    const store = stored(lines(2));
+    const reads: number[] = [];
+    // Bytes 16 to 40 were never stored: every read from 16 comes back empty.
+    const feed = new OutputFeed(
+      async (from, to) => {
+        reads.push(from);
+        return from === 16
+          ? { ok: true, result: { from, to: from, text: "" } }
+          : store.read(from, to);
+      },
+      1024,
+      () => {},
+    );
+    await feed.load();
+    store.append(lines(3, 3)); // missed: never pushed
+    reads.length = 0;
+    feed.push(store.append(lines(1, 6)));
+    for (let i = 0; i < 10 && feed.busy; i++) await Bun.sleep(1);
+    expect(feed.lines).toEqual(["line 01", "line 02", { gap: 24 }, "line 06"]);
+    expect(reads).toEqual([16]);
+    expect(feed.end).toBe(48);
+
+    // The next range continues from the end of the one before: no second gap, no read.
+    feed.push(store.append(lines(1, 7)));
+    for (let i = 0; i < 10 && feed.busy; i++) await Bun.sleep(1);
+    expect(feed.lines).toEqual(["line 01", "line 02", { gap: 24 }, "line 06", "line 07"]);
+    expect(reads).toEqual([16]);
+  });
+
   it("keeps about the tail while following and everything read while scrolled back", async () => {
     const store = stored(lines(4));
     const { feed } = feedOf(store, 16);
