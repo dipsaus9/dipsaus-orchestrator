@@ -1,10 +1,10 @@
 ---
 id: DIPO-430
 title: 'Keep a blocked worker''s question on its park, also across a restart'
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-02 13:23'
-updated_date: '2026-11-02 13:33'
+updated_date: '2026-11-02 13:40'
 labels:
   - 'tier:S'
 milestone: m-1
