@@ -27,6 +27,7 @@ All tests are plain `bun test` files using `describe`, `it` and `expect`. Golden
 - **CI-only tests.** Files named `*.ci.test.ts` register their tests only when `DIPO_TEST_CI=1`, which a lint rule checks. CI sets it. Local `bun test` stays under about 60 seconds, and a slow or timing-sensitive test goes CI only. Correctness rules never go CI only.
 - **Timeouts.** Bun's default per-test timeout stays. The CI command passes each test's CI timeout on the command line. A slow test sets its own with `it(name, fn, ms)`.
 - **Isolation from the live daemon.** Every test process carries `DIPO_TEST=1`, and its own `DIPO_HOME` and `DIPO_RUNTIME_DIR` under `DIPO_TMP` (fallback `/tmp`), from `packages/testkit/src/test-env.ts`. With that marker, dipo refuses the maintainer's real state, log and runtime folders. Temp paths stay short, because a socket path must fit 100 bytes (0005).
+- **No automated end-to-end run.** The whole loop against real GitHub and a real box is proven by the maintainer's hand runs and the release smoke run (0016), not by a test: GitHub's macOS runners cannot run Apple `container`, and the box tests (`*.box.test.ts`) run only by hand with `DIPO_TEST_BOX=1`. The maintainer chose this on 2026-11-02.
 
 ### 2. The fake worker
 
