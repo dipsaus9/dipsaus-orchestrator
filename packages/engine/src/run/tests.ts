@@ -27,7 +27,9 @@
 //   start) closes too.
 // - `recover` (daemon start): an open test whose box still runs gets its firewall and forwarder
 //   again (`TestBoxes.reattach`), on the same port when it is free; one whose box is gone closes.
-//   Then every test box no open test names is deleted (`TestBoxes.sweep`).
+//   Then every test box this state folder made that no open test names is deleted
+//   (`TestBoxes.sweep`); another daemon's on the same Mac is never touched (DIPO-419). These are a
+//   test box's only deleters: no box tick, sweep or run finish of `BoxWorkers` deletes one.
 
 import { mkdirSync, rmSync } from "node:fs";
 
@@ -432,7 +434,7 @@ export class StoryTests {
     const test = findTest(office, request.testId);
     if (ready.length === 0 || test === null) {
       // Closed while it started (the sweep found a new head): its box goes too.
-      await boxes.close(request.testId);
+      await boxes.close(request.testId, "its test closed while it started");
       removeDir(request.runDir);
       throw new CommandError("test.closed", `${input.story}'s test closed while it started.`, {
         story: input.story,
@@ -486,7 +488,7 @@ export class StoryTests {
           : [];
       return withWorkViews(office, [...recorded, ...decided]);
     });
-    await this.#teardown(test);
+    await this.#teardown(test, `its test was recorded as a ${args.result}`);
     if (args.result === "fail") {
       await this.#deps
         .testFail?.(officeId, test.runId, { testId: test.testId, head: test.head, note })
@@ -509,11 +511,11 @@ export class StoryTests {
     if (office === undefined) return;
     this.#write(office, () => endTest(office, test.testId, reason, this.#deps.clock.now()));
     this.#deps.logger?.info("a test closed", { test: test.testId, reason });
-    await this.#teardown(test);
+    await this.#teardown(test, `its test closed (${reason})`);
   }
 
-  async #teardown(test: StoredTest): Promise<void> {
-    await this.#deps.boxes?.close(test.testId).catch(() => undefined);
+  async #teardown(test: StoredTest, why: string): Promise<void> {
+    await this.#deps.boxes?.close(test.testId, why).catch(() => undefined);
     removeDir(this.#deps.testDir(test.testId));
   }
 

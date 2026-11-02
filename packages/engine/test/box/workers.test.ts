@@ -20,7 +20,9 @@
 // - two passes over the ended runs at once finish and report each run once (DIPO-307), and at
 //   daemon start the fill boxes a stopped daemon left are deleted, never one that fills now;
 // - that sweep deletes only helper boxes labelled with its own state folder (DIPO-374): one
-//   without the label or with another folder's is kept, and run and test boxes are never touched.
+//   without the label or with another folder's is kept, and run and test boxes are never touched;
+// - no pass rests or finishes a test box, whatever it is told of its run, and every box dipo
+//   deletes is logged at info with its reason through `deleteBox` (DIPO-419).
 
 import {
   appendFileSync,
@@ -74,6 +76,7 @@ import {
   type BoxExecResult,
   type BoxNetwork,
   boxName,
+  deleteBox,
   STATE_LABEL_VALUE,
   stateFolderLabel,
   TEST_BOX_RUN_PREFIX,
@@ -100,6 +103,7 @@ import {
   BOX_INDEX_DIR,
   BOX_RUN_FILE,
   BOX_SYSTEM_FILE,
+  BOX_WAITING,
   type BoxMade,
   BoxWorkers,
   type BoxPackageCacheDeps,
@@ -170,6 +174,8 @@ interface World {
   readonly holds: AdapterHolds;
   readonly notices: HoldNotice[];
   readonly warnings: { message: string; fields: Readonly<Record<string, unknown>> }[];
+  /** The info lines the box workers logged (DIPO-419). */
+  readonly infos: { message: string; fields: Readonly<Record<string, unknown>> }[];
   readonly git: OfficeGit;
   readonly commit: string;
   readonly runDir: string;
@@ -318,6 +324,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     };
   const token = new SecretToken(TOKEN);
   const warnings: World["warnings"] = [];
+  const infos: World["infos"] = [];
   const indexDir = join(tmp, "state", BOX_INDEX_DIR);
   const workers = new BoxWorkers({
     boxes,
@@ -361,6 +368,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     ...(options.finishWaitMs === undefined ? {} : { finishWaitMs: options.finishWaitMs }),
     ...(options.safeChain === undefined ? {} : { safeChain: options.safeChain }),
     warn: (message, fields) => warnings.push({ message, fields }),
+    info: (message, fields) => infos.push({ message, fields }),
   });
   const runDir = join(tmp, "runs", RUN);
   mkdirSync(runDir, { recursive: true });
@@ -373,6 +381,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     holds,
     notices,
     warnings,
+    infos,
     git,
     commit,
     runDir,
@@ -880,7 +889,7 @@ describe("the end of a box run (criterion 9)", () => {
       const w = await world(repo, tmp);
       await created(w);
       w.log.length = 0;
-      await w.workers.discard(RUN);
+      await w.workers.discard(RUN, "its launch failed");
       expect(w.log).toEqual([`delete ${BOX}`]);
       expect(w.workers.pending()).toEqual([]);
     }));
@@ -1225,7 +1234,7 @@ describe("the install in the box before the worker (DIPO-294)", () => {
       );
       expect(w.log).toContain(`stop ${BOX}`);
       // The failed launch then deletes the box (`discard`), which ends what still runs in it.
-      await w.workers.discard(RUN);
+      await w.workers.discard(RUN, "its launch failed");
       expect(w.boxes.boxes.has(BOX)).toBe(false);
       expect(w.workers.routeUsers.web).toEqual([]);
     }));
@@ -1995,6 +2004,131 @@ describe("the daemon-start sweep of one state folder's helper boxes (DIPO-374)",
       mkdirSync(join(state, "dipo", "state"), { recursive: true });
       expect(stateFolderLabel(join(dir, "linked", "dipo", "state"))).toBe(early);
     }));
+});
+
+/** Every `.ts` file below `dir`. */
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
+    .map((entry) => join(entry.parentPath, entry.name));
+}
+
+/** Each box `w.log` deleted that has no info line of `deleteBox` naming it with a reason. */
+function unloggedDeletes(w: World): string[] {
+  return w.log
+    .filter((line) => line.startsWith("delete ") && !line.startsWith("delete image "))
+    .map((line) => line.slice("delete ".length))
+    .filter(
+      (box) =>
+        !w.infos.some(
+          (info) =>
+            info.message === "deleted a box" &&
+            info.fields["box"] === box &&
+            typeof info.fields["why"] === "string" &&
+            info.fields["why"] !== "",
+        ),
+    );
+}
+
+describe("a test box and every box deletion (DIPO-419)", () => {
+  it("never rests or finishes a test box on a box tick or at daemon start, whatever its run says", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w, TEST_RUN);
+      const box = boxName(TEST_RUN);
+      expect(w.workers.pending()).toEqual([TEST_RUN]);
+      w.log.length = 0;
+      // Fail closed: even a pass told that the test box's "run" ended or waits leaves it alone.
+      expect(await w.workers.finishEnded(() => true)).toEqual([]);
+      expect(await w.workers.finishEnded(() => BOX_WAITING)).toEqual([]);
+      expect(await w.workers.finishEnded(() => true, { listBoxes: true })).toEqual([]);
+      expect(w.log.filter((line) => line.includes(box))).toEqual([]);
+      expect(w.boxes.boxes.get(box)?.state).toBe("running");
+      // Its test's close deletes it, and says why.
+      await w.workers.discard(TEST_RUN, "its test closed (idle)");
+      expect(w.boxes.boxes.has(box)).toBe(false);
+      expect(w.infos).toContainEqual({
+        message: "deleted a box",
+        fields: { box, why: "its test closed (idle)" },
+      });
+    }));
+
+  it("logs every box it deletes with the box and the reason at info", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      // A run whose claim ended, a launch that failed, a reviewer session that ended, a fill box a
+      // stopped daemon of this state folder left, and a reviewer box at daemon stop.
+      await created(w);
+      expect(await w.workers.finishEnded(() => true)).toEqual([RUN]);
+      const failed = "run_01J9ZK5Q8W3V4X6Y7Z000FA1LD";
+      await created(w, failed);
+      await w.workers.discard(failed, "its launch failed");
+      await reviewed(w);
+      await w.workers.endReview(AGENT);
+      await made(w, `${FILL_BOX_RUN_PREFIX}left0`, FAKE_STATE_LABEL);
+      expect(await w.workers.finishEnded(() => null, { listBoxes: true })).toEqual([]);
+      await reviewed(w, "agt_01J9ZK5Q8W3V4X6Y7Z00STOP");
+      await w.workers.close();
+      const deleted = w.log.filter((line) => line.startsWith("delete "));
+      expect(deleted).toHaveLength(5);
+      expect(unloggedDeletes(w)).toEqual([]);
+      expect(w.infos.filter((info) => info.message === "deleted a box")).toEqual([
+        { message: "deleted a box", fields: { box: BOX, why: "its run's claim ended" } },
+        { message: "deleted a box", fields: { box: boxName(failed), why: "its launch failed" } },
+        {
+          message: "deleted a box",
+          fields: { box: reviewBoxName(AGENT), why: "its review session ended" },
+        },
+        {
+          message: "deleted a box",
+          fields: {
+            box: boxName(`${FILL_BOX_RUN_PREFIX}left0`),
+            why: "a stopped daemon of this state folder left it",
+          },
+        },
+        {
+          message: "deleted a box",
+          fields: {
+            box: reviewBoxName("agt_01J9ZK5Q8W3V4X6Y7Z00STOP"),
+            why: "the daemon stopped",
+          },
+        },
+      ]);
+    }));
+
+  it("logs a box only once it is deleted, through the one helper", async () => {
+    const infos: { message: string; fields: Readonly<Record<string, unknown>> }[] = [];
+    const info = (message: string, fields: Readonly<Record<string, unknown>>) =>
+      void infos.push({ message, fields });
+    const deleted: string[] = [];
+    await deleteBox({ delete: async (name) => void deleted.push(name) }, "dipo-x", "why", info);
+    expect(deleted).toEqual(["dipo-x"]);
+    expect(infos).toEqual([{ message: "deleted a box", fields: { box: "dipo-x", why: "why" } }]);
+    const refused = deleteBox(
+      {
+        delete: async () => {
+          throw new BoxError("box.failed", "not found");
+        },
+      },
+      "dipo-y",
+      "why",
+      info,
+    );
+    await expect(refused).rejects.toThrow("not found");
+    expect(infos).toHaveLength(1);
+  });
+
+  it("deletes a box nowhere in the engine but through that helper", () => {
+    const src = join(import.meta.dir, "..", "..", "src");
+    const direct = /(?<![#\w])boxes\s*\.\s*delete\s*\(/g;
+    const found = sourceFiles(src).flatMap((file) =>
+      [...readFileSync(file, "utf8").matchAll(direct)].map(
+        (match) => `${file.slice(src.length + 1)}: ${match[0]}`,
+      ),
+    );
+    // The one call is `deleteBox`'s own.
+    expect(found).toEqual(["box/port.ts: boxes.delete("]);
+  });
 });
 
 describe("the box awake for dipo's copy, behind its firewall (DIPO-281 with DIPO-324)", () => {

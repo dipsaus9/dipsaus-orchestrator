@@ -368,6 +368,7 @@ function boxRouteStarter(
         caFile: join(dir, "ca.pem"),
         boxId: ids.boxId,
         buildId: ids.buildId,
+        info: (message, fields) => options.logger.info(message, fields),
         onEvent: (event) =>
           options.logger.warn("a Safe-Chain image build box was not cleaned up", {
             box: event.box,

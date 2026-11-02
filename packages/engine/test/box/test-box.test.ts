@@ -1,7 +1,9 @@
 // The test box (DIPO-309): made from the pushed head like every box, install, setup and `dev` in
 // it, the first URL `dev` prints within the start deadline, the firewall opened to the Mac's address
 // on the `dev` port only, a relay only when `dev` listens on the box's loopback, the forwarder on
-// the Mac, and no port published. On the fake backend, with the box worker steps recorded.
+// the Mac, and no port published. On the fake backend, with the box worker steps recorded. The
+// daemon-start sweep deletes only its own state folder's test boxes no open test names, so another
+// daemon on the Mac never deletes an open test's box (DIPO-419).
 
 import { describe, expect, it } from "bun:test";
 
@@ -327,9 +329,69 @@ describe("a test box", () => {
     expect([...w.boxes.boxes.keys()].toSorted()).toEqual(
       [BOX, boxName("run_01J9ZK5Q8W3V4X6Y7Z8A9B0C3F")].toSorted(),
     );
-    await w.tests.close(TEST);
+    await w.tests.close(TEST, "its test was recorded");
     expect(w.steps.at(-1)).toBe("forwarder closed");
     expect(w.boxes.boxes.has(BOX)).toBe(false);
     expect(w.tests.holds(TEST)).toBe(false);
+  });
+
+  it("keeps an open test's box when another state folder's daemon sweeps at its start (DIPO-419)", async () => {
+    // The hand test of 2026-11-02: a test daemon of the local suite started on the same Mac while
+    // a test was open, and its recovery sweep deleted the open test's box.
+    const w = world({ dev: () => ({ stdout: VITE, hang: true }) });
+    await w.tests.start(request());
+    const unlabelled = "tst_01J9ZK5Q8W3V4X6Y7Z8A9B0C2E";
+    await w.boxes.create({ runId: unlabelled, image: "i", network: await w.boxes.network() });
+    const made = w.boxes.boxes.get(boxName(unlabelled));
+    if (made !== undefined) made.stateLabel = null;
+    // Another daemon on the same Mac: the same boxes, its own state folder, no open test.
+    const deleted: string[] = [];
+    const other = new TestBoxes({
+      workers: {
+        discard: async (runId: string) => {
+          deleted.push(runId);
+          await w.boxes.delete(boxName(runId));
+        },
+      } as unknown as ConstructorParameters<typeof TestBoxes>[0]["workers"],
+      boxes: {
+        stateLabel: "another-state-folder",
+        list: () => w.boxes.list(),
+        address: (name) => w.boxes.address(name),
+        execLive: (name, command, execOptions) => w.boxes.execLive(name, command, execOptions),
+        network: () => w.boxes.network(),
+      },
+      clock: w.clock,
+      forward: async () => {
+        throw new Error("the sweep forwards nothing");
+      },
+      reach: async () => false,
+    });
+    expect(await other.sweep(new Set())).toEqual([]);
+    expect(deleted).toEqual([]);
+    expect(w.boxes.boxes.has(BOX)).toBe(true);
+    // Its own daemon keeps it while the test is open, and never deletes a box with no label.
+    expect(await w.tests.sweep(new Set([TEST]))).toEqual([]);
+    expect(w.boxes.boxes.has(BOX)).toBe(true);
+    expect(await w.tests.sweep(new Set())).toEqual([TEST]);
+    expect(w.boxes.boxes.has(BOX)).toBe(false);
+    expect(w.boxes.boxes.has(boxName(unlabelled))).toBe(true);
+  });
+
+  it("sweeps no test box on a backend that labels none", async () => {
+    const boxes = new FakeBoxes({ stateLabel: null });
+    await boxes.create({ runId: TEST, image: "i", network: await boxes.network() });
+    const tests = new TestBoxes({
+      workers: {
+        discard: async (runId: string) => boxes.delete(boxName(runId)),
+      } as unknown as ConstructorParameters<typeof TestBoxes>[0]["workers"],
+      boxes,
+      clock: new ManualClock(),
+      forward: async () => {
+        throw new Error("the sweep forwards nothing");
+      },
+      reach: async () => false,
+    });
+    expect(await tests.sweep(new Set())).toEqual([]);
+    expect(boxes.boxes.has(BOX)).toBe(true);
   });
 });

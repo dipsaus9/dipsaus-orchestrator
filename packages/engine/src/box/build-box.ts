@@ -59,8 +59,10 @@ import {
   BoxError,
   BUILD_BOX_RUN_PREFIX,
   type BoxCallOptions,
+  type BoxLog,
   type BoxPort,
   boxName,
+  deleteBox,
 } from "./port";
 
 /** The box calls a build makes. */
@@ -121,6 +123,8 @@ export interface BoxImageDeps {
   /** Each build step's deadline; `BOX_BUILD_TIMEOUT_MS` by default. */
   readonly timeoutMs?: number;
   readonly onEvent?: (event: BuildCleanupFailure) => void;
+  /** The daemon log's info line, for the build box's delete (`deleteBox`). */
+  readonly info?: BoxLog;
   readonly options?: BoxCallOptions;
   /**
    * Tests only: runs once the build box's firewall is set and its tools are out, before the install
@@ -325,7 +329,9 @@ async function buildInBox(
   const failed = (which: BuildCleanupFailure["step"]) => (error: unknown) =>
     cleanup.push({ kind: "buildCleanupFailed", box: name, step: which, reason: messageOf(error) });
   if (routing) await deps.route.release(name).catch(failed("routeRelease"));
-  await boxes.delete(name, options).catch(failed("boxDelete"));
+  await deleteBox(boxes, name, "its image build ended", deps.info, options).catch(
+    failed("boxDelete"),
+  );
   await rm(work, { recursive: true, force: true }).catch(failed("folderRemove"));
   for (const event of cleanup) deps.onEvent?.(event);
   if (failure !== null) {

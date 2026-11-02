@@ -20,7 +20,10 @@
 //   leaves test boxes running, `BoxWorkers.close`), so the new daemon sets the firewall again with
 //   its own web route and starts the forwarder again, on the same port when it is free.
 // - `close`: the forwarder stopped, the box deleted and its route released (`BoxWorkers.discard`).
-//   `sweep` deletes every test box no open test names (reconcile at daemon start).
+//   `sweep` (reconcile at daemon start) deletes every test box this state folder made that no open
+//   test names (`madeHere`, DIPO-419): Apple `container` lists every box on the Mac, so a box of
+//   another daemon's state folder, a test's, and one with no label are never deleted here, open
+//   or not.
 //
 // No tool runs on the Mac on the box's files. A failed step closes the box and throws a
 // `TestBoxError` whose message says which step, with the cleaned tail of its output.
@@ -30,7 +33,7 @@ import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
 import type { OfficeGit } from "../git/office";
 import { cleanDoorText } from "./door";
 import type { RunningForwarder, StartForwarder } from "./forwarder";
-import { type BoxPort, type BoxProcess, boxName, TEST_BOX_RUN_PREFIX } from "./port";
+import { type BoxPort, type BoxProcess, boxName, madeHere, TEST_BOX_RUN_PREFIX } from "./port";
 import { type BoxWorkers, readBoxRun } from "./workers";
 
 /** The `dev` start deadline when the office's `timeouts.scriptMinutes` names none. */
@@ -107,7 +110,7 @@ export interface TestBoxesDeps {
     BoxWorkers,
     "create" | "install" | "verify" | "route" | "inbound" | "discard"
   >;
-  readonly boxes: Pick<BoxPort, "address" | "execLive" | "list" | "network">;
+  readonly boxes: Pick<BoxPort, "address" | "execLive" | "list" | "network" | "stateLabel">;
   readonly forward: StartForwarder;
   /** True when a connection from `source` reaches `address:port` within `timeoutMs`. */
   readonly reach: (
@@ -235,7 +238,7 @@ export class TestBoxes {
       if (request.dev === null) return { box, url: null, forward: null };
       return await this.#serve(request, held, env);
     } catch (error) {
-      await this.close(request.testId);
+      await this.close(request.testId, "its test did not start");
       if (error instanceof TestBoxError) throw error;
       throw new TestBoxError("box", `the test box failed: ${messageOf(error)}`);
     }
@@ -418,8 +421,8 @@ export class TestBoxes {
     return this.#held.has(testId);
   }
 
-  /** Stops the test's forwarder and processes, then deletes its box. Never rejects. */
-  async close(testId: string): Promise<void> {
+  /** Stops the test's forwarder and processes, then deletes its box for `why`. Never rejects. */
+  async close(testId: string, why: string): Promise<void> {
     const held = this.#held.get(testId);
     this.#held.delete(testId);
     await held?.forwarder?.close().catch(() => undefined);
@@ -430,10 +433,13 @@ export class TestBoxes {
         // The client ended already; the box goes below.
       }
     }
-    await this.#deps.workers.discard(testId);
+    await this.#deps.workers.discard(testId, why);
   }
 
-  /** Deletes every test box `open` does not name (reconcile at daemon start). Never rejects. */
+  /**
+   * Deletes every test box this state folder made that `open` does not name (reconcile at daemon
+   * start; see the file comment). Never rejects.
+   */
   async sweep(open: ReadonlySet<string>): Promise<string[]> {
     let listed: Awaited<ReturnType<BoxPort["list"]>>;
     try {
@@ -444,10 +450,12 @@ export class TestBoxes {
       });
       return [];
     }
+    const own = this.#deps.boxes.stateLabel;
     const deleted: string[] = [];
     for (const box of listed) {
       if (!box.runId.startsWith(TEST_BOX_RUN_PREFIX) || open.has(box.runId)) continue;
-      await this.close(box.runId);
+      if (!madeHere(box, own)) continue;
+      await this.close(box.runId, "no open test names it at daemon start");
       deleted.push(box.runId);
     }
     return deleted;

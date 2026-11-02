@@ -36,7 +36,10 @@
 // Another test (DIPO-374) makes two build boxes, one labelled with this run's state folder and one
 // with another folder's, and runs the daemon-start sweep of `BoxWorkers` on the real list: only
 // its own box goes. Every other box on the Mac, a daemon's among them, is a box of no run this
-// sweep knows, so it is left alone.
+// sweep knows, so it is left alone. Its test-box twin (DIPO-419) makes three stopped test boxes,
+// two of this run's state folder and one of another's, and runs `TestBoxes.sweep` of each folder
+// on the real list: the other folder's daemon deletes none, and this folder's deletes only its own
+// test box no open test names.
 //
 // A third test (DIPO-267), registered with the build proxy too and needing the internet, fills the office package cache for a small Bun project in a fill box of the office
 // image, through the web route and Safe-Chain; no package manager runs on the Mac (the project's
@@ -80,10 +83,12 @@ import {
   type WebProxyEvent,
 } from "../../src/box/web-proxy";
 import { startBoxWebRoute } from "../../src/box/safe-chain-box";
+import { TestBoxes } from "../../src/box/test-box";
 import { BOX_INDEX_DIR, BoxWorkers } from "../../src/box/workers";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
 import { AdapterHolds } from "../../src/workers/hold";
+import { writeNetTools } from "./fake-boxes";
 import { cleanUpRealBoxes } from "./real-box-cleanup";
 
 const IMAGE = "docker.io/library/alpine:3.20";
@@ -131,6 +136,11 @@ function listFiles(dir: string): string[] {
 /** A dependency of `BoxWorkers` the daemon-start sweep never calls. */
 function unused(): never {
   throw new Error("the sweep starts nothing");
+}
+
+/** A new test id, as a test box's run id (`tst_...`). */
+function testRunId(): string {
+  return `tst_${crypto.randomUUID().replaceAll("-", "").slice(0, 20)}`;
 }
 
 /** A line the maintainer's run shows: one observed behaviour of `container`. */
@@ -370,6 +380,83 @@ if (registers) {
           } finally {
             await own.delete(mine).catch(() => {});
             await other.delete(theirs).catch(() => {});
+          }
+        });
+      },
+      PULL_TIMEOUT_MS + 120_000,
+    );
+
+    it(
+      "sweeps at daemon start only the test boxes of its own state folder no open test names (DIPO-419)",
+      async () => {
+        const env = cleanEnv();
+        const cliEnv = {
+          PATH: env["PATH"] ?? "/usr/bin:/bin:/usr/local/bin",
+          HOME: env["HOME"] ?? "/",
+        };
+        await withTempDir(async (dir) => {
+          // Stand-in box network tools: the boxes are made and never started, so no tool runs.
+          const netToolsRoot = join(dir, "state", "box-net-tools");
+          const netTools = writeNetTools(netToolsRoot, `dipo-box:${"0".repeat(64)}`);
+          const backend = (stateLabel: string) =>
+            new AppleContainerBoxes({
+              stateLabel,
+              spawn: systemSpawn,
+              clock: systemClock,
+              env: cliEnv,
+              netToolsRoot,
+            });
+          const own = backend(cleanup.stateLabel);
+          const other = backend(cleanup.other("other-daemon"));
+          expect(await own.check()).toMatchObject({ ok: true });
+          const network = await own.network();
+          const open = testRunId();
+          const gone = testRunId();
+          const theirs = testRunId();
+          // One daemon's test boxes: two TestBoxes over the real backend, each with its own state.
+          const daemon = (boxes: AppleContainerBoxes, name: string) => {
+            const indexDir = join(dir, name, BOX_INDEX_DIR);
+            mkdirSync(indexDir, { recursive: true });
+            const workers = new BoxWorkers({
+              boxes,
+              startWebRoute: unused,
+              startModelProxy: unused,
+              readBaseBox: unused,
+              code: { spawn: systemSpawn, clock: systemClock },
+              holds: new AdapterHolds({ clock: systemClock, notify: () => {} }),
+              adapter: "claude-cli",
+              tmpRoot: dir,
+              indexDir,
+              scratchRoot: dir,
+              netToolsRoot,
+            });
+            return new TestBoxes({
+              workers,
+              boxes,
+              forward: unused,
+              reach: unused,
+              clock: systemClock,
+            });
+          };
+          try {
+            const pull = { timeoutMs: PULL_TIMEOUT_MS };
+            for (const runId of [open, gone]) {
+              await own.create({ runId, image: IMAGE, network, netTools }, pull);
+            }
+            await other.create({ runId: theirs, image: IMAGE, network, netTools }, pull);
+            // Another state folder's daemon starts with no open test: it deletes none of them.
+            expect(await daemon(other, "other").sweep(new Set([theirs]))).toEqual([]);
+            const names = (await own.list()).map((box) => box.name);
+            for (const runId of [open, gone, theirs]) expect(names).toContain(boxName(runId));
+            // This folder's daemon: its open test keeps its box, the gone test's box goes.
+            expect(await daemon(own, "own").sweep(new Set([open]))).toEqual([gone]);
+            const after = (await own.list()).map((box) => box.name);
+            expect(after).toContain(boxName(open));
+            expect(after).toContain(boxName(theirs));
+            expect(after).not.toContain(boxName(gone));
+          } finally {
+            for (const runId of [open, gone]) await own.delete(boxName(runId)).catch(() => {});
+            await other.delete(boxName(theirs)).catch(() => {});
           }
         });
       },
