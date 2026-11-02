@@ -13,7 +13,8 @@
 //   `merge.holdLabels`). Otherwise it is decided `approved` by `rule` when it opens, and
 //   recorded, so the audit trail shows every merge decision. `mergeWaits` decides this as data.
 //   A gate reopened because a hold label appeared or a head dipo did not push showed up while
-//   auto-merge was on waits too.
+//   auto-merge was on waits too. A base the poller read to require no checks waits too: GitHub
+//   would merge at once, so nothing would hold the merge for CI (DIPO-429).
 // - The release path. A PR whose diff changes a path the base's CODEOWNERS gives an owner
 //   (`merge/release-path.ts`) needs the maintainer's code owner approval, which for a PR opened with
 //   the maintainer's login is the maintainer's merge on the host. Its gate waits for the maintainer
@@ -82,6 +83,8 @@ export type MergeWait =
   | { readonly kind: "maintainerCriteria"; readonly criteria: readonly number[] }
   | { readonly kind: "override" }
   | { readonly kind: "holdLabel"; readonly labels: readonly string[] }
+  /** The base branch was read to require no checks on GitHub (DIPO-429). */
+  | { readonly kind: "noRequiredChecks" }
   | { readonly kind: "releasePath"; readonly paths: readonly string[] }
   /** The PR changes files under `docs/decisions/`: the maintainer approves the wording (0002). */
   | { readonly kind: "adrChange"; readonly paths: readonly string[] }
@@ -108,6 +111,8 @@ export interface MergeWaitFacts {
   readonly verdict: Pick<StoredReviewVerdict, "criteria" | "override">;
   /** The PR's labels that hold it (`holdLabelsOn`). */
   readonly holdLabels: readonly string[];
+  /** The base was read to require no checks for the head (`StoryPrs.requiresNoChecks`). */
+  readonly noRequiredChecks?: boolean;
   /** The release paths the PR's diff changes (`StoryMergeGit.releasePaths`); none by default. */
   readonly releasePaths?: readonly string[];
   /** The paths under `docs/decisions/` the PR's diff changes (`StoryMergeGit.adrPaths`); none by default. */
@@ -125,6 +130,7 @@ export function mergeWaits(facts: MergeWaitFacts): MergeWait[] {
   if (maintainer.length > 0) waits.push({ kind: "maintainerCriteria", criteria: maintainer });
   if (facts.verdict.override !== null) waits.push({ kind: "override" });
   if (facts.holdLabels.length > 0) waits.push({ kind: "holdLabel", labels: facts.holdLabels });
+  if (facts.noRequiredChecks === true) waits.push({ kind: "noRequiredChecks" });
   const release = facts.releasePaths ?? [];
   if (release.length > 0) waits.push({ kind: "releasePath", paths: release });
   const adr = facts.adrPaths ?? [];
@@ -145,6 +151,8 @@ export function waitLine(wait: MergeWait): string {
       return "the story passed review only by the maintainer's override";
     case "holdLabel":
       return `the PR carries ${wait.labels.length === 1 ? "the hold label" : "the hold labels"} ${wait.labels.map((label) => `"${label}"`).join(", ")}`;
+    case "noRequiredChecks":
+      return "the base branch requires no checks on GitHub, so GitHub would merge the PR without waiting for CI";
     case "releasePath":
       return `it changes the release path, which needs the maintainer's code owner approval: ${releasePathList(wait.paths)}`;
     case "adrChange":

@@ -173,6 +173,7 @@ function autoMergeOf(core: Core, story: StoryServices, runs: EngineRuns): AutoMe
       ids: core.ids,
       labels: host,
       ci: (office, runId) => storyPrs.ciState(office, runId),
+      requiresNoChecks: (office, runId, head) => storyPrs.requiresNoChecks(office, runId, head),
       prSync: (office, runId) => storyPrs.sync(office, runId),
       story: (office, stored) => runs.merge.story(office, stored),
       summary: writeCloseOutSummary,

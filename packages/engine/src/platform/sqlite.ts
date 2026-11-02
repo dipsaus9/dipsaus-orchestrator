@@ -40,7 +40,10 @@ export interface SqliteConnection extends SqlRunner {
   readonly sqliteVersion: string;
   /** True when this open created the file. */
   readonly created: boolean;
-  /** Runs one or more statements without parameters (migration steps). */
+  /**
+   * Runs one or more statements without parameters (migration steps), each as its own prepared
+   * statement (`splitStatements`), so a failure in any of them throws and the later ones never run.
+   */
   exec(sql: string): void;
   /** Runs `fn` in a `BEGIN IMMEDIATE` transaction; every write goes through here. */
   immediate<T>(fn: () => T): T;
@@ -280,6 +283,128 @@ export async function openSqlite(options: OpenSqliteOptions): Promise<SqliteConn
   }
 }
 
+/**
+ * An in-memory connection with the file connection's foreign keys and statement surface: where the
+ * migrations build the schema a state database must have (DIPO-426).
+ */
+export function openMemorySqlite(): SqliteConnection {
+  const db = new Database(":memory:", { strict: true });
+  db.run("pragma foreign_keys = ON");
+  const sqliteVersion =
+    (db.query("select sqlite_version() as v").get() as { v: string } | null)?.v ?? "unknown";
+  return createConnection(db, ":memory:", sqliteVersion, true);
+}
+
+// The tokens and states of SQLite's own `sqlite3_complete`, which knows where a statement ends: at
+// a semicolon outside quotes and comments, and in a `create [temp] trigger` only at `; end ;`, so
+// the semicolons of a trigger body stay inside it.
+type Token = "semi" | "space" | "other" | "create" | "temp" | "trigger" | "end";
+type State = "start" | "normal" | "create" | "trigger" | "semi" | "end";
+
+const KEYWORDS: Readonly<Record<string, Token>> = {
+  create: "create",
+  temp: "temp",
+  temporary: "temp",
+  trigger: "trigger",
+  end: "end",
+};
+
+function nextState(state: State, token: Token): State {
+  if (token === "space") return state;
+  switch (state) {
+    case "start":
+    case "normal":
+      if (token === "semi") return "start";
+      return state === "start" && token === "create" ? "create" : "normal";
+    case "create":
+      if (token === "semi") return "start";
+      if (token === "temp") return "create";
+      return token === "trigger" ? "trigger" : "normal";
+    case "trigger":
+      return token === "semi" ? "semi" : "trigger";
+    case "semi":
+      if (token === "semi") return "semi";
+      return token === "end" ? "end" : "trigger";
+    case "end":
+      return token === "semi" ? "start" : "trigger";
+  }
+}
+
+const isIdChar = (code: number) =>
+  (code >= 0x30 && code <= 0x39) ||
+  (code >= 0x41 && code <= 0x5a) ||
+  (code >= 0x61 && code <= 0x7a) ||
+  code === 0x5f ||
+  code === 0x24 ||
+  code >= 0x80;
+
+/** The end of the quoted run that opens at `start` and closes with `close`. */
+function quotedEnd(sql: string, start: number, close: string): number {
+  let at = start + 1;
+  for (;;) {
+    const found = sql.indexOf(close, at);
+    if (found === -1) return sql.length;
+    // A doubled closing quote is an escaped one, except for `[...]`.
+    if (close !== "]" && sql[found + 1] === close) {
+      at = found + 2;
+      continue;
+    }
+    return found + 1;
+  }
+}
+
+const SPACES = new Set([" ", "\t", "\n", "\r", "\f"]);
+const QUOTES: Readonly<Record<string, string>> = { "'": "'", '"': '"', "`": "`", "[": "]" };
+
+/** The token that starts at `at`, and where it ends. Comments are spaces; quoted runs are other. */
+function readToken(sql: string, at: number): { readonly token: Token; readonly end: number } {
+  const char = sql[at] ?? "";
+  if (char === ";") return { token: "semi", end: at + 1 };
+  if (SPACES.has(char)) return { token: "space", end: at + 1 };
+  if (char === "-" && sql[at + 1] === "-") {
+    const newline = sql.indexOf("\n", at);
+    return { token: "space", end: newline === -1 ? sql.length : newline + 1 };
+  }
+  if (char === "/" && sql[at + 1] === "*") {
+    const close = sql.indexOf("*/", at + 2);
+    return { token: "space", end: close === -1 ? sql.length : close + 2 };
+  }
+  const close = QUOTES[char];
+  if (close !== undefined) return { token: "other", end: quotedEnd(sql, at, close) };
+  if (!isIdChar(sql.charCodeAt(at))) return { token: "other", end: at + 1 };
+  let end = at + 1;
+  while (end < sql.length && isIdChar(sql.charCodeAt(end))) end++;
+  return { token: KEYWORDS[sql.slice(at, end).toLowerCase()] ?? "other", end };
+}
+
+/**
+ * Splits SQL into its statements, each with its closing semicolon, with the rules of SQLite's
+ * `sqlite3_complete`: quoted text (`'...'`), quoted identifiers (`"..."`, `` `...` ``, `[...]`)
+ * and comments (`-- ...`, `/* ... *\/`) are kept whole, and so is a trigger body. A piece holding
+ * only spaces, comments or semicolons is dropped.
+ */
+export function splitStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let state: State = "start";
+  let from = 0;
+  let content = false;
+  let at = 0;
+  while (at < sql.length) {
+    const { token, end } = readToken(sql, at);
+    if (token !== "space" && token !== "semi") content = true;
+    const next = nextState(state, token);
+    if (token === "semi" && next === "start") {
+      if (content) statements.push(sql.slice(from, end).trim());
+      from = end;
+      content = false;
+    }
+    state = next;
+    at = end;
+  }
+  if (content) statements.push(sql.slice(from).trim());
+  return statements;
+}
+
 function createConnection(
   db: Database,
   path: string,
@@ -297,7 +422,16 @@ function createConnection(
     get: <T>(sql: string, params: SqlParams = {}) => db.query(sql).get(params) as T | null,
     all: <T>(sql: string, params: SqlParams = {}) => db.query(sql).all(params) as T[],
     exec: (sql) => {
-      db.run(sql);
+      // One `db.run` holding several statements skips a failure in any but the last on some Bun
+      // versions (DIPO-426), so each statement is prepared and run on its own.
+      for (const statement of splitStatements(sql)) {
+        const prepared = db.prepare(statement);
+        try {
+          prepared.run();
+        } finally {
+          prepared.finalize();
+        }
+      }
     },
     immediate: (fn) => db.transaction(synchronousOnly(fn)).immediate(),
     deferred: (fn) => db.transaction(synchronousOnly(fn)).deferred(),
