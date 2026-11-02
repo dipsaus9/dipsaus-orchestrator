@@ -59,9 +59,11 @@ The engine names no tools. The adapter names each kind's tools: the developer's,
 
 **The count.** Every program in a box may call the model through the proxy: Claude Code, a product's tests using the Anthropic SDK, or `curl`. The proxy counts all of it against the run of the box that sent it:
 - It knows the sender only by its peer address. `BoxWorkers` records each box's address with its session's run and agent when the session starts, and drops it when the box stops. A run named in a header or the body is ignored.
-- A request from an address no running session owns is refused and never forwarded. So is one whose run's usage cannot be recorded: the proxy opens the run's account before it forwards anything.
-- It reads the `usage` of each answer it passes: the JSON body, or a stream's `message_start` usage with every later `message_delta` usage over it. A stream cut off before its last event counts what arrived. A `count_tokens` request is forwarded and adds nothing.
+- A request from an address no running session owns is refused and never forwarded. So is one whose run's usage cannot be recorded: before it forwards any request, the proxy writes the run's usage row, and a failed write refuses the request. After a failed write, no request of that office goes on until a write succeeds.
+- Once the run's token cap is reached (a reviewer's own cap for a reviewer), the proxy refuses new requests with 429, so a program that is not Claude Code cannot run past the cap while the engine stops the session.
+- It reads the `usage` of each answer it passes and adds it as the upstream sends it: the JSON body; or a stream's `message_start` usage (input and cache at once) and each later `message_delta` usage over it. It reads a stream from the upstream at the upstream's pace, whether or not the box reads it, so a stream held open unread still counts what was spent. A stream cut off counts what arrived. A `count_tokens` request is forwarded and adds nothing.
 - It adds input, output, cache creation and cache read tokens to the run's records, which the caps, the tier budget and the spend alerts read (section 7).
+- A count is lost for a request in flight when its office unloads, and for the rest of a stream a daemon restart cuts. After a restart, a box that is still running gets 403 until its next session starts, because the registry lives in the daemon.
 
 **The image and the package cache.**
 - The office config describes the image: toolchain, versions and system packages. Stories cannot change it. dipo detects a default from the repository (0013).
@@ -170,7 +172,7 @@ The task message is the first stdin line, never on argv. The box's environment h
 ## 7. Usage and cost
 
 - Per run, agent and model, dipo stores input, output, cache creation and cache read tokens, turns and durations.
-- **The caps read the proxy's count.** For a session in a box, the model proxy's count is the token total (section 2). Its stream's usage events add no tokens: a turn's result adds its turns and keeps the cost the CLI reports, so a Claude Code turn is counted once. The caps see the proxy's count at the next usage or turn event of the stream, or at the minute tick.
+- **The caps read the proxy's count.** For a session in a box, the model proxy's count is the token total (section 2). Its stream's usage events add no tokens: a turn's result adds its turns and keeps the cost the CLI reports, so a Claude Code turn is counted once. The caps see the proxy's count at the next usage or turn event of the stream, or at the minute tick. The proxy counts an answer before its turn's result reaches the stream. So a token crossing found at the minute tick, or at a usage event with no done turn after it in the same pass, waits one more pass or tick: a done report in that window is honoured, as on the crossing turn (section 6); otherwise the cap fires.
 - The scan session runs on the Mac without the proxy, so its stream counts its tokens: live numbers from assistant messages deduplicated by message id, replaced by the turn's result.
 - **The budget is tokens:** input plus output plus cache creation. Cache reads are shown but do not count. Each tier has a fixed model, so a tier's tokens always mean the same thing.
 - **Cost is the cost the CLI reports** (`total_cost_usd`, `costUSD`). dipo stores it as reported and keeps no price catalog of its own (0007). The views show it; budgets and spend alerts count tokens (0009).
