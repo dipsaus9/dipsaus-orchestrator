@@ -1,10 +1,10 @@
 ---
 id: DIPO-423
 title: Keep the local test suite's daemons off the real container CLI
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-02 10:09'
-updated_date: '2026-11-02 10:12'
+updated_date: '2026-11-02 10:16'
 labels:
   - 'tier:S'
 milestone: m-1
