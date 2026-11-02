@@ -81,7 +81,7 @@ Type-only imports may cross both rules. Inside a band, one directory may import 
 
 | Concern | Tool |
 |---|---|
-| Runtime and package manager | Bun, exact version in `.bun-version` (1.4.2), `bun.lock` committed |
+| Runtime and package manager | Bun, exact version in `.bun-version` (1.4.4), `bun.lock` committed |
 | Language | TypeScript 7, `strict`, `noUncheckedIndexedAccess`, `verbatimModuleSyntax` |
 | Typecheck | `tsc -b` over project references |
 | Lint | oxlint 1.x, `--deny-warnings` |
