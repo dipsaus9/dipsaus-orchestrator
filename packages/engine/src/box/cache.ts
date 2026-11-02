@@ -300,7 +300,7 @@ export interface PackageCacheRequest {
   /** Reports a fill box that could not be deleted or a route that could not be released. */
   readonly onEvent?: (event: PackageCacheEvent) => void;
   /** The daemon log's info line, for the fill box's delete (`deleteBox`). */
-  readonly info?: BoxLog;
+  readonly info: BoxLog;
   /** Overrides the caps of the cache archive (`CACHE_ARCHIVE_LIMITS`). */
   readonly archiveLimits?: Partial<CacheArchiveLimits>;
   /** The clock of the copy-out deadline; the system clock by default. */

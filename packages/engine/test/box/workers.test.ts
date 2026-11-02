@@ -836,6 +836,7 @@ describe("the end of a box run (criterion 9)", () => {
       expect(w.boxes.boxes.has(BOX)).toBe(true);
       // A new daemon: its box workers find the run in the index.
       const restarted = new BoxWorkers({
+        info: () => undefined,
         boxes: w.boxes,
         startWebRoute: async () => ({ ok: false, reason: "not needed" }),
         startModelProxy: async (network) => ({
@@ -976,6 +977,7 @@ describe("daemon stop (criterion 6)", () => {
     withTempDir(async (tmp) => {
       const log: string[] = [];
       const workers = new BoxWorkers({
+        info: () => undefined,
         boxes: new FakeBoxes({ log }),
         startWebRoute: async () => ({ ok: false, reason: "unused" }),
         startModelProxy: async () => {
@@ -2120,11 +2122,44 @@ describe("a test box and every box deletion (DIPO-419)", () => {
 
   it("deletes a box nowhere in the engine but through that helper", () => {
     const src = join(import.meta.dir, "..", "..", "src");
-    const direct = /(?<![#\w])boxes\s*\.\s*delete\s*\(/g;
-    const found = sourceFiles(src).flatMap((file) =>
-      [...readFileSync(file, "utf8").matchAll(direct)].map(
-        (match) => `${file.slice(src.length + 1)}: ${match[0]}`,
-      ),
+    const texts = sourceFiles(src).map((file) => ({
+      file: file.slice(src.length + 1),
+      text: readFileSync(file, "utf8"),
+    }));
+    const all = texts.map(({ text }) => text).join("\n");
+    // Every type that is the box port or part of it: `BoxPort`, each alias that names it, each
+    // class that implements it.
+    const types = new Set(["BoxPort"]);
+    for (const match of all.matchAll(/\btype\s+(\w+)\s*=[^;]*?\bBoxPort\b/g))
+      types.add(match[1] ?? "");
+    for (const match of all.matchAll(/\bclass\s+(\w+)\s+implements\s+BoxPort\b/g)) {
+      types.add(match[1] ?? "");
+    }
+    for (const match of all.matchAll(/\btype\s+(\w+)\s*=[^;]*?\b(\w+)\["boxes"\]/g)) {
+      types.add(match[1] ?? "");
+    }
+    const typeList = [...types].join("|");
+    // Every name a value of such a type goes by: a field, parameter or variable typed so, and a
+    // variable made with `new` of such a class.
+    const names = new Set<string>();
+    const typed = new RegExp(`\\b(\\w+)\\??\\s*:\\s*(?:Pick<\\s*)?(?:${typeList})\\b`, "g");
+    for (const match of all.matchAll(typed)) names.add(match[1] ?? "");
+    const constructed = new RegExp(
+      `\\b(?:const|let)\\s+(\\w+)\\s*=\\s*new\\s+(?:${typeList})\\b`,
+      "g",
+    );
+    for (const match of all.matchAll(constructed)) names.add(match[1] ?? "");
+    // Not vacuous: the port, its parts and the names it goes by in the engine are found.
+    for (const type of ["BuildBoxes", "FillBoxes", "SafeChainBoxes", "AppleContainerBoxes"]) {
+      expect(types).toContain(type);
+    }
+    for (const name of ["boxes", "backend"]) expect(names).toContain(name);
+    const direct = new RegExp(
+      `(?<![#\\w])(?:${[...names].join("|")})\\s*\\.\\s*delete\\s*\\(`,
+      "g",
+    );
+    const found = texts.flatMap(({ file, text }) =>
+      [...text.matchAll(direct)].map((match) => `${file}: ${match[0]}`),
     );
     // The one call is `deleteBox`'s own.
     expect(found).toEqual(["box/port.ts: boxes.delete("]);

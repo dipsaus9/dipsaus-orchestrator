@@ -25,6 +25,7 @@ import {
 
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
+import type { SqlRunner } from "../platform/sqlite";
 import { workRefOf } from "../views/work";
 
 /** The gate kind of the story's test gate. */
@@ -166,6 +167,22 @@ export function openTestOf(office: OfficeHandle, key: StoryKey | string): Stored
     { key },
   );
   return row === null ? null : toTest(row);
+}
+
+/**
+ * The ids of the open tests of every registered office that is not forgotten, loaded or not
+ * (DIPO-419): read from the daemon's one connection, so the recovery sweep keeps the box of an open
+ * test whose office did not load at daemon start.
+ */
+export function openTestIdsOfRegistered(db: Pick<SqlRunner, "all">): Set<string> {
+  return new Set(
+    db
+      .all<{ test_id: string }>(
+        `select t.test_id from acceptance_tests t join offices o on o.office_id = t.office_id
+          where t.ended_at is null and o.forgotten_at is null`,
+      )
+      .map((row) => row.test_id),
+  );
 }
 
 /** Every open test of the office, oldest first. */

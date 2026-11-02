@@ -151,7 +151,7 @@ export interface SafeChainRouteDeps {
   readonly buildId?: () => string;
   readonly onEvent?: BoxImageDeps["onEvent"];
   /** The daemon log's info line, for the deletes of the Safe-Chain box and its build box. */
-  readonly info?: BoxLog;
+  readonly info: BoxLog;
   /** What happened to a running route's Safe-Chain box that dipo must hear of (the daemon logs it). */
   readonly onRoute?: (event: SafeChainRouteEvent) => void;
   /**
@@ -528,7 +528,7 @@ async function startSafeChainBox(
       clock: deps.clock,
       ...(deps.buildId === undefined ? {} : { buildId: deps.buildId }),
       ...(deps.onEvent === undefined ? {} : { onEvent: deps.onEvent }),
-      ...(deps.info === undefined ? {} : { info: deps.info }),
+      info: deps.info,
     },
     deps.imageTag,
   );

@@ -165,6 +165,7 @@ async function world(
   });
   const token = new SecretToken(TOKEN);
   const workers = new BoxWorkers({
+    info: () => undefined,
     boxes,
     startWebRoute: route,
     startModelProxy: async (network): Promise<RunningModelProxy> => ({

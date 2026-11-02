@@ -281,6 +281,7 @@ function request(
   lockfile: BaseLockfile = source(),
 ): PackageCacheRequest {
   return {
+    info: () => undefined,
     root: join(dir, "package-cache"),
     source: lockfile,
     boxes: fill.boxes,

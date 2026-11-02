@@ -396,7 +396,8 @@ export interface BoxWorkersDeps {
   /** Overrides `BOX_SESSION_REST_WAIT_MS`. */
   readonly sessionRestWaitMs?: number;
   readonly warn?: Log;
-  readonly info?: Log;
+  /** The daemon log's info lines; every box this deletes is logged through it (`deleteBox`). */
+  readonly info: Log;
 }
 
 /** The ids of the boxes a web route start makes (DIPO-343), each told before its box exists. */
@@ -710,7 +711,7 @@ export class BoxWorkers {
         clock: this.#deps.code.clock,
         ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
         fillId,
-        ...(this.#deps.info === undefined ? {} : { info: this.#deps.info }),
+        info: this.#deps.info,
         onEvent: (event) =>
           this.#deps.warn?.("a fill box was not cleaned up", {
             run: runId,
@@ -766,7 +767,7 @@ export class BoxWorkers {
             this.#filling.add(building);
             return id;
           },
-          ...(this.#deps.info === undefined ? {} : { info: this.#deps.info }),
+          info: this.#deps.info,
           onEvent: (event) =>
             this.#deps.warn?.("a build box was not cleaned up", {
               run: runId,

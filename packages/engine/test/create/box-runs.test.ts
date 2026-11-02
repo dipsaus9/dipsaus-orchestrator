@@ -140,6 +140,7 @@ describe("the daemon's box workers", () => {
       const boxes = { list: async () => [] } as unknown as BoxPort;
       const clock = new ManualClock();
       const workers = new BoxWorkers({
+        info: () => undefined,
         boxes,
         startWebRoute: async () => ({ ok: false, reason: "not used" }),
         startModelProxy: async () => {

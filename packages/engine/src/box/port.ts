@@ -336,14 +336,15 @@ export function madeHere(box: Pick<BoxInfo, "stateLabel">, own: string | null): 
 
 /**
  * Deletes box `name` and logs at info which box went and `why` (DIPO-419): the one way dipo deletes
- * a box, so the daemon's log names every box it deleted. A delete that fails rejects as
+ * a box, so the daemon's log names every box it deleted; `info` is required, so no caller deletes
+ * without the line. A delete that fails rejects as
  * `BoxPort.delete` does and logs nothing here; its caller warns or swallows it.
  */
 export async function deleteBox(
   boxes: Pick<BoxPort, "delete">,
   name: string,
   why: string,
-  info: BoxLog | undefined,
+  info: BoxLog,
   options?: BoxCallOptions,
 ): Promise<void> {
   await boxes.delete(name, options);

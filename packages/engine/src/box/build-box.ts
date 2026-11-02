@@ -124,7 +124,7 @@ export interface BoxImageDeps {
   readonly timeoutMs?: number;
   readonly onEvent?: (event: BuildCleanupFailure) => void;
   /** The daemon log's info line, for the build box's delete (`deleteBox`). */
-  readonly info?: BoxLog;
+  readonly info: BoxLog;
   readonly options?: BoxCallOptions;
   /**
    * Tests only: runs once the build box's firewall is set and its tools are out, before the install

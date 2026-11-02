@@ -27,8 +27,9 @@
 //   start) closes too.
 // - `recover` (daemon start): an open test whose box still runs gets its firewall and forwarder
 //   again (`TestBoxes.reattach`), on the same port when it is free; one whose box is gone closes.
-//   Then every test box this state folder made that no open test names is deleted
-//   (`TestBoxes.sweep`); another daemon's on the same Mac is never touched (DIPO-419). These are a
+//   Then every test box this state folder made that no open test of any registered office names,
+//   loaded or not, is deleted (`TestBoxes.sweep`); another daemon's on the same Mac is never
+//   touched (DIPO-419). These are a
 //   test box's only deleters: no box tick, sweep or run finish of `BoxWorkers` deletes one.
 
 import { mkdirSync, rmSync } from "node:fs";
@@ -119,6 +120,12 @@ export interface StoryTestsDeps {
   readonly boxes: TestBoxPort | null;
   /** The folder of a test box's record, by test id. */
   readonly testDir: (testId: string) => string;
+  /**
+   * The ids of the open tests of every registered office that is not forgotten, loaded or not
+   * (`openTestIdsOfRegistered`, DIPO-419); null while the database is not open. The recovery sweep
+   * keeps their boxes, and deletes none when it cannot read them.
+   */
+  readonly openTestIds: () => ReadonlySet<string> | null;
   /**
    * Sends a failed test's note to the same builder (`FixRounds.testFail`): a round now, or held for
    * the run's next session and round; null when the run is unknown.
@@ -578,11 +585,23 @@ export class StoryTests {
         else await this.#close(officeId, test, test.readyAt === null ? "start-failed" : "box-lost");
       }
     }
-    if (boxes !== null) {
-      const deleted = await boxes.sweep(open);
-      if (deleted.length > 0)
-        this.#deps.logger?.info("deleted test boxes no open test names", { deleted });
+    if (boxes === null) return;
+    // Every open test of every registered office, also one that did not load (DIPO-419): its box
+    // stays. Fail closed: no box is deleted when the open tests cannot be read.
+    let held: ReadonlySet<string> | null;
+    try {
+      held = this.#deps.openTestIds();
+    } catch (error) {
+      this.#deps.logger?.warn("reading the open tests failed", { reason: messageOf(error) });
+      held = null;
     }
+    if (held === null) {
+      this.#deps.logger?.warn("no test box is swept: the open tests could not be read", {});
+      return;
+    }
+    const deleted = await boxes.sweep(new Set([...open, ...held]));
+    if (deleted.length > 0)
+      this.#deps.logger?.info("deleted test boxes no open test names", { deleted });
   }
 
   /** Takes the open test's box up again; false when it is gone. */

@@ -127,6 +127,7 @@ async function route(tmp: string, setup: Setup = {}) {
   const started = await startBoxWebRoute(
     NETWORK,
     {
+      info: () => undefined,
       boxes,
       clock: setup.clock ?? new ManualClock(),
       scratchRoot: join(tmp, "scratch"),

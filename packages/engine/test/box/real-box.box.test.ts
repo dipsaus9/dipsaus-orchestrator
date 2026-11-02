@@ -360,6 +360,7 @@ if (registers) {
             const indexDir = join(dir, "state", BOX_INDEX_DIR);
             mkdirSync(indexDir, { recursive: true });
             const workers = new BoxWorkers({
+              info: () => undefined,
               boxes: own,
               startWebRoute: unused,
               startModelProxy: unused,
@@ -418,6 +419,7 @@ if (registers) {
             const indexDir = join(dir, name, BOX_INDEX_DIR);
             mkdirSync(indexDir, { recursive: true });
             const workers = new BoxWorkers({
+              info: () => undefined,
               boxes,
               startWebRoute: unused,
               startModelProxy: unused,
@@ -489,6 +491,7 @@ if (registers) {
               const started = await startBoxWebRoute(
                 network,
                 {
+                  info: () => undefined,
                   boxes,
                   clock: systemClock,
                   scratchRoot: join(dir, "scratch"),
@@ -507,6 +510,7 @@ if (registers) {
             );
             const built = await ensureBoxImage(
               {
+                info: () => undefined,
                 boxes,
                 route,
                 scratchRoot: join(dir, "scratch"),
@@ -569,6 +573,7 @@ if (registers) {
               };
               const cacheRequest = {
                 root,
+                info: () => undefined,
                 image: { tag: built.tag, toolchain: image.toolchain, netTools: built.netTools },
                 route,
               };
@@ -696,6 +701,7 @@ if (registers) {
             const started = await startBoxWebRoute(
               network,
               {
+                info: () => undefined,
                 boxes: routeBoxes,
                 clock: systemClock,
                 scratchRoot: join(dir, "scratch"),
