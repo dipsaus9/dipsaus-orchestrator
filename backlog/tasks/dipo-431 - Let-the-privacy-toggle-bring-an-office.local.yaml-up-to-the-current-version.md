@@ -1,10 +1,10 @@
 ---
 id: DIPO-431
 title: Let the privacy toggle bring an office.local.yaml up to the current version
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-02 13:23'
-updated_date: '2026-11-02 13:33'
+updated_date: '2026-11-02 14:03'
 labels:
   - 'tier:S'
 milestone: m-1
