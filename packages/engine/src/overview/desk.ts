@@ -455,14 +455,12 @@ class DeskBuilder {
       );
       const key = run?.key ?? null;
       const story = key === null ? null : storyIdOf(this.#office, key);
-      const waiting = " · worker waiting";
-      const room = DESK_DETAIL_MAX - Array.from(waiting).length - 2;
-      const text = cut(deskText(question.text), room);
+      const text = cut(deskText(question.text), DESK_DETAIL_MAX - 2);
       this.#add(GROUP.live, 0, question.askedAt, {
         kind: "QUESTION",
         ...(story === null || key === null ? {} : { story, key: StoryKey.parse(key) }),
         question: QuestionId.parse(question.questionId),
-        detail: `${JSON.stringify(text)}${waiting}`,
+        detail: JSON.stringify(text),
         since: iso(question.askedAt),
         blocks: this.#blocks(story),
         actions: this.#answerActions(question),

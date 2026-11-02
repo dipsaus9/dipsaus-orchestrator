@@ -1,10 +1,10 @@
 ---
 id: DIPO-430
 title: 'Keep a blocked worker''s question on its park, also across a restart'
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-02 13:23'
-updated_date: '2026-11-02 13:33'
+updated_date: '2026-11-02 13:48'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -24,6 +24,20 @@ references:
   - packages/engine/test/run/
   - packages/engine/test/questions/
   - packages/engine/test/overview/
+modified_files:
+  - packages/cli/src/answer-command.test.ts
+  - packages/cli/src/desk-command.test.ts
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/overview/desk.ts
+  - packages/engine/src/run/control-types.ts
+  - packages/engine/src/run/control.ts
+  - packages/engine/src/run/outcome-exits.ts
+  - packages/engine/src/run/outcome-types.ts
+  - packages/engine/test/overview/desk.test.ts
+  - packages/engine/test/run/outcomes.test.ts
+  - packages/tui/src/desk.test.tsx
 priority: medium
 type: bug
 ordinal: 408000
@@ -50,7 +64,22 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A blocked result decided at exit parks with the report's question on the park, shown by a test
-- [ ] #2 A daemon restart between the park intent and the park still gives a park that asks the question, shown by a test that stops after the intent
-- [ ] #3 The live-route texts in control-types.ts and the desk's group 1 label are gone, and `delivered: "now"` is removed, shown by the diff and by `bun run contract:schema` leaving no change after it
+- [x] #1 A blocked result decided at exit parks with the report's question on the park, shown by a test
+- [x] #2 A daemon restart between the park intent and the park still gives a park that asks the question, shown by a test that stops after the intent
+- [x] #3 The live-route texts in control-types.ts and the desk's group 1 label are gone, and `delivered: "now"` is removed, shown by the diff and by `bun run contract:schema` leaving no change after it
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-02 13:48 UTC
+- Criteria met: 3 of 3 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 150,865 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 2
+<!-- SECTION:FINAL_SUMMARY:END -->

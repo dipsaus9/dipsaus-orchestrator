@@ -281,7 +281,7 @@ describe("the desk order (0020 section 12)", () => {
         expect(byStory("DIPO-4")?.blocks).toEqual([]);
         expect(items[0]).toMatchObject({
           question: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A",
-          detail: '"Keep the old flag?" · worker waiting',
+          detail: '"Keep the old flag?"',
           since: new Date(base + 2 * HOUR).toISOString(),
           actions: [
             {
@@ -534,7 +534,7 @@ describe("stored text on the desk", () => {
         });
         const items = desk(office, all, ALL_SOURCES);
         expect(items.map((item) => item.detail)).toEqual([
-          '"Bash(curl example.com)" · worker waiting',
+          '"Bash(curl example.com)"',
           "stopped by the maintainer",
           `${"x".repeat(DESK_DETAIL_MAX - 1)}…`,
         ]);
@@ -823,7 +823,7 @@ describe("a worker question on the desk (DIPO-159, 0020)", () => {
           }),
         );
         const [item] = desk(office, all, ALL_SOURCES, at);
-        expect(item?.detail.endsWith('…" · worker waiting')).toBe(true);
+        expect(item?.detail.endsWith('…"')).toBe(true);
         expect(Array.from(item?.detail ?? "").length).toBeLessThanOrEqual(DESK_DETAIL_MAX);
         expect(item?.actions).toEqual([
           {

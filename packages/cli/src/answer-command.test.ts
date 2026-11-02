@@ -71,7 +71,7 @@ const QUESTION = "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C5H";
 const answered = () => ({
   ok: true,
   changed: true,
-  result: { question: QUESTION, delivered: "now" },
+  result: { question: QUESTION, delivered: "on-resume" },
 });
 
 describe("dipo answer", () => {
@@ -84,7 +84,10 @@ describe("dipo answer", () => {
       ),
     ).toBe(0);
     expect(text.sent[0]?.args).toEqual({ question: QUESTION, text: "Yes, a 404 is fine." });
-    expect(text.out).toEqual([`answered ${QUESTION} (delivered now)`]);
+    expect(text.out).toEqual([
+      `answered ${QUESTION} (delivered on-resume)`,
+      "the answer waits for the story's next session; dipo watch shows where it is now",
+    ]);
   });
 
   it("sends --text allow as an answer text, never as a decision (DIPO-159, 0020 section 7)", async () => {
