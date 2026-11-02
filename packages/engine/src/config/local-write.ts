@@ -8,6 +8,7 @@ import { configError, type ConfigError } from "@dipsaus-orchestrator/contract";
 import { stringifyYamlDocument } from "../platform/yaml";
 import { describeValue } from "./keys";
 import { OFFICE_LOCAL_FILE, readDocument, validate } from "./load";
+import { migrateOfficeFileText } from "./migrate-file";
 import { OFFICE_CONFIG_VERSION, OfficeLocalFileSchema, PRIVACY_KEYS } from "./schema";
 
 /** The comment on top of a file dipo wrote. */
@@ -60,16 +61,12 @@ export function updateLocalPrivacy(
 
   let document: Record<string, unknown> = { version: OFFICE_CONFIG_VERSION };
   if (current !== undefined) {
-    const read = readDocument(OFFICE_LOCAL_FILE, current);
+    // An older file is migrated with the same function `dipo config migrate` uses (0017); a file
+    // that does not validate, before or after the migration, is refused.
+    const migrated = migrateOfficeFileText(OFFICE_LOCAL_FILE, current);
+    if (!migrated.ok) return migrated;
+    const read = readDocument(OFFICE_LOCAL_FILE, migrated.text);
     if (!read.ok) return read;
-    // Only `dipo config migrate` migrates a file (0017), so an older file is refused here.
-    if (read.version < OFFICE_CONFIG_VERSION) {
-      const problem = `the file is version ${read.version}; run dipo config migrate, then change the setting`;
-      return {
-        ok: false,
-        errors: [configError(OFFICE_LOCAL_FILE, "version", `${OFFICE_CONFIG_VERSION}`, problem)],
-      };
-    }
     const checked = validate(OFFICE_LOCAL_FILE, OfficeLocalFileSchema, read.value);
     if (!checked.ok) return checked;
     document = read.value;

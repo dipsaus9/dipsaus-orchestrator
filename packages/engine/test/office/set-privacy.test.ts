@@ -94,6 +94,39 @@ describe("office.setPrivacy", () => {
     );
   });
 
+  it("migrates a version 14 office.local.yaml to the current version and never touches office.yaml", async () => {
+    await withTempRepo(
+      async (repo) => {
+        mkdirSync(join(repo.dir, ".dipo"), { recursive: true });
+        const file = join(repo.dir, ".dipo", "office.local.yaml");
+        const committed = join(repo.dir, ".dipo", "office.yaml");
+        const committedText = "version: 14\nbase: main\n";
+        writeFileSync(committed, committedText);
+        writeFileSync(
+          file,
+          "# a note\nversion: 14\ntimeouts: { questionWaitMinutes: 5 }\nprivacy: { keepRawEvents: true }\n",
+        );
+        const s = await officeSetup(repo.root);
+        const office = resultOf<{ office: OfficeId }>(
+          await send(s, "office.open", { path: repo.dir }),
+        ).office;
+        const reply = resultOf<SetResult>(
+          await send(s, "office.setPrivacy", { office, key: "storePrompts", value: false }),
+        );
+        expect(reply.valid).toBe(true);
+        const text = readFileSync(file, "utf8");
+        expect(text).toContain(`version: ${OFFICE_CONFIG_VERSION}`);
+        expect(text).not.toContain("version: 14");
+        expect(text).toContain("keepRawEvents: true");
+        expect(text).toContain("storePrompts: false");
+        expect(s.manager.config(office)?.privacy.keepRawEvents).toBe(true);
+        expect(s.manager.config(office)?.privacy.storePrompts).toBe(false);
+        expect(readFileSync(committed, "utf8")).toBe(committedText);
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
   it("refuses an unknown key, a non-boolean value and an invalid file, leaving the file alone", async () => {
     await withTempRepo(
       async (repo) => {
@@ -125,6 +158,18 @@ describe("office.setPrivacy", () => {
         expect(!refused.ok && refused.error.message).toContain("timeouts.workerStallMinutes");
         expect(!refused.ok && refused.error.message).toContain(".dipo/office.local.yaml");
         expect(readFileSync(file, "utf8")).toBe(invalid);
+
+        const olderInvalid = "version: 14\ntimeouts:\n  workerStallMinutes: soon\n";
+        writeFileSync(file, olderInvalid);
+        const olderRefused = await send(s, "office.setPrivacy", {
+          office,
+          key: "storePrompts",
+          value: false,
+        });
+        expect(!olderRefused.ok && olderRefused.error.message).toContain(
+          "timeouts.workerStallMinutes",
+        );
+        expect(readFileSync(file, "utf8")).toBe(olderInvalid);
       },
       { fixture: BACKLOG_FIXTURE },
     );
