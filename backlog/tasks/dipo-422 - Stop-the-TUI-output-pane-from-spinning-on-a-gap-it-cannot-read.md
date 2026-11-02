@@ -1,10 +1,10 @@
 ---
 id: DIPO-422
 title: Stop the TUI output pane from spinning on a gap it cannot read
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-02 10:09'
-updated_date: '2026-11-02 10:29'
+updated_date: '2026-11-02 10:30'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -13,6 +13,10 @@ references:
   - packages/tui/src/output.ts
   - packages/tui/src/output.test.ts
   - packages/tui/src/live.test.tsx
+modified_files:
+  - packages/tui/src/detail.test.tsx
+  - packages/tui/src/output.test.ts
+  - packages/tui/src/output.ts
 priority: high
 type: bug
 ordinal: 400000
@@ -43,3 +47,18 @@ test_plan:
 - [x] #2 The pane reads the gap at most once per missed range: a test counts the reads and fails if a second one starts without a new range
 - [x] #3 A gap the read does fill shows the read text and no gap line, as now, shown by the existing tests
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-02 10:30 UTC
+- Criteria met: 3 of 3 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 125,605 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
