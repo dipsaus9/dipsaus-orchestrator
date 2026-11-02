@@ -13,6 +13,7 @@ import { closeSync, openSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
 import {
+  type ChildExit,
   type ChildStdin,
   darwinProcess,
   linuxProcess,
@@ -54,6 +55,21 @@ export {
   START_TIME_TOLERANCE_MS,
   SUPERVISOR_VARIABLES,
 } from "@dipsaus-orchestrator/contract";
+
+/**
+ * The exit of an ended Bun child as the contract's `ChildExit`: its code, or the signal that ended
+ * it. Bun gives a signal with no name (a Linux real-time signal) as its number, kept here as text.
+ */
+export function childExit(child: {
+  readonly exitCode: number | null;
+  readonly signalCode: string | number | null;
+}): ChildExit {
+  const signal = child.signalCode;
+  return {
+    code: signal === null ? child.exitCode : null,
+    signal: signal === null ? null : String(signal),
+  };
+}
 
 /** The entry script of `dipo` run from source (`selfCommand()`): the CLI package's main. */
 const SOURCE_ENTRY = "/cli/src/main.ts";
@@ -422,10 +438,7 @@ export const systemSpawn: Spawn = (options) => {
       files === null
         ? (child.stderr as ReadableStream<Uint8Array>)
         : streamOf(files.then(([, stderr]) => stderr)),
-    exited: child.exited.then(() => ({
-      code: child.signalCode === null ? child.exitCode : null,
-      signal: child.signalCode ?? null,
-    })),
+    exited: child.exited.then(() => childExit(child)),
     kill: (signal: Signal = "SIGTERM") => {
       try {
         child.kill(signal);
