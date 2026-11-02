@@ -1,10 +1,10 @@
 ---
 id: DIPO-431
 title: Let the privacy toggle bring an office.local.yaml up to the current version
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-02 13:23'
-updated_date: '2026-11-02 13:33'
+updated_date: '2026-11-02 14:16'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -17,6 +17,11 @@ references:
   - packages/engine/test/office/
   - packages/engine/test/config/
   - docs/decisions/0017-testing-strategy-and-configuration.md
+modified_files:
+  - docs/decisions/0017-testing-strategy-and-configuration.md
+  - packages/engine/src/config/local-write.ts
+  - packages/engine/test/config/local-write.test.ts
+  - packages/engine/test/office/set-privacy.test.ts
 priority: low
 type: task
 ordinal: 409000
@@ -43,7 +48,22 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 setPrivacy on a version 14 office.local.yaml writes it at the current version with the new privacy value and every other key kept, shown by a test on a fixture file
-- [ ] #2 setPrivacy still refuses an office.local.yaml that does not validate, and never rewrites office.yaml, shown by tests
-- [ ] #3 ADR 0017 says setPrivacy rewrites office.local.yaml at the current version, and its sample shows version 15
+- [x] #1 setPrivacy on a version 14 office.local.yaml writes it at the current version with the new privacy value and every other key kept, shown by a test on a fixture file
+- [x] #2 setPrivacy still refuses an office.local.yaml that does not validate, and never rewrites office.yaml, shown by tests
+- [x] #3 ADR 0017 says setPrivacy rewrites office.local.yaml at the current version, and its sample shows version 15
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-02 14:16 UTC
+- Criteria met: 3 of 3 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 52,429 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
