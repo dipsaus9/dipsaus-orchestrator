@@ -1,10 +1,10 @@
 ---
 id: DIPO-419
 title: Keep an open test's box until its test closes
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-02 09:14'
-updated_date: '2026-11-02 09:16'
+updated_date: '2026-11-02 09:23'
 labels:
   - 'tier:M'
 milestone: m-1
