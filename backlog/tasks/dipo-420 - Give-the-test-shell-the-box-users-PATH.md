@@ -1,10 +1,10 @@
 ---
 id: DIPO-420
 title: Give the test shell the box user's PATH
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-02 09:14'
-updated_date: '2026-11-02 09:29'
+updated_date: '2026-11-02 09:32'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -34,6 +34,10 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(engine) the test shell's command keeps the box user's PATH, so bun resolves in the shell"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "The test shell's command was `/bin/bash -l`. The login shell reads /etc/profile, which resets PATH and drops the box user's PATH that execArgs passes. I removed `-l`, so TEST_SHELL_COMMAND is now `[\"/bin/bash\"]` (packages/engine/src/box/apple-args.ts), and the shell keeps the one PATH every box command gets. I added the args test (criterion 1) and updated the old `-l` assertion in packages/daemon/src/test-shell.test.ts. I added the real-box check for criterion 2 to test-box.box.test.ts, which I could not run on this Linux box. Blocked because criterion 2 is unverified: it needs a macOS box with Apple container and DIPO_TEST_BOX=1. No question is needed; the maintainer runs `DIPO_TEST_BOX=1 bun test packages/engine/test/box/test-box.box.test.ts` on the Mac. Full `bun run verify` passed (all 14 shards). One DIPO-386 test failed once under load and passed on rerun, unrelated to this change."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -42,3 +46,16 @@ test_plan:
 - [ ] #1 The test shell starts with the same PATH as every other command dipo runs in a box as the box user, so `bun` and the other tools the worker used resolve, shown by an args test
 - [ ] #2 In a real test box, `command -v bun` in the test shell prints the box user's bun, shown by a box test (DIPO_TEST_BOX=1)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-02 09:32 UTC: ambiguous-spec
+- Detail: The test shell's command was `/bin/bash -l`. The login shell reads /etc/profile, which resets PATH and drops the box user's PATH that execArgs passes. I removed `-l`, so TEST_SHELL_COMMAND is now `["…
+- Run: run_01M6DSE1E0T4DN0ZQW4EBR6RNW
+- Criteria met: 1 of 2 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 58,469 of 300,000 tokens; 24 of 90 turns; 3 of 45 minutes
+- Last good commit: b4e09592a7ce66125262802d4837bc91fde6d5ac
+<!-- SECTION:NOTES:END -->
