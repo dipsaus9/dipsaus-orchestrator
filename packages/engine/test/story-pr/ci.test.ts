@@ -168,7 +168,7 @@ interface World {
 
 async function inWorld(
   fn: (w: World) => Promise<void>,
-  setup: { ciCap?: number | null; config?: OfficeConfig; box?: boolean } = {},
+  setup: { ciCap?: number | null; config?: OfficeConfig; box?: boolean; noHost?: boolean } = {},
 ): Promise<void> {
   await withOffice(async (t, office) => {
     pass(t, office, [task("DIPO-1", { status: "In Review" })]);
@@ -261,12 +261,16 @@ async function inWorld(
         logger,
         boxRun: () => setup.box === true,
         // The base requires ci-ok and pr-title on GitHub unless a test says otherwise.
-        required: {
-          requiredCheckNames: async () => {
-            if (world.namesError !== null) throw world.namesError;
-            return [...world.requiredNames];
-          },
-        },
+        ...(setup.noHost === true
+          ? {}
+          : {
+              required: {
+                requiredCheckNames: async () => {
+                  if (world.namesError !== null) throw world.namesError;
+                  return [...world.requiredNames];
+                },
+              },
+            }),
       });
     const world: World = {
       facts: FACTS,
@@ -944,6 +948,57 @@ describe("the checks the base requires on GitHub", () => {
       await w.prs.retry(id);
       expect(w.prs.ciState(id, w.run)?.kind).toBe("green");
     });
+  });
+
+  it("tells the maintainer once per office that the base requires no checks (DIPO-429)", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      w.requiredNames = [];
+      await w.prs.sync(id, w.run);
+      await w.prs.retry(id);
+      expect(w.prs.requiresNoChecks(id, w.run, HEAD_A)).toBe(true);
+      expect(notices(w.office, STORY_PR_NOTICES.noRequired)).toHaveLength(1);
+      expect(
+        w.logged.filter((line) => line.message === "the base requires no checks"),
+      ).toHaveLength(1);
+      // A new head is read again, but the office is told once in this daemon run.
+      await pushHead(w, HEAD_B);
+      await w.prs.retry(id);
+      expect(w.prs.requiresNoChecks(id, w.run, HEAD_B)).toBe(true);
+      expect(notices(w.office, STORY_PR_NOTICES.noRequired)).toHaveLength(1);
+      expect(
+        w.logged.filter((line) => line.message === "the base requires no checks"),
+      ).toHaveLength(1);
+      // A daemon restart is a new run: the office is told again.
+      w.restart();
+      await w.prs.sync(id, w.run);
+      await w.prs.retry(id);
+      expect(notices(w.office, STORY_PR_NOTICES.noRequired)).toHaveLength(2);
+    });
+  });
+
+  it("does not flag a failed read, a base with checks, or no wired host (DIPO-429)", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      w.namesError = new Error("gh api: HTTP 502");
+      await w.prs.sync(id, w.run);
+      expect(w.prs.requiresNoChecks(id, w.run, HEAD_A)).toBe(false);
+      expect(notices(w.office, STORY_PR_NOTICES.noRequired)).toHaveLength(0);
+      w.namesError = null;
+      await w.prs.retry(id);
+      expect(w.prs.requiresNoChecks(id, w.run, HEAD_A)).toBe(false);
+      expect(notices(w.office, STORY_PR_NOTICES.noRequired)).toHaveLength(0);
+    });
+    await inWorld(
+      async (w) => {
+        const id = w.office.officeId;
+        w.requiredNames = [];
+        await w.prs.sync(id, w.run);
+        expect(w.prs.requiresNoChecks(id, w.run, HEAD_A)).toBe(false);
+        expect(notices(w.office, STORY_PR_NOTICES.noRequired)).toHaveLength(0);
+      },
+      { noHost: true },
+    );
   });
 });
 

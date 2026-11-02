@@ -146,6 +146,7 @@ export const STORY_PR_NOTICES = {
   openFailed: "pr.openFailed",
   ciStuck: "ci.stuck",
   ciNone: "ci.none",
+  noRequired: "ci.noRequired",
   commentFailed: "pr.commentFailed",
   pushedAgain: "pr.pushedAgain",
   pushFailed: "pr.pushFailed",
@@ -227,6 +228,8 @@ interface Watch {
   nextAt: number;
   /** The checks the base requires, read once for the head; null before that read. */
   names: readonly string[] | null;
+  /** The base was read to require no check at all (DIPO-429); false when no host is wired. */
+  noneRequired: boolean;
   /** The last states written to the body. */
   states: string;
   /** The reports the body is built from. */
@@ -267,6 +270,8 @@ export class StoryPrs {
   readonly #deps: StoryPrsDeps;
   readonly #offices = new Map<OfficeId, Polled>();
   readonly #listeners: ((office: OfficeId, runId: RunId) => void)[] = [];
+  /** The offices whose empty required-check read was told in this daemon run (DIPO-429). */
+  readonly #noChecksTold = new Set<OfficeId>();
   #stopped = false;
 
   constructor(deps: StoryPrsDeps) {
@@ -953,6 +958,7 @@ export class StoryPrs {
         stuck: false,
         nextAt: 0,
         names: null,
+        noneRequired: false,
         states: "",
         reports: [],
         items: null,
@@ -973,7 +979,7 @@ export class StoryPrs {
     // Checks the host reports for another head than the one the engine pushed do not count.
     const onHead = hostHead === "" || hostHead === stored.headSha;
     const [names, reports] = await Promise.all([
-      this.#requiredNames(officeId, watch, stored, repo),
+      this.#requiredNames(officeId, state, watch, stored, repo),
       onHead ? this.#reports(officeId, stored, repo) : Promise.resolve([]),
     ]);
     if (names === null || reports === null) return;
@@ -1052,6 +1058,7 @@ export class StoryPrs {
    */
   async #requiredNames(
     officeId: OfficeId,
+    state: Polled,
     watch: Watch,
     stored: StoryPrRecord,
     repo: string,
@@ -1069,7 +1076,43 @@ export class StoryPrs {
       });
       return null;
     }
+    watch.noneRequired = required !== undefined && watch.names.length === 0;
+    if (watch.noneRequired) this.#noneRequired(officeId, state, stored, repo);
     return watch.names;
+  }
+
+  /**
+   * The first empty read of the base's required checks for an office in this daemon run: one log
+   * line and one office notice. A merge rule-decided on such a base waits for the maintainer
+   * (`requiresNoChecks`, DIPO-429).
+   */
+  #noneRequired(officeId: OfficeId, state: Polled, stored: StoryPrRecord, repo: string): void {
+    if (this.#noChecksTold.has(officeId)) return;
+    this.#noChecksTold.add(officeId);
+    this.#deps.logger?.warn("the base requires no checks", {
+      office: officeId,
+      repo,
+      base: stored.base,
+    });
+    this.#write(officeId, state, () => [
+      {
+        type: "engine.notice",
+        delta: {
+          level: "warn",
+          code: STORY_PR_NOTICES.noRequired,
+          text: `The base branch ${stored.base} of ${repo} requires no checks on GitHub, so GitHub would merge a story PR without waiting for CI. Each story merge waits for the maintainer until the base requires a check.`,
+        },
+      },
+    ]);
+  }
+
+  /**
+   * True when the base was read to require no check and the watched head is `head` (DIPO-429): a
+   * merge gate decided by rule then waits for the maintainer instead.
+   */
+  requiresNoChecks(officeId: OfficeId, runId: RunId, head: string): boolean {
+    const watch = this.#offices.get(officeId)?.watch.get(runId);
+    return watch !== undefined && watch.head === head && watch.noneRequired;
   }
 
   /**
