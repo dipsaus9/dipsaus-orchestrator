@@ -4,8 +4,9 @@ title: 'Show an ended run as ended in an open TUI, and name the story in the che
 status: Refined
 assignee: []
 created_date: '2026-11-02 09:14'
+updated_date: '2026-11-02 09:16'
 labels:
-  - 'tier:S'
+  - 'tier:M'
 milestone: m-1
 dependencies: []
 references:
