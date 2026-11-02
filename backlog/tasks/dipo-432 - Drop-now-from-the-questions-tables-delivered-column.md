@@ -1,10 +1,10 @@
 ---
 id: DIPO-432
 title: Drop "now" from the questions table's delivered column
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-02 14:04'
-updated_date: '2026-11-02 14:50'
+updated_date: '2026-11-02 14:51'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -16,6 +16,11 @@ references:
   - packages/engine/test/db/migrations.test.ts
   - packages/engine/test/db/
   - packages/engine/test/run-state/
+modified_files:
+  - packages/engine/src/db/migrations/0074-delivered-on-resume.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/run-state/questions.ts
+  - packages/engine/test/db/delivered-on-resume.test.ts
 priority: low
 type: chore
 ---
@@ -45,3 +50,18 @@ test_plan:
 - [x] #2 After the rebuild the table has exactly the indexes `questions_open` and `questions_allow_once` with today's definitions and its foreign key to `runs`, shown by a test that reads them from `sqlite_schema` and `pragma foreign_key_list`; a fresh and a migrated database have the same schema
 - [x] #3 `"now"` is gone from `StoredQuestion`, `QuestionRow` and `closeQuestion` in run-state/questions.ts, shown by the diff and `tsc`
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-02 14:51 UTC
+- Criteria met: 3 of 3 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 70,258 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
