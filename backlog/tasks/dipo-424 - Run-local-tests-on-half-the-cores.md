@@ -1,10 +1,10 @@
 ---
 id: DIPO-424
 title: Run local tests on half the cores
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-02 10:16'
-updated_date: '2026-11-02 10:24'
+updated_date: '2026-11-02 11:00'
 labels:
   - 'tier:S'
 milestone: m-1
