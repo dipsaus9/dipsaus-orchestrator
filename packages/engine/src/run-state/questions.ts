@@ -38,8 +38,8 @@ export interface StoredQuestion {
   readonly parkId: number | null;
   /** When an allow of a park question let its one matching request through (DIPO-75). */
   readonly allowUsedAt: number | null;
-  /** How the answer reached the worker: `now`, or with the next session (`on-resume`). */
-  readonly delivered: "now" | "on-resume" | null;
+  /** How the answer reached the worker: with the next session (`on-resume`), or not yet (null). */
+  readonly delivered: "on-resume" | null;
   readonly answeredAt: number | null;
 }
 
@@ -59,7 +59,7 @@ interface QuestionRow {
   closed_how: QuestionClose | null;
   park_id: number | null;
   allow_used_at: number | null;
-  delivered: "now" | "on-resume" | null;
+  delivered: "on-resume" | null;
   answered_at: number | null;
 }
 
@@ -189,7 +189,7 @@ export function closeQuestion(
   answer?: {
     readonly text: string;
     readonly decision: Exclude<PermissionDecision, null> | null;
-    readonly delivered: "now" | "on-resume";
+    readonly delivered: "on-resume";
   },
 ): boolean {
   const before = findQuestion(office, questionId);
