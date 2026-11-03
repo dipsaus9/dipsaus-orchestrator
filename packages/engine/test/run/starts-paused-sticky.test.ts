@@ -54,7 +54,7 @@ describe("the sticky box-token hold", () => {
       // The refusal says how it is lifted, not "repeat the launch checks".
       const text = pauseMessage(holds.adapterPaused(ADAPTER)!);
       expect(text).toContain(BOX_TOKEN_LIFTED_BY);
-      expect(text).not.toContain("the hold lifts when they pass");
+      expect(text).not.toContain("the pause lifts when they pass");
     }));
 
   it("drops only the other failures when the launch checks pass", () =>
@@ -130,7 +130,7 @@ describe("the sticky box-token hold", () => {
       warn: (message) => warnings.push(message),
     });
     expect(holds.pause(ADAPTER, [FOUND]).check).toBe(BOX_TOKEN_CHECK);
-    expect(warnings).toEqual(["the sticky hold record could not be written; the hold stays"]);
+    expect(warnings).toEqual(["the sticky pause record could not be written; the pause stays"]);
     // No record does not mean "lifted" here: the launch is still refused.
     expect(holds.adapterPaused(ADAPTER)?.check).toBe(BOX_TOKEN_CHECK);
     expect((await holds.gateLaunch(ADAPTER, async () => ({ ok: true }))).ok).toBe(false);

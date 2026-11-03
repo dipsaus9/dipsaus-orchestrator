@@ -96,7 +96,7 @@ describe("dipo login box", () => {
       });
       expect(code).toBe(0);
       expect(existsSync(record)).toBe(false);
-      expect(out.at(-1)).toBe("dipo: the box-token hold is lifted; new runs may start again.");
+      expect(out.at(-1)).toBe("dipo: the box-token pause is lifted; new runs may start again.");
     }));
 
   it("keeps the box-token hold when nothing was stored (DIPO-271)", () =>

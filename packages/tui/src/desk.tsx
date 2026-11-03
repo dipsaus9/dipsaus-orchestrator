@@ -56,7 +56,7 @@ export const DESK_EVENTS: ReadonlySet<string> = new Set([
 /** The `engine.notice` codes of the office's starts paused and its lift (0020, DIPO-359). */
 export const DESK_NOTICES: ReadonlySet<string> = new Set([
   "office.startsPaused",
-  "office.startsLifted",
+  "office.startsResumed",
 ]);
 
 /**

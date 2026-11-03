@@ -114,13 +114,13 @@ export function pauseFailures(pause: AdapterPause): string {
 export function pauseLift(pause: AdapterPause): string {
   return (
     pause.liftedBy ??
-    "Fix it, then name the story to repeat the launch checks (`dipo run <ID>`); the hold lifts when they pass."
+    "Fix it, then name the story to repeat the launch checks (`dipo run <ID>`); the pause lifts when they pass."
   );
 }
 
 /** The text a refusal or the notice shows for a pause. */
 export function pauseMessage(pause: AdapterPause): string {
-  return `New runs on ${pause.adapter} are held in every office: ${pauseFailures(pause)} ${pauseLift(pause)}`;
+  return `New runs on ${pause.adapter} are paused in every office: ${pauseFailures(pause)} ${pauseLift(pause)}`;
 }
 
 /** A sticky pause as its store keeps it. */
@@ -252,7 +252,7 @@ export class AdapterPauses {
     try {
       this.#store.write({ adapter: pause.adapter, failures: pause.failures, since: pause.since });
     } catch (error) {
-      this.#warn?.("the adapter hold could not be stored", {
+      this.#warn?.("the adapter pause could not be stored", {
         adapter: pause.adapter,
         reason: error instanceof Error ? error.message : String(error),
       });
@@ -290,7 +290,7 @@ export class AdapterPauses {
       this.#unrecorded.delete(adapter);
     } catch (error) {
       this.#unrecorded.add(adapter);
-      this.#warn?.("the sticky hold record could not be written; the hold stays", {
+      this.#warn?.("the sticky pause record could not be written; the pause stays", {
         adapter,
         reason: error instanceof Error ? error.message : String(error),
       });
@@ -326,7 +326,7 @@ export class AdapterPauses {
     const record = this.#sticky?.store?.read() ?? null;
     if (record !== null && record.adapter === adapter) this.#sticky?.store?.clear();
     this.#unrecorded.delete(adapter);
-    return this.#dropSticky(adapter, "The sticky hold was lifted");
+    return this.#dropSticky(adapter, "The sticky pause was lifted");
   }
 
   /** The pause on `adapter`, or null. */
@@ -375,7 +375,7 @@ export class AdapterPauses {
     this.#notify({
       level: "info",
       code: ADAPTER_RESUMED_NOTICE,
-      text: `${why}; new runs on ${adapter} are no longer held.`,
+      text: `${why}; new runs on ${adapter} are no longer paused.`,
     });
   }
 
@@ -441,7 +441,7 @@ export const STARTS_PAUSED_STEP = "starts-paused/recover";
 /** `engine.notice` codes of the office's starts paused. */
 export const STARTS_PAUSED_NOTICES = {
   paused: "office.startsPaused",
-  lifted: "office.startsLifted",
+  lifted: "office.startsResumed",
   notResumed: "office.parkNotResumed",
 } as const;
 
@@ -609,7 +609,7 @@ const REGISTERED = "select office_id from offices where forgotten_at is null";
  * The adapter pauses' record (0020): a `starts_paused` row with reason `adapter` in every registered
  * office, loaded or not, since one adapter runs every office (0001). A pause is read from any of
  * them, written to all of them, with an `office.startsPaused` notice in each loaded office where it
- * is new, and cleared from all of them, with `office.startsLifted` in each loaded office that had
+ * is new, and cleared from all of them, with `office.startsResumed` in each loaded office that had
  * it. So a pause set while no office is loaded is kept, and a lift reaches an office that was not
  * loaded. A pause written before the database opened, or while no office is registered, is kept in
  * memory and written to the rows at the next look once an office is registered.
@@ -875,7 +875,7 @@ export class StartsPaused {
 
   /**
    * Resumes the parks a plan limit made in the office while its starts are not paused: after a
-   * load parked runs a plan limit held before the upgrade (`outcome-restart.ts`).
+   * park that resumes when the pause lifts (`control-endings.ts`).
    */
   resumeLifted(officeId: OfficeId): void {
     this.#resumeLifted(officeId);
@@ -892,7 +892,7 @@ export class StartsPaused {
 
   /**
    * An adapter pause was lifted (a passing check, `dipo login box`): each loaded office that is no
-   * longer paused resumes the parks a plan limit left (a limit that lifted while the adapter held).
+   * longer paused resumes the parks a plan limit left (a limit that lifted while the adapter was paused).
    */
   adapterReleased(): void {
     for (const officeId of this.#deps.loaded?.() ?? []) this.#resumeLifted(officeId);

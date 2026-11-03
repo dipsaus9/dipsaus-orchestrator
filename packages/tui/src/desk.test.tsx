@@ -344,7 +344,7 @@ describe("the desk stays current", () => {
     await until(() => deskReads(session) === 2, "the read after the starts paused");
     await Bun.sleep(DESK_READ_INTERVAL_MS + 50);
     office?.onEvent(
-      event(10, "engine.notice", { level: "info", code: "office.startsLifted", text: "lifted" }),
+      event(10, "engine.notice", { level: "info", code: "office.startsResumed", text: "lifted" }),
     );
     await until(() => deskReads(session) === 3, "the read after the lift");
   });

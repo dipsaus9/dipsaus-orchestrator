@@ -72,11 +72,11 @@ export async function runLoginForm(
   const stateDir = options.stateDir?.() ?? resolveSoftwareDirs({ env: io.env, home }).state;
   try {
     if (clearBoxTokenHold(boxTokenHoldPath(stateDir))) {
-      io.writeLine("dipo: the box-token hold is lifted; new runs may start again.");
+      io.writeLine("dipo: the box-token pause is lifted; new runs may start again.");
     }
   } catch (error) {
     io.writeError(
-      `dipo: the box-token hold could not be lifted (${error instanceof Error ? error.message : String(error)}); remove ${boxTokenHoldPath(stateDir)} by hand.`,
+      `dipo: the box-token pause could not be lifted (${error instanceof Error ? error.message : String(error)}); remove ${boxTokenHoldPath(stateDir)} by hand.`,
     );
     return 1;
   }

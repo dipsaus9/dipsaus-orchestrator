@@ -111,7 +111,7 @@ describe("the label guard", () => {
     await s.merge.tick(s.officeId);
     await s.merge.tick(s.officeId);
     expect(s.host.armedAt).toEqual([]);
-    expect(noticeTexts(s.office, "merge.held")).toEqual([
+    expect(noticeTexts(s.office, "merge.waiting")).toEqual([
       'The backlog PR #1 carries "autorelease: pending", so dipo never merges it; merge it by hand on GitHub.',
     ]);
   });
@@ -249,7 +249,7 @@ describe("the release path of a backlog PR", () => {
     s.git.release.set(HEAD, [".github/CODEOWNERS"]);
     await s.merge.tick(s.officeId);
     expect(s.host.armedAt).toEqual([]);
-    expect(noticeTexts(s.office, "merge.held")[0]).toContain("CODEOWNERS gives an owner");
+    expect(noticeTexts(s.office, "merge.waiting")[0]).toContain("CODEOWNERS gives an owner");
   });
 
   it("gives none when git cannot tell, and turns it off when the release path shows up later", async () => {
@@ -272,7 +272,7 @@ describe("the ADR folder of a backlog PR", () => {
     s.git.adr.set(HEAD, ["docs/decisions/0002-review-and-testing.md"]);
     await s.merge.tick(s.officeId);
     expect(s.host.armedAt).toEqual([]);
-    expect(noticeTexts(s.office, "merge.held")[0]).toContain("docs/decisions/");
+    expect(noticeTexts(s.office, "merge.waiting")[0]).toContain("docs/decisions/");
     s.git.adr.delete(HEAD);
     await s.merge.tick(s.officeId);
     expect(s.host.armedAt).toEqual([{ number: 1, head: HEAD }]);
@@ -283,7 +283,7 @@ describe("the ADR folder of a backlog PR", () => {
     s.git.adr.set(HEAD, null);
     await s.merge.tick(s.officeId);
     expect(s.host.armedAt).toEqual([]);
-    expect(noticeTexts(s.office, "merge.held")[0]).toContain("could not read");
+    expect(noticeTexts(s.office, "merge.waiting")[0]).toContain("could not read");
     s.git.adr.delete(HEAD);
     await s.merge.tick(s.officeId);
     expect(s.host.armedAt).toHaveLength(1);

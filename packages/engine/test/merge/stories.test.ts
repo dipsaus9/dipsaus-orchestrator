@@ -368,7 +368,7 @@ describe("the release-path and autorelease guard", () => {
     await s.tick();
     expect(s.host.armedAt).toEqual([]);
     expect(s.git.calls).toEqual([]);
-    expect(noticeCodes(s.w.office)).toContain(STORY_MERGE_NOTICES.held);
+    expect(noticeCodes(s.w.office)).toContain(STORY_MERGE_NOTICES.waiting);
   });
 
   it("turns auto-merge off when autorelease: pending is added after it went on", async () => {

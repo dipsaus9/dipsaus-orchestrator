@@ -211,7 +211,7 @@ export function tokenCheckFailure(result: BoxTokenCheck, name: string): LaunchCh
     check: BOX_TOKEN_CHECK,
     detail: `the check for the subscription token in box ${name} could not finish: ${result.reason}`,
     // A box-token hold is sticky (DIPO-271): a passing launch check does not lift it.
-    fix: "Look at the box and the daemon log; the hold lifts once the box login is stored again with `dipo login box`.",
+    fix: "Look at the box and the daemon log; the pause lifts once the box login is stored again with `dipo login box`.",
   };
 }
 

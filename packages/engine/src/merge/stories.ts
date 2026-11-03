@@ -136,7 +136,7 @@ export const STORY_MERGE_NOTICES = {
   pushFailed: "merge.pushFailed",
   failed: "merge.failed",
   headChanged: "pr.headChanged",
-  held: "merge.held",
+  waiting: "merge.waiting",
   /** The release path of a PR could not be read: no auto-merge for it this round. */
   releaseUnknown: "merge.releasePathUnknown",
   /** The head that would merge has no approved review and merge gate. */
@@ -536,7 +536,7 @@ export class StoryMerges {
   }
 
   /**
-   * True when a wait label or the release path holds the PR back, with a `merge.held` notice once
+   * True when a wait label or the release path holds the PR back, with a `merge.waiting` notice once
    * per head and reason: `autorelease: pending` and the release path only a hand merge resolves.
    */
   #heldBack(
@@ -561,8 +561,8 @@ export class StoryMerges {
       return false;
     }
     const value = `${pr.head}:${pr.held.join(",")}${pr.release.length > 0 ? ":release-path" : ""}`;
-    ctx.once(`story:${run.runId}`, STORY_MERGE_NOTICES.held, value, () =>
-      notice("info", STORY_MERGE_NOTICES.held, text, run.key, run.runId),
+    ctx.once(`story:${run.runId}`, STORY_MERGE_NOTICES.waiting, value, () =>
+      notice("info", STORY_MERGE_NOTICES.waiting, text, run.key, run.runId),
     );
     return true;
   }

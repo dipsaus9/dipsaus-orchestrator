@@ -460,7 +460,7 @@ describe("one record that survives a restart (0020, DIPO-359)", () => {
     holdNotices = [];
     paused.lift(id(w.office), "the maintainer ran dipo daemon resume-starts");
     expect(holdNotices.map((notice) => notice.text)).toEqual([
-      `The maintainer ran dipo daemon resume-starts; new runs on ${ADAPTER} are no longer held.`,
+      `The maintainer ran dipo daemon resume-starts; new runs on ${ADAPTER} are no longer paused.`,
     ]);
   });
 });

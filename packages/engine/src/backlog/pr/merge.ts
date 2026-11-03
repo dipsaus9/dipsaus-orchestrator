@@ -49,7 +49,7 @@ export const BACKLOG_MERGE_NOTICES = {
   autoMergeOff: "merge.autoMergeOff",
   autoMergeFailed: "merge.autoMergeFailed",
   merged: "merge.merged",
-  held: "merge.held",
+  waiting: "merge.waiting",
   rebuilt: "merge.rebuilt",
   headChanged: "pr.headChanged",
   checksFailed: "merge.checksFailed",
@@ -270,7 +270,7 @@ export class BacklogMerges implements BacklogAutoMerge {
       stop === "releaseUnknown" ||
       stop === "adrChange" ||
       stop === "adrUnknown"
-        ? BACKLOG_MERGE_NOTICES.held
+        ? BACKLOG_MERGE_NOTICES.waiting
         : stop === "foreignHead"
           ? BACKLOG_MERGE_NOTICES.headChanged
           : BACKLOG_MERGE_NOTICES.checksFailed;

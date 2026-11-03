@@ -53,7 +53,7 @@ function unreadable(adapter: string, why: string): StickyPauseRecord {
     failures: [
       {
         check: BOX_TOKEN_CHECK,
-        detail: `the box-token hold record could not be read (${why})`,
+        detail: `the box-token pause record could not be read (${why})`,
         fix: "Store a new box login with `dipo login box`, which also removes the record.",
       },
     ],

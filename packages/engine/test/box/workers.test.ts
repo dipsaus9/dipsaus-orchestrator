@@ -712,7 +712,7 @@ describe("the box of a box run (criteria 4 and 10)", () => {
       const w = await world(repo, tmp, { sticky: true });
       w.holds.pause(ADAPTER, [{ check: BOX_TOKEN_CHECK, detail: "the token was found" }]);
       const error = (await created(w).catch((e: unknown) => e)) as BoxError;
-      expect(error.code).toBe("box.held");
+      expect(error.code).toBe("box.paused");
       expect(w.log).toEqual([]);
     }));
 });
@@ -2368,7 +2368,7 @@ describe("the reviewer's box (0002, DIPO-347)", () => {
       const w = await world(repo, tmp, { sticky: true });
       w.holds.pause(ADAPTER, [{ check: BOX_TOKEN_CHECK, detail: "the token was found" }]);
       const error = (await reviewed(w).catch((e: unknown) => e)) as BoxError;
-      expect(error.code).toBe("box.held");
+      expect(error.code).toBe("box.paused");
       expect(w.log).toEqual([]);
     }));
 

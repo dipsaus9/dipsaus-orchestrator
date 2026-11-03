@@ -844,7 +844,7 @@ export class BoxWorkers {
     const { boxes } = this.#deps;
     const held = this.#deps.holds.adapterPaused(this.#deps.adapter);
     if (held?.liftedBy !== undefined)
-      throw new BoxError("box.held", this.#deps.holds.message(held));
+      throw new BoxError("box.paused", this.#deps.holds.message(held));
     const check = await boxes.check();
     if (!check.ok) throw new BoxError("box.unavailable", `boxes cannot run here: ${check.reason}`);
     const base = await this.#deps.readBaseBox(input.git);
@@ -1013,7 +1013,7 @@ export class BoxWorkers {
     const { boxes } = this.#deps;
     const held = this.#deps.holds.adapterPaused(this.#deps.adapter);
     if (held?.liftedBy !== undefined)
-      throw new BoxError("box.held", this.#deps.holds.message(held));
+      throw new BoxError("box.paused", this.#deps.holds.message(held));
     const check = await boxes.check();
     if (!check.ok) throw new BoxError("box.unavailable", `boxes cannot run here: ${check.reason}`);
     const base = await this.#deps.readBaseBox(input.git);
