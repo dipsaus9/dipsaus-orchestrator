@@ -1,4 +1,4 @@
-// The review loop's shapes (0019 section 15): each new optional field parses, and payloads
+// The review loop's shapes (0019): each new optional field parses, and payloads
 // without it still parse. The three office codes are not retryable.
 
 import { describe, expect, it } from "bun:test";
@@ -71,7 +71,7 @@ const storyPr = {
   state: "open" as const,
 };
 
-describe("review verdict (0019 section 14)", () => {
+describe("review verdict (0019)", () => {
   it("parses a full review verdict", () => {
     expect(ReviewVerdict.safeParse(reviewVerdict).success).toBe(true);
   });
@@ -115,7 +115,7 @@ describe("review verdict (0019 section 14)", () => {
   });
 });
 
-describe("story PR (0019 section 3)", () => {
+describe("story PR (0019)", () => {
   it("parses StoryPr with each known state, and keeps a later state as an open enum value", () => {
     for (const state of ["open", "merged", "closed", "draft"]) {
       expect(StoryPr.safeParse({ ...storyPr, state }).success).toBe(true);
@@ -138,7 +138,7 @@ describe("story PR (0019 section 3)", () => {
   });
 });
 
-describe("progress (0019 section 14)", () => {
+describe("progress (0019)", () => {
   it("parses progress with and without the review round fields", () => {
     const withReview = { ...progress, reviewRoundCap: 3, reviewRoundsFailed: 1 };
     expect(Progress.safeParse(withReview).success).toBe(true);
@@ -146,7 +146,7 @@ describe("progress (0019 section 14)", () => {
   });
 });
 
-describe("gate commands and office codes (0019 section 15)", () => {
+describe("gate commands and office codes (0019)", () => {
   it("lists gate.approve and gate.reject as commands", () => {
     const commands = contractCommands.filter(
       (command) => command.name === "gate.approve" || command.name === "gate.reject",

@@ -64,8 +64,7 @@ export const workRun = defineCommand({
   // Omit `stories` and the engine picks from the Ready queue. (DIPO-48): `from` is
   // the main worktree a client resolved the office from (its current directory); the daemon
   // answers `office.unknown` when it is not the office's registered path.
-  // (DIPO-271): `box` asked for a box run (0021); since DIPO-240 every run is a box run, so it is
-  // accepted and changes nothing.
+  // (DIPO-271): `box` is accepted and changes nothing, because every run is a box run (0021).
   args: z.object({
     stories: z.array(StoryRefValue).optional(),
     maxAgents: z.int().positive().optional(),
@@ -177,7 +176,7 @@ export const workResume = defineCommand({
 });
 
 // Ends the run, deletes the story branch and returns the story to Refined
-// (0020 section 8). (DIPO-161), on the waiting command path. Clients list what is
+// (0020). (DIPO-161), on the waiting command path. Clients list what is
 // lost (`story.losses`) and ask for the story id typed out. Also discards the leftovers of a story
 // Done on the base through another branch, with no backlog write. Errors: `story.prMerged`,
 // `story.notDiscardable`, `story.prNotClosed`, and the retryable `run.hostAlive` while a worker
@@ -209,9 +208,9 @@ export const storyPark = defineCommand({
 });
 
 // Archives the story through the planning lane and releases its claim; deletes its branch only
-// when asked (0020 section 8). (DIPO-160). Clients ask for typed confirmation when
-// `deleteBranch` is true (0009 section 5); `irreversibleWhen` says so in `commands.describe`.
-// Errors: `story.active` (In Progress or In Review), `story.hasDependents`, and `run.hostAlive` while a worker host of the parked run still runs (0020 section 8, DIPO-227).
+// when asked (0020). (DIPO-160). Clients ask for typed confirmation when
+// `deleteBranch` is true (0009); `irreversibleWhen` says so in `commands.describe`.
+// Errors: `story.active` (In Progress or In Review), `story.hasDependents`, and `run.hostAlive` while a worker host of the parked run still runs (0020, DIPO-227).
 export const storyDrop = defineCommand({
   name: "story.drop",
   level: "office",
@@ -223,7 +222,7 @@ export const storyDrop = defineCommand({
 });
 
 // (DIPO-140): the maintainer's decision on a gate, such as a merge gate that waits
-// for the maintainer (0019 section 11).
+// for the maintainer (0019).
 export const gateApprove = defineCommand({
   name: "gate.approve",
   level: "office",
@@ -243,7 +242,7 @@ export const gateReject = defineCommand({
   irreversible: false,
 });
 
-// A worker's proposal (0020 section 11c, DIPO-186): its stored id is a hash of 64 lower-case hex
+// A worker's proposal (0020, DIPO-186): its stored id is a hash of 64 lower-case hex
 // characters. A command may name it by a unique prefix of at least 8 of them.
 export const ProposalId = z.string().regex(/^[0-9a-f]{64}$/, "expected a proposal id");
 export type ProposalId = z.infer<typeof ProposalId>;
@@ -269,7 +268,7 @@ export const LaneFlush = z.discriminatedUnion("state", [
 ]);
 export type LaneFlush = z.infer<typeof LaneFlush>;
 
-// (DIPO-166; 0020 sections 11c and 14) [`proposals`]: files an open follow-up, spike
+// (DIPO-166; 0020) [`proposals`]: files an open follow-up, spike
 // or tool proposal of a worker as a Backlog draft through the planning lane, with the title, the
 // Story line, the paths as references and the source story in the description, the worker's
 // text marked as the worker's words. `draft` is the draft's id once the lane created it; draft ids
@@ -349,7 +348,7 @@ export const testRecord = defineCommand({
 
 const OfficeArgs = z.object({ office: OfficeId });
 
-// Derived and consistent with `cursor`: subscribe after it for a gap-free stream (0005 section 8).
+// Derived and consistent with `cursor`: subscribe after it for a gap-free stream (0005).
 export const OfficeSnapshot = z.object({
   cursor: Cursor,
   stories: z.array(StoryView),
@@ -367,7 +366,7 @@ export const officeSnapshot = defineRead({
 });
 
 // The notes and proposals of a run's done report (DIPO-152), the worker's own words, cleaned and
-// capped as door messages are (0021 section 7). Absent when the report had neither.
+// capped as door messages are (0021). Absent when the report had neither.
 export const DoneReport = z.object({
   notes: z.string().optional(),
   proposals: z
@@ -415,7 +414,7 @@ export const Verdict = z.object({
   note: z.string().optional(),
   failures: z.array(z.string()).optional(),
   at: Timestamp,
-  // (DIPO-140): the review round of a review gate (0019 section 14).
+  // (DIPO-140): the review round of a review gate (0019).
   review: ReviewVerdict.optional(),
 });
 export type Verdict = z.infer<typeof Verdict>;
@@ -430,8 +429,8 @@ export const storyDetail = defineRead({
     verdicts: z.array(Verdict),
     // The story's open questions (DIPO-59), oldest first.
     questions: z.array(QuestionView).optional(),
-    // A conflict with the base found while the story is In Review (DIPO-149; 0019 section
-    // 10): the base, the base commit and the conflicted paths. Absent once a merge handled it.
+    // A conflict with the base found while the story is In Review (DIPO-149;
+    // 0019): the base, the base commit and the conflicted paths. Absent once a merge handled it.
     baseConflict: z
       .object({
         base: z.string(),
@@ -514,7 +513,7 @@ export const storyGate = defineRead({
 export const LostCommit = z.object({ sha: z.string(), subject: z.string() });
 export type LostCommit = z.infer<typeof LostCommit>;
 
-// What `story.drop` with `deleteBranch` loses (DIPO-228; 0020 section 8): the commits on the
+// What `story.drop` with `deleteBranch` loses (DIPO-228; 0020): the commits on the
 // story's branch that are not on the base. The branch is the live claim's, else the open released
 // branches of the story; empty for a story with neither. Changes nothing. A story has no worktree,
 // so no uncommitted files are lost (DIPO-349).
@@ -620,7 +619,7 @@ export const officeStats = defineRead({
   result: z.object({ office: OfficeId, tables: z.array(TableStats) }),
 });
 
-// The kinds of a desk item (0020 section 12), as `dipo desk` prints them. Open: later stories add
+// The kinds of a desk item (0020), as `dipo desk` prints them. Open: later stories add
 // kinds (DIPO-161 `DONE ELSEWHERE` and `LEFTOVERS`, 0019 `PR HEAD CHANGED`, scope requests; DIPO-310
 // `PROFILE`, a pending proposal or stale confirmation of the run profile, with no story; DIPO-359
 // `STARTS PAUSED`, the office's starts paused with its reason and what lifts it, with no story;
@@ -650,7 +649,7 @@ export const DeskKind = openEnum(KNOWN_DESK_KINDS);
 export type DeskKind = z.infer<typeof DeskKind>;
 
 // A command a desk item offers: the contract command and the exact command line to type, built by
-// the engine (0020 section 12).
+// the engine (0020).
 export const DeskAction = z.object({ command: CommandName, cli: z.string() });
 export type DeskAction = z.infer<typeof DeskAction>;
 
@@ -664,7 +663,7 @@ export const DeskProposal = z.object({
 });
 export type DeskProposal = z.infer<typeof DeskProposal>;
 
-// One thing that waits on the maintainer (0020 section 12). `detail` is one code-built line;
+// One thing that waits on the maintainer (0020). `detail` is one code-built line;
 // `since` is when it began to wait; `blocks` lists the active stories that depend on its story.
 // `actions` are the commands it offers; `hand` says what to do by hand when no dipo command does
 // it, such as a merge on the code host for a PR labelled `autorelease: pending`.
@@ -696,7 +695,7 @@ export const officeDesk = defineRead({
   result: z.array(DeskItem),
 });
 
-// Events (office stream, 0005 section 5)
+// Events (office stream, 0005)
 
 // `detail` holds gate failure messages, for example a failed pickup re-check.
 export const storyState = defineEvent({
@@ -743,7 +742,7 @@ export const runEnded = defineEvent({
 });
 
 // The work events below carry the optional `view` (DIPO-52): the `WorkView` the
-// engine derived when it stored the fact (0005 section 6), so a client replaces the run's view
+// engine derived when it stored the fact (0005), so a client replaces the run's view
 // and never derives health or phase itself.
 
 // Run start and re-attach on resume.
@@ -865,7 +864,7 @@ export const storyParked = defineEvent({
   }),
 });
 
-// Sent when a story's PR opens, changes state or gets a new head (0019 section 14).
+// Sent when a story's PR opens, changes state or gets a new head (0019).
 // (DIPO-140).
 export const storyPr = defineEvent({
   type: "story.pr",
@@ -874,7 +873,7 @@ export const storyPr = defineEvent({
   data: z.object({ story: StoryId, key: StoryKey, pr: StoryPr }),
 });
 
-// (DIPO-166; 0020 section 14) [`proposals`]: a worker report's proposal was stored for
+// (DIPO-166; 0020) [`proposals`]: a worker report's proposal was stored for
 // the maintainer, once per proposal (a later report with the same title and paths files none).
 // `title` is the worker's words, cleaned of terminal control characters and on one line.
 export const proposalFiled = defineEvent({

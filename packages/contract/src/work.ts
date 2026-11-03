@@ -1,6 +1,6 @@
 // The story and work model: lifecycle, park and skip reasons, tiers, phases, signals, health,
-// evidence, and the views the engine derives (0005 section 5 with the 0008 and 0009 additions).
-// Clients render views as they arrive and never derive status themselves (0005 section 6).
+// evidence, and the views the engine derives (0005 with the 0008 and 0009 additions).
+// Clients render views as they arrive and never derive status themselves (0005).
 
 import { z } from "zod";
 
@@ -8,7 +8,7 @@ import { AgentId, GateId, QuestionId, RoleId, RunId, StoryId, StoryKey, TestId }
 
 // An open enum: the known values are exported, and any other string still parses, so an older
 // client keeps working against a newer engine. A client renders an unknown value generically, as
-// its plain word (0005 section 7 and amendment of 2026-10-12). A new known value is a minor change.
+// its plain word (0005). A new known value is a minor change.
 export type OpenEnum<T extends string> = T | (string & {});
 
 export function openEnum<const T extends readonly [string, ...string[]]>(
@@ -23,8 +23,8 @@ export function openEnum<const T extends readonly [string, ...string[]]>(
 const Count = z.int().nonnegative();
 const Timestamp = z.iso.datetime();
 
-// 0012 section 2. Removed is engine-only: the terminal state of an archived or deleted story.
-// Closed enum: a new state is a major change (0005 section 11).
+// 0012. Removed is engine-only: the terminal state of an archived or deleted story.
+// Closed enum: a new state is a major change (0005).
 export const LIFECYCLES = [
   "Draft",
   "Refined",
@@ -58,7 +58,7 @@ export const KNOWN_PARK_REASONS = [
 export const ParkReason = openEnum(KNOWN_PARK_REASONS);
 export type ParkReason = z.infer<typeof ParkReason>;
 
-// Why `work.run` did not start a story (0005 section 4). `notRunnable` covers states run never
+// Why `work.run` did not start a story (0005). `notRunnable` covers states run never
 // picks; `capacity` means `maxAgents` or the office cap was reached. The office's starts paused
 // (0020) refuses the whole `work.run` instead of skipping a story.
 export const KNOWN_SKIP_REASONS = [
@@ -110,7 +110,7 @@ export const KNOWN_GATE_KINDS = ["review", "test", "merge"] as const;
 export const GateKind = openEnum(KNOWN_GATE_KINDS);
 export type GateKind = z.infer<typeof GateKind>;
 
-// How the engine knows a value (0009 section 3). Closed.
+// How the engine knows a value (0009). Closed.
 export const Evidence = z.enum(["checked", "claimed", "estimated", "none"]);
 export type Evidence = z.infer<typeof Evidence>;
 
@@ -118,7 +118,7 @@ export type Evidence = z.infer<typeof Evidence>;
 export const EvidenceMap = z.record(z.string(), Evidence);
 export type EvidenceMap = z.infer<typeof EvidenceMap>;
 
-// A story named in a command: its Backlog.md id or its key (0005 section 2).
+// A story named in a command: its Backlog.md id or its key (0005).
 export const StoryRefValue = z.union([StoryKey, StoryId]);
 export type StoryRefValue = z.infer<typeof StoryRefValue>;
 
@@ -147,7 +147,7 @@ export const Progress = z.object({
   loopCap: Count,
   verify: VerifyState,
   reviewRound: Count,
-  // (DIPO-140, 0019 section 14): the review rounds the story may run and how many
+  // (DIPO-140, 0019): the review rounds the story may run and how many
   // of its rounds failed, so a client shows "round 2, 1 of 3 failed" without computing it.
   reviewRoundCap: Count.optional(),
   reviewRoundsFailed: Count.optional(),
@@ -189,7 +189,7 @@ export const ParkRecord = z.object({
 });
 export type ParkRecord = z.infer<typeof ParkRecord>;
 
-// One failed Ready gate rule (0012 section 3): `rule` is the R-number, `message` the full line
+// One failed Ready gate rule (0012): `rule` is the R-number, `message` the full line
 // `ready <ID> failed <rule>: <message>`.
 export const GateRuleFailure = z.object({ rule: z.string(), message: z.string() });
 export type GateRuleFailure = z.infer<typeof GateRuleFailure>;
@@ -200,7 +200,7 @@ export type GateRuleFailure = z.infer<typeof GateRuleFailure>;
 export const StoryGateFailure = GateRuleFailure.extend({ text: z.string() });
 export type StoryGateFailure = z.infer<typeof StoryGateFailure>;
 
-// The story's PR on the code host (0019 section 3). (DIPO-140).
+// The story's PR on the code host (0019). (DIPO-140).
 export const KNOWN_STORY_PR_STATES = ["open", "merged", "closed"] as const;
 export const StoryPrState = openEnum(KNOWN_STORY_PR_STATES);
 export type StoryPrState = z.infer<typeof StoryPrState>;
@@ -237,7 +237,7 @@ export const FindingKind = openEnum(KNOWN_FINDING_KINDS);
 export type FindingKind = z.infer<typeof FindingKind>;
 
 // A finding of a review round. `unverified` marks a blocking finding whose evidence failed the
-// code check after its correction turn, so it is kept as advisory (0019 section 5).
+// code check after its correction turn, so it is kept as advisory (0019).
 export const ReviewFinding = z.object({
   severity: z.enum(["blocking", "advisory"]),
   kind: FindingKind,
@@ -251,14 +251,14 @@ export const ReviewFinding = z.object({
 });
 export type ReviewFinding = z.infer<typeof ReviewFinding>;
 
-// A maintainer override of a blocked review, with the required note (0019 section 11).
+// A maintainer override of a blocked review, with the required note (0019).
 export const ReviewOverride = z.object({
   note: z.string().min(1),
   at: Timestamp,
 });
 export type ReviewOverride = z.infer<typeof ReviewOverride>;
 
-// One review round as shown on `story.detail` (0019 section 14). `codeTreeKey` is the code tree key
+// One review round as shown on `story.detail` (0019). `codeTreeKey` is the code tree key
 // the verdict is keyed on (section 6); `carried` is set when an approval moved to a later head.
 export const ReviewVerdict = z.object({
   round: z.int().positive(),
@@ -276,7 +276,7 @@ export const ReviewVerdict = z.object({
 });
 export type ReviewVerdict = z.infer<typeof ReviewVerdict>;
 
-// The review summary of a `gate.decided` event for a review gate (0019 section 14).
+// The review summary of a `gate.decided` event for a review gate (0019).
 export const ReviewSummary = z.object({
   round: z.int().positive(),
   commit: z.string().min(1),

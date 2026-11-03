@@ -538,7 +538,7 @@ const officeEventFixtures: Record<string, unknown> = {
   "test.ended": { test: ids.test, story: "DIPO-15", key: ids.storyKey, reason: "new-head" },
 };
 
-// `dipo` field blocks (0010 section 3).
+// `dipo` field blocks (0010).
 export const validFieldBlock = {
   branch: "DIPO-12/daemon-restart-keeps-workers",
   unknowns: [

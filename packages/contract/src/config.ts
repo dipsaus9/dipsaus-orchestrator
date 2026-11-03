@@ -1,4 +1,4 @@
-// Software-level configuration, `<state>/config.yaml` (0006 and 0017 amendments of 2026-10-12):
+// Software-level configuration, `<state>/config.yaml` (0006, 0017):
 // one strict, versioned zod schema that the daemon and every client validate with. The contract
 // has no I/O, so each side reads the file and hands its YAML parser in: the engine through
 // `platform/yaml.ts`, clients through `client/node`.
@@ -89,7 +89,7 @@ function hasSecondDocument(text: string): boolean {
 }
 
 /**
- * Parses `text` as exactly one YAML document with `parse` (0017 section 5). Never throws. Each
+ * Parses `text` as exactly one YAML document with `parse` (0017). Never throws. Each
  * side passes its own parser, so the one rule holds for the engine and for `client/node`.
  */
 export function parseSingleYamlDocument(parse: YamlParser, text: string): YamlParseResult {
@@ -266,9 +266,7 @@ export const SoftwareConfigV4 = z.strictObject({
       autostart: z
         .boolean()
         .default(true)
-        .describe(
-          "A client command that needs the daemon starts it when none is running (0006 decision 5).",
-        ),
+        .describe("A client command that needs the daemon starts it when none is running (0006)."),
     })
     .default({ autostart: true }),
   usage: z
@@ -357,7 +355,7 @@ export function resolveSoftwareConfig(
   return { ok: true, config: valid.data, fromFile: true };
 }
 
-/** The JSON Schema of `config.yaml`, for editor completion (0017 section 5). */
+/** The JSON Schema of `config.yaml`, for editor completion (0017). */
 export function softwareConfigJsonSchema(): Record<string, unknown> {
   return {
     ...(z.toJSONSchema(SoftwareConfigV4, { io: "input" }) as Record<string, unknown>),

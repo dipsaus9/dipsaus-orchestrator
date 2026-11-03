@@ -1,4 +1,4 @@
-// Envelopes and frames of 0005 section 3. Any transport carries one frame per message.
+// Envelopes and frames of 0005. Any transport carries one frame per message.
 
 import { z } from "zod";
 
@@ -31,7 +31,7 @@ export const CommandRequest = z.object({
   name: CommandName,
   args: z.unknown(), // validated against the schema for `name`
   origin: Origin,
-  confirmed: z.boolean().default(false), // 0005 section 9
+  confirmed: z.boolean().default(false), // 0005
 });
 export type CommandRequest = z.infer<typeof CommandRequest>;
 

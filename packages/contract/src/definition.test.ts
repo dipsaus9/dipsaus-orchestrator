@@ -4,7 +4,7 @@ import { contractCommands, contractReads, describeContract, commandsDescribe } f
 import { readFixtures } from "../test/fixtures";
 
 describe("command and read definitions", () => {
-  it("marks the commands of 0005 section 4 that ask first", () => {
+  it("marks the commands of 0005 that ask first", () => {
     const confirmed = contractCommands.filter((d) => d.confirm).map((d) => d.name);
     expect(confirmed.toSorted()).toEqual(
       [

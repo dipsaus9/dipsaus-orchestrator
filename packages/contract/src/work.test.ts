@@ -331,7 +331,7 @@ describe("field block", () => {
   });
 });
 
-// DIPO-158 (0020 section 12): the desk item and the `office.desk` read.
+// DIPO-158 (0020): the desk item and the `office.desk` read.
 describe("the desk", () => {
   const item = {
     kind: "PARKED",

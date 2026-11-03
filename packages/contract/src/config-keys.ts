@@ -1,6 +1,6 @@
 // Walks configuration schemas and values: key paths, the schema at a path, and a short name for
 // the type a schema expects, used in error messages. Pure, so the engine (office configuration)
-// and `client/node` (software configuration) share it (0004, 0017 section 5).
+// and `client/node` (software configuration) share it (0004, 0017).
 
 import type { z } from "zod";
 

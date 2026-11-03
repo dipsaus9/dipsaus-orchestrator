@@ -204,7 +204,7 @@ describe("commands, reads and events", () => {
 });
 
 describe("errors", () => {
-  it("exports every generic code of 0005 section 10", () => {
+  it("exports every generic code of 0005", () => {
     expect(([...GENERIC_ERROR_CODES] as string[]).toSorted()).toEqual(
       [
         "args.invalid",

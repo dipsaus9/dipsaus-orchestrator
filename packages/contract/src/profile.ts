@@ -1,4 +1,4 @@
-// The run profile's fallback and confirmation (0013 sections 4 to 6 and the amendment of 2026-10-22,
+// The run profile's fallback and confirmation (0013,
 // DIPO-310): `office.infer` starts the model session that proposes what code could not resolve,
 // `office.confirm` accepts, edits, rejects or sets a capability by hand, and `office.profile` lists
 // the profile with its confirmations, pending proposals and deviations. The shapes of the profile
@@ -11,7 +11,7 @@ import { OfficeId, RunId } from "./ids";
 
 const Timestamp = z.iso.datetime();
 
-// The capabilities of a run profile (0013 section 4). Closed: a confirm of another name is refused.
+// The capabilities of a run profile (0013). Closed: a confirm of another name is refused.
 export const PROFILE_CAPABILITIES = [
   "install",
   "setup",
@@ -35,9 +35,9 @@ export const ProfileCommands = z
 export const ProfileCwd = z.string().min(1).max(300);
 
 // (DIPO-310) [`scan.fallback`]: starts the fallback for the capabilities the current
-// profile leaves unresolved or in conflict (0013 section 6), only when the maintainer asks, never
+// profile leaves unresolved or in conflict (0013), only when the maintainer asks, never
 // on its own. `started`: its session runs now; `queued`: it starts once the office's running one
-// ends (one session run per office at a time, 0019 amendment of 2026-10-22); `nothing`: code and
+// ends (one session run per office at a time, 0019); `nothing`: code and
 // the confirmations leave nothing to infer, so no model is asked. `capabilities` names what the
 // request asks for. The proposals arrive as `scan.finished` with trigger `infer`; a proposal that
 // fails a check is dropped with an `engine.notice`. Errors: `scan.noProfile`.
@@ -86,8 +86,8 @@ export const ConfirmArgs = z.discriminatedUnion("action", [
 ]);
 export type ConfirmArgs = z.infer<typeof ConfirmArgs>;
 
-// (DIPO-310) [`scan.fallback`]: the maintainer's answer to a capability (0013 section
-// 6 steps 4 and 5). It writes only the database, recomputes the `run` refusal and emits
+// (DIPO-310) [`scan.fallback`]: the maintainer's answer to a capability
+// (0013). It writes only the database, recomputes the `run` refusal and emits
 // `scan.finished` with trigger `confirm` and the diff. `source` and `confirmed` are the
 // capability's after the command; `runRefusal` is absent when `run` may start. Errors:
 // `scan.noProfile`, `scan.noProposal` (accept, edit or reject without a pending proposal),
@@ -148,7 +148,7 @@ export const ProfileCapabilityView = z.object({
   stale: z.boolean(),
   pending: ProfileProposal.optional(),
   candidates: z.array(ProfileCandidate).optional(),
-  // How the repository could make a confirmation unnecessary (0013 section 6 step 6).
+  // How the repository could make a confirmation unnecessary (0013).
   fix: z.string().optional(),
   // The command lines this capability offers, built by the engine.
   cli: z.array(z.string()),
