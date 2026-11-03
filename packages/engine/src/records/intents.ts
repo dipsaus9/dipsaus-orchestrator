@@ -147,8 +147,6 @@ export interface IntentSent<R> {
  *   would give an outcome the adapter's `result` already gives.
  * Record-only sites send no op to a running worker and call `recordIntent` (and `markIntentSent`
  * or `resolveIntent`) directly:
- * - the plan-limit `pause` (`run/outcome-exits.ts`): stored, then resolved `plan-limit` in a second
- *   transaction; never marked sent.
  * - the start-failed `stop` (`run/outcome-sessions.ts`): stored, marked sent and resolved
  *   `startFailed` in one transaction.
  * - every `steer` of the one feedback path (`run/feedback.ts`): sent like this when the run's
