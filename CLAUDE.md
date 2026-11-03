@@ -6,7 +6,7 @@ Open source, code-driven orchestration product: the maintainer and a model run t
 
 M0 and M1 are done. M1 closed on 2026-11-02 after its close-out review; the prune toward the rewritten ADRs (`docs/research/2026-10-24-simplification-audit.md`) ended on 2026-11-01, and the prune cutover gate (DIPO-351) passed on 2026-10-29. M2 (parallel runs) is next. dipo builds the small stories and builder agents the rest (0002). Stack (0004): TypeScript on Bun, single binary `dipo`, macOS on Apple silicon.
 
-The repository is a Bun workspace (`packages/*`) with the packages `contract`, `engine`, `daemon`, `client`, `tui`, `cli` and the private test helpers `testkit`, all scoped `@dipsaus-orchestrator/*`. Import boundaries (0004) are oxlint rules in `.oxlintrc.json`, proven by `test/lint-boundaries/`.
+The repository is a Bun workspace (`packages/*`) with the packages `contract`, `engine`, `daemon`, `client`, `tui`, `cli` and the private test helpers `testkit`, all scoped `@dipsaus-orchestrator/*`. Import boundaries (0004) are oxlint rules in `.oxlintrc.json`, proven by `test/lint-boundaries/`. What each package is for, and a story's life, in plain words: `docs/how-dipo-works.md`.
 
 One command checks everything, locally and in workers; CI runs the same checks split into jobs:
 
