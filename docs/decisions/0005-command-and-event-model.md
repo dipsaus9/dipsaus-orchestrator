@@ -87,7 +87,8 @@ Every event about running work carries a `WorkRef` (story, key, run, agent, role
 ### 9. Idempotency and target state
 
 - **Commands are target-state.** Parking what is parked, or resuming a story that already runs, replies `changed: false` and changes nothing.
-- **Run commands are stored.** For the commands that start or change a run (`work.run`, `work.resume`, `work.answer`, `work.steer`, `story.park`, `work.discard`, `gate.approve`, `gate.reject`, `test.record`), the request id, a hash of the resolved args and the reply are written in the same transaction as the facts. A retry with the same id after a lost reply gets the same reply. The same id with other args fails with `request.reused`. The records go when their run ends.
+- **Office commands are stored.** For every office command, the request id, a hash of the resolved args and the reply are written with the facts, and kept one day (0007). A retry with the same id after a lost reply gets the same reply. The same id with other args fails with `request.reused`.
+- **Slow commands wait.** A command whose work takes time (`work.run`, `work.resume`, `work.answer`, `work.steer`, `work.discard`, `story.park`, `story.drop`, `gate.approve`, `gate.reject`, `test.start`, `test.record`, `proposal.accept`, `proposal.dismiss`) replies when that work is done, and its record is written then. A duplicate that arrives meanwhile waits for the same reply. Software commands keep their records in memory while they run.
 - **The text the maintainer writes** (notes, answers, steers) is a maintainer-authored fact, kept for the audit trail and as worker input.
 
 ### 10. Errors
@@ -194,7 +195,7 @@ The daemon never owns a worker process. Each session gets a worker host, `dipo d
 
 - Contract major and minor versions, capability flags and provisional commands (2026-10-10). Replaced by one contract version per binary (2026-10-24), because client and daemon ship together.
 - A random epoch in every cursor and a replay floor (2026-10-10). Gone with backups and restore (0007, 2026-10-24). A cursor beyond the last seq asks for a reset.
-- A 24-hour idempotency table for every command, a waiting path for slow commands, and a crash-injection test per command (2026-10-10, 2026-10-17). Replaced by target-state commands plus stored replies for run commands only (2026-10-24).
+- A crash-injection test per command (2026-10-10, 2026-10-17). Replaced by target-state commands with stored replies (2026-10-24).
 - A browser listener on 127.0.0.1 with a bootstrap code, session tokens, an `auth` frame and DNS-rebinding checks (2026-10-10). Never used; removed until a web client is planned (2026-10-24).
 - A `confirmed` flag for a conversation layer (2026-10-10). It returns with M5.
 - Story identity after a database loss matched by frozen branch, then created date (2026-10-10). Replaced by: a vanished id is Removed, a new id is a new story (2026-10-24).

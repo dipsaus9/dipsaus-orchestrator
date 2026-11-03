@@ -52,7 +52,7 @@ Run detail and dipo's own state, grouped by subject. The groups below hold the m
 | Identity | Story keys and their former ids (0005) |
 | Cache | `backlog_mirror`: what the engine last read from Backlog.md, keyed by content hash. Never a source of truth |
 | Change log | The outbox of section 5 |
-| Requests | Stored replies of run commands (0005), deleted when their run ends |
+| Requests | Stored replies of office commands (0005), kept one day |
 | Runs | Runs, agents, steps, intents, the caps snapshot and grants (0020), and one outcome row per ended run with what retro needs |
 | Process | Worker hosts and their processed offsets (0005) |
 | Usage | Usage per message (deduplicated by message id), totals per run, agent and model, including the cost the CLI reported (0008), and a daily rollup |
@@ -131,6 +131,5 @@ The worker host appends the session's stream to `events.ndjson`. The engine read
 - Park state kept both in the task file and in `parks`, with reconcile choosing between them. Replaced by: Backlog.md owns the state, `parks` holds detail and history (2026-10-24).
 - Identity matching by field-block key, frozen branch and created date after a database loss (2026-10-10). Replaced by: a vanished id is Removed (0005, 2026-10-24).
 - `merge_slot`, `nudge_sources`, `base_verifies`, `verify_results`, the pricing tables, transcript cursors and `usage_high_water`. Each served a mechanism that is gone (2026-10-24).
-- The 24-hour request table for every command. Replaced by stored replies for run commands only (0005, 2026-10-24).
 - Linux paths and the systemd log location (2026-10-10). macOS only (0004).
 - 74 migration steps and the load-time code that settled state earlier binaries left (2026-10-12 to 2026-11-02). Replaced by one base schema and a fresh database (2026-11-03).
