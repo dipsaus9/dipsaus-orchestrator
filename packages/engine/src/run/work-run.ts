@@ -68,7 +68,6 @@ import type {
   ReadContext,
 } from "../commands/registry";
 import type { OfficeConfig } from "../config";
-import { recordContextPack } from "../context/pack";
 import type { OfficeHandle } from "../db/office";
 import type { BaseCheckout } from "../gate-decisions/feature";
 import type { GateMode, GateResult } from "../gate/types";
@@ -280,9 +279,6 @@ function recordPrepared(
   },
 ): void {
   const { runId, agent, prepared, clock } = input;
-  const { pack, headSha } = prepared.promptSources;
-  // The pack the task message was built from, with its head and blob ids (0020 section 6).
-  recordContextPack(handle, input.branch, headSha, pack, clock);
   // The prompt parts of the session's text, measured for the run (0014 section 2).
   recordPromptParts(handle, runId, agent, prepared.parts, clock);
   // The prompt text itself, with `privacy.storePrompts` on (DIPO-137).

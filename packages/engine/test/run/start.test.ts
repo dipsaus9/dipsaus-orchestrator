@@ -28,7 +28,6 @@ import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry, type Registry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
-import { contextPackOf } from "../../src/context/pack";
 import type { Workspace } from "../../src/context/types";
 import type { OfficeHandle } from "../../src/db/office";
 import type { GateResult } from "../../src/gate/types";
@@ -555,13 +554,6 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(agent?.session_id).toMatch(UUID);
     expect(flag("--session-id")).toBe(agent?.session_id);
     expect(agent).toMatchObject({ effort: caps.effort, model: caps.model });
-
-    // The task message's context pack is recorded for the branch with the head it read and the
-    // blob ids of its files (0020 section 6).
-    const pack = contextPackOf(world.office, "TASK-1/add-a-greeting");
-    expect(pack?.headSha).toMatch(/^[0-9a-f]{40}$/);
-    expect(Object.keys(pack?.blobIds ?? {})).toContain("src/greet.ts");
-    expect(pack?.blobIds["src/greet.ts"]).toMatch(/^[0-9a-f]{40}$/);
 
     // The system file is in the run directory; the task message is the first stdin line.
     const systemFile = flag("--append-system-prompt-file") as string;

@@ -1,6 +1,5 @@
 // The default provider on a real temporary repository (DIPO-46 AC #5, #6 and #8): git lists the
-// files through the office's hardened queue, the pack lists the tests next to scope files, and the
-// pack is recorded in `context_packs` with the head sha and blob ids.
+// files through the office's hardened queue, and the pack lists the tests next to scope files.
 
 import { describe, expect, it } from "bun:test";
 import { linkSync, mkdirSync, realpathSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
@@ -15,21 +14,15 @@ import {
 } from "@dipsaus-orchestrator/testkit";
 
 import {
-  contextPackOf,
   createDefaultProvider,
   encodePack,
-  forgetContextPack,
   gitWorkspace,
-  packDigest,
-  recordContextPack,
   sizeClassOfWorkspace,
   type FileRefusal,
 } from "../../src/context";
 import { readInside } from "../../src/context/workspace";
-import { openStateDatabase } from "../../src/db/database";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
-import { localMounts, memoryLogger } from "../db/helpers";
 import { request } from "./helpers";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z00000046" as OfficeId;
@@ -174,60 +167,6 @@ describe("default provider on a repository", () => {
         },
       },
     ));
-
-  it("records the pack per worktree with head sha and blob ids", () =>
-    withTempDir(async (dir) => {
-      const clock = new ManualClock();
-      const state = await openStateDatabase({
-        stateDir: join(dir, "state"),
-        logger: memoryLogger(),
-        readMounts: localMounts,
-        clock,
-        engineVersion: "0.0.0-test",
-      });
-      try {
-        state.connection.immediate(() =>
-          state.connection.run(
-            `insert into offices (office_id, path, display_name, added_at, next_seq)
-             values ($id, '/repo', 'repo', 0, 1)`,
-            { id: OFFICE },
-          ),
-        );
-        const office = state.office(OFFICE);
-        const pack = {
-          items: [],
-          usedChars: 0,
-          truncated: false,
-          provenance: {
-            provider: "default",
-            version: "1",
-            indexState: "ready" as const,
-            staleFiles: [],
-            notes: [],
-          },
-          inputs: { paths: [], items: [], usedChars: 0, truncated: false },
-          blobIds: { "b.ts": "2".repeat(40), "a.ts": "1".repeat(40) },
-        };
-        const head = "f".repeat(40);
-        const record = recordContextPack(office, "DIPO-1/add-a-greeting", head, pack, clock);
-        expect(contextPackOf(office, "DIPO-1/add-a-greeting")).toEqual(record);
-        expect(record).toEqual({
-          branch: "DIPO-1/add-a-greeting",
-          headSha: head,
-          blobIds: { "a.ts": "1".repeat(40), "b.ts": "2".repeat(40) },
-          provider: "default",
-          packSha256: packDigest(pack),
-          builtAt: clock.now(),
-        });
-        clock.advance(1_000);
-        const later = recordContextPack(office, "/wt/DIPO-1", "e".repeat(40), pack, clock);
-        expect(contextPackOf(office, "/wt/DIPO-1")).toEqual(later);
-        forgetContextPack(office, "/wt/DIPO-1");
-        expect(contextPackOf(office, "/wt/DIPO-1")).toBeNull();
-      } finally {
-        state.close();
-      }
-    }));
 });
 
 describe("workspace reads on a repository", () => {

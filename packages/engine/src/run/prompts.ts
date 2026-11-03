@@ -12,7 +12,7 @@ import type { OfficeConfig } from "../config";
 import { createDefaultProvider } from "../context/default-provider";
 import { gatherContext } from "../context/gather";
 import { sizeClassOfWorkspace } from "../context/size";
-import type { ContextPack, Workspace } from "../context/types";
+import type { Workspace } from "../context/types";
 import { assembleTaskMessage, taskBudgetsFor } from "../prompts/assemble";
 import type { Section } from "../prompts/contract";
 import type { HandoffFacts } from "../prompts/handoff";
@@ -48,12 +48,6 @@ export interface RunPrompts {
   readonly taskMessage: string;
   /** The task message's sections in message order, measured per section (0014 section 2). */
   readonly sections: readonly Section[];
-  /**
-   * The context pack the task message was built from and the head it was read at, for its
-   * `context_packs` record (`recordContextPack`, 0014 section 10, 0020 section 6).
-   */
-  readonly pack: ContextPack;
-  readonly headSha: string;
 }
 
 /**
@@ -98,8 +92,6 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
     systemFile: renderSystemFile("implement-box", "developer"),
     taskMessage: task.text,
     sections: task.sections,
-    pack,
-    headSha,
   };
 }
 

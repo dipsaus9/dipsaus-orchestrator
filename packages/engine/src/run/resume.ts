@@ -7,8 +7,6 @@
 //   message with the handoff block of the branch (commits since the claim's base, the last
 //   report's criteria, the last verify, the run's open feedback from `feedback_items`, the previous
 //   worker's notes; 0020 section 6), and the context pack read from the branch tip's git objects.
-//   The context pack the task message was built from is recorded for the branch
-//   (`recordContextPack`) when the new session starts with it.
 // - The one feedback path (0002): every message held for the run's next developer session
 //   (`heldFeedback`: a fix round's findings, a resumed park's reason and note, a steer, also one
 //   the last session was sent and did not read) follows the delta or the task message, and is
@@ -43,8 +41,7 @@ import type {
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeConfig } from "../config";
-import { recordContextPack } from "../context/pack";
-import type { ContextPack, Workspace } from "../context/types";
+import type { Workspace } from "../context/types";
 import type { OfficeHandle } from "../db/office";
 import { parseFieldBlock } from "../story-store/fields/block";
 import type { StoryStore } from "../story-store/store";
@@ -207,11 +204,9 @@ export interface HandoffExtra {
   readonly box: boolean;
 }
 
-/** A new session's task message with its handoff block, and what it was built from. */
+/** A new session's task message with its handoff block. */
 interface HandoffMessage {
   readonly text: string;
-  readonly pack: ContextPack;
-  readonly headSha: string;
 }
 
 export interface NextSessionRequest {
@@ -450,10 +445,6 @@ export class RunResumer implements NextSession {
         deps.clock,
       );
       const at = deps.clock.now();
-      // The pack a new session's task message was built from (0020).
-      if (run.branch !== null) {
-        recordContextPack(office, run.branch, handoff.headSha, handoff.pack, deps.clock);
-      }
       const cleared = clearSignals(office, run.runId, HOST_SIGNALS, at);
       if (cleared.length === 0) return;
       appendEntries(
@@ -676,11 +667,7 @@ export class RunResumer implements NextSession {
       handoff,
       ...(box ? { box: true } : {}),
     });
-    return {
-      text: prompts.taskMessage,
-      pack: prompts.pack,
-      headSha: prompts.headSha,
-    };
+    return { text: prompts.taskMessage };
   }
 
   async #gather(

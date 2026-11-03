@@ -10,15 +10,7 @@ export {
 export type { DefaultProviderOptions } from "./default-provider";
 export { gatherContext } from "./gather";
 export type { GatherContextOptions } from "./gather";
-export {
-  contextPackOf,
-  encodePack,
-  forgetContextPack,
-  gitBlobId,
-  packDigest,
-  recordContextPack,
-} from "./pack";
-export type { ContextPackRecord } from "./pack";
+export { encodePack, gitBlobId, packDigest } from "./pack";
 export {
   CONTEXT_BUDGETS,
   CONTEXT_ITEM_MAX,

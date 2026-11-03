@@ -27,7 +27,6 @@
 import type { Clock, LostCommit, OfficeId, RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries, type NewEntry } from "../changelog/log";
-import { forgetContextPack } from "../context/pack";
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
 import { closeQuestion, openQuestions } from "../run-state/questions";
@@ -404,7 +403,6 @@ export function releaseDoneElsewhere(
       });
     }
     forgetWorkerNotes(office, claim.branch);
-    forgetContextPack(office, claim.branch);
     if (findDoneElsewhere(office, claim.runId) === null) {
       insertRow(office, claim, baseCommit, { releasedAt: at });
     } else {

@@ -9,13 +9,12 @@
 // branch is deleted only while it is still at the judged tip (`deleteBranch` of the git writer),
 // then the remote branch with a lease on the tip dipo pushed (the judged tip,
 // else the story PR's recorded head; `deleteRemoteBranch`), a branch the remote no longer has being
-// fine. Only after the git steps the claim is released (`done`) and the branch's `worker_notes` and
-// `context_packs` are deleted. A teardown a crash interrupted is finished by the next poll, whose
+// fine. Only after the git steps the claim is released (`done`) and the branch's `worker_notes` are
+// deleted. A teardown a crash interrupted is finished by the next poll, whose
 // Done check still reads the merged PR. Every step is idempotent.
 
 import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
 
-import { forgetContextPack } from "../context/pack";
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
 import { deleteBranch, deleteRemoteBranch, remoteUrl } from "../git/write";
@@ -116,7 +115,6 @@ export async function tearDown(
       keepBranch: false,
     });
     forgetWorkerNotes(deps.office, claim.branch);
-    forgetContextPack(deps.office, claim.branch);
     const entries = [
       notice(
         "info",

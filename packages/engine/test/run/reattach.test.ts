@@ -27,7 +27,6 @@ import { cleanEnv, readRecording } from "@dipsaus-orchestrator/testkit";
 
 import type { RunBoxes } from "../../src/box/lifetime";
 import { BOX_RUN_FILE } from "../../src/box/workers";
-import { contextPackOf, gitBlobId } from "../../src/context/pack";
 import { BOX_CHANGES, BOX_VERIFY } from "../../src/prompts/handoff";
 import { recordWorkerNotes } from "../../src/prompts/notes";
 import { renderSystemFile } from "../../src/prompts/system";
@@ -2327,20 +2326,6 @@ describe("the handoff of a new session: notes, open feedback and the context pac
       "Conflict in src/greet.ts.",
       "Red CI on the next head.",
     ]);
-  });
-
-  it("records the context pack of a new session's task message", async () => {
-    firstSession();
-    const facts = { probe: async () => null, story: async () => storyOf(), handoff, workspace };
-    expect(contextPackOf(w.f.office, branchOf())).toBeNull();
-    const fresh = await realResumer(hosts, facts).next(nextRequest());
-    expect(fresh).toMatchObject({ kind: "started" });
-    const pack = contextPackOf(w.f.office, branchOf());
-    // The head the pack read and the blob id of the scope file it holds (0014 section 10).
-    expect(pack?.headSha).toBe("0".repeat(40));
-    expect(pack?.blobIds).toEqual({
-      "src/new.ts": gitBlobId(Buffer.from("export const fresh = 1;\n")),
-    });
   });
 
   it("a box run's handoff says its changes are in the box and reads no worktree diff", async () => {

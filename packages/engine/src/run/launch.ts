@@ -74,7 +74,7 @@ import type { ClaimRecord } from "../worktree/records";
 import { withWorkViews } from "../views/work";
 
 import { markPhase } from "../ingest/markers";
-import { type RunPrompts, renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
+import { renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 import { runTempDir, SHORT_TEMP_PREFIX, shortTempDir } from "./temp-dirs";
 
 /**
@@ -242,11 +242,6 @@ export interface PreparedRun extends ClaimSetupDone {
   readonly plan: LaunchPlan;
   readonly paths: RunLaunchPaths;
   readonly officeDir: string;
-  /**
-   * The first session's context pack with the head it was read at, recorded in `context_packs`
-   * (0020 section 6).
-   */
-  readonly promptSources: Pick<RunPrompts, "pack" | "headSha">;
   /** The measured prompt parts of the first session: system, task and each task section. */
   readonly parts: readonly PromptPart[];
   /** The system file and task message texts, stored when `privacy.storePrompts` is on (DIPO-137). */
@@ -427,7 +422,6 @@ export class RunLauncher {
       return { ok: false, reason, log: `launch: ${reason}` };
     };
     let spec: WorkerSpec;
-    let promptSources: PreparedRun["promptSources"];
     let parts: PromptPart[];
     let texts: PromptText[];
     try {
@@ -451,10 +445,6 @@ export class RunLauncher {
       ensurePrivateDir(paths.runDir);
       spec = this.#spec(facts, paths, prompts.taskMessage, RunLauncher.sessionOf(facts.agent));
       writeFileSync(spec.systemFile, prompts.systemFile, { mode: 0o600 });
-      promptSources = {
-        pack: prompts.pack,
-        headSha: prompts.headSha,
-      };
       parts = promptParts(prompts.systemFile, prompts.taskMessage, prompts.sections);
       texts = [
         { part: "system", text: prompts.systemFile },
@@ -521,7 +511,6 @@ export class RunLauncher {
       plan: prepared.plan,
       paths,
       officeDir: paths.officeDir,
-      promptSources,
       parts,
       texts,
       release: () => {

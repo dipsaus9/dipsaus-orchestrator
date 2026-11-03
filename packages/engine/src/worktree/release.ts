@@ -13,7 +13,6 @@
 
 import type { Clock, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 
-import { forgetContextPack } from "../context/pack";
 import type { OfficeHandle } from "../db/office";
 import { FETCH_CONFIG } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
@@ -60,7 +59,6 @@ export async function releaseForDrop(
       keepBranch: !options.deleteBranch,
     });
     forgetWorkerNotes(deps.office, claim.branch);
-    forgetContextPack(deps.office, claim.branch);
   });
   return outcome;
 }
@@ -129,7 +127,6 @@ export async function releaseForDiscard(
       keepBranch: false,
     });
     forgetWorkerNotes(deps.office, claim.branch);
-    forgetContextPack(deps.office, claim.branch);
   });
   return outcome;
 }
