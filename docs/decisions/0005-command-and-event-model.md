@@ -51,7 +51,7 @@ The daemon serves the frames of one connection side by side. Reads run as they a
 | Gates | `gate.approve`, `gate.reject` |
 | Proposals | `proposal.accept`, `proposal.dismiss` |
 | Testing | `test.start`, `test.record` |
-| Daemon | `daemon.stop`, `daemon.setLogLevel`, `daemon.resumeScheduling` |
+| Daemon | `daemon.stop`, `daemon.setLogLevel`, `daemon.resumeStarts` |
 
 Their behaviour is decided where the subject lives: 0020 for park, resume, drop and discard; 0002 for gates and testing; 0013 for scan, infer and confirm; 0010 for init. `commands.describe` lists every command and read with the JSON Schema of its args and result, and marks those a client must confirm first (`confirm`) or ask for a typed id (`irreversible`). A ritual or roster command arrives with its milestone (0003).
 

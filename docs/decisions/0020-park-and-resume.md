@@ -77,7 +77,7 @@ A resume of a story whose reviewer was the one that stopped (a reviewer cap or a
 
 ## 6. Starts paused
 
-Some problems belong to the office, not to a story: the subscription's plan limit, or a broken Claude CLI or box token. For these the office has one state, **starts paused**, with a reason and, when known, a time. While it holds, no new session starts in that office. The desk shows it with what lifts it. It lifts by itself when its condition clears (the reset time passes, the check passes again), or with `dipo daemon resume-scheduling`. A pause for the box token is the exception: it lifts only when a new box login (`dipo login box`) replaces the token, so a token that may have leaked is never waved away.
+Some problems belong to the office, not to a story: the subscription's plan limit, or a broken Claude CLI or box token. For these the office has one state, **starts paused**, with a reason and, when known, a time. While it holds, no new session starts in that office. The desk shows it with what lifts it. It lifts by itself when its condition clears (the reset time passes, the check passes again), or with `dipo daemon resume-starts`. A pause for the box token is the exception: it lifts only when a new box login (`dipo login box`) replaces the token, so a token that may have leaked is never waved away.
 
 A session already running when the plan limit hits ends, and its story parks `worker-failed` with the detail "plan limit until <time>". When the office's starts paused lifts, dipo resumes exactly those parks by itself. This is the one resume that needs no command: no cap grows, nobody has to decide anything, and code knows both the cause and the time. That way overnight work continues after the reset.
 

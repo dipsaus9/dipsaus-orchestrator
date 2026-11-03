@@ -84,13 +84,13 @@ Every kind of feedback reaches the developer the same way: as a message to the d
 
 ## 7. The merge gate
 
-The gate opens when the review approved the head. It is decided **by rule**, and recorded, at once: dipo does not wait for the head's checks, unless they are already red or one of them already failed, because GitHub's auto-merge waits for them on the close-out head (section 8), so CI runs once. When one of the reasons below holds as the gate is first decided, the gate instead **waits for the maintainer**, and it opens only once the head's required checks are green, so the maintainer only ever approves something that can merge and no task file reads Done while that gate waits. A hold label, or a release-path change, that arrives after the close-out reopens the gate on the closed-out head, whose Done stands on the branch until the merge or a fix round; the merge still waits for green checks. The gate waits for the maintainer when:
+The gate opens when the review approved the head. It is decided **by rule**, and recorded, at once: dipo does not wait for the head's checks, unless they are already red or one of them already failed, because GitHub's auto-merge waits for them on the close-out head (section 8), so CI runs once. When one of the reasons below holds as the gate is first decided, the gate instead **waits for the maintainer**, and it opens only once the head's required checks are green, so the maintainer only ever approves something that can merge and no task file reads Done while that gate waits. A wait label, or a release-path change, that arrives after the close-out reopens the gate on the closed-out head, whose Done stands on the branch until the merge or a fix round; the merge still waits for green checks. The gate waits for the maintainer when:
 
 - `merge.autoMerge` is `false` in the office config;
 - the story is flagged test before merge, and no test pass is recorded for this head. A flagged story waits for green checks even when a pass was recorded while it was reviewed;
 - the reviewer marked a criterion `maintainer`;
 - the story passed review only through a maintainer override;
-- the PR has a hold label from `merge.holdLabels`;
+- the PR has a wait label from `merge.waitLabels`;
 - the base requires no checks: a read of its required checks succeeded and listed none, so GitHub's auto-merge would not wait for CI;
 - the diff changes a path that the base's `CODEOWNERS` gives an owner (the release path). Such a gate is decided only by a hand merge on GitHub: `dipo approve` refuses it, and dipo never merges it or uses `--admin`;
 - the diff, read fresh from the merge base to the head with renames as a delete and an add, adds, changes or deletes any file under `docs/decisions/` (any depth, any file type, any letter case), so no ADR change merges without the maintainer's approval of its wording. `dipo approve` decides this gate; when git cannot read the changed files, the gate waits too and nothing merges. A backlog PR that touches `docs/decisions/` gets no auto-merge for the same reason (0010);
@@ -114,7 +114,7 @@ When the gate is approved, dipo:
 3. Watches through the PR poll:
    - **Merged:** Done.
    - **Conflict, or red checks:** dipo turns auto-merge off and starts a fix round. The status goes back to In Progress in the next commit, and the next close-out replaces the final summary.
-   - **A hold label appears, or a head dipo did not push:** dipo turns auto-merge off and the gate waits again.
+   - **A wait label appears, or a head dipo did not push:** dipo turns auto-merge off and the gate waits again.
 
 **One Done check.** A story is Done when its PR is merged, or when the story reads `Done` on the base while dipo holds a claim (a story finished outside dipo, 0020). One function decides this from the PR poll and the base. Teardown releases the claim and deletes the box and the branch.
 
