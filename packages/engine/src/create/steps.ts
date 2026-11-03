@@ -128,7 +128,7 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
     commands.proposals.feature,
     runs.control.feature,
     runs.outcomes.feature,
-    runs.permissions.feature,
+    runs.answers.feature,
     // The office's starts paused, armed again at load, and `work.resume` (0020).
     runs.startsPaused.feature,
     runs.resumption.feature,

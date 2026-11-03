@@ -67,7 +67,7 @@ export interface QuestionParkResumer {
   replay(ctx: AsyncCommandContext, run: StoredRun): Promise<{ readonly run?: string } | null>;
 }
 
-export interface PermissionAsksDeps {
+export interface QuestionAnswersDeps {
   /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
   readonly stories: ParkStore;
   readonly clock: Clock;
@@ -85,9 +85,9 @@ export function workerAnswerText(text: string): string {
   return `${WORKER_ANSWER_INTRO}\n\n${text.trim()}`;
 }
 
-export class PermissionAsks {
-  readonly #deps: PermissionAsksDeps;
-  constructor(deps: PermissionAsksDeps) {
+export class QuestionAnswers {
+  readonly #deps: QuestionAnswersDeps;
+  constructor(deps: QuestionAnswersDeps) {
     this.#deps = deps;
   }
 
@@ -224,7 +224,7 @@ export class PermissionAsks {
           handle: (ctx, args) => this.answer(ctx, args),
         });
         // Questions a previous daemon left open with no park: nothing waits on them.
-        registry.registerLoadStep("expire open permission questions", (ctx) => {
+        registry.registerLoadStep("expire open questions", (ctx) => {
           const stale = openQuestions(ctx.office).filter((question) => question.parkId === null);
           // A park's question whose park ended, and the question of a park from before every
           // answer was text (DIPO-344): nothing waits on either.

@@ -26,10 +26,10 @@ import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import {
-  PermissionAsks,
+  QuestionAnswers,
   type QuestionParkResumer,
   workerAnswerText,
-} from "../../src/questions/permissions";
+} from "../../src/questions/answers";
 import { findQuestion, insertWorkerQuestion, openQuestions } from "../../src/run-state/questions";
 import { type BranchPark, RunControl } from "../../src/run";
 import { insertRun } from "../../src/records";
@@ -54,7 +54,7 @@ interface World {
   readonly dir: string;
   readonly f: IngestFixture;
   readonly control: RunControl;
-  readonly asks: PermissionAsks;
+  readonly asks: QuestionAnswers;
   readonly sent: HostOp[][];
   readonly work: WorkRef;
   /** The question park resumes `work.answer` asked for. */
@@ -63,7 +63,7 @@ interface World {
 
 let w: World;
 
-function asksFor(world: World): PermissionAsks {
+function asksFor(world: World): QuestionAnswers {
   const resumer: QuestionParkResumer = {
     resume: async (_ctx, run, park, text) => {
       world.resumed.push({ run: run.runId, parkId: park.parkId, answer: text });
@@ -71,7 +71,7 @@ function asksFor(world: World): PermissionAsks {
     },
     replay: async () => null,
   };
-  return new PermissionAsks({
+  return new QuestionAnswers({
     stories: backlogLayout,
     clock: world.f.t.clock,
     questionParks: () => resumer,
@@ -108,7 +108,7 @@ beforeEach(async () => {
     encode,
   });
   (world as { control: RunControl }).control = control;
-  (world as { asks: PermissionAsks }).asks = asksFor(world);
+  (world as { asks: QuestionAnswers }).asks = asksFor(world);
   const { office, run } = f;
   const { key } = office.immediate(() =>
     addStory(office, f.t.ids, { story: StoryId.parse("DIPO-1") }, f.t.clock.now()),
@@ -219,7 +219,7 @@ function answersSent(): HostOp[][] {
 let requests = 0;
 function answer(
   args: Record<string, unknown>,
-  asks: PermissionAsks = w.asks,
+  asks: QuestionAnswers = w.asks,
 ): Promise<CommandReply> {
   requests += 1;
   return executeCommand(
@@ -253,7 +253,7 @@ async function pass(ms: number): Promise<void> {
 async function loadStep(): Promise<void> {
   const step = buildRegistry([w.asks.feature])
     .loadSteps()
-    .find((candidate) => candidate.name === "expire open permission questions");
+    .find((candidate) => candidate.name === "expire open questions");
   await step?.run({
     officeId: w.f.office.officeId as OfficeId,
     office: w.f.office,

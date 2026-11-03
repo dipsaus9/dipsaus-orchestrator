@@ -50,7 +50,7 @@ function srcFiles(): string[] {
 describe("no live question route (DIPO-428)", () => {
   it("scans the src folders of the packages", () => {
     const files = srcFiles().map((file) => relative(PACKAGES, file));
-    expect(files).toContain("engine/src/questions/permissions.ts");
+    expect(files).toContain("engine/src/questions/answers.ts");
     expect(files).toContain("daemon/src/server.ts");
     expect(files).toContain(SCHEMA);
   });

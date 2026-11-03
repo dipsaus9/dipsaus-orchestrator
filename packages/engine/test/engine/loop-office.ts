@@ -780,7 +780,7 @@ async function buildDaemon(
     // next session (DIPO-324), as `BoxCollisions.copyPending` copies them into a real box.
     boxSync: (office, run) => copyIntoWorktree(office, run),
   });
-  const { control, outcomes, resumption, permissions, startsPaused, places, fixRounds, launcher } =
+  const { control, outcomes, resumption, answers, startsPaused, places, fixRounds, launcher } =
     runs;
   if (
     control === null ||
@@ -886,7 +886,7 @@ async function buildDaemon(
       mergeGates.feature,
       control.feature,
       outcomes.feature,
-      permissions.feature,
+      answers.feature,
       startsPaused.feature,
       resumption.feature,
       places.feature,

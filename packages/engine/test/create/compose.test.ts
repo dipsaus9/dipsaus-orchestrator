@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import { StoryId } from "@dipsaus-orchestrator/contract";
 
-import { PermissionAsks } from "../../src/questions/permissions";
+import { QuestionAnswers } from "../../src/questions/answers";
 import {
   FixRounds,
   pendingReviews,
@@ -149,7 +149,7 @@ describe("composeRuns", () => {
   test("without control builds only ingestion, the live question rule and the launcher", () => {
     const composed = compose({ outcomes: {}, startsPaused: {}, reattach: REATTACH });
     expect(composed.ingest).toBeInstanceOf(OfficeIngest);
-    expect(composed.permissions).toBeInstanceOf(PermissionAsks);
+    expect(composed.answers).toBeInstanceOf(QuestionAnswers);
     expect(composed.launcher).toBeInstanceOf(RunLauncher);
     // Outcomes, the office's starts paused and re-attach need run control.
     expect(composed.control).toBeNull();
@@ -277,7 +277,7 @@ const BUILT_BY_COMPOSE = [
   "RunOutcomes",
   "RunReattacher",
   "OfficeIngest",
-  "PermissionAsks",
+  "QuestionAnswers",
   "WebCalls",
   "PlanLimits",
 ];

@@ -1,5 +1,5 @@
 // The one wiring of the run services (DIPO-129): ingestion with the web call counts, `work.answer`
-// (`PermissionAsks`), run control, worker outcomes, the resumer, the office's starts paused, the office's session
+// (`QuestionAnswers`), run control, worker outcomes, the resumer, the office's starts paused, the office's session
 // places (DIPO-142) with the pending reviews and their starter (DIPO-219), the fix rounds and
 // their starter (DIPO-148), the launcher and re-attach, built from injected ports. The daemon and
 // the engine's run tests both build them here, so a test exercises the wiring the daemon runs.
@@ -13,7 +13,7 @@ import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 import { BOX_RUN_FILE } from "../box/workers";
 import type { BoxWorkers } from "../box/workers";
 
-import { PermissionAsks } from "../questions/permissions";
+import { QuestionAnswers } from "../questions/answers";
 import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
 import { currentProfile } from "../scan/store";
 import type { RunProfile } from "../scan/detect";
@@ -142,7 +142,7 @@ export interface RunPorts {
 export interface ComposedRuns {
   readonly ingest: OfficeIngest;
   /** `work.answer` on the question a park carries (0020). */
-  readonly permissions: PermissionAsks;
+  readonly answers: QuestionAnswers;
   readonly control: RunControl | null;
   readonly outcomes: RunOutcomes | null;
   /** Park resume and `work.resume` (DIPO-138), sharing the outcomes' facts. */
@@ -221,14 +221,14 @@ function buildControl(ports: RunPorts, partners: RunPartners): RunControl | null
 }
 
 interface RunListeners {
-  readonly permissions: PermissionAsks;
+  readonly answers: QuestionAnswers;
   readonly webCalls: WebCalls;
   readonly runEvents: OfficeRunListener;
 }
 
 /** `work.answer` and the web calls, and the one listener per ingestion pass. */
 function buildRunListeners(ports: RunPorts, partners: RunPartners): RunListeners {
-  const permissions = new PermissionAsks({
+  const answers = new QuestionAnswers({
     stories: ports.stories,
     clock: ports.clock,
     // An answer to a question park resumes it through work.resume's park path (DIPO-159).
@@ -249,7 +249,7 @@ function buildRunListeners(ports: RunPorts, partners: RunPartners): RunListeners
       onEnded?.(office, run);
     },
   };
-  return { permissions, webCalls, runEvents };
+  return { answers, webCalls, runEvents };
 }
 
 function buildIngest(
@@ -659,7 +659,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
   const partners = runPartners();
   const control = buildControl(ports, partners);
   const listeners = buildRunListeners(ports, partners);
-  const { permissions } = listeners;
+  const { answers } = listeners;
   const ingest = buildIngest(ports, control, listeners);
   const built = buildOutcomes(ports, control, ingest, partners);
   const outcomes = built?.outcomes ?? null;
@@ -669,7 +669,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
   const launcher = buildLauncher(ports, control, ingest);
   return {
     ingest,
-    permissions,
+    answers,
     control,
     outcomes,
     resumption: built?.resumption ?? null,

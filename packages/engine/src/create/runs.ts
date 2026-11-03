@@ -53,7 +53,7 @@ import {
 import { appendEntries } from "../changelog/log";
 import type { StateDatabase } from "../db/database";
 import type { EngineGit } from "../git/feature";
-import { PermissionAsks } from "../questions/permissions";
+import { QuestionAnswers } from "../questions/answers";
 import type { IngestAdapter } from "../ingest/ingestor";
 import type { Logger } from "../log/logger";
 import type { MergeGatesDeps } from "../merge/commands";
@@ -214,7 +214,7 @@ export interface EngineRuns {
    */
   readonly resumption: Resumption;
   /** The permission wait and `work.answer` (DIPO-59). */
-  readonly permissions: PermissionAsks;
+  readonly answers: QuestionAnswers;
   /** Re-attach of worker hosts after a restart (DIPO-57), a recovery step after reconcile. */
   readonly reattacher: RunReattacher;
   /**
@@ -1283,7 +1283,7 @@ function engineRunsOf(
     control: composed.control,
     outcomes: composed.outcomes,
     resumption: composed.resumption,
-    permissions: composed.permissions,
+    answers: composed.answers,
     reattacher: composed.reattacher,
     startsPaused: composed.startsPaused,
     places: composed.places,
