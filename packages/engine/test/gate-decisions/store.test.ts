@@ -76,7 +76,7 @@ describe("gate content hash", () => {
     expect(gateContentHash({ ...PASSING_STORY, status: "Ready" })).toBe(base);
   });
 
-  it("changes with the outcome, the field block and the other gate fields", () => {
+  it("changes with the Story line, the field block and the other gate fields", () => {
     const variants = [
       {
         description: description(
