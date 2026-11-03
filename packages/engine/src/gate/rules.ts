@@ -135,16 +135,21 @@ export const r04: RuleCheck = (context) => {
 
 /** R05: the minimum characters of a Story line's capability or question, and of its value. */
 export const STORY_PART_MIN = 20;
-/** R05: the Story line of a non-spike: who wants what, and why. */
-const STORY_SHAPE = /^As (?:maintainer|worker|reviewer) I want (.+?) so that (.+)\.$/;
+/**
+ * R05: the Story line of a non-spike: who wants what, and why. The role may take "a" or "the" and
+ * a comma, and the closing full stop is optional.
+ */
+const STORY_SHAPE =
+  /^As (?:a |the )?(?:maintainer|worker|reviewer),? I want (.+?) so that (.+?)\.?$/;
 /** R05: the Story line of a spike: the question to decide, and why. */
-const SPIKE_SHAPE = /^We need to decide (.+?) so that (.+)\.$/;
+const SPIKE_SHAPE = /^We need to decide (.+?) so that (.+?)\.?$/;
 const STORY_FORM = "As <maintainer|worker|reviewer> I want <capability> so that <value>.";
 const SPIKE_FORM = "We need to decide <question> so that <value>.";
 /**
  * R05: a word that reads as code rather than prose: a call, braces, an operator, a tag or generic,
- * a shell variable, a command-line flag, a snake_case or dotted identifier, or a camelCase name
- * that starts with two lowercase letters (so `macOS` and `iPhone` stay prose).
+ * a shell variable, a command-line flag, a snake_case name, a dotted name with a camelCase part, or
+ * a camelCase name that starts with two lowercase letters (so `macOS` and `iPhone` stay prose). A
+ * plain dotted name such as `github.com` or `node.js` is prose.
  */
 const CODE_WORD = [
   /\(\)/,
@@ -153,13 +158,40 @@ const CODE_WORD = [
   /\$[A-Za-z_]/,
   /^--?[A-Za-z]/,
   /[A-Za-z0-9]_[A-Za-z0-9]/,
-  /^[a-z][A-Za-z0-9]+\.[a-z][A-Za-z0-9]+/,
+  /[A-Za-z0-9]\.[a-z]+[A-Z]/,
   /^[a-z]{2,}[A-Z][a-z]/,
 ];
+/** R05: a URL. */
+const URL_WORD = /^https?:\/\//i;
+/** R05: a dotfile or dot folder, such as `.bun-version` or `.dipo`. */
+const DOT_NAME = /^\.[A-Za-z][\w.-]*$/;
+/** R05: a domain-like name followed by a path, such as `github.com/owner`. */
+const DOMAIN_PATH = /^[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+\//u;
+/**
+ * R05: the file extensions that make a dotted word a file name, such as `CLAUDE.md` or
+ * `office.yaml`. `js` is left out so `node.js` stays prose.
+ */
+const FILE_EXTENSION =
+  /^[^.].*\.(?:md|mdx|ya?ml|json|jsonc|toml|ts|tsx|mts|cts|jsx|mjs|cjs|sh|zsh|bash|txt|lock|lockb|sql|html|css|ini|env|plist|log|csv|xml|svg|png|sock|db)$/i;
 
 /** A word of a Story line without leading quotes or bracket and trailing sentence punctuation. */
 function storyWord(run: string): string {
   return run.replace(/^["'(]+/, "").replace(/[.,;:!?"']+$/, "");
+}
+
+/**
+ * R05: a word that names a file, folder or URL: a path as R10 reads one, a word with two or more
+ * slashes, a URL, a domain-like name with a path, a dotfile, or a file name with an extension.
+ */
+function storyPath(core: string): boolean {
+  return (
+    looksLikePath(core) ||
+    ((core.match(/\//g)?.length ?? 0) >= 2 && /\p{L}/u.test(core)) ||
+    URL_WORD.test(core) ||
+    DOMAIN_PATH.test(core) ||
+    DOT_NAME.test(core) ||
+    FILE_EXTENSION.test(core)
+  );
 }
 
 /** The first word of a Story line that reads as code (see `CODE_WORD`) and is no path. */
@@ -169,17 +201,46 @@ function codeWord(text: string): string | undefined {
     .split(/\s+/)
     .map(storyWord)
     .find(
-      (word) =>
-        word !== "" && !looksLikePath(word) && CODE_WORD.some((pattern) => pattern.test(word)),
+      (word) => word !== "" && !storyPath(word) && CODE_WORD.some((pattern) => pattern.test(word)),
     );
 }
 
 /**
- * R05: exactly one `Story:` line of the 0012 shape: `As <maintainer|worker|reviewer> I want
- * <capability> so that <value>.`, or for a spike `We need to decide <question> so that <value>.`.
- * The capability or question and the value each have at least `STORY_PART_MIN` characters, and
- * the line holds no backtick, no file path and no code. Every failure of the line is reported.
+ * R05's check of one Story line, the text after `Story:`: the 0012 shape `As <maintainer|worker|
+ * reviewer> I want <capability> so that <value>.` (the role may read "a maintainer" or "the
+ * maintainer" and take a comma, the full stop is optional), or for a spike `We need to decide
+ * <question> so that <value>.`. The capability or question and the value each have at least
+ * `STORY_PART_MIN` characters, and the line is one line and holds no backtick, no file path or URL
+ * and no code. Returns every problem's message, empty when the line passes.
  */
+export function checkStoryLine(text: string, spike: boolean): string[] {
+  if (/[\r\n]/.test(text.trim())) return ["Story line spans more than one line; keep it on one"];
+  const line = clean(text);
+  const problems: string[] = [];
+  const match = (spike ? SPIKE_SHAPE : STORY_SHAPE).exec(line);
+  if (match === null) {
+    problems.push(`Story line does not read "${spike ? SPIKE_FORM : STORY_FORM}"`);
+  } else {
+    const [, first = "", value = ""] = match;
+    const what = spike ? "question" : "capability";
+    if (characters(first) < STORY_PART_MIN) {
+      problems.push(`Story line's ${what} is shorter than ${STORY_PART_MIN} characters`);
+    }
+    if (characters(value) < STORY_PART_MIN) {
+      problems.push(`Story line's value is shorter than ${STORY_PART_MIN} characters`);
+    }
+  }
+  if (line.includes("`")) problems.push("Story line holds a backtick; write it in plain words");
+  const path = runCores(line).find(storyPath);
+  if (path !== undefined) {
+    problems.push(`Story line names the path ${path}; put paths in the references`);
+  }
+  const code = codeWord(line);
+  if (code !== undefined) problems.push(`Story line holds code (${code}); write it in plain words`);
+  return problems;
+}
+
+/** R05: exactly one `Story:` line, and that line passes `checkStoryLine`. */
 export const r05: RuleCheck = (context) => {
   const lines = storyLines(context.story.description);
   if (lines.length !== 1) {
@@ -191,48 +252,9 @@ export const r05: RuleCheck = (context) => {
         : `${lines.length} Story lines; keep exactly one`,
     );
   }
-  const line = clean(lines[0] ?? "");
-  const spike = isSpike(context.story);
-  const failures: GateFailure[] = [];
-  const match = (spike ? SPIKE_SHAPE : STORY_SHAPE).exec(line);
-  if (match === null) {
-    failures.push(
-      ...fail(context, "R05", `Story line does not read "${spike ? SPIKE_FORM : STORY_FORM}"`),
-    );
-  } else {
-    const [, first = "", value = ""] = match;
-    const what = spike ? "question" : "capability";
-    if (characters(first) < STORY_PART_MIN) {
-      failures.push(
-        ...fail(
-          context,
-          "R05",
-          `Story line's ${what} is shorter than ${STORY_PART_MIN} characters`,
-        ),
-      );
-    }
-    if (characters(value) < STORY_PART_MIN) {
-      failures.push(
-        ...fail(context, "R05", `Story line's value is shorter than ${STORY_PART_MIN} characters`),
-      );
-    }
-  }
-  if (line.includes("`")) {
-    failures.push(...fail(context, "R05", "Story line holds a backtick; write it in plain words"));
-  }
-  const path = runCores(line).find(looksLikePath);
-  if (path !== undefined) {
-    failures.push(
-      ...fail(context, "R05", `Story line names the path ${path}; put paths in the references`),
-    );
-  }
-  const code = codeWord(line);
-  if (code !== undefined) {
-    failures.push(
-      ...fail(context, "R05", `Story line holds code (${code}); write it in plain words`),
-    );
-  }
-  return failures;
+  return checkStoryLine(lines[0] ?? "", isSpike(context.story)).flatMap((problem) =>
+    fail(context, "R05", problem),
+  );
 };
 
 /** R06: the type is set and is in `story.types`. */

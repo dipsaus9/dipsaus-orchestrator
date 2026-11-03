@@ -4,6 +4,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  checkStoryLine,
   evaluateGate,
   gateMessage,
   gateText,
@@ -1141,6 +1142,82 @@ describe("R05 Story line", () => {
     ).toEqual([]);
   });
 
+  it("accepts the natural variants of the role and an open end", () => {
+    for (const role of ["maintainer", "worker", "reviewer"]) {
+      for (const lead of [`As ${role}`, `As a ${role}`, `As the ${role}`]) {
+        for (const comma of ["", ","]) {
+          for (const end of [".", ""]) {
+            expect(
+              r05(
+                `Story: ${lead}${comma} I want every row in the export so that the nightly data is complete${end}`,
+              ),
+            ).toEqual([]);
+          }
+        }
+      }
+    }
+    expect(r05(`Story: We need to decide ${TWENTY} so that ${TWENTY}`, { type: "spike" })).toEqual(
+      [],
+    );
+    // The full stop does not count toward the value: 19 characters and a stop stay too short.
+    expect(r05(`Story: As a maintainer I want ${TWENTY} so that ${TWENTY.slice(1)}.`)).toEqual([
+      "Story line's value is shorter than 20 characters",
+    ]);
+  });
+
+  it("accepts plain lines that only look technical", () => {
+    for (const words of [
+      "a desk for what waits on me, e.g. a test or an approval,",
+      "dipo to run on Bun 1.4.4",
+      "notices in iTerm2 and macOS Terminal",
+      "a 24/7 daemon that keeps the office going",
+      "links to the pull request on github.com",
+      "the package cache to work for node.js projects",
+      "rows and/or headers kept apart",
+    ]) {
+      expect(
+        r05(`Story: As a maintainer, I want ${words} so that the work keeps moving without me.`),
+      ).toEqual([]);
+    }
+  });
+
+  it("refuses URLs, file names and dotfiles with the path message", () => {
+    for (const path of [
+      "https://github.com/owner/repo",
+      "http://example.com",
+      "https://example.com/page",
+      "github.com/owner",
+      "CLAUDE.md",
+      "README.md",
+      ".bun-version",
+      ".dipo",
+      "office.yaml",
+      "package.json",
+      "packages/engine/src",
+    ]) {
+      expect(
+        r05(
+          `Story: As maintainer I want the export to read ${path} for each row so that no row of the table is ever lost.`,
+        ),
+      ).toEqual([`Story line names the path ${path}; put paths in the references`]);
+    }
+  });
+
+  it("checks one line through checkStoryLine as the rule does", () => {
+    expect(checkStoryLine(` ${STORY_LINE.slice("Story:".length)} `, false)).toEqual([]);
+    expect(checkStoryLine(SPIKE_LINE.slice("Story:".length), true)).toEqual([]);
+    expect(checkStoryLine("As maintainer I want rows so that ok", false)).toEqual([
+      "Story line's capability is shorter than 20 characters",
+      "Story line's value is shorter than 20 characters",
+    ]);
+    expect(
+      checkStoryLine(
+        "As maintainer I want every row in the export\nso that the nightly data is complete.",
+        false,
+      ),
+    ).toEqual(["Story line spans more than one line; keep it on one"]);
+  });
+
   it("refuses the old Outcome line", () => {
     expect(r05("Outcome: the export writes every row of the table to a CSV file.")).toEqual([
       "no Story line; add one line that starts with Story:",
@@ -1157,17 +1234,17 @@ describe("R05 Story line", () => {
     expect(r05("Story: The export writes every row so that the nightly data is complete.")).toEqual(
       [shape],
     );
-    // A role outside the three.
+    // A role outside the three, also with an article.
+    for (const role of ["developer", "a developer", "an maintainer", "maintainers"]) {
+      expect(
+        r05(
+          `Story: As ${role} I want every row in the export so that the nightly data is complete.`,
+        ),
+      ).toEqual([shape]);
+    }
+    // No "I want" after the role.
     expect(
-      r05(
-        "Story: As developer I want every row in the export so that the nightly data is complete.",
-      ),
-    ).toEqual([shape]);
-    // No closing full stop.
-    expect(
-      r05(
-        "Story: As maintainer I want every row in the export so that the nightly data is complete",
-      ),
+      r05("Story: As maintainer, every row in the export so that the nightly data is complete."),
     ).toEqual([shape]);
     // The spike form on a story that is no spike.
     expect(r05(SPIKE_LINE)).toEqual([shape]);
@@ -1219,6 +1296,7 @@ describe("R05 Story line", () => {
       "--force",
       "row_count",
       "story.outcomeMin",
+      "daemon.resumeStarts",
       "contractMax",
       "<story>",
     ]) {

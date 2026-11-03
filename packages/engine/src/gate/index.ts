@@ -7,6 +7,7 @@ export { gateContent, gateContentHash } from "./hash";
 export { gateStoryFromView, gateTaskFromView } from "./input";
 export {
   contractCharacters,
+  checkStoryLine,
   cycleThrough,
   gateMessage,
   gateWarningMessage,
