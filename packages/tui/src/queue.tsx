@@ -1,4 +1,4 @@
-// The queue by lifecycle (`2`, 0009 sections 4 and 9): one section per engine-derived column with
+// The queue by lifecycle (`2`, 0009): one section per engine-derived column with
 // its count, in the order of the 0009 layout. `waiting` rows name the dependencies that are not
 // Done, Refined rows show the first Ready gate message with its rule id, and the stories the
 // maintainer parked their note.

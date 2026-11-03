@@ -60,7 +60,7 @@ describe("office switcher", () => {
     expect(opened).toContain("looping @");
 
     // Enter sent the read office.snapshot; the store left the old stream and follows the new one
-    // after the cursor the read returned (0005 section 8).
+    // after the cursor the read returned (0005).
     // The overview reads the new office's output tails and its digest after it (DIPO-81).
     const reads = session.reads.filter(
       (read) => read.name !== "work.outputRange" && read.name !== "office.digest",

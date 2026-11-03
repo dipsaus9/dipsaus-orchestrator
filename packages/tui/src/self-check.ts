@@ -1,6 +1,6 @@
 // The TUI part of the hidden `dipo self-check` (DIPO-17): renders an Ink component to a PassThrough
 // stream, which proves Ink, React and yoga-layout's top-level await load inside the compiled binary
-// (0009 section 1).
+// (0009).
 
 import { PassThrough } from "node:stream";
 

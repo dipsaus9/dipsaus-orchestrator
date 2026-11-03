@@ -1,4 +1,4 @@
-// The TUI root (0009 sections 4 to 7 and 9): the header with office, daemon state and connection,
+// The TUI root (0009): the header with office, daemon state and connection,
 // the banners, the office overview (`1`), the queue (`2`) or the office switcher, and the footer
 // with the keys that work now. Global keys: `1` overview, `2` queue, `o` offices, `q` twice within
 // 2 s quits, Ctrl+C quits. In the queue: `j`/`k` or arrows move, `u` runs the selected story (or
@@ -95,7 +95,7 @@ import {
 /** A key event with no modifier, for keys taken one by one from a multi-key write. */
 const NO_KEY = {} as Key;
 
-/** A second `q` within this window quits (0009 section 6). */
+/** A second `q` within this window quits (0009). */
 export const QUIT_WINDOW_MS = 2_000;
 
 export type ActionResult<T> =
@@ -135,7 +135,7 @@ export type StoryOutcome =
       readonly result: {
         readonly view: StoryView;
         readonly runs: readonly RunRecord[];
-        /** The story's decided gates with their review rounds (0019 section 14). */
+        /** The story's decided gates with their review rounds (0019). */
         readonly verdicts?: readonly Verdict[];
       };
     }
@@ -143,7 +143,7 @@ export type StoryOutcome =
 
 /** The commands the TUI sends; `run` builds them on the client session. */
 export interface TuiActions {
-  /** `work.outputRange` for the live agent detail (0005 section 7). */
+  /** `work.outputRange` for the live agent detail (0005). */
   readOutput: ReadOutput;
   /** `work.prompt` for the prompt pane of the live agent detail (DIPO-137). */
   readPrompt: ReadPrompt;
@@ -156,7 +156,7 @@ export interface TuiActions {
   openPath(path: string): Promise<ActionResult<OfficeId>>;
   /** `office.setPrivacy` for the setting the maintainer confirmed (DIPO-136). */
   setPrivacy(request: PrivacyRequest): Promise<ActionResult<null>>;
-  /** `work.run` with `origin: "tui"` and the given request id (0009 section 5). */
+  /** `work.run` with `origin: "tui"` and the given request id (0009). */
   runStories(request: RunRequest): Promise<RunOutcome>;
   /** One command of the desk, the detail or the queue (`actions.ts`, DIPO-308). */
   sendCommand(request: CommandRequest): Promise<CommandOutcome>;
@@ -707,7 +707,7 @@ export function App(props: AppProps) {
   const onRetryKey = () => {
     if (acts.retry()) return;
     if (run?.status !== "failed" || run.error?.retryable !== true || refusedOffline()) return;
-    // The same request id: the engine runs the command at most once (0005 section 9).
+    // The same request id: the engine runs the command at most once (0005).
     send(run.request, run.label);
   };
 

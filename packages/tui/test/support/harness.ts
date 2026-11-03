@@ -1,4 +1,4 @@
-// The TUI test harness (0009 section 1 check 3): Ink 8 `render` over PassThrough streams with a
+// The TUI test harness (0009): Ink 8 `render` over PassThrough streams with a
 // fixed terminal size and a stdin that passes for a TTY, so `useInput` works under `bun test`.
 // `press` types keys, `frame` is the last frame with ANSI stripped, so tests assert on meaning
 // that survives monochrome. The prototype found ink-testing-library 4.0.0 working with Ink 8 too,

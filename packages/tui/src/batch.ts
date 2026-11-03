@@ -1,4 +1,4 @@
-// Event batching for the TUI (0009 section 9): the store applies every event at once, but the TUI
+// Event batching for the TUI (0009): the store applies every event at once, but the TUI
 // takes its state at most 10 times per second. The first change after a quiet spell shows at
 // once; changes within the next 100 ms are shown together when it ends.
 

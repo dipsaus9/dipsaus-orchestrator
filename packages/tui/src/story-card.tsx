@@ -1,4 +1,4 @@
-// The story detail Enter opens from a desk row (0009 section 4, 0019 section 14, DIPO-308): the
+// The story detail Enter opens from a desk row (0009, 0019, DIPO-308): the
 // story's header, its park record (reason, cause, detail and age, from the desk item the engine
 // built, else from the story's view) and every review verdict `story.detail` returns, oldest
 // round first: round, commit, verdict, the per-criterion results and the findings with their

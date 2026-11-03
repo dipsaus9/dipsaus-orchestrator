@@ -1,4 +1,4 @@
-// Presentational pieces of the TUI (0009 sections 4, 7 and 9): the header, the banners, the
+// Presentational pieces of the TUI (0009): the header, the banners, the
 // office switcher, the narrow list and the footer. They render store state as
 // the engine sent it; every state is a word plus an ASCII glyph, colour is extra.
 
@@ -14,7 +14,7 @@ import { Box, Text } from "ink";
 import type { Display } from "./options";
 import { Colored } from "./colour";
 
-/** Below either size the TUI shows one list (0009 section 9). */
+/** Below either size the TUI shows one list (0009). */
 export const NARROW_COLUMNS = 60;
 export const NARROW_ROWS = 16;
 
@@ -27,7 +27,7 @@ export function officeOptIns(state: OfficeStoreState): readonly string[] {
   return state.offices.find((entry) => entry.office === state.office)?.summary?.optIns ?? [];
 }
 
-/** The stored data each privacy setting names (0007 section 8, DIPO-135). */
+/** The stored data each privacy setting names (0007, DIPO-135). */
 const STORED_WORDS: Readonly<Record<string, string>> = {
   "privacy.storeCommandBodies": "stores commands",
   "privacy.storePrompts": "stores prompts",
@@ -36,7 +36,7 @@ const STORED_WORDS: Readonly<Record<string, string>> = {
 
 /**
  * What the privacy settings that are on store, as words such as `stores commands`, so the
- * maintainer sees what is kept beyond the summary (0007 section 8); "" when none is on. Commands
+ * maintainer sees what is kept beyond the summary (0007); "" when none is on. Commands
  * are stored by default (DIPO-135), so this label shows on a default office.
  */
 export function storedLabel(optIns: readonly string[]): string {
@@ -81,7 +81,7 @@ export function Header(props: { state: OfficeStoreState; display: Display; title
   const { dot } = glyphs(display.ascii);
   const title = props.title ?? officeName(state) ?? "no office";
   const offline = offlineBanner(state, display.ascii);
-  // Disconnected, the daemon state is not known: the header says so instead (0009 section 7).
+  // Disconnected, the daemon state is not known: the header says so instead (0009).
   if (offline !== null) {
     return (
       <Colored display={display} color="red" wrap="truncate-end">
@@ -96,16 +96,16 @@ export function Header(props: { state: OfficeStoreState; display: Display; title
   );
 }
 
-/** `OFFLINE since <time> – view frozen` while disconnected, else null (0009 section 7). */
+/** `OFFLINE since <time> – view frozen` while disconnected, else null (0009). */
 export function offlineBanner(state: OfficeStoreState, ascii: boolean): string | null {
   if (!isOffline(state) || state.offlineSince === null) return null;
   return `OFFLINE since ${clockTime(state.offlineSince)} ${glyphs(ascii).dash} view frozen`;
 }
 
-/** The banner lines for the connection and the daemon state (0009 section 7). */
+/** The banner lines for the connection and the daemon state (0009). */
 /**
  * The banner line of a daemon held in `recovering` because its state database is unavailable
- * (DIPO-111, 0009 section 7 as amended by DIPO-120): the reason, and the newest backup when there is one.
+ * (DIPO-111, DIPO-120, 0009): the reason, and the newest backup when there is one.
  */
 function databaseLine(database: DatabaseUnavailableDetails, dash: string): string {
   const backup = database.backup === undefined ? "" : `; newest backup ${database.backup}`;
@@ -206,7 +206,7 @@ export function switcherLines(
 /** At this width and wider the switcher spells out a day usage alert. */
 const FULL_SWITCHER_COLUMNS = 120;
 
-/** The office switcher (0009 section 4), built from `engine.hello` and `office.summary`. */
+/** The office switcher (0009), built from `engine.hello` and `office.summary`. */
 export function SwitcherBody(props: {
   state: OfficeStoreState;
   display: Display;
@@ -240,7 +240,7 @@ export function SwitcherBody(props: {
   );
 }
 
-/** Below 60 columns or 16 rows: one list of story, health and the desk count (0009 section 9). */
+/** Below 60 columns or 16 rows: one list of story, health and the desk count (0009). */
 export function NarrowBody(props: {
   state: OfficeStoreState;
   display: Display;

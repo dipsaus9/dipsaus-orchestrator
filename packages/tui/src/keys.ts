@@ -1,4 +1,4 @@
-// The one key table of the TUI's actions (0009, amended by DIPO-308): which key sends which
+// The one key table of the TUI's actions (0009, DIPO-308): which key sends which
 // command, in which view. The desk binds every action `office.desk` can list; the live agent detail
 // adds `s` steer and `P` park, the queue `P` park and `d` drop, and an overview row whose run asks
 // offers `a` answer.

@@ -1,11 +1,11 @@
-// Text pieces of the overview and the queue (0009 sections 3, 4 and 9): the budget bar, elapsed
+// Text pieces of the overview and the queue (0009): the budget bar, elapsed
 // time, short roles, the first Ready gate failure of a story and the words for
 // `work.run` skip reasons. Pure functions of the views the engine sent; nothing here derives a
 // status. The percentage, token counts and health words every view shares are the client's.
 
 import type { StoryView, Usage } from "@dipsaus-orchestrator/contract";
 
-/** The overview drops columns below these widths (0009 section 9). */
+/** The overview drops columns below these widths (0009). */
 export const FULL_COLUMNS = 120;
 export const MEDIUM_COLUMNS = 80;
 
@@ -71,7 +71,7 @@ export function gateLine(
   return failure === undefined ? view.gateMessages?.[0] : `${failure.rule} ${failure.text}`;
 }
 
-/** What each `work.run` skip reason means (0005 section 4); an unknown one shows as its word. */
+/** What each `work.run` skip reason means (0005); an unknown one shows as its word. */
 const SKIP_REASONS: Readonly<Record<string, string>> = {
   notReady: "not Ready",
   parked: "parked",

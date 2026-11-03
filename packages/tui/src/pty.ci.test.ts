@@ -1,4 +1,4 @@
-// CI only (0017 section 1; 0009 section 1 checks 2 and 4): `runTui` on a real PTY. Quitting with q
+// CI only (0017; 0009): `runTui` on a real PTY. Quitting with q
 // twice, Ctrl+C and SIGTERM leave the alternate screen and give the shell its cooked terminal back
 // (ICANON and ECHO), and the process ends on its own. Piped stdin exits non-zero with one line.
 // No run leaves a process behind (DIPO-94): `inPty` kills its child on every way out, and the child

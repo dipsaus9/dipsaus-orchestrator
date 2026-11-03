@@ -1,4 +1,4 @@
-// Event batching (DIPO-54, 0009 section 9): at most one flush per 100 ms, the first change at once.
+// Event batching (DIPO-54, 0009): at most one flush per 100 ms, the first change at once.
 
 import { describe, expect, it } from "bun:test";
 

@@ -1,4 +1,4 @@
-// The office overview (`1`, 0009 sections 4 and 9, as amended by DIPO-81): a board. A count line
+// The office overview (`1`, 0009, DIPO-81): a board. A count line
 // at the top (running, needs you, in review, Ready, waiting, and today at 120 columns), then
 // the sections RUNNING, NEEDS YOU, IN REVIEW and READY with the story title on every row; empty
 // sections are hidden. Each running row has a `now:` line: a phase word, the newest stored worker
@@ -86,7 +86,7 @@ function columnCount(state: OfficeStoreState, column: string): number {
 /**
  * `1 running · 1 needs you · 1 in review · Ready 1 · waiting 0 · today 1.2M of 4M tokens
  * (30%, resets 00:00 UTC) · this month 20M of 90M tokens (22%, resets 1 Nov 00:00 UTC)`, with
- * `stores commands` before `today` while a privacy setting that stores data is on (0007 section 8).
+ * `stores commands` before `today` while a privacy setting that stores data is on (0007).
  * The usage parts are the engine's (DIPO-311); without a limit only the tokens show.
  */
 export function countLine(

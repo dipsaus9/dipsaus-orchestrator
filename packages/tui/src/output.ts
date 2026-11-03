@@ -1,5 +1,5 @@
-// The text behind one output pane of the live agent detail (0009 sections 4 and 9, 0005 sections 5
-// and 7): one run's stored output of one source, held outside React. It loads the tail with
+// The text behind one output pane of the live agent detail (0009, 0005): one
+// run's stored output of one source, held outside React. It loads the tail with
 // `work.outputRange`, appends `work.output` byte ranges as they arrive, reads the gap when one was
 // missed, and reads earlier text when the pane scrolls past what it holds. Offsets count bytes in
 // the stored output; the text held always starts at a line start, so every line shown is whole.
@@ -120,7 +120,7 @@ export function displayLine(line: OutputLine, ascii = false): string {
   return isMarker(line) ? markerRule(line, ascii) : line;
 }
 
-/** The lines cut to `width` columns each, so the pane never scrolls sideways (0009 section 9). */
+/** The lines cut to `width` columns each, so the pane never scrolls sideways (0009). */
 export function wrapLines(lines: readonly string[], width: number): string[] {
   const rows: string[] = [];
   const size = Math.max(1, width);

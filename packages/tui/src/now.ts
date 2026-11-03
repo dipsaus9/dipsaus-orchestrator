@@ -1,4 +1,4 @@
-// What a running worker is doing now, in words (0009 sections 4 and 6, DIPO-81): the line the live
+// What a running worker is doing now, in words (0009, DIPO-81): the line the live
 // agent detail shows under its header, and the `now:` line under each running row of the overview.
 // Both take the newest stored worker line as stored, and its age from the engine's `lastOutputAt`.
 // Nothing here parses adapter output.

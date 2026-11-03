@@ -1,4 +1,4 @@
-// The live agent detail (`Enter` on a running story, 0009 sections 4, 6 and 9). It answers "what is
+// The live agent detail (`Enter` on a running story, 0009). It answers "what is
 // the worker doing right now" first: under the story header a `now` line shows the health, the
 // phase and the newest output line (a tool call such as `[tool] <tool> src/app.ts`, or the agent's
 // words) with its age. Under it the story's open questions show with their kind, age and text and
@@ -9,7 +9,7 @@
 // The output pane shows `work.output` of the worker (`w`) or of verify (`v`) and follows the tail.
 // The key `i` swaps it for the prompt dipo sent the selected agent's session (`work.prompt`,
 // DIPO-137): the system file and the first message, read from the top with the same scroll keys,
-// or a line saying none is stored. `p` stays pause (0009 section 5).
+// or a line saying none is stored. `p` stays pause (0009).
 // The engine's phase markers in the worker output read `── 12:04:31 phase: review ──` (DIPO-83).
 // `k`/`j`, arrows and PageUp/PageDown scroll; scrolling past the text held reads earlier text with
 // `work.outputRange`, and End returns to following. The text lives in an `OutputFeed` outside
@@ -130,7 +130,7 @@ export const FACTS_WIDTH = 36;
 const MAX_BOXES = 20;
 /** The most open questions the detail lists; more show as a count. */
 export const MAX_QUESTIONS = 3;
-/** The opt-in that puts tool inputs into the worker output (0007 section 8). */
+/** The opt-in that puts tool inputs into the worker output (0007). */
 const COMMAND_BODIES = "privacy.storeCommandBodies";
 
 /**
@@ -492,7 +492,7 @@ export function Detail(props: DetailProps) {
   const feed = shown.feed;
   const tabs = `[w]orker${source === "worker" ? "*" : ""} [v]erify${source === "verify" ? "*" : ""} [i] prompt${source === "prompt" ? "*" : ""}`;
   // With commands stored (the default, DIPO-135), tool lines in the worker output carry their
-  // commands (0007 section 8).
+  // commands (0007).
   const stores = source === "worker" && officeOptIns(state).includes(COMMAND_BODIES);
   const title = `${source === "prompt" ? "prompt (stored)" : `output (${source})`} ${tabs}${stores ? `  ${storedLabel([COMMAND_BODIES])}` : ""}`;
   let status: string;

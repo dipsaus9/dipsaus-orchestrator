@@ -1,4 +1,4 @@
-// The TUI's actions on the desk, the live agent detail, the queue and the overview (0009 section 5,
+// The TUI's actions on the desk, the live agent detail, the queue and the overview (0009,
 // DIPO-308). Each key of the table in `keys.ts` starts a flow: the prompts it needs, then one
 // command with `origin: "tui"` and a fresh request id.
 //
@@ -19,7 +19,7 @@
 // the store read the office again after the reply, or once the maintainer switched office. An
 // error shows in the footer with the engine's message, so a prompt whose question or gate closed
 // meanwhile ends with `question.closed` or the gate's code; a retryable error offers Ctrl-R, which
-// sends the same request again with the same request id (0005 section 9). A reply with
+// sends the same request again with the same request id (0005). A reply with
 // `changed: false` ends at once with "already so; nothing changed", such as a resume of a story
 // that already runs.
 
@@ -46,7 +46,7 @@ export interface CommandRequest {
   readonly command: string;
   readonly args: Readonly<Record<string, unknown>>;
   readonly requestId: RequestId;
-  /** True only after the maintainer agreed (0005 section 9). */
+  /** True only after the maintainer agreed (0005). */
   readonly confirmed: boolean;
 }
 
@@ -156,7 +156,7 @@ const VERBS: Readonly<Record<ActionId, string>> = {
   fail: "fail",
 };
 
-/** What the irreversible commands do, as the typed confirmation says it (0009 section 5). */
+/** What the irreversible commands do, as the typed confirmation says it (0009). */
 const LOSES: Readonly<Record<"work.discard" | "story.drop", string>> = {
   "work.discard":
     "ends the run, deletes the box and branch, closes the PR and returns the story to Refined",
@@ -390,7 +390,7 @@ export function useActions(deps: ActionDeps) {
   const [action, setAction] = useState<ActionState | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  // Read-your-writes, as for `work.run` (0009 section 5).
+  // Read-your-writes, as for `work.run` (0009).
   useEffect(() => {
     if (action?.status !== "syncing") return;
     const passed =
