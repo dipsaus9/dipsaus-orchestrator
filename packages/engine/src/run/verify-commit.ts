@@ -6,9 +6,9 @@
 // Every developer works in its story's box (DIPO-240): dipo runs no backstop and no scope check,
 // and the only check of what a part changes is the protected-file and secret scan of each part
 // (`box/parts.ts`). dipo runs the office's verify in the box at done (0002, DIPO-346), and CI on
-// the story PR is the final gate. A run without a box (none starts any more; one parked before
-// the change has its box made at its next session, `box/lifetime.ts`) that reports done parks
-// `worker-failed`.
+// the story PR is the final gate. A run without a box record, or a daemon without a box backend,
+// that reports done parks `worker-failed`: a developer session never starts without its box, so
+// this only holds the line.
 //
 // At done, in one held turn of the run's parts (`BoxParts.finishLast`), so no part moves the branch
 // meanwhile: the last part is delivered (a hit, a refused part or a rejected push parks; one dipo
@@ -131,7 +131,7 @@ import { storeRunSummary } from "../records/verify-records";
 export const BOX_TIP_MOVED =
   "the story branch moved off the last part's commit before In Review, so dipo did not move the story to review; In Review is written only at the commit the last part left.";
 
-/** The park detail of a run without a box that reports done (DIPO-240). */
+/** The park detail of a run without a box record that reports done (DIPO-240). */
 export const NO_BOX_AT_DONE =
   "the run has no box, so dipo cannot take its work as parts; resume the story, and dipo makes its box from the start commit and the delivered parts first.";
 

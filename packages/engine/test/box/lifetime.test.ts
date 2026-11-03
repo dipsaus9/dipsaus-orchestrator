@@ -544,7 +544,7 @@ describe("the delivered code a lost box is rebuilt from", () => {
 
 /** The box lifetime over scripted box workers, recording what it asked. */
 function scripted(
-  presence: "ready" | "gone" | "none",
+  presence: "ready" | "gone",
   options: { readonly installFails?: boolean } = {},
 ): { readonly boxes: RunBoxes; readonly calls: string[] } {
   const calls: string[] = [];
@@ -621,7 +621,7 @@ describe("a lost box (BoxLifetime.ensure)", () => {
         tmpRoot: tmp,
       });
       const ensured = await lifetime.ensure(request(w), () => {});
-      expect(ensured).toEqual({ kind: "rebuilt", had: "gone", parts: 1 });
+      expect(ensured).toEqual({ kind: "rebuilt", parts: 1 });
       const code = await deliveredCode(w.git, {
         stories: backlogLayout,
         branch: BRANCH,
@@ -634,24 +634,6 @@ describe("a lost box (BoxLifetime.ensure)", () => {
         "install",
         `check against ${tip}`,
       ]);
-    }));
-
-  it("makes a box for a run that never had one, with nothing to delete first", () =>
-    inBoxes(async (repo, tmp) => {
-      const w = await world(repo, tmp);
-      const { boxes, calls } = scripted("none");
-      const lifetime = new BoxLifetime({
-        stories: backlogLayout,
-        boxes,
-        profile: () => PROFILE,
-        tmpRoot: tmp,
-      });
-      expect(await lifetime.ensure(request(w), () => {})).toEqual({
-        kind: "rebuilt",
-        had: "none",
-        parts: 0,
-      });
-      expect(calls[0]).toMatch(/^create at [0-9a-f]{40}$/);
     }));
 
   it("says why and deletes the new box when its install fails", () =>
@@ -703,7 +685,6 @@ describe("a lost box (BoxLifetime.ensure)", () => {
       w.log.length = 0;
       expect(await lifetime.ensure(request(w), () => {})).toEqual({
         kind: "rebuilt",
-        had: "gone",
         parts: 1,
       });
       // The new box holds the delivered part and the task file as the start commit held it.
@@ -716,13 +697,10 @@ describe("a lost box (BoxLifetime.ensure)", () => {
     }));
 
   it("tells the maintainer what the box was made from and that undelivered work is lost", () => {
-    expect(boxRebuiltText("TASK-1", { had: "gone", parts: 2 })).toBe(
+    expect(boxRebuiltText("TASK-1", { parts: 2 })).toBe(
       "TASK-1's box was gone, so dipo made it again from the start commit and the 2 delivered parts on the story branch. Work the worker had not delivered as a part is lost.",
     );
-    expect(boxRebuiltText("TASK-1", { had: "none", parts: 1 })).toContain(
-      "TASK-1's run had no box (it started before every run ran in a box)",
-    );
-    expect(boxRebuiltText("TASK-1", { had: "none", parts: 1 })).toContain("the 1 delivered part ");
+    expect(boxRebuiltText("TASK-1", { parts: 1 })).toContain("the 1 delivered part ");
   });
 });
 

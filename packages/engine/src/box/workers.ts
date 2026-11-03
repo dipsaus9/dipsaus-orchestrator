@@ -231,10 +231,8 @@ export interface BoxRunRecord {
 export type BoxPresence =
   /** The record says the box lives and the backend lists it. */
   | "ready"
-  /** The run had a box, but it was deleted or the backend lost it. */
-  | "gone"
-  /** The run never had a box (a run from before every run was a box run). */
-  | "none";
+  /** The run's box was deleted, the backend lost it, or no record of it was written. */
+  | "gone";
 
 /** What `rest` did with the box of a run that waits (DIPO-278). */
 export type BoxRest =
@@ -665,12 +663,11 @@ export class BoxWorkers {
 
   /**
    * Whether the run of `runDir` still has its box (DIPO-278): `ready` when its record says the box
-   * lives and the backend lists it, `gone` when it was deleted or lost, `none` without a record.
+   * lives and the backend lists it, `gone` when it was deleted or lost, or has no record.
    */
   async has(runId: string, runDir: string): Promise<BoxPresence> {
     const record = readBoxRun(runDir);
-    if (record === null || record.runId !== runId) return "none";
-    if (record.finished === true) return "gone";
+    if (record === null || record.runId !== runId || record.finished === true) return "gone";
     const listed = await this.#deps.boxes.list();
     return listed.some((box) => box.name === record.box) ? "ready" : "gone";
   }
