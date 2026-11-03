@@ -1,4 +1,4 @@
-// Idempotency records (0005 section 9, 0007 section 4). The engine keeps a request's id, a hash of
+// Idempotency records (0005, 0007). The engine keeps a request's id, a hash of
 // its command name and resolved args (never the args themselves) and its reply for 24 hours.
 // Office commands keep them in the office's `requests` table, in the command's transaction;
 // software-level commands have no office database, so the daemon keeps theirs in memory for its
@@ -11,7 +11,7 @@ import type { Clock, CommandReply, RequestId } from "@dipsaus-orchestrator/contr
 import { canonicalJson } from "../config/merge";
 import type { OfficeHandle } from "../db/office";
 
-/** How long a request record answers a retry (0007 section 7, tier D). */
+/** How long a request record answers a retry (0007, tier D). */
 export const REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** sha256 over the command name and its args after story references resolved to keys. */
@@ -71,7 +71,7 @@ export function saveOfficeRequest(
   );
 }
 
-/** The daemon's in-memory request table for software-level commands (0005 section 9). */
+/** The daemon's in-memory request table for software-level commands (0005). */
 /** A software-level request whose handler has not finished; duplicates share its reply. */
 export interface InFlightRequest {
   readonly command: string;

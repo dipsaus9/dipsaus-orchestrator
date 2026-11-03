@@ -1,4 +1,4 @@
-// Story references in command and read args (0005 section 2). The contract types every reference
+// Story references in command and read args (0005). The contract types every reference
 // as `StoryRefValue` (a key or a Backlog.md id), so the executor finds them from the args schema
 // itself: no handler has to declare them, and the idempotency hash is always taken on keys.
 

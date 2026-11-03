@@ -1,4 +1,4 @@
-// The one command executor (0005 sections 1, 3 and 9). It validates the args, checks confirmation
+// The one command executor (0005). It validates the args, checks confirmation
 // and the office, resolves story references to keys, and then, in one immediate transaction,
 // answers a retry from its stored reply or runs the handler and writes its facts, its change-log
 // entries and the `requests` record together. A handler that throws leaves no row and consumes no
@@ -73,7 +73,7 @@ function failure(requestId: RequestId, error: EngineError): CommandReply {
   return { ok: false, requestId, error };
 }
 
-/** What a command's connection said in `engine.hello`: the client's name (0005 section 9). */
+/** What a command's connection said in `engine.hello`: the client's name (0005). */
 export interface Connection {
   readonly client?: string;
 }
@@ -86,7 +86,7 @@ function isThenable(value: unknown): boolean {
   );
 }
 
-/** Retry handling (0005 section 9): the stored reply, `request.reused`, or null to run. */
+/** Retry handling (0005): the stored reply, `request.reused`, or null to run. */
 function priorReply(
   requestId: RequestId,
   prior: RequestRecord | null,
@@ -487,7 +487,7 @@ async function answerCommand(
     return runSoftwareCommand(deps, command, request, parsed.data);
   }
   if (officeId === undefined) return failure(requestId, argsInvalid("No office."));
-  // The office's engine instance loads on its first command (0006 decision 4, DIPO-27).
+  // The office's engine instance loads on its first command (0006, DIPO-27).
   const access = await deps.offices.load(officeId);
   if (!access.ok) return failure(requestId, access.error);
   await refreshUnknownStories(deps, command, request, officeId, access.office, parsed.data);

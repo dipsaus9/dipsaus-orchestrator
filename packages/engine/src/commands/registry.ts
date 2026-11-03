@@ -1,4 +1,4 @@
-// The registry of commands and reads (M0 review, DIPO-15). Each feature module exports
+// The registry of commands and reads. Each feature module exports
 // `register(registry)`, which adds its handlers next to the contract definition they serve: args and
 // result schemas, and for commands `confirm` and `irreversible`.
 // `features.ts` lists the modules, so a later story adds a command or read in its own directory
@@ -36,9 +36,9 @@ export interface CommandContext {
   readonly ids: IdSource;
   readonly requestId: RequestId;
   readonly origin: Origin;
-  /** The envelope's `confirmed` (0005 section 9): the client asked the maintainer first. */
+  /** The envelope's `confirmed` (0005): the client asked the maintainer first. */
   readonly confirmed?: boolean;
-  /** The client name its connection gave in `engine.hello` (0005 section 9); absent without one. */
+  /** The client name its connection gave in `engine.hello` (0005); absent without one. */
   readonly client?: string;
   /** The time of this command; the facts and entries it writes use it. */
   readonly now: number;
@@ -48,7 +48,7 @@ export interface CommandContext {
   emit(entry: NewEntry): void;
 }
 
-/** What a software-level command handler gets; it has no office database (0005 section 9). */
+/** What a software-level command handler gets; it has no office database (0005). */
 export interface SoftwareCommandContext {
   readonly clock: Clock;
   readonly ids: IdSource;
@@ -65,8 +65,8 @@ export interface CommandOutcome<R> {
 
 /**
  * Office-level handlers are synchronous: they run inside one immediate transaction, and an await
- * would let other offices' writes interleave (0007 section 1). Effects that take time arrive later
- * as events (0005 section 1). Throw `CommandError` for a command-specific error.
+ * would let other offices' writes interleave (0007). Effects that take time arrive later
+ * as events (0005). Throw `CommandError` for a command-specific error.
  */
 export type OfficeCommandHandler<A, R> = (ctx: CommandContext, args: A) => CommandOutcome<R>;
 
@@ -140,7 +140,7 @@ export interface SoftwareCommandRegistration<D extends CommandDefinition> {
   readonly handle: SoftwareCommandHandler<z.output<D["args"]>, z.input<D["result"]>>;
 }
 
-/** What a read handler gets (0005 section 7). */
+/** What a read handler gets (0005). */
 export interface ReadContext {
   readonly clock: Clock;
   readonly requestId: RequestId;
@@ -156,7 +156,7 @@ export interface ReadContext {
   readonly registry: Registry;
 }
 
-/** Synchronous: an office read runs inside one deferred transaction (0005 section 8). */
+/** Synchronous: an office read runs inside one deferred transaction (0005). */
 export type ReadHandler<A, R> = (ctx: ReadContext, args: A) => R;
 
 export interface ReadRegistration<D extends ReadDefinition> {

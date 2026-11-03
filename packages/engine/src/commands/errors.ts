@@ -1,4 +1,4 @@
-// A command- or read-specific error a handler throws (0005 section 10). The executor rolls the
+// A command- or read-specific error a handler throws (0005). The executor rolls the
 // transaction back and replies with the error; any other throw becomes `internal`.
 
 import { engineError, type EngineError } from "@dipsaus-orchestrator/contract";
