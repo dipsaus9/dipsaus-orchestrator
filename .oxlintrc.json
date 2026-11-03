@@ -831,7 +831,6 @@
         "packages/engine/src/workers/claude-cli/interpret.ts",
         "packages/engine/src/workers/claude-cli/plan.ts",
         "packages/engine/src/workers/claude-cli/result.ts",
-        "packages/engine/src/workers/claude-cli/resume-check.ts",
         "packages/tui/src/actions.ts",
         "packages/tui/src/app.tsx",
         "packages/tui/src/detail.tsx",
