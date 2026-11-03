@@ -8,7 +8,7 @@
 //
 // A state database the daemon cannot open or migrate (0005, 0007) holds it in `recovering` for
 // good: no office loads, office commands and reads get the non-retryable `database.unavailable`
-// with what to do, and `daemon.resumeScheduling` refuses with it too, so nothing makes office
+// with what to do, and `daemon.resumeStarts` refuses with it too, so nothing makes office
 // commands look usable. Only a drain leaves it: `daemon.stop`, SIGTERM or SIGINT.
 
 import {

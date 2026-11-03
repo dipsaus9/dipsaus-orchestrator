@@ -108,7 +108,7 @@ describe("daemon.status build commit (DIPO-198)", () => {
   });
 });
 
-describe("daemon.resumeScheduling (0020)", () => {
+describe("daemon.resumeStarts (0020)", () => {
   it("lifts the offices' starts paused, and changes nothing once nothing is left (0005)", () => {
     const clock = new ManualClock();
     const lifecycle = new DaemonLifecycle();
@@ -137,11 +137,11 @@ describe("daemon.resumeScheduling (0020)", () => {
         requestStop: () => {},
       }),
     ]);
-    const command = registry.command("daemon.resumeScheduling");
-    if (command === undefined) throw new Error("daemon.resumeScheduling is not registered");
+    const command = registry.command("daemon.resumeStarts");
+    if (command === undefined) throw new Error("daemon.resumeStarts is not registered");
     const resume = () => (command.handle as (ctx: unknown, args: unknown) => unknown)({}, {});
     expect(resume()).toEqual({ result: { state: "running" }, changed: true });
-    expect(lifts).toEqual(["the maintainer ran dipo daemon resume-scheduling"]);
+    expect(lifts).toEqual(["the maintainer ran dipo daemon resume-starts"]);
     expect(lifecycle.state).toBe("running");
     // Nothing left to lift: target state, it changes nothing.
     expect(resume()).toEqual({ result: { state: "running" }, changed: false });
@@ -169,8 +169,8 @@ describe("daemon.resumeScheduling (0020)", () => {
         requestStop: () => {},
       }),
     ]);
-    const command = registry.command("daemon.resumeScheduling");
-    if (command === undefined) throw new Error("daemon.resumeScheduling is not registered");
+    const command = registry.command("daemon.resumeStarts");
+    if (command === undefined) throw new Error("daemon.resumeStarts is not registered");
     let refused: unknown;
     try {
       (command.handle as (ctx: unknown, args: unknown) => unknown)({}, {});

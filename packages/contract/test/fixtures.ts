@@ -626,7 +626,7 @@ export const commandFixtures: Record<string, { args: unknown; result: unknown }>
   },
   "daemon.stop": { args: { stopWorkers: false }, result: { state: "draining" } },
   "daemon.setLogLevel": { args: { level: "debug" }, result: { level: "debug" } },
-  "daemon.resumeScheduling": { args: {}, result: { state: "running" } },
+  "daemon.resumeStarts": { args: {}, result: { state: "running" } },
   ...officeCommandFixtures,
 };
 

@@ -879,7 +879,7 @@ describe("a worker question on the desk (DIPO-159, 0020)", () => {
 });
 
 describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
-  it("comes first, with its reason, what lifts it and dipo daemon resume-scheduling", () =>
+  it("comes first, with its reason, what lifts it and dipo daemon resume-starts", () =>
     withTempDir(async (dir) => {
       const t = await openTestState(dir);
       try {
@@ -897,7 +897,7 @@ describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
             since: at,
             until: at + 2 * HOUR,
             lifts:
-              "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-scheduling`.",
+              "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-starts`.",
           }),
         };
         const items = desk(office, all, sources);
@@ -907,8 +907,8 @@ describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
           detail: "no new session starts · plan limit until 2026-10-28T12:00:00.000Z",
           since: new Date(at).toISOString(),
           blocks: [],
-          actions: [{ command: "daemon.resumeScheduling", cli: "dipo daemon resume-scheduling" }],
-          hand: "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-scheduling`.",
+          actions: [{ command: "daemon.resumeStarts", cli: "dipo daemon resume-starts" }],
+          hand: "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-starts`.",
         });
 
         const adapter = desk(office, all, {

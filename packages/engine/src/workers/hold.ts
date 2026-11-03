@@ -4,7 +4,7 @@
 // daemon's store, `run/starts-paused.ts`), so it survives a restart and is kept per adapter. A failed launch check (probe, box, self-test) or a `startFailed` outcome from
 // the CLI holds the adapter and raises an `engine.notice`. It is not a park: the story stays where
 // it was. An explicit `work.run` repeats the launch checks through `gateLaunch`, which lifts the
-// hold when they pass, and `dipo daemon resume-scheduling` lifts it by hand. Adapter-neutral:
+// hold when they pass, and `dipo daemon resume-starts` lifts it by hand. Adapter-neutral:
 // nothing here names a CLI.
 //
 // A sticky check (DIPO-271: the post-run box-token check of DIPO-269) is the exception. Its hold

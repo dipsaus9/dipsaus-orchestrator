@@ -6,7 +6,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   type Cursor,
-  daemonResumeScheduling,
+  daemonResumeStarts,
   daemonSetLogLevel,
   daemonStatus,
   type Event,
@@ -141,7 +141,7 @@ describe("DipoClient handshake and requests", () => {
     const { transport, client } = await connected();
     const connection = transport.current;
     const first = client.command(daemonSetLogLevel, { level: "debug" });
-    const second = client.command(daemonResumeScheduling, {});
+    const second = client.command(daemonResumeStarts, {});
     const [a, b] = [requestIdOf(connection, -2), requestIdOf(connection, -1)];
     expect(connection.sent.at(-2)).toMatchObject({
       kind: "command",
@@ -176,11 +176,11 @@ describe("DipoClient handshake and requests", () => {
     const { transport, client } = await connected();
     const connection = transport.current;
     const id = "01J9ZK5Q8W3V4X6Y7Z8A9B0CRR" as RequestId;
-    const first = client.command(daemonResumeScheduling, {}, { requestId: id });
+    const first = client.command(daemonResumeStarts, {}, { requestId: id });
     expect(requestIdOf(connection)).toBe(id);
     connection.deliver(errorReply(id, "engine.recovering"));
     expect(await first).toMatchObject({ ok: false, error: { code: "engine.recovering" } });
-    const retry = client.command(daemonResumeScheduling, {}, { requestId: id });
+    const retry = client.command(daemonResumeStarts, {}, { requestId: id });
     expect(requestIdOf(connection)).toBe(id);
     connection.deliver(reply(id, { state: "running" }, true));
     expect(await retry).toMatchObject({ ok: true, changed: true });
@@ -279,7 +279,7 @@ describe("DipoClient reconnect", () => {
     first.drop();
 
     // A command sent while disconnected waits for the next connection.
-    const later = client.command(daemonResumeScheduling, {});
+    const later = client.command(daemonResumeStarts, {});
     clock.advance(500);
     const second = transport.current;
     second.open();
@@ -287,7 +287,7 @@ describe("DipoClient reconnect", () => {
     second.deliver(reply(requestIdOf(second, 0), hello()));
     expect(second.sent.slice(1)).toMatchObject([
       { kind: "command", name: "daemon.setLogLevel", requestId: id, args: { level: "debug" } },
-      { kind: "command", name: "daemon.resumeScheduling" },
+      { kind: "command", name: "daemon.resumeStarts" },
     ]);
     // The engine answers the retry from its request table; a late answer on the old connection is ignored.
     first.deliver(reply(id, { level: "warn" }, true));

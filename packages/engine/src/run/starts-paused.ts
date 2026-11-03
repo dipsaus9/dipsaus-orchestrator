@@ -21,7 +21,7 @@
 //   <ID>` repeats the launch checks), or for the box token only when `dipo login box` replaces it.
 //   The story stays where it was, so no park resumes for it.
 //
-// `dipo daemon resume-scheduling` lifts both, in every office, but never the box token's hold. An
+// `dipo daemon resume-starts` lifts both, in every office, but never the box token's hold. An
 // office loaded while another office is paused takes that pause over. The timers run on the
 // injected clock; a lift that comes due while the daemon schedules no work is tried again a minute
 // later.
@@ -70,7 +70,7 @@ export const STARTS_PAUSED_NOTICES = {
 } as const;
 
 /** The command line that lifts the office's starts paused by hand. */
-export const LIFT_COMMAND = "dipo daemon resume-scheduling";
+export const LIFT_COMMAND = "dipo daemon resume-starts";
 
 export type StartsPausedReason = "plan-limit" | "adapter";
 
@@ -485,7 +485,7 @@ export class StartsPaused {
   }
 
   /**
-   * Lifts the office's starts paused by hand (`daemon.resumeScheduling`): its plan-limit pause and
+   * Lifts the office's starts paused by hand (`daemon.resumeStarts`): its plan-limit pause and
    * a hold of its adapter a passing check would lift. True when something lifted.
    */
   lift(officeId: OfficeId, why: string): boolean {

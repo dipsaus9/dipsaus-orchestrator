@@ -4,7 +4,7 @@
 //
 // The groups, in the order of 0020:
 // 0. the office's starts paused (DIPO-359, `starts-paused.ts`), with its reason and what lifts it,
-//    offering `dipo daemon resume-scheduling`; an office item with no story;
+//    offering `dipo daemon resume-starts`; an office item with no story;
 // 1. an open question no park carries, with `dipo answer <question> --text "<answer>"`; a
 //    worker's question parks at once (0020), so it is on its PARKED row instead;
 // 2. merge gates that wait on the maintainer, with the PR from `story_prs`; a gate whose PR is
@@ -440,7 +440,7 @@ class DeskBuilder {
       detail: `no new session starts · ${why}`,
       since: iso(paused.since),
       blocks: [],
-      actions: sticky ? [] : this.#action("daemon.resumeScheduling", LIFT_COMMAND),
+      actions: sticky ? [] : this.#action("daemon.resumeStarts", LIFT_COMMAND),
       hand: paused.lifts,
     });
   }

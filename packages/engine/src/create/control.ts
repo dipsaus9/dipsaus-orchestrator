@@ -1,12 +1,12 @@
 // Operations on the running daemon are contract messages (0006 decision 5): the `daemon.status`
-// read and the `daemon.stop`, `daemon.setLogLevel` and `daemon.resumeScheduling` commands. They are
+// read and the `daemon.stop`, `daemon.setLogLevel` and `daemon.resumeStarts` commands. They are
 // software-level, so their idempotency records live in the daemon's in-memory request table
 // (0005 section 9). Every lifecycle transition goes onto the software stream as `daemon.state`
 // (0006 decision 7).
 
 import {
   type Clock,
-  daemonResumeScheduling,
+  daemonResumeStarts,
   daemonSetLogLevel,
   daemonStatus,
   daemonStop,
@@ -133,7 +133,7 @@ export function controlFeature(deps: ControlDeps): FeatureModule {
       });
 
       registry.addSoftwareCommand({
-        definition: daemonResumeScheduling,
+        definition: daemonResumeStarts,
         handle: () => {
           // Lifts every office's starts paused (0020). Target state (0005): with nothing paused it
           // changes nothing. Without the state database it refuses with `database.unavailable`.
@@ -141,9 +141,7 @@ export function controlFeature(deps: ControlDeps): FeatureModule {
           if (unavailable !== null) {
             throw new CommandError(unavailable.code, unavailable.message, unavailable.details);
           }
-          const lifted = deps.liftStartsPaused?.(
-            "the maintainer ran dipo daemon resume-scheduling",
-          );
+          const lifted = deps.liftStartsPaused?.("the maintainer ran dipo daemon resume-starts");
           return { result: { state: lifecycle.state }, changed: (lifted ?? 0) > 0 };
         },
       });

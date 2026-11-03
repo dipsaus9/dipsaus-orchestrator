@@ -151,7 +151,7 @@ describe("a plan limit (0020)", () => {
         detail: `plan limit until ${reset}`,
         since: now(),
         until: Date.parse(reset) + PLAN_LIMIT_RESUME_AFTER_MS,
-        lifts: `It lifts by itself at ${new Date(Date.parse(reset) + PLAN_LIMIT_RESUME_AFTER_MS).toISOString()}, or with \`dipo daemon resume-scheduling\`.`,
+        lifts: `It lifts by itself at ${new Date(Date.parse(reset) + PLAN_LIMIT_RESUME_AFTER_MS).toISOString()}, or with \`dipo daemon resume-starts\`.`,
       });
       expect(noticesOf(office).map((notice) => notice.code)).toEqual([
         STARTS_PAUSED_NOTICES.paused,
@@ -225,14 +225,14 @@ describe("a plan limit (0020)", () => {
     expect(resumedParks()).toHaveLength(1);
   });
 
-  it("lifts by hand in every office, the credits pause too (dipo daemon resume-scheduling)", async () => {
+  it("lifts by hand in every office, the credits pause too (dipo daemon resume-starts)", async () => {
     const limited = park("DIPO-1", "worker-failed", true);
     paused.pausePlanLimit(id(w.office), planLimitPause({ credits: true }, now()));
-    expect(paused.liftAll("the maintainer ran dipo daemon resume-scheduling")).toBe(2);
+    expect(paused.liftAll("the maintainer ran dipo daemon resume-starts")).toBe(2);
     await paused.idle();
     expect(paused.state(id(w.office))).toBeNull();
     expect(resumedParks()).toEqual([limited]);
-    expect(noticesOf(w.office).at(-1)?.text).toContain("dipo daemon resume-scheduling");
+    expect(noticesOf(w.office).at(-1)?.text).toContain("dipo daemon resume-starts");
   });
 
   it("tries a resume that cannot run yet again a minute later", async () => {
@@ -324,7 +324,7 @@ describe("a failed adapter check (0020, 0008)", () => {
 
   it("keeps a sticky hold paused through the command until its own lift", () => {
     holds.hold(ADAPTER, [{ check: "box-token", detail: "the token was found in a box" }]);
-    expect(paused.liftAll("the maintainer ran dipo daemon resume-scheduling")).toBe(0);
+    expect(paused.liftAll("the maintainer ran dipo daemon resume-starts")).toBe(0);
     expect(paused.state(id(w.office))?.lifts).toContain("dipo login box");
     holds.liftSticky(ADAPTER);
     expect(paused.state(id(w.office))).toBeNull();
@@ -459,9 +459,9 @@ describe("one record that survives a restart (0020, DIPO-359)", () => {
     holds.liftSticky(ADAPTER);
     holds.hold(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
     holdNotices = [];
-    paused.lift(id(w.office), "the maintainer ran dipo daemon resume-scheduling");
+    paused.lift(id(w.office), "the maintainer ran dipo daemon resume-starts");
     expect(holdNotices.map((notice) => notice.text)).toEqual([
-      `The maintainer ran dipo daemon resume-scheduling; new runs on ${ADAPTER} are no longer held.`,
+      `The maintainer ran dipo daemon resume-starts; new runs on ${ADAPTER} are no longer held.`,
     ]);
   });
 });

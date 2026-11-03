@@ -409,11 +409,11 @@ describe("the key table on desk rows", () => {
       detail: "no new session starts · plan limit until 2026-10-14T12:00:00.000Z",
       since: ago(4),
       blocks: [],
-      actions: [{ command: "daemon.resumeScheduling", cli: "dipo daemon resume-scheduling" }],
-      hand: "It lifts by itself at 2026-10-14T12:02:00.000Z, or with `dipo daemon resume-scheduling`.",
+      actions: [{ command: "daemon.resumeStarts", cli: "dipo daemon resume-starts" }],
+      hand: "It lifts by itself at 2026-10-14T12:02:00.000Z, or with `dipo daemon resume-starts`.",
     });
     const { ui } = await openDesk({ desk: [paused, byYou] });
-    const frame = await ui.waitFor("type: dipo daemon resume-scheduling");
+    const frame = await ui.waitFor("type: dipo daemon resume-starts");
     const rows = lines(frame).filter((line) => /^ [> ] [A-Z]/.test(line));
     expect(rows[0]).toMatch(/^ > STARTS PAUSED +no new session starts · plan limit until/);
     expect(frame).toContain("by hand: It lifts by itself at 2026-10-14T12:02:00.000Z");

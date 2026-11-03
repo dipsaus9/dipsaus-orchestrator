@@ -116,7 +116,7 @@ describe("engine.hello and commands.describe", () => {
           expect.arrayContaining([
             "daemon.stop",
             "daemon.setLogLevel",
-            "daemon.resumeScheduling",
+            "daemon.resumeStarts",
             "fixture.scan",
           ]),
         );
@@ -206,12 +206,12 @@ describe("daemon.* operations", () => {
   );
 
   it(
-    "answers daemon.resumeScheduling with nothing paused as a change of nothing",
+    "answers daemon.resumeStarts with nothing paused as a change of nothing",
     () =>
       withEngine(async (f) => {
         await f.engine.recover();
         const events = softwareEvents(f.engine);
-        const resumed = await f.command("daemon.resumeScheduling", {});
+        const resumed = await f.command("daemon.resumeStarts", {});
         expect(resumed).toMatchObject({ ok: true, result: { state: "running" }, changed: false });
         expect(events.filter((e) => e.type === "daemon.state")).toEqual([]);
       }),

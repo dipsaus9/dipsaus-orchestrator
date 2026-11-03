@@ -1,5 +1,5 @@
 // `dipo daemon` client subcommands (0006 decisions 2, 5, 14 and 15). `start`, `stop`, `restart`,
-// `status`, `install` and `uninstall` go through the `lifecycle` module of `client/node`; `log-level` and `resume-scheduling`
+// `status`, `install` and `uninstall` go through the `lifecycle` module of `client/node`; `log-level` and `resume-starts`
 // send one contract command each, starting the daemon first unless `daemon.autostart` is false;
 // `logs` reads the log files directly and never talks to the daemon (DIPO-64). Read-only commands
 // connect with `ConnectMode` `running` and never start it (DIPO-187).
@@ -29,7 +29,7 @@ import {
   cleanText,
   type Clock,
   type ConfigError,
-  daemonResumeScheduling,
+  daemonResumeStarts,
   daemonSetLogLevel,
   type EngineError,
   LogLevel,
@@ -472,11 +472,11 @@ export const DAEMON_SUBCOMMANDS: ReadonlyMap<string, Subcommand> = new Map<strin
     },
   ],
   [
-    "resume-scheduling",
+    "resume-starts",
     async (args, deps) => {
-      if (args.length !== 0) return usage(deps, "daemon resume-scheduling takes no arguments");
+      if (args.length !== 0) return usage(deps, "daemon resume-starts takes no arguments");
       return withDaemon(deps, async (session) => {
-        const outcome = await session.command(daemonResumeScheduling, {});
+        const outcome = await session.command(daemonResumeStarts, {});
         if (!outcome.ok) return engineFailure(deps, outcome.error);
         deps.writeLine(`starts unpaused in every office; daemon state: ${outcome.result.state}`);
         return 0;

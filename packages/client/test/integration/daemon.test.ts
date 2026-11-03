@@ -1,6 +1,6 @@
 // The client against a real `dipo daemon --foreground` in a temp DIPO_HOME (DIPO-25 test plan):
 // hello, a command, a dropped connection, reconnect and re-subscribe without duplicates, a client
-// of another version refused (0005), and the `dipo daemon log-level` and `resume-scheduling`
+// of another version refused (0005), and the `dipo daemon log-level` and `resume-starts`
 // subcommands as real processes. State, runtime directory and temp files stay under the test's temp
 // directory (DIPO_HOME, DIPO_RUNTIME_DIR, DIPO_TMP), and the daemon is stopped in a `finally`.
 
@@ -9,7 +9,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import {
-  daemonResumeScheduling,
+  daemonResumeStarts,
   daemonSetLogLevel,
   daemonStatus,
   type Event,
@@ -160,7 +160,7 @@ describe("client against a running daemon", () => {
           const pending = client.command(daemonSetLogLevel, { level: "info" });
           const { client: other } = await connectToDaemon({ client: CLIENT, origin: "other", env });
           clients.push(other);
-          const resumed = await other.command(daemonResumeScheduling, {});
+          const resumed = await other.command(daemonResumeStarts, {});
           // Nothing is paused: the command changes nothing (0005).
           expect(resumed).toMatchObject({ ok: true, result: { state: "running" }, changed: false });
 
@@ -190,7 +190,7 @@ describe("client against a running daemon", () => {
   );
 
   it(
-    "runs dipo daemon log-level and resume-scheduling, and names dipo daemon start once it is gone with autostart off",
+    "runs dipo daemon log-level and resume-starts, and names dipo daemon start once it is gone with autostart off",
     async () => {
       await withDaemonTempDir(async (dir) => {
         const env = daemonTestEnv(dir);
@@ -202,7 +202,7 @@ describe("client against a running daemon", () => {
             stdout: "daemon log level: debug (until the daemon restarts)\n",
           });
 
-          const resume = await runCli(["daemon", "resume-scheduling"], env);
+          const resume = await runCli(["daemon", "resume-starts"], env);
           expect(resume).toMatchObject({
             code: 0,
             stdout: "starts unpaused in every office; daemon state: running\n",
@@ -232,7 +232,7 @@ describe("client against a running daemon", () => {
           );
           for (const args of [
             ["daemon", "log-level", "info"],
-            ["daemon", "resume-scheduling"],
+            ["daemon", "resume-starts"],
           ]) {
             const gone = await runCli(args, env);
             expect(gone.code).not.toBe(0);

@@ -166,7 +166,7 @@ async function refusals(dir: string): Promise<Refusal> {
     expect(hello).toMatchObject({ ok: true, result: { daemon: "recovering", offices: [] } });
     const opened = await client.command("office.open", { path: dir });
     const read = await client.read("office.snapshot", {});
-    const resume = await client.command("daemon.resumeScheduling", {});
+    const resume = await client.command("daemon.resumeStarts", {});
     if (opened.ok || read.ok || resume.ok) throw new Error("expected refusals");
     expect(read.error).toEqual(opened.error);
     expect(resume.error.code).toBe("database.unavailable");

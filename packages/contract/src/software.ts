@@ -204,8 +204,8 @@ export const daemonSetLogLevel = defineCommand({
   irreversible: false,
 });
 
-export const daemonResumeScheduling = defineCommand({
-  name: "daemon.resumeScheduling",
+export const daemonResumeStarts = defineCommand({
+  name: "daemon.resumeStarts",
   level: "software",
   args: z.object({}),
   result: z.object({ state: DaemonState }), // lifts every office's starts paused (0020)
@@ -349,7 +349,7 @@ export const softwareCommands = [
   officeSetPrivacy,
   daemonStop,
   daemonSetLogLevel,
-  daemonResumeScheduling,
+  daemonResumeStarts,
 ] as const;
 
 export const softwareReads = [engineHello, commandsDescribe, daemonStatus] as const;

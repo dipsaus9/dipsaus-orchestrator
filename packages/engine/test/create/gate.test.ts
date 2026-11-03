@@ -53,7 +53,7 @@ describe("lifecycleGate", () => {
       expect(code(state, "read", "commands.describe")).toBeNull();
       expect(code(state, "read", "daemon.status")).toBeNull();
       expect(code(state, "command", "daemon.stop")).toBeNull();
-      expect(code(state, "command", "daemon.resumeScheduling")).toBeNull();
+      expect(code(state, "command", "daemon.resumeStarts")).toBeNull();
     });
   }
 });

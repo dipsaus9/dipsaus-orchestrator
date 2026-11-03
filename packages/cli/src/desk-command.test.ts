@@ -203,13 +203,13 @@ describe("formatDesk", () => {
       detail: "no new session starts · plan limit until 2026-10-23T14:00:00.000Z",
       since: ago(5),
       blocks: [],
-      actions: [{ command: "daemon.resumeScheduling", cli: "dipo daemon resume-scheduling" }],
+      actions: [{ command: "daemon.resumeStarts", cli: "dipo daemon resume-starts" }],
       hand: "It lifts by itself at 2026-10-23T14:02:00.000Z.",
     });
     expect(formatDesk("demo", [paused, byYou("DIPO-1")], NOW)).toEqual([
       "demo · desk 1 · parked by you 1",
       "STARTS PAUSED   no new session starts · plan limit until 2026-10-23T14:00:00.000Z  5m",
-      "              dipo daemon resume-scheduling | It lifts by itself at 2026-10-23T14:02:00.000Z.",
+      "              dipo daemon resume-starts | It lifts by itself at 2026-10-23T14:02:00.000Z.",
       "Parked by you (1)  DIPO-1 dipo resume DIPO-129",
     ]);
   });

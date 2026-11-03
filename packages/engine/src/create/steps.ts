@@ -70,7 +70,7 @@ function processFeatures(core: Core, services: Services): FeatureModule[] {
       upgradePending: daemon.upgradePending,
       keepAwake: () => office.keepAwake.status(),
       loadedOffices: () => offices.loadedOffices(),
-      // `daemon.resumeScheduling` lifts every office's starts paused too (0020).
+      // `daemon.resumeStarts` lifts every office's starts paused too (0020).
       liftStartsPaused: (why) => commands.runs.startsPaused.liftAll(why),
       activeRuns: () =>
         sumActiveRuns(offices.loadedOffices(), (id: OfficeId) => {
