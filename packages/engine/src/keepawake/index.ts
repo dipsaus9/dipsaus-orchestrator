@@ -1,4 +1,4 @@
-// Keep-awake while work is active (0006 decision 12, DIPO-63).
+// Keep-awake while work is active (0006, DIPO-63).
 
 export { CLAIM_START_WINDOW_MS, readWorkActivity, WorkTracker } from "./activity";
 export { KEEP_AWAKE_SETTLE_MS, KeepAwakeHolder } from "./holder";
