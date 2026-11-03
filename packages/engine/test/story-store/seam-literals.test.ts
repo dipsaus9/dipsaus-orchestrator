@@ -38,7 +38,7 @@ describe("the StoryStore seam (DIPO-379)", () => {
     // program among the tools the daemon resolves, and the protected-path check's kind of a story folder.
     const ALLOWED: Readonly<Record<string, string>> = {
       "db/migrations/0048-merge-slot.ts": "check (kind in ('story', 'backlog'))",
-      "platform/tools.ts": `["claude", "backlog", "gh", "rg", "git"]`,
+      "platform/tools.ts": `backlog: "backlog",`,
       "story-store/protected.ts": `return "backlog";`,
     };
     const hits = codeOutside(["backlog/"]).flatMap(({ file, code }) =>
