@@ -395,6 +395,11 @@ export async function migrate(
   const head = migrations.length;
   const from = userVersion(db);
   const applied = readApplied(db);
+  // Backstop for `refuseBeforeSquash`: a pre-squash database its read-only look missed (an
+  // unflushed -wal after an unclean stop) is still named as one, never as "too new".
+  if (applied.some((row) => row.version === 1 && row.name === PRE_SQUASH_FIRST_STEP)) {
+    throw new DatabaseBeforeSquashError(db.path, from);
+  }
   if (from > head) throw new DatabaseTooNewError(from, head);
   verifyApplied(migrations, applied, from);
   if (from === head) {

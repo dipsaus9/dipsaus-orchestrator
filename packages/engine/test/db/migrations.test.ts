@@ -510,6 +510,34 @@ describe("a database from before the squash", () => {
       }));
   }
 
+  it("is still named as one when only migrate sees it (the read-only look missed it)", () =>
+    withTempDir(async (dir) => {
+      const state = join(dir, "state");
+      (
+        await openSqlite({ stateDir: state, logger: memoryLogger(), readMounts: localMounts })
+      ).close();
+      writePreSquashDatabase(join(state, "dipo.db"), 74);
+      const db = await openSqlite({
+        stateDir: state,
+        logger: memoryLogger(),
+        readMounts: localMounts,
+      });
+      try {
+        const error = await failure(
+          migrate(db, {
+            migrations: MIGRATIONS,
+            clock: new ManualClock(),
+            logger: memoryLogger(),
+            engineVersion: ENGINE_VERSION,
+          }),
+        );
+        expect(error).toBeInstanceOf(DatabaseBeforeSquashError);
+        expect(error).not.toBeInstanceOf(DatabaseTooNewError);
+      } finally {
+        db.close();
+      }
+    }));
+
   it("is still told apart from a database a newer dipo wrote", () =>
     withTempDir(async (dir) => {
       (await openStateDatabase(options(dir, [...BASE, second]))).close();
