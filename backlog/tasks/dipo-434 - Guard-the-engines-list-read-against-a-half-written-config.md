@@ -3,10 +3,10 @@ id: DIPO-434
 title: >-
   Keep the Backlog CLI's config rewrite from hiding stories from a concurrent
   read
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-31 08:13'
-updated_date: '2026-11-03 07:08'
+updated_date: '2026-11-03 07:14'
 labels:
   - 'tier:S'
 milestone: m-2
