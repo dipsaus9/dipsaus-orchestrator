@@ -73,7 +73,7 @@ import { skipReason, widthOf } from "./format";
 import { useLatestLines } from "./latest";
 import type { Display } from "./options";
 import { OUTPUT_TAIL_BYTES } from "./output";
-import { boardEntries, EVIDENCE_LEGEND, EVIDENCE_MARKERS, Overview } from "./overview";
+import { boardEntries, Overview } from "./overview";
 import { digestLine, type ReadDigest, useDigest } from "./digest";
 import { type ActionId, rowKeys, viewKeys } from "./keys";
 import { Queue, queueRows } from "./queue";
@@ -1079,7 +1079,6 @@ export function App(props: AppProps) {
           item={card.item}
           outcome={card.outcome}
           now={clock.now()}
-          evidence={EVIDENCE_MARKERS}
           display={display}
           columns={columns}
           height={height}
@@ -1213,7 +1212,6 @@ function footerKeys(
       hints.push(...extras.row);
       if (view === "card") {
         hints.push(["[j/k] scroll", 30], ["[Esc] back", 90], quit);
-        if (EVIDENCE_MARKERS) hints.push([EVIDENCE_LEGEND, 10]);
         return fitHints(hints, width);
       }
       if (view === "detail" || view === "ended") {
@@ -1224,7 +1222,6 @@ function footerKeys(
         );
         hints.push(["[Esc] back", 90]);
         hints.push(quit);
-        if (EVIDENCE_MARKERS) hints.push([EVIDENCE_LEGEND, 10]);
         return fitHints(hints, width);
       }
       if (view === "settings") {
@@ -1262,7 +1259,6 @@ function footerKeys(
       }
       hints.push(["[o] offices", 40]);
       hints.push(quit);
-      if (EVIDENCE_MARKERS) hints.push([EVIDENCE_LEGEND, 10]);
       return fitHints(hints, width);
   }
 }

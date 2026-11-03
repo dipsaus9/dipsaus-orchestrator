@@ -869,7 +869,7 @@ describe("Enter on a desk row", () => {
     expect(shown.some((line) => line.startsWith(" round 1 · 4f2a9c1e5d6b · blocked · "))).toBe(
       true,
     );
-    // Per-criterion results and findings are the reviewer's word; evidence markers are off.
+    // Per-criterion results and findings show plain, with no evidence marker.
     expect(shown).toContain("   criteria: #1 met  #2 unmet");
     expect(shown).toContain("     #2 no notice on the cap");
     expect(shown).toContain(

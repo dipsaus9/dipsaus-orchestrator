@@ -42,10 +42,9 @@ import type {
 import { Box, Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { budgetBar, evidenceOf, marked, truncate } from "./format";
+import { budgetBar, truncate } from "./format";
 import type { Display } from "./options";
 import { endedLine, nowLine, shortAge } from "./now";
-import { EVIDENCE_MARKERS } from "./overview";
 import { compactRecordFactLines, noOutputLine, recordFactLines, recordHeaderLine } from "./past";
 import {
   type FeedChange,
@@ -187,34 +186,32 @@ function criteriaBoxes(met: number, total: number): string {
   return "[x]".repeat(checked) + "[ ]".repeat(total - checked);
 }
 
-/** The values of the facts panel, with evidence markers when the engine sends them. */
-function facts(view: WorkView, evidence: boolean) {
+/** The values of the facts panel. */
+function facts(view: WorkView) {
   const { progress, usage } = view;
-  const mark = (value: string, path: string) =>
-    marked(value, evidenceOf(view.evidence, path, evidence));
   const run = usage.run;
   return {
     phase: view.phase,
     health: healthLabel(view.health),
-    loop: mark(`${progress.loop}/${progress.loopCap}`, "progress.loop"),
-    verify: mark(progress.verify, "progress.verify"),
+    loop: `${progress.loop}/${progress.loopCap}`,
+    verify: progress.verify,
     review: `round ${progress.reviewRound}`,
-    criteria: mark(`${progress.criteriaMet}/${progress.criteriaTotal}`, "progress.criteriaMet"),
+    criteria: `${progress.criteriaMet}/${progress.criteriaTotal}`,
     boxes: criteriaBoxes(progress.criteriaMet, progress.criteriaTotal),
-    input: `in ${mark(usageTokens(run.inputTokens), "usage.run.inputTokens")}`,
-    output: `out ${mark(usageTokens(run.outputTokens), "usage.run.outputTokens")}`,
-    cacheWrite: `cw ${mark(usageTokens(run.cacheCreateTokens), "usage.run.cacheCreateTokens")}`,
-    cacheRead: `cr ${mark(usageTokens(run.cacheReadTokens), "usage.run.cacheReadTokens")}`,
-    turns: `turns ${mark(String(run.turns), "usage.run.turns")}`,
+    input: `in ${usageTokens(run.inputTokens)}`,
+    output: `out ${usageTokens(run.outputTokens)}`,
+    cacheWrite: `cw ${usageTokens(run.cacheCreateTokens)}`,
+    cacheRead: `cr ${usageTokens(run.cacheReadTokens)}`,
+    turns: `turns ${run.turns}`,
     // Dollars are the cost the worker CLI reports, itself an estimate (0008).
     cost: run.estimatedCost === undefined ? "" : `~$${run.estimatedCost.toFixed(2)}`,
-    budget: `${budgetBar(usage)} ${mark(percent(usage.budgetShare), "usage.budgetShare")} of ${usageTokens(usage.budget.limit)}`,
+    budget: `${budgetBar(usage)} ${percent(usage.budgetShare)} of ${usageTokens(usage.budget.limit)}`,
   };
 }
 
 /** The facts as a column of labelled lines, for the side-by-side layout (AC 2). */
-export function factLines(view: WorkView, evidence: boolean): string[] {
-  const f = facts(view, evidence);
+export function factLines(view: WorkView): string[] {
+  const f = facts(view);
   const lines = [
     `phase    ${f.phase}`,
     `health   ${f.health}`,
@@ -234,8 +231,8 @@ export function factLines(view: WorkView, evidence: boolean): string[] {
 }
 
 /** The facts in four lines, for the stacked layout below 100 columns (AC 2). */
-export function compactFactLines(view: WorkView, evidence: boolean): string[] {
-  const f = facts(view, evidence);
+export function compactFactLines(view: WorkView): string[] {
+  const f = facts(view);
   const cost = f.cost === "" ? "" : ` ${f.cost}`;
   return [
     `phase ${f.phase}  health ${f.health}  loop ${f.loop}  verify ${f.verify}  review ${f.review}`,
@@ -378,13 +375,12 @@ export function Detail(props: DetailProps) {
   }, [source, promptAgent, promptOffice, target.run, state.snapshots, props.readPrompt]);
 
   const side = columns >= SIDE_BY_SIDE_COLUMNS;
-  const evidence = EVIDENCE_MARKERS;
   const record = view === undefined ? target.record : undefined;
   const factText =
     view !== undefined
       ? side
-        ? factLines(view, evidence)
-        : compactFactLines(view, evidence)
+        ? factLines(view)
+        : compactFactLines(view)
       : record === undefined
         ? []
         : side

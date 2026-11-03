@@ -5,10 +5,8 @@
 // evidence, any maintainer override and the PR comment's URL. Esc returns to the desk with the
 // same row selected.
 //
-// Evidence labels follow 0019 section 14: the per-criterion results and the findings are the
-// reviewer's word (`claimed`, `*`), while the verdict computed from them and a quote the engine
-// checked against the commit are `checked` (no marker). A finding whose evidence failed that check
-// says `unverified`. Without the `evidence` capability the values are plain.
+// A quote the engine checked against the commit says `checked`; a finding whose evidence failed
+// that check says `unverified` (0019).
 
 import type {
   DeskItem,
@@ -20,7 +18,7 @@ import type {
 } from "@dipsaus-orchestrator/contract";
 import { Box, Text } from "ink";
 
-import { age, marked, truncate } from "./format";
+import { age, truncate } from "./format";
 import type { Display } from "./options";
 import { parkWords } from "./desk";
 import { clockTime, glyphs } from "./views";
@@ -33,11 +31,6 @@ export type CardOutcome =
       readonly verdicts: readonly Verdict[];
     }
   | { readonly ok: false; readonly error: EngineError };
-
-/** `*` for a claimed value when the engine reports evidence labels. */
-function claimed(value: string, evidence: boolean): string {
-  return marked(value, evidence ? "claimed" : undefined);
-}
 
 /** Where a finding points: `#2`, `test 1`, `src/a.ts:12`. */
 function findingPlace(finding: ReviewFinding): string {
@@ -57,30 +50,23 @@ function oneLine(text: string): string {
 }
 
 /** The lines of one review round. */
-export function verdictLines(
-  review: ReviewVerdict,
-  decided: Verdict,
-  evidence: boolean,
-  dot: string,
-): string[] {
+export function verdictLines(review: ReviewVerdict, decided: Verdict, dot: string): string[] {
   const lines = [
     `round ${review.round} ${dot} ${review.commit.slice(0, 12)} ${dot} ${review.verdict}${review.carried === true ? " (carried to a later head)" : ""} ${dot} ${clockTime(Date.parse(decided.at))}`,
   ];
   if (review.criteria.length > 0) {
     lines.push(
-      `  criteria: ${review.criteria
-        .map((result) => `#${result.n} ${claimed(result.status, evidence)}`)
-        .join("  ")}`,
+      `  criteria: ${review.criteria.map((result) => `#${result.n} ${result.status}`).join("  ")}`,
     );
     for (const result of review.criteria) {
       if (result.evidence.trim() === "") continue;
-      lines.push(`    #${result.n} ${claimed(oneLine(result.evidence), evidence)}`);
+      lines.push(`    #${result.n} ${oneLine(result.evidence)}`);
     }
   }
   for (const finding of review.findings) {
     const place = findingPlace(finding);
     const head = `${finding.severity} ${finding.kind}${place === "" ? "" : ` ${place}`}`;
-    lines.push(`  finding ${head}: ${claimed(oneLine(finding.text), evidence)}`);
+    lines.push(`  finding ${head}: ${oneLine(finding.text)}`);
     if (finding.quote !== undefined) {
       const label = finding.unverified === true ? "unverified" : "checked";
       lines.push(`    quote (${label}): ${JSON.stringify(oneLine(finding.quote))}`);
@@ -103,10 +89,9 @@ export function cardLines(options: {
   readonly item: DeskItem;
   readonly outcome: CardOutcome | null;
   readonly now: number;
-  readonly evidence: boolean;
   readonly display: Display;
 }): string[] {
-  const { item, outcome, now, evidence } = options;
+  const { item, outcome, now } = options;
   const { dot, ellipsis } = glyphs(options.display.ascii);
   const view = outcome?.ok === true ? outcome.view : null;
   const lines = [
@@ -141,8 +126,7 @@ export function cardLines(options: {
   lines.push(
     reviews.length === 0 ? "no review verdicts yet" : `review verdicts (${reviews.length})`,
   );
-  for (const verdict of reviews)
-    lines.push(...verdictLines(verdict.review, verdict, evidence, dot));
+  for (const verdict of reviews) lines.push(...verdictLines(verdict.review, verdict, dot));
   return lines;
 }
 
@@ -150,7 +134,6 @@ export function StoryCard(props: {
   readonly item: DeskItem;
   readonly outcome: CardOutcome | null;
   readonly now: number;
-  readonly evidence: boolean;
   readonly display: Display;
   readonly columns: number;
   readonly height: number;

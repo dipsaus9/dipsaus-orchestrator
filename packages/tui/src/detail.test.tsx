@@ -155,7 +155,7 @@ describe("live agent detail", () => {
     // The watchdog fact is evidence on work.observed only; the detail shows the one health value.
     expect(frame).not.toContain("signals");
     expect(frame).not.toContain("no-output");
-    // Evidence markers are off (overview.tsx), so a claimed value shows plain.
+    // The TUI shows no evidence markers, so a claimed value shows plain.
     expect(frame).toContain(" usage    in 210k out 18k");
     expect(frame).toContain("          cw 6k cr 1.1M");
     expect(frame).toContain("          turns 31  ~$0.84");

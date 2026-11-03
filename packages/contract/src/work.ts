@@ -114,7 +114,7 @@ export type GateKind = z.infer<typeof GateKind>;
 export const Evidence = z.enum(["checked", "claimed", "estimated", "none"]);
 export type Evidence = z.infer<typeof Evidence>;
 
-// Evidence per field path, sent only with the `evidence` capability flag (0009 section 8).
+// Evidence per field path (0009).
 export const EvidenceMap = z.record(z.string(), Evidence);
 export type EvidenceMap = z.infer<typeof EvidenceMap>;
 

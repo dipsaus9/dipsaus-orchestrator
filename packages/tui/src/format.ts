@@ -1,9 +1,9 @@
 // Text pieces of the overview and the queue (0009 sections 3, 4 and 9): the budget bar, elapsed
-// time, short roles, evidence markers, the first Ready gate failure of a story and the words for
+// time, short roles, the first Ready gate failure of a story and the words for
 // `work.run` skip reasons. Pure functions of the views the engine sent; nothing here derives a
 // status. The percentage, token counts and health words every view shares are the client's.
 
-import type { Evidence, EvidenceMap, StoryView, Usage } from "@dipsaus-orchestrator/contract";
+import type { StoryView, Usage } from "@dipsaus-orchestrator/contract";
 
 /** The overview drops columns below these widths (0009 section 9). */
 export const FULL_COLUMNS = 120;
@@ -35,32 +35,6 @@ const SHORT_ROLES: Readonly<Record<string, string>> = {
 
 export function shortRole(role: string): string {
   return SHORT_ROLES[role] ?? role.slice(0, 3);
-}
-
-/**
- * A value with its evidence marker (0009 section 3): `claimed` gets a trailing `*`, `estimated` a
- * leading `~`, `none` shows `?`. Without the `evidence` capability the value is plain.
- */
-export function marked(value: string, evidence: Evidence | undefined): string {
-  switch (evidence) {
-    case "claimed":
-      return `${value}*`;
-    case "estimated":
-      return `~${value}`;
-    case "none":
-      return "?";
-    default:
-      return value;
-  }
-}
-
-/** The evidence label for `path`, or undefined when the engine sent none or the flag is off. */
-export function evidenceOf(
-  map: EvidenceMap | undefined,
-  path: string,
-  enabled: boolean,
-): Evidence | undefined {
-  return enabled ? map?.[path] : undefined;
 }
 
 /** An eight-cell bar of the budget share, `[####----]`, full past 100%. */

@@ -31,22 +31,12 @@ import type {
 import { Box, Text } from "ink";
 import { memo, useEffect, useState } from "react";
 
-import { age, budgetBar, elapsed, evidenceOf, marked, truncate, type Width } from "./format";
+import { age, budgetBar, elapsed, truncate, type Width } from "./format";
 import type { LatestLines } from "./latest";
 import { boardNow } from "./now";
 import type { Display } from "./options";
 import { glyphs, officeOptIns, storedLabel } from "./views";
 import { Colored } from "./colour";
-
-/** The legend for evidence markers, shown in the footer while they are on. */
-export const EVIDENCE_LEGEND = "* claimed ~ estimated ? none";
-
-/**
- * Whether values show their evidence markers (0009). Off, as before: the engine never sent the
- * `evidence` capability flag that turned them on, and capability flags are gone (0005). Turning
- * them on changes the approved layout, so a TUI story decides it.
- */
-export const EVIDENCE_MARKERS: boolean = false;
 
 /** The widest title per width tier; shorter titles keep their own width. */
 const TITLE_WIDTH: Readonly<Record<Width, number>> = { full: 27, medium: 22, cards: 16 };
@@ -54,19 +44,17 @@ const TITLE_WIDTH: Readonly<Record<Width, number>> = { full: 27, medium: 22, car
 /** The indent of a running row's `now:` line. */
 const NOW_INDENT = "     ";
 
-/** The cells of one run, as the engine sent them, with evidence markers when enabled. */
-function cells(view: WorkView, evidence: boolean) {
+/** The cells of one run, as the engine sent them. */
+function cells(view: WorkView) {
   const { progress, usage } = view;
-  const mark = (value: string, path: string) =>
-    marked(value, evidenceOf(view.evidence, path, evidence));
   return {
     roleTier: `${view.work.role} ${view.work.tier}`,
     phase: view.phase,
     health: healthLabel(view.health),
-    ac: `AC ${mark(`${progress.criteriaMet}/${progress.criteriaTotal}`, "progress.criteriaMet")}`,
-    loop: `loop ${mark(`${progress.loop}/${progress.loopCap}`, "progress.loop")}`,
-    budget: `${budgetBar(usage)} ${mark(percent(usage.budgetShare), "usage.budgetShare")}`,
-    time: mark(elapsed(usage.run.elapsedMs), "usage.run.elapsedMs"),
+    ac: `AC ${progress.criteriaMet}/${progress.criteriaTotal}`,
+    loop: `loop ${progress.loop}/${progress.loopCap}`,
+    budget: `${budgetBar(usage)} ${percent(usage.budgetShare)}`,
+    time: elapsed(usage.run.elapsedMs),
     model: view.work.model,
   };
 }
@@ -246,7 +234,6 @@ function sections(options: {
   ellipsis: string;
 }): Section[] {
   const { state, width, latest, now, dot, ellipsis } = options;
-  const evidence = EVIDENCE_MARKERS;
   const { needs, review, ready, gated } = waitingStories(state);
   const titleOf = new Map(state.stories.map((story) => [String(story.key), story.title]));
   const named = [
@@ -259,7 +246,7 @@ function sections(options: {
       title: story.title,
     })),
   ];
-  const runCells = state.work.map((view) => cells(view, evidence));
+  const runCells = state.work.map((view) => cells(view));
   const groups = runCells.map((row) => groupsOf(row, width));
   const groupWidths = columnWidths(groups);
   const sep = width === "full" ? "  " : " ";
