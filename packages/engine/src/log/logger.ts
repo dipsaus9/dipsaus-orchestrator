@@ -1,4 +1,4 @@
-// The daemon logger (0006 decision 13): JSON lines with `ts` (ISO 8601 UTC), `level`, `msg`,
+// The daemon logger (0006): JSON lines with `ts` (ISO 8601 UTC), `level`, `msg`,
 // `component`, and `office` and `run` when known, plus fields. Secret fields (`isSecretKey`) are
 // redacted at every level, at any depth. A field named `code` shows error and exit codes such as
 // `engine.recovering`, but stays redacted whenever its value is not code-shaped (`showsCode`, 0006).
@@ -69,7 +69,7 @@ function showsCode(value: unknown): boolean {
 
 /**
  * Field names for prompts, worker output and command bodies, which appear only in `debug` and
- * `trace` lines (0006 decision 13). The guard works by name only and no lint rule checks call
+ * `trace` lines (0006). The guard works by name only and no lint rule checks call
  * sites: later stories that log prompts, worker output or command bodies must put them in a field
  * with one of these names, or they show at every level.
  */
