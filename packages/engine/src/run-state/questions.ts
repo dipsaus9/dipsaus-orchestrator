@@ -1,4 +1,4 @@
-// The `questions` table (0007 section 4) and its views (0005 `QuestionView`): what the
+// The `questions` table (0007) and its views (0005 `QuestionView`): what the
 // engine asks the maintainer for a run's agent, and how each question stopped waiting. The writers
 // run inside the caller's immediate transaction; nothing here sends anything.
 
