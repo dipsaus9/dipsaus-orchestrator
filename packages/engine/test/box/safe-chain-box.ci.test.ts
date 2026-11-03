@@ -44,7 +44,7 @@ import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
 import { cleanUpRealBoxes } from "./real-box-cleanup";
 
-/** The CI guard of every *.ci.test.ts file (0017 section 1). */
+/** The CI guard of every *.ci.test.ts file (0017). */
 const inCi = process.env["DIPO_TEST_CI"] === "1";
 const registers = inCi && process.env["DIPO_TEST_BOX"] === "1" && process.platform === "darwin";
 

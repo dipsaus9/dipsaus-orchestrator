@@ -1,4 +1,4 @@
-// The lane-b journal in the state database (DIPO-34; 0007 section 4): entries are numbered in
+// The lane-b journal in the state database (DIPO-34; 0007): entries are numbered in
 // journal order, and `pendingLaneOp` reports a story from journaling until its entry is merged,
 // dropped or withdrawn.
 

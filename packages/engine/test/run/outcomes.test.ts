@@ -935,7 +935,7 @@ describe("a park intent keeps its park across a restart (DIPO-433)", () => {
   });
 
   const OLD_OR_MALFORMED = [
-    // Written before DIPO-433: the park detail itself.
+    // A bare park detail with no tag (DIPO-433).
     "no valid report: no structured_output",
     `${INTENT_TAGS.parkReason}worker-failed`,
     `${INTENT_TAGS.parkReason}worker-failed not json`,

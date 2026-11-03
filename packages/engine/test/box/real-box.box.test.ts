@@ -18,7 +18,7 @@
 // test the backend and the host-only network as such. Every other box dipo makes has the firewall;
 // box-network.ci.test.ts tests it, and the image build in a build box.
 //
-// The image build (DIPO-266, in a build box since DIPO-281) registers only when the maintainer
+// The image build in a build box (DIPO-266, DIPO-281) registers only when the maintainer
 // also sets DIPO_TEST_BOX_BUILD=1; it needs the internet (the web route builds its Safe-Chain box from the pinned release, DIPO-343). The
 // package cache test (below) builds the office image of a small description that way first (or
 // reuses it).
@@ -29,8 +29,8 @@
 // network, the Mac's own address, the default gateway and IP literals are refused, plain HTTP
 // proxying is refused, a registry (also with a trailing dot) goes through Safe-Chain, the internet
 // works, and an npm install is checked by Safe-Chain. A direct connection to a service bound to the
-// Mac's own local-network address is only reported: it is reachable, under the risk the
-// maintainer accepted in the 0021 amendment of 2026-10-21, until DIPO-283. The box network's
+// Mac's own local-network address is only reported: it is reachable, a risk the maintainer
+// accepted (DIPO-283). The box network's
 // address exists on the Mac only while a box runs on it, so its listener opens after the box starts.
 //
 // Another test (DIPO-374) makes two build boxes, one labelled with this run's state folder and one
@@ -746,8 +746,8 @@ if (registers) {
             expect(direct.stdout).toContain("registry: no");
 
             // Nor by IP address: a public address and the default gateway. The Mac's own address,
-            // where a listener waits, is reported but not required closed: the accepted risk of the
-            // 0021 amendment of 2026-10-21, until DIPO-283.
+            // where a listener waits, is reported but not required closed: an accepted risk
+            // (DIPO-283).
             const literals = [
               `${publicAddress}:443`,
               ...(onMac === null ? [] : [`${macAddress}:${onMac.port}`]),

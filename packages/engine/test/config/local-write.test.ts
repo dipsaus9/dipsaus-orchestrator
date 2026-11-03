@@ -1,4 +1,4 @@
-// Changing one privacy setting in `.dipo/office.local.yaml` (DIPO-136; 0007 section 8): the file
+// Changing one privacy setting in `.dipo/office.local.yaml` (DIPO-136; 0007): the file
 // keeps its other keys, gets dipo's header comment and block-style YAML, and a refused change
 // returns errors that name the file and key.
 

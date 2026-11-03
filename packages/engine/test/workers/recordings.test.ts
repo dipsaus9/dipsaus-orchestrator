@@ -1,5 +1,5 @@
 // Every committed Claude recording replayed through the fake process and the real adapter
-// (0017 section 2; DIPO-42 test plan): it parses with the adapter schema, it gives the outcome and
+// (0017; DIPO-42 test plan): it parses with the adapter schema, it gives the outcome and
 // proposed park its `meta.json` describes, and the usage arithmetic matches the numbers in it.
 
 import { describe, expect, it } from "bun:test";
@@ -20,7 +20,7 @@ import { loadRecording, recordingNames, replay } from "./replay";
 
 type Expectation = readonly [outcome: WorkerOutcome, park: string | null];
 
-/** The adapter's reading of each recording when no intent is recorded (0008 section 7). */
+/** The adapter's reading of each recording when no intent is recorded (0008). */
 const EXPECTED: Readonly<Record<string, Expectation>> = {
   "budget-engine-cap": ["done", null],
   "crash-truncated": ["crashed", "worker-failed"],
@@ -31,8 +31,8 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "max-turns": ["capped", "budget-exceeded"],
   "model-switch": ["done", null],
   "pause-now": ["blocked", "ambiguous-spec"],
-  // Captured before DIPO-342: the report still holds the permission field the report no
-  // longer has, so it is invalid: one correction turn, then worker-failed (as report-invalid).
+  // The captured report holds a permission field the report schema does not have, so it is
+  // invalid: one correction turn, then worker-failed (as report-invalid; DIPO-342).
   "permission-denied": ["blocked", "worker-failed"],
   // The worker reports the fixture question after the denied wait.
   "permission-wait": ["blocked", "ambiguous-spec"],
@@ -42,7 +42,7 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   // A report that does not parse or match the schema: one correction turn, then worker-failed.
   "report-invalid": ["blocked", "worker-failed"],
   "report-invalid-missing": ["blocked", "worker-failed"],
-  // DIPO-145: reviewer sessions (0019 sections 4 and 5), derived and live.
+  // DIPO-145: reviewer sessions (0019), derived and live.
   "review-approved": ["done", null],
   "review-blocked": ["done", null],
   "review-invalid": ["blocked", "worker-failed"],
@@ -75,7 +75,7 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "worker-park-ambiguous": ["blocked", "ambiguous-spec"],
 };
 
-/** The recovery step proposed before the park, where 0008 section 7 asks for one. */
+/** The recovery step proposed before the park, where 0008 asks for one. */
 const RETRY: Readonly<Record<string, string>> = {
   "prompt-too-long": "handoff",
   "report-invalid": "report-feedback",

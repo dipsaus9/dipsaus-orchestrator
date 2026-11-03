@@ -1,5 +1,5 @@
 // The backlog PR against real temporary repositories, the pinned Backlog CLI and an in-memory code
-// host (DIPO-35; 0010 section 2, lane b): a pushed engine branch opens one PR, a later operation
+// host (DIPO-35; 0010, lane b): a pushed engine branch opens one PR, a later operation
 // updates the same PR, the PR is stored on the journal entries, and without a remote or a `gh` login
 // no PR is opened and the waiting branch is reported. A failing PR kept open and its merge commit by
 // hand run in CI only, in pr.ci.test.ts (DIPO-79); their fast rules are in check.test.ts and

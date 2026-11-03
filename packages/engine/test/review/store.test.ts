@@ -1,4 +1,4 @@
-// Stored review verdicts (0019 sections 5, 6, 14 and 16; DIPO-146 AC #2): a verdict is a review
+// Stored review verdicts (0019; DIPO-146 AC #2): a verdict is a review
 // gate keyed on the code tree key plus its `review_verdicts` row, read back by run and code tree
 // key, and shown on `story.detail` as `Verdict.review`.
 

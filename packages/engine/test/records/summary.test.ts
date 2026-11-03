@@ -1,4 +1,4 @@
-// The structured summary on park, resume and close (DIPO-154; 0020 section 13), fast and local: a
+// The structured summary on park, resume and close (DIPO-154; 0020), fast and local: a
 // migrated state database built from fixtures with one story run, its steps, usage, grants, parks
 // and web calls written as the engine writes them, and the texts built from those stored facts.
 // The writes through the real Backlog CLI are in park-commit.ci.test.ts.

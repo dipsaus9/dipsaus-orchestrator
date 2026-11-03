@@ -768,8 +768,8 @@ function lostMessages(): number {
 }
 
 /**
- * A transcript cursor an earlier binary left (DIPO-134). The migration drops such rows, so the
- * check constraint is lifted for this one insert.
+ * A transcript cursor row (DIPO-134), which the schema's check constraint refuses, so the
+ * constraint is lifted for this one insert.
  */
 function seedLeftTranscriptCursor(path: string): void {
   const db = w.f.t.state.connection;

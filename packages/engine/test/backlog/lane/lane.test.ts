@@ -1,5 +1,5 @@
 // The planning lane against real temporary repositories and the pinned Backlog CLI (DIPO-34;
-// 0010 section 2, lane b): operations are journaled before any CLI call, committed one by one on
+// 0010, lane b): operations are journaled before any CLI call, committed one by one on
 // one engine branch and pushed; a merge on the remote drops them; a conflicting base change
 // rebuilds them on a new branch and leaves the old one alone; an operation that no longer applies
 // is dropped with a notice; every CLI write runs inside the office git queue; without a remote the

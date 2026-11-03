@@ -1,4 +1,4 @@
-// `commands.describe` lists `confirmWhen` (DIPO-155, 0020 section 4): `work.resume` declares
+// `commands.describe` lists `confirmWhen` (DIPO-155, 0020): `work.resume` declares
 // `["budget"]`, so every client asks yes or no before a top-up; a command without it has no key.
 
 import { describe, expect, it } from "bun:test";

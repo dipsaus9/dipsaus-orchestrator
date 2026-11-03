@@ -1,4 +1,4 @@
-// CI only (0017 section 1, DIPO-225): real git repositories and processes, too slow for the local
+// CI only (0017, DIPO-225): real git repositories and processes, too slow for the local
 // run.
 // A gate read that brings a stale mirror up to date goes through the stories index (DIPO-201): the
 // index records the pass, logs its warnings and tells the clients; its next poll at the same base

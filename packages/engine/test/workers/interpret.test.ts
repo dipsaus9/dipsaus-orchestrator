@@ -1,4 +1,4 @@
-// `interpret` row by row against the 0008 section 3 table, with small hand-made lines in the
+// `interpret` row by row against the 0008 table, with small hand-made lines in the
 // recorded shapes; the recordings themselves run in recordings.test.ts.
 
 import { describe, expect, it } from "bun:test";
@@ -106,7 +106,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-describe("interpret (0008 section 3)", () => {
+describe("interpret (0008)", () => {
   it("is pure: frozen input state and line, same answer twice", () => {
     const state = deepFreeze(initialState({ plannedModel: "haiku" }));
     const line = deepFreeze(init());
@@ -457,7 +457,7 @@ describe("interpret (0008 section 3)", () => {
     expect(result(state, { code: 1, signal: null }).outcome).toBe("startFailed");
   });
 
-  it("no permission wait: requires_action and a hook line of an earlier binary give no event", () => {
+  it("no permission wait: requires_action and a hook line give no event", () => {
     const hook: HostLine = {
       t: 0,
       ch: "hook",
@@ -611,7 +611,7 @@ describe("interpret (0008 section 3)", () => {
     expect(state.problems).toEqual(["result failed its schema at session_id"]);
   });
 
-  it("makes an unparseable stdout line a schema drift, and ignores a hook line of an earlier binary", () => {
+  it("makes an unparseable stdout line a schema drift, and ignores a hook line", () => {
     const { events } = run([
       { t: 1, ch: "stdout", data: "{not json\n" },
       { t: 2, ch: "hook", data: "{also not json" },

@@ -1,4 +1,4 @@
-// CI only (0017 section 1): real processes. A real worker host runs a scripted shell worker and is
+// CI only (0017): real processes. A real worker host runs a scripted shell worker and is
 // stopped over its socket with the stop sequence's ops (stdin close, SIGTERM, then SIGKILL), with
 // short delays. exit.json, the exit line in events.ndjson and worker_hosts.exit_signal name the
 // signal that ended the worker; a worker that handles SIGTERM and exits 143, as Claude Code does,

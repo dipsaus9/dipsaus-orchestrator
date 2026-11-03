@@ -1,4 +1,4 @@
-// Migrations runner (DIPO-21, 0007 section 9).
+// Migrations runner (DIPO-21, 0007).
 
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";

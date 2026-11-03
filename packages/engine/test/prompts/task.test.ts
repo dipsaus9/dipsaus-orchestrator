@@ -1,4 +1,4 @@
-// The `implement` task message (DIPO-47 AC #3 and #9, 0014 sections 2 and 5): sections in the
+// The `implement` task message (DIPO-47 AC #3 and #9, 0014): sections in the
 // 0014 order, each in its tag, each present only under its condition; deterministic bytes.
 
 import { describe, expect, it } from "bun:test";

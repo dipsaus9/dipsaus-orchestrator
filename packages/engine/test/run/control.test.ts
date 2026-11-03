@@ -1443,7 +1443,7 @@ const notesTurn = (notes: string | undefined, input = 10): WorkerEvent => ({
   terminal: "completed",
 });
 
-describe("worker notes for the handoff (DIPO-154; 0020 section 6)", () => {
+describe("worker notes for the handoff (DIPO-154; 0020)", () => {
   it("stores the notes of every turn report, replacing that agent's earlier notes, at most 1,500 characters", async () => {
     track();
     w.control.onWorkerEvents(w.f.run, [notesTurn("First: the parser is half done.")], "agt-a");

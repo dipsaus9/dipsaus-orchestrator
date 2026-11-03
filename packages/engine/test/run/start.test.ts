@@ -752,7 +752,7 @@ describe("a box worker's run (DIPO-271)", () => {
     const runId = boxed.started[0]?.run as string;
     const system = join(world.dir, "repo", ".git", "dipo", "runs", runId, "system.md");
     expect(readFileSync(system, "utf8")).toBe(renderSystemFile("implement-box", "developer"));
-    // Its scope section is the forecast, never the write fence (0021 section 13).
+    // Its scope section is the forecast, never the write fence (0021).
     const sent = JSON.parse(world.hosts.at(-1)?.plan.stdin[0] ?? "").message.content as string;
     expect(sent).toContain(
       "The paths the planner expects this story to change (a forecast, not a fence):",

@@ -1,4 +1,4 @@
-// The `dipo` field block and reserved labels (DIPO-29; 0010 section 3): the parser accepts zero or
+// The `dipo` field block and reserved labels (DIPO-29; 0010): the parser accepts zero or
 // one block and fails R02 on a second block, an unclosed block, text after it or an unquoted number;
 // the emitter is canonical and round-trips; the splice keeps every byte outside the block.
 

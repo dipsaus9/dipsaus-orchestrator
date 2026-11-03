@@ -1,4 +1,4 @@
-// The rendered L1+L2 system file (DIPO-47 AC #2 and #9, 0014 sections 1 and 5).
+// The rendered L1+L2 system file (DIPO-47 AC #2 and #9, 0014).
 
 import { describe, expect, it } from "bun:test";
 
@@ -13,8 +13,8 @@ const WRAP_UP_PERCENT = "80%";
 const ONE_PAGE_CHARACTERS = 4_200;
 const ONE_PAGE_LINES = 50;
 
-// The box worker's contract (DIPO-272 AC #4, 0021 section 7, 0014 amendment of 2026-10-21), the
-// only developer contract since the Mac worker's went (DIPO-342).
+// The box worker's contract (DIPO-272 AC #4, 0021, 0014), the only developer contract
+// (DIPO-342).
 function box(): string {
   return renderSystemFile("implement-box", "developer");
 }

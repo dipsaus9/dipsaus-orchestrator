@@ -1,5 +1,5 @@
 // Records the `--plain` fixtures in `test/fixtures/backlog-plain/` from the pinned Backlog.md CLI
-// (0010 section 1: a new minor is adopted by recording new fixtures and passing the parser tests).
+// (0010: a new minor is adopted by recording new fixtures and passing the parser tests).
 // It works on a temporary copy of the Backlog fixture project, never on a real backlog, and
 // replaces the temporary path in `File:` lines with `/fixture`.
 //

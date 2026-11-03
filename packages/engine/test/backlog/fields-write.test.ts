@@ -1,4 +1,4 @@
-// The single write path (DIPO-29; 0010 section 3) against a scripted CLI: view, parse, change,
+// The single write path (DIPO-29; 0010) against a scripted CLI: view, parse, change,
 // splice, re-read, `task edit --description`, read back and compare. A description changed since
 // the read is parsed again and the change reapplied. Labels change only with --add-label and
 // --remove-label.

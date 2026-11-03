@@ -1,4 +1,4 @@
-// The stored-intent helper (0008 sections 6 and 7, DIPO-126): the intent is stored before the
+// The stored-intent helper (0008, DIPO-126): the intent is stored before the
 // first op is sent, marked sent or failed afterwards, and a failed store sends nothing. The kind
 // -> outcome table is checked for every kind, so a new kind needs its row (and its migration: the
 // `run_intents.kind` CHECK constraint refuses a kind it does not list).

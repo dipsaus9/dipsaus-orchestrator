@@ -1,4 +1,4 @@
-// The office's worker and reviewer places (DIPO-142, 0019 section 12), fast and local: place
+// The office's worker and reviewer places (DIPO-142, 0019), fast and local: place
 // counting from open story runs and their agents' roles (session runs left out), the start order of
 // each place, a maintainer resume queued while its place is taken and started when it frees, and
 // the office's starts paused, which keeps every waiting session waiting and never parks it (0020).
@@ -69,7 +69,7 @@ function inReview(story: string): StoryRun {
   return s;
 }
 
-describe("counting (0019 section 12)", () => {
+describe("counting (0019)", () => {
   it("leaves session runs out of the places while activeRuns and hasActiveRun count them", () => {
     const session = sessionRun(w);
     expect(activeRuns(w.office).map((run) => run.runId)).toEqual([session]);
@@ -115,7 +115,7 @@ function start(kind: PlaceStart["kind"], run: string, since: number): PlaceStart
   return { kind, runId: run as RunId, since };
 }
 
-describe("start order (0019 section 12)", () => {
+describe("start order (0019)", () => {
   it("starts maintainer resumes, then conflict hand-offs and fix rounds, then pickups in the worker place", () => {
     const order = startOrder([
       { ...pickup, since: -1 },
@@ -153,7 +153,7 @@ describe("start order (0019 section 12)", () => {
   });
 });
 
-describe("a resume that finds its place taken (0020 section 1)", () => {
+describe("a resume that finds its place taken (0020)", () => {
   const DETAIL = "the worker host was lost";
   const sessions: HeldSession[] = [];
   const lifting: UnparkWriter = {

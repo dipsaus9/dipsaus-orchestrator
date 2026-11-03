@@ -1,4 +1,4 @@
-// CI only (0017 section 1): real processes. A worker that leaves a background child behind
+// CI only (0017): real processes. A worker that leaves a background child behind
 // leaves no process once `exit.json` exists: the host kills the worker's process group when the
 // worker exits (DIPO-44 AC #4).
 

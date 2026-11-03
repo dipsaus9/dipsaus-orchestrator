@@ -1,4 +1,4 @@
-// CI only (0017 section 1): the worker start of a claimed run on real git with a bare `origin` and
+// CI only (0017): the worker start of a claimed run on real git with a bare `origin` and
 // the pinned Backlog CLI (DIPO-74 test plan, AC #9 and #10). Setup is stubbed (DIPO-39 has its own
 // tests) and the launch checks are DIPO-43's hold gate with scripted outcomes, so no `claude`
 // process ever starts:

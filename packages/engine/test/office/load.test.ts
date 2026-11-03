@@ -1,4 +1,4 @@
-// Office loading (DIPO-27; 0006 decision 4, 0007 section 6): an office's engine instance loads on
+// Office loading (DIPO-27; 0006, 0007): an office's engine instance loads on
 // its first office-level command or read, refuses an office whose `office.json` names another id,
 // and runs the load steps feature modules registered, in registration order; a failing step
 // refuses the office with a notice naming it. A loaded office reads its configuration again when

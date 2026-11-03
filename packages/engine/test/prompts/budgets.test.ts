@@ -1,4 +1,4 @@
-// Budgets (DIPO-47 AC #4 and #5, 0014 section 4): the story contract is never cut and over
+// Budgets (DIPO-47 AC #4 and #5, 0014): the story contract is never cut and over
 // `prompt.contractMax` assembly fails with `prompt.contractTooLarge`; over the total cap sections
 // drop in the order dependencies, background, context tail, inputs content, each with a marker.
 

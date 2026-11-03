@@ -108,7 +108,7 @@ describe("the reviewer's tool set (0002)", () => {
   });
 
   it("refuses the web switch on a review spec, also when it comes from the prototype", () => {
-    // `web` is the developer's switch (0020 section 11b); the reviewer's web tools come with its kind.
+    // `web` is the developer's switch (0020); the reviewer's web tools come with its kind.
     expect(() => planInBox(reviewSpec({ web: true }), reviewBox(), RUN_DIR)).toThrow(PlanError);
     const { web: _web, ...own } = reviewSpec();
     const inherited = Object.assign(Object.create({ web: true }) as WorkerSpec, own);

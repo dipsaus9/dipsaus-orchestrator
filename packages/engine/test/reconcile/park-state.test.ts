@@ -1,4 +1,4 @@
-// Reconcile step 4 decided by `parkStateAction` (DIPO-190, DIPO-360; 0012 F16, 0010 section 3,
+// Reconcile step 4 decided by `parkStateAction` (DIPO-190, DIPO-360; 0012 F16, 0010,
 // 0007): whether a story is parked is Backlog.md's answer (`backlogPark`), never the parks table.
 // An open park row of a story Backlog.md does not hold as Parked is closed; a park Backlog.md holds
 // with no row is recorded by hand; an F16 block on any other status is stale. The whole pass with

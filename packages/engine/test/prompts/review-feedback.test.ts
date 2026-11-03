@@ -1,4 +1,4 @@
-// The reviewer's correction turns (DIPO-219, 0019 section 4): one for a report missing or invalid
+// The reviewer's correction turns (DIPO-219, 0019): one for a report missing or invalid
 // against the review schema, one naming the blocking findings whose evidence did not check out.
 // Both are golden-tested.
 
@@ -48,7 +48,7 @@ const REPORT: ReviewReport = {
   summary: "Two problems.",
 };
 
-describe("the reviewer's correction turns (0019 section 4)", () => {
+describe("the reviewer's correction turns (0019)", () => {
   it("names each blocking finding whose evidence failed, and why", async () => {
     const check = validateReport(REPORT, {
       criteria: [1, 2],

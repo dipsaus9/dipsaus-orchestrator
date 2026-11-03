@@ -129,7 +129,7 @@ describe("the propose kind with the pinned Backlog CLI", () => {
           ),
         ).toEqual({ draft_id: "DRAFT-2" });
 
-        // The backlog PR's structural check passes the new draft (0010 section 2).
+        // The backlog PR's structural check passes the new draft (0010).
         const base = (await inRemote(repo, "rev-parse", "main")).trim();
         const head = (await inRemote(repo, "rev-parse", branch)).trim();
         const diff = await s.git.run(async (git) => {

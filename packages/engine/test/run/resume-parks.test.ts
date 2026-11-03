@@ -82,7 +82,7 @@ function first(request: HeldSession | undefined): string {
 /** Every command counts as implemented. */
 const all = () => true;
 
-/** Tier S of the office defaults (0008 section 9). */
+/** Tier S of the office defaults (0008). */
 const TIER_S: Caps = { budgetTokens: 300_000, maxTurns: 60, maxMinutes: 30 };
 
 interface World {
@@ -1112,7 +1112,7 @@ describe("no resume raises a cap without a recorded grant (0020, never silent)",
     });
   }
 });
-describe("a resume whose place is taken (0020 section 1, 0019 section 12)", () => {
+describe("a resume whose place is taken (0020, 0019)", () => {
   it("is accepted with its intent stored, replies queued, and starts when the worker place frees", async () => {
     const { office, t } = w.f;
     // Another story run holds the office's worker place with a live session.
@@ -1587,7 +1587,7 @@ describe("the maintainer's note in a worker's message (DIPO-155 review)", () => 
   });
 });
 
-describe("the client name of a top-up (0020 section 4, DIPO-155 review)", () => {
+describe("the client name of a top-up (0020, DIPO-155 review)", () => {
   it("records the client name the connection gave in engine.hello on the budget grant", async () => {
     park("budget-exceeded");
     usage(61, 100_000);

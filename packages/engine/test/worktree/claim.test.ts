@@ -1,5 +1,5 @@
 // Claiming a story against real temporary repositories, a bare remote and the pinned Backlog CLI
-// (DIPO-38, DIPO-349; 0010 sections 2, 2a and 5): the branch, one claim commit of only the task
+// (DIPO-38, DIPO-349; 0010): the branch, one claim commit of only the task
 // file, no worktree of any kind; a lost race; collisions that delete nothing; the rollback of a
 // claim that fails after its branch exists; and the ordering against the planning lane.
 // The reuse of a released branch is in claim-reuse.test.ts; the slower cases run in CI only, in

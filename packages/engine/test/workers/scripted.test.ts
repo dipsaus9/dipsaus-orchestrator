@@ -1,4 +1,4 @@
-// `ScriptedWorker` (0017 section 2): it plays Worker events from a list through the Worker
+// `ScriptedWorker` (0017): it plays Worker events from a list through the Worker
 // interface, and a contract test refuses any script event the Claude CLI adapter could not
 // produce. The adapter's own events from every recording pass the same schema (recordings.test.ts).
 

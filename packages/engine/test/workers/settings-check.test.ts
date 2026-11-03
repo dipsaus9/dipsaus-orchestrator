@@ -1,4 +1,4 @@
-// The project settings check (DIPO-43 AC #2 and #3, 0008 section 2): fixture files with `hooks`,
+// The project settings check (DIPO-43 AC #2 and #3, 0008): fixture files with `hooks`,
 // `env`, `enabledPlugins`, `sandbox` and an allowlisted key, the office allowlist, and a stripped
 // key that reappears in the local copy.
 

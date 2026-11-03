@@ -1,4 +1,4 @@
-// The reviewer's recordings replayed (DIPO-145; 0019 sections 4 and 5, 0017 section 2): every
+// The reviewer's recordings replayed (DIPO-145; 0019, 0017): every
 // committed recording of the review kind, derived and live (the `review-*-live` scenarios), parses
 // into the review report schema or gives its error, through the adapter's parser as a review run
 // starts it.
@@ -114,7 +114,7 @@ describe("review recordings", () => {
       });
 
       if (recording.meta.source === "live") {
-        // A live capture keeps the decision fields of structured_output only (0017 section 2):
+        // A live capture keeps the decision fields of structured_output only (0017):
         // the tool use input and the streamed deltas are redacted, with the same hashes.
         it("carries the result's report, redacted, in the StructuredOutput tool use and its streamed deltas", () => {
           const report = lastResult(recording)["structured_output"];

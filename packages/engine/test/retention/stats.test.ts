@@ -93,7 +93,7 @@ describe("retention policy", () => {
       try {
         const office = addOffice(t);
         expect(officeTables(office)).toEqual(allOfficeTables(t));
-        // A new office-scoped table needs a line in retention/policy.ts (0007 section 7).
+        // A new office-scoped table needs a line in retention/policy.ts (0007).
         expect(allOfficeTables(t)).toEqual(Object.keys(TABLE_RETENTION).toSorted());
       } finally {
         t.state.close();

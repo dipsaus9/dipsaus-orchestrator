@@ -1,4 +1,4 @@
-// CI only (0017 section 1, DIPO-225): real git repositories and processes, too slow for the local
+// CI only (0017, DIPO-225): real git repositories and processes, too slow for the local
 // run.
 // The story index against the pinned Backlog CLI and real git (DIPO-32 test plan): the office
 // loads and indexes the Backlog fixture from `_base`, keys stay stable across passes and a retitle,

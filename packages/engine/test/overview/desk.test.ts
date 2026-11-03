@@ -1,4 +1,4 @@
-// The desk (DIPO-158; 0020 section 12): `office.desk` lists what waits on the maintainer from stored
+// The desk (DIPO-158; 0020): `office.desk` lists what waits on the maintainer from stored
 // facts in the six groups, ordered within a group by the stories each item blocks and then by age,
 // with the exact command line to type; a review-blocked park is one row with resume and approve,
 // and a gate held by `autorelease: pending` offers a hand merge and no `dipo approve`.
@@ -108,7 +108,7 @@ function rows(items: readonly DeskItem[]): string[] {
   return items.map((item) => `${item.kind} ${item.story ?? "-"}`);
 }
 
-describe("the desk order (0020 section 12)", () => {
+describe("the desk order (0020)", () => {
   it("lists every group in order, with dependents breaking ties before age", () =>
     withTempDir(async (dir) => {
       const t = await openTestState(dir);

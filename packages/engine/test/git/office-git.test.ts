@@ -1,4 +1,4 @@
-// Engine git against real temporary repositories (DIPO-31; 0010 sections 2 and 7, 0008 section 2):
+// Engine git against real temporary repositories (DIPO-31; 0010, 0008):
 // planted hooks and fsmonitor never run, `_base` follows `origin/main`, the worktree root stays
 // outside the main checkout, a failed fetch holds only pickup and planning pushes, a held lock is
 // retried and never deleted, and no operation writes the main checkout. The planted hooks through

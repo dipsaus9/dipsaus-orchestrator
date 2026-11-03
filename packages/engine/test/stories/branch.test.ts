@@ -1,4 +1,4 @@
-// A claimed story is read on its story branch (DIPO-56 AC #2, 0007 section 6 step 3): from the
+// A claimed story is read on its story branch (DIPO-56 AC #2, 0007): from the
 // claim commit until the claim is released, the story view and the snapshot take its lifecycle,
 // park record (F16), criteria and tier as committed at the branch tip, not from `_base` and not
 // from uncommitted edits in the claim's worktree. The maintainer

@@ -273,7 +273,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           target: { labels: { add: ["tier:M"] } },
         });
 
-        // TASK-1 changed on main: the branch is rebuilt (0010 section 2) with TASK-2 only, and the
+        // TASK-1 changed on main: the branch is rebuilt (0010) with TASK-2 only, and the
         // adopted PR is closed as for any rebuild.
         await pushStatusChange(repo, { "TASK-1": "In Progress" });
         host.conflicting(1);

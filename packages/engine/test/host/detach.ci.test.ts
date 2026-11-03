@@ -1,6 +1,6 @@
-// CI only (0017 section 1): real processes. A worker host started by a daemon survives SIGKILL of
+// CI only (0017): real processes. A worker host started by a daemon survives SIGKILL of
 // that daemon together with its worker, and writes `exit.json` once the worker ends
-// (0006 decision 8). A stub script stands in for Claude (DIPO-15 M0 review).
+// (0006). A stub script stands in for Claude (DIPO-15 M0 review).
 
 import { describe, expect, it } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";

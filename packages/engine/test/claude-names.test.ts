@@ -1,4 +1,4 @@
-// Claude specifics stay in the adapter (0004, 0008; DIPO-318 AC #8): outside
+// Claude specifics stay in the adapter (0001, 0004, 0008; DIPO-318 AC #8): outside
 // `packages/engine/src/workers/claude-cli/`, no source file of any package (code, comments, prompts,
 // data) names a Claude Code tool or a Claude model alias. Code is read for quoted tool names and
 // for the tool names that are no English word; prose (Markdown and comments) also for the
@@ -6,8 +6,8 @@
 // backticks or before a permission rule's parenthesis. Full model ids such as `claude-sonnet-4-5`
 // (the price catalogs, usage keys) are not aliases. One written exception: the office
 // configuration's defaults (`OFFICE_DEFAULTS` in `config/schema.ts`) name the tier and scan
-// models by alias, because the office writes its models in `.dipo/office.yaml` and Claude names
-// stay in the office config for now (simplification audit of 2026-10-24, decision 4).
+// models by alias, because the office writes its models in `.dipo/office.yaml`: the model
+// defaults are data, not code (0001).
 
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";

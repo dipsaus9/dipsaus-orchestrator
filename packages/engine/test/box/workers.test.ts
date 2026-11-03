@@ -2037,8 +2037,8 @@ describe("the daemon-start sweep of one state folder's helper boxes (DIPO-374)",
       const kept: string[] = [];
       for (const prefix of HELPERS) {
         own.push(await made(w, `${prefix}own0`, FAKE_STATE_LABEL));
-        // Made before DIPO-374 (no label), by another state folder, or with a label that only
-        // starts or ends like this folder's: each is kept.
+        // With no label, by another state folder, or with a label that only starts or ends
+        // like this folder's: each is kept (DIPO-374).
         kept.push(await made(w, `${prefix}none0`, null));
         kept.push(await made(w, `${prefix}other0`, stateFolderLabel(join(tmp, "other-state"))));
         kept.push(await made(w, `${prefix}longer0`, `${FAKE_STATE_LABEL}-2`));

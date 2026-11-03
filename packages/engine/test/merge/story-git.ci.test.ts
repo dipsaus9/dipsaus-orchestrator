@@ -1,4 +1,4 @@
-// CI only (0017 section 1): real git repositories and processes, too slow for the local run.
+// CI only (0017): real git repositories and processes, too slow for the local run.
 // The auto-merge of a story PR on real git (0002), the pinned Backlog CLI and a bare remote under
 // DIPO_TMP, with an in-memory code host whose auto-merge really squash-merges on the remote, on a
 // migrated state database built from fixtures:

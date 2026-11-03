@@ -1,4 +1,4 @@
-// The Backlog CLI runner (DIPO-28; 0010 section 1): the never-run list and anything outside the
+// The Backlog CLI runner (DIPO-28; 0010): the never-run list and anything outside the
 // allowlist are refused before spawning, text holding a 50-dash line never reaches the CLI, and a
 // non-zero exit or a `not found` line is an error carrying the command and its output. Calls on one
 // checkout run alone while the CLI could rewrite its config.yml, and at the same time once it is

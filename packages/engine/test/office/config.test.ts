@@ -1,4 +1,4 @@
-// Office configuration at load and on `office.reloadConfig` (DIPO-27; 0017 section 5): an invalid
+// Office configuration at load and on `office.reloadConfig` (DIPO-27; 0017): an invalid
 // file keeps the previous configuration for running work, puts an `engine.notice` with the errors
 // on the office stream, and `configBlocksRuns` returns the errors until a valid reload.
 

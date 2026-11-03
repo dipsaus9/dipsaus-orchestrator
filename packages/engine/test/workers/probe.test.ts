@@ -1,4 +1,4 @@
-// `probe` for the Claude CLI adapter (DIPO-43 AC #1, 0008 section 2): `claude --version` and
+// `probe` for the Claude CLI adapter (DIPO-43 AC #1, 0008): `claude --version` and
 // `claude auth status`, refusing a version below 2.1.285 or any authMethod but `claude.ai`.
 
 import { describe, expect, it } from "bun:test";

@@ -234,7 +234,7 @@ describe("replaying success-tools-subagent", () => {
       new Ingestor({ office: f.office, clock: f.t.clock }).track(
         target(f, claude, claudeState(NAME)),
       );
-      // The first line per message id is the one counted (0008 section 4).
+      // The first line per message id is the one counted (0008).
       const expected = new Map<string, Json>();
       for (const message of stdoutObjects(NAME)) {
         if (message["type"] !== "assistant") continue;

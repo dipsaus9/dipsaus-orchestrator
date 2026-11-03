@@ -6,7 +6,7 @@
 // - before its tests, the run reports each box an earlier run of the same file left (a label of
 //   the file's but not of this run), and deletes none of them: that run may still go on;
 // - no daemon's sweep deletes a test's box, and no test's sweep a daemon's: the labels differ.
-// A box made before DIPO-374 has no label, so it is neither found nor reported.
+// A box with no label is neither found nor reported (DIPO-374).
 
 import { basename } from "node:path";
 

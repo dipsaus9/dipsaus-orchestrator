@@ -54,8 +54,8 @@ const notice = (text: string) => ({
 });
 
 /**
- * Writes an entry the way a binary from before DIPO-124 could: straight into `change_log`, with
- * no render check, and advances `next_seq` as `appendEntries` does. Returns its seq.
+ * Writes an entry straight into `change_log` with no render check (DIPO-124), and advances
+ * `next_seq` as `appendEntries` does. Returns its seq.
  */
 function storeAsOlderBinary(office: OfficeHandle, type: string, delta: unknown): number {
   return office.immediate(() => {

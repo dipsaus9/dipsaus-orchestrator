@@ -1,4 +1,4 @@
-// The launch checks and the adapter hold (DIPO-43 AC #5 to #7, 0008 sections 2 and 7): a refusal
+// The launch checks and the adapter hold (DIPO-43 AC #5 to #7, 0008): a refusal
 // is `startFailed`, holds the adapter for every office and emits an `engine.notice`; a later pass
 // lifts it. Only a `session` launches on the Mac now (DIPO-240, DIPO-347): its checks are the tools,
 // the probe and the project settings, with no self-test session, credential check or Safe-Chain
@@ -163,7 +163,7 @@ describe("(engine) a developer or reviewer session is never planned on the Mac (
   });
 });
 
-describe("(engine) the tools that load project agents or skills (0008 section 2)", () => {
+describe("(engine) the tools that load project agents or skills (0008)", () => {
   it("are in no kind's tools, so no role loads .claude/agents or skills (DIPO-318)", () => {
     for (const kind of ["implement", "review", "session"] as const) {
       for (const web of [true, false]) {

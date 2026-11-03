@@ -39,7 +39,7 @@ export function loadRecording(name: string): Recording {
   return readRecording(join(RECORDINGS_DIR, name));
 }
 
-/** The report kind the session ran with: `review` for a reviewer's (0019 section 5). */
+/** The report kind the session ran with: `review` for a reviewer's (0019). */
 export function reportKind(recording: Recording): "implement" | "review" {
   return recording.meta["kind"] === "review" ? "review" : "implement";
 }

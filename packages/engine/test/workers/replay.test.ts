@@ -1,4 +1,4 @@
-// Steering through the fake process with real recordings (0017 section 2, "Replay"): SIGINT jumps
+// Steering through the fake process with real recordings (0017): SIGINT jumps
 // to the recorded post-interrupt tail, SIGTERM ends with exit 143 and no result, stdin writes are
 // recorded, and the manual clock moves by the recorded deltas.
 

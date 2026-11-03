@@ -1,5 +1,5 @@
-// Validation of a reviewer report against the story's criteria, test plan and diff (0019 section
-// 5, DIPO-146 AC #1).
+// Validation of a reviewer report against the story's criteria, test plan and diff (0019,
+// DIPO-146 AC #1).
 
 import { describe, expect, it } from "bun:test";
 

@@ -1,4 +1,4 @@
-// The branch slug (DIPO-29; 0010 section 4): the five steps, `story` for an empty result, and
+// The branch slug (DIPO-29; 0010): the five steps, `story` for an empty result, and
 // `branchFor` matching R18.
 
 import { describe, expect, it } from "bun:test";

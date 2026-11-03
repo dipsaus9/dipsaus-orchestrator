@@ -1,4 +1,4 @@
-// CI only (0017 section 1, DIPO-225): real git repositories and processes, too slow for the local
+// CI only (0017, DIPO-225): real git repositories and processes, too slow for the local
 // run.
 // Reconcile releases the claim of a story that is Done on `_base` (DIPO-216 test plan): the
 // 2026-10-19 case with real git and a remote, the crash between the teardown's start and the

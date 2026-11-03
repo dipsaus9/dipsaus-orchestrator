@@ -1,4 +1,4 @@
-// The `--plain` parser over output recorded from Backlog.md 1.53.0 (DIPO-28; 0010 section 1).
+// The `--plain` parser over output recorded from Backlog.md 1.53.0 (DIPO-28; 0010).
 
 import { describe, expect, it } from "bun:test";
 

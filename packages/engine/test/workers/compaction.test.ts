@@ -1,7 +1,6 @@
 // One compaction as the stream reports it (DIPO-100): replayed through the fake process and the
 // real adapter, a `compact_boundary` gives one `compacted` with the real `pre_tokens`. No session
-// has hooks any more (0008, DIPO-347): a `PostCompact` hook line an earlier binary left in an event
-// file changes nothing.
+// has hooks (0008, DIPO-347): a `PostCompact` hook line in an event file changes nothing.
 
 import { describe, expect, it } from "bun:test";
 
@@ -68,7 +67,7 @@ describe("a compaction seen as compact_boundary, replayed (DIPO-100)", () => {
     expect(compacted(replayed.events)).toEqual([{ t: "compacted", preTokens: PRE_TOKENS }]);
   });
 
-  it("ignores a PostCompact hook line of an earlier binary, before or after the boundary", async () => {
+  it("ignores a PostCompact hook line, before or after the boundary", async () => {
     const plain = await replay(withCompaction((t) => [boundary(t)]));
     const hookFirst = await replay(withCompaction((t) => [postCompact(t), boundary(t)]));
     const hookOnly = await replay(withCompaction((t) => [postCompact(t)]));

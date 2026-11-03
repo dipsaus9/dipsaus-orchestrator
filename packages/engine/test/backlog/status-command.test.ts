@@ -1,4 +1,4 @@
-// A status change never runs a command a Backlog file defines (DIPO-312, 0021 section 14): before
+// A status change never runs a command a Backlog file defines (DIPO-312, 0021): before
 // `task edit <id> --status` (or `draft edit`), in whatever folder the call runs, the runner reads
 // every place Backlog.md 1.53 takes its configuration from and every task file it loads a task
 // from, and refuses the call before spawning when one defines a command for the CLI to run, or

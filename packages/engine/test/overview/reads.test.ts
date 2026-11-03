@@ -1,4 +1,4 @@
-// The view reads (DIPO-52; 0005 sections 7 and 8): `office.snapshot`, a subscription after the snapshot's cursor that yields every later entry once, `story.detail`
+// The view reads (DIPO-52; 0005): `office.snapshot`, a subscription after the snapshot's cursor that yields every later entry once, `story.detail`
 // with past runs and verdicts, and `work.outputRange` over stored output.
 
 import { describe, expect, it } from "bun:test";

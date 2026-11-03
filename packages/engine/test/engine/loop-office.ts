@@ -1,4 +1,4 @@
-// The review loop of one office, wired as createEngine wires it (DIPO-153; 0019 section 1), for the
+// The review loop of one office, wired as createEngine wires it (DIPO-153; 0019), for the
 // engine's end-to-end scenario test. Real git with a bare `origin` under DIPO_TMP, the pinned
 // Backlog CLI and a migrated state database built from fixtures; the Backlog fixture with TASK-1
 // made to pass the Ready gate. The engine's own services are real and built the way
@@ -249,7 +249,7 @@ function scriptedPort(): WorkerPort {
     encode,
     result: (state: ParseState, exit: ExitRecord): WorkerResult => {
       const turn = lastTurn(state);
-      // A reviewer's turn carries its report in `review` (0019 section 5).
+      // A reviewer's turn carries its report in `review` (0019).
       if (turn?.review !== undefined && exit.code === 0 && exit.signal === null) {
         return {
           outcome: "done",

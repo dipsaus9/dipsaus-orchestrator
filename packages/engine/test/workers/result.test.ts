@@ -1,4 +1,4 @@
-// `result(state, exit)` rows of 0008 section 7 that no recording shows, from synthetic states, and
+// `result(state, exit)` rows of 0008 that no recording shows, from synthetic states, and
 // the usage of an aborted turn whose result leaves its own spend out.
 
 import { describe, expect, it } from "bun:test";
@@ -73,7 +73,7 @@ const assistant = (id: string, input: number, cacheCreate: number, cacheRead: nu
     parent_tool_use_id: null,
   });
 
-describe("result rows without a recording (0008 section 7)", () => {
+describe("result rows without a recording (0008)", () => {
   it("a rejected rate_limit_event gives plan-limit with no park", () => {
     const state = feed([
       out({

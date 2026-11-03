@@ -1,10 +1,10 @@
-// A Worker for engine tests that need no Claude detail (0017 section 2, option B): it plays a
+// A Worker for engine tests that need no Claude detail (0017, option B): it plays a
 // short list of Worker events through the Worker interface, so the engine reads them as it reads
 // a real adapter. A script must never hold an event the real adapter could not produce, so the
 // constructor requires that adapter's event schema and refuses a script that fails it; the
 // contract test checks every registered script against the Claude CLI adapter's schema.
 // `result` is a simplified reading of the script (done, blocked with its park, else crashed),
-// not the adapter's 0008 section 7 table; pass `result` to set any other outcome.
+// not the adapter's 0008 table; pass `result` to set any other outcome.
 
 import type {
   AdapterStatus,

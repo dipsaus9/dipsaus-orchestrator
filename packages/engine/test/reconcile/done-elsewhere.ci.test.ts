@@ -1,6 +1,6 @@
-// CI only (0017 section 1, DIPO-225): real git repositories and processes, too slow for the local
+// CI only (0017, DIPO-225): real git repositories and processes, too slow for the local
 // run.
-// A story Done on the base through another branch (DIPO-161; 0020 section 10), with real git and a
+// A story Done on the base through another branch (DIPO-161; 0020), with real git and a
 // bare remote and the scripted Backlog CLI of helpers.ts: the DIPO-105 replay, a branch that adds
 // nothing, a live worker, an own-branch teardown a crash interrupted, and the Done poll.
 
@@ -354,7 +354,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect(report.released?.map((c) => c.runId)).toEqual([one.runId]);
           expect(findClaim(o.office, one.runId)?.releaseReason).toBe("done-elsewhere");
           expect(liveClaimOf(o.office, two.key as StoryKey)).not.toBeNull();
-          // The released run's box is deleted too (0021 section 6).
+          // The released run's box is deleted too (0021).
           expect(boxes.n).toBe(1);
           teardown.stop();
         },

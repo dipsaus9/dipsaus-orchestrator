@@ -1,4 +1,4 @@
-// CI only (0017 section 1): planted hooks and fsmonitor never run in engine git calls against a
+// CI only (0017): planted hooks and fsmonitor never run in engine git calls against a
 // real temporary repository with a bare remote (DIPO-31), through fetches, a push from a second
 // clone and calls in the `_base` worktree; moved out of the local suite for its time budget
 // (DIPO-79). The fast local version, the same plant against queue calls on the repository without a

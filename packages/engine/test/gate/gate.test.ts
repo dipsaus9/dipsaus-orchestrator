@@ -1,4 +1,4 @@
-// The Ready gate (DIPO-30; 0012 section 3, R26 from 0014 section 4): one passing story, and per
+// The Ready gate (DIPO-30; 0012, R26 from 0014): one passing story, and per
 // rule a fixture that fails only that rule with the exact message.
 
 import { describe, expect, it } from "bun:test";
@@ -826,7 +826,7 @@ describe("gateText (DIPO-97)", () => {
 
 // R29 (DIPO-251): every path and bare test file name of an automated test plan entry is covered by
 // a Reference. Three M1 runs on 2026-10-20 had plans their References could not deliver. R29 only
-// warns (maintainer decision of 2026-10-22): References are a forecast (0021 section 13).
+// warns (maintainer decision of 2026-10-22): References are a forecast (0021).
 const r29 = (story: Partial<Parameters<typeof input>[0]>, baseFiles?: readonly string[]) =>
   warnings(evaluateGate(input(story, baseFiles === undefined ? {} : { baseFiles }), "ready"));
 

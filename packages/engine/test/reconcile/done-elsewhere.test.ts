@@ -1,4 +1,4 @@
-// A story Done on the base through another branch (DIPO-161; 0020 section 10), with real git and a
+// A story Done on the base through another branch (DIPO-161; 0020), with real git and a
 // bare remote and the scripted Backlog CLI of helpers.ts: the DIPO-105 replay, a branch that adds
 // nothing, a live worker, an own-branch teardown a crash interrupted, and the Done poll.
 //

@@ -1,4 +1,4 @@
-// CI only (0017 section 1): the field write path against the pinned Backlog.md CLI (DIPO-29),
+// CI only (0017): the field write path against the pinned Backlog.md CLI (DIPO-29),
 // moved out of the local suite for its time budget (DIPO-79): write a park record into a temporary
 // copy of the Backlog fixture project, read it back, check that every byte of the description
 // outside the block is unchanged, clear it again, and change labels with --add-label and

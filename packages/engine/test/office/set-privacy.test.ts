@@ -1,4 +1,4 @@
-// `office.setPrivacy` (DIPO-136; 0007 section 8): writes `.dipo/office.local.yaml`, reloads the
+// `office.setPrivacy` (DIPO-136; 0007): writes `.dipo/office.local.yaml`, reloads the
 // configuration and answers with the new hash; a refused change leaves the file unchanged.
 
 import { describe, expect, it } from "bun:test";

@@ -346,7 +346,7 @@ describe("worker host in-process", () => {
       await host.done;
     }));
 
-  it("reattaches a host an earlier binary started: the engine token its hello still carries is ignored (DIPO-369)", () =>
+  it("reattaches with a hello that carries an engine token: the host ignores the token (DIPO-369)", () =>
     withTempDir(async (dir) => {
       const { runDir, socket } = setup(dir);
       const clock = new ManualClock();

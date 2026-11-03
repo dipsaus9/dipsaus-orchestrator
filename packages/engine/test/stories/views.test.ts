@@ -1,4 +1,4 @@
-// The minimal story view and office summary (DIPO-32; 0005 sections 5 and 7, 0009 section 3): a
+// The minimal story view and office summary (DIPO-32; 0005, 0009): a
 // column from the lifecycle alone, counts per column, active runs, and the summary source that
 // `engine.hello` answers with.
 

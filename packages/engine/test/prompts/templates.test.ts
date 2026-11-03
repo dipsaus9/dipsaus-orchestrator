@@ -1,4 +1,4 @@
-// Templates hold named slots only (DIPO-47 AC #1, 0014 section 1).
+// Templates hold named slots only (DIPO-47 AC #1, 0014).
 
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";

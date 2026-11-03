@@ -1,4 +1,4 @@
-// Contract test (0017 section 5): the committed office.schema.json equals a fresh export. Compared
+// Contract test (0017): the committed office.schema.json equals a fresh export. Compared
 // as parsed JSON, because the formatter owns the layout.
 
 import { describe, expect, it } from "bun:test";

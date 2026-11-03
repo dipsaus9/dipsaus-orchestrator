@@ -1,4 +1,4 @@
-// CI only (0017 section 1): a daemon restart during a replayed run (DIPO-57 test plan). DIPO-44's
+// CI only (0017): a daemon restart during a replayed run (DIPO-57 test plan). DIPO-44's
 // worker host runs in this process with a FakeProcess replaying `success-tools-subagent` on a
 // manual clock, on a real socket. A first "daemon" (run control and ingestion) follows it over the
 // socket, then stops; lines are written while it is down; a second one re-attaches by the host's

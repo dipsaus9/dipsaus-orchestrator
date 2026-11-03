@@ -96,7 +96,7 @@ const expectNothingPlanted = (outcomes: readonly string[]): void => {
   expect(outcomes.at(-1)).toBe("files: unchanged");
 };
 
-/** The CI guard of every *.ci.test.ts file (0017 section 1). */
+/** The CI guard of every *.ci.test.ts file (0017). */
 const inCi = process.env["DIPO_TEST_CI"] === "1";
 const registers = inCi && process.env["DIPO_TEST_BOX"] === "1" && process.platform === "darwin";
 

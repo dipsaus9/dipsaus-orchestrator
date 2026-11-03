@@ -144,7 +144,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect(await officeStatusesReady(base.git)).toBeNull();
 
           // No task uses `To Do` any more: a second run sets the 0012 list alone in a second PR,
-          // which merges too (0010 section 6 step 4).
+          // which merges too (0010).
           base.t.clock.advance(1000);
           const second = await init.init(officeId);
           expect(second.changed).toBe(true);

@@ -1,4 +1,4 @@
-// The life of a story's box from claim to merge (DIPO-278; 0021 section 6), on the in-memory box
+// The life of a story's box from claim to merge (DIPO-278; 0021), on the in-memory box
 // backend and a real git repository:
 // - which runs' boxes stop, which are deleted and which are left (`boxRunState`): a run that waits
 //   (ended at In Review, a park, a review period's end, with its claim live) stops; a released

@@ -1,4 +1,4 @@
-// Size classes and truncation (DIPO-46 AC #2 and #7; 0014 section 4).
+// Size classes and truncation (DIPO-46 AC #2 and #7; 0014).
 
 import { describe, expect, it } from "bun:test";
 

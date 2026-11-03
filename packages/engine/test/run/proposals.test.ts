@@ -1,4 +1,4 @@
-// A worker's proposals for the maintainer (DIPO-166; 0020 sections 11c, 12 and 14): each proposal
+// A worker's proposals for the maintainer (DIPO-166; 0020): each proposal
 // DIPO-186 stores emits `proposal.filed`; the desk lists the open ones, spike before follow-up,
 // each with `dipo propose accept` and `dipo propose dismiss`; `proposal.accept` journals one lane
 // operation that files a Backlog draft with the title, the outcome line, the paths as references

@@ -1,4 +1,4 @@
-// CI only (0017 section 1): the slower story index cases against the pinned Backlog CLI and real
+// CI only (0017): the slower story index cases against the pinned Backlog CLI and real
 // git (DIPO-32 test plan), kept out of the local suite for its time budget (DIPO-77): an archived
 // or completed task closes as Removed with a notice, a hand-promoted draft is Removed and its new
 // id a new story, and a status pushed to the remote is indexed after
