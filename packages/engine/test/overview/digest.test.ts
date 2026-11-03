@@ -1,6 +1,5 @@
-// "Since you left" (DIPO-308; 0009 section 8): `office.digest` counts what the change log holds after
-// `since`, and without `since` counts from when the office's last TUI client disconnected, as
-// `recordTuiLeft` stored it in `offices.tui_left_at` (migration 55).
+// "Since you left" (0009): `office.digest` counts what the change log holds after the `since` the
+// client sends; the engine keeps no last-seen time of its own (0001).
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
@@ -15,7 +14,7 @@ import { openStateDatabase } from "../../src/db/database";
 import type { OfficeHandle } from "../../src/db/office";
 import { MIGRATIONS } from "../../src/db/schema";
 import { executeRead } from "../../src/reads/execute";
-import { DIGEST_COUNTS, recordTuiLeft, tuiLeftAt } from "../../src/overview/digest";
+import { DIGEST_COUNTS } from "../../src/overview/digest";
 import { viewsFeature } from "./views-feature";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { localMounts, memoryLogger } from "../db/helpers";
@@ -107,25 +106,23 @@ async function withOffice(fn: (t: TestState, office: OfficeHandle) => Promise<vo
 }
 
 describe("office.digest", () => {
-  it("without since counts from the stored time the office's last TUI client disconnected", () =>
+  it("counts from the since the client sends, each count present in order", () =>
     withOffice(async (t, office) => {
       t.clock.advance(5 * MINUTE);
-      storeFacts(t, office); // before the TUI left: not counted
+      storeFacts(t, office); // before since: not counted
       t.clock.advance(MINUTE);
-      const left = t.clock.now();
-      recordTuiLeft(office, left);
-      expect(tuiLeftAt(office)).toBe(left);
+      const since = new Date(t.clock.now()).toISOString();
       t.clock.advance(MINUTE);
       storeFacts(t, office);
       t.clock.advance(MINUTE);
 
-      const result = await readDigest(t, office);
-      expect(result.since).toBe(new Date(left).toISOString());
+      const result = await readDigest(t, office, since);
+      expect(result.since).toBe(since);
       expect(Object.keys(result.counts)).toEqual([...DIGEST_COUNTS]);
       expect(result.counts).toEqual({
         done: 1,
         parked: 1,
-        held: 0,
+        parkedByYou: 0,
         questions: 0,
         merges: 0,
         proposals: 0,
@@ -133,27 +130,40 @@ describe("office.digest", () => {
       expect(result.lines).toEqual(["DIPO-1 done", "DIPO-2 parked: verify-failing"]);
     }));
 
-  it("with since counts from that time instead", () =>
+  it("counts a story the maintainer parked as parkedByYou", () =>
     withOffice(async (t, office) => {
-      const start = t.clock.now();
+      const since = new Date(t.clock.now()).toISOString();
       t.clock.advance(MINUTE);
-      storeFacts(t, office);
-      recordTuiLeft(office, t.clock.now() + MINUTE);
-      t.clock.advance(2 * MINUTE);
-      const result = await readDigest(t, office, new Date(start).toISOString());
-      expect(result.counts["done"]).toBe(1);
-      expect(result.lines).toHaveLength(2);
+      const key = keyOf(office, "DIPO-2");
+      office.immediate(() =>
+        appendEntries(
+          office,
+          [
+            {
+              type: "story.parked",
+              key,
+              delta: {
+                story: "DIPO-2",
+                key,
+                reason: "by-maintainer",
+                detail: "later",
+                from: "Ready",
+                actions: ["work.resume"],
+              },
+            },
+          ],
+          { at: t.clock.now() },
+        ),
+      );
+      const result = await readDigest(t, office, since);
+      expect(result.counts["parkedByYou"]).toBe(1);
+      expect(result.counts["parked"]).toBe(0);
+      expect(result.lines).toEqual(["DIPO-2 parked by you"]);
     }));
 
-  it("counts from the time of the read while no TUI has left the office", () =>
+  it("refuses a read without since: the engine keeps no last-seen time of its own", () =>
     withOffice(async (t, office) => {
-      storeFacts(t, office);
-      t.clock.advance(MINUTE);
-      expect(tuiLeftAt(office)).toBeNull();
-      const result = await readDigest(t, office);
-      expect(result.since).toBe(new Date(t.clock.now()).toISOString());
-      expect(result.counts["done"]).toBe(0);
-      expect(result.lines).toEqual([]);
+      await expect(readDigest(t, office)).rejects.toThrow(/office\.digest failed/);
     }));
 });
 

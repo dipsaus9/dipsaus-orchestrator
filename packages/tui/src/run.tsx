@@ -290,9 +290,9 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
           };
         }
       },
-      readDigest: async (office) => {
+      readDigest: async (office, since) => {
         try {
-          return await connected.read(officeDigest, { office });
+          return await connected.read(officeDigest, { office, since });
         } catch (error) {
           return {
             ok: false,

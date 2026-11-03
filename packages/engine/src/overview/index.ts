@@ -24,14 +24,7 @@ export {
   registerDesk,
 } from "./desk";
 export type { DeskGate, DeskSources, HandDeskItem, Implemented } from "./desk";
-export {
-  digest,
-  DIGEST_COUNTS,
-  DIGEST_LINES_MAX,
-  recordTuiLeft,
-  registerDigest,
-  tuiLeftAt,
-} from "./digest";
+export { digest, DIGEST_COUNTS, DIGEST_LINES_MAX, registerDigest } from "./digest";
 export type { DigestCount } from "./digest";
 export { openDecisionNotes, openProposals, proposalItems } from "./proposals";
 export type { ProposalItem } from "./proposals";

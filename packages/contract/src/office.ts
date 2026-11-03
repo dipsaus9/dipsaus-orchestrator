@@ -598,13 +598,11 @@ export const workPreview = defineRead({
   }),
 });
 
-// Code-built "since you left" counts and lines (0009 section 8) [`digest`].
-// (DIPO-308): `since` is optional; without it the engine counts from when the office's last TUI
-// client disconnected, which it stores per office, or from the time of the read when no TUI has
-// left it yet. The result's `since` is the time it counted from.
+// Code-built "since you left" counts and lines (0009) [`digest`]. The client keeps `since`, the
+// time it last saw the office (0001); the result's `since` is the time the counts start from.
 export const officeDigest = defineRead({
   name: "office.digest",
-  args: z.object({ office: OfficeId, since: Timestamp.optional() }),
+  args: z.object({ office: OfficeId, since: Timestamp }),
   result: z.object({
     since: Timestamp,
     counts: z.record(z.string(), Count), // for example done, parked

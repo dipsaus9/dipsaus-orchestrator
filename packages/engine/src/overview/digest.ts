@@ -1,10 +1,8 @@
-// "Since you left" (0009 section 8, DIPO-308): `office.digest` counts what happened in an office
-// after a time, from the stored change log, and gives one code-built line per fact in log order.
-// Without `since` it counts from when the office's last TUI client disconnected
-// (`offices.tui_left_at`, which the daemon writes through `recordTuiLeft`), or from the time of
-// the read when no TUI has left the office yet, so a first start shows nothing rather than all of
-// history. Nothing here asks a model; worker text (a proposal title) is cleaned as the desk cleans
-// it, because a terminal shows the line.
+// "Since you left" (0009): `office.digest` counts what happened in an office after `since`, from
+// the stored change log, and gives one code-built line per fact in log order. The client keeps
+// `since` itself, so the engine does not depend on which clients connect (0001). Nothing here asks
+// a model; worker text (a proposal title) is cleaned as the desk cleans it, because a terminal
+// shows the line.
 
 import { officeDigest } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
@@ -17,7 +15,7 @@ import { deskLine } from "./desk";
 export const DIGEST_COUNTS = [
   "done",
   "parked",
-  "held",
+  "parkedByYou",
   "questions",
   "merges",
   "proposals",
@@ -35,22 +33,6 @@ const DIGEST_TYPES = [
   "gate.reached",
   "proposal.filed",
 ] as const;
-
-/** Stores `at` as the time the office's last TUI client disconnected. */
-export function recordTuiLeft(office: OfficeHandle, at: number): void {
-  office.immediate(() =>
-    office.run("update offices set tui_left_at = $at where office_id = $office_id", { at }),
-  );
-}
-
-/** When the office's last TUI client disconnected, or null when none has yet. */
-export function tuiLeftAt(office: OfficeHandle): number | null {
-  return (
-    office.get<{ at: number | null }>(
-      "select tui_left_at as at from offices where office_id = $office_id",
-    )?.at ?? null
-  );
-}
 
 type Delta = Record<string, unknown>;
 
@@ -78,7 +60,7 @@ function factOf(type: string, delta: Delta): { count: DigestCount; line: string 
       const reason = text(delta["reason"]);
       if (story === null || reason === null) return null;
       return reason === "by-maintainer"
-        ? { count: "held", line: `${story} parked by you` }
+        ? { count: "parkedByYou", line: `${story} parked by you` }
         : { count: "parked", line: `${story} parked: ${reason}` };
     }
     case "question.asked": {
@@ -115,7 +97,7 @@ export function digest(office: OfficeHandle, since: number): z.input<typeof offi
   const counts: Record<DigestCount, number> = {
     done: 0,
     parked: 0,
-    held: 0,
+    parkedByYou: 0,
     questions: 0,
     merges: 0,
     proposals: 0,
@@ -143,11 +125,7 @@ export function registerDigest(registry: FeatureRegistry): void {
     definition: officeDigest,
     handle: (ctx: ReadContext, args) => {
       if (ctx.office === undefined) throw new Error("office.digest runs with its office");
-      const since =
-        args.since === undefined
-          ? (tuiLeftAt(ctx.office) ?? ctx.clock.now())
-          : Date.parse(args.since);
-      return digest(ctx.office, since);
+      return digest(ctx.office, Date.parse(args.since));
     },
   });
 }

@@ -164,7 +164,7 @@ export interface TuiActions {
   readLosses(request: LossesRequest): Promise<LossesOutcome>;
   /** `office.desk` (DIPO-158). */
   readDesk: ReadDesk;
-  /** `office.digest` without `since`: since the office's last TUI client left (DIPO-308). */
+  /** `office.digest` from the time this TUI last saw the office (`digest.ts`). */
   readDigest: ReadDigest;
   /** A fresh request id for a new action; a retry reuses the old one. */
   newRequestId(): RequestId;
@@ -369,6 +369,7 @@ export function App(props: AppProps) {
   const digest = useDigest({
     office: state.office,
     readDigest: actions.readDigest,
+    clock,
   });
   const acts = useActions({
     store,

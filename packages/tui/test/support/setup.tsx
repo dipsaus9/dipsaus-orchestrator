@@ -132,10 +132,10 @@ export async function mount(options: MountOptions = {}) {
         { name: "office.desk" } as never,
         { office: opened } as never,
       )) as DeskOutcome,
-    readDigest: async (opened) =>
+    readDigest: async (opened, since) =>
       (await session.read(
         { name: "office.digest" } as never,
-        { office: opened } as never,
+        { office: opened, since } as never,
       )) as DigestOutcome,
     newRequestId: () => {
       requests += 1;

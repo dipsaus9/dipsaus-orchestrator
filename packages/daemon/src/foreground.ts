@@ -572,8 +572,6 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       engine,
       clock: io.clock,
       logger: logger.child({ component: "server" }),
-      // "Since you left" counts from when the office's last TUI client disconnected (DIPO-308).
-      tuiLeft: (office, at) => engine.tuiLeft(office, at),
     });
     held.server = server;
     held.socket = serveUnixSocket(place.socketPath, (connection) => server.accept(connection));

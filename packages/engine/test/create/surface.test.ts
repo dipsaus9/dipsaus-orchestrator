@@ -1,8 +1,8 @@
 // The engine's surface as `createEngine` builds it (DIPO-318; 0005 sections 3, 5, 7, 8, 9 and 11;
 // 0006 decisions 5, 7 and 9), with fakes for the daemon's process concerns and a real office on a
 // temporary repository: what `engine.hello`, `commands.describe` and the `daemon.*` operations
-// answer, the lifecycle checks, the software stream and an office's change log with their cursors,
-// the order of a command's reply and its office's change, and the time the last TUI left an office.
+// answer, the lifecycle checks, the software stream, an office's change log with their cursors,
+// and the order of a command's reply and its office's change.
 // The socket server's own protocol over these answers is tested in the daemon against a fake of
 // this surface.
 
@@ -536,25 +536,6 @@ describe("an office's change log", () => {
           }),
         },
       ),
-    TIMEOUT_MS,
-  );
-});
-
-describe("when the last TUI of an office left (DIPO-308)", () => {
-  it(
-    "stores the time the server tells, and office.digest counts from it",
-    () =>
-      withEngine(async (f) => {
-        await f.engine.recover();
-        const office = await f.open();
-        await head(f, office);
-        f.clock.advance(120_000);
-        const closedAt = f.clock.now();
-        f.engine.tuiLeft(office, closedAt);
-        f.clock.advance(60_000);
-        const digest = okResult<{ since: string }>(await f.read("office.digest", { office }));
-        expect(digest.since).toBe(new Date(closedAt).toISOString());
-      }),
     TIMEOUT_MS,
   );
 });
