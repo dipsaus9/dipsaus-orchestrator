@@ -64,7 +64,6 @@ import { LIFT_COMMAND, type StartsPausedState } from "../run/starts-paused";
 import { profileDeskItems } from "../scan/profile-view";
 import { findStoryPr, latestStoryPr } from "../records/story-prs";
 import { doneElsewhereDeskItems } from "../worktree/done-elsewhere";
-import { leftoverWorktreeDeskItems } from "../worktree/leftovers";
 import { lifecycleOf } from "../views/story";
 
 import { proposalItems, type ProposalItem } from "./proposals";
@@ -665,17 +664,6 @@ class DeskBuilder {
           hand: item.hand,
         });
       }
-    }
-    // The story worktrees of an earlier binary dipo kept because they hold changes (DIPO-349).
-    for (const item of leftoverWorktreeDeskItems(this.#office)) {
-      this.#add(GROUP.hand, 1, item.since, {
-        kind: item.kind,
-        detail: deskText(item.detail),
-        since: iso(item.since),
-        blocks: [],
-        actions: [],
-        hand: item.hand,
-      });
     }
     // The run profile's rows (DIPO-310): what the maintainer confirms by `dipo office confirm`.
     for (const item of profileDeskItems(this.#office)) {

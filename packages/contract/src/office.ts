@@ -624,8 +624,7 @@ export const officeStats = defineRead({
 // kinds (DIPO-161 `DONE ELSEWHERE` and `LEFTOVERS`, 0019 `PR HEAD CHANGED`, scope requests; DIPO-310
 // `PROFILE`, a pending proposal or stale confirmation of the run profile, with no story; DIPO-359
 // `STARTS PAUSED`, the office's starts paused with its reason and what lifts it, with no story;
-// DIPO-349 `LEFTOVER WORKTREE`, a story worktree of an earlier binary that holds changes, with no
-// story; DIPO-380 `LOADING`, an office whose load is still running, with no story; DIPO-401
+// DIPO-380 `LOADING`, an office whose load is still running, with no story; DIPO-401
 // `PLANNING LANE`, a planning lane whose operations wait for a backlog PR longer than 30 minutes,
 // with no story).
 export const KNOWN_DESK_KINDS = [
@@ -643,7 +642,6 @@ export const KNOWN_DESK_KINDS = [
   "PROPOSAL",
   "PARKED BY YOU",
   "PROFILE",
-  "LEFTOVER WORKTREE",
   "LOADING",
 ] as const;
 /** The kind of the one item `office.desk` shows while its office is loading (DIPO-380). */

@@ -82,7 +82,6 @@ describe("version 16", () => {
     ]);
     expect(OFFICE_DEFAULTS.worktree).toEqual({
       root: "../{repo}.worktrees",
-      rebuildable: ["node_modules/", ".DS_Store", ".tsbuild/", ".claude/.cc-writes/"],
     });
     expect(OFFICE_DEFAULTS.caps).toEqual({ ciAttempts: 2, conflictAttempts: 2 });
     expect(OFFICE_DEFAULTS.merge).toEqual({

@@ -490,15 +490,6 @@ create table done_elsewhere (
 
 create index done_elsewhere_key on done_elsewhere (office_id, key);
 
-create table leftover_worktrees (
-  office_id text not null references offices (office_id),
-  path text not null,
-  branch text,
-  why text not null,
-  found_at integer not null,
-  primary key (office_id, path)
-) strict;
-
 create table catch_ups (
   office_id text not null,
   run_id text not null,

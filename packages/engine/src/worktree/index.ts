@@ -29,17 +29,6 @@ export type { ClaimRecord, ReleasedBranch } from "./records";
 export { clearCommands, goneWorktrees, parseWorktreeList, readGitFacts } from "./git-facts";
 export type { GitFacts, GoneWorktree, ListedWorktree } from "./git-facts";
 export { SWEEP_MARGIN_MS, sweepBranchReads } from "./sweep";
-export {
-  heldBlobs,
-  isRebuildable,
-  keepingPaths,
-  LEFTOVER_WORKTREE_DESK,
-  leftoverCandidates,
-  leftoverWorktreeDeskItems,
-  recordKeptWorktrees,
-  sweepLeftoverWorktrees,
-} from "./leftovers";
-export type { KeptWorktree, LeftoverSweep, LeftoverWorktreeDeskItem } from "./leftovers";
 export type { BranchReadSweep } from "./sweep";
 export {
   DISCARD_RELEASE_REASON,

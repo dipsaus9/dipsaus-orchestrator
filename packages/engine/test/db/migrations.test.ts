@@ -387,7 +387,6 @@ describe("the base schema", () => {
           "gate_decisions",
           "gates",
           "ingest_cursors",
-          "leftover_worktrees",
           "office_scan_marks",
           "offices",
           "once_notices",
