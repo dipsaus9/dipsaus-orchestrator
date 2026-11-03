@@ -187,14 +187,12 @@ export { gitStoryOps, IN_REVIEW_STATUS } from "./story-git";
 export type { BranchStory, PushResult, StoryGit } from "./story-git";
 export {
   BOX_TIP_MOVED,
-  DEFAULT_LOCKFILES,
   dependenciesChangedText,
   DEPENDENCY_FILES,
   dependencyFiles,
   GATE_CAPABILITIES,
   gateChanges,
   NO_BOX_AT_DONE,
-  scopeCovers,
   VERIFY_NOTICES,
   VerifyCommit,
 } from "./verify-commit";

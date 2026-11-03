@@ -79,7 +79,7 @@ import {
 } from "../prompts/feedback";
 import { shownSpec } from "../scan/diff";
 import type { CapabilityName, RunProfile } from "../scan/detect";
-import { LOCKFILES, parseManifest } from "../scan/detect/manifest";
+import { parseManifest } from "../scan/detect/manifest";
 import { TASK_FIELD_ERROR } from "../story-store/errors";
 import { deriveStoryView, storyView } from "../views/story";
 import type { WorkerDecisionNote, WorkerReport } from "../workers/types";
@@ -177,15 +177,6 @@ export function dependenciesChangedText(story: string, files: readonly string[])
 
 /** Gate capabilities whose change the review is told about (0013 section 5). */
 export const GATE_CAPABILITIES: readonly CapabilityName[] = ["test", "lint", "typecheck", "verify"];
-
-/** Lockfile names paired with manifests (0014 section 3, 0010 amendment); the scope nudge's. */
-export const DEFAULT_LOCKFILES: readonly string[] = LOCKFILES.map(([name]) => name);
-
-/** True when the scope path `scope` covers `path`: equal, or `path` lies under it. */
-export function scopeCovers(scope: string, path: string): boolean {
-  const dir = scope.endsWith("/") ? scope : `${scope}/`;
-  return path === scope || path.startsWith(dir);
-}
 
 function shownCapability(profile: RunProfile, name: CapabilityName): string {
   const capability = profile.capabilities[name];
