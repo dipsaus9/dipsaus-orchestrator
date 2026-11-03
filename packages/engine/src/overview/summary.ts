@@ -1,7 +1,7 @@
-// The office summary (0005 sections 5 and 7, 0009 section 3): the stories in each queue column,
+// The office summary (0005, 0009): the stories in each queue column,
 // the active runs and what waits on the maintainer, derived from the office's rows. `engine.hello`
 // and the software stream's `office.summary` take it from `officeSummarySource`. Open questions
-// count from DIPO-59; test sessions arrive with M1 and count none until then. The day usage is M1.
+// count as waiting on the maintainer; test sessions do not.
 
 import {
   GateId,
@@ -135,9 +135,9 @@ export function summarySettings(
 /**
  * The summary of one office: `running` counts active runs, `parked` the stories in the `desk`
  * column, and `waitingOnMaintainer` the parked stories, the open gates waiting on the maintainer and
- * the open questions (DIPO-59; tests count from M1), `ready` the stories in the `ready` column
- * (DIPO-81), `optIns` the privacy opt-ins that are on (0007 section 8, DIPO-83) and
- * `outputRetentionDays` the stored-output retention period (0007 section 7, DIPO-97).
+ * the open questions (no test sessions), `ready` the stories in the `ready` column
+ * (DIPO-81), `optIns` the privacy opt-ins that are on (0007, DIPO-83) and
+ * `outputRetentionDays` the stored-output retention period (0007, DIPO-97).
  */
 export function deriveOfficeSummary(
   identity: OfficeIdentity,

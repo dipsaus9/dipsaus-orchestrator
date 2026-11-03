@@ -1,7 +1,7 @@
-// The view reads (0005 sections 7 and 8, 0009 sections 2 and 4): `office.snapshot`, `story.detail`
+// The view reads (0005, 0009): `office.snapshot`, `story.detail`
 // and `work.outputRange`. Each runs in one deferred read
 // transaction (`reads/execute.ts`), so a snapshot's views and its cursor match: a client that
-// subscribes after the cursor gets every later event once (0005 section 8).
+// subscribes after the cursor gets every later event once (0005).
 
 import {
   AgentId,
@@ -155,7 +155,7 @@ export function storyVerdicts(office: OfficeHandle, key: StoryKey): Verdict[] {
   return rows.map((row) => {
     const failures = failuresOf(row.rule_results);
     const gate = GateId.parse(row.gate_id);
-    // A review gate carries its round's verdict (0019 section 14, DIPO-146).
+    // A review gate carries its round's verdict (0019, DIPO-146).
     const review = row.kind === "review" ? reviewVerdictOfGate(office, gate) : null;
     return {
       gate,
