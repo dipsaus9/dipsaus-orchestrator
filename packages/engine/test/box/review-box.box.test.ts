@@ -324,7 +324,7 @@ function reviewerSpec(systemFile: string, overrides: Partial<WorkerSpec> = {}): 
     systemFile,
     taskMessage: `Read ${REVIEW_CODE_DIR}/README.md, then report every criterion as none and the summary "ok".`,
     web: false,
-    session: { id: crypto.randomUUID(), resume: false },
+    session: { id: crypto.randomUUID() },
     reportSchema: REPORT_JSON_SCHEMAS.review,
     ...overrides,
   };

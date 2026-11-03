@@ -282,11 +282,7 @@ export async function withRunOffice(
           initialState(
             previous === undefined
               ? { plannedModel: spec.model }
-              : nextSessionOptions(
-                  previous as unknown as ClaudeParseState,
-                  spec.session.resume,
-                  spec.model,
-                ),
+              : nextSessionOptions(previous as unknown as ClaudeParseState, spec.model),
           ) as unknown as ParseState,
         encode,
         result: (state, exit) => claudeResult(state as unknown as ClaudeParseState, exit),

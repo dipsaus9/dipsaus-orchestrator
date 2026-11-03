@@ -193,7 +193,6 @@ export interface RunReattacherDeps {
     readonly run: StoredRun;
     readonly agent: string;
     readonly model: string;
-    readonly resume: boolean;
     readonly previous?: ParseState;
   }) => ParseState;
   /** The run's caps by its tier; the run's budget alone when null. */
@@ -231,7 +230,6 @@ export const EXIT_CHECK_MS = CAP_TICK_MS;
 
 interface AgentRow {
   model: string;
-  session_id: string | null;
   ended_at: number | null;
 }
 
@@ -538,7 +536,7 @@ export class RunReattacher {
       model,
       ...(work === null ? {} : { work }),
       adapter,
-      initialState: this.#initialState(office, run, hosts, host, agent, model),
+      initialState: this.#initialState(office, run, hosts, host, model),
     };
   }
 
@@ -657,7 +655,7 @@ export class RunReattacher {
       model: work.model,
       work,
       adapter,
-      initialState: this.#initialState(office, run, hosts, host, agent, work.model),
+      initialState: this.#initialState(office, run, hosts, host, work.model),
     };
     deps.control.track(office.officeId, {
       runId: run.runId,
@@ -843,7 +841,7 @@ export class RunReattacher {
 
   #agentRow(office: OfficeHandle, agent: string): AgentRow | null {
     return office.get<AgentRow>(
-      `select model, session_id, ended_at from agents
+      `select model, ended_at from agents
         where office_id = $office_id and agent_id = $agent`,
       { agent },
     );
@@ -965,25 +963,18 @@ export class RunReattacher {
     run: StoredRun,
     hosts: readonly WorkerHostRow[],
     host: WorkerHostRow,
-    agent: AgentRow | null,
     model: string,
   ): ParseState {
     const previous = hosts.at(-2);
     const base = { office: office.officeId, run, agent: host.agentId, model };
-    if (previous === undefined) return this.#deps.initialState({ ...base, resume: false });
+    if (previous === undefined) return this.#deps.initialState(base);
     const cursor = office.get<{ parse_state: string }>(
       `select parse_state from ingest_cursors
         where office_id = $office_id and run_id = $run and agent_id = $agent and source_kind = 'host-events'`,
       { run: host.runId, agent: previous.agentId },
     );
-    const session = office.get<{ session_id: string | null }>(
-      "select session_id from agents where office_id = $office_id and agent_id = $agent",
-      { agent: previous.agentId },
-    )?.session_id;
-    const resume = session != null && agent?.session_id === session;
     return this.#deps.initialState({
       ...base,
-      resume,
       ...(cursor === null ? {} : { previous: JSON.parse(cursor.parse_state) as ParseState }),
     });
   }

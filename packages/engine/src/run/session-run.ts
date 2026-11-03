@@ -53,7 +53,7 @@ import { PlanError, type WorkerEvent, type WorkerSpec } from "../workers/types";
 
 import type { RunSteering } from "./control-types";
 import { claimHost, connectWhenBound } from "./hosts";
-import { type HostStarter, runLaunchPaths, systemHashOf } from "./launch";
+import { type HostStarter, runLaunchPaths } from "./launch";
 import { sessionUuid } from "./prompts";
 import type { RunEnd } from "../records/lifecycle";
 import { currentProfileId, endRun, insertRun, recordConfigSnapshot } from "../records/run-records";
@@ -178,7 +178,7 @@ export class SessionRuns implements ScanSessionRunner {
       systemFile: join(paths.runDir, SESSION_SYSTEM_FILE),
       taskMessage: request.taskMessage,
       web: false,
-      session: { id: sessionUuid(agent), resume: false },
+      session: { id: sessionUuid(agent) },
       reportSchema: request.schema,
     };
     try {
@@ -256,7 +256,6 @@ export class SessionRuns implements ScanSessionRunner {
             model: settings.model,
             effort: settings.effort,
             sessionId: spec.session.id,
-            systemHash: systemHashOf(request.systemFile),
             startedAt: deps.clock.now(),
           });
         },

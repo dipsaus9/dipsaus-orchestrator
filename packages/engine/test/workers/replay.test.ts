@@ -93,10 +93,4 @@ describe("replaying recordings through the fake process", () => {
     expect(stalledAt).toBe(20 * 60 * 1000);
     expect(performance.now() - started).toBeLessThan(2000);
   });
-
-  it("resume: one spawn per recorded process", async () => {
-    const run = await replay(loadRecording("resume"));
-    expect(run.fake.calls.length).toBe(2);
-    expect(run.events.filter((event) => event.t === "started").length).toBe(2);
-  });
 });

@@ -73,8 +73,8 @@ import { type IngestFixture, ingestFixture } from "../ingest/helpers";
 import { backlogLayout } from "../story-store/backlog";
 
 /**
- * The first message the session of `request` got (`RunResumer`): the resume delta of a native
- * resume, then every held message, the findings before the maintainer's words.
+ * The first message the session of `request` got (`RunResumer`): every held message, the findings
+ * before the maintainer's words.
  */
 function first(request: HeldSession | undefined): string {
   return request?.message ?? "";
@@ -188,12 +188,12 @@ function resumption(options: Partial<ResumptionOptions> = {}): Resumption {
       offices: { get: () => f.office },
       steering: { send: async () => ({ ok: true }) },
       encode,
-      worker: { id: "claude-cli", result: () => ({ outcome: "done", resumable: true }) as never },
+      worker: { id: "claude-cli", result: () => ({ outcome: "done" }) as never },
       ender: () => ender,
       resumer: {
         next: async (request) => {
           w.sessions.push(withHeld(f.office, request, f.t.clock.now()));
-          return { kind: "started", agent: f.t.ids.next("agt") as AgentId, resumed: true };
+          return { kind: "started", agent: f.t.ids.next("agt") as AgentId };
         },
       },
       caps: () => TIER_S,
@@ -1410,12 +1410,12 @@ function createRunOutcomesWithLift(
     offices: { get: () => f.office },
     steering: { send: async () => ({ ok: true }) },
     encode,
-    worker: { id: "claude-cli", result: () => ({ outcome: "done", resumable: true }) as never },
+    worker: { id: "claude-cli", result: () => ({ outcome: "done" }) as never },
     ender: () => ender,
     resumer: {
       next: async (request) => {
         w.sessions.push(withHeld(f.office, request, f.t.clock.now()));
-        return { kind: "started", agent: f.t.ids.next("agt") as AgentId, resumed: true };
+        return { kind: "started", agent: f.t.ids.next("agt") as AgentId };
       },
     },
     caps: () => TIER_S,
@@ -1568,7 +1568,7 @@ describe("two resumes of one park (DIPO-155 review)", () => {
 describe("the maintainer's note in a worker's message (DIPO-155 review)", () => {
   const long = `${"word ".repeat(400)}end`;
 
-  it("caps a long note in the native resume with the handoff block's limit and marker", () => {
+  it("caps a long note with the handoff block's limit and marker", () => {
     const text = noteText(long);
     expect(text.startsWith("Note from the maintainer: ")).toBe(true);
     expect(text.length).toBeLessThanOrEqual("Note from the maintainer: ".length + HANDOFF_NOTE_MAX);

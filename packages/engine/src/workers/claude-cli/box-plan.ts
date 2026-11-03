@@ -60,7 +60,7 @@ export function boxClaudeArgv(spec: WorkerSpec, session: BoxSession): [string, .
     // Each user message is echoed as the session reads it, so dipo sees when a steer is read
     // (DIPO-412, `interpret.ts`).
     REPLAY_USER_MESSAGES,
-    spec.session.resume ? "--resume" : "--session-id",
+    "--session-id",
     spec.session.id,
     "--model",
     flagValue("model", spec.model),
@@ -96,9 +96,6 @@ export function planInBox(spec: WorkerSpec, session: BoxSession, runDir: string)
     throw new PlanError(
       `only a developer or reviewer session runs in a box, not a ${spec.kind} session`,
     );
-  }
-  if (spec.kind === "review" && spec.session.resume) {
-    throw new PlanError("a reviewer session is never resumed (0002)");
   }
   if (!runDir.startsWith("/")) throw new PlanError(`runDir must be an absolute path: ${runDir}`);
   const env = { ...session.env, ...BOX_CLAUDE_ENV };

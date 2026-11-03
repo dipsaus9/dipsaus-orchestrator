@@ -40,7 +40,7 @@ export class SessionStarts {
     office: OfficeHandle,
     run: StoredRun,
     view: RunView,
-    request: { readonly mode: "resume" | "handoff"; readonly why: string },
+    request: { readonly why: string },
   ): Promise<boolean> {
     const paused = this.#deps.startsPaused?.()?.state(view.office) ?? null;
     if (paused?.reason === "plan-limit") {
@@ -68,7 +68,6 @@ export class SessionStarts {
         office: view.office,
         run,
         work: view.work,
-        mode: request.mode,
         why: request.why,
         caps: view.caps,
         startedAt: view.startedAt,

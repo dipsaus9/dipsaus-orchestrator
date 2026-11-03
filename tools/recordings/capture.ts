@@ -130,7 +130,6 @@ async function runProcess(
   scenario: Scenario,
   turns: readonly string[],
   start: number,
-  resume: boolean,
   out: ProcessRun,
 ): Promise<void> {
   const now = () => Math.round(performance.now() - start);
@@ -142,7 +141,7 @@ async function runProcess(
     stdout: "pipe",
     stderr: "pipe",
   });
-  out.steering.push({ t: now(), op: "spawn", resume });
+  out.steering.push({ t: now(), op: "spawn" });
   const queue = new LineQueue();
   const stdoutDone = readLines(proc.stdout, (text) =>
     queue.push({ t: now(), ch: "stdout", data: parseLine(text) }),
@@ -167,7 +166,7 @@ async function runProcess(
   let settling = false;
   let stdinClosed = false;
   let deltas = 0;
-  let midDone = scenario.midTurn === undefined || resume;
+  let midDone = scenario.midTurn === undefined;
   const deadline = performance.now() + scenario.timeoutMs;
 
   for (;;) {
@@ -282,8 +281,7 @@ function normaliseFlags(argv: readonly string[], scrubber: Scrubber): string[] {
     if (previous === "--json-schema") {
       return `<report schema sha256:${createHash("sha256").update(flag).digest("hex").slice(0, 12)}>`;
     }
-    if (previous === "--session-id" || previous === "--resume")
-      return scrubber.id(flag, "session_id");
+    if (previous === "--session-id") return scrubber.id(flag, "session_id");
     return scrubber.normalisePaths(flag);
   });
 }
@@ -316,14 +314,13 @@ export async function capture(scenario: Scenario): Promise<string> {
       mkdirSync(sandboxTmp, { recursive: true });
       const paths: CapturePaths = { root: repo.root, main: repo.dir, workdir, runDir };
       const turns = scenario.turns.map((turn) => turnText(turn, paths));
-      const resumeTurns = (scenario.resumeTurns ?? []).map((turn) => turnText(turn, paths));
       const systemFile = join(runDir, "system.md");
       const systemPrompt = scenario.systemPrompt ?? SYSTEM_PROMPT;
       writeFileSync(systemFile, systemPrompt);
       scenario.prepare?.(paths);
 
       const sessionId = randomUUID();
-      const specFor = (resume: boolean, first: string): WorkerSpec => ({
+      const specFor = (first: string): WorkerSpec => ({
         run: "run-0001",
         agent: "agt-0001",
         kind: scenario.kind ?? "implement",
@@ -334,7 +331,7 @@ export async function capture(scenario: Scenario): Promise<string> {
         systemFile,
         taskMessage: first,
         web: false,
-        session: { id: sessionId, resume },
+        session: { id: sessionId },
         reportSchema: REPORT_JSON_SCHEMAS[scenario.kind ?? "implement"],
       });
       const hostSocket = join(repo.root, "host.sock");
@@ -360,25 +357,14 @@ export async function capture(scenario: Scenario): Promise<string> {
         argv[at + 1] = scenario.tools.join(",");
         return { ...launch, argv };
       };
-      const launches: [LaunchPlan, readonly string[], boolean][] = [];
-      const first = withTools(planClaudeLaunch(specFor(false, turns[0] ?? ""), context));
-      launches.push([first, turns, false]);
-      if (resumeTurns.length > 0) {
-        launches.push([
-          withTools(planClaudeLaunch(specFor(true, resumeTurns[0] ?? ""), context)),
-          resumeTurns,
-          true,
-        ]);
-      }
+      const launch = withTools(planClaudeLaunch(specFor(turns[0] ?? ""), context));
 
       const start = performance.now();
       const run = { lines: [] as Envelope[], steering: [] as SteerRecord[] };
-      for (const [launch, processTurns, resume] of launches) {
-        for (const file of launch.files) {
-          writeFileSync(join(runDir, file.name), withExtraAllow(file.name, file.content, scenario));
-        }
-        await runProcess(launch, scenario, processTurns, start, resume, run);
+      for (const file of launch.files) {
+        writeFileSync(join(runDir, file.name), withExtraAllow(file.name, file.content, scenario));
       }
+      await runProcess(launch, scenario, turns, start, run);
       const checks =
         scenario.verify === undefined ? undefined : await scenario.verify(paths, run.lines);
 
@@ -405,7 +391,7 @@ export async function capture(scenario: Scenario): Promise<string> {
         );
       }
 
-      const prompt = [systemPrompt, ...turns, ...resumeTurns].join("\n");
+      const prompt = [systemPrompt, ...turns].join("\n");
       const meta: Meta = {
         scenario: scenario.name,
         source: "live",
@@ -416,10 +402,10 @@ export async function capture(scenario: Scenario): Promise<string> {
         fixture: scenario.fixture,
         fixture_sha256: fixtureHash(fixtureDir),
         model: scenario.model,
-        flags: normaliseFlags(first.argv, scrubber),
+        flags: normaliseFlags(launch.argv, scrubber),
         prompt_bytes: Buffer.byteLength(prompt),
         prompt_sha256: createHash("sha256").update(prompt).digest("hex"),
-        processes: launches.length,
+        processes: 1,
         steering: run.steering,
         unknown_types: scrubber.report.unknownTypes,
         ...(scenario.kind === undefined ? {} : { kind: scenario.kind }),

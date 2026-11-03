@@ -24,12 +24,7 @@ import {
   type ClaudeLaunchContext,
 } from "../../src/workers/claude-cli/plan";
 import { result } from "../../src/workers/claude-cli/result";
-import {
-  type HostLine,
-  type LaunchPlan,
-  PlanError,
-  type WorkerSpec,
-} from "../../src/workers/types";
+import { type HostLine, type LaunchPlan, type WorkerSpec } from "../../src/workers/types";
 
 const HOME = "/home/maintainer";
 const RUN_DIR = "/home/maintainer/code/shop/.git/dipo/runs/run-0002";
@@ -52,7 +47,7 @@ function spec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
     systemFile: `${RUN_DIR}/system-scan.md`,
     taskMessage: "<scan_request>\n- verify: unresolved\n</scan_request>",
     web: false,
-    session: { id: "1e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume: false },
+    session: { id: "1e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b" },
     reportSchema: SCAN_ANSWER_JSON_SCHEMA,
     ...overrides,
   };
@@ -136,11 +131,8 @@ describe("the scan session's launch plan", () => {
     expect(flag(launch, "--session-id")).toBe(spec().session.id);
   });
 
-  it("refuses a session with a tool, a resume or a folder in the checkout", () => {
+  it("refuses a session with a tool or a folder in the checkout", () => {
     expect(() => plan(spec({ web: true }), context())).toThrow(/every tool off/);
-    expect(() => plan(spec({ session: { ...spec().session, resume: true } }), context())).toThrow(
-      PlanError,
-    );
     expect(() => plan(spec({ workdir: "/home/maintainer/code/shop/sub" }), context())).toThrow(
       /outside the main checkout/,
     );
@@ -188,7 +180,6 @@ describe("the scan session's result", () => {
     const done = result(state, { code: 0, signal: null });
     expect(done.outcome).toBe("done");
     expect(done.answer).toEqual(state.lastTurn?.answer);
-    expect(done.resumable).toBe(false);
     expect(done.park).toBeUndefined();
     expect(done.usage[MODEL]).toMatchObject({ input: 900, output: 120 });
   });
@@ -196,7 +187,7 @@ describe("the scan session's result", () => {
   it("ends blocked with no park and no feedback turn when there is no answer", () => {
     const state = feed([resultLine({ structured_output: undefined })]);
     const ended = result(state, { code: 0, signal: null });
-    expect(ended).toMatchObject({ outcome: "blocked", resumable: false });
+    expect(ended).toMatchObject({ outcome: "blocked" });
     expect(ended.park).toBeUndefined();
     expect(ended.retry).toBeUndefined();
     expect(ended.detail).toContain("no structured_output");

@@ -9,7 +9,6 @@ import reviewContract from "./contract/review.md" with { type: "text" };
 import scanContract from "./contract/scan.md" with { type: "text" };
 import ciFeedback from "./feedback/ci.md" with { type: "text" };
 import reportFeedback from "./feedback/report.md" with { type: "text" };
-import resumeMessage from "./feedback/resume.md" with { type: "text" };
 import verifyFeedback from "./feedback/verify.md" with { type: "text" };
 import developerRole from "./roles/developer.md" with { type: "text" };
 import reviewerRole from "./roles/reviewer.md" with { type: "text" };
@@ -104,13 +103,12 @@ export const TASK_TEMPLATES = {
 
 /**
  * Feedback item templates (0014 section 7). M0 builds verify items, the one feedback turn for a
- * missing or invalid report, and the short first message of a resumed session (DIPO-51).
+ * missing or invalid report.
  */
 export const FEEDBACK_TEMPLATES = {
   ci: ciFeedback,
   verify: verifyFeedback,
   report: reportFeedback,
-  resume: resumeMessage,
 } as const;
 
 /** A slot: `{{name}}` with a lowercase name of letters, digits and `_`. */

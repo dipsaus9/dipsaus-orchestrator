@@ -92,8 +92,6 @@ import {
   type Caps,
   type HostOp,
   type ParseState,
-  type ResumeCheck,
-  type SessionRef,
   type WorkerAdapter,
 } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
@@ -283,7 +281,7 @@ beforeEach(async () => {
     work: { ...f.work, key },
     sent: [],
     next: [],
-    nextOutcome: { kind: "started", agent: "agt_next" as never, resumed: true },
+    nextOutcome: { kind: "started", agent: "agt_next" as never },
     onNext: null,
     hang: false,
     alive: true,
@@ -861,7 +859,7 @@ const preparedSpecs: {
   readonly effort?: string;
 }[] = [];
 
-/** The real `RunResumer` on fakes: a resumable session, the given host starter and probe. */
+/** The real `RunResumer` on fakes: the given host starter and probe. */
 function realResumer(
   hosts: ConstructorParameters<typeof RunResumer>[0]["hosts"],
   extra: Partial<
@@ -878,7 +876,6 @@ function realResumer(
       | "boxSync"
     >
   > = {},
-  canResume: (ref: SessionRef) => ResumeCheck = () => ({ ok: true }),
   config: OfficeConfig = OFFICE_DEFAULTS,
   /** The launch checks; by default a pass that records the spec. */
   prepare?: WorkerPort["prepare"],
@@ -891,7 +888,6 @@ function realResumer(
       ({
         id: "claude-cli",
         probe: async () => ({ version: "2.1.0" }),
-        canResume,
         interpret: claude.interpret,
       }) as unknown as WorkerAdapter,
     prepare:
@@ -906,7 +902,7 @@ function realResumer(
     initialState: () => ({}),
     encode,
     result: (state, exit) => claudeResult(state as unknown as ClaudeParseState, exit),
-    sessionFacts: () => ({ contextTokens: null, contextWindow: null, lastReport: null }),
+    sessionFacts: () => ({ lastReport: null }),
   };
   return new RunResumer({
     stories: backlogLayout,
@@ -925,9 +921,9 @@ function realResumer(
         run: async <T>(fn: (session: unknown) => Promise<T>) =>
           fn({ repository: {}, ok: async () => `${"f".repeat(40)}\n` }),
       }) as unknown as ReturnType<NonNullable<ConstructorParameters<typeof RunResumer>[0]["git"]>>,
-    story: async () => {
-      throw new Error("no story read in this test");
-    },
+    // Every next session is a new one with a handoff (0008): a story and its workspace to build it.
+    story: async () => storyOf(),
+    workspace,
     runtimeDir: join(w.dir, "rt"),
     tmpRoot: join(w.dir, "tmp"),
     hosts,
@@ -945,7 +941,6 @@ function nextRequest(): NextSessionRequest {
     office: w.f.office.officeId as OfficeId,
     run,
     work: w.work,
-    mode: "resume",
     why: "a crash",
     caps: ROOMY,
     startedAt: 0,
@@ -1119,54 +1114,6 @@ describe("restart windows of DIPO-51's review", () => {
     expect(workView(w.f.office, w.f.run)?.health).not.toBe("stuck");
   });
 
-  it("the resume check gets the previous session's version from agents.adapter_version (DIPO-101)", async () => {
-    beforeRestart("terminated", 0);
-    w.f.office.immediate(() =>
-      w.f.office.run(
-        `update agents set ended_at = 1, end_reason = 'exited', session_id = 'session-1',
-           adapter_version = '2.0.9'
-          where office_id = $office_id and agent_id = $agent`,
-        { agent: w.f.agent },
-      ),
-    );
-    const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
-    mkdirSync(runDir, { recursive: true });
-    copyFileSync(w.f.eventFile, join(runDir, "events.ndjson"));
-    const seen: (string | null)[] = [];
-    const resumer = realResumer(
-      {
-        start: async (office, options) => {
-          const host = {
-            pid: 4243,
-            startTimeMs: 0,
-            runId: options.runId,
-            agentId: options.agentId,
-            socketPath: join(w.dir, "host.sock"),
-            protocolVersion: 1,
-            runDir,
-            eventFile: join(runDir, "events.ndjson"),
-            launchDeadline: w.f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
-          };
-          recordWorkerHost(office, host, w.f.t.clock, {
-            ...(options.processedOffset === undefined
-              ? {}
-              : { processedOffset: options.processedOffset }),
-            ...(options.record === undefined ? {} : { record: options.record }),
-          });
-          return host;
-        },
-      },
-      { probe: async () => null },
-      (ref) => {
-        seen.push(ref.version);
-        return { ok: true };
-      },
-    );
-    const outcome = await resumer.next(nextRequest());
-    expect(outcome.kind).toBe("started");
-    expect(seen).toEqual(["2.0.9"]);
-  });
-
   it("gives the CLI the developer's remaining turns and tokens, a reviewer's usage left out (0002)", async () => {
     beforeRestart("terminated", 0);
     const before = runTotals(w.f.office, w.f.run, 0, 0);
@@ -1318,12 +1265,11 @@ describe("restart windows of DIPO-51's review", () => {
     ]);
     expect(agentRow()?.end_reason).toBe("crashed");
 
-    // The restart decides by the recorded decision: the resume, not the adapter's result.
+    // The restart decides by the recorded decision: the next session, not the adapter's result.
     w.hang = false;
     const second = daemon();
     expect(await second.outcomes.redispatch(w.f.office.officeId)).toBe(1);
     expect(w.next).toHaveLength(2);
-    expect(w.next[1]?.mode).toBe("resume");
     expect(w.next[1]?.why).toBe("a crash decided before the daemon restarted");
     expect(parks()).toEqual([]);
   });
@@ -1612,7 +1558,7 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
   });
 });
 
-/** The run's first session with its pack, ready to be resumed. */
+/** The run's first session with its pack, ready for its next session. */
 function firstSession(): void {
   beforeRestart("terminated", 0);
   w.f.office.immediate(() => {
@@ -1944,8 +1890,8 @@ const handoff = async () => ({
 });
 const workspace = () => memoryWorkspace({ "src/new.ts": "export const fresh = 1;\n" });
 
-describe("the prompt parts of a resume and a handoff (DIPO-177)", () => {
-  it("a resume records the task message it sent, under the resumed session's agent", async () => {
+describe("the prompt parts of the next session (DIPO-177)", () => {
+  it("a handoff records its system file and its task message, under the new agent", async () => {
     firstSession();
     const outcome = await realResumer(hosts, {
       probe: async () => null,
@@ -1953,28 +1899,7 @@ describe("the prompt parts of a resume and a handoff (DIPO-177)", () => {
       handoff,
       workspace,
     }).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: true });
-    const agent = (outcome as { agent: string }).agent;
-    const text = sentText();
-    expect(promptPartsOf(w.f.office, w.f.run, agent)).toMatchObject([
-      { name: "task", sha256: sha(text), bytes: Buffer.byteLength(text) },
-    ]);
-    expect(promptPartsOf(w.f.office, w.f.run, w.f.agent)).toEqual([]);
-  });
-
-  it("a handoff records its system file and its task message, under the new agent", async () => {
-    firstSession();
-    const outcome = await realResumer(
-      hosts,
-      {
-        probe: async () => null,
-        story: async () => storyOf(),
-        handoff,
-        workspace,
-      },
-      () => ({ ok: false, reason: "the context is too full" }),
-    ).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    expect(outcome).toMatchObject({ kind: "started" });
     const agent = (outcome as { agent: string }).agent;
     const system = readFileSync(preparedSpecs.at(-1)?.systemFile ?? "", "utf8");
     const text = sentText();
@@ -2017,7 +1942,7 @@ describe("the held messages in the next session (0002, 0020)", () => {
     ]);
   }
 
-  it("a native resume sends the delta, then the findings, then the maintainer's words oldest first", async () => {
+  it("a handoff sends the task message, then the held messages once, never starting with the note", async () => {
     firstSession();
     const ids = holdResume();
     const outcome = await realResumer(hosts, {
@@ -2026,27 +1951,7 @@ describe("the held messages in the next session (0002, 0020)", () => {
       handoff,
       workspace,
     }).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: true });
-    const text = sentText();
-    expect(text.split("\n\n").slice(-3)).toEqual([PARKED, STEER, NOTE]);
-    expect(text.startsWith("dipo resumed this session")).toBe(true);
-    // Delivered in the transaction that recorded the new agent.
-    expect(intentStates(ids)).toEqual([
-      ["resolved", "resumed"],
-      ["resolved", "resumed"],
-      ["resolved", "resumed"],
-    ]);
-  });
-
-  it("a handoff sends the task message, then the held messages once, never starting with the note", async () => {
-    firstSession();
-    const ids = holdResume();
-    const outcome = await realResumer(
-      hosts,
-      { probe: async () => null, story: async () => storyOf(), handoff, workspace },
-      () => ({ ok: false, reason: "the context is too full" }),
-    ).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    expect(outcome).toMatchObject({ kind: "started" });
     const text = sentText();
     expect(text.split("Note from the maintainer: /compact the tests first")).toHaveLength(2);
     expect(text.startsWith("/")).toBe(false);
@@ -2063,7 +1968,6 @@ describe("the held messages in the next session (0002, 0020)", () => {
     const outcome = await realResumer(
       hosts,
       { probe: async () => null, story: async () => storyOf(), handoff, workspace },
-      undefined,
       undefined,
       async () => ({
         ok: false,
@@ -2086,12 +1990,13 @@ describe("the prompts of a box worker's next session (DIPO-272)", () => {
     const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
     mkdirSync(runDir, { recursive: true });
     writeFileSync(join(runDir, BOX_RUN_FILE), JSON.stringify({ runId: w.f.run, box: "dipo-x" }));
-    const outcome = await realResumer(
-      hosts,
-      { probe: async () => null, story: async () => storyOf(), handoff, workspace },
-      () => ({ ok: false, reason: "the context is too full" }),
-    ).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      handoff,
+      workspace,
+    }).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started" });
     const system = readFileSync(preparedSpecs.at(-1)?.systemFile ?? "", "utf8");
     expect(system).toBe(renderSystemFile("implement-box", "developer"));
     const text = sentText();
@@ -2110,12 +2015,14 @@ describe("the prompts of a box worker's next session (DIPO-272)", () => {
         return "ready" as const;
       },
     } as unknown as RunBoxes;
-    const outcome = await realResumer(
-      hosts,
-      { probe: async () => null, story: async () => storyOf(), handoff, workspace, boxes },
-      () => ({ ok: false, reason: "the context is too full" }),
-    ).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      handoff,
+      workspace,
+      boxes,
+    }).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started" });
     expect(asked).toEqual([`has ${w.f.run}`]);
     // No box record in the run directory, yet the box contract: every developer is a box worker.
     const system = readFileSync(preparedSpecs.at(-1)?.systemFile ?? "", "utf8");
@@ -2125,11 +2032,13 @@ describe("the prompts of a box worker's next session (DIPO-272)", () => {
   it("starts nothing when a lost box cannot be rebuilt, and says why (DIPO-278)", async () => {
     firstSession();
     const boxes = { has: async () => "gone" as const } as unknown as RunBoxes;
-    const outcome = await realResumer(
-      hosts,
-      { probe: async () => null, story: async () => storyOf(), handoff, workspace, boxes },
-      () => ({ ok: false, reason: "the context is too full" }),
-    ).next(nextRequest());
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      handoff,
+      workspace,
+      boxes,
+    }).next(nextRequest());
     expect(outcome.kind).toBe("failed");
     expect(outcome.kind === "failed" ? outcome.reason : "").toContain(
       "the run's box could not be made ready: the delivered parts of",
@@ -2148,20 +2057,16 @@ describe("the merges dipo made outside the box reach it before the worker (DIPO-
         return "ready" as const;
       },
     } as unknown as RunBoxes;
-    const outcome = await realResumer(
-      hosts,
-      {
-        probe: async () => null,
-        story: async () => storyOf(),
-        handoff,
-        workspace,
-        boxes,
-        boxSync: async (_office, run) => {
-          order.push(`copy ${run.runId} after ${preparedSpecs.length - before} launch checks`);
-        },
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      handoff,
+      workspace,
+      boxes,
+      boxSync: async (_office, run) => {
+        order.push(`copy ${run.runId} after ${preparedSpecs.length - before} launch checks`);
       },
-      () => ({ ok: false, reason: "the context is too full" }),
-    ).next(nextRequest());
+    }).next(nextRequest());
     expect(outcome).toMatchObject({ kind: "started" });
     expect(order).toEqual(["box ready", `copy ${w.f.run} after 0 launch checks`]);
     expect(preparedSpecs.length).toBe(before + 1);
@@ -2171,20 +2076,16 @@ describe("the merges dipo made outside the box reach it before the worker (DIPO-
     firstSession();
     const before = preparedSpecs.length;
     const boxes = { has: async () => "ready" as const } as unknown as RunBoxes;
-    const outcome = await realResumer(
-      hosts,
-      {
-        probe: async () => null,
-        story: async () => storyOf(),
-        handoff,
-        workspace,
-        boxes,
-        boxSync: async () => {
-          throw new Error("the box is gone");
-        },
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      handoff,
+      workspace,
+      boxes,
+      boxSync: async () => {
+        throw new Error("the box is gone");
       },
-      () => ({ ok: false, reason: "the context is too full" }),
-    ).next(nextRequest());
+    }).next(nextRequest());
     expect(outcome).toEqual({
       kind: "failed",
       reason: "dipo's merge on the story branch could not be copied into the box: the box is gone",
@@ -2193,33 +2094,17 @@ describe("the merges dipo made outside the box reach it before the worker (DIPO-
   });
 });
 
-const tooFull = () => ({ ok: false as const, reason: "the context is too full" });
-
-describe("the prompt texts of a resume and a handoff (DIPO-137)", () => {
+describe("the prompt texts of the next session (DIPO-137)", () => {
   const noPrompts: OfficeConfig = {
     ...OFFICE_DEFAULTS,
     privacy: { ...OFFICE_DEFAULTS.privacy, storePrompts: false },
   };
   const facts = { probe: async () => null, story: async () => storyOf(), handoff, workspace };
 
-  it("a resume stores only its first message, under the resumed session's agent", async () => {
-    firstSession();
-    const outcome = await realResumer(hosts, facts).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: true });
-    const agent = (outcome as { agent: string }).agent;
-    expect(promptTextsOf(w.f.office, w.f.run, agent)).toEqual([
-      { part: "message", text: sentText() },
-    ]);
-    expect(promptTextsOf(w.f.office, w.f.run, w.f.agent)).toEqual([]);
-  });
-
   it("a handoff stores its system file and its handoff message, under the new agent", async () => {
     firstSession();
-    const outcome = await realResumer(hosts, facts, () => ({
-      ok: false,
-      reason: "the context is too full",
-    })).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    const outcome = await realResumer(hosts, facts).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started" });
     const agent = (outcome as { agent: string }).agent;
     expect(promptTextsOf(w.f.office, w.f.run, agent)).toEqual([
       { part: "system", text: readFileSync(preparedSpecs.at(-1)?.systemFile ?? "", "utf8") },
@@ -2229,11 +2114,11 @@ describe("the prompt texts of a resume and a handoff (DIPO-137)", () => {
 
   it("stores nothing with storePrompts off", async () => {
     firstSession();
-    const resumed = await realResumer(hosts, facts, undefined, noPrompts).next(nextRequest());
-    expect(resumed).toMatchObject({ kind: "started" });
+    const started = await realResumer(hosts, facts, noPrompts).next(nextRequest());
+    expect(started).toMatchObject({ kind: "started" });
     expect(w.f.office.all("select * from prompt_texts where office_id = $office_id")).toEqual([]);
     // The measurement is not the text: the parts are still recorded.
-    expect(promptPartsOf(w.f.office, w.f.run, (resumed as { agent: string }).agent)).not.toEqual(
+    expect(promptPartsOf(w.f.office, w.f.run, (started as { agent: string }).agent)).not.toEqual(
       [],
     );
   });
@@ -2286,7 +2171,6 @@ describe("a later session keeps the model and effort its run started with (DIPO-
         },
       },
       { probe: async () => null },
-      () => ({ ok: true }),
       EDITED,
     );
     const outcome = await resumer.next(nextRequest());
@@ -2364,12 +2248,13 @@ describe("the handoff of a new session: notes, open feedback and the context pac
       },
       w.f.t.clock,
     );
-    const outcome = await realResumer(
-      hosts,
-      { probe: async () => null, story: async () => storyOf(), workspace, git: quietGit },
-      tooFull,
-    ).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      workspace,
+      git: quietGit,
+    }).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started" });
     expect(sentText()).toContain(
       [
         "Open feedback:",
@@ -2444,15 +2329,12 @@ describe("the handoff of a new session: notes, open feedback and the context pac
     ]);
   });
 
-  it("records the context pack of a new session's task message, and none for a resume", async () => {
+  it("records the context pack of a new session's task message", async () => {
     firstSession();
     const facts = { probe: async () => null, story: async () => storyOf(), handoff, workspace };
-    const resumed = await realResumer(hosts, facts).next(nextRequest());
-    expect(resumed).toMatchObject({ kind: "started", resumed: true });
     expect(contextPackOf(w.f.office, branchOf())).toBeNull();
-
-    const fresh = await realResumer(hosts, facts, tooFull).next(nextRequest());
-    expect(fresh).toMatchObject({ kind: "started", resumed: false });
+    const fresh = await realResumer(hosts, facts).next(nextRequest());
+    expect(fresh).toMatchObject({ kind: "started" });
     const pack = contextPackOf(w.f.office, branchOf());
     // The head the pack read and the blob id of the scope file it holds (0014 section 10).
     expect(pack?.headSha).toBe("0".repeat(40));
@@ -2480,12 +2362,13 @@ describe("the handoff of a new session: notes, open feedback and the context pac
             },
           }),
       }) as unknown as ReturnType<typeof quietGit>;
-    const outcome = await realResumer(
-      hosts,
-      { probe: async () => null, story: async () => storyOf(), workspace, git },
-      tooFull,
-    ).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      workspace,
+      git,
+    }).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started" });
     // The branch's commits, then its tip for the context pack: nothing of a worktree (DIPO-349).
     expect(asked.map((args) => args[0])).toEqual(["log", "rev-parse"]);
     expect(sentText()).toContain("Commits on this branch:\nabc1234 the first part\n");

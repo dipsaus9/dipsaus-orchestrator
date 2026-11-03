@@ -260,8 +260,6 @@ function recordDeveloper(
       model: caps.model,
       effort: prepared === null ? null : caps.effort,
       sessionId: prepared === null ? null : prepared.spec.session.id,
-      // The L1+L2 hash a resume compares (DIPO-51).
-      systemHash: prepared?.systemHash ?? null,
       startedAt: input.at,
     },
     false,

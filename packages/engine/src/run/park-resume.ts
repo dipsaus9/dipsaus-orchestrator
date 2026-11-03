@@ -228,8 +228,6 @@ export interface ParkResumeOptions {
   readonly places: () => Places | undefined;
   /** False while the daemon schedules no work; true by default. */
   readonly scheduling?: () => boolean;
-  /** Whether the run's developer works in a box (DIPO-271); false without it. */
-  readonly boxRun?: (office: OfficeId, run: StoredRun) => boolean;
   /** The fix rounds, which queue the round of a resumed `review-blocked` park (DIPO-148). */
   readonly fixRounds?: () =>
     | { consider(office: OfficeId, run: RunId): Promise<boolean> }
@@ -1232,12 +1230,7 @@ export class ParkResumes {
       });
       afterStart = prepared.afterStart;
     }
-    const box = this.#options.boxRun?.(officeId, run) === true;
-    const started = await this.#sessions.next(office, run, view, {
-      // A box run's developer gets a new session in its box with a handoff (0008).
-      mode: box ? "handoff" : "resume",
-      why: detail.why,
-    });
+    const started = await this.#sessions.next(office, run, view, { why: detail.why });
     const at = clock.now();
     office.immediate(() => {
       // The next resume builds its own parts again; the maintainer's words stay held.

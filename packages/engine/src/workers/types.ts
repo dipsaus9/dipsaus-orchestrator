@@ -57,8 +57,8 @@ export interface WorkerSpec {
    * adapter names the tools of each kind; the engine names none (DIPO-318).
    */
   readonly web: boolean;
-  /** Engine-made session id; `resume` continues that session instead of starting it. */
-  readonly session: { readonly id: string; readonly resume: boolean };
+  /** Engine-made session id: every session is a new one (0008). */
+  readonly session: { readonly id: string };
   /** The schema the worker's report must follow (`WorkerReport`, or `ReviewReport` for `review`). */
   readonly reportSchema: JsonSchema;
 }
@@ -461,7 +461,6 @@ export interface WorkerResult {
   readonly answer?: unknown;
   readonly usage: UsageTotalsByModel;
   readonly sessionId: string;
-  readonly resumable: boolean;
   /** A proposed park; the engine decides. */
   readonly park?: { readonly reason: ParkReason; readonly detail: string };
   /**
@@ -504,41 +503,6 @@ export interface ExitRecord {
   readonly signalInferred?: boolean;
 }
 
-/** The native session a resume would continue. */
-export interface SessionRef {
-  readonly id: string;
-  /** The transcript file when known; null lets the adapter look for it. */
-  readonly transcriptPath: string | null;
-  /** The adapter version the session ran on; null when it never started. */
-  readonly version: string | null;
-  /** The L1+L2 hash the session ran with; null when it was never recorded. */
-  readonly systemHash: string | null;
-  /** The context tokens of the session's last request; null or absent when unknown. */
-  readonly contextTokens?: number | null;
-  /** The model's context window; null or absent when unknown. */
-  readonly contextWindow?: number | null;
-  /** When the session's last request was made (engine clock, ms); null or absent when unknown. */
-  readonly lastRequestAt?: number | null;
-}
-
-/** What a resume would run with now (0008 section 8, 0014 section 6). */
-export interface ResumeFacts {
-  /** The engine clock now. */
-  readonly now: number;
-  /** The adapter version a resume would run; null when the probe gave none. */
-  readonly version: string | null;
-  /** The L1+L2 hash a resume would run with. */
-  readonly systemHash: string;
-  /** The estimated tokens of the handoff task message a new session would get instead. */
-  readonly handoffTokens: number;
-  /** Resume only under this share of the context window (0014 section 6; 0.6 in M0). */
-  readonly maxContextShare: number;
-  /** Resume only when re-reading costs at most this many handoffs (0014 section 6; 3 in M0). */
-  readonly rereadFactor: number;
-}
-
-export type ResumeCheck = { readonly ok: true } | { readonly ok: false; readonly reason: string };
-
 export interface WorkerAdapter {
   /** For example `claude-cli`. */
   readonly id: string;
@@ -555,11 +519,6 @@ export interface WorkerAdapter {
   ): { readonly events: WorkerEvent[]; readonly state: ParseState };
   /** Pure: the run's result once `exit.json` exists. */
   result(state: ParseState, exit: ExitRecord): WorkerResult;
-  /**
-   * Transcript present, version and prompt hash unchanged, and resuming cheaper than a handoff
-   * (0008 section 8, 0014 section 6).
-   */
-  canResume(ref: SessionRef, spec: WorkerSpec, facts: ResumeFacts): ResumeCheck;
 }
 
 /** What a refused path is about, when `plan` refused a path (DIPO-74 AC #7). */

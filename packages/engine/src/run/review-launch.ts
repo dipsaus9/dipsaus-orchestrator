@@ -67,7 +67,6 @@ import {
   type RunIngest,
   runLaunchPaths,
   runWorkerSpec,
-  systemHashOf,
   type TierCaps,
 } from "./launch";
 import { sessionUuid } from "./prompts";
@@ -510,7 +509,7 @@ export class ReviewLauncher implements ReviewSessions {
       { runId: run.runId, agent, caps: tier, reviewer: settings },
       paths,
       taskMessage,
-      { id: sessionUuid(agent), resume: false },
+      { id: sessionUuid(agent) },
       caps,
     );
     try {
@@ -592,7 +591,6 @@ export class ReviewLauncher implements ReviewSessions {
         model: settings.model,
         effort: settings.effort,
         sessionId: spec.session.id,
-        systemHash: systemHashOf(systemFile),
         startedAt: at,
       });
       recordPromptParts(

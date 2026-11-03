@@ -5,8 +5,8 @@
 // Usage (0008 section 4): live numbers come from assistant messages, counted once per message
 // id (parallel tool calls repeat one id); per-message output is a placeholder, so live output
 // stays zero. At each turn end the result's cumulative `modelUsage` replaces the live numbers.
-// The CLI's totals are cumulative per process and include restored spend on resume, so the run
-// adds only the change since the last totals it saw (`baseline`). A result whose totals are
+// The CLI's totals are cumulative per process, so the run adds only the change since the last
+// totals it saw (`baseline`). A result whose totals are
 // empty or zero (a crash, an aborted turn) keeps the live numbers instead: the DIPO-41 recording
 // `pause-now` shows the CLI's next totals leave an aborted turn's spend out.
 //
@@ -198,19 +198,6 @@ export interface ClaudeParseState {
    */
   readonly unparsedLine?: string;
   /**
-   * The CLI totals a resumed session restored (DIPO-51): the previous session's totals at its
-   * last turn end. Set only until the first turn end of the resumed session; a field the CLI
-   * reports below `baseline` but at or above this floor counts only this session's live numbers.
-   * Absent in states stored before it existed and outside a resume.
-   */
-  readonly restoredFloor?: UsageTotalsByModel;
-  /** The CLI cost a resumed session restored, as `restoredFloor` for `costUSD`. */
-  readonly costFloor?: Readonly<Record<string, number>>;
-  /** Context tokens (input, cache creation, cache read) of the main agent's last request. */
-  readonly contextTokens?: number | null;
-  /** The main model's context window as the last result reported it. */
-  readonly contextWindow?: number | null;
-  /**
    * Compactions this process reported through `compact_boundary`, and those it already emitted
    * as `compacted` (DIPO-100). Absent in states stored before they existed.
    */
@@ -252,56 +239,36 @@ export interface InitialStateOptions {
   readonly reportKind?: ReportKind;
   /** Classifier switches already recorded on the run (0008 open question 7). */
   readonly acceptedModels?: readonly string[];
-  /** Totals the run starts from, for a resumed run. */
+  /** Totals the session starts from. */
   readonly totals?: UsageTotalsByModel;
-  /** The CLI totals stored at the last turn end, for a resumed session; defaults to `totals`. */
+  /** The CLI totals already seen in this process; defaults to `totals`. */
   readonly baseline?: UsageTotalsByModel;
-  /** The CLI cost in USD per model the run starts from, for a resumed run. */
+  /** The CLI cost in USD per model the session starts from. */
   readonly costUsd?: Readonly<Record<string, number>>;
-  /** The CLI cost stored at the last turn end, for a resumed session; defaults to `costUsd`. */
+  /** The CLI cost already seen in this process; defaults to `costUsd`. */
   readonly costBaseline?: Readonly<Record<string, number>>;
-  /** The CLI totals a resumed session restores (DIPO-51); see `ClaudeParseState.restoredFloor`. */
-  readonly restoredFloor?: UsageTotalsByModel;
-  /** The CLI cost a resumed session restores. */
-  readonly costFloor?: Readonly<Record<string, number>>;
 }
 
 /**
  * The options of the next session of a run from the previous session's stored state (DIPO-51):
- * the recorded classifier switches always carry over. A `resume` continues the CLI's counts, so
- * the new agent starts with no totals of its own, a baseline of what the previous process had
- * counted (its last turn totals plus the live numbers after them), and the previous turn totals
- * as the restored floor; a new session's counts start at zero.
+ * the recorded classifier switches carry over; the new session's counts start at zero.
  */
 export function nextSessionOptions(
   previous: ClaudeParseState,
-  resume: boolean,
   plannedModel: string,
 ): InitialStateOptions {
-  const accepted = { plannedModel, acceptedModels: [...(previous.acceptedModels ?? [])] };
-  if (!resume) return accepted;
-  return {
-    ...accepted,
-    totals: {},
-    baseline: addTotals(previous.baseline ?? {}, previous.live ?? {}),
-    restoredFloor: previous.baseline ?? {},
-    costUsd: {},
-    costBaseline: previous.costBaseline ?? {},
-    costFloor: previous.costBaseline ?? {},
-  };
+  return { plannedModel, acceptedModels: [...(previous.acceptedModels ?? [])] };
 }
 
 export function initialState(options: InitialStateOptions = {}): ClaudeParseState {
   const totals = options.totals ?? {};
   return {
-    ...(options.restoredFloor === undefined ? {} : { restoredFloor: options.restoredFloor }),
     ...(options.allowedPlugins === undefined ? {} : { allowedPlugins: options.allowedPlugins }),
     ...(options.knownPlugins === undefined ? {} : { knownPlugins: options.knownPlugins }),
     ...(options.refuseSkills === undefined ? {} : { refuseSkills: options.refuseSkills }),
     ...(options.reportKind === undefined || options.reportKind === "implement"
       ? {}
       : { reportKind: options.reportKind }),
-    ...(options.costFloor === undefined ? {} : { costFloor: options.costFloor }),
     ...(options.placeholderKey === true ? { placeholderKey: true } : {}),
     pending: "",
     truncated: false,
@@ -370,34 +337,6 @@ function delta(now: ModelUsageTotals, before: ModelUsageTotals): ModelUsageTotal
   };
 }
 
-/**
- * The change at the first turn end of a resumed session (DIPO-51), per field: at or above the
- * baseline (what the previous process had counted) the rise is new, but at least this session's
- * live numbers, since a CLI that restored only the floor reaches the baseline with less new
- * spend than it shows; between the restored floor and the baseline the CLI restored less than
- * was counted, so only this session's live numbers are new; below the floor the CLI's count
- * restarted, so all of it is new.
- */
-function resumedDelta(
-  now: ModelUsageTotals,
-  baseline: ModelUsageTotals,
-  floor: ModelUsageTotals,
-  live: ModelUsageTotals,
-): ModelUsageTotals {
-  const field = (name: (typeof FIELDS)[number]): number =>
-    now[name] >= baseline[name]
-      ? Math.max(now[name] - baseline[name], live[name])
-      : now[name] >= floor[name]
-        ? live[name]
-        : now[name];
-  return {
-    input: field("input"),
-    output: field("output"),
-    cacheCreate: field("cacheCreate"),
-    cacheRead: field("cacheRead"),
-  };
-}
-
 /** Per field the larger of two totals. */
 function larger(a: ModelUsageTotals, b: ModelUsageTotals): ModelUsageTotals {
   return {
@@ -428,22 +367,10 @@ function costStep(
 ): Pick<ClaudeParseState, "costCommitted" | "costBaseline"> {
   const committed: Record<string, number> = { ...state.costCommitted };
   const baseline: Record<string, number> = { ...state.costBaseline };
-  const floor = state.costFloor;
   for (const [model, entry] of Object.entries(modelUsage)) {
     if (entry.costUSD === undefined) continue;
     const before = baseline[model] ?? 0;
-    // A resumed session's first turn end. The cost baseline is the floor (costs come only from
-    // results, so the previous session's spend after its last result was never priced): at or
-    // above it the rise is new whichever way the CLI restored, so nothing is undercounted. A value
-    // between floor and baseline (only possible with a baseline above the floor) adds nothing the
-    // engine can price; below the floor the count restarted.
-    const restored = floor === undefined ? null : (floor[model] ?? 0);
-    const change =
-      entry.costUSD >= before
-        ? entry.costUSD - before
-        : restored !== null && entry.costUSD >= restored
-          ? 0
-          : entry.costUSD;
+    const change = entry.costUSD >= before ? entry.costUSD - before : entry.costUSD;
     committed[model] = (committed[model] ?? 0) + change;
     baseline[model] = entry.costUSD;
   }
@@ -1078,10 +1005,6 @@ function assistant(value: unknown, state: ClaudeParseState): Step {
       ...next,
       seen: [...next.seen, msg.message.id],
       live: addTotals(next.live, { [msg.message.model]: counted }),
-      // The main agent's context size, for the resume check (0014 section 6).
-      ...(agentId === undefined
-        ? { contextTokens: counted.input + counted.cacheCreate + counted.cacheRead }
-        : {}),
     };
   }
   // A main-agent message on a model the plan did not name is a classifier switch (0008 section
@@ -1190,15 +1113,9 @@ function result(value: unknown, state: ClaudeParseState): Step {
     (msg.terminal_reason ?? (msg.subtype === "success" ? "completed" : msg.subtype)) ===
     "completed";
   const change: Record<string, ModelUsageTotals> = {};
-  // The first turn end of a resumed session tells restored spend from a restarted count.
-  const floor = next.restoredFloor;
   if (!none) {
     for (const [model, usage] of Object.entries(reported)) {
-      const base = next.baseline[model] ?? ZERO_USAGE;
-      change[model] =
-        floor === undefined
-          ? delta(usage, base)
-          : resumedDelta(usage, base, floor[model] ?? ZERO_USAGE, next.live[model] ?? ZERO_USAGE);
+      change[model] = delta(usage, next.baseline[model] ?? ZERO_USAGE);
     }
   }
   if (none || !completed) {
@@ -1206,10 +1123,9 @@ function result(value: unknown, state: ClaudeParseState): Step {
       change[model] = larger(change[model] ?? ZERO_USAGE, next.live[model] ?? ZERO_USAGE);
     }
   }
-  const { restoredFloor: _floor, costFloor: _costFloor, ...rest } = next;
   const cost = costStep(next, msg.modelUsage);
   next = {
-    ...(none ? next : rest),
+    ...next,
     committed: addTotals(next.committed, change),
     live: {},
     baseline: none ? next.baseline : { ...next.baseline, ...reported },
@@ -1231,13 +1147,6 @@ function result(value: unknown, state: ClaudeParseState): Step {
     }
     next = { ...next, models: remember(next.models, model) };
   }
-  // The main model's context window, for the resume check (0014 section 6).
-  const main = next.model === null ? undefined : msg.modelUsage[next.model];
-  const window =
-    main?.contextWindow ??
-    Object.values(msg.modelUsage).find((entry) => entry.contextWindow !== undefined)?.contextWindow;
-  if (window !== undefined) next = { ...next, contextWindow: window };
-
   // A completed turn always spent tokens: one that reports none means the CLI's usage moved where
   // dipo does not read it, so the caps would not see the turn (DIPO-315). An aborted or failed
   // turn may report none (the `pause-now` and `start-failed` recordings), so only a completed

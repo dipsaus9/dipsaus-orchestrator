@@ -400,8 +400,6 @@ function sessionSettings(ctx: ClaudeLaunchContext, paths: Paths) {
  * structured output, the task message as the first message.
  */
 function planSession(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan {
-  // A session never resumes: each fallback request is a new session (DIPO-310).
-  if (spec.session.resume) throw new PlanError("a session is never resumed (DIPO-310)");
   const ctx = kindContext(spec, launch);
   const claude = absolute("claudePath", ctx.claudePath);
   const home = absolute("home", ctx.home);

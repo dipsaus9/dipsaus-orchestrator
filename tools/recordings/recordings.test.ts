@@ -17,7 +17,6 @@ const LIVE = [
   "permission-denied",
   "permission-wait",
   "interrupt",
-  "resume",
   "worker-park-ambiguous",
   // DIPO-164 and DIPO-145: captured with Claude Code 2.1.302.
   "web",

@@ -257,7 +257,6 @@ function scriptedPort(): WorkerPort {
           review: turn.review,
           usage: turn.totals,
           sessionId: "review-session",
-          resumable: false,
         };
       }
       return adapter.result(state, exit);
@@ -775,7 +774,6 @@ async function buildDaemon(
       caps: capsFor,
     },
     ci: (office, runId) => storyPrs.ciState(office, runId),
-    boxRun: () => true,
     // Each review session's box is a stand-in: the scripted reviewer needs none (0002).
     reviewBoxes: stubReviewBoxes(),
     // The merges the auto-merge's conflict hand-off made on the branch reach the stand-in box before the worker's

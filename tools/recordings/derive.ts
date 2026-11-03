@@ -550,7 +550,7 @@ export const TRANSFORMS: readonly Transform[] = [
     transform:
       "Cut after the last assistant message before the first result; exit 143 with no result (SIGTERM).",
     expected:
-      "With no intent recorded the outcome is crashed; usage recovered from assistant messages; one resume if budget remains, else park worker-failed (0008 section 7).",
+      "With no intent recorded the outcome is crashed; usage recovered from assistant messages; one new session with a handoff if budget remains, else park worker-failed (0008 section 7).",
     apply: (lines) => {
       const result = indexOf(lines, (line) => isType(line, "result"));
       const cut = lastIndexOf(lines.slice(0, result), (line) => isType(line, "assistant"));

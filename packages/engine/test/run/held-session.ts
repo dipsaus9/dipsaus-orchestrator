@@ -1,18 +1,17 @@
 // What a fake `NextSession` of the tests sends with a session, as `RunResumer` does: every message
-// held on the one feedback path for a developer session (`sessionFeedback`), after the resume delta
-// of a native resume, marked delivered when the session started.
+// held on the one feedback path for a developer session (`sessionFeedback`), marked delivered when
+// the session started.
 
 import type { RunId } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../../src/db/office";
-import { FEEDBACK_TEMPLATES, renderTemplate } from "../../src/prompts/templates";
 import { deliverHeld } from "../../src/run/feedback";
 import { findRun } from "../../src/records/run-records";
 import { type NextSessionRequest, sessionFeedback } from "../../src/run/resume";
 
 /** A next-session request with the first message the session got from the held messages. */
 export interface HeldSession extends NextSessionRequest {
-  /** The resume delta (native resume) then the held messages; undefined when none were held. */
+  /** The held messages; undefined when none were held. */
   readonly message: string | undefined;
 }
 
@@ -41,10 +40,5 @@ export function withHeld(
   started = true,
 ): HeldSession {
   const held = heldFirstMessage(office, request.run.runId, at, started);
-  if (held === "") return { ...request, message: undefined };
-  const lead =
-    request.mode === "resume"
-      ? renderTemplate(FEEDBACK_TEMPLATES.resume, { reason: request.why })
-      : undefined;
-  return { ...request, message: lead === undefined ? held : `${lead}\n\n${held}` };
+  return { ...request, message: held === "" ? undefined : held };
 }

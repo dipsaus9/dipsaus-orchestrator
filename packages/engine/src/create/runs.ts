@@ -1038,12 +1038,10 @@ function boxRunPorts(options: RunsOptions, parts: RunPortParts): Partial<RunPort
     // The merges dipo made on a box run's branch outside the box reach its box before the worker's
     // next session (DIPO-324): the box is started, the files copied in as a catch-up's are.
     boxSync: boxSyncOf(options, parts),
-    // A fix round waits for the CI of the pushed head and carries its red items (DIPO-148); a box
-    // run's developer gets a new session in its box (0021 section 6).
+    // A fix round waits for the CI of the pushed head and carries its red items (DIPO-148).
     ...(storyPr?.ciState === undefined
       ? {}
       : { ci: (office: OfficeId, runId: RunId) => storyPr.ciState?.(office, runId) ?? null }),
-    boxRun: parts.isBoxRun,
   };
 }
 
@@ -1107,7 +1105,7 @@ function reattachRunPorts(options: RunsOptions, parts: RunPortParts): Partial<Ru
           ? null
           : (worker.adapter(runPaths, config) as IngestAdapter);
       },
-      initialState: ({ office, run, agent, resume, previous }) => {
+      initialState: ({ office, run, agent, previous }) => {
         const runPaths = paths.runPaths(office, run);
         const inForce = tierOf(options, office, run);
         const handle = options.offices.get(office);
@@ -1118,7 +1116,6 @@ function reattachRunPorts(options: RunsOptions, parts: RunPortParts): Partial<Ru
           agent,
           inForce,
           paths: runPaths,
-          resume,
           ...(previous === undefined ? {} : { previous }),
         });
       },

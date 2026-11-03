@@ -79,8 +79,8 @@ export class ExitOutcomes {
       return;
     }
     // This worker exited before it answered its report correction: the correction is held again
-    // for the resume's first message (the one feedback path), keyed on this agent, so a restart
-    // before the resume started resumes again. It is delivered once the next session started.
+    // for the next session's first message (the one feedback path), keyed on this agent, so a
+    // restart before that session started sends it again. It is delivered once the session started.
     const feedback = this.#s
       .reportFeedbacks(office, view.runId)
       .find((row) => row.resolvedAt === null && row.key === agent);
@@ -97,7 +97,6 @@ export class ExitOutcomes {
         });
       }
       await this.#sessions.next(office, run, view, {
-        mode: "resume",
         why: "the worker exited before it answered the report feedback",
       });
       return;
@@ -121,10 +120,7 @@ export class ExitOutcomes {
         resolveIntent(office, view.runId, intent.intentId, "reassigned", at);
         this.#s.endAgentIn(office, agent, "prompt-too-long");
       });
-      await this.#sessions.next(office, run, view, {
-        mode: "handoff",
-        why: "a full context (prompt_too_long)",
-      });
+      await this.#sessions.next(office, run, view, { why: "a full context (prompt_too_long)" });
       return;
     }
     if (intent.kind === "reassign" && tag === INTENT_TAGS.error) {
@@ -133,7 +129,6 @@ export class ExitOutcomes {
         this.#s.endAgentIn(office, agent, "crashed");
       });
       await this.#sessions.next(office, run, view, {
-        mode: "resume",
         why: `an execution error (${intentRest(intent.detail)})`,
       });
       return;
@@ -214,7 +209,6 @@ export class ExitOutcomes {
           }
           this.#s.endAgent(office, agent, "prompt-too-long");
           await this.#sessions.next(office, run, view, {
-            mode: "handoff",
             why: "a full context (prompt_too_long)",
           });
           return;
@@ -240,8 +234,8 @@ export class ExitOutcomes {
             });
             return;
           }
-          // The one correction turn, held for the resume's first message and keyed on this agent,
-          // so a restart before the resume started resumes with it again (`#decideExit`).
+          // The one correction turn, held for the next session's first message and keyed on this
+          // agent, so a restart before that session started sends it again (`#decideExit`).
           sendFeedback(
             office,
             run.runId,
@@ -249,7 +243,6 @@ export class ExitOutcomes {
             { at: this.#deps.clock.now() },
           );
           await this.#sessions.next(office, run, view, {
-            mode: "resume",
             why: "a turn without a valid report",
           });
           return;
@@ -272,7 +265,10 @@ export class ExitOutcomes {
     }
   }
 
-  /** A crash: one resume when no earlier agent crashed and no cap fired, else `worker-failed`. */
+  /**
+   * A crash: one new session with a handoff when no earlier agent crashed and no cap fired, else
+   * `worker-failed`.
+   */
   async #crashed(
     office: OfficeHandle,
     run: StoredRun,
@@ -291,6 +287,6 @@ export class ExitOutcomes {
       return;
     }
     this.#s.endAgent(office, agent, "crashed");
-    await this.#sessions.next(office, run, view, { mode: "resume", why: `a crash (${detail})` });
+    await this.#sessions.next(office, run, view, { why: `a crash (${detail})` });
   }
 }

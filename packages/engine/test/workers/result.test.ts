@@ -85,7 +85,6 @@ describe("result rows without a recording (0008 section 7)", () => {
     const res = result(state, OK);
     expect(res.outcome).toBe("plan-limit");
     expect(res.park).toBeUndefined();
-    expect(res.resumable).toBe(true);
   });
 
   it("a turn ended by a 429 gives plan-limit with no park", () => {

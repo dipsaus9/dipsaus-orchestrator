@@ -24,7 +24,6 @@ interface Decision {
   readonly review?: ReviewReport;
   readonly answer?: unknown;
   readonly park?: { readonly reason: ParkReason; readonly detail: string };
-  readonly resumable: boolean;
   readonly retry?: WorkerRetry;
   readonly detail?: string;
 }
@@ -34,13 +33,12 @@ function exitText(exit: ExitRecord): string {
 }
 
 function crashed(detail: string): Decision {
-  // One resume if budget remains and `canResume` holds is the engine's call; the proposal is
-  // the park that follows when it does not.
+  // One new session with a handoff if budget remains is the engine's call; the proposal is the
+  // park that follows when it does not.
   return {
     outcome: "crashed",
     report: null,
     park: { reason: "worker-failed", detail },
-    resumable: true,
   };
 }
 
@@ -52,20 +50,18 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
       outcome: "initRejected",
       report: null,
       park: { reason: "worker-failed", detail: state.initRejected },
-      resumable: false,
     };
   }
   // The story stays Ready: a start failure is never a park.
   if (state.startFailure !== null)
-    return { outcome: "startFailed", report: null, resumable: false, detail: state.startFailure };
+    return { outcome: "startFailed", report: null, detail: state.startFailure };
   // Plan limits wait for the reset; never a park.
-  if (state.planLimit !== null) return { outcome: "plan-limit", report: null, resumable: true };
+  if (state.planLimit !== null) return { outcome: "plan-limit", report: null };
   if (state.capped !== null) {
     return {
       outcome: "capped",
       report: turn?.report ?? null,
       park: { reason: "budget-exceeded", detail: state.capped },
-      resumable: true,
     };
   }
   if (exit.signal !== null || exit.code === SIGTERM_EXIT_CODE) {
@@ -86,7 +82,6 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
       outcome: "capped",
       report: null,
       park: { reason: "budget-exceeded", detail: "prompt_too_long: the context is full" },
-      resumable: false,
       retry: "handoff",
     };
   }
@@ -95,7 +90,6 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
       return {
         outcome: "blocked",
         report: null,
-        resumable: false,
         detail: "no valid answer: error_max_structured_output_retries",
       };
     }
@@ -118,13 +112,12 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
       return {
         outcome: "blocked",
         report: null,
-        resumable: false,
         detail: `no valid answer: ${turn.reportProblem ?? "no structured_output"}`,
       };
     }
     return exit.code === 0
-      ? { outcome: "done", report: null, answer, resumable: false }
-      : { ...crashed(`answer but ${exitText(exit)}`), answer, resumable: false };
+      ? { outcome: "done", report: null, answer }
+      : { ...crashed(`answer but ${exitText(exit)}`), answer };
   }
   if (state.reportKind === "review") {
     // A reviewer session (0019 sections 4 and 5): a valid report is all it returns; code computes
@@ -132,21 +125,20 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
     const review = turn.review;
     if (review === undefined) return noReport(turn.reportProblem ?? "no report", "review");
     return exit.code === 0
-      ? { outcome: "done", report: null, review, resumable: false }
+      ? { outcome: "done", report: null, review }
       : { ...crashed(`review report but ${exitText(exit)}`), review };
   }
   const report = turn.report;
   if (report === null) return noReport(turn.reportProblem ?? "no report");
   if (report.status === "done") {
     return exit.code === 0
-      ? { outcome: "done", report, resumable: true }
+      ? { outcome: "done", report }
       : { ...crashed(`done report but ${exitText(exit)}`), report };
   }
   return {
     outcome: "blocked",
     report,
     park: { reason: "ambiguous-spec", detail: report.question ?? report.summary },
-    resumable: true,
   };
 }
 
@@ -161,7 +153,6 @@ function noReport(why: string, kind?: ReportKind): Decision {
       outcome: "blocked",
       report: null,
       park: { reason: "worker-failed", detail: `no valid review report: ${why}` },
-      resumable: false,
       retry: "report-feedback",
     };
   }
@@ -169,7 +160,6 @@ function noReport(why: string, kind?: ReportKind): Decision {
     outcome: "blocked",
     report: null,
     park: { reason: "worker-failed", detail: `no valid report: ${why}` },
-    resumable: true,
     retry: "report-feedback",
   };
 }
@@ -195,12 +185,6 @@ export function result(state: ClaudeParseState, exit: ExitRecord): WorkerResult 
     ...(decision.answer === undefined ? {} : { answer: decision.answer }),
     usage: currentTotals(state),
     sessionId,
-    // The reviewer never resumes (0008 section 8): a failed review starts a fresh session.
-    resumable:
-      decision.resumable &&
-      sessionId !== "" &&
-      state.reportKind !== "review" &&
-      state.reportKind !== "session",
     ...(decision.park === undefined ? {} : { park: decision.park }),
     ...(decision.retry === undefined ? {} : { retry: decision.retry }),
     ...(decision.detail === undefined ? {} : { detail: decision.detail }),

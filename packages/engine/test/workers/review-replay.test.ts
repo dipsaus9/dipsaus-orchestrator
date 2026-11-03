@@ -111,7 +111,6 @@ describe("review recordings", () => {
           expect(run.result.park?.detail).toContain("no valid review report");
         }
         // The reviewer is never resumed.
-        expect(run.result.resumable).toBe(false);
       });
 
       if (recording.meta.source === "live") {
@@ -212,13 +211,12 @@ describe("the live review reports (Claude Code 2.1.302, Haiku)", () => {
 });
 
 describe("a reviewer that crashed", () => {
-  it("is never resumable: the next review is a fresh session", async () => {
+  it("ends crashed and proposes worker-failed", async () => {
     const recording = loadRecording("review-approved");
     const run = await replay(recording);
     const crashed = claudeResult(run.state, { code: null, signal: "SIGKILL" });
     expect(crashed.outcome).toBe("crashed");
     expect(crashed.park?.reason).toBe("worker-failed");
-    expect(crashed.resumable).toBe(false);
   });
 });
 

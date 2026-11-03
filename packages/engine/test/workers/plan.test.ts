@@ -44,7 +44,7 @@ function spec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
     systemFile: `${RUN_DIR}/system-review.md`,
     taskMessage: TASK,
     web: false,
-    session: { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume: false },
+    session: { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b" },
     reportSchema: REVIEW_REPORT_JSON_SCHEMA,
     ...overrides,
   };
@@ -115,9 +115,6 @@ describe("a developer or reviewer session on the Mac (DIPO-240, DIPO-347)", () =
       systemFile: `${RUN_DIR}/system.md`,
     });
     expect(() => plan(developer, context())).toThrow(DEVELOPER_ON_MAC_REFUSED);
-    expect(() =>
-      plan({ ...developer, session: { ...developer.session, resume: true } }, context()),
-    ).toThrow(PlanError);
   });
 
   it("never plans a reviewer: it runs only in a read-only box of its own (0002)", () => {
@@ -220,7 +217,7 @@ describe("a session's plan", () => {
 
 describe("a session's plan refuses paths it cannot use", () => {
   it("refuses a session id that is not a UUID, and a model that would read as a flag", () => {
-    expect(() => plan(spec({ session: { id: "nope", resume: false } }), context())).toThrow(/UUID/);
+    expect(() => plan(spec({ session: { id: "nope" } }), context())).toThrow(/UUID/);
     expect(() => plan(spec({ model: "--dangerous" }), context())).toThrow(
       /must be a non-empty value/,
     );

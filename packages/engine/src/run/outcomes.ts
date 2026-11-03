@@ -16,8 +16,8 @@
 //   (maintainer decision Q4): a crash, handled at the exit as one.
 // - A crash with no intent (a signal, exit 143, an execution error, a cut stream): usage is
 //   already recovered by ingestion; when no earlier agent of the run crashed and no cap fired, the
-//   agent ends `crashed` and the session is resumed once (`--resume` when `canResume` holds, else a
-//   handoff). Otherwise the story parks `worker-failed` with the last error.
+//   agent ends `crashed` and one new session with a handoff starts. Otherwise the story parks
+//   `worker-failed` with the last error.
 // - `stop` `init-rejected`: a `system/init` that fails its checks (key source, model) stops the
 //   worker at once (stdin closed, SIGTERM now, SIGKILL after 30 s) and parks `worker-failed` with
 //   an `engine.notice` `run.initRejected`.

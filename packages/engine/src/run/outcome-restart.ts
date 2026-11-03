@@ -229,11 +229,8 @@ export class Redispatch {
             run,
             view,
             decided === "crashed"
-              ? { mode: "resume", why: "a crash decided before the daemon restarted" }
-              : {
-                  mode: "handoff",
-                  why: "a full context (prompt_too_long) decided before the daemon restarted",
-                },
+              ? { why: "a crash decided before the daemon restarted" }
+              : { why: "a full context (prompt_too_long) decided before the daemon restarted" },
           );
         });
         continue;

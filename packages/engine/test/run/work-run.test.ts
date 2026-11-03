@@ -1080,12 +1080,12 @@ function resumption(sessions: { count: number }): Resumption {
       offices: { get: () => world.office },
       steering: { send: async () => ({ ok: true }) },
       encode,
-      worker: { id: "claude-cli", result: () => ({ outcome: "done", resumable: true }) as never },
+      worker: { id: "claude-cli", result: () => ({ outcome: "done" }) as never },
       ender: () => ender,
       resumer: {
         next: async () => {
           sessions.count += 1;
-          return { kind: "started", agent: "agt_x" as never, resumed: true };
+          return { kind: "started", agent: "agt_x" as never };
         },
       },
       caps: () => ({ budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 60 }),

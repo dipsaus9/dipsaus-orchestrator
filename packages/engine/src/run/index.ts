@@ -22,7 +22,6 @@ export {
   runLaunchPaths,
   runWorkerSpec,
   START_FAILED_RELEASE,
-  systemHashOf,
 } from "./launch";
 export type {
   HostStarter,
@@ -297,7 +296,6 @@ export {
   baseStoryFacts,
   HOST_EXIT_WAIT_MS,
   RESUME_NOTICES,
-  RESUME_POLICY,
   RunResumer,
   startTierOf,
 } from "./resume";

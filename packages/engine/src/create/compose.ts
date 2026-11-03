@@ -115,8 +115,6 @@ export interface RunPorts {
    * for its checks (DIPO-148). Without it no CI is waited for.
    */
   readonly ci?: FixRoundsDeps["ci"];
-  /** Whether a run's developer works in a box (DIPO-271): its fix round starts a new session. */
-  readonly boxRun?: FixRoundsDeps["boxRun"];
   /** Replaces run control as the resumer's and the launcher's tracker (a test's caps override). */
   readonly tracker?: (control: RunControl) => NonNullable<RunLauncherDeps["control"]>;
   /** Replaces ingestion as the resumer's (a test recording each start). */
@@ -344,7 +342,6 @@ function buildOutcomes(
       ...given("holds", ports.holdResumer),
       parks: {
         ...given("scheduling", ports.scheduling),
-        ...given("boxRun", ports.boxRun),
         // Built after the resumption: a resumed review-blocked park queues its fix round (DIPO-155).
         fixRounds: () => partners.fixRounds.get() ?? undefined,
         ...given("merge", ports.mergeReentry),
@@ -389,7 +386,6 @@ function buildOutcomes(
     sessions: outcomes.parts.sessions,
     view: (officeId, office, run) => outcomes.parts.support.viewOf(officeId, office, run),
     ...given("unpark", outcomePorts.unpark),
-    ...given("boxRun", ports.boxRun),
     places: () => partners.places.get() ?? undefined,
     guard: outcomes.parts.support.guard,
     // A round that cannot start and will not on its own parks the story (DIPO-148).

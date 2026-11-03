@@ -146,7 +146,7 @@ export interface FixSessions {
     office: OfficeHandle,
     run: StoredRun,
     view: RunView,
-    request: { readonly mode: "resume" | "handoff"; readonly why: string },
+    request: { readonly why: string },
   ): Promise<boolean>;
 }
 
@@ -171,8 +171,6 @@ export interface FixRoundsDeps {
   readonly view: (office: OfficeId, handle: OfficeHandle, run: StoredRun) => RunView | null;
   /** Sets the story's status on its branch (the park lift, DIPO-75); without it none is committed. */
   readonly unpark?: UnparkWriter;
-  /** Whether the run's developer works in a box (DIPO-271); false without it. */
-  readonly boxRun?: (office: OfficeId, run: StoredRun) => boolean;
   /** The office's places; read when needed, since they are built after this. */
   readonly places: () => Places | undefined;
   /**
@@ -499,11 +497,8 @@ export class FixRounds {
         "the fix round found no developer session of the run to continue",
       );
     }
-    const box = this.#deps.boxRun?.(officeId, fresh) === true;
     const work = async (): Promise<boolean> =>
       await this.#deps.sessions.next(office, fresh, view, {
-        // A box run's developer gets a new session in its box with a handoff (0008).
-        mode: box ? "handoff" : "resume",
         why: `the feedback on ${head.slice(0, 12)}`,
       });
     return this.#deps.guard === undefined

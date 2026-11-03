@@ -13,7 +13,6 @@ import type {
   HostOp,
   LaunchPlan,
   ParseState,
-  ResumeCheck,
   SteerOp,
   UsageTotalsByModel,
   WorkerAdapter,
@@ -139,23 +138,17 @@ export class ScriptedWorker implements WorkerAdapter {
             report,
             usage,
             sessionId: this.#sessionId,
-            resumable: true,
             park: { reason: "worker-failed", detail: "scripted crash" },
           }
         : report.status === "done"
-          ? { outcome: "done", report, usage, sessionId: this.#sessionId, resumable: true }
+          ? { outcome: "done", report, usage, sessionId: this.#sessionId }
           : {
               outcome: "blocked",
               report,
               usage,
               sessionId: this.#sessionId,
-              resumable: true,
               park: { reason: "ambiguous-spec", detail: report.question ?? report.summary },
             };
     return { ...base, ...this.#override };
-  }
-
-  canResume(): ResumeCheck {
-    return { ok: true };
   }
 }

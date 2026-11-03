@@ -94,25 +94,20 @@ export interface WorkerPort {
   previewBox?(spec: WorkerSpec, paths: RunLaunchPaths): LaunchPlan;
   /**
    * The parser state ingestion of a session starts from. For the run's next session (DIPO-51)
-   * `previous` is the previous session's stored state: recorded classifier switches carry over,
-   * and a resume (`spec.session.resume`) starts from its usage baseline, so restored spend is
-   * not counted twice. The spec's kind decides which report the state parses.
+   * `previous` is the previous session's stored state: recorded classifier switches carry over.
+   * The spec's kind decides which report the state parses.
    */
   initialState(spec: WorkerSpec, previous?: ParseState): ParseState;
   /** Pure: a steering op as host ops (the adapter's `encode`, DIPO-50); needs no run paths. */
   encode(op: SteerOp): HostOp[];
   /** Pure: the run's result from a session's parser state and exit (the adapter's `result`). */
   result(state: ParseState, exit: ExitRecord): WorkerResult;
-  /** Pure: what a session's parser state says for a resume or a handoff (DIPO-51). */
+  /** Pure: what a session's parser state says for the handoff of the next session (DIPO-51). */
   sessionFacts(state: ParseState): SessionFacts;
 }
 
 /** What a session's parser state says for its next session (DIPO-51). */
 export interface SessionFacts {
-  /** Context tokens of the last request; null when unknown. */
-  readonly contextTokens: number | null;
-  /** The model's context window; null when unknown. */
-  readonly contextWindow: number | null;
   /** The last valid report of the session; null when there is none. */
   readonly lastReport: WorkerReport | null;
 }

@@ -133,13 +133,8 @@ describe("the box worker's plan (criteria 1 and 2)", () => {
     ]);
     // The task is the first stream-json user message, on stdin, as for a Mac worker.
     expect(plan.stdin).toEqual([userMessageLine(spec().taskMessage)]);
-    // A resumed session resumes in the box.
-    const resumed = planInBox(
-      spec({ session: { id: spec().session.id, resume: true } }),
-      session(),
-      RUN_DIR,
-    );
-    expect(inBox(resumed.argv)).toContain("--resume");
+    // Every session is a new one: dipo never resumes a native session (0008).
+    expect(inBox(plan.argv)).not.toContain("--resume");
   });
 
   it("plans no sandbox settings, hooks, permission relay or dipo socket for the box", () => {
@@ -173,13 +168,7 @@ describe("the box worker's plan (criteria 1 and 2)", () => {
     expect(() => planInBox(spec({ kind: "session", web: false }), session(), RUN_DIR)).toThrow(
       PlanError,
     );
-    expect(() =>
-      planInBox(
-        reviewSpec({ session: { id: spec().session.id, resume: true } }),
-        session(),
-        RUN_DIR,
-      ),
-    ).toThrow(/never resumed/);
+    expect(inBox(planInBox(reviewSpec(), session(), RUN_DIR).argv)).not.toContain("--resume");
   });
 });
 

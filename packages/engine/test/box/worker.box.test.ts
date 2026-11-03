@@ -229,7 +229,7 @@ if (registers) {
                   systemFile,
                   taskMessage: "Reply in one word, OK, and report status done with no criteria.",
                   web: false,
-                  session: { id: crypto.randomUUID(), resume: false },
+                  session: { id: crypto.randomUUID() },
                   reportSchema: REPORT_JSON_SCHEMAS.implement,
                 },
                 session,

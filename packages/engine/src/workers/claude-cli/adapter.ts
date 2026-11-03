@@ -20,9 +20,6 @@ import type {
   LaunchPlan,
   LineScrub,
   ParseState,
-  ResumeCheck,
-  ResumeFacts,
-  SessionRef,
   WorkerAdapter,
   WorkerSpec,
 } from "../types";
@@ -46,7 +43,6 @@ import { readInstalledPlugins, type PluginFiles } from "./plugins";
 import { probe } from "./probe";
 import { REPORT_JSON_SCHEMAS } from "./report-schema";
 import { CLAUDE_LOCAL_SETTINGS } from "./settings-check";
-import { checkResume } from "./resume-check";
 import { result } from "./result";
 
 export interface ClaudeCliAdapterDeps {
@@ -138,9 +134,6 @@ export function claudeCliAdapter(
       },
     result: (state: ParseState, exit: ExitRecord) =>
       result(state as unknown as ClaudeParseState, exit),
-    // Transcript, version, prompt hash, context share and re-read cost (DIPO-51).
-    canResume: (ref: SessionRef, _spec: WorkerSpec, facts: ResumeFacts): ResumeCheck =>
-      checkResume(ref, { ...facts, home: ctx.home }),
   };
 }
 
@@ -302,11 +295,7 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
       initialState({
         ...(previous === undefined
           ? { plannedModel: spec.model }
-          : nextSessionOptions(
-              previous as unknown as ClaudeParseState,
-              spec.session.resume,
-              spec.model,
-            )),
+          : nextSessionOptions(previous as unknown as ClaudeParseState, spec.model)),
         // A reviewer's result carries a `ReviewReport` (0019 section 5); a session's its
         // structured output (DIPO-310). A reviewer runs only in its reviewer box, with the
         // placeholder key, whatever its run's directory holds (0002).
@@ -321,9 +310,5 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
 
 /** What a Claude session's parser state says for its next session (DIPO-51). */
 export function claudeSessionFacts(state: Partial<ClaudeParseState>): SessionFacts {
-  return {
-    contextTokens: state.contextTokens ?? null,
-    contextWindow: state.contextWindow ?? null,
-    lastReport: state.lastTurn?.report ?? null,
-  };
+  return { lastReport: state.lastTurn?.report ?? null };
 }

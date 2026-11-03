@@ -41,8 +41,6 @@ export interface Scenario {
   /** User messages: the first goes in through the launch plan, each next one after a result. */
   readonly turns: readonly TurnText[];
   readonly midTurn?: MidTurn;
-  /** Turns of a second process started with `--resume` on the same session. */
-  readonly resumeTurns?: readonly TurnText[];
   readonly expected: string;
   /** Checks on disk and on the raw stream in memory; only the findings are stored. */
   readonly verify?: (
@@ -350,23 +348,6 @@ const SCENARIOS_BASE: readonly Scenario[] = [
     expected:
       'work.pause: a priority "now" user message mid-turn interrupts the turn; each turn in streaming input carries its own structured_output.',
     timeoutMs: 180_000,
-  },
-  {
-    name: "resume",
-    fixture: "greeter",
-    model: "haiku",
-    effort: "low",
-    maxTurns: 5,
-    tools: ["Read"],
-    turns: [
-      `Remember the word tangerine. Do not use any tool. ${report("done", "First session.", "chore: record resume")}`,
-    ],
-    resumeTurns: [
-      `Do not use any tool. ${report("done", "Resumed session.", "chore: record resume again")}`,
-    ],
-    expected:
-      "Live pair: run, then --resume on the same session id. Resumed totals include earlier spend and must not be double counted.",
-    timeoutMs: 240_000,
   },
   {
     name: "worker-park-ambiguous",

@@ -33,7 +33,6 @@
 // without it and a `run.packageCacheSkipped` notice on the run says why; so does one when the
 // install from the cache failed and dipo ran it again without the cache. Neither stops the launch.
 
-import { createHash } from "node:crypto";
 import { rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -243,8 +242,6 @@ export interface PreparedRun extends ClaimSetupDone {
   readonly plan: LaunchPlan;
   readonly paths: RunLaunchPaths;
   readonly officeDir: string;
-  /** sha256 of the system file (L1+L2), stored on the agent for `canResume` (DIPO-51). */
-  readonly systemHash: string;
   /**
    * The first session's context pack with the head it was read at, recorded in `context_packs`
    * (0020 section 6).
@@ -257,11 +254,6 @@ export interface PreparedRun extends ClaimSetupDone {
 }
 
 export type StartOutcome = { readonly ok: true } | { readonly ok: false; readonly reason: string };
-
-/** sha256 of a system file's text: the L1+L2 hash a resume compares (0008 section 8). */
-export function systemHashOf(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
-}
 
 /**
  * The paths of a run; the run directory sits in `<git-common-dir>/dipo/runs`. A story run's session
@@ -305,7 +297,7 @@ export function runWorkerSpec(
   },
   paths: RunLaunchPaths,
   taskMessage: string,
-  session: { readonly id: string; readonly resume: boolean },
+  session: { readonly id: string },
   caps: Caps = capsOf(facts.caps),
 ): WorkerSpec {
   const reviewer = facts.reviewer;
@@ -327,8 +319,7 @@ export function runWorkerSpec(
       caps: { ...caps, maxTurns: reviewer.maxTurns, maxMinutes: reviewer.maxMinutes },
       // The reviewer's tools, web search and fetch among them, come with its kind (0002).
       web: false,
-      // The reviewer never resumes (0008 section 8).
-      session: { id: session.id, resume: false },
+      session: { id: session.id },
       reportSchema: worker.reportSchema.review,
     };
   }
@@ -393,10 +384,7 @@ export class RunLauncher {
     taskMessage: string,
     session: string,
   ): WorkerSpec {
-    return runWorkerSpec(this.#deps.worker, facts, paths, taskMessage, {
-      id: session,
-      resume: false,
-    });
+    return runWorkerSpec(this.#deps.worker, facts, paths, taskMessage, { id: session });
   }
 
   /** The session id of a run's first session (AC #3). */
@@ -439,7 +427,6 @@ export class RunLauncher {
       return { ok: false, reason, log: `launch: ${reason}` };
     };
     let spec: WorkerSpec;
-    let systemHash: string;
     let promptSources: PreparedRun["promptSources"];
     let parts: PromptPart[];
     let texts: PromptText[];
@@ -464,7 +451,6 @@ export class RunLauncher {
       ensurePrivateDir(paths.runDir);
       spec = this.#spec(facts, paths, prompts.taskMessage, RunLauncher.sessionOf(facts.agent));
       writeFileSync(spec.systemFile, prompts.systemFile, { mode: 0o600 });
-      systemHash = systemHashOf(prompts.systemFile);
       promptSources = {
         pack: prompts.pack,
         headSha: prompts.headSha,
@@ -535,7 +521,6 @@ export class RunLauncher {
       plan: prepared.plan,
       paths,
       officeDir: paths.officeDir,
-      systemHash,
       promptSources,
       parts,
       texts,

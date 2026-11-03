@@ -89,7 +89,6 @@ describe("a re-attached session's initial state (DIPO-207)", () => {
       agent: "agt_2",
       inForce: edited,
       paths,
-      resume: true,
     });
     return specs[0];
   }

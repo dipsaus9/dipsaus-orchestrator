@@ -42,7 +42,6 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   // A report that does not parse or match the schema: one correction turn, then worker-failed.
   "report-invalid": ["blocked", "worker-failed"],
   "report-invalid-missing": ["blocked", "worker-failed"],
-  resume: ["done", null],
   // DIPO-145: reviewer sessions (0019 sections 4 and 5), derived and live.
   "review-approved": ["done", null],
   "review-blocked": ["done", null],
@@ -265,52 +264,6 @@ describe("usage arithmetic from the recordings", () => {
     const first = results(recording)[0];
     const live = assistantUsage(stdout(recording).slice(0, stdout(recording).indexOf(first ?? {})));
     expect(live[model]?.cacheCreate).toBe(modelUsage(first ?? {})[model]?.cacheCreate ?? -1);
-  });
-
-  it("resume: the second process adds only the change since the stored totals", async () => {
-    const recording = loadRecording("resume");
-    const [first, second] = results(recording);
-    const run = await replay(recording);
-    const turns = run.events.filter((event) => event.t === "turn");
-    expect(turns.length).toBe(2);
-    expect(turns[0]?.t === "turn" && turns[0].totals).toEqual(modelUsage(first ?? {}));
-    // The resumed CLI totals include the restored spend, so they are the run totals as they are.
-    expect(run.result.usage).toEqual(modelUsage(second ?? {}));
-  });
-
-  it("resume after a restart: a new run adds only the change since the stored CLI totals", async () => {
-    const recording = loadRecording("resume");
-    const [first, second] = results(recording);
-    const stored = modelUsage(first ?? {});
-    const now = modelUsage(second ?? {});
-    // Replay only the second process, as a new run that resumes the stored session.
-    const secondOnly: Recording = {
-      ...recording,
-      lines: recording.lines.slice(recording.lines.findIndex((line) => line.ch === "exit") + 1),
-      meta: {
-        ...recording.meta,
-        steering: recording.meta.steering?.filter((steer) => steer.t > 6794) ?? [],
-      },
-    };
-    const run = await replay(secondOnly, {
-      state: initialState({ plannedModel: "haiku", baseline: stored }),
-    });
-    const [model = ""] = Object.keys(now);
-    const change = (field: "input" | "output" | "cacheCreate" | "cacheRead") =>
-      (now[model]?.[field] ?? 0) - (stored[model]?.[field] ?? 0);
-    expect(run.result.usage).toEqual({
-      [model]: {
-        input: change("input"),
-        output: change("output"),
-        cacheCreate: change("cacheCreate"),
-        cacheRead: change("cacheRead"),
-      },
-    });
-    // Carrying the stored run totals as well gives the session's cumulative totals once.
-    const carried = await replay(secondOnly, {
-      state: initialState({ plannedModel: "haiku", totals: stored }),
-    });
-    expect(carried.result.usage).toEqual(now);
   });
 
   it("crash-zeroed and terminated: usage recovered from earlier assistant messages", async () => {

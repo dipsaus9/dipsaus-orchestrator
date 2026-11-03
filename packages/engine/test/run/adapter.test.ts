@@ -102,7 +102,7 @@ describe("the worker port seam (DIPO-113)", () => {
       { runId: "run_1", agent: "agt_1", caps: OFFICE_DEFAULTS.tiers.S },
       PATHS,
       "task",
-      { id: "s-1", resume: false },
+      { id: "s-1" },
     );
     expect(built.kind).toBe("implement");
     expect(built.reportSchema).toBe(reportSchema.implement);
@@ -116,7 +116,7 @@ describe("the worker port seam (DIPO-113)", () => {
         { runId: "run_1", agent: "agt_1", caps: tier, ...facts },
         PATHS,
         "task",
-        { id: "s-1", resume: false },
+        { id: "s-1" },
       );
     // The engine says only that the web is on; the adapter names the tools (DIPO-318).
     expect(specOf({}).web).toBe(true);
@@ -133,8 +133,7 @@ describe("the worker port seam (DIPO-113)", () => {
       { runId: "run_1", agent: "agt_2", caps: tier, reviewer: review },
       PATHS,
       "review task",
-      // The reviewer never resumes, whatever the caller asks.
-      { id: "s-2", resume: true },
+      { id: "s-2" },
       { budgetTokens: 123_000, maxTurns: tier.maxTurns, maxMinutes: tier.maxMinutes },
     );
     expect(built.kind).toBe("review");
@@ -146,7 +145,7 @@ describe("the worker port seam (DIPO-113)", () => {
       maxMinutes: OFFICE_DEFAULTS.review.maxMinutes,
     });
     expect(built.web).toBe(false);
-    expect(built.session).toEqual({ id: "s-2", resume: false });
+    expect(built.session).toEqual({ id: "s-2" });
     expect(built.systemFile).toBe(`${RUN_DIR}/${REVIEW_SYSTEM_FILE}`);
     expect(built.reportSchema).toBe(REVIEW_REPORT_JSON_SCHEMA);
     // The ReviewReport of 0019 section 5: findings with testEntry, a summary of at most 1,500.

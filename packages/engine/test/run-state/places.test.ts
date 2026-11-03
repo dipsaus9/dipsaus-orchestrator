@@ -206,7 +206,7 @@ describe("a resume that finds its place taken (0020 section 1)", () => {
           next: async (request) => {
             sessions.push(withHeld(w.office, request, w.t.clock.now()));
             started.push(request.run.story ?? "");
-            return { kind: "started", agent: "agt_next" as never, resumed: true };
+            return { kind: "started", agent: "agt_next" as never };
           },
         },
         caps: () => ({ budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 60 }),

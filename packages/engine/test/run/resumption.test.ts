@@ -108,12 +108,12 @@ function resumption(): Resumption {
       offices: { get: () => f.office },
       steering: { send: async () => ({ ok: true }) },
       encode,
-      worker: { id: "claude-cli", result: () => ({ outcome: "done", resumable: true }) as never },
+      worker: { id: "claude-cli", result: () => ({ outcome: "done" }) as never },
       ender: () => ender,
       resumer: {
         next: async (request) => {
           w.sessions.push(withHeld(f.office, request, f.t.clock.now()));
-          return { kind: "started", agent: "agt_x" as never, resumed: true };
+          return { kind: "started", agent: "agt_x" as never };
         },
       },
       caps: () => CAPS,

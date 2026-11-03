@@ -225,7 +225,7 @@ describe("composeRuns", () => {
         ...WORKER,
         result: () => {
           order.push("exit decided");
-          return { outcome: "done", report: null, usage: {}, sessionId: "s", resumable: false };
+          return { outcome: "done", report: null, usage: {}, sessionId: "s" };
         },
       },
       // Resolves only when the test moves the clock on, so an exit decided without awaiting it
