@@ -1,4 +1,4 @@
-// Deterministic cuts for prompt sections (0014 section 4): on line boundaries, the head for text
+// Deterministic cuts for prompt sections (0014): on line boundaries, the head for text
 // and the tail for logs, each leaving a marker. File cuts in the context pack use
 // `context/truncate.ts`; these are for sections whose source is not one repository file.
 

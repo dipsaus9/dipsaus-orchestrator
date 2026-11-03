@@ -1,4 +1,4 @@
-// Prompt part measurements (0014 section 2 "Privacy", 0007 sections 4 and 8): per run and agent,
+// Prompt part measurements (0014, 0007): per run and agent,
 // the sha256, UTF-8 bytes and estimated tokens of each prompt part. No prompt text is stored.
 
 import { createHash } from "node:crypto";

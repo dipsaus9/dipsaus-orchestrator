@@ -1,4 +1,4 @@
-// The story contract sections of the task message (0014 sections 2 and 4): `story` (with the
+// The story contract sections of the task message (0014): `story` (with the
 // Story line), `criteria`, `scope`, `test_plan`, `answers` and `instructions`. They are never truncated. Their
 // size is measured on its own, the way Ready gate rule R26 measures it, and over
 // `prompt.contractMax` assembly fails with `prompt.contractTooLarge`: the backstop for a story
@@ -8,7 +8,7 @@ import { characters } from "../gate/text";
 import type { PromptStory } from "./story";
 import { renderTemplate, TASK_TEMPLATES } from "./templates";
 
-/** The default of `prompt.contractMax` (0014 section 4). */
+/** The default of `prompt.contractMax` (0014). */
 export const CONTRACT_MAX_DEFAULT = 12_000;
 
 export const CONTRACT_TOO_LARGE = "prompt.contractTooLarge";
@@ -155,7 +155,7 @@ export function assembleContract(
     },
     {
       name: "scope",
-      // A box worker's scope is a forecast, not a fence (0021 section 13, DIPO-272).
+      // A box worker's scope is a forecast, not a fence (0021, DIPO-272).
       text: renderTemplate(options.box === true ? TASK_TEMPLATES.scopeBox : TASK_TEMPLATES.scope, {
         paths: bullets(story.scope),
       }),

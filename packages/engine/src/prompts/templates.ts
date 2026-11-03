@@ -1,4 +1,4 @@
-// The prompt templates (0014 section 1): logic-free Markdown with named slots (`{{criteria}}`).
+// The prompt templates (0014): logic-free Markdown with named slots (`{{criteria}}`).
 // Code decides whether a section appears, fills its slots, applies budgets and orders it. A
 // template never holds a conditional or a loop; `templateProblems` is the check the tests run
 // over every template file.
@@ -40,22 +40,21 @@ import testPlan from "./task/test-plan.md" with { type: "text" };
 
 /**
  * L1 worker contracts by run kind: `implement-box` for a developer, who works only in its own box
- * (0021 section 7, 0014 amendment of 2026-10-21, DIPO-272; the Mac worker's `implement` went with
- * DIPO-342): the door messages. `review-box`, the reviewer's (0019 section 4, DIPO-299, DIPO-346):
+ * (0021, 0014): the door messages. `review-box`, the reviewer's (0019, DIPO-299, DIPO-346):
  * dipo ran the verify in the developer's box at done, and CI runs on the same head at the same time
  * as the review.
  */
 export const CONTRACT_TEMPLATES = {
   "implement-box": implementBoxContract,
   "review-box": reviewBoxContract,
-  // The scan fallback session (0013 section 6, DIPO-310): no tools, structured output only.
+  // The scan fallback session (0013, DIPO-310): no tools, structured output only.
   scan: scanContract,
 } as const;
 export type ContractKind = keyof typeof CONTRACT_TEMPLATES;
 
 /**
  * Built-in L2 roles until `.dipo/roles/` (M4): `developer`, and `reviewer`, used only by the
- * `review-box` kind and never named by a story (0019 section 4).
+ * `review-box` kind and never named by a story (0019).
  */
 export const ROLE_TEMPLATES = {
   developer: developerRole,
@@ -77,7 +76,7 @@ export const TASK_TEMPLATES = {
   story,
   criteria,
   scope,
-  // The box worker's scope section: References are a forecast (0021 section 13, DIPO-272).
+  // The box worker's scope section: References are a forecast (0021, DIPO-272).
   scopeBox,
   testPlan,
   testPlanNotApplicable,
@@ -98,8 +97,8 @@ export const TASK_TEMPLATES = {
 } as const;
 
 /**
- * Feedback item templates (0014 section 7). M0 builds verify items, the one feedback turn for a
- * missing or invalid report.
+ * Feedback item templates (0014): CI and verify items, and the one feedback turn for a missing or
+ * invalid report.
  */
 export const FEEDBACK_TEMPLATES = {
   ci: ciFeedback,
@@ -142,7 +141,7 @@ export function slotsOf(template: string): string[] {
   return [...new Set([...template.matchAll(SLOT)].map((match) => match[1] ?? ""))].toSorted();
 }
 
-/** Text with `\r\n` and lone `\r` turned into `\n` (0014 section 5). */
+/** Text with `\r\n` and lone `\r` turned into `\n` (0014). */
 export function normaliseNewlines(text: string): string {
   return text.replace(/\r\n?/g, "\n");
 }

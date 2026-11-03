@@ -1,4 +1,4 @@
-// The story data a task message is built from (0014 section 2, 0012 fields), read from the parsed
+// The story data a task message is built from (0014, 0012 fields), read from the parsed
 // `task view --plain` output and the parsed field block. Pure: the caller runs the CLI.
 
 import type { FieldBlock, FieldBlockUnknown, TestPlan } from "@dipsaus-orchestrator/contract";
@@ -65,7 +65,7 @@ export function storyLineOf(description: string): string {
 }
 
 /**
- * The free text of a description (0014 section 2, `background`): every line except the
+ * The free text of a description (0014, `background`): every line except the
  * `Story:` lines and the field block with its fences, with runs of blank lines collapsed and
  * the ends trimmed. Throws `FieldBlockError` for a block that does not parse (the gate's R02).
  */

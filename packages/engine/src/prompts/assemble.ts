@@ -1,4 +1,4 @@
-// The `implement` task message, L4 (0014 sections 2, 4 and 5): long reference material first, the
+// The `implement` task message, L4 (0014): long reference material first, the
 // story contract and feedback last, each section in its tag and present only under its 0014
 // condition. Every section has a budget; over the total cap, sections drop in the order
 // dependencies, background, context tail, inputs content (the path list stays), each with a
