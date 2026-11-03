@@ -92,7 +92,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               expect(status.code).toBe(0);
               expect(status.stdout).toStartWith("running\n");
               expect(status.stdout).toContain(`  pid:        ${first}\n`);
-              expect(status.stdout).toContain("    git     /");
+              expect(status.stdout).toContain("    git       /");
 
               const json = await dipo(bin, ["daemon", "status", "--json"], env);
               expect(json.code).toBe(0);
