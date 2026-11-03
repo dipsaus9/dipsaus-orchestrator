@@ -3,10 +3,10 @@ id: DIPO-434
 title: >-
   Keep the Backlog CLI's config rewrite from hiding stories from a concurrent
   read
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-31 08:13'
-updated_date: '2026-11-03 07:14'
+updated_date: '2026-11-03 07:44'
 labels:
   - 'tier:S'
 milestone: m-2
@@ -43,7 +43,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Several CLI calls at once (`listAll` and views) on a checkout whose config.yml a stand-in CLI rewrites on its first read, holding the half-written file on a timer, each see the whole backlog, shown by a test that fails against today's runner
-- [ ] #2 Once config.yml is as the runner remembers it, calls on that checkout run at the same time, calls on different checkouts always do, a failed or timed-out call releases the gate, and a config changed by a checkout makes the next call run alone again, shown by tests
+- [x] #1 Several CLI calls at once (`listAll` and views) on a checkout whose config.yml a stand-in CLI rewrites on its first read, holding the half-written file on a timer, each see the whole backlog, shown by a test that fails against today's runner
+- [x] #2 Once config.yml is as the runner remembers it, calls on that checkout run at the same time, calls on different checkouts always do, a failed or timed-out call releases the gate, and a config changed by a checkout makes the next call run alone again, shown by tests
 - [ ] #3 The warm-up read in scripts/check-backlog-pr.test.ts is gone, and that test file passes 30 runs in a row on Linux
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Criterion #3: the warm-up read is gone and the file passed 30 of 30 runs on macOS; the 30-run loop on Linux was not run. The maintainer chose on 2026-11-03 to merge with #3 open and to file the Linux loop as a follow-up.
+<!-- SECTION:NOTES:END -->
