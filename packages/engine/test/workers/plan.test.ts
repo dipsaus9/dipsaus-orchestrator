@@ -1,22 +1,17 @@
 // The Claude CLI launch plan on the Mac, which is only a `session`'s (DIPO-310). A developer or
 // reviewer session is never planned here (DIPO-240, DIPO-347): each runs only in a box, with no run
-// settings file, Bash sandbox, permission rules or hooks (`box-plan.test.ts`). The session's own
-// tools and settings are `session-plan.test.ts`; this file holds the rest of the plan: the refusal
-// of a developer and a reviewer, argv, the allowlisted environment, the credential denies, srt's
-// closed default write paths (DIPO-98) and the path checks.
+// settings file, permission rules or hooks (`box-plan.test.ts`). The session's own tools and
+// settings are `session-plan.test.ts`; this file holds the rest of the plan: the refusal of a
+// developer and a reviewer, argv, the allowlisted environment and the path checks.
 
 import { describe, expect, it } from "bun:test";
 import {
-  CLOSED_WRITES_FILE,
-  closedWritePaths,
   DEVELOPER_ON_MAC_REFUSED,
   REVIEWER_ON_MAC_REFUSED,
   EMPTY_MCP_CONFIG_FILE,
   plan,
   REPORT_SCHEMA_FILE,
   SETTINGS_FILE,
-  SRT_DEFAULT_HOME_WRITE_PATHS,
-  SRT_DEFAULT_WRITE_PATHS,
 } from "../../src/workers/claude-cli/plan";
 import type { ClaudeLaunchContext } from "../../src/workers/claude-cli/plan";
 import {
@@ -78,25 +73,6 @@ function context(overrides: Partial<ClaudeLaunchContext> = {}): ClaudeLaunchCont
     tmpDir: "/tmp/claude-501",
     shortTmpDir: SHORT_TMP,
     ...overrides,
-  };
-}
-
-function settingsOf(launch: LaunchPlan): Record<string, unknown> {
-  const file = launch.files.find((entry) => entry.name === SETTINGS_FILE);
-  if (file === undefined) throw new Error("no settings file");
-  return JSON.parse(file.content) as Record<string, unknown>;
-}
-
-function sandboxOf(launch: LaunchPlan) {
-  return settingsOf(launch)["sandbox"] as {
-    filesystem: {
-      allowRead: string[];
-      denyRead: string[];
-      allowWrite: string[];
-      denyWrite: string[];
-    };
-    network: Record<string, unknown> & { allowedDomains: string[]; allowLocalBinding: boolean };
-    credentials: { files: { path: string }[]; envVars: { name: string }[] };
   };
 }
 
@@ -196,18 +172,12 @@ describe("a session's plan", () => {
     expect(JSON.parse(file?.content ?? "")).toEqual(REVIEW_REPORT_JSON_SCHEMA);
   });
 
-  it("carries the Keychain and credential denies, and opens no write path but its temp roots", () => {
-    const sandbox = sandboxOf(plan(spec(), context()));
-    expect(sandbox.filesystem.denyRead).toEqual([`${HOME}/Library/Keychains`]);
-    expect(sandbox.credentials.files.map((file) => file.path)).toContain(`${HOME}/.ssh`);
-    expect(sandbox.credentials.envVars.map((variable) => variable.name)).toContain("GH_TOKEN");
-    expect(sandbox.filesystem.allowWrite).toEqual(["/tmp/claude-501", SHORT_TMP]);
-    expect(sandbox.filesystem.denyWrite).toContain(SESSION_DIR);
-    expect(sandbox.network).toEqual({
-      allowedDomains: [],
-      strictAllowlist: true,
-      allowLocalBinding: false,
-    });
+  it("writes the run settings, the report schema and the empty MCP config, nothing else", () => {
+    expect(
+      plan(spec(), context())
+        .files.map((file) => file.name)
+        .toSorted(),
+    ).toEqual([EMPTY_MCP_CONFIG_FILE, REPORT_SCHEMA_FILE, SETTINGS_FILE].toSorted());
   });
 
   it("is pure: the same input gives the same plan", () => {
@@ -247,47 +217,13 @@ describe("a session's plan refuses paths it cannot use", () => {
     );
   });
 
-  it("refuses a session folder or temp directory that is the root or holds home", () => {
-    expect(() => plan(spec(), context({ tmpDir: "/" }))).toThrow(PlanError);
-    expect(() => plan(spec(), context({ tmpDir: "/home" }))).toThrow(/hold the home directory/);
-  });
-});
-
-describe("a session's plan closes srt's default write paths (DIPO-98)", () => {
-  const CLOSED = [
-    "/home/maintainer/.claude/debug",
-    "/home/maintainer/.npm/_logs",
-    "/tmp/claude",
-    "/private/tmp/claude",
-  ];
-
-  it("denies writes to every srt default write path", () => {
-    expect(sandboxOf(plan(spec(), context())).filesystem.denyWrite.slice(-CLOSED.length)).toEqual(
-      CLOSED,
-    );
-  });
-
-  it("names every path srt opens by default, each with a reason, in the run directory", () => {
-    const closed = closedWritePaths("/h");
-    expect(closed.map((entry) => entry.path).toSorted()).toEqual(
-      [
-        ...SRT_DEFAULT_WRITE_PATHS,
-        ...SRT_DEFAULT_HOME_WRITE_PATHS.map((rel) => `/h/${rel}`),
-      ].toSorted(),
-    );
-    for (const entry of closed) expect(entry.reason.length).toBeGreaterThan(20);
-    const file = plan(spec(), context()).files.find((f) => f.name === CLOSED_WRITES_FILE);
-    const shown = JSON.parse(file?.content ?? "") as { denyWrite: { path: string }[] };
-    expect(shown.denyWrite.map((entry) => entry.path)).toEqual(CLOSED);
-  });
-
-  it("refuses a temp directory under or holding a closed path", () => {
-    for (const dir of ["/tmp/claude", "/tmp/claude/run-1", "/private/tmp/claude/x"]) {
-      expect(() => plan(spec(), context({ tmpDir: dir }))).toThrow(/may not write/);
+  it("refuses a session folder that is the root, home, or holds home", () => {
+    expect(() => plan(spec({ workdir: "/" }), context())).toThrow(PlanError);
+    const elsewhere = context({ mainCheckout: "/srv/code/shop" });
+    for (const workdir of ["/home", HOME]) {
+      expect(() => plan(spec({ workdir }), elsewhere)).toThrow(
+        /must not be the root or hold the home directory/,
+      );
     }
-    for (const dir of ["/tmp", "/private/tmp", "/private"]) {
-      expect(() => plan(spec(), context({ tmpDir: dir }))).toThrow(/must not hold/);
-    }
-    expect(() => plan(spec(), context({ tmpDir: "/tmp/claude-501" }))).not.toThrow();
   });
 });
