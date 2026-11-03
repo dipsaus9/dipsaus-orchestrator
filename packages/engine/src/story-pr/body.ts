@@ -1,7 +1,7 @@
 // The body of a story PR (0019 section 3), built by code from facts, no model text. Sections in
-// this order: the outcome, the acceptance criteria ticked as the task file has them, the test plan,
+// this order: the Story line, the acceptance criteria ticked as the task file has them, the test plan,
 // the declared scope, a status block and a footer. The body is capped at `STORY_PR_MAX_BODY`; the
-// story contract (outcome, criteria and test plan) is never cut, the scope list is cut with a
+// story contract (Story line, criteria and test plan) is never cut, the scope list is cut with a
 // marker. The engine writes a body to the host only when its hash changed.
 
 import { createHash } from "node:crypto";
@@ -15,7 +15,8 @@ export const STORY_PR_MAX_BODY = 20_000;
 
 export interface PrBodyStory {
   readonly id: string;
-  readonly outcome: string;
+  /** F3, the text of the `Story:` line. */
+  readonly storyLine: string;
   readonly criteria: readonly {
     readonly index: number;
     readonly text: string;
@@ -235,7 +236,7 @@ function scopeSection(paths: readonly string[], budget: number): string {
 
 /** The body of a story PR. */
 export function storyPrBody(story: PrBodyStory, status: PrBodyStatus): string {
-  const outcome = `## Outcome\n\n${story.outcome.trim() === "" ? "none" : story.outcome.trim()}`;
+  const storyLine = `## Story\n\n${story.storyLine.trim() === "" ? "none" : story.storyLine.trim()}`;
   const criteria = [
     "## Acceptance criteria",
     "",
@@ -244,7 +245,7 @@ export function storyPrBody(story: PrBodyStory, status: PrBodyStatus): string {
         `- [${criterion.checked ? "x" : " "}] #${criterion.index} ${criterion.text.trim()}`,
     ),
   ].join("\n");
-  const head = [outcome, criteria, testPlanSection(story.testPlan)].filter(
+  const head = [storyLine, criteria, testPlanSection(story.testPlan)].filter(
     (part): part is string => part !== null,
   );
   const tail = [

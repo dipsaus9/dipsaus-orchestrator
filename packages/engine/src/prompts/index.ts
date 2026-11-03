@@ -75,7 +75,7 @@ export {
   TASK_PART,
 } from "./parts";
 export type { PromptPart } from "./parts";
-export { backgroundOf, outcomeOf, promptStoryOf } from "./story";
+export { backgroundOf, promptStoryOf, storyLineOf } from "./story";
 export type { PromptCriterion, PromptDependency, PromptStory, PromptStoryOptions } from "./story";
 export {
   assembleReviewTaskMessage,

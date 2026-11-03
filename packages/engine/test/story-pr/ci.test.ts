@@ -56,7 +56,7 @@ const FACTS: StoryPrFacts = {
     id: "DIPO-1",
     title: "Watch CI.",
     type: "feature",
-    outcome: "CI is watched",
+    storyLine: "As maintainer I want CI is watched so that I can follow the story on GitHub.",
     criteria: [{ index: 1, text: "It watches", checked: false }],
     testPlan: undefined,
     scope: ["packages/engine/src/story-pr/"],

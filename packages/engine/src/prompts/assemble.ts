@@ -235,7 +235,9 @@ function dependenciesSection(story: PromptStory, budget: number, dropped: boolea
     });
   }
   const lines = story.dependencies
-    .map((dep) => `- ${dep.id} ${dep.title.trim()}${dep.outcome === "" ? "" : `: ${dep.outcome}`}`)
+    .map(
+      (dep) => `- ${dep.id} ${dep.title.trim()}${dep.storyLine === "" ? "" : `: ${dep.storyLine}`}`,
+    )
     .join("\n");
   const cut = cutHead(
     lines,

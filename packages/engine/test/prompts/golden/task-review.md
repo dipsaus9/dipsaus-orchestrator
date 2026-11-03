@@ -37,11 +37,8 @@ Id: SHOP-12
 Title: Add a greeting to the CLI
 Type: feature
 Tier: M
+Story: As maintainer I want the shop to greet a customer by name in its own voice so that customers feel welcome when they start it.
 </story>
-
-<outcome>
-`shop greet <name>` prints a friendly greeting in the shop's voice.
-</outcome>
 
 <criteria>
 #1 `shop greet Ada` prints `Hello, Ada!`.

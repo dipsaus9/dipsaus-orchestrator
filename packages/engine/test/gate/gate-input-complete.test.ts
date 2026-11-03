@@ -53,7 +53,7 @@ function viewText(task: FakeTask): string {
         ]),
     "Description:",
     "-".repeat(50),
-    "Outcome: the fixture task.",
+    "Story: As maintainer I want the fixture task to exist so that the gate has a story to read.",
     "",
   ].join("\n");
 }

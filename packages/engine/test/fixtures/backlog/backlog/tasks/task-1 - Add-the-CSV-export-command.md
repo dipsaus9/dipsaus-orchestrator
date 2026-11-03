@@ -13,7 +13,7 @@ ordinal: 1000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: maintainers can export the story list as CSV for a spreadsheet.
+Story: As maintainer I want to export the story list as CSV so that I can open it in a spreadsheet.
 
 ```dipo
 branch: "TASK-1/add-the-csv-export-command"

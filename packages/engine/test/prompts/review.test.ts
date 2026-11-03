@@ -166,7 +166,7 @@ describe("the reviewer's system file (L1 + L2)", () => {
   it("states what 0019 section 4 asks of L1", () => {
     const text = box();
     expect(text).toContain("## You are read-only");
-    expect(text).toContain("Judge the diff against the outcome, the criteria and the test plan.");
+    expect(text).toContain("Judge the diff against the Story line, the criteria and the test plan.");
     expect(text).toContain(
       "Report a security or correctness problem only when you can point to an exact changed line",
     );
@@ -266,7 +266,7 @@ describe("the review task message (L4)", () => {
     const text = message.text;
     // Story facts.
     expect(text).toContain("Id: SHOP-12\nTitle: Add a greeting to the CLI\nType: feature\nTier: M");
-    expect(text).toContain("`shop greet <name>` prints a friendly greeting");
+    expect(text).toContain("Story: As maintainer I want the shop to greet a customer by name");
     expect(text).toContain("#1 `shop greet Ada` prints `Hello, Ada!`.");
     expect(text).toContain("#2 An empty name exits with code 2 and a usage line.");
     expect(text).toContain(

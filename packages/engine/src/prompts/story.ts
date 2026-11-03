@@ -7,7 +7,7 @@ import { locateBlock } from "../story-store/fields/block";
 import { readLabels } from "../story-store/fields/labels";
 import type { PlainTask } from "../story-store/story";
 
-const OUTCOME_PREFIX = "Outcome:";
+const STORY_PREFIX = "Story:";
 
 export interface PromptCriterion {
   /** The number Backlog.md prints. */
@@ -15,12 +15,12 @@ export interface PromptCriterion {
   readonly text: string;
 }
 
-/** One F7 dependency: its id, title and outcome line. */
+/** One F7 dependency: its id, title and Story line. */
 export interface PromptDependency {
   readonly id: string;
   readonly title: string;
-  /** Empty when the dependency has no `Outcome:` line. */
-  readonly outcome: string;
+  /** Empty when the dependency has no `Story:` line. */
+  readonly storyLine: string;
 }
 
 export interface PromptStory {
@@ -32,8 +32,8 @@ export interface PromptStory {
   readonly type: string | undefined;
   /** F11, the `<T>` of `tier:<T>`; undefined when the story has none. */
   readonly tier: string | undefined;
-  /** F3. */
-  readonly outcome: string;
+  /** F3, the text of the `Story:` line. */
+  readonly storyLine: string;
   /** F4, in Backlog.md order. */
   readonly criteria: readonly PromptCriterion[];
   /** F8. */
@@ -42,7 +42,7 @@ export interface PromptStory {
   readonly inputs: readonly string[];
   /** F7, in Backlog.md order. */
   readonly dependencies: readonly PromptDependency[];
-  /** The description outside the `Outcome:` line and the field block, trimmed. */
+  /** The description outside the `Story:` line and the field block, trimmed. */
   readonly background: string;
   /** F14; undefined when the field block has none. */
   readonly testPlan: TestPlan | undefined;
@@ -54,19 +54,19 @@ export interface PromptStory {
   readonly taskFile: string;
 }
 
-/** The text after `Outcome:` of each description line that starts with it, trimmed, joined. */
-export function outcomeOf(description: string): string {
+/** The text after `Story:` of each description line that starts with it, trimmed, joined. */
+export function storyLineOf(description: string): string {
   return description
     .split("\n")
     .map((line) => line.replace(/\r$/, ""))
-    .filter((line) => line.startsWith(OUTCOME_PREFIX))
-    .map((line) => line.slice(OUTCOME_PREFIX.length).trim())
+    .filter((line) => line.startsWith(STORY_PREFIX))
+    .map((line) => line.slice(STORY_PREFIX.length).trim())
     .join("\n");
 }
 
 /**
  * The free text of a description (0014 section 2, `background`): every line except the
- * `Outcome:` lines and the field block with its fences, with runs of blank lines collapsed and
+ * `Story:` lines and the field block with its fences, with runs of blank lines collapsed and
  * the ends trimmed. Throws `FieldBlockError` for a block that does not parse (the gate's R02).
  */
 export function backgroundOf(description: string): string {
@@ -78,7 +78,7 @@ export function backgroundOf(description: string): string {
       ? 0
       : block.openLine + text.slice(block.contentStart, block.contentEnd).split("\n").length;
   const kept = text.split("\n").filter((line, index) => {
-    if (line.startsWith(OUTCOME_PREFIX)) return false;
+    if (line.startsWith(STORY_PREFIX)) return false;
     if (block === undefined) return true;
     return index + 1 < block.openLine || index + 1 > closeLine;
   });
@@ -105,14 +105,14 @@ export function promptStoryOf(task: PlainTask, options: PromptStoryOptions): Pro
     title: task.title,
     type: task.type,
     tier: labels.tiers[0],
-    outcome: outcomeOf(task.description),
+    storyLine: storyLineOf(task.description),
     criteria: task.acceptanceCriteria.map(({ index, text }) => ({ index, text })),
     scope: task.references,
     inputs: task.documentation,
     dependencies: options.dependencies.map((dep) => ({
       id: dep.id,
       title: dep.title,
-      outcome: outcomeOf(dep.description),
+      storyLine: storyLineOf(dep.description),
     })),
     background: backgroundOf(task.description),
     testPlan: options.fields.test_plan,

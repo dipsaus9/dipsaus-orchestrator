@@ -12,7 +12,7 @@ export {
   gateWarningMessage,
   gateText,
   isValidScopePath,
-  outcomeLines,
+  storyLines,
   pathsCollide,
   r01a,
   r01b,
@@ -45,6 +45,7 @@ export {
   r30,
   r31,
   SHARED_RULES,
+  STORY_PART_MIN,
   WARNING_RULES,
   TEST_PLAN_TEXT_MIN,
 } from "./rules";

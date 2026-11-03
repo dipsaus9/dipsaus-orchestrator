@@ -82,7 +82,7 @@ const NOTES_TEXT = "# Export\n\nThe export writes semicolons.\n";
 const TASK_4 = "TASK-4";
 const TSV = "packages/tsv/tsv.ts";
 const TSV_DESCRIPTION = [
-  "Outcome: maintainers can export the story list as TSV for a spreadsheet.",
+  "Story: As maintainer I want to export the story list as TSV so that I can paste it into a spreadsheet.",
   "",
   "```dipo",
   'branch: "TASK-4/add-the-tsv-export-command"',

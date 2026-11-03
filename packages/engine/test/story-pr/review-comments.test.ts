@@ -121,7 +121,7 @@ const FACTS: StoryPrFacts = {
     id: "DIPO-1",
     title: "Open the PR.",
     type: "feature",
-    outcome: "a PR opens",
+    storyLine: "As maintainer I want a PR opens so that I can follow the story on GitHub.",
     criteria: [{ index: 1, text: "It opens", checked: true }],
     testPlan: undefined,
     scope: ["packages/engine/src/story-pr/"],

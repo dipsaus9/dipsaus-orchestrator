@@ -52,7 +52,8 @@ describe("title", () => {
 
 const STORY = {
   id: "DIPO-144",
-  outcome: "each push opens or updates one PR",
+  storyLine:
+    "As maintainer I want each push to open or update one PR so that every story has one place to look.",
   criteria: [
     { index: 1, text: "Looks for an open PR", checked: true },
     { index: 2, text: "Title is built", checked: false },
@@ -68,10 +69,10 @@ const STORY = {
 };
 
 describe("body", () => {
-  it("renders outcome, criteria, test plan, scope, status and footer in order", () => {
+  it("renders the Story line, criteria, test plan, scope, status and footer in order", () => {
     const body = storyPrBody(STORY, { head: "abcdef0123456789" });
     const at = [
-      "## Outcome",
+      "## Story",
       "## Acceptance criteria",
       "## Test plan",
       "## Declared scope",
@@ -94,7 +95,7 @@ describe("body", () => {
     const body = storyPrBody({ ...STORY, scope }, { head: "a".repeat(40) });
     expect(body.length).toBeLessThanOrEqual(STORY_PR_MAX_BODY);
     expect(body).toContain("more paths (cut to keep the body");
-    for (const part of [STORY.outcome, "Looks for an open PR", "Title is built", "maps types"]) {
+    for (const part of [STORY.storyLine, "Looks for an open PR", "Title is built", "maps types"]) {
       expect(body).toContain(part);
     }
     expect(body).toContain("## Status");
@@ -116,7 +117,7 @@ describe("body", () => {
     const a = storyPrBody(STORY, { head: "a".repeat(40) });
     expect(storyPrBodyHash(a)).toBe(storyPrBodyHash(storyPrBody(STORY, { head: "a".repeat(40) })));
     expect(storyPrBodyHash(a)).not.toBe(
-      storyPrBodyHash(storyPrBody({ ...STORY, outcome: "other" }, { head: "a".repeat(40) })),
+      storyPrBodyHash(storyPrBody({ ...STORY, storyLine: "other" }, { head: "a".repeat(40) })),
     );
   });
 });

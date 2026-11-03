@@ -153,7 +153,7 @@ describe("default provider: scope", () => {
     });
     const named = await gather(files, {
       scope,
-      outcome: "Record the change in docs/decisions/0002-b.md.",
+      storyLine: "Record the change in docs/decisions/0002-b.md.",
       criteria: ["Read packages/engine/test/recordings/claude-cli/r1.json."],
     });
     expect(kinds(named.items)).toEqual([
@@ -162,7 +162,7 @@ describe("default provider: scope", () => {
       "scope-dir tools/recordings/",
     ]);
     // Naming the directory itself is not naming a path inside it.
-    const bare = await gather(files, { scope, outcome: "Slim docs/decisions/ down." });
+    const bare = await gather(files, { scope, storyLine: "Slim docs/decisions/ down." });
     expect(kinds(bare.items)).toEqual(["scope-dir tools/recordings/"]);
   });
 

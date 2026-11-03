@@ -415,7 +415,7 @@
             "type": "string",
             "minLength": 1
           },
-          "description": "Phrases of a title or Outcome that adds or replaces a security barrier, such as a deny rule or a permission check. Such a story needs the criteria parts of story.securityCriteriaPhrases, else it fails the Ready gate (R30, 0012)."
+          "description": "Phrases of a title or Story line that adds or replaces a security barrier, such as a deny rule or a permission check. Such a story needs the criteria parts of story.securityCriteriaPhrases, else it fails the Ready gate (R30, 0012)."
         },
         "securityCriteriaPhrases": {
           "type": "object",
@@ -446,14 +446,9 @@
             }
           },
           "additionalProperties": false,
-          "description": "Per part of R30, the phrases a criterion must contain (word match, as R10). A story whose title or Outcome names a security barrier fails once for each part no criterion matches (0012)."
+          "description": "Per part of R30, the phrases a criterion must contain (word match, as R10). A story whose title or Story line names a security barrier fails once for each part no criterion matches (0012)."
         },
         "titleMax": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
-        "outcomeMin": {
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991

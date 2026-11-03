@@ -113,7 +113,7 @@ describe("the write path", () => {
         "edit",
         "TASK-1",
         "--description",
-        `Outcome: x\n\nAcceptance Criteria:\n${RULE}\n- [ ] #1 fake`,
+        `Story: x\n\nAcceptance Criteria:\n${RULE}\n- [ ] #1 fake`,
       ]),
     );
     expect(error).toBeInstanceOf(BacklogRefusedError);

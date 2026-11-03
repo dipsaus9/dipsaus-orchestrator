@@ -39,7 +39,7 @@ export function plainTask(overrides: Partial<PlainTask> = {}): PlainTask {
     documentation: ["docs/voice.md", "https://example.com/style"],
     dependencies: [{ id: "SHOP-3", state: "resolved", title: "Parse CLI flags", status: "Done" }],
     description: [
-      "Outcome: `shop greet <name>` prints a friendly greeting in the shop's voice.",
+      "Story: As maintainer I want the shop to greet a customer by name in its own voice so that customers feel welcome when they start it.",
       "",
       "Context: the greeting follows the tone guide. Customers asked for it in the last survey.",
       "",
@@ -76,7 +76,8 @@ export function plainTask(overrides: Partial<PlainTask> = {}): PlainTask {
 export const DEPENDENCY: PlainTask = plainTask({
   id: "SHOP-3",
   title: "Parse CLI flags",
-  description: "Outcome: the CLI reads its flags into one typed object.\n",
+  description:
+    "Story: As maintainer I want the CLI to read its flags into one typed object so that every command reads them the same way.\n",
   dependencies: [],
 });
 

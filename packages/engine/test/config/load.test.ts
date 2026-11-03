@@ -603,7 +603,7 @@ describe("the migration from every earlier version", () => {
     {
       version: 6,
       warned: ["story.maintainerStepPhrases"],
-      check: (config) => expect(config.story.outcomeMin).toBe(30),
+      check: (config) => expect(config.story.titleMax).toBe(80),
     },
     {
       version: 7,

@@ -132,7 +132,7 @@ const FACTS: StoryPrFacts = {
     id: "DIPO-1",
     title: "Open the PR.",
     type: "feature",
-    outcome: "a PR opens",
+    storyLine: "As maintainer I want a PR opens so that I can follow the story on GitHub.",
     criteria: [{ index: 1, text: "It opens", checked: true }],
     testPlan: undefined,
     scope: ["packages/engine/src/story-pr/"],
@@ -291,8 +291,15 @@ describe("the story PR", () => {
       await w.prs.sync(id, w.run);
       expect(w.host.updates).toHaveLength(0);
       expect(storyPrEvents(w.office)).toHaveLength(1);
-      // A changed outcome on the same head: the body is updated, no story.pr.
-      w.facts = { ...FACTS, story: { ...FACTS.story, outcome: "a PR opens and updates" } };
+      // A changed Story line on the same head: the body is updated, no story.pr.
+      w.facts = {
+        ...FACTS,
+        story: {
+          ...FACTS.story,
+          storyLine:
+            "As maintainer I want a PR that opens and updates so that I see the story change.",
+        },
+      };
       await w.prs.sync(id, w.run);
       expect(w.host.updates).toHaveLength(1);
       expect(storyPrEvents(w.office)).toHaveLength(1);

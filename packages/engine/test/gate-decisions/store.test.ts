@@ -78,7 +78,12 @@ describe("gate content hash", () => {
 
   it("changes with the outcome, the field block and the other gate fields", () => {
     const variants = [
-      { description: description(PASSING_BLOCK, "Outcome: the export writes rows as TSV too.") },
+      {
+        description: description(
+          PASSING_BLOCK,
+          "Story: As maintainer I want the export to write rows as TSV too so that I can paste them into a spreadsheet.",
+        ),
+      },
       { description: description(PASSING_BLOCK.replace("A comma.", "A semicolon.")) },
       { description: description("```dipo\nbranch: [\n```") },
       { title: "Export rows to TSV" },

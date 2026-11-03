@@ -51,7 +51,7 @@ function taskFile(id: number, status: string, plan: readonly string[]): string {
     "## Description",
     "",
     "<!-- SECTION:DESCRIPTION:BEGIN -->",
-    "Outcome: the export writes every row of the table to a CSV file.",
+    "Story: As maintainer I want the export to write every row of the table to a CSV file so that I can open the nightly data in a spreadsheet.",
     "",
     "```dipo",
     `branch: "DIPO-${id}/export-rows"`,

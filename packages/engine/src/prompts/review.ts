@@ -1,7 +1,7 @@
 // The `review` task message, L4 (0019 section 4, 0014 sections 2 and 4): what a reviewer receives.
 // The changed paths with line counts, the diff from the merge base without the story's own task
 // file (within the 0014 diff budget), the gate script changes the run recorded, the story facts
-// (story, outcome, criteria, scope, the test plan with its entry numbers, resolved unknowns) and,
+// (story with its Story line, criteria, scope, the test plan with its entry numbers, resolved unknowns) and,
 // on a re-review, the previous round's findings. Of the worker's report only the test-plan
 // statuses with their evidence and the deviations of its last done report (0021 section 15,
 // DIPO-254), as the worker's own account; never its summary, notes, handoff, reasoning or
@@ -23,7 +23,6 @@ export const REVIEW_SECTION_ORDER = [
   "gate_changes",
   "safe_chain_refusals",
   "story",
-  "outcome",
   "criteria",
   "scope",
   "test_plan",
@@ -335,7 +334,7 @@ export function assembleReviewTaskMessage(input: ReviewTaskInput): ReviewTaskMes
   // The story facts of the contract, without the developer's extra instructions; the scope and
   // the test plan in the reviewer's words.
   for (const section of contract) {
-    if (section.name === "story" || section.name === "outcome" || section.name === "criteria") {
+    if (section.name === "story" || section.name === "criteria") {
       sections.set(section.name, section.text);
     }
     if (section.name === "answers") sections.set("answers", section.text);

@@ -25,7 +25,7 @@ const BLOCK = ["```dipo", 'branch: "TASK-1/add-csv"', "unknowns: []", "```"].joi
 function task(
   id: string,
   status: string,
-  description = `Outcome: a story.\n\n${BLOCK}`,
+  description = `Story: As maintainer I want a story that passes the gate so that the run can pick it up.\n\n${BLOCK}`,
 ): PlainTask {
   return {
     file: `/office/backlog/tasks/${id.toLowerCase()} - Story.md`,
@@ -206,7 +206,7 @@ describe("checkBacklogPr", () => {
           {
             id: "TASK-2",
             before: side(task("TASK-2", "Refined")),
-            after: side(task("TASK-2", "Refined", "Outcome: x.\n\n```dipo\nbranch: 5\n```")),
+            after: side(task("TASK-2", "Refined", "Story: x.\n\n```dipo\nbranch: 5\n```")),
           },
         ],
       },
@@ -253,7 +253,11 @@ describe("checkBacklogPr", () => {
 
   it("fails a new Ready without a passing gate decision for its content", () => {
     const ready = task("TASK-1", "Ready");
-    const edited = task("TASK-1", "Ready", `Outcome: another story now.\n\n${BLOCK}`);
+    const edited = task(
+      "TASK-1",
+      "Ready",
+      `Story: As maintainer I want another story in its place so that the edit shows in the check.\n\n${BLOCK}`,
+    );
     const diff: PrDiff = {
       paths: ["backlog/tasks/task-1 - Story.md"],
       tasks: [{ id: "TASK-1", before: side(task("TASK-1", "Refined")), after: side(edited) }],

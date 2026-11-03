@@ -89,7 +89,7 @@ function task(id: string, status: string, overrides: Partial<PlainTask> = {}): P
     references: ["src/"],
     documentation: [],
     dependencies: [],
-    description: `Outcome: a story.\n\n${BLOCK(id)}`,
+    description: `Story: As maintainer I want a story that passes the gate so that the run can pick it up.\n\n${BLOCK(id)}`,
     acceptanceCriteria: [
       { index: 1, checked: true, text: "It works as described." },
       { index: 2, checked: false, text: "It is tested." },
@@ -675,7 +675,10 @@ describe("work.run picks and claims one Ready story", () => {
   });
 
   it("sends a story with no frozen branch through the pickup gate on its own", async () => {
-    const key = story("TASK-1", "Ready", { description: "Outcome: a story." });
+    const key = story("TASK-1", "Ready", {
+      description:
+        "Story: As maintainer I want a story that passes the gate so that the run can pick it up.",
+    });
     world.gate = () => ({
       mode: "pickup",
       passed: false,

@@ -411,7 +411,8 @@ const REVIEW_STORY: PromptStory = {
   title: "Greet with hello",
   type: "feature",
   tier: "S",
-  outcome: "greet(name) returns hello, <name>, and a test proves it.",
+  storyLine:
+    "As maintainer I want greet to answer hello and the name so that the shop welcomes each customer by name.",
   criteria: [
     { index: 1, text: "greet(name) returns `hello, <name>`." },
     { index: 2, text: "A unit test covers greet." },

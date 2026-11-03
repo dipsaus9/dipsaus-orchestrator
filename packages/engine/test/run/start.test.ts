@@ -92,7 +92,7 @@ function task(id: string, status: string, overrides: Partial<PlainTask> = {}): P
     references: ["src/greet.ts"],
     documentation: [],
     dependencies: [],
-    description: `Outcome: the CLI greets by name.\n\n${BLOCK(id)}`,
+    description: `Story: As maintainer I want the CLI to greet a customer by name so that customers feel welcome.\n\n${BLOCK(id)}`,
     acceptanceCriteria: [{ index: 1, checked: false, text: "It greets the name it is given." }],
     definitionOfDone: [],
     modifiedFiles: [],
@@ -642,8 +642,8 @@ describe("work.run starts the worker of a claimed run", () => {
     const taskPart = parts.find((part) => part.name === "task");
     expect(system).toMatchObject({ sha256: sha(systemFile), bytes: systemFile.length });
     expect(taskPart).toMatchObject({ sha256: sha(sent), bytes: Buffer.byteLength(sent) });
-    // The test story's message has these five sections, each a `<name>` block of the sent text.
-    const names = ["context", "story", "outcome", "criteria", "scope"];
+    // The test story's message has these four sections, each a `<name>` block of the sent text.
+    const names = ["context", "story", "criteria", "scope"];
     expect(parts.map((part) => part.name)).toEqual(
       ["system", "task", ...names.map((name) => `task.${name}`)].toSorted(),
     );

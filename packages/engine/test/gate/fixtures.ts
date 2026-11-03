@@ -5,7 +5,10 @@ import type { GateConfig, GateInput, GateStory, GateTask } from "../../src/gate"
 
 export const ID = "DIPO-7";
 export const BRANCH = "DIPO-7/export-rows-to-csv";
-export const OUTCOME = "Outcome: the export writes every row of the table to a CSV file.";
+export const STORY_LINE =
+  "Story: As maintainer I want the export to write every row of the table to a CSV file so that I can open the nightly data in a spreadsheet.";
+export const SPIKE_LINE =
+  "Story: We need to decide which file format the export writes so that other tools can read the nightly data.";
 
 export const DEFAULT_CONFIG: GateConfig = {
   story: OFFICE_DEFAULTS.story,
@@ -29,9 +32,12 @@ export const PASSING_BLOCK = block(
   '      check: "the export writes one line per row"',
 );
 
-/** A description: the outcome line, some context and the given block. */
-export function description(fieldBlock: string = PASSING_BLOCK, outcome: string = OUTCOME): string {
-  return `${outcome}\n\nContext: the export runs nightly.\n\n${fieldBlock}`;
+/** A description: the Story line, some context and the given block. */
+export function description(
+  fieldBlock: string = PASSING_BLOCK,
+  storyLine: string = STORY_LINE,
+): string {
+  return `${storyLine}\n\nContext: the export runs nightly.\n\n${fieldBlock}`;
 }
 
 export const PASSING_STORY: GateStory = {

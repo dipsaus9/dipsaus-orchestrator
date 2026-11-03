@@ -46,7 +46,7 @@ describe("gate inputs from a parsed view", () => {
       dependencies: ["TASK-1", "TASK-2"],
       branch: "TASK-1.1/ship-the-full-export",
     });
-    const broken = { ...view, description: "Outcome: x\n\n```dipo\nbranch: 5\n```" };
+    const broken = { ...view, description: "Story: x\n\n```dipo\nbranch: 5\n```" };
     expect(gateTaskFromView(broken)).toEqual({
       id: "TASK-1.1",
       dependencies: ["TASK-1", "TASK-2"],

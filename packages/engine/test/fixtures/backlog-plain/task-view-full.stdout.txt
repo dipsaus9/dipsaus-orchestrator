@@ -26,7 +26,7 @@ Depends on (2 direct, 3 total):
 
 Description:
 --------------------------------------------------
-Outcome: the full export ships with every field set.
+Story: As maintainer I want the full export to ship with every field set so that one story shows every field.
 
 Free context line.
 

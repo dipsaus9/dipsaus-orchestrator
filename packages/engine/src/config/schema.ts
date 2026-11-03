@@ -214,7 +214,7 @@ const SecurityCriteriaPhrases = z
       .describe("Phrases of a criterion that asks for a fail-closed test against the real path."),
   })
   .describe(
-    "Per part of R30, the phrases a criterion must contain (word match, as R10). A story whose title or Outcome names a security barrier fails once for each part no criterion matches (0012).",
+    "Per part of R30, the phrases a criterion must contain (word match, as R10). A story whose title or Story line names a security barrier fails once for each part no criterion matches (0012).",
   );
 const Story = z.strictObject({
   types: z.array(text()).min(1),
@@ -223,11 +223,10 @@ const Story = z.strictObject({
   securityPhrases: z
     .array(text())
     .describe(
-      "Phrases of a title or Outcome that adds or replaces a security barrier, such as a deny rule or a permission check. Such a story needs the criteria parts of story.securityCriteriaPhrases, else it fails the Ready gate (R30, 0012).",
+      "Phrases of a title or Story line that adds or replaces a security barrier, such as a deny rule or a permission check. Such a story needs the criteria parts of story.securityCriteriaPhrases, else it fails the Ready gate (R30, 0012).",
     ),
   securityCriteriaPhrases: SecurityCriteriaPhrases,
   titleMax: count(),
-  outcomeMin: count(),
   criterionMin: count(),
   slugMax: count(),
 });
@@ -651,7 +650,7 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
       "if possible",
       "should be fine",
     ],
-    // R30: a title or Outcome that names a security barrier, and the criteria parts such a story
+    // R30: a title or Story line that names a security barrier, and the criteria parts such a story
     // needs. The office may change them.
     securityPhrases: [
       "deny rule",
@@ -687,7 +686,6 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
       failClosed: ["fail-closed", "fails closed", "fail closed", "real path"],
     },
     titleMax: 100,
-    outcomeMin: 20,
     criterionMin: 10,
     slugMax: 40,
   },

@@ -66,7 +66,7 @@ function list(values: readonly string[]): string {
 }
 
 const SPIKE = "spike";
-const OUTCOME_PREFIX = "Outcome:";
+const STORY_PREFIX = "Story:";
 /** R20: the minimum length of a test plan `check` and of a `not_applicable` reason. */
 export const TEST_PLAN_TEXT_MIN = 10;
 /** R22: an ADR path inside a criterion. */
@@ -82,13 +82,13 @@ function isActive(context: GateContext, id: string): boolean {
   return context.input.activeTasks.some((task) => task.id === id);
 }
 
-/** The text after `Outcome:` of every description line that starts with it. */
-export function outcomeLines(description: string): string[] {
+/** The text after `Story:` of every description line that starts with it (F3). */
+export function storyLines(description: string): string[] {
   return description
     .split("\n")
     .map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
-    .filter((line) => line.startsWith(OUTCOME_PREFIX))
-    .map((line) => line.slice(OUTCOME_PREFIX.length));
+    .filter((line) => line.startsWith(STORY_PREFIX))
+    .map((line) => line.slice(STORY_PREFIX.length));
 }
 
 function statusRule(
@@ -133,17 +133,106 @@ export const r04: RuleCheck = (context) => {
     : fail(context, "R04", `title is empty or longer than ${max} characters`);
 };
 
-/** R05: exactly one `Outcome:` line, its text at least `story.outcomeMin` characters. */
+/** R05: the minimum characters of a Story line's capability or question, and of its value. */
+export const STORY_PART_MIN = 20;
+/** R05: the Story line of a non-spike: who wants what, and why. */
+const STORY_SHAPE = /^As (?:maintainer|worker|reviewer) I want (.+?) so that (.+)\.$/;
+/** R05: the Story line of a spike: the question to decide, and why. */
+const SPIKE_SHAPE = /^We need to decide (.+?) so that (.+)\.$/;
+const STORY_FORM = "As <maintainer|worker|reviewer> I want <capability> so that <value>.";
+const SPIKE_FORM = "We need to decide <question> so that <value>.";
+/**
+ * R05: a word that reads as code rather than prose: a call, braces, an operator, a tag or generic,
+ * a shell variable, a command-line flag, a snake_case or dotted identifier, or a camelCase name
+ * that starts with two lowercase letters (so `macOS` and `iPhone` stay prose).
+ */
+const CODE_WORD = [
+  /\(\)/,
+  /[{}<>;]/,
+  /=>|==|!=|&&|\|\||::/,
+  /\$[A-Za-z_]/,
+  /^--?[A-Za-z]/,
+  /[A-Za-z0-9]_[A-Za-z0-9]/,
+  /^[a-z][A-Za-z0-9]+\.[a-z][A-Za-z0-9]+/,
+  /^[a-z]{2,}[A-Z][a-z]/,
+];
+
+/** A word of a Story line without leading quotes or bracket and trailing sentence punctuation. */
+function storyWord(run: string): string {
+  return run.replace(/^["'(]+/, "").replace(/[.,;:!?"']+$/, "");
+}
+
+/** The first word of a Story line that reads as code (see `CODE_WORD`) and is no path. */
+function codeWord(text: string): string | undefined {
+  return text
+    .normalize("NFC")
+    .split(/\s+/)
+    .map(storyWord)
+    .find(
+      (word) =>
+        word !== "" && !looksLikePath(word) && CODE_WORD.some((pattern) => pattern.test(word)),
+    );
+}
+
+/**
+ * R05: exactly one `Story:` line of the 0012 shape: `As <maintainer|worker|reviewer> I want
+ * <capability> so that <value>.`, or for a spike `We need to decide <question> so that <value>.`.
+ * The capability or question and the value each have at least `STORY_PART_MIN` characters, and
+ * the line holds no backtick, no file path and no code. Every failure of the line is reported.
+ */
 export const r05: RuleCheck = (context) => {
-  const min = context.input.config.story.outcomeMin;
-  const lines = outcomeLines(context.story.description);
-  return lines.length === 1 && characters(lines[0] ?? "") >= min
-    ? []
-    : fail(
-        context,
-        "R05",
-        `outcome line is missing, duplicated, or shorter than ${min} characters`,
+  const lines = storyLines(context.story.description);
+  if (lines.length !== 1) {
+    return fail(
+      context,
+      "R05",
+      lines.length === 0
+        ? "no Story line; add one line that starts with Story:"
+        : `${lines.length} Story lines; keep exactly one`,
+    );
+  }
+  const line = clean(lines[0] ?? "");
+  const spike = isSpike(context.story);
+  const failures: GateFailure[] = [];
+  const match = (spike ? SPIKE_SHAPE : STORY_SHAPE).exec(line);
+  if (match === null) {
+    failures.push(
+      ...fail(context, "R05", `Story line does not read "${spike ? SPIKE_FORM : STORY_FORM}"`),
+    );
+  } else {
+    const [, first = "", value = ""] = match;
+    const what = spike ? "question" : "capability";
+    if (characters(first) < STORY_PART_MIN) {
+      failures.push(
+        ...fail(
+          context,
+          "R05",
+          `Story line's ${what} is shorter than ${STORY_PART_MIN} characters`,
+        ),
       );
+    }
+    if (characters(value) < STORY_PART_MIN) {
+      failures.push(
+        ...fail(context, "R05", `Story line's value is shorter than ${STORY_PART_MIN} characters`),
+      );
+    }
+  }
+  if (line.includes("`")) {
+    failures.push(...fail(context, "R05", "Story line holds a backtick; write it in plain words"));
+  }
+  const path = runCores(line).find(looksLikePath);
+  if (path !== undefined) {
+    failures.push(
+      ...fail(context, "R05", `Story line names the path ${path}; put paths in the references`),
+    );
+  }
+  const code = codeWord(line);
+  if (code !== undefined) {
+    failures.push(
+      ...fail(context, "R05", `Story line holds code (${code}); write it in plain words`),
+    );
+  }
+  return failures;
 };
 
 /** R06: the type is set and is in `story.types`. */
@@ -464,7 +553,7 @@ export const r25: RuleCheck = (context) => {
 };
 
 /**
- * The story contract's size (R26): the characters of the title, outcome, criteria, scope paths,
+ * The story contract's size (R26): the characters of the title, Story line, criteria, scope paths,
  * test plan (each check, expected result and not-applicable reason), resolved unknowns (question
  * and answer) and extra instructions.
  */
@@ -472,7 +561,7 @@ export function contractCharacters(story: GateStory, fields: FieldBlock): number
   const plan = fields.test_plan;
   const texts = [
     story.title,
-    ...outcomeLines(story.description),
+    ...storyLines(story.description),
     ...story.acceptanceCriteria.map((criterion) => criterion.text),
     ...story.references,
     ...(plan?.entries ?? []).flatMap((entry) => [entry.check, entry.expect ?? ""]),
@@ -625,8 +714,8 @@ const SECURITY_PARTS = [
 ] as const;
 
 /**
- * R30 (DIPO-251, from DIPO-260): a story whose title or Outcome names a security barrier (a phrase
- * of `story.securityPhrases`, word match as R10) has, for each part of
+ * R30: a story whose title or Story line names a security barrier (a phrase of
+ * `story.securityPhrases`, word match as R10) has, for each part of
  * `story.securityCriteriaPhrases`, a criterion that contains one of its phrases. One failure per
  * missing part, naming the first listed phrase the story matched. A spike ships no behavior, so it
  * adds no barrier and is exempt.
@@ -634,7 +723,7 @@ const SECURITY_PARTS = [
 export const r30: RuleCheck = (context) => {
   if (isSpike(context.story)) return [];
   const { securityPhrases, securityCriteriaPhrases } = context.input.config.story;
-  const texts = [context.story.title, ...outcomeLines(context.story.description)];
+  const texts = [context.story.title, ...storyLines(context.story.description)];
   const phrase = securityPhrases.find((candidate) =>
     texts.some((text) => wordMatch(text, candidate)),
   );
@@ -649,7 +738,7 @@ export const r30: RuleCheck = (context) => {
     fail(
       context,
       "R30",
-      `title or outcome names a security barrier ("${phrase}") and no criterion covers ${what}; add a criterion for it`,
+      `title or Story line names a security barrier ("${phrase}") and no criterion covers ${what}; add a criterion for it`,
     ),
   );
 };

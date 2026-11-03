@@ -45,8 +45,8 @@ export interface ProviderStatus {
 export interface ContextRequest {
   /** F1, the Backlog.md id. */
   readonly storyId: string;
-  /** F3. */
-  readonly outcome: string;
+  /** F3, the text of the `Story:` line. */
+  readonly storyLine: string;
   /** F4, in Backlog.md order. */
   readonly criteria: readonly string[];
   /** F8: repo-relative paths; a trailing `/` marks a directory. */

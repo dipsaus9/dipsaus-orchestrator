@@ -57,7 +57,6 @@ const KEY_PATHS = [
   "story.securityCriteriaPhrases.bypassForms",
   "story.securityCriteriaPhrases.failClosed",
   "story.titleMax",
-  "story.outcomeMin",
   "story.criterionMin",
   "story.slugMax",
   ...[

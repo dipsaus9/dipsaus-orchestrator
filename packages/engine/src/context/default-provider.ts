@@ -88,10 +88,10 @@ const HIDDEN_DIRECTORIES = ["docs/decisions", "packages/engine/test/recordings"]
 const isHidden = (dir: string): boolean =>
   HIDDEN_DIRECTORIES.some((hidden) => dir === hidden || dir.startsWith(`${hidden}/`));
 
-/** True when the outcome or a criterion names a path inside `dir`. */
+/** True when the Story line or a criterion names a path inside `dir`. */
 function namesPathIn(req: ContextRequest, dir: string): boolean {
   const pattern = new RegExp(`(^|[^\\w./-])${escapeRegExp(dir)}/[^\\s]`);
-  return [req.outcome, ...req.criteria].some((text) => pattern.test(text));
+  return [req.storyLine, ...req.criteria].some((text) => pattern.test(text));
 }
 
 /**

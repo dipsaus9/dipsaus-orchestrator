@@ -69,7 +69,7 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
     defaultProvider: createDefaultProvider({ workspace }),
     request: {
       storyId: story.id,
-      outcome: story.outcome,
+      storyLine: story.storyLine,
       criteria: story.criteria.map((criterion) => criterion.text),
       scope: story.scope,
       inputs: story.inputs,

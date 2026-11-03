@@ -293,7 +293,7 @@ describe("the backlog lane", () => {
       write(dir, { "backlog/config.yml": `${CONFIG}onStatusChange: x\n`, [TASK]: CLEAN_TASK });
       const notices: BacklogNotice[] = [];
       const stub = scriptedSpawn((args) =>
-        args[1] === "view" ? { stdout: viewOutput("TASK-1", "Outcome: x.") } : {},
+        args[1] === "view" ? { stdout: viewOutput("TASK-1", "Story: x.") } : {},
       );
       const outcome = await editKind(EDIT_KIND).apply(
         {

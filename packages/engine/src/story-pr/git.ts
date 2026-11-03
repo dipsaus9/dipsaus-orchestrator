@@ -74,7 +74,7 @@ export function gitStoryPrOps(deps: {
             id: prompt.id,
             title: prompt.title,
             type: prompt.type,
-            outcome: prompt.outcome,
+            storyLine: prompt.storyLine,
             criteria: prompt.criteria.map((c) => ({
               ...c,
               checked: checked.get(c.index) ?? false,
