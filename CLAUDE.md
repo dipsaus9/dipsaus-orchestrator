@@ -4,11 +4,11 @@ Open source, code-driven orchestration product: the maintainer and a model run t
 
 ## Status
 
-M0 and M1 are done. M1 closed on 2026-11-02 after its close-out review; the prune toward the rewritten ADRs (`docs/research/2026-10-24-simplification-audit.md`) ended on 2026-11-01, and the cutover gate (DIPO-351) passed on 2026-10-29. M2 (parallel runs) is next. dipo builds the small stories and builder agents the rest (0003). Stack (0004): TypeScript on Bun, single binary `dipo`, macOS on Apple silicon.
+M0 and M1 are done. M1 closed on 2026-11-02 after its close-out review; the prune toward the rewritten ADRs (`docs/research/2026-10-24-simplification-audit.md`) ended on 2026-11-01, and the prune cutover gate (DIPO-351) passed on 2026-10-29. M2 (parallel runs) is next. dipo builds the small stories and builder agents the rest (0002). Stack (0004): TypeScript on Bun, single binary `dipo`, macOS on Apple silicon.
 
 The repository is a Bun workspace (`packages/*`) with the packages `contract`, `engine`, `daemon`, `client`, `tui`, `cli` and the private test helpers `testkit`, all scoped `@dipsaus-orchestrator/*`. Import boundaries (0004) are oxlint rules in `.oxlintrc.json`, proven by `test/lint-boundaries/`.
 
-One command checks everything, locally, in workers and in CI:
+One command checks everything, locally and in workers; CI runs the same checks split into jobs:
 
 ```sh
 bun run verify   # oxfmt --check, oxlint --deny-warnings, tsc -b, bun test; stops at the first failure
@@ -16,7 +16,7 @@ bun run verify   # oxfmt --check, oxlint --deny-warnings, tsc -b, bun test; stop
 
 `bun run format:fix` rewrites formatting. Tests that only run in CI are named `*.ci.test.ts` and register only when `DIPO_TEST_CI=1`; local `bun test` stays under about 60 seconds. Tests write temp files and sockets only under `DIPO_TMP` (fallback `/tmp`) (0017).
 
-CI (0016): `.github/workflows/ci.yml` (jobs `changes` (decides the light path: a PR that changes only backlog `.md` files and `backlog/config.yml` skips the heavy jobs), `ready-gate` (the Ready gate, plus the 0010 structural check on the light path), `checks` (format, lint and typecheck once, on Linux), `test-shards` (every test file in exactly one shard), `verify` (Linux, 3 shards) and `verify-macos` (macOS, DIPO-316, 4 shards), each shard running `bun test` on a file list split by `scripts/test-timings.json` (`scripts/test-shards.ts`) with `DIPO_TEST_CI=1`, `shellcheck`, `actionlint`, `dependency-review`, `smoke (darwin-arm64)`, the one target (0004, 0016), through `.github/actions/smoke`, aggregate `ci-ok`) and `.github/workflows/pr-title.yml` (job `pr-title`, runs `scripts/check-pr-title.ts`).
+CI (0016): `.github/workflows/ci.yml` (jobs `changes` (decides the light path: a PR that changes only backlog `.md` files and `backlog/config.yml` skips the heavy jobs), `ready-gate` (the Ready gate, plus the 0010 structural check on the light path), `checks` (format, lint and typecheck once, on Linux), `test-shards` (every test file in exactly one shard), `verify` (Linux, 3 shards) and `verify-macos` (macOS, DIPO-316, 4 shards), each shard running `bun test` on a file list split by `scripts/test-timings.json` (`scripts/test-shards.ts`) with `DIPO_TEST_CI=1`, `shellcheck`, `actionlint`, `dependency-review`, `smoke (darwin-arm64)`, the one target (0004, 0016), through `.github/actions/smoke`, aggregate `ci-ok`), `.github/workflows/pr-title.yml` (job `pr-title`, runs `scripts/check-pr-title.ts`) and `.github/workflows/audit.yml` (`bun audit` daily and on PRs that touch `bun.lock`; not required).
 
 Release (0016, `docs/release.md`): `.github/workflows/release.yml` is a dry run on `workflow_dispatch` until `v0.1.0`; release-please reads `release-please-config.json` and `.release-please-manifest.json`; `install.sh` installs a release.
 
@@ -25,32 +25,16 @@ Repository settings the maintainer applies by hand on `main` (0016):
 - Required status checks: `ci-ok` and `pr-title` (app GitHub Actions).
 - `strict` off (since 2026-10-22, 0016): a PR is brought up to date with `main` only on a conflict.
 - Squash merge commit title `PR_TITLE`, squash merge commit message `BLANK`.
+- "Allow auto-merge" on, which dipo's merges use (0002).
 - Branch ruleset "release path review" (since 2026-10-23, 0016, DIPO-321): pull request required, 0 approvals, "Require review from Code Owners" (`.github/CODEOWNERS`: `.github/`, `install.sh`, the release-please config, `renovate.json`); bypass for repository admins, pull requests only. Agents and dipo never bypass it.
 
 ## Prerequisites
 
-- Bun at exactly the version in `.bun-version` (1.4.4). `engines.bun` in `package.json` is the same floor.
-- The Backlog CLI installed globally at the pinned version: `bun add -g backlog.md@1.53.0`.
+- Bun at exactly the version in `.bun-version`. `engines.bun` in `package.json` is the same floor.
+- The Backlog CLI installed globally at the version `package.json` pins as a devDependency: `bun add -g backlog.md@<that version>` (it stays on 1.53.x, 0010).
 - `git` and `gh`.
 
-## Pinned versions
-
-Dependencies are pinned exactly in `package.json`. Later stories add the packages below that are not installed yet, at these versions.
-
-| Package | Version | Where |
-|---|---|---|
-| Bun | 1.4.4 (exact, `.bun-version`; 0004) | runtime, CI |
-| `@types/bun` | 1.4.4 (follows Bun) | root devDependency |
-| `zod` | 4.6 (4.x minor; pinned 4.6.5) | `contract` dependency |
-| `yaml` | 2.9.1 | `engine` dependency: `dipo config migrate` keeps comments (0017) |
-| `typescript` | 7.0.2 | root devDependency |
-| `oxlint` | 1.87.0 | root devDependency |
-| `oxfmt` | 0.72.0 | root devDependency |
-| `react` | 19.3.0 | `tui` (later story, 0009) |
-| `ink` | 8.0.0 | `tui` (later story, 0009) |
-| `@anthropic-ai/sandbox-runtime` | removed | removed by DIPO-343 (0004, 0008) |
-| `backlog.md` | 1.53.0 (stays on 1.53.x) | global CLI; repository devDependency from DIPO-18 |
-| `release-please` | 17.11.2 (CLI, dry run) and action v5.0.0 | `release.yml` only, never installed |
+Versions are pinned exactly in `package.json`, and Bun's in `.bun-version` (0004); `release.yml` pins the release-please action and CLI. This file lists no versions.
 
 ## Rules
 
@@ -85,4 +69,4 @@ Dependencies are pinned exactly in `package.json`. Later stories add the package
 
 - Early bootstrap commits may go to `main`. After the initial backlog exists, work on `<ID>/<slug>` branches and merge by PR.
 - Commits are small and scoped. Never `git add -A`. Never skip hooks.
-- PR titles use Conventional Commits with the story as scope: `type(DIPO-n): title`, for example `feat(DIPO-21): stream worker events to the TUI` (0016).
+- PR titles use Conventional Commits with the story as scope: `type(DIPO-n): title`, for example `feat(DIPO-21): stream worker events to the TUI` (0016). Without a single story the scope is `backlog` for backlog PRs and `main` for other repository chores (`chore(main): ...`); `deps` is Renovate's.
