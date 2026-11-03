@@ -1,4 +1,4 @@
-// Claim facts (0007 section 4, 0010 sections 2a and 7): rows of `claims` and `released_branches`,
+// Claim facts (0007, 0010): rows of `claims` and `released_branches`,
 // read and written through the office handle. A claim is live from the claim until its release;
 // the planning lane refuses a story with a live claim (lane a owns it), and the backlog PR check
 // (DIPO-35) reads live claims. Writers run inside the caller's `office.immediate`.
@@ -26,7 +26,7 @@ export interface ClaimRecord {
    * null until the claim finished: a live claim without it is one whose setup never finished.
    */
   readonly claimSha: string | null;
-  /** True when a branch released for this story was reused (0010 section 2a). */
+  /** True when a branch released for this story was reused (0010). */
   readonly reused: boolean;
   readonly claimedAt: number;
   readonly pushedAt: number | null;
@@ -143,7 +143,7 @@ export function liveClaimOf(office: OfficeHandle, key: StoryKey): ClaimRecord | 
 }
 
 /**
- * True when the story has a live claim, so it belongs to lane a (0010 section 2): the planning
+ * True when the story has a live claim, so it belongs to lane a (0010): the planning
  * lane refuses it and the backlog PR check (DIPO-35) fails a PR that touches it.
  */
 export function hasLiveClaim(office: OfficeHandle, key: StoryKey): boolean {
@@ -198,11 +198,11 @@ export function keysTrackingBranch(office: OfficeHandle, branch: string): StoryK
 }
 
 /**
- * Ends the claim of `runId` (`released_at`, reason) and its run as `ending` (0020: done for a
- * story that is Done, dropped otherwise; DIPO-74). With `keepBranch`, records the branch as released for the story (0010
- * section 2a), so a later claim of the same StoryKey reuses it. Runs inside the caller's
- * transaction. Release steps themselves (the restore commit, the worktree
- * removal) belong to the transition that releases.
+ * Ends the claim of `runId` (`released_at`, reason) and its run as `ending` (0020: done for a story
+ * that is Done, dropped otherwise). With `keepBranch`, records the branch as released for the story
+ * (0010), so a later claim of the same StoryKey reuses it. Runs inside the caller's transaction.
+ * Release steps themselves (the restore commit, the worktree removal) belong to the transition that
+ * releases.
  */
 export function releaseClaim(
   office: OfficeHandle,
@@ -291,7 +291,7 @@ export function markReclaimed(
   );
 }
 
-/** The release the claim of `runId` reused (0010 section 2a), or null. */
+/** The release the claim of `runId` reused (0010), or null. */
 export function releaseReclaimedBy(office: OfficeHandle, runId: RunId): ReleasedBranch | null {
   const row = office.get<{ branch: string; key: string; released_at: number; reason: string }>(
     `select branch, key, released_at, reason from released_branches

@@ -64,7 +64,7 @@ export const DONE_ELSEWHERE_NOTICES = {
   remoteBranch: "doneElsewhere.remoteBranch",
 } as const;
 
-/** The desk kinds a story Done elsewhere puts up (0020 section 12, group 4). */
+/** The desk kinds a story Done elsewhere puts up (0020). */
 export const DONE_ELSEWHERE_DESK = { live: "DONE ELSEWHERE", leftovers: "LEFTOVERS" } as const;
 
 export interface DoneElsewhereRecord {
@@ -185,7 +185,7 @@ export function leftoverTargets(office: OfficeHandle, key: StoryKey): LeftoverTa
   };
 }
 
-/** One item of the desk (0020 section 12) a story Done elsewhere puts up, for `office.desk`. */
+/** One item of the desk (0020) a story Done elsewhere puts up, for `office.desk`. */
 export interface DoneElsewhereDeskItem {
   readonly kind: (typeof DONE_ELSEWHERE_DESK)[keyof typeof DONE_ELSEWHERE_DESK];
   readonly key: StoryKey;
@@ -254,7 +254,7 @@ export interface DoneElsewhereDeps {
   readonly host?: Pick<CodeHost, "closePr"> | null;
   readonly onChanged?: (office: OfficeId) => void;
   /**
-   * Checks and deletes the boxes of ended runs (0021 section 6), as `work.discard` does, after a
+   * Checks and deletes the boxes of ended runs (0021), as `work.discard` does, after a
    * release is settled; best effort.
    */
   readonly finishBoxes?: () => Promise<unknown>;
@@ -530,7 +530,7 @@ export async function settleDoneElsewhere(
     }
     return entries;
   });
-  // The released run's box goes too (0021 section 6).
+  // The released run's box goes too (0021).
   await deps.finishBoxes?.().catch(() => undefined);
   return { branchKept: outcome.branchKept, commits: outcome.commits };
 }

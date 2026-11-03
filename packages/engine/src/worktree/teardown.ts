@@ -1,4 +1,4 @@
-// Teardown of a claimed story that is Done (DIPO-58; 0010 "Teardown"; 0007 tier T). Whether it is
+// Teardown of a claimed story that is Done (0010; 0007 tier T). Whether it is
 // Done is the one Done check (`done-check.ts`, 0002); the Done poll (`done.ts`) calls the teardown
 // once its own PR merged. A claim has no worktree, so teardown deletes only the branch; the box goes
 // with the released claim (`box/lifetime.ts`).
@@ -160,7 +160,7 @@ async function removeAll(
     deps.office.immediate(() => markTeardownStarted(deps.office, claim.runId, deps.clock.now()));
   }
 
-  // The local branch, only now that Done is detected (0010 section 7), and only while it is still
+  // The local branch, only now that Done is detected (0010), and only while it is still
   // at the tip the detection judged.
   if (tip !== null) {
     const deleted = await deleteBranch(git, claim.branch, tip);
@@ -173,7 +173,7 @@ async function removeAll(
     }
   }
 
-  // The remote branch (open question 8), with a lease on the tip dipo pushed: the tip the detection
+  // The remote branch, with a lease on the tip dipo pushed: the tip the detection
   // judged (the merged PR's head), else the story PR's recorded head. The host's auto-delete may
   // already have removed it.
   const { remote } = deps.git.settings;
