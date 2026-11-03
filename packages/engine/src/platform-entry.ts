@@ -8,7 +8,7 @@
 // The daemon imports from the engine only this entry, `createEngine` and types
 // (`dipo/daemon-engine-imports`).
 
-// The lock, the socket and the directories (0006 decisions 6 and 13).
+// The lock, the socket and the directories (0006).
 export {
   acquireLock,
   helloHandshake,
@@ -73,7 +73,7 @@ export { systemListenHttp, systemSpawnInteractive } from "./platform/box-host";
 export { systemSpawnKeepAwake, type SpawnKeepAwake } from "./platform/keepawake";
 export { systemPostNotification, type PostNotification } from "./platform/notify";
 
-// The daemon's other forms: the worker host (0006 decision 8), `dipo login box` (DIPO-269), the
+// The daemon's other forms: the worker host (0006), `dipo login box` (DIPO-269), the
 // test shell (DIPO-309) and `dipo config migrate` (0017).
 export { runWorkerHost } from "./host/main";
 export { LAUNCH_FILE, RUN_ID_PATTERN } from "./host/protocol";

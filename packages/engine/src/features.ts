@@ -1,4 +1,4 @@
-// The feature modules of the engine (M0 review, DIPO-15). Each exports a `FeatureModule` whose
+// The feature modules of the engine. Each exports a `FeatureModule` whose
 // `register(registry)` adds its commands and reads; a story that adds one lists its module here,
 // in its own line, and never edits `commands/` or `reads/`.
 
