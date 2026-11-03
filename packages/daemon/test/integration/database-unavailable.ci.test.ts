@@ -17,6 +17,7 @@ import {
   existsSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeSync,
@@ -42,6 +43,7 @@ interface Status {
   readonly pid: number;
   readonly state: string;
   readonly stateReason?: string;
+  readonly databaseUnavailable?: { readonly reason: string; readonly backup?: string };
 }
 
 interface Refusal {
@@ -196,6 +198,33 @@ function damageHeader(path: string): void {
   }
 }
 
+/**
+ * A database an earlier dipo wrote before the squash, as the maintainer's old file is: in WAL mode,
+ * closed cleanly (no `-wal` or `-shm`), its first recorded step the old base step.
+ */
+function preSquashDatabase(dir: string): string {
+  const state = join(dir, "state");
+  mkdirSync(state, { recursive: true, mode: 0o700 });
+  const path = join(state, "dipo.db");
+  const db = new Database(path, { create: true });
+  try {
+    db.exec("pragma journal_mode = WAL");
+    db.exec(
+      "create table schema_migrations (version integer primary key, name text not null, checksum text not null, engine_version text not null, applied_at integer not null) strict",
+    );
+    db.exec(
+      "insert into schema_migrations values (1, 'offices and schema_migrations', 'c', '0.0.0-old', 0)",
+    );
+    db.exec("pragma user_version = 74");
+    db.exec("pragma wal_checkpoint(TRUNCATE)");
+  } finally {
+    db.close();
+  }
+  // macOS's SQLite keeps both files after a close; the old dipo's clean stop removed them.
+  for (const suffix of ["-wal", "-shm"]) rmSync(`${path}${suffix}`, { force: true });
+  return path;
+}
+
 /** Recovery by hand (0007): the backup copied over `dipo.db`, its sidecars gone. */
 function restoreByHand(dir: string, backup: string): void {
   const db = join(dir, "state", "dipo.db");
@@ -266,6 +295,32 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           } finally {
             await kill(daemon);
           }
+        });
+      },
+      TIMEOUT_MS,
+    );
+
+    it(
+      "reports a database from before the squash in daemon.status and writes nothing next to it",
+      async () => {
+        await withDaemonTempDir(async (dir) => {
+          const env = daemonTestEnv(dir);
+          const path = preSquashDatabase(dir);
+          const before = readFileSync(path);
+          const daemon = start(env);
+          try {
+            const status = await waitForStatus(dir, daemon, held);
+            expect(status.databaseUnavailable).toEqual({ reason: "beforeSquash" });
+            expect(status.stateReason).toContain("written by an earlier dipo");
+            expect(status.stateReason).toContain(`move ${path} and its -wal and -shm files away`);
+            expect(await stopOverSocket(dir, daemon)).toBe(0);
+          } finally {
+            await kill(daemon);
+          }
+          expect(readFileSync(path).equals(before)).toBe(true);
+          expect(
+            readdirSync(join(dir, "state")).filter((name) => name.startsWith("dipo.db")),
+          ).toEqual(["dipo.db"]);
         });
       },
       TIMEOUT_MS,

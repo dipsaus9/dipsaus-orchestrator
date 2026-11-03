@@ -62,6 +62,7 @@ export class DaemonLifecycle {
   #inFlight = 0;
   readonly #idleWaiters: (() => void)[] = [];
   #unavailable: EngineError | null = null;
+  #failure: DatabaseFailure | null = null;
 
   constructor(reason = "daemon started") {
     this.#reason = reason;
@@ -73,6 +74,11 @@ export class DaemonLifecycle {
 
   get reason(): string {
     return this.#reason;
+  }
+
+  /** Why the state database cannot be used, while it cannot; null otherwise. */
+  get failure(): DatabaseFailure | null {
+    return this.#failure;
   }
 
   /** The `database.unavailable` error while the state database cannot be used; null otherwise. */
@@ -89,6 +95,7 @@ export class DaemonLifecycle {
   holdUnavailable(failure: DatabaseFailure): boolean {
     if (this.#state !== "recovering") return false;
     this.#reason = failure.text;
+    this.#failure = failure;
     this.#unavailable = engineError(DATABASE_UNAVAILABLE, failure.text, { ...failure.details });
     return true;
   }

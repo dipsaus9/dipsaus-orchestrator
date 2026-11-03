@@ -11,6 +11,7 @@ import {
   ReadDescription,
 } from "./definition";
 import { ConfigErrorData } from "./config";
+import { DatabaseUnavailableDetails } from "./errors";
 import { Cursor, OfficeId } from "./ids";
 import { EvidenceMap, openEnum } from "./work";
 
@@ -244,6 +245,9 @@ export const daemonStatus = defineRead({
   result: z.object({
     state: DaemonState,
     stateReason: z.string().optional(),
+    // Present while the state database cannot be used: the daemon stays in `recovering` and
+    // `stateReason` says what to do (0005, 0007).
+    databaseUnavailable: DatabaseUnavailableDetails.optional(),
     pid: z.int().positive(),
     version: z.string(),
     uptimeMs: z.int().nonnegative(),

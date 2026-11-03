@@ -22,6 +22,7 @@ import {
   connectRunning,
   DaemonNotRunningError,
   type DaemonSession,
+  DaemonStartError,
   type DaemonStatusResult,
   inspectDaemon,
   LIFECYCLE_TIMINGS,
@@ -80,10 +81,21 @@ function status(pid = DAEMON_PID): DaemonStatusResult {
   };
 }
 
-function session(options: { stop?: () => void; pid?: number } = {}): DaemonSession {
+function session(
+  options: { stop?: () => void; pid?: number; statuses?: DaemonStatusResult[] } = {},
+): DaemonSession {
   return {
     hello: null,
-    read: (async () => ({ ok: true, result: status(options.pid) })) as DaemonSession["read"],
+    // `statuses` answers one per read, the last one from then on.
+    read: (async () => ({
+      ok: true,
+      result:
+        options.statuses === undefined
+          ? status(options.pid)
+          : options.statuses.length > 1
+            ? options.statuses.shift()
+            : options.statuses[0],
+    })) as DaemonSession["read"],
     command: (async () => {
       options.stop?.();
       return { ok: true, result: { state: "draining" }, changed: true };
@@ -377,6 +389,84 @@ describe("startDaemon and autostart", () => {
       const connected = await connectOrStart(w.deps);
       expect(connected.started).toEqual({ pid: 999, version: "0.0.0-dev" });
       expect(w.spawns).toHaveLength(1);
+    }));
+
+  const REFUSED =
+    "The state database /h/dipo.db was written by an earlier dipo, before its schema steps were squashed into one base schema, and this dipo cannot read it. No office is loaded. Run `dipo daemon stop`, move /h/dipo.db and its -wal and -shm files away, then start the daemon again.";
+  const recovering = (): DaemonStatusResult => ({
+    ...status(999),
+    state: "recovering",
+    stateReason: "running recovery steps",
+  });
+  const held = (): DaemonStatusResult => ({
+    ...recovering(),
+    stateReason: REFUSED,
+    databaseUnavailable: { reason: "beforeSquash" },
+  });
+
+  /** A world whose daemon (pid 999) answers `statuses` once spawned. */
+  function spawnedWorld(dir: string, statuses: DaemonStatusResult[]): World {
+    let spawned = false;
+    const w = world(dir, {
+      connect: async () => {
+        if (!spawned) throw new DaemonNotRunningError("/s", "not yet");
+        return session({ statuses });
+      },
+      onSpawn: () => {
+        spawned = true;
+        return { pid: 999 };
+      },
+    });
+    w.procs.set(999, { ...DAEMON_INFO, pid: 999 });
+    return w;
+  }
+
+  it("reports a daemon that refuses its state database instead of started, with what to do", () =>
+    withTempDir(async (dir) => {
+      const w = spawnedWorld(dir, [recovering(), recovering(), held()]);
+      expect(await startDaemon(w.deps)).toEqual({
+        kind: "database unavailable",
+        pid: 999,
+        version: "0.0.0-dev",
+        message: REFUSED,
+      });
+    }));
+
+  it("waits for a recovering daemon to run before it reports started", () =>
+    withTempDir(async (dir) => {
+      const w = spawnedWorld(dir, [recovering(), recovering(), status(999)]);
+      expect(await startDaemon(w.deps)).toEqual({
+        kind: "started",
+        pid: 999,
+        version: "0.0.0-dev",
+      });
+    }));
+
+  it("reports started when a healthy recovery is still running at the deadline", () =>
+    withTempDir(async (dir) => {
+      const w = spawnedWorld(dir, [recovering()]);
+      const begun = w.deps.clock.now();
+      expect(await startDaemon(w.deps)).toMatchObject({ kind: "started", pid: 999 });
+      expect(w.deps.clock.now() - begun).toBeGreaterThanOrEqual(LIFECYCLE_TIMINGS.startWaitMs);
+    }));
+
+  it("reports a running daemon held without its database again on the next start, and a command's autostart fails with it", () =>
+    withTempDir(async (dir) => {
+      const w = world(dir, { connect: async () => session({ statuses: [held()] }) });
+      w.procs.set(DAEMON_PID, DAEMON_INFO);
+      writeLock(w.state);
+      writeRuntime(w.state);
+      expect(await startDaemon(w.deps)).toMatchObject({
+        kind: "database unavailable",
+        message: REFUSED,
+      });
+      expect(w.spawns).toEqual([]);
+
+      const started = spawnedWorld(join(dir, "fresh"), [held()]);
+      const error = await connectOrStart(started.deps).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(DaemonStartError);
+      expect((error as Error).message).toContain("runs without its state database");
+      expect((error as Error).message).toContain(REFUSED);
     }));
 
   it("connectRunning never starts the daemon: no daemon throws DaemonNotRunningError and spawns nothing", () =>

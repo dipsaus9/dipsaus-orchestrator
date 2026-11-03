@@ -327,6 +327,16 @@ async function signalVerified(
 export type StartResult =
   | { readonly kind: "started"; readonly pid: number; readonly version: string }
   | { readonly kind: "already running"; readonly pid: number; readonly version: string }
+  /**
+   * The daemon runs but holds itself in `recovering` because it cannot use its state database
+   * (0005, 0007); `message` is its `stateReason`: what failed and what to do.
+   */
+  | {
+      readonly kind: "database unavailable";
+      readonly pid: number;
+      readonly version: string;
+      readonly message: string;
+    }
   | { readonly kind: "unresponsive"; readonly pid: number }
   | { readonly kind: "config"; readonly errors: readonly ConfigError[] }
   /** The daemon process ended during the start; its log says why. */
@@ -359,7 +369,23 @@ async function spawnAndWait(deps: LifecycleDeps, options: StartOptions): Promise
   return waitForStart(deps, spawned.pid, logs);
 }
 
-/** Waits up to `startWaitMs` for the daemon `pid` (or, under a supervisor, any daemon) to answer. */
+/** A daemon held in `recovering` without its state database, as a start result; else null. */
+function heldWithoutDatabase(status: DaemonStatusResult): StartResult | null {
+  if (status.databaseUnavailable === undefined) return null;
+  return {
+    kind: "database unavailable",
+    pid: status.pid,
+    version: status.version,
+    message: status.stateReason ?? "the daemon cannot use its state database",
+  };
+}
+
+/**
+ * Waits up to `startWaitMs` for the daemon `pid` (or, under a supervisor, any daemon) to answer,
+ * and while it answers `starting` or `recovering`, for it to run or to report that it cannot use
+ * its state database: that refusal comes from the first recovery step, so a start says it instead
+ * of "started". A daemon still recovering at the deadline counts as started.
+ */
 async function waitForStart(
   deps: LifecycleDeps,
   pid: number | null,
@@ -370,7 +396,15 @@ async function waitForStart(
   for (;;) {
     const answer = await ask(deps);
     if (answer.kind === "status") {
-      return { kind: "started", pid: answer.status.pid, version: answer.status.version };
+      const { status } = answer;
+      const held = heldWithoutDatabase(status);
+      if (held !== null) return held;
+      const settling = status.state === "starting" || status.state === "recovering";
+      if (!settling || clock.now() >= deadline) {
+        return { kind: "started", pid: status.pid, version: status.version };
+      }
+      await sleep(clock, timings.pollMs);
+      continue;
     }
     const info = pid === null ? null : await deps.probe(pid);
     if (pid !== null && (info === null || info.zombie)) {
@@ -402,6 +436,8 @@ export async function startDaemon(
 ): Promise<StartResult> {
   const before = await inspectDaemon(deps);
   if (before.kind === "running") {
+    const held = heldWithoutDatabase(before.status);
+    if (held !== null) return held;
     return { kind: "already running", pid: before.status.pid, version: before.status.version };
   }
   if (before.kind === "foreign") {
@@ -594,6 +630,8 @@ export function describeStartFailure(result: StartResult): string {
       return `the daemon (pid ${result.pid}) did not answer within 5 s; see ${result.logs}/daemon.log and \`dipo daemon status\``;
     case "supervisor failed":
       return `${result.message}; see ${result.logs}/daemon.log and \`dipo daemon status\``;
+    case "database unavailable":
+      return `the daemon (pid ${result.pid}) runs without its state database. ${result.message}`;
     default:
       return `the daemon is running (pid ${result.pid}, version ${result.version})`;
   }

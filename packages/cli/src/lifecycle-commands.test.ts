@@ -259,6 +259,19 @@ describe("dipo daemon start", () => {
     expect(await main(["daemon", "start"], ctx.deps)).toBe(1);
     expect(ctx.err[0]).toContain("/state/logs/daemon.log");
   });
+
+  it("says why a daemon that cannot use its state database is not usable, and exits 1", async () => {
+    const message =
+      "The state database /h/dipo.db was written by an earlier dipo. No office is loaded. Run `dipo daemon stop`, move /h/dipo.db and its -wal and -shm files away, then start the daemon again.";
+    const ctx = fake({
+      start: { kind: "database unavailable", pid: 77, version: VERSION, message },
+    });
+    expect(await main(["daemon", "start"], ctx.deps)).toBe(1);
+    expect(ctx.out).toEqual([]);
+    expect(ctx.err).toEqual([
+      `dipo: the daemon (pid 77) runs without its state database. ${message}`,
+    ]);
+  });
 });
 
 describe("dipo daemon stop", () => {

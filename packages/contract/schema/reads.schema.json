@@ -278,6 +278,34 @@
         "stateReason": {
           "type": "string"
         },
+        "databaseUnavailable": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "migration",
+                    "checksum",
+                    "damaged",
+                    "tooNew",
+                    "beforeSquash",
+                    "networkFilesystem",
+                    "open"
+                  ]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "backup": {
+              "type": "string"
+            }
+          },
+          "required": ["reason"]
+        },
         "pid": {
           "type": "integer",
           "exclusiveMinimum": 0,

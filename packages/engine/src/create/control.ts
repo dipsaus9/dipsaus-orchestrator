@@ -88,6 +88,9 @@ export function controlFeature(deps: ControlDeps): FeatureModule {
         handle: () => ({
           state: lifecycle.state,
           stateReason: lifecycle.reason,
+          ...(lifecycle.failure === null
+            ? {}
+            : { databaseUnavailable: { ...lifecycle.failure.details } }),
           pid: deps.pid,
           version: deps.version,
           uptimeMs: Math.max(0, Math.floor(clock.now() - deps.startedAt)),

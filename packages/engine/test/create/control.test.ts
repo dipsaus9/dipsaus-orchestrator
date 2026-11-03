@@ -181,5 +181,14 @@ describe("daemon.resumeStarts (0020)", () => {
       "database.unavailable",
     );
     expect(lifts).toEqual([]);
+
+    // daemon.status says so too, so `dipo daemon start` reports it instead of "started".
+    const read = registry.read("daemon.status");
+    if (read === undefined) throw new Error("daemon.status is not registered");
+    expect((read.handle as (ctx: unknown, args: unknown) => unknown)({}, {})).toMatchObject({
+      state: "recovering",
+      stateReason: "damaged",
+      databaseUnavailable: { reason: "damaged" },
+    });
   });
 });
