@@ -1,4 +1,4 @@
-// The story view (0005 sections 5 and 6, 0009 section 3). The engine derives views from facts and
+// The story view (0005, 0009). The engine derives views from facts and
 // never stores them as truth; the change log keeps the view each writer derived at that moment.
 // The facts are the story's key and id, what the story index mirrored from Backlog.md (lifecycle,
 // title, tier, open dependencies, the field block's park record), the latest Ready gate decision,
@@ -77,11 +77,11 @@ export interface StoryFacts {
   readonly gateFailures?: readonly GateFailureFact[];
   /** Who works on the story's active run. */
   readonly work?: WorkRef;
-  /** The story's PR on the code host (0019 section 3). */
+  /** The story's PR on the code host (0019). */
   readonly pr?: StoryPr;
 }
 
-/** The column a story shows in (0009 section 3). */
+/** The column a story shows in (0009). */
 export function deriveColumn(facts: Pick<StoryFacts, "lifecycle" | "waitingOn">): QueueColumn {
   if (facts.lifecycle === "Ready" && (facts.waitingOn?.length ?? 0) > 0) return "waiting";
   return columnOf(facts.lifecycle);
@@ -136,7 +136,7 @@ const STATUS_LIFECYCLES: ReadonlySet<string> = new Set([
 
 /**
  * The lifecycle of a story Backlog.md holds: a draft is `Draft` whatever its status; a task's 0012
- * status is its lifecycle. `To Do`, the status office init migrates to `Refined` (0010 section 6),
+ * status is its lifecycle. `To Do`, the status office init migrates to `Refined` (0010),
  * and any status outside 0012 count as `Refined`: the story is planned but not Ready.
  */
 export function lifecycleOf(kind: "task" | "draft", status: string): Lifecycle {

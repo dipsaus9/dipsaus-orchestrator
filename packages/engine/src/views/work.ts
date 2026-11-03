@@ -1,4 +1,4 @@
-// The work view (0005 sections 5 and 6, 0009 section 3): who works on a run, its phase, progress,
+// The work view (0005, 0009): who works on a run, its phase, progress,
 // usage with its budget share and the health derived from the watchdog facts in effect.
 // Derived from facts (`runs`, `agents`, `run_steps`, `run_signals`, usage, stored output and the
 // mirror's acceptance criteria, with the run's own criteria facts from its worker reports, DIPO-85)
@@ -89,7 +89,7 @@ function refOf(run: StoredRun, agent: AgentRow): WorkRef | null {
     key: StoryKey.parse(run.key),
     run: RunId.parse(run.runId),
     agent: AgentId.parse(agent.agent_id),
-    // The agent's own role: a reviewer of the run is no developer (0019 section 4).
+    // The agent's own role: a reviewer of the run is no developer (0019).
     role: RoleId.parse(agent.role),
     tier: run.tier ?? "",
     model: agent.model,
