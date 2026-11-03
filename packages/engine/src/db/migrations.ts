@@ -86,6 +86,26 @@ export class DatabaseTooNewError extends Error {
   }
 }
 
+/** The name of the first step a database recorded before the steps were squashed into one base (0007). */
+export const PRE_SQUASH_FIRST_STEP = "offices and schema_migrations";
+
+/**
+ * The database was written by a dipo from before its migrations were squashed into one base schema
+ * (0007). This dipo cannot read it and does not change or delete it: the maintainer moves it away,
+ * and the next start creates a fresh database.
+ */
+export class DatabaseBeforeSquashError extends Error {
+  constructor(
+    readonly path: string,
+    readonly found: number,
+  ) {
+    super(
+      `The state database ${path} was written by an earlier dipo, before its schema steps were squashed into one base schema (it is at version ${found}), and this dipo cannot read it. Stop the daemon, move ${path} and its -wal and -shm files away, and start the daemon again: it creates a fresh database. Stories, branches and PRs stay in Backlog.md and git; only run history (costs, logs) is lost.`,
+    );
+    this.name = "DatabaseBeforeSquashError";
+  }
+}
+
 /** A recorded step no longer matches the binary's step: someone edited a released migration. */
 export class MigrationChecksumError extends Error {
   constructor(
@@ -325,7 +345,8 @@ function removeOldDailyBackups(db: SqliteConnection, logger: DbLogger): void {
 }
 
 /**
- * Brings the database to the head of `migrations`. Refuses a database newer than the binary and
+ * Brings the database to the head of `migrations`. Refuses a database an earlier dipo wrote before
+ * the squash (`DatabaseBeforeSquashError`), a database newer than the binary and
  * one whose recorded steps differ from the binary's; writes `backups/pre-v<N>-<time>.db` before
  * applying anything. Then refuses a database whose schema differs from the one the steps build
  * (`SchemaDriftError`). A new database (version 0, no user tables) has nothing to copy, so it gets no
@@ -339,8 +360,12 @@ export async function migrate(
   assertMigrationOrder(migrations);
   const head = migrations.length;
   const from = userVersion(db);
+  const applied = readApplied(db);
+  if (applied.some((row) => row.version === 1 && row.name === PRE_SQUASH_FIRST_STEP)) {
+    throw new DatabaseBeforeSquashError(db.path, from);
+  }
   if (from > head) throw new DatabaseTooNewError(from, head);
-  verifyApplied(migrations, readApplied(db), from);
+  verifyApplied(migrations, applied, from);
   if (from === head) {
     verifySchema(db, options, null);
     removeOldDailyBackups(db, logger);

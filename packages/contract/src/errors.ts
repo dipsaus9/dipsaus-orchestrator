@@ -156,13 +156,15 @@ export type StreamResetRequiredDetails = z.infer<typeof StreamResetRequiredDetai
 
 // Why the state database is unavailable (0007 sections 9 and 10). Open enum: `migration` (a step
 // failed and was rolled back), `checksum` (an applied migration was edited), `damaged` (SQLite
-// found the file damaged or no database at all), `tooNew` (written by a newer dipo),
+// found the file damaged or no database at all), `tooNew` (written by a newer dipo), `beforeSquash`
+// (written by an earlier dipo, before the schema steps were squashed into one base),
 // `networkFilesystem` (`<state>` is on a network filesystem) and `open` (any other failure).
 export const DATABASE_UNAVAILABLE_REASONS = [
   "migration",
   "checksum",
   "damaged",
   "tooNew",
+  "beforeSquash",
   "networkFilesystem",
   "open",
 ] as const;

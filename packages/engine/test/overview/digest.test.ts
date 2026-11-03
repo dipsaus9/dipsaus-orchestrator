@@ -2,22 +2,18 @@
 // client sends; the engine keeps no last-seen time of its own (0001).
 
 import { describe, expect, it } from "bun:test";
-import { join } from "node:path";
 
 import { RequestId, type StoryKey } from "@dipsaus-orchestrator/contract";
-import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
+import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { appendEntries } from "../../src/changelog/log";
 import type { OfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
-import { openStateDatabase } from "../../src/db/database";
 import type { OfficeHandle } from "../../src/db/office";
-import { MIGRATIONS } from "../../src/db/schema";
 import { executeRead } from "../../src/reads/execute";
 import { DIGEST_COUNTS } from "../../src/overview/digest";
 import { viewsFeature } from "./views-feature";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
-import { localMounts, memoryLogger } from "../db/helpers";
 import { pass, task } from "../stories/helpers";
 import { keyOf } from "../views/helpers";
 
@@ -164,38 +160,5 @@ describe("office.digest", () => {
   it("refuses a read without since: the engine keeps no last-seen time of its own", () =>
     withOffice(async (t, office) => {
       await expect(readDigest(t, office)).rejects.toThrow(/office\.digest failed/);
-    }));
-});
-
-describe("migration 55 on a database at version 54", () => {
-  it("adds offices.tui_left_at, null for the offices it keeps", () =>
-    withTempDir(async (dir) => {
-      const open = (migrations?: typeof MIGRATIONS) =>
-        openStateDatabase({
-          stateDir: join(dir, "state"),
-          logger: memoryLogger(),
-          readMounts: localMounts,
-          clock: new ManualClock(),
-          engineVersion: "0.0.0-test",
-          ...(migrations === undefined ? {} : { migrations }),
-        });
-      const old = await open(MIGRATIONS.filter((step) => step.version <= 54));
-      try {
-        old.connection.immediate(() =>
-          old.connection.exec(`insert into offices (office_id, path, display_name, added_at, epoch,
-            next_seq, replay_floor_seq) values ('off-1', '/repo', 'repo', 0, 'e', 1, 0)`),
-        );
-      } finally {
-        old.close();
-      }
-      const state = await open();
-      try {
-        expect(MIGRATIONS.find((step) => step.version === 55)?.name).toBe("tui left");
-        expect(state.connection.all("select office_id, tui_left_at from offices")).toEqual([
-          { office_id: "off-1", tui_left_at: null },
-        ]);
-      } finally {
-        state.close();
-      }
     }));
 });

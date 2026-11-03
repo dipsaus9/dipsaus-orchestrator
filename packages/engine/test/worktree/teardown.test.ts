@@ -602,8 +602,8 @@ describe("the Done poll", () => {
       const gate = world.t.ids.next("gat");
       world.office.immediate(() => {
         world.office.run(
-          `insert into stories (office_id, key, story_id, provisional, backlog_created, first_seen_at)
-           values ($office_id, $key, 'TASK-1', 0, 1, 0)`,
+          `insert into stories (office_id, key, story_id, provisional, first_seen_at)
+           values ($office_id, $key, 'TASK-1', 0, 0)`,
           { key: claim.key },
         );
         world.office.run(

@@ -31,7 +31,6 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   story_aliases: kept("kept: story identity"),
   backlog_mirror: kept("overwritten in place"),
   leftover_worktrees: kept("written again at each office load"),
-  context_packs: kept("no longer written; left out of the squashed schema"),
   worker_notes: kept("removed when the claim ends"),
   prompt_parts: aged("recorded more than retention.days ago, once no agent of the run is running"),
   prompt_texts: aged("recorded more than retention.days ago"),
