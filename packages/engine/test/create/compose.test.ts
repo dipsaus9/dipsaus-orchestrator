@@ -1,6 +1,6 @@
 // The run services have one wiring (DIPO-129): `composeRuns` builds them from injected ports. These
 // tests call it with fake ports on a migrated state database and check the wiring itself: which
-// services exist for which ports, and that a worker's lost host reaches worker outcomes and then
+// services exist for which ports, and that a worker's exit is decided after `beforeExit` and before
 // `afterExit`. A source check keeps the engine factory and the run tests from constructing them by
 // hand.
 
@@ -32,6 +32,7 @@ import { encode } from "../../src/workers/claude-cli/encode";
 import type { WorkerPort } from "../../src/workers/port";
 import type { Caps } from "../../src/workers/types";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";
+import { settle } from "../platform/hanging";
 import { backlogLayout } from "../story-store/backlog";
 
 const ROOMY: Caps = { budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 30 };
@@ -211,6 +212,55 @@ describe("composeRuns", () => {
     expect(await composed.places?.drain(office.officeId)).toBe(0);
     expect(warned).toContain("reading a story before its review failed; the review waits");
     composed.places?.close();
+  });
+
+  test("awaits beforeExit before an ordinary exit is decided, and runs afterExit after it (DIPO-376)", async () => {
+    storeRun();
+    const order: string[] = [];
+    const composed = compose({
+      control: CONTROL,
+      outcomes: {},
+      // The exit is decided by the adapter's result: reading it is the decision's first step.
+      worker: {
+        ...WORKER,
+        result: () => {
+          order.push("exit decided");
+          return { outcome: "done", report: null, usage: {}, sessionId: "s", resumable: false };
+        },
+      },
+      // Resolves only when the test moves the clock on, so an exit decided without awaiting it
+      // is decided between its start and its end.
+      beforeExit: async (runId) => {
+        order.push(`beforeExit started ${runId}`);
+        await new Promise<void>((resolve) => f.t.clock.setTimeout(resolve, 1));
+        order.push("beforeExit resolved");
+      },
+      afterExit: () => {
+        order.push("afterExit");
+      },
+    });
+    const control = composed.control;
+    if (control === null) throw new Error("run control was not built");
+    control.track(f.office.officeId, {
+      runId: f.run,
+      work: f.work,
+      caps: ROOMY,
+      startedAt: f.t.clock.now(),
+    });
+
+    control.onEnded(f.run, f.agent, { exit: { code: 0, signal: null }, state: {} });
+    // Every promise callback runs that can before `beforeExit` resolves.
+    await settle(50);
+    expect(order).toEqual([`beforeExit started ${f.run}`]);
+    f.t.clock.advance(1);
+    await control.idle();
+
+    expect(order).toEqual([
+      `beforeExit started ${f.run}`,
+      "beforeExit resolved",
+      "exit decided",
+      "afterExit",
+    ]);
   });
 });
 

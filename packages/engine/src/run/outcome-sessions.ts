@@ -40,12 +40,7 @@ export class SessionStarts {
     office: OfficeHandle,
     run: StoredRun,
     view: RunView,
-    request: {
-      readonly mode: "resume" | "handoff";
-      readonly why: string;
-      /** Only a resume will do; a session that cannot be resumed parks `worker-failed` (DIPO-57). */
-      readonly requireResume?: boolean;
-    },
+    request: { readonly mode: "resume" | "handoff"; readonly why: string },
   ): Promise<boolean> {
     const paused = this.#deps.startsPaused?.()?.state(view.office) ?? null;
     if (paused?.reason === "plan-limit") {
@@ -75,7 +70,6 @@ export class SessionStarts {
         work: view.work,
         mode: request.mode,
         why: request.why,
-        ...(request.requireResume === true ? { requireResume: true } : {}),
         caps: view.caps,
         startedAt: view.startedAt,
       });
@@ -103,14 +97,6 @@ export class SessionStarts {
           ops: [],
           reason: "worker-failed",
           detail: `${request.why}; ${outcome.code}: the earlier worker host of the run (pid ${outcome.pid}) still runs, so no new session starts`,
-        });
-        return false;
-      case "notResumed":
-        await this.#s.park(office, run, view.work, {
-          intent: "park",
-          ops: [],
-          reason: "worker-failed",
-          detail: `${request.why}; its session cannot be resumed: ${outcome.reason}`,
         });
         return false;
     }
