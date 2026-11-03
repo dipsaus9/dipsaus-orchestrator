@@ -211,9 +211,9 @@ describe("office load steps", () => {
 });
 
 const OFFICE_YAML = join(".dipo", "office.yaml");
-const CLOSED = "version: 14\nreview:\n  maxRounds: 2\n";
-const OPEN = "version: 14\nreview:\n  maxRounds: 4\nstory:\n  securityPhrases: [firewall rule]\n";
-const INVALID = "version: 14\ntimeouts:\n  workerStallMinutes: soon\n";
+const CLOSED = "version: 16\nreview:\n  maxRounds: 2\n";
+const OPEN = "version: 16\nreview:\n  maxRounds: 4\nstory:\n  securityPhrases: [firewall rule]\n";
+const INVALID = "version: 16\ntimeouts:\n  workerStallMinutes: soon\n";
 
 interface Polled {
   readonly repo: TempRepoWithRemote;

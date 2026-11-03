@@ -1,8 +1,9 @@
 // `dipo config migrate` (0017): the one command that rewrites a configuration file. It takes
-// `.dipo/office.yaml` and `.dipo/office.local.yaml` of a repository from an earlier version to
-// the current version with `migrateOfficeFileText`, which keeps their comments, and says each key it
-// moved or deleted. A file that would not load at the current version is left alone and its errors are printed;
-// the other file is still migrated. It needs no daemon: the CLI calls it as a daemon-side form with
+// `.dipo/office.yaml` and `.dipo/office.local.yaml` of a repository to the current version through
+// the upgrades the binary carries (`migrateOfficeFileText`, none since the versions before 16 were
+// dropped), keeping their comments, and says each key it moved or deleted. A current file is
+// reported as such. A file that would not load at the current version, or is older than this
+// binary reads, is left alone and its errors are printed; the other file is still checked. It needs no daemon: the CLI calls it as a daemon-side form with
 // the main worktree of the repository it runs in.
 
 import { readFileSync, renameSync, writeFileSync } from "node:fs";

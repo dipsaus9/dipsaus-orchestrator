@@ -3,8 +3,6 @@
 // returns errors that name the file and key.
 
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 
 import {
   LOCAL_FILE_HEADER,
@@ -73,40 +71,29 @@ describe("updateLocalPrivacy", () => {
     }
   });
 
-  it("migrates a version 14 file to the current version, keeping every other key", () => {
-    const text = readFileSync(join(import.meta.dir, "fixtures", "office-local-v14.yaml"), "utf8");
+  it("refuses an older file with the version it found and the one it needs, naming the file", () => {
+    const update = updateLocalPrivacy(
+      "version: 14\nprivacy:\n  keepRawEvents: true\n",
+      "storePrompts",
+      true,
+    );
+    expect(update.ok).toBe(false);
+    if (update.ok) return;
+    expect(update.errors).toHaveLength(1);
+    expect(update.errors[0]?.file).toBe(OFFICE_LOCAL_FILE);
+    expect(update.errors[0]?.message).toContain(
+      `${OFFICE_LOCAL_FILE}: version: configuration version 14 is older than this dipo reads (version ${OFFICE_CONFIG_VERSION})`,
+    );
+  });
+
+  it("keeps every other key of a current file", () => {
+    const text = `version: ${OFFICE_CONFIG_VERSION}\nprivacy: { keepRawEvents: true }\n`;
     const result = written(text, "storePrompts", false);
     expect(result.startsWith(LOCAL_FILE_HEADER)).toBe(true);
     expect(parsed(result)).toEqual({
       version: OFFICE_CONFIG_VERSION,
       privacy: { keepRawEvents: true, storePrompts: false },
     });
-  });
-
-  it("migrates an older file the same way dipo config migrate does (0017)", () => {
-    const update = updateLocalPrivacy(
-      "version: 4\nprivacy:\n  keepRawEvents: true\n",
-      "storePrompts",
-      true,
-    );
-    expect(update.ok).toBe(true);
-    if (!update.ok) return;
-    expect(parsed(update.text)).toEqual({
-      version: OFFICE_CONFIG_VERSION,
-      privacy: { keepRawEvents: true, storePrompts: true },
-    });
-  });
-
-  it("refuses an older file that does not migrate to a valid file, naming the file", () => {
-    const update = updateLocalPrivacy(
-      "version: 14\ntimeouts:\n  workerStallMinutes: soon\n",
-      "storePrompts",
-      true,
-    );
-    expect(update.ok).toBe(false);
-    if (update.ok) return;
-    expect(update.errors[0]?.file).toBe(OFFICE_LOCAL_FILE);
-    expect(update.errors[0]?.message).toContain(OFFICE_LOCAL_FILE);
   });
 
   it("refuses a file that does not validate", () => {

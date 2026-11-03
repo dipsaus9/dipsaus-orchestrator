@@ -61,8 +61,8 @@ export function updateLocalPrivacy(
 
   let document: Record<string, unknown> = { version: OFFICE_CONFIG_VERSION };
   if (current !== undefined) {
-    // An older file is migrated with the same function `dipo config migrate` uses (0017); a file
-    // that does not validate, before or after the migration, is refused.
+    // The file goes through the same function `dipo config migrate` uses (0017): one older than
+    // this binary reads, or one that does not validate, is refused.
     const migrated = migrateOfficeFileText(OFFICE_LOCAL_FILE, current);
     if (!migrated.ok) return migrated;
     const read = readDocument(OFFICE_LOCAL_FILE, migrated.text);

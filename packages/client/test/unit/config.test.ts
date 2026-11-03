@@ -22,13 +22,12 @@ describe("readSoftwareConfig", () => {
           notify: { desk: true },
         },
         fromFile: false,
-        warnings: [],
       });
     }));
 
   it("reads daemon.autostart from a valid file", () =>
     withTempDir((state) => {
-      writeFileSync(join(state, "config.yaml"), "version: 1\ndaemon:\n  autostart: false\n");
+      writeFileSync(join(state, "config.yaml"), "version: 4\ndaemon:\n  autostart: false\n");
       expect(readSoftwareConfig(state)).toMatchObject({
         ok: true,
         config: { daemon: { autostart: false } },
@@ -39,15 +38,15 @@ describe("readSoftwareConfig", () => {
   it("names the full path, the key path and the expected type", () =>
     withTempDir((state) => {
       const path = softwareConfigPath(state);
-      writeFileSync(path, "version: 1\ndeamon:\n  autostart: false\n");
+      writeFileSync(path, "version: 4\ndeamon:\n  autostart: false\n");
       expect(readSoftwareConfig(state)).toEqual({
         ok: false,
         errors: [
           {
             file: path,
             path: "deamon",
-            expected: "one of the keys version, daemon",
-            message: `${path}: deamon: unknown key; expected one of the keys version, daemon; this key may need a newer dipo`,
+            expected: "one of the keys version, daemon, usage, notify",
+            message: `${path}: deamon: unknown key; expected one of the keys version, daemon, usage, notify; this key may need a newer dipo`,
           },
         ],
       });
@@ -56,7 +55,7 @@ describe("readSoftwareConfig", () => {
   it("refuses two documents, a missing version and a newer version", () =>
     withTempDir((state) => {
       const path = softwareConfigPath(state);
-      writeFileSync(path, "version: 1\n---\n");
+      writeFileSync(path, "version: 4\n---\n");
       expect(readSoftwareConfig(state)).toMatchObject({
         ok: false,
         errors: [{ path: "(top level)", expected: "exactly one YAML document" }],

@@ -340,7 +340,7 @@ describe("startDaemon and autostart", () => {
   it("with daemon.autostart false fails naming dipo daemon start and spawns nothing", () =>
     withTempDir(async (dir) => {
       const w = world(dir);
-      writeFileSync(join(w.state, "config.yaml"), "version: 1\ndaemon:\n  autostart: false\n");
+      writeFileSync(join(w.state, "config.yaml"), "version: 4\ndaemon:\n  autostart: false\n");
       const error = await connectOrStart(w.deps).catch((caught: unknown) => caught);
       expect(error).toBeInstanceOf(AutostartOffError);
       expect((error as Error).message).toContain("`dipo daemon start`");
@@ -350,7 +350,7 @@ describe("startDaemon and autostart", () => {
   it("shows config.yaml errors instead of starting a daemon that would exit 78", () =>
     withTempDir(async (dir) => {
       const w = world(dir);
-      writeFileSync(join(w.state, "config.yaml"), "version: 1\ndaemon:\n  autostart: maybe\n");
+      writeFileSync(join(w.state, "config.yaml"), "version: 4\ndaemon:\n  autostart: maybe\n");
       const error = await connectOrStart(w.deps).catch((caught: unknown) => caught);
       expect(error).toBeInstanceOf(SoftwareConfigError);
       expect((error as SoftwareConfigError).errors[0]?.message).toContain("daemon.autostart");

@@ -1,7 +1,0 @@
-# A version 14 office file: version 15 retires timeouts.questionWaitMinutes (DIPO-428).
-version: 14
-timeouts:
-  workerStallMinutes: 30 # a slow box
-  questionWaitMinutes: 20 # how long a worker waited for an answer
-# The reviewer at normal effort.
-review: { effort: medium }

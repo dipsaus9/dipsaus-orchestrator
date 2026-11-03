@@ -281,32 +281,21 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     );
 
     it(
-      "reads <state>/config.yaml at start and drops the retired autoRestartOnUpgrade with a warning",
+      "refuses to start with a config.yaml older than it reads, naming both versions",
       async () => {
         await withDaemonTempDir(async (dir) => {
           const state = join(dir, "state");
-          await Bun.write(
-            join(state, "config.yaml"),
-            "version: 1\ndaemon:\n  autoRestartOnUpgrade: true\n",
-          );
+          await Bun.write(join(state, "config.yaml"), "version: 3\ndaemon:\n  autostart: true\n");
           const daemon = start(daemonTestEnv(dir));
           try {
-            await waitUntilServing(dir, daemon);
-            const lines = readFileSync(join(state, "logs", "daemon.log"), "utf8")
-              .trim()
-              .split("\n")
-              .map((entry) => JSON.parse(entry) as Record<string, unknown>);
-            const line = lines.find((entry) => entry["msg"] === "software configuration");
-            expect(line).toMatchObject({ fromFile: true, autostart: true });
-            expect(line).not.toHaveProperty("autoRestartOnUpgrade");
-            const warning = lines.find(
-              (entry) =>
-                entry["level"] === "warn" &&
-                String(entry["msg"]).includes("daemon.autoRestartOnUpgrade is no longer read"),
+            expect(await daemon.exited).toBe(78);
+            const stderr = await new Response(daemon.stderr).text();
+            expect(stderr).toContain(
+              `dipo: ${join(state, "config.yaml")}: version: configuration version 3 is older than this dipo reads (version 4)`,
             );
-            expect(warning).toBeDefined();
+            expect(existsSync(join(state, "dipo.pid"))).toBe(false);
           } finally {
-            expect(await stop(daemon)).toBe(0);
+            await stop(daemon);
           }
         });
       },
@@ -341,7 +330,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       async () => {
         await withDaemonTempDir(async (dir) => {
           const state = join(dir, "state");
-          await Bun.write(join(state, "config.yaml"), "version: 1\ndaemon:\n  autostrat: false\n");
+          await Bun.write(join(state, "config.yaml"), "version: 4\ndaemon:\n  autostrat: false\n");
           const daemon = start(daemonTestEnv(dir));
           try {
             expect(await daemon.exited).toBe(78);

@@ -287,7 +287,7 @@ describe("office.rescan", () => {
       // Another clone merges the file to the base; the main checkout never sees it.
       const clone = join(repo.root, "clone");
       await repo.run(["git", "clone", "--quiet", repo.remote, clone], repo.root);
-      applyFixture(clone, { ".dipo/office.yaml": "version: 1\nscripts:\n  verify: bun test\n" });
+      applyFixture(clone, { ".dipo/office.yaml": "version: 16\nscripts:\n  verify: bun test\n" });
       await repo.run(["git", "add", "--", ".dipo/office.yaml"], clone);
       await repo.run(["git", "commit", "--quiet", "-m", "office.yaml"], clone);
       expect((await repo.run(["git", "push", "--quiet", "origin", "main"], clone)).exitCode).toBe(

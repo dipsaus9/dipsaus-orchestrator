@@ -1,3 +1,0 @@
-# A version 6 office file: version 6 adds story.maintainerStepPhrases (DIPO-188).
-version: 6
-story: { titleMax: 80, maintainerStepPhrases: [by hand] }

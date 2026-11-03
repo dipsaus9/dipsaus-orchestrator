@@ -5,10 +5,9 @@
 // the stages of a run after its start read this snapshot instead: the story PR it opens, its
 // reviewer's model, and its merge (`merge` and `caps`). The required checks are GitHub's (0002).
 //
-// A snapshot from an earlier configuration version goes through the same migration as an office
-// file (`migrateOfficeDocument`), so its moved keys are read at their new place and its retired
-// keys are dropped. A snapshot lacks
-// the keys added since; each such key takes the value of the configuration it falls back to,
+// A snapshot from an earlier configuration version goes through the same upgrades as an office
+// file (`migrateOfficeDocument`); one older than this binary reads gives the fallback. A snapshot
+// lacks the keys added since; each such key takes the value of the configuration it falls back to,
 // section by section, so a run started before a key existed behaves as the defaults of its own
 // time did.
 

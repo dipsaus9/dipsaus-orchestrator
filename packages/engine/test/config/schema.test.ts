@@ -2,13 +2,14 @@ import { describe, expect, it } from "bun:test";
 
 import {
   migrateOfficeDocument,
-  MOVED_KEYS,
+  OFFICE_UPGRADES,
+  OLDEST_OFFICE_CONFIG_VERSION,
   OFFICE_DEFAULTS,
   OfficeConfigSchema,
   OfficeFileSchema,
   OfficeLocalFileSchema,
   privacyOptIns,
-  RETIRED_KEYS,
+  RENAMED_KEYS,
   schemaKeyPaths,
 } from "../../src/config";
 
@@ -112,14 +113,11 @@ describe("version 16 key paths", () => {
     );
   });
 
-  it("hold no retired key and no moved key's old place", () => {
+  it("hold no renamed key's old name, and its new name", () => {
     const paths = schemaKeyPaths(OfficeConfigSchema);
-    for (const { path } of RETIRED_KEYS) {
-      expect(paths.filter((key) => key === path || key.startsWith(`${path}.`))).toEqual([]);
-    }
-    for (const { from, to } of MOVED_KEYS) {
-      expect(paths).not.toContain(from);
-      expect(paths).toContain(to);
+    for (const { from, to } of RENAMED_KEYS) {
+      expect(paths.filter((key) => key === from || key.startsWith(`${from}.`))).toEqual([]);
+      expect(paths.some((key) => key === to || key.startsWith(`${to}.`))).toBe(true);
     }
   });
 });
@@ -172,113 +170,22 @@ describe("the box block", () => {
 });
 
 describe("migrateOfficeDocument", () => {
+  it("carries no upgrade: version 16 is the only version this binary reads", () => {
+    expect(OFFICE_UPGRADES).toEqual([]);
+    expect(OLDEST_OFFICE_CONFIG_VERSION).toBe(16);
+  });
+
   it("leaves a version 16 document as it is", () => {
-    const document = { version: 16, sandbox: {}, timeouts: { questionWaitMinutes: 5 } };
+    const document = { version: 16, base: "main", timeouts: { workerStallMinutes: 40 } };
     expect(migrateOfficeDocument(16, document)).toEqual({ document, steps: [] });
   });
 
-  it("raises an older document to version 16 with no step when it sets no retired key", () => {
-    expect(migrateOfficeDocument(3, { version: 3, base: "main" })).toEqual({
-      document: { version: 16, base: "main" },
-      steps: [],
-    });
-    expect(migrateOfficeDocument(14, { version: 14, base: "main" })).toEqual({
-      document: { version: 16, base: "main" },
-      steps: [],
-    });
-  });
-
-  it("drops timeouts.questionWaitMinutes from version 14 as version 15's one step, keeping its neighbours (DIPO-428)", () => {
-    const before = {
-      version: 14,
-      timeouts: { workerStallMinutes: 40, questionWaitMinutes: 5 },
-      // A key version 14 retired is not version 15's to drop: the strict schema refuses it.
-      sandbox: {},
-    };
-    const migrated = migrateOfficeDocument(14, before);
-    expect(migrated.document).toEqual({
-      version: 16,
-      timeouts: { workerStallMinutes: 40 },
-      sandbox: {},
-    });
-    expect(migrated.steps).toEqual([
-      {
-        kind: "drop",
-        path: ["timeouts", "questionWaitMinutes"],
-        reason: "a worker's question parks its story at once, whichever client is connected (0020)",
-        version: 15,
-      },
-    ]);
-    // Pure: the input is left as it was.
-    expect(before.timeouts.questionWaitMinutes).toBe(5);
-    // A section left empty goes with it.
-    expect(
-      migrateOfficeDocument(14, { version: 14, timeouts: { questionWaitMinutes: 5 } }).document,
-    ).toEqual({ version: 16 });
-  });
-
-  it("drops the keys of both versions from a file before 14", () => {
-    const migrated = migrateOfficeDocument(10, {
-      version: 10,
-      remote: "origin",
-      timeouts: { questionWaitMinutes: 20 },
-    });
-    expect(migrated.document).toEqual({ version: 16 });
-    expect(
-      migrated.steps.map((step) =>
-        step.kind === "drop" ? [step.path.join("."), step.version] : [],
-      ),
-    ).toEqual([
-      ["remote", 14],
-      ["timeouts.questionWaitMinutes", 15],
-    ]);
-  });
-
-  it("moves mergeSlot into caps and merge and drops the rest, leaving no empty section", () => {
-    const before = {
-      version: 5,
-      mergeSlot: { requiredChecks: ["ci-ok"], autoMerge: false, ciAttempts: 3 },
-      merge: { waitLabels: ["hold"] },
-    };
-    const migrated = migrateOfficeDocument(5, before);
-    expect(migrated.document).toEqual({
-      version: 16,
-      caps: { ciAttempts: 3 },
-      merge: { waitLabels: ["hold"], autoMerge: false },
-    });
-    expect(migrated.steps).toEqual([
-      { kind: "move", from: ["mergeSlot", "ciAttempts"], to: ["caps", "ciAttempts"] },
-      { kind: "move", from: ["mergeSlot", "autoMerge"], to: ["merge", "autoMerge"] },
-      {
-        kind: "drop",
-        path: ["mergeSlot", "requiredChecks"],
-        reason: "the required checks are the ones GitHub requires on the base (0002)",
-        version: 14,
-      },
-    ]);
-    expect(before.mergeSlot.ciAttempts).toBe(3);
-  });
-
-  it("drops whole retired sections and single retired keys, keeping their neighbours", () => {
-    const migrated = migrateOfficeDocument(9, {
-      version: 9,
-      worker: { adapter: "claude-cli", web: true },
-      worktree: { root: "../x", maxSlots: 3 },
-      prompt: { budgets: { nudge: { S: 1, M: 1, L: 1, XL: 1 } }, contractMax: 9 },
-      sandbox: { allowLocalBinding: true },
-    });
-    expect(migrated.document).toEqual({
-      version: 16,
-      worktree: { root: "../x" },
-      prompt: { contractMax: 9 },
-    });
-    expect(migrated.steps.map((step) => (step.kind === "drop" ? step.path.join(".") : ""))).toEqual(
-      ["worker.adapter", "worker.web", "sandbox", "worktree.maxSlots", "prompt.budgets.nudge"],
-    );
-  });
-
-  it("gives every retired key a reason that cites an ADR", () => {
-    for (const { reason } of RETIRED_KEYS) expect(reason).toMatch(/\(00\d\d(, 00\d\d)*\)$/);
+  it("refuses an older document with the version it found and the one it needs", () => {
+    for (const version of [1, 14, 15]) {
+      expect(() => migrateOfficeDocument(version, { version, base: "main" })).toThrow(
+        `configuration version ${version} is older than this dipo reads (version 16), and this dipo has no upgrade from it`,
+      );
+    }
   });
 });
 

@@ -17,13 +17,7 @@ import {
 } from "../../src/platform/host";
 import { yieldToEventLoop } from "../../src/platform/clock";
 import { stopAtInReview } from "../../src/run-state";
-import {
-  findRun,
-  findStoryPr,
-  insertRun,
-  openAtInReview,
-  recordConfigSnapshot,
-} from "../../src/records";
+import { findRun, findStoryPr, insertRun, openAtInReview } from "../../src/records";
 import {
   type StoryPrFacts,
   type StoryPrGit,
@@ -453,38 +447,6 @@ describe("the story PR", () => {
       expect(findStoryPr(w.office, w.run)?.number).toBe(7);
       expect(w.host.creates).toHaveLength(1);
       expect(storyPrEvents(w.office)).toHaveLength(1);
-    });
-  });
-});
-
-// DIPO-150 (the DIPO-303 review): a run's stages after its start read its configuration snapshot,
-// not the configuration in force, which a base change now reloads at the next poll.
-const snapshot = (w: World, config: unknown): void =>
-  w.office.immediate(() => recordConfigSnapshot(w.office, "h", config, w.t.clock.now()));
-
-describe("the story PR of a run with a configuration snapshot", () => {
-  it("opens the PR of a run whose version 13 snapshot switched story PRs off: every story gets its PR (0002)", async () => {
-    await inWorld(async (w) => {
-      snapshot(w, { ...OFFICE_DEFAULTS, version: 13, storyPr: { open: false } });
-      await w.prs.sync(w.office.officeId, w.run);
-      expect(w.host.creates).toHaveLength(1);
-    });
-  });
-
-  it("lists the checks the base requires on GitHub in the body, never mergeSlot.requiredChecks", async () => {
-    await inWorld(async (w) => {
-      snapshot(w, {
-        ...OFFICE_DEFAULTS,
-        version: 13,
-        mergeSlot: { requiredChecks: ["office-check"] },
-      });
-      w.requiredNames = ["base-check"];
-      w.host.hostHead = w.facts.head;
-      await w.prs.sync(w.office.officeId, w.run);
-      await w.prs.retry(w.office.officeId);
-      const bodies = [w.host.creates[0]?.body ?? "", ...w.host.updates.map((u) => u.body)];
-      expect(bodies.at(-1)).toContain("base-check");
-      expect(bodies.join("\n")).not.toContain("office-check");
     });
   });
 });

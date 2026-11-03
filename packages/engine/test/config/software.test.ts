@@ -21,17 +21,12 @@ describe("loadSoftwareConfig", () => {
           notify: { desk: true },
         },
         fromFile: false,
-        warnings: [],
       });
     }));
 
-  it("reads a valid file, dropping a retired key with a warning", () =>
+  it("reads a valid file", () =>
     withTempDir(async (state) => {
-      writeFileSync(
-        join(state, "config.yaml"),
-        "version: 1\ndaemon:\n  autostart: false\n  autoRestartOnUpgrade: true\n",
-      );
-      const path = softwareConfigPath(state);
+      writeFileSync(join(state, "config.yaml"), "version: 4\ndaemon:\n  autostart: false\n");
       expect(await loadSoftwareConfig(state)).toEqual({
         ok: true,
         config: {
@@ -41,8 +36,22 @@ describe("loadSoftwareConfig", () => {
           notify: { desk: true },
         },
         fromFile: true,
-        warnings: [
-          `${path}: daemon.autoRestartOnUpgrade is no longer read and was ignored, because the daemon never restarts itself; run \`dipo daemon restart\` after an upgrade (0005). Delete it.`,
+      });
+    }));
+
+  it("refuses an older file with the version it found and the one it needs", () =>
+    withTempDir(async (state) => {
+      const path = softwareConfigPath(state);
+      writeFileSync(path, "version: 3\ndaemon:\n  autoRestartOnUpgrade: true\n");
+      expect(await loadSoftwareConfig(state)).toEqual({
+        ok: false,
+        errors: [
+          {
+            file: path,
+            path: "version",
+            expected: "4",
+            message: `${path}: version: configuration version 3 is older than this dipo reads (version 4), and this dipo has no upgrade from it: set version to 4, then fix the keys the next load names`,
+          },
         ],
       });
     }));
@@ -51,7 +60,7 @@ describe("loadSoftwareConfig", () => {
     withTempDir(async (state) => {
       const path = softwareConfigPath(state);
       expect(path).toBe(join(state, "config.yaml"));
-      writeFileSync(path, "version: 1\ndaemon:\n  autostart: 1\n");
+      writeFileSync(path, "version: 4\ndaemon:\n  autostart: 1\n");
       expect(await loadSoftwareConfig(state)).toEqual({
         ok: false,
         errors: [
@@ -68,7 +77,7 @@ describe("loadSoftwareConfig", () => {
   it("refuses two documents and a newer version", () =>
     withTempDir(async (state) => {
       const path = softwareConfigPath(state);
-      writeFileSync(path, "version: 1\n---\nversion: 1\n");
+      writeFileSync(path, "version: 4\n---\nversion: 1\n");
       expect(await loadSoftwareConfig(state)).toMatchObject({
         ok: false,
         errors: [{ file: path, path: "(top level)", expected: "exactly one YAML document" }],
@@ -82,7 +91,7 @@ describe("loadSoftwareConfig", () => {
   it.skipIf(process.getuid?.() === 0)("returns an unreadable file as an error", () =>
     withTempDir(async (state) => {
       const path = softwareConfigPath(state);
-      writeFileSync(path, "version: 1\n");
+      writeFileSync(path, "version: 4\n");
       chmodSync(path, 0o000);
       expect(await loadSoftwareConfig(state)).toMatchObject({
         ok: false,

@@ -144,7 +144,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               // An invalid config.yaml refuses the autostart instead of a daemon that exits 78.
               writeFileSync(
                 join(state, "config.yaml"),
-                "version: 1\ndaemon:\n  autostart: maybe\n",
+                "version: 4\ndaemon:\n  autostart: maybe\n",
               );
               const refused = await dipo(bin, ["daemon", "log-level", "debug"], env);
               expect(refused.code).toBe(1);
@@ -152,7 +152,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               expect((await dipo(bin, ["daemon", "status"], env)).code).toBe(3);
 
               // Autostart through a command that needs the daemon.
-              writeFileSync(join(state, "config.yaml"), "version: 1\n");
+              writeFileSync(join(state, "config.yaml"), "version: 4\n");
               const auto = await dipo(bin, ["daemon", "log-level", "debug"], env);
               expect(auto.code).toBe(0);
               expect(auto.stderr).toContain("dipo: started the daemon (pid ");

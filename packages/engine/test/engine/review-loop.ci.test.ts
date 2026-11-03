@@ -490,7 +490,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     it(
       "an override of a review-blocked park",
       () =>
-        withLoopOffice({ officeYaml: "version: 7\nreview:\n  maxRounds: 1\n" }, async (w) => {
+        withLoopOffice({ officeYaml: "version: 16\nreview:\n  maxRounds: 1\n" }, async (w) => {
           w.director = (session) => {
             if (session.kind === "review") {
               return reviewScript(
@@ -671,7 +671,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     it(
       "the park and resume path",
       () =>
-        withLoopOffice({ officeYaml: "version: 7\nmergeSlot:\n  ciAttempts: 1\n" }, async (w) => {
+        withLoopOffice({ officeYaml: "version: 16\ncaps:\n  ciAttempts: 1\n" }, async (w) => {
           // CI turns red once the first review started, so the review runs before the CI-cap park
           // in every order of the polls: a park that lands while a round is still being built
           // starts no reviewer (DIPO-346), which reviews.test.ts covers.

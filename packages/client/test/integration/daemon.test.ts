@@ -228,7 +228,7 @@ describe("client against a running daemon", () => {
           // and starts nothing.
           writeFileSync(
             join(env["DIPO_HOME"] ?? "", "config.yaml"),
-            "version: 1\ndaemon:\n  autostart: false\n",
+            "version: 4\ndaemon:\n  autostart: false\n",
           );
           for (const args of [
             ["daemon", "log-level", "info"],

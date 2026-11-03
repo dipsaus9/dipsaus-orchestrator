@@ -1,16 +1,12 @@
-// The office configuration (0017). Version 14 holds only the keys code reads, and every key has a
-// default (`OFFICE_DEFAULTS`). A key added later with a default needs no version bump; a version
-// changes only when a key's meaning or shape changes, and then a pure migration from the version
-// before comes with it (0017).
-//
-// Versions 1 to 13 bumped the version for every added key. One migration takes a file of any of
-// them to version 14: it moves the keys that changed section (`MOVED_KEYS`) and drops the keys
-// version 14 retired. Version 15 (DIPO-428) retires the question wait under `timeouts`, since a
-// worker's question parks at once (0020); its migration from 14 drops the key. Both run in
-// `migrateOfficeDocument`, and every key they drop (`RETIRED_KEYS`) is named in a warning.
-// Version 16 renames `merge.holdLabels` to `merge.waitLabels` and `box.claudeCode` to
-// `box.workerCli`, with no migration: a file that still sets an old name is refused.
+// The office configuration (0017). It holds only the keys code reads, and every key has a default
+// (`OFFICE_DEFAULTS`). A key added later with a default needs no version bump; a version changes
+// only when a key's meaning or shape changes. The upgrades of the versions before 16 were dropped
+// before 1.0, so `OFFICE_UPGRADES` is empty: a file of an older version is refused with the version
+// it holds and the one it needs. Version 16 renamed `merge.holdLabels` to `merge.waitLabels` and
+// `box.claudeCode` to `box.workerCli` (`RENAMED_KEYS`): a file that still sets an old name is
+// refused with its new name.
 
+import { olderConfigProblem } from "@dipsaus-orchestrator/contract";
 import { z } from "zod";
 
 /** The office configuration version this binary writes and reads natively. */
@@ -401,93 +397,23 @@ export const OfficeOverridesSchema = z.strictObject(
   fileShape(Object.fromEntries(Object.entries(officeShape).filter(([key]) => key !== "box"))),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
-/** A key that a version retired: nothing reads it, so a file of that version refuses it. */
-export interface RetiredKey {
-  /** The key path, such as `permissions` or `mergeSlot.requiredChecks`. */
-  readonly path: string;
-  /** Why the key is gone, for the warning and the error. */
-  readonly reason: string;
-  /** The version that retired it: 14 or 15. */
+/** A key a version renamed: a file of that version that still sets the old name is refused. */
+export interface RenamedKey {
+  readonly from: string;
+  readonly to: string;
+  /** The version that renamed it. */
   readonly version: number;
 }
 
-function retiredIn(
-  version: number,
-  keys: readonly Omit<RetiredKey, "version">[],
-): readonly RetiredKey[] {
-  return keys.map((key) => ({ ...key, version }));
-}
-
-const NO_MAC_WORKTREE =
-  "a story has no Mac worktree but a box, and a file outside git goes into it through box.files (0008, 0010)";
-const NO_MAC_SANDBOX = "the Mac sandbox is gone: the box is the boundary (0008)";
-const RETENTION_DAYS = "one retention rule, retention.days, replaced the two tiers (0007)";
-
-/**
- * Keys that version 14 retired from versions 1 to 13, and that version 15 retired from 14 (0017).
- * The migration drops each one an older file sets, and the load and `dipo config migrate` name it
- * in a warning.
- */
-export const RETIRED_KEYS: readonly RetiredKey[] = [
-  ...retiredIn(14, [
-    { path: "worker.adapter", reason: "the worker is always the Claude CLI adapter (0008)" },
-    {
-      path: "worker.allowProjectSettings",
-      reason: "no session loads settings from the repository copy (0008)",
-    },
-    {
-      path: "worker.plugins",
-      reason: "no session loads plugins; every installed plugin is off (0008)",
-    },
-    { path: "worker.web", reason: "a developer in its box always has the web (0008)" },
-    { path: "permissions", reason: NO_MAC_SANDBOX },
-    { path: "sandbox", reason: NO_MAC_SANDBOX },
-    { path: "remote", reason: "the remote is always origin (0010)" },
-    { path: "worktree.files", reason: NO_MAC_WORKTREE },
-    { path: "worktree.ports", reason: NO_MAC_WORKTREE },
-    { path: "worktree.env", reason: NO_MAC_WORKTREE },
-    { path: "worktree.post_create", reason: NO_MAC_WORKTREE },
-    { path: "worktree.maxSlots", reason: NO_MAC_WORKTREE },
-    {
-      path: "mergeSlot.requiredChecks",
-      reason: "the required checks are the ones GitHub requires on the base (0002)",
-    },
-    { path: "storyPr", reason: "every story gets its PR: CI on it is the final gate (0002)" },
-    { path: "story.maintainerStepPhrases", reason: "the Ready gate rule R27 is removed (0012)" },
-    { path: "timeouts.permissionWaitSeconds", reason: "the permission relay is gone (0008)" },
-    { path: "prompt.budgets.contextItem", reason: "the per-item cap is fixed in code (0014)" },
-    { path: "prompt.budgets.inputsFile", reason: "the per-file cap is fixed in code (0014)" },
-    { path: "prompt.budgets.feedbackLogLines", reason: "the log line cap is fixed in code (0014)" },
-    { path: "prompt.budgets.nudge", reason: "nudges are gone with the developer's hooks (0008)" },
-    { path: "retention.shortDays", reason: RETENTION_DAYS },
-    { path: "retention.stateDays", reason: RETENTION_DAYS },
-  ]),
-  ...retiredIn(15, [
-    {
-      path: "timeouts.questionWaitMinutes",
-      reason: "a worker's question parks its story at once, whichever client is connected (0020)",
-    },
-  ]),
-];
-
-/** A key that moved to another section in version 14. */
-export interface MovedKey {
-  readonly from: string;
-  readonly to: string;
-}
-
-/** Keys of versions 5 to 13 that version 14 moved: `mergeSlot` split into `caps` and `merge`. */
-export const MOVED_KEYS: readonly MovedKey[] = [
-  { from: "mergeSlot.ciAttempts", to: "caps.ciAttempts" },
-  { from: "mergeSlot.conflictAttempts", to: "caps.conflictAttempts" },
-  { from: "mergeSlot.autoMerge", to: "merge.autoMerge" },
-  { from: "mergeSlot.holdLabels", to: "merge.waitLabels" },
-  { from: "mergeSlot.checksWaitMinutes", to: "merge.checksWaitMinutes" },
+/** Keys version 16 renamed, named in the refusal of a file that sets the old name. */
+export const RENAMED_KEYS: readonly RenamedKey[] = [
+  { from: "merge.holdLabels", to: "merge.waitLabels", version: 16 },
+  { from: "box.claudeCode", to: "box.workerCli", version: 16 },
 ];
 
 /**
- * One step of the migration to the current version, applied to a document in the same order. A
- * drop names the version that removed the key; every move is version 14's.
+ * One step of an upgrade, applied to a document in order: a key that moves to another place, or a
+ * key that is dropped, with the version that removed it and why.
  */
 export type MigrationStep =
   | {
@@ -497,6 +423,22 @@ export type MigrationStep =
       readonly version: number;
     }
   | { readonly kind: "move"; readonly from: readonly string[]; readonly to: readonly string[] };
+
+/** The steps that take a file of version `from` to version `from + 1`. */
+export interface OfficeUpgrade {
+  readonly from: number;
+  readonly steps: readonly MigrationStep[];
+}
+
+/**
+ * The upgrades this binary carries, oldest first, ending at `OFFICE_CONFIG_VERSION` (0017). Empty:
+ * the upgrades of the versions before 16 were dropped before 1.0. `dipo config migrate` and the
+ * load apply what is listed here.
+ */
+export const OFFICE_UPGRADES: readonly OfficeUpgrade[] = [];
+
+/** The oldest office file version this binary reads: the first one it carries an upgrade from. */
+export const OLDEST_OFFICE_CONFIG_VERSION = OFFICE_UPGRADES[0]?.from ?? OFFICE_CONFIG_VERSION;
 
 /** A document migrated to the current version and the steps that took it there, in order. */
 export interface Migration {
@@ -544,41 +486,56 @@ function withValue(
   return { ...document, [head]: withValue(inner, rest, value) };
 }
 
+function applyStep(
+  document: Record<string, unknown>,
+  step: MigrationStep,
+): Record<string, unknown> {
+  if (step.kind === "drop") return without(document, step.path);
+  const value = at(document, step.from);
+  if (value === undefined) return document;
+  return withValue(without(document, step.from), step.to, value);
+}
+
+// What a step of the upgrade to `version` does to the document: null when the key it drops or moves
+// is not set; a drop of the old key when a move's new place is set already.
+function stepFor(
+  document: Record<string, unknown>,
+  step: MigrationStep,
+  version: number,
+): MigrationStep | null {
+  if (step.kind === "drop") return at(document, step.path) === undefined ? null : step;
+  if (at(document, step.from) === undefined) return null;
+  if (at(document, step.to) === undefined) return step;
+  const reason = `${step.to.join(".")} is set already`;
+  return { kind: "drop", path: step.from, reason, version };
+}
+
 /**
- * Pure: an office file's document of a version from 1 to 15 migrated to version 16 (0017). From a
- * version before 14, each moved key goes to its new place, unless the file sets that place already;
- * then each key retired by a version after the file's is dropped. `steps` lists what it did, in
- * order, for the warnings and for `dipo config migrate`, which applies the same steps to the YAML
- * document so its comments stay. A version 16 document comes back unchanged. Works for both office
- * files.
+ * Pure: an office file's document of a version this binary reads, migrated to
+ * `OFFICE_CONFIG_VERSION` through `OFFICE_UPGRADES` (0017). `steps` lists what it did, in order,
+ * for the warnings and for `dipo config migrate`, which applies the same steps to the YAML document
+ * so its comments stay. A current document comes back unchanged. Throws for a version older than
+ * `OLDEST_OFFICE_CONFIG_VERSION`; the load refuses such a file before it gets here. Works for both
+ * office files.
  */
 export function migrateOfficeDocument(
   version: number,
   document: Readonly<Record<string, unknown>>,
 ): Migration {
   if (version >= OFFICE_CONFIG_VERSION) return { document: { ...document }, steps: [] };
+  if (version < OLDEST_OFFICE_CONFIG_VERSION) {
+    throw new Error(olderConfigProblem(version, OLDEST_OFFICE_CONFIG_VERSION));
+  }
   let current: Record<string, unknown> = { ...document };
   const steps: MigrationStep[] = [];
-  for (const moved of version < 14 ? MOVED_KEYS : []) {
-    const from = moved.from.split(".");
-    const to = moved.to.split(".");
-    const value = at(current, from);
-    if (value === undefined) continue;
-    if (at(current, to) === undefined) {
-      current = withValue(without(current, from), to, value);
-      steps.push({ kind: "move", from, to });
-    } else {
-      current = without(current, from);
-      steps.push({ kind: "drop", path: from, reason: `${moved.to} is set already`, version: 14 });
+  for (const upgrade of OFFICE_UPGRADES) {
+    if (upgrade.from < version) continue;
+    for (const step of upgrade.steps) {
+      const applied = stepFor(current, step, upgrade.from + 1);
+      if (applied === null) continue;
+      current = applyStep(current, applied);
+      steps.push(applied);
     }
-  }
-  // What is left of `mergeSlot` after the moves is retired too.
-  for (const retired of RETIRED_KEYS) {
-    if (retired.version <= version) continue;
-    const path = retired.path.split(".");
-    if (at(current, path) === undefined) continue;
-    current = without(current, path);
-    steps.push({ kind: "drop", path, reason: retired.reason, version: retired.version });
   }
   return { document: { ...current, version: OFFICE_CONFIG_VERSION }, steps };
 }

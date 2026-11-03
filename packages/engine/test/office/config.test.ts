@@ -22,9 +22,9 @@ interface Reloaded {
   readonly configHash?: string;
 }
 
-const VALID = "version: 1\nscripts:\n  verify: bun run verify\n";
-const VALID_2 = "version: 1\nscripts:\n  verify: bun test\n";
-const INVALID = "version: 1\ntimeouts:\n  workerStallMinutes: soon\n";
+const VALID = "version: 16\nscripts:\n  verify: bun run verify\n";
+const VALID_2 = "version: 16\nscripts:\n  verify: bun test\n";
+const INVALID = "version: 16\ntimeouts:\n  workerStallMinutes: soon\n";
 
 function writeOfficeYaml(dir: string, text: string): void {
   mkdirSync(join(dir, ".dipo"), { recursive: true });
@@ -128,7 +128,7 @@ describe("office configuration", () => {
     );
   });
 
-  it("loads an older configuration with a retired key and warns with its name on the office stream (0017)", async () => {
+  it("refuses an older configuration with the version it found and the one it needs (0017)", async () => {
     await withTempRepo(
       async (repo) => {
         writeOfficeYaml(repo.dir, "version: 9\npermissions: { ask: never, presentMinutes: 10 }\n");
@@ -137,18 +137,10 @@ describe("office configuration", () => {
           await send(s, "office.open", { path: repo.dir }),
         ).office;
         const { r } = await reload(s, office);
-        expect(r.valid).toBe(true);
-        expect(r.errors).toEqual([]);
-        expect(s.manager.configBlocksRuns(office)).toEqual([]);
-        expect(s.manager.config(office)?.version).toBe(16);
-        const [notice, ...rest] = notices(s, office) as {
-          level: string;
-          code: string;
-          text: string;
-        }[];
-        expect(rest).toEqual([]);
-        expect(notice).toMatchObject({ level: "warn", code: "config.warning" });
-        expect(notice?.text).toStartWith(".dipo/office.yaml: permissions: ignored");
+        expect(r.valid).toBe(false);
+        expect(r.errors.map((error) => error.message)).toEqual([
+          ".dipo/office.yaml: version: configuration version 9 is older than this dipo reads (version 16), and this dipo has no upgrade from it: set version to 16, then fix the keys the next load names",
+        ]);
       },
       { fixture: BACKLOG_FIXTURE },
     );
@@ -174,7 +166,7 @@ describe("office.reloadConfig and the office's git (DIPO-48)", () => {
   it("passes a new base and worktree root to the office's git on reload", async () => {
     await withTempRepo(
       async (repo) => {
-        writeOfficeYaml(repo.dir, "version: 1\nbase: main\n");
+        writeOfficeYaml(repo.dir, "version: 16\nbase: main\n");
         const engineGit = new EngineGit({ spawn: systemSpawn, env: repo.env });
         const s = await officeSetup(repo.root, { features: [engineGit.feature] });
         const office = resultOf<{ office: OfficeId }>(
@@ -185,7 +177,7 @@ describe("office.reloadConfig and the office's git (DIPO-48)", () => {
         expect(git?.settings.base).toBe("main");
 
         const root = join(repo.root, "trees");
-        writeOfficeYaml(repo.dir, `version: 1\nbase: develop\nworktree:\n  root: ${root}\n`);
+        writeOfficeYaml(repo.dir, `version: 16\nbase: develop\nworktree:\n  root: ${root}\n`);
         const { r } = await reload(s, office);
         expect(r.valid).toBe(true);
         // The same OfficeGit, configured again without a new load.

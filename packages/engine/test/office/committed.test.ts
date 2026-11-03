@@ -20,15 +20,15 @@ import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "
 
 const OFFICE_YAML = join(".dipo", "office.yaml");
 const OFFICE_LOCAL_YAML = join(".dipo", "office.local.yaml");
-const OLD = "version: 14\nreview:\n  maxRounds: 3\n";
-const CLOSED = "version: 14\nreview:\n  maxRounds: 2\n";
-const OPEN = "version: 14\nreview:\n  maxRounds: 4\n";
-const INVALID = "version: 14\ntimeouts:\n  workerStallMinutes: soon\n";
-const NAMES_DEVELOP = "version: 14\nbase: develop\nreview:\n  maxRounds: 7\n";
+const OLD = "version: 16\nreview:\n  maxRounds: 3\n";
+const CLOSED = "version: 16\nreview:\n  maxRounds: 2\n";
+const OPEN = "version: 16\nreview:\n  maxRounds: 4\n";
+const INVALID = "version: 16\ntimeouts:\n  workerStallMinutes: soon\n";
+const NAMES_DEVELOP = "version: 16\nbase: develop\nreview:\n  maxRounds: 7\n";
 // On `develop` the file names its own base, as the base the poll reads must keep naming it.
-const DEVELOP_CLOSED = "version: 14\nbase: develop\nreview:\n  maxRounds: 2\n";
-const DEVELOP_OPEN = "version: 14\nbase: develop\nreview:\n  maxRounds: 4\n";
-const NAMES_STAGING = "version: 14\nbase: staging\nreview:\n  maxRounds: 7\n";
+const DEVELOP_CLOSED = "version: 16\nbase: develop\nreview:\n  maxRounds: 2\n";
+const DEVELOP_OPEN = "version: 16\nbase: develop\nreview:\n  maxRounds: 4\n";
+const NAMES_STAGING = "version: 16\nbase: staging\nreview:\n  maxRounds: 7\n";
 
 function writeOffice(dir: string, text: string): void {
   mkdirSync(join(dir, ".dipo"), { recursive: true });
@@ -110,7 +110,7 @@ describe("office.yaml is read from the base (DIPO-410)", () => {
         await pushMain(repo);
         writeFileSync(
           join(repo.dir, OFFICE_LOCAL_YAML),
-          "version: 14\ntimeouts:\n  workerStallMinutes: 33\n",
+          "version: 16\ntimeouts:\n  workerStallMinutes: 33\n",
         );
 
         const s = await officeSetup(repo.root);

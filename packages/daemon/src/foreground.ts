@@ -280,13 +280,11 @@ export async function runForeground(
   // An error no code caught (DIPO-117) drains the daemon, and its exit code is 1.
   const removeUncaught = onUncaughtErrors(logger, () => stops.crash(), io.uncaughtErrors);
   try {
-    // Software-level settings (0005, 0017), read once at start. An invalid or newer file stops the
-    // start: the daemon never guesses its own settings. It exits with EXIT_CONFIG (78), so a
-    // supervisor does not restart it in a loop (DIPO-63). A retired key an older file sets is
-    // dropped with a warning.
+    // Software-level settings (0005, 0017), read once at start. An invalid, older or newer file
+    // stops the start: the daemon never guesses its own settings. It exits with EXIT_CONFIG (78), so
+    // a supervisor does not restart it in a loop (DIPO-63).
     const settings = await loadSoftwareConfig(dirs.state);
     if (!settings.ok) return await refuseSettings(settings.errors, io, logger, options);
-    for (const warning of settings.warnings) logger.warn(warning);
     logger.info("software configuration", {
       fromFile: settings.fromFile,
       ...settings.config.daemon,

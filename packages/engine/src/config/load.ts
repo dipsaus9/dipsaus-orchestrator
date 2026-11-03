@@ -1,9 +1,10 @@
-// Loads an office's configuration (0017): parse each file as one YAML document, check its version,
-// migrate a file of versions 1 to 15 in memory to version 16 (`migrateOfficeDocument`), validate it
-// strictly, merge defaults < `.dipo/office.yaml` < allowed keys of `.dipo/office.local.yaml` <
-// command flags, and hash the result. Errors are values, never thrown, so the office can keep its
-// previous configuration. A retired key that an older file still sets is dropped by the migration
-// and returned as a warning; a moved key is read at its new place.
+// Loads an office's configuration (0017): parse each file as one YAML document, check its version
+// (an older one than this binary reads is refused), migrate it in memory through the upgrades this
+// binary carries (`migrateOfficeDocument`, none since the versions before 16 were dropped),
+// validate it strictly, merge defaults < `.dipo/office.yaml` < allowed keys of
+// `.dipo/office.local.yaml` < command flags, and hash the result. Errors are values, never thrown,
+// so the office can keep its previous configuration. A key an upgrade drops is returned as a
+// warning; a moved key is read at its new place.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -24,14 +25,14 @@ import {
   LOCAL_ALLOWED_KEYS,
   LOCAL_ONLY_KEYS,
   migrateOfficeDocument,
-  MOVED_KEYS,
   OFFICE_CONFIG_VERSION,
   OFFICE_DEFAULTS,
   OfficeConfigSchema,
   OfficeFileSchema,
   OfficeLocalFileSchema,
   OfficeOverridesSchema,
-  RETIRED_KEYS,
+  OLDEST_OFFICE_CONFIG_VERSION,
+  RENAMED_KEYS,
   type MigrationStep,
   type OfficeConfig,
 } from "./schema";
@@ -78,20 +79,16 @@ export interface OfficeConfigSources {
   readonly flags?: unknown;
 }
 
-// Why a file of the current version may not set `path` that an earlier version had: it moved or
-// was retired.
+// Why a file of the current version may not set `path` that an earlier version had: a version
+// renamed it.
 function formerKey(path: string): string | undefined {
-  const moved = MOVED_KEYS.find((key) => key.from === path);
-  if (moved !== undefined) return `version 14 moved it to ${moved.to}; set it there`;
-  const retired = RETIRED_KEYS.find((key) => path === key.path || path.startsWith(`${key.path}.`));
-  if (retired !== undefined) {
-    return `version ${retired.version} removed ${retired.path}, because ${retired.reason}. Delete it`;
-  }
-  return undefined;
+  const renamed = RENAMED_KEYS.find((key) => path === key.from || path.startsWith(`${key.from}.`));
+  if (renamed === undefined) return undefined;
+  return `version ${renamed.version} renamed it to ${renamed.to}${path.slice(renamed.from.length)}; set it there`;
 }
 
-// The contract's wording, with the keys `office.local.yaml` accepts at its top level, and the
-// reason for a key a version moved or retired.
+// The contract's wording, with the keys `office.local.yaml` accepts at its top level, and the new
+// name of a key a version renamed.
 function issueErrors(
   file: string,
   schema: z.ZodType,
@@ -131,10 +128,15 @@ export function validate(file: string, schema: z.ZodType, input: unknown): Check
   return { ok: false, errors: issueErrors(file, schema, input, parsed.error.issues) };
 }
 
-// Parses one file and checks its version, the same way as software configuration. Returns the
-// mapping and its version.
+// Parses one file and checks its version, the same way as software configuration: one older than
+// this binary reads is refused. Returns the mapping and its version.
 export function readDocument(file: string, text: string): Read {
-  const checked = checkConfigDocument(file, parseYamlDocument(text), OFFICE_CONFIG_VERSION);
+  const checked = checkConfigDocument(
+    file,
+    parseYamlDocument(text),
+    OFFICE_CONFIG_VERSION,
+    OLDEST_OFFICE_CONFIG_VERSION,
+  );
   if (!checked.ok) return checked;
   return { ok: true, value: checked.document, version: checked.version };
 }
@@ -147,7 +149,7 @@ export function migrationWarning(file: string, step: MigrationStep): ConfigWarni
     return {
       file,
       path: from,
-      message: `${file}: ${from}: read as ${to}, its place since version 14; dipo config migrate moves it`,
+      message: `${file}: ${from}: read as ${to}, its new place; dipo config migrate moves it`,
     };
   }
   const path = step.path.join(".");

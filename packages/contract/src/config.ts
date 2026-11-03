@@ -164,13 +164,24 @@ export function configIssueErrors(
 }
 
 /**
+ * The problem of a configuration file older than the oldest version this binary reads (0017): this
+ * dipo carries no upgrade from it, so the maintainer sets the version and fixes the keys the next
+ * load names. `dipo config migrate` gives the same problem.
+ */
+export function olderConfigProblem(found: number, oldestVersion: number): string {
+  return `configuration version ${found} is older than this dipo reads (version ${oldestVersion}), and this dipo has no upgrade from it: set version to ${oldestVersion}, then fix the keys the next load names`;
+}
+
+/**
  * Checks that a parsed configuration file is a mapping with an integer `version` this binary
- * knows. A newer `version` is refused with "upgrade dipo" (0017 section 5), never guessed.
+ * reads: from `oldestVersion` to `latestVersion`. A newer `version` is refused with "upgrade dipo"
+ * (0017), an older one with `olderConfigProblem`, never guessed.
  */
 export function checkConfigDocument(
   file: string,
   parsed: YamlParseResult,
   latestVersion: number,
+  oldestVersion: number,
 ):
   | { ok: true; document: Record<string, unknown>; version: number }
   | { ok: false; errors: ConfigError[] } {
@@ -194,7 +205,10 @@ export function checkConfigDocument(
     const problem = `expected integer, got ${describeValue(version)}`;
     return { ok: false, errors: [configError(file, "version", "integer", problem)] };
   }
-  const range = `integer from 1 to ${latestVersion}`;
+  const range =
+    oldestVersion === latestVersion
+      ? `${latestVersion}`
+      : `integer from ${oldestVersion} to ${latestVersion}`;
   if (version > latestVersion) {
     const problem = `configuration version ${version} is newer than this dipo understands (up to ${latestVersion}); upgrade dipo`;
     return { ok: false, errors: [configError(file, "version", range, problem)] };
@@ -202,6 +216,12 @@ export function checkConfigDocument(
   if (version < 1) {
     const problem = `unknown configuration version ${version}`;
     return { ok: false, errors: [configError(file, "version", range, problem)] };
+  }
+  if (version < oldestVersion) {
+    return {
+      ok: false,
+      errors: [configError(file, "version", range, olderConfigProblem(version, oldestVersion))],
+    };
   }
   return { ok: true, document, version };
 }
@@ -226,16 +246,21 @@ export const LAUNCHD_LABEL = "dipo.daemon";
 /** The file name under `<state>`. */
 export const SOFTWARE_CONFIG_FILE = "config.yaml";
 
-/** The newest `config.yaml` version this binary knows. Every added key bumps it (0017). */
+/**
+ * The `config.yaml` version this binary reads. Every added key bumps it (0017). An older file is
+ * refused (`olderConfigProblem`): the versions before 4 were dropped before 1.0, with no upgrade.
+ */
 export const SOFTWARE_CONFIG_VERSION = 4;
 
 /**
- * `config.yaml` version 1. `daemon.autostart` is 0006 decision 5, `daemon.autoRestartOnUpgrade`
- * 0006 decision 14. A key added later needs a version 2 schema and a migration from version 1
- * (0017 amendment of 2026-10-12), never an edit of this one.
+ * `config.yaml` version 4. `daemon.autostart` is 0006; `usage.alerts` holds the daily and monthly
+ * token levels that raise an alert over all offices together (`dayTokens` and `monthTokens` have no
+ * default, so the alerts stay off until set; they count budget tokens in UTC calendar windows);
+ * `notify.desk` is whether the daemon posts a macOS notification when an item is added to an
+ * office's desk. A key added later needs a version 5 schema, never an edit of this one (0017).
  */
-export const SoftwareConfigV1 = z.strictObject({
-  version: z.literal(1),
+export const SoftwareConfigV4 = z.strictObject({
+  version: z.literal(4),
   daemon: z
     .strictObject({
       autostart: z
@@ -244,24 +269,8 @@ export const SoftwareConfigV1 = z.strictObject({
         .describe(
           "A client command that needs the daemon starts it when none is running (0006 decision 5).",
         ),
-      autoRestartOnUpgrade: z
-        .boolean()
-        .default(false)
-        .describe(
-          "When the dipo executable changed, the daemon drains and restarts itself once no run is in a step that cannot be detached (0006 decision 14).",
-        ),
     })
-    .default({ autostart: true, autoRestartOnUpgrade: false }),
-});
-
-/**
- * `config.yaml` version 2 (DIPO-311): adds `usage.alerts`, the daily and monthly token levels that
- * raise an alert over all offices together. `dayTokens` and `monthTokens` have no default, so the
- * alerts stay off until set; they count budget tokens (0008 section 4) in UTC calendar windows.
- */
-export const SoftwareConfigV2 = z.strictObject({
-  version: z.literal(2),
-  daemon: SoftwareConfigV1.shape.daemon,
+    .default({ autostart: true }),
   usage: z
     .strictObject({
       alerts: z
@@ -290,16 +299,6 @@ export const SoftwareConfigV2 = z.strictObject({
         .default({ level: 0.8 }),
     })
     .default({ alerts: { level: 0.8 } }),
-});
-
-/**
- * `config.yaml` version 3 (DIPO-357): adds `notify.desk`, whether the daemon posts a macOS
- * notification when an item is added to an office's desk. It is on unless the file turns it off.
- */
-export const SoftwareConfigV3 = z.strictObject({
-  version: z.literal(3),
-  daemon: SoftwareConfigV1.shape.daemon,
-  usage: SoftwareConfigV2.shape.usage,
   notify: z
     .strictObject({
       desk: z
@@ -312,27 +311,6 @@ export const SoftwareConfigV3 = z.strictObject({
     .default({ desk: true }),
 });
 
-/**
- * `config.yaml` version 4 (0005): `daemon.autoRestartOnUpgrade` is retired, because the daemon
- * never restarts itself; `dipo daemon restart` is the way.
- */
-export const SoftwareConfigV4 = z.strictObject({
-  version: z.literal(4),
-  daemon: z
-    .strictObject({ autostart: SoftwareConfigV1.shape.daemon.unwrap().shape.autostart })
-    .default({ autostart: true }),
-  usage: SoftwareConfigV2.shape.usage,
-  notify: SoftwareConfigV3.shape.notify,
-});
-
-/** Every `config.yaml` version by number, oldest first. */
-export const SOFTWARE_CONFIG_SCHEMAS = {
-  1: SoftwareConfigV1,
-  2: SoftwareConfigV2,
-  3: SoftwareConfigV3,
-  4: SoftwareConfigV4,
-} as const;
-
 /** The effective software-level settings: the newest version with every default filled in. */
 export type SoftwareConfig = z.output<typeof SoftwareConfigV4>;
 
@@ -341,23 +319,12 @@ export const SOFTWARE_CONFIG_DEFAULTS: SoftwareConfig = SoftwareConfigV4.parse({
   version: SOFTWARE_CONFIG_VERSION,
 });
 
-/** Keys an older `config.yaml` may set that version 4 retired, with why (0017). */
-export const RETIRED_SOFTWARE_KEYS: readonly { readonly path: string; readonly reason: string }[] =
-  [
-    {
-      path: "daemon.autoRestartOnUpgrade",
-      reason: "the daemon never restarts itself; run `dipo daemon restart` after an upgrade (0005)",
-    },
-  ];
-
 export type SoftwareConfigResult =
   | {
       readonly ok: true;
       readonly config: SoftwareConfig;
       /** False when the file is absent and the defaults apply. */
       readonly fromFile: boolean;
-      /** One line per retired key the older file set, which the load dropped. */
-      readonly warnings: readonly string[];
     }
   | { readonly ok: false; readonly errors: readonly ConfigError[] };
 
@@ -371,42 +338,15 @@ export function resolveSoftwareConfig(
   parsed: YamlParseResult | undefined,
 ): SoftwareConfigResult {
   if (parsed === undefined) {
-    return { ok: true, config: SOFTWARE_CONFIG_DEFAULTS, fromFile: false, warnings: [] };
+    return { ok: true, config: SOFTWARE_CONFIG_DEFAULTS, fromFile: false };
   }
-  const checked = checkConfigDocument(file, parsed, SOFTWARE_CONFIG_VERSION);
+  const checked = checkConfigDocument(
+    file,
+    parsed,
+    SOFTWARE_CONFIG_VERSION,
+    SOFTWARE_CONFIG_VERSION,
+  );
   if (!checked.ok) return checked;
-  // An older file is validated against its own schema, then migrated in memory: the migration
-  // fills the defaults of later keys, drops the retired ones with a warning each, and raises
-  // `version`. The file is never rewritten.
-  if (checked.version < SOFTWARE_CONFIG_VERSION) {
-    const schema =
-      checked.version === 1
-        ? SoftwareConfigV1
-        : checked.version === 2
-          ? SoftwareConfigV2
-          : SoftwareConfigV3;
-    const old = schema.safeParse(checked.document);
-    if (!old.success) {
-      return {
-        ok: false,
-        errors: configIssueErrors(file, schema, checked.document, old.error.issues),
-      };
-    }
-    const set = (checked.document as { daemon?: Record<string, unknown> } | null)?.daemon ?? {};
-    const warnings = RETIRED_SOFTWARE_KEYS.filter(
-      ({ path }) => set[path.slice("daemon.".length)] !== undefined,
-    ).map(
-      ({ path, reason }) =>
-        `${file}: ${path} is no longer read and was ignored, because ${reason}. Delete it.`,
-    );
-    const { autostart } = old.data.daemon;
-    return {
-      ok: true,
-      config: SoftwareConfigV4.parse({ ...old.data, version: 4, daemon: { autostart } }),
-      fromFile: true,
-      warnings,
-    };
-  }
   const valid = SoftwareConfigV4.safeParse(checked.document);
   if (!valid.success) {
     return {
@@ -414,7 +354,7 @@ export function resolveSoftwareConfig(
       errors: configIssueErrors(file, SoftwareConfigV4, checked.document, valid.error.issues),
     };
   }
-  return { ok: true, config: valid.data, fromFile: true, warnings: [] };
+  return { ok: true, config: valid.data, fromFile: true };
 }
 
 /** The JSON Schema of `config.yaml`, for editor completion (0017 section 5). */
