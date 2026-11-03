@@ -433,7 +433,7 @@ export function boxBuildScripts(image: BoxImageDescription): BoxBuildScripts {
     [
       "# Claude Code and the package managers from npm, through Safe-Chain at the pinned versions,",
       "# into the box user's prefix; Claude Code's auto-update and nonessential traffic are off",
-      "# (0021 section 4).",
+      "# (0008).",
       ...Object.entries(BOX_IMAGE_ENV).map(([key, value]) => `export ${key}=${value}`),
       `export PATH="${BOX_NPM_PREFIX}/bin:$PATH"`,
       `HTTPS_PROXY="$proxy" HTTP_PROXY="$proxy" NODE_EXTRA_CA_CERTS=${CA_IN_BUILD} npm install --global --prefix=${BOX_NPM_PREFIX} --no-fund --no-audit --https-proxy="$proxy" --proxy="$proxy" ${npmPackages.join(" ")}`,
