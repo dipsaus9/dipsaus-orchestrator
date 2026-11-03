@@ -1,4 +1,4 @@
-// The open feedback of a run's handoff (0020 section 6, DIPO-154): the run's feedback items that a
+// The open feedback of a run's handoff (0020, DIPO-154): the run's feedback items that a
 // later approval has not answered yet, read with their text from 0019's
 // `feedback_items` (DIPO-148). A new session of the run lists them in its handoff block, so a fix
 // round, a CI failure or a conflict the previous session left open reaches the next one.
@@ -10,8 +10,7 @@
 // stored (the story PR poll keeps it in memory), so such an item stays listed until a store of
 // green heads answers it. An item of a source this does not know is never answered here either.
 //
-// `feedback_items` arrives with DIPO-148's migration. Until it exists this reads no items, so a
-// database without it lists no open feedback instead of failing the handoff.
+// A database without `feedback_items` lists no open feedback instead of failing the handoff.
 
 import type { RunId } from "@dipsaus-orchestrator/contract";
 
@@ -19,7 +18,7 @@ import type { OfficeHandle } from "../db/office";
 
 /** One stored feedback item as the handoff reads it. */
 export interface StoredFeedback {
-  /** `verify`, `ci`, `review`, `conflict` or `reject` (0019 section 8). */
+  /** `verify`, `ci`, `review`, `conflict` or `reject` (0019). */
   readonly source: string;
   /** The pushed head the item was found on. */
   readonly head: string;
@@ -31,7 +30,7 @@ export interface StoredFeedback {
 /** The kinds of fact that answer a feedback item. */
 export type AnswerKind = "approval";
 
-/** Which kind of fact answers an item of each source (0019 section 8). */
+/** Which kind of fact answers an item of each source (0019). */
 export const ANSWERED_BY: Readonly<Record<string, AnswerKind>> = {
   review: "approval",
   reject: "approval",

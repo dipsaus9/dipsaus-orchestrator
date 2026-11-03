@@ -1,4 +1,4 @@
-// Usage facts (0007 section 4, 0008 section 4). Each counted assistant message is one
+// Usage facts (0007, 0008). Each counted assistant message is one
 // `usage_messages` row, unique per office, agent and message id; its tokens join the agent's
 // `usage_totals` row for that model in the same transaction. At a turn end the adapter's
 // cumulative totals replace the live numbers. `usage_daily` is fed only when a totals row
@@ -33,7 +33,7 @@ export interface UsageScope {
   readonly agent: string;
   readonly role: string;
   readonly tier: string;
-  /** The run's budget limit in tokens (0008 section 9). */
+  /** The run's budget limit in tokens (0008). */
   readonly budgetLimit: number;
 }
 
@@ -49,7 +49,7 @@ export function canonicalModel(model: string): string {
   return model.trim().toLowerCase().replace(CONTEXT_SUFFIX, "").replace(DATE_SUFFIX, "");
 }
 
-/** Budget tokens of one set of numbers (0008 section 4). */
+/** Budget tokens of one set of numbers (0008). */
 export function budgetOf(usage: ModelUsageTotals): number {
   return usage.input + usage.output + usage.cacheCreate;
 }
@@ -110,7 +110,7 @@ export function recordUsageMessage(
   );
   if (inserted.changes === 0) return false;
   ensureRow(office, scope, message.model, at);
-  // Live output stays out of the totals: per-message output may be a placeholder (0008 section 4).
+  // Live output stays out of the totals: per-message output may be a placeholder (0008).
   office.run(
     `update usage_totals set input = input + $input, cache_create = cache_create + $create,
        cache_create_5m = cache_create_5m + $create5m, cache_create_1h = cache_create_1h + $create1h,
@@ -432,7 +432,7 @@ export function utcDay(ms: number): string {
 }
 
 /**
- * Marks the agent's totals final and feeds each row into `usage_daily` (0007 section 7: the
+ * Marks the agent's totals final and feeds each row into `usage_daily` (0007: the
  * daily rollup has this one source). A row already final is never fed twice. Returns the number
  * of rows that became final.
  */
@@ -536,7 +536,7 @@ function toTotals(row: SumRow | null): UsageTotals {
   };
 }
 
-/** The contract `Usage` of an agent within its run (0005 section 5). */
+/** The contract `Usage` of an agent within its run (0005). */
 export function readUsage(office: OfficeHandle, scope: UsageScope): Usage {
   const agent = toTotals(
     office.get<SumRow>(
@@ -552,7 +552,7 @@ export function readUsage(office: OfficeHandle, scope: UsageScope): Usage {
     ),
   );
   // Includes the live output of a turn in progress (DIPO-296): the view shows the spend so far,
-  // while the caps count output only at the turn end (0008 section 4), so a session may show more
+  // while the caps count output only at the turn end (0008), so a session may show more
   // of its budget used than the cap check has counted yet. A reviewer counts against its own caps
   // (0002): its budget is its own session's usage, and the story's budget leaves reviewers out.
   const counted =
@@ -576,7 +576,7 @@ export function readUsage(office: OfficeHandle, scope: UsageScope): Usage {
 }
 
 /**
- * One context compaction of the worker session (0008 section 4, DIPO-106). `preTokens` is null when
+ * One context compaction of the worker session (0008, DIPO-106). `preTokens` is null when
  * the adapter had no count for it.
  */
 export function recordCompaction(
@@ -643,7 +643,7 @@ export function finalRows(office: OfficeHandle, run: string, agent: string): Fin
 }
 
 /**
- * Usage ingested after the run ended (0007 amendment of 2026-10-14, DIPO-51): a run usually ends
+ * Usage ingested after the run ended (0007): a run usually ends
  * before its worker's exit is ingested, so `endRun` made the agent's rows final. What ingestion
  * changed since `before` in a row that was already final feeds only its change into
  * `usage_daily`, in the caller's transaction, and a new row of such an agent becomes final at
@@ -701,7 +701,7 @@ export function feedFinalChanges(
 
 /**
  * Makes the usage of every agent of the run whose exit was not ingested final, so it reaches
- * `usage_daily` (0007 amendment of 2026-10-14, DIPO-51). `endRun` calls it in its transaction.
+ * `usage_daily` (0007). `endRun` calls it in its transaction.
  */
 export function finalizeRunAgents(office: OfficeHandle, run: string, at: number): void {
   const agents = office.all<{ agent_id: string }>(

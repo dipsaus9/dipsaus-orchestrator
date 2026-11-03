@@ -1,9 +1,9 @@
-// The configuration a run started with (0019 section 4, 0020 section 5; the DIPO-303 review of
-// 2026-10-22). `work.run` keeps the effective configuration of each run once per office and hash
-// in `config_snapshots` and records the hash on the run (`runs.config_hash`). Since a change of
-// `.dipo/office.yaml` on the base reloads the configuration in force at the next poll (DIPO-303),
-// the stages of a run after its start read this snapshot instead: the story PR it opens, its
-// reviewer's model, and its merge (`merge` and `caps`). The required checks are GitHub's (0002).
+// The configuration a run started with (0019, 0020). `work.run` keeps the effective configuration
+// of each run once per office and hash in `config_snapshots` and records the hash on the run
+// (`runs.config_hash`). Since a change of `.dipo/office.yaml` on the base reloads the
+// configuration in force at the next poll, the stages of a run after its start read this snapshot
+// instead: the story PR it opens, its reviewer's model, and its merge (`merge` and `caps`). The
+// required checks are GitHub's (0002).
 //
 // A snapshot from an earlier configuration version goes through the same upgrades as an office
 // file (`migrateOfficeDocument`); one older than this binary reads gives the fallback. A snapshot

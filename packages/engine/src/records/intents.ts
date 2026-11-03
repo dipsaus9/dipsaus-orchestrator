@@ -1,4 +1,4 @@
-// Pending intents (0008 sections 6 and 7, DIPO-50): every op the engine sends to a running worker
+// Pending intents (0008, DIPO-50): every op the engine sends to a running worker
 // is stored on the run as `pending` before it is sent, then marked `sent` or `failed`. When the
 // worker exits, the outcome is read from the intent first (`outcomeOfIntent`); only an exit no
 // intent explains is left to the adapter's `result` (DIPO-51). Writers run inside the caller's
@@ -6,8 +6,8 @@
 //
 // `sendAsIntent` is the one helper that stores, sends and marks (DIPO-126). Sent with no intent, by
 // design (none of them explains an exit, so no intent would be read):
-// - closeStdin after a turn whose report ended the run: the report explains the exit (section 7's
-//   table), not an engine decision.
+// - closeStdin after a turn whose report ended the run: the report explains the exit (0008), not
+//   an engine decision.
 // More on `sendAsIntent`. A new intent kind needs a migration (`run_intents.kind` has a CHECK
 // constraint) and a row in `INTENT_OUTCOMES` with its test.
 
@@ -17,7 +17,7 @@ import type { OfficeHandle } from "../db/office";
 import type { HostOp, WorkerOutcome } from "../workers/types";
 
 /**
- * The ops 0008 section 6 names, plus `park`: closing stdin of a worker whose report parks the story
+ * The ops 0008 names, plus `park`: closing stdin of a worker whose report parks the story
  * (blocked with a question).
  */
 export type IntentKind = "steer" | "answer" | "stop" | "new-session" | "cap" | "park";
@@ -135,7 +135,7 @@ export interface IntentSent<R> {
 }
 
 /**
- * The one way to send ops to a running worker (0008 sections 6 and 7): stores the intent
+ * The one way to send ops to a running worker (0008): stores the intent
  * synchronously (a failed store throws and nothing is sent), sends the ops, then marks the intent
  * `sent`, or `failed` with the reason the host gave or the send threw. `done` rejects only when
  * `beforeSend` or the mark throws; then a `beforeSend` failure leaves the intent pending.
@@ -198,7 +198,7 @@ export function runIntents(office: OfficeHandle, runId: RunId): StoredIntent[] {
     .map(toIntent);
 }
 
-/** The outcome an intent kind gives the exit it explains (0008 section 7); null for none. */
+/** The outcome an intent kind gives the exit it explains (0008); null for none. */
 const INTENT_OUTCOMES: Readonly<Partial<Record<IntentKind, WorkerOutcome>>> = {
   stop: "stopped",
   cap: "capped",

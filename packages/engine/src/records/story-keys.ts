@@ -1,4 +1,4 @@
-// Story identity (0005 section 2, 0007 section 4). The engine gives each story a `StoryKey` when
+// Story identity (0005, 0007). The engine gives each story a `StoryKey` when
 // it first sees it; facts, the change log and idempotency records refer to the key. A Backlog.md id
 // resolves first as a current id, then through the aliases of former ids. An alias is retired as
 // soon as its id becomes another story's current id, so a reused `DRAFT-n` never reaches the old
@@ -23,7 +23,7 @@ export type StoryResolution =
   | { readonly ok: true; readonly key: StoryKey; readonly story: StoryId }
   | { readonly ok: false; readonly error: EngineError };
 
-/** True for a provisional Backlog.md draft id such as `DRAFT-3` (0005 section 2). */
+/** True for a provisional Backlog.md draft id such as `DRAFT-3` (0005). */
 export function isProvisionalId(story: string): boolean {
   return /^DRAFT-\d+$/i.test(story);
 }
@@ -89,7 +89,7 @@ export function resolveStoryRef(office: OfficeHandle, ref: string): StoryResolut
   return { ok: true, key: only.key as StoryKey, story: only.story_id as StoryId };
 }
 
-/** Retires every live alias `story` of a story other than `owner` (0005 section 2). */
+/** Retires every live alias `story` of a story other than `owner` (0005). */
 function retireAliases(office: OfficeHandle, story: StoryId, owner: StoryKey, at: number): void {
   office.run(
     "update story_aliases set retired_at = $at where office_id = $office_id and story_id = $story and key <> $owner and retired_at is null",

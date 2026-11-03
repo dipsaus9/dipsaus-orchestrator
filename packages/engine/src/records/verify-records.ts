@@ -1,4 +1,4 @@
-// Run-end facts (DIPO-49; 0007 section 4): `run_summaries`. dipo stores no verify result of its own
+// Run-end facts (DIPO-49; 0007): `run_summaries`. dipo stores no verify result of its own
 // any more (DIPO-342: the box worker runs verify and CI checks), so a summary's `verify` is null.
 // Writers run inside the caller's `office.immediate`.
 
@@ -7,7 +7,7 @@ import type { RunId } from "@dipsaus-orchestrator/contract";
 import type { OfficeHandle } from "../db/office";
 import type { WorkerReport } from "../workers/types";
 
-/** Lines of output a run summary keeps (0007 section 4). */
+/** Lines of output a run summary keeps (0007). */
 export const SUMMARY_OUTPUT_LINES = 50;
 
 /** The last `lines` lines of the run's stored output, worker and verify, in the order stored. */
@@ -30,7 +30,7 @@ export function outputTail(
   return kept.toReversed().join("\n");
 }
 
-/** A run's summary (0007 section 4, `run_summaries`). */
+/** A run's summary (0007, `run_summaries`). */
 export interface RunSummary {
   readonly report: WorkerReport | null;
   readonly diffstat: string;
