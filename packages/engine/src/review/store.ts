@@ -1,10 +1,10 @@
-// Stored review verdicts (0019 sections 5, 6 and 16). Each verdict is one review gate: a `gates`
+// Stored review verdicts (0019). Each verdict is one review gate: a `gates`
 // row of kind `review` with its rule decision in `gate_decisions` (approved, or rejected for a
 // blocked verdict; its content hash is the code tree key), and one `review_verdicts` row with the
 // round, the reviewed commit, the code tree key, the judged criteria and findings, the validation
 // notes, the comment URL, the commit an approval was carried from and any maintainer override. A
 // verdict holds for every commit with the same code tree key, so the engine reads it back by run
-// and code tree key and never reviews a tree that has one (section 6). Writes run inside the
+// and code tree key and never reviews a tree that has one. Writes run inside the
 // caller's transaction.
 
 import type {
@@ -37,7 +37,7 @@ export interface NewReviewVerdict {
   readonly commit: string;
   readonly codeTreeKey: string;
   readonly judged: JudgedReview;
-  /** The approved head this approval was carried from (section 6); absent for a reviewed head. */
+  /** The approved head this approval was carried from; absent for a reviewed head. */
   readonly carriedFrom?: string | null;
   readonly at: number;
 }
@@ -236,7 +236,7 @@ export function reviewVerdictsOf(office: OfficeHandle, key: StoryKey): StoredRev
     .map(toRecord);
 }
 
-/** Stores the URL of the PR comment posted for the verdict (section 3). */
+/** Stores the URL of the PR comment posted for the verdict. */
 export function recordReviewCommentUrl(office: OfficeHandle, gate: GateId, url: string): void {
   office.run(
     `update review_verdicts set comment_url = $url where office_id = $office_id and gate_id = $gate`,
@@ -246,7 +246,7 @@ export function recordReviewCommentUrl(office: OfficeHandle, gate: GateId, url: 
 
 /**
  * The verdicts of the run still to be posted as a PR comment, oldest first: a reviewed head with
- * no comment URL. An approval carried to a new head posts nothing (section 3).
+ * no comment URL. An approval carried to a new head posts nothing.
  */
 export function uncommentedVerdicts(office: OfficeHandle, runId: RunId): StoredReviewVerdict[] {
   return office
@@ -281,7 +281,7 @@ export function reviewerEffort(office: OfficeHandle, agent: string | null): stri
   );
 }
 
-/** Marks the verdict overridden by the maintainer, with the required note (section 11). */
+/** Marks the verdict overridden by the maintainer, with the required note. */
 export function recordReviewOverride(
   office: OfficeHandle,
   gate: GateId,
@@ -295,7 +295,7 @@ export function recordReviewOverride(
 }
 
 /**
- * The verdict as `story.detail` shows it (`Verdict.review`, section 14): the reviewer agent's
+ * The verdict as `story.detail` shows it (`Verdict.review`, 0019): the reviewer agent's
  * usage, zero for a carried approval or an agent retention removed.
  */
 export function reviewVerdictView(
@@ -329,7 +329,7 @@ export function reviewVerdictView(
   };
 }
 
-/** The review summary of the verdict's `gate.decided` event (section 14). */
+/** The review summary of the verdict's `gate.decided` event. */
 export function reviewSummary(stored: StoredReviewVerdict): ReviewSummary {
   return {
     round: stored.round,

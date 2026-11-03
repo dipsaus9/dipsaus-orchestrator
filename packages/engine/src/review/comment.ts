@@ -1,4 +1,4 @@
-// The PR comment of a review round (0019 section 3, DIPO-152), built by code from the stored
+// The PR comment of a review round (0019, DIPO-152), built by code from the stored
 // verdict, never by a model. Format: a heading with the round and the verdict, a line with the
 // commit, the reviewer's model and effort and the time, the criteria, the findings (a finding whose
 // evidence failed is advisory and marked unverified) and the summary. It holds the report only: no
@@ -14,7 +14,7 @@ import { type EnvSecret, redactSecrets } from "../records/env-secrets";
 
 import type { StoredReviewVerdict } from "./store";
 
-/** GitHub allows 65,536 characters in a comment; dipo keeps under (0019 section 3). */
+/** GitHub allows 65,536 characters in a comment; dipo keeps under (0019). */
 export const REVIEW_COMMENT_MAX = 60_000;
 
 const SHORT_SHA = 7;

@@ -1,7 +1,7 @@
-// The verdict of a review round, computed by code from a validated report (0019 section 5,
+// The verdict of a review round, computed by code from a validated report (0019,
 // decision B): `blocked` when a criterion is `unmet` or a validated blocking finding exists,
 // otherwise `approved`. A criterion only the maintainer can check (`maintainer`) does not block;
-// it makes the merge wait for them (section 11). Pure and deterministic.
+// it makes the merge wait for them. Pure and deterministic.
 
 import type { ReviewCriterionResult, ReviewFinding } from "@dipsaus-orchestrator/contract";
 
