@@ -1,4 +1,4 @@
-// CI only (0017 section 1): the Backlog.md fixture project against the pinned CLI (seven CLI calls
+// CI only (0017): the Backlog.md fixture project against the pinned CLI (seven CLI calls
 // in a temporary copy), moved out of the local suite for its time budget (DIPO-79). Locally, the
 // story index test in packages/engine/test/stories/index.test.ts reads the same fixture through the
 // pinned CLI at every run.
