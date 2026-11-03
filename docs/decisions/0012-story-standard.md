@@ -12,7 +12,7 @@ A story has a fixed set of fields, stored natively in Backlog.md where possible 
 |---|---|---|---|---|
 | F1 | Id | `DIPO-n`, stable from Refined on; a draft has `DRAFT-n` | Yes | Native id |
 | F2 | Title | Short name | Yes | Native title |
-| F3 | Outcome | The one result the story delivers | Yes | One `Outcome:` line in the description; the rest is free context |
+| F3 | Story | Who wants what, and why, in plain words | Yes | One `Story:` line in the description; technical context goes below it |
 | F4 | Acceptance criteria | Done-when statements, one checkable fact each | At least one | Native criteria |
 | F5 | Type | `feature`, `bug`, `enhancement`, `task`, `chore`, `docs`, `spike` | Yes | Native type |
 | F6 | Milestone | The milestone it belongs to (milestones replace epics) | Yes | Native milestone |
@@ -30,6 +30,13 @@ A story has a fixed set of fields, stored natively in Backlog.md where possible 
 | F18 | Priority, ordinal | Order inside the Ready queue | Optional | Native |
 
 dipo itself writes the final summary at close (0020). Assignee, parent and subtasks, and definition of done are not used.
+
+**The Story line** says who wants what and why. What makes the story done goes in the criteria, and technical context goes below the line. For example:
+
+```
+Story: As maintainer I want a parked story to show the command that resumes it so that I can unblock work without reading logs.
+Story: We need to decide how stories that touch the same files are ordered so that parallel runs rarely end in a conflict.
+```
 
 ## 2. Lifecycle
 
@@ -72,7 +79,7 @@ Every other transition is refused. Three more rules:
 | R02 | The field block parses and has no unknown fields |
 | R03 | The story has no subtasks |
 | R04 | Title of 1 to 100 characters |
-| R05 | Exactly one `Outcome:` line with at least 20 characters after the prefix |
+| R05 | Exactly one `Story:` line of the shape `As <maintainer\|worker\|reviewer> I want <capability> so that <value>.`, or for a spike `We need to decide <question> so that <value>.` The capability or question, and the value, each have at least 20 characters. The line holds no file path, no backtick and no code |
 | R06 | Type is set and is a configured type |
 | R07 | Milestone is set and exists |
 | R08 | At least one criterion |
@@ -93,15 +100,15 @@ Every other transition is refused. Three more rules:
 | R23 | A spike has no test plan and no flag |
 | R24 | A design story (M4) writes only under `docs/design/<ID>/` |
 | R25 | An input under `docs/design/<X>/` has `<X>` as a dependency |
-| R26 | The story contract (title, outcome, criteria, references, test plan, resolved unknowns, extra instructions) is at most `prompt.contractMax` characters (0014) |
-| R30 | A story whose title or outcome names a security phrase (`story.securityPhrases`) has criteria for what the old barrier caught, the bypass forms to test and a fail-closed test against the real path (CLAUDE.md). Spikes are exempt |
+| R26 | The story contract (title, Story line, criteria, references, test plan, resolved unknowns, extra instructions) is at most `prompt.contractMax` characters (0014) |
+| R30 | A story whose title or Story line names a security phrase (`story.securityPhrases`) has criteria for what the old barrier caught, the bypass forms to test and a fail-closed test against the real path (CLAUDE.md). Spikes are exempt |
 | R31 | (pickup only) No reference names a path the box protects (`protectedKind`, the check the scope-violation park uses), except a link. A story for a builder or the maintainer may name such a path and stay Ready; the pickup refuses it before any claim |
 
 Each failure prints `ready <ID> failed <rule>: <message>`. Rule numbers are stable once released, and new rules get new numbers.
 
 **Warnings that never fail the gate.** An automated test-plan entry that names a path no reference covers (formerly R29) is shown in `dipo gate`, in the gate record and in the CI check.
 
-**What the gate does not check.** Whether paths exist, whether the outcome is one outcome, whether criteria are good, whether the size is right, and whether a criterion names a step the worker cannot take. These are judgments for refine, the maintainer and the reviewer.
+**What the gate does not check.** Whether paths exist, whether the Story line describes one story, whether criteria are good, whether the size is right, and whether a criterion names a step the worker cannot take. These are judgments for refine, the maintainer and the reviewer.
 
 ## 4. Spikes and design stories
 
@@ -118,3 +125,4 @@ Each failure prints `ready <ID> failed <rule>: <message>`. Rule numbers are stab
 - `amend` of a parked story (Parked to Refined with criteria unchecked). That is M3 work (0003).
 - Merge-time sync conflicts and red checks counted against the review round cap (2026-10-10). Replaced by one cap per source (0002, 2026-10-16).
 - The In Review to In Progress row without the close-out head (2026-10-24), when a story closed out only after green checks on its reviewed head. Replaced by the row's note on red checks of a close-out head, since a story decided by rule now closes out before its checks run (0002, 2026-10-30).
+- The `Outcome:` line, the one result a story delivers (2026-10-10). Replaced by the `Story:` line (2026-11-03), so every story says whom it serves and why.
