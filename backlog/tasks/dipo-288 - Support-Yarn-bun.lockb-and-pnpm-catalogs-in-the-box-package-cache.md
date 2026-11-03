@@ -4,7 +4,7 @@ title: 'Support Yarn, bun.lockb and pnpm catalogs in the box package cache'
 status: Refined
 assignee: []
 created_date: '2026-10-21 17:40'
-updated_date: '2026-11-03 09:08'
+updated_date: '2026-11-03 09:51'
 labels:
   - box
   - needs-refinement
@@ -24,7 +24,7 @@ ordinal: 277000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: offices whose lockfile dipo's box cache refuses today get a working package cache: Yarn, Bun's binary bun.lockb, and pnpm workspaces that use catalogs.
+Story: As maintainer I want offices that use Yarn, Bun's binary lockfile or pnpm catalogs to get a working package cache so that those projects can run in a box like any other.
 
 Context: DIPO-267 refuses these with box.cacheUnsupported, so such an office gets no box (0021 section 5).
 

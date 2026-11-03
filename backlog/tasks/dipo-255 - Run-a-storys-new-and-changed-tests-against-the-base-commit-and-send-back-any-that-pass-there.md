@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-11-03 09:08'
+updated_date: '2026-11-03 09:51'
 labels:
   - 'tier:M'
   - cutover
@@ -41,7 +41,7 @@ ordinal: 136400
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: after verify passes, the engine runs the story's new and changed test files against the base commit's code, and a new test that passes there goes back to the worker as feedback and is shown to the reviewer, so a test that proves nothing is caught before review.
+Story: As maintainer I want dipo to send back a new test that also passes on the code before the change so that the worker fixes a test that proves nothing before a reviewer has to catch it.
 
 Context: the maintainer's decision D3 of 2026-10-20 (answer A); dated 0014 section 7 note of 2026-10-20. The checkout mechanism and copying the branch's changed fixture files with the tests are this story's design choices (design choice, not a maintainer decision; the maintainer may change it before a run). In the M1 runs reviewers found tests that passed with or without the fix (DIPO-229's "resume first" test, DIPO-201's claim path; docs/research/2026-10-20-dipo-run-gaps.md section 3.2). VerifyCommit (packages/engine/src/run/verify-commit.ts) runs the profile's verify through the sandboxed step runner (packages/engine/src/sandbox/step.ts) before it commits. DIPO-183 runs the base commit's verify in the story worktree after setup (packages/engine/src/worktree/base-verify.ts) under the worker's read fence (packages/engine/src/sandbox/fence.ts). Here the base's code runs with the branch's test files: a temp checkout of the base commit outside the story worktree, made through a new StoryGit method (packages/engine/src/run/story-git.ts) backed by the office git (packages/engine/src/git/office.ts, which already makes the _base read worktree), with the branch's new and changed test files copied in, reusing the story worktree's install, and removed afterwards. Its gitdir pointer and the tamper checks of the claim and the done path (packages/engine/src/worktree/claim.ts, packages/engine/src/worktree/done.ts) must still hold for the story worktree. A test that fails on the base only because the code it calls does not exist yet counts as failing, which is the wanted result; a test whose fixtures the branch changed must be run with those fixtures too, so the changed fixture files are copied along. Feedback items are built in packages/engine/src/prompts/feedback.ts, and the review task message in packages/engine/src/prompts/review.ts.
 
