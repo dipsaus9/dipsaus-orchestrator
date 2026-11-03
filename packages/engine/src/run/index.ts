@@ -98,7 +98,6 @@ export {
   reviewerSettings,
   reviewModelOf,
   snapshotReviewCaps,
-  sweepOldReviewFolders,
 } from "./review-launch";
 export type {
   ReviewGit,

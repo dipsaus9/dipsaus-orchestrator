@@ -101,7 +101,6 @@ import { sendFeedback } from "../run/feedback";
 import { findRun, recordSafeChain, type StoredRun } from "../records/run-records";
 import { baseStoryFacts } from "../run/resume";
 import type { Resumption } from "../run/resumption";
-import { sweepOldReviewFolders } from "../run/review-launch";
 import type { AdapterPauses, StartsPaused } from "../run/starts-paused";
 import { gitStoryOps } from "../run/story-git";
 import { RunTempDirs } from "../run/temp-dirs";
@@ -259,11 +258,6 @@ export interface EngineRuns {
    * many rounds it queued.
    */
   recoverFixRounds(): Promise<number>;
-  /**
-   * Removes the read-only reviewer folders an earlier binary left in the temp root (DIPO-347), at
-   * daemon start by the recovery step. Never rejects.
-   */
-  sweepOldReviewFolders(): Promise<string[]>;
   /**
    * The auto-merge's ports into the run services (0002): a conflict merge dipo committed is
    * recorded and goes to the worker as one fix round, a maintainer reject as another, and the
@@ -1295,7 +1289,6 @@ function engineRunsOf(
     stopBoxPasses: passes.stopBoxPasses,
     testBoxes: passes.testBoxes,
     onBoxTick: passes.onBoxTick,
-    sweepOldReviewFolders: () => sweepOldReviewFolders(realDir(options.tmpRoot)),
     recoverFixRounds: async () => {
       let queued = 0;
       for (const office of options.offices.loadedOffices()) {

@@ -244,8 +244,7 @@ function reattachStep(core: Core, services: Services): RecoveryStep {
 /**
  * Run temp directories (DIPO-102): after re-attach, every `dipo-run-*` directory of a run that
  * ended, or that no database row names when this daemon made it, goes; then the boxes of box runs
- * that ended while no daemon ran (DIPO-271), the reviewer boxes a stopped daemon left (0002) and
- * the read-only reviewer folders of an earlier binary (DIPO-347).
+ * that ended while no daemon ran (DIPO-271) and the reviewer boxes a stopped daemon left (0002).
  */
 function tempSweepStep(services: Services): RecoveryStep {
   const { runs } = services.commands;
@@ -257,12 +256,6 @@ function tempSweepStep(services: Services): RecoveryStep {
         context.logger.info("removed run temp directories of ended runs", { removed });
       }
       await runs.finishEndedBoxes({ listBoxes: true });
-      const folders = await runs.sweepOldReviewFolders();
-      if (folders.length > 0) {
-        context.logger.info("removed reviewer folders an earlier binary left", {
-          removed: folders,
-        });
-      }
     },
   };
 }
