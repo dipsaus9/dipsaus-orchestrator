@@ -1,4 +1,4 @@
-// The story PR (DIPO-144; 0019 section 3). Right after an In Review push the engine looks for an
+// The story PR (DIPO-144; 0019). Right after an In Review push the engine looks for an
 // open PR with the story branch as head (`findOpenPr`, so a crash between push and create never
 // opens a second one) and creates a ready PR, not a draft, when there is none. Every later In
 // Review push updates the same PR: the title and body are rebuilt by code, and written to the host
@@ -160,7 +160,7 @@ export const STORY_PR_NOTICES = {
  */
 export const NO_CI_WAIT_MS = 10 * 60_000;
 
-/** How often a head whose checks are stuck is read (0019 section 7). */
+/** How often a head whose checks are stuck is read (0019). */
 export const CI_STUCK_POLL_MS = 10 * 60_000;
 
 /** The load step's name in the registry. */
@@ -367,7 +367,7 @@ export class StoryPrs {
   }
 
   /**
-   * DIPO-155's `PrReplacement` (DIPO-324; 0002, a PR closed on GitHub): the run's story
+   * `PrReplacement` (0002, a PR closed on GitHub): the run's story
    * PR that was closed on the host without a merge is replaced by a new one for the branch's
    * head, whose body names the closed one ("Replaces #n"); the run's record then holds the new PR,
    * with `replaces`. A PR still open on the host is only updated, and a merged one is the Done
@@ -405,7 +405,7 @@ export class StoryPrs {
   }
 
   /**
-   * Where the CI of a run's pushed head stands now (DIPO-148's fix-round timing): `pending` while
+   * Where the CI of a run's pushed head stands now (for the fix-round timing): `pending` while
    * its required checks are not final, `failing` while one already failed and others still run
    * (DIPO-382: the head cannot pass, so a merge gate decided by rule does not close out on it, and
    * a fix round still waits for the final checks), `stuck` once they are past the wait cap, `red` with the CI
@@ -433,7 +433,7 @@ export class StoryPrs {
   }
 
   /**
-   * The review part of the poll for one open PR (0019 section 3): posts the comment of each
+   * The review part of the poll for one open PR (0019): posts the comment of each
    * verdict that has none, oldest first, and rewrites the body when the latest verdict changed
    * (or an override was recorded). Nothing here is awaited by the gate, a fix round or a merge: the
    * poll runs apart from them, and a failure is a notice and the next poll's retry.
@@ -543,7 +543,7 @@ export class StoryPrs {
   }
 
   /**
-   * The configuration the run started with (the DIPO-303 review): its snapshot laid on the
+   * The configuration the run started with: its snapshot laid on the
    * configuration in force, which a run without a snapshot reads alone.
    */
   #runConfig(officeId: OfficeId, run: StoredRun): OfficeConfig {
@@ -929,7 +929,7 @@ export class StoryPrs {
   }
 
   /**
-   * The CI watch of one open PR (0019 section 7): reads the required checks of the pushed head
+   * The CI watch of one open PR (0019): reads the required checks of the pushed head
    * unless they are final or the head is stuck and not due, rewrites the body when a check's
    * state changed, raises `ci.stuck` once, and handles a red head. A failed read is logged and the
    * next poll reads again.

@@ -1,4 +1,4 @@
-// The story PR (DIPO-144; 0019 section 3): opened or updated at each In Review push.
+// The story PR (DIPO-144; 0019): opened or updated at each In Review push.
 
 export { storyPrBodyHash, STORY_PR_MAX_BODY, storyPrBody } from "./body";
 export type { PrBodyStatus, PrBodyStory } from "./body";
