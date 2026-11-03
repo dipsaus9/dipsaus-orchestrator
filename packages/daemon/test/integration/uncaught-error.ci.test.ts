@@ -1,4 +1,4 @@
-// CI only (0017 section 1): a real daemon process, started as the `dipo` binary starts it (a
+// CI only (0017): a real daemon process, started as the `dipo` binary starts it (a
 // top-level await that sets the exit code), meets errors no code catches (DIPO-110, DIPO-117). The
 // daemon logs each once with its code, drains with the reason "uncaught error" (capped as usual,
 // then the socket closes and the database is checkpointed and closed) and exits 1. No crash marker

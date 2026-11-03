@@ -40,7 +40,7 @@ import {
   type SocketConnection,
 } from "@dipsaus-orchestrator/engine/platform";
 
-/** An idle subscription gets a `stream.mark` this often (0005 section 8). */
+/** An idle subscription gets a `stream.mark` this often (0005). */
 export const HEARTBEAT_MS = 15_000;
 /**
  * A read or subscribe that has not answered after this long answers `request.timedOut`
@@ -60,7 +60,7 @@ export const MAX_IN_FLIGHT = 32;
  */
 export const PUMP_HIGH_WATER_BYTES = 1024 * 1024;
 /**
- * `office.summary` follows changes to an office at most this often (0005 section 5): the first
+ * `office.summary` follows changes to an office at most this often (0005): the first
  * change starts the wait, and the summary then sent covers every change made during it.
  */
 export const SUMMARY_DEBOUNCE_MS = 1_000;
@@ -179,7 +179,7 @@ export class ContractServer {
 
   /**
    * Sends `office.summary` for `office` to every software subscriber once the debounce wait ends,
-   * when it differs from the last one sent (0005 section 5: derived, debounced on change).
+   * when it differs from the last one sent (0005: derived, debounced on change).
    */
   #scheduleSummary(office: OfficeId): void {
     if (this.#summaryTimers.has(office)) return;
@@ -316,7 +316,7 @@ class Connection implements ConnectionSession {
       return;
     }
     const frame = parsed.data;
-    // Names and ids only: args stay out of the log at every level (0006 decision 13).
+    // Names and ids only: args stay out of the log at every level (0006).
     this.#deps.logger.debug("frame received", {
       kind: frame.kind,
       ...("name" in frame ? { name: frame.name } : {}),
@@ -331,7 +331,7 @@ class Connection implements ConnectionSession {
   }
 
   /**
-   * The first frame must be the `engine.hello` read (0006 decision 9). While it runs, later frames
+   * The first frame must be the `engine.hello` read (0006). While it runs, later frames
    * wait; once it answered they are taken in order, as the first frames of a ready connection or,
    * when the hello failed, of a new one.
    */
@@ -521,7 +521,7 @@ class Connection implements ConnectionSession {
     });
   }
 
-  /** Runs one command alongside later frames; its reply may come after theirs (0005 section 3). */
+  /** Runs one command alongside later frames; its reply may come after theirs (0005). */
   #command(frame: Extract<ClientFrame, { kind: "command" }>): void {
     const { kind: _kind, ...request } = frame;
     // The engine sends the reply here before the office's subscribers hear the new entries.
@@ -556,7 +556,7 @@ class Connection implements ConnectionSession {
     if (subscribed.office === null) {
       this.#deliver(subscription, subscribed.events, subscribed.head);
       this.#mark(subscription, true);
-      // Derived: the current summary of every office after catch-up (0005 section 5).
+      // Derived: the current summary of every office after catch-up (0005).
       const summaries = this.#deps.engine.officeSummaries().map((summary) => ({
         cursor: subscription.position,
         at: this.#now(),
@@ -694,7 +694,7 @@ class Connection implements ConnectionSession {
   #send(frame: ServerFrame): void {
     if (this.#closed) return;
     // A dropped frame means the connection is closing (a slow client past the backpressure
-    // limit): stop here; the client reconnects and replays from its last cursor (0005 section 8).
+    // limit): stop here; the client reconnects and replays from its last cursor (0005).
     if (this.#socket.send(JSON.stringify(frame)) === "dropped") this.closed();
   }
 

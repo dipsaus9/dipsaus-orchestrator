@@ -1,4 +1,4 @@
-// The daemon package's only export is `runDaemon(argv)` (0004, 0006 decision 2): every form of the
+// The daemon package's only export is `runDaemon(argv)` (0004, 0006): every form of the
 // binary that runs daemon-side code calls it with the arguments after `daemon` (or `self-check`),
 // and it dispatches on the first one. The table below is the one place a form is added; later
 // stories add more. `login` (DIPO-269) is reached as `dipo login box`, `config-migrate` as

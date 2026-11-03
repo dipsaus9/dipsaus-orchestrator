@@ -1,4 +1,4 @@
-// CI only (0017 section 1, DIPO-225): real git repositories and processes, too slow for the local
+// CI only (0017, DIPO-225): real git repositories and processes, too slow for the local
 // run.
 // `dipo daemon --foreground` as real processes (DIPO-23): two starters race for the lock and exactly
 // one runs; an old record of a dead process is overwritten, never judged (0005, DIPO-387). State,

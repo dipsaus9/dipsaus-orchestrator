@@ -1,4 +1,4 @@
-// CI only (0017 section 1, DIPO-225): real git repositories and processes, too slow for the local
+// CI only (0017, DIPO-225): real git repositories and processes, too slow for the local
 // run.
 // A state database the daemon cannot open or migrate (DIPO-111, 0005, 0007), against real
 // `dipo daemon --foreground` processes: the daemon stays up in `recovering` and serves

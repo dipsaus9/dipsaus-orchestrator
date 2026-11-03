@@ -2,7 +2,7 @@
 // page only while less than `PUMP_HIGH_WATER_BYTES` wait to be written, so a client that stops
 // reading pauses its catch-up instead of growing the daemon's buffer. A connection that passes the
 // backpressure limit anyway is closed, the server stops reading and rendering for it, and the
-// client resumes from its cursor on a new connection (at least once, 0005 section 8). The slow
+// client resumes from its cursor on a new connection (at least once, 0005). The slow
 // client is a raw Unix socket that completes the WebSocket upgrade, sends its frames, and then
 // stops reading.
 
