@@ -2,8 +2,8 @@
 // `DipoClient` on a real Unix socket, against the daemon's `ContractServer` in-process. Only the
 // engine is a fixture: a hand-written surface whose `office.rescan` replies and writes a load
 // scan's `scan.finished` and then the rescan's. The CLI once subscribed with
-// `filter: ["scan.finished"]`, but `filter` names the event types the daemon leaves out (0005
-// section 5), so the event never arrived and the command waited out its 120 s deadline. Fakes of
+// `filter: ["scan.finished"]`, but `filter` names the event types the daemon leaves out
+// (0005), so the event never arrived and the command waited out its 120 s deadline. Fakes of
 // the session missed it. `cli` may not import `daemon`, so this test sits outside both packages and
 // imports their files by path.
 

@@ -1,5 +1,5 @@
-// The structural check of a backlog PR as a pure function over fixture diffs (DIPO-35; 0010
-// section 2): each rule fails on its own fixture and names its rule and task, and a valid
+// The structural check of a backlog PR as a pure function over fixture diffs (DIPO-35; 0010):
+// each rule fails on its own fixture and names its rule and task, and a valid
 // office-init diff passes.
 
 import { describe, expect, it } from "bun:test";

@@ -307,7 +307,7 @@ const advisory = (i: number): ReviewFinding => ({
 });
 
 describe("the review comment", () => {
-  it("renders a blocked round with an unverified finding in the section 3 format", async () => {
+  it("renders a blocked round with an unverified finding in the review comment format", async () => {
     await inWorld(async (w) => {
       const stored = w.round(2, "blocked", {
         criteria: [

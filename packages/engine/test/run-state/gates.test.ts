@@ -31,7 +31,7 @@ describe("mergeWaits", () => {
     expect(mergeWaits({ ...NONE, verdict: { criteria: MET, override: null } })).toEqual([]);
   });
 
-  it("waits for each condition of section 11", () => {
+  it("waits for each waiting condition", () => {
     const verdict = { criteria: MET, override: null };
     expect(mergeWaits({ ...NONE, autoMerge: false, verdict })).toEqual([{ kind: "autoMergeOff" }]);
     expect(mergeWaits({ ...NONE, testBeforeMerge: true, verdict })).toEqual([
