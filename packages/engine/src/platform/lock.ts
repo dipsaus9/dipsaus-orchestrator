@@ -14,10 +14,10 @@
 //    The file stays when the daemon exits: removing it would let a starter that opened it before
 //    the removal and one that creates a new file both hold a lock.
 // 2. Taken: when `dipo.pid` still names another live `dipo daemon`, that daemon holds no lock on
-//    this file (its `dipo.lock` was removed or replaced, or it predates this lock): let the lock go
-//    and treat it as in step 3, never run beside it. Otherwise write `dipo.pid` (PID, start time,
-//    version, later the runtime directory), the record clients read, by write-to-temp then rename.
-//    Only the holder writes it, and a dead process's record never stops it.
+//    this file (its `dipo.lock` was removed or replaced, or the daemon runs without one): let the
+//    lock go and treat it as in step 3, never run beside it. Otherwise write `dipo.pid` (PID, start
+//    time, version, later the runtime directory), the record clients read, by write-to-temp then
+//    rename. Only the holder writes it, and a dead process's record never stops it.
 // 3. Busy: another process holds it. When `dipo.pid` names a live `dipo daemon` that answers
 //    `engine.hello` and `daemon.status` with its own PID over `ws+unix://` (`helloHandshake`)
 //    within 5 s, it runs; a live daemon that does not answer is unresponsive; otherwise the holder is
@@ -196,7 +196,7 @@ async function refuseNetworkFolder(realState: string, readMounts: MountReader): 
   }
 }
 
-/** Takes `<state>/dipo.lock` (0005, steps 1 to 3). */
+/** Takes `<state>/dipo.lock` (0005). */
 export async function acquireLock(options: AcquireLockOptions): Promise<LockOutcome> {
   const { stateDir, self, probe, clock, handshake, logger } = options;
   // The real folder, so the symbolic link refusal concerns the lock file alone.
@@ -295,7 +295,7 @@ export interface HelloHandshakeOptions {
  * Step 3's handshake (0005): find the socket in `runtime.json` written by the process the record
  * names (same PID and start time), send `engine.hello` over `ws+unix://`, then `daemon.status`, and
  * check the status names the record's PID. A daemon of another version may refuse this binary's
- * hello (one from before 0005's single version does); then the status is refused too, the daemon
+ * hello; then the status is refused too, the daemon
  * counts as not answering, and step 3 reports it unresponsive.
  */
 export function helloHandshake(

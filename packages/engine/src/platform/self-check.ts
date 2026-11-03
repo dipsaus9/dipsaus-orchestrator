@@ -137,7 +137,7 @@ async function checkUnixWebSocket(dir: string): Promise<void> {
 }
 
 function checkYaml(): void {
-  // YAML 1.2: `no` stays a string (0017 section 5). Goes through the one caller of the parser.
+  // YAML 1.2: `no` stays a string (0017). Goes through the one caller of the parser.
   const result = parseYamlDocument("version: 1\ntiers:\n  - small\n  - large\nanswer: no\n");
   if (!result.ok) throw new Error(result.message);
   const parsed = result.value;

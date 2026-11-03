@@ -86,8 +86,8 @@ export function failureFields(error: unknown): Record<string, unknown> {
 
 /**
  * Error codes such as `SQLITE_IOERR`, `ENOSPC` or `office.refused`. The field is `errorCode`, not
- * `code`: the logger shows a `code` field only when it is a dipo code (0006 amendment of
- * 2026-10-15 (DIPO-91)), which would hide SQLite and system codes.
+ * `code`: the logger shows a `code` field only when it is a dipo code (0006),
+ * which would hide SQLite and system codes.
  */
 const ERROR_CODE = /^[A-Za-z][\w.-]{0,63}$/;
 

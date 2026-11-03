@@ -1,8 +1,7 @@
-// The daemon's listener on `<runtime>/dipo.sock` (0006 decision 9): `Bun.serve({ unix })` with a
+// The daemon's listener on `<runtime>/dipo.sock` (0006): `Bun.serve({ unix })` with a
 // `fetch` handler that upgrades every request to a WebSocket and a `websocket` handler that hands
 // each text frame to the connection's session. One text frame holds one JSON frame; what a frame
-// means is the caller's business. Engine code reaches `Bun.serve` only through this module (0004
-// amendment c).
+// means is the caller's business. Engine code reaches `Bun.serve` only through this module (0004).
 
 import { removeSocketFile } from "./socket";
 
@@ -14,7 +13,7 @@ export const CLOSE_POLICY_VIOLATION = 1008;
 
 /**
  * A connection whose unsent data passes this many bytes is terminated, so one slow client cannot
- * make the daemon buffer without bound (the daemon's office catch-up already pauses far below it). Delivery is at least once (0005 section 8): the client
+ * make the daemon buffer without bound (the daemon's office catch-up already pauses far below it). Delivery is at least once (0005): the client
  * reconnects and replays from its last cursor.
  */
 export const BACKPRESSURE_LIMIT_BYTES = 8 * 1024 * 1024;

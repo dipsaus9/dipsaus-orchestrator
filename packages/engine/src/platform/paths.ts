@@ -1,4 +1,4 @@
-// Software directories (0006 decision 3): the state anchor `<state>`, the logs directory and the
+// Software directories (0006): the state anchor `<state>`, the logs directory and the
 // runtime directory that holds the sockets. The anchor depends only on the passwd home directory,
 // so every starter and client finds the same lock; the runtime directory is chosen by the daemon
 // after it holds the lock, checked with `lstat`, and written to `<state>/runtime.json`. The rules
@@ -308,7 +308,7 @@ export function checkRuntimeDir(path: string, uid: number, fs: RuntimeDirFs): st
 }
 
 /**
- * Chooses the runtime directory (0006 decision 3): the first candidate that passes
+ * Chooses the runtime directory (0006): the first candidate that passes
  * `checkRuntimeDir`, else a fresh `mkdtemp` directory under `tmpBase`. Throws `RuntimeDirError`
  * naming every rejected path when the fallback fails too.
  */

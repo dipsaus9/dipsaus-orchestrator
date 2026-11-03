@@ -1,4 +1,4 @@
-// Process identity (0006 decisions 6 and 8): liveness is PID plus start time, never socket
+// Process identity (0006): liveness is PID plus start time, never socket
 // reachability. On Linux the start time comes from field 22 of `/proc/<pid>/stat`; on macOS from
 // the `kern.proc.pid.<pid>` sysctl, the same `struct kinfo_proc` that `ps -o lstart=` reads, and
 // the command line from `kern.procargs2` (DIPO-114). The setuid `/bin/ps` is not used: Seatbelt
@@ -176,7 +176,7 @@ export function systemProcessProbe(platform: DipoPlatform): ProcessProbe {
   return async (pid) => (pidExists(pid) ? read(pid) : null);
 }
 
-/** A child process the daemon started itself and must wait for before it exits (0006 decision 7). */
+/** A child process the daemon started itself and must wait for before it exits (0006). */
 export interface ChildHandle {
   readonly pid: number;
   /** Settles when the process has exited. */
@@ -196,7 +196,7 @@ export interface SpawnChildOptions {
  * and, at the drain cap, kills the process group of each one still running. Children are spawned
  * in their own session and process group (`detached: true`, `setsid`), so one `kill(-pid)` also
  * reaches their descendants. Worker hosts are never tracked here: they outlive the daemon
- * (0006 decision 8).
+ * (0006).
  */
 export class ChildProcesses {
   readonly #children = new Map<number, ChildHandle>();
@@ -322,7 +322,7 @@ export type SpawnDetached = (options: DetachedSpawnOptions) => { readonly pid: n
 
 /**
  * Starts `cmd` in its own session and process group (`setsid`) with stdio on files, so it keeps
- * running when the daemon exits or is killed (0006 decision 8). It is not tracked in
+ * running when the daemon exits or is killed (0006). It is not tracked in
  * `ChildProcesses`: a drain must leave it running.
  */
 export const systemSpawnDetached: SpawnDetached = (options) => {
@@ -398,7 +398,7 @@ function spawnWithFiles(options: Parameters<Spawn>[0], output: SpawnOutputFile) 
 }
 
 /**
- * The real `Spawn` (0017 section 2): `Bun.spawn` behind the contract's `ChildProcess`. Stdout and
+ * The real `Spawn` (0017): `Bun.spawn` behind the contract's `ChildProcess`. Stdout and
  * stderr are piped, or with `output` written to regular files that are read once the child has
  * exited (DIPO-333). With `detached` the child leads its own session and process group, so
  * `signalGroup(child.pid)`, and the child's `killGroup`, reach its descendants too.

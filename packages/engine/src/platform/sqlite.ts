@@ -1,4 +1,4 @@
-// The platform SQLite module (0007 sections 1, 2 and 10), the engine's `bun:sqlite` code for
+// The platform SQLite module (0007), the engine's `bun:sqlite` code for
 // `dipo.db` (the daemon lock in `lock.ts` holds a file of its own). It opens the one connection to
 // `<state>/dipo.db` with the 0007 pragmas and file modes, refuses a `<state>` on a network
 // filesystem, and runs `VACUUM INTO` in a Bun Worker so a snapshot never blocks the daemon's one JS
@@ -32,7 +32,7 @@ export interface SqlRunner {
   all<T = SqlRow>(sql: string, params?: SqlParams): T[];
 }
 
-/** The daemon's one connection (0007 section 1). */
+/** The daemon's one connection (0007). */
 export interface SqliteConnection extends SqlRunner {
   /** Absolute path of `dipo.db`. */
   readonly path: string;
@@ -82,7 +82,7 @@ export const BACKUPS_DIR = "backups";
 const DIR_MODE = 0o700;
 const FILE_MODE = 0o600;
 
-/** Thrown when `<state>` sits on a network filesystem (0007 section 1). */
+/** Thrown when `<state>` sits on a network filesystem (0007). */
 export class NetworkFileSystemError extends Error {
   constructor(
     readonly path: string,
@@ -99,7 +99,7 @@ export class NetworkFileSystemError extends Error {
 export class AsyncTransactionError extends TypeError {
   constructor() {
     super(
-      "A transaction callback returned a promise and was rolled back. Callbacks must be synchronous: an await inside one would let other offices' writes interleave (0007 section 1).",
+      "A transaction callback returned a promise and was rolled back. Callbacks must be synchronous: an await inside one would let other offices' writes interleave (0007).",
     );
     this.name = "AsyncTransactionError";
   }
@@ -202,7 +202,7 @@ export const readSystemMounts: MountReader = async () => {
   return null;
 };
 
-// Sync clients may copy `dipo.db` without its `-wal` file (0007 section 1).
+// Sync clients may copy `dipo.db` without its `-wal` file (0007).
 const SYNC_FOLDER =
   /\/(Library\/Mobile Documents|Library\/CloudStorage|Dropbox|OneDrive|Google Drive)(\/|$)/;
 
@@ -233,7 +233,7 @@ function ensureDir(path: string): void {
 }
 
 /**
- * Opens `<state>/dipo.db` (0007 section 1). Creates `<state>` with mode 0700 and the file with
+ * Opens `<state>/dipo.db` (0007). Creates `<state>` with mode 0700 and the file with
  * mode 0600 (SQLite gives the `-wal` and `-shm` files the database file's mode), refuses a
  * network filesystem, sets the pragmas and logs `sqlite_version()`.
  */

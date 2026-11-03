@@ -1,4 +1,4 @@
-// External tools and the daemon's own executable (DIPO-70, 0006 decisions 5 and 14).
+// External tools and the daemon's own executable (DIPO-70, 0006).
 //
 // At start the daemon resolves the absolute paths of the tools it runs from its own `PATH`, which
 // the starting client kept, so a launchd or SSH start uses the same tools as the maintainer's
