@@ -1,4 +1,4 @@
-// One index pass applied to the state database (0005 section 2, 0007 sections 4 and 6 step 3).
+// One index pass applied to the state database (0005, 0007).
 // It runs inside the caller's write transaction, so every change of a pass commits together.
 //
 // Identity (0005, 0007): a story whose id is a current id keeps its key. A key whose id vanished

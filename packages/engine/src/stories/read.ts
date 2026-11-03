@@ -1,4 +1,4 @@
-// The story index's read of one story (0007 section 6 step 3): what the engine derives from a
+// The story index's read of one story (0007): what the engine derives from a
 // StoryStore read for the mirror and the Ready gate, its status, created date, labels, tier, role,
 // field block and criteria. A story that does not parse (R02) keeps what its list printed, so it
 // keeps its key; its created date and branch are then unknown.
@@ -32,7 +32,7 @@ export interface BacklogStory {
   readonly contentHash: string;
   /** The dependencies that are not Done (DIPO-52); absent when the view did not parse. */
   readonly waitingOn?: readonly string[];
-  /** The field block's park record (0010 section 3), when the block parses and holds one. */
+  /** The field block's park record (0010), when the block parses and holds one. */
   readonly park?: FieldBlockPark;
   /**
    * Acceptance criteria checked and in all, and their `#n` numbers (DIPO-85); absent when the view
@@ -45,7 +45,7 @@ export interface BacklogStory {
   };
   /**
    * The content hash a Ready gate decision applies to (`gateContentHash`), so reconcile can tell a
-   * Ready story without a decision for its content (0007 section 6); absent when the view did not
+   * Ready story without a decision for its content (0007); absent when the view did not
    * parse.
    */
   readonly gateHash?: string;
@@ -57,7 +57,7 @@ export interface BacklogStory {
    */
   readonly gateTask?: GateTask;
   /**
-   * Where the story was read (0007 section 6 step 3): the story branch while the story is
+   * Where the story was read (0007): the story branch while the story is
    * claimed; absent means the pass's own source, `base`.
    */
   readonly source?: string;
