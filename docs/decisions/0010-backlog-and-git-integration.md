@@ -4,7 +4,7 @@ Status: accepted. First written 2026-10-10 (spike DIPO-7). Rewritten 2026-10-24 
 
 ## Decision in short
 
-Every backlog change is a commit in a pull request, so it reaches a protected base and survives a re-clone. A running story's own changes travel in its story PR (the **story lane**). Planning changes travel in one backlog-only PR per office (the **planning lane**). **One module writes every git object and makes every push** (`git/write.ts`); the story-git modules use it. It works in dipo's own copies, never in the maintainer's checkout and never in a box. A claim is a branch, and a story has no Mac worktree.
+Every backlog change is a commit in a pull request, so it reaches a protected base and survives a re-clone. A running story's own changes travel in its story PR (the **story lane**). Planning changes travel in one backlog-only PR per office (the **planning lane**). **One module makes every commit, ref change and push** (`git/write.ts`); the story-git modules use it. It works in dipo's own copies, never in the maintainer's checkout and never in a box. A claim is a branch, and a story has no Mac worktree.
 
 ## 1. The Backlog CLI
 
@@ -138,7 +138,7 @@ There are no git hooks, no changes to existing ignore files or `info/exclude`, a
 - A building-time sync for riskier stories (2026-10-10). Removed; dipo syncs only on a conflict (2026-10-24).
 - A conflict merge left in progress in a worktree (2026-10-16). Replaced by a merge committed with markers (0002).
 - A reused branch merged with the base at claim, with a conflict as the worker's first feedback (2026-10-10). Replaced (2026-10-28) by reuse at the kept tip, then the conflict check and base sync (0002).
-- Seven separate places that made commits, and pushes from eight. Replaced by one module that writes git objects and pushes (2026-10-24).
+- Seven separate places that made commits, and pushes from eight. Replaced by one module that makes every commit, ref change and push (2026-10-24).
 - A lane flush that failed as a whole when the CLI failed on one operation, so every operation after it waited (2026-10-10). Replaced by closing that operation as `failed` (2026-10-30).
 - Draft promotion with a journaled snapshot (2026-10-10). It moved to M3 and is designed when it is built (0003).
 - An optional component map for collision checks (2026-10-10). It is M2 work and is designed then (0003).

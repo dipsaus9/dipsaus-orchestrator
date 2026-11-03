@@ -6,7 +6,7 @@ Status: accepted. First written 2026-10-10 (spike DIPO-5). Rewritten 2026-10-24 
 
 Every developer runs inside its own **box**, a lightweight VM, one per story. The box is the boundary. Inside it the worker may do anything: read the whole repository, run any command, install packages, use the web. It cannot leave the box, it holds nothing of the maintainer's, and its work reaches the repository only as **parts** that dipo checks, commits and pushes. The reviewer runs in a read-only box of its own. The scan session runs on the Mac with every tool off.
 
-The engine reaches every model session through one adapter-neutral contract (section 1). The first adapter wraps the Claude Code CLI on the maintainer's subscription login. Its code lives in `engine/src/workers/claude-cli/`; the box image (which installs the CLI) and the model proxy (which forwards to its API) are the only other places with Claude-specific code (0001).
+The engine reaches every model session through one adapter-neutral contract (section 1). The first adapter wraps the Claude Code CLI on the maintainer's subscription login. Its code lives in `engine/src/workers/claude-cli/`; where else Claude may be named is in 0001.
 
 ## 1. The worker contract
 

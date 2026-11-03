@@ -48,7 +48,7 @@ These are lint rules in `.oxlintrc.json` and `tools/lint/`, proven by `test/lint
 - `engine` never imports `daemon`, `client`, `tui` or `cli`, and finds no file of theirs by path.
 - Inside `engine`, the directories form no import cycle, and no directory imports a value from a directory in a higher band or a higher layer of the plugin's order (see Engine layers). Types may cross.
 - Inside `engine` and `daemon`, only `engine/src/platform/**` touches `bun`, `bun:*` (except `bun:test`) or the global `Bun`.
-- Inside `engine`, only `workers/claude-cli/**` imports the Claude adapter. Where else Claude-specific code may live is in 0001.
+- Inside `engine`, only `workers/claude-cli/**` and the composition root (`create/`, `index.ts`) import the Claude adapter. Where else Claude may be named is in 0001.
 - `daemon` imports from `engine` only `createEngine`, types and the engine's platform entry (0005).
 - `client`'s main entry uses no Bun or Node API.
 - No runtime import cycles (`import/no-cycle`, type-only cycles allowed).
