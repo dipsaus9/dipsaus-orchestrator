@@ -79,7 +79,6 @@ import { gitStoryPrOps, StoryPrs } from "../../src/story-pr";
 import { encode } from "../../src/workers/claude-cli/encode";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { ClaudeWorkerEventSchema } from "../../src/workers/claude-cli/schema";
-import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import { AdapterPauses } from "../../src/run/starts-paused";
 import type { WorkerPort } from "../../src/workers/port";
 import { stubReviewBoxes } from "../run/review-boxes";
@@ -232,7 +231,6 @@ function scriptedPort(): WorkerPort {
   return {
     id: "claude-cli",
     reportSchema: REPORT_JSON_SCHEMAS,
-    localSettings: CLAUDE_LOCAL_SETTINGS,
     adapter: () => adapter,
     prepare: async (spec) => ({
       ok: true,

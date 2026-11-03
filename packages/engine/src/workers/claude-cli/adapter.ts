@@ -42,7 +42,6 @@ import {
 import { readInstalledPlugins, type PluginFiles } from "./plugins";
 import { probe } from "./probe";
 import { REPORT_JSON_SCHEMAS } from "./report-schema";
-import { CLAUDE_LOCAL_SETTINGS } from "./settings-check";
 import { result } from "./result";
 
 export interface ClaudeCliAdapterDeps {
@@ -257,7 +256,6 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
   return {
     id: CLAUDE_CLI_ADAPTER_ID,
     reportSchema: REPORT_JSON_SCHEMAS,
-    localSettings: CLAUDE_LOCAL_SETTINGS,
     adapter: (paths) =>
       claudeCliAdapter(claudeLaunchContext(deps, paths), deps, {
         boxWorker: deps.boxes?.isBoxRun(paths.runDir) === true,

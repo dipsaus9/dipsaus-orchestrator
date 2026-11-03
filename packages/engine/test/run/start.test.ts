@@ -59,7 +59,6 @@ import { encode } from "../../src/workers/claude-cli/encode";
 import { standInPlan } from "./stand-in-plan";
 import { type ClaudeParseState, initialState } from "../../src/workers/claude-cli/interpret";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
-import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
 import { AdapterPauses, type LaunchCheckOutcome } from "../../src/run/starts-paused";
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
@@ -273,7 +272,6 @@ beforeEach(async () => {
   const worker: WorkerPort = {
     id: "claude-cli",
     reportSchema: REPORT_JSON_SCHEMAS,
-    localSettings: CLAUDE_LOCAL_SETTINGS,
     // The Claude parser with a stand-in plan: the Claude CLI plans no developer on the Mac, and
     // these tests launch without box workers (DIPO-240).
     adapter: (paths) => ({

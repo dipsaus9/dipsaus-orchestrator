@@ -1,6 +1,5 @@
 // What a run needs from a worker adapter (DIPO-74), adapter-neutral: the adapter for one run, its
-// launch checks, the parser state ingestion starts from, the report schema and the local settings
-// copy (`localSettings`, which no engine code reads). The daemon supplies the Claude CLI one
+// launch checks, the parser state ingestion starts from and the report schema. The daemon supplies the Claude CLI one
 // (`claude-cli/adapter.ts`); tests supply fakes. Nothing here names a CLI.
 
 import type { BoxSession } from "../box/workers";
@@ -50,18 +49,6 @@ export type PreparedWorker =
   | { readonly ok: true; readonly plan: LaunchPlan }
   | { readonly ok: false; readonly outcome: "startFailed"; readonly pause: AdapterPause };
 
-/**
- * The adapter's local settings file and its filter (0008; for Claude `.claude/settings.local.json`
- * without its permission-widening and MCP keys). No engine code reads it: a box gets a plain copy
- * of the repository (`box/code.ts`), and a Mac session's folder holds nothing of it.
- */
-export interface LocalSettingsCopy {
-  /** The repo-relative path of the file. */
-  readonly file: string;
-  /** Pure: the parsed file without the keys the adapter drops. */
-  strip(settings: Record<string, unknown>): Record<string, unknown>;
-}
-
 export interface WorkerPort {
   /** The adapter id (for example `claude-cli`): the daemon's one adapter (0001). */
   readonly id: string;
@@ -70,8 +57,6 @@ export interface WorkerPort {
    * `implement`, `ReviewReport` for `review`.
    */
   readonly reportSchema: Readonly<Record<SchemaKind, JsonSchema>>;
-  /** The adapter's local settings copy; no engine code reads it. */
-  readonly localSettings: LocalSettingsCopy;
   /** The adapter for one run, its `plan` bound to the run's launch context (0008). */
   adapter(paths: RunLaunchPaths, config: OfficeConfig): WorkerAdapter;
   /**

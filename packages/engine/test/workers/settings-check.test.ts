@@ -1,6 +1,6 @@
 // The project settings check (DIPO-43 AC #2 and #3, 0008): fixture files with `hooks`,
-// `env`, `enabledPlugins`, `sandbox` and an allowlisted key, the office allowlist, and a stripped
-// key that reappears in the local copy.
+// `env`, `enabledPlugins`, `sandbox` and an allowlisted key, the office allowlist, and a key the
+// local file never allows.
 
 import { describe, expect, it } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -11,8 +11,7 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 import {
   checkProjectSettings,
   checkSettings,
-  LOCAL_STRIPPED_KEYS,
-  stripLocalSettings,
+  LOCAL_REFUSED_KEYS,
 } from "../../src/workers/claude-cli/settings-check";
 
 const FILE = "/w/.claude/settings.json";
@@ -56,25 +55,20 @@ describe("(unit) project settings check", () => {
     expect(keys(checkSettings(FILE, { permissions: "all" }, false))).toEqual(["permissions"]);
   });
 
-  it("refuses a stripped key that reappears in the local copy", () => {
+  it("refuses in the local file the keys that widen permissions or load MCP servers", () => {
     const failures = checkSettings(
       LOCAL,
       { permissions: { allow: ["Bash"], deny: [] }, enabledMcpjsonServers: [] },
       true,
     );
     expect(keys(failures)).toEqual(["permissions.allow", "enabledMcpjsonServers"]);
-    for (const failure of failures) expect(failure.detail).toContain("reappeared");
-  });
-
-  it("strips the setup keys and keeps the rest", () => {
-    const stripped = stripLocalSettings({
-      permissions: { allow: ["x"], ask: ["y"], deny: ["z"], defaultMode: "auto" },
-      enableAllProjectMcpServers: true,
-      includeCoAuthoredBy: false,
-    });
-    expect(stripped).toEqual({ permissions: { deny: ["z"] }, includeCoAuthoredBy: false });
-    expect(checkSettings(LOCAL, stripped, true)).toEqual([]);
-    expect(LOCAL_STRIPPED_KEYS).toContain("permissions.additionalDirectories");
+    for (const failure of failures) {
+      expect(failure.detail).toBe("the key is never allowed in the local settings file; remove it");
+    }
+    expect(LOCAL_REFUSED_KEYS).toContain("permissions.additionalDirectories");
+    expect(
+      checkSettings(LOCAL, { permissions: { deny: ["z"] }, includeCoAuthoredBy: false }, true),
+    ).toEqual([]);
   });
 
   it("reads both files of a worktree; missing files pass, bad JSON refuses", async () => {

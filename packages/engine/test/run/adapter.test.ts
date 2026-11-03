@@ -22,7 +22,6 @@ import {
   REVIEW_REPORT_JSON_SCHEMA,
   WORKER_REPORT_JSON_SCHEMA,
 } from "../../src/workers/claude-cli/report-schema";
-import { stripLocalSettings } from "../../src/workers/claude-cli/settings-check";
 import { AdapterPauses } from "../../src/run/starts-paused";
 import type { RunLaunchPaths } from "../../src/workers/port";
 import { PlanError, type HostLine, type ParseState } from "../../src/workers/types";
@@ -76,7 +75,7 @@ function reviewerInit(plugins: unknown[], skills: string[] = []): HostLine {
 }
 
 describe("the worker port seam (DIPO-113)", () => {
-  it("hands out the Claude report schema and the local settings copy", () => {
+  it("hands out the Claude report schema", () => {
     const port = claudeWorkerPort({
       claudePath: `${HOME}/.local/bin/claude`,
       home: HOME,
@@ -88,8 +87,6 @@ describe("the worker port seam (DIPO-113)", () => {
     expect(port.reportSchema).toBe(REPORT_JSON_SCHEMAS);
     expect(port.reportSchema.implement).toBe(WORKER_REPORT_JSON_SCHEMA);
     expect(port.reportSchema.review).toBe(REVIEW_REPORT_JSON_SCHEMA);
-    expect(port.localSettings.file).toBe(".claude/settings.local.json");
-    expect(port.localSettings.strip).toBe(stripLocalSettings);
   });
 
   it("builds a run's WorkerSpec with the port's report schema", () => {

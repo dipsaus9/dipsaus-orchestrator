@@ -72,7 +72,6 @@ import {
 } from "../../src/workers/claude-cli/interpret";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
-import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import { AdapterPauses, type LaunchCheckOutcome } from "../../src/run/starts-paused";
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
 import type { Caps, HostOp, LaunchPlan, ParseState } from "../../src/workers/types";
@@ -267,7 +266,6 @@ export async function withRunOffice(
       const worker: WorkerPort = {
         id: "claude-cli",
         reportSchema: REPORT_JSON_SCHEMAS,
-        localSettings: CLAUDE_LOCAL_SETTINGS,
         adapter: (paths) => ({
           ...claudeCliAdapter(ctxOf(paths), { spawn: neverSpawn, clock }),
           plan: (spec) => standInPlan(spec, paths, CLAUDE),

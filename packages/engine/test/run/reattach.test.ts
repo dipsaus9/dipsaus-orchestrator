@@ -84,7 +84,6 @@ import {
 } from "../../src/workers/claude-cli/interpret";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
-import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import type { WorkerPort } from "../../src/workers/port";
 import {
   type Caps,
@@ -827,7 +826,6 @@ function realResumer(
   const worker: WorkerPort = {
     id: "claude-cli",
     reportSchema: REPORT_JSON_SCHEMAS,
-    localSettings: CLAUDE_LOCAL_SETTINGS,
     adapter: () =>
       ({
         id: "claude-cli",
