@@ -28,7 +28,6 @@ import {
   findClaim,
   liveClaimOf,
   openReleasedBranches,
-  releaseClaim,
 } from "../../src/worktree/records";
 import { lastSeq } from "../stories/helpers";
 import {
@@ -377,21 +376,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const record = await claim(o, o.office, "TASK-1", key, { active: false });
         await o.repo.git("push", "--quiet", "origin", record.branch);
         await mergeOnRemote(o, record);
-        // An own-branch teardown a crash interrupted, released as done:
-        // its kept branch is settled by reconcile (a live claim merged through its own branch is the
-        // Done poll's, DIPO-332).
-        o.office.immediate(() => {
-          o.office.run(
-            "update claims set teardown_started_at = 5 where office_id = $office_id and run_id = $run",
-            { run: record.runId },
-          );
-          releaseClaim(o.office, record.runId, {
-            at: 6,
-            reason: "done",
-            ending: "done",
-            keepBranch: false,
-          });
-        });
+        // An own-branch teardown a crash interrupted before its release: reconcile releases the
+        // claim with its record and settles the branch.
+        o.office.run(
+          "update claims set teardown_started_at = 5 where office_id = $office_id and run_id = $run",
+          { run: record.runId },
+        );
         // Someone pushes a commit with a change of their own to the branch on the host.
         const elsewhere = join(o.repo.root, "elsewhere");
         await o.repo.git(
