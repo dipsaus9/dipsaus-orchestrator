@@ -4,13 +4,15 @@
 // must equal the one the same steps build in a fresh in-memory database.
 
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
 
 import {
   BACKUPS_DIR,
+  DATABASE_FILE,
+  openImmutableSqlite,
   openMemorySqlite,
   vacuumInto,
   type DbLogger,
@@ -345,8 +347,40 @@ function removeOldDailyBackups(db: SqliteConnection, logger: DbLogger): void {
 }
 
 /**
- * Brings the database to the head of `migrations`. Refuses a database an earlier dipo wrote before
- * the squash (`DatabaseBeforeSquashError`), a database newer than the binary and
+ * Refuses `<stateDir>/dipo.db` when an earlier dipo wrote it before the squash
+ * (`DatabaseBeforeSquashError`), before `openSqlite` touches it: the look goes through an immutable
+ * read-only open, so a refused file gets no new `-wal` or `-shm` next to it. A missing, empty or
+ * unreadable file passes: the open and the migrations say what is wrong with it.
+ */
+export function refuseBeforeSquash(stateDir: string): void {
+  let path: string;
+  try {
+    path = join(realpathSync(stateDir), DATABASE_FILE);
+    if (statSync(path).size === 0) return;
+  } catch {
+    return;
+  }
+  let found: { readonly beforeSquash: boolean; readonly version: number };
+  try {
+    const db = openImmutableSqlite(path);
+    try {
+      found = {
+        beforeSquash: readApplied(db).some(
+          (row) => row.version === 1 && row.name === PRE_SQUASH_FIRST_STEP,
+        ),
+        version: userVersion(db),
+      };
+    } finally {
+      db.close();
+    }
+  } catch {
+    return;
+  }
+  if (found.beforeSquash) throw new DatabaseBeforeSquashError(path, found.version);
+}
+
+/**
+ * Brings the database to the head of `migrations`. Refuses a database newer than the binary and
  * one whose recorded steps differ from the binary's; writes `backups/pre-v<N>-<time>.db` before
  * applying anything. Then refuses a database whose schema differs from the one the steps build
  * (`SchemaDriftError`). A new database (version 0, no user tables) has nothing to copy, so it gets no
@@ -361,9 +395,6 @@ export async function migrate(
   const head = migrations.length;
   const from = userVersion(db);
   const applied = readApplied(db);
-  if (applied.some((row) => row.version === 1 && row.name === PRE_SQUASH_FIRST_STEP)) {
-    throw new DatabaseBeforeSquashError(db.path, from);
-  }
   if (from > head) throw new DatabaseTooNewError(from, head);
   verifyApplied(migrations, applied, from);
   if (from === head) {

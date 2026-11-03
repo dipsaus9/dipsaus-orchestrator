@@ -2,7 +2,7 @@
 
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
@@ -325,11 +325,13 @@ describe("migrate", () => {
 
 /**
  * A database an earlier dipo wrote before the squash: its first recorded step is the old
- * `offices and schema_migrations`, and `version` steps are recorded.
+ * `offices and schema_migrations`, and `version` steps are recorded. Like the real one it is in WAL
+ * mode and was closed cleanly: everything is in the main file, and no `-wal` or `-shm` is left.
  */
 function writePreSquashDatabase(path: string, version: number): void {
   const db = new Database(path, { create: true });
   try {
+    db.exec("pragma journal_mode = WAL");
     db.exec(`
 create table schema_migrations (version integer primary key, name text not null,
   checksum text not null, engine_version text not null, applied_at integer not null) strict;
@@ -345,9 +347,13 @@ create table context_packs (office_id text not null, branch text not null, prima
       insert.run({ $version: step, $name: step === 1 ? PRE_SQUASH_FIRST_STEP : `step ${step}` });
     }
     db.exec(`pragma user_version = ${version}`);
+    db.exec("pragma wal_checkpoint(TRUNCATE)");
   } finally {
     db.close();
   }
+  // macOS's SQLite keeps both files after a close; the old dipo's clean stop removed them.
+  rmSync(`${path}-wal`, { force: true });
+  rmSync(`${path}-shm`, { force: true });
 }
 
 describe("the base schema", () => {
@@ -481,6 +487,7 @@ describe("a database from before the squash", () => {
         const path = join(state, "dipo.db");
         writePreSquashDatabase(path, version);
         const before = readFileSync(path);
+        const files = readdirSync(state).sort();
 
         const error = await failure(openStateDatabase(options(dir, MIGRATIONS)));
         expect(error).toBeInstanceOf(DatabaseBeforeSquashError);
@@ -491,6 +498,8 @@ describe("a database from before the squash", () => {
         expect(message).toContain(`version ${version}`);
         expect(existsSync(path)).toBe(true);
         expect(readFileSync(path).equals(before)).toBe(true);
+        // No -wal or -shm appears next to the refused file.
+        expect(readdirSync(state).sort()).toEqual(files);
         expect(backups(dir)).toEqual([]);
 
         const shown = databaseFailure(error, state);

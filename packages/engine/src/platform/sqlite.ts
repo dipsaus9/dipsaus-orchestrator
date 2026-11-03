@@ -284,6 +284,25 @@ export async function openSqlite(options: OpenSqliteOptions): Promise<SqliteConn
 }
 
 /**
+ * Opens the database file at `path` read-only and immutable, for a look before `openSqlite`: SQLite
+ * takes no lock and creates nothing next to the file, no `-wal` and no `-shm` (macOS's SQLite keeps
+ * both after a close). It reads the main file only, which holds everything a clean close
+ * checkpointed.
+ */
+export function openImmutableSqlite(path: string): SqliteConnection {
+  const uri = `file:${path.split("/").map(encodeURIComponent).join("/")}?immutable=1`;
+  const db = new Database(uri, { readonly: true, strict: true });
+  try {
+    const version =
+      (db.query("select sqlite_version() as v").get() as { v: string } | null)?.v ?? "unknown";
+    return createConnection(db, path, version, false);
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+}
+
+/**
  * An in-memory connection with the file connection's foreign keys and statement surface: where the
  * migrations build the schema a state database must have (DIPO-426).
  */
