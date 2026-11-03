@@ -1,11 +1,12 @@
-// The Claude CLI launch checks of a `session` on the Mac (0008, DIPO-310): the tools check, the
-// probe and the project settings check, run before every launch of one. `prepareLaunch` is the one
-// way to get such a plan the host may start: it plans, runs the checks through the adapter hold's
-// gate and returns the plan only when they pass; a refusal is `startFailed` with the hold set.
+// The Claude CLI launch checks of a `session` on the Mac (0008, DIPO-310): the probe and the
+// project settings check, run before every launch of one. `prepareLaunch` is the one way to get
+// such a plan the host may start: it plans, runs the checks through the adapter pause's gate and
+// returns the plan only when they pass; a refusal is `startFailed` with the adapter's starts
+// paused.
 //
 // A developer and a reviewer run only in a box (DIPO-240, DIPO-347): the box is the boundary, and
-// dipo's post-run token check (`box/token-check.ts`) and the box checks of `adapter.ts` hold the
-// adapter. The checks that proved the developer's Bash sandbox on the Mac went with that sandbox.
+// dipo's post-run token check (`box/token-check.ts`) and the box checks of `adapter.ts` pause the
+// adapter's starts.
 
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 

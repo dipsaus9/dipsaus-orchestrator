@@ -1,8 +1,8 @@
-// The pure stream-json parser of the Claude CLI adapter (0008 sections 1, 3 and 4). The engine
+// The pure stream-json parser of the Claude CLI adapter (0008). The engine
 // runs it over `events.ndjson`, live and on replay after a daemon restart, so it never reads a
 // clock, a file or a global: everything it knows travels in the returned state.
 //
-// Usage (0008 section 4): live numbers come from assistant messages, counted once per message
+// Usage (0008): live numbers come from assistant messages, counted once per message
 // id (parallel tool calls repeat one id); per-message output is a placeholder, so live output
 // stays zero. At each turn end the result's cumulative `modelUsage` replaces the live numbers.
 // The CLI's totals are cumulative per process, so the run adds only the change since the last
@@ -79,13 +79,13 @@ import type { z } from "zod";
 export const REPORT_TOOL = "StructuredOutput";
 /** Tools that start a subagent. */
 export const SUBAGENT_TOOLS: readonly string[] = ["Agent", "Task"];
-/** Assistant `error` values that mean the login or the account cannot run (0008 section 7). */
+/** Assistant `error` values that mean the login or the account cannot run (0008). */
 export const START_FAILURE_ERRORS: readonly string[] = [
   "authentication_failed",
   "billing_error",
   "account_on_hold",
 ];
-/** Model aliases `--model` accepts (0008 section 2). */
+/** Model aliases `--model` accepts (0008). */
 const MODEL_ALIASES: readonly string[] = ["haiku", "sonnet", "opus", "fable"];
 
 /** What the last `result` of the run said. */
@@ -93,7 +93,7 @@ export interface TurnRecord {
   readonly subtype: string;
   readonly terminal: string;
   readonly report: WorkerReport | null;
-  /** A `review` session's valid report (0019 section 5); absent in other kinds. */
+  /** A `review` session's valid report (0019); absent in other kinds. */
   readonly review?: ReviewReport;
   /** A `session` kind's structured output (DIPO-310); absent in other kinds. */
   readonly answer?: unknown;
@@ -119,12 +119,12 @@ export interface ClaudeParseState {
   /** Planned model (alias or id) and recorded classifier switches; null skips the check. */
   readonly plannedModel: string | null;
   readonly acceptedModels: readonly string[];
-  /** Why `system/init` failed its checks (0008 section 2), or null. */
+  /** Why `system/init` failed its checks (0008), or null. */
   readonly initRejected: string | null;
   /**
-   * The plugins a session may load (DIPO-108; none in a run, 0008): a `system/init` that lists another plugin is a
-   * start failure. Absent or null skips the check (states stored before it existed, tests). The
-   * run's adapter sets it from the configuration of its launch on every line.
+   * The plugins a session may load (DIPO-108; none in a run, 0008): a `system/init` that lists
+   * another plugin is a start failure. Absent or null skips the check (states stored before it
+   * existed, tests). The run's adapter sets it from the configuration of its launch on every line.
    */
   readonly allowedPlugins?: readonly string[] | null;
   /**
@@ -146,7 +146,7 @@ export interface ClaudeParseState {
   /** The skills of the last `system/init` (DIPO-130). Absent in states stored before it existed. */
   readonly skills?: readonly string[];
   /**
-   * `review` when the session is a reviewer's (0019 sections 4 and 5): its result carries a
+   * `review` when the session is a reviewer's (0019): its result carries a
    * `ReviewReport`, and `system/init` may list no plugin but the
    * builtin ones. Absent means `implement`, as in states stored before it existed.
    */
@@ -178,7 +178,7 @@ export interface ClaudeParseState {
   /** Tool use ids already reported as `denied`. */
   readonly denied: readonly string[];
   readonly lastTurn: TurnRecord | null;
-  /** Set once a turn ends `error_max_turns`; the backstop fired (0008 section 7). */
+  /** Set once a turn ends `error_max_turns`; the backstop fired (0008). */
   readonly capped: string | null;
   /** A start failure: `startup_failure_reason` or an account error. */
   readonly startFailure: string | null;
@@ -235,9 +235,9 @@ export interface InitialStateOptions {
   readonly knownPlugins?: readonly string[];
   /** True when `system/init` may list no skill (DIPO-130). */
   readonly refuseSkills?: boolean;
-  /** `review` for a reviewer session (0019 section 5); `implement` by default. */
+  /** `review` for a reviewer session (0019); `implement` by default. */
   readonly reportKind?: ReportKind;
-  /** Classifier switches already recorded on the run (0008 open question 7). */
+  /** Classifier switches already recorded on the run (0008). */
   readonly acceptedModels?: readonly string[];
   /** Totals the session starts from. */
   readonly totals?: UsageTotalsByModel;
@@ -382,7 +382,7 @@ export function currentTotals(state: ClaudeParseState): UsageTotalsByModel {
   return addTotals(state.committed, state.live);
 }
 
-/** Budget tokens (0008 section 4): input plus output plus cache creation, over every model. */
+/** Budget tokens (0008): input plus output plus cache creation, over every model. */
 export function budgetTokens(totals: UsageTotalsByModel): number {
   let sum = 0;
   for (const usage of Object.values(totals)) sum += usage.input + usage.output + usage.cacheCreate;
@@ -499,7 +499,7 @@ function reportedCompactions(state: ClaudeParseState): number {
   return state.compactReported ?? 0;
 }
 
-/** Pure: one host line to Worker events (0008 section 3). */
+/** Pure: one host line to Worker events (0008). */
 export function interpret(line: HostLine, state: ClaudeParseState): Step {
   switch (line.ch) {
     case "stdout":
@@ -750,7 +750,7 @@ function init(value: unknown, state: ClaudeParseState): Step {
     skills: msg.skills,
   };
 
-  // 0008 section 2: no API key, and the planned model or a recorded classifier switch.
+  // 0008: no API key, and the planned model or a recorded classifier switch.
   if (next.initRejected === null) {
     const placeholder = next.placeholderKey === true;
     if (msg.apiKeySource !== "none" && !placeholder) {
@@ -769,7 +769,7 @@ function init(value: unknown, state: ClaudeParseState): Step {
     if (next.initRejected !== null) events.push({ t: "initRejected", reason: next.initRejected });
   }
 
-  // 0008 amendment of 2026-10-12 (DIPO-108): a plugin the run settings did not switch off is a
+  // 0008 (DIPO-108): a plugin the run settings did not switch off is a
   // start failure, not a rejected init, so the story stays Ready. Plugin hooks may already have
   // run (SessionStart runs before `system/init`); the run settings are the guard, this the backstop.
   // Checked only when the key source and the model passed: a session that fails those as well
@@ -951,7 +951,7 @@ function assistant(value: unknown, state: ClaudeParseState): Step {
     } else {
       const path = toolPath(tool.data.input);
       const input = toolInput(tool.data.name, tool.data.input);
-      // A web call always shows its query or URL (0020 section 11b), whatever the privacy opt-in
+      // A web call always shows its query or URL (0020), whatever the privacy opt-in
       // for tool inputs: its line is an output line of its own, and the activity carries no input.
       const web = WEB_TOOLS.includes(tool.data.name);
       const call = webCallOf(tool.data.name);
@@ -1004,8 +1004,8 @@ function assistant(value: unknown, state: ClaudeParseState): Step {
       live: addTotals(next.live, { [msg.message.model]: counted }),
     };
   }
-  // A main-agent message on a model the plan did not name is a classifier switch (0008 section
-  // 2): recorded, so the next `system/init` on it is accepted.
+  // A main-agent message on a model the plan did not name is a classifier switch
+  // (0008): recorded, so the next `system/init` on it is accepted.
   if (agentId === undefined) {
     const switched = acceptSwitch(next, msg.message.model);
     events.push(...switched.events);
@@ -1185,7 +1185,7 @@ function result(value: unknown, state: ClaudeParseState): Step {
     next = { ...next, startFailure: `startup_failure_reason ${turn.startupFailure}` };
   }
   if (turn.apiErrorStatus === 429) {
-    // 0008 section 7: a turn ended by a 429 is a rejected plan limit, as a `rate_limit_event`
+    // 0008: a turn ended by a 429 is a rejected plan limit, as a `rate_limit_event`
     // with `status: rejected` would be.
     events.push({ t: "limit", status: "rejected" });
     if (next.planLimit === null)
@@ -1218,7 +1218,7 @@ function result(value: unknown, state: ClaudeParseState): Step {
 }
 
 /**
- * What was wrong with a turn, in the order 0008 section 7 reads it (DIPO-51): a plan limit, a
+ * What was wrong with a turn, in the order 0008 reads it (DIPO-51): a plan limit, a
  * start failure, a full context, an execution error, then a missing or invalid report. A turn at
  * the CLI's turn cap carries `capped` instead.
  */

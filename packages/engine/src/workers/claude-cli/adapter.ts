@@ -1,4 +1,4 @@
-// The Claude CLI `WorkerAdapter`, built per run (DIPO-74; 0008 section 1). `plan(spec)` closes
+// The Claude CLI `WorkerAdapter`, built per run (DIPO-74; 0008). `plan(spec)` closes
 // over the run's `ClaudeLaunchContext`, so the engine calls the 0008 signature while DIPO-40's
 // `plan(spec, ctx)` stays pure. `claudeWorkerPort` is what the daemon hands the run code: the
 // adapter for a run's paths, the launch checks through the adapter hold, and the parser state.
@@ -294,7 +294,7 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
         ...(previous === undefined
           ? { plannedModel: spec.model }
           : nextSessionOptions(previous as unknown as ClaudeParseState, spec.model)),
-        // A reviewer's result carries a `ReviewReport` (0019 section 5); a session's its
+        // A reviewer's result carries a `ReviewReport` (0019); a session's its
         // structured output (DIPO-310). A reviewer runs only in its reviewer box, with the
         // placeholder key, whatever its run's directory holds (0002).
         ...(spec.kind === "review" ? { reportKind: "review" as const, placeholderKey: true } : {}),

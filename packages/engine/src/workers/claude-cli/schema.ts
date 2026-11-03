@@ -1,6 +1,6 @@
-// zod schemas for the Claude Code stream-json lines the adapter reads (0017 section 2: strict on
+// zod schemas for the Claude Code stream-json lines the adapter reads (0017: strict on
 // the fields we use, tolerant of unknown message types and fields), and the schema of the Worker
-// events this adapter can produce (the contract check for the engine tests' `ScriptedWorker`, 0017 section 2).
+// events this adapter can produce (the contract check for the engine tests' `ScriptedWorker`, 0017).
 //
 // Recordings redact every string outside the 0017 allowlist to `[redacted ...]`, so a schema here
 // only types fields; decisions read kept fields (types, subtypes, enums, numbers, ids) alone.
@@ -93,7 +93,7 @@ export const ThinkingTokensMessage = z.object({
 /**
  * The `stream_event` lines the live numbers read (DIPO-296), sent with `--include-partial-messages`:
  * a message's start names its id, and its `message_delta` carries the message's final output count,
- * which an `assistant` line never has (its output is a placeholder, 0008 section 4). Every other
+ * which an `assistant` line never has (its output is a placeholder, 0008). Every other
  * stream event, and one of another shape, is read for liveness only.
  */
 export const StreamMessageStart = z.object({
@@ -145,9 +145,9 @@ export const ModelUsageEntry = z.object({
   outputTokens: Tokens,
   cacheReadInputTokens: Tokens,
   cacheCreationInputTokens: Tokens,
-  /** The CLI's own cost estimate, cumulative per process (0008 section 4, DIPO-62). */
+  /** The CLI's own cost estimate, cumulative per process (0008, DIPO-62). */
   costUSD: z.number().nonnegative().optional(),
-  /** The model's context window in tokens, for the resume check (DIPO-51, 0014 section 6). */
+  /** The model's context window in tokens, for the resume check (DIPO-51, 0014). */
   contextWindow: Count.optional(),
 });
 
@@ -225,7 +225,7 @@ export const KNOWN_TYPES = [
 /**
  * `system` subtypes the adapter knows: some map to events, the rest are read for liveness only.
  * `background_tasks_changed`, `thinking_tokens` and `task_updated` were seen live in DIPO-41;
- * `thinking_tokens` feeds the `thinking` activity since DIPO-96.
+ * `thinking_tokens` feeds the `thinking` activity.
  */
 export const KNOWN_SYSTEM_SUBTYPES = [
   "init",
@@ -279,7 +279,7 @@ export function schemaFor(message: {
   }
 }
 
-// ---- Worker events this adapter can produce (0008 section 3) -------------------------------
+// ---- Worker events this adapter can produce (0008) -------------------------------
 
 const Name = z.string().min(1);
 const Iso = z.iso.datetime();

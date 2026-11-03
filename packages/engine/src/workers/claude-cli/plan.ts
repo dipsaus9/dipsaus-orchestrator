@@ -18,9 +18,9 @@ import { enabledPluginsSetting, type WorkerPlugins } from "./plugins";
 import { DISABLE_SLASH_COMMANDS } from "./skills";
 
 export const CLAUDE_CLI_ADAPTER_ID = "claude-cli";
-/** Run settings file, in the run directory (0008 section 10). */
+/** Run settings file, in the run directory (0008). */
 export const SETTINGS_FILE = "claude-settings.json";
-/** Copy of the report schema passed on argv, in the run directory (0008 section 10). */
+/** Copy of the report schema passed on argv, in the run directory (0008). */
 export const REPORT_SCHEMA_FILE = "report-schema.json";
 
 /**
@@ -30,7 +30,7 @@ export const REPORT_SCHEMA_FILE = "report-schema.json";
 export const INCLUDE_PARTIAL_MESSAGES = "--include-partial-messages";
 
 /**
- * Kinds this adapter plans: `implement` (D12, DIPO-15) and `review` (0002), only in a box
+ * Kinds this adapter plans: `implement` and `review` (0002), only in a box
  * (`box-plan.ts`), and `session` (DIPO-310), on the Mac with `plan`.
  */
 export const PLANNED_KINDS: readonly WorkerKind[] = ["implement", "review", "session"];
@@ -88,7 +88,7 @@ export function kindContext(
   return { ...ctx, plugins: { ...ctx.plugins, allowed: [] } };
 }
 
-/** Variables passed through from the daemon's environment (0008 section 2). */
+/** Variables passed through from the daemon's environment (0008). */
 export const ENV_ALLOWLIST = ["PATH", "HOME", "USER", "SHELL", "LANG", "TERM", "TMPDIR"] as const;
 
 // Names an office may never declare as tool variables: API keys and tokens that would move a
@@ -258,7 +258,7 @@ function plugins(ctx: ClaudeLaunchContext): Record<string, false> | undefined {
   const { installed, allowed } = ctx.plugins;
   if (!Array.isArray(installed)) {
     throw new PlanError(
-      `${(installed as { error: string }).error}; the run settings cannot switch Claude Code plugins off without it, so the run is refused (0008 amendment of 2026-10-12)`,
+      `${(installed as { error: string }).error}; the run settings cannot switch Claude Code plugins off without it, so the run is refused (0008)`,
     );
   }
   return enabledPluginsSetting(installed, allowed);
@@ -356,7 +356,7 @@ function planSession(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
     "default",
     "--permission-prompts",
     "none",
-    // Every tool off (0021 amendment of 2026-10-22): an empty list, and each tool denied by name.
+    // Every tool off (0021): an empty list, and each tool denied by name.
     "--tools",
     "",
     "--settings",

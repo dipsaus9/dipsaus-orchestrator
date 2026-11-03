@@ -1,13 +1,12 @@
-// The worker report as Claude returns it through `--json-schema` (0008 section 1 and option A of
-// "Report channel"; fields from 0014). The zod schema parses the `structured_output` of a result;
-// the JSON Schema is what the launch plan passes on argv and writes to the run directory. Each
-// report kind has its own (0008 amendment of 2026-10-16): `WorkerReport` for `implement`,
-// `ReviewReport` for `review` (0019 section 5).
+// The worker report as Claude returns it through `--json-schema` (0008; fields from 0014). The zod
+// schema parses the `structured_output` of a result; the JSON Schema is what the launch plan passes
+// on argv and writes to the run directory. Each report kind has its own (0008): `WorkerReport` for
+// `implement`, `ReviewReport` for `review` (0019).
 //
-// The worker report is the door of the messages story done, question, blocked and proposal (0021
-// section 7, W2 to W5; DIPO-272): `parseWorkerReport` holds it to `WORKER_REPORT_MAX_CHARS`, cleans
-// every string of terminal control and other unsafe characters (`cleanDoorText`) and then parses
-// it strictly, every text field with its length cap. dipo reads the report as data only.
+// The worker report is the door of the messages story done, question, blocked and proposal (0021,
+// W2 to W5): `parseWorkerReport` holds it to `WORKER_REPORT_MAX_CHARS`, cleans every string of
+// terminal control and other unsafe characters (`cleanDoorText`) and then parses it strictly, every
+// text field with its length cap. dipo reads the report as data only.
 
 import { z } from "zod";
 
@@ -55,7 +54,7 @@ export const WORKER_REPORT_CAPS = {
 
 /**
  * A decision file a note may name: a Markdown file directly under the decision records folder, by
- * its repo-relative path (0008 section 1 note of 2026-10-20).
+ * its repo-relative path (0008).
  */
 export const DECISION_FILE = /^docs\/decisions\/[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
 
@@ -245,7 +244,7 @@ void reviewFromContract;
 /** The JSON Schema of `WorkerReport` for `--json-schema`. */
 export const WORKER_REPORT_JSON_SCHEMA: JsonSchema = toJsonSchema(WorkerCliReportSchema, "output");
 
-/** The JSON Schema of `ReviewReport` for `--json-schema` (0019 section 5). */
+/** The JSON Schema of `ReviewReport` for `--json-schema` (0019). */
 export const REVIEW_REPORT_JSON_SCHEMA: JsonSchema = toJsonSchema(ReviewReportSchema, "output");
 
 /** The report schema of each report kind, as `WorkerPort.reportSchema` hands it out. */

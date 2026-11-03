@@ -1,10 +1,10 @@
-// The project settings check (0008 section 2, "Project settings"). A `-p` run uses the project's
-// hooks, `env` and `apiKeyHelper` without trust, so before every launch and resume the engine
-// reads the worktree's `.claude/settings.json` and `.claude/settings.local.json` and refuses any
-// top-level or `permissions.*` key that is not on the engine's safe list: no session loads other
-// settings from the repository copy (0008). Unknown and future keys fail closed. A `sandbox` key
-// always refuses, because the run's sandbox comes only from `--settings`. A key the setup copy
-// strips from the local file (DIPO-39) that has reappeared refuses too.
+// The project settings check (0008). A `-p` run uses the project's hooks, `env` and `apiKeyHelper`
+// without trust, so before every launch of a Mac session the engine reads `.claude/settings.json`
+// and `.claude/settings.local.json` in the session's folder and refuses any top-level or
+// `permissions.*` key that is not on the engine's safe list: no session loads other settings from a
+// project file (0008). Unknown and future keys fail closed. A `sandbox` key always refuses: a
+// project file never sets how a session is confined. In the local file, a key `LOCAL_STRIPPED_KEYS`
+// names refuses too.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -12,7 +12,7 @@ import { join } from "node:path";
 import type { LaunchCheckFailure } from "../../run/starts-paused";
 import type { LocalSettingsCopy } from "../port";
 
-/** The engine's safe list (0008 section 2). The MCP keys are inert under `--strict-mcp-config`. */
+/** The engine's safe list (0008). The MCP keys are inert under `--strict-mcp-config`. */
 export const SAFE_PROJECT_SETTINGS: readonly string[] = [
   "$schema",
   "permissions.deny",
@@ -26,7 +26,10 @@ export const SAFE_PROJECT_SETTINGS: readonly string[] = [
 /** Never allowed. */
 export const NEVER_ALLOWED_SETTING = "sandbox";
 
-/** Keys the setup copy of `.claude/settings.local.json` drops (0008 section 2, 0010 amendment). */
+/**
+ * Keys `stripLocalSettings` drops from `.claude/settings.local.json` and the check refuses in it
+ * (0008).
+ */
 export const LOCAL_STRIPPED_KEYS: readonly string[] = [
   "permissions.allow",
   "permissions.ask",
@@ -88,7 +91,7 @@ export function checkSettings(
       failures.push({
         check: "settings",
         detail:
-          "a sandbox key refuses the run and can never be allowlisted: the run's sandbox comes only from the engine's --settings file; remove it",
+          "a sandbox key refuses the run and can never be allowlisted: a project file never sets how a session is confined; remove it",
         file,
         key,
       });
@@ -113,8 +116,8 @@ export function checkSettings(
 }
 
 /**
- * Pure: the local settings as the setup copy writes them, without the stripped keys (0008
- * section 2). For DIPO-39's copy; the check above then runs over what remains.
+ * Pure: the local settings without the keys `LOCAL_STRIPPED_KEYS` names (0008); the check above
+ * refuses those keys in the file.
  */
 export function stripLocalSettings(settings: Json): Json {
   const out: Json = {};
@@ -133,7 +136,7 @@ export function stripLocalSettings(settings: Json): Json {
   return out;
 }
 
-/** The setup copy of the local settings, as the Claude worker port hands it out (DIPO-113). */
+/** The local settings copy the Claude worker port hands out (`WorkerPort.localSettings`). */
 export const CLAUDE_LOCAL_SETTINGS: LocalSettingsCopy = {
   file: LOCAL_SETTINGS_FILE,
   strip: stripLocalSettings,

@@ -1,4 +1,4 @@
-// The run's result once `exit.json` exists (0008 sections 1 and 7). Pure. It applies only when
+// The run's result once `exit.json` exists (0008). Pure. It applies only when
 // no pending intent explains the exit: the engine reads `stop`, `new-session`, `cap` and `park`
 // first. The adapter reports facts and proposes a park; the engine decides.
 
@@ -15,7 +15,7 @@ import type {
 } from "../types";
 import { currentTotals, type ClaudeParseState } from "./interpret";
 
-/** Exit code of a Claude process ended by SIGTERM (0008 "Exit and resume"). */
+/** Exit code of a Claude process ended by SIGTERM (0008). */
 export const SIGTERM_EXIT_CODE = 143;
 
 interface Decision {
@@ -77,7 +77,7 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
   }
 
   if (turn.terminal === "prompt_too_long") {
-    // 0008 section 7: one new session with a 0014 handoff, then `budget-exceeded`.
+    // 0008: one new session with a 0014 handoff, then `budget-exceeded`.
     return {
       outcome: "capped",
       report: null,
@@ -120,7 +120,7 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
       : { ...crashed(`answer but ${exitText(exit)}`), answer };
   }
   if (state.reportKind === "review") {
-    // A reviewer session (0019 sections 4 and 5): a valid report is all it returns; code computes
+    // A reviewer session (0019): a valid report is all it returns; code computes
     // the verdict from it.
     const review = turn.review;
     if (review === undefined) return noReport(turn.reportProblem ?? "no report", "review");

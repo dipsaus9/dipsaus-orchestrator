@@ -1,13 +1,13 @@
-// `probe` for the Claude CLI adapter (0008 sections 2 and 11): `claude --version` and
-// `claude auth status`. It refuses a version below the minimum, which the sandbox locks need, and
-// any login other than `authMethod: "claude.ai"`, so a run never starts unlocked or bills an API
-// key. The judgement is pure; running the two commands goes through the injected `Spawn`.
+// `probe` for the Claude CLI adapter (0008): `claude --version` and `claude auth status`. It
+// refuses a version below the minimum and any login other than `authMethod: "claude.ai"`, so a run
+// never bills an API key. The judgement is pure; running the two commands goes through the injected
+// `Spawn`.
 
 import type { ChildProcess, Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
 import type { AdapterStatus } from "../types";
 
-/** The oldest Claude Code with the `--settings` sandbox locks (0008 section 2). */
+/** The oldest Claude Code dipo accepts (0008). */
 export const MIN_CLAUDE_VERSION = "2.1.285";
 /**
  * The newest Claude Code dipo was checked with (DIPO-315): the version the box image installs by
@@ -18,7 +18,7 @@ export const MIN_CLAUDE_VERSION = "2.1.285";
  * it together with the box image's version, after the recordings are checked again with it.
  */
 export const CHECKED_CLAUDE_VERSION = "2.1.303";
-/** The only login a worker may run on (0008 section 2). */
+/** The only login a worker may run on (0008). */
 export const REQUIRED_AUTH_METHOD = "claude.ai";
 /** How long one probe command may take. */
 export const PROBE_TIMEOUT_MS = 30_000;

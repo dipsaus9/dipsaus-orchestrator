@@ -1,15 +1,14 @@
-// The launch plan of a box worker (DIPO-271, 0021 sections 1, 4 and 7): Claude Code runs inside the
-// story's box as a long-running `container exec`, with the same stream-json input and output dipo
-// reads from a worker on the Mac, so ingestion, the caps and the live view see the same stream.
+// The launch plan of a box worker (DIPO-271, 0021): Claude Code runs inside the story's box as a
+// long-running `container exec`, with the same stream-json input and output dipo reads from a
+// session on the Mac, so ingestion, the caps and the live view see the same stream.
 //
 // Inside the box the worker runs with all permissions (`--permission-mode bypassPermissions`), so
-// none of the Mac worker's guards are planned: no run settings file with its Bash sandbox and
-// permission rules, no hooks and so no `dipo hook` or host socket, no permission relay. The box is
-// the boundary (0021 section 7: no per-call checks inside the box).
+// no guard is planned inside it: no run settings file, no permission rules, no hooks. The box is
+// the boundary (0021: no per-call checks inside the box).
 //
 // Its environment in the box is the session's route environment (`BoxSession.env`: the model
-// proxy's `boxModelEnvironment`, and `boxRouteEnv` for the web proxy, NO_PROXY and the
-// Safe-Chain CA bundle) plus what Claude Code needs: IS_SANDBOX, without which it refuses all permissions as
+// proxy's `boxModelEnvironment`, and `boxRouteEnv` for the web proxy, NO_PROXY and the Safe-Chain
+// CA bundle) plus what Claude Code needs: IS_SANDBOX, without which it refuses all permissions as
 // root, and the session state events dipo's watchdog reads. Nothing comes from the Mac's
 // environment; the `container` client on the Mac gets only the backend's client environment.
 // The host runs the session's stop command when it signals the worker and after the worker

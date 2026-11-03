@@ -1,6 +1,6 @@
-// What a run needs from a worker adapter (DIPO-74), adapter-neutral: the adapter for one run,
-// its launch checks, the parser state ingestion starts from, the report schema and the local
-// settings file worktree setup copies (DIPO-113). The daemon supplies the Claude CLI one
+// What a run needs from a worker adapter (DIPO-74), adapter-neutral: the adapter for one run, its
+// launch checks, the parser state ingestion starts from, the report schema and the local settings
+// copy (`localSettings`, which no engine code reads). The daemon supplies the Claude CLI one
 // (`claude-cli/adapter.ts`); tests supply fakes. Nothing here names a CLI.
 
 import type { BoxSession } from "../box/workers";
@@ -30,11 +30,11 @@ export interface RunLaunchPaths {
   readonly runDir: string;
   /** The worker host's socket. */
   readonly hostSocket: string;
-  /** The temp directory the worker's sandboxed commands may write. */
+  /** The run's temp directory; npm's debug logs go under it. */
   readonly tmpDir: string;
   /**
-   * The run's short temp root (DIPO-118), the worker's `DIPO_TMP`: also writable by its sandboxed
-   * commands, and short enough for testkit's Unix socket path limit.
+   * The run's short temp root (DIPO-118), the session's `DIPO_TMP`: short enough for testkit's Unix
+   * socket path limit.
    */
   readonly shortTmpDir: string;
 }
@@ -51,14 +51,14 @@ export type PreparedWorker =
   | { readonly ok: false; readonly outcome: "startFailed"; readonly pause: AdapterPause };
 
 /**
- * The adapter's local settings file that worktree setup copies from the main checkout, filtered
- * (0010 section 8 and its 0008 amendment; for Claude `.claude/settings.local.json` without its
- * permission-widening and MCP keys).
+ * The adapter's local settings file and its filter (0008; for Claude `.claude/settings.local.json`
+ * without its permission-widening and MCP keys). No engine code reads it: a box gets a plain copy
+ * of the repository (`box/code.ts`), and a Mac session's folder holds nothing of it.
  */
 export interface LocalSettingsCopy {
   /** The repo-relative path of the file. */
   readonly file: string;
-  /** Pure: the parsed file as the setup copy writes it. */
+  /** Pure: the parsed file without the keys the adapter drops. */
   strip(settings: Record<string, unknown>): Record<string, unknown>;
 }
 
@@ -66,19 +66,19 @@ export interface WorkerPort {
   /** The adapter id (for example `claude-cli`): the daemon's one adapter (0001). */
   readonly id: string;
   /**
-   * The JSON Schema a run puts in `WorkerSpec.reportSchema`, per kind (0008 section 1 and its
-   * amendment of 2026-10-16): `WorkerReport` for `implement`, `ReviewReport` for `review`.
+   * The JSON Schema a run puts in `WorkerSpec.reportSchema`, per kind (0008): `WorkerReport` for
+   * `implement`, `ReviewReport` for `review`.
    */
   readonly reportSchema: Readonly<Record<SchemaKind, JsonSchema>>;
-  /** What worktree setup copies as the adapter's local settings (DIPO-39, DIPO-113). */
+  /** The adapter's local settings copy; no engine code reads it. */
   readonly localSettings: LocalSettingsCopy;
-  /** The adapter for one run, its `plan` bound to the run's launch context (0008 section 1). */
+  /** The adapter for one run, its `plan` bound to the run's launch context (0008). */
   adapter(paths: RunLaunchPaths, config: OfficeConfig): WorkerAdapter;
   /**
-   * Plans the launch and runs the adapter's launch checks before it (0008 section 2). A refused
-   * check holds the adapter and returns `startFailed`; a spec or path that cannot be planned
-   * throws `PlanError`. A developer session is planned only in its run's box (DIPO-240, 0008); a
-   * reviewer session only in `place`, the read-only box its caller made for it (0002).
+   * Plans the launch and runs the adapter's launch checks before it (0008). A refused check pauses
+   * the adapter's starts and returns `startFailed`; a spec or path that cannot be planned throws
+   * `PlanError`. A developer session is planned only in its run's box (DIPO-240, 0008); a reviewer
+   * session only in `place`, the read-only box its caller made for it (0002).
    */
   prepare(
     spec: WorkerSpec,

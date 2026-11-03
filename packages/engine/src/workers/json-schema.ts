@@ -1,4 +1,4 @@
-// The JSON Schema a session's `--json-schema` gets, made from a zod schema (0008 section 1, DIPO-413).
+// The JSON Schema a session's `--json-schema` gets, made from a zod schema (0008, DIPO-413).
 // Every session schema comes through here, so one function decides the dialect: zod's `$schema`
 // key names the 2020-12 dialect, which the CLI does not accept, so it is left out.
 
