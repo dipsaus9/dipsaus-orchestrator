@@ -255,8 +255,6 @@ interface ResumeAnswer {
   /** The question as the worker asked it. */
   readonly text: string;
   readonly answer: string;
-  /** True when the answer is held already for the next session (it came while the run ended). */
-  readonly held: boolean;
 }
 
 /** What a maintainer resume's intent holds after its tag. */
@@ -533,7 +531,7 @@ export class ParkResumes {
     if (need.budget === true && args.budget === undefined) {
       throw this.#topUpRequired(office, run, story);
     }
-    // An `ambiguous-spec` park resumes with its answer, or with one held already (DIPO-159).
+    // An `ambiguous-spec` park resumes with its answer (DIPO-159).
     const answer = need.note === "answer" ? questionAnswer(office, park, note) : null;
     if (need.note === "answer" && answer === null) {
       const asked = parkWorkerQuestion(office, park.parkId);
@@ -1447,8 +1445,7 @@ export class ParkResumes {
         break;
       }
       case "answer":
-        // An answer held already goes with the first message as it waited (`heldFeedback`).
-        if (answer !== null && !answer.held) {
+        if (answer !== null) {
           parts.push(
             renderTemplate(answerTemplate, {
               question: answer.text,
@@ -1468,9 +1465,8 @@ export class ParkResumes {
 }
 
 /**
- * The answer an `ambiguous-spec` park resumes with (DIPO-159): the note, or the answer already
- * held for the park's worker question; null when there is neither. The question is the park's
- * worker question, or the park's detail when it carries none.
+ * The answer an `ambiguous-spec` park resumes with (DIPO-159): the note; null without one. The
+ * question is the park's worker question, or the park's detail when it carries none.
  */
 function questionAnswer(
   office: OfficeHandle,
@@ -1479,13 +1475,8 @@ function questionAnswer(
 ): ResumeAnswer | null {
   const asked = parkWorkerQuestion(office, park.parkId);
   const text = asked?.text ?? park.detail;
-  if (note !== undefined) {
-    return { question: asked?.questionId ?? null, text, answer: note, held: false };
-  }
-  if (asked?.closedHow === "answered" && asked.answer !== null) {
-    return { question: asked.questionId, text, answer: asked.answer, held: true };
-  }
-  return null;
+  if (note === undefined) return null;
+  return { question: asked?.questionId ?? null, text, answer: note };
 }
 
 /**
@@ -1499,7 +1490,7 @@ function answeredQuestion(
   answer: ResumeAnswer | null,
   at: number,
 ): NewEntry[] {
-  if (answer === null || answer.held || answer.question === null) return [];
+  if (answer === null || answer.question === null) return [];
   const closed = closeQuestion(office, answer.question, "answered", at, {
     text: answer.answer,
     delivered: "on-resume",

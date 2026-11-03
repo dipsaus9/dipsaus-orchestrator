@@ -26,8 +26,7 @@ import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import type { AsyncCommandContext } from "../../src/commands/registry";
-import { workerAnswerText } from "../../src/questions/answers";
-import { closeQuestion, findQuestion, insertWorkerQuestion } from "../../src/run-state/questions";
+import { findQuestion, insertWorkerQuestion } from "../../src/run-state/questions";
 import { HANDOFF_NOTE_MAX } from "../../src/prompts/handoff";
 import { recordReviewVerdict } from "../../src/review/store";
 import {
@@ -1711,29 +1710,6 @@ describe("an ambiguous-spec park resumed with its answer (DIPO-159; 0020)", () =
     expect(String(notices[0]?.["text"])).toContain("(R26)");
     // The answer still reaches the worker.
     expect(w.sessions[0]?.message).toContain("The maintainer's answer: Print Hello, Ada!");
-  });
-
-  it("resumes with no note when the park's question was answered while its run was ending, the held answer going first", async () => {
-    const { parkId, question } = questionPark();
-    w.f.office.immediate(() => {
-      closeQuestion(w.f.office, question, "answered", w.f.t.clock.now(), {
-        text: "Print Hello, Ada!",
-        delivered: "on-resume",
-      });
-      sendFeedback(
-        w.f.office,
-        w.f.run,
-        { source: "answer", text: workerAnswerText("Print Hello, Ada!") },
-        { at: w.f.t.clock.now() },
-      );
-    });
-    const reply = await resume(resumption());
-    expect(reply.result.to).toBe("In Progress");
-    expect(w.lifts[0]?.answer?.answer).toBe("Print Hello, Ada!");
-    // The held answer goes with the first message once; no answer.md repeats it.
-    expect(first(w.sessions[0])).toContain(workerAnswerText("Print Hello, Ada!"));
-    expect(first(w.sessions[0])).not.toContain("The maintainer's answer:");
-    expect(parkRow(parkId)?.resolved_how).toBe("resume");
   });
 
   it("expires every other open question of a park it resumes, and a budget park's carried question", async () => {

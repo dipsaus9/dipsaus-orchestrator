@@ -87,9 +87,7 @@ export type FeedbackSource =
   /** A resume note (0020). */
   | "resume"
   /** A maintainer steer (0020). */
-  | "steer"
-  /** The maintainer's answer to a worker question, held for the next session (0020). */
-  | "answer";
+  | "steer";
 
 /** One message for the developer session. */
 export interface Feedback {
@@ -234,14 +232,10 @@ export function markSteerRead(
 }
 
 /**
- * The maintainer's own words, which follow the findings in a first message (0020): a resume note,
- * a steer, and an answer to a worker question held for the next session.
+ * The maintainer's own words, which follow the findings in a first message (0020): a resume note
+ * and a steer.
  */
-const MAINTAINER_WORDS: ReadonlySet<string> = new Set<FeedbackSource>([
-  "resume",
-  "steer",
-  "answer",
-]);
+const MAINTAINER_WORDS: ReadonlySet<string> = new Set<FeedbackSource>(["resume", "steer"]);
 
 /**
  * The run's held messages: the findings and other code-built messages first, then the

@@ -8,11 +8,9 @@
 // - The question of a worker's report (the door's message W3, DIPO-272). A blocked report with a
 //   question parks its story `ambiguous-spec` at once, whichever client is connected (0001,
 //   0020): the park asks the question itself (`run/park.ts`), and no worker waits on stdin for it.
-// - An answer to a question of a park: on an `ambiguous-spec` park, the answer resumes the park
-//   (`QuestionParkResumer`, the `work.resume` path with the answer as its note:
-//   `feedback/answer.md` first, the answer written as a resolved unknown). On any other park that
-//   carries a worker question (one an earlier binary asked live), the answer is held for the first
-//   message of the run's next session, as a steer to a parked story is.
+// - An answer to the question of an `ambiguous-spec` park resumes the park (`QuestionParkResumer`,
+//   the `work.resume` path with the answer as its note: `feedback/answer.md` first, the answer
+//   written as a resolved unknown). Only such a park asks a question.
 //
 // An office load closes the questions a previous daemon left open with no park (`expired`), each
 // with its `question.closed`; a park resolved in any way expires the questions it carried
@@ -25,7 +23,6 @@ import { appendEntries, type NewEntry } from "../changelog/log";
 import { CommandError } from "../commands/errors";
 import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
-import { sendFeedback } from "../run/feedback";
 import { openPark } from "../run/park";
 import type { ParkStore } from "../records/park-state";
 import { findRun, type StoredRun } from "../records/run-records";
@@ -77,14 +74,6 @@ export interface QuestionAnswersDeps {
   readonly onChanged?: (office: OfficeId) => void;
 }
 
-/** The first line of the user message that carries the maintainer's answer to a worker question. */
-export const WORKER_ANSWER_INTRO = "The maintainer answered your question:";
-
-/** The user message that carries the maintainer's answer to the worker's question. */
-export function workerAnswerText(text: string): string {
-  return `${WORKER_ANSWER_INTRO}\n\n${text.trim()}`;
-}
-
 export class QuestionAnswers {
   readonly #deps: QuestionAnswersDeps;
   constructor(deps: QuestionAnswersDeps) {
@@ -92,48 +81,9 @@ export class QuestionAnswers {
   }
 
   /**
-   * `work.answer { question, text }` on a worker question a park other than a question park
-   * carries (one an earlier binary asked live, then a cap or a stop parked the run, DIPO-272): the
-   * answer is recorded and held for the first message of the run's next session through the one
-   * feedback path (`sendFeedback`, source `answer`), as a steer to a parked story is; the story
-   * stays Parked until its park is resumed.
-   */
-  async #answerHeld(
-    ctx: AsyncCommandContext,
-    question: StoredQuestion,
-    text: string,
-  ): Promise<CommandOutcome<AnswerResult>> {
-    const office = ctx.office;
-    const now = this.#deps.clock.now();
-    let closed = false;
-    ctx.commit(() => {
-      closed = closeQuestion(office, question.questionId, "answered", now, {
-        text,
-        delivered: "on-resume",
-      });
-      if (!closed) return [];
-      sendFeedback(
-        office,
-        question.runId,
-        { source: "answer", text: workerAnswerText(text) },
-        { at: now },
-      );
-      return this.#closingEntries(office, question, text);
-    });
-    if (!closed) {
-      throw new CommandError(
-        QUESTION_CLOSED,
-        `${question.questionId} is not waiting for an answer.`,
-        { question: question.questionId },
-      );
-    }
-    return { result: { question: question.questionId, delivered: "on-resume" } };
-  }
-
-  /**
-   * `work.answer { question, text }` on a worker question its run's park carries: an answer to the
-   * question of an `ambiguous-spec` question park resumes that park (DIPO-159); on any other park
-   * it is held for the next session (DIPO-272). A question whose park ended waits no more.
+   * `work.answer { question, text }` on a worker question its run's park carries: the answer
+   * resumes the `ambiguous-spec` question park (DIPO-159). A question whose park ended, or that
+   * no question park carries, waits no more.
    */
   async #answerParkedWorker(
     ctx: AsyncCommandContext,
@@ -145,7 +95,14 @@ export class QuestionAnswers {
     const run = findRun(office, question.runId as RunId);
     const park = run?.key == null ? null : openPark(this.#deps.stories, office, run.key);
     const now = this.#deps.clock.now();
-    if (run === null || park === null || park.parkId !== question.parkId) {
+    const resumer = this.#deps.questionParks?.();
+    if (
+      run === null ||
+      park === null ||
+      park.parkId !== question.parkId ||
+      park.reason !== "ambiguous-spec" ||
+      resumer === undefined
+    ) {
       ctx.commit(() =>
         closeQuestion(office, question.questionId, "expired", now)
           ? this.#closingEntries(office, question)
@@ -157,19 +114,15 @@ export class QuestionAnswers {
         { question: question.questionId, questionOpen: false },
       );
     }
-    const resumer = this.#deps.questionParks?.();
-    if (resumer !== undefined && park.reason === "ambiguous-spec") {
-      // The answer resumes the question park, as `dipo resume <id> --note <answer>` does.
-      const resumed = await resumer.resume(ctx, run, park, text);
-      return {
-        result: {
-          question: question.questionId,
-          delivered: "on-resume",
-          ...(resumed.run === undefined ? {} : { run: resumed.run }),
-        },
-      };
-    }
-    return this.#answerHeld(ctx, question, text);
+    // The answer resumes the question park, as `dipo resume <id> --note <answer>` does.
+    const resumed = await resumer.resume(ctx, run, park, text);
+    return {
+      result: {
+        question: question.questionId,
+        delivered: "on-resume",
+        ...(resumed.run === undefined ? {} : { run: resumed.run }),
+      },
+    };
   }
 
   /** `work.answer { question, text }`: a worker's question its run's park carries (DIPO-159). */
@@ -206,7 +159,7 @@ export class QuestionAnswers {
       return this.#answerParkedWorker(ctx, question, args);
     }
     // Every worker question parks (0020), so an open one without a park is one a previous daemon
-    // left; office load expires it, as it does a permission question of the relay (DIPO-240).
+    // left; office load expires it.
     throw new CommandError(
       QUESTION_CLOSED,
       `${args.question} is not a question this engine can answer.`,
@@ -226,8 +179,7 @@ export class QuestionAnswers {
         // Questions a previous daemon left open with no park: nothing waits on them.
         registry.registerLoadStep("expire open questions", (ctx) => {
           const stale = openQuestions(ctx.office).filter((question) => question.parkId === null);
-          // A park's question whose park ended, and the question of a park from before every
-          // answer was text (DIPO-344): nothing waits on either.
+          // A park's question whose park ended: nothing waits on it.
           stale.push(...staleParkQuestions(ctx.office));
           if (stale.length > 0) this.#close(ctx.office, stale, "expired");
         });

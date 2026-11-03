@@ -25,15 +25,10 @@ import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import { OFFICE_DEFAULTS } from "../../src/config";
-import {
-  QuestionAnswers,
-  type QuestionParkResumer,
-  workerAnswerText,
-} from "../../src/questions/answers";
+import { QuestionAnswers, type QuestionParkResumer } from "../../src/questions/answers";
 import { findQuestion, insertWorkerQuestion, openQuestions } from "../../src/run-state/questions";
 import { type BranchPark, RunControl } from "../../src/run";
 import { insertRun } from "../../src/records";
-import { heldFeedback } from "../../src/run/feedback";
 import { resolvePark } from "../../src/run/park";
 import { findRun } from "../../src/records/run-records";
 import { reopen } from "../../src/run-state/rounds";
@@ -327,8 +322,7 @@ describe("an answer to a worker's question (DIPO-159, DIPO-272)", () => {
     expect(w.resumed).toEqual([]);
   });
 
-  it("holds the answer to a question another park carries for the run's next session", async () => {
-    // A cap park that carries the question of an earlier binary's live wait.
+  it("refuses an answer to a question another park carries: only a question park asks one", async () => {
     w.control.begin(w.f.run, {
       intent: "park",
       ops: [],
@@ -348,21 +342,9 @@ describe("an answer to a worker's question (DIPO-159, DIPO-272)", () => {
       }),
     );
     const reply = await answer({ question: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A", text: "Hello, Ada!" });
-    expect(reply.ok).toBe(true);
-    if (reply.ok) {
-      expect(reply.result).toEqual({
-        question: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A",
-        delivered: "on-resume",
-      });
-    }
-    // A budget park is not resumed by an answer: the story stays Parked, the answer is held.
+    expect(reply).toMatchObject({ ok: false, error: { code: "question.closed" } });
     expect(w.resumed).toEqual([]);
-    expect(findQuestion(w.f.office, "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A")).toMatchObject({
-      closedHow: "answered",
-      answer: "Hello, Ada!",
-      delivered: "on-resume",
-    });
-    expect(heldFeedback(w.f.office, w.f.run).texts).toEqual([workerAnswerText("Hello, Ada!")]);
+    expect(findQuestion(w.f.office, "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A")?.closedHow).toBe("expired");
     expect(answersSent()).toEqual([]);
   });
 

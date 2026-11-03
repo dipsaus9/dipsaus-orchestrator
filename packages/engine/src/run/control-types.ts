@@ -106,8 +106,7 @@ export interface RunControlDeps {
   readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
   /**
    * Hears a park written to resume by itself when the office's starts paused lifts (0020,
-   * `StartsPaused.resumeLifted`): one that lands while the office is not paused (a run a plan limit
-   * held before the upgrade, parked at load) resumes then.
+   * `StartsPaused.resumeLifted`): one that lands while the office is not paused resumes then.
    */
   readonly parkedToResume?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
