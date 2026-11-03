@@ -1,6 +1,6 @@
-// Changed files and collisions of box runs (0021 section 12 and maintainer decisions 1 and 20,
-// DIPO-277). References are only the planner's forecast; what counts is what each story really
-// changed, and two stories in progress that change the same files both continue.
+// Changed files and collisions of box runs (0021, DIPO-277). References are only the planner's
+// forecast; what counts is what each story really changed, and two stories in progress that change
+// the same files both continue.
 //
 // - Changed files. A story's changed files are the paths its delivered parts changed: the story
 //   branch's tip against its start commit, read from git (`storyChangedFiles`), never from the
@@ -9,7 +9,7 @@
 //   (`StoryStore.storyFolders`, read from the tip, compared as `story-store/paths.ts` does) are
 //   left out: only dipo writes them, never a part (`protectedKind`).
 // - Overlaps. Every pass compares the changed files of the live box runs of each office with the
-//   prefix rule (0012, 0010 section 10): two paths overlap when they are equal or one is a folder
+//   prefix rule (0012, 0010): two paths overlap when they are equal or one is a folder
 //   above the other. A new overlap (another pair of stories, or more paths) is told to the maintainer
 //   as an `engine.notice` (the TUI and `dipo watch` show it) and to both workers as a message. What
 //   was told lives in memory only: after a daemon restart an overlap still in place is told once
@@ -46,7 +46,7 @@
 //   (`.github/`) would park the story. The message ends with the conflict hunks as git left them
 //   (`conflictFeedbackItem`, within the item budget), and the merge is recorded (`recorded`), so
 //   the check at done can refuse In Review while a marker line remains (DIPO-149).
-// - Paths the worker cannot write (DIPO-149, 0019 section 10). A conflict in the story's own task
+// - Paths the worker cannot write (DIPO-149, 0019). A conflict in the story's own task
 //   file is dipo's: the merge takes the base's version of it (a temporary index in dipo's stage
 //   folder, from git objects), and once the branch moved the branch's status is written back
 //   through the single field write path (`taskStatus`). A conflict in any other protected path
@@ -383,14 +383,14 @@ export function catchUpMessage(facts: CatchUpFacts & { readonly hunks?: string }
 }
 
 /**
- * Pure: the maintainer's notice of a conflict in a path the worker cannot write (0019 section 10):
+ * Pure: the maintainer's notice of a conflict in a path the worker cannot write (0019):
  * dipo merged nothing and parks the story.
  */
 export function unwritableNotice(story: string, base: string, paths: readonly string[]): string {
   return `git could not merge ${base} into ${story}'s branch cleanly, and the conflict is in ${files(paths.length)} the worker cannot write (${shownPaths(paths)}). dipo merged nothing, into neither the branch nor the box, and parked ${story}: resolve the conflict on the base or the branch by hand, then resume the story.`;
 }
 
-// ---- the conflict item and its markers (0019 sections 8 and 10, DIPO-149) ------------------------
+// ---- the conflict item and its markers (0019, DIPO-149) ------------------------
 
 /**
  * A conflict marker line, as git writes them (marker size 7): `<<<<<<< ` and `>>>>>>> ` with the
@@ -464,14 +464,14 @@ export function hunksWithin(hunks: readonly string[], max: number): string {
   return [...shown, more].join("\n\n");
 }
 
-/** Pure: the signature of a conflict item (0019 section 8): the base commit and the sorted paths. */
+/** Pure: the signature of a conflict item (0019): the base commit and the sorted paths. */
 export function conflictSignature(onto: string, paths: readonly string[]): string {
   return createHash("sha256")
     .update(JSON.stringify(["conflict", onto, [...paths].toSorted()]))
     .digest("hex");
 }
 
-/** A conflict feedback item (0019 section 8), for the developer session. */
+/** A conflict feedback item (0019), for the developer session. */
 export interface ConflictItem {
   readonly source: "conflict";
   readonly signature: string;
@@ -479,7 +479,7 @@ export interface ConflictItem {
 }
 
 /**
- * Pure: the one conflict item of a merge (0019 sections 8 and 10): the conflicted paths by kind,
+ * Pure: the one conflict item of a merge (0019): the conflicted paths by kind,
  * what to do about each kind, and the hunks within the item budget `itemMax`, signed over the base
  * commit and the sorted paths.
  */
@@ -763,7 +763,7 @@ export type CatchUpPlan =
   /** The base changed nothing the story changed: no catch-up. */
   | { readonly kind: "apart"; readonly onto: string }
   /**
-   * The merge conflicts in paths the worker cannot write (0019 section 10): any protected path
+   * The merge conflicts in paths the worker cannot write (0019): any protected path
    * (`protectedKind`: the story folders, `.dipo/`, `.github/`, the Claude settings, git's attribute
    * files, and the configuration of the Backlog CLI, Bun and Claude Code's MCP servers) other than
    * the story's own task file, or that task file conflicting other than in its content. Nothing is
@@ -788,7 +788,7 @@ export type CatchUpPlan =
       /**
        * The story's own task file when it conflicted: the merge holds the base's version of it,
        * and dipo writes the branch's status back through the single field write path after the
-       * branch moved (0019 section 10). Null when it merged cleanly.
+       * branch moved (0019). Null when it merged cleanly.
        */
       readonly taskFile: string | null;
     };
@@ -1093,7 +1093,7 @@ export interface CatchUpMerged {
   readonly outsideBox?: true;
 }
 
-/** A conflict the check of a story In Review found; nothing merged (0019 section 10). */
+/** A conflict the check of a story In Review found; nothing merged (0019). */
 export interface CatchUpFound {
   readonly base: string;
   readonly onto: string;
@@ -1119,7 +1119,7 @@ export type SyncOutcome =
   /** The run stopped going on meanwhile. */
   | { readonly kind: "stopped" };
 
-/** How the sync before In Review merges (0019 section 10). */
+/** How the sync before In Review merges (0019). */
 export type SyncMode =
   /** A riskier story (tier L or flagged test-before-merge): whenever the base moved. */
   | "always"
@@ -1171,12 +1171,12 @@ export interface BoxCollisionsDeps {
   readonly cleared?: (run: PartRun) => void;
   /**
    * Writes `status` back into the story's task file on its branch through the single field write
-   * path, after a merge that took the base's version of it (DIPO-149, 0019 section 10).
+   * path, after a merge that took the base's version of it (DIPO-149, 0019).
    */
   readonly taskStatus?: (run: PartRun, status: string) => Promise<void>;
   /**
    * Installs the office's packages in the box again after a merge that changed `lockfiles`
-   * (0019 section 10's reinstall). Without it nothing is installed again by dipo: the worker
+   * (0019's reinstall). Without it nothing is installed again by dipo: the worker
    * installs in its own box.
    */
   readonly reinstall?: (run: PartRun, lockfiles: readonly string[]) => Promise<void>;
@@ -1338,7 +1338,7 @@ export class BoxCollisions {
   }
 
   /**
-   * The sync before In Review of a box run at done (DIPO-149, 0019 section 10), inside the run's
+   * The sync before In Review of a box run at done (DIPO-149, 0019), inside the run's
    * held turn of parts (`BoxParts.finishLast`), so no part or catch-up runs meanwhile: `always`
    * merges the base whenever it moved, `onConflict` only when git cannot merge it cleanly. The
    * merge is made as a catch-up is (committed from git objects, copied into the box, the branch
@@ -1361,7 +1361,7 @@ export class BoxCollisions {
 
   /**
    * The merge a maintainer resume of a `conflict` park asks for once its new session runs in the
-   * box (DIPO-324, 0020 section 2): whatever the box holds goes first, then the base is merged into
+   * box (DIPO-324, 0020): whatever the box holds goes first, then the base is merged into
    * the story branch and the box as a catch-up is, whenever it moved, never on the overlap of
    * changed files. Nothing is told to the worker and nothing parks here: the caller decides from
    * the outcome.
@@ -1810,7 +1810,7 @@ export class BoxCollisions {
 
   /**
    * The branch's status written back into the story's task file, which the merge took from the base
-   * (0019 section 10): through `taskStatus`, the single field write path. A failure is a notice.
+   * (0019): through `taskStatus`, the single field write path. A failure is a notice.
    */
   async #writeTaskStatus(
     git: OfficeGit,

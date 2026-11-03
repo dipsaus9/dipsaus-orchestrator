@@ -1,4 +1,4 @@
-// The office's box image (0021 sections 4 and 5, decisions 9 and 12, DIPO-266). The office config's
+// The office's box image (0021, DIPO-266). The office config's
 // `box` block (version 9) describes it: a Debian slim release, the toolchain and its exact
 // versions, extra Debian packages and a pinned Claude Code version, plus the files outside git a
 // box may get. What the block leaves out is detected from the repository scan, so a new office
@@ -27,7 +27,7 @@
 //   root steps, everything from npm as the box user (`user.ts`, DIPO-334), whose home holds the
 //   npm prefix.
 // - Claude Code's auto-update and nonessential traffic are off in every command of the image's
-//   boxes (`BOX_IMAGE_ENV`, 0021 section 4).
+//   boxes (`BOX_IMAGE_ENV`, 0021).
 // - The block's `localPorts` (version 12, DIPO-282) is no part of the image: it says which local
 //   ports of the Mac the office's boxes reach through the web route.
 
@@ -109,7 +109,7 @@ export interface BoxImageDescription {
   readonly claudeCode: string;
 }
 
-/** A file outside git a box may get (0021 decision 9). */
+/** A file outside git a box may get (0021). */
 export interface BoxFileEntry {
   readonly path: string;
   readonly noRealSecrets: true;
@@ -276,7 +276,7 @@ export function buildCleanupCommand(): [string, ...string[]] {
 }
 
 /**
- * The environment every command in a box of the office image gets (0021 section 4): Claude Code's
+ * The environment every command in a box of the office image gets (0021): Claude Code's
  * auto-update and nonessential traffic off, and npm's update notice off. An image made by commit
  * keeps its base image's settings, so dipo passes these with each command instead.
  */
@@ -487,9 +487,9 @@ export type BaseBoxSection =
 
 /**
  * Reads the `box` block of `.dipo/office.yaml` as committed on `<remote>/<base>`, never from a
- * checkout, a story branch or `office.local.yaml`: a story cannot change its own box (0021
- * decision 12). The whole file is validated, so an entry of `box.files` without its
- * `noRealSecrets` mark is refused here. Runs one queue item of the office git.
+ * checkout, a story branch or `office.local.yaml`: a story cannot change its own box (0021). The
+ * whole file is validated, so an entry of `box.files` without its `noRealSecrets` mark is refused
+ * here. Runs one queue item of the office git.
  */
 export function readBaseBoxSection(git: OfficeGit): Promise<BaseBoxSection> {
   return git.run(async (session) => {

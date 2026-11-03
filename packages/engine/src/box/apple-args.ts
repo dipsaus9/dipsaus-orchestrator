@@ -1,11 +1,11 @@
-// The one argument builder of the Apple `container` backend (DIPO-265, 0021 sections 2, 3 and 5).
+// The one argument builder of the Apple `container` backend (DIPO-265, 0021).
 // Every `container` argv dipo runs comes from here, so the rules hold in one place:
 // - a box joins only dipo's host-only network, by name and mode; any other network is refused;
 // - the only mounts are the office package cache and the box network tools of the box's image
 //   (DIPO-281), both always read-only, each at a fixed path in the box;
 // - never `--volume`, another `--mount`, `--ssh`, `--publish`, `--publish-socket` or
 //   `--virtualization`;
-// - `--memory` and `--cpus` are the Mac's total memory and CPU count (decision 16: no limits);
+// - `--memory` and `--cpus` are the Mac's total memory and CPU count (no limits);
 // - every box starts with `--init` (DIPO-378): PID 1 is Apple container's init, which reaps every
 //   orphan the box's commands leave, and the keepalive runs as its child;
 // - every box but a build box (DIPO-281) keeps itself running with the mounted `tail`, and every
@@ -58,7 +58,7 @@ export const BOX_KEEPALIVE: readonly [string, ...string[]] = ["tail", "-f", "/de
 /** The Linux capability a box is made with so its firewall can be set (DIPO-281). */
 export const BOX_FIREWALL_CAPABILITY = "CAP_NET_ADMIN";
 
-/** The Mac's resources a box may use, all of them (0021 decision 16). */
+/** The Mac's resources a box may use, all of them (0021). */
 export interface HostResources {
   readonly memoryBytes: number;
   readonly cpus: number;

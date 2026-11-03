@@ -1,4 +1,4 @@
-// The office package cache (0021 section 5 and decision 13, DIPO-267): one per office, filled by
+// The office package cache (0021): one per office, filled by
 // dipo from the lockfile through Safe-Chain, and read-only inside the boxes.
 //
 // - The lockfile, and the `package.json` files a frozen install checks it against, are read from
@@ -93,7 +93,7 @@ import { copyInAsUser } from "./user";
 
 export type { BaseLockfile, CacheManager, ProjectFile } from "./cache-input";
 
-/** The lockfiles dipo fills a cache from, in the scan's order (0013 section 3). */
+/** The lockfiles dipo fills a cache from, in the scan's order (0013). */
 export const CACHE_LOCKFILES: Readonly<Record<string, CacheManager>> = {
   "bun.lock": "bun",
   "pnpm-lock.yaml": "pnpm",

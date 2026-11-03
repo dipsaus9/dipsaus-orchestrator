@@ -1,7 +1,7 @@
 // The story's ignore rules (DIPO-273): which paths of a part git would ignore, such as
 // `node_modules`, so they never leave the box as changes. dipo reads the `.gitignore` files as
 // data and matches them here, in its own code: no git or other tool runs on a `.gitignore` the
-// worker wrote (0021 section 14).
+// worker wrote (0021).
 //
 // The matching follows gitignore(5): blank lines and `#` comments are skipped, trailing spaces are
 // cut unless escaped, `!` negates, a trailing `/` matches folders only, a pattern with a `/` before

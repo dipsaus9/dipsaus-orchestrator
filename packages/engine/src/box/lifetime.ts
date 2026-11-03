@@ -1,12 +1,12 @@
-// The life of a story's box from claim to merge (DIPO-278; 0021 section 6 and decision 15). Every
-// developer session of a story runs in the story's one box; nothing of a worker runs on the Mac.
+// The life of a story's box from claim to merge (0021). Every developer session of a story runs in
+// the story's one box; nothing of a worker runs on the Mac.
 //
 // - Made at the claim (`BoxLifetime.make`, from the launch's setup): the box at the claim's start
 //   commit (`BoxWorkers.create`), then the office's packages installed in it at the start commit
-//   with the office's install command, within the office's install deadline (DIPO-294, 0021
-//   amendment of 2026-10-22), then `/work` compared with the start commit on dipo's own copy
-//   (`BoxWorkers.changedSinceStart`), never by running git on the box's files (0021 section 14).
-//   A failed step deletes the box again and says why; the launch rolls the claim back.
+//   with the office's install command, within the office's install deadline (0021), then `/work`
+//   compared with the start commit on dipo's own copy (`BoxWorkers.changedSinceStart`), never by
+//   running git on the box's files (0021). A failed step deletes the box again and says why; the
+//   launch rolls the claim back.
 // - Running while the worker works, stopped while the story waits (`boxRunState`, read by the
 //   daemon's passes over the boxes, `BoxWorkers.finishEnded`): a run that ended (at In Review, a
 //   park, a review period's end) with its claim live and its worker hosts exited waits, for a

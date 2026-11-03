@@ -1,4 +1,4 @@
-// The box of a box worker's run (DIPO-271, 0021 sections 1 to 6): one box per story run, made at
+// The box of a box worker's run (0021): one box per story run, made at
 // the launch and used by every developer session of the run. It lives from claim to merge
 // (DIPO-278): stopped, with its files, while the story waits, and deleted when the claim ends.
 // `lifetime.ts` decides when, and rebuilds a box that was lost.
@@ -1322,7 +1322,7 @@ export class BoxWorkers {
   }
 
   /**
-   * Stops the box of a run whose story waits (DIPO-278; 0021 section 6): for a review, an answer,
+   * Stops the box of a run whose story waits (DIPO-278; 0021): for a review, an answer,
    * a resume, CI or the maintainer. The post-run token check runs first, as at the end of a box
    * run, then the box stops with its files kept and its routes are released; the record says it
    * rests, so later passes leave it alone until the next session clears that. Never rejects; once

@@ -1,5 +1,5 @@
-// The box firewall (DIPO-281, from DIPO-283 and DIPO-286; 0021 section 3 and its amendment of
-// 2026-10-21): what a box may reach on its host-only network besides dipo's proxies is nothing.
+// The box firewall (0021): what a box may reach on its host-only network besides dipo's proxies is
+// nothing.
 //
 // On the host-only network the Mac is the box's neighbour, so without a rule a box reaches every
 // service of the Mac that listens on all interfaces, or on the Mac's own local-network address.

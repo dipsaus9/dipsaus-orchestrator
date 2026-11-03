@@ -1,4 +1,4 @@
-// The box interface (0021 sections 1 and 6, DIPO-265): what dipo needs from one real box per
+// The box interface (0021, DIPO-265): what dipo needs from one real box per
 // story, with no box technology named. A backend (today Apple `container`, `apple-container.ts`)
 // implements it; a Linux backend can be added later behind the same interface. Every call but
 // `execLive` has a deadline and fails with `box.timedOut` when it passes. A deadline kills only
@@ -25,7 +25,7 @@ export const BOX_LABEL = "dipo";
 export const BOX_STATE_LABEL = "dipo.state";
 /** A `BOX_STATE_LABEL` value: lowercase letters, digits, dots and dashes, never an option. */
 export const STATE_LABEL_VALUE = /^[a-z0-9][a-z0-9.-]{0,127}$/;
-/** Where the office package cache (0021 section 5, DIPO-267) appears in a box, read-only. */
+/** Where the office package cache (0021, DIPO-267) appears in a box, read-only. */
 export const BOX_PACKAGE_CACHE_PATH = "/dipo/package-cache";
 /** The deadline of one box call unless the call names another. */
 export const BOX_CALL_TIMEOUT_MS = 60_000;
@@ -126,7 +126,7 @@ export type BoxCheck =
   | { readonly ok: false; readonly reason: string; readonly version: string | null };
 
 /**
- * The only network mode a box may join (0021 section 3 and its amendment): host-only, no route
+ * The only network mode a box may join (0021): host-only, no route
  * out. dipo's web proxy on the network's host address is the box's one way out.
  */
 export type BoxNetworkMode = "hostOnly";
@@ -139,10 +139,10 @@ export interface BoxNetwork {
   readonly hostAddress: string;
 }
 
-/** What one box is made from. Nothing of the maintainer's is attached (0021 section 2). */
+/** What one box is made from. Nothing of the maintainer's is attached (0021). */
 export interface BoxSpec {
   readonly runId: string;
-  /** The office's box image (0021 section 5, DIPO-266). */
+  /** The office's box image (0021, DIPO-266). */
   readonly image: string;
   readonly network: BoxNetwork;
   /**

@@ -1,9 +1,8 @@
-// The office image, built in a box (DIPO-281, from DIPO-286; 0021 sections 3 and 5). The
-// maintainer's answer of 2026-10-23: the image is built inside a box on the host-only box network,
-// with the same web route as a worker box (Safe-Chain for the registries, dipo's web proxy for the
-// rest), and turned into the image with `container commit`. `container build` ran on Apple
-// `container`'s default network, where an install script could reach the Mac, the local network
-// and the registries directly; it is no longer used for the office image.
+// The office image, built in a box (0021). The image is built inside a box on the host-only box
+// network, with the same web route as a worker box (Safe-Chain for the registries, dipo's web
+// proxy for the rest), and turned into the image with `container commit`. dipo never uses
+// `container build` for the office image: it runs on Apple `container`'s default network, where
+// an install script could reach the Mac, the local network and the registries directly.
 //
 // One build (`ensureBoxImage`):
 // 1. An image of this description that exists, with its copy of the box network tools, is reused.

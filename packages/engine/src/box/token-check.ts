@@ -1,4 +1,4 @@
-// The post-run token check (0021 section 16, line 9, DIPO-269): after a run, dipo looks for the
+// The post-run token check (0021, DIPO-269): after a run, dipo looks for the
 // maintainer's subscription token in the box's environment and files, and holds the adapter when
 // it finds it or cannot tell. The token never goes into the box for this:
 //

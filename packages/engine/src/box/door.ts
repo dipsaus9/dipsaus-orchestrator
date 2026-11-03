@@ -1,4 +1,4 @@
-// The box door (0021 section 7, DIPO-272): how the worker in a box hands dipo a part (message W1),
+// The box door (0021, DIPO-272): how the worker in a box hands dipo a part (message W1),
 // and the checks every text from the box passes before dipo stores or shows it. Story done,
 // question, blocked and proposal (W2 to W5) travel in the worker's structured report and pass the
 // same text checks there (`workers/claude-cli/report-schema.ts`).
@@ -18,7 +18,7 @@
 //   refused message is renamed to `<name>.refused`, so the command tells the worker it was refused.
 //
 // Why a queue and not a stream: the box never connects to dipo, and nothing in it can reach dipo's
-// socket (0021 section 7). A queue file waits in the box while dipo is not reading (between two
+// socket (0021). A queue file waits in the box while dipo is not reading (between two
 // polls, or during a daemon restart while the box is stopped), and the command can wait for the
 // file to go, so the worker knows when dipo took the part and leaves the files alone until then.
 // A line on the worker's own output would mean reading the model's shell commands, the shell
