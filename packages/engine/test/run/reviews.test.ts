@@ -353,7 +353,7 @@ function world(): World {
     ender: () => control,
     adapter: "claude-cli",
     holds: {
-      hold: (adapter, failures) => ({
+      pause: (adapter, failures) => ({
         adapter,
         check: failures[0]?.check ?? "",
         detail: failures[0]?.detail ?? "",
@@ -929,7 +929,7 @@ describe("the failure table (0019 section 4)", () => {
     w.t.clock.advance(MINUTE);
     x.next = () => ({
       kind: "startFailed",
-      hold: {
+      pause: {
         adapter: "claude-cli",
         check: "self-test",
         detail: "the control write was refused",

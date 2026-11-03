@@ -227,7 +227,7 @@ export type {
 // The office's starts paused: a plan limit or a failed adapter check (0020, DIPO-359).
 export {
   LIFT_COMMAND,
-  officeHoldStore,
+  officePauseStore,
   PLAN_LIMIT_RESUME_AFTER_MS,
   PLAN_LIMIT_UNKNOWN_RESET_MS,
   planLimitPause,
@@ -238,7 +238,7 @@ export {
   startsPausedRefusal,
 } from "./starts-paused";
 export type {
-  HoldStoreOffices,
+  PauseStoreOffices,
   LiftedPark,
   LiftedResume,
   PlanLimitPause,

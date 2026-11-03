@@ -61,7 +61,7 @@ import { type ClaudeParseState, initialState } from "../../src/workers/claude-cl
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
-import { AdapterHolds, gateLaunch, type LaunchCheckOutcome } from "../../src/workers/hold";
+import { AdapterPauses, type LaunchCheckOutcome } from "../../src/run/starts-paused";
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
 import { type LaunchPlan, type ParseState } from "../../src/workers/types";
 import type { ClaimOutcome, ClaimRequest, ClaimSetupFailed } from "../../src/worktree/claim";
@@ -158,7 +158,7 @@ interface World {
   readonly deps: ExecutorDeps;
   readonly tasks: PlainTask[];
   readonly keys: Map<string, StoryKey>;
-  readonly holds: AdapterHolds;
+  readonly holds: AdapterPauses;
   readonly hosts: { runId: string; agentId: string; officeDir: string; plan: LaunchPlan }[];
   readonly ingested: IngestTarget[];
   readonly released: { claim: ClaimRecord; reason: string }[];
@@ -221,7 +221,7 @@ beforeEach(async () => {
   const t = await openTestState(dir);
   const office = addOffice(t);
   // The box-token check is sticky, as in the daemon (DIPO-271); memory only here.
-  const holds = new AdapterHolds({
+  const holds = new AdapterPauses({
     clock: t.clock,
     notify: () => undefined,
     sticky: {
@@ -282,7 +282,7 @@ beforeEach(async () => {
     }),
     prepare: async (spec, paths) => {
       const plan = standInPlan(spec, paths, CLAUDE);
-      const gate = await gateLaunch("claude-cli", holds, async () => w.checks);
+      const gate = await holds.gateLaunch("claude-cli", async () => w.checks);
       return gate.ok ? { ok: true, plan } : gate;
     },
     initialState: (spec) => initialState({ plannedModel: spec.model }) as unknown as ParseState,
@@ -669,7 +669,7 @@ describe("work.run starts the worker of a claimed run", () => {
       { story: "TASK-1", key: world.keys.get("TASK-1") as string, reason: "pickupCheckFailed" },
     ]);
     expect(world.hosts).toEqual([]);
-    expect(world.holds.adapterHeld("claude-cli")?.check).toBe("self-test");
+    expect(world.holds.adapterPaused("claude-cli")?.check).toBe("self-test");
     expect(countRows(world.office, "runs")).toBe(0);
     expect(existsSync(join(world.dir, "repo", ".git", "dipo", "runs"))).toBe(true);
     const runs = join(world.dir, "repo", ".git", "dipo", "runs");
@@ -680,12 +680,12 @@ describe("work.run starts the worker of a claimed run", () => {
 
   it("repeats the launch checks on a run that names its story while the adapter is held, and lifts the hold", async () => {
     story("TASK-1", "Ready");
-    world.holds.hold("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
+    world.holds.pause("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
     const unnamed = await run();
     expect(unnamed.ok).toBe(false);
     const named = resultOf<RunResult>(await run({ stories: ["TASK-1"] }));
     expect(named.started.map((s) => s.story)).toEqual(["TASK-1"]);
-    expect(world.holds.adapterHeld("claude-cli")).toBeNull();
+    expect(world.holds.adapterPaused("claude-cli")).toBeNull();
   });
 
   it("refuses a run directory path the plan cannot use with a notice naming the path and the character", async () => {
@@ -771,7 +771,7 @@ describe("a box worker's run (DIPO-271)", () => {
 
   it("refuses even a named run while the sticky box-token hold stands, claiming nothing", async () => {
     story("TASK-1", "Ready");
-    world.holds.hold("claude-cli", [
+    world.holds.pause("claude-cli", [
       { check: "box-token", detail: "the token was found in a box" },
     ]);
     const reply = await run({ stories: ["TASK-1"], box: true });
@@ -1112,7 +1112,7 @@ describe("work.preview, the dry run", () => {
 
   it("names the failed pickup gate without storing anything", async () => {
     story("TASK-1", "Ready");
-    world.holds.hold("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
+    world.holds.pause("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
     world.gate = {
       mode: "pickup",
       passed: false,
@@ -1136,7 +1136,7 @@ describe("work.preview, the dry run", () => {
 
   it("shows a hold as a note, not a refusal, when the story is named, as work.run repeats the checks", async () => {
     story("TASK-1", "Ready");
-    world.holds.hold("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
+    world.holds.pause("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
     const named = resultOf<PreviewResult & { notes?: string[] }>(
       await preview({ stories: ["TASK-1"] }),
     );

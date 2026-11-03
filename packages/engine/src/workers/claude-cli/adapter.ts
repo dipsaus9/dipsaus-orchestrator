@@ -11,7 +11,7 @@
 
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
-import { type AdapterHolds, gateLaunch } from "../hold";
+import type { AdapterPauses } from "../../run/starts-paused";
 import type { PreparedWorker, RunLaunchPaths, SessionFacts, WorkerPort } from "../port";
 import type {
   AdapterStatus,
@@ -143,7 +143,7 @@ export interface ClaudeWorkerPortDeps extends ClaudeCliAdapterDeps {
   readonly home: string;
   /** The daemon's environment; the plan takes only allowlisted names from it. */
   readonly env: Readonly<Record<string, string | undefined>>;
-  readonly holds: AdapterHolds;
+  readonly holds: AdapterPauses;
   /**
    * Reads Claude Code's plugin lists (DIPO-108); a test seam. Defaults to the files under
    * `home`.
@@ -163,18 +163,18 @@ export interface ClaudeWorkerPortDeps extends ClaudeCliAdapterDeps {
 export type ClaudeBoxWorkers = Pick<BoxWorkers, "isBoxRun" | "session">;
 
 /**
- * Prepares a developer session in the run's box (DIPO-271): the adapter hold first (a sticky
- * box-token hold refuses here), then the box session, then the plan. A box that cannot be made
- * ready holds the adapter with the `box` check, as a failed launch check; a run whose box is gone
- * is refused as a plan (`PlanError`), holding nothing.
+ * Prepares a developer session in the run's box (DIPO-271): the adapter's pause first (a sticky
+ * box-token pause refuses here), then the box session, then the plan. A box that cannot be made
+ * ready pauses the adapter with the `box` check, as a failed launch check; a run whose box is gone
+ * is refused as a plan (`PlanError`), pausing nothing.
  */
 async function prepareInBox(
   spec: WorkerSpec,
   paths: RunLaunchPaths,
   boxes: ClaudeBoxWorkers,
-  holds: AdapterHolds,
+  holds: AdapterPauses,
 ): Promise<PreparedWorker> {
-  const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, async () => ({ ok: true }));
+  const gate = await holds.gateLaunch(CLAUDE_CLI_ADAPTER_ID, async () => ({ ok: true }));
   if (!gate.ok) return gate;
   let session;
   try {
@@ -189,14 +189,14 @@ async function prepareInBox(
   } catch (error) {
     const why = error instanceof Error ? error.message : String(error);
     if (error instanceof BoxError && error.code === "box.gone") throw new PlanError(why);
-    const hold = holds.hold(CLAUDE_CLI_ADAPTER_ID, [
+    const pause = holds.pause(CLAUDE_CLI_ADAPTER_ID, [
       {
         check: BOX_CHECK,
         detail: `the worker's box could not be made ready: ${why}`,
         fix: "Check that Apple container runs (`container system status`) and the daemon log, then name the story again.",
       },
     ]);
-    return { ok: false, outcome: "startFailed", hold };
+    return { ok: false, outcome: "startFailed", pause };
   }
   return { ok: true, plan: scrubbed(planInBox(spec, session, paths.runDir)) };
 }
@@ -267,9 +267,7 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
       // A reviewer session goes into the read-only box made for it, never onto the Mac (0002).
       if (spec.kind === "review") {
         if (place === undefined) throw new PlanError(REVIEWER_ON_MAC_REFUSED);
-        const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, deps.holds, async () => ({
-          ok: true,
-        }));
+        const gate = await deps.holds.gateLaunch(CLAUDE_CLI_ADAPTER_ID, async () => ({ ok: true }));
         if (!gate.ok) return gate;
         return { ok: true, plan: scrubbed(planInBox(spec, place, paths.runDir)) };
       }

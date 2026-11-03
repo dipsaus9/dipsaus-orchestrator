@@ -72,7 +72,7 @@ import {
   interpret,
 } from "../../src/workers/claude-cli/interpret";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
-import { AdapterHolds, type LaunchCheckFailure } from "../../src/workers/hold";
+import { AdapterPauses, type LaunchCheckFailure } from "../../src/run/starts-paused";
 import type { Caps, HostOp, ParseState, TurnProblem, WorkerEvent } from "../../src/workers/types";
 import { insertClaim, releaseClaim } from "../../src/worktree/records";
 import { countRows } from "../commands/helpers";
@@ -112,7 +112,7 @@ interface World {
   readonly paused: { office: string; pause: PlanLimitPause }[];
   /** The office's starts paused itself (0020), on a memory adapter hold store. */
   readonly starts: StartsPaused;
-  readonly adapterHolds: AdapterHolds;
+  readonly adapterHolds: AdapterPauses;
   /** The parks the starts paused resumed after a lift. */
   readonly lifted: LiftedPark[];
   readonly released: string[];
@@ -154,7 +154,7 @@ beforeEach(async () => {
     },
   };
   let outcomes: RunOutcomes | null = null;
-  const adapterHolds = new AdapterHolds({ clock: f.t.clock, notify: () => undefined });
+  const adapterHolds = new AdapterPauses({ clock: f.t.clock, notify: () => undefined });
   const starts = new StartsPaused({
     clock: f.t.clock,
     offices: { get: () => f.office, config: () => OFFICE_DEFAULTS },
@@ -208,7 +208,7 @@ beforeEach(async () => {
       },
     },
     holds: {
-      hold: (adapter, failures) => {
+      pause: (adapter, failures) => {
         world.holds.push({ adapter, failures });
         return {
           adapter,
@@ -705,7 +705,7 @@ describe("a start failure (AC #6)", () => {
     w.holdsWork = true;
     w.nextOutcome = {
       kind: "startFailed",
-      hold: {
+      pause: {
         adapter: "claude-cli",
         check: "probe",
         detail: "claude is not logged in",
@@ -848,7 +848,7 @@ describe("no next session while the office's starts are paused (0020)", () => {
 
   it("a failed adapter check takes the start failure's way: no session, no park to resume", async () => {
     track();
-    w.adapterHolds.hold("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
+    w.adapterHolds.pause("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
     await ingestRecording("terminated");
     expect(w.next).toEqual([]);
     // The worktree holds no work here: the claim is released and the story stays Ready.

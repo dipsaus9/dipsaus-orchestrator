@@ -63,7 +63,7 @@ import type { LaunchedHost } from "../records/worker-hosts";
 import { runDirectory } from "../records/worker-hosts";
 import type { StoryStore } from "../story-store/store";
 import type { PlainTask } from "../story-store/story";
-import { holdMessage } from "../workers/hold";
+import { pauseMessage } from "./starts-paused";
 import type { RunLaunchPaths, WorkerPort } from "../workers/port";
 import { PlanError, type Caps, type LaunchPlan, type WorkerSpec } from "../workers/types";
 import { BoxLifetime, type RunBoxes } from "../box/lifetime";
@@ -504,7 +504,7 @@ export class RunLauncher {
       });
       return fail(`the launch plan refused it: ${error.message}`);
     }
-    if (!prepared.ok) return fail(`the launch checks refused it: ${holdMessage(prepared.hold)}`);
+    if (!prepared.ok) return fail(`the launch checks refused it: ${pauseMessage(prepared.pause)}`);
     return {
       ok: true,
       spec,

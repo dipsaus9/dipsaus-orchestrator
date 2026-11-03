@@ -287,7 +287,7 @@ export {
   BOX_TOKEN_HOLD_FILE,
   BOX_TOKEN_LIFTED_BY,
   boxTokenHoldPath,
-  boxTokenStickyHolds,
+  boxTokenStickyPauses,
   clearBoxTokenHold,
   readBoxTokenHold,
   writeBoxTokenHold,

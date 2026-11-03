@@ -424,7 +424,7 @@ describe("the reviewer's box for each session (0002)", () => {
       w.prepare = () => ({
         ok: false,
         outcome: "startFailed",
-        hold: { adapter: "claude-cli", check: "probe", detail: "x", failures: [], since: 0 },
+        pause: { adapter: "claude-cli", check: "probe", detail: "x", failures: [], since: 0 },
       });
       expect((await w.launcher.start(request)).kind).toBe("startFailed");
       w.prepare = () => {

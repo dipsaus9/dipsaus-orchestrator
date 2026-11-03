@@ -313,7 +313,7 @@ function repeatsChecks(
     named &&
     deps.launcher !== undefined &&
     paused.reason === "adapter" &&
-    paused.hold?.liftedBy === undefined
+    paused.pause?.liftedBy === undefined
   );
 }
 

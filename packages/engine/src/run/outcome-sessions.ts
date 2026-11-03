@@ -3,7 +3,7 @@
 
 import type { WorkRef } from "@dipsaus-orchestrator/contract";
 
-import { holdMessage, type AdapterHold } from "../workers/hold";
+import { pauseMessage, type AdapterPause } from "./starts-paused";
 import { findClaim, releaseClaim } from "../worktree/records";
 
 import type { OutcomeSupport } from "./outcome-support";
@@ -48,8 +48,8 @@ export class SessionStarts {
       await this.#s.park(office, run, view.work, planLimitEnding(pause, []));
       return false;
     }
-    if (paused?.reason === "adapter" && paused.hold !== undefined) {
-      await this.startFailed(office, run, view.work, holdMessage(paused.hold), paused.hold);
+    if (paused?.reason === "adapter" && paused.pause !== undefined) {
+      await this.startFailed(office, run, view.work, pauseMessage(paused.pause), paused.pause);
       return false;
     }
     const resumer = this.#deps.resumer;
@@ -79,7 +79,7 @@ export class SessionStarts {
       case "started":
         return true;
       case "startFailed":
-        await this.startFailed(office, run, view.work, holdMessage(outcome.hold), outcome.hold);
+        await this.startFailed(office, run, view.work, pauseMessage(outcome.pause), outcome.pause);
         return false;
       case "failed":
         await this.#s.park(office, run, view.work, {
@@ -111,13 +111,13 @@ export class SessionStarts {
     run: StoredRun,
     work: WorkRef,
     detail: string,
-    held: AdapterHold | null,
+    held: AdapterPause | null,
   ): Promise<void> {
     const hold =
       held ??
-      this.#deps.holds?.hold(this.#deps.worker.id, [{ check: "start-failed", detail }]) ??
+      this.#deps.holds?.pause(this.#deps.worker.id, [{ check: "start-failed", detail }]) ??
       null;
-    const message = hold === null ? detail : holdMessage(hold);
+    const message = hold === null ? detail : pauseMessage(hold);
     const claim = findClaim(office, run.runId);
     let holdsWork = true;
     try {

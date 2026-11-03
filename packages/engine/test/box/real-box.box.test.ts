@@ -87,7 +87,7 @@ import { TestBoxes } from "../../src/box/test-box";
 import { BOX_INDEX_DIR, BoxWorkers } from "../../src/box/workers";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
-import { AdapterHolds } from "../../src/workers/hold";
+import { AdapterPauses } from "../../src/run/starts-paused";
 import { writeNetTools } from "./fake-boxes";
 import { cleanUpRealBoxes } from "./real-box-cleanup";
 
@@ -366,7 +366,7 @@ if (registers) {
               startModelProxy: unused,
               readBaseBox: unused,
               code: { spawn: systemSpawn, clock: systemClock },
-              holds: new AdapterHolds({ clock: systemClock, notify: () => {} }),
+              holds: new AdapterPauses({ clock: systemClock, notify: () => {} }),
               adapter: "claude-cli",
               tmpRoot: dir,
               indexDir,
@@ -425,7 +425,7 @@ if (registers) {
               startModelProxy: unused,
               readBaseBox: unused,
               code: { spawn: systemSpawn, clock: systemClock },
-              holds: new AdapterHolds({ clock: systemClock, notify: () => {} }),
+              holds: new AdapterPauses({ clock: systemClock, notify: () => {} }),
               adapter: "claude-cli",
               tmpRoot: dir,
               indexDir,

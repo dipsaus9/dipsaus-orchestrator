@@ -39,7 +39,7 @@ import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
 import { planInBox } from "../../src/workers/claude-cli/box-plan";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
-import { AdapterHolds } from "../../src/workers/hold";
+import { AdapterPauses } from "../../src/run/starts-paused";
 import { cleanUpRealBoxes } from "./real-box-cleanup";
 
 const registers =
@@ -171,7 +171,7 @@ if (registers) {
                 { clock: systemClock },
               );
             };
-            const holds = new AdapterHolds({ clock: systemClock, notify: () => {} });
+            const holds = new AdapterPauses({ clock: systemClock, notify: () => {} });
             const workers = new BoxWorkers({
               info: () => undefined,
               // Every box of the office image mounts its box network tools from here (DIPO-281).
@@ -269,7 +269,7 @@ if (registers) {
                 kind: "checked",
                 check: { code: "box.tokenAbsent" },
               });
-              expect(holds.adapterHeld("claude-cli")?.check).not.toBe(BOX_TOKEN_CHECK);
+              expect(holds.adapterPaused("claude-cli")?.check).not.toBe(BOX_TOKEN_CHECK);
             } finally {
               await boxes.delete(`dipo-${runId}`).catch(() => {});
               await workers.close();

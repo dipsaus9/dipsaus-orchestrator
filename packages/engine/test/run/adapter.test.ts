@@ -23,7 +23,7 @@ import {
   WORKER_REPORT_JSON_SCHEMA,
 } from "../../src/workers/claude-cli/report-schema";
 import { stripLocalSettings } from "../../src/workers/claude-cli/settings-check";
-import { AdapterHolds } from "../../src/workers/hold";
+import { AdapterPauses } from "../../src/run/starts-paused";
 import type { RunLaunchPaths } from "../../src/workers/port";
 import { PlanError, type HostLine, type ParseState } from "../../src/workers/types";
 import {
@@ -83,7 +83,7 @@ describe("the worker port seam (DIPO-113)", () => {
       env: { PATH: "/usr/bin:/bin", HOME },
       spawn: neverSpawn,
       clock,
-      holds: new AdapterHolds({ clock, notify: () => undefined }),
+      holds: new AdapterPauses({ clock, notify: () => undefined }),
     });
     expect(port.reportSchema).toBe(REPORT_JSON_SCHEMAS);
     expect(port.reportSchema.implement).toBe(WORKER_REPORT_JSON_SCHEMA);
@@ -218,7 +218,7 @@ describe("the Claude CLI adapter of one run", () => {
       ...deps,
       spawn: neverSpawn,
       clock,
-      holds: new AdapterHolds({ clock, notify: () => undefined }),
+      holds: new AdapterPauses({ clock, notify: () => undefined }),
     });
     expect(port.adapter(PATHS, OFFICE_DEFAULTS).plan(sessionSpec())).toEqual({
       ...plan(sessionSpec(), ctx),
@@ -235,7 +235,7 @@ describe("the Claude CLI adapter of one run", () => {
       env: { PATH: "/usr/bin:/bin", HOME },
       spawn: claude.spawn,
       clock,
-      holds: new AdapterHolds({ clock, notify: () => undefined }),
+      holds: new AdapterPauses({ clock, notify: () => undefined }),
       pluginFiles: { read: () => undefined, dirs: () => [] },
       launchCheckSeams: { readText: async () => undefined },
     });
@@ -361,7 +361,7 @@ describe("the Claude CLI adapter of one run", () => {
       env: {},
       spawn: neverSpawn,
       clock,
-      holds: new AdapterHolds({ clock, notify: () => undefined }),
+      holds: new AdapterPauses({ clock, notify: () => undefined }),
     });
     const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
     const warp = [{ name: "warp", source: "warp@claude-code-warp", path: "/x" }];
@@ -391,7 +391,7 @@ describe("the Claude CLI adapter of one run", () => {
       env: {},
       spawn: neverSpawn,
       clock,
-      holds: new AdapterHolds({ clock, notify: () => undefined }),
+      holds: new AdapterPauses({ clock, notify: () => undefined }),
     });
     const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
     const step = adapter.interpret(

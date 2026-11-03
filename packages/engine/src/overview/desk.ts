@@ -433,8 +433,8 @@ class DeskBuilder {
     if (paused === null) return;
     const why =
       paused.reason === "adapter" ? `adapter check failed: ${paused.detail}` : paused.detail;
-    // The box token's hold lifts only with `dipo login box` (DIPO-271): no command lifts it here.
-    const sticky = paused.reason === "adapter" && paused.hold?.liftedBy !== undefined;
+    // The box token's pause lifts only with `dipo login box`: no command lifts it here (0020).
+    const sticky = paused.reason === "adapter" && paused.pause?.liftedBy !== undefined;
     this.#add(GROUP.paused, 0, paused.since, {
       kind: "STARTS PAUSED",
       detail: `no new session starts · ${why}`,

@@ -139,7 +139,7 @@ describe("dipo run explains its skips", () => {
       // What the engine writes while it runs the command.
       ctx.emit("engine.notice", {
         level: "info",
-        code: "adapter.released",
+        code: "starts.resumed",
         text: "The launch checks for claude-cli passed.",
       });
       ctx.emit("engine.notice", {

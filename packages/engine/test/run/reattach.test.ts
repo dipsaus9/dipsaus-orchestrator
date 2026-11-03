@@ -1971,10 +1971,10 @@ describe("the held messages in the next session (0002, 0020)", () => {
       async () => ({
         ok: false,
         outcome: "startFailed",
-        hold: { adapter: "claude-cli", ...failure, failures: [failure], since: 0 },
+        pause: { adapter: "claude-cli", ...failure, failures: [failure], since: 0 },
       }),
     ).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "startFailed", hold: { check: "probe" } });
+    expect(outcome).toMatchObject({ kind: "startFailed", pause: { check: "probe" } });
     expect(intentStates(ids)).toEqual([
       ["pending", null],
       ["pending", null],

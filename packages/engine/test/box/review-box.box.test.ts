@@ -61,7 +61,7 @@ import { systemSpawn } from "../../src/platform/process";
 import { REVIEW_TOOLS } from "../../src/workers/claude-cli/tools";
 import { planInBox } from "../../src/workers/claude-cli/box-plan";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
-import { AdapterHolds } from "../../src/workers/hold";
+import { AdapterPauses } from "../../src/run/starts-paused";
 import { PlanError, type WorkerSpec } from "../../src/workers/types";
 import { cleanUpRealBoxes } from "./real-box-cleanup";
 
@@ -298,7 +298,7 @@ async function setup(
       };
     },
     code: { spawn: systemSpawn, clock: systemClock },
-    holds: new AdapterHolds({ clock: systemClock, notify: () => {} }),
+    holds: new AdapterPauses({ clock: systemClock, notify: () => {} }),
     adapter: "claude-cli",
     tmpRoot: tmp,
     indexDir: join(tmp, "state", BOX_INDEX_DIR),

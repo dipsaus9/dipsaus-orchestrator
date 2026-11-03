@@ -80,7 +80,7 @@ import { encode } from "../../src/workers/claude-cli/encode";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { ClaudeWorkerEventSchema } from "../../src/workers/claude-cli/schema";
 import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
-import { AdapterHolds } from "../../src/workers/hold";
+import { AdapterPauses } from "../../src/run/starts-paused";
 import type { WorkerPort } from "../../src/workers/port";
 import { stubReviewBoxes } from "../run/review-boxes";
 import { scriptProblems } from "../workers/scripted-worker";
@@ -294,7 +294,7 @@ export interface Daemon {
   readonly storyPrs: StoryPrs;
   readonly merge: AutoMerge;
   readonly teardown: StoryTeardown;
-  readonly holds: AdapterHolds;
+  readonly holds: AdapterPauses;
   /** What the services warned about. */
   readonly warnings: string[];
   close(): void;
@@ -628,7 +628,7 @@ async function buildDaemon(
   const warnings: string[] = [];
   const warn = (message: string, fields: Readonly<Record<string, unknown>>) =>
     void warnings.push(`${message} ${JSON.stringify(fields)}`);
-  const holds = new AdapterHolds({ clock: officeClock, notify: () => undefined });
+  const holds = new AdapterPauses({ clock: officeClock, notify: () => undefined });
   const implemented = (name: string) => loaded().registry.command(name as never) !== undefined;
   // As the daemon wires them: no park or lift reaches a branch while its PR has auto-merge on.
   let mergeRef: AutoMerge | null = null;

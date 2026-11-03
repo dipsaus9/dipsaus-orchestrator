@@ -52,7 +52,7 @@ import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
 import type { RunProfile } from "../../src/scan/detect";
-import { AdapterHolds } from "../../src/workers/hold";
+import { AdapterPauses } from "../../src/run/starts-paused";
 import { FakeBoxes, writeNetTools } from "./fake-boxes";
 import { backlogLayout } from "../story-store/backlog";
 
@@ -117,7 +117,7 @@ interface World {
   readonly boxes: FakeBoxes;
   readonly workers: BoxWorkers;
   readonly log: string[];
-  readonly holds: AdapterHolds;
+  readonly holds: AdapterPauses;
   readonly git: OfficeGit;
   readonly start: string;
   readonly runDir: string;
@@ -147,7 +147,7 @@ async function world(
   const netToolsRoot = join(tmp, "state", "box-net-tools");
   writeNetTools(netToolsRoot, boxImageTag(IMAGE));
   const boxes = new FakeBoxes({ log, images: [boxImageTag(IMAGE)] });
-  const holds = new AdapterHolds({ clock: new ManualClock(), notify: () => {} });
+  const holds = new AdapterPauses({ clock: new ManualClock(), notify: () => {} });
   const caFile = join(tmp, "route-ca.pem");
   writeFileSync(caFile, CA);
   const route = async (network: { hostAddress: string }): Promise<BoxWebRouteStart> => ({
@@ -282,7 +282,7 @@ describe("the box while the story waits", () => {
       expect(readBoxRun(w.runDir)).toMatchObject({ waiting: true });
       expect(readBoxRun(w.runDir)?.finished).toBeUndefined();
       expect(w.workers.pending()).toEqual([RUN]);
-      expect(w.holds.adapterHeld(ADAPTER)).toBeNull();
+      expect(w.holds.adapterPaused(ADAPTER)).toBeNull();
       // Later passes find it resting and call nothing.
       w.log.length = 0;
       expect(await pass(w, WAITING)).toEqual([]);
@@ -330,7 +330,7 @@ describe("the box while the story waits", () => {
       expect(w.boxes.boxes.get(BOX)?.state).toBe("running");
       expect(w.workers.routeUsers).toEqual({ web: [BOX], model: [BOX] });
       expect(readBoxRun(w.runDir)?.waiting).toBeUndefined();
-      expect(w.holds.adapterHeld(ADAPTER)).toBeNull();
+      expect(w.holds.adapterPaused(ADAPTER)).toBeNull();
       // That session ends: the next stop checks the box again before it stops it.
       w.log.length = 0;
       expect(await w.workers.rest(RUN)).toMatchObject({ kind: "stopped" });

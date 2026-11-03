@@ -3,7 +3,7 @@
 // the box login with `dipo login box`; a passing launch check does not lift it, and neither does a
 // daemon restart. The record is one file in dipo's state directory:
 //
-// - the daemon writes it when it holds (`AdapterHolds` with this store as its sticky store) and
+// - the daemon writes it when it holds (`AdapterPauses` with this store as its sticky store) and
 //   reads it again on every look, so it restores the hold after a restart;
 // - `dipo login box` removes it once the new token is stored, which lifts the hold at the
 //   daemon's next look, without a daemon call.
@@ -16,10 +16,10 @@ import { join } from "node:path";
 
 import type {
   LaunchCheckFailure,
-  StickyHoldRecord,
-  StickyHoldStore,
-  StickyHolds,
-} from "../workers/hold";
+  StickyPauseRecord,
+  StickyPauseStore,
+  StickyPauses,
+} from "../run/starts-paused";
 import { BOX_TOKEN_CHECK } from "./token-check";
 
 /** The record's file name in dipo's state directory. */
@@ -47,7 +47,7 @@ function failureOf(value: unknown): LaunchCheckFailure | null {
 }
 
 /** A record that could not be read: it holds, as a check that read nothing proves nothing. */
-function unreadable(adapter: string, why: string): StickyHoldRecord {
+function unreadable(adapter: string, why: string): StickyPauseRecord {
   return {
     adapter,
     failures: [
@@ -65,7 +65,7 @@ function unreadable(adapter: string, why: string): StickyHoldRecord {
  * Reads the record at `path`: null when there is none. A record that cannot be read holds
  * `adapter`, the adapter the box ran.
  */
-export function readBoxTokenHold(path: string, adapter: string): StickyHoldRecord | null {
+export function readBoxTokenHold(path: string, adapter: string): StickyPauseRecord | null {
   let text: string;
   try {
     text = readFileSync(path, "utf8");
@@ -97,7 +97,7 @@ export function readBoxTokenHold(path: string, adapter: string): StickyHoldRecor
 }
 
 /** Writes the record at `path`, owner only, by a rename. */
-export function writeBoxTokenHold(path: string, record: StickyHoldRecord): void {
+export function writeBoxTokenHold(path: string, record: StickyPauseRecord): void {
   const temp = `${path}.tmp`;
   writeFileSync(temp, `${JSON.stringify(record)}\n`, { mode: 0o600 });
   renameSync(temp, path);
@@ -116,8 +116,8 @@ export function clearBoxTokenHold(path: string): boolean {
 }
 
 /** The box-token check as the daemon's sticky holds for `adapter`, kept in the record at `path`. */
-export function boxTokenStickyHolds(path: string, adapter: string): StickyHolds {
-  const store: StickyHoldStore = {
+export function boxTokenStickyPauses(path: string, adapter: string): StickyPauses {
+  const store: StickyPauseStore = {
     read: () => readBoxTokenHold(path, adapter),
     write: (record) => writeBoxTokenHold(path, record),
     clear: () => {

@@ -9,7 +9,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { LaunchCheckFailure } from "../hold";
+import type { LaunchCheckFailure } from "../../run/starts-paused";
 import type { LocalSettingsCopy } from "../port";
 
 /** The engine's safe list (0008 section 2). The MCP keys are inert under `--strict-mcp-config`. */

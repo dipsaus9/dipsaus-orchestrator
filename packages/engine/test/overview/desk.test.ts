@@ -935,7 +935,7 @@ describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
             since: at,
             until: null,
             lifts: "Replace the box login with dipo login box.",
-            hold: {
+            pause: {
               adapter: "claude-cli",
               check: "box-token",
               detail: "the token was found in a box",

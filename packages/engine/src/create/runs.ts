@@ -102,7 +102,7 @@ import { findRun, recordSafeChain, type StoredRun } from "../records/run-records
 import { baseStoryFacts } from "../run/resume";
 import type { Resumption } from "../run/resumption";
 import { sweepOldReviewFolders } from "../run/review-launch";
-import type { StartsPaused } from "../run/starts-paused";
+import type { AdapterPauses, StartsPaused } from "../run/starts-paused";
 import { gitStoryOps } from "../run/story-git";
 import { RunTempDirs } from "../run/temp-dirs";
 import type { StoryTestsDeps } from "../run/tests";
@@ -118,7 +118,6 @@ import { recordBranchPush, type BranchPush } from "../records/story-prs";
 import type { StoryStore } from "../story-store/store";
 import { claudeWorkerPort } from "../workers/claude-cli/adapter";
 import { CLAUDE_CLI_ADAPTER_ID } from "../workers/claude-cli/plan";
-import type { AdapterHolds } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
 import type { StoryClaims } from "../worktree/feature";
 
@@ -154,7 +153,7 @@ export interface RunsOptions {
   readonly tmpRoot: string;
   /** dipo's state folder: the box workers keep their index of unfinished boxes in it (DIPO-271). */
   readonly stateDir: string;
-  readonly holds: AdapterHolds;
+  readonly holds: AdapterPauses;
   readonly engineGit: EngineGit;
   readonly claims: StoryClaims;
   readonly offices: OfficeManager;

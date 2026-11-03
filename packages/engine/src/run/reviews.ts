@@ -61,7 +61,6 @@ import { judgeReview } from "../review/verdict";
 import { recordCrashedEnd } from "../records/agents";
 import { findStoryPr } from "../records/story-prs";
 import { withWorkViews } from "../views/work";
-import { holdMessage, type AdapterHold, type LaunchCheckFailure } from "../workers/hold";
 import type {
   HostOp,
   PlanError,
@@ -107,7 +106,12 @@ import {
   takeVerdict,
 } from "./review-rounds";
 import { endReviewPeriod, reopen, reviewedInReview, reviewPeriodStart } from "../run-state/rounds";
-import { planLimitPause } from "./starts-paused";
+import {
+  type AdapterPause,
+  type LaunchCheckFailure,
+  pauseMessage,
+  planLimitPause,
+} from "./starts-paused";
 
 /** The tags of the review rounds' intents, at the start of their detail. */
 export const REVIEW_TAGS = {
@@ -150,11 +154,11 @@ export interface ReviewsDeps {
   readonly encode: (op: SteerOp) => HostOp[];
   /** Run control; read when needed, since it is built before this. */
   readonly ender: () => RunEnder | undefined;
-  /** The adapter's id, for its hold. */
+  /** The adapter's id, for its pause. */
   readonly adapter: string;
-  /** DIPO-43's adapter hold, set for a start failure: the office's starts paused (0020). */
+  /** The adapter's pause, set for a start failure: the office's starts paused (0020). */
   readonly holds?: {
-    hold(adapter: string, failures: readonly LaunchCheckFailure[]): AdapterHold;
+    pause(adapter: string, failures: readonly LaunchCheckFailure[]): AdapterPause;
   };
   /** The office's starts paused, which a review's plan limit pauses (0020). */
   readonly startsPaused?: () => PlanLimitPauses | undefined;
@@ -382,7 +386,7 @@ export class Reviews {
       case "started":
         return true;
       case "startFailed":
-        this.#startFailed(office, run, holdMessage(outcome.hold));
+        this.#startFailed(office, run, pauseMessage(outcome.pause));
         return false;
       case "failed":
         // Refused for a park, or for a branch the park's commit moved: the round's head is
@@ -764,10 +768,10 @@ export class Reviews {
     if (tag === INTENT_TAGS.startFailed && intent !== null) {
       this.#resolve(office, view.runId, intent, "startFailed", at);
       const why = intentRest(intent.detail);
-      const hold = this.#deps.holds?.hold(this.#deps.adapter, [
+      const hold = this.#deps.holds?.pause(this.#deps.adapter, [
         { check: "start-failed", detail: why },
       ]);
-      this.#startFailed(office, run, hold === undefined ? why : holdMessage(hold));
+      this.#startFailed(office, run, hold === undefined ? why : pauseMessage(hold));
       this.#waitAgain(office, run);
       return;
     }

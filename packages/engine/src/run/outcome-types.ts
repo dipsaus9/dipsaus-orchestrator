@@ -16,7 +16,6 @@ import { z } from "zod";
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit } from "../ingest/ingestor";
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
-import { type AdapterHold, type LaunchCheckFailure } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
 import type { Caps, HostOp, ReviewReport, SteerOp, TurnProblem } from "../workers/types";
 import type { ClaimRecord } from "../worktree/records";
@@ -27,7 +26,12 @@ import { type ParkOutcome, type UnparkWriter } from "./park";
 import type { ParkStore } from "../records/park-state";
 import type { StoredRun } from "../records/run-records";
 import type { NextSession } from "./resume";
-import type { PlanLimitPause, StartsPausedState } from "./starts-paused";
+import type {
+  AdapterPause,
+  LaunchCheckFailure,
+  PlanLimitPause,
+  StartsPausedState,
+} from "./starts-paused";
 import type { StoryGit } from "./story-git";
 
 /** The tags DIPO-51 stores at the start of an intent's detail. */
@@ -302,9 +306,9 @@ export interface RunOutcomesDeps {
   readonly ender: () => RunEnder;
   /** Starts the run's next session; without it every crash parks `worker-failed`. */
   readonly resumer?: NextSession;
-  /** DIPO-43's adapter hold, set for start failures: the office's starts paused (0020). */
+  /** The adapter's pause, set for start failures: the office's starts paused (0020). */
   readonly holds?: {
-    hold(adapter: string, failures: readonly LaunchCheckFailure[]): AdapterHold;
+    pause(adapter: string, failures: readonly LaunchCheckFailure[]): AdapterPause;
   };
   /** Releases a live claim whose worker did not start (DIPO-74's release). */
   readonly release?: (office: OfficeId, claim: ClaimRecord, reason: string) => Promise<void>;

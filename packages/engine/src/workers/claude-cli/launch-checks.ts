@@ -9,7 +9,7 @@
 
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
-import { gateLaunch, type AdapterHold, type AdapterHolds, type LaunchCheckOutcome } from "../hold";
+import type { AdapterPause, AdapterPauses, LaunchCheckOutcome } from "../../run/starts-paused";
 import type { LaunchPlan, WorkerSpec } from "../types";
 import { CLAUDE_CLI_ADAPTER_ID, kindContext, plan, type ClaudeLaunchContext } from "./plan";
 import { probe } from "./probe";
@@ -51,23 +51,23 @@ export async function claudeLaunchChecks(
 
 export type PreparedLaunch =
   | { readonly ok: true; readonly plan: LaunchPlan }
-  | { readonly ok: false; readonly outcome: "startFailed"; readonly hold: AdapterHold };
+  | { readonly ok: false; readonly outcome: "startFailed"; readonly pause: AdapterPause };
 
 /**
  * Plans a session's launch and runs the launch checks first. Throws `PlanError` when the spec
- * cannot be planned, a developer's or reviewer's included (each runs only in a box). A failed check holds the
- * adapter in every office; a pass lifts the hold.
+ * cannot be planned, a developer's or reviewer's included (each runs only in a box). A failed check pauses the
+ * adapter in every office; a pass lifts the pause.
  */
 export async function prepareLaunch(
   spec: WorkerSpec,
   launchContext: ClaudeLaunchContext,
-  holds: AdapterHolds,
+  holds: AdapterPauses,
   deps: ClaudeLaunchCheckDeps,
 ): Promise<PreparedLaunch> {
   // A session allows no plugin; its checks run with its plan's context.
   const ctx = kindContext(spec, launchContext);
   const launch = plan(spec, ctx);
-  const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, () =>
+  const gate = await holds.gateLaunch(CLAUDE_CLI_ADAPTER_ID, () =>
     claudeLaunchChecks(spec, launch, deps),
   );
   return gate.ok ? { ok: true, plan: launch } : gate;

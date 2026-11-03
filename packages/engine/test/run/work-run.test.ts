@@ -62,7 +62,7 @@ import { endRun, findRun, hasActiveRun, insertRun, runSteps, type NewRun } from 
 import type { StoredRun } from "../../src/records/run-records";
 import { SoftwareStream } from "../../src/software-stream";
 import { addStory } from "../../src/records/story-keys";
-import { AdapterHolds } from "../../src/workers/hold";
+import { AdapterPauses } from "../../src/run/starts-paused";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { ClaimOutcome, ClaimRequest } from "../../src/worktree/claim";
 import { insertClaim } from "../../src/worktree/records";
@@ -125,7 +125,7 @@ interface World {
   readonly claims: ClaimRequest[];
   readonly gates: { key: StoryKey; mode: GateMode; inQueue: boolean; inSession: boolean }[];
   readonly lane: { journaled: LaneOp[]; flushes: number };
-  readonly holds: AdapterHolds;
+  readonly holds: AdapterPauses;
   config: OfficeConfig;
   configErrors: { message: string }[];
   statuses: string | null;
@@ -169,7 +169,7 @@ beforeEach(async () => {
   const claims: ClaimRequest[] = [];
   const gates: World["gates"] = [];
   const lane = { journaled: [] as LaneOp[], flushes: 0 };
-  const holds = new AdapterHolds({ clock: t.clock, notify: () => undefined });
+  const holds = new AdapterPauses({ clock: t.clock, notify: () => undefined });
   const resumeStarts: string[] = [];
   const places = new Places({
     clock: t.clock,
@@ -712,7 +712,7 @@ describe("work.run refusals", () => {
     });
     world.configErrors = [];
 
-    world.holds.hold("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
+    world.holds.pause("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
     const held = await codeOf();
     expect(held).toMatchObject({ code: "run.refused", details: { check: "adapter" } });
     expect(held.message).toStartWith(

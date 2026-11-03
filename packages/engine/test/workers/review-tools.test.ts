@@ -18,7 +18,7 @@ import { BOX_CLAUDE, planInBox } from "../../src/workers/claude-cli/box-plan";
 import { plan, REVIEWER_ON_MAC_REFUSED } from "../../src/workers/claude-cli/plan";
 import { REVIEW_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
 import { allowedTools, REVIEW_TOOLS } from "../../src/workers/claude-cli/tools";
-import { AdapterHolds } from "../../src/workers/hold";
+import { AdapterPauses } from "../../src/run/starts-paused";
 import type { RunLaunchPaths } from "../../src/workers/port";
 import { PlanError, type WorkerSpec } from "../../src/workers/types";
 import { FAKE_CONTAINER, FakeBoxes } from "../box/fake-boxes";
@@ -164,7 +164,7 @@ describe("the reviewer's box session (0002, 0008)", () => {
 
 describe("the adapter's reviewer launch (DIPO-347)", () => {
   const clock = new ManualClock();
-  const port = (holds: AdapterHolds) =>
+  const port = (holds: AdapterPauses) =>
     claudeWorkerPort({
       claudePath: `${HOME}/.local/bin/claude`,
       home: HOME,
@@ -178,7 +178,7 @@ describe("the adapter's reviewer launch (DIPO-347)", () => {
     });
 
   it("plans it only in the box its caller made, with no Mac launch check", async () => {
-    const holds = new AdapterHolds({ clock, notify: () => {} });
+    const holds = new AdapterPauses({ clock, notify: () => {} });
     const id = "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
     const prepared = await port(holds).prepare(
       reviewSpec(),

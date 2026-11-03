@@ -14,7 +14,7 @@ import { createReadStream } from "node:fs";
 import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { AdapterHold, AdapterHolds, LaunchCheckFailure } from "../workers/hold";
+import type { AdapterPause, AdapterPauses, LaunchCheckFailure } from "../run/starts-paused";
 import { BoxError, type BoxPort } from "./port";
 import type { TokenMatcher } from "./token";
 
@@ -216,7 +216,7 @@ export function tokenCheckFailure(result: BoxTokenCheck, name: string): LaunchCh
 }
 
 export interface TokenHoldDeps extends TokenCheckDeps {
-  readonly holds: Pick<AdapterHolds, "hold">;
+  readonly holds: Pick<AdapterPauses, "pause">;
   /** The adapter the box ran, for example the Claude worker's. */
   readonly adapter: string;
 }
@@ -230,8 +230,8 @@ export interface TokenHoldDeps extends TokenCheckDeps {
 export async function checkBoxAfterRun(
   deps: TokenHoldDeps,
   name: string,
-): Promise<{ readonly result: BoxTokenCheck; readonly hold: AdapterHold | null }> {
+): Promise<{ readonly result: BoxTokenCheck; readonly hold: AdapterPause | null }> {
   const result = await checkBoxForToken(deps, name);
   const failure = tokenCheckFailure(result, name);
-  return { result, hold: failure === null ? null : deps.holds.hold(deps.adapter, [failure]) };
+  return { result, hold: failure === null ? null : deps.holds.pause(deps.adapter, [failure]) };
 }

@@ -95,7 +95,7 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import type { OfficeGit } from "../git/office";
 import { ensurePrivateDir } from "../platform/paths";
 import { type SafeChainFound, uniqueFound } from "../prompts/safe-chain";
-import { type AdapterHolds, holdMessage } from "../workers/hold";
+import type { AdapterPauses } from "../run/starts-paused";
 import { ensureBoxImage } from "./build-box";
 import {
   type BaseLockfile,
@@ -361,7 +361,7 @@ export interface BoxWorkersDeps {
    * The adapter holds: the post-run token check holds through them, and a sticky hold (the
    * box-token hold) refuses a new box before anything is made.
    */
-  readonly holds: Pick<AdapterHolds, "hold" | "adapterHeld">;
+  readonly holds: Pick<AdapterPauses, "pause" | "adapterPaused" | "message">;
   /** The adapter the boxes run, for its hold. */
   readonly adapter: string;
   /** dipo's temp root: code and file stages, token check exports. */
@@ -845,8 +845,9 @@ export class BoxWorkers {
     readonly code?: string;
   }): Promise<BoxMade> {
     const { boxes } = this.#deps;
-    const held = this.#deps.holds.adapterHeld(this.#deps.adapter);
-    if (held?.liftedBy !== undefined) throw new BoxError("box.held", holdMessage(held));
+    const held = this.#deps.holds.adapterPaused(this.#deps.adapter);
+    if (held?.liftedBy !== undefined)
+      throw new BoxError("box.held", this.#deps.holds.message(held));
     const check = await boxes.check();
     if (!check.ok) throw new BoxError("box.unavailable", `boxes cannot run here: ${check.reason}`);
     const base = await this.#deps.readBaseBox(input.git);
@@ -1013,8 +1014,9 @@ export class BoxWorkers {
     readonly systemFile: string;
   }): Promise<BoxSession> {
     const { boxes } = this.#deps;
-    const held = this.#deps.holds.adapterHeld(this.#deps.adapter);
-    if (held?.liftedBy !== undefined) throw new BoxError("box.held", holdMessage(held));
+    const held = this.#deps.holds.adapterPaused(this.#deps.adapter);
+    if (held?.liftedBy !== undefined)
+      throw new BoxError("box.held", this.#deps.holds.message(held));
     const check = await boxes.check();
     if (!check.ok) throw new BoxError("box.unavailable", `boxes cannot run here: ${check.reason}`);
     const base = await this.#deps.readBaseBox(input.git);
@@ -1431,7 +1433,7 @@ export class BoxWorkers {
           name,
         );
         try {
-          if (failure !== null) this.#deps.holds.hold(this.#deps.adapter, [failure]);
+          if (failure !== null) this.#deps.holds.pause(this.#deps.adapter, [failure]);
         } catch (holdError) {
           this.#deps.warn?.("holding after a failed box run end failed", {
             run: runId,

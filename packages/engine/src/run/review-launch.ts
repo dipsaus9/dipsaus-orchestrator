@@ -54,7 +54,7 @@ import { recordAgent } from "../records/agents";
 import { setProcessedOffset } from "../records/worker-hosts";
 import { branchTip } from "../git/write";
 import { withWorkViews } from "../views/work";
-import type { AdapterHold } from "../workers/hold";
+import type { AdapterPause } from "./starts-paused";
 import type { WorkerPort } from "../workers/port";
 import { PlanError, type Caps } from "../workers/types";
 
@@ -251,7 +251,7 @@ export interface ReviewSessionRequest {
 export type ReviewSessionOutcome =
   | { readonly kind: "started"; readonly agent: AgentId }
   /** A launch check refused the session; the adapter hold is set. */
-  | { readonly kind: "startFailed"; readonly hold: AdapterHold }
+  | { readonly kind: "startFailed"; readonly pause: AdapterPause }
   | {
       readonly kind: "failed";
       readonly reason: string;
@@ -557,7 +557,7 @@ export class ReviewLauncher implements ReviewSessions {
         planRefused: error,
       };
     }
-    if (!prepared.ok) return { kind: "startFailed", hold: prepared.hold };
+    if (!prepared.ok) return { kind: "startFailed", pause: prepared.pause };
     // Right before the session (DIPO-346 review): a park that landed while the box was made starts
     // no reviewer.
     if (request.held?.() === true) {

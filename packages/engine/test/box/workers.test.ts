@@ -100,7 +100,7 @@ import {
 import type { SafeChainFound, SafeChainUnknown } from "../../src/prompts/safe-chain";
 import { SecretToken } from "../../src/box/token";
 import { BOX_TOKEN_CHECK } from "../../src/box/token-check";
-import { boxTokenHoldPath, boxTokenStickyHolds } from "../../src/box/token-hold";
+import { boxTokenHoldPath, boxTokenStickyPauses } from "../../src/box/token-hold";
 import { type BoxWebRouteStart, RegistryTunnels } from "../../src/box/web-proxy";
 import {
   BOX_CA_FILE,
@@ -123,7 +123,7 @@ import { BoxParts, type BoxPartsDeps } from "../../src/box/parts";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
-import { AdapterHolds, type HoldNotice } from "../../src/workers/hold";
+import { AdapterPauses, type PauseNotice } from "../../src/run/starts-paused";
 import {
   BOX_HOST_ADDRESS,
   FAKE_STATE_LABEL,
@@ -175,8 +175,8 @@ interface World {
   readonly boxes: FakeBoxes;
   readonly workers: BoxWorkers;
   readonly log: string[];
-  readonly holds: AdapterHolds;
-  readonly notices: HoldNotice[];
+  readonly holds: AdapterPauses;
+  readonly notices: PauseNotice[];
   readonly warnings: { message: string; fields: Readonly<Record<string, unknown>> }[];
   /** The info lines the box workers logged (DIPO-419). */
   readonly infos: { message: string; fields: Readonly<Record<string, unknown>> }[];
@@ -275,12 +275,12 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     log,
     images: [...(options.boxes?.images ?? []), ...(options.build === true ? [] : [tag])],
   });
-  const notices: HoldNotice[] = [];
-  const holds = new AdapterHolds({
+  const notices: PauseNotice[] = [];
+  const holds = new AdapterPauses({
     clock: new ManualClock(),
     notify: (notice) => notices.push(notice),
     ...(options.sticky === true
-      ? { sticky: boxTokenStickyHolds(boxTokenHoldPath(tmp), ADAPTER) }
+      ? { sticky: boxTokenStickyPauses(boxTokenHoldPath(tmp), ADAPTER) }
       : {}),
   });
   const caFile = join(tmp, "route-ca.pem");
@@ -710,7 +710,7 @@ describe("the box of a box run (criteria 4 and 10)", () => {
   it("refuses a new box while the box-token hold stands, before anything is made (criterion 8)", () =>
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp, { sticky: true });
-      w.holds.hold(ADAPTER, [{ check: BOX_TOKEN_CHECK, detail: "the token was found" }]);
+      w.holds.pause(ADAPTER, [{ check: BOX_TOKEN_CHECK, detail: "the token was found" }]);
       const error = (await created(w).catch((e: unknown) => e)) as BoxError;
       expect(error.code).toBe("box.held");
       expect(w.log).toEqual([]);
@@ -742,7 +742,7 @@ describe("the end of a box run (criterion 9)", () => {
         "web route stopped",
         "model proxy stopped",
       ]);
-      expect(w.holds.adapterHeld(ADAPTER)).toBeNull();
+      expect(w.holds.adapterPaused(ADAPTER)).toBeNull();
       expect(readBoxRun(w.runDir)?.finished).toBe(true);
       expect(w.workers.pending()).toEqual([]);
       // A later session of the run has no box: `BoxLifetime.ensure` rebuilds it first (DIPO-278).
@@ -761,7 +761,7 @@ describe("the end of a box run (criterion 9)", () => {
       await created(w);
       const finished = await w.workers.finish(RUN);
       expect(finished).toMatchObject({ kind: "checked", check: { code: "box.tokenFound" } });
-      const hold = w.holds.adapterHeld(ADAPTER);
+      const hold = w.holds.adapterPaused(ADAPTER);
       expect(hold?.check).toBe(BOX_TOKEN_CHECK);
       expect(hold?.liftedBy).toBeDefined();
       expect(existsSync(boxTokenHoldPath(tmp))).toBe(true);
@@ -788,7 +788,7 @@ describe("the end of a box run (criterion 9)", () => {
       await created(w);
       const finished = await w.workers.finish(RUN);
       expect(finished.kind).toBe("failed");
-      const hold = w.holds.adapterHeld(ADAPTER);
+      const hold = w.holds.adapterPaused(ADAPTER);
       expect(hold?.check).toBe(BOX_TOKEN_CHECK);
       expect(hold?.detail).toContain("(token.missing)");
       expect(w.boxes.boxes.has(BOX)).toBe(true);
@@ -1050,7 +1050,7 @@ describe("daemon stop (criterion 6)", () => {
         },
         readBaseBox: async () => ({ ok: false, errors: [] }),
         code: { spawn: systemSpawn, clock: systemClock },
-        holds: new AdapterHolds({ clock: new ManualClock(), notify: () => {} }),
+        holds: new AdapterPauses({ clock: new ManualClock(), notify: () => {} }),
         adapter: ADAPTER,
         tmpRoot: tmp,
         indexDir: join(tmp, "state", BOX_INDEX_DIR),
@@ -2366,7 +2366,7 @@ describe("the reviewer's box (0002, DIPO-347)", () => {
   it("is refused while the box-token hold is set", () =>
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp, { sticky: true });
-      w.holds.hold(ADAPTER, [{ check: BOX_TOKEN_CHECK, detail: "the token was found" }]);
+      w.holds.pause(ADAPTER, [{ check: BOX_TOKEN_CHECK, detail: "the token was found" }]);
       const error = (await reviewed(w).catch((e: unknown) => e)) as BoxError;
       expect(error.code).toBe("box.held");
       expect(w.log).toEqual([]);

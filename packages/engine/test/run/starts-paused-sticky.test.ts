@@ -13,18 +13,17 @@ import { BOX_TOKEN_CHECK, tokenCheckFailure } from "../../src/box/token-check";
 import {
   BOX_TOKEN_LIFTED_BY,
   boxTokenHoldPath,
-  boxTokenStickyHolds,
+  boxTokenStickyPauses,
   clearBoxTokenHold,
   readBoxTokenHold,
 } from "../../src/box/token-hold";
 import {
-  AdapterHolds,
-  gateLaunch,
-  type HoldNotice,
-  holdMessage,
+  AdapterPauses,
+  type PauseNotice,
+  pauseMessage,
   type LaunchCheckFailure,
-  type StickyHoldRecord,
-} from "../../src/workers/hold";
+  type StickyPauseRecord,
+} from "../../src/run/starts-paused";
 
 const ADAPTER = "claude-cli";
 const FOUND: LaunchCheckFailure = tokenCheckFailure(
@@ -33,11 +32,11 @@ const FOUND: LaunchCheckFailure = tokenCheckFailure(
 ) as LaunchCheckFailure;
 const PROBE: LaunchCheckFailure = { check: "probe", detail: "claude did not answer" };
 
-function holdsAt(path: string, notices: HoldNotice[] = []): AdapterHolds {
-  return new AdapterHolds({
+function holdsAt(path: string, notices: PauseNotice[] = []): AdapterPauses {
+  return new AdapterPauses({
     clock: new ManualClock(),
     notify: (notice) => notices.push(notice),
-    sticky: boxTokenStickyHolds(path, ADAPTER),
+    sticky: boxTokenStickyPauses(path, ADAPTER),
   });
 }
 
@@ -45,15 +44,15 @@ describe("the sticky box-token hold", () => {
   it("is not lifted by a passing launch check, which still refuses the launch", () =>
     withTempDir(async (dir) => {
       const holds = holdsAt(boxTokenHoldPath(dir));
-      holds.hold(ADAPTER, [FOUND]);
-      const gate = await gateLaunch(ADAPTER, holds, async () => ({ ok: true }));
+      holds.pause(ADAPTER, [FOUND]);
+      const gate = await holds.gateLaunch(ADAPTER, async () => ({ ok: true }));
       expect(gate.ok).toBe(false);
       if (gate.ok) return;
-      expect(gate.hold.check).toBe(BOX_TOKEN_CHECK);
+      expect(gate.pause.check).toBe(BOX_TOKEN_CHECK);
       expect(holds.lift(ADAPTER)).toBe(false);
-      expect(holds.adapterHeld(ADAPTER)?.check).toBe(BOX_TOKEN_CHECK);
+      expect(holds.adapterPaused(ADAPTER)?.check).toBe(BOX_TOKEN_CHECK);
       // The refusal says how it is lifted, not "repeat the launch checks".
-      const text = holdMessage(holds.adapterHeld(ADAPTER)!);
+      const text = pauseMessage(holds.adapterPaused(ADAPTER)!);
       expect(text).toContain(BOX_TOKEN_LIFTED_BY);
       expect(text).not.toContain("the hold lifts when they pass");
     }));
@@ -61,15 +60,15 @@ describe("the sticky box-token hold", () => {
   it("drops only the other failures when the launch checks pass", () =>
     withTempDir(async (dir) => {
       const holds = holdsAt(boxTokenHoldPath(dir));
-      holds.hold(ADAPTER, [PROBE, FOUND]);
+      holds.pause(ADAPTER, [PROBE, FOUND]);
       expect(holds.lift(ADAPTER)).toBe(false);
-      expect(holds.adapterHeld(ADAPTER)?.failures).toEqual([FOUND]);
+      expect(holds.adapterPaused(ADAPTER)?.failures).toEqual([FOUND]);
     }));
 
   it("is kept in its record, restored after a restart, and lifted when dipo login box removes it", () =>
     withTempDir(async (dir) => {
       const path = boxTokenHoldPath(dir);
-      holdsAt(path).hold(ADAPTER, [FOUND]);
+      holdsAt(path).pause(ADAPTER, [FOUND]);
       expect(readBoxTokenHold(path, ADAPTER)).toMatchObject({
         adapter: ADAPTER,
         failures: [FOUND],
@@ -78,27 +77,27 @@ describe("the sticky box-token hold", () => {
       expect(readFileSync(path, "utf8")).not.toContain("setup-token-value");
 
       // A new daemon: the hold is back before any launch check runs.
-      const notices: HoldNotice[] = [];
+      const notices: PauseNotice[] = [];
       const restarted = holdsAt(path, notices);
-      expect(restarted.adapterHeld(ADAPTER)?.check).toBe(BOX_TOKEN_CHECK);
-      expect(notices.map((notice) => notice.code)).toEqual(["adapter.held"]);
-      const gate = await gateLaunch(ADAPTER, restarted, async () => ({ ok: true }));
+      expect(restarted.adapterPaused(ADAPTER)?.check).toBe(BOX_TOKEN_CHECK);
+      expect(notices.map((notice) => notice.code)).toEqual(["starts.paused"]);
+      const gate = await restarted.gateLaunch(ADAPTER, async () => ({ ok: true }));
       expect(gate.ok).toBe(false);
 
       // `dipo login box` replaced the token and removed the record (another process).
       expect(clearBoxTokenHold(path)).toBe(true);
-      expect(restarted.adapterHeld(ADAPTER)).toBeNull();
-      expect(notices.at(-1)).toMatchObject({ code: "adapter.released", level: "info" });
-      expect((await gateLaunch(ADAPTER, restarted, async () => ({ ok: true }))).ok).toBe(true);
+      expect(restarted.adapterPaused(ADAPTER)).toBeNull();
+      expect(notices.at(-1)).toMatchObject({ code: "starts.resumed", level: "info" });
+      expect((await restarted.gateLaunch(ADAPTER, async () => ({ ok: true }))).ok).toBe(true);
     }));
 
   it("is lifted by liftSticky, which also clears the record", () =>
     withTempDir(async (dir) => {
       const path = boxTokenHoldPath(dir);
       const holds = holdsAt(path);
-      holds.hold(ADAPTER, [FOUND]);
+      holds.pause(ADAPTER, [FOUND]);
       expect(holds.liftSticky(ADAPTER)).toBe(true);
-      expect(holds.adapterHeld(ADAPTER)).toBeNull();
+      expect(holds.adapterPaused(ADAPTER)).toBeNull();
       expect(existsSync(path)).toBe(false);
     }));
 
@@ -107,14 +106,14 @@ describe("the sticky box-token hold", () => {
       const path = boxTokenHoldPath(dir);
       writeFileSync(path, "{ not json");
       const holds = holdsAt(path);
-      expect(holds.adapterHeld(ADAPTER)?.check).toBe(BOX_TOKEN_CHECK);
+      expect(holds.adapterPaused(ADAPTER)?.check).toBe(BOX_TOKEN_CHECK);
       writeFileSync(path, JSON.stringify({ adapter: ADAPTER, failures: [] }));
       expect(readBoxTokenHold(path, ADAPTER)?.failures[0]?.check).toBe(BOX_TOKEN_CHECK);
     }));
 
   it("holds in memory first and keeps holding when its record cannot be written", async () => {
     const warnings: string[] = [];
-    const holds = new AdapterHolds({
+    const holds = new AdapterPauses({
       clock: new ManualClock(),
       notify: () => {},
       sticky: {
@@ -130,19 +129,19 @@ describe("the sticky box-token hold", () => {
       },
       warn: (message) => warnings.push(message),
     });
-    expect(holds.hold(ADAPTER, [FOUND]).check).toBe(BOX_TOKEN_CHECK);
+    expect(holds.pause(ADAPTER, [FOUND]).check).toBe(BOX_TOKEN_CHECK);
     expect(warnings).toEqual(["the sticky hold record could not be written; the hold stays"]);
     // No record does not mean "lifted" here: the launch is still refused.
-    expect(holds.adapterHeld(ADAPTER)?.check).toBe(BOX_TOKEN_CHECK);
-    expect((await gateLaunch(ADAPTER, holds, async () => ({ ok: true }))).ok).toBe(false);
+    expect(holds.adapterPaused(ADAPTER)?.check).toBe(BOX_TOKEN_CHECK);
+    expect((await holds.gateLaunch(ADAPTER, async () => ({ ok: true }))).ok).toBe(false);
     expect(holds.liftSticky(ADAPTER)).toBe(true);
-    expect(holds.adapterHeld(ADAPTER)).toBeNull();
+    expect(holds.adapterPaused(ADAPTER)).toBeNull();
   });
 
   it("keeps an unrecorded sticky hold under a later non-sticky hold, and records it on a later look", async () => {
-    let record: StickyHoldRecord | null = null;
+    let record: StickyPauseRecord | null = null;
     let writable = false;
-    const holds = new AdapterHolds({
+    const holds = new AdapterPauses({
       clock: new ManualClock(),
       notify: () => {},
       sticky: {
@@ -160,30 +159,30 @@ describe("the sticky box-token hold", () => {
         },
       },
     });
-    holds.hold(ADAPTER, [FOUND]);
+    holds.pause(ADAPTER, [FOUND]);
     expect(record).toBeNull();
     // A later hold of another check does not replace the sticky failure ...
-    const later = holds.hold(ADAPTER, [PROBE]);
+    const later = holds.pause(ADAPTER, [PROBE]);
     expect(later.failures).toEqual([FOUND, PROBE]);
     expect(later.liftedBy).toBe(BOX_TOKEN_LIFTED_BY);
     // ... so a passing launch check lifts only the other failure.
-    expect((await gateLaunch(ADAPTER, holds, async () => ({ ok: true }))).ok).toBe(false);
-    expect(holds.adapterHeld(ADAPTER)?.failures).toEqual([FOUND]);
+    expect((await holds.gateLaunch(ADAPTER, async () => ({ ok: true }))).ok).toBe(false);
+    expect(holds.adapterPaused(ADAPTER)?.failures).toEqual([FOUND]);
     // The record is written once the store takes it again, at the next look.
     writable = true;
-    expect(holds.adapterHeld(ADAPTER)?.check).toBe(BOX_TOKEN_CHECK);
+    expect(holds.adapterPaused(ADAPTER)?.check).toBe(BOX_TOKEN_CHECK);
     expect(record).toMatchObject({ adapter: ADAPTER, failures: [FOUND] });
     // From then on the record decides: `dipo login box` removing it lifts the hold.
     record = null;
-    expect(holds.adapterHeld(ADAPTER)).toBeNull();
+    expect(holds.adapterPaused(ADAPTER)).toBeNull();
   });
 
   it("leaves other holds as they were: a passing launch check lifts them", () =>
     withTempDir(async (dir) => {
       const holds = holdsAt(join(dir, "box-token-hold.json"));
-      holds.hold(ADAPTER, [PROBE]);
+      holds.pause(ADAPTER, [PROBE]);
       expect(existsSync(join(dir, "box-token-hold.json"))).toBe(false);
-      expect((await gateLaunch(ADAPTER, holds, async () => ({ ok: true }))).ok).toBe(true);
-      expect(holds.adapterHeld(ADAPTER)).toBeNull();
+      expect((await holds.gateLaunch(ADAPTER, async () => ({ ok: true }))).ok).toBe(true);
+      expect(holds.adapterPaused(ADAPTER)).toBeNull();
     }));
 });

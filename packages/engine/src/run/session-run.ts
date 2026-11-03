@@ -211,7 +211,7 @@ export class SessionRuns implements ScanSessionRunner {
       return {
         kind: "failed",
         runId: null,
-        reason: `a launch check holds the adapter: ${prepared.hold.failures.map((f) => f.detail).join("; ")}`,
+        reason: `a launch check holds the adapter: ${prepared.pause.failures.map((f) => f.detail).join("; ")}`,
       };
     }
 

@@ -14,7 +14,7 @@
 //   it carries an unread steer (DIPO-412). The caller passes no text of its own.
 // - The launch checks run again before every launch (`WorkerPort.prepare`), with the
 //   office's resolved verify for the verify tools check (DIPO-173); a refused check is
-//   `startFailed` with the adapter hold set, a refused verify tool `failed` with the plan's
+//   `startFailed` with the adapter's pause set, a refused verify tool `failed` with the plan's
 //   refusal and no hold, and the caller decides what follows.
 // - Caps: the CLI's own caps get what remains of the run's budget, turns and minutes (at least
 //   one each); run control keeps tracking the run's own caps from the original start.
@@ -61,7 +61,7 @@ import { renderSystemFile } from "../prompts/system";
 import maintainerNoteTemplate from "../prompts/feedback/maintainer-note.md" with { type: "text" };
 import { renderTemplate } from "../prompts/templates";
 import { withWorkViews } from "../views/work";
-import type { AdapterHold } from "../workers/hold";
+import type { AdapterPause } from "./starts-paused";
 import type { WorkerPort } from "../workers/port";
 import { PlanError, type Caps, type ParseState, type WorkerReport } from "../workers/types";
 import { branchTip } from "../git/write";
@@ -224,7 +224,7 @@ export interface NextSessionRequest {
 
 export type NextSessionOutcome =
   | { readonly kind: "started"; readonly agent: AgentId }
-  | { readonly kind: "startFailed"; readonly hold: AdapterHold }
+  | { readonly kind: "startFailed"; readonly pause: AdapterPause }
   /**
    * An earlier host of the run still runs after the wait (0006 decision 8): nothing started. The
    * code is 0005's retryable `run.hostAlive`.
@@ -392,7 +392,7 @@ export class RunResumer implements NextSession {
           : messageOf(error);
       return { kind: "failed", reason: why };
     }
-    if (!prepared.ok) return { kind: "startFailed", hold: prepared.hold };
+    if (!prepared.ok) return { kind: "startFailed", pause: prepared.pause };
 
     // Never a new host while an earlier host of the run still runs (0006 decision 8).
     const alive = await this.#earlierHostAlive(office, run.runId);

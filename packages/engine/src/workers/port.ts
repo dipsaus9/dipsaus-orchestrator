@@ -5,7 +5,7 @@
 
 import type { BoxSession } from "../box/workers";
 import type { OfficeConfig } from "../config";
-import type { AdapterHold } from "./hold";
+import type { AdapterPause } from "../run/starts-paused";
 import type {
   ExitRecord,
   HostOp,
@@ -48,7 +48,7 @@ export interface VerifyCommands {
 
 export type PreparedWorker =
   | { readonly ok: true; readonly plan: LaunchPlan }
-  | { readonly ok: false; readonly outcome: "startFailed"; readonly hold: AdapterHold };
+  | { readonly ok: false; readonly outcome: "startFailed"; readonly pause: AdapterPause };
 
 /**
  * The adapter's local settings file that worktree setup copies from the main checkout, filtered

@@ -25,7 +25,7 @@ import {
 import { BOX_CLAUDE, BOX_CLAUDE_ENV, planInBox } from "../../src/workers/claude-cli/box-plan";
 import { userMessageLine } from "../../src/workers/claude-cli/encode";
 import { initialState } from "../../src/workers/claude-cli/interpret";
-import { AdapterHolds, type StickyHoldStore } from "../../src/workers/hold";
+import { AdapterPauses, type StickyPauseStore } from "../../src/run/starts-paused";
 import type { RunLaunchPaths } from "../../src/workers/port";
 import { PlanError, type HostLine, type ParseState } from "../../src/workers/types";
 import { FAKE_CLIENT_ENV, FAKE_CONTAINER, FakeBoxes } from "../box/fake-boxes";
@@ -177,7 +177,7 @@ const neverSpawn = () => {
   throw new Error("no Mac launch check may run for a box worker");
 };
 
-function port(boxes: ClaudeBoxWorkers, holds: AdapterHolds) {
+function port(boxes: ClaudeBoxWorkers, holds: AdapterPauses) {
   return claudeWorkerPort({
     claudePath: `${HOME}/.local/bin/claude`,
     home: HOME,
@@ -193,7 +193,7 @@ function port(boxes: ClaudeBoxWorkers, holds: AdapterHolds) {
 describe("the Claude worker port with box workers", () => {
   it("prepares a box run's developer session in its box, with none of the Mac launch checks", async () => {
     const asked: unknown[] = [];
-    const holds = new AdapterHolds({ clock, notify: () => {} });
+    const holds = new AdapterPauses({ clock, notify: () => {} });
     const prepared = await port(
       {
         isBoxRun: (runDir) => runDir === RUN_DIR,
@@ -214,8 +214,8 @@ describe("the Claude worker port with box workers", () => {
   });
 
   it("refuses a box run's launch while the sticky box-token hold stands, before the box is used", async () => {
-    let record: ReturnType<StickyHoldStore["read"]> = null;
-    const holds = new AdapterHolds({
+    let record: ReturnType<StickyPauseStore["read"]> = null;
+    const holds = new AdapterPauses({
       clock,
       notify: () => {},
       sticky: {
@@ -232,7 +232,7 @@ describe("the Claude worker port with box workers", () => {
         },
       },
     });
-    holds.hold("claude-cli", [{ check: BOX_TOKEN_CHECK, detail: "the token was found" }]);
+    holds.pause("claude-cli", [{ check: BOX_TOKEN_CHECK, detail: "the token was found" }]);
     let used = false;
     const prepared = await port(
       {
@@ -247,13 +247,13 @@ describe("the Claude worker port with box workers", () => {
     expect(prepared).toMatchObject({
       ok: false,
       outcome: "startFailed",
-      hold: { check: BOX_TOKEN_CHECK },
+      pause: { check: BOX_TOKEN_CHECK },
     });
     expect(used).toBe(false);
   });
 
   it("holds the adapter when the box cannot be made ready, and refuses a run whose box is gone as a plan", async () => {
-    const holds = new AdapterHolds({ clock, notify: () => {} });
+    const holds = new AdapterPauses({ clock, notify: () => {} });
     const broken = await port(
       {
         isBoxRun: () => true,
@@ -263,8 +263,8 @@ describe("the Claude worker port with box workers", () => {
       },
       holds,
     ).prepare(spec(), PATHS, OFFICE_DEFAULTS, "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
-    expect(broken).toMatchObject({ ok: false, hold: { check: "box" } });
-    expect(holds.adapterHeld("claude-cli")?.detail).toContain("container system is not running");
+    expect(broken).toMatchObject({ ok: false, pause: { check: "box" } });
+    expect(holds.adapterPaused("claude-cli")?.detail).toContain("container system is not running");
 
     const gone = port(
       {
@@ -273,13 +273,13 @@ describe("the Claude worker port with box workers", () => {
           throw new BoxError("box.gone", "the box was deleted when the run ended");
         },
       },
-      new AdapterHolds({ clock, notify: () => {} }),
+      new AdapterPauses({ clock, notify: () => {} }),
     ).prepare(spec(), PATHS, OFFICE_DEFAULTS, "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
     expect(await gone.catch((error: unknown) => error)).toBeInstanceOf(PlanError);
   });
 
   it("refuses a session that waited too long for its box's rest through the start failure path (DIPO-278)", async () => {
-    const holds = new AdapterHolds({ clock, notify: () => {} });
+    const holds = new AdapterPauses({ clock, notify: () => {} });
     const waited = await port(
       {
         isBoxRun: () => true,
@@ -292,12 +292,12 @@ describe("the Claude worker port with box workers", () => {
       },
       holds,
     ).prepare(spec(), PATHS, OFFICE_DEFAULTS, "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
-    expect(waited).toMatchObject({ ok: false, outcome: "startFailed", hold: { check: "box" } });
-    expect(holds.adapterHeld("claude-cli")?.detail).toContain("the session did not start");
+    expect(waited).toMatchObject({ ok: false, outcome: "startFailed", pause: { check: "box" } });
+    expect(holds.adapterPaused("claude-cli")?.detail).toContain("the session did not start");
   });
 
   it("never plans a developer session on the Mac: a run without a box, or a daemon without box workers, is refused as a plan (DIPO-240)", async () => {
-    const holds = new AdapterHolds({ clock, notify: () => {} });
+    const holds = new AdapterPauses({ clock, notify: () => {} });
     const noBox = port({ isBoxRun: () => false, session: async () => session() }, holds);
     const refused = await noBox
       .prepare(spec(), PATHS, OFFICE_DEFAULTS, "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d")
@@ -316,13 +316,13 @@ describe("the Claude worker port with box workers", () => {
       .prepare(spec(), PATHS, OFFICE_DEFAULTS, "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d")
       .catch((error: unknown) => error);
     expect((without as PlanError).message).toContain("this daemon has no box backend");
-    expect(holds.adapterHeld("claude-cli")).toBeNull();
+    expect(holds.adapterPaused("claude-cli")).toBeNull();
   });
 
   it("shows the dry run the command Claude Code runs in the box, with placeholders (DIPO-240)", () => {
     const preview = port(
       { isBoxRun: () => false, session: async () => session() },
-      new AdapterHolds({ clock, notify: () => {} }),
+      new AdapterPauses({ clock, notify: () => {} }),
     ).previewBox?.(spec(), PATHS);
     expect(preview?.argv[0]).toBe(BOX_CLAUDE);
     expect(preview?.argv).toContain("bypassPermissions");
@@ -374,7 +374,7 @@ describe("the box's placeholder key at system/init", () => {
   });
 
   it("is accepted for every reviewer, whose session runs in its box, with or without the run's box record (DIPO-347)", () => {
-    const holds = new AdapterHolds({ clock, notify: () => {} });
+    const holds = new AdapterPauses({ clock, notify: () => {} });
     for (const boxRun of [true, false]) {
       const claude = port({ isBoxRun: () => boxRun, session: async () => session() }, holds);
       const adapter = claude.adapter(PATHS, OFFICE_DEFAULTS);
