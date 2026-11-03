@@ -155,8 +155,8 @@ export const gateView = {
 export const questionView = {
   question: ids.question,
   work: workRef,
-  kind: "permission",
-  text: "Bash(docker compose up)",
+  kind: "question",
+  text: "Which greeting should the CLI print?",
   askedAt: "2026-10-12T09:02:00Z",
 };
 

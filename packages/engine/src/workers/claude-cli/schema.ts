@@ -369,7 +369,7 @@ export const ClaudeWorkerEventSchema = z.union([
   }),
   z.strictObject({
     t: z.literal("waiting"),
-    on: z.enum(["permission", "question", "plan-limit", "retry", "auth"]),
+    on: z.enum(["question", "plan-limit", "retry", "auth"]),
     detail: Name,
     until: Iso.exactOptional(),
   }),

@@ -689,12 +689,9 @@ function readMessage(value: unknown, state: ClaudeParseState): Step {
           };
     }
     case "system/session_state_changed": {
+      // Liveness only: a box worker has every permission (0008), so `requires_action` is no wait.
       const parsed = parseWith(SessionStateMessage, value, state);
-      if (!parsed.ok) return { events: [], state: parsed.state };
-      // Secondary signal of a permission wait (0008 section 3); idle and running are liveness.
-      return parsed.value.state === "requires_action"
-        ? { events: [{ t: "waiting", on: "permission", detail: "requires_action" }], state }
-        : { events: [], state };
+      return { events: [], state: parsed.ok ? state : parsed.state };
     }
     case "system/thinking_tokens":
       return thinkingTokens(value, state);

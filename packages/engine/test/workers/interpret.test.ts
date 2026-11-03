@@ -457,7 +457,7 @@ describe("interpret (0008 section 3)", () => {
     expect(result(state, { code: 1, signal: null }).outcome).toBe("startFailed");
   });
 
-  it("permission waits: session_state_changed requires_action; a hook line of an earlier binary is ignored", () => {
+  it("no permission wait: requires_action and a hook line of an earlier binary give no event", () => {
     const hook: HostLine = {
       t: 0,
       ch: "hook",
@@ -473,9 +473,7 @@ describe("interpret (0008 section 3)", () => {
       subtype: "session_state_changed",
       state: "requires_action",
     });
-    expect(run([requires]).events).toEqual([
-      { t: "waiting", on: "permission", detail: "requires_action" },
-    ]);
+    expect(run([requires]).events).toEqual([]);
     const idle = out({ type: "system", subtype: "session_state_changed", state: "idle" });
     expect(run([idle]).events).toEqual([]);
   });

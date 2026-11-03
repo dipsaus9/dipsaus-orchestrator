@@ -969,7 +969,7 @@
         },
         "kind": {
           "type": "string",
-          "enum": ["question", "permission"]
+          "enum": ["question"]
         },
         "text": {
           "type": "string"
@@ -1658,7 +1658,7 @@
               },
               "kind": {
                 "type": "string",
-                "enum": ["question", "permission"]
+                "enum": ["question"]
               },
               "text": {
                 "type": "string"

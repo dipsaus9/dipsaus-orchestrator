@@ -229,7 +229,7 @@ async function openQueue() {
 }
 
 /** A question of `run` the engine asked, as the office stream carries it. */
-function asked(seq: number, run: string, story: string, key: string, kind = "question") {
+function asked(seq: number, run: string, story: string, key: string) {
   return event(seq, "question.asked", {
     question: Q19,
     work: {
@@ -241,8 +241,8 @@ function asked(seq: number, run: string, story: string, key: string, kind = "que
       tier: "L",
       model: "claude-opus",
     },
-    kind,
-    text: kind === "permission" ? "Bash(docker compose up)" : "Is a 404 ok?",
+    kind: "question",
+    text: "Is a 404 ok?",
     askedAt: "2026-10-14T10:03:00.000Z",
   });
 }
@@ -723,25 +723,6 @@ describe("answers, closed prompts, read-your-writes and retry", () => {
       { name: "work.answer", args: { question: Q19, text: "yes" } },
       { name: "work.answer", args: { question: Q19, text: "still yes" } },
     ]);
-  });
-
-  it("answers a permission question from the detail with a text, never a decision", async () => {
-    const view = await mount({ columns: 120, rows: 30 });
-    mounted.push(view.ui);
-    const { ui, session } = view;
-    await ui.waitFor("· live");
-    session.active(STREAM)?.options.onEvent(asked(8, RUN_24, "DIPO-24", KEY_24, "permission"));
-    await ui.press("j");
-    await ui.waitFor(">DIPO-24");
-    await ui.press("enter");
-    await ui.waitFor("following the tail");
-    await ui.waitFor("[a]nswer");
-    await ui.press("a");
-    await ui.waitFor("answer: _");
-    await ui.press("deny");
-    await ui.press("enter");
-    await until(() => session.commands.length === 1, "the answer");
-    expect(sent(session)).toEqual([{ name: "work.answer", args: { question: Q19, text: "deny" } }]);
   });
 
   it("closes a prompt whose question closed with the engine's message", async () => {

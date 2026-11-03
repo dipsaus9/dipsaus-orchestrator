@@ -332,8 +332,8 @@ export const GateView = z.object({
 });
 export type GateView = z.infer<typeof GateView>;
 
-// `permission`: the worker's permission hook asks the maintainer (0008 section 5).
-export const QuestionKind = z.enum(["question", "permission"]);
+// `question`: the question of a worker's report, asked by its park (0020).
+export const QuestionKind = z.enum(["question"]);
 export type QuestionKind = z.infer<typeof QuestionKind>;
 
 export const QuestionView = z.object({

@@ -84,8 +84,7 @@ export function boardNow(options: {
   const { view, worker, question, now, dot } = options;
   const age = outputAge(view, now);
   if (question !== undefined) {
-    const text = question.kind === "permission" ? `permission: ${question.text}` : question.text;
-    return ["asking you", text].join(` ${dot} `);
+    return ["asking you", question.text].join(` ${dot} `);
   }
   const parts = [phaseWord(view.phase), worker ?? "no output yet"];
   if (age !== null) parts.push(age);

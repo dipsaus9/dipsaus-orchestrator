@@ -495,7 +495,7 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
       event(
         9,
         "question.asked",
-        question(Q2, "permission", "Bash: rm -rf build", "2026-10-14T10:03:30.000Z"),
+        question(Q2, "question", "May I drop the build folder?", "2026-10-14T10:03:30.000Z"),
       ),
     );
     if (other !== undefined) {
@@ -507,13 +507,13 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
         ),
       );
     }
-    const frame = await ui.waitFor("allow|deny");
+    const frame = await ui.waitFor("May I drop the build folder?");
     expect(lines(frame).slice(2, 7)).toEqual([
       " now  looping @ · build · Step 39: retries now stop at the cap in src/notice.ts.",
       " ? question 4m ago · Which greeting should the CLI print?",
       `   answer: dipo answer ${Q1} <text>`,
-      " ? permission 30s ago · Bash: rm -rf build",
-      `   answer: dipo answer ${Q2} allow|deny`,
+      " ? question 30s ago · May I drop the build folder?",
+      `   answer: dipo answer ${Q2} <text>`,
     ]);
     expect(frame).not.toContain("Not this story");
     // The questions take rows from the output pane; the frame keeps its height.
@@ -523,7 +523,7 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
     for (let i = 0; i < 50 && ui.frame().includes(Q1); i++) await Bun.sleep(20);
     const closed = ui.frame();
     expect(closed).not.toContain(Q1);
-    expect(closed).toContain(`dipo answer ${Q2} allow|deny`);
+    expect(closed).toContain(`dipo answer ${Q2} <text>`);
   });
 
   it("shows at most three questions and counts the rest", () => {

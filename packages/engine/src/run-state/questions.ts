@@ -13,9 +13,6 @@ import {
 import type { OfficeHandle } from "../db/office";
 import { workRefOf } from "../views/work";
 
-/** The decision stored on a permission question of an earlier binary (migration 22). */
-type PermissionDecision = "allow" | "deny" | null;
-
 /** How a question stopped waiting (migration 22). */
 export type QuestionClose = "answered" | "timeout" | "ended" | "expired";
 
@@ -25,19 +22,12 @@ export interface StoredQuestion {
   readonly agentId: string;
   readonly kind: QuestionKind;
   readonly text: string;
-  readonly tool: string | null;
-  readonly input: string | null;
-  /** The waiting hook call's id, for a permission question. */
-  readonly hook: number | null;
   readonly askedAt: number;
   readonly answer: string | null;
-  readonly decision: Exclude<PermissionDecision, null> | null;
   readonly closedAt: number | null;
   readonly closedHow: QuestionClose | null;
   /** The park the question belongs to: the worker question an `ambiguous-spec` park carries. */
   readonly parkId: number | null;
-  /** When an allow of a park question let its one matching request through (DIPO-75). */
-  readonly allowUsedAt: number | null;
   /** How the answer reached the worker: with the next session (`on-resume`), or not yet (null). */
   readonly delivered: "on-resume" | null;
   readonly answeredAt: number | null;
@@ -49,22 +39,17 @@ interface QuestionRow {
   agent_id: string;
   kind: QuestionKind;
   text: string;
-  tool: string | null;
-  input: string | null;
-  hook: number | null;
   asked_at: number;
   answer: string | null;
-  decision: "allow" | "deny" | null;
   closed_at: number | null;
   closed_how: QuestionClose | null;
   park_id: number | null;
-  allow_used_at: number | null;
   delivered: "on-resume" | null;
   answered_at: number | null;
 }
 
-const COLUMNS = `question_id, run_id, agent_id, kind, text, tool, input, hook, asked_at, answer,
-  decision, closed_at, closed_how, park_id, allow_used_at, delivered, answered_at`;
+const COLUMNS = `question_id, run_id, agent_id, kind, text, asked_at, answer, closed_at, closed_how,
+  park_id, delivered, answered_at`;
 
 function stored(row: QuestionRow): StoredQuestion {
   return {
@@ -73,24 +58,14 @@ function stored(row: QuestionRow): StoredQuestion {
     agentId: row.agent_id,
     kind: row.kind,
     text: row.text,
-    tool: row.tool,
-    input: row.input,
-    hook: row.hook,
     askedAt: row.asked_at,
     answer: row.answer,
-    decision: row.decision,
     closedAt: row.closed_at,
     closedHow: row.closed_how,
     parkId: row.park_id,
-    allowUsedAt: row.allow_used_at,
     delivered: row.delivered,
     answeredAt: row.answered_at,
   };
-}
-
-/** What the maintainer sees for a permission request: `Tool(input)`, or the tool alone. */
-export function permissionText(tool: string, input: string): string {
-  return input === "" ? tool : `${tool}(${input})`;
 }
 
 export interface NewWorkerQuestion {
@@ -186,23 +161,18 @@ export function closeQuestion(
   questionId: string,
   how: QuestionClose,
   at: number,
-  answer?: {
-    readonly text: string;
-    readonly decision: Exclude<PermissionDecision, null> | null;
-    readonly delivered: "on-resume";
-  },
+  answer?: { readonly text: string; readonly delivered: "on-resume" },
 ): boolean {
   const before = findQuestion(office, questionId);
   if (before === null || before.closedAt !== null) return false;
   office.run(
     `update questions set closed_at = $at, closed_how = $how, answer = $answer,
-       decision = $decision, answered_at = $answered, delivered = $delivered
+       answered_at = $answered, delivered = $delivered
      where office_id = $office_id and question_id = $question and closed_at is null`,
     {
       at,
       how,
       answer: answer?.text ?? null,
-      decision: answer?.decision ?? null,
       answered: answer === undefined ? null : at,
       delivered: answer?.delivered ?? null,
       question: questionId,

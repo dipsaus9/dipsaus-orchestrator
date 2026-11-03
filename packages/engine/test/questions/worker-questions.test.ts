@@ -275,7 +275,6 @@ describe("a worker's question parks its story at once (AC #1)", () => {
       kind: "question",
       runId: w.f.run,
       text: QUESTION,
-      hook: null,
       parkId: parkIds()[0],
       closedAt: null,
     });

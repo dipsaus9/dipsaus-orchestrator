@@ -245,7 +245,7 @@ export interface ReviewReport {
   readonly summary: string;
 }
 
-export type WaitingOn = "permission" | "question" | "plan-limit" | "retry" | "auth";
+export type WaitingOn = "question" | "plan-limit" | "retry" | "auth";
 
 /** Facts an adapter reads from a worker's output (0008 section 3). */
 export type WorkerEvent =

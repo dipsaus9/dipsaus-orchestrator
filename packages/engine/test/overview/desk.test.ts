@@ -510,10 +510,9 @@ describe("stored text on the desk", () => {
         const at = t.clock.now();
         office.immediate(() =>
           office.run(
-            `insert into questions (office_id, question_id, run_id, agent_id, kind, text, tool,
-               input, asked_at)
-             values ($office_id, 'qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A', $run, $agent, 'permission',
-               $text, 'Bash', 'curl', $at)`,
+            `insert into questions (office_id, question_id, run_id, agent_id, kind, text, asked_at)
+             values ($office_id, 'qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A', $run, $agent, 'question', $text,
+               $at)`,
             {
               run: started.run,
               agent: started.agent,

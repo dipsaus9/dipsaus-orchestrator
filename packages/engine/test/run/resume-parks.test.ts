@@ -1718,7 +1718,6 @@ describe("an ambiguous-spec park resumed with its answer (DIPO-159; 0020)", () =
     w.f.office.immediate(() => {
       closeQuestion(w.f.office, question, "answered", w.f.t.clock.now(), {
         text: "Print Hello, Ada!",
-        decision: null,
         delivered: "on-resume",
       });
       sendFeedback(

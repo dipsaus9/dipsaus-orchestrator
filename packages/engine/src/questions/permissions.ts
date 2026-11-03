@@ -109,7 +109,6 @@ export class PermissionAsks {
     ctx.commit(() => {
       closed = closeQuestion(office, question.questionId, "answered", now, {
         text,
-        decision: null,
         delivered: "on-resume",
       });
       if (!closed) return [];
@@ -293,14 +292,12 @@ function workerAnswerTextOf(args: { readonly text: string }): string {
 }
 
 /**
- * The open questions of a park that no longer waits on them: its park was resolved, or it is a
- * permission question, which no answer resumes any more (DIPO-344). Kept open, the desk would
- * still show them.
+ * The open questions of a park that no longer waits on them: its park was resolved. Kept open, the
+ * desk would still show them.
  */
 function staleParkQuestions(office: OfficeHandle): StoredQuestion[] {
   return openQuestions(office).filter((question) => {
     if (question.parkId === null) return false;
-    if (question.kind === "permission") return true;
     const open = office.get(
       `select 1 as found from parks where office_id = $office_id and park_id = $park
         and resolved_at is null`,

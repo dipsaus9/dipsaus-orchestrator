@@ -150,10 +150,9 @@ export function headerLine(view: WorkView, story: StoryView | undefined, dot: st
   return parts.join(` ${dot} `);
 }
 
-/** How to answer a question from a shell: `dipo answer <id> allow|deny` or `<text>` (DIPO-59). */
+/** How to answer a question from a shell: `dipo answer <id> <text>` (DIPO-59). */
 export function answerHint(question: QuestionView): string {
-  const reply = question.kind === "permission" ? "allow|deny" : "<text>";
-  return `dipo answer ${question.question} ${reply}`;
+  return `dipo answer ${question.question} <text>`;
 }
 
 /**

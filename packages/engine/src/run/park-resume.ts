@@ -1502,7 +1502,6 @@ function answeredQuestion(
   if (answer === null || answer.held || answer.question === null) return [];
   const closed = closeQuestion(office, answer.question, "answered", at, {
     text: answer.answer,
-    decision: null,
     delivered: "on-resume",
   });
   if (!closed) return [];
