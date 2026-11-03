@@ -3,10 +3,10 @@ id: DIPO-436
 title: >-
   Remove the resumer's dead requireResume path and test the order around a
   worker's exit
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-31 08:13'
-updated_date: '2026-11-03 07:08'
+updated_date: '2026-11-03 07:14'
 labels:
   - 'tier:S'
 milestone: m-2

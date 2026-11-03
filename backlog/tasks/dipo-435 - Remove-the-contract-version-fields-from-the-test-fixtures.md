@@ -3,10 +3,10 @@ id: DIPO-435
 title: >-
   Drop the removed contract version fields from the contract fixtures and refuse
   stale fixture fields
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-31 08:13'
-updated_date: '2026-11-03 07:08'
+updated_date: '2026-11-03 07:14'
 labels:
   - 'tier:S'
 milestone: m-2
