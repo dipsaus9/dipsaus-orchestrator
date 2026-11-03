@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { guardRuns, processRunning, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
+  childExit,
   ChildProcesses,
   isDaemonCommand,
   isWorkerHostArgv,
@@ -540,5 +541,24 @@ describe("systemSpawn stdin (DIPO-117)", () => {
       // Likewise.
     }
     expect(await watch.stop()).toEqual([]);
+  });
+});
+
+describe("childExit", () => {
+  it("keeps the exit code of a child that exited and the name of the signal that ended one", () => {
+    expect(childExit({ exitCode: 3, signalCode: null })).toEqual({ code: 3, signal: null });
+    expect(childExit({ exitCode: null, signalCode: "SIGTERM" })).toEqual({
+      code: null,
+      signal: "SIGTERM",
+    });
+  });
+
+  it("keeps a signal with no name as its number in text (Bun 1.4.4)", () => {
+    expect(childExit({ exitCode: null, signalCode: 34 })).toEqual({ code: null, signal: "34" });
+  });
+
+  it("gives the real signal of a killed child", async () => {
+    const child = systemSpawn({ cmd: ["/bin/sh", "-c", "kill -TERM $$"] });
+    expect(await child.exited).toEqual({ code: null, signal: "SIGTERM" });
   });
 });

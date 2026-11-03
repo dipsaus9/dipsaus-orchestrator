@@ -3,10 +3,10 @@ id: DIPO-436
 title: >-
   Remove the resumer's dead requireResume path and test the order around a
   worker's exit
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-31 08:13'
-updated_date: '2026-11-03 07:14'
+updated_date: '2026-11-03 07:27'
 labels:
   - 'tier:S'
 milestone: m-2
@@ -43,7 +43,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 resume.ts and outcome-sessions.ts have no `requireResume` field, no `notResumed` outcome kind and no branch for either, shown by the diff; the handoff's `notResumed` reason and starts-paused.ts's notice stay
-- [ ] #2 The held-messages test shows held messages stay pending when the new session fails to start (`startFailed`), without `requireResume`
-- [ ] #3 A test through the composed runs and `control.onEnded` shows that for an ordinary developer exit `beforeExit` is awaited before the exit is decided and `afterExit` runs after it
+- [x] #1 resume.ts and outcome-sessions.ts have no `requireResume` field, no `notResumed` outcome kind and no branch for either, shown by the diff; the handoff's `notResumed` reason and starts-paused.ts's notice stay
+- [x] #2 The held-messages test shows held messages stay pending when the new session fails to start (`startFailed`), without `requireResume`
+- [x] #3 A test through the composed runs and `control.onEnded` shows that for an ordinary developer exit `beforeExit` is awaited before the exit is decided and `afterExit` runs after it
 <!-- AC:END -->

@@ -3,10 +3,10 @@ id: DIPO-435
 title: >-
   Drop the removed contract version fields from the contract fixtures and refuse
   stale fixture fields
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-31 08:13'
-updated_date: '2026-11-03 07:14'
+updated_date: '2026-11-03 07:31'
 labels:
   - 'tier:S'
 milestone: m-2
@@ -42,7 +42,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The six stale keys (`engine.hello` args `contract`, result `contract` and `capabilities`; `commands.describe` `since` twice; `story.losses` `files`) are gone, shown by the diff
-- [ ] #2 The fixture test fails on a fixture key its schema does not know, for commands, reads and events and also in nested objects, shown by a test with a planted stale key, and every current fixture passes
-- [ ] #3 logger.ts's comment no longer names `engineToken` or `engine_token` and cites the ADR by number only, and `bun run contract:schema` leaves no change
+- [x] #1 The six stale keys (`engine.hello` args `contract`, result `contract` and `capabilities`; `commands.describe` `since` twice; `story.losses` `files`) are gone, shown by the diff
+- [x] #2 The fixture test fails on a fixture key its schema does not know, for commands, reads and events and also in nested objects, shown by a test with a planted stale key, and every current fixture passes
+- [x] #3 logger.ts's comment no longer names `engineToken` or `engine_token` and cites the ADR by number only, and `bun run contract:schema` leaves no change
 <!-- AC:END -->

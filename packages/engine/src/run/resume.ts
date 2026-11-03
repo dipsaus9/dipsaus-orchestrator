@@ -240,11 +240,6 @@ export interface NextSessionRequest {
   readonly mode: "resume" | "handoff";
   /** Why the previous session ended, for the notice and the resume message. */
   readonly why: string;
-  /**
-   * Only a resume will do (DIPO-57: a host lost while the daemon was down): when the session
-   * cannot be resumed nothing starts and the outcome is `notResumed`.
-   */
-  readonly requireResume?: boolean;
   /** The run's caps as run control tracks them. */
   readonly caps: Caps;
   /** When the run's first worker started, on the engine clock. */
@@ -260,7 +255,6 @@ export type NextSessionOutcome =
       readonly notResumed?: string;
     }
   | { readonly kind: "startFailed"; readonly hold: AdapterHold }
-  | { readonly kind: "notResumed"; readonly reason: string }
   /**
    * An earlier host of the run still runs after the wait (0006 decision 8): nothing started. The
    * code is 0005's retryable `run.hostAlive`.
@@ -433,9 +427,6 @@ export class RunResumer implements NextSession {
       if (!check.ok) notResumed = check.reason;
     } else if (request.mode === "resume") {
       notResumed = "the previous session never started";
-    }
-    if (request.requireResume === true && !resume) {
-      return { kind: "notResumed", reason: notResumed ?? "the session cannot be resumed" };
     }
     if (!resume && "error" in handoff) {
       return { kind: "failed", reason: `the handoff could not be built: ${handoff.error}` };

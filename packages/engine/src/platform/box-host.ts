@@ -5,6 +5,7 @@
 import type { ListenHttp } from "../box/model-proxy";
 import { peerAddress } from "./peer";
 import type { SpawnInteractive } from "../box/token";
+import { childExit } from "./process";
 
 /**
  * Runs a program with this process's terminal as its stdin, stdout and stderr; dipo reads nothing
@@ -19,10 +20,7 @@ export const systemSpawnInteractive: SpawnInteractive = async (options) => {
     stderr: "inherit",
   });
   await child.exited;
-  return {
-    code: child.signalCode === null ? child.exitCode : null,
-    signal: child.signalCode ?? null,
-  };
+  return childExit(child);
 };
 
 /**

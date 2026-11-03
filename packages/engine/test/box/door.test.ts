@@ -33,6 +33,7 @@ import {
 } from "../../src/box/door";
 import { BoxError, type BoxPort, type BoxProcess } from "../../src/box/port";
 import { partModeCommand } from "../../src/box/user";
+import { childExit } from "../../src/platform/process";
 import {
   parseWorkerReport,
   WORKER_REPORT_CAPS,
@@ -73,10 +74,7 @@ class HostBox implements Pick<BoxPort, "execLive"> {
       },
       stdout: child.stdout,
       stderr: child.stderr,
-      exited: child.exited.then((code) => ({
-        code: child.signalCode === null ? code : null,
-        signal: child.signalCode ?? null,
-      })),
+      exited: child.exited.then(() => childExit(child)),
       kill: (signal?: Signal) => {
         this.kills += 1;
         child.kill(signal);

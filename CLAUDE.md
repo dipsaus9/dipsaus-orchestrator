@@ -29,7 +29,7 @@ Repository settings the maintainer applies by hand on `main` (0016):
 
 ## Prerequisites
 
-- Bun at exactly the version in `.bun-version` (1.4.2). `engines.bun` in `package.json` is the same floor.
+- Bun at exactly the version in `.bun-version` (1.4.4). `engines.bun` in `package.json` is the same floor.
 - The Backlog CLI installed globally at the pinned version: `bun add -g backlog.md@1.53.0`.
 - `git` and `gh`.
 
@@ -39,8 +39,8 @@ Dependencies are pinned exactly in `package.json`. Later stories add the package
 
 | Package | Version | Where |
 |---|---|---|
-| Bun | 1.4.2 (exact, `.bun-version`; 0004) | runtime, CI |
-| `@types/bun` | 1.4.2 (follows Bun) | root devDependency |
+| Bun | 1.4.4 (exact, `.bun-version`; 0004) | runtime, CI |
+| `@types/bun` | 1.4.4 (follows Bun) | root devDependency |
 | `zod` | 4.6 (4.x minor; pinned 4.6.5) | `contract` dependency |
 | `yaml` | 2.9.1 | `engine` dependency: `dipo config migrate` keeps comments (0017) |
 | `typescript` | 7.0.2 | root devDependency |

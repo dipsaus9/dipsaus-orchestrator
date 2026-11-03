@@ -160,14 +160,14 @@ jobs:
             runner: macos-26
             file: "Mach-O 64-bit executable arm64"
             bun-asset: bun-darwin-aarch64
-            bun-sha256: 90987a3a16d7db556d886ac3d551e7b6d3edf0a1cf43acaed622e8676be1d12f
+            bun-sha256: c240d7f0ccb90c263a849fcdb09b7ee62630d921348ed6aafda86b9d577bc510
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
     env:
       TARGET: ${{ matrix.target }}
       RELEASE: ${{ needs.release-please.outputs.publish }}
-      BUN_VERSION: "1.4.2"
+      BUN_VERSION: "1.4.4"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

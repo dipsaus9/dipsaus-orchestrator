@@ -2058,12 +2058,20 @@ describe("the held messages in the next session (0002, 0020)", () => {
   it("keeps the held messages when the session does not start", async () => {
     firstSession();
     const ids = holdResume();
+    // The launch checks fail, so no host starts and no session is recorded.
+    const failure = { check: "probe", detail: "claude is not logged in" };
     const outcome = await realResumer(
       hosts,
       { probe: async () => null, story: async () => storyOf(), handoff, workspace },
-      () => ({ ok: false, reason: "the context is too full" }),
-    ).next({ ...nextRequest(), requireResume: true });
-    expect(outcome).toMatchObject({ kind: "notResumed" });
+      undefined,
+      undefined,
+      async () => ({
+        ok: false,
+        outcome: "startFailed",
+        hold: { adapter: "claude-cli", ...failure, failures: [failure], since: 0 },
+      }),
+    ).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "startFailed", hold: { check: "probe" } });
     expect(intentStates(ids)).toEqual([
       ["pending", null],
       ["pending", null],
