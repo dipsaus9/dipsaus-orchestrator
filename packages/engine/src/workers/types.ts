@@ -107,7 +107,7 @@ export interface LineScrub {
 /** What the engine asks of a running worker (0008 section 6). */
 export type SteerOp =
   | { readonly kind: "steer" | "answer"; readonly text: string }
-  | { readonly kind: "pause" | "stop" | "kill" };
+  | { readonly kind: "stop" | "kill" };
 
 export type HostSignal = "SIGINT" | "SIGTERM" | "SIGKILL";
 
@@ -475,12 +475,11 @@ export interface WorkerResult {
 /** A recovery step the engine tries once before the proposed park (0008 section 7). */
 export type WorkerRetry = "handoff" | "report-feedback";
 
-/** Result of `probe`: version, login kind and capabilities (0008 sections 2 and 11). */
+/** Result of `probe`: version and login kind (0008). */
 export interface AdapterStatus {
   readonly ok: boolean;
   readonly version: string | null;
   readonly login: string | null;
-  readonly capabilities: readonly string[];
   /** Why the adapter refuses to run, when `ok` is false. */
   readonly reason?: string;
 }
@@ -506,7 +505,7 @@ export interface ExitRecord {
 export interface WorkerAdapter {
   /** For example `claude-cli`. */
   readonly id: string;
-  /** Version, login kind, capabilities; refuses below the minimum. */
+  /** Version and login kind; refuses below the minimum. */
   probe(): Promise<AdapterStatus>;
   /** Pure: argv, env, files for the run dir, first stdin lines. */
   plan(spec: WorkerSpec): LaunchPlan;

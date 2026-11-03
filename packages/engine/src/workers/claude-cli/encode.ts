@@ -10,7 +10,6 @@ export type MessagePriority = "now" | "next" | "later";
 export const STOP_SIGTERM_AFTER_MS = 10_000;
 export const STOP_SIGKILL_AFTER_MS = 30_000;
 
-export const PAUSE_MESSAGE = "Paused by the maintainer: stop and reply only `paused`.";
 export const STOP_MESSAGE = "Stopped by the maintainer: stop now and reply only `stopped`.";
 
 /** One stream-json user message line, newline included. */
@@ -32,8 +31,6 @@ export function encode(op: SteerOp): HostOp[] {
     case "answer":
       // The worker's turn has ended and it waits on stdin, so the answer is simply the next turn.
       return [{ write: userMessageLine(op.text) }];
-    case "pause":
-      return [{ write: userMessageLine(PAUSE_MESSAGE, "now") }];
     case "stop":
       return [
         { write: userMessageLine(STOP_MESSAGE, "now") },

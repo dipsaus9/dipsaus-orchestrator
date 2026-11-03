@@ -49,11 +49,9 @@ describe("(unit) Claude Code probe", () => {
     expect(status.reason).toContain("api-key");
   });
 
-  it("accepts the minimum version on a claude.ai login and lists the capabilities", () => {
+  it("accepts the minimum version on a claude.ai login", () => {
     const status = evaluateProbe(out("2.1.285", "claude.ai"));
-    expect(status).toMatchObject({ ok: true, version: "2.1.285", login: "claude.ai" });
-    expect(status.capabilities).toContain("resume");
-    expect(status.capabilities).not.toContain("hooks");
+    expect(status).toEqual({ ok: true, version: "2.1.285", login: "claude.ai" });
   });
 
   it("refuses when either command fails or prints nothing usable", () => {

@@ -84,7 +84,7 @@ export class ScriptedWorker implements WorkerAdapter {
   }
 
   probe(): Promise<AdapterStatus> {
-    return Promise.resolve({ ok: true, version: "scripted", login: null, capabilities: [] });
+    return Promise.resolve({ ok: true, version: "scripted", login: null });
   }
 
   plan(spec: WorkerSpec): LaunchPlan {

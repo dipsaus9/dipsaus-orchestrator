@@ -13,7 +13,10 @@ import { homedir, tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
 import { systemClock } from "../../packages/engine/src/platform/clock";
-import { encode as encodeClaudeOp } from "../../packages/engine/src/workers/claude-cli/encode";
+import {
+  encode as encodeClaudeOp,
+  userMessageLine,
+} from "../../packages/engine/src/workers/claude-cli/encode";
 import {
   plan as planClaudeLaunch,
   SETTINGS_FILE,
@@ -42,6 +45,8 @@ import { stdoutOf, usageChecksum } from "./usage";
 /** Quiet time after a `result` before the next message is sent or stdin is closed. */
 const SETTLE_MS = 3_000;
 const EXTRA_FLAGS = ["--include-partial-messages"] as const;
+/** The priority `now` message a `pause` scenario sends mid-turn, as the `pause-now` recording holds it. */
+const INTERRUPT_MESSAGE = "Paused by the maintainer: stop and reply only `paused`.";
 
 /** The extra flags the plan does not pass itself (it passes `--include-partial-messages`). */
 function extraFlags(argv: readonly string[]): string[] {
@@ -213,9 +218,7 @@ async function runProcess(
           proc.kill(mid.signal);
           out.steering.push({ t: now(), op: "signal", signal: mid.signal });
         } else {
-          for (const op of encodeClaudeOp({ kind: "pause" })) {
-            if ("write" in op) write(op.write, "now");
-          }
+          write(userMessageLine(INTERRUPT_MESSAGE, "now"), "now");
         }
       }
     }

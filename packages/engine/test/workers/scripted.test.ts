@@ -55,8 +55,8 @@ describe("ScriptedWorker", () => {
     const worker = scriptedWorker({ script: [] });
     expect((await worker.probe()).ok).toBe(true);
     expect(worker.plan({ workdir: "/tmp/wt" } as WorkerSpec).cwd).toBe("/tmp/wt");
-    expect(worker.encode({ kind: "pause" })).toEqual([]);
-    expect(worker.steered).toEqual([{ kind: "pause" }]);
+    expect(worker.encode({ kind: "stop" })).toEqual([]);
+    expect(worker.steered).toEqual([{ kind: "stop" }]);
   });
 
   describe("(contract) scripts hold only events the Claude CLI adapter can produce", () => {

@@ -20,15 +20,6 @@ export const MIN_CLAUDE_VERSION = "2.1.285";
 export const CHECKED_CLAUDE_VERSION = "2.1.303";
 /** The only login a worker may run on (0008 section 2). */
 export const REQUIRED_AUTH_METHOD = "claude.ai";
-/** What this adapter offers (0008 section 11). No session has hooks (0008, DIPO-347). */
-export const CLAUDE_CLI_CAPABILITIES: readonly string[] = [
-  "steer",
-  "pause",
-  "resume",
-  "structuredReport",
-  "planLimitEvents",
-  "costEstimate",
-];
 /** How long one probe command may take. */
 export const PROBE_TIMEOUT_MS = 30_000;
 
@@ -55,7 +46,7 @@ export interface ProbeOutput {
 }
 
 function refuse(version: string | null, login: string | null, reason: string): AdapterStatus {
-  return { ok: false, version, login, capabilities: CLAUDE_CLI_CAPABILITIES, reason };
+  return { ok: false, version, login, reason };
 }
 
 /** Pure: the version, or the refusal, from what `claude --version` printed. */
@@ -114,7 +105,7 @@ export function evaluateProbe(output: ProbeOutput): AdapterStatus {
       "`claude auth status` shows loggedIn false; run `claude auth login`",
     );
   }
-  return { ok: true, version, login: method, capabilities: CLAUDE_CLI_CAPABILITIES };
+  return { ok: true, version, login: method };
 }
 
 const decoder = new TextDecoder();

@@ -60,7 +60,7 @@ describe("replaying recordings through the fake process", () => {
     const run = await replay(recording, {
       beforeRead: (child, chunks) => {
         if (chunks !== 5) return;
-        for (const op of encode({ kind: "pause" })) {
+        for (const op of encode({ kind: "stop" })) {
           if ("write" in op) child.stdin?.write(op.write);
         }
         child.stdin?.end();
