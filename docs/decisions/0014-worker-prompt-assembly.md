@@ -21,7 +21,7 @@ A worker gets a short prompt that code builds from structured data. It does not 
 - **Ownership.** L1 and the section templates are engine code; an office cannot override them, because they carry the boundary between code and AI. An office tunes roles, budgets and the context provider.
 - **Golden files.** The rendered L1+L2 and a sample L4 per kind are golden files in tests.
 - **The contract is one short page.** It says what to deliver (code and tests that meet the criteria and the test plan) and how to talk to dipo (a part, done, a question, blocked, a proposal). It explains nothing of dipo's setup: where the setup would surprise a worker, the setup is fixed instead of explained.
-- **Fixed headings.** Sections have fixed headings in XML-like tags (`<outcome>`, `<criteria>`), so the contract can name them.
+- **Fixed headings.** Sections have fixed headings in XML-like tags (`<story>`, `<criteria>`), so the contract can name them.
 
 ## 2. What a prompt receives
 
@@ -32,14 +32,13 @@ A worker gets a short prompt that code builds from structured data. It does not 
 3. `dependencies`: title and Story line of each F7 dependency, one line each.
 4. `background`: the free description text, within budget. A cut leaves a marker naming the task file.
 5. `handoff`: section 4, for a session after the first.
-6. `story`: id, title, type, tier.
-7. `outcome`: the Story line (0012).
-8. `criteria`: numbered as in Backlog.md.
-9. `references`: F8, the planner's forecast of the files to touch, as context, not a fence.
-10. `test_plan`: the automated entries to write, and the manual entries the maintainer will check.
-11. `answers`: resolved unknowns, question and answer.
-12. `instructions`: F17.
-13. `feedback`: section 6, on a fix round.
+6. `story`: id, title, type, tier and the Story line (0012).
+7. `criteria`: numbered as in Backlog.md.
+8. `references`: F8, the planner's forecast of the files to touch, as context, not a fence.
+9. `test_plan`: the automated entries to write, and the manual entries the maintainer will check.
+10. `answers`: resolved unknowns, question and answer.
+11. `instructions`: F17.
+12. `feedback`: section 6, on a fix round.
 
 **Precedence,** stated once in L1: the contract beats the story's instructions, the story's instructions beat the role's defaults, and project rules apply throughout. A conflict between project rules and the contract makes the worker report `blocked`.
 
@@ -141,3 +140,4 @@ Maintainer text is always wrapped in a template and never starts a message, so i
 - Stored context pack records with blob ids, used to rebuild packs after a restart (2026-10-16). Removed (2026-10-24): the default pack is cheap to build again.
 - The four-arm measurement harness against the `dipsaus-ai` baseline: 96 runs, rating rules and decision thresholds (2026-10-10). It was never built. Removed from this ADR (2026-10-24); it gets a story of its own when the maintainer wants the measurement. The design is in git history.
 - `needsPermission` in the report. A box worker has every permission (0008).
+- A separate `outcome` section with the story's Outcome line (2026-10-10). Replaced by the Story line inside `story` (2026-11-03, 0012).
