@@ -1,10 +1,10 @@
-// Parking a story (DIPO-50; 0012 F16 and the transition In Progress or In Review to Parked, 0010
-// sections 2 and 3, 0005 section 5, 0007 section 4, 0008 section 2).
+// Parking a story (0012 F16 and the transition In Progress or In Review to Parked; 0005, 0007,
+// 0008, 0010).
 //
 // `parkStory` writes the park on the story branch first, through a `ParkWriter`: in one story lane
 // edit of the StoryStore (`editOnBranch`), inside the office's git queue, the store writes the F16
 // `park` block (`{reason, from, note}`) through the single field write path, sets status `Parked` and appends the
-// park's structured summary block to the implementation notes (0020 section 13, `summary.ts`; a
+// park's structured summary block to the implementation notes (0020, `summary.ts`; a
 // lift appends the resume line the same way); only the task file is committed, as
 // `<ID>: status Parked`, and the branch is pushed without force. Then,
 // in one transaction, it records the park's run detail and history in `parks` (the reason it was
@@ -69,11 +69,11 @@ export const PARK_NOT_WRITTEN = "story.parkNotWritten";
 export const PARK_NOTICES = {
   notWritten: "park.notWritten",
   pushFailed: "park.pushFailed",
-  /** The park or lift was written, but its implementation-notes summary was not (0020 section 13). */
+  /** The park or lift was written, but its implementation-notes summary was not (0020). */
   summaryMissing: "park.summaryMissing",
   /**
    * A question park was resumed with its answer, but the answer was not written to the story's
-   * unknowns: writing it would break R26, or the write failed (0020 section 7, DIPO-159).
+   * unknowns: writing it would break R26, or the write failed (0020, DIPO-159).
    */
   answerNotWritten: "park.answerNotWritten",
 } as const;
@@ -93,7 +93,7 @@ export interface ParkBranchRequest {
   readonly reason: ParkReason;
   readonly note: string;
   /**
-   * The implementation-notes block of the park (0020 section 13), built from what the branch
+   * The implementation-notes block of the park (0020), built from what the branch
    * write reads; appended in the same task-file commit as F16 when the park is new on the branch.
    */
   readonly summary?: (branch: ParkBranchFacts) => string;
@@ -189,7 +189,7 @@ export function gitParkWriter(deps: {
                 `The Backlog CLI left ${request.story} at ${back.status}, not ${PARKED_STATUS}.`,
               );
             }
-            // The park's summary block (0020 section 13), once: a park already on the branch (a
+            // The park's summary block (0020), once: a park already on the branch (a
             // retried write) appends nothing.
             if (block !== null && before.status !== PARKED_STATUS) {
               summaryError = await appendOrReason(story, block);
@@ -218,12 +218,12 @@ export interface UnparkBranchRequest {
   /** The lifecycle the story returns to (the park's `from`). */
   readonly to: Lifecycle;
   /**
-   * The resume's implementation-notes line (0020 section 13), appended in the same task-file
+   * The resume's implementation-notes line (0020), appended in the same task-file
    * commit when the park is still on the branch; a lift already written appends nothing.
    */
   readonly line?: string;
   /**
-   * The answer of a question park's resume (0020 section 7, DIPO-159): added to the story's
+   * The answer of a question park's resume (0020, DIPO-159): added to the story's
    * unknowns as a resolved unknown in the same commit, through the single field write path, unless
    * the story contract would then be over `contractMax` characters (R26).
    */
@@ -482,7 +482,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
       branch: run.branch ?? "",
       reason,
       note: detail,
-      // The implementation-notes block, from the stored facts as of the park (0020 section 13).
+      // The implementation-notes block, from the stored facts as of the park (0020).
       summary: (facts) => {
         const at = deps.now();
         return renderParkBlock({
@@ -497,7 +497,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
   } catch (error) {
     writeError = messageOf(error);
     if (error instanceof GitError && error.code === TASK_FIELD_ERROR) {
-      // 0021 section 14: a task file holding fields dipo does not know never reaches the CLI.
+      // 0021: a task file holding fields dipo does not know never reaches the CLI.
       detail =
         reason === "scope-violation"
           ? `${error.message} ${detail}`

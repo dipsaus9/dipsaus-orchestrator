@@ -1,5 +1,5 @@
-// Starting the next session of a run, and the start failure that cannot (DIPO-51, split out of
-// `outcomes.ts` by DIPO-128).
+// Starting the next session of a run, and the start failure that cannot, a part of worker
+// outcomes (`outcomes.ts`).
 
 import type { WorkRef } from "@dipsaus-orchestrator/contract";
 
@@ -102,9 +102,9 @@ export class SessionStarts {
   }
 
   /**
-   * A start failure (0008 section 7 and its 2026-10-14 amendment): the adapter is held and
+   * A start failure (0008): starts pause for the adapter (reason `adapter`) and
    * `run.startFailed` raised. A branch with work parks `worker-failed` and keeps everything;
-   * otherwise the claim is released as DIPO-74 does and the story stays Ready.
+   * otherwise the claim is released and the story stays Ready.
    */
   async startFailed(
     office: OfficeHandle,

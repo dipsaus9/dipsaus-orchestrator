@@ -1,5 +1,4 @@
-// The end of a developer's turn and In Review (DIPO-49, DIPO-273, DIPO-299; 0010 section 7, 0013
-// section 5, 0007 section 4, 0021 sections 8 and 13 and its amendment of 2026-10-22). Run control
+// The end of a developer's turn and In Review (0007, 0010, 0013, 0021). Run control
 // (DIPO-50) calls `afterTurn` once per worker turn, one at a time per run, unless the turn already
 // ended the run (a cap or a blocked report). Only a turn whose report is `done` goes on.
 //
@@ -35,10 +34,10 @@
 //   (0010); any other push failure is a notice and the story stays In Review with the branch local.
 //   A failure in the commit steps parks `worker-failed` with the error. Dependency files the parts
 //   changed (manifests, lockfiles, `requirements*.txt`) raise `verify.dependenciesChanged`.
-// - The story PR (DIPO-144; 0019 section 3): after a push that reached the remote, `storyPr.sync`
+// - The story PR (DIPO-144; 0019): after a push that reached the remote, `storyPr.sync`
 //   opens the story's ready PR, or updates the one it has; the review (a pending review of the
 //   reviewer place) and CI (the PR poll's watch of the pushed head) start together on that head
-//   (0019 section 7). Red CI goes back to the worker through the CI loop of 0019 section 8.
+//   (0019). Red CI goes back to the worker through the CI loop of 0019.
 //
 // The report gate (DIPO-186; 0002, 0014), for every done report before the steps above: the
 // report's test-plan entries and deviations are stored for the run (`done_reports`). The report is
@@ -175,7 +174,7 @@ export function dependenciesChangedText(story: string, files: readonly string[])
   return `${story} changed dependency files: ${files.join(", ")}. Review the added or changed packages before you merge.`;
 }
 
-/** Gate capabilities whose change the review is told about (0013 section 5). */
+/** Gate capabilities whose change the review is told about (0013). */
 export const GATE_CAPABILITIES: readonly CapabilityName[] = ["test", "lint", "typecheck", "verify"];
 
 function shownCapability(profile: RunProfile, name: CapabilityName): string {
@@ -189,7 +188,7 @@ function shownScript(value: string | undefined): string {
 }
 
 /**
- * Pure: the gate changes of a branch against the base (0013 section 5), one line each: the root
+ * Pure: the gate changes of a branch against the base (0013), one line each: the root
  * `package.json` gate scripts that differ, then the gate capabilities whose commands differ.
  */
 export function gateChanges(input: {
@@ -687,7 +686,7 @@ export class VerifyCommit implements RunFinisher {
   }
 
   /**
-   * The gate changes of a box run (0013 section 5), recorded on the run: the root `package.json`
+   * The gate changes of a box run (0013), recorded on the run: the root `package.json`
    * gate scripts of the delivered branch tip against the base, read from git's objects. A changed
    * script shows at review.
    */
@@ -851,14 +850,14 @@ export class VerifyCommit implements RunFinisher {
       }
       return entries;
     });
-    // 6. The story PR: opened, or updated when an earlier push already opened it (0019 section 3).
+    // 6. The story PR: opened, or updated when an earlier push already opened it (0019).
     if (push.pushed) await this.#deps.storyPr?.sync(officeId, run.runId);
     else if (push.error !== null) this.#deps.storyPr?.pushHeld?.(officeId, run.runId);
     return { kind: "ended" };
   }
 }
 
-/** True when the story's task file was refused for fields dipo does not know (0021 section 14). */
+/** True when the story's task file was refused for fields dipo does not know (0021). */
 function isTaskFieldError(error: unknown): error is GitError {
   return error instanceof GitError && error.code === TASK_FIELD_ERROR;
 }

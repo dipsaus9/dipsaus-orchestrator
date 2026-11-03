@@ -1,6 +1,5 @@
-// The worker report as data (DIPO-186; 0008 section 1, 0014 section 2 and 0020 section 11, their
-// notes of 2026-10-20, and 0021 section 7): code checks and stores what a report carries beyond
-// its criteria, and never changes the story for it.
+// The worker report as data (0008, 0014, 0020, 0021): code checks and stores what a report carries
+// beyond its criteria, and never changes the story for it.
 //
 // - Test-plan entries (DIPO-254). A done report must give every automated entry of the story's
 //   test plan the status done; an automated entry that is not done, or has no entry in the report,

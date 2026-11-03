@@ -1,21 +1,21 @@
-// The next session of a run (DIPO-51; 0008 sections 7 and 8, 0014 section 6). After a crash, a
+// The next session of a run (0008, 0014). After a crash, a
 // full context or a missing report the engine starts one more session of the same run, never a
 // new run: a new agent of the run with its own `worker_hosts` row, on the same branch and box.
 //
 // - Always a new session with an engine-made session id and a 0014 handoff (0008), never a native
 //   resume of the previous session: the story's task
 //   message with the handoff block of the branch (commits since the claim's base, the last
-//   report's criteria, the last verify, the run's open feedback from `feedback_items`, the previous
-//   worker's notes; 0020 section 6), and the context pack read from the branch tip's git objects.
+//   report's criteria, the run's open feedback from `feedback_items`, the previous
+//   worker's notes; 0020), and the context pack read from the branch tip's git objects.
 // - The one feedback path (0002): every message held for the run's next developer session
 //   (`heldFeedback`: a fix round's findings, a resumed park's reason and note, a steer, also one
-//   the last session was sent and did not read) follows the delta or the task message, and is
+//   the last session was sent and did not read) follows the task message, and is
 //   marked delivered in the transaction that records the new agent; the start's notice says when
 //   it carries an unread steer (DIPO-412). The caller passes no text of its own.
 // - The launch checks run again before every launch (`WorkerPort.prepare`), with the
 //   office's resolved verify for the verify tools check (DIPO-173); a refused check is
 //   `startFailed` with the adapter's pause set, a refused verify tool `failed` with the plan's
-//   refusal and no hold, and the caller decides what follows.
+//   refusal and no pause, and the caller decides what follows.
 // - Caps: the CLI's own caps get what remains of the run's budget, turns and minutes (at least
 //   one each); run control keeps tracking the run's own caps from the original start.
 // - No double ingestion: the run's event file is shared by its hosts, so the new host's row starts
@@ -92,7 +92,7 @@ import { clearSignals } from "../records/signals";
 import type { RunBase } from "./work-run";
 
 /**
- * The maintainer's note as the worker reads it (`feedback/maintainer-note.md`, 0020 section 3): never
+ * The maintainer's note as the worker reads it (`feedback/maintainer-note.md`, 0020): never
  * sent verbatim, so maintainer text never starts a message, and capped with a marker (`capNote`).
  */
 export function noteText(note: string): string {
@@ -111,7 +111,7 @@ export function sessionFeedback(office: OfficeHandle, run: StoredRun): HeldFeedb
     : heldFeedback(office, run.runId);
 }
 
-/** How long a run's next session waits for an earlier host of the run to end (0006 decision 8). */
+/** How long a run's next session waits for an earlier host of the run to end (0006). */
 export const HOST_EXIT_WAIT_MS = 30_000;
 const HOST_EXIT_POLL_MS = 250;
 
@@ -167,7 +167,7 @@ export interface RunResumerDeps {
   };
   readonly onChanged?: (office: OfficeId) => void;
   /**
-   * Liveness of the run's earlier hosts (DIPO-57, 0006 decision 8): no new host starts while one
+   * Liveness of the run's earlier hosts (DIPO-57, 0006): no new host starts while one
    * of them still runs. Without it nothing is checked.
    */
   readonly probe?: ProcessProbe;
@@ -182,9 +182,9 @@ export interface RunResumerDeps {
    */
   readonly boxes?: RunBoxes;
   /**
-   * Copies into the run's box the merges dipo committed on its branch outside the box (the merge
-   * slot's, DIPO-324), before the next developer session; throws when that fails, and the session
-   * does not start (the caller parks the story). Nothing is copied without it.
+   * Copies into the run's box the merges dipo committed on its branch outside the box (the
+   * auto-merge's conflict hand-off), before the next developer session; throws when that fails, and
+   * the session does not start (the caller parks the story). Nothing is copied without it.
    */
   readonly boxSync?: (office: OfficeId, run: StoredRun) => Promise<void>;
   /** The office's current run profile, whose install a rebuilt box gets (DIPO-294). */
@@ -226,7 +226,7 @@ export type NextSessionOutcome =
   | { readonly kind: "started"; readonly agent: AgentId }
   | { readonly kind: "startFailed"; readonly pause: AdapterPause }
   /**
-   * An earlier host of the run still runs after the wait (0006 decision 8): nothing started. The
+   * An earlier host of the run still runs after the wait (0006): nothing started. The
    * code is 0005's retryable `run.hostAlive`.
    */
   | {
@@ -394,7 +394,7 @@ export class RunResumer implements NextSession {
     }
     if (!prepared.ok) return { kind: "startFailed", pause: prepared.pause };
 
-    // Never a new host while an earlier host of the run still runs (0006 decision 8).
+    // Never a new host while an earlier host of the run still runs (0006).
     const alive = await this.#earlierHostAlive(office, run.runId);
     if (alive !== null) return { kind: "hostAlive", code: "run.hostAlive", pid: alive };
 
@@ -687,7 +687,7 @@ export class RunResumer implements NextSession {
       lastReport,
       // dipo stores no verify result of its own: the box worker runs verify, CI checks (DIPO-342).
       lastVerify: null,
-      // The items no later approval answered (0020 section 6).
+      // The items no later approval answered (0020).
       openFeedback: openFeedbackOf(office, run.runId),
       ...(extra.box ? { box: true } : {}),
       budget: runBudgetFacts(office, run, this.#deps.clock.now()),

@@ -85,7 +85,7 @@ export interface AdapterPause {
   readonly liftedBy?: string;
 }
 
-/** The `engine.notice` shape (0005 section 6). */
+/** The `engine.notice` shape (0005). */
 export interface PauseNotice {
   readonly level: "info" | "warn" | "error";
   readonly code: string;

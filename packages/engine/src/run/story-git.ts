@@ -1,4 +1,4 @@
-// The git and story steps of a story run at done (DIPO-49; 0010, 0014 section 3), on the story
+// The git and story steps of a story run at done (DIPO-49; 0010, 0014), on the story
 // branch in the repository: a story has no worktree. `gitStoryOps` is the real one: every step is
 // an office git queue item through the hardened runner, and every story read and edit goes through
 // the StoryStore's story lane. Tests of the flow use a fake; story-git.ci.test.ts runs this one on
@@ -58,7 +58,7 @@ export interface StoryGit {
 }
 
 /**
- * Pure: the code tree key (0010 section 7) of `git ls-tree -r -z HEAD` output: sha256 of its
+ * Pure: the code tree key (0010) of `git ls-tree -r -z HEAD` output: sha256 of its
  * entries without the story's own task file.
  */
 export function codeTreeKeyOf(tree: string, taskFile: string): string {

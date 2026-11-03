@@ -1,4 +1,4 @@
-// Run control (DIPO-50; 0008 sections 6 and 7, 0005 section 4): the engine's caps, the parks a
+// Run control (DIPO-50; 0008, 0005): the engine's caps, the parks a
 // worker's report asks for and `story.park` of a story with a run.
 //
 // - Caps. Each started run is tracked with its tier's caps and the time its worker started. After
@@ -9,7 +9,7 @@
 //   100% of one it records a `cap` intent, sends the stop sequence and parks the story
 //   `budget-exceeded` naming the cap and the total at the crossing. A turn that ended at the adapter's own turn cap (the CLI backstop, `error_max_turns`)
 //   does the same at that turn, so a later turn of a queued message never overrides it. A crossing
-//   turn that carries a `done` report is the exception (0008 amendment of 2026-10-19, DIPO-205):
+//   turn that carries a `done` report is the exception (0008):
 //   it takes the normal done path (verify and commit), a `cap` run step names the crossed cap, and
 //   no cap ends the run while that path runs.
 //   A box session's tokens are the model proxy's count (DIPO-425), written before its turn's result
@@ -40,7 +40,7 @@
 //   stops the worker and parks the story `worker-failed`, the detail naming
 //   the worker's version and the count. It decides in event order, so a drift ahead of a turn wins
 //   over that turn's report.
-// - `daemon.stop { stopWorkers: true }` (0006 decision 7, DIPO-315, `stopAll`): every tracked run
+// - `daemon.stop { stopWorkers: true }` (0006, DIPO-315, `stopAll`): every tracked run
 //   nothing was decided for yet is stopped as `story.park` stops one, and parks `by-maintainer` with
 //   `DAEMON_STOPPED_DETAIL`; the drain waits for the parks and for the workers' exits.
 //
@@ -55,7 +55,7 @@
 //   done report is verified and committed, or the run's end was claimed, `work.steer` holds the
 //   steer for the next session. A daemon restart during the hold loses it: the caps decide.
 //
-// - Notes (0020 section 6, DIPO-154). The `notes` of every turn report are stored for the next
+// - Notes (0020, DIPO-154). The `notes` of every turn report are stored for the next
 //   session's handoff (`recordWorkerNotes`), keyed by the run's branch and the agent, replacing
 //   that agent's earlier notes. A park keeps them, so a cap that fires mid-turn still leaves the
 //   previous turn's notes; teardown deletes them.
@@ -220,7 +220,7 @@ export class RunControl implements RunEnder {
   }
 
   /**
-   * The run's host event file changed (0007 section 5, DIPO-45's `ingest.fileChanged`): its
+   * The run's host event file changed (0007, the ingestor's `ingest.fileChanged`): its
    * ingestion stopped, so the worker is stopped and the story parks `worker-failed` with the
    * detail "event file changed" (DIPO-57). A run decided already keeps that decision.
    */
@@ -235,7 +235,7 @@ export class RunControl implements RunEnder {
     this.#endings.begin(tracked, this.interruptedEnding());
   }
 
-  /** The ending of a run whose host event file changed (0007 section 5). */
+  /** The ending of a run whose host event file changed (0007). */
   interruptedEnding(): RunEnding {
     return {
       intent: "stop",
@@ -378,12 +378,12 @@ export class RunControl implements RunEnder {
         return;
       }
       if (event.t === "initRejected") {
-        // 0008 section 2: stop the worker before it does anything (DIPO-51).
+        // 0008: stop the worker before it does anything (DIPO-51).
         this.#initRejected(run, event.reason);
         return;
       }
       if (event.t === "startRefused") {
-        // 0008 amendment of 2026-10-12 (DIPO-108): stop it before it does anything; no park.
+        // 0008: stop it before it does anything; no park.
         this.act(run, startRefusedAct(event.reason));
         return;
       }
@@ -406,8 +406,8 @@ export class RunControl implements RunEnder {
       if (event.t === "turn") {
         // A newer turn decides instead of a done turn held back for a steer (DIPO-412).
         this.#dropHeldDone(tracked);
-        // A done report on the turn that crosses a cap takes the done path (0008 amendment of
-        // 2026-10-19, DIPO-205); without a finisher nothing could commit it, so the cap parks.
+        // A done report on the turn that crosses a cap takes the done path (0008); without a
+        // finisher nothing could commit it, so the cap parks.
         const crossed =
           tracked.capped !== null || this.#deps.finisher === undefined
             ? null
@@ -435,7 +435,7 @@ export class RunControl implements RunEnder {
         }
         // A blocked report parks at once (0020).
         if (report?.status === "blocked") {
-          // A blocked report during a conflict hand-off fails it (0019 section 10, DIPO-149); the
+          // A blocked report during a conflict hand-off fails it (0019, DIPO-149); the
           // failure that reaches the conflict cap parks `conflict` instead.
           const handOff = this.#blockedHandOff(tracked);
           if (handOff !== null) {
@@ -517,7 +517,7 @@ export class RunControl implements RunEnder {
   }
 
   /**
-   * `daemon.stop { stopWorkers: true }` (0006 decision 7, DIPO-315): stops every live worker this
+   * `daemon.stop { stopWorkers: true }` (0006, DIPO-315): stops every live worker this
    * control tracks, as `story.park` stops one (the stop sequence through its host, a `stop` intent
    * first, the story parked `by-maintainer` with `DAEMON_STOPPED_DETAIL`). A run already being decided (a cap, a report, a done path) keeps that decision. Resolves
    * once every decision finished and the stopped workers exited, or `exitWaitMs` after the stops
@@ -601,7 +601,7 @@ export class RunControl implements RunEnder {
   }
 
   /**
-   * Stores the notes of a developer's turn report for the next session's handoff (0020 section 6),
+   * Stores the notes of a developer's turn report for the next session's handoff (0020),
    * replacing that agent's earlier notes on the run's branch. A report without notes changes
    * nothing, so the previous turn's notes stay. A failed write is logged; the turn goes on.
    */
@@ -889,7 +889,7 @@ export class RunControl implements RunEnder {
     return ending !== undefined && ending !== null;
   }
 
-  /** Reconcile (DIPO-56, 0007 section 6): stops a run whose story left In Progress or In Review. */
+  /** Reconcile (DIPO-56, 0007): stops a run whose story left In Progress or In Review. */
   stopForReconcile(
     office: OfficeHandle,
     run: StoredRun,
@@ -995,7 +995,7 @@ export class RunControl implements RunEnder {
   }
 }
 
-/** True for a reviewer session (0019 section 4): its work names the reviewer role. */
+/** True for a reviewer session (0019): its work names the reviewer role. */
 function reviewing(tracked: Tracked): boolean {
   return tracked.work.role === REVIEWER_ROLE;
 }

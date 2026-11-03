@@ -1,6 +1,5 @@
-// The shared vocabulary of worker outcomes (DIPO-51, split out of `outcomes.ts` by DIPO-128): the
-// intent tags, notices and the ports between run control and the
-// outcome units. `outcomes.ts` re-exports all of it.
+// The shared vocabulary of worker outcomes: the intent tags, notices and the ports between run
+// control and the outcome units. `outcomes.ts` re-exports all of it.
 
 import {
   type Clock,
@@ -60,10 +59,10 @@ export const OUTCOME_NOTICES = {
 /** `agents.end_reason` of an agent whose host died without an exit file (DIPO-57). */
 export const HOST_LOST_END = "host-lost";
 
-/** Why a run lost its host, for the park and the resume (0006 decision 8, 0008 section 7). */
+/** Why a run lost its host, for the park and the resume (0006, 0008). */
 export const HOST_LOST_WHY = "the worker host died while the daemon was down";
 
-/** Milliseconds from closing stdin to SIGTERM before a new session (0008 section 6). */
+/** Milliseconds from closing stdin to SIGTERM before a new session (0008). */
 export const NEW_SESSION_SIGTERM_AFTER_MS = 10_000;
 /** Milliseconds to SIGKILL after a rejected init. */
 export const INIT_REJECTED_SIGKILL_AFTER_MS = 30_000;
@@ -263,7 +262,7 @@ export interface RunOutcomesPort {
   /** A turn arrived: an open report feedback is answered. */
   answered(view: RunView): void;
   /**
-   * A reviewer session's turn carried a report valid against the review schema (0019 section 5),
+   * A reviewer session's turn carried a report valid against the review schema (0019),
    * after the backstop let the turn continue (DIPO-219).
    */
   onReview?(view: RunView, report: ReviewReport): Promise<void>;
@@ -271,8 +270,8 @@ export interface RunOutcomesPort {
 }
 
 /**
- * The ending of a rejected init (0008 sections 2 and 7); `cause` is the session's, the
- * reviewer's `review` for a reviewer session (0019 section 4).
+ * The ending of a rejected init (0008); `cause` is the session's, the
+ * reviewer's `review` for a reviewer session (0019).
  */
 export function initRejectedEnding(story: string, reason: string): RunEnding {
   return {
@@ -310,7 +309,7 @@ export interface RunOutcomesDeps {
   readonly holds?: {
     pause(adapter: string, failures: readonly LaunchCheckFailure[]): AdapterPause;
   };
-  /** Releases a live claim whose worker did not start (DIPO-74's release). */
+  /** Releases a live claim whose worker did not start. */
   readonly release?: (office: OfficeId, claim: ClaimRecord, reason: string) => Promise<void>;
   /** True when the run's branch has commits past the claim commit. */
   readonly holdsWork?: (
@@ -336,7 +335,7 @@ export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** The one feedback turn "report in the schema" (0008 section 7, 0014 section 2). */
+/** The one feedback turn "report in the schema" (0008, 0014). */
 export function reportFeedbackText(why: string): string {
   return renderTemplate(FEEDBACK_TEMPLATES.report, { why });
 }

@@ -1,5 +1,5 @@
-// The decision at a worker's exit, or at a host found dead (DIPO-51, DIPO-57, split out of
-// `outcomes.ts` by DIPO-128): by the intent that explains the exit, else by the adapter's result.
+// The decision at a worker's exit, or at a host found dead, a part of worker outcomes
+// (`outcomes.ts`): by the intent that explains the exit, else by the adapter's result.
 
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit } from "../ingest/ingestor";

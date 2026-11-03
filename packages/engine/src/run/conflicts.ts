@@ -1,9 +1,8 @@
-// Conflicts with the base before In Review and the conflict hand-off of a box run (0019 sections 6,
-// 8 and 10; 0021 section 12 and its amendment of 2026-10-22; DIPO-149 with DIPO-291's marker
-// check). For a box run every merge happens in dipo's own git, never in the box (0021 sections 8
-// and 14), so 0019's "leave the merge in progress" becomes DIPO-277's committed catch-up: git's
-// result, markers and all, is committed on the story branch from git objects and copied into the
-// box, and the worker's resolution comes back as an ordinary part.
+// Conflicts with the base before In Review and the conflict hand-off of a box run (0019, 0021),
+// with the conflict marker check at done. For a box run every merge happens in dipo's own git,
+// never in the box (0021), and is never left in progress: git's result, markers and all, is
+// committed on the story branch from git objects as a catch-up and copied into the box, and the
+// worker's resolution comes back as an ordinary part.
 //
 // - Records (`catch_ups`). Every merge dipo made into a story branch is recorded
 //   with the base commit, the tip it was made on, the merge commit and the conflicted paths (a
@@ -37,20 +36,20 @@
 //   recorded, and sent to the worker as one conflict item (its paths and hunks within the item
 //   budget, signed over the base commit and the sorted paths). A conflict in a path the worker
 //   cannot write parks `conflict` and merges nothing. A clean sync
-//   moves the story to review at the merged head; CI on that head is its verify (0021 amendment
-//   of 2026-10-22), so dipo runs none.
+//   moves the story to review at the merged head; CI on that head is its verify (0021), so
+//   dipo runs none.
 // - Hand-offs (`run_steps` kind `conflict`, values `start <n> <commit>`, `failed <n> <why>` and
 //   `resolved <n>`). A recorded conflicted merge starts hand-off n. A blocked report while it is
 //   open fails it. The failed hand-off that reaches the run's conflict cap
 //   (`caps.conflictAttempts`, snapshot as `runs.conflict_cap`) parks `conflict` with the
 //   paths, the merge kept on the branch and in the box. A done without markers resolves the open
 //   hand-off; markers left at done are the report gate's (see above), not a failed hand-off. `run_outcomes.conflict_handoffs` counts the hand-offs started.
-// - Carried approvals (0019 section 6). After a clean merge dipo made, the run's newest verdict, if
+// - Carried approvals (0019). After a clean merge dipo made, the run's newest verdict, if
 //   approved, carries to the new head when every commit between the approved head and the head
 //   (first parents) is a clean merge in the journal or a commit that changes only the story's task
 //   file: a carried `review_verdicts` row on the head's code tree key, so the review starter takes
 //   it without a round. A merge the journal does not hold never carries one.
-// - The resume of a `conflict` park (`ConflictResumes`, DIPO-324, 0020 section 2 and 0021). Every
+// - The resume of a `conflict` park (`ConflictResumes`, DIPO-324, 0020 and 0021). Every
 //   merge of a box run happens in dipo's own git and is copied into the box in the live run's turn
 //   of parts (`BoxCollisions.mergeOnResume`), never left in progress; so the resume prepares the
 //   first message before the new session, and any merge runs once that session is live. Git and the
@@ -122,9 +121,9 @@ import { codeTreeKeyOf } from "./story-git";
 
 /** `engine.notice` codes of conflicts. */
 export const CONFLICT_NOTICES = {
-  /** A conflict with the base found while the story is In Review (0019 section 10). */
+  /** A conflict with the base found while the story is In Review (0019). */
   inReview: "conflict.inReview",
-  /** An approval carried to a head after a clean merge dipo made (0019 section 6). */
+  /** An approval carried to a head after a clean merge dipo made (0019). */
   carried: "review.carried",
 } as const;
 
@@ -358,7 +357,7 @@ export async function unresolvedAt(
 
 /**
  * The conflict with the base the story's newest run was found to have while In Review, unless a
- * merge dipo made since handled it: for `story.detail` (0019 section 10).
+ * merge dipo made since handled it: for `story.detail` (0019).
  */
 export function baseConflictOf(
   office: OfficeHandle,
@@ -387,7 +386,7 @@ export function baseConflictOf(
 
 /**
  * The story runs of the office open at In Review with no active period (DIPO-373), with a
- * live claim and no open park. The poll checks their tips against the base (0019 section 10). A
+ * live claim and no open park. The poll checks their tips against the base (0019). A
  * story that is Done is left out (DIPO-332): its own PR merged into the base, or its status reads
  * Done (the close-out commit on its branch, or the base's after a release). Its claim
  * may stay live while its teardown waits, but it is not In Review, and the base holds its work.
@@ -497,7 +496,7 @@ export function conflictCapOf(office: OfficeHandle, run: StoredRun, fallback: nu
 }
 
 /**
- * The park of the failed hand-off that reached the cap (0019 section 10), or, with `capped`, of a
+ * The park of the failed hand-off that reached the cap (0019), or, with `capped`, of a
  * done turn that crossed a run cap before the conflict could be handed over.
  */
 function capPark(paths: readonly string[], failed: number, cap: number, capped = false) {
@@ -512,7 +511,7 @@ function capPark(paths: readonly string[], failed: number, cap: number, capped =
 }
 
 /**
- * A blocked report of the run's worker (0019 section 10): inside the caller's transaction, an open
+ * A blocked report of the run's worker (0019): inside the caller's transaction, an open
  * hand-off fails; the park that replaces the blocked one when that failure reaches the cap, else
  * null (the blocked park goes ahead).
  */
@@ -536,7 +535,7 @@ export function blockedHandOff(
 // ---- carried approvals ---------------------------------------------------------------------------
 
 /**
- * True when an approval of `approved` carries to `head` (0019 section 6): `approved` lies on the
+ * True when an approval of `approved` carries to `head` (0019): `approved` lies on the
  * first-parent line below `head`, and every commit above it on that line is a clean merge dipo
  * recorded (`merges`) or a commit that changes only `taskFile`.
  */
@@ -674,7 +673,7 @@ export class StoryConflicts {
       }
       return [];
     });
-    // 2. The fetch and the sync before In Review (0019 section 10).
+    // 2. The fetch and the sync before In Review (0019).
     const sync = this.#deps.sync;
     if (sync === undefined) return { kind: "go", tip };
     const fetched = await git.fetch();
@@ -800,7 +799,7 @@ export class StoryConflicts {
   }
 
   /**
-   * The approval of the run carried to its branch head after a clean merge (0019 section 6): an
+   * The approval of the run carried to its branch head after a clean merge (0019): an
    * approved verdict, or a blocked one the maintainer overrode, which carries with its override
    * (DIPO-150), so the override gate holds for the merged head.
    */
@@ -880,7 +879,7 @@ export class StoryConflicts {
     });
   }
 
-  /** A story of tier L or flagged test-before-merge (0010 open question 3, 0019 section 10). */
+  /** A story of tier L or flagged test-before-merge (0010, 0019). */
   #riskier(office: OfficeHandle, run: StoredRun): boolean {
     if (run.tier === "L") return true;
     if (run.key === null) return false;
@@ -1024,7 +1023,7 @@ async function hunksAt(
 }
 
 /**
- * The resume of a `conflict` park of a box run (DIPO-324): DIPO-155's `ConflictResumer`. See the
+ * The resume of a `conflict` park of a box run (`ConflictResumer`). See the
  * file comment.
  */
 export class ConflictResumes implements ConflictResumer {
@@ -1119,7 +1118,7 @@ export class ConflictResumes implements ConflictResumer {
       hunks: read.hunks,
       ...this.#itemMax(officeId, run),
     });
-    // The resumed session is a new hand-off of the kept merge (0019 section 10).
+    // The resumed session is a new hand-off of the kept merge (0019).
     this.#write(office, () => {
       const n = handOffState(office, run.runId).current + 1;
       appendHandOff(

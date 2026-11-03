@@ -816,7 +816,7 @@ export class ParkResumes {
       office.immediate(() => resolveIntent(office, run.runId, intentId, "failed", clock.now()));
       throw new Error(why);
     };
-    // The park changed under the resume: nothing is written, nothing follows (DIPO-155 review).
+    // The park changed under the resume: nothing is written, nothing follows.
     const gone = (): never => {
       office.immediate(() => resolveIntent(office, run.runId, intentId, "abandoned", clock.now()));
       const now = run.key === null ? null : storyView(office, run.key as StoryKey);

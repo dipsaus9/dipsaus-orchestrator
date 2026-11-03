@@ -1,7 +1,7 @@
-// Worker outcomes (DIPO-51; 0008 sections 2, 7 and 8, 0014 section 6). Run control hands this
+// Worker outcomes (0008, 0014). Run control hands this
 // every turn problem, rejected init, plan limit and classifier switch of a tracked run, and the
 // worker's exit once the turns before it are handled. Every op is stored as a `run_intents` row
-// before it is sent; DIPO-51's intents carry a tag at the start of their detail:
+// before it is sent; the intents carry a tag at the start of their detail:
 //
 // - `steer` `feedback report <agent> <via> <text>`: a turn whose report does not parse or match the
 //   schema gets one correction turn "report in the schema" (`prompts/feedback/report.md`) through
@@ -22,8 +22,8 @@
 //   worker at once (stdin closed, SIGTERM now, SIGKILL after 30 s) and parks `worker-failed` with
 //   an `engine.notice` `run.initRejected`.
 // - `stop` `start-failed`: a start failure (startup failure, authentication, billing, account on
-//   hold) holds the adapter (DIPO-43's hold) and raises `run.startFailed`. When the branch holds
-//   no work the claim is released as DIPO-74 does (branch kept, story Ready); when it holds
+//   hold) pauses starts for the adapter (reason `adapter`) and raises `run.startFailed`. When the
+//   branch holds no work the claim is released (branch kept, story Ready); when it holds
 //   commits past the claim, the story parks `worker-failed` and everything is kept (0008).
 //   A start the adapter refuses at its first line (`startRefused`, DIPO-108: a plugin the office
 //   does not allow) stores the same intent but stops the worker at once, as a rejected init does
@@ -40,7 +40,7 @@
 // ends goes through `endRun`: parked by a park, dropped by the claim release of a start failure
 // (0020).
 //
-// DIPO-128 split the class by responsibility: `outcome-turns.ts` (after a turn), `outcome-exits.ts`
+// The class is split by responsibility: `outcome-turns.ts` (after a turn), `outcome-exits.ts`
 // (at the exit), `outcome-sessions.ts` (next session, start failure), `outcome-restart.ts` (after
 // a restart), `outcome-support.ts` (shared facts) and `deciding.ts` (the one deciding guard).
 // `outcome-types.ts` holds the vocabulary; this file keeps the public class and re-exports all of

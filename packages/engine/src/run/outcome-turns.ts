@@ -1,5 +1,5 @@
-// What a turn or an event of a running worker asks of worker outcomes (DIPO-51, split out of
-// `outcomes.ts` by DIPO-128): a turn's problem, the report feedback, a rejected plan limit and a
+// What a turn or an event of a running worker asks of worker outcomes
+// (`outcomes.ts`): a turn's problem, the report feedback, a rejected plan limit and a
 // classifier switch.
 
 import type { HostOp, TurnProblem } from "../workers/types";

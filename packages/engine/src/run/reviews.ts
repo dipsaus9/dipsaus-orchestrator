@@ -1,4 +1,4 @@
-// Review rounds (0019 sections 4, 6 and 12, DIPO-219): a story that reaches In Review gets its
+// Review rounds (0019, DIPO-219): a story that reaches In Review gets its
 // review in the office's reviewer place, its report is judged by code and its verdict stored by
 // code tree key.
 //
@@ -20,7 +20,7 @@
 //   blocked verdict appends a `review-failed` step. The review period ends (`reviewed`) and the
 //   session's stdin is closed. The failed round that reaches the run's review round cap parks
 //   `review-blocked` with the blocking findings as detail instead.
-// - Failures (section 4). The reviewer's own turn or minute cap parks `worker-failed` (run
+// - Failures. The reviewer's own turn or minute cap parks `worker-failed` (run
 //   control). A resume of a park that stopped the reviewer starts a fresh review. A crash, a host
 //   lost, or a report still invalid after its correction turn ends the agent `review-crashed` and
 //   starts one fresh session for the same round; a second failure in the round parks
@@ -123,7 +123,7 @@ export const REVIEW_TAGS = {
   retry: "review-retry",
 } as const;
 
-/** `agents.end_reason` of a reviewer session that failed (section 4: crash, host lost, no report). */
+/** `agents.end_reason` of a reviewer session that failed (crash, host lost, no report). */
 export const REVIEW_CRASHED_END = "review-crashed";
 
 /** `engine.notice` codes of the review rounds. */
@@ -269,7 +269,7 @@ export class Reviews {
       this.#doneOnBase(office, run);
       return false;
     }
-    // A code tree with a verdict in the claim is never reviewed again (section 6).
+    // A code tree with a verdict in the claim is never reviewed again.
     const known = reviewVerdictForTree(office, run.runId, tree);
     if (known !== null) {
       this.#write(office, () => {
@@ -304,7 +304,7 @@ export class Reviews {
         if (findRun(office, run.runId)?.endedAt !== null) return { value: null, entries: [] };
         claimPlace(office, run.runId, at);
         // The reviewer's caps are the run's start snapshot; a run started without them takes the
-        // office's current ones at its first review start and keeps them (0020 section 5).
+        // office's current ones at its first review start and keeps them (0020).
         const config = this.#deps.offices.config(officeId);
         if (config !== undefined) snapshotReviewCaps(office, run.runId, config);
         return { value: beginReviewRound(office, current, start.since, at).round, entries };
@@ -494,7 +494,7 @@ export class Reviews {
     ]);
   }
 
-  /** The `startFailed` row of section 4: a notice; the story stays In Review, the review waits. */
+  /** A reviewer session that failed to start: a notice; the story stays In Review, the review waits. */
   #startFailed(office: OfficeHandle, run: StoredRun, why: string): void {
     const story = run.story ?? run.runId;
     this.#write(office, () => [
@@ -668,7 +668,7 @@ export class Reviews {
     }).done;
   }
 
-  /** Ends the session as a crash: its exit starts one fresh session or parks (section 4). */
+  /** Ends the session as a crash: its exit starts one fresh session or parks. */
   #crash(view: RunView, why: string): void {
     this.#deps.ender()?.act(view.runId, {
       intent: "stop",
@@ -678,7 +678,7 @@ export class Reviews {
     });
   }
 
-  /** A turn's problem in a reviewer session (section 4). */
+  /** A turn's problem in a reviewer session. */
   async onTurnProblem(view: RunView, problem: TurnProblem): Promise<void> {
     const office = this.#deps.offices.get(view.office);
     if (office === undefined || this.#deps.ender()?.live(view.runId) !== true) return;
@@ -775,7 +775,7 @@ export class Reviews {
       this.#waitAgain(office, run);
       return;
     }
-    // A crash: no verdict and no decision that explains the exit (section 4).
+    // A crash: no verdict and no decision that explains the exit.
     const why =
       tag === REVIEW_TAGS.retry && intent !== null ? intentRest(intent.detail) : exitWhy(end);
     if (intent !== null) this.#resolve(office, view.runId, intent, "crashed", at);

@@ -1,5 +1,5 @@
-// The exits a restart left undecided (DIPO-51 maintainer decision Q6, split out of `outcomes.ts`
-// by DIPO-128): the load step that decides them once an office is loaded.
+// The exits a restart left undecided, a part of worker outcomes (`outcomes.ts`): the load step that
+// decides them once an office is loaded.
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 

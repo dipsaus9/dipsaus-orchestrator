@@ -1,4 +1,4 @@
-// The work after every turn of a run (DIPO-49, split out of `control.ts` by DIPO-128): verify and
+// The work after every turn of a run, a part of run control (`control.ts`): verify and
 // commit, one turn at a time, then the turn's problem for worker outcomes (DIPO-51).
 
 import { background } from "../platform/background";
@@ -74,7 +74,7 @@ export class AfterTurns {
       }
     }
     // A done turn that crossed a cap and that the finisher let continue (no worktree, a session
-    // run) ends at the cap, as before DIPO-205; the cap run step is only for the done path.
+    // run) ends at the cap; the cap run step is only for the done path.
     if (decided === "continue" && capped !== null) {
       if (tracked.ending === null) {
         this.#endings.begin(tracked, capEnding(this.#deps.encode, capped.cap, capped.detail));

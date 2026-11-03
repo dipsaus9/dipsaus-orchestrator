@@ -1,8 +1,8 @@
-// `proposal.accept` and `proposal.dismiss` (DIPO-166; 0020 sections 11c, 14 and 16): the
+// `proposal.accept` and `proposal.dismiss` (DIPO-166; 0020): the
 // maintainer decides a worker's follow-up, spike or tool proposal that DIPO-186 stored. Nothing is
 // filed without the maintainer's accept.
 //
-// - Accept files the proposal as a Backlog draft through the planning lane (0010 section 2, lane
+// - Accept files the proposal as a Backlog draft through the planning lane (0010, lane
 //   b; the kind `propose`): the title, the Story line, the paths as references and the source
 //   story in the description. Every text is the worker's: it is cleaned of terminal control
 //   characters, put on one line, capped, kept from starting a heading, an option or a Backlog.md
@@ -238,7 +238,7 @@ function capped(text: string, max: number): string {
 }
 
 /**
- * A worker's text as a draft carries it: cleaned of terminal control characters (0021 section 7),
+ * A worker's text as a draft carries it: cleaned of terminal control characters (0021),
  * on one line, with HTML comment marks broken up (Backlog.md finds its sections by them), capped.
  */
 export function workerWords(text: string, max: number): string {
@@ -282,7 +282,7 @@ const KIND_WORDS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Pure: the draft an accepted proposal becomes (0020 section 11c): its title, a description with
+ * Pure: the draft an accepted proposal becomes (0020): its title, a description with
  * the Story line, the why and the source story, each worker text marked as the worker's words;
  * its paths as references. The store marks the draft as the proposal's when it files it.
  */

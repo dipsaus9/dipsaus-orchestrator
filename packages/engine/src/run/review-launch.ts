@@ -84,7 +84,7 @@ export interface ReviewGit {
     base: string,
     commit: string,
   ): Promise<{ readonly diff: string; readonly changes: readonly ReviewChangedPath[] }>;
-  /** The project's size class at `commit`, for the diff budget (0014 section 4). */
+  /** The project's size class at `commit`, for the diff budget (0014). */
   sizeClass(office: OfficeId, commit: string): Promise<SizeClass>;
 }
 
@@ -113,7 +113,7 @@ function revision(commit: string): string {
 /**
  * The `git diff` arguments of the story diff the reviewer gets. The prefixes are fixed, so a user's
  * or a repository's diff.noprefix, diff.srcPrefix or diff.dstPrefix cannot change the `+++ b/<path>`
- * lines parseStoryDiff reads (DIPO-146 review).
+ * lines parseStoryDiff reads.
  */
 export function storyDiffArgs(range: string): string[] {
   return [
@@ -307,7 +307,7 @@ export function reviewerSettings(
     current = findRun(office, run.runId) ?? run;
   }
   const caps = runCaps(office, current);
-  // Model and effort as the run started with them (its configuration snapshot, DIPO-303 review),
+  // Model and effort as the run started with them (its configuration snapshot),
   // for the story's tier.
   const started = runConfigOf(office, current, config);
   return {
@@ -510,7 +510,7 @@ export class ReviewLauncher implements ReviewSessions {
       };
     }
     if (!prepared.ok) return { kind: "startFailed", pause: prepared.pause };
-    // Right before the session (DIPO-346 review): a park that landed while the box was made starts
+    // Right before the session: a park that landed while the box was made starts
     // no reviewer.
     if (request.held?.() === true) {
       return { kind: "failed", reason: "the story is parked", parked: true };
