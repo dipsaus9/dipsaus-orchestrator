@@ -162,7 +162,7 @@ function world(t: TestState, dir: string): World {
       }) as unknown as ParseState,
     encode,
     result: (state, exit) => claudeResult(state as unknown as ClaudeParseState, exit),
-    sessionFacts: () => ({ contextTokens: null, contextWindow: null, lastReport: null }),
+    sessionFacts: () => ({ lastReport: null }),
   };
   (w as { runs: SessionRuns }).runs = new SessionRuns({
     clock: t.clock,

@@ -261,11 +261,7 @@ function scriptedPort(): WorkerPort {
       }
       return adapter.result(state, exit);
     },
-    sessionFacts: (state) => ({
-      contextTokens: null,
-      contextWindow: null,
-      lastReport: lastTurn(state)?.report ?? null,
-    }),
+    sessionFacts: (state) => ({ lastReport: lastTurn(state)?.report ?? null }),
   };
 }
 
