@@ -4,7 +4,7 @@ Status: accepted. First written 2026-10-10 (spike DIPO-4). Rewritten 2026-10-24 
 
 ## Decision in short
 
-One SQLite file holds the run detail of every office, keyed by office, written by the daemon alone. It holds **run detail only**. Story facts belong to Backlog.md and code facts to git and GitHub (0001). A copy the database keeps of either one is a cache that reconcile corrects. There is one retention rule and one kind of backup.
+One SQLite file holds the run detail and dipo's own state of every office, keyed by office, written by the daemon alone. It is **never the only copy of a story fact**: story facts belong to Backlog.md and code facts to git and GitHub (0001). A copy the database keeps of either one is a cache that reconcile corrects. There is one retention rule and one kind of backup.
 
 ## 1. One file, one writer
 
@@ -45,7 +45,7 @@ One SQLite file holds the run detail of every office, keyed by office, written b
 
 ## 4. What the database holds
 
-Run detail, grouped by subject. The prune plan maps every table in the code to one of these groups or removes it.
+Run detail and dipo's own state, grouped by subject. Every table belongs to one of these groups.
 
 | Group | Holds |
 |---|---|
@@ -75,7 +75,7 @@ The database stores facts. Display status, columns, health and budget shares are
 
 ## 6. Reconcile
 
-Reconcile runs for each office at load, in the daemon's `recovering` state, and on `office.rescan`. Scheduling stays off until it finishes. **Backlog.md and git win. The database corrects its own copy and shows a notice. It never decides between two copies, and it never edits Backlog.md or git to match itself.**
+Reconcile runs for each office at load, in the daemon's `recovering` state, and on `office.rescan`. No work starts in the office until it finishes. **Backlog.md and git win. The database corrects its own copy and shows a notice. It never decides between two copies, and it never edits Backlog.md or git to match itself.**
 
 1. Check that `office.json` names the office's id; a mismatch refuses the office.
 2. Finish pending backlog lane operations from the journal (0010).
@@ -118,7 +118,8 @@ The worker host appends the session's stream to `events.ndjson`. The engine read
 - **Order.** They run once for the whole file in `recovering`, before any office loads. Each step runs in its own transaction, and each of its statements runs on its own, so any failing statement fails the step.
 - **The backup.** Before the first step, dipo writes `VACUUM INTO backups/pre-v<N>-<time>.db`. A fresh database gets no backup. The two newest are kept. This is the only backup.
 - **Failure.** A failed step rolls back, and the daemon stays in `recovering` with `database.unavailable` and the backup's name (0005). An edited step (checksum mismatch) is treated the same way, and so is a schema that differs from the one the steps build in a fresh in-memory database, with the differing objects named. A database newer than the binary is refused with "upgrade dipo".
-- **Tests.** A database built from all steps must equal one migrated from each released schema, compared by schema dump. Before 1.0 the steps may be squashed once.
+- **Tests.** A database built from all steps must equal one migrated from each released schema, compared by schema dump.
+- **One squash before 1.0.** Before 1.0 the steps are squashed once into one base schema. Code that settles state an earlier binary left (a row, a file or a folder in an older shape) is temporary and goes at that squash.
 - **Losing the database** loses run history, never a project (0001). A new file is created. `office open` registers each repository again from its marker, and reconcile and a rescan rebuild the rest from Backlog.md, git and the repository.
 
 ## Replaced
