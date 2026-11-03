@@ -41,7 +41,7 @@ const KEY_PATHS = [
   "merge.autoMerge",
   "merge.waitLabels",
   "merge.checksWaitMinutes",
-  ...["debian", "packages", "claudeCode", "files", "localPorts"].map(box),
+  ...["debian", "packages", "workerCli", "files", "localPorts"].map(box),
   ...["node", "bun", "pnpm", "yarn", "nodeSha256.arm64", "nodeSha256.x64"].map((tool) =>
     box(`toolchain.${tool}`),
   ),
@@ -131,7 +131,7 @@ describe("the box block", () => {
         debian: "trixie",
         toolchain: { node: "24.22.1", bun: "1.4.2", pnpm: "12.14.0", yarn: "1.22.22" },
         packages: ["jq", "libssl-dev=3.5.1-1", "g++"],
-        claudeCode: "2.1.303",
+        workerCli: "2.1.303",
         files: [{ path: "config/dev.env.example", noRealSecrets: true }],
         localPorts: [5432],
       }),
@@ -154,7 +154,9 @@ describe("the box block", () => {
 
   it("refuses versions that are not exact, Yarn 2+, unknown tools and bad package names", () => {
     expect(boxFile({ toolchain: { bun: "^1.4.2" } })).toBe(false);
-    expect(boxFile({ claudeCode: "latest" })).toBe(false);
+    expect(boxFile({ workerCli: "latest" })).toBe(false);
+    // Version 16 renamed the key with no migration: the old name is refused.
+    expect(boxFile({ claudeCode: "2.1.303" })).toBe(false);
     expect(boxFile({ toolchain: { yarn: "4.5.0" } })).toBe(false);
     expect(boxFile({ toolchain: { deno: "2.0.0" } })).toBe(false);
     expect(boxFile({ packages: ["jq; curl evil"] })).toBe(false);

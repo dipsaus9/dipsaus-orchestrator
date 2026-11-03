@@ -172,7 +172,7 @@ export function describeBox(
             ) as NodeSha256)
           : { ...NODE_TARBALL_SHA256[toolchain["node"]!] },
       packages: [...new Set(section?.packages ?? [])].toSorted(),
-      claudeCode: section?.claudeCode ?? BOX_DEFAULTS.claudeCode,
+      claudeCode: section?.workerCli ?? BOX_DEFAULTS.claudeCode,
     },
     files: section?.files ?? [],
     localPorts: sortedPorts(section),

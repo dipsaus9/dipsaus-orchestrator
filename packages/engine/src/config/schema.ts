@@ -8,8 +8,8 @@
 // version 14 retired. Version 15 (DIPO-428) retires the question wait under `timeouts`, since a
 // worker's question parks at once (0020); its migration from 14 drops the key. Both run in
 // `migrateOfficeDocument`, and every key they drop (`RETIRED_KEYS`) is named in a warning.
-// Version 16 renames `merge.holdLabels` to `merge.waitLabels`, with no migration: a file that still
-// sets the old name is refused.
+// Version 16 renames `merge.holdLabels` to `merge.waitLabels` and `box.claudeCode` to
+// `box.workerCli`, with no migration: a file that still sets an old name is refused.
 
 import { z } from "zod";
 
@@ -161,8 +161,8 @@ const BoxSection = z
       .describe(
         "Extra Debian packages of the box image, installed with apt from Debian's archive.",
       ),
-    claudeCode: ExactVersion.describe(
-      "The Claude Code version of the box image, installed from npm through Safe-Chain, with its auto-update and nonessential traffic turned off (0008).",
+    workerCli: ExactVersion.describe(
+      "The version of the worker's command-line tool, Claude Code, in the box image, installed from npm through Safe-Chain, with its auto-update and nonessential traffic turned off (0008).",
     ),
     files: z
       .array(BoxFile)

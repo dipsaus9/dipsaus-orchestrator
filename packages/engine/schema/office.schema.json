@@ -314,11 +314,11 @@
           },
           "description": "Extra Debian packages of the box image, installed with apt from Debian's archive."
         },
-        "claudeCode": {
+        "workerCli": {
           "type": "string",
           "minLength": 1,
           "pattern": "^\\d+\\.\\d+\\.\\d+$",
-          "description": "The Claude Code version of the box image, installed from npm through Safe-Chain, with its auto-update and nonessential traffic turned off (0008)."
+          "description": "The version of the worker's command-line tool, Claude Code, in the box image, installed from npm through Safe-Chain, with its auto-update and nonessential traffic turned off (0008)."
         },
         "files": {
           "type": "array",

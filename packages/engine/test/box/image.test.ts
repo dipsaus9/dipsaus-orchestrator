@@ -82,7 +82,7 @@ describe("the box description", () => {
           debian: "bookworm",
           toolchain: { bun: "1.4.2", yarn: "1.22.22", nodeSha256: { arm64: ARM64_SUM } },
           packages: ["ripgrep", "jq"],
-          claudeCode: "2.1.300",
+          workerCli: "2.1.300",
           files: [{ path: ".env.example", noRealSecrets: true }],
           localPorts: [8080, 5432, 8080],
         },
