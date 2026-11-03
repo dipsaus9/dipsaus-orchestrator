@@ -310,7 +310,6 @@ export {
   EXIT_CHECK_MS,
   HOST_NEVER_STARTED,
   hostStoppedDetail,
-  macSessionText,
   REATTACH_NOTICES,
   REATTACH_STEP,
   RunReattacher,

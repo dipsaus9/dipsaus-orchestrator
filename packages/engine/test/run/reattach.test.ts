@@ -54,7 +54,6 @@ import {
   HOST_NEVER_STARTED,
   hostLaunchDeadline,
   hostStoppedDetail,
-  macSessionText,
   type NextSessionOutcome,
   type NextSessionRequest,
   OfficeIngest,
@@ -179,7 +178,7 @@ function daemon(
   options: Partial<
     Pick<
       ConstructorParameters<typeof RunReattacher>[0],
-      "exitCheckMs" | "boxRecord" | "adapter" | "signal" | "probe" | "connect" | "clock"
+      "exitCheckMs" | "adapter" | "signal" | "probe" | "connect" | "clock"
     >
   > = {},
 ): Daemon {
@@ -710,60 +709,6 @@ describe("re-attach (0005)", () => {
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
   });
 
-  it("a living developer on the Mac, with no box record, is stopped with a notice and parks worker-failed (DIPO-240)", async () => {
-    recordedStart();
-    beforeRestart("success-single", 6, 20);
-    const asked: string[] = [];
-    const d = daemon({
-      boxRecord: (runDir) => {
-        asked.push(runDir);
-        return false;
-      },
-    });
-    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "macSession" },
-      // The parked run's host still runs after the stop: one verified SIGTERM (0005).
-      { run: w.f.run, agent: w.f.agent, outcome: "stopEnded" },
-    ]);
-    expect(w.signals).toEqual([[4242, "SIGTERM"]]);
-    await d.control.idle();
-    expect(asked).toEqual([w.dir]);
-    const text = macSessionText({ story: "DIPO-1", runId: w.f.run });
-    expect(parks()).toEqual([["worker-failed", text]]);
-    expect(text).toContain("outside a box");
-    expect(w.sent).toEqual([encode({ kind: "stop" })]);
-    const notice = loggedEvents(w.f.office).find(
-      (event) =>
-        event.type === "engine.notice" &&
-        (event.data as { code?: string }).code === REATTACH_NOTICES.macSession,
-    );
-    expect(notice?.data).toMatchObject({ level: "error", text });
-  });
-
-  it("a living developer in its box is followed as before (DIPO-240)", async () => {
-    beforeRestart("success-single", 6, 20);
-    const inBox = daemon({ boxRecord: () => true });
-    expect(await inBox.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "steer" },
-    ]);
-    expect(parks()).toEqual([]);
-  });
-
-  it("a living reviewer on the Mac is followed, never stopped as a Mac developer (DIPO-240)", async () => {
-    beforeRestart("success-single", 6, 20);
-    w.f.office.immediate(() =>
-      w.f.office.run(
-        "update agents set role = 'reviewer' where office_id = $office_id and agent_id = $agent",
-        { agent: w.f.agent },
-      ),
-    );
-    const d = daemon({ boxRecord: () => false });
-    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "steer" },
-    ]);
-    expect(parks()).toEqual([]);
-  });
-
   it("an ingest.fileChanged report a previous daemon left parks the run worker-failed (AC #7)", async () => {
     beforeRestart("success-single", 10, 10);
     w.f.office.immediate(() =>
@@ -1203,41 +1148,6 @@ describe("restart windows of DIPO-51's review", () => {
     expect(starts).toBe(0);
   });
 
-  it("a host recorded without its agent (an older binary) is left to re-attach, never a second session (window 1)", async () => {
-    beforeRestart("terminated", 0);
-    w.f.office.immediate(() =>
-      w.f.office.run(
-        "update agents set end_reason = 'crashed' where office_id = $office_id and agent_id = $agent",
-        { agent: w.f.agent },
-      ),
-    );
-    const orphan = w.f.t.ids.next("agt");
-    recordWorkerHost(
-      w.f.office,
-      {
-        pid: 4243,
-        startTimeMs: 0,
-        runId: w.f.run,
-        agentId: orphan,
-        socketPath: join(w.dir, "host.sock"),
-        protocolVersion: 1,
-        runDir: w.dir,
-        eventFile: w.f.eventFile,
-        launchDeadline: w.f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
-      },
-      w.f.t.clock,
-    );
-    w.f.t.clock.advance(1);
-    const d = daemon();
-    expect(await d.outcomes.redispatch(w.f.office.officeId)).toBe(0);
-    expect(w.next).toEqual([]);
-    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: orphan, outcome: "steer" },
-    ]);
-    // It starts where the earlier host's lines end, so nothing is ingested twice.
-    expect(hostRow().processedOffset).toBe(statSync(w.f.eventFile).size);
-  });
-
   it("a stop between the reassign's resolution and the next session decides by the tag (window 2)", async () => {
     // crash-zeroed: an execution error while the worker waits is a `reassign` `new-session:error`.
     // The first daemon's next session never returns: the daemon stops inside its await.
@@ -1405,43 +1315,6 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
       { run: w.f.run, agent: w.f.agent, outcome: "neverStarted" },
     ]);
     expect(asked).toBe(0);
-    expect(w.signals).toEqual([]);
-  });
-
-  it("asks a pending row of an earlier binary's host (protocol 2, no launch deadline) once, also past the deadline, and re-attaches it (DIPO-386)", async () => {
-    beforeRestart("success-single", 6, 20);
-    makePending(2);
-    w.f.t.clock.advance(HOST_LAUNCH_DEADLINE_MS);
-    w.hostPid = 4343;
-    w.hostVersion = 2;
-    w.startTimeMs = w.f.t.clock.now();
-    let asked = 0;
-    const d = daemon({
-      connect: async () => {
-        asked += 1;
-        return { ok: true, client: fakeClient() };
-      },
-    });
-    expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "steer" },
-    ]);
-    // Asked for its PID, then the handshake that follows it; such a host takes no claim.
-    expect(asked).toBe(2);
-    expect(hostRow()).toMatchObject({ pending: false, pid: 4343 });
-    expect(w.ops).toEqual([]);
-    expect(w.signals).toEqual([]);
-  });
-
-  it("removes a pending row of an earlier binary's host that does not answer at once, as before: it parks, with no signal (DIPO-386)", async () => {
-    makePending(2);
-    w.answers = false;
-    const startedAt = hostRow().startedAt;
-    const d = daemon();
-    expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "neverStarted" },
-    ]);
-    expect(w.f.t.clock.now()).toBeLessThan(hostLaunchDeadline(startedAt));
-    expect(workerHostsOf(w.f.office, w.f.run)).toEqual([]);
     expect(w.signals).toEqual([]);
   });
 

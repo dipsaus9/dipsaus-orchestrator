@@ -5,12 +5,8 @@
 // the engine's run tests both build them here, so a test exercises the wiring the daemon runs.
 // What differs between them is only which ports are injected.
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
 import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 
-import { BOX_RUN_FILE } from "../box/workers";
 import type { BoxWorkers } from "../box/workers";
 
 import { QuestionAnswers } from "../questions/answers";
@@ -546,8 +542,6 @@ function buildReattacher(
     offices: ports.offices,
     ingest,
     control,
-    // A developer runs only in its box: a living Mac session of an earlier binary is stopped.
-    boxRecord: (runDir) => existsSync(join(runDir, BOX_RUN_FILE)),
     ...given("outcomes", outcomes ?? undefined),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
