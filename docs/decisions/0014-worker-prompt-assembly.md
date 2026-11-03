@@ -29,11 +29,11 @@ A worker gets a short prompt that code builds from structured data. It does not 
 
 1. `context`: the context pack (section 5).
 2. `inputs`: F9 files pre-fetched within budget; URLs are listed only.
-3. `dependencies`: title and outcome of each F7 dependency, one line each.
+3. `dependencies`: title and Story line of each F7 dependency, one line each.
 4. `background`: the free description text, within budget. A cut leaves a marker naming the task file.
 5. `handoff`: section 4, for a session after the first.
 6. `story`: id, title, type, tier.
-7. `outcome`.
+7. `outcome`: the Story line (0012).
 8. `criteria`: numbered as in Backlog.md.
 9. `references`: F8, the planner's forecast of the files to touch, as context, not a fence.
 10. `test_plan`: the automated entries to write, and the manual entries the maintainer will check.
@@ -47,6 +47,7 @@ A worker gets a short prompt that code builds from structured data. It does not 
 - status: `done` or `blocked`;
 - each criterion met or not, with evidence;
 - a summary;
+- a commit subject: dipo commits the last part at done with it, since that part has no W1 message of its own (0008);
 - each test-plan entry: done, not done, or manual, with evidence;
 - deviations from the story;
 - an optional question;
@@ -90,7 +91,7 @@ L1 holds one sentence for the boundary: dipo handles git, the backlog, the PR an
 
   A file is at most 4,000 characters per item. A log keeps at most 60 lines.
 - **Cuts.** A cut is deterministic, on a line boundary (a log keeps its tail, everything else its head), and leaves a marker naming the file and line where the rest is.
-- **The story contract is never cut.** Title, outcome, criteria, references, test plan, answers and instructions are capped together at `prompt.contractMax` (12,000), which the Ready gate checks as R26 (0012).
+- **The story contract is never cut.** Title, Story line, criteria, references, test plan, answers and instructions are capped together at `prompt.contractMax` (12,000), which the Ready gate checks as R26 (0012).
 - **The whole task message** is capped at 40,000, 50,000, 60,000 or 70,000 characters by size class. Over the cap, sections drop in this order, each with a marker: dependencies, background, the tail of the context, then the content of inputs (the list stays).
 - **Caching.** L1+L2 hold no ids, dates, paths or counts, and their hash is stored per run. Rendering is deterministic: the same story and commit give the same bytes. New information within a session arrives as user messages, never by changing L1+L2.
 - **The handoff.** Every developer session after the first is a new session in the story's box with a handoff (0008). Code assembles it from:
@@ -134,9 +135,9 @@ Maintainer text is always wrapped in a template and never starts a message, so i
 - Native `--resume`, chosen when context use was under 60% and a re-read cost at most three times a handoff (2026-10-10). Replaced by a handoff in the kept box for every later session (0008, 2026-10-22).
 - Nudges through `PostToolUse` and `SessionStart` hooks: out-of-scope writes, a stale context pack, input changes, 80% of budget (2026-10-10). Removed (2026-10-24): the developer has no hooks, and the budget line plus L1's wrap-up rule cover the budget.
 - The scope contract "you may write only these paths", the no-git and no-`cd` rules, scope requests and lockfile pairing (2026-10-10, 2026-10-16). Replaced by references as a forecast and parts (0008, 2026-10-21).
-- Verify and commit by dipo at In Review, inside `srt` (2026-10-10). Replaced by parts, and by dipo's verify in the box with CI as the final gate (0002).
+- Verify and commit by dipo at In Review, inside `srt` (2026-10-10). Replaced by parts, and by dipo's verify in the box with the required checks last (0002).
 - A `base_verify` section with the base commit's known failures, and a run of new tests against the base commit (2026-10-20). Never fed or never built. Removed (2026-10-24); a run against the base is M2 work if it returns.
 - The optional codegraph backend, the comparison of backends, and stale-index detection (2026-10-10). Moved to Later (0003). The comparison stays in `docs/research/2026-10-comparable-tools.md`.
 - Stored context pack records with blob ids, used to rebuild packs after a restart (2026-10-16). Removed (2026-10-24): the default pack is cheap to build again.
 - The four-arm measurement harness against the `dipsaus-ai` baseline: 96 runs, rating rules and decision thresholds (2026-10-10). It was never built. Removed from this ADR (2026-10-24); it gets a story of its own when the maintainer wants the measurement. The design is in git history.
-- `commitSubject` and `needsPermission` in the report. Parts carry the worker's messages, and a box worker has every permission (0008).
+- `needsPermission` in the report. A box worker has every permission (0008).
