@@ -233,10 +233,10 @@ describe("u runs stories", () => {
     const { ui, session } = await openQueue();
     session.runReply = () => ({
       ok: false,
-      error: { code: "scheduling.off", message: "scheduling is off", retryable: false },
+      error: { code: "daemon.draining", message: "scheduling is off", retryable: false },
     });
     await ui.press("u");
-    expect(await ui.waitFor("scheduling.off: scheduling is off")).not.toContain("Ctrl-R");
+    expect(await ui.waitFor("daemon.draining: scheduling is off")).not.toContain("Ctrl-R");
     await ui.press("ctrl-r");
     expect(session.commands).toHaveLength(1);
   });

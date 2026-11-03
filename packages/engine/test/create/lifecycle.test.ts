@@ -1,6 +1,6 @@
 // The daemon state machine (DIPO-68, 0005): every allowed transition is accepted, every
 // other one throws, listeners see `{ from, to, reason }`, and the office-access and scheduling
-// predicates report `engine.recovering` and `scheduling.off`, or `database.unavailable` once the
+// predicates report `engine.recovering` and `daemon.draining`, or `database.unavailable` once the
 // state database could not be used (DIPO-111).
 
 import { describe, expect, it } from "bun:test";
@@ -104,7 +104,7 @@ describe("predicates", () => {
       starting: "engine.recovering",
       recovering: "engine.recovering",
       running: null,
-      draining: "scheduling.off",
+      draining: "daemon.draining",
     });
   });
 });

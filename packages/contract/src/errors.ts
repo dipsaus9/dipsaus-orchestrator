@@ -38,7 +38,7 @@ export const GENERIC_ERROR_CODES = [
 // The only codes for which the same request may succeed later.
 export const RETRYABLE_ERROR_CODES = [
   "engine.recovering",
-  "scheduling.off",
+  "daemon.draining",
   "run.hostAlive",
   // Fetching the base failed, for example offline; `work.run` waits until a fetch succeeds
   // (DIPO-48).

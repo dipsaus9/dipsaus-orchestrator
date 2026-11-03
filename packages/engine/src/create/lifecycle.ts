@@ -130,7 +130,7 @@ export class DaemonLifecycle {
 
   /**
    * Scheduling (0005): a command that would schedule work (`work.run`, resume to In Progress)
-   * fails with the retryable `scheduling.off` in `draining`, where no new work starts. Office
+   * fails with the retryable `daemon.draining` in `draining`, where no new work starts. Office
    * access is checked first, so `starting` and `recovering` report `engine.recovering`. Null means
    * the command may schedule work.
    */
@@ -141,7 +141,7 @@ export class DaemonLifecycle {
     // Clients treat `daemon.state` to `draining` as the signal to reconnect with backoff (DIPO-24);
     // the code is retryable, so a request sent meanwhile can succeed against the next daemon.
     if (this.#state === "draining") {
-      return engineError("scheduling.off", "The daemon is stopping; no new work starts.", {
+      return engineError("daemon.draining", "The daemon is stopping; no new work starts.", {
         state: this.#state,
         reason: this.#reason,
       });

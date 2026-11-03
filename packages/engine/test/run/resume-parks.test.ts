@@ -729,12 +729,12 @@ describe("work.resume refusals", () => {
     expect(signals).toEqual([]);
   });
 
-  it("answers scheduling.off while the daemon schedules no work", async () => {
+  it("answers daemon.draining while the daemon schedules no work", async () => {
     park("by-maintainer");
     const error = await refusal(
       resumption({ parks: { scheduling: () => false } } as Partial<ResumptionOptions>),
     );
-    expect(error.error.code).toBe("scheduling.off");
+    expect(error.error.code).toBe("daemon.draining");
     expect(error.error.retryable).toBe(true);
   });
 

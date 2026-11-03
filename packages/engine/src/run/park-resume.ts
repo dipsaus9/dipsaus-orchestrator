@@ -6,7 +6,7 @@
 //    (`resume.topUpRequired` naming `--budget` and the cap that fired), the answer of an
 //    `ambiguous-spec` park or the note a reason requires is given (`resume.noteRequired`), the
 //    office's starts are not paused (`run.refused` naming why, 0020), no session of the run is alive
-//    (`run.hostAlive`), the daemon schedules work (`scheduling.off`), what remains of the caps,
+//    (`run.hostAlive`), the daemon schedules work (`daemon.draining`), what remains of the caps,
 //    counting this resume's grants, is above zero (`resume.capReached` naming `--budget`; for a
 //    top-up `resume.topUpTooSmall` naming the smallest share that clears it), and a top-up was
 //    confirmed (`confirmation.required` with the caps before and after).
@@ -583,7 +583,7 @@ export class ParkResumes {
     const story = identity.story;
     if (this.#options.scheduling?.() === false) {
       throw new CommandError(
-        "scheduling.off",
+        "daemon.draining",
         `dipo schedules no work now, so ${story} cannot resume; send \`dipo resume ${story}\` again once scheduling is back on.`,
         { story },
       );

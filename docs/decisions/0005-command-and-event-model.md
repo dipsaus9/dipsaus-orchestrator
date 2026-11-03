@@ -96,7 +96,7 @@ Every event about running work carries a `WorkRef` (story, key, run, agent, role
 
 The generic codes are `args.invalid`, `office.unknown`, `story.unknown`, `story.ambiguous`, `capability.missing`, `request.reused`, `request.timedOut`, `confirmation.required`, `not.permitted`, `stream.resetRequired`, `internal` and `database.unavailable`. `request.timedOut` means a read or subscribe the daemon did not answer within its 90 s deadline. On a read or subscribe, `request.reused` means another read or subscribe with the same id is still running on the connection.
 
-The retryable codes are `engine.recovering`, `scheduling.off`, `run.hostAlive` and `git.fetchFailed`. They are the only codes for which the same request may succeed later: `engine.recovering` waits for `running`, `scheduling.off` waits for the daemon to schedule work again, `run.hostAlive` waits for an old worker host to stop, and `git.fetchFailed` waits for a fetch that succeeds.
+The retryable codes are `engine.recovering`, `daemon.draining`, `run.hostAlive` and `git.fetchFailed`. They are the only codes for which the same request may succeed later: `engine.recovering` waits for `running`, `daemon.draining` waits for the daemon to schedule work again, `run.hostAlive` waits for an old worker host to stop, and `git.fetchFailed` waits for a fetch that succeeds.
 
 ### 11. One version
 

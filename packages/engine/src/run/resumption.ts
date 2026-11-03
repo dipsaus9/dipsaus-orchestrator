@@ -34,7 +34,7 @@ export { NOT_PARKED, RUN_HOST_ALIVE, WorkResumeCommand } from "./work-resume";
  * tried again: scheduling off, a worker that has not exited, the starts paused again.
  */
 const LIFTED_RETRY_CODES: ReadonlySet<string> = new Set([
-  "scheduling.off",
+  "daemon.draining",
   "run.hostAlive",
   "run.refused",
 ]);

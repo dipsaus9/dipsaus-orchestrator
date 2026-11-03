@@ -42,7 +42,7 @@ const ALWAYS_ALLOWED: ReadonlySet<string> = new Set(["engine.hello", "commands.d
 /**
  * The lifecycle check for one request (0005), null when it may run: office commands and reads get
  * `engine.recovering` in `starting` and `recovering`; in `draining` no command but `daemon.*`
- * starts, with the retryable `scheduling.off`, so a client retries it against the next daemon. `engine.hello`,
+ * starts, with the retryable `daemon.draining`, so a client retries it against the next daemon. `engine.hello`,
  * `commands.describe` and `daemon.*` always run.
  */
 export function lifecycleGate(
