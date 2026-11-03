@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-11-03 09:54'
-updated_date: '2026-11-03 09:54'
+updated_date: '2026-11-03 11:43'
 labels:
   - 'tier:L'
 milestone: m-2
@@ -53,4 +53,6 @@ test_plan:
 - [ ] #2 After a daemon stop between the claim commit and the recorded claim, the next start rolls the claim back without the maintainer: a branch whose only commit past its start is dipo's claim commit for this story is reset or deleted, with no claim.leftover notice
 - [ ] #3 A branch with any other commit past its start is still left for the maintainer with the claim.leftover notice
 - [ ] #4 The TUI's main screen is one component per mode with a mode reducer, app.tsx keeps only the wiring, and the existing TUI tests pass unchanged
+- [ ] #5 dipo recognises a commit as its own claim commit for this story only when its parent is the claim's start commit and it changes only the story's task file, and that change sets the status to In Progress
+- [ ] #6 A commit with the claim commit's subject (<ID>: status In Progress) that has another parent or changes anything else still leaves the branch for the maintainer with the claim.leftover notice
 <!-- AC:END -->
