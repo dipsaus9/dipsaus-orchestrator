@@ -429,7 +429,7 @@ describe("the base schema", () => {
       }
     }));
 
-  it("leaves out what no code reads: permission questions and the dead columns", () =>
+  it("leaves out what no code reads: permission questions, the pause intent and the dead columns", () =>
     withTempDir(async (dir) => {
       const state = await openStateDatabase(options(dir, MIGRATIONS));
       try {
@@ -452,6 +452,12 @@ describe("the base schema", () => {
              loop_cap, config_hash, started_at)
            values ('o-1', 'run-1', 'session', 'developer', 'm', 'tokens', 1, 1, 'h', 0)`,
         );
+        const pause = () =>
+          db.run(
+            `insert into run_intents (office_id, run_id, intent_id, kind, detail, state, created_at)
+             values ('o-1', 'run-1', 1, 'pause', '{}', 'pending', 0)`,
+          );
+        expect(pause).toThrow("CHECK constraint failed");
         const question = () =>
           db.run(
             `insert into questions (office_id, question_id, run_id, agent_id, kind, text, asked_at)

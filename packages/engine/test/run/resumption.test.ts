@@ -20,7 +20,7 @@ import {
   type RunEnder,
   type UnparkBranchRequest,
 } from "../../src/run";
-import { insertRun, raiseSignal, recordIntent } from "../../src/records";
+import { insertRun } from "../../src/records";
 import { type HeldSession, withHeld } from "./held-session";
 import { addStory } from "../../src/records/story-keys";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -154,22 +154,6 @@ function parkWithoutRun(reason: string): number {
   )?.id as number;
 }
 
-/** The run as a plan-limit hold left it before DIPO-359: its `plan-limit` signal and wait fact. */
-function legacyHold(): void {
-  const { office, run, t } = w.f;
-  const at = t.clock.now();
-  office.immediate(() => {
-    raiseSignal(office, run, "plan-limit", at);
-    recordIntent(
-      office,
-      run,
-      "pause",
-      `plan-limit ${JSON.stringify({ scope: "credits", since: at })}`,
-      at,
-    );
-  });
-}
-
 function ctx(): AsyncCommandContext {
   return {
     office: w.f.office,
@@ -234,13 +218,5 @@ describe("work.resume", () => {
     expect(error?.error.code).toBe("story.notParked");
     expect(error?.error.message).toBe("DIPO-1 is not parked, so there is nothing to resume.");
     expect(error?.error.details).toEqual({ story: "DIPO-1" });
-  });
-
-  it("no longer continues a run a plan limit held: work.resume resumes only parks (0020)", async () => {
-    legacyHold();
-    const error = await refusal(resumption());
-    expect(error?.error.code).toBe("story.notParked");
-    expect(w.sessions).toEqual([]);
-    expect(w.lifts).toEqual([]);
   });
 });

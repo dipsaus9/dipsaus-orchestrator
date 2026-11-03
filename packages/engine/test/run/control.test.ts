@@ -1196,11 +1196,11 @@ describe("a turn problem's intent that cannot be stored (DIPO-123)", () => {
         retryAtTick: true,
       }),
     ).toBe(false);
-    // A plan-limit hold fails while the turn problem's retry waits; the retry is kept.
+    // A cap fails while the turn problem's retry waits; the retry is kept.
     expect(
       w.control.act(w.f.run, {
-        intent: "pause",
-        detail: "a plan-limit hold",
+        intent: "cap",
+        detail: "a cap",
         ops: [{ closeStdin: true }],
       }),
     ).toBe(false);

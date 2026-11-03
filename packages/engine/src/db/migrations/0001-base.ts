@@ -365,7 +365,7 @@ create table run_intents (
   office_id text not null,
   run_id text not null,
   intent_id integer not null,
-  kind text not null check (kind in ('steer', 'answer', 'pause', 'stop', 'reassign', 'cap', 'park')),
+  kind text not null check (kind in ('steer', 'answer', 'stop', 'reassign', 'cap', 'park')),
   detail text not null,
   state text not null check (state in ('pending', 'sent', 'failed', 'resolved')),
   created_at integer not null,

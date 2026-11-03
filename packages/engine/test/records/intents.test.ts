@@ -151,7 +151,7 @@ describe("sendAsIntent", () => {
       throw new Error("socket gone");
     });
     const sent = await sendAsIntent(f.office, s, f.run, {
-      kind: "pause",
+      kind: "stop",
       detail: "d",
       ops: OPS,
       clock: f.t.clock,
@@ -211,7 +211,6 @@ describe("outcomeOfIntent per kind", () => {
   const OUTCOMES: Record<IntentKind, WorkerOutcome | null> = {
     steer: null,
     answer: null,
-    pause: null,
     stop: "stopped",
     reassign: "reassigned",
     cap: "capped",

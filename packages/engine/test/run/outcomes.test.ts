@@ -44,23 +44,15 @@ import {
   StartsPaused,
 } from "../../src/run";
 import {
-  activeSignals,
   endRun,
   findRun,
   insertRun,
-  raiseSignal,
   recordIntent,
-  resolveIntent,
   runIntents,
   runOutcome,
   runSteps,
 } from "../../src/records";
 import { sendFeedback } from "../../src/run/feedback";
-import {
-  LEGACY_PAUSE_DETAIL,
-  LEGACY_PAUSE_TAG,
-  LEGACY_PLAN_LIMIT_DETAIL,
-} from "../../src/run/outcome-restart";
 import { intentPark, parkIntentDetail } from "../../src/run/outcome-types";
 import { recordWorkerHost } from "../../src/records/worker-hosts";
 import { addStory } from "../../src/records/story-keys";
@@ -994,22 +986,6 @@ describe("after a restart (decision Q6)", () => {
     expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(0);
   });
 
-  it("parks by-maintainer a run the maintainer paused before the upgrade, once (DIPO-344)", async () => {
-    // The paused worker exited after its stdin closed; the pause intent is still open.
-    await ingestRecording("terminated", true);
-    setEndReason("paused");
-    w.f.office.immediate(() =>
-      recordIntent(w.f.office, w.f.run, "pause", `${LEGACY_PAUSE_TAG} req_1`, 0),
-    );
-    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
-    expect(parks()).toEqual([["by-maintainer", LEGACY_PAUSE_DETAIL]]);
-    expect(intents()).toContainEqual(["pause", LEGACY_PAUSE_TAG, "run-ended"]);
-    expect(findRun(w.f.office, w.f.run)?.endedAt).not.toBeNull();
-    expect(w.next).toEqual([]);
-    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(0);
-    expect(parks()).toHaveLength(1);
-  });
-
   it("starts the next session of a crash decided before the stop", async () => {
     // The daemon stopped after the agent was ended `crashed`, before the next session started.
     await ingestRecording("terminated", true);
@@ -1082,30 +1058,6 @@ describe("after a restart (decision Q6)", () => {
       reportFeedbackText("no structured_output"),
     ]);
     expect(parks()).toEqual([]);
-  });
-
-  it("parks worker-failed, to resume when starts are not paused, a run a plan limit held before the upgrade (DIPO-359)", async () => {
-    // The held worker exited; the old hold left its pause intent resolved and its signal raised.
-    await ingestRecording("success-single", true);
-    const at = w.f.t.clock.now();
-    w.f.office.immediate(() => {
-      const id = recordIntent(w.f.office, w.f.run, "pause", 'plan-limit {"scope":"session"}', at);
-      resolveIntent(w.f.office, w.f.run, id, "plan-limit", at);
-      raiseSignal(w.f.office, w.f.run, "plan-limit", at);
-    });
-    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
-    expect(parks()).toEqual([["worker-failed", LEGACY_PLAN_LIMIT_DETAIL]]);
-    expect(
-      w.f.office.get<{ resume_on_lift: number }>(
-        "select resume_on_lift from parks where office_id = $office_id",
-      )?.resume_on_lift,
-    ).toBe(1);
-    expect(activeSignals(w.f.office, w.f.run)).toEqual([]);
-    // No pause row: dipo resumes it at once, through the one resume path.
-    await w.starts.idle();
-    expect(w.lifted.map((park) => park.story)).toEqual(["DIPO-1"]);
-    // Decided once.
-    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(0);
   });
 });
 

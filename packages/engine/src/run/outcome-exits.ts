@@ -142,7 +142,7 @@ export class ExitOutcomes {
     // ends the run), so it is written now with the question its intent kept (DIPO-430).
     if (intent.kind === "park" && tag === INTENT_TAGS.question) {
       const question = intentRest(intent.detail);
-      // The park stores its own intent, so this one is resolved first, as a legacy pause's is.
+      // The park stores its own intent, so this one is resolved first.
       this.#s.resolve(office, view.runId, intent, "run-ended", at);
       await this.#s.park(office, run, view.work, {
         intent: "park",
