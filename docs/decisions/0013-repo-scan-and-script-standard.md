@@ -17,7 +17,7 @@ The standard is a set of root `package.json` scripts, run with the detected pack
 | `test` | Required | The fast suite. Runs once, never in watch mode, with no prompts, and works with `CI=1` |
 | `lint` | Recommended | Static checks. Never rewrites files |
 | `typecheck` | Recommended | Type checking without output files |
-| `verify` | Recommended | The full gate dipo runs in the box when the worker reports done (0002): typically `lint`, `typecheck` and `test`, stopping at the first failure |
+| `verify` | Recommended | The full check dipo runs in the box when the worker reports done (0002): typically `lint`, `typecheck` and `test`, stopping at the first failure |
 | `build` | Optional | A production build. Never part of a composed verify |
 | `format` | Optional | A formatting check only; `format:fix` writes |
 
@@ -74,7 +74,7 @@ The profile also gives dipo the default box image for the office (0008): the too
 - **Not lockfile contents.** A dependency change means "install again", not "rescan".
 - **When it is checked.** dipo computes the fingerprint on the base at office load, before each `work.run` and before `dipo test`. On a change it redoes the code part of the scan and records the diff.
 - **Inferred and confirmed capabilities** are never refreshed silently. They are marked stale and keep working until the maintainer confirms them again.
-- **A story branch that changes `test`, `lint`, `typecheck` or `verify`** has the changed commands reported to the reviewer, so a worker cannot quietly weaken the gate it is judged by. The office profile changes only once the branch merges.
+- **A story branch that changes `test`, `lint`, `typecheck` or `verify`** has the changed commands reported to the reviewer, so a worker cannot quietly weaken the checks it is judged by. The office profile changes only once the branch merges.
 - **`dipo office rescan`** does the same at any time and shows the diff.
 
 ## 6. Inference and confirmation
@@ -95,6 +95,6 @@ The profile also gives dipo the default box image for the office (0008): the too
 
 - `PORT` required for `dev`, and fixed dev ports rated partial, so parallel worktrees would not clash (2026-10-10). Removed (2026-10-24): each box and test box has its own network (0008), so a fixed port no longer collides.
 - The dev port in the run profile, detected from the dev server config, the script or the framework default, with the local modules a dev server config imports in the fingerprint (2026-10-12). Removed (2026-10-28): the test box takes the URL `dev` prints (0002), and nothing else reads a dev port.
-- Install, `setup` and verify run by dipo in a Mac worktree, and the base profile's verify run next to a branch's changed verify (2026-10-10). Replaced by install and `setup` in the box, dipo's verify in the box, and CI as the final gate (0008, 0002).
+- Install, `setup` and verify run by dipo in a Mac worktree, and the base profile's verify run next to a branch's changed verify (2026-10-10). Replaced by install and `setup` in the box, dipo's verify in the box, and the required checks last (0008, 0002).
 - An inference that ran by itself when a capability was unresolved (2026-10-10). Replaced by `dipo office infer` only (2026-10-22).
 - The survey of the maintainer's repositories and the fit table of 2026-10-09. They are in git history; the scan reports each repository's level itself.
