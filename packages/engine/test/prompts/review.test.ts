@@ -166,7 +166,9 @@ describe("the reviewer's system file (L1 + L2)", () => {
   it("states what 0019 section 4 asks of L1", () => {
     const text = box();
     expect(text).toContain("## You are read-only");
-    expect(text).toContain("Judge the diff against the Story line, the criteria and the test plan.");
+    expect(text).toContain(
+      "Judge the diff against the Story line, the criteria and the test plan.",
+    );
     expect(text).toContain(
       "Report a security or correctness problem only when you can point to an exact changed line",
     );
