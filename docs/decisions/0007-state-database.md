@@ -119,7 +119,7 @@ The worker host appends the session's stream to `events.ndjson`. The engine read
 - **The backup.** Before the first step, dipo writes `VACUUM INTO backups/pre-v<N>-<time>.db`. A fresh database gets no backup. The two newest are kept. This is the only backup.
 - **Failure.** A failed step rolls back, and the daemon stays in `recovering` with `database.unavailable` and the backup's name (0005). An edited step (checksum mismatch) is treated the same way, and so is a schema that differs from the one the steps build in a fresh in-memory database, with the differing objects named. A database newer than the binary is refused with "upgrade dipo". A database an earlier dipo wrote before the squash is refused with what happened and where the file is: the maintainer moves it away and dipo starts a fresh one. dipo deletes nothing.
 - **Tests.** A database built from all steps must equal one migrated from each released schema, compared by schema dump.
-- **One squash before 1.0.** The steps were squashed once into one base schema (2026-11-03), and the code that settled state earlier binaries left (a row, a file or a folder in an older shape) went with them.
+- **One squash before 1.0.** The steps were squashed once into one base schema (2026-11-03), and the code that settled state earlier binaries left (a row, a file or a folder in an older shape) went with them, except the removal of old daily backup copies, kept for the first start after the squash.
 - **Losing the database** loses run history, never a project (0001). A new file is created. `office open` registers each repository again from its marker, and reconcile and a rescan rebuild the rest from Backlog.md, git and the repository.
 
 ## Replaced

@@ -68,7 +68,7 @@ Every kind of feedback reaches the developer the same way: as a message to the d
 
   | Source | Cap | At the cap |
   |---|---|---|
-  | Report gate refusals and a red verify in the box | Tier `loops` | `verify-failing` |
+  | Report gate refusals and a red verify in the box (a send-back of proposal Story lines alone is not counted, 0020) | Tier `loops` | `verify-failing` |
   | Red required checks, on a reviewed head or a close-out head | CI attempts, default 2 | `verify-failing` |
   | Blocked review | Failed rounds, default 3 | `review-blocked` |
   | Conflict | Failed conflict hand-offs, default 2 | `conflict` |
