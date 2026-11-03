@@ -19,7 +19,7 @@
 // 4. Each candidate not started is a skip: its status (`notReady`, `parked`, `notRunnable`), a
 //    live claim, a pending lane-b operation or a failed backlog PR check (`notRunnable`), the
 //    office's worker place held by a developer session or owed to a waiting resume, fix round or
-//    conflict hand-off first (`capacity`, 0019, DIPO-142; a reviewer or a session run
+//    conflict hand-off first (`capacity`, 0002, DIPO-142; a reviewer or a session run
 //    takes no worker place), a dependency not Done (`dependency`), or a failed pickup
 //    check (`pickupCheckFailed`).
 // 5. Before the claim the story contract is assembled (DIPO-47); `prompt.contractTooLarge` moves
@@ -36,7 +36,7 @@
 // 8. With a launcher, the worker host starts and `work.phase build` follows; a failed setup or
 //    launch check rolled the claim back in step 6 (a `pickupCheckFailed` skip, the story Ready).
 //
-// Every run's developer works in its story's box (DIPO-240, 0021): the launcher makes the box
+// Every run's developer works in its story's box (DIPO-240, 0008): the launcher makes the box
 // whenever the daemon has box workers. `args.box` is accepted and changes nothing, so
 // clients that still send it keep working.
 
@@ -286,7 +286,7 @@ function recordPrepared(
 }
 
 /**
- * True when a new pickup cannot take the office's worker place (0019): a developer
+ * True when a new pickup cannot take the office's worker place (0002): a developer
  * session holds it, or a resume, fix round or conflict hand-off waits for it and goes first.
  */
 function workerPlaceTaken(office: OfficeHandle): boolean {
@@ -690,7 +690,7 @@ export class WorkRun {
         loopCap: caps.loops,
         maxTurns: caps.maxTurns,
         maxMinutes: caps.maxMinutes,
-        // The review loop's caps, fixed at the start (0019, 0020).
+        // The review loop's caps, fixed at the start (0002, 0020).
         reviewRoundCap: c.config.review.maxRounds,
         ciCap: c.config.caps.ciAttempts,
         conflictCap: c.config.caps.conflictAttempts,

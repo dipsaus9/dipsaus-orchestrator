@@ -1,4 +1,4 @@
-// The end of a developer's turn and In Review (0007, 0010, 0013, 0021). Run control
+// The end of a developer's turn and In Review (0007, 0010, 0013, 0008). Run control
 // (DIPO-50) calls `afterTurn` once per worker turn, one at a time per run, unless the turn already
 // ended the run (a cap or a blocked report). Only a turn whose report is `done` goes on.
 //
@@ -34,10 +34,10 @@
 //   (0010); any other push failure is a notice and the story stays In Review with the branch local.
 //   A failure in the commit steps parks `worker-failed` with the error. Dependency files the parts
 //   changed (manifests, lockfiles, `requirements*.txt`) raise `verify.dependenciesChanged`.
-// - The story PR (DIPO-144; 0019): after a push that reached the remote, `storyPr.sync`
+// - The story PR (DIPO-144; 0002): after a push that reached the remote, `storyPr.sync`
 //   opens the story's ready PR, or updates the one it has; the review (a pending review of the
 //   reviewer place) and CI (the PR poll's watch of the pushed head) start together on that head
-//   (0019). Red CI goes back to the worker through the CI loop of 0019.
+//   (0002). Red CI goes back to the worker through the CI loop of 0002.
 //
 // The report gate (DIPO-186; 0002, 0014), for every done report before the steps above: the
 // report's test-plan entries and deviations are stored for the run (`done_reports`). The report is
@@ -850,14 +850,14 @@ export class VerifyCommit implements RunFinisher {
       }
       return entries;
     });
-    // 6. The story PR: opened, or updated when an earlier push already opened it (0019).
+    // 6. The story PR: opened, or updated when an earlier push already opened it (0002).
     if (push.pushed) await this.#deps.storyPr?.sync(officeId, run.runId);
     else if (push.error !== null) this.#deps.storyPr?.pushHeld?.(officeId, run.runId);
     return { kind: "ended" };
   }
 }
 
-/** True when the story's task file was refused for fields dipo does not know (0021). */
+/** True when the story's task file was refused for fields dipo does not know (0008). */
 function isTaskFieldError(error: unknown): error is GitError {
   return error instanceof GitError && error.code === TASK_FIELD_ERROR;
 }

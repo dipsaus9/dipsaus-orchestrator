@@ -1,4 +1,4 @@
-// The box door (DIPO-272, 0021): the `dipo-part` command and dipo's reader, run for real
+// The box door (DIPO-272, 0008): the `dipo-part` command and dipo's reader, run for real
 // with the system shell on a host folder that stands for the box's queue (a fake box whose exec
 // runs the command here), the checks every message passes, the report kinds and the door poller.
 

@@ -1,5 +1,5 @@
-// The engine's surface as `createEngine` builds it (DIPO-318; 0005;
-// 0006), with fakes for the daemon's process concerns and a real office on a
+// The engine's surface as `createEngine` builds it (DIPO-318; 0005),
+// with fakes for the daemon's process concerns and a real office on a
 // temporary repository: what `engine.hello`, `commands.describe` and the `daemon.*` operations
 // answer, the lifecycle checks, the software stream, an office's change log with their cursors,
 // and the order of a command's reply and its office's change.

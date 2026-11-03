@@ -1,7 +1,7 @@
 // CI only (0017, DIPO-225): the CLI calls of the claim, In Review, park, unpark and lane
 // paths on real git; the task file checks stay in clean-folder.test.ts.
 // Every Backlog CLI call dipo makes for a story runs in a folder that holds no file a worker wrote,
-// with a minimal, explicit environment (DIPO-270; 0021). Arbitrary files are committed
+// with a minimal, explicit environment (DIPO-270; 0008). Arbitrary files are committed
 // on the story branch, at its root and in its `backlog/` folders, the way a worker's pushed work
 // could hold them (a story has no worktree, DIPO-349). Then the claim, In Review, park, unpark and
 // lane paths run on real git and the pinned Backlog CLI through a recording `Spawn`, and every call

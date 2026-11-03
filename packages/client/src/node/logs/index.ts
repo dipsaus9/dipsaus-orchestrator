@@ -1,4 +1,4 @@
-// The log reader of `client/node` behind `dipo daemon logs` (0006, DIPO-64).
+// The log reader of `client/node` behind `dipo daemon logs` (0005, DIPO-64).
 
 export {
   DAEMON_LOG_FILE,

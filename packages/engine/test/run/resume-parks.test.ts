@@ -1112,7 +1112,7 @@ describe("no resume raises a cap without a recorded grant (0020, never silent)",
     });
   }
 });
-describe("a resume whose place is taken (0020, 0019)", () => {
+describe("a resume whose place is taken (0020, 0002)", () => {
   it("is accepted with its intent stored, replies queued, and starts when the worker place frees", async () => {
     const { office, t } = w.f;
     // Another story run holds the office's worker place with a live session.

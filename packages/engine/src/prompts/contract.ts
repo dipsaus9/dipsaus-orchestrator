@@ -155,7 +155,7 @@ export function assembleContract(
     },
     {
       name: "scope",
-      // A box worker's scope is a forecast, not a fence (0021, DIPO-272).
+      // A box worker's scope is a forecast, not a fence (0008, DIPO-272).
       text: renderTemplate(options.box === true ? TASK_TEMPLATES.scopeBox : TASK_TEMPLATES.scope, {
         paths: bullets(story.scope),
       }),

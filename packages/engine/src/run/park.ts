@@ -497,7 +497,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
   } catch (error) {
     writeError = messageOf(error);
     if (error instanceof GitError && error.code === TASK_FIELD_ERROR) {
-      // 0021: a task file holding fields dipo does not know never reaches the CLI.
+      // 0008: a task file holding fields dipo does not know never reaches the CLI.
       detail =
         reason === "scope-violation"
           ? `${error.message} ${detail}`

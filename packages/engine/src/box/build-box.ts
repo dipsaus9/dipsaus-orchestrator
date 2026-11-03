@@ -1,4 +1,4 @@
-// The office image, built in a box (0021). The image is built inside a box on the host-only box
+// The office image, built in a box (0008). The image is built inside a box on the host-only box
 // network, with the same web route as a worker box (Safe-Chain for the registries, dipo's web
 // proxy for the rest), and turned into the image with `container commit`. dipo never uses
 // `container build` for the office image: it runs on Apple `container`'s default network, where

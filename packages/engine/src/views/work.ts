@@ -89,7 +89,7 @@ function refOf(run: StoredRun, agent: AgentRow): WorkRef | null {
     key: StoryKey.parse(run.key),
     run: RunId.parse(run.runId),
     agent: AgentId.parse(agent.agent_id),
-    // The agent's own role: a reviewer of the run is no developer (0019).
+    // The agent's own role: a reviewer of the run is no developer (0002).
     role: RoleId.parse(agent.role),
     tier: run.tier ?? "",
     model: agent.model,
@@ -132,7 +132,7 @@ function progressOf(office: OfficeHandle, run: StoredRun): Progress {
   const own = runCriteriaMet(office, run.runId, current);
   const total = criteria?.total ?? own?.known ?? 0;
   const met = Math.max(criteria?.met ?? 0, own?.met ?? 0);
-  // The review round cap with its grants and the failed rounds, once the run has a cap (0019).
+  // The review round cap with its grants and the failed rounds, once the run has a cap (0002).
   const reviewRoundCap = runCaps(office, run).reviewRoundCap;
   const review =
     reviewRoundCap === null

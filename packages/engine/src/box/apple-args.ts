@@ -1,4 +1,4 @@
-// The one argument builder of the Apple `container` backend (DIPO-265, 0021).
+// The one argument builder of the Apple `container` backend (DIPO-265, 0008).
 // Every `container` argv dipo runs comes from here, so the rules hold in one place:
 // - a box joins only dipo's host-only network, by name and mode; any other network is refused;
 // - the only mounts are the office package cache and the box network tools of the box's image
@@ -58,7 +58,7 @@ export const BOX_KEEPALIVE: readonly [string, ...string[]] = ["tail", "-f", "/de
 /** The Linux capability a box is made with so its firewall can be set (DIPO-281). */
 export const BOX_FIREWALL_CAPABILITY = "CAP_NET_ADMIN";
 
-/** The Mac's resources a box may use, all of them (0021). */
+/** The Mac's resources a box may use, all of them (0008). */
 export interface HostResources {
   readonly memoryBytes: number;
   readonly cpus: number;

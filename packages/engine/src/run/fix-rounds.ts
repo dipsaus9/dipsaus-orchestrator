@@ -1,4 +1,4 @@
-// Fix rounds (0019, 0021): the feedback on a pushed head goes back to the same worker in one round.
+// Fix rounds (0002, 0008): the feedback on a pushed head goes back to the same worker in one round.
 //
 // - Sources. A blocked review verdict (its unmet criteria and blocking findings), the red required
 //   checks of the pushed head (`StoryPrs.ciState`, DIPO-147; CI is the final gate of a box run,
@@ -300,7 +300,7 @@ export class FixRounds {
       if (!(await this.#sameTree(officeId, run, facts, verdict, ci.head))) return false;
     }
     const itemMax = itemMaxOf(config, run.tier);
-    // A blocked verdict the maintainer overrode (0019) sends nothing back.
+    // A blocked verdict the maintainer overrode (0002) sends nothing back.
     const review =
       verdict?.verdict === "blocked" && verdict.override === null
         ? reviewFeedbackItems(
@@ -324,7 +324,7 @@ export class FixRounds {
   }
 
   /**
-   * A maintainer reject (0019): its note, verbatim and keyed on the gate id, goes
+   * A maintainer reject (0002): its note, verbatim and keyed on the gate id, goes
    * to the worker at once, through the same send path as review and CI items. The entry for
    * `gate.reject`. True when a round was queued.
    */
@@ -399,7 +399,7 @@ export class FixRounds {
   }
 
   /**
-   * A conflict hand-off of a run waiting In Review (0019, DIPO-149): the one
+   * A conflict hand-off of a run waiting In Review (0002, DIPO-149): the one
    * conflict item of a merge dipo made into the branch, sent at once like a reject, through the
    * same send path (once per head and signature). The entry for the auto-merge's conflict hand-off;
    * a box run's sync before In Review hands its conflict over in the live session instead. True

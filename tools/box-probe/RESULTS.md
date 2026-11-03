@@ -60,7 +60,7 @@ The same lines run as a test against the real path in `packages/engine/test/box/
 
 ## Run of 2026-10-21 (DIPO-264)
 
-Results of the escape probe that decision 0021 (section 16) makes the gate. They were run by hand on 2026-10-21, with the maintainer watching, on macOS 26.6 (Apple silicon) with Apple `container` 1.6.0 and its recommended default kernel. The box image is `docker.io/library/alpine:3.20`, and the box code came from `origin/main` (`git archive`, so no `.git`).
+Results of the escape probe that decision 0008 makes the gate. They were run by hand on 2026-10-21, with the maintainer watching, on macOS 26.6 (Apple silicon) with Apple `container` 1.6.0 and its recommended default kernel. The box image is `docker.io/library/alpine:3.20`, and the box code came from `origin/main` (`git archive`, so no `.git`).
 
 Every command was in `probe.sh` as it was then, with placeholders for the Mac's own addresses and ports. Every check ran as root in the box (`uid=0`).
 

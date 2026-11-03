@@ -386,7 +386,7 @@ function buildOutcomes(
     guard: outcomes.parts.support.guard,
     // A round that cannot start and will not on its own parks the story (DIPO-148).
     park: (office, run, work, ending) => control.park(office, run, work, ending),
-    // A verdict on another commit holds for a head with the same code tree (0019).
+    // A verdict on another commit holds for a head with the same code tree (0002).
     treeKey: (office, run, taskFile, head) =>
       gitReviewOps(ports.git).codeTreeKey(office, taskFile, head),
     ...given("refreshStory", ports.refreshStory),
@@ -395,7 +395,7 @@ function buildOutcomes(
   });
   const reviews = buildReviews(ports, control, ingest, startsPaused, fixRounds);
   // The places wait while the office's starts are paused, start a queued resume through the
-  // resumption and a pending review through the review rounds (0019).
+  // resumption and a pending review through the review rounds (0002).
   const places = new Places({
     ...ports.places,
     clock: ports.clock,

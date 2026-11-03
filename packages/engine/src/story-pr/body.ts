@@ -1,4 +1,4 @@
-// The body of a story PR (0019), built by code from facts, no model text. Sections in
+// The body of a story PR (0002), built by code from facts, no model text. Sections in
 // this order: the Story line, the acceptance criteria ticked as the task file has them, the test plan,
 // the declared scope, a status block and a footer. The body is capped at `STORY_PR_MAX_BODY`; the
 // story contract (Story line, criteria and test plan) is never cut, the scope list is cut with a
@@ -10,7 +10,7 @@ import type { DoneReport, TestPlan } from "@dipsaus-orchestrator/contract";
 
 import type { RequiredCheckState } from "./checks";
 
-/** GitHub allows 65,536 characters; dipo keeps its bodies well under (0019). */
+/** GitHub allows 65,536 characters; dipo keeps its bodies well under (0002). */
 export const STORY_PR_MAX_BODY = 20_000;
 
 export interface PrBodyStory {
@@ -30,7 +30,7 @@ export interface PrBodyStory {
   readonly doneReport?: DoneReport | null;
 }
 
-/** The stored review verdict the status block shows (0019, DIPO-152). */
+/** The stored review verdict the status block shows (0002, DIPO-152). */
 export interface PrBodyReview {
   readonly round: number;
   readonly verdict: "approved" | "blocked";
@@ -54,13 +54,13 @@ export interface PrBodyStatus {
   readonly head: string;
   /**
    * `passed` (the default) when dipo's verify passed at the head; `ci` for a box run, whose
-   * verify is CI on the PR (0021).
+   * verify is CI on the PR (0008).
    */
   readonly verify?: "passed" | "ci";
   /** True when the host reported no CI check for the head: no CI ran, the review decides. */
   readonly noCi?: boolean;
   /**
-   * The required checks of the head with their states (0019); the body has no checks
+   * The required checks of the head with their states (0002); the body has no checks
    * line when this is left out.
    */
   readonly checks?: readonly RequiredCheckState[];

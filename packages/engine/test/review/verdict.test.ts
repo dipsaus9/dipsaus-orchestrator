@@ -1,4 +1,4 @@
-// The verdict computed by code from a validated report (0019, DIPO-146 AC #2).
+// The verdict computed by code from a validated report (0002, DIPO-146 AC #2).
 
 import { describe, expect, it } from "bun:test";
 

@@ -1,4 +1,4 @@
-// The model proxy (0021, DIPO-269): the one place a box's Claude Code reaches the model. It runs on
+// The model proxy (0008, DIPO-269): the one place a box's Claude Code reaches the model. It runs on
 // the Mac, listens only on the box network's host address, passes only model requests and adds the
 // maintainer's subscription login on the way out, so the token never enters a box. Ported from the
 // reviewed probe proxy (tools/box-probe/model-proxy.ts):

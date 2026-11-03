@@ -1,4 +1,4 @@
-// The worker report as data (0008, 0014, 0020, 0021): code checks and stores what a report carries
+// The worker report as data (0008, 0014, 0020): code checks and stores what a report carries
 // beyond its criteria, and never changes the story for it.
 //
 // - Test-plan entries (DIPO-254). A done report must give every automated entry of the story's

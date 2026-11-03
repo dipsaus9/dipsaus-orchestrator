@@ -1,6 +1,6 @@
 // CI only (0017, DIPO-225): the flow on real git; the rules as data and the merge driver
 // guard stay in collisions.test.ts.
-// Changed files and collisions of box runs (DIPO-277, 0021): the prefix rule, the texts
+// Changed files and collisions of box runs (DIPO-277, 0008): the prefix rule, the texts
 // and git's output read as data, then the flow on real git with a bare remote: two box runs whose
 // boxes are folders here (a fake box: `tar` of the folder for the parts, `rm` and a folder copy for
 // the catch-up), real `BoxParts` delivering their parts, and `BoxCollisions` telling the overlap

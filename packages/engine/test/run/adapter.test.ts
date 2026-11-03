@@ -148,7 +148,7 @@ describe("the worker port seam (DIPO-113)", () => {
     expect(built.session).toEqual({ id: "s-2" });
     expect(built.systemFile).toBe(`${RUN_DIR}/${REVIEW_SYSTEM_FILE}`);
     expect(built.reportSchema).toBe(REVIEW_REPORT_JSON_SCHEMA);
-    // The ReviewReport of 0019: findings with testEntry, a summary of at most 1,500.
+    // The ReviewReport of 0002: findings with testEntry, a summary of at most 1,500.
     const schema = built.reportSchema as {
       required: string[];
       properties: {

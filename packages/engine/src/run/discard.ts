@@ -17,11 +17,11 @@
 //    on.
 // 5. One transaction: the run's open questions closed `ended`, an open park resolved `discard`, and
 //    `story.state` to Refined unless the base says Done. The boxes of ended runs are deleted
-//    (0021), and the lane flushes.
+//    (0008), and the lane flushes.
 // The leftovers of a story Done on the base through another branch (0020) are discarded
 // the same way without a claim and with no lane-b write: their kept branches go
 // (`leftoverTargets`, exactly what the loss list shows) and the leftovers are cleared. A story whose
-// PR head changed outside dipo (0019) is discarded like any other.
+// PR head changed outside dipo (0002) is discarded like any other.
 // Refused: a story whose PR in `story_prs` merged (`story.prMerged`), and a story with neither a
 // claim nor leftovers that was never discarded (`story.notDiscardable`). A failure before the
 // release withdraws the journal entry. A re-run after a crash between the release and the facts
@@ -105,7 +105,7 @@ export interface StoryDiscardDeps {
   readonly signal: SignalProcess;
   /** Stops an active run as `story.park` does; without it a running story is refused. */
   readonly stop?: DiscardStop;
-  /** Checks and deletes the boxes of ended runs (0021); best effort. */
+  /** Checks and deletes the boxes of ended runs (0008); best effort. */
   readonly finishBoxes?: () => Promise<unknown>;
   /**
    * Reads the story's status in `_base`: a story Done there gets no backlog write and no Refined

@@ -1,4 +1,4 @@
-// The `review` kind's prompts (DIPO-145; 0019, 0014): the golden
+// The `review` kind's prompts (DIPO-145; 0002, 0014): the golden
 // L1+L2 system file of the reviewer, and the review task message with the section 4 inputs and
 // nothing of the worker's report, notes or handoff.
 
@@ -163,7 +163,7 @@ describe("the reviewer's system file (L1 + L2)", () => {
     expect(text.endsWith("\n\n")).toBe(false);
   });
 
-  it("states what 0019 asks of L1", () => {
+  it("states what 0002 asks of L1", () => {
     const text = box();
     expect(text).toContain("## You are read-only");
     expect(text).toContain(
@@ -255,7 +255,7 @@ describe("the review task message (L4)", () => {
     }
   });
 
-  it("holds the section 4 inputs in order, each in its tag", () => {
+  it("holds the review inputs in order, each in its tag", () => {
     const message = assembleReviewTaskMessage(
       input({ previousFindings: FINDINGS, workerReport: WORKER_REPORT, safeChain: SAFE_CHAIN }),
     );

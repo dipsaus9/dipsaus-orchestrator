@@ -1,4 +1,4 @@
-// Where a client finds the daemon (0006): the state anchor `<state>` and the
+// Where a client finds the daemon (0005): the state anchor `<state>` and the
 // `<state>/runtime.json` the daemon writes after it holds the lock. The anchor rule, the folder
 // checks and the record are the contract's runtime layout, the daemon's own (DIPO-320): `DIPO_HOME`
 // (tests only), else a fixed path under the passwd home directory, never `$HOME`,
@@ -166,14 +166,14 @@ export function dirRefusal(
   return null;
 }
 
-/** `<state>` for this user (0006); throws `DirRefusedError` for a refused folder. */
+/** `<state>` for this user (0005); throws `DirRefusedError` for a refused folder. */
 export function stateDir(env: Env = process.env, home: string = userInfo().homedir): string {
   const state = resolveState(env, home);
   if (state instanceof DirRefusedError) throw state;
   return state;
 }
 
-/** `<logs>`, where `daemon.log` is (0006); `DIPO_HOME` puts it in `<DIPO_HOME>/logs`. */
+/** `<logs>`, where `daemon.log` is (0005); `DIPO_HOME` puts it in `<DIPO_HOME>/logs`. */
 export function logsDir(env: Env = process.env, home: string = userInfo().homedir): string {
   stateDir(env, home);
   return softwareDirsOf(env, home).logs;

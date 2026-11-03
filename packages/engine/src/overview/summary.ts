@@ -34,7 +34,7 @@ export function columnCounts(office: OfficeHandle): Partial<Record<QueueColumn, 
 /**
  * The office's active runs (`records/run-records.ts`), and each run that has ended while a worker
  * host of it is still open (DIPO-411): its exit is not in yet, so its worker may still run, and
- * keep-awake counts it as active too (0006). It stops counting once the host's exit is ingested or
+ * keep-awake counts it as active too (0005). It stops counting once the host's exit is ingested or
  * re-attach closes the host out.
  */
 export function activeRunCount(office: OfficeHandle): number {

@@ -1,4 +1,4 @@
-// Software-level configuration, `<state>/config.yaml` (0006, 0017):
+// Software-level configuration, `<state>/config.yaml` (0005, 0017):
 // one strict, versioned zod schema that the daemon and every client validate with. The contract
 // has no I/O, so each side reads the file and hands its YAML parser in: the engine through
 // `platform/yaml.ts`, clients through `client/node`.
@@ -237,7 +237,7 @@ export function checkConfigDocument(
 export const EXIT_CONFIG = 78;
 
 /**
- * The installed autostart (0006, DIPO-63): the launchd agent's label. The client
+ * The installed autostart (0005, DIPO-63): the launchd agent's label. The client
  * writes the agent (`dipo daemon install`); the daemon recognises its supervisor by it. Shared here
  * because `client` may not import `engine` (0004).
  */
@@ -253,7 +253,7 @@ export const SOFTWARE_CONFIG_FILE = "config.yaml";
 export const SOFTWARE_CONFIG_VERSION = 4;
 
 /**
- * `config.yaml` version 4. `daemon.autostart` is 0006; `usage.alerts` holds the daily and monthly
+ * `config.yaml` version 4. `daemon.autostart` is 0005; `usage.alerts` holds the daily and monthly
  * token levels that raise an alert over all offices together (`dayTokens` and `monthTokens` have no
  * default, so the alerts stay off until set; they count budget tokens in UTC calendar windows);
  * `notify.desk` is whether the daemon posts a macOS notification when an item is added to an
@@ -266,7 +266,7 @@ export const SoftwareConfigV4 = z.strictObject({
       autostart: z
         .boolean()
         .default(true)
-        .describe("A client command that needs the daemon starts it when none is running (0006)."),
+        .describe("A client command that needs the daemon starts it when none is running (0005)."),
     })
     .default({ autostart: true }),
   usage: z

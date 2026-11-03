@@ -1,4 +1,4 @@
-// The daemon's listener on `<runtime>/dipo.sock` (0006): `Bun.serve({ unix })` with a
+// The daemon's listener on `<runtime>/dipo.sock` (0005): `Bun.serve({ unix })` with a
 // `fetch` handler that upgrades every request to a WebSocket and a `websocket` handler that hands
 // each text frame to the connection's session. One text frame holds one JSON frame; what a frame
 // means is the caller's business. Engine code reaches `Bun.serve` only through this module (0004).

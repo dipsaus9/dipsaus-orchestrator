@@ -705,7 +705,7 @@ function warn(context: GateContext, rule: GateRule, message: string): GateFailur
  * holds one in the base tree. Manual entries are exempt. One warning per entry and name.
  *
  * R29 warns and never fails (maintainer decision of 2026-10-22): References are the planner's
- * forecast, not a write fence (0021), so an uncovered name is reported in the gate's
+ * forecast, not a write fence (0008), so an uncovered name is reported in the gate's
  * output and decision record but does not keep the story from Ready or from pickup.
  */
 export const r29: RuleCheck = (context) => {

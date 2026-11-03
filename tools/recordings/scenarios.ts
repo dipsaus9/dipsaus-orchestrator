@@ -73,7 +73,7 @@ export interface Scenario {
    */
   readonly webGate?: true;
   /**
-   * `review` for a reviewer session (0019): the plan of the review kind, its report
+   * `review` for a reviewer session (0002): the plan of the review kind, its report
    * schema, every installed plugin switched off, and `kind` in `meta.json`.
    */
   readonly kind?: "review";
@@ -400,7 +400,7 @@ const SCENARIOS_BASE: readonly Scenario[] = [
   },
 ];
 
-// The review kind (DIPO-145; 0019). Each scenario commits a change on the story
+// The review kind (DIPO-145; 0002). Each scenario commits a change on the story
 // branch before the session, then gives the reviewer the review task message of a fixture story
 // about it, built by the engine's own assembly, under the reviewer's own system file.
 
@@ -560,7 +560,7 @@ const REVIEW_SCENARIOS: readonly Scenario[] = [
       { path: "src/greet.test.ts", added: GREET_TEST.length, removed: 0 },
     ]),
     commitOnStory({ "src/greet.test.ts": `${GREET_TEST.join("\n")}\n` }),
-    "A reviewer's session (0019) on a change that adds the test of greet: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no plugin beyond Claude Code's built-ins; the worktree is unchanged; the outcome is done with a valid review report, every criterion met and no blocking finding, so the verdict code computes is approved.",
+    "A reviewer's session (0002) on a change that adds the test of greet: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no plugin beyond Claude Code's built-ins; the worktree is unchanged; the outcome is done with a valid review report, every criterion met and no blocking finding, so the verdict code computes is approved.",
   ),
   reviewScenario(
     "review-blocked-live",
@@ -574,7 +574,7 @@ const REVIEW_SCENARIOS: readonly Scenario[] = [
         "",
       ].join("\n"),
     }),
-    "A reviewer's session (0019) on a change that makes greet say hi and adds no test: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no plugin beyond Claude Code's built-ins; the worktree is unchanged; the outcome is done with a valid review report whose unmet criteria make the verdict code computes blocked.",
+    "A reviewer's session (0002) on a change that makes greet say hi and adds no test: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no plugin beyond Claude Code's built-ins; the worktree is unchanged; the outcome is done with a valid review report whose unmet criteria make the verdict code computes blocked.",
   ),
   reviewScenario(
     "review-invalid-live",
@@ -582,7 +582,7 @@ const REVIEW_SCENARIOS: readonly Scenario[] = [
       { path: "src/greet.test.ts", added: GREET_TEST.length, removed: 0 },
     ])}\nFor this recording only: do not return the structured report. Reply with the single word reviewed in plain text instead.\n`,
     commitOnStory({ "src/greet.test.ts": `${GREET_TEST.join("\n")}\n` }),
-    "A reviewer's session (0019) asked not to return its report. The live run (Claude Code 2.1.302, Haiku) returned a valid review report anyway, every criterion met and no finding: the outcome is done and the verdict code computes is approved. The scenario does not provoke an invalid report live; the derived review-invalid recording covers that case (one correction turn, then handled as a crash).",
+    "A reviewer's session (0002) asked not to return its report. The live run (Claude Code 2.1.302, Haiku) returned a valid review report anyway, every criterion met and no finding: the outcome is done and the verdict code computes is approved. The scenario does not provoke an invalid report live; the derived review-invalid recording covers that case (one correction turn, then handled as a crash).",
   ),
 ];
 

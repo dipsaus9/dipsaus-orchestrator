@@ -1,14 +1,14 @@
 // Feedback items (0014): built by code from the failing fact, with the evidence and a signature
 // for send-once handling. A verify item holds the failing step and command, the exit code, the
 // last output lines and the `file:line` locations parsed from tsc, oxlint and bun test output.
-// A CI item (0019) holds a failed check's name, its job, the failing step names, the cut log
+// A CI item (0002) holds a failed check's name, its job, the failing step names, the cut log
 // tail and the locations parsed from it; a check with no log of its own says why.
 //
-// The reviewer's two correction turns (0019, DIPO-219) are built here too: a report
+// The reviewer's two correction turns (0002, DIPO-219) are built here too: a report
 // missing or invalid against the review schema (`feedback/review-report.md`), and blocking
 // findings whose evidence did not check out, each named with why (`feedback/review-evidence.md`).
 //
-// A fix round's items (DIPO-148; 0019): a blocked verdict's unmet criteria and blocking
+// A fix round's items (DIPO-148; 0002): a blocked verdict's unmet criteria and blocking
 // findings, each with the evidence and a signature over the fields that identify it, never over
 // the reviewer's free text; a maintainer reject's note verbatim, keyed on its gate id; and the one
 // user message that carries every item for a pushed head, repeats marked, advisories as optional.
@@ -320,7 +320,7 @@ function budgetRoom(budget: BudgetFacts | undefined): number {
   return budget === undefined ? 0 : budgetLine(budget).length + 1;
 }
 
-/** One failed check of a pushed head, as the code host reports it (0019). */
+/** One failed check of a pushed head, as the code host reports it (0002). */
 export interface CiFailure {
   /** The check's name. */
   readonly check: string;
@@ -375,7 +375,7 @@ export function parseActionsLog(log: string): {
   return { job, steps, text: text.join("\n") };
 }
 
-/** A CI feedback item from a failed check (0019). */
+/** A CI feedback item from a failed check (0002). */
 export function ciFeedback(
   failure: CiFailure,
   options: VerifyFeedbackOptions = {},
@@ -415,9 +415,9 @@ export function ciFeedback(
   };
 }
 
-// ---- review, reject and fix-round items (0019, DIPO-148) -------------------------------
+// ---- review, reject and fix-round items (0002, DIPO-148) -------------------------------
 
-/** Where a fix round's feedback item came from (0019). */
+/** Where a fix round's feedback item came from (0002). */
 export type FeedbackSource = "verify" | "ci" | "review" | "conflict" | "reject" | "test";
 
 /** One item a fix round carries: its source, its signature and its rendered evidence. */
@@ -474,7 +474,7 @@ export interface ReviewFindingFact {
 }
 
 /**
- * The signature of a review item (0019): an unmet criterion by its number and status; a
+ * The signature of a review item (0002): an unmet criterion by its number and status; a
  * finding by its kind, file and the quote with whitespace collapsed, or by its kind and test-plan
  * entry. The reviewer's free text never counts, so a reworded finding on the same line is a repeat.
  */
@@ -491,7 +491,7 @@ export function reviewFindingSignature(finding: ReviewFindingFact): string {
 }
 
 /**
- * The items of a blocked verdict (0019): one per unmet criterion, with its text and the
+ * The items of a blocked verdict (0002): one per unmet criterion, with its text and the
  * reviewer's evidence, and one per blocking finding, with its kind, `file:line`, the quoted line or
  * the test-plan entry, and its text. `criterionText` gives a criterion's text by its number.
  */
@@ -553,13 +553,13 @@ export function advisoryLines(findings: readonly ReviewFindingFact[]): string[] 
     .map((finding) => `- ${finding.kind}${findingWhere(finding)}: ${finding.text.trim()}`);
 }
 
-/** The signature of a maintainer reject: none of its own, keyed on the gate id (0019). */
+/** The signature of a maintainer reject: none of its own, keyed on the gate id (0002). */
 export function rejectSignature(gateId: string): string {
   return `gate:${gateId}`;
 }
 
 /**
- * A maintainer reject item (0019), from what `gate.reject` records (DIPO-151):
+ * A maintainer reject item (0002), from what `gate.reject` records (DIPO-151):
  * the note verbatim, keyed on the gate id, so it is sent once.
  */
 export function rejectFeedbackItem(reject: { readonly gateId: string; readonly note: string }) {
@@ -602,7 +602,7 @@ export interface FixRoundItem {
 }
 
 /**
- * The one user message of a fix round (0019): every item for the pushed head `head`, a
+ * The one user message of a fix round (0002): every item for the pushed head `head`, a
  * repeat marked "still failing after your last change", and the verdict's advisory findings listed
  * as optional. Cut to `FEEDBACK_MESSAGE_MAX` at the end.
  */

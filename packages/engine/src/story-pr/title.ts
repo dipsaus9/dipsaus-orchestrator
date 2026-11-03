@@ -1,4 +1,4 @@
-// The title of a story PR (0019; 0016): `<type>(<ID>): <subject>`, built by code
+// The title of a story PR (0002; 0016): `<type>(<ID>): <subject>`, built by code
 // from the story so the `pr-title` check passes.
 
 /** The subject limit of 0016 (`STORY_PR_MAX_SUBJECT` of `scripts/check-pr-title.ts`). */

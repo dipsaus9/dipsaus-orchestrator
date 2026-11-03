@@ -1,5 +1,5 @@
 // The engine's surface to a socket server (0005, DIPO-318): commands and reads after the lifecycle
-// checks of 0006, and the streams a subscriber follows: the software stream's replay and
+// checks of 0005, and the streams a subscriber follows: the software stream's replay and
 // live events, and an office's change log, rendered page by page. The frame protocol, the
 // connections and their backpressure stay with the server; the engine keeps no per-connection
 // state.

@@ -1,4 +1,4 @@
-// The drain (DIPO-68, 0006) on the manual clock: it waits for pending work and for the
+// The drain (DIPO-68, 0005) on the manual clock: it waits for pending work and for the
 // daemon's own children, is capped at 20 s, or 60 s while workers are being stopped, and kills the
 // process groups of the children still running at the cap.
 

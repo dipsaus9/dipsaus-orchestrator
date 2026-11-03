@@ -155,7 +155,7 @@ export function storyVerdicts(office: OfficeHandle, key: StoryKey): Verdict[] {
   return rows.map((row) => {
     const failures = failuresOf(row.rule_results);
     const gate = GateId.parse(row.gate_id);
-    // A review gate carries its round's verdict (0019, DIPO-146).
+    // A review gate carries its round's verdict (0002, DIPO-146).
     const review = row.kind === "review" ? reviewVerdictOfGate(office, gate) : null;
     return {
       gate,

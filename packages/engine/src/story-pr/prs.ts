@@ -1,4 +1,4 @@
-// The story PR (DIPO-144; 0019). Right after an In Review push the engine looks for an
+// The story PR (DIPO-144; 0002). Right after an In Review push the engine looks for an
 // open PR with the story branch as head (`findOpenPr`, so a crash between push and create never
 // opens a second one) and creates a ready PR, not a draft, when there is none. Every later In
 // Review push updates the same PR: the title and body are rebuilt by code, and written to the host
@@ -160,7 +160,7 @@ export const STORY_PR_NOTICES = {
  */
 export const NO_CI_WAIT_MS = 10 * 60_000;
 
-/** How often a head whose checks are stuck is read (0019). */
+/** How often a head whose checks are stuck is read (0002). */
 export const CI_STUCK_POLL_MS = 10 * 60_000;
 
 /** The load step's name in the registry. */
@@ -433,7 +433,7 @@ export class StoryPrs {
   }
 
   /**
-   * The review part of the poll for one open PR (0019): posts the comment of each
+   * The review part of the poll for one open PR (0002): posts the comment of each
    * verdict that has none, oldest first, and rewrites the body when the latest verdict changed
    * (or an override was recorded). Nothing here is awaited by the gate, a fix round or a merge: the
    * poll runs apart from them, and a failure is a notice and the next poll's retry.
@@ -929,7 +929,7 @@ export class StoryPrs {
   }
 
   /**
-   * The CI watch of one open PR (0019): reads the required checks of the pushed head
+   * The CI watch of one open PR (0002): reads the required checks of the pushed head
    * unless they are final or the head is stuck and not due, rewrites the body when a check's
    * state changed, raises `ci.stuck` once, and handles a red head. A failed read is logged and the
    * next poll reads again.

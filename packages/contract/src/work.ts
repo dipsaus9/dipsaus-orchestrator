@@ -147,7 +147,7 @@ export const Progress = z.object({
   loopCap: Count,
   verify: VerifyState,
   reviewRound: Count,
-  // (DIPO-140, 0019): the review rounds the story may run and how many
+  // (DIPO-140, 0002): the review rounds the story may run and how many
   // of its rounds failed, so a client shows "round 2, 1 of 3 failed" without computing it.
   reviewRoundCap: Count.optional(),
   reviewRoundsFailed: Count.optional(),
@@ -200,7 +200,7 @@ export type GateRuleFailure = z.infer<typeof GateRuleFailure>;
 export const StoryGateFailure = GateRuleFailure.extend({ text: z.string() });
 export type StoryGateFailure = z.infer<typeof StoryGateFailure>;
 
-// The story's PR on the code host (0019). (DIPO-140).
+// The story's PR on the code host (0002). (DIPO-140).
 export const KNOWN_STORY_PR_STATES = ["open", "merged", "closed"] as const;
 export const StoryPrState = openEnum(KNOWN_STORY_PR_STATES);
 export type StoryPrState = z.infer<typeof StoryPrState>;
@@ -212,8 +212,8 @@ export const StoryPr = z.object({
 });
 export type StoryPr = z.infer<typeof StoryPr>;
 
-// One criterion's result in a review round: exactly one per criterion of the story (0019
-// section 5). `maintainer` means only the maintainer can check it.
+// One criterion's result in a review round: exactly one per criterion of the story
+// (0002). `maintainer` means only the maintainer can check it.
 export const ReviewCriterionStatus = z.enum(["met", "unmet", "maintainer"]);
 export type ReviewCriterionStatus = z.infer<typeof ReviewCriterionStatus>;
 
@@ -237,7 +237,7 @@ export const FindingKind = openEnum(KNOWN_FINDING_KINDS);
 export type FindingKind = z.infer<typeof FindingKind>;
 
 // A finding of a review round. `unverified` marks a blocking finding whose evidence failed the
-// code check after its correction turn, so it is kept as advisory (0019).
+// code check after its correction turn, so it is kept as advisory (0002).
 export const ReviewFinding = z.object({
   severity: z.enum(["blocking", "advisory"]),
   kind: FindingKind,
@@ -251,15 +251,15 @@ export const ReviewFinding = z.object({
 });
 export type ReviewFinding = z.infer<typeof ReviewFinding>;
 
-// A maintainer override of a blocked review, with the required note (0019).
+// A maintainer override of a blocked review, with the required note (0002).
 export const ReviewOverride = z.object({
   note: z.string().min(1),
   at: Timestamp,
 });
 export type ReviewOverride = z.infer<typeof ReviewOverride>;
 
-// One review round as shown on `story.detail` (0019). `codeTreeKey` is the code tree key
-// the verdict is keyed on (section 6); `carried` is set when an approval moved to a later head.
+// One review round as shown on `story.detail` (0002). `codeTreeKey` is the code tree key
+// the verdict is keyed on; `carried` is set when an approval moved to a later head.
 export const ReviewVerdict = z.object({
   round: z.int().positive(),
   commit: z.string().min(1),
@@ -276,7 +276,7 @@ export const ReviewVerdict = z.object({
 });
 export type ReviewVerdict = z.infer<typeof ReviewVerdict>;
 
-// The review summary of a `gate.decided` event for a review gate (0019).
+// The review summary of a `gate.decided` event for a review gate (0002).
 export const ReviewSummary = z.object({
   round: z.int().positive(),
   commit: z.string().min(1),

@@ -1,4 +1,4 @@
-// Reads the evidence files of dipo's base copy (0013, 0021): the file list, then only the files
+// Reads the evidence files of dipo's base copy (0013, 0008): the file list, then only the files
 // `evidenceFiles` names. A file is read only when it is a regular file inside the copy, not a
 // symbolic link and not larger than `EVIDENCE_FILE_BYTES`, so a link committed in the repository
 // cannot bring a file of the Mac into the request. No env file is ever opened: `evidenceFiles`

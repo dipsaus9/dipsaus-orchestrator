@@ -1,9 +1,9 @@
-// The `review` task message, L4 (0019, 0014): what a reviewer receives.
+// The `review` task message, L4 (0002, 0014): what a reviewer receives.
 // The changed paths with line counts, the diff from the merge base without the story's own task
 // file (within the 0014 diff budget), the gate script changes the run recorded, the story facts
 // (story with its Story line, criteria, scope, the test plan with its entry numbers, resolved unknowns) and,
 // on a re-review, the previous round's findings. Of the worker's report only the test-plan
-// statuses with their evidence and the deviations of its last done report (0021,
+// statuses with their evidence and the deviations of its last done report (0008,
 // DIPO-254), as the worker's own account; never its summary, notes, handoff, reasoning or
 // transcript (0002): the input has no field for them. Pure and deterministic.
 
@@ -277,7 +277,7 @@ function findingLine(finding: ReviewFinding): string {
   return finding.quote === undefined ? head : `${head}\n  quoted line: ${finding.quote.trim()}`;
 }
 
-/** The reviewer's read-only copy of the pushed commit (0021, DIPO-276). */
+/** The reviewer's read-only copy of the pushed commit (0008, DIPO-276). */
 export interface ReviewCommitCopy {
   /** The pushed commit the copy holds. */
   readonly commit: string;

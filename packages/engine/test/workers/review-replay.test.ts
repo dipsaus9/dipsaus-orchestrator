@@ -1,4 +1,4 @@
-// The reviewer's recordings replayed (DIPO-145; 0019, 0017): every
+// The reviewer's recordings replayed (DIPO-145; 0002, 0017): every
 // committed recording of the review kind, derived and live (the `review-*-live` scenarios), parses
 // into the review report schema or gives its error, through the adapter's parser as a review run
 // starts it.

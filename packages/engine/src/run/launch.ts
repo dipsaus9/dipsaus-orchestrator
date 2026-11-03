@@ -1,5 +1,5 @@
 // Starting the worker of a claimed run (DIPO-74; 0010, 0008,
-// 0014, 0006). `work.run` (DIPO-48) claims; this file does the rest:
+// 0014, 0005). `work.run` (DIPO-48) claims; this file does the rest:
 //
 // 1. `prepare` is the claim's setup (`ClaimRequest.setup`), so it runs after the branch and the
 //    claim record and before the claim commit. It renders the system file and the task message
@@ -16,7 +16,7 @@
 // 3. `preview` builds the same spec and plan for `work.preview` (the dry run), on `_base`, with
 //    placeholders for the run id and session, and writes nothing.
 //
-// Every developer runs in its story's box (DIPO-240, 0021): with box workers (`RunLauncherDeps.boxes`)
+// Every developer runs in its story's box (DIPO-240, 0008): with box workers (`RunLauncherDeps.boxes`)
 // `prepare` makes the run's box after the prompts and before the worker's launch checks, and
 // prepares it with the office's packages (`BoxLifetime.make`, `box/lifetime.ts`): the image, the box
 // and the code at the claim's start commit, the run profile's install in the box with the box's web
@@ -122,7 +122,7 @@ const PREVIEW_SESSION = "00000000-0000-4000-8000-000000000000";
 export type TierCaps = OfficeConfig["tiers"]["S"];
 
 /**
- * A reviewer session's model, effort and session caps (0019): the office's
+ * A reviewer session's model, effort and session caps (0002): the office's
  * `review` block, or the values the run snapshot of it at its start.
  */
 export type ReviewerSettings = Pick<
@@ -277,7 +277,7 @@ export function runLaunchPaths(
 /**
  * The `WorkerSpec` of one session of a run (DIPO-74; DIPO-51 for the later sessions). The report
  * schema comes from the worker port, never from an adapter module (DIPO-113), for the session's
- * kind. With `facts.reviewer` the session is a reviewer's (0019): kind `review`, model
+ * kind. With `facts.reviewer` the session is a reviewer's (0002): kind `review`, model
  * and effort from the review settings, the reviewer's tools, its own turn and minute caps, the
  * `ReviewReport` schema, and always a fresh session. Otherwise it is the developer's `implement`
  * session with the tier's model, effort and caps.
@@ -309,7 +309,7 @@ export function runWorkerSpec(
       kind: "review",
       model: reviewer.model,
       effort: reviewer.effort,
-      // The reviewer's turns and minutes count only toward its own caps (0019); the
+      // The reviewer's turns and minutes count only toward its own caps (0002); the
       // tokens are the story's budget.
       caps: { ...caps, maxTurns: reviewer.maxTurns, maxMinutes: reviewer.maxMinutes },
       // The reviewer's tools, web search and fetch among them, come with its kind (0002).
@@ -441,7 +441,7 @@ export class RunLauncher {
         ...(boxes === undefined ? {} : { box: true }),
       });
       // No run temp directory in the shared temp folder: the developer's temp files live in its box
-      // (DIPO-240, 0021); a reviewer's are made with its own session (`review-launch.ts`).
+      // (DIPO-240, 0008); a reviewer's are made with its own session (`review-launch.ts`).
       ensurePrivateDir(paths.runDir);
       spec = this.#spec(facts, paths, prompts.taskMessage, RunLauncher.sessionOf(facts.agent));
       writeFileSync(spec.systemFile, prompts.systemFile, { mode: 0o600 });

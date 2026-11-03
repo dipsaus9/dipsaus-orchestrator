@@ -826,7 +826,7 @@ describe("gateText (DIPO-97)", () => {
 
 // R29 (DIPO-251): every path and bare test file name of an automated test plan entry is covered by
 // a Reference. Three M1 runs on 2026-10-20 had plans their References could not deliver. R29 only
-// warns (maintainer decision of 2026-10-22): References are a forecast (0021).
+// warns (maintainer decision of 2026-10-22): References are a forecast (0008).
 const r29 = (story: Partial<Parameters<typeof input>[0]>, baseFiles?: readonly string[]) =>
   warnings(evaluateGate(input(story, baseFiles === undefined ? {} : { baseFiles }), "ready"));
 

@@ -72,7 +72,7 @@ export interface LaunchFile {
   readonly executable?: boolean;
 }
 
-/** Everything the worker host needs to start one worker (0008, 0006). */
+/** Everything the worker host needs to start one worker (0008, 0005). */
 export interface LaunchPlan {
   /** Program and arguments; `argv[0]` is an absolute path, never looked up on `PATH`. */
   readonly argv: readonly [string, ...string[]];
@@ -139,7 +139,7 @@ export interface WorkerReportCriterion {
 }
 
 /**
- * A worker's proposal (0021, W5): a follow-up story, a spike, or a tool the box lacks.
+ * A worker's proposal (0008, W5): a follow-up story, a spike, or a tool the box lacks.
  * Data shown to the maintainer; nothing happens on its own.
  */
 export interface WorkerProposal {
@@ -183,7 +183,7 @@ export interface WorkerDecisionNote {
 /**
  * The report a worker returns at the end of a turn (0008, 0014): story done (`done`),
  * a question (`blocked` with `question`), blocked with a reason (`blocked`, the reason in
- * `summary`) and proposals (0021, W2 to W5). Every text in it was cleaned at the door.
+ * `summary`) and proposals (0008, W2 to W5). Every text in it was cleaned at the door.
  */
 export interface WorkerReport {
   readonly status: "done" | "blocked";
@@ -202,10 +202,10 @@ export interface WorkerReport {
   readonly decisionNotes?: readonly WorkerDecisionNote[];
 }
 
-/** The longest `ReviewReport.summary` (0019). */
+/** The longest `ReviewReport.summary` (0002). */
 export const REVIEW_SUMMARY_MAX = 1_500;
 
-/** A criterion as the reviewer judged it (0019); exactly one per criterion. */
+/** A criterion as the reviewer judged it (0002); exactly one per criterion. */
 export interface ReviewCriterion {
   readonly n: number;
   /** `maintainer`: only the maintainer can check it; the merge waits for them. */
@@ -221,7 +221,7 @@ export type ReviewFindingKind =
   | "maintainability"
   | "other";
 
-/** One reviewer finding (0019); code checks its evidence before it may block. */
+/** One reviewer finding (0002); code checks its evidence before it may block. */
 export interface ReviewFinding {
   readonly severity: "blocking" | "advisory";
   readonly kind: ReviewFindingKind;
@@ -236,7 +236,7 @@ export interface ReviewFinding {
 }
 
 /**
- * The report a reviewer returns (0019): per-criterion results and findings. Code, not
+ * The report a reviewer returns (0002): per-criterion results and findings. Code, not
  * the reviewer, computes the verdict from them.
  */
 export interface ReviewReport {
@@ -327,7 +327,7 @@ export type WorkerEvent =
       readonly t: "turn";
       /** The worker's report; always null in a `review` session, whose report is `review`. */
       readonly report: WorkerReport | null;
-      /** A `review` session's valid report (0019); absent in other kinds. */
+      /** A `review` session's valid report (0002); absent in other kinds. */
       readonly review?: ReviewReport;
       /**
        * A `session` kind's structured output, cleaned at the door and held to its size cap, for

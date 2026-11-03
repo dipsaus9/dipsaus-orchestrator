@@ -1,4 +1,4 @@
-// The one argument builder of the Apple `container` backend (DIPO-265, 0021),
+// The one argument builder of the Apple `container` backend (DIPO-265, 0008),
 // over every input: every builder, every input combination, valid or refused. A box
 // gets only dipo's host-only network, at most two mounts (the package cache and the box network
 // tools, both read-only, each at its fixed path; DIPO-281) and the Mac's total memory and CPU

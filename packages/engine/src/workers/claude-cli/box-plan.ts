@@ -1,10 +1,10 @@
-// The launch plan of a box worker (DIPO-271, 0021): Claude Code runs inside the story's box as a
+// The launch plan of a box worker (DIPO-271, 0008): Claude Code runs inside the story's box as a
 // long-running `container exec`, with the same stream-json input and output dipo reads from a
 // session on the Mac, so ingestion, the caps and the live view see the same stream.
 //
 // Inside the box the worker runs with all permissions (`--permission-mode bypassPermissions`), so
 // no guard is planned inside it: no run settings file, no permission rules, no hooks. The box is
-// the boundary (0021: no per-call checks inside the box).
+// the boundary (0008: no per-call checks inside the box).
 //
 // Its environment in the box is the session's route environment (`BoxSession.env`: the model
 // proxy's `boxModelEnvironment`, and `boxRouteEnv` for the web proxy, NO_PROXY and the Safe-Chain

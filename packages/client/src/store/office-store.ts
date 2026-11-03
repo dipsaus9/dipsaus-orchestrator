@@ -123,7 +123,7 @@ export interface OfficeStoreState {
   readonly engine: string | null;
   /** Registered offices in `engine.hello` order, then in order of registration. */
   readonly offices: readonly OfficeEntry[];
-  /** The selected office; client state (0006). */
+  /** The selected office; client state (0005). */
   readonly office: OfficeId | null;
   /** True while the selected office's snapshot is being read. */
   readonly loading: boolean;

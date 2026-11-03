@@ -6,7 +6,7 @@ import type { HostOp, SteerOp } from "../types";
 
 export type MessagePriority = "now" | "next" | "later";
 
-/** Milliseconds from a stop to SIGTERM and to SIGKILL (0004, 0006, 0008). */
+/** Milliseconds from a stop to SIGTERM and to SIGKILL (0004, 0005, 0008). */
 export const STOP_SIGTERM_AFTER_MS = 10_000;
 export const STOP_SIGKILL_AFTER_MS = 30_000;
 

@@ -254,7 +254,7 @@ export interface DoneElsewhereDeps {
   readonly host?: Pick<CodeHost, "closePr"> | null;
   readonly onChanged?: (office: OfficeId) => void;
   /**
-   * Checks and deletes the boxes of ended runs (0021), as `work.discard` does, after a
+   * Checks and deletes the boxes of ended runs (0008), as `work.discard` does, after a
    * release is settled; best effort.
    */
   readonly finishBoxes?: () => Promise<unknown>;
@@ -530,7 +530,7 @@ export async function settleDoneElsewhere(
     }
     return entries;
   });
-  // The released run's box goes too (0021).
+  // The released run's box goes too (0008).
   await deps.finishBoxes?.().catch(() => undefined);
   return { branchKept: outcome.branchKept, commits: outcome.commits };
 }

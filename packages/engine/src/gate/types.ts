@@ -89,7 +89,7 @@ export interface GateTask {
   readonly branch?: string;
 }
 
-/** A roster role (0011). `code: false` marks a non-code role such as a designer (M4). */
+/** A roster role (0001). `code: false` marks a non-code role such as a designer (M4). */
 export interface GateRole {
   readonly name: string;
   readonly code: boolean;

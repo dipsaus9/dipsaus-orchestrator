@@ -1,4 +1,4 @@
-// The review loop of one office, wired as createEngine wires it (DIPO-153; 0019), for the
+// The review loop of one office, wired as createEngine wires it (DIPO-153; 0002), for the
 // engine's end-to-end scenario test. Real git with a bare `origin` under DIPO_TMP, the pinned
 // Backlog CLI and a migrated state database built from fixtures; the Backlog fixture with TASK-1
 // made to pass the Ready gate. The engine's own services are real and built the way
@@ -14,7 +14,7 @@
 //   the host starter writes them to the run's `events.ndjson` as a worker host would, with the
 //   exit line and `exit.json`; a session the director holds stays live until the scenario
 //   releases it;
-// - the box: every run is a box run (0021, DIPO-240), and a checkout of the story branch the test
+// - the box: every run is a box run (0008, DIPO-240), and a checkout of the story branch the test
 //   makes by hand stands in for its box (`standInBox`; dipo makes no worktree, DIPO-349), so a
 //   developer session's edits are files the director writes there, and its last part at done is
 //   committed on the story branch as dipo commits a part, outside `backlog/`;
@@ -249,7 +249,7 @@ function scriptedPort(): WorkerPort {
     encode,
     result: (state: ParseState, exit: ExitRecord): WorkerResult => {
       const turn = lastTurn(state);
-      // A reviewer's turn carries its report in `review` (0019).
+      // A reviewer's turn carries its report in `review` (0002).
       if (turn?.review !== undefined && exit.code === 0 && exit.signal === null) {
         return {
           outcome: "done",

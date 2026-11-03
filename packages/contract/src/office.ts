@@ -64,7 +64,7 @@ export const workRun = defineCommand({
   // Omit `stories` and the engine picks from the Ready queue. (DIPO-48): `from` is
   // the main worktree a client resolved the office from (its current directory); the daemon
   // answers `office.unknown` when it is not the office's registered path.
-  // (DIPO-271): `box` is accepted and changes nothing, because every run is a box run (0021).
+  // (DIPO-271): `box` is accepted and changes nothing, because every run is a box run (0008).
   args: z.object({
     stories: z.array(StoryRefValue).optional(),
     maxAgents: z.int().positive().optional(),
@@ -222,7 +222,7 @@ export const storyDrop = defineCommand({
 });
 
 // (DIPO-140): the maintainer's decision on a gate, such as a merge gate that waits
-// for the maintainer (0019).
+// for the maintainer (0002).
 export const gateApprove = defineCommand({
   name: "gate.approve",
   level: "office",
@@ -366,7 +366,7 @@ export const officeSnapshot = defineRead({
 });
 
 // The notes and proposals of a run's done report (DIPO-152), the worker's own words, cleaned and
-// capped as door messages are (0021). Absent when the report had neither.
+// capped as door messages are (0008). Absent when the report had neither.
 export const DoneReport = z.object({
   notes: z.string().optional(),
   proposals: z
@@ -414,7 +414,7 @@ export const Verdict = z.object({
   note: z.string().optional(),
   failures: z.array(z.string()).optional(),
   at: Timestamp,
-  // (DIPO-140): the review round of a review gate (0019).
+  // (DIPO-140): the review round of a review gate (0002).
   review: ReviewVerdict.optional(),
 });
 export type Verdict = z.infer<typeof Verdict>;
@@ -430,7 +430,7 @@ export const storyDetail = defineRead({
     // The story's open questions (DIPO-59), oldest first.
     questions: z.array(QuestionView).optional(),
     // A conflict with the base found while the story is In Review (DIPO-149;
-    // 0019): the base, the base commit and the conflicted paths. Absent once a merge handled it.
+    // 0002): the base, the base commit and the conflicted paths. Absent once a merge handled it.
     baseConflict: z
       .object({
         base: z.string(),
@@ -439,8 +439,8 @@ export const storyDetail = defineRead({
         at: Timestamp,
       })
       .optional(),
-    // The story's open gates that wait for the maintainer, oldest first" (DIPO-150; "0019
-    // section 11): `dipo approve` and `dipo reject` send the newest one's id.
+    // The story's open gates that wait for the maintainer, oldest first (DIPO-150;
+    // 0002): `dipo approve` and `dipo reject` send the newest one's id.
     gates: z.array(GateView).optional(),
   }),
 });
@@ -620,7 +620,7 @@ export const officeStats = defineRead({
 });
 
 // The kinds of a desk item (0020), as `dipo desk` prints them. Open: later stories add
-// kinds (DIPO-161 `DONE ELSEWHERE` and `LEFTOVERS`, 0019 `PR HEAD CHANGED`, scope requests; DIPO-310
+// kinds (DIPO-161 `DONE ELSEWHERE` and `LEFTOVERS`, 0002 `PR HEAD CHANGED`, scope requests; DIPO-310
 // `PROFILE`, a pending proposal or stale confirmation of the run profile, with no story; DIPO-359
 // `STARTS PAUSED`, the office's starts paused with its reason and what lifts it, with no story;
 // DIPO-380 `LOADING`, an office whose load is still running, with no story; DIPO-401
@@ -864,7 +864,7 @@ export const storyParked = defineEvent({
   }),
 });
 
-// Sent when a story's PR opens, changes state or gets a new head (0019).
+// Sent when a story's PR opens, changes state or gets a new head (0002).
 // (DIPO-140).
 export const storyPr = defineEvent({
   type: "story.pr",

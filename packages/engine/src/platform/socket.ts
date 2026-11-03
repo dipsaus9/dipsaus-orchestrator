@@ -1,4 +1,4 @@
-// The daemon's Unix socket `<runtime>/dipo.sock` (0006). Binding is not a lock (a
+// The daemon's Unix socket `<runtime>/dipo.sock` (0005). Binding is not a lock (a
 // second bind on a live path fails with EADDRINUSE on Bun 1.4.2, and a leftover file must be
 // unlinked first), so the daemon lock in `<state>` guards the socket. `serve.ts` serves the contract
 // on it; this module removes leftovers and holds the daemon side's own small `ws+unix://` client,

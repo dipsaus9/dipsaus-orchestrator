@@ -1,5 +1,5 @@
 // The run files the host writes: `events.ndjson` lines with growing byte offsets, the line
-// splitter, and `host.log` capped by dropping the oldest half (0006).
+// splitter, and `host.log` capped by dropping the oldest half (0005).
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync, statSync } from "node:fs";

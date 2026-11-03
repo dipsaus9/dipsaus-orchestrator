@@ -37,7 +37,7 @@ export interface SpawnOptions {
   readonly env?: Readonly<Record<string, string>>;
   /** `pipe` gives the child a writable stdin, `ignore` (the default) gives none. */
   readonly stdin?: "pipe" | "ignore";
-  /** Start the child in its own process group so it outlives its parent (0006). */
+  /** Start the child in its own process group so it outlives its parent (0005). */
   readonly detached?: boolean;
   /**
    * Where the child's stdout and stderr go; pipes when absent. With `to: "file"` they go to two

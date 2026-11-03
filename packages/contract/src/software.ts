@@ -1,5 +1,5 @@
 // Software-level messages: the office list, the daemon, the handshake and command descriptions
-// (0005; 0006). Office-level work messages are DIPO-20's.
+// (0005). Office-level work messages are DIPO-20's.
 
 import { z } from "zod";
 

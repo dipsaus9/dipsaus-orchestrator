@@ -13,7 +13,7 @@ const WRAP_UP_PERCENT = "80%";
 const ONE_PAGE_CHARACTERS = 4_200;
 const ONE_PAGE_LINES = 50;
 
-// The box worker's contract (DIPO-272 AC #4, 0021, 0014), the only developer contract
+// The box worker's contract (DIPO-272 AC #4, 0008, 0014), the only developer contract
 // (DIPO-342).
 function box(): string {
   return renderSystemFile("implement-box", "developer");

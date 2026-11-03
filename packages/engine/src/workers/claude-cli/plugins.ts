@@ -224,13 +224,13 @@ export function refusedPlugins(
 
 /**
  * The `startFailed` detail of a session that loaded plugins the office does not allow; a reviewer
- * session (`kind` `review`) allows none (0019).
+ * session (`kind` `review`) allows none (0002).
  */
 export function pluginRefusal(refused: readonly string[], kind?: string): string {
   const names = refused.join(", ");
   const listed = `system/init lists ${refused.length === 1 ? "plugin" : "plugins"} ${names}`;
   if (kind === "review") {
-    return `${listed}, but a reviewer session loads no plugin: a plugin's hooks run commands no tool setting governs, so the session refuses to run (0019)`;
+    return `${listed}, but a reviewer session loads no plugin: a plugin's hooks run commands no tool setting governs, so the session refuses to run (0002)`;
   }
   return `${listed}, but no session loads a plugin: a plugin's hooks could run outside the box, so the session refuses to run (0008)`;
 }

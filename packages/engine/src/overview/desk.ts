@@ -561,7 +561,7 @@ class DeskBuilder {
       parks.filter((park) => park.reason === "review-blocked").map((park) => park.key),
     );
     for (const gate of gates) {
-      // A review-blocked park's gate is the PARKED row's `dipo approve --note` (0019).
+      // A review-blocked park's gate is the PARKED row's `dipo approve --note` (0002).
       if (!reviewBlocked.has(gate.key)) this.#mergeGate(gate);
     }
     for (const park of parks) {
@@ -580,7 +580,7 @@ class DeskBuilder {
           ? (gates.find((candidate) => candidate.key === park.key) ?? null)
           : null;
       if (open !== null) {
-        // The park's merge gate (0019): `dipo approve --note`, unless only the
+        // The park's merge gate (0002): `dipo approve --note`, unless only the
         // maintainer merges its PR, by hand.
         gate = open.gate_id;
         hand = this.#handOnlyText(

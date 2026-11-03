@@ -77,7 +77,7 @@ export interface StoryFacts {
   readonly gateFailures?: readonly GateFailureFact[];
   /** Who works on the story's active run. */
   readonly work?: WorkRef;
-  /** The story's PR on the code host (0019). */
+  /** The story's PR on the code host (0002). */
   readonly pr?: StoryPr;
 }
 

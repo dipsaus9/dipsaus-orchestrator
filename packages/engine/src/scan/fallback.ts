@@ -1,10 +1,10 @@
-// The scan fallback (0013, 0019, 0021): one model session that proposes a command for each
+// The scan fallback (0013, 0002, 0008): one model session that proposes a command for each
 // capability code left unresolved or in conflict. Code drives it:
 //
 // - It starts only on the maintainer's `office.infer` (`dipo office infer`), never after a scan,
 //   and never for a capability code resolved or the maintainer confirmed (`requestItems`).
 // - One session run per office at a time, outside the worker and reviewer places: a second infer
-//   waits for the running one and then builds its own request (0019).
+//   waits for the running one and then builds its own request (0002).
 // - The office's starts paused (0020) makes it wait, never park: the session starts once the pause
 //   lifted. A session that meets the plan limit itself pauses the office's starts with the limit's
 //   reset time, then waits for the lift the same way and starts a new session.

@@ -16,7 +16,7 @@ export type DaemonIo = {
   readonly writeLine: (line: string) => void;
   readonly writeError: (line: string) => void;
   readonly env: Readonly<Record<string, string | undefined>>;
-  /** Bun's own flags for this process, checked for `--no-orphans` (0006). */
+  /** Bun's own flags for this process, checked for `--no-orphans` (0005). */
   readonly execArgv: readonly string[];
   /** The binary version, recorded in `dipo.pid`, `runtime.json` and the database. */
   readonly version: string;
@@ -53,7 +53,7 @@ export const defaultIo: DaemonIo = {
 };
 
 /**
- * True when `--no-orphans` is active (0006): in this process's Bun flags or in
+ * True when `--no-orphans` is active (0005): in this process's Bun flags or in
  * `BUN_OPTIONS`, or inherited from a parent Bun as `BUN_FEATURE_FLAG_NO_ORPHANS` (DIPO-44). It would
  * end the daemon with the starting client and SIGKILL every worker host on a clean exit.
  */

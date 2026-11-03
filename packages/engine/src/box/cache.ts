@@ -1,4 +1,4 @@
-// The office package cache (0021): one per office, filled by
+// The office package cache (0008): one per office, filled by
 // dipo from the lockfile through Safe-Chain, and read-only inside the boxes.
 //
 // - The lockfile, and the `package.json` files a frozen install checks it against, are read from

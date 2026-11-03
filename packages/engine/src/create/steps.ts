@@ -42,7 +42,7 @@ function privacySummaryFeature(core: Core): FeatureModule {
   };
 }
 
-/** `engine.hello` and the `daemon.*` read and commands (0006). */
+/** `engine.hello` and the `daemon.*` read and commands (0005). */
 function processFeatures(core: Core, services: Services): FeatureModule[] {
   const { deps, lifecycle, offices } = core;
   const { daemon } = deps;
@@ -221,7 +221,7 @@ function loadOfficesStep(core: Core): RecoveryStep {
 }
 
 /**
- * Re-attach (DIPO-57, 0006): after reconcile, every active run of a loaded
+ * Re-attach (DIPO-57, 0005): after reconcile, every active run of a loaded
  * office follows its worker host again (or has its exit or lost host decided) before scheduling
  * turns on.
  */

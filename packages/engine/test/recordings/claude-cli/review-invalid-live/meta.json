@@ -3,7 +3,7 @@
   "source": "live",
   "claude_code_version": "2.1.302",
   "captured_at": "2026-10-19",
-  "expected": "A reviewer's session (0019) asked not to return its report. The live run (Claude Code 2.1.302, Haiku) returned a valid review report anyway, every criterion met and no finding: the outcome is done and the verdict code computes is approved. The scenario does not provoke an invalid report live; the derived review-invalid recording covers that case (one correction turn, then handled as a crash).",
+  "expected": "A reviewer's session (0002) asked not to return its report. The live run (Claude Code 2.1.302, Haiku) returned a valid review report anyway, every criterion met and no finding: the outcome is done and the verdict code computes is approved. The scenario does not provoke an invalid report live; the derived review-invalid recording covers that case (one correction turn, then handled as a crash).",
   "usage_checksum": "1eebd4ad3cca7d414a34ef1a2dc3ffffe242942a2085f85bf3f1693b7ca5dca8",
   "fixture": "greeter",
   "fixture_sha256": "7aa5c849f434696855ad8a8c464804959d8ea0840b3092b603ede2e8a63658c8",

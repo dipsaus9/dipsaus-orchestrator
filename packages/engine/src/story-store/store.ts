@@ -173,7 +173,7 @@ export interface StoryStore {
   storyFolders(read: RepoFileRead): Promise<readonly string[]>;
   /**
    * True when the repository whose files `read` reads holds a project of the store (an office can
-   * open it, 0006); throws as `storyFolders` does.
+   * open it, 0005); throws as `storyFolders` does.
    */
   isProject(read: RepoFileRead): Promise<boolean>;
 

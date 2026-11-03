@@ -1,4 +1,4 @@
-// The title and body of a story PR (DIPO-144; 0019), pure.
+// The title and body of a story PR (DIPO-144; 0002), pure.
 
 import { describe, expect, it } from "bun:test";
 

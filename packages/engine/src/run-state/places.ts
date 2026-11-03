@@ -1,4 +1,4 @@
-// The office's session places (0019, DIPO-142): each office has a worker place for one
+// The office's session places (0002, DIPO-142): each office has a worker place for one
 // developer session (a first run, a fix round, a conflict hand-off or a resumed developer session)
 // and a reviewer place for one reviewer session, so at most two Claude sessions run per office.
 // Until M2, `work.run` keeps one worker per office (`maxAgents` above 1 is refused).
@@ -55,15 +55,15 @@ export const PLACES: readonly Place[] = ["worker", "reviewer"];
 export const START_KINDS = {
   /** Worker place: a maintainer resume of a developer session (0020). */
   resume: "resume",
-  /** Worker place: a conflict hand-off (0019). */
+  /** Worker place: a conflict hand-off (0002). */
   conflict: "conflict",
-  /** Worker place: a fix round (0019). */
+  /** Worker place: a fix round (0002). */
   fix: "fix",
   /** Worker place: a new pickup by `work.run`; never stored, a pickup is skipped instead. */
   pickup: "pickup",
   /** Reviewer place: a maintainer resume that starts a fresh review (0020). */
   reviewResume: "review-resume",
-  /** Reviewer place: a pending review (0019). */
+  /** Reviewer place: a pending review (0002). */
   review: "review",
 } as const;
 
@@ -121,7 +121,7 @@ function compareStarts(a: PlaceStart, b: PlaceStart): number {
   return (a.runId ?? "").localeCompare(b.runId ?? "");
 }
 
-/** `starts` in their places' start order (0019). */
+/** `starts` in their places' start order (0002). */
 export function startOrder(starts: readonly PlaceStart[]): PlaceStart[] {
   return starts.toSorted(compareStarts);
 }

@@ -1,7 +1,7 @@
-// The daemon logger (0006): JSON lines with `ts` (ISO 8601 UTC), `level`, `msg`,
+// The daemon logger (0005): JSON lines with `ts` (ISO 8601 UTC), `level`, `msg`,
 // `component`, and `office` and `run` when known, plus fields. Secret fields (`isSecretKey`) are
 // redacted at every level, at any depth. A field named `code` shows error and exit codes such as
-// `engine.recovering`, but stays redacted whenever its value is not code-shaped (`showsCode`, 0006).
+// `engine.recovering`, but stays redacted whenever its value is not code-shaped (`showsCode`, 0005).
 // The message and every string of the fields, an error's message and stack included,
 // have each value of a `SECRET_PATTERNS` shape and each URL that holds user information replaced
 // by `[redacted]` (`redactSecretText`, DIPO-312), so a git error that quotes a credentialed remote
@@ -25,7 +25,7 @@ export const REDACTED = "[redacted]";
 export const DEBUG_ONLY = "[debug only]";
 
 /**
- * Endings of secret field names (0006, DIPO-91): `token`, `session.token`, `sessionToken`,
+ * Endings of secret field names (0005, DIPO-91): `token`, `session.token`, `sessionToken`,
  * `bootstrapCode`, ... Names are compared lowercased with `_`, `-` and `.` removed.
  */
 const SECRET_SUFFIXES: readonly string[] = [
@@ -60,7 +60,7 @@ const CODE_MAX_LENGTH = 64;
 
 /**
  * Whether a `code` field may show `value`: only a number, a boolean, null or a code-shaped string;
- * every other value, objects included, stays redacted (0006).
+ * every other value, objects included, stays redacted (0005).
  */
 function showsCode(value: unknown): boolean {
   if (value === null || typeof value === "number" || typeof value === "boolean") return true;
@@ -69,7 +69,7 @@ function showsCode(value: unknown): boolean {
 
 /**
  * Field names for prompts, worker output and command bodies, which appear only in `debug` and
- * `trace` lines (0006). The guard works by name only and no lint rule checks call
+ * `trace` lines (0005). The guard works by name only and no lint rule checks call
  * sites: later stories that log prompts, worker output or command bodies must put them in a field
  * with one of these names, or they show at every level.
  */

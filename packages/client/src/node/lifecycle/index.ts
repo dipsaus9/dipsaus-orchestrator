@@ -1,4 +1,4 @@
-// The `lifecycle` module of `client/node` (0006).
+// The `lifecycle` module of `client/node` (0005).
 
 export {
   AutostartOffError,

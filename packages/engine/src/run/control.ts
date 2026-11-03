@@ -40,7 +40,7 @@
 //   stops the worker and parks the story `worker-failed`, the detail naming
 //   the worker's version and the count. It decides in event order, so a drift ahead of a turn wins
 //   over that turn's report.
-// - `daemon.stop { stopWorkers: true }` (0006, DIPO-315, `stopAll`): every tracked run
+// - `daemon.stop { stopWorkers: true }` (0005, DIPO-315, `stopAll`): every tracked run
 //   nothing was decided for yet is stopped as `story.park` stops one, and parks `by-maintainer` with
 //   `DAEMON_STOPPED_DETAIL`; the drain waits for the parks and for the workers' exits.
 //
@@ -435,7 +435,7 @@ export class RunControl implements RunEnder {
         }
         // A blocked report parks at once (0020).
         if (report?.status === "blocked") {
-          // A blocked report during a conflict hand-off fails it (0019, DIPO-149); the
+          // A blocked report during a conflict hand-off fails it (0002, DIPO-149); the
           // failure that reaches the conflict cap parks `conflict` instead.
           const handOff = this.#blockedHandOff(tracked);
           if (handOff !== null) {
@@ -517,7 +517,7 @@ export class RunControl implements RunEnder {
   }
 
   /**
-   * `daemon.stop { stopWorkers: true }` (0006, DIPO-315): stops every live worker this
+   * `daemon.stop { stopWorkers: true }` (0005, DIPO-315): stops every live worker this
    * control tracks, as `story.park` stops one (the stop sequence through its host, a `stop` intent
    * first, the story parked `by-maintainer` with `DAEMON_STOPPED_DETAIL`). A run already being decided (a cap, a report, a done path) keeps that decision. Resolves
    * once every decision finished and the stopped workers exited, or `exitWaitMs` after the stops
@@ -995,7 +995,7 @@ export class RunControl implements RunEnder {
   }
 }
 
-/** True for a reviewer session (0019): its work names the reviewer role. */
+/** True for a reviewer session (0002): its work names the reviewer role. */
 function reviewing(tracked: Tracked): boolean {
   return tracked.work.role === REVIEWER_ROLE;
 }

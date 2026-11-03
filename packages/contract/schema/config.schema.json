@@ -14,7 +14,7 @@
       "properties": {
         "autostart": {
           "default": true,
-          "description": "A client command that needs the daemon starts it when none is running (0006 decision 5).",
+          "description": "A client command that needs the daemon starts it when none is running (0005).",
           "type": "boolean"
         }
       },

@@ -1,4 +1,4 @@
-// The daemon and a client must accept and refuse the same `<state>/config.yaml` (0006).
+// The daemon and a client must accept and refuse the same `<state>/config.yaml` (0005).
 // `client` may not import `engine` (0004), so each reads the file on its own path;
 // this test sits outside both packages and runs the two readers on the same files. It imports the
 // source files by path because the repository root has no package links.

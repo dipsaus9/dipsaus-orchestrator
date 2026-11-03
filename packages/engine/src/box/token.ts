@@ -1,4 +1,4 @@
-// The maintainer's subscription login for boxes (0021, DIPO-269): one token, kept in the macOS
+// The maintainer's subscription login for boxes (0008, DIPO-269): one token, kept in the macOS
 // Keychain under a dipo entry and read by the model proxy alone. Both ways in go through the
 // `security` program, and the token is never one of its arguments, since any process on the Mac can
 // read a process list:

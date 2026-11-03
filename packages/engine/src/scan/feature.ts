@@ -241,7 +241,7 @@ export class RunProfiles {
     };
   }
 
-  /** dipo's base copy of the office: its file list and evidence texts (0021, DIPO-310). */
+  /** dipo's base copy of the office: its file list and evidence texts (0008, DIPO-310). */
   async #readBase(office: OfficeId) {
     const git = this.#git(office);
     const base = await git.ensureBaseWorktree();

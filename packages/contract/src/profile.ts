@@ -37,7 +37,7 @@ export const ProfileCwd = z.string().min(1).max(300);
 // (DIPO-310) [`scan.fallback`]: starts the fallback for the capabilities the current
 // profile leaves unresolved or in conflict (0013), only when the maintainer asks, never
 // on its own. `started`: its session runs now; `queued`: it starts once the office's running one
-// ends (one session run per office at a time, 0019); `nothing`: code and
+// ends (one session run per office at a time, 0002); `nothing`: code and
 // the confirmations leave nothing to infer, so no model is asked. `capabilities` names what the
 // request asks for. The proposals arrive as `scan.finished` with trigger `infer`; a proposal that
 // fails a check is dropped with an `engine.notice`. Errors: `scan.noProfile`.

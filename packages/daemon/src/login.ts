@@ -1,4 +1,4 @@
-// `dipo login box` (DIPO-269, 0021): sets or replaces the subscription token the model
+// `dipo login box` (DIPO-269, 0008): sets or replaces the subscription token the model
 // proxy adds to a box's model requests. It runs `security` on the maintainer's terminal, which asks
 // for the token itself, so the token never passes through dipo: not its arguments, not its memory,
 // not its output. It refuses without a terminal, so a token is never piped in from a script or a

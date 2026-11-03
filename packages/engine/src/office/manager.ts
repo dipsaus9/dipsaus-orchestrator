@@ -1,4 +1,4 @@
-// The office list and the office engine instances (0006, 0007, 0011).
+// The office list and the office engine instances (0005, 0007, 0001).
 // `office.open` registers a repository explicitly and writes its marker; `office.forget` hides it
 // from the list and keeps every row, which age out under the one retention rule (0007); an
 // office's engine instance loads lazily on its first
@@ -67,7 +67,7 @@ export interface OfficeManagerDeps {
   readonly ids: IdSource;
   readonly git: GitRunner;
   readonly logger: Logger;
-  /** The story store: whether a repository holds a project of it (0006). */
+  /** The story store: whether a repository holds a project of it (0005). */
   readonly stories: Pick<StoryStore, "isProject">;
   /** Replaces the system mount table, for tests. */
   readonly readMounts?: MountReader;

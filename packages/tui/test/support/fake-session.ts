@@ -126,7 +126,7 @@ export class FakeSession implements TuiSession {
   readonly losses = new Map<string, { commits: unknown[] }>();
   /** What `office.digest` answers; null answers with no digest read. */
   digest: unknown = null;
-  /** The decided gates `story.detail` answers, by story key (0019). */
+  /** The decided gates `story.detail` answers, by story key (0002). */
   readonly verdicts = new Map<string, unknown[]>();
   /** Answers every command `runReply` and `office.open` do not; undefined falls through. */
   commandReply: (name: string, args: unknown, options: unknown) => unknown = () => undefined;

@@ -171,24 +171,24 @@ function assistantError(lines: readonly Envelope[], error: string): Envelope[] {
   });
 }
 
-// The review kind (0019, DIPO-145). The live `review-*-live` captures (Claude
+// The review kind (0002, DIPO-145). The live `review-*-live` captures (Claude
 // Code 2.1.302, 2026-10-19) exist beside these; the derived review recordings stay the live
 // `success-single` session with the reviewer's system/init (its four tools, no skill, no slash
 // command) and an illustrative review report, kept readable for the replay tests. The derived
 // `review-invalid` is the only invalid review report: the live `review-invalid-live` returned a
 // valid one.
 
-/** The tools a reviewer's system/init lists: the four of 0019 and the report tool. */
+/** The tools a reviewer's system/init lists: the four of 0002 and the report tool. */
 const REVIEW_INIT_TOOLS = ["Bash", "Glob", "Grep", "Read", "StructuredOutput"];
 
 const CITE_REVIEW_INIT =
-  "system/init tools Bash, Glob, Grep, Read and StructuredOutput are those --tools Read,Glob,Grep,Bash asks for, as the live review-*-live captures (Claude Code 2.1.302, 2026-10-19) list them, with skills [] and slash_commands [] (0019)";
+  "system/init tools Bash, Glob, Grep, Read and StructuredOutput are those --tools Read,Glob,Grep,Bash asks for, as the live review-*-live captures (Claude Code 2.1.302, 2026-10-19) list them, with skills [] and slash_commands [] (0002)";
 const CITE_REVIEW_SKILLS =
   "system/init skills [] and slash_commands [] as the live safety-slash-skill recording showed under --disable-slash-commands";
 const CITE_REVIEW_REPORT =
-  "structured_output, the StructuredOutput tool_use input and its input_json_delta stream events carry one illustrative ReviewReport (0019). The live review-*-live captures (Claude Code 2.1.302, 2026-10-19) confirm the report travels in all three places; a live capture keeps only structured_output's decision fields (criteria status, finding severity and kind) and numbers, and redacts every string of the tool_use input and every partial_json delta";
+  "structured_output, the StructuredOutput tool_use input and its input_json_delta stream events carry one illustrative ReviewReport (0002). The live review-*-live captures (Claude Code 2.1.302, 2026-10-19) confirm the report travels in all three places; a live capture keeps only structured_output's decision fields (criteria status, finding severity and kind) and numbers, and redacts every string of the tool_use input and every partial_json delta";
 // The replay tests check the findings' file, line and quote, and a review judge checks a quote
-// against the code tree (0019), so the injected text stays readable.
+// against the code tree (0002), so the injected text stays readable.
 const CITE_REVIEW_PLAIN =
   "the review report's text fields (evidence, text, file, quote, summary) are left unredacted on purpose, where a live capture redacts them (tools/recordings/scrub.ts; the review-*-live captures show it): they are fixed illustrative text, not a live session's, and the replay tests read them";
 
@@ -802,7 +802,7 @@ export const TRANSFORMS: readonly Transform[] = [
     transform:
       "A reviewer's session: system/init lists Bash, Glob, Grep, Read and StructuredOutput and no skill; the result's structured_output, the StructuredOutput tool_use input and its streamed input_json_delta events are a review report with every criterion met and no finding.",
     expected:
-      "The outcome is done with a valid review report: every criterion met, no finding, so the verdict code computes is approved (0019).",
+      "The outcome is done with a valid review report: every criterion met, no finding, so the verdict code computes is approved (0002).",
     cites: [CITE_REVIEW_INIT, CITE_REVIEW_SKILLS, CITE_REVIEW_REPORT, CITE_REVIEW_PLAIN],
     apply: (lines) => asReview(lines, REVIEW_APPROVED),
   },
@@ -813,7 +813,7 @@ export const TRANSFORMS: readonly Transform[] = [
     transform:
       "A reviewer's session as review-approved; the review report has criterion 1 unmet, a blocking correctness finding at a quoted line, a blocking test finding naming test plan entry 1 and an advisory finding.",
     expected:
-      "The outcome is done with a valid review report; the verdict code computes is blocked (an unmet criterion; blocking findings once their evidence checks out), a failed round (0019).",
+      "The outcome is done with a valid review report; the verdict code computes is blocked (an unmet criterion; blocking findings once their evidence checks out), a failed round (0002).",
     cites: [CITE_REVIEW_INIT, CITE_REVIEW_SKILLS, CITE_REVIEW_REPORT, CITE_REVIEW_PLAIN],
     apply: (lines) => asReview(lines, REVIEW_BLOCKED),
   },
@@ -824,7 +824,7 @@ export const TRANSFORMS: readonly Transform[] = [
     transform:
       "A reviewer's session as review-approved; the result's structured_output is the source's worker report, which fails the review report schema, and the StructuredOutput tool_use input and its streamed input_json_delta events carry that same report.",
     expected:
-      'No valid review report: one correction turn "report in the schema" in the same session; still invalid, it is handled as a crash: park worker-failed (0019).',
+      'No valid review report: one correction turn "report in the schema" in the same session; still invalid, it is handled as a crash: park worker-failed (0002).',
     cites: [
       CITE_REVIEW_INIT,
       CITE_REVIEW_SKILLS,

@@ -174,7 +174,7 @@ export interface PrCheck extends RequiredCheck {
 }
 
 /**
- * What the review loop and the autorelease guard read and write on a pull request (0019).
+ * What the review loop and the autorelease guard read and write on a pull request (0002).
  * Kept apart from `CodeHost`, like `PrStateHost`, so the `CodeHost`
  * fakes stay as they are. It has no call to deployments or environments.
  */

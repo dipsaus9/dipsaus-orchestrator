@@ -1,4 +1,4 @@
-// The box door (0021, DIPO-272): how the worker in a box hands dipo a part (message W1),
+// The box door (0008, DIPO-272): how the worker in a box hands dipo a part (message W1),
 // and the checks every text from the box passes before dipo stores or shows it. Story done,
 // question, blocked and proposal (W2 to W5) travel in the worker's structured report and pass the
 // same text checks there (`workers/claude-cli/report-schema.ts`).
@@ -18,11 +18,11 @@
 //   refused message is renamed to `<name>.refused`, so the command tells the worker it was refused.
 //
 // Why a queue and not a stream: the box never connects to dipo, and nothing in it can reach dipo's
-// socket (0021). A queue file waits in the box while dipo is not reading (between two
+// socket (0008). A queue file waits in the box while dipo is not reading (between two
 // polls, or during a daemon restart while the box is stopped), and the command can wait for the
 // file to go, so the worker knows when dipo took the part and leaves the files alone until then.
 // A line on the worker's own output would mean reading the model's shell commands, the shell
-// parsing 0021 does away with.
+// parsing 0008 does away with.
 //
 // The worker is root in its box and can replace any program there, `/bin/sh` included. That gives
 // it no reach beyond its own messages: whatever the read prints is untrusted bytes, held to the byte
@@ -113,7 +113,7 @@ export function dipoPartScript(
   waitSeconds: number = DIPO_PART_WAIT_SECONDS,
 ): string {
   return `#!/bin/sh
-# dipo-part "message": hands a part to dipo (decision 0021, message W1). dipo installed this
+# dipo-part "message": hands a part to dipo (decision 0008, message W1). dipo installed this
 # command. It writes the message into a queue that dipo reads from outside the box; it never
 # reaches dipo itself. dipo checks the message again and treats it as plain text.
 set -u

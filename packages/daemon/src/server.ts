@@ -316,7 +316,7 @@ class Connection implements ConnectionSession {
       return;
     }
     const frame = parsed.data;
-    // Names and ids only: args stay out of the log at every level (0006).
+    // Names and ids only: args stay out of the log at every level (0005).
     this.#deps.logger.debug("frame received", {
       kind: frame.kind,
       ...("name" in frame ? { name: frame.name } : {}),
@@ -331,7 +331,7 @@ class Connection implements ConnectionSession {
   }
 
   /**
-   * The first frame must be the `engine.hello` read (0006). While it runs, later frames
+   * The first frame must be the `engine.hello` read (0005). While it runs, later frames
    * wait; once it answered they are taken in order, as the first frames of a ready connection or,
    * when the hello failed, of a new one.
    */

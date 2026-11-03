@@ -1,4 +1,4 @@
-// The daemon logger (DIPO-23, 0006): JSON lines, levels, context and redaction.
+// The daemon logger (DIPO-23, 0005): JSON lines, levels, context and redaction.
 
 import { describe, expect, it } from "bun:test";
 import { readFileSync, statSync } from "node:fs";

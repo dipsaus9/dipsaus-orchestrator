@@ -1,4 +1,4 @@
-// The story detail Enter opens from a desk row (0009, 0019, DIPO-308): the
+// The story detail Enter opens from a desk row (0009, 0002, DIPO-308): the
 // story's header, its park record (reason, cause, detail and age, from the desk item the engine
 // built, else from the story's view) and every review verdict `story.detail` returns, oldest
 // round first: round, commit, verdict, the per-criterion results and the findings with their
@@ -6,7 +6,7 @@
 // same row selected.
 //
 // A quote the engine checked against the commit says `checked`; a finding whose evidence failed
-// that check says `unverified` (0019).
+// that check says `unverified` (0002).
 
 import type {
   DeskItem,

@@ -1,4 +1,4 @@
-// The client finds the daemon only if both resolve the same `<state>` (0006). `client`
+// The client finds the daemon only if both resolve the same `<state>` (0005). `client`
 // may not import `engine` (0004), so `client/node` repeats the anchor rule; this test sits outside
 // both packages, where neither boundary applies, and runs the two functions on the same inputs.
 // It imports the two source files by path because the repository root has no package links.

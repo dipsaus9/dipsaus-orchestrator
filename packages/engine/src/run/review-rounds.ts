@@ -1,4 +1,4 @@
-// The facts of review rounds (0019, DIPO-219), read and written through the
+// The facts of review rounds (0002, DIPO-219), read and written through the
 // office handle. Writers run inside the caller's transaction.
 //
 // - Pending reviews. A story run open at In Review in phase review (DIPO-373), whose claim is live
@@ -105,7 +105,7 @@ export function beginReviewRound(
   return { round, started: true };
 }
 
-/** The run's failed review rounds: its `review-failed` steps (0019). */
+/** The run's failed review rounds: its `review-failed` steps (0002). */
 export function failedReviewRounds(office: OfficeHandle, runId: RunId): number {
   return (
     office.get<{ n: number }>(
@@ -117,7 +117,7 @@ export function failedReviewRounds(office: OfficeHandle, runId: RunId): number {
 }
 
 /**
- * The pending reviews of the office (`PlacesDeps.pending`, 0019), oldest In Review
+ * The pending reviews of the office (`PlacesDeps.pending`, 0002), oldest In Review
  * first: story runs open at In Review in phase review with a live claim and the review loop's caps, whose head is
  * on the remote (or whose office has none, DIPO-315), and whose story has no open park (a story
  * parked while it waits In Review gets no reviewer until it resumes, as the auto-merge and fix

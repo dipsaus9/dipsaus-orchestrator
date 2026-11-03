@@ -1,4 +1,4 @@
-// The verdict of a review round, computed by code from a validated report (0019,
+// The verdict of a review round, computed by code from a validated report (0002,
 // decision B): `blocked` when a criterion is `unmet` or a validated blocking finding exists,
 // otherwise `approved`. A criterion only the maintainer can check (`maintainer`) does not block;
 // it makes the merge wait for them. Pure and deterministic.

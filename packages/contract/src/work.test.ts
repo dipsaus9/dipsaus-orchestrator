@@ -72,7 +72,7 @@ describe("closed enums", () => {
     expect(Lifecycle.safeParse("in progress").success).toBe(false);
   });
 
-  it("DaemonState has the exact states of 0006 and an unknown one fails", () => {
+  it("DaemonState has the exact states of 0005 and an unknown one fails", () => {
     expect(DaemonState.options).toEqual(["starting", "recovering", "running", "draining"]);
     expect(DaemonState.safeParse("sleeping").success).toBe(false);
   });

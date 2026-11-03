@@ -70,7 +70,7 @@ export interface MountEntry {
 export type MountReader = () => Promise<readonly MountEntry[] | null>;
 
 export interface OpenSqliteOptions {
-  /** The software state directory `<state>` (0006); created with mode 0700 when missing. */
+  /** The software state directory `<state>` (0005); created with mode 0700 when missing. */
   readonly stateDir: string;
   readonly logger: DbLogger;
   /** Replaces the system mount table, for tests. */

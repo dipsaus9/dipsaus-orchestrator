@@ -1,6 +1,6 @@
 // The `dipo` command line: `--version`, `--help`, the daemon-side forms, the daemon subcommands and
 // the hidden `self-check`; later stories add subcommands. Daemon-side forms go through `runDaemon`
-// (0004, 0006); every other subcommand goes through `client`.
+// (0004, 0005); every other subcommand goes through `client`.
 
 import {
   autostartReport,

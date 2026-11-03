@@ -50,7 +50,7 @@ The lint rule `dipo(ci-test-guard)` refuses a `*.ci.test.ts` file with a `descri
 
 ## Tests that start a daemon
 
-A daemon removes the `dipo.sock` it finds in the runtime directory it chooses, and its last candidate is the real `/tmp/dipo-<uid>` (0006 decision 3). A test daemon must never get there (DIPO-109):
+A daemon removes the `dipo.sock` it finds in the runtime directory it chooses, and its last candidate is the real `/tmp/dipo-<uid>` (0005). A test daemon must never get there (DIPO-109):
 
 - The test runner's setup file (`src/test-env.ts`, DIPO-316) gives every test process the test marker `DIPO_TEST=1` and fresh `DIPO_HOME` and `DIPO_RUNTIME_DIR` folders under `DIPO_TMP`. With the marker, dipo refuses the real home's state and runtime folders, and an override it cannot use stops it instead of falling through to another folder.
 

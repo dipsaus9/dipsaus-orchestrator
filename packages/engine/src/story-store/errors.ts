@@ -10,7 +10,7 @@ export class StoryParseError extends StoryStoreError {}
 /**
  * The `GitError` code when a story's file on its branch holds a field dipo does not know: the
  * operation is refused before the store's tracker runs, and a story in a run parks
- * `scope-violation` (0021).
+ * `scope-violation` (0008).
  */
 export const TASK_FIELD_ERROR = "story.unknownTaskField";
 

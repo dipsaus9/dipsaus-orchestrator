@@ -9,7 +9,7 @@
 // A story run is active while it has not ended and its claim is live, so a claim released by
 // teardown or a rollback never leaves an office busy; a session run is active until it ends.
 //
-// One story run spans every round of its claim (0019, DIPO-142): its active period ends
+// One story run spans every round of its claim (0002, DIPO-142): its active period ends
 // at a park and at In Review, and `reopen` (`run-state/rounds.ts`) makes it active again for a
 // resume, a review, a fix round or a conflict hand-off, adding the time it stood ended to
 // `parked_ms`. A run ends done, parked or dropped (0020, `lifecycle.ts`); at In Review it stays
@@ -530,7 +530,7 @@ export function capsStartedAt(
  *
  * One end is not always the last (DIPO-75, DIPO-142): a parked run reopens on resume
  * (`reopenRun`), and its next end rewrites the provisional row with every park and round of the
- * run and the minutes it worked. Done is final (0019): a run open at In Review keeps
+ * run and the minutes it worked. Done is final (0002): a run open at In Review keeps
  * the end of its last active period, so its minutes count the time it worked, and its final row
  * is never rewritten.
  */

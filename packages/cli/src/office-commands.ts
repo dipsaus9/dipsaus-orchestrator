@@ -1,9 +1,9 @@
-// `dipo office` subcommands (0006, DIPO-27): `open [path]` registers a repository,
+// `dipo office` subcommands (0005, DIPO-27): `open [path]` registers a repository,
 // `forget` removes an office from the list, `reload-config` re-reads its configuration, `rescan`
 // (DIPO-72) scans its run profile again and prints the diff, `init` (DIPO-36) prepares its backlog
 // for the 0012 lifecycle through one backlog PR and prints the PR or the waiting branch. The
 // office comes from `--office <id>`, else from the repository around the current directory. In a Backlog.md project
-// that is not an office the CLI says so and, at a terminal, asks once whether to open it (0006
+// that is not an office the CLI says so and, at a terminal, asks once whether to open it (0005
 // open question 2); a script is never asked.
 
 import {

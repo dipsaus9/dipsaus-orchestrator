@@ -8,7 +8,7 @@ export const PNPM_WORKSPACE = "pnpm-workspace.yaml";
 export const WORKFLOW_FILE = ".claude/backlog-workflow.json";
 export const RUNTIME_FILES = [".node-version", ".nvmrc"] as const;
 /**
- * The Bun version file, read for the box's default toolchain (0021, DIPO-266). It is no
+ * The Bun version file, read for the box's default toolchain (0008, DIPO-266). It is no
  * run profile input, so it stays out of the fingerprint.
  */
 export const BUN_VERSION_FILE = ".bun-version";

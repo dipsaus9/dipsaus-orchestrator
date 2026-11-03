@@ -59,7 +59,7 @@ export const OUTCOME_NOTICES = {
 /** `agents.end_reason` of an agent whose host died without an exit file (DIPO-57). */
 export const HOST_LOST_END = "host-lost";
 
-/** Why a run lost its host, for the park and the resume (0006, 0008). */
+/** Why a run lost its host, for the park and the resume (0005, 0008). */
 export const HOST_LOST_WHY = "the worker host died while the daemon was down";
 
 /** Milliseconds from closing stdin to SIGTERM before a new session (0008). */
@@ -262,7 +262,7 @@ export interface RunOutcomesPort {
   /** A turn arrived: an open report feedback is answered. */
   answered(view: RunView): void;
   /**
-   * A reviewer session's turn carried a report valid against the review schema (0019),
+   * A reviewer session's turn carried a report valid against the review schema (0002),
    * after the backstop let the turn continue (DIPO-219).
    */
   onReview?(view: RunView, report: ReviewReport): Promise<void>;
@@ -271,7 +271,7 @@ export interface RunOutcomesPort {
 
 /**
  * The ending of a rejected init (0008); `cause` is the session's, the
- * reviewer's `review` for a reviewer session (0019).
+ * reviewer's `review` for a reviewer session (0002).
  */
 export function initRejectedEnding(story: string, reason: string): RunEnding {
   return {

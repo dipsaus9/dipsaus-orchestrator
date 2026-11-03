@@ -1,4 +1,4 @@
-// The client's `lifecycle` module (0006): the process-level steps that
+// The client's `lifecycle` module (0005): the process-level steps that
 // cannot use the socket. It starts, stops, restarts and reports the daemon for
 // `dipo daemon start|stop|restart|status`, and starts it for any client command that needs it
 // unless `daemon.autostart` is false in `<state>/config.yaml` (autostart).
@@ -12,7 +12,7 @@
 // - Stop sends `daemon.stop`. `--force`, and a daemon of another version (0005), get SIGTERM to the
 //   verified PID (every version drains on it); `--force` adds SIGKILL after 10 s. Code never
 //   signals a PID whose start time or command does not match the record.
-// - Installed autostart (0006, DIPO-63): start, stop and restart go through
+// - Installed autostart (0005, DIPO-63): start, stop and restart go through
 //   `launchctl` (`supervisor.ts`), so launchd and the CLI never fight; `install` and `uninstall`
 //   write and remove the plist.
 
@@ -58,7 +58,7 @@ export type DaemonStatusResult = z.output<typeof daemonStatus.result>;
 /** What the lifecycle needs from a connection to the daemon. */
 export type DaemonSession = Pick<DipoClient, "read" | "command" | "subscribe" | "close" | "hello">;
 
-/** Waits, in ms; tests shorten them. The defaults are 0006. */
+/** Waits, in ms; tests shorten them. The defaults are 0005. */
 export interface LifecycleTimings {
   /** How long a start waits for `engine.hello`, and a live PID may stay silent. */
   readonly startWaitMs: number;
@@ -153,7 +153,7 @@ function installedSupervisor(deps: LifecycleDeps): SupervisorDeps | null {
   return supervisor !== undefined && isInstalled(supervisor) ? supervisor : null;
 }
 
-/** What `dipo daemon status` reports (0006). */
+/** What `dipo daemon status` reports (0005). */
 export type DaemonObservation =
   | {
       readonly kind: "running";
@@ -395,7 +395,7 @@ async function waitForStart(
   }
 }
 
-/** `dipo daemon start` (0006). */
+/** `dipo daemon start` (0005). */
 export async function startDaemon(
   deps: LifecycleDeps,
   options: StartOptions = {},
@@ -497,7 +497,7 @@ async function stopObserved(
     }
   }
   if (await waitForExit(deps, record, deps.timings.stopWaitMs)) {
-    // A clean exit removes dipo.sock and dipo.pid (0006) but leaves runtime.json,
+    // A clean exit removes dipo.sock and dipo.pid (0005) but leaves runtime.json,
     // which is stale now; removing it here keeps the next `status` at `not running`.
     await inspectDaemon(deps);
     return { kind: "stopped", pid, killed: false };
@@ -506,7 +506,7 @@ async function stopObserved(
 }
 
 /**
- * `dipo daemon stop [--force]` (0006). With autostart installed, the supervisor stops
+ * `dipo daemon stop [--force]` (0005). With autostart installed, the supervisor stops
  * the daemon first (`launchctl bootout`, `systemctl --user stop`), so it does not restart it; a
  * daemon still running after that was started outside the supervisor and is stopped directly.
  */
@@ -615,7 +615,7 @@ export async function connectRunning(deps: LifecycleDeps): Promise<DaemonSession
 
 /**
  * Connects for a client command that needs the daemon, and starts it first when none runs and
- * `daemon.autostart` is not false (0006). The configuration is read before the start,
+ * `daemon.autostart` is not false (0005). The configuration is read before the start,
  * and its errors are thrown instead of starting a daemon that would exit 78.
  */
 export async function connectOrStart(deps: LifecycleDeps): Promise<ConnectedDaemon> {
@@ -640,7 +640,7 @@ export async function connectOrStart(deps: LifecycleDeps): Promise<ConnectedDaem
 }
 
 /**
- * The hint of 0006 when this binary and the daemon differ, else null.
+ * The hint of 0005 when this binary and the daemon differ, else null.
  */
 export function versionHint(own: string, daemon: string | undefined): string | null {
   if (daemon === undefined || daemon === own) return null;
@@ -663,7 +663,7 @@ export type InstallResult =
     };
 
 /**
- * `dipo daemon install` (0006): stops a running daemon, writes the plist with
+ * `dipo daemon install` (0005): stops a running daemon, writes the plist with
  * this binary's absolute path and the caller's `PATH`, loads it, and waits for the supervised
  * daemon. Running it again after moving the binary rewrites the file.
  */

@@ -86,7 +86,7 @@ export interface ForegroundOptions {
   readonly features?: readonly FeatureModule[];
   /** How the upgrade check reads the executable; tests replace the file system. */
   readonly readExecutableStamp?: ReadExecutableStamp;
-  /** Starts the keep-awake process (0006); tests take no real assertion. */
+  /** Starts the keep-awake process (0005); tests take no real assertion. */
   readonly spawnKeepAwake?: SpawnKeepAwake;
   /** Posts the desk notifications (DIPO-357); tests post nothing to the real notification centre. */
   readonly postNotification?: PostNotification;

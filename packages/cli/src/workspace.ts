@@ -1,4 +1,4 @@
-// Where the CLI runs (0006, DIPO-27): the current directory, whether a person is at the
+// Where the CLI runs (0005, DIPO-27): the current directory, whether a person is at the
 // terminal, and the git repository around a path. The CLI resolves an office from `--office`, else
 // from the `office.json` marker in the repository's `<git-common-dir>/dipo/` (0007). The
 // daemon still decides whether that office is registered and whether this main worktree is its
@@ -31,7 +31,7 @@ export type { RepositoryLocation };
 
 export interface Workspace {
   readonly cwd: string;
-  /** True when stdin and stdout are a terminal: only then does the CLI ask (0006 question 2). */
+  /** True when stdin and stdout are a terminal: only then does the CLI ask (0005). */
   readonly interactive: boolean;
   /** Asks one question on the terminal and returns the answer line. */
   ask(question: string): Promise<string>;

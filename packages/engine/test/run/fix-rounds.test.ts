@@ -1,4 +1,4 @@
-// Fix rounds (DIPO-148; 0019, 0021): the review and CI
+// Fix rounds (DIPO-148; 0002, 0008): the review and CI
 // feedback on a pushed head goes back to the same worker in one round, once per head. The places,
 // run control, the fix rounds and the feedback facts are real on a migrated state database; the
 // story read, the CI state of the PR poll, the status commit and the developer's next session are
@@ -349,7 +349,7 @@ const fixIntentsOf = (run: RunId) =>
     /^feedback (review|ci|reject|conflict) \S+ next /.test(intent.detail),
   );
 
-describe("the timing of a fix round (0019)", () => {
+describe("the timing of a fix round (0002)", () => {
   it("waits for both the head's verdict and its final checks, then sends one message", async () => {
     const s = inReview("DIPO-1");
     x.ci.set(s.run, { kind: "pending", head: H1 });
@@ -468,7 +468,7 @@ describe("the timing of a fix round (0019)", () => {
   });
 });
 
-describe("send-once (0019)", () => {
+describe("send-once (0002)", () => {
   it("sends an item for one head once across a daemon restart, and marks the same signature on a new head a repeat", async () => {
     // The worker place is held, so the queued round waits across the restart.
     const busy = storyRun(w, { story: "DIPO-9" });
@@ -561,7 +561,7 @@ describe("the pre-start cap check (DIPO-205)", () => {
   });
 });
 
-describe("a maintainer reject (0019)", () => {
+describe("a maintainer reject (0002)", () => {
   it("goes to the worker at once through the same send path, the note verbatim and keyed on the gate id", async () => {
     const s = inReview("DIPO-1");
     reviewed(s, H1, APPROVED);

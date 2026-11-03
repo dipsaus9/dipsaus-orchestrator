@@ -1,4 +1,4 @@
-// The worker host, `dipo daemon worker-host <run-id>` (0006, 0008). It reads
+// The worker host, `dipo daemon worker-host <run-id>` (0005, 0008). It reads
 // `launch.json` from its run directory, writes the plan's files, binds
 // `<runtime>/hosts/<run-id>.sock`, starts the worker through the injected `Spawn`, writes the
 // first stdin lines and appends every stdout and stderr line and the exit to
@@ -339,9 +339,9 @@ export class WorkerHost {
         writeFileSync(path, file.content, { mode });
         chmodSync(path, mode);
       }
-      // The hosts directory carries the socket's access control (0006).
+      // The hosts directory carries the socket's access control (0005).
       ensurePrivateDir(dirname(this.socketPath));
-      // The engine never starts a host for a run whose old host is alive (0006), so a
+      // The engine never starts a host for a run whose old host is alive (0005), so a
       // file left at this path is a leftover.
       removeSocketFile(this.socketPath);
       this.#server = listenLineSocket(this.socketPath, (connection) => this.#accept(connection));

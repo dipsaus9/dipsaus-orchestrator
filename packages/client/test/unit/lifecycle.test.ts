@@ -538,7 +538,7 @@ describe("restartDaemon", () => {
 });
 
 describe("versionHint", () => {
-  it("prints the 0006 hint only when the versions differ", () => {
+  it("prints the 0005 hint only when the versions differ", () => {
     expect(versionHint("0.2.0", "0.1.0")).toBe(
       "daemon runs v0.1.0, this binary is v0.2.0, run `dipo daemon restart`",
     );

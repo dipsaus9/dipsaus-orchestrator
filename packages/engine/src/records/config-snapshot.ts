@@ -1,4 +1,4 @@
-// The configuration a run started with (0019, 0020). `work.run` keeps the effective configuration
+// The configuration a run started with (0002, 0020). `work.run` keeps the effective configuration
 // of each run once per office and hash in `config_snapshots` and records the hash on the run
 // (`runs.config_hash`). Since a change of `.dipo/office.yaml` on the base reloads the
 // configuration in force at the next poll, the stages of a run after its start read this snapshot

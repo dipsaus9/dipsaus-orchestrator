@@ -1,4 +1,4 @@
-// Waiting out a recovering daemon (0006, DIPO-86). In `starting` and `recovering` the
+// Waiting out a recovering daemon (0005, DIPO-86). In `starting` and `recovering` the
 // daemon answers office commands and reads with the retryable `engine.recovering` (0005),
 // which ends when `daemon.status` reports another state. A session wrapped here polls
 // `daemon.status` on the injected clock and sends the request again after every answered poll: a

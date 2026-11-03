@@ -286,7 +286,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         ]);
         expect(entriesOf(o.office, "story.state", seq).at(-1)).toMatchObject({ to: "Refined" });
         expect(entriesOf(o.office, "question.closed", seq)).toHaveLength(1);
-        // The ended run's box goes too (0021).
+        // The ended run's box goes too (0008).
         expect(seen.boxes).toBe(1);
 
         // A re-run finds the target state and changes nothing.

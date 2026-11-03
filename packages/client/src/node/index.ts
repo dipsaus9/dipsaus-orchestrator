@@ -1,7 +1,7 @@
 // `@dipsaus-orchestrator/client/node`: the Unix-socket transport, the way a local client finds the
 // daemon, the software configuration it reads (DIPO-69) and the `lifecycle` module that starts,
 // stops and reports the daemon (DIPO-70), and the log reader behind `dipo daemon logs` (DIPO-64);
-// the only client code that uses Bun and Node APIs (0004, 0006).
+// the only client code that uses Bun and Node APIs (0004, 0005).
 
 export { systemClock } from "./clock";
 export { readSoftwareConfig, softwareConfigPath } from "./config";

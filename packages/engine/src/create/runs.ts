@@ -3,7 +3,7 @@
 // daemon resolved on its PATH at start. `claude` and `backlog` are absolute paths, never looked up
 // again; a missing `claude` refuses each launch with a notice instead of stopping the daemon.
 //
-// Box workers (DIPO-271, 0021): with Apple `container` on the daemon's PATH, every run's developer
+// Box workers (DIPO-271, 0008): with Apple `container` on the daemon's PATH, every run's developer
 // works in its story's box (`BoxWorkers`, DIPO-240); without it no developer starts. A box lives
 // from claim to merge (DIPO-278): after each exit decision, on a minute tick and at the recovery
 // step (`finishEndedBoxes`), the box of a run that waits is checked for the token and stopped, and
@@ -123,7 +123,7 @@ import type { StoryClaims } from "../worktree/feature";
 /**
  * The Backlog CLI at the absolute path the daemon resolved, else `backlog` on `PATH` (AC #8). The
  * runner gives each call only `PATH` and `HOME` of the daemon's environment (`backlogEnv`), and a
- * story's calls run in dipo's own copy of its backlog, never its worktree (0021).
+ * story's calls run in dipo's own copy of its backlog, never its worktree (0008).
  */
 export function backlogCliFor(tools: ToolPaths, spawn: Spawn = systemSpawn): BacklogCli {
   return tools.backlog === undefined ? { spawn } : { spawn, command: [tools.backlog] };
@@ -135,7 +135,7 @@ export interface RunsOptions {
   readonly probe: ProcessProbe;
   /** Starts the processes of the runs: boxes, the Keychain, the worker. */
   readonly spawn: Spawn;
-  /** Starts the detached worker hosts (0006). */
+  /** Starts the detached worker hosts (0005). */
   readonly hosts: HostStarter;
   /** The test boxes' forwarders on the Mac's loopback, and the check that one answers (DIPO-309). */
   readonly forwarders: Pick<TestBoxesDeps, "forward" | "reach">;
@@ -1062,7 +1062,7 @@ function controlRunPorts(
     // The park written on the story branch (DIPO-50), after auto-merge is off (0002).
     control: { finisher: parts.finisher, writer: writers.park, implemented: options.implemented },
     outcomes: {
-      // No new host while an earlier host of the run still runs (DIPO-57, 0006).
+      // No new host while an earlier host of the run still runs (DIPO-57, 0005).
       probe: options.probe,
       // A host still alive for a parked run gets one verified SIGTERM at its resume (DIPO-411).
       signal: signalProcess,

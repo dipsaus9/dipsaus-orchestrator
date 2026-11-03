@@ -1,4 +1,4 @@
-// The run across review rounds (DIPO-142, 0019), fast and local: one story run ends its
+// The run across review rounds (DIPO-142, 0002), fast and local: one story run ends its
 // active period at In Review, where it stays open (DIPO-373), and is active again on the same run
 // for a review, a fix round and a conflict hand-off. The developer's minute cap leaves out the idle
 // and review time, the reviewer's turns and tokens stay out of the developer's caps and the story's
@@ -63,7 +63,7 @@ function workToInReview(): number {
   return started;
 }
 
-describe("a run reopened after In Review (0019)", () => {
+describe("a run reopened after In Review (0002)", () => {
   it("keeps its loop count and its minute cap leaves out the idle and review time", () => {
     const started = workToInReview();
     // Open at In Review, waiting for its review: no ending and no outcome row.
@@ -162,7 +162,7 @@ describe("the reviewer's turns and tokens (0002)", () => {
   });
 });
 
-describe("the outcome row (0019)", () => {
+describe("the outcome row (0002)", () => {
   it("is written at the run's end and made final at Done with the round counts", () => {
     workToInReview();
     advance(5);

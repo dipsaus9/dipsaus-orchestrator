@@ -11,7 +11,7 @@
 // non-zero exit or a `not found` line (fact 3); it carries the command and its output.
 //
 // Every call gets a minimal, explicit environment (`backlogEnv`), never the daemon's whole one
-// (0021). The caller picks the working folder: for a story it is a folder that holds
+// (0008). The caller picks the working folder: for a story it is a folder that holds
 // only dipo's own copy of the backlog, never the worktree a worker's files land in
 // (`inStoryBacklog` in `story-copy.ts`).
 //
@@ -70,7 +70,7 @@ export interface BacklogCli {
   readonly command?: readonly [string, ...string[]];
   /**
    * The environment the CLI's variables are taken from; the process's own when absent. Only
-   * `BACKLOG_ENV_KEYS` are taken (0021), so nothing else of it reaches the CLI.
+   * `BACKLOG_ENV_KEYS` are taken (0008), so nothing else of it reaches the CLI.
    */
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** Receives the `engine.notice` of a refused status change (DIPO-312). */
@@ -89,7 +89,7 @@ export interface BacklogNotice {
 }
 
 /**
- * The only variables a Backlog CLI call gets (0021): `PATH` to find its runtime and
+ * The only variables a Backlog CLI call gets (0008): `PATH` to find its runtime and
  * `HOME` for its user settings. The daemon's other variables never reach it.
  */
 export const BACKLOG_ENV_KEYS: readonly string[] = ["PATH", "HOME"];
@@ -738,7 +738,7 @@ export class CheckoutGate {
 /** The daemon's one checkout gate. */
 const CHECKOUT_GATE = new CheckoutGate();
 
-// ---- the Backlog files a call runs with (DIPO-312, 0021) ----------------------------
+// ---- the Backlog files a call runs with (DIPO-312, 0008) ----------------------------
 //
 // Before every call, dipo checks the Backlog files the CLI could read in the folder the call runs
 // in (`scanBacklogFiles`): every place Backlog.md 1.53 takes its configuration from
@@ -1335,7 +1335,7 @@ export function statusCommandFiles(cwd: string, cache?: VerdictCache): BacklogFi
   return [...scan.refused, ...scan.statusCommands];
 }
 
-// ---- the story's task file (0021) ---------------------------------------------------
+// ---- the story's task file (0008) ---------------------------------------------------
 
 /** The folder that holds the Backlog task files, relative to the repository root. */
 export const TASKS_DIR = `${BACKLOG_FOLDER}/tasks`;
@@ -1368,7 +1368,7 @@ export function taskFilePathRefusal(path: string): string | null {
 
 /**
  * The front matter fields of a Backlog.md task that dipo knows (1.53). A task file holding any
- * other field is refused before the CLI reads it (0021).
+ * other field is refused before the CLI reads it (0008).
  */
 export const KNOWN_TASK_FIELDS: ReadonlySet<string> = new Set([
   "id",

@@ -1,4 +1,4 @@
-// The Claude adapter's `session` kind (DIPO-310 criterion 1; 0021): the scan
+// The Claude adapter's `session` kind (DIPO-310 criterion 1; 0008): the scan
 // fallback's session is planned on the Mac with no box, in an empty folder dipo made, with no
 // worktree, branch or story, every tool off (no read, shell or web), no hooks or MCP server, every
 // plugin off, the fallback's structured-output schema, and the model, effort and turn cap of its

@@ -1,4 +1,4 @@
-// The box user (0021): everything untrusted in a box runs as one fixed non-root uid, so it cannot
+// The box user (0008): everything untrusted in a box runs as one fixed non-root uid, so it cannot
 // write `/etc`, `/usr`, `/lib`, `/opt`, `/` or the tools mount, and cannot redirect a command dipo
 // runs as root.
 //

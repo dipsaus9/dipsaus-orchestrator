@@ -1,4 +1,4 @@
-// Send-once feedback (0019, DIPO-148): the facts of `feedback_items`, read and written
+// Send-once feedback (0002, DIPO-148): the facts of `feedback_items`, read and written
 // through the office handle. Writers run inside the caller's transaction, the one that holds the
 // round's message on the one feedback path (`sendFeedback`), so a restart neither loses nor repeats
 // one.
@@ -136,7 +136,7 @@ export function nextFixRound(office: OfficeHandle, runId: RunId | string): numbe
 
 /**
  * True when one verify or CI signature of `planned` was carried by the run's newest fix round
- * stored so far: two sends in a row of the same failure (0019, `same-failure`).
+ * stored so far: two sends in a row of the same failure (0002, `same-failure`).
  */
 export function sameFailureAgain(
   office: OfficeHandle,

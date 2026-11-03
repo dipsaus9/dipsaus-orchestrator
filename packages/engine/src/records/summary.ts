@@ -13,7 +13,7 @@
 //   each park in one line, grants, web calls and proposals filed. It holds the facts known at the
 //   close-out; a later close-out (after red checks on the close-out head) replaces it.
 //
-// A box run (0021): CI is its final gate, so its CI attempts stand next to the loops. A CI attempt
+// A box run (0008): CI is its final gate, so its CI attempts stand next to the loops. A CI attempt
 // is a pushed head whose required checks were red: a reviewed head, or a close-out head, since a
 // gate decided by rule closes out without waiting for the reviewed head's checks (0002). A head
 // whose CI run a later push cancelled is never counted. The final summary's line says what it

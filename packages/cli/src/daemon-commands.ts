@@ -1,4 +1,4 @@
-// `dipo daemon` client subcommands (0006). `start`, `stop`, `restart`,
+// `dipo daemon` client subcommands (0005). `start`, `stop`, `restart`,
 // `status`, `install` and `uninstall` go through the `lifecycle` module of `client/node`; `log-level` and `resume-starts`
 // send one contract command each, starting the daemon first unless `daemon.autostart` is false;
 // `logs` reads the log files directly and never talks to the daemon (DIPO-64). Read-only commands
@@ -61,7 +61,7 @@ export interface DaemonControl {
   start(options: StartOptions): Promise<StartResult>;
   stop(options: { readonly force: boolean }): Promise<StopResult>;
   restart(options: StartOptions): Promise<RestartResult>;
-  /** `dipo daemon install|uninstall` (0006, DIPO-63). */
+  /** `dipo daemon install|uninstall` (0005, DIPO-63). */
   install?(): Promise<InstallResult>;
   uninstall?(): Promise<UninstallResult>;
   /** Autostart for `status`: installed or not, and the binary it runs. */
@@ -90,9 +90,9 @@ export interface DaemonCommandDeps {
   readonly connectDaemon: ConnectDaemon;
   readonly daemon: DaemonControl;
   readonly clock: Clock;
-  /** This binary's version, for the restart hint of 0006. */
+  /** This binary's version, for the restart hint of 0005. */
   readonly version: string;
-  /** Where `dipo daemon logs` reads; defaults to `<logs>` of this user (0006). */
+  /** Where `dipo daemon logs` reads; defaults to `<logs>` of this user (0005). */
   readonly logs?: DaemonLogsDeps;
 }
 
@@ -104,7 +104,7 @@ export const START_HINT = "Start it with `dipo daemon start`.";
 /** Printed once when a command has waited about a second for a recovering daemon (DIPO-86). */
 export const RECOVERY_WAIT = "waiting for the daemon to finish recovering";
 
-/** Exit codes of `dipo daemon status` (0006). */
+/** Exit codes of `dipo daemon status` (0005). */
 export const STATUS_EXIT = { running: 0, unresponsive: 1, notRunning: 3 } as const;
 
 type Subcommand = (args: readonly string[], deps: DaemonCommandDeps) => Promise<number>;
@@ -205,7 +205,7 @@ export function formatRunning(status: DaemonStatusResult): string[] {
   return lines;
 }
 
-/** The autostart line of `status` and its warnings (0006). */
+/** The autostart line of `status` and its warnings (0005). */
 function printAutostart(deps: DaemonCommandDeps, report: AutostartReport | null): void {
   if (report === null) return;
   deps.writeLine(

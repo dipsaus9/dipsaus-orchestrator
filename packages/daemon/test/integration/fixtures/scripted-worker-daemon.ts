@@ -3,7 +3,7 @@
 // The daemon starts each worker host as `<bun> <this file> daemon worker-host <run>`, which runs
 // the daemon's own worker-host form here.
 //
-// Every developer runs in its box (0021, DIPO-240). This test daemon has no box backend (its PATH
+// Every developer runs in its box (0008, DIPO-240). This test daemon has no box backend (its PATH
 // has no `container`), so the plan records the run directory as a box run's, as the box workers do
 // when they make the box; re-attach then follows the host as it follows a box run's host, instead
 // of stopping it as a session on the Mac. Usage: bun scripted-worker-daemon.ts [daemon <form> ...]

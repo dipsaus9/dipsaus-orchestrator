@@ -1,4 +1,4 @@
-// The review verdict (DIPO-146; 0019): reviewer reports validated by code, the
+// The review verdict (DIPO-146; 0002): reviewer reports validated by code, the
 // verdict computed from them, and verdicts stored as review gates keyed on the code tree key.
 
 export { REVIEW_COMMENT_MAX, redactComment, reviewComment } from "./comment";

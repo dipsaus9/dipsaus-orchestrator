@@ -1,4 +1,4 @@
-// `host.log`: the host's own JSON log lines (0006), capped at 5 MB by dropping the
+// `host.log`: the host's own JSON log lines (0005), capped at 5 MB by dropping the
 // oldest half. The host process's stdout and stderr are appended to the same file by the engine
 // that started it, so the file is shortened in place (truncate, then write the kept half): an
 // append-mode descriptor on the same file keeps writing at its end.

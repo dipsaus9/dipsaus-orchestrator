@@ -93,7 +93,7 @@ export interface TurnRecord {
   readonly subtype: string;
   readonly terminal: string;
   readonly report: WorkerReport | null;
-  /** A `review` session's valid report (0019); absent in other kinds. */
+  /** A `review` session's valid report (0002); absent in other kinds. */
   readonly review?: ReviewReport;
   /** A `session` kind's structured output (DIPO-310); absent in other kinds. */
   readonly answer?: unknown;
@@ -146,7 +146,7 @@ export interface ClaudeParseState {
   /** The skills of the last `system/init` (DIPO-130). Absent in states stored before it existed. */
   readonly skills?: readonly string[];
   /**
-   * `review` when the session is a reviewer's (0019): its result carries a
+   * `review` when the session is a reviewer's (0002): its result carries a
    * `ReviewReport`, and `system/init` may list no plugin but the
    * builtin ones. Absent means `implement`, as in states stored before it existed.
    */
@@ -235,7 +235,7 @@ export interface InitialStateOptions {
   readonly knownPlugins?: readonly string[];
   /** True when `system/init` may list no skill (DIPO-130). */
   readonly refuseSkills?: boolean;
-  /** `review` for a reviewer session (0019); `implement` by default. */
+  /** `review` for a reviewer session (0002); `implement` by default. */
   readonly reportKind?: ReportKind;
   /** Classifier switches already recorded on the run (0008). */
   readonly acceptedModels?: readonly string[];

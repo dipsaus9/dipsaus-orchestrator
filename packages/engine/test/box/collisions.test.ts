@@ -1,4 +1,4 @@
-// Changed files and collisions of box runs (DIPO-277, 0021): the prefix rule, the texts,
+// Changed files and collisions of box runs (DIPO-277, 0008): the prefix rule, the texts,
 // git's output and the conflict item read as data, and on real git the guard that runs no merge
 // driver. The rest of the flow on real git with a bare remote is in collisions.ci.test.ts (CI only,
 // DIPO-225).

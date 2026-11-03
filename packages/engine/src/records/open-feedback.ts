@@ -1,5 +1,5 @@
 // The open feedback of a run's handoff (0020, DIPO-154): the run's feedback items that a
-// later approval has not answered yet, read with their text from 0019's
+// later approval has not answered yet, read with their text from 0002's
 // `feedback_items` (DIPO-148). A new session of the run lists them in its handoff block, so a fix
 // round, a CI failure or a conflict the previous session left open reaches the next one.
 //
@@ -18,7 +18,7 @@ import type { OfficeHandle } from "../db/office";
 
 /** One stored feedback item as the handoff reads it. */
 export interface StoredFeedback {
-  /** `verify`, `ci`, `review`, `conflict` or `reject` (0019). */
+  /** `verify`, `ci`, `review`, `conflict` or `reject` (0002). */
   readonly source: string;
   /** The pushed head the item was found on. */
   readonly head: string;
@@ -30,7 +30,7 @@ export interface StoredFeedback {
 /** The kinds of fact that answer a feedback item. */
 export type AnswerKind = "approval";
 
-/** Which kind of fact answers an item of each source (0019). */
+/** Which kind of fact answers an item of each source (0002). */
 export const ANSWERED_BY: Readonly<Record<string, AnswerKind>> = {
   review: "approval",
   reject: "approval",

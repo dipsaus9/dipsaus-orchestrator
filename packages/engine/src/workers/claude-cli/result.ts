@@ -120,7 +120,7 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
       : { ...crashed(`answer but ${exitText(exit)}`), answer };
   }
   if (state.reportKind === "review") {
-    // A reviewer session (0019): a valid report is all it returns; code computes
+    // A reviewer session (0002): a valid report is all it returns; code computes
     // the verdict from it.
     const review = turn.review;
     if (review === undefined) return noReport(turn.reportProblem ?? "no report", "review");

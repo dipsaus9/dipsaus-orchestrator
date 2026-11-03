@@ -1,4 +1,4 @@
-// Stored review verdicts (0019). Each verdict is one review gate: a `gates`
+// Stored review verdicts (0002). Each verdict is one review gate: a `gates`
 // row of kind `review` with its rule decision in `gate_decisions` (approved, or rejected for a
 // blocked verdict; its content hash is the code tree key), and one `review_verdicts` row with the
 // round, the reviewed commit, the code tree key, the judged criteria and findings, the validation
@@ -295,7 +295,7 @@ export function recordReviewOverride(
 }
 
 /**
- * The verdict as `story.detail` shows it (`Verdict.review`, 0019): the reviewer agent's
+ * The verdict as `story.detail` shows it (`Verdict.review`, 0002): the reviewer agent's
  * usage, zero for a carried approval or an agent retention removed.
  */
 export function reviewVerdictView(

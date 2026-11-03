@@ -61,7 +61,7 @@ export interface Meta {
   readonly testConfig?: Readonly<Record<string, unknown>>;
   /**
    * The worker kind the session ran as, when it is not `implement`: `review` for a reviewer
-   * session (0019), whose result carries a `ReviewReport`.
+   * session (0002), whose result carries a `ReviewReport`.
    */
   readonly kind?: "review";
 }

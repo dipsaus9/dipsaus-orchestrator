@@ -69,7 +69,7 @@ export interface Core {
   readonly onChanged: (office: OfficeId) => void;
 }
 
-/** The lifecycle, its log lines and its `daemon.state` events (0006). */
+/** The lifecycle, its log lines and its `daemon.state` events (0005). */
 function lifecycleOf(logger: Logger, software: SoftwareStream): DaemonLifecycle {
   const lifecycle = new DaemonLifecycle("daemon started");
   lifecycle.onTransition((change) => logger.info("daemon state", { ...change }));
@@ -102,7 +102,7 @@ export function buildCore(deps: EngineDeps): Core {
   const stories = backlogStoryStore(backlogCli);
   // Office commands reach the database only once the migrations step opened it; until then the
   // lifecycle gate answers them with engine.recovering. Office engine instances load lazily on
-  // first use (0006, DIPO-27).
+  // first use (0005, DIPO-27).
   const offices = new OfficeManager({
     database: () => database.get(),
     registry: () => registry,

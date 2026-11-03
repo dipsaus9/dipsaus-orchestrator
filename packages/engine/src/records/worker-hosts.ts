@@ -1,4 +1,4 @@
-// Starting a worker host and recording it (0006, 0007). The engine
+// Starting a worker host and recording it (0005, 0007). The engine
 // writes `launch.json` into the run directory, starts `dipo daemon worker-host <run-id>` detached
 // with stdio appended to `host.log` and `BUN_OPTIONS` removed, reads the host's start time and
 // records PID, start time, socket path and host protocol version in `worker_hosts`. Hosts are not
@@ -9,7 +9,7 @@
 // no live host matches it (0005).
 //
 // Liveness is PID plus start time through the DIPO-23 identity check, where a zombie is dead;
-// the socket is never asked (0006).
+// the socket is never asked (0005).
 //
 // This module is the one writer of `worker_hosts` (0001): every insert, update and delete of a
 // host row goes through it, and `test/run/one-writer.test.ts` fails on one anywhere else.

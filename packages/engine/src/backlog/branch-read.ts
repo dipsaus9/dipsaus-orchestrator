@@ -82,7 +82,7 @@ export async function readOnBranch(
   const ref = `refs/heads/${target.branch}`;
   const path = await taskFileOn(session, ref, listed.id);
   const content = await session.ok(session.repository, ["show", `${ref}:${path}`]);
-  // A task file holding fields dipo does not know never reaches the CLI (0021): the
+  // A task file holding fields dipo does not know never reaches the CLI (0008): the
   // read fails with the coded error, so the index lists the story as unread on its branch.
   const refused = taskFieldRefusal(content);
   if (refused !== null) {

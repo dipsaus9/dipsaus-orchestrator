@@ -1,4 +1,4 @@
-// The story PRs (0019). Every statement binds the office through its
+// The story PRs (0002). Every statement binds the office through its
 // handle; writes run inside the caller's transaction.
 
 import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";

@@ -146,7 +146,7 @@ export interface ReconcileDeps {
    * (`claimPr`, DIPO-363); without it dipo's record of the story PR answers.
    */
   readonly prs?: PrStateHost | null;
-  /** Checks and deletes the boxes of ended runs after a release (0021). */
+  /** Checks and deletes the boxes of ended runs after a release (0008). */
   readonly finishBoxes?: () => Promise<unknown>;
 }
 

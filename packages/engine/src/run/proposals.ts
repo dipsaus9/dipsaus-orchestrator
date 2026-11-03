@@ -238,7 +238,7 @@ function capped(text: string, max: number): string {
 }
 
 /**
- * A worker's text as a draft carries it: cleaned of terminal control characters (0021),
+ * A worker's text as a draft carries it: cleaned of terminal control characters (0008),
  * on one line, with HTML comment marks broken up (Backlog.md finds its sections by them), capped.
  */
 export function workerWords(text: string, max: number): string {

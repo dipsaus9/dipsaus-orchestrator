@@ -1,5 +1,5 @@
-// CI only (0017): the review loop end to end at the engine layer (DIPO-153; 0019,
-// for box runs as 0021 has them). Each scenario claims TASK-1 with `work.run` on an office wired as the daemon wires it
+// CI only (0017): the review loop end to end at the engine layer (DIPO-153; 0002,
+// for box runs as 0008 has them). Each scenario claims TASK-1 with `work.run` on an office wired as the daemon wires it
 // (`loop-office.ts`): a scripted developer and reviewer, the in-memory code host, real git with a
 // bare remote under DIPO_TMP and the pinned Backlog CLI. CI is the verify of a box run, so dipo runs
 // none: the host's required checks decide. The scenarios:
@@ -18,7 +18,7 @@
 // - a merge gate the maintainer approves: a criterion only the maintainer can check;
 // - an override of a review-blocked park: a round cap of 1 parks the story, `gate.approve` needs a
 //   note and records the override, and the PR merges with no session;
-// - a review running next to a working developer session of another story (0019);
+// - a review running next to a working developer session of another story (0002);
 // - a daemon restart while auto-merge is on: GitHub merges once, with no second close-out or push,
 //   and after the restart's re-attach the Done poll ends the run done;
 // - the park and resume path: red CI at a CI cap of 1 parks `verify-failing`, and

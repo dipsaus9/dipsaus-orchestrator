@@ -1,4 +1,4 @@
-// The office's box image (DIPO-266, 0021): the description
+// The office's box image (DIPO-266, 0008): the description
 // from the box block and the repository, the two build scripts dipo writes (DIPO-281), the tag
 // that hashes them, and the block read from the base branch only. The build in a build box is in
 // build-box.test.ts.

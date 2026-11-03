@@ -294,7 +294,7 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
         ...(previous === undefined
           ? { plannedModel: spec.model }
           : nextSessionOptions(previous as unknown as ClaudeParseState, spec.model)),
-        // A reviewer's result carries a `ReviewReport` (0019); a session's its
+        // A reviewer's result carries a `ReviewReport` (0002); a session's its
         // structured output (DIPO-310). A reviewer runs only in its reviewer box, with the
         // placeholder key, whatever its run's directory holds (0002).
         ...(spec.kind === "review" ? { reportKind: "review" as const, placeholderKey: true } : {}),

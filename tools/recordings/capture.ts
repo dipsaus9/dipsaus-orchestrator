@@ -347,7 +347,7 @@ export async function capture(scenario: Scenario): Promise<string> {
         runDir,
         hostSocket,
         tmpDir: sandboxTmp,
-        // A reviewer loads no plugin: the plan switches off every installed one (0019).
+        // A reviewer loads no plugin: the plan switches off every installed one (0002).
         ...(scenario.kind === "review"
           ? { plugins: { installed: readInstalledPlugins(home), allowed: [] } }
           : {}),

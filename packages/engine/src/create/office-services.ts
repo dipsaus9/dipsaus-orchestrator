@@ -69,7 +69,7 @@ function engineBehindOf(core: Core): EngineBehindCache | null {
 }
 
 /**
- * Keep-awake (0006): one assertion for every office while work is active, read from the
+ * Keep-awake (0005): one assertion for every office while work is active, read from the
  * state database once recovery opened it.
  */
 function keepAwakeOf(core: Core): KeepAwake {

@@ -135,7 +135,7 @@ export type StoryOutcome =
       readonly result: {
         readonly view: StoryView;
         readonly runs: readonly RunRecord[];
-        /** The story's decided gates with their review rounds (0019). */
+        /** The story's decided gates with their review rounds (0002). */
         readonly verdicts?: readonly Verdict[];
       };
     }

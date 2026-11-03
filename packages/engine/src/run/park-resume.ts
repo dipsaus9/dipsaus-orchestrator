@@ -202,7 +202,7 @@ export interface ConflictPrepared {
   readonly afterStart?: () => Promise<void>;
 }
 
-/** The 0019 conflict hand-off a `conflict` park resumes through (`ConflictResumes`, DIPO-324). */
+/** The 0002 conflict hand-off a `conflict` park resumes through (`ConflictResumes`, DIPO-324). */
 export interface ConflictResumer {
   /**
    * After the park is lifted, before the session: what git says the developer needs (the kept

@@ -1,4 +1,4 @@
-// The box firewall (0021): what a box may reach on its host-only network besides dipo's proxies is
+// The box firewall (0008): what a box may reach on its host-only network besides dipo's proxies is
 // nothing.
 //
 // On the host-only network the Mac is the box's neighbour, so without a rule a box reaches every

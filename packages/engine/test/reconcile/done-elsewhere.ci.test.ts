@@ -354,7 +354,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect(report.released?.map((c) => c.runId)).toEqual([one.runId]);
           expect(findClaim(o.office, one.runId)?.releaseReason).toBe("done-elsewhere");
           expect(liveClaimOf(o.office, two.key as StoryKey)).not.toBeNull();
-          // The released run's box is deleted too (0021).
+          // The released run's box is deleted too (0008).
           expect(boxes.n).toBe(1);
           teardown.stop();
         },

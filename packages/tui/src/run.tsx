@@ -1,5 +1,5 @@
 // `dipo tui` (0009): checks for a terminal, renders `starting…` while the
-// client connects (the connect function starts the daemon when autostart allows, 0006), feeds an
+// client connects (the connect function starts the daemon when autostart allows, 0005), feeds an
 // `OfficeStore` and opens the office of the current directory, else the first registered one,
 // else the switcher. Quitting, Ctrl+C and SIGTERM unmount Ink, which leaves the alternate screen
 // and raw mode, so the shell gets its terminal back.

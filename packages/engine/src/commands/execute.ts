@@ -487,7 +487,7 @@ async function answerCommand(
     return runSoftwareCommand(deps, command, request, parsed.data);
   }
   if (officeId === undefined) return failure(requestId, argsInvalid("No office."));
-  // The office's engine instance loads on its first command (0006, DIPO-27).
+  // The office's engine instance loads on its first command (0005, DIPO-27).
   const access = await deps.offices.load(officeId);
   if (!access.ok) return failure(requestId, access.error);
   await refreshUnknownStories(deps, command, request, officeId, access.office, parsed.data);

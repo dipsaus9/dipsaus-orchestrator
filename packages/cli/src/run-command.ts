@@ -1,7 +1,7 @@
 // `dipo run [ID...] [--box] [--office <id>]` (DIPO-48): sends `work.run` for the office of `--office`
 // or of the current directory, with the main worktree it resolved as `from`, and prints each
 // started story with its run and each skipped story with its reason. Exit 0 when a story started,
-// else 1. Every run is a box run (DIPO-240, 0021): the developer always runs in the story's own box.
+// else 1. Every run is a box run (DIPO-240, 0008): the developer always runs in the story's own box.
 // `--box` (DIPO-271) is still accepted and sent, so scripts that pass it keep working, and changes
 // nothing; with `--dry-run` it is ignored, since the dry run shows the box launch anyway.
 //

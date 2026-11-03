@@ -1,4 +1,4 @@
-// One cleaner for text that comes from outside dipo (0021, DIPO-313): a worker, a
+// One cleaner for text that comes from outside dipo (0008, DIPO-313): a worker, a
 // repository, a story or a log. The box door, the engine's ingest and every client that prints such
 // text use it, so no terminal control character reaches the maintainer's terminal.
 

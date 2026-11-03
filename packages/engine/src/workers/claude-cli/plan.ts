@@ -356,7 +356,7 @@ function planSession(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
     "default",
     "--permission-prompts",
     "none",
-    // Every tool off (0021): an empty list, and each tool denied by name.
+    // Every tool off (0008): an empty list, and each tool denied by name.
     "--tools",
     "",
     "--settings",

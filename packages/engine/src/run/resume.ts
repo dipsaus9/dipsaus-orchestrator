@@ -111,7 +111,7 @@ export function sessionFeedback(office: OfficeHandle, run: StoredRun): HeldFeedb
     : heldFeedback(office, run.runId);
 }
 
-/** How long a run's next session waits for an earlier host of the run to end (0006). */
+/** How long a run's next session waits for an earlier host of the run to end (0005). */
 export const HOST_EXIT_WAIT_MS = 30_000;
 const HOST_EXIT_POLL_MS = 250;
 
@@ -167,7 +167,7 @@ export interface RunResumerDeps {
   };
   readonly onChanged?: (office: OfficeId) => void;
   /**
-   * Liveness of the run's earlier hosts (DIPO-57, 0006): no new host starts while one
+   * Liveness of the run's earlier hosts (DIPO-57, 0005): no new host starts while one
    * of them still runs. Without it nothing is checked.
    */
   readonly probe?: ProcessProbe;
@@ -226,7 +226,7 @@ export type NextSessionOutcome =
   | { readonly kind: "started"; readonly agent: AgentId }
   | { readonly kind: "startFailed"; readonly pause: AdapterPause }
   /**
-   * An earlier host of the run still runs after the wait (0006): nothing started. The
+   * An earlier host of the run still runs after the wait (0005): nothing started. The
    * code is 0005's retryable `run.hostAlive`.
    */
   | {
@@ -394,7 +394,7 @@ export class RunResumer implements NextSession {
     }
     if (!prepared.ok) return { kind: "startFailed", pause: prepared.pause };
 
-    // Never a new host while an earlier host of the run still runs (0006).
+    // Never a new host while an earlier host of the run still runs (0005).
     const alive = await this.#earlierHostAlive(office, run.runId);
     if (alive !== null) return { kind: "hostAlive", code: "run.hostAlive", pid: alive };
 

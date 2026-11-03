@@ -128,7 +128,7 @@ function engineOf(core: Core, services: Services, steps: RecoverySteps): Engine 
         logger: core.logger,
         request,
         caps,
-        // `daemon.stop { stopWorkers: true }` (0006, DIPO-315): through run control.
+        // `daemon.stop { stopWorkers: true }` (0005, DIPO-315): through run control.
         stopWorkers: () => services.commands.runs.control.stopAll(),
       });
     },

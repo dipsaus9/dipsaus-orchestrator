@@ -1,4 +1,4 @@
-// The scan fallback's session as a `session` run (0007, 0008, 0019, 0021). It implements the scan's
+// The scan fallback's session as a `session` run (0007, 0008, 0002). It implements the scan's
 // `ScanSessionRunner` through the worker port only, so nothing here names Claude:
 //
 // - A `runs` row of kind `session`, role `scanner`: no worktree, branch or story key. Its usage is
@@ -10,7 +10,7 @@
 //   budget and minutes. The session ends at its first turn: dipo closes its stdin there, and the
 //   schema retry is the CLI's own, inside that turn. The launch checks run first, as for a
 //   reviewer; a refused check holds the adapter and the session fails.
-// - It holds neither the worker nor the reviewer place (0019); the scan
+// - It holds neither the worker nor the reviewer place (0002); the scan
 //   fallback runs one per office at a time.
 // - dipo stops it at its minute cap and once its budget tokens pass the `scan` block's; a host that
 //   never reports its exit is given up two minutes after the cap. At daemon stop `stopAll` sends

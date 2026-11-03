@@ -1,4 +1,4 @@
-// The daemon's files under `<state>` that the client reads without the socket (0006
+// The daemon's files under `<state>` that the client reads without the socket (0005
 // and 6): the lock holder's record `dipo.pid` and `runtime.json`. Their names and the record format are the
 // contract's runtime layout, which the daemon writes by (DIPO-320).
 //

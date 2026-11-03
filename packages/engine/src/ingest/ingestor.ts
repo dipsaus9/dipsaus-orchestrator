@@ -1,4 +1,4 @@
-// Worker event ingestion (0007; 0006; 0005). For each
+// Worker event ingestion (0007; 0005). For each
 // tracked run and agent the engine reads the complete lines of the host's `events.ndjson` from the
 // stored `processed_offset`, runs the adapter's pure `interpret` over them, and in one
 // transaction writes the derived facts (agent details, usage rows, output chunks), any change-log

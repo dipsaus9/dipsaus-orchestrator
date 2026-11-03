@@ -1,4 +1,4 @@
-// Reading a run's `events.ndjson` from a stored byte offset (0007, 0006).
+// Reading a run's `events.ndjson` from a stored byte offset (0007, 0005).
 // Only complete lines count: a partial last line waits for the next read. The file's identity
 // (device, inode) and size tell whether it is still the append-only file the host started.
 

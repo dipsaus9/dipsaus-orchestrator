@@ -1,4 +1,4 @@
-// Software directories (0006): the state anchor `<state>`, the logs directory and the
+// Software directories (0005): the state anchor `<state>`, the logs directory and the
 // runtime directory that holds the sockets. The anchor depends only on the passwd home directory,
 // so every starter and client finds the same lock; the runtime directory is chosen by the daemon
 // after it holds the lock, checked with `lstat`, and written to `<state>/runtime.json`. The rules
@@ -117,7 +117,7 @@ export function checkStateDir(path: string, uid: number = process.getuid?.() ?? 
 }
 
 /**
- * Resolves `<state>` and `<logs>` (0005, 0006): `~/Library/Application Support/dipo` and
+ * Resolves `<state>` and `<logs>` (0005): `~/Library/Application Support/dipo` and
  * `~/Library/Logs/dipo`. `DIPO_HOME` replaces the anchor, for tests only; its logs go to
  * `<DIPO_HOME>/logs`. `TMPDIR` is never read here: it differs between a shell, launchd and SSH.
  *
@@ -176,7 +176,7 @@ export interface RuntimeCandidate {
 }
 
 /**
- * The runtime directory candidates in order (0005, 0006): `DIPO_RUNTIME_DIR`, then
+ * The runtime directory candidates in order (0005): `DIPO_RUNTIME_DIR`, then
  * `$TMPDIR/dipo`, else `/tmp/dipo-<uid>`.
  */
 export function runtimeCandidates(options: {
@@ -308,7 +308,7 @@ export function checkRuntimeDir(path: string, uid: number, fs: RuntimeDirFs): st
 }
 
 /**
- * Chooses the runtime directory (0006): the first candidate that passes
+ * Chooses the runtime directory (0005): the first candidate that passes
  * `checkRuntimeDir`, else a fresh `mkdtemp` directory under `tmpBase`. Throws `RuntimeDirError`
  * naming every rejected path when the fallback fails too.
  */

@@ -1,9 +1,9 @@
 // The worker report as Claude returns it through `--json-schema` (0008; fields from 0014). The zod
 // schema parses the `structured_output` of a result; the JSON Schema is what the launch plan passes
 // on argv and writes to the run directory. Each report kind has its own (0008): `WorkerReport` for
-// `implement`, `ReviewReport` for `review` (0019).
+// `implement`, `ReviewReport` for `review` (0002).
 //
-// The worker report is the door of the messages story done, question, blocked and proposal (0021,
+// The worker report is the door of the messages story done, question, blocked and proposal (0008,
 // W2 to W5): `parseWorkerReport` holds it to `WORKER_REPORT_MAX_CHARS`, cleans every string of
 // terminal control and other unsafe characters (`cleanDoorText`) and then parses it strictly, every
 // text field with its length cap. dipo reads the report as data only.
@@ -61,7 +61,7 @@ export const DECISION_FILE = /^docs\/decisions\/[A-Za-z0-9][A-Za-z0-9._-]*\.md$/
 const caps = WORKER_REPORT_CAPS;
 
 /**
- * A proposal (0021 W5): a follow-up story, a spike, or a tool the box lacks. Data only. Its story
+ * A proposal (0008 W5): a follow-up story, a spike, or a tool the box lacks. Data only. Its story
  * line has the shape the Ready gate's R05 checks (0012, `checkStoryLine`); a line that fails is
  * refused with each problem, so the worker can write it again.
  */
@@ -244,7 +244,7 @@ void reviewFromContract;
 /** The JSON Schema of `WorkerReport` for `--json-schema`. */
 export const WORKER_REPORT_JSON_SCHEMA: JsonSchema = toJsonSchema(WorkerCliReportSchema, "output");
 
-/** The JSON Schema of `ReviewReport` for `--json-schema` (0019). */
+/** The JSON Schema of `ReviewReport` for `--json-schema` (0002). */
 export const REVIEW_REPORT_JSON_SCHEMA: JsonSchema = toJsonSchema(ReviewReportSchema, "output");
 
 /** The report schema of each report kind, as `WorkerPort.reportSchema` hands it out. */

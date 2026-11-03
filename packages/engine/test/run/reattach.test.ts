@@ -2081,7 +2081,7 @@ const quietGit = () =>
   }) as unknown as ReturnType<NonNullable<ConstructorParameters<typeof RunResumer>[0]["git"]>>;
 const branchOf = () => findRun(w.f.office, w.f.run)?.branch ?? "";
 
-/** 0019's `feedback_items` as DIPO-148's migration 43 makes it, when this database lacks it. */
+/** 0002's `feedback_items` as DIPO-148's migration 43 makes it, when this database lacks it. */
 function feedbackTable(): void {
   w.f.t.state.connection.exec(
     `create table if not exists feedback_items (

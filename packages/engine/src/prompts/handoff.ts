@@ -97,7 +97,7 @@ const NONE = "none";
 const listMarker = (label: string, hint: string) => (shown: number, total: number) =>
   `[dipo: ${label} cut, showing ${formatCount(shown)} of ${formatCount(total)} characters; ${hint}]`;
 
-/** A box run's verify is CI on the story PR (0021); dipo runs none. */
+/** A box run's verify is CI on the story PR (0008); dipo runs none. */
 export const BOX_VERIFY =
   "none by dipo in a box run: CI on the story PR checks the delivered parts, and red CI is listed under open feedback";
 

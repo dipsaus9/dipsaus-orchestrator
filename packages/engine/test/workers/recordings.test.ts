@@ -42,7 +42,7 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   // A report that does not parse or match the schema: one correction turn, then worker-failed.
   "report-invalid": ["blocked", "worker-failed"],
   "report-invalid-missing": ["blocked", "worker-failed"],
-  // DIPO-145: reviewer sessions (0019), derived and live.
+  // DIPO-145: reviewer sessions (0002), derived and live.
   "review-approved": ["done", null],
   "review-blocked": ["done", null],
   "review-invalid": ["blocked", "worker-failed"],
