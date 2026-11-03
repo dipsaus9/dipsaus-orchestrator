@@ -464,21 +464,6 @@ export async function releaseMovedPastMerge(
   return row === null ? null : settleDoneElsewhere(deps, row);
 }
 
-/**
- * Records a claim released earlier without a row (an own-branch teardown a crash interrupted,
- * released by DIPO-216's reconcile step as `done`), so its kept branch is settled like the others.
- */
-export function adoptReleased(
-  deps: DoneElsewhereDeps,
-  claim: ClaimRecord,
-  baseCommit: string | null,
-): void {
-  if (findDoneElsewhere(deps.office, claim.runId) !== null) return;
-  write(deps, () => {
-    insertRow(deps.office, claim, baseCommit, { releasedAt: claim.releasedAt ?? deps.clock.now() });
-  });
-}
-
 /** What `settleDoneElsewhere` did with the branch. */
 export interface SettleOutcome {
   readonly branchKept: boolean;

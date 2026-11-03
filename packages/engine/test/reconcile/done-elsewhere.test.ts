@@ -10,7 +10,7 @@ import { describe, expect, it } from "bun:test";
 import type { OfficeGit } from "../../src/git/office";
 import { reconcileOffice, type ReconcileReport } from "../../src/reconcile";
 import { DONE_ELSEWHERE_DESK, doneElsewhereDeskItems } from "../../src/worktree/done-elsewhere";
-import { openReleasedBranches, releaseClaim } from "../../src/worktree/records";
+import { openReleasedBranches } from "../../src/worktree/records";
 import { claim, type FakeTask, keyOf, type ReconcileOffice, withReconcileOffice } from "./helpers";
 import { backlogLayout } from "../story-store/backlog";
 
@@ -75,18 +75,13 @@ describe("a story Done on the base through another branch (DIPO-161)", () => {
     withReconcileOffice({ base: DONE }, async (o) => {
       const key = keyOf(o.office, "TASK-1");
       const record = await claim(o, o.office, "TASK-1", key, { active: false });
-      o.office.immediate(() => {
+      // The teardown started and a crash interrupted it before the release.
+      o.office.immediate(() =>
         o.office.run(
           "update claims set teardown_started_at = 5 where office_id = $office_id and run_id = $run",
           { run: record.runId },
-        );
-        releaseClaim(o.office, record.runId, {
-          at: 6,
-          reason: "done",
-          ending: "done",
-          keepBranch: false,
-        });
-      });
+        ),
+      );
       const tip = await tipOf(o, `refs/heads/${record.branch}`);
 
       await reconcile(o);

@@ -18,8 +18,6 @@
 // - A claim with `teardown_started_at` (a teardown a crash interrupted before its release) is
 //   released as `done` without git, as DIPO-216 does; its branch is then settled like the
 //   leftovers above.
-// - A claim DIPO-216 released that way before this story, whose local branch is still there, gets
-//   the same branch handling (`sweepCrashedTeardowns`).
 // Released rows a crash left unsettled are settled first (`settlePending`).
 
 import { remoteUrl } from "../git/write";
@@ -29,7 +27,6 @@ import { findStoryPr } from "../records/story-prs";
 import type { IndexResult } from "../stories/index-stories";
 import { claimPr, decideDone, type DoneAnswer } from "../worktree/done-check";
 import {
-  adoptReleased,
   type DoneElsewhereDeps,
   findDoneElsewhere,
   flagLiveWorker,
@@ -38,7 +35,7 @@ import {
   settleDoneElsewhere,
   settlePending,
 } from "../worktree/done-elsewhere";
-import { type ClaimRecord, findClaim, liveClaimOf, liveClaims } from "../worktree/records";
+import { type ClaimRecord, findClaim, liveClaims } from "../worktree/records";
 import { DONE_RELEASE_REASON } from "../worktree/teardown";
 
 import type { ReconcileDeps, ReconcileFinding } from "./reconcile";
@@ -171,7 +168,6 @@ export async function releaseDoneOnBase(
       });
     }
   }
-  if (only === undefined) await sweepCrashedTeardowns(deps, elsewhere, pass, record);
   return { released, baseMoved: skippedRuns.length, skippedRuns };
 }
 
@@ -223,67 +219,4 @@ async function releaseOne(
   const row = findDoneElsewhere(office, claim.runId);
   if (row !== null) await settleDoneElsewhere(elsewhere, row);
   return "released";
-}
-
-/**
- * Own-branch teardowns a crash interrupted and that DIPO-216 released
- * as `done` while their local branch stayed: each such claim, whose story the one Done check finds
- * Done and which has no row yet, gets one and its branch settled. Returns how many it settled.
- */
-async function sweepCrashedTeardowns(
-  deps: ReconcileDeps,
-  elsewhere: DoneElsewhereDeps,
-  pass: IndexResult,
-  record: Recorder,
-): Promise<number> {
-  const candidates = deps.office
-    .all<{ run_id: string }>(
-      `select c.run_id as run_id from claims c
-        where c.office_id = $office_id and c.released_at is not null
-          and c.release_reason = $reason and c.teardown_started_at is not null
-          and not exists (select 1 from done_elsewhere d
-            where d.office_id = c.office_id and d.run_id = c.run_id)
-        order by c.released_at`,
-      { reason: DONE_RELEASE_REASON },
-    )
-    .map((row) => findClaim(deps.office, row.run_id as ClaimRecord["runId"]))
-    .filter((claim): claim is ClaimRecord => claim !== null)
-    .filter((claim) => liveClaimOf(deps.office, claim.key) === null)
-    .filter(
-      (claim) =>
-        decideDone({
-          claim,
-          pr: findStoryPr(deps.office, claim.runId),
-          baseStatus: baseStatusIn(pass, claim),
-        }) !== "notDone",
-    );
-  if (candidates.length === 0) return 0;
-  const branches = await deps.git.run(async (session) => {
-    const out = await session.ok(session.repository, [
-      "for-each-ref",
-      "--format=%(refname:strip=2)",
-      "refs/heads/",
-    ]);
-    return new Set(out.split("\n").filter((line) => line !== ""));
-  });
-  let settled = 0;
-  for (const claim of candidates) {
-    if (!branches.has(claim.branch)) continue;
-    try {
-      const commit = await deps.git.run((session) =>
-        deps.stories.lastFileCommit(session, pass.sha, claim.story),
-      );
-      adoptReleased(elsewhere, claim, commit);
-      const row = findDoneElsewhere(deps.office, claim.runId);
-      if (row !== null) await settleDoneElsewhere(elsewhere, row);
-      settled += 1;
-    } catch (error) {
-      record({
-        code: DONE_ON_BASE_NOTICES.kept,
-        key: claim.key,
-        text: `${claim.story} is Done on ${claim.base}, but dipo could not check its kept branch ${claim.branch}: ${error instanceof Error ? error.message : String(error)}. dipo tries again at the next rescan.`,
-      });
-    }
-  }
-  return settled;
 }

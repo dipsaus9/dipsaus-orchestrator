@@ -494,9 +494,9 @@ function withDrift(before: ClaudeParseState, step: Step, kind: StreamDriftKind):
   };
 }
 
-/** Compactions this process already emitted; a state stored before DIPO-100 emitted every one. */
+/** Compactions this process already emitted. */
 function reportedCompactions(state: ClaudeParseState): number {
-  return state.compactReported ?? state.compactBoundaries ?? 0;
+  return state.compactReported ?? 0;
 }
 
 /** Pure: one host line to Worker events (0008 section 3). */

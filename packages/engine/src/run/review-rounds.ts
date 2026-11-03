@@ -41,11 +41,10 @@ interface StepRow {
   at: number;
 }
 
-/** A `review` step's value read back; a bare number (a step written before DIPO-219) is its round. */
+/** A `review` step's value read back. */
 function roundOf(row: StepRow, index: number): ReviewRound {
   try {
-    const value = JSON.parse(row.value) as Partial<ReviewRound> | number;
-    if (typeof value === "number") return { round: value, since: row.at, at: row.at };
+    const value = JSON.parse(row.value) as Partial<ReviewRound>;
     return {
       round: typeof value.round === "number" ? value.round : index + 1,
       since: typeof value.since === "number" ? value.since : row.at,

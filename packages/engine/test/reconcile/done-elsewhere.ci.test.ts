@@ -316,36 +316,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           doneElsewhereDeskItems(o.office).filter((i) => i.kind === DONE_ELSEWHERE_DESK.live),
         ).toEqual([]);
       }));
-
-    it("deletes the kept branch of an own-branch teardown a crash interrupted, released as done, when it adds nothing", () =>
-      withReconcileOffice({ base: DONE }, async (o) => {
-        const key = keyOf(o.office, "TASK-1");
-        const record = await claim(o, o.office, "TASK-1", key, { active: false });
-        await o.repo.git("push", "--quiet", "origin", record.branch);
-        await mergeOnRemote(o, record);
-        // The teardown started and crashed; DIPO-216 released the claim as done, and
-        // the branch stayed, locally and on the remote.
-        o.office.immediate(() => {
-          o.office.run(
-            "update claims set teardown_started_at = 5 where office_id = $office_id and run_id = $run",
-            { run: record.runId },
-          );
-          releaseClaim(o.office, record.runId, {
-            at: 6,
-            reason: "done",
-            ending: "done",
-            keepBranch: false,
-          });
-        });
-        expect(await tipOf(o, `refs/heads/${record.branch}`)).not.toBeNull();
-
-        await reconcile(o);
-
-        expect(await tipOf(o, `refs/heads/${record.branch}`)).toBeNull();
-        expect(await remoteTip(o, record.branch)).toBe("");
-        expect(findClaim(o.office, record.runId)?.releaseReason).toBe("done");
-        expect(findDoneElsewhere(o.office, record.runId)).toMatchObject({ branchKept: false });
-      }));
   });
 
   describe("the Done poll reads a claimed story's status on the base (DIPO-161)", () => {
