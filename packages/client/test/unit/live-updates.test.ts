@@ -4,14 +4,14 @@
 // `work.output` and `story.state` it caused changes the store without a new snapshot. After a
 // daemon restart the client reconnects while the daemon still recovers, which refuses the office
 // subscription with `engine.recovering`; the store subscribes again after its last cursor and
-// keeps following. Before DIPO-322 it kept that refusal as its error and never subscribed again,
-// so an open view stayed frozen until the office was opened again. A failed office switch leaves
+// keeps following. A store that kept that refusal as its error and never subscribed again would
+// leave an open view frozen until the office is opened again. A failed office switch leaves
 // the current office's stream in force.
 //
 // A run that ends through a merge after the maintainer's test pass (DIPO-421) leaves `work` on its
-// `run.ended`; the engine's `ended done` marker in the same write carries no view. Before DIPO-421
-// the store applied no `run.ended` and the marker carried a view of the ended run, which the store
-// put, so the open TUI listed the run under RUNNING until the story's `story.state` to Done.
+// `run.ended`; the engine's `ended done` marker in the same write carries no view. A store that
+// applied no `run.ended`, or a marker that carried a view of the ended run, would leave the run
+// listed under RUNNING in the open TUI until the story's `story.state` to Done.
 
 import { describe, expect, it } from "bun:test";
 

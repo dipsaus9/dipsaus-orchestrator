@@ -921,7 +921,7 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
   it("lets the office's other serialized steps run while the box is prepared", async () => {
     story("TASK-1", "Ready");
     const { pickup, open } = await pickupInSetup();
-    // Before DIPO-314 this step waited for the whole start, box and install included.
+    // The step does not wait for the whole start, box and install included.
     expect(await world.places.serialized(world.officeId, async () => "ran")).toBe("ran");
     open();
     expect(resultOf(await pickup).started.map((s) => s.story)).toEqual(["TASK-1"]);

@@ -75,8 +75,8 @@ describe("the daemon lock across processes", () => {
     }
   }, 30_000);
 
-  // Before DIPO-402 both starters often found the other's attempt in progress, each gave up at once,
-  // and retried in step until both reported the lock held by nobody.
+  // Two starters must not each find the other's attempt in progress, give up at once and retry in
+  // step until both report the lock held by nobody (DIPO-402).
   it(`settles two starters at the same moment within one attempt each, ${ROUNDS} times`, async () => {
     for (let round = 0; round < ROUNDS; round++) {
       await withTempDir(async (dir) => {

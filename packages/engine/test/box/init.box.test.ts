@@ -7,8 +7,8 @@
 //
 //   DIPO_TEST_BOX=1 bun test packages/engine/test/box/init.box.test.ts
 //
-// Before DIPO-378 a box's PID 1 was its keepalive `tail`, which waits for no child, so every
-// orphan of a box's commands stayed a zombie until the box stopped. It checks, on the build box
+// A box's PID 1 is an init that reaps orphans (DIPO-378): the keepalive `tail` waits for no
+// child, so as PID 1 it would leave every orphan of a box's commands a zombie until the box stops. It checks, on the build box
 // (behind its firewall, before the install steps, through the build's `beforeInstall`) and on a
 // box of the image with its firewall set as a session sets it:
 // - what the old start caught still holds: the keepalive (the image's `tail` in the build box,

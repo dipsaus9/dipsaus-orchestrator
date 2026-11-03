@@ -565,7 +565,7 @@ describe("a maintainer reject (0019)", () => {
   it("goes to the worker at once through the same send path, the note verbatim and keyed on the gate id", async () => {
     const s = inReview("DIPO-1");
     reviewed(s, H1, APPROVED);
-    // Before DIPO-151 nothing produces a reject: an approved, green head sends nothing.
+    // Without a reject, an approved, green head sends nothing.
     x.ci.set(s.run, { kind: "green", head: H1 });
     expect(await x.fix.consider(officeId(), s.run)).toBe(false);
     const note = "Keep the old flag: `shop greet --name` must still work.";
