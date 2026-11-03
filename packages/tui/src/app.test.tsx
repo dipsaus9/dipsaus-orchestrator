@@ -1,5 +1,5 @@
 // Render tests of the TUI (DIPO-53 test plan): the switcher from the golden event log, switching
-// with `office.switch`, the offline and daemon banners, quitting, narrow terminals, `--ascii` and
+// with `office.snapshot`, the offline and daemon banners, quitting, narrow terminals, `--ascii` and
 // colour, and `n` through `office.open`. Frames are asserted with ANSI stripped.
 
 import { afterEach, describe, expect, it } from "bun:test";
@@ -59,14 +59,14 @@ describe("office switcher", () => {
     expect(opened).toContain("SLAY-9");
     expect(opened).toContain("looping @");
 
-    // Enter sent the read office.switch; the store left the old stream and follows the new one
+    // Enter sent the read office.snapshot; the store left the old stream and follows the new one
     // after the cursor the read returned (0005 section 8).
     // The overview reads the new office's output tails and its digest after it (DIPO-81).
     const reads = session.reads.filter(
       (read) => read.name !== "work.outputRange" && read.name !== "office.digest",
     );
     expect(reads.at(-1)).toEqual({
-      name: "office.switch",
+      name: "office.snapshot",
       args: { office: OFFICES.slaydoku },
     });
     expect(session.active(`office:${OFFICES.dipsaus}`)).toBeUndefined();
@@ -165,11 +165,13 @@ describe("connection and daemon states", () => {
     // Values keep their last state.
     expect(frame).toContain("DIPO-21");
 
+    const snapshotReads = () => session.reads.filter((read) => read.name === "office.snapshot");
+    const before = snapshotReads().length;
     await ui.press("o");
     await ui.press("down");
     await ui.press("enter");
     await ui.waitFor("offline: actions are disabled");
-    expect(session.reads.filter((read) => read.name === "office.switch")).toEqual([]);
+    expect(snapshotReads()).toHaveLength(before);
     await ui.press("n");
     expect(ui.frame()).not.toContain("open repository path");
   });

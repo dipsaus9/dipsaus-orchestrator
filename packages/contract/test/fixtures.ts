@@ -257,7 +257,6 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
 
 const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
   "office.snapshot": { args: { office: ids.office }, result: officeSnapshot },
-  "office.switch": { args: { office: ids.office }, result: officeSnapshot },
   "story.detail": {
     args: { office: ids.office, story: "DIPO-21" },
     result: {

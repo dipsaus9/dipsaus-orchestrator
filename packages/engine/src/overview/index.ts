@@ -1,6 +1,6 @@
 // The maintainer's office reads (0004, 0005, 0009, 0020): the office summary for `engine.hello`
 // and the software stream send, the desk, the digest, the proposals on the desk, and the view
-// reads (`office.snapshot`, `office.switch`, `story.detail`, `work.outputRange`).
+// reads (`office.snapshot`, `story.detail`, `work.outputRange`).
 
 export {
   activeRunCount,

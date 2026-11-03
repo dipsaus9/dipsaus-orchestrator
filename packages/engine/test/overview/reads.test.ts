@@ -1,5 +1,4 @@
-// The view reads (DIPO-52; 0005 sections 7 and 8): `office.snapshot` and its alias `office.switch`,
-// a subscription after the snapshot's cursor that yields every later entry once, `story.detail`
+// The view reads (DIPO-52; 0005 sections 7 and 8): `office.snapshot`, a subscription after the snapshot's cursor that yields every later entry once, `story.detail`
 // with past runs and verdicts, and `work.outputRange` over stored output.
 
 import { describe, expect, it } from "bun:test";
@@ -106,7 +105,7 @@ async function withRun(
 }
 
 describe("office.snapshot", () => {
-  it("returns the derived views with the cursor they match, and office.switch the same", () =>
+  it("returns the derived views with the cursor they match", () =>
     withRun(async (t, office, started) => {
       storeOutput(t, office, started, "[tool] Read src/a.ts\n");
       const snapshot = await read<OfficeSnapshot>(t, office, "office.snapshot", {
@@ -130,11 +129,6 @@ describe("office.snapshot", () => {
         "select next_seq - 1 as n from offices where office_id = $office_id",
       );
       expect(snapshot.cursor.seq).toBe(head?.n ?? -1);
-
-      const switched = await read<OfficeSnapshot>(t, office, "office.switch", {
-        office: office.officeId,
-      });
-      expect(switched).toEqual(snapshot);
     }));
 
   it("subscribing after its cursor yields every later entry once", () =>

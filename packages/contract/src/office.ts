@@ -366,15 +366,6 @@ export const officeSnapshot = defineRead({
   result: OfficeSnapshot,
 });
 
-// Switching offices changes no engine fact, so it is a read (0005 sections 4 and 7, 0009 section 4):
-// the same args and result as `office.snapshot`. The client keeps the chosen office and sends it on
-// every command (DIPO-52).
-export const officeSwitch = defineRead({
-  name: "office.switch",
-  args: OfficeArgs,
-  result: OfficeSnapshot,
-});
-
 // The notes and proposals of a run's done report (DIPO-152), the worker's own words, cleaned and
 // capped as door messages are (0021 section 7). Absent when the report had neither.
 export const DoneReport = z.object({
@@ -963,7 +954,6 @@ export const officeCommands = [
 
 export const officeReads = [
   officeSnapshot,
-  officeSwitch,
   storyDetail,
   workOutputRange,
   officeDigest,

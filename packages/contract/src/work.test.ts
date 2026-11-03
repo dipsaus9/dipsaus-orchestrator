@@ -247,7 +247,6 @@ describe("office commands and reads", () => {
     expect(officeReads.map((d): string => d.name).toSorted()).toEqual(
       [
         "office.snapshot",
-        "office.switch",
         "story.detail",
         "work.outputRange",
         "office.digest",

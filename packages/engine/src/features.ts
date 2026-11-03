@@ -35,7 +35,7 @@ export function engineFeatures(options: EngineFeatureOptions): readonly FeatureM
     // `office.stats` (DIPO-65). The retention load step needs the office manager, so the daemon
     // lists `Retention.feature` next to it.
     statsFeature,
-    // `office.snapshot`, `office.switch`, `story.detail` and `work.outputRange` (DIPO-52); the
+    // `office.snapshot`, `story.detail` and `work.outputRange` (DIPO-52); the
     // desk shows the backlog PRs whose check failed (0010), and the parks whose hold failed to
     // write (DIPO-401).
     viewsFeatureWith({

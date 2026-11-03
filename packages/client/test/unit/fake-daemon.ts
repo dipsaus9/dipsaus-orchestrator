@@ -1,7 +1,6 @@
 // A daemon in memory for tests that run real `DipoClient`s against it (DIPO-322): it answers
-// `engine.hello`, `office.snapshot`, `office.switch` and one test-defined command, serves the
-// software stream and one office stream with replay after a cursor and `stream.mark { caughtUp }`,
-// and broadcasts each new office entry to every subscriber, whichever client wrote it. A restart
+// `engine.hello`, `office.snapshot` and one test-defined command, serves the software stream and
+// one office stream with replay after a cursor and `stream.mark { caughtUp }`, and broadcasts each new office entry to every subscriber, whichever client wrote it. A restart
 // drops every connection, starts the software stream again at a higher seq (the real one starts at
 // the daemon's start time) and comes back in `recovering`, where office reads and office
 // subscriptions are refused with `engine.recovering`, as the real lifecycle gate does; the office
@@ -222,10 +221,7 @@ export class FakeDaemon implements Transport {
       refuse(recovering());
       return;
     }
-    if (
-      frame.kind === "read" &&
-      (frame.name === "office.snapshot" || frame.name === "office.switch")
-    ) {
+    if (frame.kind === "read" && frame.name === "office.snapshot") {
       if (frame.args?.office !== this.office) {
         refuse({ code: "office.unknown", message: "no such office", retryable: false });
         return;

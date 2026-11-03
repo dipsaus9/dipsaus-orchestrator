@@ -109,7 +109,6 @@ describe("engine.hello and commands.describe", () => {
             "daemon.status",
             // The view reads ship with DIPO-52.
             "office.snapshot",
-            "office.switch",
           ]),
         );
         const commands = described.commands.map((command) => command.name);

@@ -1,6 +1,6 @@
 // A client session for TUI tests, fed from the golden event log in `fixtures/three-offices.json`:
 // `engine.hello` knows one office, the software stream registers two more and sends summaries,
-// and each office answers `office.snapshot` and `office.switch` with its snapshot. Every event and
+// and each office answers `office.snapshot` with its snapshot. Every event and
 // snapshot is parsed with its contract schema first, so the log stays a valid contract recording.
 // `fixtures/live-output.json` holds the stored output `work.outputRange` answers from (DIPO-55).
 

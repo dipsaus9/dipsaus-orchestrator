@@ -7,7 +7,7 @@
 // queue, opens the live agent detail (`detail.tsx`), and on a story that ran before its latest run
 // read-only through `story.detail` (a story that never ran says so in the footer). There `P` asks
 // for a note and sends `story.park`, and Esc returns to the view it came from. In the switcher: `j`/`k` or arrows move, Enter opens the office through
-// `office.switch`, `n` opens a new repository path through `office.open`, Esc goes back. Action
+// `office.snapshot`, `n` opens a new repository path through `office.open`, Esc goes back. Action
 // keys are off while offline. In the overview `p` opens the privacy settings (`settings.tsx`):
 // Enter toggles the selected one after a yes that names what is stored, through `office.setPrivacy`.
 //
