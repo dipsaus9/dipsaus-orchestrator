@@ -1,5 +1,5 @@
 // Asserts that lint keeps budget, gate, git and database code out of the worker host
-// (0006 decision 8, DIPO-44 AC #5): `packages/engine/src/host/` may not import them, while the
+// (0006, DIPO-44 AC #5): `packages/engine/src/host/` may not import them, while the
 // same imports elsewhere in the engine stay allowed.
 
 import { describe, expect, it } from "bun:test";

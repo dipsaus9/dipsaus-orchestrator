@@ -1,5 +1,5 @@
 // Asserts that lint refuses a `*.ci.test.ts` file whose tests register outside the DIPO_TEST_CI
-// guard (0017 section 1, DIPO-316): such a file would run its CI-only tests in every local
+// guard (0017, DIPO-316): such a file would run its CI-only tests in every local
 // `bun test`. The accepted guard forms pass, and a plain `*.test.ts` file is not checked.
 
 import { describe, expect, it } from "bun:test";

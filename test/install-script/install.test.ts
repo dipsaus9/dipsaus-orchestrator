@@ -1,4 +1,4 @@
-// install.sh (0016 rule 7) run with /bin/sh against local fake releases. PATH holds only a sandbox
+// install.sh (0016) run with /bin/sh against local fake releases. PATH holds only a sandbox
 // bin directory: links to the few real tools the script needs, plus stubs for `uname`, `curl`,
 // `sysctl` and, when a test wants it, `gh`. Nothing touches the network or ~/.local/bin;
 // every file lives under a temp directory below DIPO_TMP (0017).

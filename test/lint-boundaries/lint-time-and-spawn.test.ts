@@ -1,5 +1,5 @@
 // Asserts that lint bans wall-clock time and global timers outside the platform module and
-// testkit (0017 section 4), and synchronous process calls in engine and daemon code (0007
+// testkit (0017), and synchronous process calls in engine and daemon code (0007
 // section 1). All placements of one kind are linted in a single oxlint run to keep it fast;
 // each fixture sits at its own path so every diagnostic is attributed to one placement.
 

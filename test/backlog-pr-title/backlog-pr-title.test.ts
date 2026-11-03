@@ -1,5 +1,5 @@
 // The engine's backlog PR titles (DIPO-35) pass this repository's `pr-title` check
-// (`scripts/check-pr-title.ts`, 0016 rule 1), for one operation, several, and more than fit.
+// (`scripts/check-pr-title.ts`, 0016), for one operation, several, and more than fit.
 
 import { describe, expect, it } from "bun:test";
 

@@ -5,8 +5,7 @@
 // package path. The Backlog.md implementation itself, the composition root (the engine entry, its
 // feature list and the wiring files of createEngine), tests, and a module that is only named
 // `backlog` may import it; no other
-// engine file, also none of those that reached the planning lane or the task-file layout before
-// DIPO-356 moved them behind the store (AC #2).
+// engine file, also none of the files that use stories through the store (AC #2).
 
 import { describe, expect, it } from "bun:test";
 
@@ -32,7 +31,7 @@ const VALUE_FORMS = 6;
  */
 const UP = Array(VALUE_FORMS).fill(LAYERS);
 
-/** The files that imported backlog/ before DIPO-356 moved them behind the store (AC #2). */
+/** Engine files that use stories and reach backlog/ only through the store (DIPO-356 AC #2). */
 const FORMER_IMPORTERS = [
   "box/collisions.ts",
   "box/parts.ts",
