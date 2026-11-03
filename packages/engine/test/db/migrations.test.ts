@@ -487,7 +487,7 @@ describe("a database from before the squash", () => {
         const path = join(state, "dipo.db");
         writePreSquashDatabase(path, version);
         const before = readFileSync(path);
-        const files = readdirSync(state).sort();
+        const files = readdirSync(state).toSorted();
 
         const error = await failure(openStateDatabase(options(dir, MIGRATIONS)));
         expect(error).toBeInstanceOf(DatabaseBeforeSquashError);
@@ -499,7 +499,7 @@ describe("a database from before the squash", () => {
         expect(existsSync(path)).toBe(true);
         expect(readFileSync(path).equals(before)).toBe(true);
         // No -wal or -shm appears next to the refused file.
-        expect(readdirSync(state).sort()).toEqual(files);
+        expect(readdirSync(state).toSorted()).toEqual(files);
         expect(backups(dir)).toEqual([]);
 
         const shown = databaseFailure(error, state);

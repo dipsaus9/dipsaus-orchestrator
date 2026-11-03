@@ -281,6 +281,36 @@ describe("removeIfUnchanged", () => {
     }));
 });
 
+const REFUSED =
+  "The state database /h/dipo.db was written by an earlier dipo, before its schema steps were squashed into one base schema, and this dipo cannot read it. No office is loaded. Run `dipo daemon stop`, move /h/dipo.db and its -wal and -shm files away, then start the daemon again.";
+const recovering = (): DaemonStatusResult => ({
+  ...status(999),
+  state: "recovering",
+  stateReason: "running recovery steps",
+});
+const held = (): DaemonStatusResult => ({
+  ...recovering(),
+  stateReason: REFUSED,
+  databaseUnavailable: { reason: "beforeSquash" },
+});
+
+/** A world whose daemon (pid 999) answers `statuses` once spawned. */
+function spawnedWorld(dir: string, statuses: DaemonStatusResult[]): World {
+  let spawned = false;
+  const w = world(dir, {
+    connect: async () => {
+      if (!spawned) throw new DaemonNotRunningError("/s", "not yet");
+      return session({ statuses });
+    },
+    onSpawn: () => {
+      spawned = true;
+      return { pid: 999 };
+    },
+  });
+  w.procs.set(999, { ...DAEMON_INFO, pid: 999 });
+  return w;
+}
+
 describe("startDaemon and autostart", () => {
   it("spawns dipo daemon --foreground with PATH kept and the Bun flag variables removed", () =>
     withTempDir(async (dir) => {
@@ -390,36 +420,6 @@ describe("startDaemon and autostart", () => {
       expect(connected.started).toEqual({ pid: 999, version: "0.0.0-dev" });
       expect(w.spawns).toHaveLength(1);
     }));
-
-  const REFUSED =
-    "The state database /h/dipo.db was written by an earlier dipo, before its schema steps were squashed into one base schema, and this dipo cannot read it. No office is loaded. Run `dipo daemon stop`, move /h/dipo.db and its -wal and -shm files away, then start the daemon again.";
-  const recovering = (): DaemonStatusResult => ({
-    ...status(999),
-    state: "recovering",
-    stateReason: "running recovery steps",
-  });
-  const held = (): DaemonStatusResult => ({
-    ...recovering(),
-    stateReason: REFUSED,
-    databaseUnavailable: { reason: "beforeSquash" },
-  });
-
-  /** A world whose daemon (pid 999) answers `statuses` once spawned. */
-  function spawnedWorld(dir: string, statuses: DaemonStatusResult[]): World {
-    let spawned = false;
-    const w = world(dir, {
-      connect: async () => {
-        if (!spawned) throw new DaemonNotRunningError("/s", "not yet");
-        return session({ statuses });
-      },
-      onSpawn: () => {
-        spawned = true;
-        return { pid: 999 };
-      },
-    });
-    w.procs.set(999, { ...DAEMON_INFO, pid: 999 });
-    return w;
-  }
 
   it("reports a daemon that refuses its state database instead of started, with what to do", () =>
     withTempDir(async (dir) => {
