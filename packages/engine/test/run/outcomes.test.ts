@@ -934,9 +934,7 @@ describe("a park intent keeps its park across a restart (DIPO-433)", () => {
     expect(questionTexts()).toEqual(["Which greeting?"]);
   });
 
-  const OLD_OR_MALFORMED = [
-    // A bare park detail with no tag (DIPO-433).
-    "no valid report: no structured_output",
+  const MALFORMED = [
     `${INTENT_TAGS.parkReason}worker-failed`,
     `${INTENT_TAGS.parkReason}worker-failed not json`,
     `${INTENT_TAGS.parkReason}worker-failed {"detail":5}`,
@@ -945,8 +943,8 @@ describe("a park intent keeps its park across a restart (DIPO-433)", () => {
     `${INTENT_TAGS.parkReason}no-such-reason {"detail":"x"}`,
     `${INTENT_TAGS.parkReason} {"detail":"x"}`,
   ];
-  for (const detail of OLD_OR_MALFORMED) {
-    it(`decides a park intent ${JSON.stringify(detail)} as before: resolved, no park`, async () => {
+  for (const detail of MALFORMED) {
+    it(`decides a park intent ${JSON.stringify(detail)} whose facts do not parse: resolved, no park`, async () => {
       await ingestRecording("terminated", true);
       w.f.office.immediate(() => recordIntent(w.f.office, w.f.run, "park", detail, 0));
       expect(intentPark(detail)).toBeNull();

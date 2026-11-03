@@ -154,7 +154,7 @@ export class ExitOutcomes {
       return;
     }
     // Any other park a restart found unwritten parks with the reason and facts its intent kept
-    // (DIPO-433); an intent an older dipo wrote keeps none and is only resolved, below.
+    // (DIPO-433); one whose facts do not parse is only resolved, below.
     const park = intent.kind === "park" ? intentPark(intent.detail) : null;
     if (park !== null) {
       this.#s.resolve(office, view.runId, intent, "run-ended", at);

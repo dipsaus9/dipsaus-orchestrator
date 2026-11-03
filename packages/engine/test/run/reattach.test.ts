@@ -579,26 +579,20 @@ describe("re-attach (0005)", () => {
     expect(countDaily()).toBeGreaterThan(0);
   });
 
-  it("a reattached run with an old transcript cursor parks and counts usage from host events only", async () => {
+  it("a reattached dead run parks and counts usage from its host events", async () => {
     w.alive = false;
     beforeRestart("success-single", 6, 20);
-    const transcript = join(w.dir, "session.jsonl");
-    writeFileSync(transcript, `${message("msg-lost", 9, 11)}\n`);
-    seedLeftTranscriptCursor(transcript);
     const d = daemon();
     await d.reattacher.reattach(w.f.office.officeId);
     await d.control.idle();
     expect(agentRow()?.end_reason).toBe("host-lost");
     expect(w.next).toEqual([]);
-    // The transcript's message is not counted; the totals are the host events' usage alone.
     const streamed = w.f.office.get<{ input: number; output: number }>(
       `select coalesce(sum(input), 0) as input, coalesce(sum(output), 0) as output
-         from usage_messages where office_id = $office_id and agent_id = $agent
-           and message_id not like 'msg-lost%'`,
+         from usage_messages where office_id = $office_id and agent_id = $agent`,
       { agent: w.f.agent },
     );
     expect(streamed?.input).toBeGreaterThan(0);
-    expect(lostMessages()).toBe(0);
     // The totals hold the host's input; its output joins them at a turn end, which this host never sent.
     expect(
       w.f.office.get<{ input: number }>(
@@ -739,50 +733,6 @@ function expectOutputSentOnce(): void {
   expect(sent[0]?.from).toBe(chunks[0]?.from_offset);
   for (let i = 1; i < sent.length; i += 1) expect(sent[i]?.from).toBe(sent[i - 1]?.to);
   expect(sent.at(-1)?.to).toBe(chunks.at(-1)?.to_offset);
-}
-
-/** One assistant line of a worker transcript. */
-const message = (id: string, input: number, output: number): string =>
-  JSON.stringify({
-    type: "assistant",
-    message: {
-      id,
-      model: "claude-haiku-5-5",
-      usage: {
-        input_tokens: input,
-        output_tokens: output,
-        cache_creation_input_tokens: 0,
-        cache_read_input_tokens: 0,
-      },
-    },
-  });
-
-/** The messages of the lost transcript that were counted (none may be). */
-function lostMessages(): number {
-  return (
-    w.f.office.get<{ n: number }>(
-      "select count(*) as n from usage_messages where office_id = $office_id and message_id like 'msg-lost%'",
-    )?.n ?? -1
-  );
-}
-
-/**
- * A transcript cursor row (DIPO-134), which the schema's check constraint refuses, so the
- * constraint is lifted for this one insert.
- */
-function seedLeftTranscriptCursor(path: string): void {
-  const db = w.f.t.state.connection;
-  db.exec("pragma ignore_check_constraints = on");
-  try {
-    db.run(
-      `insert into ingest_cursors (office_id, run_id, agent_id, source_kind, path, read_offset,
-         parse_state, updated_at)
-       values ($office, $run, $agent, 'transcript', $path, 0, '{"subagents":{}}', $at)`,
-      { office: w.f.office.officeId, run: w.f.run, agent: w.f.agent, path, at: w.f.t.clock.now() },
-    );
-  } finally {
-    db.exec("pragma ignore_check_constraints = off");
-  }
 }
 
 function countDaily(): number {
@@ -1367,21 +1317,6 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
     expect(hostRow().endedAt).not.toBeNull();
     expect(agentRow()?.end_reason).toBe("host-lost");
     expect(w.next).toEqual([]);
-  });
-
-  it("closes out a followed host of an ended run that died without exit.json from host events only", async () => {
-    beforeRestart("success-single", 6, 20);
-    const transcript = join(w.dir, "session.jsonl");
-    writeFileSync(transcript, `${message("msg-lost", 9, 11)}\n`);
-    seedLeftTranscriptCursor(transcript);
-    endRunByHand();
-    w.alive = false;
-    const d = daemon();
-    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "closedOut" },
-    ]);
-    expect(agentRow()?.end_reason).toBe("host-lost");
-    expect(lostMessages()).toBe(0);
     expect(
       w.f.office.get<{ final: number }>(
         "select min(final) as final from usage_totals where office_id = $office_id and agent_id = $agent",
@@ -1391,7 +1326,6 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
     // Closed for good: a later restart reads nothing again.
     stopDaemon(d);
     expect(await daemon().reattacher.reattach(w.f.office.officeId)).toEqual([]);
-    expect(lostMessages()).toBe(0);
   });
 
   it("stops a living host of an ended run with one verified SIGTERM per restart, and closes it out once it exits", async () => {

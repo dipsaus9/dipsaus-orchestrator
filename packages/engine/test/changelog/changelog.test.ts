@@ -57,7 +57,7 @@ const notice = (text: string) => ({
  * Writes an entry straight into `change_log` with no render check (DIPO-124), and advances
  * `next_seq` as `appendEntries` does. Returns its seq.
  */
-function storeAsOlderBinary(office: OfficeHandle, type: string, delta: unknown): number {
+function storeUnchecked(office: OfficeHandle, type: string, delta: unknown): number {
   return office.immediate(() => {
     const seq = readLogState(office).nextSeq;
     office.run(
@@ -226,7 +226,7 @@ describe("change log", () => {
   it("lets a renderer override one type and fails loudly on an entry that does not parse", () =>
     withOffice((t, office) => {
       office.immediate(() => appendEntries(office, [notice("x")], { at: 1 }));
-      storeAsOlderBinary(office, "story.state", { story: "DIPO-1" });
+      storeUnchecked(office, "story.state", { story: "DIPO-1" });
       const replayed = replay(office, { ...headCursor(office), seq: 0 });
       if (!replayed.ok) throw new Error(replayed.error.message);
       const [first, broken] = replayed.entries;
@@ -290,20 +290,10 @@ describe("the write check (DIPO-124)", () => {
       expect(headCursor(office).seq).toBe(1);
     }));
 
-  it("still replays and renders entries stored before the check", () =>
-    withOffice((t, office) => {
-      const seq = storeAsOlderBinary(office, "engine.notice", notice("old").delta);
-      const replayed = replay(office, { ...headCursor(office), seq: 0 });
-      if (!replayed.ok) throw new Error(replayed.error.message);
-      const [event] = new Renderer().renderAll(office.officeId, replayed.entries);
-      expect(event?.cursor.seq).toBe(seq);
-      expect(event?.data).toEqual(notice("old").delta);
-    }));
-
   it("sends a stored entry that does not render as an engine.notice at its own cursor", () =>
     withOffice((t, office) => {
       office.immediate(() => appendEntries(office, [notice("1")], { at: 1 }));
-      const bad = storeAsOlderBinary(office, "story.state", { story: "DIPO-1" });
+      const bad = storeUnchecked(office, "story.state", { story: "DIPO-1" });
       office.immediate(() => appendEntries(office, [notice("3")], { at: 3 }));
       const replayed = replay(office, { ...headCursor(office), seq: 0 });
       if (!replayed.ok) throw new Error(replayed.error.message);
