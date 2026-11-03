@@ -1,5 +1,5 @@
-// `backlog_config_previous` (0007 section 4): the Backlog.md settings office init changes, with the
-// value each had on the base before dipo first changed it, for `office uninstall` (0010 section 11).
+// `backlog_config_previous` (0007): the Backlog.md settings office init changes, with the
+// value each had on the base before dipo first changed it, for `office uninstall` (0010).
 // A setting already recorded keeps its row, so a later init, which reads values dipo wrote, never
 // replaces what was there before dipo.
 

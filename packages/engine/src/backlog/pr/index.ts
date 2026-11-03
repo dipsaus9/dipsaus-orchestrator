@@ -1,4 +1,4 @@
-// The backlog PR (DIPO-35; 0010 section 2, lane b): opening and updating the office's one
+// The backlog PR (DIPO-35; 0010, lane b): opening and updating the office's one
 // backlog-only PR, its structural check, the stories a failed check on a merged PR blocks, and its
 // auto-merge (0002).
 

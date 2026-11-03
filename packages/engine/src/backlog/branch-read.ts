@@ -1,11 +1,11 @@
-// Reading a claimed story at its branch tip (DIPO-56, 0007 section 6 step 3; 0010 section 2a).
+// Reading a claimed story at its branch tip (DIPO-56, 0007; 0010).
 // The story's lifecycle fact is what is committed on its branch, never the claim worktree's working
 // tree, where the worker may have edited the task file without a commit. The engine materialises
 // the branch's view of the backlog in a scratch directory and reads the story there with the
 // Backlog CLI, through the same parser as every other read:
 //
 // - `backlog/` is copied from the `_base` checkout: a story branch may change only the story's own
-//   task file (0010 section 2a), so every other file, the configuration and the dependencies read
+//   task file (0010), so every other file, the configuration and the dependencies read
 //   as on the base;
 // - the story's own task file is replaced by the committed one, `git show <branch>:<path>`, found
 //   with `git ls-tree` on the branch ref (the file name follows the title, so it may differ).
@@ -82,7 +82,7 @@ export async function readOnBranch(
   const ref = `refs/heads/${target.branch}`;
   const path = await taskFileOn(session, ref, listed.id);
   const content = await session.ok(session.repository, ["show", `${ref}:${path}`]);
-  // A task file holding fields dipo does not know never reaches the CLI (0021 section 14): the
+  // A task file holding fields dipo does not know never reaches the CLI (0021): the
   // read fails with the coded error, so the index lists the story as unread on its branch.
   const refused = taskFieldRefusal(content);
   if (refused !== null) {

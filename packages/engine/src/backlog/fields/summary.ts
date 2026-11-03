@@ -1,8 +1,8 @@
-// The structured summary on park, resume and close (0020 section 13, 0001): code-built text in
+// The structured summary on park, resume and close (0020, 0001): code-built text in
 // Backlog's own implementation notes and final summary, written through the Backlog CLI
 // (`task edit --append-notes`, `task edit --final-summary`) and read back. These are the native
 // sections, not the `dipo` field block, so no schema changes. A text holding a line of 50 `-` is
-// refused before the CLI runs (the runner's rule, 0010 section 2: Backlog.md would print it as a
+// refused before the CLI runs (the runner's rule, 0010: Backlog.md would print it as a
 // section); the builders in `records/summary.ts` never write one.
 //
 // Like `writeFields`, every call must go through the office git queue, in dipo's own copy of the

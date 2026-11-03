@@ -1,11 +1,11 @@
-// The structural check of a backlog-only PR (0010 section 2, lane b): the reviewer contract of a PR
+// The structural check of a backlog-only PR (0010, lane b): the reviewer contract of a PR
 // that changes only `backlog/`, decided by code alone. Pure: it reads the PR diff as the collector
 // (`diff.ts`) gathered it and the stored facts the caller read, and the same input always gives the
 // same result. Five rules, each failure naming its rule and, where there is one, its task:
 //
 // - `backlog-only`: every changed path is a Backlog file, a `.md` file under `backlog/` or
 //   `backlog/config.yml`, except a new `.dipo/.gitignore`, the one file office init adds outside
-//   it (0007 section 2, 0010 section 11; DIPO-36). Changing or removing an existing one fails the
+//   it (0007, 0010; DIPO-36). Changing or removing an existing one fails the
 //   rule. Every changed entry is a regular file on both sides: a symlink, a submodule or an
 //   executable fails it, under `backlog/` too (DIPO-341).
 // - `parses` (R02): every changed task or draft that still exists parses: its view, and its `dipo`
@@ -53,7 +53,7 @@ export interface TaskChange {
 
 /**
  * Paths outside `backlog/` a backlog PR may add, never change or remove: the `.dipo/.gitignore`
- * office init adds only if absent (0007 section 2, DIPO-36).
+ * office init adds only if absent (0007, DIPO-36).
  */
 export const ADDED_OUTSIDE_BACKLOG: readonly string[] = [".dipo/.gitignore"];
 
@@ -124,7 +124,7 @@ export function stateOf(side: TaskSide): string | null {
 }
 
 /**
- * The status changes a backlog-only PR may make (0012 section 2 with its 0010 amendments): the
+ * The status changes a backlog-only PR may make (0012, 0010): the
  * transitions written in lane b. `null` is "no file": a new draft, a promotion (the draft goes and
  * a Refined task appears), and the office-init migration from `To Do`. Everything from In Progress
  * onward belongs to the story PR (lane a).
@@ -207,7 +207,7 @@ export function checkBacklogPr(diff: PrDiff, facts: PrFacts): CheckResult {
     if (beforeKnown && afterKnown && !allowed(from, to)) {
       fail(
         "transition",
-        `${change.id} moves from ${name(from)} to ${name(to)}, which a backlog PR may not do (0012 section 2)`,
+        `${change.id} moves from ${name(from)} to ${name(to)}, which a backlog PR may not do (0012)`,
       );
     }
 

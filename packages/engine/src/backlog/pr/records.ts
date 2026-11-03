@@ -233,7 +233,7 @@ export interface BacklogCheckBlock {
 
 /**
  * Reports a story a merged backlog PR failed its structural check on, until a later backlog PR
- * that touches it merges with a passing check (0010 section 2). `work.run` and the pickup re-check
+ * that touches it merges with a passing check (0010). `work.run` and the pickup re-check
  * (DIPO-48) skip such a story as `notRunnable`.
  */
 export function backlogCheckBlocked(office: OfficeHandle, key: StoryKey): BacklogCheckBlock | null {

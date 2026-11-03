@@ -1,4 +1,4 @@
-// The lane-b kind `propose` (DIPO-166; 0020 section 11c): an accepted worker proposal becomes a
+// The lane-b kind `propose` (DIPO-166; 0020): an accepted worker proposal becomes a
 // Backlog draft (`backlog draft create`, then `draft edit --ref` for its paths), committed as
 // `backlog: propose <source story>`. The target state is "a draft with the target's title whose
 // description holds the proposal's marker line exists": applied again (a replay, a rebuild on a

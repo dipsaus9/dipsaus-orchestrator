@@ -241,12 +241,12 @@ describe("checkBacklogPr", () => {
       [
         "transition",
         "TASK-1",
-        "TASK-1 moves from Ready to In Progress, which a backlog PR may not do (0012 section 2)",
+        "TASK-1 moves from Ready to In Progress, which a backlog PR may not do (0012)",
       ],
       [
         "transition",
         "TASK-2",
-        "TASK-2 moves from Refined to Done, which a backlog PR may not do (0012 section 2)",
+        "TASK-2 moves from Refined to Done, which a backlog PR may not do (0012)",
       ],
     ]);
   });

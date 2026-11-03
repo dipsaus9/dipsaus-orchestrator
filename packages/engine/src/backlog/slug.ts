@@ -1,4 +1,4 @@
-// The branch slug (0010 section 4, 0012 F15). Computed once from the title when the story gets its
+// The branch slug (0010, 0012 F15). Computed once from the title when the story gets its
 // real id, then frozen in the field block's `branch`. `<ID>/<slug>` matches R18 by construction.
 
 /** The longest slug R18 allows. */
@@ -21,7 +21,7 @@ const STOP_WORDS: ReadonlySet<string> = new Set([
   "with",
 ]);
 
-/** The slug of `title`, following the five steps of 0010 section 4. */
+/** The slug of `title`, following the five steps of 0010. */
 export function slug(title: string): string {
   // (1) NFKD-normalise, drop combining marks, lowercase.
   const plain = title.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();

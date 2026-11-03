@@ -1,4 +1,4 @@
-// Running the Backlog.md CLI (0010 section 1). The engine runs only an allowlisted set of `backlog`
+// Running the Backlog.md CLI (0010). The engine runs only an allowlisted set of `backlog`
 // subcommands, through the injected `Spawn`, and refuses the never-run list before spawning:
 // `task complete`, `cleanup`, `task demote`, `doctor --fix`, `config set statuses` and any status
 // `Draft`. The write path also refuses text holding a line of 50 `-` (it would print a fake section,
@@ -7,11 +7,11 @@
 // positional or unknown option starting with `-` (the CLI would read free text as a flag; free text
 // goes after its option, which takes the next argument whatever it starts with). An edit may change
 // labels only with `--add-label` and `--remove-label`, never by replacing or clearing the list
-// (0010 section 3). An error is any
+// (0010). An error is any
 // non-zero exit or a `not found` line (fact 3); it carries the command and its output.
 //
 // Every call gets a minimal, explicit environment (`backlogEnv`), never the daemon's whole one
-// (0021 section 14). The caller picks the working folder: for a story it is a folder that holds
+// (0021). The caller picks the working folder: for a story it is a folder that holds
 // only dipo's own copy of the backlog, never the worktree a worker's files land in
 // (`inStoryBacklog` in `story-copy.ts`).
 //
@@ -70,7 +70,7 @@ export interface BacklogCli {
   readonly command?: readonly [string, ...string[]];
   /**
    * The environment the CLI's variables are taken from; the process's own when absent. Only
-   * `BACKLOG_ENV_KEYS` are taken (0021 section 14), so nothing else of it reaches the CLI.
+   * `BACKLOG_ENV_KEYS` are taken (0021), so nothing else of it reaches the CLI.
    */
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** Receives the `engine.notice` of a refused status change (DIPO-312). */
@@ -89,7 +89,7 @@ export interface BacklogNotice {
 }
 
 /**
- * The only variables a Backlog CLI call gets (0021 section 14): `PATH` to find its runtime and
+ * The only variables a Backlog CLI call gets (0021): `PATH` to find its runtime and
  * `HOME` for its user settings. The daemon's other variables never reach it.
  */
 export const BACKLOG_ENV_KEYS: readonly string[] = ["PATH", "HOME"];
@@ -227,7 +227,7 @@ const ALLOWED: Readonly<Record<string, readonly string[] | null>> = {
   doctor: null,
 };
 
-/** The `config set` keys the engine may write (0010 section 6); `statuses` is never set. */
+/** The `config set` keys the engine may write (0010); `statuses` is never set. */
 const CONFIG_SET_KEYS: ReadonlySet<string> = new Set([
   "defaultStatus",
   "checkActiveBranches",
@@ -375,16 +375,16 @@ export function refusal(args: readonly string[]): string | null {
   const [group, sub] = args;
   if (group === undefined) return "no subcommand";
   if (args.length === 1 && group === "--version") return null;
-  if (group === "cleanup") return "`cleanup` is never run (0010 section 1)";
+  if (group === "cleanup") return "`cleanup` is never run (0010)";
   for (const [g, s] of NEVER_RUN) {
-    if (group === g && sub === s) return `\`${g} ${s}\` is never run (0010 section 1)`;
+    if (group === g && sub === s) return `\`${g} ${s}\` is never run (0010)`;
   }
   if (group === "doctor" && args.includes("--fix")) {
-    return "`doctor --fix` is never run (0010 section 1)";
+    return "`doctor --fix` is never run (0010)";
   }
   if (group === "config" && sub === "set") {
     const key = args[2];
-    if (key === "statuses") return "`config set statuses` is never run (0010 section 1)";
+    if (key === "statuses") return "`config set statuses` is never run (0010)";
     if (key === undefined || !CONFIG_SET_KEYS.has(key)) {
       return `\`config set ${key ?? ""}\` is not a key the engine sets`;
     }
@@ -398,11 +398,11 @@ export function refusal(args: readonly string[]): string | null {
   const values = (names: readonly string[]) =>
     options.filter((o) => names.includes(o.name)).map((o) => o.value ?? "");
   if (values(["-s", "--status"]).some((value) => value.trim().toLowerCase() === "draft")) {
-    return "status `Draft` is never set (0010 section 1)";
+    return "status `Draft` is never set (0010)";
   }
   const labelOption = options.find((o) => REPLACING_LABEL_OPTIONS.has(o.name));
   if (sub === "edit" && labelOption !== undefined) {
-    return `\`${labelOption.name}\` replaces the labels; an edit changes labels only with --add-label and --remove-label (0010 section 3)`;
+    return `\`${labelOption.name}\` replaces the labels; an edit changes labels only with --add-label and --remove-label (0010)`;
   }
   if (dashed !== undefined) {
     return `\`${dashed}\` starts with \`-\` but is no option the engine passes; the CLI would read it as a flag`;
@@ -738,7 +738,7 @@ export class CheckoutGate {
 /** The daemon's one checkout gate. */
 const CHECKOUT_GATE = new CheckoutGate();
 
-// ---- the Backlog files a call runs with (DIPO-312, 0021 section 14) ----------------------------
+// ---- the Backlog files a call runs with (DIPO-312, 0021) ----------------------------
 //
 // Before every call, dipo checks the Backlog files the CLI could read in the folder the call runs
 // in (`scanBacklogFiles`): every place Backlog.md 1.53 takes its configuration from
@@ -1335,7 +1335,7 @@ export function statusCommandFiles(cwd: string, cache?: VerdictCache): BacklogFi
   return [...scan.refused, ...scan.statusCommands];
 }
 
-// ---- the story's task file (0021 section 14) ---------------------------------------------------
+// ---- the story's task file (0021) ---------------------------------------------------
 
 /** The folder that holds the Backlog task files, relative to the repository root. */
 export const TASKS_DIR = `${BACKLOG_FOLDER}/tasks`;
@@ -1368,7 +1368,7 @@ export function taskFilePathRefusal(path: string): string | null {
 
 /**
  * The front matter fields of a Backlog.md task that dipo knows (1.53). A task file holding any
- * other field is refused before the CLI reads it (0021 section 14).
+ * other field is refused before the CLI reads it (0021).
  */
 export const KNOWN_TASK_FIELDS: ReadonlySet<string> = new Set([
   "id",

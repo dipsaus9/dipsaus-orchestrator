@@ -1,4 +1,4 @@
-// The Backlog.md version check (0010 section 1, 0017; 0016 amendment of 2026-10-12): the engine
+// The Backlog.md version check (0010, 0017, 0016): the engine
 // supports Backlog.md 1.53.x and checks `backlog --version` as an office load step. Any other
 // version refuses the office with a notice naming it and the install command. A new minor is
 // adopted by recording new `--plain` fixtures and passing the parser tests.

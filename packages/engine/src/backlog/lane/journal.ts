@@ -1,4 +1,4 @@
-// The lane-b journal (0010 section 2, 0007 section 4): every planning operation is a row in
+// The lane-b journal (0010, 0007): every planning operation is a row in
 // `backlog_journal` before any Backlog CLI call, and its state records how far it got. Rows are
 // read and written through the office handle, so every statement binds the office. Callers that
 // change a row run inside `office.immediate`.
@@ -27,11 +27,11 @@ export interface LaneOp {
   readonly key?: StoryKey;
   /** What the commit message names: the story id, or a word for an office-wide operation. */
   readonly subject: string;
-  /** The target state, as JSON; re-applying it is always safe (0010 section 2). */
+  /** The target state, as JSON; re-applying it is always safe (0010). */
   readonly target: unknown;
   /**
    * True when the caller releases the story's live claim right after journaling (`story.drop`,
-   * 0010 section 2a: journal first, then the release steps): the live-claim check is skipped.
+   * 0010: journal first, then the release steps): the live-claim check is skipped.
    */
   readonly releasesClaim?: boolean;
 }
@@ -284,7 +284,7 @@ export interface PendingLaneOp {
 
 /**
  * Reports a story with an open lane-b operation, from journaling until the entry is merged,
- * dropped or withdrawn (0010 section 2: a pending lane-b operation always wins over pickup).
+ * dropped or withdrawn (0010: a pending lane-b operation always wins over pickup).
  * `work.run` and the pickup re-check (DIPO-48) skip such a story as `notRunnable`.
  */
 export function pendingLaneOp(office: OfficeHandle, key: StoryKey): PendingLaneOp | null {

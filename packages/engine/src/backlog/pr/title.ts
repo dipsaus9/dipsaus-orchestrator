@@ -1,8 +1,8 @@
-// The title and body of a backlog PR (0016 rule 1): `chore(backlog): <summary>`, where the summary
+// The title and body of a backlog PR (0016): `chore(backlog): <summary>`, where the summary
 // names the operations on the branch in journal order, at most 100 characters, with no trailing
 // full stop, so the `pr-title` check passes.
 
-/** The subject limit of 0016 rule 1. */
+/** The subject limit of 0016. */
 export const MAX_SUBJECT = 100;
 export const TITLE_PREFIX = "chore(backlog): ";
 
@@ -49,7 +49,7 @@ export function prTitle(ops: readonly TitleOp[]): string {
 
 export function prBody(ops: readonly TitleOp[]): string {
   return [
-    "Planning changes from dipo's backlog lane (0010 section 2, lane b). This PR changes only `backlog/`, except a new `.dipo/.gitignore` from office init.",
+    "Planning changes from dipo's backlog lane (0010, lane b). This PR changes only `backlog/`, except a new `.dipo/.gitignore` from office init.",
     "",
     ...ops.map((op) => `- \`backlog: ${clean(op.kind)} ${clean(op.subject)}\``),
     "",

@@ -1,16 +1,16 @@
-// Office init (0010 sections 2, 6 and 11; 0012 section 2; DIPO-36): `office.init { office }`
-// prepares an office's backlog for the 0012 lifecycle through the planning lane. It reads the base
-// in the engine's backlog worktree, records the settings it is about to change in
-// `backlog_config_previous`, journals one `init` operation per step that differs on the base, and
-// flushes the lane: the steps become commits on one engine branch and one backlog PR, which DIPO-35
-// opens and checks and GitHub's auto-merge merges once its checks pass (0002).
+// Office init (0010; 0012; DIPO-36): `office.init { office }` prepares an office's backlog for the
+// 0012 lifecycle through the planning lane. It reads the base in the engine's backlog worktree,
+// records the settings it is about to change in `backlog_config_previous`, journals one `init`
+// operation per step that differs on the base, and flushes the lane: the steps become commits on
+// one engine branch and one backlog PR, which `BacklogPrs` opens and checks and GitHub's auto-merge
+// merges once its checks pass (0002).
 //
 // Init is target-state: a step already true on the base is not journaled, and a step already open
 // in the journal with the same target is not journaled again, so a second run adds no commits. It
-// never writes `.dipo/office.yaml`: without it the built-in defaults apply (DIPO-15 D9).
+// never writes `.dipo/office.yaml`: without it the built-in defaults apply (0017).
 //
 // `officeStatusesReady(office)` reads `backlog/config.yml` on the base (the one Backlog.md file the
-// engine reads directly, 0010 section 1) and returns a refusal naming `dipo office init` while
+// engine reads directly, 0010) and returns a refusal naming `dipo office init` while
 // `In Review` or `Parked` is missing; `work.run` (DIPO-48) refuses runs with it. The load step
 // `office.statuses` raises the same as an `engine.notice` when the office loads.
 
@@ -194,7 +194,7 @@ export interface OfficeInitDeps {
   readonly git: (office: OfficeId) => OfficeGit | undefined;
   readonly cli: BacklogCli;
   readonly clock: Clock;
-  /** Why the backlog PR of a branch is not open (DIPO-35 `BacklogPrs.waiting`). */
+  /** Why the backlog PR of a branch is not open (`BacklogPrs.waiting`). */
   readonly prWaiting?: (office: OfficeId) => { readonly detail: string } | null;
   readonly onChanged?: (office: OfficeId) => void;
 }
@@ -412,7 +412,7 @@ export async function officeStatusesReady(git: OfficeGit): Promise<string | null
 
 /**
  * `backlog/config.yml` on the base: `<remote>/<base>` with a remote, the local `<base>` without
- * one, as the lane applies to (0010 section 7).
+ * one, as the lane applies to (0010).
  */
 async function readBaseConfig(
   git: GitSession,

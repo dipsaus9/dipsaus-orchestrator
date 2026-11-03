@@ -1,7 +1,7 @@
-// Reading every active task and draft through the Backlog CLI (0010 sections 1 and 6, 0007
-// section 6 step 3), the StoryStore's `readAll` and `read`. `task list` and `draft list` give the
-// ids; `task view` and `draft view` give each story. Archived, completed and draft-folder files
-// never appear in `task list`, so they are not active tasks; drafts are read as drafts.
+// Reading every active task and draft through the Backlog CLI (0010, 0007), the StoryStore's
+// `readAll` and `read`. `task list` and `draft list` give the ids; `task view` and `draft view`
+// give each story. Archived, completed and draft-folder files never appear in `task list`, so they
+// are not active tasks; drafts are read as drafts.
 //
 // A failed list or view stops the read: a story missing from a partial read would look vanished
 // and be closed as Removed. So does a list that disagrees with its `--count` (DIPO-323). A view
