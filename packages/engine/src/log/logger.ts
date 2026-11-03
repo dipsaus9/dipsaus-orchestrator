@@ -1,9 +1,8 @@
 // The daemon logger (0006 decision 13): JSON lines with `ts` (ISO 8601 UTC), `level`, `msg`,
 // `component`, and `office` and `run` when known, plus fields. Secret fields (`isSecretKey`) are
 // redacted at every level, at any depth. A field named `code` shows error and exit codes such as
-// `engine.recovering`, but stays redacted where the contract carries the web bootstrap code under
-// that name and whenever its value is not code-shaped (`showsCode`; 0006 amendment of 2026-10-15
-// (DIPO-91)). The message and every string of the fields, an error's message and stack included,
+// `engine.recovering`, but stays redacted whenever its value is not code-shaped (`showsCode`, 0006).
+// The message and every string of the fields, an error's message and stack included,
 // have each value of a `SECRET_PATTERNS` shape and each URL that holds user information replaced
 // by `[redacted]` (`redactSecretText`, DIPO-312), so a git error that quotes a credentialed remote
 // is logged without the credential. Other secrets inside text are not recognised: secret-bearing
@@ -53,22 +52,17 @@ export function isSecretKey(key: string): boolean {
 
 /**
  * A code-shaped string: letter-only words joined by `.` or `-`, such as `office.refused`,
- * `git.fetchFailed`, `tooOld` or `lockfile-conflict`. A letters-only secret would match, so the
- * web bootstrap code must be generated as lowercase hex or with a prefix that holds a digit (0006
- * amendment of 2026-10-15 (DIPO-91)); that encoding rule, not this pattern, keeps it out of a line.
+ * `git.fetchFailed`, `tooOld` or `lockfile-conflict`. A letters-only secret would match, so no
+ * secret may be carried in a field named `code`.
  */
 const CODE_SHAPE = /^[a-z][A-Za-z]*(?:[.-][a-z][A-Za-z]*)*$/;
 const CODE_MAX_LENGTH = 64;
 
 /**
- * Whether the `code` field of `holder` may show `value`. The contract carries the single-use web
- * bootstrap code as `code` in the `auth` frame (`kind: "auth"`) and in the `daemon.webBootstrap`
- * result (`{ url, code }`), so a `code` next to `kind: "auth"` or a `url` stays redacted. Anything
- * else shows only when it is a number, a boolean, null or code-shaped; every other value, objects
- * included, stays redacted (0006 amendment of 2026-10-15 (DIPO-91)).
+ * Whether a `code` field may show `value`: only a number, a boolean, null or a code-shaped string;
+ * every other value, objects included, stays redacted (0006).
  */
-function showsCode(holder: Readonly<Record<string, unknown>>, value: unknown): boolean {
-  if (holder["kind"] === "auth" || "url" in holder) return false;
+function showsCode(value: unknown): boolean {
   if (value === null || typeof value === "number" || typeof value === "boolean") return true;
   return typeof value === "string" && value.length <= CODE_MAX_LENGTH && CODE_SHAPE.test(value);
 }
@@ -152,7 +146,7 @@ export function redact(
   const holder = value as Readonly<Record<string, unknown>>;
   for (const [key, inner] of Object.entries(holder)) {
     if (isSecretKey(key)) out[key] = REDACTED;
-    else if (key === "code") out[key] = showsCode(holder, inner) ? inner : REDACTED;
+    else if (key === "code") out[key] = showsCode(inner) ? inner : REDACTED;
     else if (!debugFields && DEBUG_ONLY_KEYS.has(key)) out[key] = DEBUG_ONLY;
     else out[key] = redact(inner, seen, debugFields);
   }
