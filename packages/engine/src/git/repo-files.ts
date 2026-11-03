@@ -1,4 +1,4 @@
-// Read-only file facts of a repository checkout for the scan (0013 section 3). It lists files
+// Read-only file facts of a repository checkout for the scan (0013). It lists files
 // and asks git which paths it ignores. It never runs a repository script: every git call is a step
 // of the git module's runner (`git/runner.ts`), hardened as every engine git call is (no hooks, no
 // fsmonitor), with the deadline of every engine git step, so a scan never holds the office git

@@ -1,5 +1,5 @@
 // One engine git step: a hardened call (see `hardened.ts`) through an injected executor, with the
-// lock rule of 0010 section 7: a held `index.lock` or ref lock is retried three times with backoff,
+// lock rule of 0010: a held `index.lock` or ref lock is retried three times with backoff,
 // then the step fails. Lock files are never deleted; another git process owns them.
 //
 // Every step has a deadline on the runner's clock (DIPO-314): `GIT_STEP_DEADLINE_MS` (120 s) by
@@ -94,7 +94,7 @@ export class GitError extends Error {
   }
 }
 
-/** Backoff before each lock retry: three retries, then the step fails (0010 section 7). */
+/** Backoff before each lock retry: three retries, then the step fails (0010). */
 export const LOCK_RETRY_DELAYS_MS: readonly number[] = [100, 400, 1600];
 
 const LOCK_HELD = /Unable to create '([^']+\.lock)': File exists/;

@@ -1,4 +1,4 @@
-// The office git queue (0010 sections 2a and 7): one per office, serialising refs, worktrees and
+// The office git queue (0010): one per office, serialising refs, worktrees and
 // pushes. An item runs alone, from its first git step to its last, so work that must not
 // interleave (a pickup re-check with its claim, a journaled lane-b operation with its live-claim
 // check) is one item. Items run in submission order; a failed item ends only itself.

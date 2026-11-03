@@ -1,4 +1,4 @@
-// One office's git (0010 sections 2 and 7): its serial queue, the base and remote, the worktree
+// One office's git (0010): its serial queue, the base and remote, the worktree
 // root, the detached `_base` read worktree at `origin/<base>`, and the fetch state that gates
 // pickup and planning pushes. Every call is hardened (`hardened.ts`) and runs either on the
 // repository without a work tree (`git --bare`, with the recorded common dir) or in a worktree
@@ -32,7 +32,7 @@ import {
 
 const BASE_CHECKOUT: GitStepOptions = { config: BASE_CHECKOUT_CONFIG, env: BASE_CHECKOUT_ENV };
 
-/** The office configuration git reads (0010 section 7). */
+/** The office configuration git reads (0010). */
 export interface GitSettings {
   /** `base` from `.dipo/office.yaml`; absent means `refs/remotes/<remote>/HEAD` decides. */
   readonly base?: string;
@@ -85,7 +85,7 @@ export interface BaseWorktree {
 
 export interface OfficeGitOptions {
   readonly officeId: OfficeId;
-  /** The main checkout, canonical, as the office records it (0007 section 2). */
+  /** The main checkout, canonical, as the office records it (0007). */
   readonly mainWorktree: string;
   /** `<git-common-dir>`, canonical, as the office records it. */
   readonly commonDir: string;
@@ -190,7 +190,7 @@ export class OfficeGit {
     return result.code === 0 ? result.stdout.trim() : null;
   }
 
-  // Fetch (0010 section 7 failure cases, 0007 section 6 step 4)
+  // Fetch and its failures (0007, 0010)
 
   /** The outcome of the last fetch, or null before the first. */
   get lastFetch(): FetchState | null {
@@ -242,7 +242,7 @@ export class OfficeGit {
     });
   }
 
-  // The `_base` read worktree (0010 section 2)
+  // The `_base` read worktree (0010)
 
   /** One queue item: creates or moves `<root>/_base`, detached at `<remote>/<base>`. */
   ensureBaseWorktree(): Promise<BaseWorktree> {

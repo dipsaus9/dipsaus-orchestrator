@@ -1,4 +1,4 @@
-// The worktree root (0010 section 7, open question 4): `worktree.root` from office configuration,
+// The worktree root (0010): `worktree.root` from office configuration,
 // default `../{repo}.worktrees`, resolved against the main checkout to an absolute path. It must
 // lie outside the main checkout (0008), so Node module resolution and indexers never walk from a
 // worktree into the maintainer's checkout. The engine's worktrees sit directly under it:
@@ -10,7 +10,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { GitError } from "./runner";
 
 export const DEFAULT_WORKTREE_ROOT = "../{repo}.worktrees";
-/** The detached read worktree at `origin/<base>` (0010 section 2). */
+/** The detached read worktree at `origin/<base>` (0010). */
 export const BASE_WORKTREE = "_base";
 
 /** The canonical form of `path`: the real path of its nearest existing ancestor, plus the rest. */
