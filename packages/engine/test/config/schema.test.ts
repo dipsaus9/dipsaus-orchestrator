@@ -10,6 +10,7 @@ import {
   OfficeLocalFileSchema,
   privacyOptIns,
   RENAMED_KEYS,
+  RETIRED_KEYS,
   schemaKeyPaths,
 } from "../../src/config";
 
@@ -117,6 +118,13 @@ describe("version 16 key paths", () => {
     for (const { from, to } of RENAMED_KEYS) {
       expect(paths.filter((key) => key === from || key.startsWith(`${from}.`))).toEqual([]);
       expect(paths.some((key) => key === to || key.startsWith(`${to}.`))).toBe(true);
+    }
+  });
+
+  it("hold no retired key", () => {
+    const paths = schemaKeyPaths(OfficeConfigSchema);
+    for (const { path } of RETIRED_KEYS) {
+      expect(paths.filter((key) => key === path || key.startsWith(`${path}.`))).toEqual([]);
     }
   });
 });

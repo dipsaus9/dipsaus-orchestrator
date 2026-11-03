@@ -186,6 +186,25 @@ describe("validation", () => {
     }
   });
 
+  // A key version 16 retired is named as retired, not as a key a newer dipo may know.
+  it("refuses story.outcomeMin and worktree.rebuildable as keys version 16 retired, with why", () => {
+    for (const [office, message] of [
+      [
+        "version: 16\nstory: { outcomeMin: 20 }\n",
+        ".dipo/office.yaml: story.outcomeMin: unknown key; version 16 retired it, because the Ready gate's Story line rule has fixed minimums (0012); delete it",
+      ],
+      [
+        "version: 16\nworktree: { rebuildable: [node_modules/] }\n",
+        ".dipo/office.yaml: worktree.rebuildable: unknown key; version 16 retired it, because dipo no longer sweeps story worktrees: a story works in its box (0008); delete it",
+      ],
+    ] as const) {
+      const [error, ...rest] = errors(resolveOfficeConfig({ office }));
+      expect(rest).toEqual([]);
+      expect(error?.message).toBe(message);
+      expect(error?.message).not.toContain(NEWER_DIPO);
+    }
+  });
+
   it("names the expected type of a wrong type", () => {
     expect(
       errors(

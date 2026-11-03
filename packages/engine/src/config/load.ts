@@ -33,6 +33,7 @@ import {
   OfficeOverridesSchema,
   OLDEST_OFFICE_CONFIG_VERSION,
   RENAMED_KEYS,
+  RETIRED_KEYS,
   type MigrationStep,
   type OfficeConfig,
 } from "./schema";
@@ -80,15 +81,19 @@ export interface OfficeConfigSources {
 }
 
 // Why a file of the current version may not set `path` that an earlier version had: a version
-// renamed it.
+// renamed it or retired it.
 function formerKey(path: string): string | undefined {
   const renamed = RENAMED_KEYS.find((key) => path === key.from || path.startsWith(`${key.from}.`));
-  if (renamed === undefined) return undefined;
-  return `version ${renamed.version} renamed it to ${renamed.to}${path.slice(renamed.from.length)}; set it there`;
+  if (renamed !== undefined) {
+    return `version ${renamed.version} renamed it to ${renamed.to}${path.slice(renamed.from.length)}; set it there`;
+  }
+  const retired = RETIRED_KEYS.find((key) => path === key.path || path.startsWith(`${key.path}.`));
+  if (retired === undefined) return undefined;
+  return `version ${retired.version} retired it, because ${retired.reason}; delete it`;
 }
 
-// The contract's wording, with the keys `office.local.yaml` accepts at its top level, and the new
-// name of a key a version renamed.
+// The contract's wording, with the keys `office.local.yaml` accepts at its top level, the new
+// name of a key a version renamed, and why a version retired a key.
 function issueErrors(
   file: string,
   schema: z.ZodType,

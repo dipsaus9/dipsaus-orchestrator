@@ -34,6 +34,7 @@ export {
   PRIVACY_KEYS,
   privacyOptIns,
   RENAMED_KEYS,
+  RETIRED_KEYS,
 } from "./schema";
 export type {
   Migration,

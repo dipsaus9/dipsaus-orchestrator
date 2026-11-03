@@ -400,6 +400,29 @@ export const RENAMED_KEYS: readonly RenamedKey[] = [
   { from: "box.claudeCode", to: "box.workerCli", version: 16 },
 ];
 
+/** A key a version retired: nothing reads it, so a file of that version that sets it is refused. */
+export interface RetiredKey {
+  readonly path: string;
+  /** Why the key is gone, for the refusal. */
+  readonly reason: string;
+  /** The version that retired it. */
+  readonly version: number;
+}
+
+/** Keys version 16 retired, named in the refusal of a file that still sets one. */
+export const RETIRED_KEYS: readonly RetiredKey[] = [
+  {
+    path: "story.outcomeMin",
+    reason: "the Ready gate's Story line rule has fixed minimums (0012)",
+    version: 16,
+  },
+  {
+    path: "worktree.rebuildable",
+    reason: "dipo no longer sweeps story worktrees: a story works in its box (0008)",
+    version: 16,
+  },
+];
+
 /**
  * One step of an upgrade, applied to a document in order: a key that moves to another place, or a
  * key that is dropped, with the version that removed it and why.
