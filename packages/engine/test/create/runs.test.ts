@@ -25,7 +25,7 @@ function notStarted(): never {
 describe("the daemon's Backlog CLI", () => {
   it("runs the backlog the daemon resolved, by absolute path", () => {
     expect(
-      backlogCliFor({ backlog: BACKLOG, claude: "/opt/tools/bin/claude" }, notStarted),
+      backlogCliFor({ backlog: BACKLOG, workerCli: "/opt/tools/bin/claude" }, notStarted),
     ).toEqual({ spawn: notStarted, command: [BACKLOG] });
     expect(backlogCliFor({}, notStarted)).toEqual({ spawn: notStarted });
   });

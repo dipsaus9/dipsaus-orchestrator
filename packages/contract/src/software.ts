@@ -75,9 +75,9 @@ export type OfficeSummary = z.infer<typeof OfficeSummary>;
 const AbsolutePath = z.string().regex(/^\//, "expected an absolute path");
 
 // The external tools the daemon resolved from the user's PATH at start. A tool it did not find is
-// absent (M0 review, DIPO-15).
+// absent (M0 review, DIPO-15). `workerCli` is the worker adapter's command-line tool.
 export const ToolPaths = z.object({
-  claude: AbsolutePath.optional(),
+  workerCli: AbsolutePath.optional(),
   backlog: AbsolutePath.optional(),
   gh: AbsolutePath.optional(),
   rg: AbsolutePath.optional(),

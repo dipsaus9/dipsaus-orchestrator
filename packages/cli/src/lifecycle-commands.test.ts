@@ -35,7 +35,7 @@ const STATUS: DaemonStatusResult = {
   keepAwake: { held: false },
   upgradePending: false,
   tools: {
-    claude: "/opt/bin/claude",
+    workerCli: "/opt/bin/claude",
     backlog: "/opt/bin/backlog",
     gh: "/opt/bin/gh",
     git: "/usr/bin/git",
@@ -123,11 +123,11 @@ describe("dipo daemon status", () => {
       "  offices:    0 loaded, 0 active runs",
       "  keep-awake: not held",
       "  tools:",
-      "    claude  /opt/bin/claude",
-      "    backlog /opt/bin/backlog",
-      "    gh      /opt/bin/gh",
-      "    rg      missing",
-      "    git     /usr/bin/git",
+      "    workerCli /opt/bin/claude",
+      "    backlog   /opt/bin/backlog",
+      "    gh        /opt/bin/gh",
+      "    rg        missing",
+      "    git       /usr/bin/git",
     ]);
     expect(ctx.err).toEqual([]);
   });

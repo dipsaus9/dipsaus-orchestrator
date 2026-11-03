@@ -34,7 +34,7 @@ describe("resolveTools", () => {
       tool(b, "gh");
       const resolved = resolveTools(`${a}:${b}`);
       expect(resolved.paths).toEqual({
-        claude: join(b, "claude"),
+        workerCli: join(b, "claude"),
         backlog: join(a, "backlog"),
         gh: join(b, "gh"),
         git: join(a, "git"),
@@ -51,13 +51,13 @@ describe("resolveTools", () => {
       tool(b, "rg");
       const resolved = resolveTools(`:relative:${a}:${b}`);
       expect(resolved.paths).toEqual({ rg: join(b, "rg") });
-      expect(resolved.missing).toEqual(["claude", "backlog", "gh", "git"]);
+      expect(resolved.missing).toEqual(["workerCli", "backlog", "gh", "git"]);
     }));
 
   it("reports every tool as missing without a PATH", () => {
     expect(resolveTools(undefined, () => true)).toEqual({
       paths: {},
-      missing: ["claude", "backlog", "gh", "rg", "git"],
+      missing: ["workerCli", "backlog", "gh", "rg", "git"],
     });
   });
 

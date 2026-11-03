@@ -197,7 +197,7 @@ describe("commands, reads and events", () => {
   it("reports a tool the daemon did not find as absent", () => {
     const status = contractReads.find((d) => d.name === "daemon.status");
     const result = status?.result.parse(readFixtures["daemon.status"]?.result) as { tools: object };
-    expect(Object.keys(result.tools).toSorted()).toEqual(["backlog", "claude", "gh", "git"]);
+    expect(Object.keys(result.tools).toSorted()).toEqual(["backlog", "gh", "git", "workerCli"]);
     const relative = { ...(readFixtures["daemon.status"]?.result as object), tools: { rg: "rg" } };
     expect(status?.result.safeParse(relative).success).toBe(false);
   });

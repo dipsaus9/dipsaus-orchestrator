@@ -808,7 +808,7 @@ function workerOf(options: RunsOptions, boxWorkers: BoxWorkers | null): WorkerPo
   const claude = claudeWorkerPort({
     spawn: options.spawn,
     clock: options.clock,
-    claudePath: options.tools.claude,
+    claudePath: options.tools.workerCli,
     home: options.home,
     env: options.env,
     holds: options.holds,

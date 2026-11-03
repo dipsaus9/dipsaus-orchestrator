@@ -12,9 +12,16 @@ import { isAbsolute, join } from "node:path";
 
 import type { ToolPaths } from "@dipsaus-orchestrator/contract";
 
-/** The tools the daemon resolves at start, in report order. */
-export const TOOL_NAMES = ["claude", "backlog", "gh", "rg", "git"] as const;
-export type ToolName = (typeof TOOL_NAMES)[number];
+/** The tools the daemon resolves at start, in report order, each with the command it looks for. */
+const TOOL_COMMANDS = {
+  workerCli: "claude",
+  backlog: "backlog",
+  gh: "gh",
+  rg: "rg",
+  git: "git",
+} as const;
+export type ToolName = keyof typeof TOOL_COMMANDS;
+export const TOOL_NAMES = Object.keys(TOOL_COMMANDS) as ToolName[];
 
 /** True when `path` is a regular file this process may execute. Injectable for tests. */
 export type IsExecutable = (path: string) => boolean;
@@ -48,7 +55,9 @@ export function resolveTools(
   const paths: Partial<Record<ToolName, string>> = {};
   const missing: ToolName[] = [];
   for (const tool of TOOL_NAMES) {
-    const found = dirs.map((dir) => join(dir, tool)).find((path) => isExecutable(path));
+    const found = dirs
+      .map((dir) => join(dir, TOOL_COMMANDS[tool]))
+      .find((path) => isExecutable(path));
     if (found === undefined) missing.push(tool);
     else paths[tool] = found;
   }

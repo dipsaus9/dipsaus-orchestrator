@@ -166,7 +166,7 @@ function formatUptime(ms: number): string {
   return parts.filter((part) => part !== "").join(" ");
 }
 
-const TOOL_ORDER = ["claude", "backlog", "gh", "rg", "git"] as const;
+const TOOL_ORDER = ["workerCli", "backlog", "gh", "rg", "git"] as const;
 
 /** The `running` report: state and reason, PID, version, uptime, socket and tool paths. */
 export function formatRunning(status: DaemonStatusResult): string[] {
@@ -200,7 +200,7 @@ export function formatRunning(status: DaemonStatusResult): string[] {
   }
   lines.push("  tools:");
   for (const tool of TOOL_ORDER) {
-    lines.push(`    ${tool.padEnd(8)}${status.tools[tool] ?? "missing"}`);
+    lines.push(`    ${tool.padEnd(10)}${status.tools[tool] ?? "missing"}`);
   }
   return lines;
 }

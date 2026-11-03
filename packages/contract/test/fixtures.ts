@@ -681,7 +681,7 @@ export const readFixtures: Record<string, { args: unknown; result: unknown }> = 
       buildCommit: "1a2b3c4d5e6f-dirty",
       engineBehind: [{ office: ids.office, name: "dipsaus-orchestrator", commits: 2 }],
       tools: {
-        claude: "/Users/me/.local/bin/claude",
+        workerCli: "/Users/me/.local/bin/claude",
         backlog: "/opt/homebrew/bin/backlog",
         gh: "/opt/homebrew/bin/gh",
         git: "/usr/bin/git",
