@@ -72,7 +72,7 @@ describe("closed enums", () => {
     expect(Lifecycle.safeParse("in progress").success).toBe(false);
   });
 
-  it("DaemonState has the exact states of 0006 and an unknown one fails", () => {
+  it("DaemonState has the exact states of 0005 and an unknown one fails", () => {
     expect(DaemonState.options).toEqual(["starting", "recovering", "running", "draining"]);
     expect(DaemonState.safeParse("sleeping").success).toBe(false);
   });
@@ -247,7 +247,6 @@ describe("office commands and reads", () => {
     expect(officeReads.map((d): string => d.name).toSorted()).toEqual(
       [
         "office.snapshot",
-        "office.switch",
         "story.detail",
         "work.outputRange",
         "office.digest",
@@ -332,7 +331,7 @@ describe("field block", () => {
   });
 });
 
-// DIPO-158 (0020 section 12): the desk item and the `office.desk` read.
+// DIPO-158 (0020): the desk item and the `office.desk` read.
 describe("the desk", () => {
   const item = {
     kind: "PARKED",

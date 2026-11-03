@@ -2,7 +2,9 @@
 
 A code-driven orchestration product where you and an AI model run your software projects together, like an office or development team: plan, refine, hire agents for roles, run work, review and test. Code drives, AI fills the gaps.
 
-Status: pre-code, design phase. Start with [docs/vision.md](docs/vision.md) and [docs/plan.md](docs/plan.md), then [docs/concepts.md](docs/concepts.md) and [docs/decisions](docs/decisions).
+Where the project stands, milestone by milestone, is in [decision 0003](docs/decisions/0003-milestones-and-quality-bar.md). Start with [docs/vision.md](docs/vision.md), then [docs/concepts.md](docs/concepts.md) and [docs/decisions](docs/decisions).
+
+How dipo works, a story's life and what each package is for, in plain words: [docs/how-dipo-works.md](docs/how-dipo-works.md).
 
 License: MIT.
 

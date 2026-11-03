@@ -1,6 +1,6 @@
-// The box user (DIPO-334; 0021 section 3 and its amendments of 2026-10-23): everything untrusted
-// in a box runs as one fixed non-root uid, so it cannot write `/etc`, `/usr`, `/lib`, `/opt`, `/`
-// or the tools mount, and cannot redirect a command dipo runs as root.
+// The box user (0008): everything untrusted in a box runs as one fixed non-root uid, so it cannot
+// write `/etc`, `/usr`, `/lib`, `/opt`, `/` or the tools mount, and cannot redirect a command dipo
+// runs as root.
 //
 // - Every contained command (`containedCommand` in `firewall.ts`) runs as `BOX_USER_UID` with
 //   `BOX_USER_ENV`: the worker's session and its commands, the office install, the package cache

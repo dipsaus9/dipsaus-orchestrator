@@ -1,11 +1,10 @@
-// What a run needs from a worker adapter (DIPO-74), adapter-neutral: the adapter for one run,
-// its launch checks, the parser state ingestion starts from, the report schema and the local
-// settings file worktree setup copies (DIPO-113). The daemon supplies the Claude CLI one
+// What a run needs from a worker adapter (DIPO-74), adapter-neutral: the adapter for one run, its
+// launch checks, the parser state ingestion starts from and the report schema. The daemon supplies the Claude CLI one
 // (`claude-cli/adapter.ts`); tests supply fakes. Nothing here names a CLI.
 
 import type { BoxSession } from "../box/workers";
 import type { OfficeConfig } from "../config";
-import type { AdapterHold } from "./hold";
+import type { AdapterPause } from "../run/starts-paused";
 import type {
   ExitRecord,
   HostOp,
@@ -30,11 +29,11 @@ export interface RunLaunchPaths {
   readonly runDir: string;
   /** The worker host's socket. */
   readonly hostSocket: string;
-  /** The temp directory the worker's sandboxed commands may write. */
+  /** The run's temp directory; npm's debug logs go under it. */
   readonly tmpDir: string;
   /**
-   * The run's short temp root (DIPO-118), the worker's `DIPO_TMP`: also writable by its sandboxed
-   * commands, and short enough for testkit's Unix socket path limit.
+   * The run's short temp root (DIPO-118), the session's `DIPO_TMP`: short enough for testkit's Unix
+   * socket path limit.
    */
   readonly shortTmpDir: string;
 }
@@ -48,37 +47,23 @@ export interface VerifyCommands {
 
 export type PreparedWorker =
   | { readonly ok: true; readonly plan: LaunchPlan }
-  | { readonly ok: false; readonly outcome: "startFailed"; readonly hold: AdapterHold };
-
-/**
- * The adapter's local settings file that worktree setup copies from the main checkout, filtered
- * (0010 section 8 and its 0008 amendment; for Claude `.claude/settings.local.json` without its
- * permission-widening and MCP keys).
- */
-export interface LocalSettingsCopy {
-  /** The repo-relative path of the file. */
-  readonly file: string;
-  /** Pure: the parsed file as the setup copy writes it. */
-  strip(settings: Record<string, unknown>): Record<string, unknown>;
-}
+  | { readonly ok: false; readonly outcome: "startFailed"; readonly pause: AdapterPause };
 
 export interface WorkerPort {
   /** The adapter id (for example `claude-cli`): the daemon's one adapter (0001). */
   readonly id: string;
   /**
-   * The JSON Schema a run puts in `WorkerSpec.reportSchema`, per kind (0008 section 1 and its
-   * amendment of 2026-10-16): `WorkerReport` for `implement`, `ReviewReport` for `review`.
+   * The JSON Schema a run puts in `WorkerSpec.reportSchema`, per kind (0008): `WorkerReport` for
+   * `implement`, `ReviewReport` for `review`.
    */
   readonly reportSchema: Readonly<Record<SchemaKind, JsonSchema>>;
-  /** What worktree setup copies as the adapter's local settings (DIPO-39, DIPO-113). */
-  readonly localSettings: LocalSettingsCopy;
-  /** The adapter for one run, its `plan` bound to the run's launch context (0008 section 1). */
+  /** The adapter for one run, its `plan` bound to the run's launch context (0008). */
   adapter(paths: RunLaunchPaths, config: OfficeConfig): WorkerAdapter;
   /**
-   * Plans the launch and runs the adapter's launch checks before it (0008 section 2). A refused
-   * check holds the adapter and returns `startFailed`; a spec or path that cannot be planned
-   * throws `PlanError`. A developer session is planned only in its run's box (DIPO-240, 0008); a
-   * reviewer session only in `place`, the read-only box its caller made for it (0002).
+   * Plans the launch and runs the adapter's launch checks before it (0008). A refused check pauses
+   * the adapter's starts and returns `startFailed`; a spec or path that cannot be planned throws
+   * `PlanError`. A developer session is planned only in its run's box (DIPO-240, 0008); a reviewer
+   * session only in `place`, the read-only box its caller made for it (0002).
    */
   prepare(
     spec: WorkerSpec,
@@ -94,25 +79,20 @@ export interface WorkerPort {
   previewBox?(spec: WorkerSpec, paths: RunLaunchPaths): LaunchPlan;
   /**
    * The parser state ingestion of a session starts from. For the run's next session (DIPO-51)
-   * `previous` is the previous session's stored state: recorded classifier switches carry over,
-   * and a resume (`spec.session.resume`) starts from its usage baseline, so restored spend is
-   * not counted twice. The spec's kind decides which report the state parses.
+   * `previous` is the previous session's stored state: recorded classifier switches carry over.
+   * The spec's kind decides which report the state parses.
    */
   initialState(spec: WorkerSpec, previous?: ParseState): ParseState;
   /** Pure: a steering op as host ops (the adapter's `encode`, DIPO-50); needs no run paths. */
   encode(op: SteerOp): HostOp[];
   /** Pure: the run's result from a session's parser state and exit (the adapter's `result`). */
   result(state: ParseState, exit: ExitRecord): WorkerResult;
-  /** Pure: what a session's parser state says for a resume or a handoff (DIPO-51). */
+  /** Pure: what a session's parser state says for the handoff of the next session (DIPO-51). */
   sessionFacts(state: ParseState): SessionFacts;
 }
 
 /** What a session's parser state says for its next session (DIPO-51). */
 export interface SessionFacts {
-  /** Context tokens of the last request; null when unknown. */
-  readonly contextTokens: number | null;
-  /** The model's context window; null when unknown. */
-  readonly contextWindow: number | null;
   /** The last valid report of the session; null when there is none. */
   readonly lastReport: WorkerReport | null;
 }

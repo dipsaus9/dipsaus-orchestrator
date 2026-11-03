@@ -1,6 +1,6 @@
 // The `dipo` command line: `--version`, `--help`, the daemon-side forms, the daemon subcommands and
 // the hidden `self-check`; later stories add subcommands. Daemon-side forms go through `runDaemon`
-// (0004, 0006 decision 2); every other subcommand goes through `client`.
+// (0004, 0005); every other subcommand goes through `client`.
 
 import {
   autostartReport,
@@ -109,7 +109,7 @@ Usage:
   dipo daemon log-level <level>
                     set the running daemon's log level until it restarts
                     (error, warn, info, debug or trace)
-  dipo daemon resume-scheduling
+  dipo daemon resume-starts
                     lift every office's starts paused, so the daemon starts
                     work again
   dipo office open [path]

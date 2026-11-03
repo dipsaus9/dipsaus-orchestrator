@@ -1,7 +1,7 @@
-// CI only (0017 section 1, DIPO-225): the flows on real git; the hand-off state as data stays in
+// CI only (0017, DIPO-225): the flows on real git; the hand-off state as data stays in
 // conflicts.test.ts.
 // Conflicts with the base before In Review and the conflict hand-off of a box run (DIPO-149, with
-// DIPO-291's marker check; 0019 sections 6, 8 and 10): the hand-off state as data, then
+// DIPO-291's marker check; 0002): the hand-off state as data, then
 // `StoryConflicts` on a migrated state database built from fixtures and a real git repository
 // with a bare remote under DIPO_TMP: the markers left at done, the hand-offs and their cap, a
 // blocked report, the sync's outcomes at done, the approval carried over a clean merge dipo
@@ -441,7 +441,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       }, "L"));
   });
 
-  describe("an approval carried over a clean merge dipo made (0019 section 6)", () => {
+  describe("an approval carried over a clean merge dipo made (0002)", () => {
     it("carries the approval of the head to an engine merge plus task-file commits, with no round", () =>
       inWorld(async (w) => {
         const approved = await onBranch(w, { "src/a.ts": "a\n" }, "DIPO-1: add a");

@@ -1,4 +1,4 @@
-// The story's diff as the verdict checks it (0019 section 5): for each changed path, the lines of
+// The story's diff as the verdict checks it (0002): for each changed path, the lines of
 // the file at the reviewed commit that lie inside a hunk of the story's diff, by line number. A
 // blocking scope, security or correctness finding must point at one of them and quote it. Pure.
 

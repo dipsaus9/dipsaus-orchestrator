@@ -1,4 +1,4 @@
-// `work.discard` (DIPO-161; 0020 section 8), with real git and a bare remote (the reconcile
+// `work.discard` (DIPO-161; 0020), with real git and a bare remote (the reconcile
 // harness, its scripted Backlog CLI), a lane that journals into the real journal and records its
 // ops, and a code host that records its PR closes: a parked story with uncommitted files, a
 // merged PR, a remote tip dipo did not push, the leftovers of a story Done on the base, a running

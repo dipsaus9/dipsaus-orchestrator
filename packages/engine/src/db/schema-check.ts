@@ -1,4 +1,4 @@
-// Isolation by key (0007 section 3): every office-scoped table has `office_id` as the first
+// Isolation by key (0007): every office-scoped table has `office_id` as the first
 // column of its primary key. The schema test runs this over the migrated database.
 
 import type { SqlRunner } from "../platform/sqlite";

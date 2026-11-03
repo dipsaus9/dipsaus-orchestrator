@@ -1,5 +1,5 @@
-// The contract over WebSocket on the Unix socket (DIPO-24, 0005 sections 3, 7, 8 and 11; 0006
-// decisions 5 and 9): the server's own protocol against a hand-written engine surface (DIPO-318).
+// The contract over WebSocket on the Unix socket (DIPO-24, 0005): the
+// server's own protocol against a hand-written engine surface (DIPO-318).
 // A `ws+unix://` test client talks to the server in-process; every frame it receives must parse
 // with `ServerFrame`. What the engine answers (hello, describe, daemon.*, the lifecycle checks, the
 // change log and its cursors) is tested against `createEngine` in

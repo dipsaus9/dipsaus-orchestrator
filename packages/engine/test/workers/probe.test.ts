@@ -1,4 +1,4 @@
-// `probe` for the Claude CLI adapter (DIPO-43 AC #1, 0008 section 2): `claude --version` and
+// `probe` for the Claude CLI adapter (DIPO-43 AC #1, 0008): `claude --version` and
 // `claude auth status`, refusing a version below 2.1.285 or any authMethod but `claude.ai`.
 
 import { describe, expect, it } from "bun:test";
@@ -49,11 +49,9 @@ describe("(unit) Claude Code probe", () => {
     expect(status.reason).toContain("api-key");
   });
 
-  it("accepts the minimum version on a claude.ai login and lists the capabilities", () => {
+  it("accepts the minimum version on a claude.ai login", () => {
     const status = evaluateProbe(out("2.1.285", "claude.ai"));
-    expect(status).toMatchObject({ ok: true, version: "2.1.285", login: "claude.ai" });
-    expect(status.capabilities).toContain("resume");
-    expect(status.capabilities).not.toContain("hooks");
+    expect(status).toEqual({ ok: true, version: "2.1.285", login: "claude.ai" });
   });
 
   it("refuses when either command fails or prints nothing usable", () => {

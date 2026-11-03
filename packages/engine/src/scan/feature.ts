@@ -1,11 +1,11 @@
-// The run profile as a feature (DIPO-72, 0013 sections 2, 4 and 5; 0007 sections 4 and 6). It
+// The run profile as a feature (DIPO-72, 0013; 0007). It
 // adds the `scan.profile` office load step, which computes the fingerprint on `_base` and runs
 // detection only on a mismatch, and the `office.rescan` command, which fetches, re-indexes the
 // stories (DIPO-32), reconciles them (DIPO-56) and always runs detection. `work.run` (DIPO-48) calls `ensureFreshProfile`
 // first and `verifyResolved` for its refusal. Scans of one office run one at a time. A scan is
-// code only: no model is asked (0013 amendment of 2026-10-11).
+// code only: no model is asked (0013).
 //
-// DIPO-310 adds the maintainer's side (0013 section 6 and its amendment of 2026-10-22):
+// The maintainer's side (0013):
 // `office.infer` starts the fallback session (`fallback.ts`) only when the maintainer asks,
 // `office.confirm` accepts, edits, rejects or sets a capability (`confirm-command.ts`), and
 // `office.profile` lists the profile (`profile-view.ts`). A scan lays the confirmations over what
@@ -69,7 +69,7 @@ import {
 /** The load step's name in the registry. */
 export const SCAN_STEP = "scan.profile";
 
-/** The `scan` block's defaults (0013 amendment of 2026-10-22), for an office without a config. */
+/** The `scan` block's defaults (0013), for an office without a config. */
 export const SCAN_DEFAULTS: Omit<ScanSessionSettings, "maxTurns"> = OFFICE_DEFAULTS.scan;
 
 export interface RunProfilesDeps {
@@ -116,7 +116,7 @@ export interface ScanOutcome {
 interface Tracked {
   readonly office: OfficeHandle;
   readonly clock: Clock;
-  /** The main checkout, where env file presence is checked (0013 section 4). */
+  /** The main checkout, where env file presence is checked (0013). */
   readonly path: string;
   /** The scan running now; the next one starts after it. */
   busy: Promise<unknown>;
@@ -214,7 +214,7 @@ export class RunProfiles {
             return { result: { scan: "started" as const }, changed: false };
           },
         });
-        // The fallback starts only here, when the maintainer asks (0013 amendment of 2026-10-22).
+        // The fallback starts only here, when the maintainer asks (0013).
         registry.addOfficeCommand({
           definition: officeInfer,
           handle: (ctx) => ({
@@ -241,7 +241,7 @@ export class RunProfiles {
     };
   }
 
-  /** dipo's base copy of the office: its file list and evidence texts (0021 amendment, DIPO-310). */
+  /** dipo's base copy of the office: its file list and evidence texts (0008, DIPO-310). */
   async #readBase(office: OfficeId) {
     const git = this.#git(office);
     const base = await git.ensureBaseWorktree();
@@ -266,7 +266,7 @@ export class RunProfiles {
 
   /**
    * The refusal `work.run` gives when the office's verify is unresolved, naming the script to
-   * add; null when verify resolved (0013 section 2). Reads the stored profile only.
+   * add; null when verify resolved (0013). Reads the stored profile only.
    */
   verifyResolved(office: OfficeHandle): string | null {
     return verifyResolved(office);
@@ -493,7 +493,7 @@ export class RunProfiles {
   }
 
   /**
-   * Env file presence is a fact of the main checkout (0013 section 4): `_base` holds no
+   * Env file presence is a fact of the main checkout (0013): `_base` holds no
    * gitignored file. Presence is not part of the fingerprint.
    */
   async #withMainPresence(state: Tracked, probe: Probe): Promise<Probe> {

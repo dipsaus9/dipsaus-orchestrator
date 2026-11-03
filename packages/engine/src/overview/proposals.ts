@@ -18,7 +18,7 @@ export interface ProposalItem {
   readonly run: string;
   /** One line: the decision file, or the proposal's title. */
   readonly title: string;
-  /** The rest: the section and the note's text, or the outcome, why and paths. */
+  /** The rest: the section and the note's text, or the Story line, why and paths. */
   readonly detail: string;
   readonly createdAt: number;
 }
@@ -41,7 +41,7 @@ interface ProposalRow {
   run_id: string;
   kind: "follow-up" | "spike" | "tool";
   title: string;
-  outcome: string;
+  story_line: string;
   why: string;
   paths: string;
   created_at: number;
@@ -73,7 +73,7 @@ export function openDecisionNotes(office: OfficeHandle): ProposalItem[] {
 export function openProposals(office: OfficeHandle): ProposalItem[] {
   return office
     .all<ProposalRow>(
-      `select p.hash, p.story_key, s.story_id, p.run_id, p.kind, p.title, p.outcome, p.why,
+      `select p.hash, p.story_key, s.story_id, p.run_id, p.kind, p.title, p.story_line, p.why,
               p.paths, p.created_at
          from proposals p
          left join stories s on s.office_id = p.office_id and s.key = p.story_key
@@ -89,7 +89,7 @@ export function openProposals(office: OfficeHandle): ProposalItem[] {
         story: row.story_id,
         run: row.run_id,
         title: row.title,
-        detail: `${row.outcome} Why: ${row.why}${paths.length === 0 ? "" : ` Paths: ${paths.join(", ")}`}`,
+        detail: `Story: ${row.story_line} Why: ${row.why}${paths.length === 0 ? "" : ` Paths: ${paths.join(", ")}`}`,
         createdAt: row.created_at,
       };
     });

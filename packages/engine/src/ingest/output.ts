@@ -1,7 +1,7 @@
-// What worker output is stored (0007 section 8): the main agent's text, plus one line per tool
+// What worker output is stored (0007): the main agent's text, plus one line per tool
 // call with the tool name and its target path. Tool results never reach `output_chunks`.
 //
-// `privacy.storeCommandBodies` (0007 section 8, DIPO-83) is on by default: its default in the
+// `privacy.storeCommandBodies` (0007, DIPO-83) is on by default: its default in the
 // office configuration is true (`OFFICE_DEFAULTS` in `config/schema.ts`; DIPO-135, DIPO-137), so
 // the tool line also holds the call's input as one line: `[tool] <tool> bun test`. Set to false, the
 // line holds the tool name and path only. `DEFAULT_OUTPUT_PRIVACY` (inputs off) applies only where
@@ -25,7 +25,7 @@ import type { WorkerEvent } from "../workers/types";
 /** The most characters of a tool input one stored tool line holds. */
 export const INPUT_MAX_CHARS = 200;
 
-/** What ingestion may store beyond the tool name and path (0007 section 8). */
+/** What ingestion may store beyond the tool name and path (0007). */
 export interface OutputPrivacy {
   /** `privacy.storeCommandBodies`: tool inputs in `output_chunks`. */
   readonly storeCommandBodies: boolean;

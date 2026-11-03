@@ -1,18 +1,17 @@
-// The project settings check (0008 section 2, "Project settings"). A `-p` run uses the project's
-// hooks, `env` and `apiKeyHelper` without trust, so before every launch and resume the engine
-// reads the worktree's `.claude/settings.json` and `.claude/settings.local.json` and refuses any
-// top-level or `permissions.*` key that is not on the engine's safe list: no session loads other
-// settings from the repository copy (0008). Unknown and future keys fail closed. A `sandbox` key
-// always refuses, because the run's sandbox comes only from `--settings`. A key the setup copy
-// strips from the local file (DIPO-39) that has reappeared refuses too.
+// The project settings check (0008). A `-p` run uses the project's hooks, `env` and `apiKeyHelper`
+// without trust, so before every launch of a Mac session the engine reads `.claude/settings.json`
+// and `.claude/settings.local.json` in the session's folder and refuses any top-level or
+// `permissions.*` key that is not on the engine's safe list: no session loads other settings from a
+// project file (0008). Unknown and future keys fail closed. A `sandbox` key always refuses: a
+// project file never sets how a session is confined. In the local file, a key `LOCAL_REFUSED_KEYS`
+// names refuses too.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { LaunchCheckFailure } from "../hold";
-import type { LocalSettingsCopy } from "../port";
+import type { LaunchCheckFailure } from "../../run/starts-paused";
 
-/** The engine's safe list (0008 section 2). The MCP keys are inert under `--strict-mcp-config`. */
+/** The engine's safe list (0008). The MCP keys are inert under `--strict-mcp-config`. */
 export const SAFE_PROJECT_SETTINGS: readonly string[] = [
   "$schema",
   "permissions.deny",
@@ -26,8 +25,8 @@ export const SAFE_PROJECT_SETTINGS: readonly string[] = [
 /** Never allowed. */
 export const NEVER_ALLOWED_SETTING = "sandbox";
 
-/** Keys the setup copy of `.claude/settings.local.json` drops (0008 section 2, 0010 amendment). */
-export const LOCAL_STRIPPED_KEYS: readonly string[] = [
+/** Keys the check refuses in `.claude/settings.local.json`: they widen permissions or load MCP servers (0008). */
+export const LOCAL_REFUSED_KEYS: readonly string[] = [
   "permissions.allow",
   "permissions.ask",
   "permissions.additionalDirectories",
@@ -61,7 +60,7 @@ export function settingsKeys(settings: Json): string[] {
 
 /**
  * Pure: the refusals for one parsed settings file. `file` is the path the notice names; `local`
- * marks the setup copy of `settings.local.json`, where a stripped key must never reappear.
+ * marks `settings.local.json`, which refuses the keys `LOCAL_REFUSED_KEYS` names as well.
  */
 export function checkSettings(
   file: string,
@@ -88,14 +87,14 @@ export function checkSettings(
       failures.push({
         check: "settings",
         detail:
-          "a sandbox key refuses the run and can never be allowlisted: the run's sandbox comes only from the engine's --settings file; remove it",
+          "a sandbox key refuses the run and can never be allowlisted: a project file never sets how a session is confined; remove it",
         file,
         key,
       });
-    } else if (local && LOCAL_STRIPPED_KEYS.includes(key)) {
+    } else if (local && LOCAL_REFUSED_KEYS.includes(key)) {
       failures.push({
         check: "settings",
-        detail: "the key was stripped when the worktree was set up and has reappeared; remove it",
+        detail: "the key is never allowed in the local settings file; remove it",
         file,
         key,
       });
@@ -111,33 +110,6 @@ export function checkSettings(
   }
   return failures;
 }
-
-/**
- * Pure: the local settings as the setup copy writes them, without the stripped keys (0008
- * section 2). For DIPO-39's copy; the check above then runs over what remains.
- */
-export function stripLocalSettings(settings: Json): Json {
-  const out: Json = {};
-  for (const [key, value] of Object.entries(settings)) {
-    if (LOCAL_STRIPPED_KEYS.includes(key)) continue;
-    if (key === "permissions" && isObject(value)) {
-      const permissions: Json = {};
-      for (const [inner, innerValue] of Object.entries(value)) {
-        if (!LOCAL_STRIPPED_KEYS.includes(`permissions.${inner}`)) permissions[inner] = innerValue;
-      }
-      out[key] = permissions;
-    } else {
-      out[key] = value;
-    }
-  }
-  return out;
-}
-
-/** The setup copy of the local settings, as the Claude worker port hands it out (DIPO-113). */
-export const CLAUDE_LOCAL_SETTINGS: LocalSettingsCopy = {
-  file: LOCAL_SETTINGS_FILE,
-  strip: stripLocalSettings,
-};
 
 /** Reads a file's text, or undefined when it does not exist. Injectable for tests. */
 export type ReadOptionalText = (path: string) => Promise<string | undefined>;

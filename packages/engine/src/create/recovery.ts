@@ -15,6 +15,7 @@ import { join } from "node:path";
 import type { Clock, DatabaseUnavailableReason } from "@dipsaus-orchestrator/contract";
 import { backupsDirectory, preMigrationBackups } from "../db/backup-files";
 import {
+  DatabaseBeforeSquashError,
   DatabaseTooNewError,
   MigrationChecksumError,
   MigrationFailedError,
@@ -174,12 +175,13 @@ function failure(
 }
 
 /**
- * What a failed open or migration of the state database means for the maintainer (0007 sections 9
- * and 10, DIPO-111): the reason, the newest backup when one exists, and one paragraph
+ * What a failed open or migration of the state database means for the maintainer (0007,
+ * DIPO-111): the reason, the newest backup when one exists, and one paragraph
  * that says what to do. A failed migration left `dipo.db` as it was (the step rolled back), so the
  * fix is a dipo whose migrations work: the previous version or a fixed release; the backup is for
  * a file that is itself suspect. An edited migration, a damaged file or any other failure: stop
- * the daemon and move the file away or copy the newest backup in. A too-new database: upgrade dipo. A network
+ * the daemon and move the file away or copy the newest backup in. A too-new database: upgrade dipo. A
+ * database from before the squash: move it away and start fresh. A network
  * filesystem: move the state directory.
  */
 export function databaseFailure(error: unknown, stateDir: string): DatabaseFailure {
@@ -195,6 +197,13 @@ export function databaseFailure(error: unknown, stateDir: string): DatabaseFailu
       "tooNew",
       `The state database is at schema version ${error.found}, newer than this dipo supports (${error.supported}).`,
       "Upgrade dipo, then run `dipo daemon restart`.",
+    );
+  }
+  if (error instanceof DatabaseBeforeSquashError) {
+    return failure(
+      "beforeSquash",
+      `The state database ${error.path} was written by an earlier dipo, before its schema steps were squashed into one base schema, and this dipo cannot read it.`,
+      `Run \`dipo daemon stop\`, move ${error.path} and its -wal and -shm files away, then start the daemon again: it creates a fresh database, and \`dipo office open\` registers each repository again. Stories, branches and PRs stay in Backlog.md and git; only run history (costs, logs) is lost.`,
     );
   }
   const backup = newestBackup(stateDir);

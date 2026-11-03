@@ -1,6 +1,6 @@
-// CI only (0017 section 1, DIPO-225): real git repositories and processes, too slow for the local
+// CI only (0017, DIPO-225): real git repositories and processes, too slow for the local
 // run.
-// `work.discard` (DIPO-161; 0020 section 8), with real git and a bare remote (the reconcile
+// `work.discard` (DIPO-161; 0020), with real git and a bare remote (the reconcile
 // harness, its scripted Backlog CLI), a lane that journals into the real journal and records its
 // ops, and a code host that records its PR closes: a parked story, a remote tip dipo did not push,
 // the leftovers of a story Done on the base, a running story, and a story with nothing to discard.
@@ -286,7 +286,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         ]);
         expect(entriesOf(o.office, "story.state", seq).at(-1)).toMatchObject({ to: "Refined" });
         expect(entriesOf(o.office, "question.closed", seq)).toHaveLength(1);
-        // The ended run's box goes too (0021 section 6).
+        // The ended run's box goes too (0008).
         expect(seen.boxes).toBe(1);
 
         // A re-run finds the target state and changes nothing.

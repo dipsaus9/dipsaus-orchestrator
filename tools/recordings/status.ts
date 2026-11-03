@@ -1,4 +1,4 @@
-// `bun run recordings:status` (0017 section 2, "Storage and refresh"): compares the local
+// `bun run recordings:status` (0017): compares the local
 // `claude --version` with each recording's `claude_code_version` and lists the stale ones, so the
 // maintainer sees when a refresh is due. A dev script, not a test: tests must not depend on an
 // installed `claude`.

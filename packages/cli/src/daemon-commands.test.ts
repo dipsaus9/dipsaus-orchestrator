@@ -60,7 +60,7 @@ function fake(connect: () => Promise<Handler>, daemon: DaemonControl = NO_LIFECY
 
 const answering = (handler: Handler) => () => Promise.resolve(handler);
 
-describe("dipo daemon log-level and resume-scheduling", () => {
+describe("dipo daemon log-level and resume-starts", () => {
   it("sends daemon.setLogLevel and prints the new level", async () => {
     const ctx = fake(answering(async ({ args }) => ({ ok: true, result: args, changed: true })));
     expect(await main(["daemon", "log-level", "debug"], ctx.deps)).toBe(0);
@@ -75,12 +75,12 @@ describe("dipo daemon log-level and resume-scheduling", () => {
     expect(ctx.out).toEqual(["daemon log level: info (unchanged)"]);
   });
 
-  it("sends daemon.resumeScheduling and prints the state", async () => {
+  it("sends daemon.resumeStarts and prints the state", async () => {
     const ctx = fake(
       answering(async () => ({ ok: true, result: { state: "running" }, changed: true })),
     );
-    expect(await main(["daemon", "resume-scheduling"], ctx.deps)).toBe(0);
-    expect(ctx.sent).toEqual([{ name: "daemon.resumeScheduling", args: {} }]);
+    expect(await main(["daemon", "resume-starts"], ctx.deps)).toBe(0);
+    expect(ctx.sent).toEqual([{ name: "daemon.resumeStarts", args: {} }]);
     expect(ctx.out).toEqual(["starts unpaused in every office; daemon state: running"]);
   });
 
@@ -95,7 +95,7 @@ describe("dipo daemon log-level and resume-scheduling", () => {
         },
       })),
     );
-    expect(await main(["daemon", "resume-scheduling"], ctx.deps)).toBe(1);
+    expect(await main(["daemon", "resume-starts"], ctx.deps)).toBe(1);
     expect(ctx.err).toEqual([
       "dipo: database.unavailable: The state database is damaged. No office is loaded.",
     ]);
@@ -105,7 +105,7 @@ describe("dipo daemon log-level and resume-scheduling", () => {
   it("names dipo daemon start and exits non-zero when no daemon is running", async () => {
     for (const argv of [
       ["daemon", "log-level", "debug"],
-      ["daemon", "resume-scheduling"],
+      ["daemon", "resume-starts"],
     ]) {
       const ctx = fake(() =>
         Promise.reject(new DaemonNotRunningError("/state", "no runtime.json in /state")),
@@ -147,11 +147,11 @@ describe("dipo daemon log-level and resume-scheduling", () => {
       ["daemon", "log-level"],
       ["daemon", "log-level", "loud"],
       ["daemon", "log-level", "debug", "extra"],
-      ["daemon", "resume-scheduling", "now"],
+      ["daemon", "resume-starts", "now"],
     ]) {
       const ctx = fake(() => Promise.reject(new Error("must not connect")));
       expect(await main(argv, ctx.deps)).toBe(2);
-      expect(ctx.err[0]).toMatch(/^dipo: daemon (log-level|resume-scheduling)/);
+      expect(ctx.err[0]).toMatch(/^dipo: daemon (log-level|resume-starts)/);
     }
   });
 });

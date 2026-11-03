@@ -293,8 +293,8 @@ describe("a steer through the real worker host to a session that queues it (AC #
       // The In Review end closed the worker's stdin through the host, so it exits.
       await pass("the worker's exit", () => exited);
 
-      // Before DIPO-412 the finisher took turn 1's report (A only) and closed stdin, and the
-      // turn B started was never taken. Now turn 1 waits and the turn B started decides.
+      // Turn 1 waits and the turn B started decides; a finisher that took turn 1's report
+      // (A only) and closed stdin would never take turn B (DIPO-412).
       expect(w.taken).toEqual([`read: ${steerText("Also test it.")}`]);
       expect(read()).toEqual(["The task.", steerText("Add a JSDoc."), steerText("Also test it.")]);
       expect(

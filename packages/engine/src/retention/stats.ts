@@ -1,4 +1,4 @@
-// `office.stats { office }` (0007 "Size", DIPO-65): the row count and approximate bytes of every
+// `office.stats { office }` (0007): the row count and approximate bytes of every
 // office-scoped table for one office, so the retention periods can be tuned. Tables are read from
 // the schema, so a table a later migration adds shows up without a change here.
 //

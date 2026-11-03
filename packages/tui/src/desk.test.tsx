@@ -229,7 +229,7 @@ async function openQueue() {
 }
 
 /** A question of `run` the engine asked, as the office stream carries it. */
-function asked(seq: number, run: string, story: string, key: string, kind = "question") {
+function asked(seq: number, run: string, story: string, key: string) {
   return event(seq, "question.asked", {
     question: Q19,
     work: {
@@ -241,8 +241,8 @@ function asked(seq: number, run: string, story: string, key: string, kind = "que
       tier: "L",
       model: "claude-opus",
     },
-    kind,
-    text: kind === "permission" ? "Bash(docker compose up)" : "Is a 404 ok?",
+    kind: "question",
+    text: "Is a 404 ok?",
     askedAt: "2026-10-14T10:03:00.000Z",
   });
 }
@@ -344,7 +344,7 @@ describe("the desk stays current", () => {
     await until(() => deskReads(session) === 2, "the read after the starts paused");
     await Bun.sleep(DESK_READ_INTERVAL_MS + 50);
     office?.onEvent(
-      event(10, "engine.notice", { level: "info", code: "office.startsLifted", text: "lifted" }),
+      event(10, "engine.notice", { level: "info", code: "office.startsResumed", text: "lifted" }),
     );
     await until(() => deskReads(session) === 3, "the read after the lift");
   });
@@ -409,11 +409,11 @@ describe("the key table on desk rows", () => {
       detail: "no new session starts · plan limit until 2026-10-14T12:00:00.000Z",
       since: ago(4),
       blocks: [],
-      actions: [{ command: "daemon.resumeScheduling", cli: "dipo daemon resume-scheduling" }],
-      hand: "It lifts by itself at 2026-10-14T12:02:00.000Z, or with `dipo daemon resume-scheduling`.",
+      actions: [{ command: "daemon.resumeStarts", cli: "dipo daemon resume-starts" }],
+      hand: "It lifts by itself at 2026-10-14T12:02:00.000Z, or with `dipo daemon resume-starts`.",
     });
     const { ui } = await openDesk({ desk: [paused, byYou] });
-    const frame = await ui.waitFor("type: dipo daemon resume-scheduling");
+    const frame = await ui.waitFor("type: dipo daemon resume-starts");
     const rows = lines(frame).filter((line) => /^ [> ] [A-Z]/.test(line));
     expect(rows[0]).toMatch(/^ > STARTS PAUSED +no new session starts · plan limit until/);
     expect(frame).toContain("by hand: It lifts by itself at 2026-10-14T12:02:00.000Z");
@@ -725,25 +725,6 @@ describe("answers, closed prompts, read-your-writes and retry", () => {
     ]);
   });
 
-  it("answers a permission question from the detail with a text, never a decision", async () => {
-    const view = await mount({ columns: 120, rows: 30 });
-    mounted.push(view.ui);
-    const { ui, session } = view;
-    await ui.waitFor("· live");
-    session.active(STREAM)?.options.onEvent(asked(8, RUN_24, "DIPO-24", KEY_24, "permission"));
-    await ui.press("j");
-    await ui.waitFor(">DIPO-24");
-    await ui.press("enter");
-    await ui.waitFor("following the tail");
-    await ui.waitFor("[a]nswer");
-    await ui.press("a");
-    await ui.waitFor("answer: _");
-    await ui.press("deny");
-    await ui.press("enter");
-    await until(() => session.commands.length === 1, "the answer");
-    expect(sent(session)).toEqual([{ name: "work.answer", args: { question: Q19, text: "deny" } }]);
-  });
-
   it("closes a prompt whose question closed with the engine's message", async () => {
     const { ui, session } = await openDesk();
     session.commandReply = (name) =>
@@ -888,7 +869,7 @@ describe("Enter on a desk row", () => {
     expect(shown.some((line) => line.startsWith(" round 1 · 4f2a9c1e5d6b · blocked · "))).toBe(
       true,
     );
-    // Per-criterion results and findings are the reviewer's word; evidence markers are off.
+    // Per-criterion results and findings show plain, with no evidence marker.
     expect(shown).toContain("   criteria: #1 met  #2 unmet");
     expect(shown).toContain("     #2 no notice on the cap");
     expect(shown).toContain(

@@ -1,8 +1,8 @@
-// The web recordings replayed (DIPO-164; 0020 section 11b, 0017 section 2): the derived
+// The web recordings replayed (DIPO-164; 0020, 0017): the derived
 // `web-calls` recording and the live `web` capture, each with a WebSearch, a WebFetch and a
-// WebFetch the PreToolUse hook of an earlier binary refused, parse through the adapter, each web
+// WebFetch a PreToolUse hook refused at capture, parse through the adapter, each web
 // call shows in the worker output with its query or URL, the calls are counted by tool, and the
-// recorded refusal names the env file and key and never the value. No session has hooks any more
+// recorded refusal names the env file and key and never the value. No session has hooks
 // (0008, DIPO-347); the hook lines of these recordings are ignored.
 
 import { describe, expect, it } from "bun:test";

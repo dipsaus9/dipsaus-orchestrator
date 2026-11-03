@@ -1,9 +1,9 @@
-// The planning lane (0010 section 2, lane b). Changes that belong to no story PR are journaled,
+// The planning lane (0010, lane b). Changes that belong to no story PR are journaled,
 // applied through the Backlog CLI in the engine's backlog worktree `<root>/_backlog`, committed one
 // by one as `backlog: <op> <ID>` on an engine branch `dipo/backlog-<UTC yyyymmddThhmmss>`, and
 // pushed. Later operations append to the open branch until its changes are on the base.
 //
-// Order and atomicity (0010 section 2a "Ordering in the office git queue"):
+// Order and atomicity in the office git queue (0010):
 // - Journaling, with its live-claim check, is one item of the office git queue and one database
 //   transaction, before any CLI call. From then on `pendingLaneOp` covers the story.
 // - A flush is one queue item from the first git step to the push: every CLI write (status,
@@ -88,7 +88,7 @@ import {
 } from "./journal";
 import type { LaneOpKind } from "./ops";
 
-/** The engine's backlog worktree under the worktree root (0010 section 7). */
+/** The engine's backlog worktree under the worktree root (0010). */
 export const LANE_WORKTREE = "_backlog";
 /** Engine branches of the planning lane: `dipo/backlog-<UTC yyyymmddThhmmss>`. */
 export const LANE_BRANCH_PREFIX = "dipo/backlog-";
@@ -234,13 +234,14 @@ export interface OfficeLaneOptions {
   readonly cli: BacklogCli;
   readonly clock: Clock;
   readonly kinds: ReadonlyMap<string, LaneOpKind>;
-  /** True when the story has a live claim; such a story belongs to lane a (0010 section 2). */
+  /** True when the story has a live claim; such a story belongs to lane a (0010). */
   readonly liveClaim?: (office: OfficeHandle, key: StoryKey) => boolean;
   /** Called after the lane appended change-log entries outside a command. */
   readonly onChanged?: (office: OfficeId) => void;
   /**
-   * Called after each successful flush, outside the git queue item (DIPO-35 opens or updates the
-   * backlog PR here and looks for merged ones). It reports its own failures; the flush ignores them.
+   * Called after each successful flush, outside the git queue item (`BacklogPrs` opens or updates
+   * the backlog PR here and looks for merged ones). It reports its own failures; the flush ignores
+   * them.
    */
   readonly onFlushed?: (office: OfficeId, report: FlushReport) => Promise<void>;
   /**
@@ -988,7 +989,7 @@ export class OfficeLane {
 
   /**
    * The base and the commit operations apply to: `<remote>/<base>` with a remote, the local
-   * `<base>` without one (0010 section 7, start point).
+   * `<base>` without one (0010, start point).
    */
   async #base(git: GitSession, hasRemote: boolean): Promise<BaseRef> {
     const { remote } = this.#git.settings;
@@ -1146,7 +1147,7 @@ export class OfficeLane {
 
   /**
    * The operations on the branch whose changed files all hold, on the base, the blob the branch
-   * tip holds: their changes have merged (0010 section 2).
+   * tip holds: their changes have merged (0010).
    */
   async #mergedOf(
     git: GitSession,
@@ -1186,7 +1187,7 @@ export class OfficeLane {
       .map((entry) => entry.opId);
   }
 
-  /** True when the branch no longer merges cleanly into the base (0010 section 7). */
+  /** True when the branch no longer merges cleanly into the base (0010). */
   async #conflicts(git: GitSession, base: string, tip: string): Promise<boolean> {
     const result = await git.step(git.repository, ["merge-tree", "--write-tree", base, tip]);
     if (result.code === 0) return false;
@@ -1219,7 +1220,7 @@ export interface BacklogLaneDeps {
   readonly logger?: Pick<Logger, "info" | "warn">;
 }
 
-/** The load step that replays open journal entries (0007 section 6 step 2). */
+/** The load step that replays open journal entries (0007). */
 export const LANE_REPLAY_STEP = "backlog.lane.replay";
 
 /** `the backlog PR #n` from a PR URL, else the PR of `branch`. */

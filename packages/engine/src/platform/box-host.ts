@@ -1,4 +1,4 @@
-// The Bun side of the box login (DIPO-269, 0004 amendment c: engine code reaches `Bun.spawn` and
+// The Bun side of the box login (0004: engine code reaches `Bun.spawn` and
 // `Bun.serve` only through the platform module): the terminal spawn that lets `security` ask the
 // maintainer for the token itself, and the HTTP listener of the model proxy.
 

@@ -1,4 +1,4 @@
-// Office loading (DIPO-27; 0006 decision 4, 0007 section 6): an office's engine instance loads on
+// Office loading (DIPO-27; 0005, 0007): an office's engine instance loads on
 // its first office-level command or read, refuses an office whose `office.json` names another id,
 // and runs the load steps feature modules registered, in registration order; a failing step
 // refuses the office with a notice naming it. A loaded office reads its configuration again when
@@ -78,7 +78,7 @@ describe("lazy office loading", () => {
           path: repo.dir,
           commonDir: join(repo.dir, ".git"),
         });
-        expect(seen[0]?.config?.version).toBe(15);
+        expect(seen[0]?.config?.version).toBe(16);
       },
       { fixture: BACKLOG_FIXTURE },
     );
@@ -211,9 +211,9 @@ describe("office load steps", () => {
 });
 
 const OFFICE_YAML = join(".dipo", "office.yaml");
-const CLOSED = "version: 14\nreview:\n  maxRounds: 2\n";
-const OPEN = "version: 14\nreview:\n  maxRounds: 4\nstory:\n  securityPhrases: [firewall rule]\n";
-const INVALID = "version: 14\ntimeouts:\n  workerStallMinutes: soon\n";
+const CLOSED = "version: 16\nreview:\n  maxRounds: 2\n";
+const OPEN = "version: 16\nreview:\n  maxRounds: 4\nstory:\n  securityPhrases: [firewall rule]\n";
+const INVALID = "version: 16\ntimeouts:\n  workerStallMinutes: soon\n";
 
 interface Polled {
   readonly repo: TempRepoWithRemote;

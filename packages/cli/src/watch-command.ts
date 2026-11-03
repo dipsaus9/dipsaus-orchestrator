@@ -302,7 +302,7 @@ class Watch {
       if (!this.#watches(question.work.key)) continue;
       this.#questions.add(question.question);
       this.#line(
-        `${question.work.story} asks ${question.kind} ${question.question}: ${question.text} (answer with dipo answer ${question.question} ${question.kind === "permission" ? "allow|deny" : "<text>"})`,
+        `${question.work.story} asks ${question.kind} ${question.question}: ${question.text} (answer with dipo answer ${question.question} <text>)`,
       );
     }
     this.#line("--");
@@ -390,7 +390,7 @@ class Watch {
           event,
           question.work.story,
           "asks",
-          `${question.kind} ${question.question}: ${question.text} (answer with dipo answer ${question.question} ${question.kind === "permission" ? "allow|deny" : "<text>"})`,
+          `${question.kind} ${question.question}: ${question.text} (answer with dipo answer ${question.question} <text>)`,
         );
         break;
       }
@@ -697,7 +697,7 @@ export function doneReportLines(run: RunRecord): string[] {
       ? []
       : report.notes.split("\n").map((line) => `    ${line}`.trimEnd())),
     ...(report.proposals ?? []).map(
-      (proposal) => `    proposal (${proposal.kind}): ${proposal.title} — ${proposal.outcome}`,
+      (proposal) => `    proposal (${proposal.kind}): ${proposal.title} — ${proposal.story}`,
     ),
   ];
 }

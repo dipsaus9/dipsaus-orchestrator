@@ -1,11 +1,9 @@
-// Claude Code plugins in worker runs (0008 section 2, amendment of 2026-10-12; DIPO-108). A worker
-// session loads no plugin (0008):
+// Claude Code plugins in worker runs (0008, DIPO-108). A worker session loads no plugin (0008):
 //
-// - the run settings file sets `enabledPlugins` to false for every installed plugin, so its hooks
-//   never start (a SessionStart hook runs before `system/init`);
-// - the parser checks the `plugins` of `system/init` as the backstop: a
-//   session that lists another plugin is stopped at its `system/init` (`startRefused`) and ends
-//   `startFailed` naming it.
+// - the run settings file of a Mac session sets `enabledPlugins` to false for every installed
+//   plugin, so its hooks never start (a SessionStart hook runs before `system/init`);
+// - the parser checks the `plugins` of `system/init` as the backstop: a session that lists another
+// plugin is stopped at its `system/init` (`startRefused`) and ends `startFailed` naming it.
 //
 // Where Claude Code keeps its plugins is Claude's business, so only this file knows the layout:
 //
@@ -226,13 +224,13 @@ export function refusedPlugins(
 
 /**
  * The `startFailed` detail of a session that loaded plugins the office does not allow; a reviewer
- * session (`kind` `review`) allows none (0019 section 4).
+ * session (`kind` `review`) allows none (0002).
  */
 export function pluginRefusal(refused: readonly string[], kind?: string): string {
   const names = refused.join(", ");
   const listed = `system/init lists ${refused.length === 1 ? "plugin" : "plugins"} ${names}`;
   if (kind === "review") {
-    return `${listed}, but a reviewer session loads no plugin: a plugin's hooks run outside the sandbox, so the session refuses to run (0019 section 4)`;
+    return `${listed}, but a reviewer session loads no plugin: a plugin's hooks run commands no tool setting governs, so the session refuses to run (0002)`;
   }
   return `${listed}, but no session loads a plugin: a plugin's hooks could run outside the box, so the session refuses to run (0008)`;
 }

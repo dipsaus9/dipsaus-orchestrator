@@ -1,4 +1,4 @@
-// Office init (DIPO-36; 0010 sections 2, 6 and 11): the `office.init` command, its lane operation
+// Office init (DIPO-36; 0010): the `office.init` command, its lane operation
 // kind, the settings it records for uninstall, and the statuses check runs depend on.
 
 export { INIT_NOTICES, OfficeInit, officeStatusesReady, planInit, STATUSES_STEP } from "./init";

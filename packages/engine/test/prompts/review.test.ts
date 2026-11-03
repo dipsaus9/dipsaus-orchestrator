@@ -1,4 +1,4 @@
-// The `review` kind's prompts (DIPO-145; 0019 section 4, 0014 sections 1, 2 and 4): the golden
+// The `review` kind's prompts (DIPO-145; 0002, 0014): the golden
 // L1+L2 system file of the reviewer, and the review task message with the section 4 inputs and
 // nothing of the worker's report, notes or handoff.
 
@@ -144,14 +144,17 @@ function names(text: string): string[] {
   return [...text.matchAll(/^<([a-z_]+)>$/gm)].map((match) => match[1] ?? "");
 }
 
+// DIPO-299: a box run's verify is CI on the PR; dipo runs none of its own.
+const box = (): string => renderSystemFile("review-box", "reviewer");
+
 describe("the reviewer's system file (L1 + L2)", () => {
   it("matches the golden file", async () => {
-    await expectGolden("system-review-reviewer.md", renderSystemFile("review", "reviewer"));
+    await expectGolden("system-review-box-reviewer.md", box());
   });
 
   it("is byte-identical on every render and holds no id, date, path or count", () => {
-    const text = renderSystemFile("review", "reviewer");
-    expect(renderSystemFile("review", "reviewer")).toBe(text);
+    const text = box();
+    expect(box()).toBe(text);
     expect(text).not.toMatch(/[0-9]/);
     expect(text).not.toMatch(/\{\{/);
     expect(text.indexOf("# Reviewer contract")).toBe(0);
@@ -160,10 +163,12 @@ describe("the reviewer's system file (L1 + L2)", () => {
     expect(text.endsWith("\n\n")).toBe(false);
   });
 
-  it("states what 0019 section 4 asks of L1", () => {
-    const text = renderSystemFile("review", "reviewer");
+  it("states what 0002 asks of L1", () => {
+    const text = box();
     expect(text).toContain("## You are read-only");
-    expect(text).toContain("Judge the diff against the outcome, the criteria and the test plan.");
+    expect(text).toContain(
+      "Judge the diff against the Story line, the criteria and the test plan.",
+    );
     expect(text).toContain(
       "Report a security or correctness problem only when you can point to an exact changed line",
     );
@@ -182,7 +187,7 @@ describe("the reviewer's system file (L1 + L2)", () => {
   });
 
   it("flags tests that take expected values from the code under test as blocking test findings", () => {
-    const text = renderSystemFile("review", "reviewer");
+    const text = box();
     expect(text).toContain("expected values read from the code under test");
     expect(text).toContain("a constant, list or function of the module it tests");
     expect(text).toContain(
@@ -191,33 +196,13 @@ describe("the reviewer's system file (L1 + L2)", () => {
   });
 
   it("says the story's own task file is written by dipo and is never a scope finding", () => {
-    const text = renderSystemFile("review", "reviewer");
+    const text = box();
     expect(text).toContain("The story's own task file is written by dipo");
     expect(text).toContain("It is exempt from scope, so it is never a scope finding");
   });
 
   it("differs from the developer's", () => {
-    expect(renderSystemFile("review", "reviewer")).not.toBe(
-      renderSystemFile("implement-box", "developer"),
-    );
-  });
-});
-
-// DIPO-299: a box run's verify is CI on the PR; dipo runs none of its own.
-const box = (): string => renderSystemFile("review-box", "reviewer");
-
-/** How many lines of `a` differ from the line at the same place in `b`. */
-function differingLines(a: string, b: string): number {
-  const right = b.split("\n");
-  return a.split("\n").filter((line, i) => line !== right[i]).length;
-}
-
-describe("the box run reviewer's system file", () => {
-  it("matches the golden file, byte-identical on every render, with no id, date, path or count", async () => {
-    await expectGolden("system-review-box-reviewer.md", box());
-    expect(box()).toBe(box());
-    expect(box()).not.toMatch(/[0-9]/);
-    expect(box().indexOf("# Reviewer contract")).toBe(0);
+    expect(box()).not.toBe(renderSystemFile("implement-box", "developer"));
   });
 
   // DIPO-346: dipo runs the verify in the developer's box at done (0002).
@@ -232,17 +217,6 @@ describe("the box run reviewer's system file", () => {
     expect(text).not.toContain("ran no verify of its own");
     expect(text).not.toContain("ran verify on the change");
     expect(text).not.toContain("verify and CI already prove those");
-    // The Mac run's reviewer keeps its wording.
-    const mac = renderSystemFile("review", "reviewer");
-    expect(mac).toContain("checked which paths changed, ran verify on the change");
-    expect(mac).toContain("verify and CI already prove those");
-  });
-
-  it("is the Mac reviewer's contract in every other line", () => {
-    expect(box().split("\n")).toHaveLength(
-      renderSystemFile("review", "reviewer").split("\n").length,
-    );
-    expect(differingLines(box(), renderSystemFile("review", "reviewer"))).toBe(2);
   });
 });
 
@@ -281,7 +255,7 @@ describe("the review task message (L4)", () => {
     }
   });
 
-  it("holds the section 4 inputs in order, each in its tag", () => {
+  it("holds the review inputs in order, each in its tag", () => {
     const message = assembleReviewTaskMessage(
       input({ previousFindings: FINDINGS, workerReport: WORKER_REPORT, safeChain: SAFE_CHAIN }),
     );
@@ -294,7 +268,7 @@ describe("the review task message (L4)", () => {
     const text = message.text;
     // Story facts.
     expect(text).toContain("Id: SHOP-12\nTitle: Add a greeting to the CLI\nType: feature\nTier: M");
-    expect(text).toContain("`shop greet <name>` prints a friendly greeting");
+    expect(text).toContain("Story: As maintainer I want the shop to greet a customer by name");
     expect(text).toContain("#1 `shop greet Ada` prints `Hello, Ada!`.");
     expect(text).toContain("#2 An empty name exits with code 2 and a usage line.");
     expect(text).toContain(

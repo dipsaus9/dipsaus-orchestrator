@@ -71,7 +71,6 @@ export {
   pushRef,
   remoteRefMissing,
   remoteUrl,
-  removeLeftoverWorktree,
   resetWorktree,
   statusPaths,
 } from "./write";

@@ -1,4 +1,4 @@
-// Delivery in parts on real git (DIPO-273, 0021 sections 8, 13 and 14): a fake box whose `tar`
+// Delivery in parts on real git (DIPO-273, 0008): a fake box whose `tar`
 // streams a real folder, dipo's stream, extraction, comparison, scans, plumbing commit and push
 // to a bare remote in the temp folder. The box ignores dipo's exclude list here, so the Mac's own
 // check is what keeps `node_modules` out; the DIPO-290 cases use a box that honours it, as GNU tar

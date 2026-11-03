@@ -1,4 +1,0 @@
-# A version 3 office file: version 3 adds mergeSlot.requiredChecks (DIPO-133).
-version: 3
-mergeSlot: { requiredChecks: [build, Lint (ubuntu)] }
-story: { slugMax: 30 }

@@ -1,6 +1,5 @@
-// The worker report as data (DIPO-186; 0008 section 1, 0014 section 2 and 0020 section 11, their
-// notes of 2026-10-20, and 0021 section 7): code checks and stores what a report carries beyond
-// its criteria, and never changes the story for it.
+// The worker report as data (0008, 0014, 0020): code checks and stores what a report carries
+// beyond its criteria, and never changes the story for it.
 //
 // - Test-plan entries (DIPO-254). A done report must give every automated entry of the story's
 //   test plan the status done; an automated entry that is not done, or has no entry in the report,
@@ -9,6 +8,12 @@
 // - Decision notes. Each note's file must exist at the story branch and hold a section with that
 //   heading (`noteMiss`); a note that passes is stored in `decision_notes`, one that misses is sent
 //   back once and then left out.
+// - Proposals' Story lines (0012 R05, 0020). A proposal whose Story line fails the Ready gate's
+//   shape leaves the report at once (`splitProposals`), so it is never stored or shown as the
+//   worker's. A done report sends such lines back once per run, through the report gate; a line
+//   that still fails, or one in a report with no turn left for it (a blocked report, a done turn at
+//   a cap), is dropped with a notice that carries the proposal's words
+//   (`droppedProposalNotices`). The rest of the report goes on: a proposal never parks a story.
 // - Storage: every done report's test-plan entries and deviations (`done_reports`), the proposals
 //   of every report (`proposals`, deduplicated by a hash of the title and the paths) and the
 //   send-once marks (`report_sendbacks`). Storing changes nothing about the story's status, the
@@ -25,10 +30,12 @@ import {
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
+import { checkStoryLine } from "../gate/rules";
 import type {
   WorkerDecisionNote,
   WorkerDeviation,
   WorkerProposal,
+  WorkerReport,
   WorkerTestPlanEntry,
 } from "../workers/types";
 
@@ -226,7 +233,7 @@ export function latestDoneReport(office: OfficeHandle, runId: RunId): StoredDone
 }
 
 /** What dipo sends back to the worker at most once per run. */
-export type SendBackKind = "decision-note";
+export type SendBackKind = "decision-note" | "proposal";
 
 /** True when `kind` with `signature` was already sent back in the run. */
 export function sentBack(
@@ -257,6 +264,78 @@ export function recordSendBack(
      values ($office_id, $run, $kind, $signature, $at)`,
     { run: runId, kind, signature, at },
   );
+}
+
+// ---- proposals ---------------------------------------------------------------------------------
+
+/** A proposal whose Story line fails 0012 R05, with each problem as the gate words it. */
+export interface RefusedProposal {
+  readonly proposal: WorkerProposal;
+  readonly problems: readonly string[];
+}
+
+/**
+ * Pure: the report with only the proposals whose Story line passes 0012 R05 (`checkStoryLine`,
+ * a spike's line in the spike's shape), and the ones that fail, in report order. A report with no
+ * failing line comes back as it is.
+ */
+export function splitProposals(report: WorkerReport): {
+  readonly report: WorkerReport;
+  readonly refused: readonly RefusedProposal[];
+} {
+  const kept: WorkerProposal[] = [];
+  const refused: RefusedProposal[] = [];
+  for (const proposal of report.proposals ?? []) {
+    const problems = checkStoryLine(proposal.story, proposal.kind === "spike");
+    if (problems.length === 0) kept.push(proposal);
+    else refused.push({ proposal, problems });
+  }
+  if (refused.length === 0) return { report, refused };
+  const { proposals: _all, ...rest } = report;
+  return { report: kept.length === 0 ? rest : { ...rest, proposals: kept }, refused };
+}
+
+/** The send-once mark of a run's proposal Story lines: one send-back per run, whichever proposal. */
+export const PROPOSAL_LINE_SIGNATURE = "story-line";
+
+/** The `engine.notice` code of a proposal dipo dropped for its Story line. */
+export const PROPOSAL_DROPPED_NOTICE = "run.proposalDropped";
+
+/** Why a refused proposal is dropped, as its notice says it. */
+export type ProposalDropWhy = "still-fails" | "no-turn";
+
+/** The longest proposal text a drop notice quotes, per field, in characters. */
+const DROPPED_TEXT_MAX = { title: 120, story: 500, why: 1_000 } as const;
+
+/**
+ * The `engine.notice` of each dropped proposal, for the maintainer: why it was dropped, the
+ * gate's problems, and the worker's title, Story line and why, cleaned, on one line and capped.
+ */
+export function droppedProposalNotices(
+  run: { readonly runId: RunId; readonly key: StoryKey | null; readonly story: string },
+  refused: readonly RefusedProposal[],
+  why: ProposalDropWhy,
+): NewEntry[] {
+  const because =
+    why === "still-fails"
+      ? "its Story line still failed after dipo sent it back once"
+      : "its Story line failed and the report left no turn to correct it";
+  return refused.map(({ proposal, problems }) => ({
+    type: "engine.notice",
+    ...(run.key === null ? {} : { key: run.key }),
+    run: run.runId,
+    delta: {
+      level: "warn",
+      code: PROPOSAL_DROPPED_NOTICE,
+      text: `${run.story}: dipo dropped a ${proposal.kind} proposal of the worker because ${because} (${problems.join("; ")}); the rest of the report went on. The worker's words: title "${oneLine(proposal.title, DROPPED_TEXT_MAX.title)}"; Story: ${oneLine(proposal.story, DROPPED_TEXT_MAX.story)}; why: ${oneLine(proposal.why, DROPPED_TEXT_MAX.why)}`,
+    },
+  }));
+}
+
+/** A worker's text as an event carries it: cleaned, on one line and capped at `max`. */
+function oneLine(text: string, max: number): string {
+  const chars = Array.from(cleanText(text).replace(/\s+/g, " ").trim());
+  return chars.length <= max ? chars.join("") : `${chars.slice(0, max - 1).join("")}…`;
 }
 
 /** The dedupe hash of a proposal: its title and its paths, sorted. */
@@ -291,9 +370,9 @@ export function storeProposals(
   for (const proposal of input.proposals) {
     const hash = proposalHash(proposal);
     const changes = office.run(
-      `insert into proposals (office_id, hash, story_key, run_id, kind, title, outcome, why, paths,
-         created_at, updated_at)
-       values ($office_id, $hash, $key, $run, $kind, $title, $outcome, $why, $paths, $at, $at)
+      `insert into proposals (office_id, hash, story_key, run_id, kind, title, story_line, why,
+         paths, created_at, updated_at)
+       values ($office_id, $hash, $key, $run, $kind, $title, $story_line, $why, $paths, $at, $at)
        on conflict (office_id, hash) do nothing`,
       {
         hash,
@@ -301,7 +380,7 @@ export function storeProposals(
         run: input.runId,
         kind: proposal.kind,
         title: proposal.title,
-        outcome: proposal.outcome,
+        story_line: proposal.story,
         why: proposal.why,
         paths: JSON.stringify(proposal.paths ?? []),
         at: input.at,
@@ -318,20 +397,12 @@ export function storeProposals(
         key: input.key,
         ...(story === null ? {} : { story }),
         run: input.runId,
-        title: filedTitle(proposal.title),
+        title: oneLine(proposal.title, FILED_TITLE_MAX),
       },
     });
   }
   appendEntries(office, filed, { at: input.at });
   return filed.length;
-}
-
-/** A worker's title as an event carries it: cleaned, on one line and capped. */
-function filedTitle(title: string): string {
-  const chars = Array.from(cleanText(title).replace(/\s+/g, " ").trim());
-  return chars.length <= FILED_TITLE_MAX
-    ? chars.join("")
-    : `${chars.slice(0, FILED_TITLE_MAX - 1).join("")}…`;
 }
 
 /** The key of a stored decision note: its story, file, section and text. */

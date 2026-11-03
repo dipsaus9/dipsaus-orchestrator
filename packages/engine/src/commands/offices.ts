@@ -1,5 +1,5 @@
 // How the executor finds an office. The engine keeps no per-connection state, so every office
-// command names its office and nothing ever falls back to a default one (0005 section 3). The
+// command names its office and nothing ever falls back to a default one (0005). The
 // daemon uses the lazy loader of office engine instances (`office/manager.ts`, DIPO-27); tests of
 // the executor use the plain directory below.
 
@@ -39,7 +39,7 @@ export function officeUnknown(office: OfficeId): EngineError {
   return engineError("office.unknown", `There is no open office ${office}.`, { office });
 }
 
-/** Offices straight from the `offices` table: rows without `forgotten_at` (0007 section 3). */
+/** Offices straight from the `offices` table: rows without `forgotten_at` (0007). */
 export function stateOfficeDirectory(state: StateDatabase): OfficeDirectory {
   const get = (office: OfficeId): OfficeHandle | undefined => {
     const row = state.connection.get(

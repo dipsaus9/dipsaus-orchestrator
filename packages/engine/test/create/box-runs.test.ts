@@ -20,7 +20,7 @@ import { TOKEN_CHECK_DIR_PREFIX } from "../../src/box/token-check";
 import { BOX_INDEX_DIR, BOX_WAITING, BoxWorkers } from "../../src/box/workers";
 import type { OfficeHandle } from "../../src/db/office";
 import type { WorkerHostRow } from "../../src/records/worker-hosts";
-import { AdapterHolds } from "../../src/workers/hold";
+import { AdapterPauses } from "../../src/run/starts-paused";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { buildRuns, type RunsOptions } from "../../src/create/runs";
@@ -99,7 +99,7 @@ describe("the daemon's box workers", () => {
         runtimeDir: join(dir, "rt"),
         tmpRoot: dir,
         stateDir: join(dir, "state"),
-        holds: new AdapterHolds({ clock, notify: () => {} }),
+        holds: new AdapterPauses({ clock, notify: () => {} }),
         engineGit: { forOffice: () => undefined },
         claims: {},
         offices: { config: () => undefined, get: () => undefined, loadedOffices: () => [] },
@@ -148,7 +148,7 @@ describe("the daemon's box workers", () => {
         },
         readBaseBox: async () => ({ ok: false, errors: [] }),
         code: { spawn: () => ({}) as never, clock },
-        holds: new AdapterHolds({ clock, notify: () => {} }),
+        holds: new AdapterPauses({ clock, notify: () => {} }),
         adapter: "claude-cli",
         tmpRoot: dir,
         indexDir,

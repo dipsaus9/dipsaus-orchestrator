@@ -105,12 +105,12 @@ beforeEach(async () => {
       offices: { get: () => f.office },
       steering,
       encode,
-      worker: { id: "claude-cli", result: () => ({ outcome: "done", resumable: true }) as never },
+      worker: { id: "claude-cli", result: () => ({ outcome: "done" }) as never },
       ender: () => ender,
       resumer: {
         next: async (request) => {
           sessions.push(withHeld(f.office, request, f.t.clock.now()));
-          return { kind: "started", agent: "agt_x" as never, resumed: true };
+          return { kind: "started", agent: "agt_x" as never };
         },
       },
       caps: () => CAPS,
@@ -424,6 +424,6 @@ async function startSession(): Promise<boolean> {
       caps: CAPS,
       startedAt: w.f.t.clock.now(),
     },
-    { mode: "resume", why: "a test resume" },
+    { why: "a test resume" },
   );
 }

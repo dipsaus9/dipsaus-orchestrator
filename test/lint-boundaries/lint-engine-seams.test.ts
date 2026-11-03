@@ -1,4 +1,4 @@
-// Asserts that lint enforces the two engine seams (0004, 0008 section 1; DIPO-113 AC #2):
+// Asserts that lint enforces the two engine seams (0004, 0008; DIPO-113 AC #2):
 // - in `packages/engine/src`, only `workers/claude-cli/**` and the engine entry import
 //   `workers/claude-cli`, type-only imports included, and no other file imports the entry, which
 //   re-exports the adapter (its own test excepted);
@@ -16,7 +16,7 @@ const CLAUDE_CLI = "dipo(no-claude-cli-import)";
 const LAYERS = "dipo(engine-layers)";
 const BUN = "dipo(no-bun-import)";
 const BUN_GLOBAL = "dipo(no-bun-global)";
-/** `export * from "bun"` also re-exports the banned `spawnSync` (0007 section 1). */
+/** `export * from "bun"` also re-exports the banned `spawnSync` (0007). */
 const SYNC_IMPORTS = "eslint(no-restricted-imports)";
 const ENGINE = "packages/engine/src";
 const DAEMON = "packages/daemon/src";

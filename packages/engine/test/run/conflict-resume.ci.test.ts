@@ -1,6 +1,6 @@
-// CI only (0017 section 1, DIPO-225): real git repositories and processes, too slow for the local
+// CI only (0017, DIPO-225): real git repositories and processes, too slow for the local
 // run.
-// The resume of a `conflict` park of a box run (DIPO-324; 0020 section 2, 0019 section 10, 0021):
+// The resume of a `conflict` park of a box run (DIPO-324; 0020, 0002, 0008):
 // `ConflictResumes` on a migrated state database built from fixtures and a real git repository
 // with a bare remote under DIPO_TMP. The box merge of the live run (`BoxCollisions.mergeOnResume`,
 // tested in test/box/collisions.test.ts), telling the worker and parking are fakes that record

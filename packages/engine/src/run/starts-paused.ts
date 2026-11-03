@@ -14,14 +14,23 @@
 //   parks `worker-failed` with the detail "plan limit until <time>" and `parks.resume_on_lift` set
 //   (`planLimitPause` builds both). When the office's starts paused lifts, dipo resumes exactly
 //   those parks through the one resume path (`ParkResumes`), and no other park.
-// - `adapter`: a failed adapter check (a launch check, a start failure, the box token check). The
-//   adapter's hold rules (`workers/hold.ts`) keep their record here: a `starts_paused` row with
+// - `adapter`: a failed adapter check (a launch check, a start failure, the box token check) pauses
+//   the starts of every office on that adapter (`AdapterPauses`) and raises an `engine.notice`
+//   (`starts.paused`, then `starts.resumed` when it lifts). Its record is a `starts_paused` row with
 //   reason `adapter`, the adapter and its failures, in every registered office, loaded or not
-//   (`officeHoldStore`), so it survives a restart and an office loaded later finds it. It lifts when the check passes again (`dipo run
-//   <ID>` repeats the launch checks), or for the box token only when `dipo login box` replaces it.
-//   The story stays where it was, so no park resumes for it.
+//   (`officePauseStore`), so it survives a restart and an office loaded later finds it. It lifts
+//   when the check passes again (`dipo run <ID>` repeats the launch checks through
+//   `AdapterPauses.gateLaunch`). The story stays where it was, so no park resumes for it.
+//   Adapter-neutral: nothing here names a CLI.
 //
-// `dipo daemon resume-scheduling` lifts both, in every office, but never the box token's hold. An
+//   A sticky check (the post-run box-token check) is the exception. Its pause is not about
+//   something a launch check can see again, so a passing launch check never lifts it: only
+//   `liftSticky`, or a cleared record in the sticky store, does. The store keeps it outside memory,
+//   so it survives a daemon restart, and it is read again on every look, so a record cleared by
+//   another process (`dipo login box`, which replaces the box token) lifts the pause without a
+//   daemon call.
+//
+// `dipo daemon resume-starts` lifts both, in every office, but never the box token's pause. An
 // office loaded while another office is paused takes that pause over. The timers run on the
 // injected clock; a lift that comes due while the daemon schedules no work is tried again a minute
 // later.
@@ -40,17 +49,384 @@ import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { SqlRunner } from "../platform/sqlite";
 import { background } from "../platform/background";
-import {
-  type AdapterHold,
-  type AdapterHoldRecord,
-  type AdapterHoldStore,
-  holdFailures,
-  holdLift,
-  type LaunchCheckFailure,
-} from "../workers/hold";
 
 import type { PlanLimitHit } from "./outcome-types";
 import { keepParkedOnLift } from "../run-state/park-records";
+
+/** One failed launch check, with the file or key it is about when there is one. */
+export interface LaunchCheckFailure {
+  /** For example `probe`, `settings`, `self-test`, `start-failed`. */
+  readonly check: string;
+  readonly detail: string;
+  readonly file?: string;
+  readonly key?: string;
+  /** What the maintainer can do about it, when the check knows. */
+  readonly fix?: string;
+}
+
+export type LaunchCheckOutcome =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly failures: readonly LaunchCheckFailure[] };
+
+export interface AdapterPause {
+  readonly adapter: string;
+  /** The first failure; `failures` lists all of them. */
+  readonly check: string;
+  readonly detail: string;
+  readonly file?: string;
+  readonly key?: string;
+  readonly failures: readonly LaunchCheckFailure[];
+  /** Milliseconds since the epoch, from the injected clock. */
+  readonly since: number;
+  /**
+   * How a sticky pause is lifted, as the refusal and the notice say it; absent for a pause a
+   * passing launch check lifts.
+   */
+  readonly liftedBy?: string;
+}
+
+/** The `engine.notice` shape (0005). */
+export interface PauseNotice {
+  readonly level: "info" | "warn" | "error";
+  readonly code: string;
+  readonly text: string;
+}
+
+/** `engine.notice` codes of an adapter's pause, on the software stream. */
+export const ADAPTER_PAUSED_NOTICE = "starts.paused";
+export const ADAPTER_RESUMED_NOTICE = "starts.resumed";
+
+function describeFailure(failure: LaunchCheckFailure): string {
+  const where = [
+    failure.key === undefined ? null : `key ${failure.key}`,
+    failure.file === undefined ? null : `in ${failure.file}`,
+  ].filter((part) => part !== null);
+  const fix = failure.fix === undefined ? "" : ` ${failure.fix}`;
+  return `${failure.check}: ${failure.detail}${where.length === 0 ? "" : ` (${where.join(" ")})`}.${fix}`;
+}
+
+/** What failed, one sentence per failure. */
+export function pauseFailures(pause: AdapterPause): string {
+  return pause.failures.map(describeFailure).join(" ");
+}
+
+/** How the pause lifts, as one sentence. */
+export function pauseLift(pause: AdapterPause): string {
+  return (
+    pause.liftedBy ??
+    "Fix it, then name the story to repeat the launch checks (`dipo run <ID>`); the pause lifts when they pass."
+  );
+}
+
+/** The text a refusal or the notice shows for a pause. */
+export function pauseMessage(pause: AdapterPause): string {
+  return `New runs on ${pause.adapter} are paused in every office: ${pauseFailures(pause)} ${pauseLift(pause)}`;
+}
+
+/** A sticky pause as its store keeps it. */
+export interface StickyPauseRecord {
+  readonly adapter: string;
+  /** Only the sticky failures. */
+  readonly failures: readonly LaunchCheckFailure[];
+  readonly since: number;
+}
+
+/** Where sticky pauses live outside memory; the daemon's is a file in its state directory. */
+export interface StickyPauseStore {
+  /** The recorded pause, or null when none is recorded. Read again on every look. */
+  read(): StickyPauseRecord | null;
+  write(record: StickyPauseRecord): void;
+  clear(): void;
+}
+
+export interface StickyPauses {
+  /** The checks whose pause no passing launch check lifts. */
+  readonly checks: ReadonlySet<string>;
+  /** How such a pause is lifted, for the refusal and the notice. */
+  readonly liftedBy: string;
+  /** Keeps the pause over a restart and lets another process lift it; memory only without it. */
+  readonly store?: StickyPauseStore;
+}
+
+/** A pause as its store keeps it: the adapter, every failure and when the pause began. */
+export interface AdapterPauseRecord {
+  readonly adapter: string;
+  readonly failures: readonly LaunchCheckFailure[];
+  readonly since: number;
+}
+
+/**
+ * Where the pauses live, read again on every look. The daemon's is the offices' starts paused
+ * (`starts_paused` rows with reason `adapter` in every registered office, `officePauseStore`), so
+ * a pause is one record per adapter that survives a restart (0020); `memoryPauseStore` keeps them
+ * in memory for a test or a tool.
+ */
+export interface AdapterPauseStore {
+  read(adapter: string): AdapterPauseRecord | null;
+  write(record: AdapterPauseRecord): void;
+  clear(adapter: string): void;
+  /** The adapters with a pause. */
+  adapters(): readonly string[];
+}
+
+/** A store in memory: pauses last as long as the process. */
+export function memoryPauseStore(): AdapterPauseStore {
+  const pauses = new Map<string, AdapterPauseRecord>();
+  return {
+    read: (adapter) => pauses.get(adapter) ?? null,
+    write: (record) => void pauses.set(record.adapter, record),
+    clear: (adapter) => void pauses.delete(adapter),
+    adapters: () => [...pauses.keys()],
+  };
+}
+
+export interface AdapterPausesOptions {
+  readonly clock: Clock;
+  /** Raises an `engine.notice`; the daemon appends it to the software stream. */
+  readonly notify: (notice: PauseNotice) => void;
+  /** Where the pauses live; in memory by default. */
+  readonly store?: AdapterPauseStore;
+  /** The sticky checks; none by default. */
+  readonly sticky?: StickyPauses;
+  /** Logs what the pauses could not do (a sticky record that could not be written). */
+  readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+}
+
+/** What `AdapterPauses.gateLaunch` returns: go ahead, or the pause that refuses the launch. */
+export type LaunchGate =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly outcome: "startFailed"; readonly pause: AdapterPause };
+
+/**
+ * The adapter pauses of one daemon, shared by every office, kept in their store. The sticky store
+ * of a sticky check is the box token's own record, which `dipo login box` clears from another
+ * process; every look brings the pause in line with it.
+ */
+export class AdapterPauses {
+  readonly #store: AdapterPauseStore;
+  readonly #clock: Clock;
+  readonly #notify: (notice: PauseNotice) => void;
+  readonly #sticky: StickyPauses | undefined;
+  readonly #warn: AdapterPausesOptions["warn"];
+  /** Adapters whose sticky pause has no record: a missing record must not lift it then. */
+  readonly #unrecorded = new Set<string>();
+
+  constructor(options: AdapterPausesOptions) {
+    this.#store = options.store ?? memoryPauseStore();
+    this.#clock = options.clock;
+    this.#notify = options.notify;
+    this.#sticky = options.sticky;
+    this.#warn = options.warn;
+  }
+
+  #isSticky(failure: LaunchCheckFailure): boolean {
+    return this.#sticky?.checks.has(failure.check) ?? false;
+  }
+
+  #make(adapter: string, failures: readonly LaunchCheckFailure[], since: number): AdapterPause {
+    const [first] = failures;
+    if (first === undefined) throw new Error("an adapter pause needs at least one failure");
+    const sticky = this.#sticky !== undefined && failures.some((f) => this.#isSticky(f));
+    return {
+      adapter,
+      check: first.check,
+      detail: first.detail,
+      ...(first.file === undefined ? {} : { file: first.file }),
+      ...(first.key === undefined ? {} : { key: first.key }),
+      failures: [...failures],
+      since,
+      ...(sticky ? { liftedBy: this.#sticky?.liftedBy } : {}),
+    };
+  }
+
+  /** The stored pause of `adapter`, or null. */
+  #get(adapter: string): AdapterPause | null {
+    const record = this.#store.read(adapter);
+    return record === null || record.failures.length === 0
+      ? null
+      : this.#make(adapter, record.failures, record.since);
+  }
+
+  /** Stores `pause`; a store that cannot write is logged, and the pause this call returns refuses. */
+  #set(pause: AdapterPause): void {
+    try {
+      this.#store.write({ adapter: pause.adapter, failures: pause.failures, since: pause.since });
+    } catch (error) {
+      this.#warn?.("the adapter pause could not be stored", {
+        adapter: pause.adapter,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  #delete(adapter: string): void {
+    this.#store.clear(adapter);
+  }
+
+  /**
+   * Pauses `adapter` with the failures and raises the notice. Replaces an earlier pause. A sticky
+   * record that cannot be written is logged and tried again at the next look; a missing record
+   * does not lift the pause then (`liftSticky` does).
+   */
+  pause(adapter: string, failures: readonly LaunchCheckFailure[]): AdapterPause {
+    const sticky = failures.filter((failure) => this.#isSticky(failure));
+    // A new pause without a sticky failure keeps the sticky ones of the pause it replaces, so a
+    // later non-sticky pause can never replace a sticky pause and be lifted by a passing check.
+    const carried =
+      sticky.length > 0
+        ? []
+        : (this.#get(adapter)?.failures ?? []).filter((failure) => this.#isSticky(failure));
+    const pause = this.#make(adapter, [...carried, ...failures], this.#clock.now());
+    this.#set(pause);
+    if (sticky.length > 0) this.#record(adapter, sticky, pause.since);
+    this.#notify({ level: "error", code: ADAPTER_PAUSED_NOTICE, text: pauseMessage(pause) });
+    return pause;
+  }
+
+  /** Writes the sticky record; a failed write is logged and retried at the next look. */
+  #record(adapter: string, failures: readonly LaunchCheckFailure[], since: number): void {
+    try {
+      this.#sticky?.store?.write({ adapter, failures, since });
+      this.#unrecorded.delete(adapter);
+    } catch (error) {
+      this.#unrecorded.add(adapter);
+      this.#warn?.("the sticky pause record could not be written; the pause stays", {
+        adapter,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Lifts the pause on `adapter`; true when there was one and it is gone. `why` starts the
+   * `starts.resumed` notice: a passing launch check by default. A sticky failure stays: the pause
+   * is kept with only the sticky failures, and the call returns false.
+   */
+  lift(adapter: string, why = `The launch checks for ${adapter} passed`): boolean {
+    this.#sync();
+    const pause = this.#get(adapter);
+    if (pause === null) return false;
+    const sticky = pause.failures.filter((failure) => this.#isSticky(failure));
+    if (sticky.length > 0) {
+      if (sticky.length < pause.failures.length) {
+        this.#set(this.#make(adapter, sticky, pause.since));
+      }
+      return false;
+    }
+    this.#delete(adapter);
+    this.#resumed(adapter, why);
+    return true;
+  }
+
+  /**
+   * Lifts the sticky failures of `adapter`'s pause and clears its record (the box login was
+   * replaced). True when a pause was lifted or narrowed.
+   */
+  liftSticky(adapter: string): boolean {
+    const record = this.#sticky?.store?.read() ?? null;
+    if (record !== null && record.adapter === adapter) this.#sticky?.store?.clear();
+    this.#unrecorded.delete(adapter);
+    return this.#dropSticky(adapter, "The sticky pause was lifted");
+  }
+
+  /** The pause on `adapter`, or null. */
+  adapterPaused(adapter: string): AdapterPause | null {
+    this.#sync();
+    return this.#get(adapter);
+  }
+
+  /** The text a refusal or the notice shows for `pause` (`pauseMessage`). */
+  message(pause: AdapterPause): string {
+    return pauseMessage(pause);
+  }
+
+  /**
+   * Runs an adapter's launch checks before a launch or resume. A failure, or checks that throw,
+   * pause the adapter and return `startFailed`; a pass lifts any pause but a sticky one, which
+   * still returns `startFailed`.
+   */
+  async gateLaunch(
+    adapter: string,
+    checks: () => Promise<LaunchCheckOutcome>,
+  ): Promise<LaunchGate> {
+    let outcome: LaunchCheckOutcome;
+    try {
+      outcome = await checks();
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      outcome = {
+        ok: false,
+        failures: [{ check: "launch-checks", detail: `the launch checks could not run: ${why}` }],
+      };
+    }
+    if (outcome.ok) {
+      this.lift(adapter);
+      const still = this.adapterPaused(adapter);
+      return still === null ? { ok: true } : { ok: false, outcome: "startFailed", pause: still };
+    }
+    const failures =
+      outcome.failures.length > 0
+        ? outcome.failures
+        : [{ check: "launch-checks", detail: "the launch checks failed without a reason" }];
+    return { ok: false, outcome: "startFailed", pause: this.pause(adapter, failures) };
+  }
+
+  #resumed(adapter: string, why: string): void {
+    this.#notify({
+      level: "info",
+      code: ADAPTER_RESUMED_NOTICE,
+      text: `${why}; new runs on ${adapter} are no longer paused.`,
+    });
+  }
+
+  /** Drops the sticky failures of `adapter`'s pause; true when it changed. */
+  #dropSticky(adapter: string, why: string): boolean {
+    const pause = this.#get(adapter);
+    if (pause === null) return false;
+    const rest = pause.failures.filter((failure) => !this.#isSticky(failure));
+    if (rest.length === pause.failures.length) return false;
+    if (rest.length === 0) {
+      this.#delete(adapter);
+      this.#resumed(adapter, why);
+    } else {
+      this.#set(this.#make(adapter, rest, pause.since));
+    }
+    return true;
+  }
+
+  /**
+   * Brings the stored pauses in line with the sticky store: a recorded pause the store lacks is
+   * paused again, and a sticky failure whose record is gone (cleared by `dipo login box`) is
+   * lifted.
+   */
+  #sync(): void {
+    const store = this.#sticky?.store;
+    if (store === undefined) return;
+    // A record that could not be written is tried again first.
+    for (const adapter of this.#unrecorded) {
+      const paused = this.#get(adapter);
+      const sticky = paused?.failures.filter((failure) => this.#isSticky(failure)) ?? [];
+      if (paused === null || sticky.length === 0) this.#unrecorded.delete(adapter);
+      else this.#record(adapter, sticky, paused.since);
+    }
+    const record = store.read();
+    for (const adapter of this.#store.adapters()) {
+      if (record?.adapter !== adapter && !this.#unrecorded.has(adapter)) {
+        this.#dropSticky(adapter, "The box login was replaced");
+      }
+    }
+    if (record === null || record.failures.length === 0) return;
+    const paused = this.#get(record.adapter);
+    if (paused?.failures.some((failure) => this.#isSticky(failure)) === true) return;
+    const pause = this.#make(
+      record.adapter,
+      [...record.failures, ...(paused?.failures ?? [])],
+      record.since,
+    );
+    this.#set(pause);
+    this.#notify({ level: "error", code: ADAPTER_PAUSED_NOTICE, text: pauseMessage(pause) });
+  }
+}
 
 /** A plan limit with a reset time lifts this long after it (0008). */
 export const PLAN_LIMIT_RESUME_AFTER_MS = 2 * 60_000;
@@ -65,12 +441,12 @@ export const STARTS_PAUSED_STEP = "starts-paused/recover";
 /** `engine.notice` codes of the office's starts paused. */
 export const STARTS_PAUSED_NOTICES = {
   paused: "office.startsPaused",
-  lifted: "office.startsLifted",
+  lifted: "office.startsResumed",
   notResumed: "office.parkNotResumed",
 } as const;
 
 /** The command line that lifts the office's starts paused by hand. */
-export const LIFT_COMMAND = "dipo daemon resume-scheduling";
+export const LIFT_COMMAND = "dipo daemon resume-starts";
 
 export type StartsPausedReason = "plan-limit" | "adapter";
 
@@ -85,8 +461,8 @@ export interface StartsPausedState {
   readonly until: number | null;
   /** What lifts it, as one sentence. */
   readonly lifts: string;
-  /** The adapter hold behind an `adapter` pause. */
-  readonly hold?: AdapterHold;
+  /** The adapter's pause behind an `adapter` reason. */
+  readonly pause?: AdapterPause;
 }
 
 /** The pause a plan limit makes and the detail of the park of the session that met it. */
@@ -179,9 +555,9 @@ export interface StartsPausedDeps {
    * `adapter` pause without it.
    */
   readonly adapter?: string;
-  /** The adapter holds of a failed adapter check (`AdapterHolds`); no `adapter` pause without them. */
+  /** The adapter pauses of a failed adapter check (`AdapterPauses`); no `adapter` pause without them. */
   readonly holds?: {
-    adapterHeld(adapter: string): AdapterHold | null;
+    adapterPaused(adapter: string): AdapterPause | null;
     lift(adapter: string, why?: string): boolean;
   };
   /** Resumes one park a plan limit made, through the one resume path (`Resumption.resumeLifted`). */
@@ -200,13 +576,13 @@ interface AdapterRow {
   readonly since: number;
 }
 
-/** The offices the adapter hold store reaches: the registered ones, and the loaded ones' handles. */
-export interface HoldStoreOffices {
+/** The offices the adapter pause store reaches: the registered ones, and the loaded ones' handles. */
+export interface PauseStoreOffices {
   /** A loaded office's handle, for its notices. */
   get(office: OfficeId): OfficeHandle | undefined;
   loaded(): readonly OfficeId[];
   /**
-   * The state database's one connection, for the rows of every registered office (an adapter hold
+   * The state database's one connection, for the rows of every registered office (an adapter pause
    * is the daemon's, not one office's); null before the database opened.
    */
   connection(): (SqlRunner & { immediate<T>(fn: () => T): T }) | null;
@@ -220,7 +596,7 @@ function rowOf(handle: OfficeHandle): AdapterRow | null {
   );
 }
 
-/** The first line of a hold's failures, as the row's detail. */
+/** The first line of a pause's failures, as the row's detail. */
 function failureLine(failures: readonly LaunchCheckFailure[]): string {
   const [first] = failures;
   return first === undefined ? "" : `${first.check}: ${first.detail}`;
@@ -230,17 +606,17 @@ function failureLine(failures: readonly LaunchCheckFailure[]): string {
 const REGISTERED = "select office_id from offices where forgotten_at is null";
 
 /**
- * The adapter holds' record (0020): a `starts_paused` row with reason `adapter` in every registered
- * office, loaded or not, since one adapter runs every office (0001). A hold is read from any of
+ * The adapter pauses' record (0020): a `starts_paused` row with reason `adapter` in every registered
+ * office, loaded or not, since one adapter runs every office (0001). A pause is read from any of
  * them, written to all of them, with an `office.startsPaused` notice in each loaded office where it
- * is new, and cleared from all of them, with `office.startsLifted` in each loaded office that had
- * it. So a hold set while no office is loaded is kept, and a lift reaches an office that was not
- * loaded. A hold written before the database opened, or while no office is registered, is kept in
+ * is new, and cleared from all of them, with `office.startsResumed` in each loaded office that had
+ * it. So a pause set while no office is loaded is kept, and a lift reaches an office that was not
+ * loaded. A pause written before the database opened, or while no office is registered, is kept in
  * memory and written to the rows at the next look once an office is registered.
  */
-export function officeHoldStore(clock: Clock, offices: HoldStoreOffices): AdapterHoldStore {
-  /** Holds not in the rows yet: written before the database opened or any office registered. */
-  const pending = new Map<string, AdapterHoldRecord>();
+export function officePauseStore(clock: Clock, offices: PauseStoreOffices): AdapterPauseStore {
+  /** Pauses not in the rows yet: written before the database opened or any office registered. */
+  const pending = new Map<string, AdapterPauseRecord>();
   const loadedHandles = (): OfficeHandle[] =>
     offices.loaded().flatMap((id) => {
       const handle = offices.get(id);
@@ -260,9 +636,9 @@ export function officeHoldStore(clock: Clock, offices: HoldStoreOffices): Adapte
     );
     return (registered?.n ?? 0) > 0 ? connection : null;
   };
-  const writeRows = (connection: HoldConnection, record: AdapterHoldRecord): void =>
-    writeHoldRows(connection, loadedHandles(), record, notice);
-  /** Writes the kept holds to the rows once an office is registered. */
+  const writeRows = (connection: PauseConnection, record: AdapterPauseRecord): void =>
+    writePauseRows(connection, loadedHandles(), record, notice);
+  /** Writes the kept pauses to the rows once an office is registered. */
   const flush = (): void => {
     if (pending.size === 0) return;
     const connection = rows();
@@ -300,7 +676,7 @@ export function officeHoldStore(clock: Clock, offices: HoldStoreOffices): Adapte
     clear: (adapter) => {
       pending.delete(adapter);
       const connection = offices.connection();
-      if (connection !== null) clearHoldRows(connection, loadedHandles(), adapter, notice);
+      if (connection !== null) clearPauseRows(connection, loadedHandles(), adapter, notice);
     },
     adapters: () => {
       flush();
@@ -315,20 +691,20 @@ export function officeHoldStore(clock: Clock, offices: HoldStoreOffices): Adapte
   };
 }
 
-type HoldConnection = NonNullable<ReturnType<HoldStoreOffices["connection"]>>;
-type HoldNoticeWriter = (handle: OfficeHandle, code: string, text: string) => void;
+type PauseConnection = NonNullable<ReturnType<PauseStoreOffices["connection"]>>;
+type PauseNoticeWriter = (handle: OfficeHandle, code: string, text: string) => void;
 
 /**
  * Writes `record` as the adapter pause of every registered office: the loaded offices first, each
  * with its notice, then every other one.
  */
-function writeHoldRows(
-  connection: HoldConnection,
+function writePauseRows(
+  connection: PauseConnection,
   loaded: readonly OfficeHandle[],
-  record: AdapterHoldRecord,
-  notice: HoldNoticeWriter,
+  record: AdapterPauseRecord,
+  notice: PauseNoticeWriter,
 ): void {
-  for (const handle of loaded) writeHoldRow(handle, record, notice);
+  for (const handle of loaded) writePauseRow(handle, record, notice);
   connection.immediate(() =>
     connection.run(
       `insert into starts_paused (office_id, reason, detail, since, adapter, failures)
@@ -347,11 +723,11 @@ function writeHoldRows(
 }
 
 /** Clears `adapter`'s pause from every office, with a notice in each loaded office that had it. */
-function clearHoldRows(
-  connection: HoldConnection,
+function clearPauseRows(
+  connection: PauseConnection,
   loaded: readonly OfficeHandle[],
   adapter: string,
-  notice: HoldNoticeWriter,
+  notice: PauseNoticeWriter,
 ): void {
   for (const handle of loaded) {
     handle.immediate(() => {
@@ -373,9 +749,9 @@ function clearHoldRows(
 }
 
 /** Writes `record` as the office's adapter pause, with a notice when it is new there. */
-function writeHoldRow(
+function writePauseRow(
   handle: OfficeHandle,
-  record: AdapterHoldRecord,
+  record: AdapterPauseRecord,
   notice: (handle: OfficeHandle, code: string, text: string) => void,
 ): void {
   handle.immediate(() => {
@@ -432,7 +808,7 @@ export class StartsPaused {
   }
 
   /**
-   * The office's starts paused, or null: its plan-limit row first, else the hold of its adapter. A
+   * The office's starts paused, or null: its plan-limit row first, else the pause of its adapter. A
    * plan-limit row whose time passed still holds until its lift ran.
    */
   state(officeId: OfficeId): StartsPausedState | null {
@@ -448,19 +824,19 @@ export class StartsPaused {
       };
     }
     const adapter = this.#adapterOf(officeId);
-    const hold = adapter === undefined ? null : (this.#deps.holds?.adapterHeld(adapter) ?? null);
-    if (hold === null) return null;
+    const pause = adapter === undefined ? null : (this.#deps.holds?.adapterPaused(adapter) ?? null);
+    if (pause === null) return null;
     return {
       reason: "adapter",
-      detail: `${hold.adapter}: ${holdFailures(hold)}`,
-      since: hold.since,
+      detail: `${pause.adapter}: ${pauseFailures(pause)}`,
+      since: pause.since,
       until: null,
-      // The box token's hold lifts only with `dipo login box` (DIPO-271), never by the command.
+      // The box token's pause lifts only with `dipo login box`, never by the command (0020).
       lifts:
-        hold.liftedBy === undefined
-          ? `${holdLift(hold)} \`${LIFT_COMMAND}\` lifts it by hand.`
-          : holdLift(hold),
-      hold,
+        pause.liftedBy === undefined
+          ? `${pauseLift(pause)} \`${LIFT_COMMAND}\` lifts it by hand.`
+          : pauseLift(pause),
+      pause,
     };
   }
 
@@ -485,8 +861,8 @@ export class StartsPaused {
   }
 
   /**
-   * Lifts the office's starts paused by hand (`daemon.resumeScheduling`): its plan-limit pause and
-   * a hold of its adapter a passing check would lift. True when something lifted.
+   * Lifts the office's starts paused by hand (`daemon.resumeStarts`): its plan-limit pause and
+   * a pause of its adapter a passing check would lift. True when something lifted.
    */
   lift(officeId: OfficeId, why: string): boolean {
     let lifted = this.#liftRow(officeId, why);
@@ -499,7 +875,7 @@ export class StartsPaused {
 
   /**
    * Resumes the parks a plan limit made in the office while its starts are not paused: after a
-   * load parked runs a plan limit held before the upgrade (`outcome-restart.ts`).
+   * park that resumes when the pause lifts (`control-endings.ts`).
    */
   resumeLifted(officeId: OfficeId): void {
     this.#resumeLifted(officeId);
@@ -515,8 +891,8 @@ export class StartsPaused {
   }
 
   /**
-   * An adapter hold was lifted (a passing check, `dipo login box`): each loaded office that is no
-   * longer paused resumes the parks a plan limit left (a limit that lifted while the adapter held).
+   * An adapter pause was lifted (a passing check, `dipo login box`): each loaded office that is no
+   * longer paused resumes the parks a plan limit left (a limit that lifted while the adapter was paused).
    */
   adapterReleased(): void {
     for (const officeId of this.#deps.loaded?.() ?? []) this.#resumeLifted(officeId);
@@ -581,16 +957,19 @@ export class StartsPaused {
 
   /**
    * An office loaded while another is paused takes the pause over (0001: one subscription, one
-   * adapter): the live plan-limit pause that lifts last, and its adapter's hold, kept for every
+   * adapter): the live plan-limit pause that lifts last, and its adapter's pause, kept for every
    * registered office.
    */
   #takeOver(officeId: OfficeId, handle: OfficeHandle): void {
     const now = this.#deps.clock.now();
     let live: PausedRow | null = null;
     const adapter = this.#adapterOf(officeId);
-    const held = adapter === undefined ? null : (this.#deps.holds?.adapterHeld(adapter) ?? null);
-    const hold: AdapterHoldRecord | null =
-      held === null ? null : { adapter: held.adapter, failures: held.failures, since: held.since };
+    const paused =
+      adapter === undefined ? null : (this.#deps.holds?.adapterPaused(adapter) ?? null);
+    const pause: AdapterPauseRecord | null =
+      paused === null
+        ? null
+        : { adapter: paused.adapter, failures: paused.failures, since: paused.since };
     for (const other of this.#deps.loaded?.() ?? []) {
       if (other === officeId) continue;
       const otherHandle = this.#deps.offices.get(other);
@@ -611,10 +990,10 @@ export class StartsPaused {
         until: live.until_at,
       });
     }
-    if (hold !== null) {
+    if (pause !== null) {
       const notice = (target: OfficeHandle, code: string, text: string): void =>
         this.#append(target, [{ type: "engine.notice", delta: { level: "warn", code, text } }]);
-      writeHoldRow(handle, hold, notice);
+      writePauseRow(handle, pause, notice);
     }
   }
 

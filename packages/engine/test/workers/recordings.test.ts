@@ -1,5 +1,5 @@
 // Every committed Claude recording replayed through the fake process and the real adapter
-// (0017 section 2; DIPO-42 test plan): it parses with the adapter schema, it gives the outcome and
+// (0017; DIPO-42 test plan): it parses with the adapter schema, it gives the outcome and
 // proposed park its `meta.json` describes, and the usage arithmetic matches the numbers in it.
 
 import { describe, expect, it } from "bun:test";
@@ -20,7 +20,7 @@ import { loadRecording, recordingNames, replay } from "./replay";
 
 type Expectation = readonly [outcome: WorkerOutcome, park: string | null];
 
-/** The adapter's reading of each recording when no intent is recorded (0008 section 7). */
+/** The adapter's reading of each recording when no intent is recorded (0008). */
 const EXPECTED: Readonly<Record<string, Expectation>> = {
   "budget-engine-cap": ["done", null],
   "crash-truncated": ["crashed", "worker-failed"],
@@ -31,8 +31,8 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "max-turns": ["capped", "budget-exceeded"],
   "model-switch": ["done", null],
   "pause-now": ["blocked", "ambiguous-spec"],
-  // Captured before DIPO-342: the report still holds the permission field the report no
-  // longer has, so it is invalid: one correction turn, then worker-failed (as report-invalid).
+  // The captured report holds a permission field the report schema does not have, so it is
+  // invalid: one correction turn, then worker-failed (as report-invalid; DIPO-342).
   "permission-denied": ["blocked", "worker-failed"],
   // The worker reports the fixture question after the denied wait.
   "permission-wait": ["blocked", "ambiguous-spec"],
@@ -42,8 +42,7 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   // A report that does not parse or match the schema: one correction turn, then worker-failed.
   "report-invalid": ["blocked", "worker-failed"],
   "report-invalid-missing": ["blocked", "worker-failed"],
-  resume: ["done", null],
-  // DIPO-145: reviewer sessions (0019 sections 4 and 5), derived and live.
+  // DIPO-145: reviewer sessions (0002), derived and live.
   "review-approved": ["done", null],
   "review-blocked": ["done", null],
   "review-invalid": ["blocked", "worker-failed"],
@@ -76,7 +75,7 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "worker-park-ambiguous": ["blocked", "ambiguous-spec"],
 };
 
-/** The recovery step proposed before the park, where 0008 section 7 asks for one. */
+/** The recovery step proposed before the park, where 0008 asks for one. */
 const RETRY: Readonly<Record<string, string>> = {
   "prompt-too-long": "handoff",
   "report-invalid": "report-feedback",
@@ -265,52 +264,6 @@ describe("usage arithmetic from the recordings", () => {
     const first = results(recording)[0];
     const live = assistantUsage(stdout(recording).slice(0, stdout(recording).indexOf(first ?? {})));
     expect(live[model]?.cacheCreate).toBe(modelUsage(first ?? {})[model]?.cacheCreate ?? -1);
-  });
-
-  it("resume: the second process adds only the change since the stored totals", async () => {
-    const recording = loadRecording("resume");
-    const [first, second] = results(recording);
-    const run = await replay(recording);
-    const turns = run.events.filter((event) => event.t === "turn");
-    expect(turns.length).toBe(2);
-    expect(turns[0]?.t === "turn" && turns[0].totals).toEqual(modelUsage(first ?? {}));
-    // The resumed CLI totals include the restored spend, so they are the run totals as they are.
-    expect(run.result.usage).toEqual(modelUsage(second ?? {}));
-  });
-
-  it("resume after a restart: a new run adds only the change since the stored CLI totals", async () => {
-    const recording = loadRecording("resume");
-    const [first, second] = results(recording);
-    const stored = modelUsage(first ?? {});
-    const now = modelUsage(second ?? {});
-    // Replay only the second process, as a new run that resumes the stored session.
-    const secondOnly: Recording = {
-      ...recording,
-      lines: recording.lines.slice(recording.lines.findIndex((line) => line.ch === "exit") + 1),
-      meta: {
-        ...recording.meta,
-        steering: recording.meta.steering?.filter((steer) => steer.t > 6794) ?? [],
-      },
-    };
-    const run = await replay(secondOnly, {
-      state: initialState({ plannedModel: "haiku", baseline: stored }),
-    });
-    const [model = ""] = Object.keys(now);
-    const change = (field: "input" | "output" | "cacheCreate" | "cacheRead") =>
-      (now[model]?.[field] ?? 0) - (stored[model]?.[field] ?? 0);
-    expect(run.result.usage).toEqual({
-      [model]: {
-        input: change("input"),
-        output: change("output"),
-        cacheCreate: change("cacheCreate"),
-        cacheRead: change("cacheRead"),
-      },
-    });
-    // Carrying the stored run totals as well gives the session's cumulative totals once.
-    const carried = await replay(secondOnly, {
-      state: initialState({ plannedModel: "haiku", totals: stored }),
-    });
-    expect(carried.result.usage).toEqual(now);
   });
 
   it("crash-zeroed and terminated: usage recovered from earlier assistant messages", async () => {

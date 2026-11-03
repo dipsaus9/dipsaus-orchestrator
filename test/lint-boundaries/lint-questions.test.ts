@@ -1,5 +1,5 @@
-// Asserts that lint keeps the Claude CLI adapter out of `packages/engine/src/questions/` (0008 amendment
-// of 2026-10-12, DIPO-59 AC #3): hook payloads and replies are Claude-specific and stay in the
+// Asserts that lint keeps the Claude CLI adapter out of `packages/engine/src/questions/` (0008,
+// DIPO-59 AC #3): hook payloads and replies are Claude-specific and stay in the
 // adapter, while the adapter imports its own modules (the wider seam is lint-engine-seams.test.ts,
 // DIPO-113).
 

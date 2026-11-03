@@ -24,7 +24,7 @@ describe("the field write path with the pinned Backlog.md CLI", () => {
         await repo.commitAll("fixture");
         const cli: BacklogCli = { spawn: systemSpawn, command: BACKLOG_CLI, env: repo.env };
         const target: StoryTarget = { cli, cwd: repo.dir, id: "TASK-2" };
-        const nfd = "Outcome: the café export keeps every röw as written.";
+        const nfd = "Story: the café export keeps every röw as written.";
         await runBacklog(cli, repo.dir, ["task", "edit", "TASK-2", "--description", nfd]);
 
         await writeFields(target, (fields) => ({ ...fields, unknowns: [] }));

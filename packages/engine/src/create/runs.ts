@@ -1,9 +1,9 @@
 // The worker start of claimed runs in the engine (DIPO-74): the run launcher with the Claude CLI
-// worker port, DIPO-39's setup, detached worker hosts and ingestion, all with the tools this
+// worker port, the worker setup, detached worker hosts and ingestion, all with the tools this
 // daemon resolved on its PATH at start. `claude` and `backlog` are absolute paths, never looked up
 // again; a missing `claude` refuses each launch with a notice instead of stopping the daemon.
 //
-// Box workers (DIPO-271, 0021): with Apple `container` on the daemon's PATH, every run's developer
+// Box workers (DIPO-271, 0008): with Apple `container` on the daemon's PATH, every run's developer
 // works in its story's box (`BoxWorkers`, DIPO-240); without it no developer starts. A box lives
 // from claim to merge (DIPO-278): after each exit decision, on a minute tick and at the recovery
 // step (`finishEndedBoxes`), the box of a run that waits is checked for the token and stopped, and
@@ -53,7 +53,7 @@ import {
 import { appendEntries } from "../changelog/log";
 import type { StateDatabase } from "../db/database";
 import type { EngineGit } from "../git/feature";
-import { PermissionAsks } from "../questions/permissions";
+import { QuestionAnswers } from "../questions/answers";
 import type { IngestAdapter } from "../ingest/ingestor";
 import type { Logger } from "../log/logger";
 import type { MergeGatesDeps } from "../merge/commands";
@@ -101,8 +101,7 @@ import { sendFeedback } from "../run/feedback";
 import { findRun, recordSafeChain, type StoredRun } from "../records/run-records";
 import { baseStoryFacts } from "../run/resume";
 import type { Resumption } from "../run/resumption";
-import { sweepOldReviewFolders } from "../run/review-launch";
-import type { StartsPaused } from "../run/starts-paused";
+import type { AdapterPauses, StartsPaused } from "../run/starts-paused";
 import { gitStoryOps } from "../run/story-git";
 import { RunTempDirs } from "../run/temp-dirs";
 import type { StoryTestsDeps } from "../run/tests";
@@ -118,14 +117,13 @@ import { recordBranchPush, type BranchPush } from "../records/story-prs";
 import type { StoryStore } from "../story-store/store";
 import { claudeWorkerPort } from "../workers/claude-cli/adapter";
 import { CLAUDE_CLI_ADAPTER_ID } from "../workers/claude-cli/plan";
-import type { AdapterHolds } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
 import type { StoryClaims } from "../worktree/feature";
 
 /**
  * The Backlog CLI at the absolute path the daemon resolved, else `backlog` on `PATH` (AC #8). The
  * runner gives each call only `PATH` and `HOME` of the daemon's environment (`backlogEnv`), and a
- * story's calls run in dipo's own copy of its backlog, never its worktree (0021 section 14).
+ * story's calls run in dipo's own copy of its backlog, never its worktree (0008).
  */
 export function backlogCliFor(tools: ToolPaths, spawn: Spawn = systemSpawn): BacklogCli {
   return tools.backlog === undefined ? { spawn } : { spawn, command: [tools.backlog] };
@@ -137,7 +135,7 @@ export interface RunsOptions {
   readonly probe: ProcessProbe;
   /** Starts the processes of the runs: boxes, the Keychain, the worker. */
   readonly spawn: Spawn;
-  /** Starts the detached worker hosts (0006 decision 8). */
+  /** Starts the detached worker hosts (0005). */
   readonly hosts: HostStarter;
   /** The test boxes' forwarders on the Mac's loopback, and the check that one answers (DIPO-309). */
   readonly forwarders: Pick<TestBoxesDeps, "forward" | "reach">;
@@ -154,7 +152,7 @@ export interface RunsOptions {
   readonly tmpRoot: string;
   /** dipo's state folder: the box workers keep their index of unfinished boxes in it (DIPO-271). */
   readonly stateDir: string;
-  readonly holds: AdapterHolds;
+  readonly holds: AdapterPauses;
   readonly engineGit: EngineGit;
   readonly claims: StoryClaims;
   readonly offices: OfficeManager;
@@ -215,7 +213,7 @@ export interface EngineRuns {
    */
   readonly resumption: Resumption;
   /** The permission wait and `work.answer` (DIPO-59). */
-  readonly permissions: PermissionAsks;
+  readonly answers: QuestionAnswers;
   /** Re-attach of worker hosts after a restart (DIPO-57), a recovery step after reconcile. */
   readonly reattacher: RunReattacher;
   /**
@@ -260,11 +258,6 @@ export interface EngineRuns {
    * many rounds it queued.
    */
   recoverFixRounds(): Promise<number>;
-  /**
-   * Removes the read-only reviewer folders an earlier binary left in the temp root (DIPO-347), at
-   * daemon start by the recovery step. Never rejects.
-   */
-  sweepOldReviewFolders(): Promise<string[]>;
   /**
    * The auto-merge's ports into the run services (0002): a conflict merge dipo committed is
    * recorded and goes to the worker as one fix round, a maintainer reject as another, and the
@@ -808,7 +801,7 @@ function workerOf(options: RunsOptions, boxWorkers: BoxWorkers | null): WorkerPo
   const claude = claudeWorkerPort({
     spawn: options.spawn,
     clock: options.clock,
-    claudePath: options.tools.claude,
+    claudePath: options.tools.workerCli,
     home: options.home,
     env: options.env,
     holds: options.holds,
@@ -1038,12 +1031,10 @@ function boxRunPorts(options: RunsOptions, parts: RunPortParts): Partial<RunPort
     // The merges dipo made on a box run's branch outside the box reach its box before the worker's
     // next session (DIPO-324): the box is started, the files copied in as a catch-up's are.
     boxSync: boxSyncOf(options, parts),
-    // A fix round waits for the CI of the pushed head and carries its red items (DIPO-148); a box
-    // run's developer gets a new session in its box (0021 section 6).
+    // A fix round waits for the CI of the pushed head and carries its red items (DIPO-148).
     ...(storyPr?.ciState === undefined
       ? {}
       : { ci: (office: OfficeId, runId: RunId) => storyPr.ciState?.(office, runId) ?? null }),
-    boxRun: parts.isBoxRun,
   };
 }
 
@@ -1071,7 +1062,7 @@ function controlRunPorts(
     // The park written on the story branch (DIPO-50), after auto-merge is off (0002).
     control: { finisher: parts.finisher, writer: writers.park, implemented: options.implemented },
     outcomes: {
-      // No new host while an earlier host of the run still runs (DIPO-57, 0006 decision 8).
+      // No new host while an earlier host of the run still runs (DIPO-57, 0005).
       probe: options.probe,
       // A host still alive for a parked run gets one verified SIGTERM at its resume (DIPO-411).
       signal: signalProcess,
@@ -1107,7 +1098,7 @@ function reattachRunPorts(options: RunsOptions, parts: RunPortParts): Partial<Ru
           ? null
           : (worker.adapter(runPaths, config) as IngestAdapter);
       },
-      initialState: ({ office, run, agent, resume, previous }) => {
+      initialState: ({ office, run, agent, previous }) => {
         const runPaths = paths.runPaths(office, run);
         const inForce = tierOf(options, office, run);
         const handle = options.offices.get(office);
@@ -1118,7 +1109,6 @@ function reattachRunPorts(options: RunsOptions, parts: RunPortParts): Partial<Ru
           agent,
           inForce,
           paths: runPaths,
-          resume,
           ...(previous === undefined ? {} : { previous }),
         });
       },
@@ -1287,7 +1277,7 @@ function engineRunsOf(
     control: composed.control,
     outcomes: composed.outcomes,
     resumption: composed.resumption,
-    permissions: composed.permissions,
+    answers: composed.answers,
     reattacher: composed.reattacher,
     startsPaused: composed.startsPaused,
     places: composed.places,
@@ -1299,7 +1289,6 @@ function engineRunsOf(
     stopBoxPasses: passes.stopBoxPasses,
     testBoxes: passes.testBoxes,
     onBoxTick: passes.onBoxTick,
-    sweepOldReviewFolders: () => sweepOldReviewFolders(realDir(options.tmpRoot)),
     recoverFixRounds: async () => {
       let queued = 0;
       for (const office of options.offices.loadedOffices()) {
@@ -1313,7 +1302,7 @@ function engineRunsOf(
 
 /**
  * The auto-merge's ports (0002): its conflicts and the maintainer's rejects go through the fix
- * rounds, and its conflict merges are recorded as DIPO-149's catch-ups are.
+ * rounds, and its conflict merges are recorded as the catch-ups of `run/conflicts.ts` are.
  */
 function mergePortsOf(
   options: RunsOptions,

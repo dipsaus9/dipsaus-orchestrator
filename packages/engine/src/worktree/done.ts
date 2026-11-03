@@ -98,7 +98,7 @@ export interface StoryTeardownDeps {
   readonly statusOf?: (claim: ClaimRecord) => Promise<string | null>;
   /** Closes dipo's open story PR of a story Done elsewhere; the `gh` host in the daemon. */
   readonly prCloser?: Pick<CodeHost, "closePr"> | null;
-  /** Checks and deletes the boxes of ended runs after a release (0021 section 6). */
+  /** Checks and deletes the boxes of ended runs after a release (0008). */
   readonly finishBoxes?: () => Promise<unknown>;
   readonly onChanged?: (office: OfficeId) => void;
   readonly logger?: Logger;

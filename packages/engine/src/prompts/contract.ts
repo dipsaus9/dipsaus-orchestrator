@@ -1,5 +1,5 @@
-// The story contract sections of the task message (0014 sections 2 and 4): `story`, `outcome`,
-// `criteria`, `scope`, `test_plan`, `answers` and `instructions`. They are never truncated. Their
+// The story contract sections of the task message (0014): `story` (with the
+// Story line), `criteria`, `scope`, `test_plan`, `answers` and `instructions`. They are never truncated. Their
 // size is measured on its own, the way Ready gate rule R26 measures it, and over
 // `prompt.contractMax` assembly fails with `prompt.contractTooLarge`: the backstop for a story
 // that changed after its gate. Moving the story back to Refined is the caller's job (DIPO-48).
@@ -8,7 +8,7 @@ import { characters } from "../gate/text";
 import type { PromptStory } from "./story";
 import { renderTemplate, TASK_TEMPLATES } from "./templates";
 
-/** The default of `prompt.contractMax` (0014 section 4). */
+/** The default of `prompt.contractMax` (0014). */
 export const CONTRACT_MAX_DEFAULT = 12_000;
 
 export const CONTRACT_TOO_LARGE = "prompt.contractTooLarge";
@@ -39,7 +39,6 @@ export const SECTION_ORDER = [
   "background",
   "handoff",
   "story",
-  "outcome",
   "criteria",
   "scope",
   "test_plan",
@@ -51,7 +50,6 @@ export type SectionName = (typeof SECTION_ORDER)[number];
 
 export const CONTRACT_SECTIONS = [
   "story",
-  "outcome",
   "criteria",
   "scope",
   "test_plan",
@@ -63,14 +61,14 @@ const SPIKE = "spike";
 
 /**
  * The contract's characters as R26 counts them (`contractCharacters` in `gate/rules.ts`): title,
- * outcome, criteria, scope paths, test plan (check, expected result, not-applicable reason),
+ * Story line, criteria, scope paths, test plan (check, expected result, not-applicable reason),
  * resolved unknowns (question and answer) and extra instructions, each trimmed and NFC-normalised.
  */
 export function contractSize(story: PromptStory): number {
   const plan = story.testPlan;
   const texts = [
     story.title,
-    ...story.outcome.split("\n"),
+    ...story.storyLine.split("\n"),
     ...story.criteria.map((criterion) => criterion.text),
     ...story.scope,
     ...(plan?.entries ?? []).flatMap((entry) => [entry.check, entry.expect ?? ""]),
@@ -125,8 +123,8 @@ function answersSection(story: PromptStory): Section | undefined {
 }
 
 /**
- * The story contract sections, in order, each present only under its 0014 condition: `story`,
- * `outcome`, `criteria` and `scope` always, `test_plan` for a non-spike, `answers` when an
+ * The story contract sections, in order, each present only under its 0014 condition: `story`
+ * (with the Story line), `criteria` and `scope` always, `test_plan` for a non-spike, `answers` when an
  * unknown is resolved, `instructions` when non-empty. Throws `ContractTooLargeError` when the
  * contract is over `contractMax`. With `box`, the scope section is the box worker's forecast
  * (`scopeBox`).
@@ -146,9 +144,9 @@ export function assembleContract(
         title: story.title.trim(),
         type: story.type ?? "none",
         tier: story.tier ?? "none",
+        story_line: story.storyLine === "" ? "none" : story.storyLine,
       }),
     },
-    { name: "outcome", text: renderTemplate(TASK_TEMPLATES.outcome, { outcome: story.outcome }) },
     {
       name: "criteria",
       text: renderTemplate(TASK_TEMPLATES.criteria, {
@@ -157,7 +155,7 @@ export function assembleContract(
     },
     {
       name: "scope",
-      // A box worker's scope is a forecast, not a fence (0021 section 13, DIPO-272).
+      // A box worker's scope is a forecast, not a fence (0008, DIPO-272).
       text: renderTemplate(options.box === true ? TASK_TEMPLATES.scopeBox : TASK_TEMPLATES.scope, {
         paths: bullets(story.scope),
       }),

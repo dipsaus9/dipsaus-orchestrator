@@ -1,4 +1,4 @@
-// Daily file maintenance (0007 sections 1 and 7), only while no office has active work:
+// Daily file maintenance (0007), only while no office has active work:
 // `PRAGMA incremental_vacuum(N)` in slices of a few hundred pages, `PRAGMA optimize` and
 // `PRAGMA wal_checkpoint(TRUNCATE)` on the whole file, each within the 50 ms budget. Idleness is asked again
 // before every step; work that starts in between stops the rest until the next day.

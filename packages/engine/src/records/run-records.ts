@@ -1,4 +1,4 @@
-// Run facts (0007 section 4, DIPO-48): rows of `runs`, `run_steps` and `config_snapshots`, read and
+// Run facts (0007, DIPO-48): rows of `runs`, `run_steps` and `config_snapshots`, read and
 // written through the office handle. Writers run inside the caller's `office.immediate`.
 //
 // This module is the one writer of `runs` (0001): every insert and update of a run row goes
@@ -9,7 +9,7 @@
 // A story run is active while it has not ended and its claim is live, so a claim released by
 // teardown or a rollback never leaves an office busy; a session run is active until it ends.
 //
-// One story run spans every round of its claim (0019 section 13, DIPO-142): its active period ends
+// One story run spans every round of its claim (0002, DIPO-142): its active period ends
 // at a park and at In Review, and `reopen` (`run-state/rounds.ts`) makes it active again for a
 // resume, a review, a fix round or a conflict hand-off, adding the time it stood ended to
 // `parked_ms`. A run ends done, parked or dropped (0020, `lifecycle.ts`); at In Review it stays
@@ -30,7 +30,7 @@ import { finalizeRunAgents } from "./usage";
 
 export type RunKind = "story" | "session";
 
-/** What a run starts with (0007 section 4). Story fields are null for a session run. */
+/** What a run starts with (0007). Story fields are null for a session run. */
 export interface NewRun {
   readonly runId: RunId;
   readonly kind: RunKind;
@@ -79,7 +79,7 @@ export interface StoredRun extends NewRun {
   /** How the run ended: done, parked or dropped; null while it is open (0020). */
   readonly ending: RunEnd | null;
   /**
-   * Milliseconds the run stood parked before an answer reopened it (DIPO-75, migration 23), and
+   * Milliseconds the run stood parked before an answer reopened it (DIPO-75), and
    * stood ended or in review between its rounds (DIPO-142); its caps and minutes count the time
    * its developer worked, not these. 0 when absent.
    */
@@ -224,7 +224,7 @@ export function insertRun(office: OfficeHandle, run: NewRun): void {
   );
 }
 
-/** Records the gate commands the story branch changed (0013 section 5, DIPO-49 AC #7). */
+/** Records the gate commands the story branch changed (0013, DIPO-49 AC #7). */
 export function recordGateChanges(
   office: OfficeHandle,
   runId: RunId,
@@ -502,7 +502,7 @@ export function runPhaseAt(office: OfficeHandle, runId: string): number | null {
 }
 
 /**
- * When the run's caps start counting (0008 sections 6 and 9): its first worker host's start, else
+ * When the run's caps start counting (0008): its first worker host's start, else
  * the run's own, moved later by the time it stood parked (DIPO-75) or ended between its rounds and
  * in review (DIPO-142), so the time cap counts only the time its developer worked.
  */
@@ -530,7 +530,7 @@ export function capsStartedAt(
  *
  * One end is not always the last (DIPO-75, DIPO-142): a parked run reopens on resume
  * (`reopenRun`), and its next end rewrites the provisional row with every park and round of the
- * run and the minutes it worked. Done is final (0019 section 13): a run open at In Review keeps
+ * run and the minutes it worked. Done is final (0002): a run open at In Review keeps
  * the end of its last active period, so its minutes count the time it worked, and its final row
  * is never rewritten.
  */
@@ -548,8 +548,8 @@ export function endRun(
     ...(reviewSince === undefined ? {} : { reviewSince }),
   });
   if (ended === null) return false;
-  // Usage of agents whose exit is not ingested yet reaches `usage_daily` now (0007 amendment of
-  // 2026-10-14, DIPO-51); what ingestion adds later feeds only its change.
+  // Usage of agents whose exit is not ingested yet reaches `usage_daily` now (0007);
+  // what ingestion adds later feeds only its change.
   if (ended.before.endedAt === null) finalizeRunAgents(office, runId, at);
   writeRunOutcome(office, runId, ending);
   // A steer the run ends with, held or unread, reaches no session any more (DIPO-412).
@@ -562,7 +562,7 @@ export function endRun(
 }
 
 /**
- * Appends the `run.ended` entry of the end `endRun` applied (0005 section 6), in the caller's
+ * Appends the `run.ended` entry of the end `endRun` applied (0005), in the caller's
  * transaction. It names the run, and its story when the run has one; `endedAt` is the end of the
  * run's last active period, the time `runs.ended_at` keeps.
  */
@@ -697,7 +697,7 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, ending: RunEnd): vo
     )?.n ?? 0;
   // The developer's tokens only: a reviewer counts against its own caps, never the story's (0002).
   const budget = runTotals(office, runId, at, at).budgetTokens;
-  // The run's web calls by tool, counted from its tool activity (0020 section 11b, DIPO-164).
+  // The run's web calls by tool, counted from its tool activity (0020, DIPO-164).
   const web = office.get<{ searches: number; fetches: number }>(
     `select web_searches as searches, web_fetches as fetches from runs
       where office_id = $office_id and run_id = $run`,

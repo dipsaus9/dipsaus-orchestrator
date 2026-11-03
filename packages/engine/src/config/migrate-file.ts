@@ -1,8 +1,10 @@
-// `dipo config migrate` (0017): the new text of an office file of versions 1 to 14, at version 15.
-// The steps are the ones the load applies in memory (`migrateOfficeDocument`), applied here to the
-// `yaml` library's document, so every comment and the order of the keys that stay are kept and the
-// change shows as a normal git diff. The new text is loaded again before it is returned: a file
-// that would not load as version 15 is refused, and nothing is written.
+// `dipo config migrate` (0017): the new text of an office file of a version this binary reads, at
+// the current version. The steps are the ones the load applies in memory (`migrateOfficeDocument`,
+// none since the upgrades of the versions before 16 were dropped), applied here to the `yaml`
+// library's document, so every comment and the order of the keys that stay are kept and the change
+// shows as a normal git diff. The new text is loaded again before it is returned: a file that would
+// not load at the current version is refused, and nothing is written. An older file than this
+// binary reads is refused with the load's own message.
 
 import { configError, type ConfigError } from "@dipsaus-orchestrator/contract";
 import { type Document, isMap, parseDocument } from "yaml";
@@ -56,9 +58,9 @@ function loadErrors(file: string, text: string): readonly ConfigError[] {
 }
 
 /**
- * Pure: `text` of `file` (`.dipo/office.yaml` or `.dipo/office.local.yaml`) migrated to version 15
- * with its comments. A version 15 file comes back unchanged once it loads. Errors name the file
- * and the key, and mean nothing may be written.
+ * Pure: `text` of `file` (`.dipo/office.yaml` or `.dipo/office.local.yaml`) migrated to the current
+ * version with its comments. A current file comes back unchanged once it loads. Errors name the
+ * file and the key, and mean nothing may be written.
  */
 export function migrateOfficeFileText(file: string, text: string): MigratedFile {
   if (file !== OFFICE_FILE && file !== OFFICE_LOCAL_FILE) {

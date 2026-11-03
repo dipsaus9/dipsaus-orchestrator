@@ -1,6 +1,6 @@
 // The planning lane per office, and its office load step (DIPO-27 seam): after a crash, open
 // journal entries are replayed while the office loads, before any other git queue item of the
-// office (0007 section 6 step 2, 0010 section 2a step 3). The step must run after `git.version`,
+// office (0007, 0010). The step must run after `git.version`,
 // which attaches the office's git, so the daemon registers this feature after `EngineGit.feature`.
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
@@ -41,13 +41,13 @@ export class BacklogLane {
   constructor(deps: BacklogLaneDeps) {
     this.#deps = deps;
     this.register(editKind(EDIT_KIND));
-    // Hold, resume of a hold and drop (0020 section 8, DIPO-160).
+    // Hold, resume of a hold and drop (0020, DIPO-160).
     this.register(editKind(HOLD_KIND));
     this.register(editKind(RESUME_KIND));
     this.register(dropKind);
-    // Discard (0020 section 8, DIPO-161).
+    // Discard (0020, DIPO-161).
     this.register(editKind(DISCARD_KIND));
-    // An accepted worker proposal filed as a Backlog draft (0020 section 11c, DIPO-166).
+    // An accepted worker proposal filed as a Backlog draft (0020, DIPO-166).
     this.register(proposeKind);
     for (const kind of deps.kinds ?? []) this.register(kind);
   }

@@ -1,4 +1,4 @@
-// The fake worker subprocess (0017 section 2): it replaces the process, not the adapter. A
+// The fake worker subprocess (0017): it replaces the process, not the adapter. A
 // recording from `packages/engine/test/recordings/<adapter>/<scenario>/` is replayed through the
 // contract `ChildProcess` type, handed out by an injected `Spawn`. Time moves only on the manual
 // clock, by the recorded `t` deltas, so a 30-minute recording replays in milliseconds.

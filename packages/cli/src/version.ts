@@ -1,4 +1,4 @@
-// `dipo --version` (0016 rule 5). `scripts/build.ts` passes DIPO_VERSION, DIPO_COMMIT and
+// `dipo --version` (0016). `scripts/build.ts` passes DIPO_VERSION, DIPO_COMMIT and
 // DIPO_COMMIT_DATE as `--define` constants; running from source has none of them.
 
 declare const DIPO_VERSION: string | undefined;

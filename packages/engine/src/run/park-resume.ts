@@ -6,7 +6,7 @@
 //    (`resume.topUpRequired` naming `--budget` and the cap that fired), the answer of an
 //    `ambiguous-spec` park or the note a reason requires is given (`resume.noteRequired`), the
 //    office's starts are not paused (`run.refused` naming why, 0020), no session of the run is alive
-//    (`run.hostAlive`), the daemon schedules work (`scheduling.off`), what remains of the caps,
+//    (`run.hostAlive`), the daemon schedules work (`daemon.draining`), what remains of the caps,
 //    counting this resume's grants, is above zero (`resume.capReached` naming `--budget`; for a
 //    top-up `resume.topUpTooSmall` naming the smallest share that clears it), and a top-up was
 //    confirmed (`confirmation.required` with the caps before and after).
@@ -202,7 +202,7 @@ export interface ConflictPrepared {
   readonly afterStart?: () => Promise<void>;
 }
 
-/** The 0019 conflict hand-off a `conflict` park resumes through (`ConflictResumes`, DIPO-324). */
+/** The 0002 conflict hand-off a `conflict` park resumes through (`ConflictResumes`, DIPO-324). */
 export interface ConflictResumer {
   /**
    * After the park is lifted, before the session: what git says the developer needs (the kept
@@ -228,8 +228,6 @@ export interface ParkResumeOptions {
   readonly places: () => Places | undefined;
   /** False while the daemon schedules no work; true by default. */
   readonly scheduling?: () => boolean;
-  /** Whether the run's developer works in a box (DIPO-271); false without it. */
-  readonly boxRun?: (office: OfficeId, run: StoredRun) => boolean;
   /** The fix rounds, which queue the round of a resumed `review-blocked` park (DIPO-148). */
   readonly fixRounds?: () =>
     | { consider(office: OfficeId, run: RunId): Promise<boolean> }
@@ -257,8 +255,6 @@ interface ResumeAnswer {
   /** The question as the worker asked it. */
   readonly text: string;
   readonly answer: string;
-  /** True when the answer is held already for the next session (it came while the run ended). */
-  readonly held: boolean;
 }
 
 /** What a maintainer resume's intent holds after its tag. */
@@ -535,7 +531,7 @@ export class ParkResumes {
     if (need.budget === true && args.budget === undefined) {
       throw this.#topUpRequired(office, run, story);
     }
-    // An `ambiguous-spec` park resumes with its answer, or with one held already (DIPO-159).
+    // An `ambiguous-spec` park resumes with its answer (DIPO-159).
     const answer = need.note === "answer" ? questionAnswer(office, park, note) : null;
     if (need.note === "answer" && answer === null) {
       const asked = parkWorkerQuestion(office, park.parkId);
@@ -585,7 +581,7 @@ export class ParkResumes {
     const story = identity.story;
     if (this.#options.scheduling?.() === false) {
       throw new CommandError(
-        "scheduling.off",
+        "daemon.draining",
         `dipo schedules no work now, so ${story} cannot resume; send \`dipo resume ${story}\` again once scheduling is back on.`,
         { story },
       );
@@ -820,7 +816,7 @@ export class ParkResumes {
       office.immediate(() => resolveIntent(office, run.runId, intentId, "failed", clock.now()));
       throw new Error(why);
     };
-    // The park changed under the resume: nothing is written, nothing follows (DIPO-155 review).
+    // The park changed under the resume: nothing is written, nothing follows.
     const gone = (): never => {
       office.immediate(() => resolveIntent(office, run.runId, intentId, "abandoned", clock.now()));
       const now = run.key === null ? null : storyView(office, run.key as StoryKey);
@@ -1232,12 +1228,7 @@ export class ParkResumes {
       });
       afterStart = prepared.afterStart;
     }
-    const box = this.#options.boxRun?.(officeId, run) === true;
-    const started = await this.#sessions.next(office, run, view, {
-      // A box run's developer gets a new session in its box with a handoff (0008).
-      mode: box ? "handoff" : "resume",
-      why: detail.why,
-    });
+    const started = await this.#sessions.next(office, run, view, { why: detail.why });
     const at = clock.now();
     office.immediate(() => {
       // The next resume builds its own parts again; the maintainer's words stay held.
@@ -1454,8 +1445,7 @@ export class ParkResumes {
         break;
       }
       case "answer":
-        // An answer held already goes with the first message as it waited (`heldFeedback`).
-        if (answer !== null && !answer.held) {
+        if (answer !== null) {
           parts.push(
             renderTemplate(answerTemplate, {
               question: answer.text,
@@ -1475,9 +1465,8 @@ export class ParkResumes {
 }
 
 /**
- * The answer an `ambiguous-spec` park resumes with (DIPO-159): the note, or the answer already
- * held for the park's worker question; null when there is neither. The question is the park's
- * worker question, or the park's detail when it carries none.
+ * The answer an `ambiguous-spec` park resumes with (DIPO-159): the note; null without one. The
+ * question is the park's worker question, or the park's detail when it carries none.
  */
 function questionAnswer(
   office: OfficeHandle,
@@ -1486,13 +1475,8 @@ function questionAnswer(
 ): ResumeAnswer | null {
   const asked = parkWorkerQuestion(office, park.parkId);
   const text = asked?.text ?? park.detail;
-  if (note !== undefined) {
-    return { question: asked?.questionId ?? null, text, answer: note, held: false };
-  }
-  if (asked?.closedHow === "answered" && asked.answer !== null) {
-    return { question: asked.questionId, text, answer: asked.answer, held: true };
-  }
-  return null;
+  if (note === undefined) return null;
+  return { question: asked?.questionId ?? null, text, answer: note };
 }
 
 /**
@@ -1506,10 +1490,9 @@ function answeredQuestion(
   answer: ResumeAnswer | null,
   at: number,
 ): NewEntry[] {
-  if (answer === null || answer.held || answer.question === null) return [];
+  if (answer === null || answer.question === null) return [];
   const closed = closeQuestion(office, answer.question, "answered", at, {
     text: answer.answer,
-    decision: null,
     delivered: "on-resume",
   });
   if (!closed) return [];

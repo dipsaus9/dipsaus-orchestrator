@@ -1,4 +1,4 @@
-// The evidence bundle of the scan fallback (0013 section 6 step 1, DIPO-310). Pure: the file list
+// The evidence bundle of the scan fallback (0013, DIPO-310). Pure: the file list
 // and the texts of dipo's base copy go in, the request and the bundle come out, within a size
 // budget. Code decides every item; the model only reads them.
 //
@@ -111,7 +111,7 @@ export interface RequestItem {
 }
 
 /**
- * The request (0013 section 6 step 2): the capabilities the effective profile leaves unresolved or
+ * The request (0013): the capabilities the effective profile leaves unresolved or
  * in conflict, never one code resolved or the maintainer confirmed, and not `dev` when the product
  * has nothing to start.
  */

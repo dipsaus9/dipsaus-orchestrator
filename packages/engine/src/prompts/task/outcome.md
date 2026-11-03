@@ -1,3 +1,0 @@
-<outcome>
-{{outcome}}
-</outcome>

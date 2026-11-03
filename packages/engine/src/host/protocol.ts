@@ -1,4 +1,4 @@
-// The worker host's files and its steering protocol (0006 decision 8, 0007 section 2). The
+// The worker host's files and its steering protocol (0005, 0007). The
 // protocol is tiny, versioned and separate from the client contract: one JSON object per line on
 // `<runtime>/hosts/<run-id>.sock`. A client opens with `hello`, naming the protocol versions it
 // speaks and the run it expects; the host answers with the version it picked, or refuses and
@@ -18,16 +18,16 @@ import type { LaunchPlan } from "../workers/types";
 export const HOST_PROTOCOL_VERSION = 3;
 /** Every host protocol version this binary can serve or speak, oldest first. */
 export const HOST_PROTOCOL_VERSIONS: readonly number[] = [1, 2, 3];
-/** Files in `<git-common-dir>/dipo/runs/<run-id>/` (0007 section 2). */
+/** Files in `<git-common-dir>/dipo/runs/<run-id>/` (0007). */
 export const EVENTS_FILE = "events.ndjson";
 export const EXIT_FILE = "exit.json";
 export const HOST_LOG_FILE = "host.log";
 /** What the engine hands the host; the host reads it once and removes it (it holds the prompt). */
 export const LAUNCH_FILE = "launch.json";
-/** Host logs are capped at 5 MB by dropping the oldest half (0006 decision 13). */
+/** Host logs are capped at 5 MB by dropping the oldest half (0005). */
 export const HOST_LOG_CAP_BYTES = 5 * 1024 * 1024;
 
-/** The directory below the runtime directory that holds the host sockets (0006 decision 3). */
+/** The directory below the runtime directory that holds the host sockets (0005). */
 export const HOSTS_DIR = "hosts";
 
 /** `<runtime>/hosts/<run-id>.sock`. */
@@ -109,7 +109,7 @@ export interface HostLaunch {
   readonly plan: LaunchPlan;
 }
 
-/** `exit.json`, written once when the worker has ended (0006 decision 8). */
+/** `exit.json`, written once when the worker has ended (0005). */
 export interface HostExitFile {
   readonly run: string;
   /** Exit code, or null when the worker ended by a signal or never started. */

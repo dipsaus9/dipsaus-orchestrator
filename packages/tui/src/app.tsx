@@ -1,4 +1,4 @@
-// The TUI root (0009 sections 4 to 7 and 9): the header with office, daemon state and connection,
+// The TUI root (0009): the header with office, daemon state and connection,
 // the banners, the office overview (`1`), the queue (`2`) or the office switcher, and the footer
 // with the keys that work now. Global keys: `1` overview, `2` queue, `o` offices, `q` twice within
 // 2 s quits, Ctrl+C quits. In the queue: `j`/`k` or arrows move, `u` runs the selected story (or
@@ -7,7 +7,7 @@
 // queue, opens the live agent detail (`detail.tsx`), and on a story that ran before its latest run
 // read-only through `story.detail` (a story that never ran says so in the footer). There `P` asks
 // for a note and sends `story.park`, and Esc returns to the view it came from. In the switcher: `j`/`k` or arrows move, Enter opens the office through
-// `office.switch`, `n` opens a new repository path through `office.open`, Esc goes back. Action
+// `office.snapshot`, `n` opens a new repository path through `office.open`, Esc goes back. Action
 // keys are off while offline. In the overview `p` opens the privacy settings (`settings.tsx`):
 // Enter toggles the selected one after a yes that names what is stored, through `office.setPrivacy`.
 //
@@ -73,7 +73,7 @@ import { skipReason, widthOf } from "./format";
 import { useLatestLines } from "./latest";
 import type { Display } from "./options";
 import { OUTPUT_TAIL_BYTES } from "./output";
-import { boardEntries, EVIDENCE_LEGEND, EVIDENCE_MARKERS, Overview } from "./overview";
+import { boardEntries, Overview } from "./overview";
 import { digestLine, type ReadDigest, useDigest } from "./digest";
 import { type ActionId, rowKeys, viewKeys } from "./keys";
 import { Queue, queueRows } from "./queue";
@@ -95,7 +95,7 @@ import {
 /** A key event with no modifier, for keys taken one by one from a multi-key write. */
 const NO_KEY = {} as Key;
 
-/** A second `q` within this window quits (0009 section 6). */
+/** A second `q` within this window quits (0009). */
 export const QUIT_WINDOW_MS = 2_000;
 
 export type ActionResult<T> =
@@ -135,7 +135,7 @@ export type StoryOutcome =
       readonly result: {
         readonly view: StoryView;
         readonly runs: readonly RunRecord[];
-        /** The story's decided gates with their review rounds (0019 section 14). */
+        /** The story's decided gates with their review rounds (0002). */
         readonly verdicts?: readonly Verdict[];
       };
     }
@@ -143,7 +143,7 @@ export type StoryOutcome =
 
 /** The commands the TUI sends; `run` builds them on the client session. */
 export interface TuiActions {
-  /** `work.outputRange` for the live agent detail (0005 section 7). */
+  /** `work.outputRange` for the live agent detail (0005). */
   readOutput: ReadOutput;
   /** `work.prompt` for the prompt pane of the live agent detail (DIPO-137). */
   readPrompt: ReadPrompt;
@@ -156,7 +156,7 @@ export interface TuiActions {
   openPath(path: string): Promise<ActionResult<OfficeId>>;
   /** `office.setPrivacy` for the setting the maintainer confirmed (DIPO-136). */
   setPrivacy(request: PrivacyRequest): Promise<ActionResult<null>>;
-  /** `work.run` with `origin: "tui"` and the given request id (0009 section 5). */
+  /** `work.run` with `origin: "tui"` and the given request id (0009). */
   runStories(request: RunRequest): Promise<RunOutcome>;
   /** One command of the desk, the detail or the queue (`actions.ts`, DIPO-308). */
   sendCommand(request: CommandRequest): Promise<CommandOutcome>;
@@ -164,7 +164,7 @@ export interface TuiActions {
   readLosses(request: LossesRequest): Promise<LossesOutcome>;
   /** `office.desk` (DIPO-158). */
   readDesk: ReadDesk;
-  /** `office.digest` without `since`: since the office's last TUI client left (DIPO-308). */
+  /** `office.digest` from the time this TUI last saw the office (`digest.ts`). */
   readDigest: ReadDigest;
   /** A fresh request id for a new action; a retry reuses the old one. */
   newRequestId(): RequestId;
@@ -369,6 +369,7 @@ export function App(props: AppProps) {
   const digest = useDigest({
     office: state.office,
     readDigest: actions.readDigest,
+    clock,
   });
   const acts = useActions({
     store,
@@ -706,7 +707,7 @@ export function App(props: AppProps) {
   const onRetryKey = () => {
     if (acts.retry()) return;
     if (run?.status !== "failed" || run.error?.retryable !== true || refusedOffline()) return;
-    // The same request id: the engine runs the command at most once (0005 section 9).
+    // The same request id: the engine runs the command at most once (0005).
     send(run.request, run.label);
   };
 
@@ -1078,7 +1079,6 @@ export function App(props: AppProps) {
           item={card.item}
           outcome={card.outcome}
           now={clock.now()}
-          evidence={EVIDENCE_MARKERS}
           display={display}
           columns={columns}
           height={height}
@@ -1212,7 +1212,6 @@ function footerKeys(
       hints.push(...extras.row);
       if (view === "card") {
         hints.push(["[j/k] scroll", 30], ["[Esc] back", 90], quit);
-        if (EVIDENCE_MARKERS) hints.push([EVIDENCE_LEGEND, 10]);
         return fitHints(hints, width);
       }
       if (view === "detail" || view === "ended") {
@@ -1223,7 +1222,6 @@ function footerKeys(
         );
         hints.push(["[Esc] back", 90]);
         hints.push(quit);
-        if (EVIDENCE_MARKERS) hints.push([EVIDENCE_LEGEND, 10]);
         return fitHints(hints, width);
       }
       if (view === "settings") {
@@ -1261,7 +1259,6 @@ function footerKeys(
       }
       hints.push(["[o] offices", 40]);
       hints.push(quit);
-      if (EVIDENCE_MARKERS) hints.push([EVIDENCE_LEGEND, 10]);
       return fitHints(hints, width);
   }
 }

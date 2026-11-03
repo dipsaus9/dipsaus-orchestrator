@@ -28,7 +28,7 @@ export function standInPlan(
       "-p",
       "--output-format",
       "stream-json",
-      spec.session.resume ? "--resume" : "--session-id",
+      "--session-id",
       spec.session.id,
       "--model",
       spec.model,

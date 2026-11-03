@@ -1,4 +1,4 @@
-// The key table (DIPO-308; 0009 sections 5 and 6): a desk row offers a key only for a command its
+// The key table (DIPO-308; 0009): a desk row offers a key only for a command its
 // `actions` lists and the engine's flags allow, `y` and `n` accept and dismiss a PROPOSAL row, a
 // key an earlier action of the row took or a command no entry binds shows its command line, and
 // the detail and the queue get steer, park and drop from the same table.

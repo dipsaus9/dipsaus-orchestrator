@@ -13,7 +13,7 @@ ordinal: 2000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: the export setting has one name in code, docs and configuration.
+Story: As maintainer I want the export setting to have one name everywhere so that I never guess which name applies.
 
 ```dipo
 unknowns: []

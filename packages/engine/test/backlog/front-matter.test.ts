@@ -1,5 +1,5 @@
 // dipo refuses a Backlog CLI call when a task file's front matter is not plain YAML (DIPO-312,
-// 0021 section 14): before every call, whatever the subcommand, the runner checks every Markdown
+// 0008): before every call, whatever the subcommand, the runner checks every Markdown
 // file in the backlog folders and every configuration file of the folder the call runs in. A front
 // matter block that names a language or does not parse, a special file or one too large to check
 // refuses the call before spawning, with an `engine.notice` the first time a file's verdict is

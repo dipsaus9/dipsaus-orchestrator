@@ -1,4 +1,4 @@
-// `bun run recordings:derive` (0017 section 2, "Scenarios"): the derived recordings are small,
+// `bun run recordings:derive` (0017): the derived recordings are small,
 // pure transforms of the committed live recordings, so they regenerate on every refresh and a
 // unit test can check that the committed copies are current. Field values the docs name but no
 // live run showed (for example `startup_failure_reason`) are marked in `meta.cites`.
@@ -32,10 +32,9 @@ interface Transform {
 }
 
 const STALL_MS = 30 * 60 * 1000;
-const CITE_RESULT =
-  "Claude Code docs, Agent SDK TypeScript reference: SDKResultMessage (0008 source 4)";
+const CITE_RESULT = "Claude Code docs, Agent SDK TypeScript reference: SDKResultMessage (0008)";
 const CITE_ASSISTANT_ERROR =
-  "Claude Code docs, Agent SDK TypeScript reference: SDKAssistantMessage error (0008 source 4)";
+  "Claude Code docs, Agent SDK TypeScript reference: SDKAssistantMessage error (0008)";
 
 const CITE_TERMINAL =
   'terminal_reason "error" and stop_reason null on derived failure results are illustrative; live failures showed "aborted_streaming" and "max_turns"';
@@ -172,24 +171,24 @@ function assistantError(lines: readonly Envelope[], error: string): Envelope[] {
   });
 }
 
-// The review kind (0019 sections 4 and 5, DIPO-145). The live `review-*-live` captures (Claude
+// The review kind (0002, DIPO-145). The live `review-*-live` captures (Claude
 // Code 2.1.302, 2026-10-19) exist beside these; the derived review recordings stay the live
 // `success-single` session with the reviewer's system/init (its four tools, no skill, no slash
 // command) and an illustrative review report, kept readable for the replay tests. The derived
 // `review-invalid` is the only invalid review report: the live `review-invalid-live` returned a
 // valid one.
 
-/** The tools a reviewer's system/init lists: the four of 0019 section 4 and the report tool. */
+/** The tools a reviewer's system/init lists: the four of 0002 and the report tool. */
 const REVIEW_INIT_TOOLS = ["Bash", "Glob", "Grep", "Read", "StructuredOutput"];
 
 const CITE_REVIEW_INIT =
-  "system/init tools Bash, Glob, Grep, Read and StructuredOutput are those --tools Read,Glob,Grep,Bash asks for, as the live review-*-live captures (Claude Code 2.1.302, 2026-10-19) list them, with skills [] and slash_commands [] (0019 section 4)";
+  "system/init tools Bash, Glob, Grep, Read and StructuredOutput are those --tools Read,Glob,Grep,Bash asks for, as the live review-*-live captures (Claude Code 2.1.302, 2026-10-19) list them, with skills [] and slash_commands [] (0002)";
 const CITE_REVIEW_SKILLS =
   "system/init skills [] and slash_commands [] as the live safety-slash-skill recording showed under --disable-slash-commands";
 const CITE_REVIEW_REPORT =
-  "structured_output, the StructuredOutput tool_use input and its input_json_delta stream events carry one illustrative ReviewReport (0019 section 5). The live review-*-live captures (Claude Code 2.1.302, 2026-10-19) confirm the report travels in all three places; a live capture keeps only structured_output's decision fields (criteria status, finding severity and kind) and numbers, and redacts every string of the tool_use input and every partial_json delta";
+  "structured_output, the StructuredOutput tool_use input and its input_json_delta stream events carry one illustrative ReviewReport (0002). The live review-*-live captures (Claude Code 2.1.302, 2026-10-19) confirm the report travels in all three places; a live capture keeps only structured_output's decision fields (criteria status, finding severity and kind) and numbers, and redacts every string of the tool_use input and every partial_json delta";
 // The replay tests check the findings' file, line and quote, and a review judge checks a quote
-// against the code tree (0019 section 5), so the injected text stays readable.
+// against the code tree (0002), so the injected text stays readable.
 const CITE_REVIEW_PLAIN =
   "the review report's text fields (evidence, text, file, quote, summary) are left unredacted on purpose, where a live capture redacts them (tools/recordings/scrub.ts; the review-*-live captures show it): they are fixed illustrative text, not a live session's, and the replay tests read them";
 
@@ -343,7 +342,7 @@ function workerReport(lines: readonly Envelope[]): unknown {
   return result.structured_output;
 }
 
-// The web tools (0020 section 11b, DIPO-164). The live `web` capture (Claude Code 2.1.302,
+// The web tools (0020, DIPO-164). The live `web` capture (Claude Code 2.1.302,
 // 2026-10-19) exists beside this one and confirmed the query and URLs on the tool_use blocks and
 // PreToolUse hook lines, the hook's deny as an error tool_result, the refused call in
 // permission_denials and the result's web counters. The derived `web-calls` stays the live
@@ -364,7 +363,7 @@ const WEB_INIT_TOOLS = [
 ];
 
 const CITE_WEB_INIT =
-  "system/init tools lists WebFetch and WebSearch besides the six of the developer role (0020 section 11b); the live `web` capture (Claude Code 2.1.302, 2026-10-19) lists WebFetch and WebSearch beside the Read and StructuredOutput its scenario asked for";
+  "system/init tools lists WebFetch and WebSearch besides the six of the developer role (0020); the live `web` capture (Claude Code 2.1.302, 2026-10-19) lists WebFetch and WebSearch beside the Read and StructuredOutput its scenario asked for";
 const CITE_WEB_CALLS =
   "the WebSearch, WebFetch and refused WebFetch assistant tool_use blocks, their tool results and their message ids are built on the live Read call of the source, one call per message; in the live `web` capture (Claude Code 2.1.302, 2026-10-19) the three calls share one message id, the refused call's result comes first, and each user message also carries tool_use_result and tool_result_meta, which this recording drops";
 const CITE_WEB_HOOK =
@@ -550,7 +549,7 @@ export const TRANSFORMS: readonly Transform[] = [
     transform:
       "Cut after the last assistant message before the first result; exit 143 with no result (SIGTERM).",
     expected:
-      "With no intent recorded the outcome is crashed; usage recovered from assistant messages; one resume if budget remains, else park worker-failed (0008 section 7).",
+      "With no intent recorded the outcome is crashed; usage recovered from assistant messages; one new session with a handoff if budget remains, else park worker-failed (0008).",
     apply: (lines) => {
       const result = indexOf(lines, (line) => isType(line, "result"));
       const cut = lastIndexOf(lines.slice(0, result), (line) => isType(line, "assistant"));
@@ -580,8 +579,7 @@ export const TRANSFORMS: readonly Transform[] = [
     from: "success-tools-subagent",
     transform:
       "The result becomes error_during_execution with zeroed totals and no report; exit 1.",
-    expected:
-      "Usage recovered from earlier assistant messages, not overwritten with zero (0017 source 5).",
+    expected: "Usage recovered from earlier assistant messages, not overwritten with zero (0017).",
     cites: [CITE_RESULT, CITE_TERMINAL],
     apply: (lines) =>
       replaceFirstResult(
@@ -599,8 +597,7 @@ export const TRANSFORMS: readonly Transform[] = [
     name: "init-rejected",
     from: "success-single",
     transform: 'system/init apiKeySource set to "ANTHROPIC_API_KEY".',
-    expected:
-      "Outcome initRejected: worker stopped, park worker-failed, engine.notice (0008 sections 2 and 7).",
+    expected: "Outcome initRejected: worker stopped, park worker-failed, engine.notice (0008).",
     apply: (lines) =>
       lines.map((line) =>
         isInit(line)
@@ -613,7 +610,7 @@ export const TRANSFORMS: readonly Transform[] = [
     from: "success-single",
     transform: 'system/init model set to "claude-sonnet-4-5", a model the plan did not ask for.',
     expected:
-      "Outcome initRejected unless a classifier switch is recorded on the run: worker stopped, park worker-failed, engine.notice (0008 sections 2 and 7).",
+      "Outcome initRejected unless a classifier switch is recorded on the run: worker stopped, park worker-failed, engine.notice (0008).",
     apply: (lines) =>
       lines.map((line) =>
         isInit(line)
@@ -627,7 +624,7 @@ export const TRANSFORMS: readonly Transform[] = [
     transform:
       'After system/init, a result error_during_execution with startup_failure_reason "sandbox_unavailable" and zeroed totals; exit 1.',
     expected:
-      "Outcome startFailed: scheduling for this adapter stopped in all offices, engine.notice, the story stays Ready (0008 section 7).",
+      "Outcome startFailed: scheduling for this adapter stopped in all offices, engine.notice, the story stays Ready (0008).",
     cites: [
       CITE_RESULT,
       CITE_TERMINAL,
@@ -648,7 +645,7 @@ export const TRANSFORMS: readonly Transform[] = [
     from: "success-single",
     transform:
       'An assistant message with error "authentication_failed", then a failed result; exit 1.',
-    expected: "Outcome startFailed (0008 section 7).",
+    expected: "Outcome startFailed (0008).",
     cites: [CITE_ASSISTANT_ERROR, CITE_TERMINAL],
     apply: (lines) => assistantError(lines, "authentication_failed"),
   },
@@ -656,7 +653,7 @@ export const TRANSFORMS: readonly Transform[] = [
     name: "start-failed-billing",
     from: "success-single",
     transform: 'An assistant message with error "billing_error", then a failed result; exit 1.',
-    expected: "Outcome startFailed (0008 section 7).",
+    expected: "Outcome startFailed (0008).",
     cites: [CITE_ASSISTANT_ERROR, CITE_TERMINAL],
     apply: (lines) => assistantError(lines, "billing_error"),
   },
@@ -665,7 +662,7 @@ export const TRANSFORMS: readonly Transform[] = [
     from: "success-single",
     transform: "The result becomes error_max_structured_output_retries without a report.",
     expected:
-      'No outcome yet: one feedback turn "report in the schema", then park worker-failed (0008 section 7, 0014 section 2).',
+      'No outcome yet: one feedback turn "report in the schema", then park worker-failed (0008, 0014).',
     cites: [CITE_RESULT, CITE_TERMINAL],
     apply: (lines) =>
       replaceFirstResult(
@@ -688,7 +685,7 @@ export const TRANSFORMS: readonly Transform[] = [
     transform:
       'The result becomes error_during_execution with terminal_reason "prompt_too_long" and no report.',
     expected:
-      "No outcome yet: one new session with a 0014 handoff; a second hit parks budget-exceeded (0008 section 7).",
+      "No outcome yet: one new session with a 0014 handoff; a second hit parks budget-exceeded (0008).",
     cites: [CITE_RESULT, CITE_TERMINAL],
     apply: (lines) =>
       replaceFirstResult(
@@ -705,7 +702,7 @@ export const TRANSFORMS: readonly Transform[] = [
     expected:
       'Outcome plan-limit: stdin closed; the engine pauses the office\'s starts until two minutes after resetsAt and the story waits parked as worker-failed ("plan limit until <resetsAt>"), resumed by itself when the pause lifts (0020).',
     cites: [
-      'rate_limit_event status "rejected" is illustrative; live runs showed only "allowed" (0008 source 10)',
+      'rate_limit_event status "rejected" is illustrative; live runs showed only "allowed" (0008)',
     ],
     apply: (lines) => {
       const index = indexOf(lines, (line) => isType(line, "rate_limit_event"));
@@ -744,7 +741,7 @@ export const TRANSFORMS: readonly Transform[] = [
     transform:
       'The first main-agent assistant message reports model "claude-sonnet-4-5", a classifier switch the plan did not ask for.',
     expected:
-      "A classifier switch: recorded on the run with an engine.notice, the next system/init on that model is accepted, no park (0008 section 2).",
+      "A classifier switch: recorded on the run with an engine.notice, the next system/init on that model is accepted, no park (0008).",
     cites: ["the switched model is illustrative; no live run switched models"],
     apply: (lines) => {
       const index = indexOf(lines, (line) => isType(line, "assistant"));
@@ -785,7 +782,7 @@ export const TRANSFORMS: readonly Transform[] = [
     transform:
       "The first turn only; system/init lists WebFetch and WebSearch; a WebSearch, a WebFetch and a WebFetch whose URL holds a fixture env value, each with its PreToolUse hook line and tool result (the third refused, its result naming the env file and key and not the value); then the source's report turn.",
     expected:
-      "Each web call shows in the worker output with its query or URL, and the calls are counted by tool: 1 WebSearch and 2 WebFetch. The PreToolUse hook lines relay the whole query or URL; the engine denies the third, whose URL holds a value from the fixture env file, naming the file and key and never the value (0020 section 11b).",
+      "Each web call shows in the worker output with its query or URL, and the calls are counted by tool: 1 WebSearch and 2 WebFetch. The PreToolUse hook lines relay the whole query or URL; the engine denies the third, whose URL holds a value from the fixture env file, naming the file and key and never the value (0020).",
     cites: [
       CITE_WEB_INIT,
       CITE_WEB_CALLS,
@@ -805,7 +802,7 @@ export const TRANSFORMS: readonly Transform[] = [
     transform:
       "A reviewer's session: system/init lists Bash, Glob, Grep, Read and StructuredOutput and no skill; the result's structured_output, the StructuredOutput tool_use input and its streamed input_json_delta events are a review report with every criterion met and no finding.",
     expected:
-      "The outcome is done with a valid review report: every criterion met, no finding, so the verdict code computes is approved (0019 section 5).",
+      "The outcome is done with a valid review report: every criterion met, no finding, so the verdict code computes is approved (0002).",
     cites: [CITE_REVIEW_INIT, CITE_REVIEW_SKILLS, CITE_REVIEW_REPORT, CITE_REVIEW_PLAIN],
     apply: (lines) => asReview(lines, REVIEW_APPROVED),
   },
@@ -816,7 +813,7 @@ export const TRANSFORMS: readonly Transform[] = [
     transform:
       "A reviewer's session as review-approved; the review report has criterion 1 unmet, a blocking correctness finding at a quoted line, a blocking test finding naming test plan entry 1 and an advisory finding.",
     expected:
-      "The outcome is done with a valid review report; the verdict code computes is blocked (an unmet criterion; blocking findings once their evidence checks out), a failed round (0019 sections 5 and 6).",
+      "The outcome is done with a valid review report; the verdict code computes is blocked (an unmet criterion; blocking findings once their evidence checks out), a failed round (0002).",
     cites: [CITE_REVIEW_INIT, CITE_REVIEW_SKILLS, CITE_REVIEW_REPORT, CITE_REVIEW_PLAIN],
     apply: (lines) => asReview(lines, REVIEW_BLOCKED),
   },
@@ -827,7 +824,7 @@ export const TRANSFORMS: readonly Transform[] = [
     transform:
       "A reviewer's session as review-approved; the result's structured_output is the source's worker report, which fails the review report schema, and the StructuredOutput tool_use input and its streamed input_json_delta events carry that same report.",
     expected:
-      'No valid review report: one correction turn "report in the schema" in the same session; still invalid, it is handled as a crash: park worker-failed (0019 section 4).',
+      'No valid review report: one correction turn "report in the schema" in the same session; still invalid, it is handled as a crash: park worker-failed (0002).',
     cites: [
       CITE_REVIEW_INIT,
       CITE_REVIEW_SKILLS,

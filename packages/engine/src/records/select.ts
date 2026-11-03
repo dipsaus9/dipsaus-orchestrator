@@ -1,15 +1,15 @@
-// Picking the story `work.run` starts (0012 sections 2 and 3, 0005 section 4). Pure: the caller
+// Picking the story `work.run` starts (0012, 0005). Pure: the caller
 // reads the stories on `origin/<base>` through the Backlog CLI and passes them in.
 //
 // Without `stories` the candidates are the Ready stories, by priority (high, medium, low, none),
 // then ordinal (lowest first, none last), then id. A story is eligible when it is Ready and every
-// dependency is Done (0012 section 2).
+// dependency is Done (0012).
 
 import type { SkipReason } from "@dipsaus-orchestrator/contract";
 
 import type { PlainTask } from "../story-store/story";
 
-/** The status a run picks (0012 section 2). */
+/** The status a run picks (0012). */
 export const READY_STATUS = "Ready";
 
 const PRIORITY_RANK: Readonly<Record<string, number>> = { high: 0, medium: 1, low: 2 };

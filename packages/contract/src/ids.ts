@@ -1,4 +1,4 @@
-// Ids of 0005 section 2. Every id is a branded string. Engine-made ids are a prefix plus a ULID,
+// Ids of 0005. Every id is a branded string. Engine-made ids are a prefix plus a ULID,
 // story ids are Backlog.md ids unchanged, and request ids are bare ULIDs made by the client.
 
 import { z } from "zod";
@@ -54,7 +54,7 @@ export type QuestionId = z.infer<typeof QuestionId>;
 export const TestId = z.string().regex(prefixed("tst"), "expected tst_<ulid>").brand<"TestId">();
 export type TestId = z.infer<typeof TestId>;
 
-// Client-made, one per command or read; the idempotency key for commands (0005 section 9).
+// Client-made, one per command or read; the idempotency key for commands (0005).
 export const RequestId = z
   .string()
   .regex(new RegExp(`^${ULID}$`), "expected a ULID")
@@ -68,7 +68,7 @@ export const StreamName = z
   .brand<"StreamName">();
 export type StreamName = z.infer<typeof StreamName>;
 
-/** The software stream: daemon states, notices and office summaries (0005 section 8). */
+/** The software stream: daemon states, notices and office summaries (0005). */
 export const SOFTWARE_STREAM: StreamName = StreamName.parse("software");
 
 // A position in one stream (0005). A cursor older than the oldest stored entry, or beyond the

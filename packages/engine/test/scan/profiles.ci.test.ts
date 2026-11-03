@@ -1,4 +1,4 @@
-// CI only (0017 section 1): the slower stored run profile cases against real git (DIPO-72 test
+// CI only (0017): the slower stored run profile cases against real git (DIPO-72 test
 // plan), kept out of the local suite for its time budget (DIPO-77): a rescan with nothing changed
 // reports an empty diff, a rescan still fails with `scan.running` after the office loads again with
 // a new handle, and a port changed in a config module a Vite config imports changes the fingerprint

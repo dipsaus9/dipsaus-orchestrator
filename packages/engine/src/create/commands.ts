@@ -260,7 +260,7 @@ function storyTestsOf(
 /**
  * `work.discard` (DIPO-161): a running story is stopped as `story.park` does, the story PR closed
  * through the code host, the claim released with the office git, a Refined write through the lane,
- * and the box of the ended run deleted (0021). A story Done in `_base` gets no Refined write.
+ * and the box of the ended run deleted (0008). A story Done in `_base` gets no Refined write.
  */
 function discardOf(core: Core, story: StoryServices, runs: EngineRuns): StoryDiscard {
   return new StoryDiscard({

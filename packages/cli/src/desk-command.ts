@@ -1,4 +1,4 @@
-// `dipo desk [--office <id>] [--json]` (0020 section 12, DIPO-158): reads `office.desk` for the office
+// `dipo desk [--office <id>] [--json]` (0020, DIPO-158): reads `office.desk` for the office
 // from `--office` or the current directory and prints what waits on the maintainer in plain text: a
 // count line, then one line per item in the engine's order with an indented line holding the
 // command to type, and the stories the maintainer parked listed apart at the end, "Parked by you".

@@ -1,4 +1,4 @@
-// The branch slug (DIPO-29; 0010 section 4): the five steps, `story` for an empty result, and
+// The branch slug (DIPO-29; 0010): the five steps, `story` for an empty result, and
 // `branchFor` matching R18.
 
 import { describe, expect, it } from "bun:test";
@@ -41,7 +41,7 @@ describe("slug", () => {
   }
 });
 
-const R18 = (id: string) => new RegExp(`^${id.replace(/\./g, "\\.")}/[a-z0-9]+(-[a-z0-9]+)*$`);
+const R18 = (id: string) => new RegExp(`^${id.replace(/[\\.]/g, "\\$&")}/[a-z0-9]+(-[a-z0-9]+)*$`);
 
 describe("branchFor", () => {
   it("joins the id and the slug and matches R18", () => {

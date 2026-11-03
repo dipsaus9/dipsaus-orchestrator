@@ -1,10 +1,10 @@
-// A Worker for engine tests that need no Claude detail (0017 section 2, option B): it plays a
+// A Worker for engine tests that need no Claude detail (0017, option B): it plays a
 // short list of Worker events through the Worker interface, so the engine reads them as it reads
 // a real adapter. A script must never hold an event the real adapter could not produce, so the
 // constructor requires that adapter's event schema and refuses a script that fails it; the
 // contract test checks every registered script against the Claude CLI adapter's schema.
 // `result` is a simplified reading of the script (done, blocked with its park, else crashed),
-// not the adapter's 0008 section 7 table; pass `result` to set any other outcome.
+// not the adapter's 0008 table; pass `result` to set any other outcome.
 
 import type {
   AdapterStatus,
@@ -13,7 +13,6 @@ import type {
   HostOp,
   LaunchPlan,
   ParseState,
-  ResumeCheck,
   SteerOp,
   UsageTotalsByModel,
   WorkerAdapter,
@@ -85,7 +84,7 @@ export class ScriptedWorker implements WorkerAdapter {
   }
 
   probe(): Promise<AdapterStatus> {
-    return Promise.resolve({ ok: true, version: "scripted", login: null, capabilities: [] });
+    return Promise.resolve({ ok: true, version: "scripted", login: null });
   }
 
   plan(spec: WorkerSpec): LaunchPlan {
@@ -139,23 +138,17 @@ export class ScriptedWorker implements WorkerAdapter {
             report,
             usage,
             sessionId: this.#sessionId,
-            resumable: true,
             park: { reason: "worker-failed", detail: "scripted crash" },
           }
         : report.status === "done"
-          ? { outcome: "done", report, usage, sessionId: this.#sessionId, resumable: true }
+          ? { outcome: "done", report, usage, sessionId: this.#sessionId }
           : {
               outcome: "blocked",
               report,
               usage,
               sessionId: this.#sessionId,
-              resumable: true,
               park: { reason: "ambiguous-spec", detail: report.question ?? report.summary },
             };
     return { ...base, ...this.#override };
-  }
-
-  canResume(): ResumeCheck {
-    return { ok: true };
   }
 }

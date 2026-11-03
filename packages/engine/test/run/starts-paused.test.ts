@@ -15,7 +15,7 @@ import type { OfficeHandle } from "../../src/db/office";
 import {
   type LiftedPark,
   type LiftedResume,
-  officeHoldStore,
+  officePauseStore,
   PLAN_LIMIT_RESUME_AFTER_MS,
   PLAN_LIMIT_UNKNOWN_RESET_MS,
   planLimitPause,
@@ -24,11 +24,10 @@ import {
   StartsPaused,
 } from "../../src/run";
 import {
-  AdapterHolds,
-  gateLaunch,
-  type HoldNotice,
-  RELEASE_NOTICE_CODE,
-} from "../../src/workers/hold";
+  AdapterPauses,
+  type PauseNotice,
+  ADAPTER_RESUMED_NOTICE,
+} from "../../src/run/starts-paused";
 import { addOffice } from "../commands/helpers";
 import { entriesAfter } from "../stories/helpers";
 import { type RoundsWorld, roundsWorld, storyRun } from "./rounds-helpers";
@@ -38,7 +37,7 @@ const HOUR = 60 * 60_000;
 
 let w: RoundsWorld;
 let other: OfficeHandle;
-let holds: AdapterHolds;
+let holds: AdapterPauses;
 /** Every resume the starts paused asked for, as office and park. */
 let resumed: { office: OfficeId; park: LiftedPark }[];
 /** What the fake resume answers next; `resumed` by default. */
@@ -49,7 +48,7 @@ let paused: StartsPaused;
 /** The loaded offices, by id. */
 let offices: Map<OfficeId, OfficeHandle>;
 /** The adapter holds' notices, as the software stream gets them. */
-let holdNotices: HoldNotice[];
+let holdNotices: PauseNotice[];
 
 const id = (office: OfficeHandle) => office.officeId as OfficeId;
 const now = () => w.t.clock.now();
@@ -68,14 +67,14 @@ beforeEach(async () => {
 });
 
 /** The adapter holds on the offices' starts paused rows, as the daemon builds them. */
-function adapterHolds(): AdapterHolds {
-  return new AdapterHolds({
+function adapterHolds(): AdapterPauses {
+  return new AdapterPauses({
     clock: w.t.clock,
     notify: (notice) => {
       holdNotices.push(notice);
-      if (notice.code === RELEASE_NOTICE_CODE) paused.adapterReleased();
+      if (notice.code === ADAPTER_RESUMED_NOTICE) paused.adapterReleased();
     },
-    store: officeHoldStore(w.t.clock, {
+    store: officePauseStore(w.t.clock, {
       get: (office) => offices.get(office),
       loaded: () => [...offices.keys()],
       connection: () => w.t.state.connection,
@@ -151,7 +150,7 @@ describe("a plan limit (0020)", () => {
         detail: `plan limit until ${reset}`,
         since: now(),
         until: Date.parse(reset) + PLAN_LIMIT_RESUME_AFTER_MS,
-        lifts: `It lifts by itself at ${new Date(Date.parse(reset) + PLAN_LIMIT_RESUME_AFTER_MS).toISOString()}, or with \`dipo daemon resume-scheduling\`.`,
+        lifts: `It lifts by itself at ${new Date(Date.parse(reset) + PLAN_LIMIT_RESUME_AFTER_MS).toISOString()}, or with \`dipo daemon resume-starts\`.`,
       });
       expect(noticesOf(office).map((notice) => notice.code)).toEqual([
         STARTS_PAUSED_NOTICES.paused,
@@ -225,14 +224,14 @@ describe("a plan limit (0020)", () => {
     expect(resumedParks()).toHaveLength(1);
   });
 
-  it("lifts by hand in every office, the credits pause too (dipo daemon resume-scheduling)", async () => {
+  it("lifts by hand in every office, the credits pause too (dipo daemon resume-starts)", async () => {
     const limited = park("DIPO-1", "worker-failed", true);
     paused.pausePlanLimit(id(w.office), planLimitPause({ credits: true }, now()));
-    expect(paused.liftAll("the maintainer ran dipo daemon resume-scheduling")).toBe(2);
+    expect(paused.liftAll("the maintainer ran dipo daemon resume-starts")).toBe(2);
     await paused.idle();
     expect(paused.state(id(w.office))).toBeNull();
     expect(resumedParks()).toEqual([limited]);
-    expect(noticesOf(w.office).at(-1)?.text).toContain("dipo daemon resume-scheduling");
+    expect(noticesOf(w.office).at(-1)?.text).toContain("dipo daemon resume-starts");
   });
 
   it("tries a resume that cannot run yet again a minute later", async () => {
@@ -300,7 +299,7 @@ describe("a failed adapter check (0020, 0008)", () => {
   it("pauses the starts with the hold's detail and time, and a passing check lifts it and resumes", async () => {
     const limited = park("DIPO-1", "worker-failed", true);
     w.t.clock.advance(5_000);
-    await gateLaunch(ADAPTER, holds, async () => ({
+    await holds.gateLaunch(ADAPTER, async () => ({
       ok: false,
       failures: [{ check: "probe", detail: "claude is not logged in" }],
     }));
@@ -316,15 +315,15 @@ describe("a failed adapter check (0020, 0008)", () => {
     expect(paused.state(id(w.office))?.reason).toBe("adapter");
     expect(resumed).toEqual([]);
 
-    await gateLaunch(ADAPTER, holds, async () => ({ ok: true }));
+    await holds.gateLaunch(ADAPTER, async () => ({ ok: true }));
     await paused.idle();
     expect(paused.state(id(w.office))).toBeNull();
     expect(resumedParks()).toEqual([limited]);
   });
 
   it("keeps a sticky hold paused through the command until its own lift", () => {
-    holds.hold(ADAPTER, [{ check: "box-token", detail: "the token was found in a box" }]);
-    expect(paused.liftAll("the maintainer ran dipo daemon resume-scheduling")).toBe(0);
+    holds.pause(ADAPTER, [{ check: "box-token", detail: "the token was found in a box" }]);
+    expect(paused.liftAll("the maintainer ran dipo daemon resume-starts")).toBe(0);
     expect(paused.state(id(w.office))?.lifts).toContain("dipo login box");
     holds.liftSticky(ADAPTER);
     expect(paused.state(id(w.office))).toBeNull();
@@ -333,7 +332,7 @@ describe("a failed adapter check (0020, 0008)", () => {
 
 describe("one record that survives a restart (0020, DIPO-359)", () => {
   it("keeps a failed adapter check as a starts_paused row in each office, read again after a restart", () => {
-    holds.hold(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
+    holds.pause(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
     for (const office of [w.office, other]) {
       expect(
         office.get<{ reason: string; adapter: string; detail: string }>(
@@ -346,7 +345,7 @@ describe("one record that survives a restart (0020, DIPO-359)", () => {
     holds = adapterHolds();
     paused = startsPaused();
     expect(paused.state(id(w.office))?.reason).toBe("adapter");
-    expect(holds.adapterHeld(ADAPTER)?.check).toBe("probe");
+    expect(holds.adapterPaused(ADAPTER)?.check).toBe("probe");
     holds.lift(ADAPTER);
     expect(
       w.office.get("select 1 as x from starts_paused where office_id = $office_id"),
@@ -360,7 +359,7 @@ describe("one record that survives a restart (0020, DIPO-359)", () => {
   it("pauses an office loaded during a live plan limit or adapter hold, as the others are", () => {
     const reset = new Date(now() + HOUR).toISOString();
     paused.pausePlanLimit(id(w.office), planLimitPause({ credits: false, resetsAt: reset }, now()));
-    holds.hold(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
+    holds.pause(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
     const late = addOffice(w.t, "late");
     offices.set(id(late), late);
     paused.recover(id(late), late);
@@ -378,7 +377,7 @@ describe("one record that survives a restart (0020, DIPO-359)", () => {
 
   it("keeps a hold set while no office is loaded, and pauses an office that loads later (DIPO-355)", () => {
     offices.clear();
-    holds.hold(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
+    holds.pause(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
     // Both registered offices hold the record, though neither was loaded.
     for (const office of [w.office, other]) {
       expect(
@@ -393,12 +392,12 @@ describe("one record that survives a restart (0020, DIPO-359)", () => {
     paused = startsPaused();
     offices.set(id(w.office), w.office);
     paused.recover(id(w.office), w.office);
-    expect(holds.adapterHeld(ADAPTER)?.check).toBe("probe");
+    expect(holds.adapterPaused(ADAPTER)?.check).toBe("probe");
     expect(paused.state(id(w.office))?.reason).toBe("adapter");
   });
 
   it("lifts a hold in an office that was not loaded, so it does not come back when it loads (DIPO-355)", () => {
-    holds.hold(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
+    holds.pause(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
     // The other office is not loaded when the check passes again.
     offices.delete(id(other));
     expect(holds.lift(ADAPTER)).toBe(true);
@@ -409,17 +408,17 @@ describe("one record that survives a restart (0020, DIPO-359)", () => {
     paused = startsPaused();
     offices.set(id(other), other);
     paused.recover(id(other), other);
-    expect(holds.adapterHeld(ADAPTER)).toBeNull();
+    expect(holds.adapterPaused(ADAPTER)).toBeNull();
     expect(paused.state(id(other))).toBeNull();
     expect(paused.state(id(w.office))).toBeNull();
   });
 
   it("keeps a hold written before the database opened or with no office registered, and writes it once one registers (DIPO-355)", () => {
     let open = false;
-    const early = new AdapterHolds({
+    const early = new AdapterPauses({
       clock: w.t.clock,
       notify: () => {},
-      store: officeHoldStore(w.t.clock, {
+      store: officePauseStore(w.t.clock, {
         get: (office) => offices.get(office),
         loaded: () => [],
         connection: () => (open ? w.t.state.connection : null),
@@ -430,14 +429,14 @@ describe("one record that survives a restart (0020, DIPO-359)", () => {
         "select office_id from starts_paused where reason = 'adapter' order by office_id",
       );
     // Before the database opened: the hold is kept, not lost.
-    early.hold(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
-    expect(early.adapterHeld(ADAPTER)?.check).toBe("probe");
+    early.pause(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
+    expect(early.adapterPaused(ADAPTER)?.check).toBe("probe");
     // The database opened, but no office is registered: still kept, no row yet.
     open = true;
     w.t.state.connection.immediate(() =>
       w.t.state.connection.run("update offices set forgotten_at = 1"),
     );
-    expect(early.adapterHeld(ADAPTER)?.check).toBe("probe");
+    expect(early.adapterPaused(ADAPTER)?.check).toBe("probe");
     expect(rows()).toEqual([]);
     // An office registers: the next look writes the hold to its row.
     w.t.state.connection.immediate(() =>
@@ -445,23 +444,23 @@ describe("one record that survives a restart (0020, DIPO-359)", () => {
         office: id(w.office),
       }),
     );
-    expect(early.adapterHeld(ADAPTER)?.check).toBe("probe");
+    expect(early.adapterPaused(ADAPTER)?.check).toBe("probe");
     expect(rows()).toEqual([{ office_id: id(w.office) }]);
     // A lift clears it.
     expect(early.lift(ADAPTER)).toBe(true);
     expect(rows()).toEqual([]);
-    expect(early.adapterHeld(ADAPTER)).toBeNull();
+    expect(early.adapterPaused(ADAPTER)).toBeNull();
   });
 
   it("names what lifts a pause truly: never the command for the box token, never a check for the command", () => {
-    holds.hold(ADAPTER, [{ check: "box-token", detail: "the token was found in a box" }]);
+    holds.pause(ADAPTER, [{ check: "box-token", detail: "the token was found in a box" }]);
     expect(paused.state(id(w.office))?.lifts).toBe("Replace the box login with dipo login box.");
     holds.liftSticky(ADAPTER);
-    holds.hold(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
+    holds.pause(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
     holdNotices = [];
-    paused.lift(id(w.office), "the maintainer ran dipo daemon resume-scheduling");
+    paused.lift(id(w.office), "the maintainer ran dipo daemon resume-starts");
     expect(holdNotices.map((notice) => notice.text)).toEqual([
-      `The maintainer ran dipo daemon resume-scheduling; new runs on ${ADAPTER} are no longer held.`,
+      `The maintainer ran dipo daemon resume-starts; new runs on ${ADAPTER} are no longer paused.`,
     ]);
   });
 });

@@ -150,11 +150,6 @@ async function withWorld(fn: (world: World) => Promise<void>): Promise<void> {
            values ($office_id, $branch, 'agt_1', $run, null, 'builder', 'note', 1)`,
           { branch, run: runId },
         );
-        office.run(
-          `insert into context_packs (office_id, branch, head_sha, blob_ids, provider, pack_sha256, built_at)
-           values ($office_id, $branch, $sha, '{}', 'default', 'x', 1)`,
-          { branch, sha: TIP },
-        );
       });
     }
     // The run's story PR #9, open, as the PR poll recorded it.
@@ -191,7 +186,7 @@ function host(pr: Partial<HostPr> | null, fail = false): PrStateHost & { calls: 
   };
 }
 
-function rows(world: World, table: "worker_notes" | "context_packs"): string[] {
+function rows(world: World, table: "worker_notes"): string[] {
   return world.office
     .all<{ branch: string }>(
       `select branch from ${table} where office_id = $office_id order by branch`,
@@ -456,7 +451,6 @@ describe("tearing down", () => {
       expect(after.releasedAt).not.toBeNull();
       expect(after.releaseReason).toBe(DONE_RELEASE_REASON);
       expect(rows(world, "worker_notes")).toEqual([OTHER_BRANCH]);
-      expect(rows(world, "context_packs")).toEqual([OTHER_BRANCH]);
       expect(notices(world.office).map((n) => n.code)).toEqual([TEARDOWN_NOTICES.done]);
     }));
 
@@ -608,8 +602,8 @@ describe("the Done poll", () => {
       const gate = world.t.ids.next("gat");
       world.office.immediate(() => {
         world.office.run(
-          `insert into stories (office_id, key, story_id, provisional, backlog_created, first_seen_at)
-           values ($office_id, $key, 'TASK-1', 0, 1, 0)`,
+          `insert into stories (office_id, key, story_id, provisional, first_seen_at)
+           values ($office_id, $key, 'TASK-1', 0, 0)`,
           { key: claim.key },
         );
         world.office.run(

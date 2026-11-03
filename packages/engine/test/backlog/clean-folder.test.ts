@@ -1,4 +1,4 @@
-// The task file checks of the Backlog CLI calls dipo makes for a story (DIPO-270; 0021 section 14):
+// The task file checks of the Backlog CLI calls dipo makes for a story (DIPO-270; 0008):
 // the front matter a task file may hold and the path it may sit at. The CLI calls of the claim,
 // In Review, park, unpark and lane paths on real git, each checked for a clean folder and a minimal
 // environment, are in clean-folder.ci.test.ts (CI only, DIPO-225).

@@ -1,4 +1,4 @@
-// Story reference resolution (DIPO-22; 0005 section 2): key, then current id, then alias; a
+// Story reference resolution (DIPO-22; 0005): key, then current id, then alias; a
 // conflict is `story.ambiguous`; an alias retires when its id becomes another story's current id.
 
 import { describe, expect, it } from "bun:test";

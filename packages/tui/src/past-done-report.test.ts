@@ -14,7 +14,15 @@ describe("past run done report", () => {
     const lines = doneReportFactLines(
       record({
         notes: Array.from({ length: 20 }, (_, i) => `note ${i}`).join("\n"),
-        proposals: [{ kind: "spike", title: "Look", outcome: "o", why: "w" }],
+        proposals: [
+          {
+            kind: "spike",
+            title: "Look",
+            story:
+              "We need to decide which queue design the office uses so that the next stories build on one design.",
+            why: "w",
+          },
+        ],
       }),
     );
     expect(lines[0]).toBe("worker's done report (its words):");

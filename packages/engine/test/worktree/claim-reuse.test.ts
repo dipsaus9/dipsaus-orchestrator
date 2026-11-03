@@ -1,7 +1,7 @@
 // Fast local cases of the claim rules whose full versions run in CI only (claim.ci.test.ts,
 // DIPO-77): the reuse of a released branch at its kept tip, a reused branch moved back to its kept
 // tip when the claim fails after its claim commit, and a foreign commit on the claim commit left
-// over with a notice (DIPO-38, DIPO-349; 0010 sections 2 and 2a). No remote: the base is the local
+// over with a notice (DIPO-38, DIPO-349; 0010). No remote: the base is the local
 // `main`, so nothing is cloned, pushed or fetched, and the released branch is made by hand instead
 // of by a first claim.
 
@@ -53,7 +53,7 @@ async function caught(promise: Promise<unknown>): Promise<unknown> {
 }
 
 /**
- * A branch released for `key` as 0010 section 2a leaves it, made without a first claim: `BRANCH_1`
+ * A branch released for `key` as 0010 leaves it, made without a first claim: `BRANCH_1`
  * holds one work commit on the base and the release is recorded. Returns the kept tip.
  */
 async function releasedBranch(

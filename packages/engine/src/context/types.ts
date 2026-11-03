@@ -1,8 +1,8 @@
-// The context provider interface (0014 section 9). A provider decides which code a worker sees
+// The context provider interface (0014). A provider decides which code a worker sees
 // and returns items: data with a structured reason, never prompt prose. The engine renders them
 // (DIPO-47). Output is deterministic for the same inputs.
 
-/** Project size class from the `git ls-files` count (0014 section 4). */
+/** Project size class from the `git ls-files` count (0014). */
 export type SizeClass = "S" | "M" | "L" | "XL";
 
 /** What a provider reads: one checkout (a story worktree, or `_base`). */
@@ -45,20 +45,18 @@ export interface ProviderStatus {
 export interface ContextRequest {
   /** F1, the Backlog.md id. */
   readonly storyId: string;
-  /** F3. */
-  readonly outcome: string;
+  /** F3, the text of the `Story:` line. */
+  readonly storyLine: string;
   /** F4, in Backlog.md order. */
   readonly criteria: readonly string[];
   /** F8: repo-relative paths; a trailing `/` marks a directory. */
   readonly scope: readonly string[];
   /** F9: repo-relative paths or URLs the worker reads but does not write. */
   readonly inputs: readonly string[];
-  /** Component names already matched by the engine, if any; providers may add their own. */
-  readonly components: readonly string[];
   readonly baseSha: string;
   readonly headSha: string;
   readonly sizeClass: SizeClass;
-  /** The `inputs` section budget in characters (0014 section 4). */
+  /** The `inputs` section budget in characters (0014). */
   readonly inputsBudget: number;
 }
 
@@ -98,16 +96,6 @@ export type ContextReason =
       readonly shown: number;
       readonly total: number;
     }
-  /** A declared component: `text` lists its files, one per line, capped. */
-  | {
-      readonly kind: "component";
-      readonly name: string;
-      readonly purpose: string | null;
-      /** `scope` when its globs match the scope; otherwise the direct neighbour relation. */
-      readonly via: "scope" | "depends-on" | "depended-on-by";
-      readonly shown: number;
-      readonly total: number;
-    }
   /** A test next to a scope file by name; listed, never inlined (`text` is empty). */
   | { readonly kind: "test"; readonly of: string }
   /** An input file, pre-fetched within the inputs budget. */
@@ -127,7 +115,7 @@ export type ContextReason =
   | { readonly kind: "input-missing"; readonly input: string };
 
 export interface ContextItem {
-  /** Repo-relative path, component name for components, or URL for URL inputs. */
+  /** Repo-relative path, or URL for URL inputs. */
   readonly path: string;
   /** 1-based inclusive line range when `text` is part of a file. */
   readonly range?: { readonly from: number; readonly to: number };
@@ -140,11 +128,11 @@ export interface ContextProvenance {
   readonly version: string;
   readonly indexState: ProviderState;
   readonly staleFiles: readonly string[];
-  /** Why a backend was skipped, or component map problems; empty when there are none. */
+  /** Why a backend was skipped; empty when there are none. */
   readonly notes: readonly string[];
 }
 
-/** The `inputs` section (0014 section 2): the full path list plus pre-fetched content. */
+/** The `inputs` section (0014): the full path list plus pre-fetched content. */
 export interface InputsPart {
   /** Every declared input, in request order; never cut. */
   readonly paths: readonly string[];

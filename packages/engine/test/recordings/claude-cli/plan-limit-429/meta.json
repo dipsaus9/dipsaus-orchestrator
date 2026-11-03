@@ -8,7 +8,7 @@
   "derivedFrom": "success-single",
   "transform": "The first result becomes error_during_execution with api_error_status 429 and no report; exit 1.",
   "cites": [
-    "Claude Code docs, Agent SDK TypeScript reference: SDKResultMessage (0008 source 4)",
+    "Claude Code docs, Agent SDK TypeScript reference: SDKResultMessage (0008)",
     "terminal_reason \"error\" and stop_reason null on derived failure results are illustrative; live failures showed \"aborted_streaming\" and \"max_turns\""
   ]
 }

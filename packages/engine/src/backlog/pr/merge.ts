@@ -3,8 +3,8 @@
 // PR; it reaches it only through `BacklogAutoMerge`, which the composition root gives it:
 //
 // - Auto-merge on. A backlog PR whose structural check (`BacklogPrs`) passed on the branch's local
-//   head, which GitHub shows as the PR's head, with no hold label (`autorelease: pending` always, and
-//   `merge.holdLabels`), no path the base's CODEOWNERS gives an owner (the release path; when
+//   head, which GitHub shows as the PR's head, with no wait label (`autorelease: pending` always, and
+//   `merge.waitLabels`), no path the base's CODEOWNERS gives an owner (the release path; when
 //   git cannot tell, none), no change under `docs/decisions/` (0002: the maintainer approves an ADR's
 //   wording; when git cannot tell, one), no conflict and no failed required check, gets
 //   `gh pr merge --auto --squash --match-head-commit <head>`. GitHub merges it once its required
@@ -27,7 +27,7 @@ import type { OfficeId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { NewEntry } from "../../changelog/log";
 import type { OfficeHandle } from "../../db/office";
-import { autoreleasePending, holdLabelsOn } from "../../run-state/gates";
+import { autoreleasePending, waitLabelsOn } from "../../run-state/gates";
 import type { BacklogAutoMerge, BacklogRoundContext } from "../../merge/merger";
 import {
   type AutoMergeHost,
@@ -49,7 +49,7 @@ export const BACKLOG_MERGE_NOTICES = {
   autoMergeOff: "merge.autoMergeOff",
   autoMergeFailed: "merge.autoMergeFailed",
   merged: "merge.merged",
-  held: "merge.held",
+  waiting: "merge.waiting",
   rebuilt: "merge.rebuilt",
   headChanged: "pr.headChanged",
   checksFailed: "merge.checksFailed",
@@ -95,7 +95,7 @@ type Stop =
 
 const STOP_TEXT: Record<Stop, string> = {
   foreignHead: "its head on GitHub is not the one dipo pushed",
-  held: "it carries a hold label",
+  held: "it carries a wait label",
   conflict: "GitHub reports that the base conflicts with it; dipo rebuilds it on a new branch",
   checksFailed: "a required check failed",
   unchecked: "the structural check does not pass on its head",
@@ -208,7 +208,7 @@ export class BacklogMerges implements BacklogAutoMerge {
     const host = this.#deps.labels;
     if (host === undefined) return [];
     const labels = await host.prLabels(pr.repo, pr.record.number);
-    return holdLabelsOn(labels, ctx.config.merge.holdLabels);
+    return waitLabelsOn(labels, ctx.config.merge.waitLabels);
   }
 
   /** Auto-merge on for a PR whose check passed on its head, unless something stops it. */
@@ -262,7 +262,7 @@ export class BacklogMerges implements BacklogAutoMerge {
       const held = await this.#heldBy(ctx, pr);
       text = autoreleasePending(held)
         ? `The backlog PR #${number} carries "autorelease: pending", so dipo never merges it; merge it by hand on GitHub.`
-        : `The backlog PR #${number} carries the hold label ${held.map((label) => `"${label}"`).join(", ")}; dipo turns auto-merge on once the label is gone.`;
+        : `The backlog PR #${number} carries the wait label ${held.map((label) => `"${label}"`).join(", ")}; dipo turns auto-merge on once the label is gone.`;
     }
     const code =
       stop === "held" ||
@@ -270,7 +270,7 @@ export class BacklogMerges implements BacklogAutoMerge {
       stop === "releaseUnknown" ||
       stop === "adrChange" ||
       stop === "adrUnknown"
-        ? BACKLOG_MERGE_NOTICES.held
+        ? BACKLOG_MERGE_NOTICES.waiting
         : stop === "foreignHead"
           ? BACKLOG_MERGE_NOTICES.headChanged
           : BACKLOG_MERGE_NOTICES.checksFailed;

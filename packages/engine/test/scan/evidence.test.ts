@@ -1,4 +1,4 @@
-// The evidence bundle (DIPO-310 criterion 3, 0013 section 6 step 1): built by code from dipo's base
+// The evidence bundle (DIPO-310 criterion 3, 0013): built by code from dipo's base
 // copy, it holds the file tree to depth 2 without dependency, build and worktree folders, the
 // manifests, Makefile or justfile, the install and run sections of README and CLAUDE.md, the CI
 // `run:` steps, `.claude/backlog-workflow.json` and the env file names, within a size budget,

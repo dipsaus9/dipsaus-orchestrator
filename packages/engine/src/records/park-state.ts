@@ -1,4 +1,4 @@
-// A story's current park (DIPO-360; 0001 "Data ownership", 0007, 0010): the one way the engine asks
+// A story's current park (0001, 0007, 0010): the one way the engine asks
 // whether a story is parked, why and from where. Backlog.md owns the status and the park record
 // (the `dipo` field block's `park: {reason, from, note}`); the engine reads them as the story
 // index last read them (`backlog_mirror`, refreshed after every park and lift commit, and set from
@@ -222,7 +222,7 @@ export function unresolvedPark(
  * row whose park was never written to Backlog.md keeps the guards closed, until reconcile or a
  * resume resolves the row. It is the fail-closed counterpart of "a pending lane operation wins"
  * (0010): what dipo has stopped but Backlog.md does not hold yet still holds the story, as a
- * journaled park holds a story before its backlog PR merges. So the merge slot, the reviewer, fix
+ * journaled park holds a story before its backlog PR merges. So the auto-merge, the reviewer, fix
  * rounds and the Done teardown start while neither Backlog.md holds a park nor a park row is open.
  * The current reason and origin stay Backlog.md's alone (`openPark`).
  */

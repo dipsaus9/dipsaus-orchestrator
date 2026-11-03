@@ -1,4 +1,4 @@
-// Unit tests over every committed recording (0017 section 2; DIPO-41 AC #8): no secret shape, no
+// Unit tests over every committed recording (0017; DIPO-41 AC #8): no secret shape, no
 // redacted decision field, usage numbers equal to the checksum taken at capture, normalised ids,
 // and derived recordings that match what `derive.ts` produces from the live ones today.
 
@@ -17,7 +17,6 @@ const LIVE = [
   "permission-denied",
   "permission-wait",
   "interrupt",
-  "resume",
   "worker-park-ambiguous",
   // DIPO-164 and DIPO-145: captured with Claude Code 2.1.302.
   "web",

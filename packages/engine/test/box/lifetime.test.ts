@@ -1,4 +1,4 @@
-// The life of a story's box from claim to merge (DIPO-278; 0021 section 6), on the in-memory box
+// The life of a story's box from claim to merge (DIPO-278; 0008), on the in-memory box
 // backend and a real git repository:
 // - which runs' boxes stop, which are deleted and which are left (`boxRunState`): a run that waits
 //   (ended at In Review, a park, a review period's end, with its claim live) stops; a released
@@ -52,7 +52,7 @@ import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
 import type { RunProfile } from "../../src/scan/detect";
-import { AdapterHolds } from "../../src/workers/hold";
+import { AdapterPauses } from "../../src/run/starts-paused";
 import { FakeBoxes, writeNetTools } from "./fake-boxes";
 import { backlogLayout } from "../story-store/backlog";
 
@@ -117,7 +117,7 @@ interface World {
   readonly boxes: FakeBoxes;
   readonly workers: BoxWorkers;
   readonly log: string[];
-  readonly holds: AdapterHolds;
+  readonly holds: AdapterPauses;
   readonly git: OfficeGit;
   readonly start: string;
   readonly runDir: string;
@@ -147,7 +147,7 @@ async function world(
   const netToolsRoot = join(tmp, "state", "box-net-tools");
   writeNetTools(netToolsRoot, boxImageTag(IMAGE));
   const boxes = new FakeBoxes({ log, images: [boxImageTag(IMAGE)] });
-  const holds = new AdapterHolds({ clock: new ManualClock(), notify: () => {} });
+  const holds = new AdapterPauses({ clock: new ManualClock(), notify: () => {} });
   const caFile = join(tmp, "route-ca.pem");
   writeFileSync(caFile, CA);
   const route = async (network: { hostAddress: string }): Promise<BoxWebRouteStart> => ({
@@ -282,7 +282,7 @@ describe("the box while the story waits", () => {
       expect(readBoxRun(w.runDir)).toMatchObject({ waiting: true });
       expect(readBoxRun(w.runDir)?.finished).toBeUndefined();
       expect(w.workers.pending()).toEqual([RUN]);
-      expect(w.holds.adapterHeld(ADAPTER)).toBeNull();
+      expect(w.holds.adapterPaused(ADAPTER)).toBeNull();
       // Later passes find it resting and call nothing.
       w.log.length = 0;
       expect(await pass(w, WAITING)).toEqual([]);
@@ -330,7 +330,7 @@ describe("the box while the story waits", () => {
       expect(w.boxes.boxes.get(BOX)?.state).toBe("running");
       expect(w.workers.routeUsers).toEqual({ web: [BOX], model: [BOX] });
       expect(readBoxRun(w.runDir)?.waiting).toBeUndefined();
-      expect(w.holds.adapterHeld(ADAPTER)).toBeNull();
+      expect(w.holds.adapterPaused(ADAPTER)).toBeNull();
       // That session ends: the next stop checks the box again before it stops it.
       w.log.length = 0;
       expect(await w.workers.rest(RUN)).toMatchObject({ kind: "stopped" });
@@ -544,7 +544,7 @@ describe("the delivered code a lost box is rebuilt from", () => {
 
 /** The box lifetime over scripted box workers, recording what it asked. */
 function scripted(
-  presence: "ready" | "gone" | "none",
+  presence: "ready" | "gone",
   options: { readonly installFails?: boolean } = {},
 ): { readonly boxes: RunBoxes; readonly calls: string[] } {
   const calls: string[] = [];
@@ -621,7 +621,7 @@ describe("a lost box (BoxLifetime.ensure)", () => {
         tmpRoot: tmp,
       });
       const ensured = await lifetime.ensure(request(w), () => {});
-      expect(ensured).toEqual({ kind: "rebuilt", had: "gone", parts: 1 });
+      expect(ensured).toEqual({ kind: "rebuilt", parts: 1 });
       const code = await deliveredCode(w.git, {
         stories: backlogLayout,
         branch: BRANCH,
@@ -634,24 +634,6 @@ describe("a lost box (BoxLifetime.ensure)", () => {
         "install",
         `check against ${tip}`,
       ]);
-    }));
-
-  it("makes a box for a run that never had one, with nothing to delete first", () =>
-    inBoxes(async (repo, tmp) => {
-      const w = await world(repo, tmp);
-      const { boxes, calls } = scripted("none");
-      const lifetime = new BoxLifetime({
-        stories: backlogLayout,
-        boxes,
-        profile: () => PROFILE,
-        tmpRoot: tmp,
-      });
-      expect(await lifetime.ensure(request(w), () => {})).toEqual({
-        kind: "rebuilt",
-        had: "none",
-        parts: 0,
-      });
-      expect(calls[0]).toMatch(/^create at [0-9a-f]{40}$/);
     }));
 
   it("says why and deletes the new box when its install fails", () =>
@@ -703,7 +685,6 @@ describe("a lost box (BoxLifetime.ensure)", () => {
       w.log.length = 0;
       expect(await lifetime.ensure(request(w), () => {})).toEqual({
         kind: "rebuilt",
-        had: "gone",
         parts: 1,
       });
       // The new box holds the delivered part and the task file as the start commit held it.
@@ -716,13 +697,10 @@ describe("a lost box (BoxLifetime.ensure)", () => {
     }));
 
   it("tells the maintainer what the box was made from and that undelivered work is lost", () => {
-    expect(boxRebuiltText("TASK-1", { had: "gone", parts: 2 })).toBe(
+    expect(boxRebuiltText("TASK-1", { parts: 2 })).toBe(
       "TASK-1's box was gone, so dipo made it again from the start commit and the 2 delivered parts on the story branch. Work the worker had not delivered as a part is lost.",
     );
-    expect(boxRebuiltText("TASK-1", { had: "none", parts: 1 })).toContain(
-      "TASK-1's run had no box (it started before every run ran in a box)",
-    );
-    expect(boxRebuiltText("TASK-1", { had: "none", parts: 1 })).toContain("the 1 delivered part ");
+    expect(boxRebuiltText("TASK-1", { parts: 1 })).toContain("the 1 delivered part ");
   });
 });
 

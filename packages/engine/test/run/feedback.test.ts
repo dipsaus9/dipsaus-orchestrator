@@ -43,11 +43,10 @@ const SOURCES: readonly (readonly [FeedbackSource, string])[] = [
   ["park", "dipo parked this story as conflict, and the maintainer resumed it."],
   ["resume", "Note from the maintainer: go on."],
   ["steer", "The maintainer says: use bun."],
-  ["answer", "The maintainer answered: yes."],
 ];
 
 /** The maintainer's own words, which a first message carries after the rest (0020). */
-const WORDS: readonly FeedbackSource[] = ["resume", "steer", "answer"];
+const WORDS: readonly FeedbackSource[] = ["resume", "steer"];
 
 let dir: string;
 let f: IngestFixture;
@@ -185,7 +184,7 @@ describe("no live developer session (0020)", () => {
 
   it("stores inside the caller's transaction", () => {
     f.office.immediate(() => {
-      sendFeedback(f.office, f.run, { source: "answer", text: "Yes." }, { at: 1 });
+      sendFeedback(f.office, f.run, { source: "steer", text: "Yes." }, { at: 1 });
     });
     expect(heldFeedback(f.office, f.run).texts).toEqual(["Yes."]);
   });

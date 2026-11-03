@@ -66,7 +66,7 @@ function viewText(task: FakeTask): string {
     "",
     "Description:",
     "--------------------------------------------------",
-    "Outcome: the fixture task.",
+    "Story: As maintainer I want the fixture task to exist so that the gate has a story to read.",
     "",
     block(`branch: "${task.branch ?? ""}"`),
     "",

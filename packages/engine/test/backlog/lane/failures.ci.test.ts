@@ -1,4 +1,4 @@
-// CI only (0017 section 1): the slower ways the planning lane fails without holding the office
+// CI only (0017): the slower ways the planning lane fails without holding the office
 // (DIPO-34 review), kept out of the local suite for its time budget (DIPO-77): an engine commit
 // that waits on signing is killed after its timeout and stays journaled, a CLI that commits by
 // itself (Backlog.md `auto_commit`) has its commit undone, and a branch whose first operation

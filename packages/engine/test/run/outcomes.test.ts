@@ -44,24 +44,15 @@ import {
   StartsPaused,
 } from "../../src/run";
 import {
-  activeSignals,
   endRun,
   findRun,
   insertRun,
-  raiseSignal,
   recordIntent,
-  resolveIntent,
   runIntents,
   runOutcome,
   runSteps,
 } from "../../src/records";
-import { FEEDBACK_TEMPLATES, renderTemplate } from "../../src/prompts/templates";
 import { sendFeedback } from "../../src/run/feedback";
-import {
-  LEGACY_PAUSE_DETAIL,
-  LEGACY_PAUSE_TAG,
-  LEGACY_PLAN_LIMIT_DETAIL,
-} from "../../src/run/outcome-restart";
 import { intentPark, parkIntentDetail } from "../../src/run/outcome-types";
 import { recordWorkerHost } from "../../src/records/worker-hosts";
 import { addStory } from "../../src/records/story-keys";
@@ -71,10 +62,9 @@ import {
   type ClaudeParseState,
   initialState,
   interpret,
-  nextSessionOptions,
 } from "../../src/workers/claude-cli/interpret";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
-import { AdapterHolds, type LaunchCheckFailure } from "../../src/workers/hold";
+import { AdapterPauses, type LaunchCheckFailure } from "../../src/run/starts-paused";
 import type { Caps, HostOp, ParseState, TurnProblem, WorkerEvent } from "../../src/workers/types";
 import { insertClaim, releaseClaim } from "../../src/worktree/records";
 import { countRows } from "../commands/helpers";
@@ -114,7 +104,7 @@ interface World {
   readonly paused: { office: string; pause: PlanLimitPause }[];
   /** The office's starts paused itself (0020), on a memory adapter hold store. */
   readonly starts: StartsPaused;
-  readonly adapterHolds: AdapterHolds;
+  readonly adapterHolds: AdapterPauses;
   /** The parks the starts paused resumed after a lift. */
   readonly lifted: LiftedPark[];
   readonly released: string[];
@@ -142,7 +132,7 @@ beforeEach(async () => {
     paused: [],
     lifted: [],
     released: [],
-    nextOutcome: { kind: "started", agent: "agt_next", resumed: true },
+    nextOutcome: { kind: "started", agent: "agt_next" },
     holdsWork: false,
     ingestor: null,
     onNext: null,
@@ -156,7 +146,7 @@ beforeEach(async () => {
     },
   };
   let outcomes: RunOutcomes | null = null;
-  const adapterHolds = new AdapterHolds({ clock: f.t.clock, notify: () => undefined });
+  const adapterHolds = new AdapterPauses({ clock: f.t.clock, notify: () => undefined });
   const starts = new StartsPaused({
     clock: f.t.clock,
     offices: { get: () => f.office, config: () => OFFICE_DEFAULTS },
@@ -210,7 +200,7 @@ beforeEach(async () => {
       },
     },
     holds: {
-      hold: (adapter, failures) => {
+      pause: (adapter, failures) => {
         world.holds.push({ adapter, failures });
         return {
           adapter,
@@ -409,21 +399,16 @@ function expectActive(): void {
   expect(countRows(w.f.office, "run_outcomes")).toBe(0);
 }
 
-/** The first message of a resume that carries the held report correction `text`. */
-function resumedWith(why: string, text: string): string {
-  return `${renderTemplate(FEEDBACK_TEMPLATES.resume, { reason: why })}\n\n${text}`;
-}
-
 const EXITED = "the worker exited before it answered the report feedback";
 
 describe("a report that does not parse or match the schema (AC #1, DIPO-361)", () => {
-  it("gets one correction turn; a worker that exits before it answers is resumed with it held (report-invalid)", async () => {
+  it("gets one correction turn; a worker that exits before it answers gets a new session with it held (report-invalid)", async () => {
     track();
     await ingestRecording("report-invalid");
     const text = reportFeedbackText("error_max_structured_output_retries");
     expect(w.sent).toEqual([encode({ kind: "steer", text })]);
     expect(text).toContain("report in the schema");
-    // Sent to the live session through the one feedback path, then held again for the resume.
+    // Sent to the live session through the one feedback path, then held again for the next session.
     expect(intents()).toEqual([
       ["steer", "feedback", "held-again"],
       ["steer", "feedback", "resumed"],
@@ -432,9 +417,7 @@ describe("a report that does not parse or match the schema (AC #1, DIPO-361)", (
       `feedback report ${w.f.agent} now ${text}`,
       `feedback report ${w.f.agent} next ${text}`,
     ]);
-    expect(w.next.map((request) => [request.mode, request.message])).toEqual([
-      ["resume", resumedWith(EXITED, text)],
-    ]);
+    expect(w.next.map((request) => [request.why, request.message])).toEqual([[EXITED, text]]);
     expect(parks()).toEqual([]);
     expectActive();
   });
@@ -490,9 +473,9 @@ describe("a full context (AC #2)", () => {
     track();
     await ingestRecording("prompt-too-long");
     expect(w.sent).toEqual([CLOSE]);
-    expect(intents()).toEqual([["reassign", "new-session:context-full", "reassigned"]]);
+    expect(intents()).toEqual([["new-session", "new-session:context-full", "reassigned"]]);
     expect(endReason()).toBe("prompt-too-long");
-    expect(w.next.map((request) => request.mode)).toEqual(["handoff"]);
+    expect(w.next).toHaveLength(1);
     expect(parks()).toEqual([]);
     expectActive();
   });
@@ -510,7 +493,7 @@ describe("a full context (AC #2)", () => {
 });
 
 describe("a crash (AC #3)", () => {
-  it("terminated: no intent, usage recovered, the session resumed once", async () => {
+  it("terminated: no intent, usage recovered, one new session with a handoff", async () => {
     track();
     await ingestRecording("terminated");
     const used = w.f.office.get<{ used: number }>(
@@ -521,14 +504,13 @@ describe("a crash (AC #3)", () => {
     expect(used?.used ?? 0).toBeGreaterThan(0);
     expect(endReason()).toBe("crashed");
     expect(w.next).toHaveLength(1);
-    expect(w.next[0]?.mode).toBe("resume");
     expect(w.next[0]?.why).toContain("exit 143");
     expect(w.next[0]?.work.agent).toBe(w.f.agent);
     expect(intents()).toEqual([]);
     expectActive();
   });
 
-  it("crash-truncated resumes once too", async () => {
+  it("crash-truncated gets one new session too", async () => {
     track();
     await ingestRecording("crash-truncated");
     expect(w.next[0]?.why).toContain("partial line");
@@ -539,9 +521,9 @@ describe("a crash (AC #3)", () => {
     track();
     await ingestRecording("crash-zeroed");
     expect(w.sent).toEqual([CLOSE]);
-    expect(intents()).toEqual([["reassign", "new-session:error", "reassigned"]]);
+    expect(intents()).toEqual([["new-session", "new-session:error", "reassigned"]]);
     expect(endReason()).toBe("crashed");
-    expect(w.next.map((request) => request.mode)).toEqual(["resume"]);
+    expect(w.next).toHaveLength(1);
   });
 
   it("a second crash parks worker-failed with the last error", async () => {
@@ -564,7 +546,7 @@ describe("a crash (AC #3)", () => {
     expectEnded("parked");
   });
 
-  it("a resumed session that crashes again at once parks worker-failed", async () => {
+  it("a next session that crashes again at once parks worker-failed", async () => {
     // The next session's host replays `terminated` too; its exit is ingested while the first
     // exit's decision is still under way.
     w.onNext = (request) => {
@@ -715,7 +697,7 @@ describe("a start failure (AC #6)", () => {
     w.holdsWork = true;
     w.nextOutcome = {
       kind: "startFailed",
-      hold: {
+      pause: {
         adapter: "claude-cli",
         check: "probe",
         detail: "claude is not logged in",
@@ -858,7 +840,7 @@ describe("no next session while the office's starts are paused (0020)", () => {
 
   it("a failed adapter check takes the start failure's way: no session, no park to resume", async () => {
     track();
-    w.adapterHolds.hold("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
+    w.adapterHolds.pause("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
     await ingestRecording("terminated");
     expect(w.next).toEqual([]);
     // The worktree holds no work here: the claim is released and the story stays Ready.
@@ -952,9 +934,7 @@ describe("a park intent keeps its park across a restart (DIPO-433)", () => {
     expect(questionTexts()).toEqual(["Which greeting?"]);
   });
 
-  const OLD_OR_MALFORMED = [
-    // Written before DIPO-433: the park detail itself.
-    "no valid report: no structured_output",
+  const MALFORMED = [
     `${INTENT_TAGS.parkReason}worker-failed`,
     `${INTENT_TAGS.parkReason}worker-failed not json`,
     `${INTENT_TAGS.parkReason}worker-failed {"detail":5}`,
@@ -963,8 +943,8 @@ describe("a park intent keeps its park across a restart (DIPO-433)", () => {
     `${INTENT_TAGS.parkReason}no-such-reason {"detail":"x"}`,
     `${INTENT_TAGS.parkReason} {"detail":"x"}`,
   ];
-  for (const detail of OLD_OR_MALFORMED) {
-    it(`decides a park intent ${JSON.stringify(detail)} as before: resolved, no park`, async () => {
+  for (const detail of MALFORMED) {
+    it(`decides a park intent ${JSON.stringify(detail)} whose facts do not parse: resolved, no park`, async () => {
       await ingestRecording("terminated", true);
       w.f.office.immediate(() => recordIntent(w.f.office, w.f.run, "park", detail, 0));
       expect(intentPark(detail)).toBeNull();
@@ -998,34 +978,18 @@ describe("after a restart (decision Q6)", () => {
     await ingestRecording("terminated", true);
     expect(w.next).toEqual([]);
     expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
-    expect(w.next.map((request) => request.mode)).toEqual(["resume"]);
+    expect(w.next).toHaveLength(1);
     expect(endReason()).toBe("crashed");
     // Decided once: the next session is the newest agent now.
     expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(0);
   });
 
-  it("parks by-maintainer a run the maintainer paused before the upgrade, once (DIPO-344)", async () => {
-    // The paused worker exited after its stdin closed; the pause intent is still open.
-    await ingestRecording("terminated", true);
-    setEndReason("paused");
-    w.f.office.immediate(() =>
-      recordIntent(w.f.office, w.f.run, "pause", `${LEGACY_PAUSE_TAG} req_1`, 0),
-    );
-    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
-    expect(parks()).toEqual([["by-maintainer", LEGACY_PAUSE_DETAIL]]);
-    expect(intents()).toContainEqual(["pause", LEGACY_PAUSE_TAG, "run-ended"]);
-    expect(findRun(w.f.office, w.f.run)?.endedAt).not.toBeNull();
-    expect(w.next).toEqual([]);
-    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(0);
-    expect(parks()).toHaveLength(1);
-  });
-
-  it("starts the resume of a crash decided before the stop", async () => {
+  it("starts the next session of a crash decided before the stop", async () => {
     // The daemon stopped after the agent was ended `crashed`, before the next session started.
     await ingestRecording("terminated", true);
     setEndReason("crashed");
     expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
-    expect(w.next.map((request) => request.mode)).toEqual(["resume"]);
+    expect(w.next).toHaveLength(1);
     expect(w.next[0]?.why).toContain("before the daemon restarted");
     expect(parks()).toEqual([]);
     expectActive();
@@ -1035,13 +999,13 @@ describe("after a restart (decision Q6)", () => {
     await ingestRecording("prompt-too-long", true);
     setEndReason("prompt-too-long");
     expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
-    expect(w.next.map((request) => request.mode)).toEqual(["handoff"]);
+    expect(w.next).toHaveLength(1);
     expect(parks()).toEqual([]);
     expectActive();
   });
 
-  it("resumes with an unanswered report feedback after a stop before the resume started", async () => {
-    // The feedback was sent, the worker exited, and the daemon stopped before the resume.
+  it("starts the next session with an unanswered report feedback after a stop before it started", async () => {
+    // The feedback was sent, the worker exited, and the daemon stopped before the next session.
     await ingestRecording("report-invalid", true);
     // Sent to the live session (`now`); the host call went out before the stop.
     const sent = sendFeedback(
@@ -1067,9 +1031,7 @@ describe("after a restart (decision Q6)", () => {
     };
     expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
     const text = reportFeedbackText("error_max_structured_output_retries");
-    expect(w.next.map((request) => [request.mode, request.message])).toEqual([
-      ["resume", resumedWith(EXITED, text)],
-    ]);
+    expect(w.next.map((request) => [request.why, request.message])).toEqual([[EXITED, text]]);
     // Held again before the start, delivered only once the next session started.
     expect(openWhileStarting).toEqual(["held-again", null]);
     expect(intents()).toEqual([
@@ -1080,8 +1042,8 @@ describe("after a restart (decision Q6)", () => {
     expectActive();
   });
 
-  it("keeps a report feedback recorded at the exit open until its resume started", async () => {
-    // No feedback was sent before the exit: it is recorded at the exit, then the resume starts.
+  it("keeps a report feedback recorded at the exit open until the next session started", async () => {
+    // No feedback was sent before the exit: it is recorded at the exit, then the session starts.
     let openWhileStarting: (string | null)[] = [];
     w.onNext = () => {
       openWhileStarting = runIntents(w.f.office, w.f.run).map((intent) => intent.outcome);
@@ -1091,102 +1053,9 @@ describe("after a restart (decision Q6)", () => {
     expect(openWhileStarting).toEqual([null]);
     expect(intents()).toEqual([["steer", "feedback", "resumed"]]);
     expect(w.next.map((request) => request.message)).toEqual([
-      resumedWith("a turn without a valid report", reportFeedbackText("no structured_output")),
+      reportFeedbackText("no structured_output"),
     ]);
     expect(parks()).toEqual([]);
-  });
-
-  it("parks worker-failed, to resume when starts are not paused, a run a plan limit held before the upgrade (DIPO-359)", async () => {
-    // The held worker exited; the old hold left its pause intent resolved and its signal raised.
-    await ingestRecording("success-single", true);
-    const at = w.f.t.clock.now();
-    w.f.office.immediate(() => {
-      const id = recordIntent(w.f.office, w.f.run, "pause", 'plan-limit {"scope":"session"}', at);
-      resolveIntent(w.f.office, w.f.run, id, "plan-limit", at);
-      raiseSignal(w.f.office, w.f.run, "plan-limit", at);
-    });
-    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
-    expect(parks()).toEqual([["worker-failed", LEGACY_PLAN_LIMIT_DETAIL]]);
-    expect(
-      w.f.office.get<{ resume_on_lift: number }>(
-        "select resume_on_lift from parks where office_id = $office_id",
-      )?.resume_on_lift,
-    ).toBe(1);
-    expect(activeSignals(w.f.office, w.f.run)).toEqual([]);
-    // No pause row: dipo resumes it at once, through the one resume path.
-    await w.starts.idle();
-    expect(w.lifted.map((park) => park.story)).toEqual(["DIPO-1"]);
-    // Decided once.
-    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(0);
-  });
-});
-
-describe("usage on resume (AC #9)", () => {
-  it("the resume pair split at its first exit counts the second process's totals once", () => {
-    const recording = readRecording(join(RECORDINGS_DIR, "resume"));
-    const lines = hostLines(recording);
-    const cut = lines.findIndex((line) => line.ch === "exit") + 1;
-    appendLines(w.f.eventFile, lines.slice(0, cut));
-    const ingestor = new Ingestor({ office: w.f.office, clock: w.f.t.clock });
-    w.ingestor = ingestor;
-    const first = initialState({ plannedModel: "haiku" });
-    ingestor.track(target(w.f, claude, first as unknown as ParseState));
-    const stored = w.f.office.get<{ parse_state: string }>(
-      "select parse_state from ingest_cursors where office_id = $office_id and agent_id = $agent",
-      { agent: w.f.agent },
-    );
-    const previous = JSON.parse(stored?.parse_state ?? "{}") as ClaudeParseState;
-    // The second host of the run starts after what the first one wrote.
-    const offset = statSync(w.f.eventFile).size;
-    const agent = w.f.t.ids.next("agt");
-    recordWorkerHost(
-      w.f.office,
-      {
-        pid: 4243,
-        startTimeMs: 1,
-        runId: w.f.run,
-        agentId: agent,
-        socketPath: join(w.dir, "host2.sock"),
-        protocolVersion: 1,
-        runDir: w.dir,
-        eventFile: w.f.eventFile,
-        launchDeadline: w.f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
-      },
-      w.f.t.clock,
-    );
-    w.f.office.immediate(() =>
-      w.f.office.run(
-        `update worker_hosts set processed_offset = $offset
-          where office_id = $office_id and agent_id = $agent`,
-        { offset, agent },
-      ),
-    );
-    appendLines(w.f.eventFile, lines.slice(cut));
-    ingestor.track({
-      ...target(
-        w.f,
-        claude,
-        initialState(nextSessionOptions(previous, true, "haiku")) as unknown as ParseState,
-      ),
-      agent,
-    });
-    const totals = w.f.office.get<{
-      input: number;
-      output: number;
-      cache_create: number;
-      cache_read: number;
-    }>(
-      `select sum(input) as input, sum(output) as output, sum(cache_create) as cache_create,
-         sum(cache_read) as cache_read from usage_totals where office_id = $office_id and run_id = $run`,
-      { run: w.f.run },
-    );
-    expect(totals).toEqual({ input: 4, output: 606, cache_create: 2160, cache_read: 9029 });
-    // The second agent ingested only its own process: one message, not the first one again.
-    const messages = w.f.office.all<{ message_id: string }>(
-      "select message_id from usage_messages where office_id = $office_id and agent_id = $agent",
-      { agent },
-    );
-    expect(messages.map((row) => row.message_id)).toEqual(["msg-2"]);
   });
 });
 
@@ -1322,12 +1191,12 @@ describe("a turn problem whose intent cannot be stored (DIPO-123)", () => {
   const PROBLEMS: [TurnProblem, string, string][] = [
     [
       { kind: "error", detail: "error_during_execution (an API error)" },
-      "reassign",
+      "new-session",
       "new-session:error",
     ],
     [
       { kind: "contextFull", detail: "prompt_too_long: the context is full" },
-      "reassign",
+      "new-session",
       "new-session:context-full",
     ],
     [{ kind: "startFailed", detail: "startup_failure_reason sandbox" }, "stop", "start-failed"],

@@ -139,7 +139,7 @@ describe("dipo run explains its skips", () => {
       // What the engine writes while it runs the command.
       ctx.emit("engine.notice", {
         level: "info",
-        code: "adapter.released",
+        code: "starts.resumed",
         text: "The launch checks for claude-cli passed.",
       });
       ctx.emit("engine.notice", {
@@ -463,7 +463,7 @@ describe("dipo run --dry-run", () => {
       () => ({
         ok: true,
         result: {
-          refusals: [{ check: "adapter", message: "New runs on claude-cli are held." }],
+          refusals: [{ check: "adapter", message: "New runs on claude-cli are paused." }],
           story: { story: "DIPO-7", key: KEY },
           skipped: [],
           launch: null,
@@ -473,7 +473,7 @@ describe("dipo run --dry-run", () => {
     );
     expect(await main(["run", "--dry-run"], ctx.deps)).toBe(1);
     const out = ctx.out.join("\n");
-    expect(out).toContain("refused (adapter): New runs on claude-cli are held.");
+    expect(out).toContain("refused (adapter): New runs on claude-cli are paused.");
     expect(out).toContain(
       "no launch: DIPO-7 was not started: the launch plan refused the path /a(b)",
     );

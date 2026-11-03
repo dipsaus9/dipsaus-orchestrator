@@ -16,7 +16,7 @@
 //     file reads Done on a gate as it is first decided. The reasons that need no host read (`#waits`
 //     without labels and release paths, and the test-before-merge flag even when a pass was
 //     recorded for the head while it was reviewed) are checked first, so a waiting gate's PR is not
-//     read for its labels while its checks run. A hold label, or a release-path change, that comes
+//     read for its labels while its checks run. A wait label, or a release-path change, that comes
 //     after a by-rule close-out reopens the gate on the closed-out head (`#watch`), whose Done
 //     stands on the branch until the merge or a fix round; the merge still waits for green.
 //   Each story parked `review-blocked` gets its override gate here too.
@@ -25,7 +25,7 @@
 //   a gate that waits for the maintainer's merge on the host only, also when an earlier gate of the
 //   head was approved, and never gets auto-merge; dipo never passes `--admin`. When git cannot tell,
 //   nothing happens this round.
-// - Turning auto-merge on (`#arm`), for a PR whose gate is approved, that carries no hold label and
+// - Turning auto-merge on (`#arm`), for a PR whose gate is approved, that carries no wait label and
 //   that GitHub does not report as conflicting: the base fetched and the release path read for the
 //   reviewed head first, so a PR whose diff became a release-path change (CODEOWNERS grew) gets no
 //   Done close-out and its gate waits for the maintainer; then the close-out commit (final summary,
@@ -44,7 +44,7 @@
 //   - on red required checks (on a by-rule PR, the close-out head's), leaves the fix round to the
 //     CI path (`StoryPrs`, `FixRounds.consider`), whose lift sets the story In Progress again; the
 //     next close-out writes the final summary anew;
-//   - on a hold label (`autorelease: pending` always, and `merge.holdLabels`), reopens the gate:
+//   - on a wait label (`autorelease: pending` always, and `merge.waitLabels`), reopens the gate:
 //     a new merge gate for the head waits for the maintainer;
 //   - on a head dipo did not push, reopens the gate as one only a hand merge or a discard decides;
 //   - when the head changes the release path now (the base's CODEOWNERS grew), git cannot tell, or
@@ -58,7 +58,7 @@
 // - A PR closed on GitHub without a merge parks the story `by-maintainer` with the detail "PR #n
 //   closed on GitHub" (0002); a resume opens a new PR.
 // - Stages after a run's start read the run's configuration snapshot (`runConfigOf`): `autoMerge`
-//   and `holdLabels` of the run.
+//   and `waitLabels` of the run.
 //
 // The conflict hand-off records the merge before the branch moves to it. A crash after the record
 // leaves the branch at the merge's tip or at the merge; the next hand-off finds the record
@@ -113,7 +113,7 @@ import { repoOfPrUrl } from "../worktree/release";
 import {
   autoreleasePending,
   decideMergeGate,
-  holdLabelsOn,
+  waitLabelsOn,
   type MergeWait,
   mergeGatesOfRun,
   mergeGateSummary,
@@ -136,7 +136,7 @@ export const STORY_MERGE_NOTICES = {
   pushFailed: "merge.pushFailed",
   failed: "merge.failed",
   headChanged: "pr.headChanged",
-  held: "merge.held",
+  waiting: "merge.waiting",
   /** The release path of a PR could not be read: no auto-merge for it this round. */
   releaseUnknown: "merge.releasePathUnknown",
   /** The head that would merge has no approved review and merge gate. */
@@ -153,7 +153,7 @@ export interface StoryMergeDeps {
   readonly ids: IdSource;
   /** Turns GitHub's auto-merge on and off. */
   readonly host: Pick<AutoMergeHost, "enableAutoMerge" | "disableAutoMerge">;
-  /** The PR's labels (the hold labels and `autorelease: pending`). */
+  /** The PR's labels (the wait labels and `autorelease: pending`). */
   readonly labels: Pick<PrReviewHost, "prLabels">;
   /** Where the CI of a run's pushed head stands (`StoryPrs.ciState`). */
   readonly ci: (office: OfficeId, runId: RunId) => CiHeadState | null;
@@ -405,7 +405,7 @@ export class StoryMerges {
 
   /**
    * True when the PR's merge gate for its head is approved and nothing holds the PR: its verdict
-   * is approved or overridden, no hold label is on it and it changes no release path. Opens the
+   * is approved or overridden, no wait label is on it and it changes no release path. Opens the
    * gate when none holds yet. A gate decided by rule opens without waiting for the head's checks;
    * one that waits for the maintainer opens, and goes on, only on green checks (see the file
    * comment). Checks already red on the head hold both: the CI path's fix round takes them.
@@ -473,11 +473,11 @@ export class StoryMerges {
     return ci.kind === "green" || ci.kind === "none" ? "green" : "open";
   }
 
-  /** The PR's labels that hold it: `autorelease: pending` and the run's hold labels. */
+  /** The PR's labels that hold it: `autorelease: pending` and the run's wait labels. */
   async #held(ctx: StoryMergeContext, pr: Pr): Promise<string[]> {
     const config = runConfigOf(ctx.office, pr.run, ctx.config);
     const labels = await this.#deps.labels.prLabels(pr.repo, pr.stored.number);
-    return holdLabelsOn(labels, config.merge.holdLabels);
+    return waitLabelsOn(labels, config.merge.waitLabels);
   }
 
   /**
@@ -536,7 +536,7 @@ export class StoryMerges {
   }
 
   /**
-   * True when a hold label or the release path holds the PR back, with a `merge.held` notice once
+   * True when a wait label or the release path holds the PR back, with a `merge.waiting` notice once
    * per head and reason: `autorelease: pending` and the release path only a hand merge resolves.
    */
   #heldBack(
@@ -556,13 +556,13 @@ export class StoryMerges {
       text = `${run.story}: PR #${pr.number} carries "autorelease: pending", so dipo never turns auto-merge on for it; merge it by hand on GitHub.`;
     } else if (pr.held.length > 0) {
       const labels = pr.held.map((label) => `"${label}"`).join(", ");
-      text = `${run.story}: PR #${pr.number} is approved but carries the hold label ${labels}; dipo turns auto-merge on once the label is gone.`;
+      text = `${run.story}: PR #${pr.number} is approved but carries the wait label ${labels}; dipo turns auto-merge on once the label is gone.`;
     } else {
       return false;
     }
     const value = `${pr.head}:${pr.held.join(",")}${pr.release.length > 0 ? ":release-path" : ""}`;
-    ctx.once(`story:${run.runId}`, STORY_MERGE_NOTICES.held, value, () =>
-      notice("info", STORY_MERGE_NOTICES.held, text, run.key, run.runId),
+    ctx.once(`story:${run.runId}`, STORY_MERGE_NOTICES.waiting, value, () =>
+      notice("info", STORY_MERGE_NOTICES.waiting, text, run.key, run.runId),
     );
     return true;
   }
@@ -693,7 +693,7 @@ export class StoryMerges {
       testBeforeMerge:
         mirrorFlagged(ctx.office, key) && !testPassedFor(ctx.office, key, input.head),
       verdict: input.verdict,
-      holdLabels: input.held,
+      waitLabels: input.held,
       noRequiredChecks: this.#deps.requiresNoChecks?.(ctx.officeId, run.runId, input.head) === true,
       releasePaths: input.release,
       adrPaths: input.adr,
@@ -996,7 +996,7 @@ export class StoryMerges {
     return null;
   }
 
-  /** A hold label appeared while auto-merge was on: the head's merge gate waits again. */
+  /** A wait label appeared while auto-merge was on: the head's merge gate waits again. */
   async #reopen(ctx: StoryMergeContext, pr: Pr, held: readonly string[]): Promise<void> {
     const head = pr.stored.headSha;
     const verdict = await this.#verdictFor(ctx.officeId, ctx.office, pr.run, head);
@@ -1006,7 +1006,7 @@ export class StoryMerges {
     await this.#openGate(ctx, pr, {
       head,
       waits,
-      note: `superseded: a hold label appeared on ${short(head)}`,
+      note: `superseded: a wait label appeared on ${short(head)}`,
     });
   }
 

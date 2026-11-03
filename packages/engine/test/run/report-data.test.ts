@@ -1,5 +1,6 @@
 // The pure rules of the report gate (DIPO-186 with DIPO-254): which automated test-plan entries a
-// done report leaves open, and whether a decision note's section is in its file.
+// done report leaves open, whether a decision note's section is in its file, and which proposals'
+// Story lines fail 0012 R05.
 
 import { describe, expect, it } from "bun:test";
 
@@ -10,8 +11,10 @@ import {
   noteMiss,
   proposalHash,
   sectionHeadings,
+  splitProposals,
   testPlanGaps,
 } from "../../src/run/report-data";
+import type { WorkerReport } from "../../src/workers/types";
 
 const PLAN: TestPlan = {
   entries: [
@@ -113,5 +116,51 @@ describe("proposalHash", () => {
     expect(proposalHash({ title: "Split", paths: ["a"] })).not.toBe(a);
     expect(proposalHash({ title: "Split" })).toBe(proposalHash({ title: "Split", paths: [] }));
     expect(proposalHash({ title: "Other", paths: ["a", "b"] })).not.toBe(a);
+  });
+});
+
+describe("splitProposals", () => {
+  const done: WorkerReport = {
+    status: "done",
+    criteria: [{ n: 1, met: true, evidence: "x" }],
+    summary: "s",
+    commitSubject: "c",
+  };
+  const good = {
+    kind: "follow-up",
+    title: "Split the parser",
+    story:
+      "As maintainer I want the parser split into two modules so that each module stays small enough to read.",
+    why: "w",
+  } as const;
+  const spike = {
+    kind: "spike",
+    title: "Ask",
+    story:
+      "We need to decide which parser design the project keeps so that the next stories build on one design.",
+    why: "w",
+  } as const;
+
+  it("returns a report whose Story lines all pass as it is", () => {
+    const report = { ...done, proposals: [good, spike] };
+    expect(splitProposals(report)).toEqual({ report, refused: [] });
+    expect(splitProposals(done)).toEqual({ report: done, refused: [] });
+  });
+
+  it("takes each failing line out with the gate's problems and keeps the rest in order", () => {
+    const bad = { ...good, title: "Bad", story: "Split src/parse.ts." };
+    // A spike's line in the story's shape fails too.
+    const wrongShape = { ...spike, story: good.story };
+    const split = splitProposals({ ...done, proposals: [bad, good, wrongShape] });
+    expect(split.report).toEqual({ ...done, proposals: [good] });
+    expect(split.refused.map((item) => item.proposal)).toEqual([bad, wrongShape]);
+    expect(split.refused[0]?.problems).toContain(
+      "Story line names the path src/parse.ts; put paths in the references",
+    );
+    expect(split.refused[1]?.problems[0]).toStartWith(
+      'Story line does not read "We need to decide',
+    );
+    // With none left, the report has no proposals field.
+    expect(splitProposals({ ...done, proposals: [bad] }).report).toEqual(done);
   });
 });

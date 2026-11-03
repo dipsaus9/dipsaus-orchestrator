@@ -4,7 +4,7 @@
   "properties": {
     "version": {
       "type": "number",
-      "const": 15
+      "const": 16
     },
     "tiers": {
       "type": "object",
@@ -230,7 +230,7 @@
           "type": "boolean",
           "description": "Whether dipo commits the close-out and turns GitHub's auto-merge on for a story PR as soon as its review approves it, without the maintainer's approval. GitHub merges it once its required checks pass on the close-out head."
         },
-        "holdLabels": {
+        "waitLabels": {
           "type": "array",
           "items": {
             "type": "string",
@@ -314,11 +314,11 @@
           },
           "description": "Extra Debian packages of the box image, installed with apt from Debian's archive."
         },
-        "claudeCode": {
+        "workerCli": {
           "type": "string",
           "minLength": 1,
           "pattern": "^\\d+\\.\\d+\\.\\d+$",
-          "description": "The Claude Code version of the box image, installed from npm through Safe-Chain, with its auto-update and nonessential traffic turned off (0008)."
+          "description": "The version of the worker's command-line tool, Claude Code, in the box image, installed from npm through Safe-Chain, with its auto-update and nonessential traffic turned off (0008)."
         },
         "files": {
           "type": "array",
@@ -415,7 +415,7 @@
             "type": "string",
             "minLength": 1
           },
-          "description": "Phrases of a title or Outcome that adds or replaces a security barrier, such as a deny rule or a permission check. Such a story needs the criteria parts of story.securityCriteriaPhrases, else it fails the Ready gate (R30, 0012)."
+          "description": "Phrases of a title or Story line that adds or replaces a security barrier, such as a deny rule or a permission check. Such a story needs the criteria parts of story.securityCriteriaPhrases, else it fails the Ready gate (R30, 0012)."
         },
         "securityCriteriaPhrases": {
           "type": "object",
@@ -446,14 +446,9 @@
             }
           },
           "additionalProperties": false,
-          "description": "Per part of R30, the phrases a criterion must contain (word match, as R10). A story whose title or Outcome names a security barrier fails once for each part no criterion matches (0012)."
+          "description": "Per part of R30, the phrases a criterion must contain (word match, as R10). A story whose title or Story line names a security barrier fails once for each part no criterion matches (0012)."
         },
         "titleMax": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
-        "outcomeMin": {
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
@@ -742,14 +737,6 @@
         "root": {
           "type": "string",
           "minLength": 1
-        },
-        "rebuildable": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "description": "Ignored paths a leftover story worktree may hold and still be removed: a name without a slash matches a file or folder at any depth (a trailing / for a folder only); a path with a slash matches that exact path from the root (DIPO-375)."
         }
       },
       "additionalProperties": false

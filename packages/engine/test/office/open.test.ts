@@ -1,4 +1,4 @@
-// `office.open` (DIPO-27; 0005 section 4, 0006 decision 4, 0007 sections 2 and 3) on real
+// `office.open` (DIPO-27; 0005, 0007) on real
 // temporary git repositories with the Backlog.md fixture: the main worktree is the office path,
 // the marker lives in `<git-common-dir>/dipo/office.json`, a linked worktree opens the same
 // office, a copy gets a new id and a moved repository keeps its own.

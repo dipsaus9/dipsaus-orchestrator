@@ -1,6 +1,6 @@
-// CI only (0017 section 1, DIPO-225): real git repositories and processes, too slow for the local
+// CI only (0017, DIPO-225): real git repositories and processes, too slow for the local
 // run.
-// A story Done on the base through another branch (DIPO-161; 0020 section 10), with real git and a
+// A story Done on the base through another branch (DIPO-161; 0020), with real git and a
 // bare remote and the scripted Backlog CLI of helpers.ts: the DIPO-105 replay, a branch that adds
 // nothing, a live worker, an own-branch teardown a crash interrupted, and the Done poll.
 
@@ -28,7 +28,6 @@ import {
   findClaim,
   liveClaimOf,
   openReleasedBranches,
-  releaseClaim,
 } from "../../src/worktree/records";
 import { lastSeq } from "../stories/helpers";
 import {
@@ -316,36 +315,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           doneElsewhereDeskItems(o.office).filter((i) => i.kind === DONE_ELSEWHERE_DESK.live),
         ).toEqual([]);
       }));
-
-    it("deletes the kept branch of an own-branch teardown a crash interrupted, released as done, when it adds nothing", () =>
-      withReconcileOffice({ base: DONE }, async (o) => {
-        const key = keyOf(o.office, "TASK-1");
-        const record = await claim(o, o.office, "TASK-1", key, { active: false });
-        await o.repo.git("push", "--quiet", "origin", record.branch);
-        await mergeOnRemote(o, record);
-        // The teardown started and crashed; DIPO-216 released the claim as done, and
-        // the branch stayed, locally and on the remote.
-        o.office.immediate(() => {
-          o.office.run(
-            "update claims set teardown_started_at = 5 where office_id = $office_id and run_id = $run",
-            { run: record.runId },
-          );
-          releaseClaim(o.office, record.runId, {
-            at: 6,
-            reason: "done",
-            ending: "done",
-            keepBranch: false,
-          });
-        });
-        expect(await tipOf(o, `refs/heads/${record.branch}`)).not.toBeNull();
-
-        await reconcile(o);
-
-        expect(await tipOf(o, `refs/heads/${record.branch}`)).toBeNull();
-        expect(await remoteTip(o, record.branch)).toBe("");
-        expect(findClaim(o.office, record.runId)?.releaseReason).toBe("done");
-        expect(findDoneElsewhere(o.office, record.runId)).toMatchObject({ branchKept: false });
-      }));
   });
 
   describe("the Done poll reads a claimed story's status on the base (DIPO-161)", () => {
@@ -384,7 +353,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect(report.released?.map((c) => c.runId)).toEqual([one.runId]);
           expect(findClaim(o.office, one.runId)?.releaseReason).toBe("done-elsewhere");
           expect(liveClaimOf(o.office, two.key as StoryKey)).not.toBeNull();
-          // The released run's box is deleted too (0021 section 6).
+          // The released run's box is deleted too (0008).
           expect(boxes.n).toBe(1);
           teardown.stop();
         },
@@ -407,21 +376,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const record = await claim(o, o.office, "TASK-1", key, { active: false });
         await o.repo.git("push", "--quiet", "origin", record.branch);
         await mergeOnRemote(o, record);
-        // An own-branch teardown a crash interrupted, released as done:
-        // its kept branch is settled by reconcile (a live claim merged through its own branch is the
-        // Done poll's, DIPO-332).
-        o.office.immediate(() => {
-          o.office.run(
-            "update claims set teardown_started_at = 5 where office_id = $office_id and run_id = $run",
-            { run: record.runId },
-          );
-          releaseClaim(o.office, record.runId, {
-            at: 6,
-            reason: "done",
-            ending: "done",
-            keepBranch: false,
-          });
-        });
+        // An own-branch teardown a crash interrupted before its release: reconcile releases the
+        // claim with its record and settles the branch.
+        o.office.run(
+          "update claims set teardown_started_at = 5 where office_id = $office_id and run_id = $run",
+          { run: record.runId },
+        );
         // Someone pushes a commit with a change of their own to the branch on the host.
         const elsewhere = join(o.repo.root, "elsewhere");
         await o.repo.git(

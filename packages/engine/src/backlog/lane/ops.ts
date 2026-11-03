@@ -1,4 +1,4 @@
-// Lane-b operation kinds (0010 section 2). An operation is a target state: applying it twice, or
+// Lane-b operation kinds (0010). An operation is a target state: applying it twice, or
 // again on a newer base, leaves the story the same. A kind applies its target through the Backlog
 // CLI in the `_backlog` worktree and answers whether it still applies; the lane commits whatever
 // changed. The lane calls `apply` only inside its office's git queue item, so every CLI write,
@@ -64,7 +64,7 @@ export interface LaneOpKind {
 // The target-state model is the seam's (`story-store/planning.ts`); the kinds apply it here.
 export { DISCARD_KIND, DROP_KIND, DropTarget, EDIT_KIND, EditTarget, HOLD_KIND, RESUME_KIND };
 
-/** True when the CLI failed because the story does not exist (0010 fact 3). */
+/** True when the CLI failed because the story does not exist (0010). */
 function isNotFound(error: unknown): boolean {
   return (
     error instanceof BacklogCommandError &&

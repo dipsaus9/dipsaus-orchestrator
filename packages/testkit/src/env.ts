@@ -1,5 +1,5 @@
 // Tests run with a cleaned environment: no ANTHROPIC_*, CLAUDE_* or GH_* variables
-// (0017 section 3), so no test can reach Claude or GitHub with the maintainer's credentials. A
+// (0017), so no test can reach Claude or GitHub with the maintainer's credentials. A
 // daemon a test starts as a process also gets its state, runtime and temp directories under the
 // test's temp directory (DIPO-109), and without the PATH directories that hold the Apple `container`
 // CLI unless DIPO_TEST_BOX=1 (DIPO-423): a test daemon never touches the maintainer's boxes.

@@ -1,4 +1,4 @@
-// CI only (0017 section 1): a crashed worker's next session on real git with the pinned Backlog
+// CI only (0017): a crashed worker's next session on real git with the pinned Backlog
 // CLI and DIPO-44's worker host in this process (DIPO-51 test plan). `work.run` claims TASK-1 and
 // its first host replays `terminated` (exit 143 with no intent). Run control and worker outcomes
 // decide the crash; the real resumer finds no transcript to resume, builds the handoff on the

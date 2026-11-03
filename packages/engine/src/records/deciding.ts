@@ -1,4 +1,4 @@
-// The deciding guard of worker outcomes (DIPO-51; one helper since DIPO-128): the decisions being
+// The deciding guard of worker outcomes, one helper for every decider: the decisions being
 // made now, each under a key that starts with its run id. A restart step and a plan-limit or park
 // resume leave the run of a decision under way alone, and an exit already being decided is not
 // decided twice.

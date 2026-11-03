@@ -1,4 +1,4 @@
-// Verify feedback items (DIPO-47 AC #6, 0014 section 7): the failing step and command, exit
+// Verify feedback items (DIPO-47 AC #6, 0014): the failing step and command, exit
 // code, last 60 output lines and `file:line` locations parsed from tsc, oxlint and bun test.
 
 import { describe, expect, it } from "bun:test";

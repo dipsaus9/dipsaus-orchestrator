@@ -65,7 +65,7 @@ export function createUlid(clock: Clock, fill: RandomFill = cryptoFill): () => s
   };
 }
 
-/** The production `IdSource`: `<prefix>_<ulid>` (0005 section 2). */
+/** The production `IdSource`: `<prefix>_<ulid>` (0005). */
 export function createSystemIds(clock: Clock = systemClock, fill?: RandomFill): IdSource {
   const ulid = createUlid(clock, fill);
   return { next: (prefix: IdPrefix) => `${prefix}_${ulid()}` };

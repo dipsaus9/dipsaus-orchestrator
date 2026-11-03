@@ -1,4 +1,4 @@
-// The desk (DIPO-158; 0020 section 12): `office.desk` lists what waits on the maintainer from stored
+// The desk (DIPO-158; 0020): `office.desk` lists what waits on the maintainer from stored
 // facts in the six groups, ordered within a group by the stories each item blocks and then by age,
 // with the exact command line to type; a review-blocked park is one row with resume and approve,
 // and a gate held by `autorelease: pending` offers a hand merge and no `dipo approve`.
@@ -108,7 +108,7 @@ function rows(items: readonly DeskItem[]): string[] {
   return items.map((item) => `${item.kind} ${item.story ?? "-"}`);
 }
 
-describe("the desk order (0020 section 12)", () => {
+describe("the desk order (0020)", () => {
   it("lists every group in order, with dependents breaking ties before age", () =>
     withTempDir(async (dir) => {
       const t = await openTestState(dir);
@@ -222,13 +222,29 @@ describe("the desk order (0020 section 12)", () => {
           storeProposals(office, {
             key: key11,
             runId: run,
-            proposals: [{ kind: "follow-up", title: "Split RunOutcomes", outcome: "o", why: "w" }],
+            proposals: [
+              {
+                kind: "follow-up",
+                title: "Split RunOutcomes",
+                story:
+                  "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
+                why: "w",
+              },
+            ],
             at: base,
           });
           storeProposals(office, {
             key: key11,
             runId: run,
-            proposals: [{ kind: "spike", title: "Choose a queue", outcome: "o", why: "w" }],
+            proposals: [
+              {
+                kind: "spike",
+                title: "Choose a queue",
+                story:
+                  "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
+                why: "w",
+              },
+            ],
             at: base + HOUR,
           });
           storeDecisionNotes(office, {
@@ -431,7 +447,7 @@ describe("review-blocked parks and hand-merge-only gates", () => {
           id: "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0C1C",
           key: started.key,
           run: started.run,
-          summary: "the PR carries a hold label",
+          summary: "the PR carries a wait label",
           at,
         });
         const seen: string[] = [];
@@ -510,10 +526,9 @@ describe("stored text on the desk", () => {
         const at = t.clock.now();
         office.immediate(() =>
           office.run(
-            `insert into questions (office_id, question_id, run_id, agent_id, kind, text, tool,
-               input, asked_at)
-             values ($office_id, 'qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A', $run, $agent, 'permission',
-               $text, 'Bash', 'curl', $at)`,
+            `insert into questions (office_id, question_id, run_id, agent_id, kind, text, asked_at)
+             values ($office_id, 'qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A', $run, $agent, 'question', $text,
+               $at)`,
             {
               run: started.run,
               agent: started.agent,
@@ -648,7 +663,15 @@ describe("the office.desk read", () => {
           storeProposals(office, {
             key,
             runId: run,
-            proposals: [{ kind: "follow-up", title: "Split it", outcome: "split", why: "size" }],
+            proposals: [
+              {
+                kind: "follow-up",
+                title: "Split it",
+                story:
+                  "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
+                why: "size",
+              },
+            ],
             at: at + 1,
           });
         });
@@ -664,7 +687,7 @@ describe("the office.desk read", () => {
               title: "Split it",
               run,
             },
-            detail: `follow-up "Split it" · split Why: size · from ${run}`,
+            detail: `follow-up "Split it" · Story: As maintainer I want the run outcomes split into two modules so that each module stays small enough to read. Why: size · from ${run}`,
             since: new Date(at + 1).toISOString(),
             blocks: [],
             // proposal.accept and proposal.dismiss are not registered in this engine yet.
@@ -880,7 +903,7 @@ describe("a worker question on the desk (DIPO-159, 0020)", () => {
 });
 
 describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
-  it("comes first, with its reason, what lifts it and dipo daemon resume-scheduling", () =>
+  it("comes first, with its reason, what lifts it and dipo daemon resume-starts", () =>
     withTempDir(async (dir) => {
       const t = await openTestState(dir);
       try {
@@ -898,7 +921,7 @@ describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
             since: at,
             until: at + 2 * HOUR,
             lifts:
-              "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-scheduling`.",
+              "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-starts`.",
           }),
         };
         const items = desk(office, all, sources);
@@ -908,8 +931,8 @@ describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
           detail: "no new session starts · plan limit until 2026-10-28T12:00:00.000Z",
           since: new Date(at).toISOString(),
           blocks: [],
-          actions: [{ command: "daemon.resumeScheduling", cli: "dipo daemon resume-scheduling" }],
-          hand: "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-scheduling`.",
+          actions: [{ command: "daemon.resumeStarts", cli: "dipo daemon resume-starts" }],
+          hand: "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-starts`.",
         });
 
         const adapter = desk(office, all, {
@@ -936,7 +959,7 @@ describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
             since: at,
             until: null,
             lifts: "Replace the box login with dipo login box.",
-            hold: {
+            pause: {
               adapter: "claude-cli",
               check: "box-token",
               detail: "the token was found in a box",

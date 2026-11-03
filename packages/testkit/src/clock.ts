@@ -1,4 +1,4 @@
-// A clock that moves only when a test advances it (0017 section 4).
+// A clock that moves only when a test advances it (0017).
 
 import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
 

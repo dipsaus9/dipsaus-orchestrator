@@ -1,5 +1,5 @@
-// Asserts that the main entry of `packages/client` stays runtime-free (0004 amendment of
-// 2026-10-12): a `node:` import, a `bun` import and a Bun global are each reported there, and the
+// Asserts that the main entry of `packages/client` stays runtime-free (0004):
+// a `node:` import, a `bun` import and a Bun global are each reported there, and the
 // same code is allowed in `client/node`, the only client code that may use Bun APIs. Engine and
 // daemon stay banned in `client/node` too. One oxlint run per group keeps it fast; each fixture
 // sits at its own path so every diagnostic is attributed to one placement.

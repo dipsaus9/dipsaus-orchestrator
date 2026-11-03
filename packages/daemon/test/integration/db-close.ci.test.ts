@@ -1,4 +1,4 @@
-// CI only (0017 section 1): a real daemon checkpoints and closes the state database on a clean stop
+// CI only (0017): a real daemon checkpoints and closes the state database on a clean stop
 // (DIPO-87), so `<state>` keeps dipo.db and no dipo.db-wal or dipo.db-shm. The daemon is started
 // with `dipo daemon --foreground` and stopped with `dipo daemon stop`. State, runtime and temp
 // files stay under the test's temp directory, and the daemon is killed in a `finally` if needed.

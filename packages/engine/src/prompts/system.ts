@@ -1,4 +1,4 @@
-// The system file (0014 sections 1 and 5): the L1 worker contract for the run kind, then the L2
+// The system file (0014): the L1 worker contract for the run kind, then the L2
 // role. It is byte-identical for every story with the same kind, role and engine version: no
 // story data goes in, so it holds no id, date, path or count, and its prefix caches across runs.
 

@@ -1,10 +1,10 @@
-// The desk (0020 section 12, DIPO-158): what waits on the maintainer, as `office.desk` returns it
+// The desk (0020, DIPO-158): what waits on the maintainer, as `office.desk` returns it
 // and `dipo desk` prints it. Code builds every item, its order and the command line it offers from
 // stored facts; nothing asks a model, and clients never derive it (0005, 0009).
 //
 // The groups, in the order of 0020:
 // 0. the office's starts paused (DIPO-359, `starts-paused.ts`), with its reason and what lifts it,
-//    offering `dipo daemon resume-scheduling`; an office item with no story;
+//    offering `dipo daemon resume-starts`; an office item with no story;
 // 1. an open question no park carries, with `dipo answer <question> --text "<answer>"`; a
 //    worker's question parks at once (0020), so it is on its PARKED row instead;
 // 2. merge gates that wait on the maintainer, with the PR from `story_prs`; a gate whose PR is
@@ -22,8 +22,8 @@
 // 4. the stories parked `by-maintainer`, listed apart as "Parked by you";
 // 5. hand actions: a backlog PR whose structural check failed or could not run, a planning lane
 //    whose operations wait for a backlog PR longer than 30 minutes (DIPO-401), the items of
-//    `DeskSources.handItems` (DIPO-161's DONE ELSEWHERE and LEFTOVERS), the story worktrees of an
-//    earlier binary that hold changes (DIPO-349's LEFTOVER WORKTREE), and the run profile's rows
+//    `DeskSources.handItems` (DONE ELSEWHERE and LEFTOVERS, parks that still hold a story's work,
+//    and parks whose write to Backlog.md failed), and the run profile's rows
 //    (DIPO-310): each pending proposal of the scan fallback and each stale confirmation, an office
 //    item with no story, offering its `dipo office confirm` lines (no TUI keys yet);
 // 6. proposals and decision notes of worker reports (`proposals.ts`), spike before follow-up.
@@ -35,9 +35,9 @@
 // terminal must never run it.
 //
 // An action is listed only when this engine registers its command as shipped, so the desk never
-// offers a command the daemon would answer with `capability.missing`. Seams for stories not built
-// yet are `DeskSources`: the resume needs of a park (the 0020 table), the hand-merge-only
-// label of a gate's PR (DIPO-150) and further hand items (DIPO-161's are in `DESK_SOURCES`).
+// offers a command the daemon would answer with `capability.missing`. Other modules supply
+// `DeskSources`: the resume needs of a park (the 0020 table), the hand-merge-only label of a
+// gate's PR and further hand items (`DESK_SOURCES`, `features.ts`).
 
 import {
   type CommandName,
@@ -64,12 +64,11 @@ import { LIFT_COMMAND, type StartsPausedState } from "../run/starts-paused";
 import { profileDeskItems } from "../scan/profile-view";
 import { findStoryPr, latestStoryPr } from "../records/story-prs";
 import { doneElsewhereDeskItems } from "../worktree/done-elsewhere";
-import { leftoverWorktreeDeskItems } from "../worktree/leftovers";
 import { lifecycleOf } from "../views/story";
 
 import { proposalItems, type ProposalItem } from "./proposals";
 
-/** An item another module puts on the desk's hand-action group, such as DIPO-161's LEFTOVERS. */
+/** An item another module puts on the desk's hand-action group, such as LEFTOVERS. */
 export interface HandDeskItem {
   readonly kind: string;
   readonly key: StoryKey;
@@ -129,7 +128,7 @@ interface OpenMergeGate {
 export interface DeskSources {
   /** The story store: the park a pending planning change writes (`plannedPark`, 0010). */
   readonly stories: ParkStore;
-  /** True when the gate's PR is labelled `autorelease: pending` (0016 rule 12, DIPO-150). */
+  /** True when the gate's PR is labelled `autorelease: pending` (0016, DIPO-150). */
   readonly handMergeOnly: (office: OfficeHandle, gate: DeskGate) => boolean;
   /** Further hand-action items, in group 4. */
   readonly handItems: readonly ((
@@ -148,7 +147,7 @@ export interface DeskSources {
 }
 
 /**
- * The sources of this engine: no stored PR labels yet; the hand items are DIPO-161's DONE ELSEWHERE
+ * The sources of this engine: no stored PR labels; the hand items are DONE ELSEWHERE
  * (a live worker of a story Done on the base) and LEFTOVERS (what such a story left kept, with
  * `dipo discard <id> --note "<why>"`).
  */
@@ -241,7 +240,7 @@ const PARK_RANK: Readonly<Record<string, number>> = {
 };
 const OTHER_PARK_RANK = 7;
 
-/** Group 5's order: spike before follow-up (0020 section 12), then tools, then decision notes. */
+/** Group 5's order: spike before follow-up (0020), then tools, then decision notes. */
 const PROPOSAL_RANK: Readonly<Record<ProposalItem["kind"], number>> = {
   spike: 0,
   "follow-up": 1,
@@ -433,14 +432,14 @@ class DeskBuilder {
     if (paused === null) return;
     const why =
       paused.reason === "adapter" ? `adapter check failed: ${paused.detail}` : paused.detail;
-    // The box token's hold lifts only with `dipo login box` (DIPO-271): no command lifts it here.
-    const sticky = paused.reason === "adapter" && paused.hold?.liftedBy !== undefined;
+    // The box token's pause lifts only with `dipo login box`: no command lifts it here (0020).
+    const sticky = paused.reason === "adapter" && paused.pause?.liftedBy !== undefined;
     this.#add(GROUP.paused, 0, paused.since, {
       kind: "STARTS PAUSED",
       detail: `no new session starts · ${why}`,
       since: iso(paused.since),
       blocks: [],
-      actions: sticky ? [] : this.#action("daemon.resumeScheduling", LIFT_COMMAND),
+      actions: sticky ? [] : this.#action("daemon.resumeStarts", LIFT_COMMAND),
       hand: paused.lifts,
     });
   }
@@ -562,7 +561,7 @@ class DeskBuilder {
       parks.filter((park) => park.reason === "review-blocked").map((park) => park.key),
     );
     for (const gate of gates) {
-      // A review-blocked park's gate is the PARKED row's `dipo approve --note` (0019 section 11).
+      // A review-blocked park's gate is the PARKED row's `dipo approve --note` (0002).
       if (!reviewBlocked.has(gate.key)) this.#mergeGate(gate);
     }
     for (const park of parks) {
@@ -581,7 +580,7 @@ class DeskBuilder {
           ? (gates.find((candidate) => candidate.key === park.key) ?? null)
           : null;
       if (open !== null) {
-        // The park's merge gate (0019 section 11): `dipo approve --note`, unless only the
+        // The park's merge gate (0002): `dipo approve --note`, unless only the
         // maintainer merges its PR, by hand.
         gate = open.gate_id;
         hand = this.#handOnlyText(
@@ -665,17 +664,6 @@ class DeskBuilder {
           hand: item.hand,
         });
       }
-    }
-    // The story worktrees of an earlier binary dipo kept because they hold changes (DIPO-349).
-    for (const item of leftoverWorktreeDeskItems(this.#office)) {
-      this.#add(GROUP.hand, 1, item.since, {
-        kind: item.kind,
-        detail: deskText(item.detail),
-        since: iso(item.since),
-        blocks: [],
-        actions: [],
-        hand: item.hand,
-      });
     }
     // The run profile's rows (DIPO-310): what the maintainer confirms by `dipo office confirm`.
     for (const item of profileDeskItems(this.#office)) {

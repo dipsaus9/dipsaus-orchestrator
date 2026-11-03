@@ -1,4 +1,4 @@
-// The fallback session's answer (0013 section 6 step 2, DIPO-310): the schema the session's
+// The fallback session's answer (0013, DIPO-310): the schema the session's
 // structured output must follow, and the checks code runs on it before anything is stored. Pure.
 //
 // The answer passes the door first (size cap, every string cleaned of terminal control and other

@@ -1,4 +1,4 @@
-// Steering ops map to stdin writes, a stdin close and signals (0008 sections 1 and 6), and a
+// Steering ops map to stdin writes, a stdin close and signals (0008), and a
 // delayed signal is cancelled once the worker exits, so it can never reach a reused PID
 // (DIPO-44 AC #9).
 

@@ -1,4 +1,4 @@
-// Worker compactions as facts (DIPO-106; 0008 sections 3 and 4): each compaction of a replayed
+// Worker compactions as facts (DIPO-106; 0008): each compaction of a replayed
 // session is stored once with its pre-compaction tokens and time, and the run's and agent's stats
 // give the count and the latest pre-compaction tokens. Retention deletes them with their agent.
 

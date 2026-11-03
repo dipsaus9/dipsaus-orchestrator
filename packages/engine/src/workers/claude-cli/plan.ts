@@ -2,8 +2,9 @@
 // is pure: it turns a session's WorkerSpec and the launch context into argv, an allowlisted
 // environment, the run settings file and the first stdin line, and refuses anything it cannot
 // launch safely: an empty working directory dipo made, every tool off (`--tools ""` and a deny rule
-// for each tool by name), no hooks, no MCP server, every plugin off, a closed sandbox and network,
-// and its structured-output schema.
+// for each tool by name), so it reads, writes, runs and fetches nothing, no hooks, no MCP server,
+// every plugin off, and its structured-output schema. It has no Bash sandbox: with no tool there is
+// no command for one to hold (0008).
 //
 // A developer or reviewer session is never planned here (DIPO-240, DIPO-347): each runs only in a
 // box (`box-plan.ts`, 0008). `checkSpec` is shared with the box plan.
@@ -17,12 +18,10 @@ import { enabledPluginsSetting, type WorkerPlugins } from "./plugins";
 import { DISABLE_SLASH_COMMANDS } from "./skills";
 
 export const CLAUDE_CLI_ADAPTER_ID = "claude-cli";
-/** Run settings file, in the run directory (0008 section 10). */
+/** Run settings file, in the run directory (0008). */
 export const SETTINGS_FILE = "claude-settings.json";
-/** Copy of the report schema passed on argv, in the run directory (0008 section 10). */
+/** Copy of the report schema passed on argv, in the run directory (0008). */
 export const REPORT_SCHEMA_FILE = "report-schema.json";
-/** The srt default write paths the run settings close, each with its reason (DIPO-98). */
-export const CLOSED_WRITES_FILE = "sandbox-closed-writes.json";
 
 /**
  * The flag that adds `stream_event` lines to the stream (DIPO-296): the live view reads each
@@ -30,50 +29,8 @@ export const CLOSED_WRITES_FILE = "sandbox-closed-writes.json";
  */
 export const INCLUDE_PARTIAL_MESSAGES = "--include-partial-messages";
 
-// srt, the sandbox runtime under Claude Code's Bash sandbox, makes these paths writable for every
-// sandboxed command unless the settings deny them (DIPO-98). A session writes only its run temp
-// directories, so the run settings deny writes to each with `sandbox.filesystem.denyWrite`, which
-// srt honours over its defaults (measured with srt 0.0.79 on macOS; Claude Code 2.1.301 bundles the
-// same defaults). Keyed by srt's own lists, so a new default needs a decision here.
-// The lists are Claude Code's bundled srt's; dipo no longer ships srt itself (DIPO-343).
-export const SRT_DEFAULT_WRITE_PATHS = ["/tmp/claude", "/private/tmp/claude"] as const;
-export const SRT_DEFAULT_HOME_WRITE_PATHS = [".claude/debug", ".npm/_logs"] as const;
-const CLOSED_HOME_WRITE_REASONS: Readonly<
-  Record<(typeof SRT_DEFAULT_HOME_WRITE_PATHS)[number], string>
-> = {
-  ".claude/debug":
-    "srt opens it for Claude Code's debug logs, but Claude Code writes them from its own process outside the sandbox, so no sandboxed command needs it; it lies in the maintainer's Claude Code configuration directory.",
-  ".npm/_logs":
-    "srt opens it for npm's debug logs. It is the maintainer's own npm log directory outside the sandbox, so a session's commands could leave files there that outlive the run; the session environment sets npm_config_logs_dir to the run temp directory, so npm, Claude Code's own start-up npm call included, logs there instead.",
-};
-const CLOSED_WRITE_REASONS: Readonly<Record<(typeof SRT_DEFAULT_WRITE_PATHS)[number], string>> = {
-  "/tmp/claude":
-    "srt's fallback temp directory, shared by every srt sandbox on the machine. Claude Code points its sandboxed commands at its own per-session temp directory and the run has its own temp directory, so a session never needs it; closed, its commands cannot leave files there for other sandboxes.",
-  "/private/tmp/claude": "The same directory as /tmp/claude, as macOS resolves it.",
-};
-
-const CLOSED_WRITES_REASON =
-  "srt, the sandbox runtime under Claude Code's Bash sandbox, makes these paths writable for every sandboxed command unless the settings deny them. A session writes only its run temp directories, so the run settings deny writes to each (claude-settings.json, sandbox.filesystem.denyWrite; DIPO-98).";
-
-/** A path srt makes writable by default that the session sandbox closes again (DIPO-98). */
-export interface ClosedWritePath {
-  readonly path: string;
-  readonly reason: string;
-}
-
-/** Every srt default write path, made absolute against `home`, with why a session may not write it. */
-export function closedWritePaths(home: string): ClosedWritePath[] {
-  return [
-    ...SRT_DEFAULT_HOME_WRITE_PATHS.map((rel) => ({
-      path: `${home}/${rel}`,
-      reason: CLOSED_HOME_WRITE_REASONS[rel],
-    })),
-    ...SRT_DEFAULT_WRITE_PATHS.map((path) => ({ path, reason: CLOSED_WRITE_REASONS[path] })),
-  ];
-}
-
 /**
- * Kinds this adapter plans: `implement` (D12, DIPO-15) and `review` (0002), only in a box
+ * Kinds this adapter plans: `implement` and `review` (0002), only in a box
  * (`box-plan.ts`), and `session` (DIPO-310), on the Mac with `plan`.
  */
 export const PLANNED_KINDS: readonly WorkerKind[] = ["implement", "review", "session"];
@@ -131,7 +88,7 @@ export function kindContext(
   return { ...ctx, plugins: { ...ctx.plugins, allowed: [] } };
 }
 
-/** Variables passed through from the daemon's environment (0008 section 2). */
+/** Variables passed through from the daemon's environment (0008). */
 export const ENV_ALLOWLIST = ["PATH", "HOME", "USER", "SHELL", "LANG", "TERM", "TMPDIR"] as const;
 
 // Names an office may never declare as tool variables: API keys and tokens that would move a
@@ -147,10 +104,6 @@ const REFUSED_TOOL_VARIABLES = new Set([
   "ENV",
 ]);
 const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-// Credential files under home and variables masked for sandboxed commands (0008 section 2).
-const CREDENTIAL_FILES = [".ssh", ".aws", ".config/gh", ".gnupg", ".netrc"] as const;
-const CREDENTIAL_VARIABLES = ["GH_TOKEN", "GITHUB_TOKEN", "NPM_TOKEN"] as const;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -168,12 +121,11 @@ export interface ClaudeLaunchContext {
   readonly mainCheckout: string;
   /** The run directory the host writes the plan's files into. */
   readonly runDir: string;
-  /** The sandbox temp directory sandboxed commands may write. */
+  /** The run's temp directory; npm's debug logs go under it. */
   readonly tmpDir: string;
   /**
-   * The run's short temp root (DIPO-118): the session's `DIPO_TMP`, writable by sandboxed
-   * commands. `claudeLaunchContext` always sets it; without it (the recordings capture) the
-   * session gets no `DIPO_TMP` and the sandbox no extra write path.
+   * The run's short temp root (DIPO-118): the session's `DIPO_TMP`. `claudeLaunchContext` always
+   * sets it; without it (the recordings capture) the session gets no `DIPO_TMP`.
    */
   readonly shortTmpDir?: string;
   /**
@@ -280,8 +232,8 @@ function environment(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
   // Set by the engine, never taken from the daemon's environment (DIPO_ is not allowlisted and
   // not an office tool variable).
   if (paths.shortTmp !== undefined) env.DIPO_TMP = paths.shortTmp;
-  // Claude Code runs `npm root --global` at start, outside the sandbox, and npm would write a
-  // debug log into <home>/.npm/_logs (DIPO-98).
+  // Claude Code runs `npm root --global` at start, and npm would write a debug log into
+  // <home>/.npm/_logs (DIPO-98).
   env.npm_config_logs_dir = `${tmp}/${NPM_LOGS_SUBDIR}`;
   return env;
 }
@@ -295,14 +247,10 @@ interface Paths {
   readonly runDir: string;
 }
 
-/** A session's network: closed, whatever the office allows, with no local binding. */
-const SESSION_NETWORK = { allowedDomains: [], strictAllowlist: true, allowLocalBinding: false };
-
 /**
- * `enabledPlugins` false/**
  * `enabledPlugins` false for every installed plugin the office does not name (DIPO-108). A plugin
- * hook runs outside any sandbox with the maintainer's credentials, and a SessionStart hook runs
- * before `system/init` could be checked, so the switch-off is in the settings, not only the parser.
+ * hook runs with the maintainer's credentials, and a SessionStart hook runs before `system/init`
+ * could be checked, so the switch-off is in the settings, not only the parser.
  * A plugin list that could not be read refuses the plan: what cannot be named cannot be switched off.
  */
 function plugins(ctx: ClaudeLaunchContext): Record<string, false> | undefined {
@@ -310,55 +258,31 @@ function plugins(ctx: ClaudeLaunchContext): Record<string, false> | undefined {
   const { installed, allowed } = ctx.plugins;
   if (!Array.isArray(installed)) {
     throw new PlanError(
-      `${(installed as { error: string }).error}; the run settings cannot switch Claude Code plugins off without it, so the run is refused (0008 amendment of 2026-10-12)`,
+      `${(installed as { error: string }).error}; the run settings cannot switch Claude Code plugins off without it, so the run is refused (0008)`,
     );
   }
   return enabledPluginsSetting(installed, allowed);
 }
 
 /**
- * Checks the run's temp roots and working directory against home and srt's closed write paths
- * (DIPO-98): none may be the root, hold home, lie under a closed path or hold one. Under a closed
- * path the deny would win over the run's own write path; holding one, the run's write path would
- * reach around it, so neither is planned.
+ * Checks the session's working directory: it may not be the root or hold home, so the project
+ * settings and CLAUDE.md of the folder it runs in are never the maintainer's own.
  */
-function checkWritableDirs(
-  dirs: readonly (readonly [string, string])[],
-  home: string,
-): ClosedWritePath[] {
-  const closed = closedWritePaths(home);
-  for (const [label, dir] of dirs) {
-    if (dir === "/" || isInside(home, dir)) {
-      throw new PlanError(
-        `${label} ${dir} must not be the root or hold the home directory ${home}`,
-        { path: dir },
-      );
-    }
-    const under = closed.find((entry) => isInside(dir, entry.path));
-    if (under !== undefined) {
-      throw new PlanError(
-        `${label} ${dir} must lie outside ${under.path}, which the session sandbox may not write`,
-        { path: dir },
-      );
-    }
-    const holds = closed.find((entry) => isInside(entry.path, dir));
-    if (holds !== undefined) {
-      throw new PlanError(
-        `${label} ${dir} must not hold ${holds.path}, which the session sandbox may not write`,
-        { path: dir },
-      );
-    }
+function checkWorkdir(workdir: string, home: string): void {
+  if (workdir === "/" || isInside(home, workdir)) {
+    throw new PlanError(
+      `workdir ${workdir} must not be the root or hold the home directory ${home}`,
+      { path: workdir },
+    );
   }
-  return closed;
 }
 
 /**
  * The run settings of a `session` (DIPO-310): no tool (each denied by name as well), reads closed
- * outside its empty working directory, writes only to the run's temp roots, the reviewer's closed
- * network, no hooks, and every installed plugin off.
+ * outside its empty working directory, no hooks, and every installed plugin off.
  */
 function sessionSettings(ctx: ClaudeLaunchContext, paths: Paths) {
-  const { home, workdir, main, tmp, shortTmp } = paths;
+  const { main } = paths;
   const enabledPlugins = plugins(ctx);
   return {
     includeGitInstructions: false,
@@ -368,27 +292,6 @@ function sessionSettings(ctx: ClaudeLaunchContext, paths: Paths) {
       allow: [],
       deny: [...SESSION_DENIED_TOOLS],
       blockReadsOutsideWorkingDirectories: true,
-    },
-    sandbox: {
-      enabled: true,
-      failIfUnavailable: true,
-      allowUnsandboxedCommands: false,
-      filesystem: {
-        allowWrite: [tmp, ...(shortTmp === undefined ? [] : [shortTmp])],
-        denyRead: [`${home}/Library/Keychains`],
-        denyWrite: [
-          workdir,
-          main,
-          `${main}/.git`,
-          ...closedWritePaths(home).map((closed) => closed.path),
-        ],
-        allowRead: [],
-      },
-      network: SESSION_NETWORK,
-      credentials: {
-        files: CREDENTIAL_FILES.map((file) => ({ path: `${home}/${file}`, mode: "deny" })),
-        envVars: CREDENTIAL_VARIABLES.map((name) => ({ name, mode: "deny" })),
-      },
     },
     ...(enabledPlugins === undefined ? {} : { enabledPlugins }),
   };
@@ -400,8 +303,6 @@ function sessionSettings(ctx: ClaudeLaunchContext, paths: Paths) {
  * structured output, the task message as the first message.
  */
 function planSession(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan {
-  // A session never resumes: each fallback request is a new session (DIPO-310).
-  if (spec.session.resume) throw new PlanError("a session is never resumed (DIPO-310)");
   const ctx = kindContext(spec, launch);
   const claude = absolute("claudePath", ctx.claudePath);
   const home = absolute("home", ctx.home);
@@ -422,14 +323,7 @@ function planSession(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
       },
     );
   }
-  const closed = checkWritableDirs(
-    [
-      ["workdir", workdir],
-      ["tmpDir", tmp],
-      ...(shortTmp === undefined ? [] : [["shortTmpDir", shortTmp] as const]),
-    ],
-    home,
-  );
+  checkWorkdir(workdir, home);
   const mcpConfig = `${runDir}/${EMPTY_MCP_CONFIG_FILE}`;
   for (const [label, path] of [
     ["runDir", runDir],
@@ -462,7 +356,7 @@ function planSession(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
     "default",
     "--permission-prompts",
     "none",
-    // Every tool off (0021 amendment of 2026-10-22): an empty list, and each tool denied by name.
+    // Every tool off (0008): an empty list, and each tool denied by name.
     "--tools",
     "",
     "--settings",
@@ -490,10 +384,6 @@ function planSession(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
       },
       { name: REPORT_SCHEMA_FILE, content: `${JSON.stringify(spec.reportSchema, null, 2)}\n` },
       { name: EMPTY_MCP_CONFIG_FILE, content: `${JSON.stringify(EMPTY_MCP_CONFIG)}\n` },
-      {
-        name: CLOSED_WRITES_FILE,
-        content: `${JSON.stringify({ reason: CLOSED_WRITES_REASON, denyWrite: closed }, null, 2)}\n`,
-      },
     ],
     stdin: [userMessageLine(spec.taskMessage)],
   };

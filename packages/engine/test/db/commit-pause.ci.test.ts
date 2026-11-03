@@ -1,5 +1,5 @@
-// CI only (0017 section 1): measures the pause of one commit under synchronous=FULL, the number
-// 0007 section 1 asks M0 to record before the maintenance budget is tuned. It reports, it does
+// CI only (0017): measures the pause of one commit under synchronous=FULL, the number
+// 0007 asks M0 to record before the maintenance budget is tuned. It reports, it does
 // not gate: CI disks vary too much for a threshold.
 
 import { describe, expect, it } from "bun:test";
@@ -31,7 +31,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             db.immediate(() =>
               db.exec("create table facts (n integer primary key, body text not null) strict"),
             );
-            const body = "x".repeat(600); // about one change-log entry (0007 section 11)
+            const body = "x".repeat(600); // about one change-log entry (0007)
             const times: number[] = [];
             for (let n = 0; n < COMMITS; n++) {
               const start = performance.now();

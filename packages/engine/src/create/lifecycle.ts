@@ -8,7 +8,7 @@
 //
 // A state database the daemon cannot open or migrate (0005, 0007) holds it in `recovering` for
 // good: no office loads, office commands and reads get the non-retryable `database.unavailable`
-// with what to do, and `daemon.resumeScheduling` refuses with it too, so nothing makes office
+// with what to do, and `daemon.resumeStarts` refuses with it too, so nothing makes office
 // commands look usable. Only a drain leaves it: `daemon.stop`, SIGTERM or SIGINT.
 
 import {
@@ -62,6 +62,7 @@ export class DaemonLifecycle {
   #inFlight = 0;
   readonly #idleWaiters: (() => void)[] = [];
   #unavailable: EngineError | null = null;
+  #failure: DatabaseFailure | null = null;
 
   constructor(reason = "daemon started") {
     this.#reason = reason;
@@ -73,6 +74,11 @@ export class DaemonLifecycle {
 
   get reason(): string {
     return this.#reason;
+  }
+
+  /** Why the state database cannot be used, while it cannot; null otherwise. */
+  get failure(): DatabaseFailure | null {
+    return this.#failure;
   }
 
   /** The `database.unavailable` error while the state database cannot be used; null otherwise. */
@@ -89,6 +95,7 @@ export class DaemonLifecycle {
   holdUnavailable(failure: DatabaseFailure): boolean {
     if (this.#state !== "recovering") return false;
     this.#reason = failure.text;
+    this.#failure = failure;
     this.#unavailable = engineError(DATABASE_UNAVAILABLE, failure.text, { ...failure.details });
     return true;
   }
@@ -130,7 +137,7 @@ export class DaemonLifecycle {
 
   /**
    * Scheduling (0005): a command that would schedule work (`work.run`, resume to In Progress)
-   * fails with the retryable `scheduling.off` in `draining`, where no new work starts. Office
+   * fails with the retryable `daemon.draining` in `draining`, where no new work starts. Office
    * access is checked first, so `starting` and `recovering` report `engine.recovering`. Null means
    * the command may schedule work.
    */
@@ -141,7 +148,7 @@ export class DaemonLifecycle {
     // Clients treat `daemon.state` to `draining` as the signal to reconnect with backoff (DIPO-24);
     // the code is retryable, so a request sent meanwhile can succeed against the next daemon.
     if (this.#state === "draining") {
-      return engineError("scheduling.off", "The daemon is stopping; no new work starts.", {
+      return engineError("daemon.draining", "The daemon is stopping; no new work starts.", {
         state: this.#state,
         reason: this.#reason,
       });

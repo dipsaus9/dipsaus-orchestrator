@@ -1,4 +1,4 @@
-// Office-scoped handles (0007 sections 1 and 3): every statement binds the handle's office_id.
+// Office-scoped handles (0007): every statement binds the handle's office_id.
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";

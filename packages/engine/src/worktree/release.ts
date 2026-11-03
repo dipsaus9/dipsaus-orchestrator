@@ -1,4 +1,4 @@
-// Releasing a claim for `story.drop` (DIPO-160; 0020 section 8, 0010 section 2a). A claim has no
+// Releasing a claim for `story.drop` (DIPO-160; 0020, 0010). A claim has no
 // worktree, so a release is its row and, at most, its branch:
 // - without `deleteBranch` the branch is kept and recorded as released for the story;
 // - with `deleteBranch` the branch is deleted locally and on the remote, and nothing is recorded as
@@ -13,7 +13,6 @@
 
 import type { Clock, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 
-import { forgetContextPack } from "../context/pack";
 import type { OfficeHandle } from "../db/office";
 import { FETCH_CONFIG } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
@@ -60,7 +59,6 @@ export async function releaseForDrop(
       keepBranch: !options.deleteBranch,
     });
     forgetWorkerNotes(deps.office, claim.branch);
-    forgetContextPack(deps.office, claim.branch);
   });
   return outcome;
 }
@@ -107,7 +105,7 @@ export type DiscardBranchOutcome =
   | { readonly ok: false; readonly why: string };
 
 /**
- * Releases the claim as `work.discard` does (0020 section 8): the branch is deleted locally and on
+ * Releases the claim as `work.discard` does (0020): the branch is deleted locally and on
  * the remote when nothing there is missing from the local branch or the base (`deleteOwnBranch`;
  * the client listed what is lost and asked for the typed story id first); nothing is recorded as
  * released. The claim is released as `discard` and its tier T rows are forgotten. One queue item
@@ -129,12 +127,11 @@ export async function releaseForDiscard(
       keepBranch: false,
     });
     forgetWorkerNotes(deps.office, claim.branch);
-    forgetContextPack(deps.office, claim.branch);
   });
   return outcome;
 }
 
-/** What `work.discard` removes of the leftovers of a story Done elsewhere (0020 section 10). */
+/** What `work.discard` removes of the leftovers of a story Done elsewhere (0020). */
 export interface LeftoverTargets {
   /** The runs whose leftovers these are; their rows are cleared once the branches are gone. */
   readonly runs: readonly RunId[];
@@ -155,7 +152,7 @@ export function leftoverBranchNames(
 
 /**
  * `work.discard` of what released claims left behind (the leftovers of a story Done elsewhere,
- * 0020 section 10): each branch of `leftoverBranchNames` is deleted locally and, under
+ * 0020): each branch of `leftoverBranchNames` is deleted locally and, under
  * `deleteOwnBranch`'s rule, on the remote; each release row is marked reclaimed.
  */
 export async function removeLeftovers(

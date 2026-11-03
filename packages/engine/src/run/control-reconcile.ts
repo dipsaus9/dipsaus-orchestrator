@@ -1,6 +1,6 @@
-// The reconcile stops of run control (DIPO-56, split out of `control-endings.ts` by DIPO-128): a
-// run whose story left In Progress or In Review is stopped without a park, and a run whose
-// worktree or branch changed by hand parks `scope-violation`.
+// The reconcile stops of run control (`control-endings.ts`): a run whose story left In Progress or
+// In Review is stopped without a park, and a run whose worktree or branch changed by hand parks
+// `scope-violation`.
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
@@ -36,7 +36,7 @@ export class ReconcileStops {
   }
 
   /**
-   * Reconcile (DIPO-56, 0007 section 6): the run is active in the database, but its story's
+   * Reconcile (DIPO-56, 0007): the run is active in the database, but its story's
    * status is no longer In Progress or In Review, or the story was removed. The engine records a
    * `stop` intent, sends the stop sequence to its worker host if one still answers, and ends the
    * run as `ending` (its story's status decides, `reconciledEnding`), together with `notice`, in
@@ -115,7 +115,7 @@ export class ReconcileStops {
   }
 
   /**
-   * Reconcile (DIPO-56, 0010 section 7 "Worktree or branch changed by hand"): the running story's
+   * Reconcile (0010): the running story's
    * worktree or branch changed by hand. The worker is stopped and the story parks
    * `scope-violation` with the evidence as detail. The park is not written on the branch, since
    * the worktree can no longer be trusted; `notice` says why and the park's own notice says what

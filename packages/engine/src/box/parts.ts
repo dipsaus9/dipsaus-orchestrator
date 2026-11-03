@@ -1,4 +1,4 @@
-// Delivery in parts (0021 section 8, DIPO-273). When the worker in a box hands dipo a part (W1,
+// Delivery in parts (0008, DIPO-273). When the worker in a box hands dipo a part (W1,
 // `BoxDoor`'s `onPart`), and once more when it says the story is done (`deliverLast`, `finishLast`),
 // dipo takes the changes since the last delivered part out of the box, scans them, and
 // commits them on the story branch with the worker's message, then pushes the branch:
@@ -30,7 +30,7 @@
 //    anything below a submodule, unless the delivered tree tracks the path. The matching runs in
 //    batches with the event loop free between them, within `IGNORE_WORK_BUDGET`; a part's
 //    `.gitignore` over `IGNORE_FILE_MAX` is refused unread.
-// 3. The scans (0021 section 8). A path with a control, bidirectional or invisible character is
+// 3. The scans (0008). A path with a control, bidirectional or invisible character is
 //    refused. A protected-file check (`protectedKind`, folded as APFS folds names, with a
 //    look-alike fold as a second layer: git's own folder, every story folder with the story's task
 //    file (compared normalised, whole segments, `story-store/paths.ts`), `.dipo/`, `.github/`,
@@ -45,7 +45,7 @@
 //    version of the file did not already hold. A hit parks the story with a fixed text that names
 //    only the kinds found, never a path or what matched; nothing is committed or pushed, and the
 //    files stay in the box.
-// 4. The commit (0021 sections 8 and 14). dipo's own copy of the story branch is the branch in the
+// 4. The commit (0008). dipo's own copy of the story branch is the branch in the
 //    office repository, built from git objects alone: no checkout holds the part, so no git call
 //    runs with a folder of worker-written files as its work tree or reads its `.gitattributes`,
 //    hooks or config. Every step runs on the repository without a work tree (`git --bare`, the

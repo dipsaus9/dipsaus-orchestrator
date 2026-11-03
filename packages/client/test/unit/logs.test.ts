@@ -1,4 +1,4 @@
-// The log reader behind `dipo daemon logs` (DIPO-64, 0006 decision 13): reading the rotated files
+// The log reader behind `dipo daemon logs` (DIPO-64, 0005): reading the rotated files
 // in order, filtering a fixture log by office, run and level, rendering, and following across a
 // rotation.
 

@@ -60,7 +60,7 @@ describe("refused config.yaml under a supervisor", () => {
     withDaemonTempDir(async (dir) => {
       const state = join(dir, "state");
       mkdirSync(state, { recursive: true });
-      writeFileSync(join(state, "config.yaml"), "version: 1\ndaemon:\n  autostrat: false\n");
+      writeFileSync(join(state, "config.yaml"), "version: 4\ndaemon:\n  autostrat: false\n");
       const calls: (readonly string[])[] = [];
       const err: string[] = [];
       const code = await runForeground(

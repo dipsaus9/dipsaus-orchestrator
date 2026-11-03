@@ -1,4 +1,4 @@
-// Plugins in worker runs (DIPO-108, 0008 amendment of 2026-10-12): Claude Code's plugin lists are
+// Plugins in worker runs (DIPO-108, 0008): Claude Code's plugin lists are
 // read without the engine knowing their layout, the run settings switch off every plugin the office
 // does not name, and a session whose `system/init` lists another plugin ends `startFailed` naming
 // it, its turn carrying no report, while the story stays Ready (no park proposed).

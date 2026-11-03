@@ -1,4 +1,4 @@
-// Run control (DIPO-50; 0008 sections 6 and 7, 0005 section 4): the engine's caps, the parks a
+// Run control (DIPO-50; 0008, 0005): the engine's caps, the parks a
 // worker's report asks for and `story.park` of a story with a run.
 //
 // - Caps. Each started run is tracked with its tier's caps and the time its worker started. After
@@ -9,7 +9,7 @@
 //   100% of one it records a `cap` intent, sends the stop sequence and parks the story
 //   `budget-exceeded` naming the cap and the total at the crossing. A turn that ended at the adapter's own turn cap (the CLI backstop, `error_max_turns`)
 //   does the same at that turn, so a later turn of a queued message never overrides it. A crossing
-//   turn that carries a `done` report is the exception (0008 amendment of 2026-10-19, DIPO-205):
+//   turn that carries a `done` report is the exception (0008):
 //   it takes the normal done path (verify and commit), a `cap` run step names the crossed cap, and
 //   no cap ends the run while that path runs.
 //   A box session's tokens are the model proxy's count (DIPO-425), written before its turn's result
@@ -27,7 +27,9 @@
 //   conflict cap parks `conflict` instead.
 // - Report data (DIPO-186). The proposals of every report, done or blocked, are stored for the
 //   maintainer (`storeProposals`, deduplicated by title and paths); storing them changes nothing
-//   about the story, the run or the commit.
+//   about the story, the run or the commit. A proposal whose Story line fails 0012 R05 leaves the
+//   report first (`splitProposals`): a done report's go to the report gate, which sends them
+//   back once (`verify-commit.ts`); any other report's are dropped at once with a notice.
 // - `story.park { story, note }` of a story with a run (`parkByMaintainer`, 0020). The engine
 //   records a `stop` intent, sends the stop sequence through the host (the adapter's `encode`: a
 //   now-priority message, stdin closed, SIGTERM after 10 s, SIGKILL after 30 s) and parks the
@@ -40,7 +42,7 @@
 //   stops the worker and parks the story `worker-failed`, the detail naming
 //   the worker's version and the count. It decides in event order, so a drift ahead of a turn wins
 //   over that turn's report.
-// - `daemon.stop { stopWorkers: true }` (0006 decision 7, DIPO-315, `stopAll`): every tracked run
+// - `daemon.stop { stopWorkers: true }` (0005, DIPO-315, `stopAll`): every tracked run
 //   nothing was decided for yet is stopped as `story.park` stops one, and parks `by-maintainer` with
 //   `DAEMON_STOPPED_DETAIL`; the drain waits for the parks and for the workers' exits.
 //
@@ -55,7 +57,7 @@
 //   done report is verified and committed, or the run's end was claimed, `work.steer` holds the
 //   steer for the next session. A daemon restart during the hold loses it: the caps decide.
 //
-// - Notes (0020 section 6, DIPO-154). The `notes` of every turn report are stored for the next
+// - Notes (0020, DIPO-154). The `notes` of every turn report are stored for the next
 //   session's handoff (`recordWorkerNotes`), keyed by the run's branch and the agent, replacing
 //   that agent's earlier notes. A park keeps them, so a cap that fires mid-turn still leaves the
 //   previous turn's notes; teardown deletes them.
@@ -143,7 +145,12 @@ import { findRun, type StoredRun } from "../records/run-records";
 
 /** The intent detail of the stop of a worker whose run ended before it was tracked (DIPO-411). */
 export const ENDED_BEFORE_START = "the run ended before its worker started";
-import { storeProposals } from "./report-data";
+import {
+  droppedProposalNotices,
+  type RefusedProposal,
+  splitProposals,
+  storeProposals,
+} from "./report-data";
 
 export {
   CAP_TICK_MS,
@@ -220,7 +227,7 @@ export class RunControl implements RunEnder {
   }
 
   /**
-   * The run's host event file changed (0007 section 5, DIPO-45's `ingest.fileChanged`): its
+   * The run's host event file changed (0007, the ingestor's `ingest.fileChanged`): its
    * ingestion stopped, so the worker is stopped and the story parks `worker-failed` with the
    * detail "event file changed" (DIPO-57). A run decided already keeps that decision.
    */
@@ -235,7 +242,7 @@ export class RunControl implements RunEnder {
     this.#endings.begin(tracked, this.interruptedEnding());
   }
 
-  /** The ending of a run whose host event file changed (0007 section 5). */
+  /** The ending of a run whose host event file changed (0007). */
   interruptedEnding(): RunEnding {
     return {
       intent: "stop",
@@ -378,12 +385,12 @@ export class RunControl implements RunEnder {
         return;
       }
       if (event.t === "initRejected") {
-        // 0008 section 2: stop the worker before it does anything (DIPO-51).
+        // 0008: stop the worker before it does anything (DIPO-51).
         this.#initRejected(run, event.reason);
         return;
       }
       if (event.t === "startRefused") {
-        // 0008 amendment of 2026-10-12 (DIPO-108): stop it before it does anything; no park.
+        // 0008: stop it before it does anything; no park.
         this.act(run, startRefusedAct(event.reason));
         return;
       }
@@ -400,42 +407,49 @@ export class RunControl implements RunEnder {
         return;
       }
       if (event.t === "modelSwitched") outcomes?.onModelSwitched(viewOf(tracked), event.to);
-      if (event.t === "turn" && (event.report?.proposals?.length ?? 0) > 0) {
-        this.#storeProposals(tracked, event.report as WorkerReport);
-      }
       if (event.t === "turn") {
+        // Proposals whose Story line fails leave the report before anything reads it.
+        const split = event.report === null ? null : splitProposals(event.report);
+        const report = split?.report ?? null;
+        const refused = split?.refused ?? [];
+        if (report !== null && (report.proposals?.length ?? 0) > 0) {
+          this.#storeProposals(tracked, report);
+        }
+        // Only a done report the finisher takes has a turn left to correct them.
+        const toGate = report?.status === "done" && this.#deps.finisher !== undefined;
+        if (refused.length > 0 && !toGate) this.#dropProposals(tracked, refused);
         // A newer turn decides instead of a done turn held back for a steer (DIPO-412).
         this.#dropHeldDone(tracked);
-        // A done report on the turn that crosses a cap takes the done path (0008 amendment of
-        // 2026-10-19, DIPO-205); without a finisher nothing could commit it, so the cap parks.
+        // A done report on the turn that crosses a cap takes the done path (0008); without a
+        // finisher nothing could commit it, so the cap parks.
         const crossed =
           tracked.capped !== null || this.#deps.finisher === undefined
             ? null
             : event.capped !== undefined
               ? { cap: "maxTurns" as const, detail: capDetail("maxTurns", event.capped) }
               : (this.#crossings.get(event) ?? pending ?? tracked.waitingCrossing);
-        if (event.report !== null) this.#keepNotes(tracked, event.report, agent);
-        if (event.report?.status === "done" && crossed !== null) {
-          tracked.lastReport = event.report;
+        if (report !== null) this.#keepNotes(tracked, report, agent);
+        if (report?.status === "done" && crossed !== null) {
+          tracked.lastReport = report;
           outcomes?.answered(viewOf(tracked));
-          this.#cappedDone(tracked, event.report, crossed);
+          this.#cappedDone(tracked, report, crossed, refused);
           continue;
         }
         if (event.capped !== undefined && tracked.capped === null) {
           this.#cap(tracked, "maxTurns", event.capped);
           return;
         }
-        const report = event.report;
         if (report !== null) tracked.lastReport = report;
         // A turn after the report feedback answers it (DIPO-51).
         outcomes?.answered(viewOf(tracked));
         if (event.problem?.kind === "planLimit" && outcomes !== undefined) {
+          if (toGate && refused.length > 0) this.#dropProposals(tracked, refused);
           outcomes.onPlanLimit(viewOf(tracked), { credits: false });
           return;
         }
         // A blocked report parks at once (0020).
         if (report?.status === "blocked") {
-          // A blocked report during a conflict hand-off fails it (0019 section 10, DIPO-149); the
+          // A blocked report during a conflict hand-off fails it (0002, DIPO-149); the
           // failure that reaches the conflict cap parks `conflict` instead.
           const handOff = this.#blockedHandOff(tracked);
           if (handOff !== null) {
@@ -467,13 +481,14 @@ export class RunControl implements RunEnder {
         const problem = outcomes === undefined ? undefined : event.problem;
         const review = outcomes === undefined ? undefined : event.review;
         if (this.#deps.finisher !== undefined || problem !== undefined || review !== undefined) {
-          const take = () => this.#turns.queue(tracked, report, problem, null, review);
+          const take = () =>
+            this.#turns.queue(tracked, report, problem, null, review, toGate ? refused : []);
           // A done report while the session has a steer it has not read: the session reads it
           // after this result and starts a new turn, which decides (DIPO-412).
           const held =
             report?.status === "done" &&
             problem === undefined &&
-            this.#holdDone(tracked, report, take);
+            this.#holdDone(tracked, report, toGate ? refused : [], take);
           if (!held) take();
         }
       }
@@ -517,7 +532,7 @@ export class RunControl implements RunEnder {
   }
 
   /**
-   * `daemon.stop { stopWorkers: true }` (0006 decision 7, DIPO-315): stops every live worker this
+   * `daemon.stop { stopWorkers: true }` (0005, DIPO-315): stops every live worker this
    * control tracks, as `story.park` stops one (the stop sequence through its host, a `stop` intent
    * first, the story parked `by-maintainer` with `DAEMON_STOPPED_DETAIL`). A run already being decided (a cap, a report, a done path) keeps that decision. Resolves
    * once every decision finished and the stopped workers exited, or `exitWaitMs` after the stops
@@ -601,7 +616,7 @@ export class RunControl implements RunEnder {
   }
 
   /**
-   * Stores the notes of a developer's turn report for the next session's handoff (0020 section 6),
+   * Stores the notes of a developer's turn report for the next session's handoff (0020),
    * replacing that agent's earlier notes on the run's branch. A report without notes changes
    * nothing, so the previous turn's notes stay. A failed write is logged; the turn goes on.
    */
@@ -643,11 +658,32 @@ export class RunControl implements RunEnder {
    * (verify, commit, In Review) and no cap ends it meanwhile. The step keeps the crossed cap; a
    * red verify parks `budget-exceeded`, since no turn is left (`verify-commit.ts`).
    */
-  #cappedDone(tracked: Tracked, report: WorkerReport, crossed: FiredCap): void {
+  #cappedDone(
+    tracked: Tracked,
+    report: WorkerReport,
+    crossed: FiredCap,
+    refused: readonly RefusedProposal[],
+  ): void {
     tracked.capped = crossed;
     tracked.waitingCrossing = null;
     disarm(this.#deps.clock, tracked);
-    this.#turns.queue(tracked, report, undefined, crossed);
+    this.#turns.queue(tracked, report, undefined, crossed, undefined, refused);
+  }
+
+  /** Drops proposals whose Story line fails, with a notice each: the report has no turn left. */
+  #dropProposals(tracked: Tracked, refused: readonly RefusedProposal[]): void {
+    const office = this.#deps.offices.get(tracked.office);
+    if (office === undefined) return;
+    this.#endings.writer(
+      office,
+      tracked.office,
+    )(() =>
+      droppedProposalNotices(
+        { runId: tracked.runId, key: tracked.work.key, story: tracked.work.story ?? tracked.runId },
+        refused,
+        "no-turn",
+      ),
+    );
   }
 
   /**
@@ -694,7 +730,12 @@ export class RunControl implements RunEnder {
    * after all when no steer was read within `STEER_READ_WAIT_MS`, or the worker exits first. True
    * when it held the turn.
    */
-  #holdDone(tracked: Tracked, report: WorkerReport, take: () => void): boolean {
+  #holdDone(
+    tracked: Tracked,
+    report: WorkerReport,
+    refused: readonly RefusedProposal[],
+    take: () => void,
+  ): boolean {
     if (this.#deps.finisher === undefined) return false;
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined || unreadSteers(office, tracked.runId).length === 0) return false;
@@ -705,7 +746,7 @@ export class RunControl implements RunEnder {
       if (tracked.heldDone === held) tracked.heldDone = null;
       if (tracked.ending === null && this.#tracked.get(tracked.runId) === tracked) take();
     };
-    const held: NonNullable<Tracked["heldDone"]> = { report, take: once, timer: null };
+    const held: NonNullable<Tracked["heldDone"]> = { report, refused, take: once, timer: null };
     held.timer = this.#deps.clock.setTimeout(() => {
       held.timer = null;
       once();
@@ -847,7 +888,7 @@ export class RunControl implements RunEnder {
   }
 
   /**
-   * The first decision on a tracked run without a park (a reassign or a start failure): the
+   * The first decision on a tracked run without a park (a new session or a start failure): the
    * intent is stored, then its ops are sent. Nothing else is decided for the run after it; the
    * worker's exit is decided from the intent. False when a decision was made already, or when
    * the intent could not be stored: then no op is sent and the failure is logged (DIPO-119).
@@ -889,7 +930,7 @@ export class RunControl implements RunEnder {
     return ending !== undefined && ending !== null;
   }
 
-  /** Reconcile (DIPO-56, 0007 section 6): stops a run whose story left In Progress or In Review. */
+  /** Reconcile (DIPO-56, 0007): stops a run whose story left In Progress or In Review. */
   stopForReconcile(
     office: OfficeHandle,
     run: StoredRun,
@@ -985,7 +1026,7 @@ export class RunControl implements RunEnder {
     const held = tracked.heldDone;
     if (held !== null && held.timer !== null && this.#deps.finisher !== undefined) {
       tracked.lastReport = held.report;
-      this.#cappedDone(tracked, held.report, { cap, detail });
+      this.#cappedDone(tracked, held.report, { cap, detail }, held.refused);
       return;
     }
     const ending = reviewing(tracked)
@@ -995,7 +1036,7 @@ export class RunControl implements RunEnder {
   }
 }
 
-/** True for a reviewer session (0019 section 4): its work names the reviewer role. */
+/** True for a reviewer session (0002): its work names the reviewer role. */
 function reviewing(tracked: Tracked): boolean {
   return tracked.work.role === REVIEWER_ROLE;
 }

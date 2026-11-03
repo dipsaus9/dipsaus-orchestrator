@@ -537,7 +537,7 @@
         },
         "detectedBy": {
           "type": "string",
-          "enum": ["engine", "reconcile"]
+          "const": "engine"
         }
       },
       "required": ["key", "from", "to", "detectedBy"]
@@ -2861,7 +2861,7 @@
         },
         "kind": {
           "type": "string",
-          "enum": ["question", "permission"]
+          "enum": ["question"]
         },
         "text": {
           "type": "string"

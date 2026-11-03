@@ -88,7 +88,7 @@ export function compactRecordFactLines(record: RunRecord, now: number): string[]
 
 /**
  * What an empty pane of an ended run says: output of a run that ended longer ago than the office's
- * retention period (`OfficeSummary.outputRetentionDays`, 0007 section 7) was removed; otherwise,
+ * retention period (`OfficeSummary.outputRetentionDays`, 0007) was removed; otherwise,
  * or when the summary does not send the period, nothing was stored for this source.
  */
 export function noOutputLine(

@@ -1,4 +1,4 @@
-// Claim facts (DIPO-38; 0007 section 4): migration 8's `claims` and `released_branches`, one live
+// Claim facts (DIPO-38; 0007): migration 8's `claims` and `released_branches`, one live
 // claim per story and per branch, and the release that keeps a branch for its story.
 
 import { describe, expect, it } from "bun:test";

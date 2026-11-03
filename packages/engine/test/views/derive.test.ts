@@ -1,4 +1,4 @@
-// Story and work view derivation (DIPO-52; 0009 section 3): the column table, the health
+// Story and work view derivation (DIPO-52; 0009): the column table, the health
 // precedence table, waiting-on, gate messages and parks from the index, and the budget share.
 
 import { describe, expect, it } from "bun:test";

@@ -267,11 +267,11 @@
       },
       "required": ["level"]
     },
-    "daemon.resumeScheduling.args": {
+    "daemon.resumeStarts.args": {
       "type": "object",
       "properties": {}
     },
-    "daemon.resumeScheduling.result": {
+    "daemon.resumeStarts.result": {
       "type": "object",
       "properties": {
         "state": {

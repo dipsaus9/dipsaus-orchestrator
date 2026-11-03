@@ -1,4 +1,4 @@
-// Runtime seams the engine receives by injection (0004 platform module, 0017 section 4).
+// Runtime seams the engine receives by injection (0004 platform module, 0017).
 // Types only: no values, no I/O. The engine platform module holds the system implementations,
 // and `testkit` holds the manual clock and sequential ids, so neither imports the other.
 
@@ -7,7 +7,7 @@ declare const timerHandleBrand: unique symbol;
 /** Opaque handle returned by `Clock.setTimeout`; only the clock that made it can clear it. */
 export type TimerHandle = { readonly [timerHandleBrand]: true };
 
-/** The only way engine code reads time or waits (0017 section 4). */
+/** The only way engine code reads time or waits (0017). */
 export interface Clock {
   /** Milliseconds since the Unix epoch. */
   now(): number;
@@ -17,10 +17,10 @@ export interface Clock {
   clearTimeout(handle: TimerHandle): void;
 }
 
-/** Prefixes of engine-made ids (0005 section 2). */
+/** Prefixes of engine-made ids (0005). */
 export type IdPrefix = "off" | "sto" | "run" | "agt" | "gat" | "qst" | "tst";
 
-/** The only way engine code makes ids (0017 section 4). */
+/** The only way engine code makes ids (0017). */
 export interface IdSource {
   /** A new id for `prefix`; never repeats within one source. */
   next(prefix: IdPrefix): string;
@@ -37,7 +37,7 @@ export interface SpawnOptions {
   readonly env?: Readonly<Record<string, string>>;
   /** `pipe` gives the child a writable stdin, `ignore` (the default) gives none. */
   readonly stdin?: "pipe" | "ignore";
-  /** Start the child in its own process group so it outlives its parent (0006). */
+  /** Start the child in its own process group so it outlives its parent (0005). */
   readonly detached?: boolean;
   /**
    * Where the child's stdout and stderr go; pipes when absent. With `to: "file"` they go to two
@@ -89,5 +89,5 @@ export interface ChildProcess {
   killGroup?(signal: Signal): void;
 }
 
-/** Process creation, injected so tests can replace the subprocess (0017 section 2). */
+/** Process creation, injected so tests can replace the subprocess (0017). */
 export type Spawn = (options: SpawnOptions) => ChildProcess;

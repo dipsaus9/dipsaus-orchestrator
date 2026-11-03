@@ -1,5 +1,5 @@
-// Starting the worker of a claimed run (DIPO-74; 0010 sections 7 and 8, 0008 sections 2, 7 and 9,
-// 0014 section 1, 0006 decision 8). `work.run` (DIPO-48) claims; this file does the rest:
+// Starting the worker of a claimed run (DIPO-74; 0010, 0008,
+// 0014, 0005). `work.run` (DIPO-48) claims; this file does the rest:
 //
 // 1. `prepare` is the claim's setup (`ClaimRequest.setup`), so it runs after the branch and the
 //    claim record and before the claim commit. It renders the system file and the task message
@@ -16,7 +16,7 @@
 // 3. `preview` builds the same spec and plan for `work.preview` (the dry run), on `_base`, with
 //    placeholders for the run id and session, and writes nothing.
 //
-// Every developer runs in its story's box (DIPO-240, 0021): with box workers (`RunLauncherDeps.boxes`)
+// Every developer runs in its story's box (DIPO-240, 0008): with box workers (`RunLauncherDeps.boxes`)
 // `prepare` makes the run's box after the prompts and before the worker's launch checks, and
 // prepares it with the office's packages (`BoxLifetime.make`, `box/lifetime.ts`): the image, the box
 // and the code at the claim's start commit, the run profile's install in the box with the box's web
@@ -33,7 +33,6 @@
 // without it and a `run.packageCacheSkipped` notice on the run says why; so does one when the
 // install from the cache failed and dipo ran it again without the cache. Neither stops the launch.
 
-import { createHash } from "node:crypto";
 import { rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -64,7 +63,7 @@ import type { LaunchedHost } from "../records/worker-hosts";
 import { runDirectory } from "../records/worker-hosts";
 import type { StoryStore } from "../story-store/store";
 import type { PlainTask } from "../story-store/story";
-import { holdMessage } from "../workers/hold";
+import { pauseMessage } from "./starts-paused";
 import type { RunLaunchPaths, WorkerPort } from "../workers/port";
 import { PlanError, type Caps, type LaunchPlan, type WorkerSpec } from "../workers/types";
 import { BoxLifetime, type RunBoxes } from "../box/lifetime";
@@ -75,7 +74,7 @@ import type { ClaimRecord } from "../worktree/records";
 import { withWorkViews } from "../views/work";
 
 import { markPhase } from "../ingest/markers";
-import { type RunPrompts, renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
+import { renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 import { runTempDir, SHORT_TEMP_PREFIX, shortTempDir } from "./temp-dirs";
 
 /**
@@ -123,7 +122,7 @@ const PREVIEW_SESSION = "00000000-0000-4000-8000-000000000000";
 export type TierCaps = OfficeConfig["tiers"]["S"];
 
 /**
- * A reviewer session's model, effort and session caps (0019 sections 4 and 16): the office's
+ * A reviewer session's model, effort and session caps (0002): the office's
  * `review` block, or the values the run snapshot of it at its start.
  */
 export type ReviewerSettings = Pick<
@@ -243,13 +242,6 @@ export interface PreparedRun extends ClaimSetupDone {
   readonly plan: LaunchPlan;
   readonly paths: RunLaunchPaths;
   readonly officeDir: string;
-  /** sha256 of the system file (L1+L2), stored on the agent for `canResume` (DIPO-51). */
-  readonly systemHash: string;
-  /**
-   * The first session's context pack with the head it was read at, recorded in `context_packs`
-   * (0020 section 6).
-   */
-  readonly promptSources: Pick<RunPrompts, "pack" | "headSha">;
   /** The measured prompt parts of the first session: system, task and each task section. */
   readonly parts: readonly PromptPart[];
   /** The system file and task message texts, stored when `privacy.storePrompts` is on (DIPO-137). */
@@ -257,11 +249,6 @@ export interface PreparedRun extends ClaimSetupDone {
 }
 
 export type StartOutcome = { readonly ok: true } | { readonly ok: false; readonly reason: string };
-
-/** sha256 of a system file's text: the L1+L2 hash a resume compares (0008 section 8). */
-export function systemHashOf(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
-}
 
 /**
  * The paths of a run; the run directory sits in `<git-common-dir>/dipo/runs`. A story run's session
@@ -290,7 +277,7 @@ export function runLaunchPaths(
 /**
  * The `WorkerSpec` of one session of a run (DIPO-74; DIPO-51 for the later sessions). The report
  * schema comes from the worker port, never from an adapter module (DIPO-113), for the session's
- * kind. With `facts.reviewer` the session is a reviewer's (0019 section 4): kind `review`, model
+ * kind. With `facts.reviewer` the session is a reviewer's (0002): kind `review`, model
  * and effort from the review settings, the reviewer's tools, its own turn and minute caps, the
  * `ReviewReport` schema, and always a fresh session. Otherwise it is the developer's `implement`
  * session with the tier's model, effort and caps.
@@ -305,7 +292,7 @@ export function runWorkerSpec(
   },
   paths: RunLaunchPaths,
   taskMessage: string,
-  session: { readonly id: string; readonly resume: boolean },
+  session: { readonly id: string },
   caps: Caps = capsOf(facts.caps),
 ): WorkerSpec {
   const reviewer = facts.reviewer;
@@ -322,13 +309,12 @@ export function runWorkerSpec(
       kind: "review",
       model: reviewer.model,
       effort: reviewer.effort,
-      // The reviewer's turns and minutes count only toward its own caps (0019 section 13); the
+      // The reviewer's turns and minutes count only toward its own caps (0002); the
       // tokens are the story's budget.
       caps: { ...caps, maxTurns: reviewer.maxTurns, maxMinutes: reviewer.maxMinutes },
       // The reviewer's tools, web search and fetch among them, come with its kind (0002).
       web: false,
-      // The reviewer never resumes (0008 section 8).
-      session: { id: session.id, resume: false },
+      session: { id: session.id },
       reportSchema: worker.reportSchema.review,
     };
   }
@@ -393,10 +379,7 @@ export class RunLauncher {
     taskMessage: string,
     session: string,
   ): WorkerSpec {
-    return runWorkerSpec(this.#deps.worker, facts, paths, taskMessage, {
-      id: session,
-      resume: false,
-    });
+    return runWorkerSpec(this.#deps.worker, facts, paths, taskMessage, { id: session });
   }
 
   /** The session id of a run's first session (AC #3). */
@@ -439,8 +422,6 @@ export class RunLauncher {
       return { ok: false, reason, log: `launch: ${reason}` };
     };
     let spec: WorkerSpec;
-    let systemHash: string;
-    let promptSources: PreparedRun["promptSources"];
     let parts: PromptPart[];
     let texts: PromptText[];
     try {
@@ -460,15 +441,10 @@ export class RunLauncher {
         ...(boxes === undefined ? {} : { box: true }),
       });
       // No run temp directory in the shared temp folder: the developer's temp files live in its box
-      // (DIPO-240, 0021 section 2); a reviewer's are made with its own session (`review-launch.ts`).
+      // (DIPO-240, 0008); a reviewer's are made with its own session (`review-launch.ts`).
       ensurePrivateDir(paths.runDir);
       spec = this.#spec(facts, paths, prompts.taskMessage, RunLauncher.sessionOf(facts.agent));
       writeFileSync(spec.systemFile, prompts.systemFile, { mode: 0o600 });
-      systemHash = systemHashOf(prompts.systemFile);
-      promptSources = {
-        pack: prompts.pack,
-        headSha: prompts.headSha,
-      };
       parts = promptParts(prompts.systemFile, prompts.taskMessage, prompts.sections);
       texts = [
         { part: "system", text: prompts.systemFile },
@@ -528,15 +504,13 @@ export class RunLauncher {
       });
       return fail(`the launch plan refused it: ${error.message}`);
     }
-    if (!prepared.ok) return fail(`the launch checks refused it: ${holdMessage(prepared.hold)}`);
+    if (!prepared.ok) return fail(`the launch checks refused it: ${pauseMessage(prepared.pause)}`);
     return {
       ok: true,
       spec,
       plan: prepared.plan,
       paths,
       officeDir: paths.officeDir,
-      systemHash,
-      promptSources,
       parts,
       texts,
       release: () => {

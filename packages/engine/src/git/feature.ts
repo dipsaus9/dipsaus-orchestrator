@@ -1,4 +1,4 @@
-// The engine's git (0010, 0008 section 2): one `OfficeGit` per loaded office, and the office load
+// The engine's git (0010, 0008): one `OfficeGit` per loaded office, and the office load
 // step that checks `git --version` once per load (DIPO-27 seam) and records the office's paths.
 // `office.reloadConfig` passes a new valid configuration on through `configure` (DIPO-48).
 // Claims, the backlog lane and the story index reach an office's git through `forOffice`.

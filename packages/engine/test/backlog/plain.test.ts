@@ -1,4 +1,4 @@
-// The `--plain` parser over output recorded from Backlog.md 1.53.0 (DIPO-28; 0010 section 1).
+// The `--plain` parser over output recorded from Backlog.md 1.53.0 (DIPO-28; 0010).
 
 import { describe, expect, it } from "bun:test";
 
@@ -63,7 +63,7 @@ describe("parseView", () => {
       { id: "TASK-2", state: "resolved", title: "Rename the export setting", status: "Refined" },
     ]);
     expect(task.description.split("\n")[0]).toBe(
-      "Outcome: the full export ships with every field set.",
+      "Story: As maintainer I want the full export to ship with every field set so that one story shows every field.",
     );
     expect(task.description).toContain("```dipo\n");
     expect(task.description.endsWith("```")).toBe(true);
@@ -103,7 +103,7 @@ describe("parseView", () => {
       modifiedFiles: [],
       comments: [],
       description:
-        "Outcome: maintainers can export a story list as CSV.\n\nA rough idea, not refined yet.",
+        "Story: As maintainer I want to export a story list as CSV so that I can sort it in a spreadsheet.\n\nA rough idea, not refined yet.",
     });
     expect(draft.file).toEndWith("/backlog/drafts/draft-1 - Sketch-the-export-format.md");
   });

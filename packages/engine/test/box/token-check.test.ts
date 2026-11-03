@@ -23,7 +23,7 @@ import {
   TOKEN_CHECK_ENV_COMMAND,
   TOKEN_CHECK_EXPORT_FILE,
 } from "../../src/box/token-check";
-import { AdapterHolds, type HoldNotice } from "../../src/workers/hold";
+import { AdapterPauses, type PauseNotice } from "../../src/run/starts-paused";
 
 const TOKEN_TEXT = "fake-box-login-for-tests-0123456789";
 const TOKEN = new SecretToken(TOKEN_TEXT);
@@ -220,11 +220,11 @@ describe("sweepTokenCheckLeftovers", () => {
   });
 });
 
-function holds(): { holds: AdapterHolds; notices: HoldNotice[] } {
-  const notices: HoldNotice[] = [];
+function holds(): { holds: AdapterPauses; notices: PauseNotice[] } {
+  const notices: PauseNotice[] = [];
   return {
     notices,
-    holds: new AdapterHolds({ clock: new ManualClock(), notify: (n) => notices.push(n) }),
+    holds: new AdapterPauses({ clock: new ManualClock(), notify: (n) => notices.push(n) }),
   };
 }
 
@@ -244,7 +244,7 @@ describe("checkBoxAfterRun", () => {
       );
       expect(outcome.result.code).toBe("box.tokenAbsent");
       expect(outcome.hold).toBeNull();
-      expect(adapterHolds.adapterHeld("claude")).toBeNull();
+      expect(adapterHolds.adapterPaused("claude")).toBeNull();
       expect(notices).toEqual([]);
     });
   });
@@ -258,11 +258,11 @@ describe("checkBoxAfterRun", () => {
         BOX,
       );
       expect(outcome.result.code).toBe("box.tokenFound");
-      const held = adapterHolds.adapterHeld("claude");
+      const held = adapterHolds.adapterPaused("claude");
       expect(held?.check).toBe(BOX_TOKEN_CHECK);
       expect(held?.detail).toContain("environment");
       expect(outcome.hold).toEqual(held);
-      expect(notices.map((notice) => notice.code)).toEqual(["adapter.held"]);
+      expect(notices.map((notice) => notice.code)).toEqual(["starts.paused"]);
       expect(JSON.stringify([held, notices])).not.toContain(TOKEN_TEXT);
     });
   });
@@ -277,7 +277,7 @@ describe("checkBoxAfterRun", () => {
         BOX,
       );
       expect(outcome.result.code).toBe("box.tokenCheckFailed");
-      const held = adapterHolds.adapterHeld("claude");
+      const held = adapterHolds.adapterPaused("claude");
       expect(held?.check).toBe(BOX_TOKEN_CHECK);
       expect(held?.detail).toContain("box.failed");
       expect(JSON.stringify([outcome, held, notices])).not.toContain(fragment);

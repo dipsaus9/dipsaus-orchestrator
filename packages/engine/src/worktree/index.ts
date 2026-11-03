@@ -1,4 +1,4 @@
-// Story claims (DIPO-38; 0010 sections 2, 2a and 5): the claim is the story's branch plus its row,
+// Story claims (DIPO-38; 0010): the claim is the story's branch plus its row,
 // with no worktree. The one Done check (DIPO-363; 0002), the Done poll and teardown (DIPO-58; 0010):
 // branch and box removal.
 
@@ -29,17 +29,6 @@ export type { ClaimRecord, ReleasedBranch } from "./records";
 export { clearCommands, goneWorktrees, parseWorktreeList, readGitFacts } from "./git-facts";
 export type { GitFacts, GoneWorktree, ListedWorktree } from "./git-facts";
 export { SWEEP_MARGIN_MS, sweepBranchReads } from "./sweep";
-export {
-  heldBlobs,
-  isRebuildable,
-  keepingPaths,
-  LEFTOVER_WORKTREE_DESK,
-  leftoverCandidates,
-  leftoverWorktreeDeskItems,
-  recordKeptWorktrees,
-  sweepLeftoverWorktrees,
-} from "./leftovers";
-export type { KeptWorktree, LeftoverSweep, LeftoverWorktreeDeskItem } from "./leftovers";
 export type { BranchReadSweep } from "./sweep";
 export {
   DISCARD_RELEASE_REASON,

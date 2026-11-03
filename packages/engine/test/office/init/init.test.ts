@@ -1,5 +1,5 @@
-// Office init end to end on a real repository without a remote (DIPO-36; 0010 sections 2, 6 and
-// 11): `office.init` commits steps 1 to 5 on one engine branch, a second run adds no commit, the
+// Office init end to end on a real repository without a remote (DIPO-36; 0010):
+// `office.init` commits steps 1 to 5 on one engine branch, a second run adds no commit, the
 // previous settings are recorded, `.dipo/office.yaml` is never written, `To Do` stories on their own
 // branch are left alone and listed, and `officeStatusesReady` refuses until the branch is on the
 // base; a later run once no task uses `To Do` sets the 0012 list alone. The Backlog CLI is the

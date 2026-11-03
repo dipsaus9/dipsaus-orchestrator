@@ -8,7 +8,7 @@
 // - A valid answer is stored pending with confidence `low` and its evidence, never in the
 //   effective profile, so `run` still refuses; a proposal that fails a check, and an answer that
 //   fails the schema, are dropped with an `engine.notice` naming the check.
-// - accept, edit, reject, set, pick, keep and nothing-to-start give the sources 0013 section 6
+// - accept, edit, reject, set, pick, keep and nothing-to-start give the sources 0013
 //   names, recompute the run refusal and emit `scan.finished` with the diff.
 
 import { describe, expect, it } from "bun:test";

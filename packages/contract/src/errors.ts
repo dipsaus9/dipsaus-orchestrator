@@ -1,4 +1,4 @@
-// Errors of 0005 section 10. Codes are part of the contract; messages are not.
+// Errors of 0005. Codes are part of the contract; messages are not.
 
 import { z } from "zod";
 
@@ -14,8 +14,8 @@ export const EngineError = z.object({
 export type EngineError = z.infer<typeof EngineError>;
 
 // Generic codes any command or read may return. `database.unavailable` (DIPO-111),
-// not retryable, while the daemon cannot open or migrate its state database (0007 sections 9 and
-// 10): it stays in `recovering` and serves only `engine.hello`, `commands.describe` and
+// not retryable, while the daemon cannot open or migrate its state database
+// (0007): it stays in `recovering` and serves only `engine.hello`, `commands.describe` and
 // `daemon.*`; the message says what to do, and `details` are `DatabaseUnavailableDetails`.
 // `request.timedOut` (DIPO-320), not retryable: the daemon did not answer a read or subscribe
 // within its deadline (`details`: `{ name, deadlineMs }`). `request.reused` on a read or subscribe:
@@ -38,7 +38,7 @@ export const GENERIC_ERROR_CODES = [
 // The only codes for which the same request may succeed later.
 export const RETRYABLE_ERROR_CODES = [
   "engine.recovering",
-  "scheduling.off",
+  "daemon.draining",
   "run.hostAlive",
   // Fetching the base failed, for example offline; `work.run` waits until a fetch succeeds
   // (DIPO-48).
@@ -154,15 +154,17 @@ export function argsInvalid(message: string, issues: readonly unknown[] = []): E
 export const StreamResetRequiredDetails = z.object({ oldest: Cursor });
 export type StreamResetRequiredDetails = z.infer<typeof StreamResetRequiredDetails>;
 
-// Why the state database is unavailable (0007 sections 9 and 10). Open enum: `migration` (a step
+// Why the state database is unavailable (0007). Open enum: `migration` (a step
 // failed and was rolled back), `checksum` (an applied migration was edited), `damaged` (SQLite
-// found the file damaged or no database at all), `tooNew` (written by a newer dipo),
+// found the file damaged or no database at all), `tooNew` (written by a newer dipo), `beforeSquash`
+// (written by an earlier dipo, before the schema steps were squashed into one base),
 // `networkFilesystem` (`<state>` is on a network filesystem) and `open` (any other failure).
 export const DATABASE_UNAVAILABLE_REASONS = [
   "migration",
   "checksum",
   "damaged",
   "tooNew",
+  "beforeSquash",
   "networkFilesystem",
   "open",
 ] as const;

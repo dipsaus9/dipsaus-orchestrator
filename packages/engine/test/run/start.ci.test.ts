@@ -1,4 +1,4 @@
-// CI only (0017 section 1): the worker start of a claimed run on real git with a bare `origin` and
+// CI only (0017): the worker start of a claimed run on real git with a bare `origin` and
 // the pinned Backlog CLI (DIPO-74 test plan, AC #9 and #10). Setup is stubbed (DIPO-39 has its own
 // tests) and the launch checks are DIPO-43's hold gate with scripted outcomes, so no `claude`
 // process ever starts:
@@ -22,7 +22,7 @@ import { replay } from "../../src/changelog/replay";
 import { executeCommand } from "../../src/commands/execute";
 import { createSystemIds } from "../../src/platform/ids";
 import { executeRead } from "../../src/reads/execute";
-import type { LaunchCheckOutcome } from "../../src/workers/hold";
+import type { LaunchCheckOutcome } from "../../src/run/starts-paused";
 import { countRows } from "../commands/helpers";
 import { CLI } from "../gate/gated-office";
 import { resultOf } from "../office/helpers";
@@ -144,7 +144,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
             expect(await gitState(r)).toBe(before);
             expect(r.hosts).toEqual([]);
-            expect(r.holds.adapterHeld("claude-cli")?.check).toBe("self-test");
+            expect(r.holds.adapterPaused("claude-cli")?.check).toBe("self-test");
             const status = await r.repo.run(
               [...CLI(r.repo).command, "task", "view", "TASK-1", "--plain"],
               r.repo.dir,

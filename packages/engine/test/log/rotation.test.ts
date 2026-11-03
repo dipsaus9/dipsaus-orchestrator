@@ -1,4 +1,4 @@
-// Rotation of `daemon.log` (DIPO-64, 0006 decision 13): at the size limit the file becomes
+// Rotation of `daemon.log` (DIPO-64, 0005): at the size limit the file becomes
 // `daemon.log.1`, older files shift up to `daemon.log.5`, and the oldest is dropped.
 
 import { describe, expect, it } from "bun:test";

@@ -1,4 +1,4 @@
-// The model route of one probe box (DIPO-264, decision 0021 section 4): a proxy outside the box that
+// The model route of one probe box (DIPO-264, decision 0008): a proxy outside the box that
 // adds the maintainer's subscription login to the box's model requests, so the token never enters
 // the box. Probe code, run by the maintainer in their own terminal; the token is read from this
 // process's environment and never printed.

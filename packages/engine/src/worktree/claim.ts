@@ -1,4 +1,4 @@
-// Claiming a story (0010 sections 2, 2a and 5): a claim is the story's frozen branch plus a row in
+// Claiming a story (0010): a claim is the story's frozen branch plus a row in
 // `claims`. It creates no worktree: the developer works in the story's box (0008), and every later
 // git read or write of the story runs on the branch ref in the repository. The engine creates the
 // branch from `origin/<base>` (or reuses a branch released for the same story), records the claim,
@@ -569,7 +569,7 @@ export async function rollBackInterruptedSetup(
 /**
  * Releases a live claim whose worker did not start after the claim commit (DIPO-74): the branch,
  * which may already be pushed with the claim commit, stays and is recorded as released for the
- * story (0010 section 2a), so the next claim reuses it; the claim and its run end with `reason`.
+ * story (0010), so the next claim reuses it; the claim and its run end with `reason`.
  */
 export function releaseUnstarted(deps: RollbackDeps, claim: ClaimRecord, reason: string): void {
   const at = deps.clock.now();

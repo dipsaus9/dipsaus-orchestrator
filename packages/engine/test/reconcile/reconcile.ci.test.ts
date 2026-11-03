@@ -1,5 +1,5 @@
-// CI only (0017 section 1), kept out of the local suite for its time budget. Reconcile (DIPO-56
-// test plan): one case per row of the 0007 section 6 table with a fixture mismatch, asserting the
+// CI only (0017), kept out of the local suite for its time budget. Reconcile (DIPO-56
+// test plan): one case per row of the 0007 table with a fixture mismatch, asserting the
 // facts and the notice; the load step and `office.rescan`. Real git and the real story index, with
 // a scripted Backlog CLI (see helpers.ts). The fast local check of the branch read reconcile relies
 // on is stories/branch.test.ts.
@@ -370,7 +370,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(codes(w.o.office, after)).not.toContain(RECONCILE_NOTICES.handChanged);
       }));
 
-    it("reports a locked dipo worktree of an earlier binary whose folder is gone, and runs neither the unlock nor the prune", () =>
+    it("reports a locked dipo worktree whose folder is gone, and runs neither the unlock nor the prune", () =>
       withWorld(undefined, async (w) => {
         const tree = join(w.o.repo.root, "trees", "TASK-9");
         await w.o.repo.git("worktree", "add", "--quiet", "-b", "TASK-9/old", tree, "origin/main");

@@ -25,15 +25,10 @@ import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import { OFFICE_DEFAULTS } from "../../src/config";
-import {
-  PermissionAsks,
-  type QuestionParkResumer,
-  workerAnswerText,
-} from "../../src/questions/permissions";
+import { QuestionAnswers, type QuestionParkResumer } from "../../src/questions/answers";
 import { findQuestion, insertWorkerQuestion, openQuestions } from "../../src/run-state/questions";
 import { type BranchPark, RunControl } from "../../src/run";
 import { insertRun } from "../../src/records";
-import { heldFeedback } from "../../src/run/feedback";
 import { resolvePark } from "../../src/run/park";
 import { findRun } from "../../src/records/run-records";
 import { reopen } from "../../src/run-state/rounds";
@@ -54,7 +49,7 @@ interface World {
   readonly dir: string;
   readonly f: IngestFixture;
   readonly control: RunControl;
-  readonly asks: PermissionAsks;
+  readonly asks: QuestionAnswers;
   readonly sent: HostOp[][];
   readonly work: WorkRef;
   /** The question park resumes `work.answer` asked for. */
@@ -63,7 +58,7 @@ interface World {
 
 let w: World;
 
-function asksFor(world: World): PermissionAsks {
+function asksFor(world: World): QuestionAnswers {
   const resumer: QuestionParkResumer = {
     resume: async (_ctx, run, park, text) => {
       world.resumed.push({ run: run.runId, parkId: park.parkId, answer: text });
@@ -71,7 +66,7 @@ function asksFor(world: World): PermissionAsks {
     },
     replay: async () => null,
   };
-  return new PermissionAsks({
+  return new QuestionAnswers({
     stories: backlogLayout,
     clock: world.f.t.clock,
     questionParks: () => resumer,
@@ -108,7 +103,7 @@ beforeEach(async () => {
     encode,
   });
   (world as { control: RunControl }).control = control;
-  (world as { asks: PermissionAsks }).asks = asksFor(world);
+  (world as { asks: QuestionAnswers }).asks = asksFor(world);
   const { office, run } = f;
   const { key } = office.immediate(() =>
     addStory(office, f.t.ids, { story: StoryId.parse("DIPO-1") }, f.t.clock.now()),
@@ -219,7 +214,7 @@ function answersSent(): HostOp[][] {
 let requests = 0;
 function answer(
   args: Record<string, unknown>,
-  asks: PermissionAsks = w.asks,
+  asks: QuestionAnswers = w.asks,
 ): Promise<CommandReply> {
   requests += 1;
   return executeCommand(
@@ -253,7 +248,7 @@ async function pass(ms: number): Promise<void> {
 async function loadStep(): Promise<void> {
   const step = buildRegistry([w.asks.feature])
     .loadSteps()
-    .find((candidate) => candidate.name === "expire open permission questions");
+    .find((candidate) => candidate.name === "expire open questions");
   await step?.run({
     officeId: w.f.office.officeId as OfficeId,
     office: w.f.office,
@@ -275,7 +270,6 @@ describe("a worker's question parks its story at once (AC #1)", () => {
       kind: "question",
       runId: w.f.run,
       text: QUESTION,
-      hook: null,
       parkId: parkIds()[0],
       closedAt: null,
     });
@@ -328,8 +322,7 @@ describe("an answer to a worker's question (DIPO-159, DIPO-272)", () => {
     expect(w.resumed).toEqual([]);
   });
 
-  it("holds the answer to a question another park carries for the run's next session", async () => {
-    // A cap park that carries the question of an earlier binary's live wait.
+  it("refuses an answer to a question another park carries: only a question park asks one", async () => {
     w.control.begin(w.f.run, {
       intent: "park",
       ops: [],
@@ -349,21 +342,9 @@ describe("an answer to a worker's question (DIPO-159, DIPO-272)", () => {
       }),
     );
     const reply = await answer({ question: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A", text: "Hello, Ada!" });
-    expect(reply.ok).toBe(true);
-    if (reply.ok) {
-      expect(reply.result).toEqual({
-        question: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A",
-        delivered: "on-resume",
-      });
-    }
-    // A budget park is not resumed by an answer: the story stays Parked, the answer is held.
+    expect(reply).toMatchObject({ ok: false, error: { code: "question.closed" } });
     expect(w.resumed).toEqual([]);
-    expect(findQuestion(w.f.office, "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A")).toMatchObject({
-      closedHow: "answered",
-      answer: "Hello, Ada!",
-      delivered: "on-resume",
-    });
-    expect(heldFeedback(w.f.office, w.f.run).texts).toEqual([workerAnswerText("Hello, Ada!")]);
+    expect(findQuestion(w.f.office, "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A")?.closedHow).toBe("expired");
     expect(answersSent()).toEqual([]);
   });
 

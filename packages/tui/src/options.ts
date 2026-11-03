@@ -1,4 +1,4 @@
-// `dipo tui` flags and display settings (0009 section 9): `--no-color` and `NO_COLOR` turn colour
+// `dipo tui` flags and display settings (0009): `--no-color` and `NO_COLOR` turn colour
 // off, `--ascii` replaces non-ASCII glyphs, `--inline` renders in the normal scrollback instead of
 // the alternate screen, and `--office <id>` opens that office first.
 

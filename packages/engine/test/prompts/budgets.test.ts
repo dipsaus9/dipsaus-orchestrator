@@ -1,4 +1,4 @@
-// Budgets (DIPO-47 AC #4 and #5, 0014 section 4): the story contract is never cut and over
+// Budgets (DIPO-47 AC #4 and #5, 0014): the story contract is never cut and over
 // `prompt.contractMax` assembly fails with `prompt.contractTooLarge`; over the total cap sections
 // drop in the order dependencies, background, context tail, inputs content, each with a marker.
 
@@ -60,7 +60,7 @@ function largeFixture(): { story: PromptStory; pack: ReturnType<typeof fixturePa
     dependencies: Array.from({ length: 40 }, (_, i) => ({
       id: `SHOP-${i + 100}`,
       title: `Dependency number ${i + 100}`,
-      outcome: "it does a thing the story needs.",
+      storyLine: "As maintainer I want a thing the story needs so that the story can build on it.",
     })),
   };
   const pack = fixturePack(Array.from({ length: 12 }, (_, i) => bigItem(i)));

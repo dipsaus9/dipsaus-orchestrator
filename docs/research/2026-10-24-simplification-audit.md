@@ -1,6 +1,8 @@
 # Simplification audit
 
-Date: 2026-10-24, from `main` at `c2ee7a2d`. Status: decided. The answers are in section 8, the accepted proposals in section 9 and the choices derived while rewriting the ADRs in section 10. Sources: `docs/vision.md`, all ADRs (0001 to 0021), `docs/research/2026-10-20-dipo-run-gaps.md`, and a read of `packages/*/src`. Line counts leave out tests unless a line says otherwise.
+> **History.** This audit records the reasoning of 2026-10-24. The ADRs in `docs/decisions/` and the drift fix of 2026-11-03 supersede it wherever they differ; read them for what runs. Known reversals: the plain PID lock became an exclusive SQLite lock (0005); dipo runs verify in the box, with CI's required checks last, instead of CI as the one verify (P6, 0002); no session has hooks, the reviewer included (P13, 0008); the test box records no dev port in the profile (0013); the merge gate is decided by rule and CI runs once (0002); Claude-specific code lives in three named places (0001), not "in the contract for now"; and the prune tracks of sections 11 and 12 are finished.
+
+Date: 2026-10-24, from `main` at `c2ee7a2d`. Status: decided at the time; now history. The answers are in section 8, the accepted proposals in section 9 and the choices derived while rewriting the ADRs in section 10. Sources: `docs/vision.md`, all ADRs (0001 to 0021), `docs/research/2026-10-20-dipo-run-gaps.md`, and a read of `packages/*/src`. Line counts leave out tests unless a line says otherwise.
 
 ## 1. The numbers
 

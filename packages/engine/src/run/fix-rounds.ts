@@ -1,14 +1,13 @@
-// Fix rounds (0019 sections 7, 8 and 13; 0021 sections 6 and 10 and its amendment of 2026-10-22;
-// DIPO-148): the feedback on a pushed head goes back to the same worker in one round.
+// Fix rounds (0002, 0008): the feedback on a pushed head goes back to the same worker in one round.
 //
 // - Sources. A blocked review verdict (its unmet criteria and blocking findings), the red required
 //   checks of the pushed head (`StoryPrs.ciState`, DIPO-147; CI is the final gate of a box run,
-//   0002) and a maintainer reject (`reject`, fed by DIPO-151's `gate.reject`, which does not
-//   exist yet, so no reject item is produced until it does). A conflict hand-off of a run In
-//   Review (`conflict`, the entry for the merge slot's sync, DIPO-150) is sent at once like a
-//   reject, and so is a failed test's note (`testFail`, DIPO-309), keyed on the test id. Advisory findings never start a round on their own; a round that starts for another
+//   0002) and a maintainer reject (`reject`, fed by `gate.reject`). A conflict hand-off of a run In
+//   Review (`conflict`, the entry for the auto-merge's conflict hand-off, `merge/stories.ts`) is
+//   sent at once like a reject, and so is a failed test's note (`testFail`, DIPO-309), keyed on the
+//   test id. Advisory findings never start a round on their own; a round that starts for another
 //   reason lists them as optional.
-// - Timing (section 7). `consider` runs when a run is past its review (a reviewer session's exit after
+// - Timing. `consider` runs when a run is past its review (a reviewer session's exit after
 //   its verdict, or a head that took its tree's verdict without a round), when the CI of a head
 //   stops being pending (`onCiFinal`), and at the daemon's recovery step (`recover`). It waits
 //   until the head's verdict is in (a run with the review loop's caps is past phase `review`) and its
@@ -146,7 +145,7 @@ export interface FixSessions {
     office: OfficeHandle,
     run: StoredRun,
     view: RunView,
-    request: { readonly mode: "resume" | "handoff"; readonly why: string },
+    request: { readonly why: string },
   ): Promise<boolean>;
 }
 
@@ -171,8 +170,6 @@ export interface FixRoundsDeps {
   readonly view: (office: OfficeId, handle: OfficeHandle, run: StoredRun) => RunView | null;
   /** Sets the story's status on its branch (the park lift, DIPO-75); without it none is committed. */
   readonly unpark?: UnparkWriter;
-  /** Whether the run's developer works in a box (DIPO-271); false without it. */
-  readonly boxRun?: (office: OfficeId, run: StoredRun) => boolean;
   /** The office's places; read when needed, since they are built after this. */
   readonly places: () => Places | undefined;
   /**
@@ -277,7 +274,7 @@ export class FixRounds {
     const run = findRun(office, runId);
     if (run === null || !this.#waitsInReview(office, run, exited)) return false;
     const reviewed = run.reviewRoundCap != null;
-    // The head's verdict is in: the review period ended with it (section 7).
+    // The head's verdict is in: the review period ended with it.
     if (reviewed && !reviewedInReview(office, run)) return false;
     const ci = this.#ciOf(officeId, run);
     // A failing head is not final yet: the round waits for every failure of it (DIPO-382).
@@ -297,13 +294,13 @@ export class FixRounds {
     // A story Done on the base gets no round; reconcile releases its claim.
     if (facts !== null && lifecycleOf("task", facts.view.status) === "Done") return false;
     // The verdict and the checks must be of one head: a verdict on another commit holds for the
-    // CI's head only when that head has the verdict's code tree (section 6). Otherwise the round
+    // CI's head only when that head has the verdict's code tree. Otherwise the round
     // waits for the CI of the verdict's head, which tells again once it is final.
     if (verdict !== null && ci.head !== null && verdict.commit !== ci.head) {
       if (!(await this.#sameTree(officeId, run, facts, verdict, ci.head))) return false;
     }
     const itemMax = itemMaxOf(config, run.tier);
-    // A blocked verdict the maintainer overrode (0019 section 11) sends nothing back.
+    // A blocked verdict the maintainer overrode (0002) sends nothing back.
     const review =
       verdict?.verdict === "blocked" && verdict.override === null
         ? reviewFeedbackItems(
@@ -327,9 +324,9 @@ export class FixRounds {
   }
 
   /**
-   * A maintainer reject (0019 sections 8 and 11): its note, verbatim and keyed on the gate id, goes
+   * A maintainer reject (0002): its note, verbatim and keyed on the gate id, goes
    * to the worker at once, through the same send path as review and CI items. The entry for
-   * DIPO-151's `gate.reject`; nothing calls it before that story. True when a round was queued.
+   * `gate.reject`. True when a round was queued.
    */
   async reject(
     officeId: OfficeId,
@@ -402,9 +399,9 @@ export class FixRounds {
   }
 
   /**
-   * A conflict hand-off of a run waiting In Review (0019 sections 8 and 10, DIPO-149): the one
+   * A conflict hand-off of a run waiting In Review (0002, DIPO-149): the one
    * conflict item of a merge dipo made into the branch, sent at once like a reject, through the
-   * same send path (once per head and signature). The entry for the merge slot's sync (DIPO-150);
+   * same send path (once per head and signature). The entry for the auto-merge's conflict hand-off;
    * a box run's sync before In Review hands its conflict over in the live session instead. True
    * when a round was queued.
    */
@@ -499,11 +496,8 @@ export class FixRounds {
         "the fix round found no developer session of the run to continue",
       );
     }
-    const box = this.#deps.boxRun?.(officeId, fresh) === true;
     const work = async (): Promise<boolean> =>
       await this.#deps.sessions.next(office, fresh, view, {
-        // A box run's developer gets a new session in its box with a handoff (0008).
-        mode: box ? "handoff" : "resume",
         why: `the feedback on ${head.slice(0, 12)}`,
       });
     return this.#deps.guard === undefined
@@ -628,7 +622,7 @@ export class FixRounds {
       readonly head: string;
       readonly items: readonly FixItem[];
       readonly advisories: readonly string[];
-      /** Sent at once, not held to one round per head: a reject or a conflict (section 8). */
+      /** Sent at once, not held to one round per head: a reject or a conflict. */
       readonly atOnce?: boolean;
       /** Held messages this round's message carries now, resolved with it (DIPO-309). */
       readonly folds?: readonly number[];

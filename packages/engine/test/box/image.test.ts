@@ -1,4 +1,4 @@
-// The office's box image (DIPO-266, 0021 sections 4 and 5, decisions 9 and 12): the description
+// The office's box image (DIPO-266, 0008): the description
 // from the box block and the repository, the two build scripts dipo writes (DIPO-281), the tag
 // that hashes them, and the block read from the base branch only. The build in a build box is in
 // build-box.test.ts.
@@ -82,7 +82,7 @@ describe("the box description", () => {
           debian: "bookworm",
           toolchain: { bun: "1.4.2", yarn: "1.22.22", nodeSha256: { arm64: ARM64_SUM } },
           packages: ["ripgrep", "jq"],
-          claudeCode: "2.1.300",
+          workerCli: "2.1.300",
           files: [{ path: ".env.example", noRealSecrets: true }],
           localPorts: [8080, 5432, 8080],
         },
@@ -392,7 +392,7 @@ describe("the image tag", () => {
 });
 
 describe("the box block on the base branch", () => {
-  const BASE_FILE = `version: 9
+  const BASE_FILE = `version: 16
 box:
   debian: bookworm
   packages: [jq]
@@ -410,10 +410,10 @@ box:
       await repo.git("checkout", "--quiet", "-b", "DIPO-1/story");
       writeFileSync(
         join(repo.dir, ".dipo/office.yaml"),
-        "version: 9\nbox: { packages: [nmap], files: [{ path: .env, noRealSecrets: true }] }\n",
+        "version: 16\nbox: { packages: [nmap], files: [{ path: .env, noRealSecrets: true }] }\n",
       );
       await repo.commitAll("story");
-      writeFileSync(join(repo.dir, ".dipo/office.local.yaml"), "version: 9\n");
+      writeFileSync(join(repo.dir, ".dipo/office.local.yaml"), "version: 16\n");
 
       const read = await readBaseBoxSection(officeGit(repo.dir, repo.env));
       expect(read).toEqual({
@@ -440,7 +440,7 @@ box:
       });
 
       mkdirSync(join(repo.dir, ".dipo"));
-      writeFileSync(join(repo.dir, ".dipo/office.yaml"), "version: 9\nstoryPr: { open: false }\n");
+      writeFileSync(join(repo.dir, ".dipo/office.yaml"), "version: 16\nbase: main\n");
       const second = await repo.commitAll("second");
       await repo.git("update-ref", "refs/remotes/origin/main", second);
       expect(await readBaseBoxSection(git)).toEqual({
@@ -455,7 +455,7 @@ box:
       mkdirSync(join(repo.dir, ".dipo"));
       writeFileSync(
         join(repo.dir, ".dipo/office.yaml"),
-        "version: 9\nbox:\n  files:\n    - { path: .env.local }\n",
+        "version: 16\nbox:\n  files:\n    - { path: .env.local }\n",
       );
       const base = await repo.commitAll("base");
       await repo.git("update-ref", "refs/remotes/origin/main", base);
@@ -470,7 +470,7 @@ box:
       mkdirSync(join(repo.dir, ".dipo"));
       writeFileSync(
         join(repo.dir, ".dipo/office.yaml"),
-        "version: 12\nbox: { localPorts: [8080, 5432] }\n",
+        "version: 16\nbox: { localPorts: [8080, 5432] }\n",
       );
       const base = await repo.commitAll("base");
       await repo.git("update-ref", "refs/remotes/origin/main", base);
@@ -478,7 +478,7 @@ box:
       await repo.git("checkout", "--quiet", "-b", "DIPO-1/story");
       writeFileSync(
         join(repo.dir, ".dipo/office.yaml"),
-        "version: 12\nbox: { localPorts: [22] }\n",
+        "version: 16\nbox: { localPorts: [22] }\n",
       );
       await repo.commitAll("story");
       const read = await readBaseBox(officeGit(repo.dir, repo.env));
@@ -490,7 +490,7 @@ box:
   it("describes the whole box from one base commit: the block and the toolchain files", () =>
     withTempRepo(async (repo) => {
       mkdirSync(join(repo.dir, ".dipo"));
-      writeFileSync(join(repo.dir, ".dipo/office.yaml"), "version: 9\nbox: { packages: [jq] }\n");
+      writeFileSync(join(repo.dir, ".dipo/office.yaml"), "version: 16\nbox: { packages: [jq] }\n");
       writeFileSync(join(repo.dir, "package.json"), JSON.stringify({ name: "repo" }));
       writeFileSync(join(repo.dir, ".bun-version"), "1.4.2\n");
       writeFileSync(join(repo.dir, "bun.lock"), "{}\n");

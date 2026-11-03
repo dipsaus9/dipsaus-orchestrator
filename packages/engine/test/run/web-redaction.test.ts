@@ -1,4 +1,4 @@
-// No env value reaches stored web lines (DIPO-164 review; 0020 section 11b): the `[web] <tool>
+// No env value reaches stored web lines (DIPO-164 review; 0020): the `[web] <tool>
 // <query or URL>` line of a call whose URL holds a value of the copied env files is stored with
 // `[redacted]` in its place, in `output_chunks` and in the `work.output` change-log entries read
 // from it, as 0008 redacts review comments. The derived `web-calls` recording runs through the real

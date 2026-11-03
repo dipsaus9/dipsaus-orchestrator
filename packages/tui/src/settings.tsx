@@ -1,4 +1,4 @@
-// The privacy settings view (0007 section 8, DIPO-136), opened from the overview with `p`: the
+// The privacy settings view (0007, DIPO-136), opened from the overview with `p`: the
 // three settings with their effective value and where it comes from, from the office summary the
 // engine sends. Enter toggles the selected one after a confirmation that names what is stored;
 // the change is the engine's `office.setPrivacy`, so the view updates with the next summary.
@@ -11,7 +11,7 @@ import type { Display } from "./options";
 import { officeName } from "./views";
 import { Colored } from "./colour";
 
-/** What each setting stores and from when a change applies (0007 section 8, DIPO-136). */
+/** What each setting stores and from when a change applies (0007, DIPO-136). */
 const SETTING_WORDS: Readonly<Record<string, { stores: string; applies: string; label: string }>> =
   {
     "privacy.storeCommandBodies": {

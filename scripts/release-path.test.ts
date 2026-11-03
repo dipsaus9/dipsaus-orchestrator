@@ -202,7 +202,7 @@ describe("pr-title.yml (AC #4)", () => {
     expect(run).toBeGreaterThan(all.indexOf(checkouts[0]!));
   });
 
-  it("no workflow runs on pull_request_target (0016 rule 1)", async () => {
+  it("no workflow runs on pull_request_target (0016)", async () => {
     for (const name of readdirSync(WORKFLOWS)) {
       const flow = await workflow(name);
       expect(Object.keys(flow.on ?? {})).not.toContain("pull_request_target");

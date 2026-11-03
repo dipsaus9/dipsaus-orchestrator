@@ -1,9 +1,10 @@
-// The Ready gate (DIPO-30; 0012 section 3, R26 from 0014 section 4): one passing story, and per
+// The Ready gate (DIPO-30; 0012, R26 from 0014): one passing story, and per
 // rule a fixture that fails only that rule with the exact message.
 
 import { describe, expect, it } from "bun:test";
 
 import {
+  checkStoryLine,
   evaluateGate,
   gateMessage,
   gateText,
@@ -21,9 +22,10 @@ import {
   description,
   ID,
   input,
-  OUTCOME,
   PASSING_BLOCK,
   PASSING_STORY,
+  SPIKE_LINE,
+  STORY_LINE,
 } from "./fixtures";
 
 const prefix = (rule: string) => `ready ${ID} failed ${rule}: `;
@@ -72,7 +74,7 @@ const R30_OLD = "what the old barrier caught and a test for each";
 const R30_BYPASS = "the bypass forms to test (wrappers, quoting, indirection, chaining)";
 const R30_CLOSED = "a fail-closed test against the real path";
 const barrier = (phrase: string, part: string) =>
-  `${prefix("R30")}title or outcome names a security barrier ("${phrase}") and no criterion covers ${part}; add a criterion for it`;
+  `${prefix("R30")}title or Story line names a security barrier ("${phrase}") and no criterion covers ${part}; add a criterion for it`;
 
 interface Case {
   readonly name: string;
@@ -81,9 +83,12 @@ interface Case {
   readonly expected: readonly string[];
 }
 
+/** A spike's description: the spike Story line and a field block of the given lines. */
+const spikeBlock = (...lines: string[]) => description(block(...lines), SPIKE_LINE);
+
 const SPIKE_STORY = {
   type: "spike",
-  description: withBlock(`branch: "${BRANCH}"`, ...UNKNOWNS),
+  description: spikeBlock(`branch: "${BRANCH}"`, ...UNKNOWNS),
   acceptanceCriteria: [
     { index: 1, checked: false, text: "docs/decisions/0018-export-format.md records the format" },
   ],
@@ -130,27 +135,16 @@ const CASES: readonly Case[] = [
     expected: [`${prefix("R04")}title is empty or longer than 100 characters`],
   },
   {
-    name: "R05 missing outcome",
+    name: "R05 missing Story line",
     input: input({
       description: `Context only.\n\n${block(`branch: "${BRANCH}"`, ...UNKNOWNS, ...PLAN)}`,
     }),
-    expected: [
-      `${prefix("R05")}outcome line is missing, duplicated, or shorter than 20 characters`,
-    ],
+    expected: [`${prefix("R05")}no Story line; add one line that starts with Story:`],
   },
   {
-    name: "R05 duplicated outcome",
-    input: input({ description: `${OUTCOME}\n${description()}` }),
-    expected: [
-      `${prefix("R05")}outcome line is missing, duplicated, or shorter than 20 characters`,
-    ],
-  },
-  {
-    name: "R05 outcome of 19 characters",
-    input: input({ description: description(undefined, `Outcome:  ${"o".repeat(19)}  `) }),
-    expected: [
-      `${prefix("R05")}outcome line is missing, duplicated, or shorter than 20 characters`,
-    ],
+    name: "R05 duplicated Story line",
+    input: input({ description: `${STORY_LINE}\n${description()}` }),
+    expected: [`${prefix("R05")}2 Story lines; keep exactly one`],
   },
   {
     name: "R06 type not configured",
@@ -355,7 +349,7 @@ const CASES: readonly Case[] = [
     name: "R23 spike with a test plan",
     input: input({
       ...SPIKE_STORY,
-      description: withBlock(`branch: "${BRANCH}"`, ...UNKNOWNS, ...PLAN),
+      description: spikeBlock(`branch: "${BRANCH}"`, ...UNKNOWNS, ...PLAN),
     }),
     expected: [
       `${prefix("R23")}spike cannot have a test plan or be flagged test-before-merge; it ships no behavior`,
@@ -388,7 +382,7 @@ const CASES: readonly Case[] = [
   },
   {
     name: "R26 contract over the limit",
-    input: input({ implementationPlan: "i".repeat(11_774) }),
+    input: input({ implementationPlan: "i".repeat(11_698) }),
     expected: [`${prefix("R26")}story contract is 12001 characters; the limit is 12000`],
   },
   {
@@ -459,7 +453,7 @@ describe("evaluateGate", () => {
   });
 
   it("passes a story contract of exactly prompt.contractMax characters", () => {
-    expect(evaluateGate(input({ implementationPlan: "i".repeat(11_773) }), "ready").passed).toBe(
+    expect(evaluateGate(input({ implementationPlan: "i".repeat(11_697) }), "ready").passed).toBe(
       true,
     );
   });
@@ -729,7 +723,6 @@ describe("office configuration", () => {
               tiers: ["S"],
               bannedPhrases: ["header line"],
               titleMax: 10,
-              outcomeMin: 80,
               criterionMin: 35,
               slugMax: 10,
             },
@@ -741,13 +734,12 @@ describe("office configuration", () => {
     );
     expect(messages(result)).toEqual([
       `${prefix("R04")}title is empty or longer than 10 characters`,
-      `${prefix("R05")}outcome line is missing, duplicated, or shorter than 80 characters`,
       `${prefix("R06")}type is missing or not one of bug`,
       `${prefix("R09")}criterion #2 is checked or shorter than 35 characters`,
       `${prefix("R10")}criterion #1 contains vague phrase "header line"`,
       `${prefix("R16")}needs exactly one tier from S, found M`,
       `${prefix("R18")}branch "${BRANCH}" must be DIPO-7/<slug> with a lowercase hyphenated slug`,
-      `${prefix("R26")}story contract is 259 characters; the limit is 100`,
+      `${prefix("R26")}story contract is 335 characters; the limit is 100`,
     ]);
   });
 
@@ -834,7 +826,7 @@ describe("gateText (DIPO-97)", () => {
 
 // R29 (DIPO-251): every path and bare test file name of an automated test plan entry is covered by
 // a Reference. Three M1 runs on 2026-10-20 had plans their References could not deliver. R29 only
-// warns (maintainer decision of 2026-10-22): References are a forecast (0021 section 13).
+// warns (maintainer decision of 2026-10-22): References are a forecast (0008).
 const r29 = (story: Partial<Parameters<typeof input>[0]>, baseFiles?: readonly string[]) =>
   warnings(evaluateGate(input(story, baseFiles === undefined ? {} : { baseFiles }), "ready"));
 
@@ -1019,11 +1011,11 @@ describe("R30 security-sensitive stories", () => {
     ]);
   });
 
-  it("applies to a phrase in the Outcome and names the first listed phrase that matches", () => {
+  it("applies to a phrase in the Story line and names the first listed phrase that matches", () => {
     const story = input({
       description: description(
         PASSING_BLOCK,
-        "Outcome: the worker's permission check moves behind a new guard in the hook.",
+        "Story: As maintainer I want the worker's permission check behind a new guard in the hook so that a worker cannot skip it.",
       ),
     });
     expect(r30(story)).toEqual([
@@ -1109,6 +1101,219 @@ describe("R30 security-sensitive stories", () => {
       barrier("firewall rule", R30_OLD),
       barrier("firewall rule", R30_BYPASS),
       barrier("firewall rule", R30_CLOSED),
+    ]);
+  });
+});
+
+/** The R05 messages for a story whose Story line is `line`, with the other fields overridden. */
+const r05 = (line: string, story: Partial<GateInput["story"]> = {}) =>
+  messages(
+    evaluateGate(input({ description: description(PASSING_BLOCK, line), ...story }), "ready"),
+  )
+    .filter((message) => message.includes(" failed R05: "))
+    .map((message) => message.slice(prefix("R05").length));
+
+const STORY_FORM = "As <maintainer|worker|reviewer> I want <capability> so that <value>.";
+const SPIKE_FORM = "We need to decide <question> so that <value>.";
+/** 20 characters: the shortest capability, question or value R05 accepts. */
+const TWENTY = "rows in the CSV file";
+
+describe("R05 Story line", () => {
+  it("accepts each role, the spike form for a spike, and parts of exactly 20 characters", () => {
+    for (const role of ["maintainer", "worker", "reviewer"]) {
+      expect(
+        r05(
+          `Story: As ${role} I want every row in the export so that the nightly data is complete.`,
+        ),
+      ).toEqual([]);
+    }
+    expect(r05(SPIKE_LINE, { type: "spike" })).toEqual([]);
+    expect(r05(`Story: As maintainer I want ${TWENTY} so that ${TWENTY}.`)).toEqual([]);
+    expect(r05(`Story: We need to decide ${TWENTY} so that ${TWENTY}.`, { type: "spike" })).toEqual(
+      [],
+    );
+    // Whitespace around the line's text does not count.
+    expect(r05(`Story:   As maintainer I want ${TWENTY} so that ${TWENTY}.  `)).toEqual([]);
+    // Prose that only looks technical stays prose.
+    expect(
+      r05(
+        "Story: As maintainer I want macOS and iPhone notices, e.g. for a parked story, so that I see them the moment they arrive.",
+      ),
+    ).toEqual([]);
+  });
+
+  it("accepts the natural variants of the role and an open end", () => {
+    for (const role of ["maintainer", "worker", "reviewer"]) {
+      for (const lead of [`As ${role}`, `As a ${role}`, `As the ${role}`]) {
+        for (const comma of ["", ","]) {
+          for (const end of [".", ""]) {
+            expect(
+              r05(
+                `Story: ${lead}${comma} I want every row in the export so that the nightly data is complete${end}`,
+              ),
+            ).toEqual([]);
+          }
+        }
+      }
+    }
+    expect(r05(`Story: We need to decide ${TWENTY} so that ${TWENTY}`, { type: "spike" })).toEqual(
+      [],
+    );
+    // The full stop does not count toward the value: 19 characters and a stop stay too short.
+    expect(r05(`Story: As a maintainer I want ${TWENTY} so that ${TWENTY.slice(1)}.`)).toEqual([
+      "Story line's value is shorter than 20 characters",
+    ]);
+  });
+
+  it("accepts plain lines that only look technical", () => {
+    for (const words of [
+      "a desk for what waits on me, e.g. a test or an approval,",
+      "dipo to run on Bun 1.4.4",
+      "notices in iTerm2 and macOS Terminal",
+      "a 24/7 daemon that keeps the office going",
+      "links to the pull request on github.com",
+      "the package cache to work for node.js projects",
+      "rows and/or headers kept apart",
+    ]) {
+      expect(
+        r05(`Story: As a maintainer, I want ${words} so that the work keeps moving without me.`),
+      ).toEqual([]);
+    }
+  });
+
+  it("refuses URLs, file names and dotfiles with the path message", () => {
+    for (const path of [
+      "https://github.com/owner/repo",
+      "http://example.com",
+      "https://example.com/page",
+      "github.com/owner",
+      "CLAUDE.md",
+      "README.md",
+      ".bun-version",
+      ".dipo",
+      "office.yaml",
+      "package.json",
+      "packages/engine/src",
+    ]) {
+      expect(
+        r05(
+          `Story: As maintainer I want the export to read ${path} for each row so that no row of the table is ever lost.`,
+        ),
+      ).toEqual([`Story line names the path ${path}; put paths in the references`]);
+    }
+  });
+
+  it("checks one line through checkStoryLine as the rule does", () => {
+    expect(checkStoryLine(` ${STORY_LINE.slice("Story:".length)} `, false)).toEqual([]);
+    expect(checkStoryLine(SPIKE_LINE.slice("Story:".length), true)).toEqual([]);
+    expect(checkStoryLine("As maintainer I want rows so that ok", false)).toEqual([
+      "Story line's capability is shorter than 20 characters",
+      "Story line's value is shorter than 20 characters",
+    ]);
+    expect(
+      checkStoryLine(
+        "As maintainer I want every row in the export\nso that the nightly data is complete.",
+        false,
+      ),
+    ).toEqual(["Story line spans more than one line; keep it on one"]);
+  });
+
+  it("refuses the old Outcome line", () => {
+    expect(r05("Outcome: the export writes every row of the table to a CSV file.")).toEqual([
+      "no Story line; add one line that starts with Story:",
+    ]);
+  });
+
+  it("refuses a line without the story shape", () => {
+    const shape = `Story line does not read "${STORY_FORM}"`;
+    // No "so that".
+    expect(r05("Story: As maintainer I want every row of the table in the CSV file.")).toEqual([
+      shape,
+    ]);
+    // No "As <role> I want".
+    expect(r05("Story: The export writes every row so that the nightly data is complete.")).toEqual(
+      [shape],
+    );
+    // A role outside the three, also with an article.
+    for (const role of ["developer", "a developer", "an maintainer", "maintainers"]) {
+      expect(
+        r05(
+          `Story: As ${role} I want every row in the export so that the nightly data is complete.`,
+        ),
+      ).toEqual([shape]);
+    }
+    // No "I want" after the role.
+    expect(
+      r05("Story: As maintainer, every row in the export so that the nightly data is complete."),
+    ).toEqual([shape]);
+    // The spike form on a story that is no spike.
+    expect(r05(SPIKE_LINE)).toEqual([shape]);
+  });
+
+  it("asks a spike for the spike form", () => {
+    expect(r05(STORY_LINE, { type: "spike" })).toEqual([
+      `Story line does not read "${SPIKE_FORM}"`,
+    ]);
+  });
+
+  it("refuses a capability, question or value under 20 characters", () => {
+    const nineteen = TWENTY.slice(1);
+    expect(r05(`Story: As maintainer I want ${nineteen} so that ${TWENTY}.`)).toEqual([
+      "Story line's capability is shorter than 20 characters",
+    ]);
+    expect(r05(`Story: As maintainer I want ${TWENTY} so that ${nineteen}.`)).toEqual([
+      "Story line's value is shorter than 20 characters",
+    ]);
+    expect(
+      r05(`Story: We need to decide ${nineteen} so that ${nineteen}.`, { type: "spike" }),
+    ).toEqual([
+      "Story line's question is shorter than 20 characters",
+      "Story line's value is shorter than 20 characters",
+    ]);
+  });
+
+  it("refuses a backtick, a file path and code, each on its own", () => {
+    expect(
+      r05(
+        "Story: As maintainer I want the `dipo export` command to write every row so that the data is complete.",
+      ),
+    ).toEqual(["Story line holds a backtick; write it in plain words"]);
+    expect(
+      r05(
+        "Story: As maintainer I want the export documented in docs/export.md so that others can run it without asking me.",
+      ),
+    ).toEqual(["Story line names the path docs/export.md; put paths in the references"]);
+    expect(
+      r05(
+        "Story: As maintainer I want rows and/or headers kept apart so that two nightly runs never mix.",
+      ),
+    ).toEqual([]);
+    for (const code of [
+      "writeRows()",
+      "{rows}",
+      "rows=>file",
+      "$HOME",
+      "--force",
+      "row_count",
+      "story.outcomeMin",
+      "daemon.resumeStarts",
+      "contractMax",
+      "<story>",
+    ]) {
+      expect(
+        r05(
+          `Story: As maintainer I want the export to honour ${code} for each row so that no row of the table is ever lost.`,
+        ),
+      ).toEqual([`Story line holds code (${code}); write it in plain words`]);
+    }
+  });
+
+  it("reports every failure of one line", () => {
+    expect(r05("Story: As maintainer I want `x` in a/b.ts so that ok.")).toEqual([
+      "Story line's capability is shorter than 20 characters",
+      "Story line's value is shorter than 20 characters",
+      "Story line holds a backtick; write it in plain words",
+      "Story line names the path a/b.ts; put paths in the references",
     ]);
   });
 });

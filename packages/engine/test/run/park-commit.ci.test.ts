@@ -1,7 +1,7 @@
-// CI only (0017 section 1, DIPO-225): real git repositories and processes, too slow for the local
+// CI only (0017, DIPO-225): real git repositories and processes, too slow for the local
 // run.
 // Local cases of the park and unpark commits on real git and the pinned Backlog CLI (DIPO-112;
-// 0010 section 2a): each commits the story's task file alone on top of the branch tip, from dipo's
+// 0010): each commits the story's task file alone on top of the branch tip, from dipo's
 // own copy of the backlog, so a worker's commit below stays as it is. A story has no worktree
 // (DIPO-349). No remote: the claim cuts the branch from the local `main`, and nothing is pushed.
 // The full park flow runs in CI (park.ci.test.ts).
@@ -103,7 +103,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     });
   });
 
-  describe("the structured summary in the task file (DIPO-154; 0020 section 13)", () => {
+  describe("the structured summary in the task file (DIPO-154; 0020)", () => {
     it("appends the park block in the F16 commit, the resume line in the lift commit, and nothing on a repeated lift", async () => {
       await withTempRepo(
         async (repo) => {
@@ -270,7 +270,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     });
   });
 
-  describe("the answer of a question park in the lift commit (DIPO-159; 0020 section 7)", () => {
+  describe("the answer of a question park in the lift commit (DIPO-159; 0020)", () => {
     it("adds the answer as a resolved unknown in the task-file commit, once, and leaves it out over R26", async () => {
       await withTempRepo(
         async (repo) => {

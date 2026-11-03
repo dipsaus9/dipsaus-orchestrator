@@ -1,4 +1,4 @@
-// The single write path (DIPO-29; 0010 section 3) against a scripted CLI: view, parse, change,
+// The single write path (DIPO-29; 0010) against a scripted CLI: view, parse, change,
 // splice, re-read, `task edit --description`, read back and compare. A description changed since
 // the read is parsed again and the change reapplied. Labels change only with --add-label and
 // --remove-label.
@@ -12,7 +12,8 @@ import { FieldBlockError, parseFieldBlock, spliceFieldBlock } from "../../src/st
 import { scriptedSpawn, viewOutput } from "./helpers";
 
 const ID = "TASK-4";
-const BEFORE = "Outcome: the export reports how many rows it wrote.\n\nSome  context. ";
+const BEFORE =
+  "Story: As maintainer I want the export to report how many rows it wrote so that I can tell a short export from a full one.\n\nSome  context. ";
 const BLOCK = '```dipo\nbranch: "TASK-4/count-rows"\nunknowns: []\n```';
 const PARK = { reason: "on-hold", from: "Ready", note: "Waiting for Bun 1.4.3" } as const;
 
@@ -74,13 +75,11 @@ describe("writeFields", () => {
   });
 
   it("writes NFD text outside the block back unchanged", async () => {
-    const nfd = `Outcome: the café export writes every röw.\n\n${BLOCK}`;
+    const nfd = `Story: the café export writes every röw.\n\n${BLOCK}`;
     const cli = fakeCli(nfd);
     await writeFields(cli.target, park);
     const written = cli.commands[2]?.[4] ?? "";
-    expect(written.startsWith("Outcome: the café export writes every röw.\n\n```dipo\n")).toBe(
-      true,
-    );
+    expect(written.startsWith("Story: the café export writes every röw.\n\n```dipo\n")).toBe(true);
     expect(written).toBe(spliceFieldBlock(nfd, { ...parseFieldBlock(nfd).fields, park: PARK }));
   });
 

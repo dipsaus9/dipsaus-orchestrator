@@ -1,4 +1,4 @@
-// When the daemon keeps the machine awake (0006 decision 12): while any office has a run with a
+// When the daemon keeps the machine awake (0005): while any office has a run with a
 // live worker host, a running verify, or a confirmed batch waiting to start. One assertion covers
 // every office. It is taken when work becomes active and released 2 minutes after the last work
 // ends, so a run that follows another within that window keeps the same assertion.
@@ -50,7 +50,7 @@ export function describeWork(activity: WorkActivity): string {
   return parts.length === 0 ? "no active work" : parts.join(", ");
 }
 
-/** What macOS `-i` does not cover; `status` says so (0006 decision 12). */
+/** What macOS `-i` does not cover; `status` says so (0005). */
 export const DARWIN_LID_NOTE = "closing the lid on battery still sleeps the Mac";
 
 export interface KeepAwakeDeps {

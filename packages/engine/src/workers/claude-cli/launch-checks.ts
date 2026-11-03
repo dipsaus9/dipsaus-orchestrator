@@ -1,15 +1,16 @@
-// The Claude CLI launch checks of a `session` on the Mac (0008, DIPO-310): the tools check, the
-// probe and the project settings check, run before every launch of one. `prepareLaunch` is the one
-// way to get such a plan the host may start: it plans, runs the checks through the adapter hold's
-// gate and returns the plan only when they pass; a refusal is `startFailed` with the hold set.
+// The Claude CLI launch checks of a `session` on the Mac (0008, DIPO-310): the probe and the
+// project settings check, run before every launch of one. `prepareLaunch` is the one way to get
+// such a plan the host may start: it plans, runs the checks through the adapter pause's gate and
+// returns the plan only when they pass; a refusal is `startFailed` with the adapter's starts
+// paused.
 //
 // A developer and a reviewer run only in a box (DIPO-240, DIPO-347): the box is the boundary, and
-// dipo's post-run token check (`box/token-check.ts`) and the box checks of `adapter.ts` hold the
-// adapter. The checks that proved the developer's Bash sandbox on the Mac went with that sandbox.
+// dipo's post-run token check (`box/token-check.ts`) and the box checks of `adapter.ts` pause the
+// adapter's starts.
 
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
-import { gateLaunch, type AdapterHold, type AdapterHolds, type LaunchCheckOutcome } from "../hold";
+import type { AdapterPause, AdapterPauses, LaunchCheckOutcome } from "../../run/starts-paused";
 import type { LaunchPlan, WorkerSpec } from "../types";
 import { CLAUDE_CLI_ADAPTER_ID, kindContext, plan, type ClaudeLaunchContext } from "./plan";
 import { probe } from "./probe";
@@ -51,23 +52,23 @@ export async function claudeLaunchChecks(
 
 export type PreparedLaunch =
   | { readonly ok: true; readonly plan: LaunchPlan }
-  | { readonly ok: false; readonly outcome: "startFailed"; readonly hold: AdapterHold };
+  | { readonly ok: false; readonly outcome: "startFailed"; readonly pause: AdapterPause };
 
 /**
  * Plans a session's launch and runs the launch checks first. Throws `PlanError` when the spec
- * cannot be planned, a developer's or reviewer's included (each runs only in a box). A failed check holds the
- * adapter in every office; a pass lifts the hold.
+ * cannot be planned, a developer's or reviewer's included (each runs only in a box). A failed check pauses the
+ * adapter in every office; a pass lifts the pause.
  */
 export async function prepareLaunch(
   spec: WorkerSpec,
   launchContext: ClaudeLaunchContext,
-  holds: AdapterHolds,
+  holds: AdapterPauses,
   deps: ClaudeLaunchCheckDeps,
 ): Promise<PreparedLaunch> {
   // A session allows no plugin; its checks run with its plan's context.
   const ctx = kindContext(spec, launchContext);
   const launch = plan(spec, ctx);
-  const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, () =>
+  const gate = await holds.gateLaunch(CLAUDE_CLI_ADAPTER_ID, () =>
     claudeLaunchChecks(spec, launch, deps),
   );
   return gate.ok ? { ok: true, plan: launch } : gate;

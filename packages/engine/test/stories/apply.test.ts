@@ -1,24 +1,14 @@
-// Matching a pass against the story keys (DIPO-32; 0005 section 2, 0007 section 4): keys stay
-// stable, a title change is an edit, a vanished id is matched by frozen branch then created date,
-// an ambiguous created date matches nothing, an unmatched key closes as Removed, and the change
-// log gets `story.state`, `story.renumbered` and `engine.notice` entries for what changed.
+// Matching a pass against the story keys (DIPO-32; 0005, 0007): a known id keeps its key, a title
+// change is an edit, a vanished id closes as Removed, a new id is a new story (nothing is matched
+// by branch or date), and the change log gets `story.state` and `engine.notice` entries for what
+// changed.
 
 import { describe, expect, it } from "bun:test";
 
 import { Event, StoryId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { addStory, resolveStoryRef } from "../../src/records/story-keys";
-import {
-  CREATED,
-  draft,
-  entriesAfter,
-  keyOf,
-  lastSeq,
-  pass,
-  storyRows,
-  task,
-  withOffice,
-} from "./helpers";
+import { draft, entriesAfter, keyOf, lastSeq, pass, storyRows, task, withOffice } from "./helpers";
 
 const BRANCH_1 = "TASK-1/add-the-csv-export-command";
 
@@ -32,10 +22,8 @@ describe("story index pass", () => {
       expect(stats).toEqual({
         stories: 2,
         added: 2,
-        renumbered: 0,
         removed: 0,
         changed: 2,
-        ambiguous: 0,
       });
       const key = keyOf(office, "TASK-1");
       expect(key).toMatch(/^sto_[0-9A-HJKMNP-TV-Z]{26}$/);
@@ -59,14 +47,14 @@ describe("story index pass", () => {
       expect(entries[0]?.view).toMatchObject({ provisional: true, lifecycle: "Draft" });
     }));
 
-  it("stores the created date as printed and the frozen branch on the key", () =>
+  it("stores the frozen branch on the key", () =>
     withOffice((t, office) => {
       pass(t, office, [task("TASK-1", { frozenBranch: BRANCH_1 })]);
       expect(
         office.get<Record<string, unknown>>(
-          "select frozen_branch, backlog_created from stories where office_id = $office_id",
+          "select frozen_branch from stories where office_id = $office_id",
         ),
-      ).toEqual({ frozen_branch: BRANCH_1, backlog_created: CREATED });
+      ).toEqual({ frozen_branch: BRANCH_1 });
     }));
 
   it("writes the mirror: hash, kind, status, title, tier, role, labels, read time and source", () =>
@@ -171,92 +159,60 @@ describe("story index pass", () => {
       ]);
     }));
 
-  it("matches a hand-promoted draft by created date and emits story.renumbered", () =>
+  it("closes a draft promoted by hand as Removed and gives its new id a new key", () =>
     withOffice((t, office) => {
-      pass(t, office, [task("TASK-1", { created: "2026-10-01 09:00 (UTC)" }), draft("DRAFT-1")]);
+      pass(t, office, [task("TASK-1"), draft("DRAFT-1")]);
       const key = keyOf(office, "DRAFT-1");
       const seq = lastSeq(office);
-      const stats = pass(t, office, [
-        task("TASK-1", { created: "2026-10-01 09:00 (UTC)" }),
-        task("TASK-4", { title: "Story DRAFT-1" }),
-      ]);
-      expect(stats).toMatchObject({ renumbered: 1, added: 0, removed: 0 });
-      expect(keyOf(office, "TASK-4")).toBe(key);
+      const stats = pass(t, office, [task("TASK-1"), task("TASK-4", { title: "Story DRAFT-1" })]);
+      expect(stats).toMatchObject({ added: 1, removed: 1 });
+      const fresh = keyOf(office, "TASK-4");
+      expect(fresh).not.toBe(key);
       const entries = entriesAfter(office, seq);
-      expect(entries.map((e) => e.type)).toEqual(["story.renumbered", "story.state"]);
-      expect(entries[0]?.delta).toEqual({
-        key,
-        from: "DRAFT-1",
-        to: "TASK-4",
-        detectedBy: "reconcile",
+      expect(entries.some((e) => e.type === "story.renumbered")).toBe(false);
+      expect(entries.find((e) => e.key === key && e.type === "story.state")?.delta).toMatchObject({
+        from: "Draft",
+        to: "Removed",
       });
-      expect(entries[1]?.delta).toMatchObject({ story: "TASK-4", from: "Draft", to: "Refined" });
-      expect(entries[1]?.view).toMatchObject({ provisional: false });
-      // The former id resolves through its alias.
-      expect(resolveStoryRef(office, "DRAFT-1")).toMatchObject({ ok: true, key });
+      expect(entries.find((e) => e.key === key && e.type === "engine.notice")?.delta).toMatchObject(
+        {
+          level: "warn",
+          code: "story.removed",
+        },
+      );
+      expect(entries.find((e) => e.key === fresh && e.type === "story.state")?.delta).toMatchObject(
+        {
+          story: "TASK-4",
+          to: "Refined",
+        },
+      );
+      // The former id is gone: no alias leads to the old story.
+      expect(resolveStoryRef(office, "DRAFT-1")).toMatchObject({ ok: false });
     }));
 
-  it("matches a renumbered story by its frozen branch before the created date", () =>
-    withOffice((t, office) => {
-      pass(t, office, [
-        task("TASK-1", { frozenBranch: BRANCH_1 }),
-        task("TASK-2", { frozenBranch: "TASK-2/rename" }),
-      ]);
-      const key = keyOf(office, "TASK-1");
-      // Both vanish under the same created date; the branch tells them apart.
-      pass(t, office, [
-        task("TASK-7", { frozenBranch: BRANCH_1 }),
-        task("TASK-8", { frozenBranch: "TASK-2/rename" }),
-      ]);
-      expect(keyOf(office, "TASK-7")).toBe(key);
-      expect(storyRows(office).filter((row) => row.removed)).toEqual([]);
-    }));
-
-  it("reports story.ambiguous when two vanished stories share the created date and matches none", () =>
-    withOffice((t, office) => {
-      pass(t, office, [
-        task("TASK-1", { frozenBranch: BRANCH_1 }),
-        draft("DRAFT-1"),
-        task("TASK-2", { created: "2026-10-02 10:00 (UTC)" }),
-      ]);
-      const oldKeys = [keyOf(office, "TASK-1"), keyOf(office, "DRAFT-1")];
-      const seq = lastSeq(office);
-      const stats = pass(t, office, [
-        task("TASK-2", { created: "2026-10-02 10:00 (UTC)" }),
-        task("TASK-4"),
-      ]);
-      expect(stats).toMatchObject({ ambiguous: 1, renumbered: 0, removed: 2, added: 1 });
-      const newKey = keyOf(office, "TASK-4");
-      expect(oldKeys).not.toContain(newKey);
-      const entries = entriesAfter(office, seq);
-      expect(entries[0]).toMatchObject({ type: "engine.notice", key: null });
-      expect(entries[0]?.delta).toMatchObject({ level: "warn", code: "story.ambiguous" });
-      expect(String(entries[0]?.delta["text"])).toContain("DRAFT-1, TASK-1");
-      expect(entries.filter((e) => e.type === "story.renumbered")).toEqual([]);
-      for (const key of oldKeys) {
-        expect(entries.some((e) => e.key === key && e.delta["to"] === "Removed")).toBe(true);
-      }
-    }));
-
-  it("reports story.ambiguous when two new ids share a vanished story's created date", () =>
-    withOffice((t, office) => {
-      pass(t, office, [draft("DRAFT-1")]);
-      const stats = pass(t, office, [task("TASK-4"), task("TASK-5")]);
-      expect(stats).toMatchObject({ ambiguous: 1, renumbered: 0, removed: 1, added: 2 });
-    }));
-
-  it("closes the old key and gives a new one when a known id names another story", () =>
+  it("never matches a vanished story by its frozen branch: a renamed story is a new story", () =>
     withOffice((t, office) => {
       pass(t, office, [task("TASK-1", { frozenBranch: BRANCH_1 })]);
-      const old = keyOf(office, "TASK-1");
+      const key = keyOf(office, "TASK-1");
       const seq = lastSeq(office);
-      // The id was archived and reused by a story created later.
-      const stats = pass(t, office, [task("TASK-1", { created: "2026-11-01 08:00 (UTC)" })]);
-      expect(stats).toMatchObject({ removed: 1, added: 1 });
-      const fresh = keyOf(office, "TASK-1");
-      expect(fresh).not.toBe(old);
-      const notice = entriesAfter(office, seq).find((e) => e.type === "engine.notice");
-      expect(String(notice?.delta["text"])).toContain("now names another story");
+      const stats = pass(t, office, [task("TASK-7", { frozenBranch: BRANCH_1 })]);
+      expect(stats).toMatchObject({ added: 1, removed: 1 });
+      expect(keyOf(office, "TASK-7")).not.toBe(key);
+      // Only the removal's notice: no notice says the stories could not be told apart.
+      expect(
+        entriesAfter(office, seq)
+          .filter((e) => e.type === "engine.notice")
+          .map((e) => e.delta["code"]),
+      ).toEqual(["story.removed"]);
+    }));
+
+  it("keeps the key of a known id whatever its frozen branch says", () =>
+    withOffice((t, office) => {
+      pass(t, office, [task("TASK-1", { frozenBranch: BRANCH_1 })]);
+      const key = keyOf(office, "TASK-1");
+      const stats = pass(t, office, [task("TASK-1", { frozenBranch: "TASK-1/another" })]);
+      expect(stats).toMatchObject({ added: 0, removed: 0 });
+      expect(keyOf(office, "TASK-1")).toBe(key);
     }));
 
   it("keeps the key when the story gets its frozen branch at refine", () =>
@@ -273,7 +229,7 @@ describe("story index pass", () => {
       ).toBe(BRANCH_1);
     }));
 
-  it("renumbers two stories that swapped ids without a conflict", () =>
+  it("keeps each id's key when two stories swap ids", () =>
     withOffice((t, office) => {
       pass(t, office, [
         task("TASK-1", { frozenBranch: "TASK-1/a" }),
@@ -285,12 +241,11 @@ describe("story index pass", () => {
         task("TASK-2", { frozenBranch: "TASK-1/a" }),
         task("TASK-1", { frozenBranch: "TASK-2/b" }),
       ]);
-      expect(keyOf(office, "TASK-2")).toBe(a);
-      expect(keyOf(office, "TASK-1")).toBe(b);
-      expect(resolveStoryRef(office, "TASK-1")).toMatchObject({ ok: true, key: b });
+      expect(keyOf(office, "TASK-1")).toBe(a);
+      expect(keyOf(office, "TASK-2")).toBe(b);
       expect(resolveStoryRef(office, StoryKey.parse(a))).toMatchObject({
         ok: true,
-        story: "TASK-2",
+        story: "TASK-1",
       });
     }));
 

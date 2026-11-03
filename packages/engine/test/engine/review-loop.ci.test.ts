@@ -1,6 +1,5 @@
-// CI only (0017 section 1): the review loop end to end at the engine layer (DIPO-153; 0019
-// section 1 across sections 3 to 13, for box runs as 0021 and its amendment of 2026-10-22 have
-// them). Each scenario claims TASK-1 with `work.run` on an office wired as the daemon wires it
+// CI only (0017): the review loop end to end at the engine layer (DIPO-153; 0002,
+// for box runs as 0008 has them). Each scenario claims TASK-1 with `work.run` on an office wired as the daemon wires it
 // (`loop-office.ts`): a scripted developer and reviewer, the in-memory code host, real git with a
 // bare remote under DIPO_TMP and the pinned Backlog CLI. CI is the verify of a box run, so dipo runs
 // none: the host's required checks decide. The scenarios:
@@ -19,15 +18,13 @@
 // - a merge gate the maintainer approves: a criterion only the maintainer can check;
 // - an override of a review-blocked park: a round cap of 1 parks the story, `gate.approve` needs a
 //   note and records the override, and the PR merges with no session;
-// - a review running next to a working developer session of another story (0019 section 12);
+// - a review running next to a working developer session of another story (0002);
 // - a daemon restart while auto-merge is on: GitHub merges once, with no second close-out or push,
 //   and after the restart's re-attach the Done poll ends the run done;
 // - the park and resume path: red CI at a CI cap of 1 parks `verify-failing`, and
 //   `work.resume` with a note grants one CI attempt and sends the CI item to the worker.
 //
-// No scenario is `it.failing` any more. The Done poll ending a merged story without a restart was
-// one until DIPO-328, and dipo's conflict merge reaching the worker's box (its markers, and
-// what the base changed kept on main after the merge) one until DIPO-324.
+// No scenario is `it.failing`.
 //
 // Each scenario needs many CLI calls, pushes and an office load: far over the local budget. Its time
 // is the engine's own Backlog CLI and git calls (about 55 and 240 a scenario), not waiting: every
@@ -82,7 +79,7 @@ const NOTES_TEXT = "# Export\n\nThe export writes semicolons.\n";
 const TASK_4 = "TASK-4";
 const TSV = "packages/tsv/tsv.ts";
 const TSV_DESCRIPTION = [
-  "Outcome: maintainers can export the story list as TSV for a spreadsheet.",
+  "Story: As maintainer I want to export the story list as TSV so that I can paste it into a spreadsheet.",
   "",
   "```dipo",
   'branch: "TASK-4/add-the-tsv-export-command"',
@@ -441,7 +438,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       () =>
         withLoopOffice({}, async (w) => {
           const { markers } = await conflictHandOff(w);
-          // DIPO-149 and the DIPO-150 amendment: committed as git left it, markers included, and
+          // DIPO-149, DIPO-150: committed as git left it, markers included, and
           // the worker resolves it as an ordinary part, so what the base changed stays merged.
           expect(markers).toContain("<<<<<<< ");
           expect(await remoteFile(w, "main", NOTES)).toBe(NOTES_TEXT);
@@ -490,7 +487,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     it(
       "an override of a review-blocked park",
       () =>
-        withLoopOffice({ officeYaml: "version: 7\nreview:\n  maxRounds: 1\n" }, async (w) => {
+        withLoopOffice({ officeYaml: "version: 16\nreview:\n  maxRounds: 1\n" }, async (w) => {
           w.director = (session) => {
             if (session.kind === "review") {
               return reviewScript(
@@ -671,7 +668,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     it(
       "the park and resume path",
       () =>
-        withLoopOffice({ officeYaml: "version: 7\nmergeSlot:\n  ciAttempts: 1\n" }, async (w) => {
+        withLoopOffice({ officeYaml: "version: 16\ncaps:\n  ciAttempts: 1\n" }, async (w) => {
           // CI turns red once the first review started, so the review runs before the CI-cap park
           // in every order of the polls: a park that lands while a round is still being built
           // starts no reviewer (DIPO-346), which reviews.test.ts covers.

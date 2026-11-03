@@ -4,7 +4,7 @@ Status: accepted. First written 2026-10-10 (spike DIPO-4). Rewritten 2026-10-24 
 
 ## Decision in short
 
-One SQLite file holds the run detail of every office, keyed by office, written by the daemon alone. It holds **run detail only**. Story facts belong to Backlog.md and code facts to git and GitHub (0001). A copy the database keeps of either one is a cache that reconcile corrects. There is one retention rule and one kind of backup.
+One SQLite file holds the run detail and dipo's own state of every office, keyed by office, written by the daemon alone. It is **never the only copy of a story fact**: story facts belong to Backlog.md and code facts to git and GitHub (0001). A copy the database keeps of either one is a cache that reconcile corrects. There is one retention rule and one kind of backup.
 
 ## 1. One file, one writer
 
@@ -45,14 +45,14 @@ One SQLite file holds the run detail of every office, keyed by office, written b
 
 ## 4. What the database holds
 
-Run detail, grouped by subject. The prune plan maps every table in the code to one of these groups or removes it.
+Run detail and dipo's own state, grouped by subject. The groups below hold the main tables; the office list and small per-office state tables (starts paused, one-time notices and done-elsewhere records) sit beside them.
 
 | Group | Holds |
 |---|---|
 | Identity | Story keys and their former ids (0005) |
 | Cache | `backlog_mirror`: what the engine last read from Backlog.md, keyed by content hash. Never a source of truth |
 | Change log | The outbox of section 5 |
-| Requests | Stored replies of run commands (0005), deleted when their run ends |
+| Requests | Stored replies of office commands (0005), kept one day |
 | Runs | Runs, agents, steps, intents, the caps snapshot and grants (0020), and one outcome row per ended run with what retro needs |
 | Process | Worker hosts and their processed offsets (0005) |
 | Usage | Usage per message (deduplicated by message id), totals per run, agent and model, including the cost the CLI reported (0008), and a daily rollup |
@@ -75,7 +75,7 @@ The database stores facts. Display status, columns, health and budget shares are
 
 ## 6. Reconcile
 
-Reconcile runs for each office at load, in the daemon's `recovering` state, and on `office.rescan`. Scheduling stays off until it finishes. **Backlog.md and git win. The database corrects its own copy and shows a notice. It never decides between two copies, and it never edits Backlog.md or git to match itself.**
+Reconcile runs for each office at load, in the daemon's `recovering` state, and on `office.rescan`. No work starts in the office until it finishes. **Backlog.md and git win. The database corrects its own copy and shows a notice. It never decides between two copies, and it never edits Backlog.md or git to match itself.**
 
 1. Check that `office.json` names the office's id; a mismatch refuses the office.
 2. Finish pending backlog lane operations from the journal (0010).
@@ -117,8 +117,9 @@ The worker host appends the session's stream to `events.ndjson`. The engine read
 - **Migrations.** Forward-only, numbered steps compiled into the binary, each with a checksum. `PRAGMA user_version` holds the head, and `schema_migrations` records each step.
 - **Order.** They run once for the whole file in `recovering`, before any office loads. Each step runs in its own transaction, and each of its statements runs on its own, so any failing statement fails the step.
 - **The backup.** Before the first step, dipo writes `VACUUM INTO backups/pre-v<N>-<time>.db`. A fresh database gets no backup. The two newest are kept. This is the only backup.
-- **Failure.** A failed step rolls back, and the daemon stays in `recovering` with `database.unavailable` and the backup's name (0005). An edited step (checksum mismatch) is treated the same way, and so is a schema that differs from the one the steps build in a fresh in-memory database, with the differing objects named. A database newer than the binary is refused with "upgrade dipo".
-- **Tests.** A database built from all steps must equal one migrated from each released schema, compared by schema dump. Before 1.0 the steps may be squashed once.
+- **Failure.** A failed step rolls back, and the daemon stays in `recovering` with `database.unavailable` and the backup's name (0005). An edited step (checksum mismatch) is treated the same way, and so is a schema that differs from the one the steps build in a fresh in-memory database, with the differing objects named. A database newer than the binary is refused with "upgrade dipo". A database an earlier dipo wrote before the squash is refused with what happened and where the file is: the maintainer moves it away and dipo starts a fresh one. dipo deletes nothing.
+- **Tests.** A database built from all steps must equal one migrated from each released schema, compared by schema dump.
+- **One squash before 1.0.** The steps were squashed once into one base schema (2026-11-03), and the code that settled state earlier binaries left (a row, a file or a folder in an older shape) went with them, except the removal of old daily backup copies, kept for the first start after the squash.
 - **Losing the database** loses run history, never a project (0001). A new file is created. `office open` registers each repository again from its marker, and reconcile and a rescan rebuild the rest from Backlog.md, git and the repository.
 
 ## Replaced
@@ -130,5 +131,5 @@ The worker host appends the session's stream to `events.ndjson`. The engine read
 - Park state kept both in the task file and in `parks`, with reconcile choosing between them. Replaced by: Backlog.md owns the state, `parks` holds detail and history (2026-10-24).
 - Identity matching by field-block key, frozen branch and created date after a database loss (2026-10-10). Replaced by: a vanished id is Removed (0005, 2026-10-24).
 - `merge_slot`, `nudge_sources`, `base_verifies`, `verify_results`, the pricing tables, transcript cursors and `usage_high_water`. Each served a mechanism that is gone (2026-10-24).
-- The 24-hour request table for every command. Replaced by stored replies for run commands only (0005, 2026-10-24).
 - Linux paths and the systemd log location (2026-10-10). macOS only (0004).
+- 74 migration steps and the load-time code that settled state earlier binaries left (2026-10-12 to 2026-11-02). Replaced by one base schema and a fresh database (2026-11-03).

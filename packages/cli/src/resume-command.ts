@@ -1,5 +1,5 @@
 // `dipo resume <id> [--note <text>] [--budget +<n>%|+<tokens>] [--yes] [--office <id>]` (DIPO-155;
-// 0020 sections 1, 4 and 16): sends `work.resume` for the story in the office of `--office` or of
+// 0020): sends `work.resume` for the story in the office of `--office` or of
 // the current directory. A parked story resumes as its park's row of the 0020 matrix says; while
 // the office's starts are paused, the resume is refused with what lifts them. `--budget` tops up a `budget-exceeded` park: `work.resume`
 // declares `confirmWhen: ["budget"]` in the contract, so the CLI first sends it unconfirmed, shows

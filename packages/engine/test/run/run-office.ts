@@ -72,8 +72,7 @@ import {
 } from "../../src/workers/claude-cli/interpret";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
-import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
-import { AdapterHolds, gateLaunch, type LaunchCheckOutcome } from "../../src/workers/hold";
+import { AdapterPauses, type LaunchCheckOutcome } from "../../src/run/starts-paused";
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
 import type { Caps, HostOp, LaunchPlan, ParseState } from "../../src/workers/types";
 import { hasLiveClaim, StoryClaims } from "../../src/worktree";
@@ -114,7 +113,7 @@ export interface Running {
   readonly s: OfficeSetup;
   readonly officeId: OfficeId;
   readonly office: OfficeHandle;
-  readonly holds: AdapterHolds;
+  readonly holds: AdapterPauses;
   /** Every host start, with the run's event file size before it (DIPO-51). */
   readonly hosts: { runId: string; agentId: string; plan: LaunchPlan; sizeBefore: number }[];
   readonly ingest: OfficeIngest;
@@ -262,12 +261,11 @@ export async function withRunOffice(
         git: (office) => engineGit.forOffice(office),
         stories: backlogStoryStore(CLI(repo)),
       });
-      const holds = new AdapterHolds({ clock: new ManualClock(), notify: () => undefined });
+      const holds = new AdapterPauses({ clock: new ManualClock(), notify: () => undefined });
       const clock = new ManualClock();
       const worker: WorkerPort = {
         id: "claude-cli",
         reportSchema: REPORT_JSON_SCHEMAS,
-        localSettings: CLAUDE_LOCAL_SETTINGS,
         adapter: (paths) => ({
           ...claudeCliAdapter(ctxOf(paths), { spawn: neverSpawn, clock }),
           plan: (spec) => standInPlan(spec, paths, CLAUDE),
@@ -275,18 +273,14 @@ export async function withRunOffice(
         prepare: async (spec, paths) => {
           // The Claude CLI plans no developer on the Mac (DIPO-240): a stand-in plan.
           const plan = standInPlan(spec, paths, CLAUDE);
-          const gate = await gateLaunch("claude-cli", holds, async () => options.checks);
+          const gate = await holds.gateLaunch("claude-cli", async () => options.checks);
           return gate.ok ? { ok: true, plan } : gate;
         },
         initialState: (spec, previous) =>
           initialState(
             previous === undefined
               ? { plannedModel: spec.model }
-              : nextSessionOptions(
-                  previous as unknown as ClaudeParseState,
-                  spec.session.resume,
-                  spec.model,
-                ),
+              : nextSessionOptions(previous as unknown as ClaudeParseState, spec.model),
           ) as unknown as ParseState,
         encode,
         result: (state, exit) => claudeResult(state as unknown as ClaudeParseState, exit),

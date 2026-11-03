@@ -1,16 +1,16 @@
-// The adapter-neutral Worker contract (0008 section 1). An adapter has a launch half (`plan`,
+// The adapter-neutral Worker contract (0008). An adapter has a launch half (`plan`,
 // `encode`), run by the worker host, and an interpret half (`interpret`, `result`), a pure parser
 // the engine runs over `events.ndjson`. Nothing here names a CLI flag or a stream format; those
 // stay inside the adapter's own directory (for Claude, `workers/claude-cli/`).
 
 import type { OpenEnum, ParkReason } from "@dipsaus-orchestrator/contract";
 
-/** Run kinds an adapter may know (0008 amendment of 2026-10-12, D12). M0 plans only `implement`. */
+/** Run kinds an adapter may know (0008). */
 export const KNOWN_WORKER_KINDS = ["implement", "review", "session"] as const;
 /** An open string: a later kind needs no contract change; an adapter refuses kinds it cannot plan. */
 export type WorkerKind = OpenEnum<(typeof KNOWN_WORKER_KINDS)[number]>;
 /**
- * The kinds whose turn ends in a structured report (0008 amendment of 2026-10-16, DIPO-131), and
+ * The kinds whose turn ends in a structured report (0008, DIPO-131), and
  * `session` (DIPO-310): a model session outside a story run, whose structured output the engine
  * checks against the schema its spec carries (the scan fallback's answer).
  */
@@ -21,9 +21,9 @@ export type SchemaKind = Exclude<ReportKind, "session">;
 /** The start of the output line a web call shows as: `[web] <tool> <query or URL>`. */
 export const WEB_LINE_PREFIX = "[web] ";
 
-/** Caps per run, from the tier (0008 section 9). Loops stay in the engine. */
+/** Caps per run, from the tier (0008). Loops stay in the engine. */
 export interface Caps {
-  /** Input plus output plus cache-creation tokens (0008 section 4). */
+  /** Input plus output plus cache-creation tokens (0008). */
   readonly budgetTokens: number;
   readonly maxTurns: number;
   readonly maxMinutes: number;
@@ -47,18 +47,18 @@ export interface WorkerSpec {
   readonly model: string;
   readonly effort: string;
   readonly caps: Caps;
-  /** Absolute path of the rendered L1+L2 system file (0014 section 1). */
+  /** Absolute path of the rendered L1+L2 system file (0014). */
   readonly systemFile: string;
-  /** The L4 task message (0014 section 1); the first user message, never on argv. */
+  /** The L4 task message (0014); the first user message, never on argv. */
   readonly taskMessage: string;
   /**
-   * Whether the developer may search and fetch the web (0020 section 11b); false for every other
+   * Whether the developer may search and fetch the web (0020); false for every other
    * kind, which the adapter refuses otherwise. The reviewer's web tools come with its kind. The
    * adapter names the tools of each kind; the engine names none (DIPO-318).
    */
   readonly web: boolean;
-  /** Engine-made session id; `resume` continues that session instead of starting it. */
-  readonly session: { readonly id: string; readonly resume: boolean };
+  /** Engine-made session id: every session is a new one (0008). */
+  readonly session: { readonly id: string };
   /** The schema the worker's report must follow (`WorkerReport`, or `ReviewReport` for `review`). */
   readonly reportSchema: JsonSchema;
 }
@@ -72,7 +72,7 @@ export interface LaunchFile {
   readonly executable?: boolean;
 }
 
-/** Everything the worker host needs to start one worker (0008 section 1, 0006 decision 8). */
+/** Everything the worker host needs to start one worker (0008, 0005). */
 export interface LaunchPlan {
   /** Program and arguments; `argv[0]` is an absolute path, never looked up on `PATH`. */
   readonly argv: readonly [string, ...string[]];
@@ -104,10 +104,10 @@ export interface LineScrub {
   readonly fields: readonly string[];
 }
 
-/** What the engine asks of a running worker (0008 section 6). */
+/** What the engine asks of a running worker (0008). */
 export type SteerOp =
   | { readonly kind: "steer" | "answer"; readonly text: string }
-  | { readonly kind: "pause" | "stop" | "kill" };
+  | { readonly kind: "stop" | "kill" };
 
 export type HostSignal = "SIGINT" | "SIGTERM" | "SIGKILL";
 
@@ -139,19 +139,20 @@ export interface WorkerReportCriterion {
 }
 
 /**
- * A worker's proposal (0021 section 7, W5): a follow-up story, a spike, or a tool the box lacks.
+ * A worker's proposal (0008, W5): a follow-up story, a spike, or a tool the box lacks.
  * Data shown to the maintainer; nothing happens on its own.
  */
 export interface WorkerProposal {
   readonly kind: "follow-up" | "spike" | "tool";
   readonly title: string;
-  readonly outcome: string;
+  /** One story line of the Ready gate's shape (0012 R05), without the `Story:` prefix. */
+  readonly story: string;
   readonly why: string;
   readonly paths?: readonly string[];
 }
 
 /**
- * One test-plan entry as the worker reports it (0014 note of 2026-10-20, DIPO-254): its number in
+ * One test-plan entry as the worker reports it (0014, DIPO-254): its number in
  * the story's test plan (field block order, from 1), whether it is done, and the evidence.
  */
 export interface WorkerTestPlanEntry {
@@ -168,9 +169,9 @@ export interface WorkerDeviation {
 }
 
 /**
- * A note the worker proposes for a decision record (0008 section 1, 0014 section 2 and 0020
- * section 11, notes of 2026-10-20): the decision file, the section heading and the text. dipo
- * carries it as data, shows it to the maintainer, and never writes it to the decision records.
+ * A note the worker proposes for a decision record (0008, 0014): the decision file, the section
+ * heading and the text. dipo carries it as data, shows it to the maintainer, and never writes it to
+ * the decision records.
  */
 export interface WorkerDecisionNote {
   /** Repo-relative path of the decision file. */
@@ -180,9 +181,9 @@ export interface WorkerDecisionNote {
 }
 
 /**
- * The report a worker returns at the end of a turn (0008 section 1, 0014): story done (`done`),
+ * The report a worker returns at the end of a turn (0008, 0014): story done (`done`),
  * a question (`blocked` with `question`), blocked with a reason (`blocked`, the reason in
- * `summary`) and proposals (0021 section 7, W2 to W5). Every text in it was cleaned at the door.
+ * `summary`) and proposals (0008, W2 to W5). Every text in it was cleaned at the door.
  */
 export interface WorkerReport {
   readonly status: "done" | "blocked";
@@ -201,10 +202,10 @@ export interface WorkerReport {
   readonly decisionNotes?: readonly WorkerDecisionNote[];
 }
 
-/** The longest `ReviewReport.summary` (0019 section 5). */
+/** The longest `ReviewReport.summary` (0002). */
 export const REVIEW_SUMMARY_MAX = 1_500;
 
-/** A criterion as the reviewer judged it (0019 section 5); exactly one per criterion. */
+/** A criterion as the reviewer judged it (0002); exactly one per criterion. */
 export interface ReviewCriterion {
   readonly n: number;
   /** `maintainer`: only the maintainer can check it; the merge waits for them. */
@@ -220,7 +221,7 @@ export type ReviewFindingKind =
   | "maintainability"
   | "other";
 
-/** One reviewer finding (0019 section 5); code checks its evidence before it may block. */
+/** One reviewer finding (0002); code checks its evidence before it may block. */
 export interface ReviewFinding {
   readonly severity: "blocking" | "advisory";
   readonly kind: ReviewFindingKind;
@@ -235,7 +236,7 @@ export interface ReviewFinding {
 }
 
 /**
- * The report a reviewer returns (0019 section 5): per-criterion results and findings. Code, not
+ * The report a reviewer returns (0002): per-criterion results and findings. Code, not
  * the reviewer, computes the verdict from them.
  */
 export interface ReviewReport {
@@ -245,9 +246,9 @@ export interface ReviewReport {
   readonly summary: string;
 }
 
-export type WaitingOn = "permission" | "question" | "plan-limit" | "retry" | "auth";
+export type WaitingOn = "question" | "plan-limit" | "retry" | "auth";
 
-/** Facts an adapter reads from a worker's output (0008 section 3). */
+/** Facts an adapter reads from a worker's output (0008). */
 export type WorkerEvent =
   | {
       readonly t: "started";
@@ -265,7 +266,7 @@ export type WorkerEvent =
       /**
        * The tool call's input beyond its path, as the adapter reads it (a shell command, a search
        * pattern, a URL). It may hold secrets: ingestion stores it only with the machine-local
-       * opt-in `privacy.storeCommandBodies` (0007 section 8, DIPO-83).
+       * opt-in `privacy.storeCommandBodies` (0007, DIPO-83).
        */
       readonly input?: string;
       /** `tool` only: the web call the tool makes, which the run counts (DIPO-164). */
@@ -297,7 +298,7 @@ export type WorkerEvent =
        * totals take output only from `turn`; the per-message number is stored as reported.
        */
       readonly output: number;
-      /** Cache creation, the sum of the two parts below (0008 section 4). */
+      /** Cache creation, the sum of the two parts below (0008). */
       readonly cacheCreate: number;
       /** Cache creation for the 5 minute cache; all of it when the source gives no split. */
       readonly cacheCreate5m: number;
@@ -316,7 +317,7 @@ export type WorkerEvent =
        * The turn in progress as the adapter counts it so far (DIPO-296), since the agent's last
        * turn end: the main agent's model turns, and the output of the messages whose final count
        * the stream reported. For the live view only: `turn` replaces both, and the caps and the
-       * budget never count them (0008 section 4).
+       * budget never count them (0008).
        */
       readonly t: "liveUsage";
       readonly turns: number;
@@ -326,7 +327,7 @@ export type WorkerEvent =
       readonly t: "turn";
       /** The worker's report; always null in a `review` session, whose report is `review`. */
       readonly report: WorkerReport | null;
-      /** A `review` session's valid report (0019 section 5); absent in other kinds. */
+      /** A `review` session's valid report (0002); absent in other kinds. */
       readonly review?: ReviewReport;
       /**
        * A `session` kind's structured output, cleaned at the door and held to its size cap, for
@@ -347,12 +348,12 @@ export type WorkerEvent =
       readonly numTurns: number;
       readonly terminal: string;
       /**
-       * Set when this turn ended at the adapter's own turn cap (the CLI backstop, 0008 section 7):
+       * Set when this turn ended at the adapter's own turn cap (the CLI backstop, 0008):
        * what fired, for the park detail. The engine stops the worker at this turn (DIPO-50).
        */
       readonly capped?: string;
       /**
-       * Set when the turn ended without what the engine needs from it (DIPO-51, 0008 section 7):
+       * Set when the turn ended without what the engine needs from it (DIPO-51, 0008):
        * no valid report, a full context, an execution error, a start failure or a plan limit.
        * Adapter-neutral; the engine decides what follows.
        */
@@ -372,7 +373,7 @@ export type WorkerEvent =
       readonly resetsAt?: string;
       readonly creditsRequired?: boolean;
       /**
-       * Which plan limit the event is about, when the adapter can tell (0008 section 7, DIPO-61):
+       * Which plan limit the event is about, when the adapter can tell (0008, DIPO-61):
        * `session`, `weekly` or `model:<family>`; absent when it cannot.
        */
       readonly scope?: PlanLimitScope;
@@ -384,14 +385,14 @@ export type WorkerEvent =
   | { readonly t: "compacted"; readonly preTokens?: number }
   | { readonly t: "modelSwitched"; readonly from: string; readonly to: string }
   /**
-   * The worker failed its start checks (0008 section 2: key source, model). Emitted once, before
+   * The worker failed its start checks (0008: key source, model). Emitted once, before
    * any `started` of that init, so the engine can stop the worker at once instead of treating it
    * as a live start; the result is `initRejected`.
    */
   | { readonly t: "initRejected"; readonly reason: string }
   /**
    * The worker started in a state it must not run in, and the start is refused without blaming the
-   * story (0008 amendment of 2026-10-12, DIPO-108: a plugin the office does not allow). Emitted
+   * story (0008: a plugin the office does not allow). Emitted
    * once, before any `started` of that init, so the engine stops the worker at once; the result
    * is `startFailed`, and the story stays Ready when the worktree holds no work.
    */
@@ -426,13 +427,13 @@ export type WorkerEvent =
 export type StreamDriftKind = "schema" | "dropped" | "usage";
 
 /**
- * The scope of a plan limit an adapter can name (0008 section 7): `session` and `weekly` cover
+ * The scope of a plan limit an adapter can name (0008): `session` and `weekly` cover
  * every model, `model:<family>` only that family. The engine's wait facts add `credits` and
  * `unknown` (treated as `session`).
  */
 export type PlanLimitScope = "session" | "weekly" | `model:${string}`;
 
-/** What was wrong with a turn (0008 section 7); `detail` is one line for a park or a notice. */
+/** What was wrong with a turn (0008); `detail` is one line for a park or a notice. */
 export interface TurnProblem {
   readonly kind: TurnProblemKind;
   readonly detail: string;
@@ -451,7 +452,7 @@ export type WorkerOutcome =
   | "startFailed"
   | "initRejected";
 
-/** How a run ended, as the adapter reads it; the engine decides what follows (0008 section 7). */
+/** How a run ended, as the adapter reads it; the engine decides what follows (0008). */
 export interface WorkerResult {
   readonly outcome: WorkerOutcome;
   readonly report: WorkerReport | null;
@@ -461,11 +462,10 @@ export interface WorkerResult {
   readonly answer?: unknown;
   readonly usage: UsageTotalsByModel;
   readonly sessionId: string;
-  readonly resumable: boolean;
   /** A proposed park; the engine decides. */
   readonly park?: { readonly reason: ParkReason; readonly detail: string };
   /**
-   * The one recovery step 0008 section 7 asks for before the proposed park: `handoff` starts a
+   * The one recovery step 0008 asks for before the proposed park: `handoff` starts a
    * new session with a handoff, `report-feedback` sends one turn asking for a valid report.
    */
   readonly retry?: WorkerRetry;
@@ -473,15 +473,14 @@ export interface WorkerResult {
   readonly detail?: string;
 }
 
-/** A recovery step the engine tries once before the proposed park (0008 section 7). */
+/** A recovery step the engine tries once before the proposed park (0008). */
 export type WorkerRetry = "handoff" | "report-feedback";
 
-/** Result of `probe`: version, login kind and capabilities (0008 sections 2 and 11). */
+/** Result of `probe`: version and login kind (0008). */
 export interface AdapterStatus {
   readonly ok: boolean;
   readonly version: string | null;
   readonly login: string | null;
-  readonly capabilities: readonly string[];
   /** Why the adapter refuses to run, when `ok` is false. */
   readonly reason?: string;
 }
@@ -504,45 +503,10 @@ export interface ExitRecord {
   readonly signalInferred?: boolean;
 }
 
-/** The native session a resume would continue. */
-export interface SessionRef {
-  readonly id: string;
-  /** The transcript file when known; null lets the adapter look for it. */
-  readonly transcriptPath: string | null;
-  /** The adapter version the session ran on; null when it never started. */
-  readonly version: string | null;
-  /** The L1+L2 hash the session ran with; null when it was never recorded. */
-  readonly systemHash: string | null;
-  /** The context tokens of the session's last request; null or absent when unknown. */
-  readonly contextTokens?: number | null;
-  /** The model's context window; null or absent when unknown. */
-  readonly contextWindow?: number | null;
-  /** When the session's last request was made (engine clock, ms); null or absent when unknown. */
-  readonly lastRequestAt?: number | null;
-}
-
-/** What a resume would run with now (0008 section 8, 0014 section 6). */
-export interface ResumeFacts {
-  /** The engine clock now. */
-  readonly now: number;
-  /** The adapter version a resume would run; null when the probe gave none. */
-  readonly version: string | null;
-  /** The L1+L2 hash a resume would run with. */
-  readonly systemHash: string;
-  /** The estimated tokens of the handoff task message a new session would get instead. */
-  readonly handoffTokens: number;
-  /** Resume only under this share of the context window (0014 section 6; 0.6 in M0). */
-  readonly maxContextShare: number;
-  /** Resume only when re-reading costs at most this many handoffs (0014 section 6; 3 in M0). */
-  readonly rereadFactor: number;
-}
-
-export type ResumeCheck = { readonly ok: true } | { readonly ok: false; readonly reason: string };
-
 export interface WorkerAdapter {
   /** For example `claude-cli`. */
   readonly id: string;
-  /** Version, login kind, capabilities; refuses below the minimum. */
+  /** Version and login kind; refuses below the minimum. */
   probe(): Promise<AdapterStatus>;
   /** Pure: argv, env, files for the run dir, first stdin lines. */
   plan(spec: WorkerSpec): LaunchPlan;
@@ -555,11 +519,6 @@ export interface WorkerAdapter {
   ): { readonly events: WorkerEvent[]; readonly state: ParseState };
   /** Pure: the run's result once `exit.json` exists. */
   result(state: ParseState, exit: ExitRecord): WorkerResult;
-  /**
-   * Transcript present, version and prompt hash unchanged, and resuming cheaper than a handoff
-   * (0008 section 8, 0014 section 6).
-   */
-  canResume(ref: SessionRef, spec: WorkerSpec, facts: ResumeFacts): ResumeCheck;
 }
 
 /** What a refused path is about, when `plan` refused a path (DIPO-74 AC #7). */

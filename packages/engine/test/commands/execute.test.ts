@@ -1,4 +1,4 @@
-// The command executor (DIPO-22; 0005 sections 1, 3 and 9).
+// The command executor (DIPO-22; 0005).
 
 import { describe, expect, it } from "bun:test";
 

@@ -8,7 +8,6 @@
 
 import { stopEngineCalls } from "../platform/deadline";
 import { createUlid } from "../platform/ids";
-import { recordTuiLeft } from "../overview/digest";
 import { DeskNotifier, watchDesk } from "../overview/desk-notify";
 import { MemoryRequestTable } from "../commands/requests";
 import { buildCommandServices } from "./commands";
@@ -129,15 +128,11 @@ function engineOf(core: Core, services: Services, steps: RecoverySteps): Engine 
         logger: core.logger,
         request,
         caps,
-        // `daemon.stop { stopWorkers: true }` (0006 decision 7, DIPO-315): through run control.
+        // `daemon.stop { stopWorkers: true }` (0005, DIPO-315): through run control.
         stopWorkers: () => services.commands.runs.control.stopAll(),
       });
     },
     busy: () => core.children.size > 0 || lifecycle.inFlight > 0,
-    tuiLeft: (office, at) => {
-      const handle = core.offices.get(office);
-      if (handle !== undefined) recordTuiLeft(handle, at);
-    },
     stop: async () => {
       stopDeskNotices();
       await stopServices(core, services);

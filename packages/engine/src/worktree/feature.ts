@@ -7,16 +7,14 @@
 // ended as `setup-failed`.
 //
 // Before the rollback, the step sweeps the `_branch-read-*` scratch directories a killed or
-// crashed daemon left under the worktree root (DIPO-90, see `sweep.ts`), and removes the clean
-// story worktrees an earlier binary left there, listing the others on the desk (DIPO-349,
-// `leftovers.ts`). The story index's load step, which runs branch reads, follows this one.
+// crashed daemon left under the worktree root (DIPO-90, see `sweep.ts`). The story index's load
+// step, which runs branch reads, follows this one.
 
 import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
 
 import type { FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
-import { OFFICE_DEFAULTS } from "../config";
 import type { OfficeLoadContext } from "../office/steps";
 import type { StoryStore } from "../story-store/store";
 
@@ -28,7 +26,6 @@ import {
   releaseUnstarted,
   rollBackInterruptedSetup,
 } from "./claim";
-import { recordKeptWorktrees, sweepLeftoverWorktrees } from "./leftovers";
 import { type ClaimRecord, liveClaims } from "./records";
 import { sweepBranchReads } from "./sweep";
 
@@ -99,34 +96,6 @@ export class StoryClaims {
       root,
       removed: swept.removed.length,
     });
-  }
-
-  /**
-   * Removes the clean story worktrees an earlier binary left and lists the others on the desk
-   * (`leftovers.ts`), and logs what it did. Never refuses the office: a failure is logged and the
-   * load goes on.
-   */
-  async sweepLeftovers(ctx: OfficeLoadContext): Promise<void> {
-    const git = this.#deps.git(ctx.officeId);
-    if (git === undefined) return;
-    try {
-      // Without a valid configuration the defaults decide: they name only build caches.
-      const rebuildable = ctx.config?.worktree.rebuildable ?? OFFICE_DEFAULTS.worktree.rebuildable;
-      const swept = await sweepLeftoverWorktrees(git, rebuildable);
-      recordKeptWorktrees(ctx.office, swept.kept, ctx.clock);
-      if (swept.removed.length > 0 || swept.kept.length > 0) {
-        this.#deps.info?.("leftover story worktrees swept", {
-          office: ctx.officeId,
-          removed: swept.removed,
-          kept: swept.kept.map((worktree) => worktree.path),
-        });
-      }
-    } catch (error) {
-      this.#deps.warn?.("leftover worktree sweep failed", {
-        office: ctx.officeId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
   }
 
   /** Attaches a loaded office. Returns the reason the office is refused, or null. */
@@ -213,7 +182,6 @@ export class StoryClaims {
           const reason = this.attach(ctx);
           if (reason !== null) return { ok: false, reason };
           this.sweepScratch(ctx);
-          await this.sweepLeftovers(ctx);
           await this.recover(ctx.officeId);
           return { ok: true };
         });

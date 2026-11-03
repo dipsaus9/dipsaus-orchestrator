@@ -1,11 +1,11 @@
-// `office.confirm` (0013 section 6 steps 4 and 5, DIPO-310): the maintainer accepts, edits or
+// `office.confirm` (0013, DIPO-310): the maintainer accepts, edits or
 // rejects a pending proposal, sets a capability by hand, picks one candidate of a conflict,
 // confirms a stale confirmation again, or marks the product as having nothing to start. It writes
 // only the database, inside the command's transaction: the confirmation, proposal and mark rows.
 // The run refusal follows, because `verifyResolved` reads the effective profile; the command emits
 // `scan.finished` with trigger `confirm` and the diff of the effective profile.
 //
-// Sources (0013 section 6): accept gives `inferred`, edit, set and pick give `maintainer`; each is
+// Sources (0013): accept gives `inferred`, edit, set and pick give `maintainer`; each is
 // confirmed. A capability code resolves is refused (`scan.resolvedByCode`): the fallback and the
 // confirmations exist only for what code leaves unresolved or in conflict, and a rescan would
 // replace such a confirmation anyway (criterion 8).

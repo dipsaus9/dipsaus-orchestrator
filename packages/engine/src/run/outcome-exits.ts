@@ -1,5 +1,5 @@
-// The decision at a worker's exit, or at a host found dead (DIPO-51, DIPO-57, split out of
-// `outcomes.ts` by DIPO-128): by the intent that explains the exit, else by the adapter's result.
+// The decision at a worker's exit, or at a host found dead, a part of worker outcomes
+// (`outcomes.ts`): by the intent that explains the exit, else by the adapter's result.
 
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit } from "../ingest/ingestor";
@@ -79,8 +79,8 @@ export class ExitOutcomes {
       return;
     }
     // This worker exited before it answered its report correction: the correction is held again
-    // for the resume's first message (the one feedback path), keyed on this agent, so a restart
-    // before the resume started resumes again. It is delivered once the next session started.
+    // for the next session's first message (the one feedback path), keyed on this agent, so a
+    // restart before that session started sends it again. It is delivered once the session started.
     const feedback = this.#s
       .reportFeedbacks(office, view.runId)
       .find((row) => row.resolvedAt === null && row.key === agent);
@@ -97,7 +97,6 @@ export class ExitOutcomes {
         });
       }
       await this.#sessions.next(office, run, view, {
-        mode: "resume",
         why: "the worker exited before it answered the report feedback",
       });
       return;
@@ -116,24 +115,20 @@ export class ExitOutcomes {
     const tag = intentTag(intent.detail);
     // The intent is resolved in the transaction that records why the agent ended (DIPO-57), so a
     // restart before the next session started finds the decision and starts that session.
-    if (intent.kind === "reassign" && tag === INTENT_TAGS.contextFull) {
+    if (intent.kind === "new-session" && tag === INTENT_TAGS.contextFull) {
       office.immediate(() => {
         resolveIntent(office, view.runId, intent.intentId, "reassigned", at);
         this.#s.endAgentIn(office, agent, "prompt-too-long");
       });
-      await this.#sessions.next(office, run, view, {
-        mode: "handoff",
-        why: "a full context (prompt_too_long)",
-      });
+      await this.#sessions.next(office, run, view, { why: "a full context (prompt_too_long)" });
       return;
     }
-    if (intent.kind === "reassign" && tag === INTENT_TAGS.error) {
+    if (intent.kind === "new-session" && tag === INTENT_TAGS.error) {
       office.immediate(() => {
         resolveIntent(office, view.runId, intent.intentId, "reassigned", at);
         this.#s.endAgentIn(office, agent, "crashed");
       });
       await this.#sessions.next(office, run, view, {
-        mode: "resume",
         why: `an execution error (${intentRest(intent.detail)})`,
       });
       return;
@@ -147,7 +142,7 @@ export class ExitOutcomes {
     // ends the run), so it is written now with the question its intent kept (DIPO-430).
     if (intent.kind === "park" && tag === INTENT_TAGS.question) {
       const question = intentRest(intent.detail);
-      // The park stores its own intent, so this one is resolved first, as a legacy pause's is.
+      // The park stores its own intent, so this one is resolved first.
       this.#s.resolve(office, view.runId, intent, "run-ended", at);
       await this.#s.park(office, run, view.work, {
         intent: "park",
@@ -159,7 +154,7 @@ export class ExitOutcomes {
       return;
     }
     // Any other park a restart found unwritten parks with the reason and facts its intent kept
-    // (DIPO-433); an intent an older dipo wrote keeps none and is only resolved, below.
+    // (DIPO-433); one whose facts do not parse is only resolved, below.
     const park = intent.kind === "park" ? intentPark(intent.detail) : null;
     if (park !== null) {
       this.#s.resolve(office, view.runId, intent, "run-ended", at);
@@ -214,7 +209,6 @@ export class ExitOutcomes {
           }
           this.#s.endAgent(office, agent, "prompt-too-long");
           await this.#sessions.next(office, run, view, {
-            mode: "handoff",
             why: "a full context (prompt_too_long)",
           });
           return;
@@ -240,8 +234,8 @@ export class ExitOutcomes {
             });
             return;
           }
-          // The one correction turn, held for the resume's first message and keyed on this agent,
-          // so a restart before the resume started resumes with it again (`#decideExit`).
+          // The one correction turn, held for the next session's first message and keyed on this
+          // agent, so a restart before that session started sends it again (`#decideExit`).
           sendFeedback(
             office,
             run.runId,
@@ -249,7 +243,6 @@ export class ExitOutcomes {
             { at: this.#deps.clock.now() },
           );
           await this.#sessions.next(office, run, view, {
-            mode: "resume",
             why: "a turn without a valid report",
           });
           return;
@@ -272,7 +265,10 @@ export class ExitOutcomes {
     }
   }
 
-  /** A crash: one resume when no earlier agent crashed and no cap fired, else `worker-failed`. */
+  /**
+   * A crash: one new session with a handoff when no earlier agent crashed and no cap fired, else
+   * `worker-failed`.
+   */
   async #crashed(
     office: OfficeHandle,
     run: StoredRun,
@@ -291,6 +287,6 @@ export class ExitOutcomes {
       return;
     }
     this.#s.endAgent(office, agent, "crashed");
-    await this.#sessions.next(office, run, view, { mode: "resume", why: `a crash (${detail})` });
+    await this.#sessions.next(office, run, view, { why: `a crash (${detail})` });
   }
 }

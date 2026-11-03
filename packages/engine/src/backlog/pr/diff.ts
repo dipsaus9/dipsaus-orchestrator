@@ -1,6 +1,6 @@
 // Gathers the diff of a backlog PR for the structural check (`check.ts`): the paths changed between
 // the merge base and the head, and for each task or draft among them where it is on both sides and
-// how the Backlog CLI shows it. Task files are never read directly (0010 section 1): the engine's
+// how the Backlog CLI shows it. Task files are never read directly (0010): the engine's
 // backlog worktree `_backlog` is checked out at each side in turn and the CLI views the tasks there,
 // then the worktree returns to what it had checked out. The caller runs this inside one item of the
 // office git queue, so nothing else of the office uses `_backlog` meanwhile.

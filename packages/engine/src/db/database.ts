@@ -5,7 +5,7 @@ import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
 
 import { openSqlite, type OpenSqliteOptions, type SqliteConnection } from "../platform/sqlite";
 
-import { migrate, type MigrateResult, type Migration } from "./migrations";
+import { migrate, type MigrateResult, type Migration, refuseBeforeSquash } from "./migrations";
 import { OfficeHandle } from "./office";
 import { MIGRATIONS } from "./schema";
 
@@ -34,9 +34,11 @@ export interface StateDatabase {
 
 /**
  * Opens and migrates the state database. Throws when the file cannot be used: network
- * filesystem, failed integrity check, a newer schema, an edited migration or a failed step.
+ * filesystem, a database from before the squash (refused before it is opened, so nothing is
+ * written next to it), a newer schema, an edited migration or a failed step.
  */
 export async function openStateDatabase(options: OpenStateDatabaseOptions): Promise<StateDatabase> {
+  refuseBeforeSquash(options.stateDir);
   const connection = await openSqlite(options);
   try {
     const migration = await migrate(connection, {

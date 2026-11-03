@@ -1,4 +1,4 @@
-// Hardened engine git calls (0008 section 2, "Engine git calls"; 0010). The engine runs git outside
+// Hardened engine git calls (0008, 0010). The engine runs git outside
 // any sandbox, with the maintainer's credentials, so no call may run a command a repository chose.
 // What every call sets and drops is the one definition in the contract (`git-hardening.ts`), which
 // the CLI's repository lookup shares; this file adds where a call runs: `GIT_DIR` and

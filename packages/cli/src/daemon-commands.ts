@@ -1,5 +1,5 @@
-// `dipo daemon` client subcommands (0006 decisions 2, 5, 14 and 15). `start`, `stop`, `restart`,
-// `status`, `install` and `uninstall` go through the `lifecycle` module of `client/node`; `log-level` and `resume-scheduling`
+// `dipo daemon` client subcommands (0005). `start`, `stop`, `restart`,
+// `status`, `install` and `uninstall` go through the `lifecycle` module of `client/node`; `log-level` and `resume-starts`
 // send one contract command each, starting the daemon first unless `daemon.autostart` is false;
 // `logs` reads the log files directly and never talks to the daemon (DIPO-64). Read-only commands
 // connect with `ConnectMode` `running` and never start it (DIPO-187).
@@ -29,7 +29,7 @@ import {
   cleanText,
   type Clock,
   type ConfigError,
-  daemonResumeScheduling,
+  daemonResumeStarts,
   daemonSetLogLevel,
   type EngineError,
   LogLevel,
@@ -61,7 +61,7 @@ export interface DaemonControl {
   start(options: StartOptions): Promise<StartResult>;
   stop(options: { readonly force: boolean }): Promise<StopResult>;
   restart(options: StartOptions): Promise<RestartResult>;
-  /** `dipo daemon install|uninstall` (0006 decision 15, DIPO-63). */
+  /** `dipo daemon install|uninstall` (0005, DIPO-63). */
   install?(): Promise<InstallResult>;
   uninstall?(): Promise<UninstallResult>;
   /** Autostart for `status`: installed or not, and the binary it runs. */
@@ -90,9 +90,9 @@ export interface DaemonCommandDeps {
   readonly connectDaemon: ConnectDaemon;
   readonly daemon: DaemonControl;
   readonly clock: Clock;
-  /** This binary's version, for the restart hint of 0006 decision 14. */
+  /** This binary's version, for the restart hint of 0005. */
   readonly version: string;
-  /** Where `dipo daemon logs` reads; defaults to `<logs>` of this user (0006 decision 3). */
+  /** Where `dipo daemon logs` reads; defaults to `<logs>` of this user (0005). */
   readonly logs?: DaemonLogsDeps;
 }
 
@@ -104,7 +104,7 @@ export const START_HINT = "Start it with `dipo daemon start`.";
 /** Printed once when a command has waited about a second for a recovering daemon (DIPO-86). */
 export const RECOVERY_WAIT = "waiting for the daemon to finish recovering";
 
-/** Exit codes of `dipo daemon status` (0006 decision 5). */
+/** Exit codes of `dipo daemon status` (0005). */
 export const STATUS_EXIT = { running: 0, unresponsive: 1, notRunning: 3 } as const;
 
 type Subcommand = (args: readonly string[], deps: DaemonCommandDeps) => Promise<number>;
@@ -166,7 +166,7 @@ function formatUptime(ms: number): string {
   return parts.filter((part) => part !== "").join(" ");
 }
 
-const TOOL_ORDER = ["claude", "backlog", "gh", "rg", "git"] as const;
+const TOOL_ORDER = ["workerCli", "backlog", "gh", "rg", "git"] as const;
 
 /** The `running` report: state and reason, PID, version, uptime, socket and tool paths. */
 export function formatRunning(status: DaemonStatusResult): string[] {
@@ -200,12 +200,12 @@ export function formatRunning(status: DaemonStatusResult): string[] {
   }
   lines.push("  tools:");
   for (const tool of TOOL_ORDER) {
-    lines.push(`    ${tool.padEnd(8)}${status.tools[tool] ?? "missing"}`);
+    lines.push(`    ${tool.padEnd(10)}${status.tools[tool] ?? "missing"}`);
   }
   return lines;
 }
 
-/** The autostart line of `status` and its warnings (0006 decision 15). */
+/** The autostart line of `status` and its warnings (0005). */
 function printAutostart(deps: DaemonCommandDeps, report: AutostartReport | null): void {
   if (report === null) return;
   deps.writeLine(
@@ -472,11 +472,11 @@ export const DAEMON_SUBCOMMANDS: ReadonlyMap<string, Subcommand> = new Map<strin
     },
   ],
   [
-    "resume-scheduling",
+    "resume-starts",
     async (args, deps) => {
-      if (args.length !== 0) return usage(deps, "daemon resume-scheduling takes no arguments");
+      if (args.length !== 0) return usage(deps, "daemon resume-starts takes no arguments");
       return withDaemon(deps, async (session) => {
-        const outcome = await session.command(daemonResumeScheduling, {});
+        const outcome = await session.command(daemonResumeStarts, {});
         if (!outcome.ok) return engineFailure(deps, outcome.error);
         deps.writeLine(`starts unpaused in every office; daemon state: ${outcome.result.state}`);
         return 0;

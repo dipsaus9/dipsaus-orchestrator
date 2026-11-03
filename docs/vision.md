@@ -49,7 +49,7 @@ This is the central design rule. The orchestrator is a **code-driven project**. 
 
 | Situation | Code knows and does | AI does |
 |---|---|---|
-| Maintainer plans a new story or milestone | Knows the backlog format and its rules, creates the item through the Backlog CLI, assigns the id, branch name, dependencies and milestone, runs validation and collision checks | Drafts the content: outcome, acceptance criteria, unknowns, test script. Interviews the maintainer. The maintainer and the AI write this together |
+| Maintainer plans a new story or milestone | Knows the backlog format and its rules, creates the item through the Backlog CLI, assigns the id, branch name, dependencies and milestone, runs validation and collision checks | Drafts the content: the Story line, acceptance criteria, unknowns, test script. Interviews the maintainer. The maintainer and the AI write this together |
 | Maintainer tells the orchestrator to pick up work | Selects ready, non-colliding stories, creates branches and boxes, spawns workers with the right prompt, enforces caps and gates, tracks state | The workers implement, self-review and are reviewed by a separate reviewer |
 | A job needs an agent | Chooses the role, model and token budget from the job's size and difficulty, within configured limits | The agent does the work for its role |
 | A worker is stuck | Detects it, parks the story with a structured reason, continues other work, reports it in the overview | Explains the blocker and proposes options when asked |
@@ -73,7 +73,7 @@ Plan, refine, find unknowns, estimate, mark Ready, run, review, retro. Each is a
 ### 4. A roster of agents with roles
 The maintainer can "hire" an agent for a specific job and give it specific instructions. A role is a stored, versioned definition inside the office's repository: purpose, instructions, allowed tools, default model and default effort. Hiring adds a role to the office's roster. When work is picked up, code chooses the role for each story (from a story label or type, or the maintainer's choice) without asking a model. A story may add extra instructions on top of its role. Tuning a role once improves every later job, and its history lives in git. Roles can include developer, tester, reviewer, UX designer and visual designer.
 
-Every role works through the same flow: **all work is a story, and all output lives in the repository.** A design story produces files in the project (for example `docs/design/<story-id>/` with flows, specs, and SVG or HTML mockups) on a branch, is reviewed against its own acceptance criteria, and is merged like code. Stories that build on it depend on it and list those files as inputs (not scope, which is only what a story writes), so the engine knows the order without a model (0012). External design tools may later be given to a role as a tool, without changing this flow.
+Every role works through the same flow: **all work is a story, and all output lives in the repository.** A design story produces files in the project (for example `docs/design/<story-id>/` with flows, specs, and SVG or HTML mockups) on a branch, is reviewed against its own acceptance criteria, and is merged like code. Stories that build on it depend on it and list those files as inputs (not references, which are a forecast of what a story writes), so the engine knows the order without a model (0012). External design tools may later be given to a role as a tool, without changing this flow.
 
 ### 5. Effort and model chosen by difficulty
 Each job's size and difficulty decide how much may be spent on it and which model does it. Easy jobs get a cheaper model and a small budget. Hard jobs get a stronger model and a larger budget. This also keeps shared subscription limits from being exhausted by one job.
@@ -109,7 +109,7 @@ How to run a product:
 ### 8. A manager's overview and feedback loop
 The maintainer is a manager who is present along the way, not only at planning time. At any moment the overview answers:
 
-- **Who is working on what:** which agent, in which role, on which story, in which phase (implementing, verifying, in review, parked).
+- **Who is working on what:** which agent, in which role, on which story, in which phase (setup, build, review, test, merge), or parked with which reason.
 - **How it is going:** progress against acceptance criteria, loop count, verify results, reviewer verdicts, time running, and signs of trouble such as repeated failures or a stalled agent.
 - **What needs to be done:** the queue by lifecycle state, what is Ready, what is blocked and why, and what is waiting for the maintainer.
 - **Whether it is cost efficient:** usage per story, per role and per tier compared to its budget, and trends over time, so the maintainer can see which kinds of work, roles or preparation are worth it.
@@ -130,9 +130,9 @@ The maintainer visions the whole plan and micromanages it, like a good manager: 
 4. **Park, don't guess.** Stuck unattended work stops and waits for a human.
 5. **Effort follows difficulty.** Model and budget are chosen per job and always capped.
 6. **Model-agnostic at the edge.** Workers sit behind an adapter. Claude through the CLI on the Max login comes first.
-7. **One source per fact.** Stories live in Backlog.md. Git and GitHub hold code, PRs and merges. A local database holds run detail only.
-8. **Built to last.** A long-lived open source project, not a proof of concept.
-9. **One mechanism per goal.** A fix replaces the mechanism that failed instead of adding one beside it. Build at the milestone, not before (0003).
+7. **One source per fact.** Stories live in Backlog.md. Git and GitHub hold code, PRs and merges. A local database holds run detail and dipo's own state, never the only copy of a story fact.
+8. **One mechanism per goal.** A fix replaces the mechanism that failed instead of adding one beside it. Build at the milestone, not before (0003).
+9. **Built to last.** A long-lived open source project, not a proof of concept.
 
 ## Not goals
 

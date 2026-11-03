@@ -4,11 +4,11 @@ Status: accepted. First written 2026-10-10 (spike DIPO-7). Rewritten 2026-10-24 
 
 ## Decision in short
 
-Every backlog change is a commit in a pull request, so it reaches a protected base and survives a re-clone. A running story's own changes travel in its story PR (the **story lane**). Planning changes travel in one backlog-only PR per office (the **planning lane**). **One git module makes every commit and push**, in dipo's own copies, never in the maintainer's checkout and never in a box. A claim is a branch, and a story has no Mac worktree.
+Every backlog change is a commit in a pull request, so it reaches a protected base and survives a re-clone. A running story's own changes travel in its story PR (the **story lane**). Planning changes travel in one backlog-only PR per office (the **planning lane**). **One module makes every commit, ref change and push** (`git/write.ts`); the story-git modules use it. It works in dipo's own copies, never in the maintainer's checkout and never in a box. A claim is a branch, and a story has no Mac worktree.
 
 ## 1. The Backlog CLI
 
-- **Version.** dipo supports Backlog.md **1.53.x**, pinned in `CLAUDE.md`. It checks `backlog --version` at office load and refuses any other version. A new minor is adopted by recording its `--plain` output as fixtures and passing the parser tests.
+- **Version.** dipo supports Backlog.md **1.53.x**, pinned in `package.json`. It checks `backlog --version` at office load and refuses any other version. A new minor is adopted by recording its `--plain` output as fixtures and passing the parser tests.
 - **Only through the CLI.** dipo runs `backlog … --plain` through the platform module and never edits a task file by hand. It reads the CLI's output from a file, never from a pipe. The only files it reads directly are `backlog/config.yml`, for the status list, a root `backlog.config.yml`, for the folders the StoryStore keeps its stories in, and, in the check before each CLI call, the files of those folders the CLI could read: each folder's `config.yml` and the task files.
 - **Never run:** `task complete`, `cleanup`, `task demote`, `doctor --fix`, `config set statuses`, and any edit to the status `Draft`.
 - **Refused inputs.** dipo refuses to run the CLI on a folder whose files it cannot check (0008).
@@ -98,7 +98,7 @@ dipo records the previous values. Existing ignore files are never edited.
 | Hardened calls | Every call runs with `GIT_CONFIG_NOSYSTEM=1`, `GIT_DIR` and `GIT_COMMON_DIR` set from recorded paths, `core.hooksPath=/dev/null`, `core.fsmonitor=false` and `commit --no-verify` |
 | One queue | One serial git queue per office orders refs and pushes |
 | Base and remote | `base` in `.dipo/office.yaml`, else `refs/remotes/origin/HEAD`; else `run` is refused. The remote is `origin` |
-| Worktrees | Only dipo's own two: `_base` (detached at `origin/<base>`, for reads) and `_backlog` (the planning lane), under `worktree.root` (default `../<repo>.worktrees`), outside the main checkout. A story worktree an earlier binary left there (locked `dipo <run-id>`) is removed at office load with `git worktree remove` when it has a branch checked out and every file `git status` lists is deleted, a `node_modules/` folder, a `.DS_Store` file, or bytes git holds for that path at a commit reachable from the branch tip; any other, or one on a detached HEAD, is kept and listed on the desk |
+| Worktrees | Only dipo's own two: `_base` (detached at `origin/<base>`, for reads) and `_backlog` (the planning lane), under `worktree.root` (default `../<repo>.worktrees`), outside the main checkout |
 | Claim | The exact local ref is absent and `git ls-remote --heads origin <branch>` is empty. Then `git update-ref refs/heads/<branch> <start> ""` creates the branch atomically, and a `claims` row with unique indexes holds it (0007). Then come the claim commit, the push and the box (0008). A lost race is a skip |
 | Parts | Committed from git objects on the branch ref, then pushed (0008) |
 | Code tree key | The hash of `git ls-tree -r <commit>` without the story's own task file. Verdicts are keyed on it (0002) |
@@ -134,11 +134,12 @@ There are no git hooks, no changes to existing ignore files or `info/exclude`, a
 
 - A Mac worktree per story at `<root>/<ID>`, locked with `git worktree lock`, plus a setup contract that copied env files, ran install, `setup` and `post_create` on the Mac, and gave each worktree a machine-wide port slot (2026-10-10). Replaced by the box (0008), with files copied through `box.files` and install in the box. The test box needs no port slots (0002).
 - A merge slot for story and backlog PRs (2026-10-10). Replaced by GitHub auto-merge (0002, 2026-10-24).
-- Verify and commit at done with a scope check on the worktree, and lockfile pairing (2026-10-10). Replaced by parts, verify in the box with CI as the final gate (0002), and references as a forecast (0008).
+- The office-load sweep of story worktrees an earlier binary left, with `worktree.rebuildable` and a desk item for the kept ones (2026-10-29). Gone with the database squash (0007, 2026-11-03).
+- Verify and commit at done with a scope check on the worktree, and lockfile pairing (2026-10-10). Replaced by parts, verify in the box with the required checks last (0002), and references as a forecast (0008).
 - A building-time sync for riskier stories (2026-10-10). Removed; dipo syncs only on a conflict (2026-10-24).
 - A conflict merge left in progress in a worktree (2026-10-16). Replaced by a merge committed with markers (0002).
 - A reused branch merged with the base at claim, with a conflict as the worker's first feedback (2026-10-10). Replaced (2026-10-28) by reuse at the kept tip, then the conflict check and base sync (0002).
-- Seven separate places that made commits, and pushes from eight. Replaced by one git module (2026-10-24).
+- Seven separate places that made commits, and pushes from eight. Replaced by one module that makes every commit, ref change and push (2026-10-24).
 - A lane flush that failed as a whole when the CLI failed on one operation, so every operation after it waited (2026-10-10). Replaced by closing that operation as `failed` (2026-10-30).
 - Draft promotion with a journaled snapshot (2026-10-10). It moved to M3 and is designed when it is built (0003).
 - An optional component map for collision checks (2026-10-10). It is M2 work and is designed then (0003).

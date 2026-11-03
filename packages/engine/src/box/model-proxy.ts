@@ -1,8 +1,7 @@
-// The model proxy (0021 section 4 and its amendment of 2026-10-21, DIPO-269): the one place a
-// box's Claude Code reaches the model. It runs on the Mac, listens only on the box network's host
-// address, passes only model requests and adds the maintainer's subscription login on the way out,
-// so the token never enters a box. Ported from the reviewed probe proxy
-// (tools/box-probe/model-proxy.ts):
+// The model proxy (0008, DIPO-269): the one place a box's Claude Code reaches the model. It runs on
+// the Mac, listens only on the box network's host address, passes only model requests and adds the
+// maintainer's subscription login on the way out, so the token never enters a box. Ported from the
+// reviewed probe proxy (tools/box-probe/model-proxy.ts):
 //
 // - only `POST /v1/messages` and `POST /v1/messages/count_tokens` pass; every other path gets a 404
 //   and every other method a 405, and neither is forwarded;

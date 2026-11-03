@@ -22,8 +22,7 @@ import {
   REVIEW_REPORT_JSON_SCHEMA,
   WORKER_REPORT_JSON_SCHEMA,
 } from "../../src/workers/claude-cli/report-schema";
-import { stripLocalSettings } from "../../src/workers/claude-cli/settings-check";
-import { AdapterHolds } from "../../src/workers/hold";
+import { AdapterPauses } from "../../src/run/starts-paused";
 import type { RunLaunchPaths } from "../../src/workers/port";
 import { PlanError, type HostLine, type ParseState } from "../../src/workers/types";
 import {
@@ -76,20 +75,18 @@ function reviewerInit(plugins: unknown[], skills: string[] = []): HostLine {
 }
 
 describe("the worker port seam (DIPO-113)", () => {
-  it("hands out the Claude report schema and the local settings copy", () => {
+  it("hands out the Claude report schema", () => {
     const port = claudeWorkerPort({
       claudePath: `${HOME}/.local/bin/claude`,
       home: HOME,
       env: { PATH: "/usr/bin:/bin", HOME },
       spawn: neverSpawn,
       clock,
-      holds: new AdapterHolds({ clock, notify: () => undefined }),
+      holds: new AdapterPauses({ clock, notify: () => undefined }),
     });
     expect(port.reportSchema).toBe(REPORT_JSON_SCHEMAS);
     expect(port.reportSchema.implement).toBe(WORKER_REPORT_JSON_SCHEMA);
     expect(port.reportSchema.review).toBe(REVIEW_REPORT_JSON_SCHEMA);
-    expect(port.localSettings.file).toBe(".claude/settings.local.json");
-    expect(port.localSettings.strip).toBe(stripLocalSettings);
   });
 
   it("builds a run's WorkerSpec with the port's report schema", () => {
@@ -102,7 +99,7 @@ describe("the worker port seam (DIPO-113)", () => {
       { runId: "run_1", agent: "agt_1", caps: OFFICE_DEFAULTS.tiers.S },
       PATHS,
       "task",
-      { id: "s-1", resume: false },
+      { id: "s-1" },
     );
     expect(built.kind).toBe("implement");
     expect(built.reportSchema).toBe(reportSchema.implement);
@@ -116,7 +113,7 @@ describe("the worker port seam (DIPO-113)", () => {
         { runId: "run_1", agent: "agt_1", caps: tier, ...facts },
         PATHS,
         "task",
-        { id: "s-1", resume: false },
+        { id: "s-1" },
       );
     // The engine says only that the web is on; the adapter names the tools (DIPO-318).
     expect(specOf({}).web).toBe(true);
@@ -133,8 +130,7 @@ describe("the worker port seam (DIPO-113)", () => {
       { runId: "run_1", agent: "agt_2", caps: tier, reviewer: review },
       PATHS,
       "review task",
-      // The reviewer never resumes, whatever the caller asks.
-      { id: "s-2", resume: true },
+      { id: "s-2" },
       { budgetTokens: 123_000, maxTurns: tier.maxTurns, maxMinutes: tier.maxMinutes },
     );
     expect(built.kind).toBe("review");
@@ -146,10 +142,10 @@ describe("the worker port seam (DIPO-113)", () => {
       maxMinutes: OFFICE_DEFAULTS.review.maxMinutes,
     });
     expect(built.web).toBe(false);
-    expect(built.session).toEqual({ id: "s-2", resume: false });
+    expect(built.session).toEqual({ id: "s-2" });
     expect(built.systemFile).toBe(`${RUN_DIR}/${REVIEW_SYSTEM_FILE}`);
     expect(built.reportSchema).toBe(REVIEW_REPORT_JSON_SCHEMA);
-    // The ReviewReport of 0019 section 5: findings with testEntry, a summary of at most 1,500.
+    // The ReviewReport of 0002: findings with testEntry, a summary of at most 1,500.
     const schema = built.reportSchema as {
       required: string[];
       properties: {
@@ -219,7 +215,7 @@ describe("the Claude CLI adapter of one run", () => {
       ...deps,
       spawn: neverSpawn,
       clock,
-      holds: new AdapterHolds({ clock, notify: () => undefined }),
+      holds: new AdapterPauses({ clock, notify: () => undefined }),
     });
     expect(port.adapter(PATHS, OFFICE_DEFAULTS).plan(sessionSpec())).toEqual({
       ...plan(sessionSpec(), ctx),
@@ -236,7 +232,7 @@ describe("the Claude CLI adapter of one run", () => {
       env: { PATH: "/usr/bin:/bin", HOME },
       spawn: claude.spawn,
       clock,
-      holds: new AdapterHolds({ clock, notify: () => undefined }),
+      holds: new AdapterPauses({ clock, notify: () => undefined }),
       pluginFiles: { read: () => undefined, dirs: () => [] },
       launchCheckSeams: { readText: async () => undefined },
     });
@@ -362,7 +358,7 @@ describe("the Claude CLI adapter of one run", () => {
       env: {},
       spawn: neverSpawn,
       clock,
-      holds: new AdapterHolds({ clock, notify: () => undefined }),
+      holds: new AdapterPauses({ clock, notify: () => undefined }),
     });
     const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
     const warp = [{ name: "warp", source: "warp@claude-code-warp", path: "/x" }];
@@ -392,7 +388,7 @@ describe("the Claude CLI adapter of one run", () => {
       env: {},
       spawn: neverSpawn,
       clock,
-      holds: new AdapterHolds({ clock, notify: () => undefined }),
+      holds: new AdapterPauses({ clock, notify: () => undefined }),
     });
     const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
     const step = adapter.interpret(

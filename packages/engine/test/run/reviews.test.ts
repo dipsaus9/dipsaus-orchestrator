@@ -1,7 +1,7 @@
-// Review rounds (DIPO-219; 0019 sections 4, 6 and 12), fast and local: a story that reaches In
+// Review rounds (DIPO-219; 0002), fast and local: a story that reaches In
 // Review gets a pending review that the review starter starts in the reviewer place, oldest In
 // Review first; a code tree key with a verdict is never reviewed again, also after a restart;
-// each round started grows the budget by the review allowance; and the section 4 failure table.
+// each round started grows the budget by the review allowance; and the review failure table.
 // The places, run control and the review rounds are real on a migrated state database; git, the
 // story read and the reviewer session start are fakes, and a "session" is an agent row that run
 // control tracks, fed turns and exits as ingestion would.
@@ -353,7 +353,7 @@ function world(): World {
     ender: () => control,
     adapter: "claude-cli",
     holds: {
-      hold: (adapter, failures) => ({
+      pause: (adapter, failures) => ({
         adapter,
         check: failures[0]?.check ?? "",
         detail: failures[0]?.detail ?? "",
@@ -517,7 +517,7 @@ async function reviewStarts(s: StoryRun): Promise<Session> {
   return session;
 }
 
-describe("a pending review (0019 sections 6 and 12)", () => {
+describe("a pending review (0002)", () => {
   it("starts once the reviewer place is free, oldest In Review first, and stores its verdict by code tree key", async () => {
     // Another story's review holds the reviewer place.
     const busy = storyRun(w, { story: "DIPO-7", reviewRoundCap: 3 });
@@ -676,7 +676,7 @@ describe("a pending review (0019 sections 6 and 12)", () => {
   });
 });
 
-describe("a code tree key with a verdict (0019 section 6)", () => {
+describe("a code tree key with a verdict (0002)", () => {
   it("is not reviewed again after a daemon restart", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
@@ -747,7 +747,7 @@ describe("review rounds grow no cap (0002, 0020)", () => {
   });
 });
 
-describe("the failure table (0019 section 4)", () => {
+describe("the failure table (0002)", () => {
   it("parks review-blocked at the third failed round, a review-failed row per failed round", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
@@ -929,7 +929,7 @@ describe("the failure table (0019 section 4)", () => {
     w.t.clock.advance(MINUTE);
     x.next = () => ({
       kind: "startFailed",
-      hold: {
+      pause: {
         adapter: "claude-cli",
         check: "self-test",
         detail: "the control write was refused",
@@ -1317,7 +1317,7 @@ describe("a refused reviewer launch plan (DIPO-247)", () => {
   });
 });
 
-describe("a reviewer that ends without a verdict (0019 section 4)", () => {
+describe("a reviewer that ends without a verdict (0002)", () => {
   it("parks worker-failed past the reviewer's minute cap, with no review-failed step", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");

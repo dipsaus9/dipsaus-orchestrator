@@ -1,6 +1,6 @@
-// The `OfficeStore` (DIPO-53, 0009 sections 2 and 7): snapshot then events by subject, duplicate
+// The `OfficeStore` (DIPO-53, 0009): snapshot then events by subject, duplicate
 // cursors dropped, views replaced and never derived, `stream.resetRequired` reloads once, and
-// `office.switch` replaces the office and its stream. A read refused with `engine.recovering` is
+// `switchTo` replaces the office and its stream. A read refused with `engine.recovering` is
 // sent again on a timer, so a daemon held without its state database ends it (DIPO-111). A stream
 // ended with a retryable error is subscribed again on a backoff from 250 ms to 5 s that starts
 // over when the daemon runs or the client reconnects; one that does not retry stays in
@@ -151,7 +151,6 @@ async function setup() {
       : { ok: true as const, result: found };
   };
   client.answers.set("office.snapshot", answer);
-  client.answers.set("office.switch", answer);
   client.answers.set("engine.hello", () => ({ ok: true, result: hello(30) }));
   const store = new OfficeStore({ client, clock, clientInfo: { name: "test", version: "0" } });
   store.start();
@@ -300,11 +299,11 @@ describe("OfficeStore", () => {
     expect(store.state.notice).toBeNull();
   });
 
-  it("switches with office.switch: replaces the state, unsubscribes and subscribes after its cursor", async () => {
+  it("switches with office.snapshot: replaces the state, unsubscribes and subscribes after its cursor", async () => {
     const { client, store } = await setup();
     const previous = client.active(`office:${A}`);
     await store.switchTo(B);
-    expect(client.reads.at(-1)).toEqual({ name: "office.switch", args: { office: B } });
+    expect(client.reads.at(-1)).toEqual({ name: "office.snapshot", args: { office: B } });
     expect(previous.active).toBe(false);
     expect(client.active(`office:${B}`).after).toEqual(cursor(`office:${B}`, 20));
     expect(store.state.office).toBe(B);
@@ -374,7 +373,7 @@ describe("OfficeStore", () => {
   it("retries a read refused with engine.recovering once the daemon runs", async () => {
     const { client, store, snapshots } = await setup();
     let recovering = true;
-    client.answers.set("office.switch", (args) =>
+    client.answers.set("office.snapshot", (args) =>
       recovering
         ? { ok: false, error: { code: "engine.recovering", message: "wait", retryable: true } }
         : { ok: true, result: snapshots.get(args.office as OfficeId) },
@@ -400,7 +399,7 @@ describe("OfficeStore", () => {
     };
     let refusals = 2;
     let sent = 0;
-    client.answers.set("office.switch", () => {
+    client.answers.set("office.snapshot", () => {
       sent += 1;
       return refusals-- > 0
         ? { ok: false, error: { code: "engine.recovering", message: "wait", retryable: true } }
@@ -424,7 +423,7 @@ describe("OfficeStore", () => {
     const recovering = { code: "engine.recovering", message: "wait", retryable: true };
     const unavailable = { code: "database.unavailable", message: "held", retryable: false };
     let answer: { code: string; message: string; retryable: boolean } = recovering;
-    client.answers.set("office.switch", () => ({ ok: false, error: answer }));
+    client.answers.set("office.snapshot", () => ({ ok: false, error: answer }));
     await store.switchTo(B);
     expect(store.state).toMatchObject({ loading: false, error: recovering });
     const seen: { loading: boolean; error: unknown }[] = [];
@@ -444,7 +443,7 @@ describe("OfficeStore", () => {
 
   it("stops asking again once closed", async () => {
     const { client, clock, store } = await setup();
-    client.answers.set("office.switch", () => ({
+    client.answers.set("office.snapshot", () => ({
       ok: false,
       error: { code: "engine.recovering", message: "wait", retryable: true },
     }));
@@ -456,7 +455,7 @@ describe("OfficeStore", () => {
 
   it("turns a read the closed client refuses into an outcome, never a rejection", async () => {
     const { client, store } = await setup();
-    client.answers.set("office.switch", () => {
+    client.answers.set("office.snapshot", () => {
       throw new ClientError("client.closed", "The client was closed.");
     });
     const outcome = await store.switchTo(B);
@@ -477,7 +476,11 @@ describe("OfficeStore", () => {
     await settle();
     expect(store.state.office).toBe(B);
     expect(store.state.stories.map((view) => String(view.story))).toEqual(["BETA-1"]);
-    expect(client.reads.filter((read) => read.name === "office.snapshot")).toHaveLength(1);
+    // Office A was read once, by the setup; the reload did not read it again.
+    expect(client.reads.filter((read) => read.name === "office.snapshot")).toEqual([
+      { name: "office.snapshot", args: { office: A } },
+      { name: "office.snapshot", args: { office: B } },
+    ]);
   });
 
   it("keeps the office cursor for read-your-writes: the snapshot, then each stored event (DIPO-54)", async () => {
@@ -601,7 +604,7 @@ describe("OfficeStore database line (DIPO-120)", () => {
 
   it("keeps the line across an office switch", async () => {
     const { client, store } = await held();
-    client.answers.set("office.switch", () => ({
+    client.answers.set("office.snapshot", () => ({
       ok: true,
       result: snapshot(B, 20, [], []),
     }));

@@ -42,7 +42,7 @@ describe("lifecycleGate", () => {
   });
 
   it("starts no command in draining but daemon.*, and still answers reads", () => {
-    expect(code("draining", "command", "story.park")).toBe("scheduling.off");
+    expect(code("draining", "command", "story.park")).toBe("daemon.draining");
     expect(code("draining", "read", "office.snapshot")).toBeNull();
     expect(code("draining", "command", "daemon.stop")).toBeNull();
   });
@@ -53,7 +53,7 @@ describe("lifecycleGate", () => {
       expect(code(state, "read", "commands.describe")).toBeNull();
       expect(code(state, "read", "daemon.status")).toBeNull();
       expect(code(state, "command", "daemon.stop")).toBeNull();
-      expect(code(state, "command", "daemon.resumeScheduling")).toBeNull();
+      expect(code(state, "command", "daemon.resumeStarts")).toBeNull();
     });
   }
 });

@@ -1,5 +1,5 @@
 // Prompt parts and worker notes in the state database, and the handoff block on a real repository
-// (DIPO-47 AC #7 and #8, 0014 sections 2 and 6, 0007 sections 4 and 8).
+// (DIPO-47 AC #7 and #8, 0014, 0007).
 
 import { describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";

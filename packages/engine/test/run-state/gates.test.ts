@@ -1,6 +1,6 @@
 // Merge gates as data and records (0002): each waiting condition
 // makes the gate wait for the maintainer and none decides it by rule; the summary names why it
-// waits, and for a flagged story the manual test-plan entries and the worktree; the hold labels
+// waits, and for a flagged story the manual test-plan entries and the worktree; the wait labels
 // always hold `autorelease: pending`; a gate opened by rule is decided and recorded at once; a hand
 // merge decides the open gate with the note "merged on the host".
 
@@ -12,7 +12,7 @@ import {
   AUTORELEASE_LABEL,
   decideOnHandMerge,
   HAND_MERGE_NOTE,
-  holdLabelsOn,
+  waitLabelsOn,
   mergeGate,
   mergeGateSummary,
   mergeWaits,
@@ -24,14 +24,14 @@ import { addAgent, type RoundsWorld, roundsWorld, storyRun } from "../run/rounds
 
 const HEAD = "1".repeat(40);
 const MET = [{ n: 1, status: "met" as const, evidence: "fine" }];
-const NONE = { autoMerge: true, testBeforeMerge: false, holdLabels: [] };
+const NONE = { autoMerge: true, testBeforeMerge: false, waitLabels: [] };
 
 describe("mergeWaits", () => {
   it("decides by rule when nothing makes the gate wait", () => {
     expect(mergeWaits({ ...NONE, verdict: { criteria: MET, override: null } })).toEqual([]);
   });
 
-  it("waits for each condition of section 11", () => {
+  it("waits for each waiting condition", () => {
     const verdict = { criteria: MET, override: null };
     expect(mergeWaits({ ...NONE, autoMerge: false, verdict })).toEqual([{ kind: "autoMergeOff" }]);
     expect(mergeWaits({ ...NONE, testBeforeMerge: true, verdict })).toEqual([
@@ -49,17 +49,17 @@ describe("mergeWaits", () => {
     expect(
       mergeWaits({ ...NONE, verdict: { criteria: MET, override: { note: "ok", at: 1 } } }),
     ).toEqual([{ kind: "override" }]);
-    expect(mergeWaits({ ...NONE, holdLabels: ["hold"], verdict })).toEqual([
-      { kind: "holdLabel", labels: ["hold"] },
+    expect(mergeWaits({ ...NONE, waitLabels: ["hold"], verdict })).toEqual([
+      { kind: "waitLabel", labels: ["hold"] },
     ]);
   });
 });
 
-describe("holdLabelsOn", () => {
-  it("always holds autorelease: pending, and the office's hold labels, in any case", () => {
-    expect(holdLabelsOn(["autorelease: pending", "bug"], [])).toEqual([AUTORELEASE_LABEL]);
-    expect(holdLabelsOn(["Hold", "bug"], ["hold"])).toEqual(["Hold"]);
-    expect(holdLabelsOn(["bug"], ["hold"])).toEqual([]);
+describe("waitLabelsOn", () => {
+  it("always holds autorelease: pending, and the office's wait labels, in any case", () => {
+    expect(waitLabelsOn(["autorelease: pending", "bug"], [])).toEqual([AUTORELEASE_LABEL]);
+    expect(waitLabelsOn(["Hold", "bug"], ["hold"])).toEqual(["Hold"]);
+    expect(waitLabelsOn(["bug"], ["hold"])).toEqual([]);
   });
 });
 
@@ -142,7 +142,7 @@ describe("mergeGateSummary", () => {
       story: "DIPO-7",
       pr,
       head: HEAD,
-      waits: [{ kind: "holdLabel", labels: ["hold"] }],
+      waits: [{ kind: "waitLabel", labels: ["hold"] }],
       test: { result: "pass", head: HEAD, note: null },
     });
     expect(waiting).toContain(`The maintainer's test of ${HEAD.slice(0, 12)} passed.`);
@@ -154,7 +154,7 @@ describe("mergeGateSummary", () => {
       story: "DIPO-7",
       pr,
       head: HEAD,
-      waits: [{ kind: "holdLabel", labels: [AUTORELEASE_LABEL] }],
+      waits: [{ kind: "waitLabel", labels: [AUTORELEASE_LABEL] }],
     });
     expect(text).toContain("merge it by hand on GitHub");
     expect(text).not.toContain("dipo approve");

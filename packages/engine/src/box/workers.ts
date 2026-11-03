@@ -1,4 +1,4 @@
-// The box of a box worker's run (DIPO-271, 0021 sections 1 to 6): one box per story run, made at
+// The box of a box worker's run (0008): one box per story run, made at
 // the launch and used by every developer session of the run. It lives from claim to merge
 // (DIPO-278): stopped, with its files, while the story waits, and deleted when the claim ends.
 // `lifetime.ts` decides when, and rebuilds a box that was lost.
@@ -95,7 +95,7 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import type { OfficeGit } from "../git/office";
 import { ensurePrivateDir } from "../platform/paths";
 import { type SafeChainFound, uniqueFound } from "../prompts/safe-chain";
-import { type AdapterHolds, holdMessage } from "../workers/hold";
+import type { AdapterPauses } from "../run/starts-paused";
 import { ensureBoxImage } from "./build-box";
 import {
   type BaseLockfile,
@@ -231,10 +231,8 @@ export interface BoxRunRecord {
 export type BoxPresence =
   /** The record says the box lives and the backend lists it. */
   | "ready"
-  /** The run had a box, but it was deleted or the backend lost it. */
-  | "gone"
-  /** The run never had a box (a run from before every run was a box run). */
-  | "none";
+  /** The run's box was deleted, the backend lost it, or no record of it was written. */
+  | "gone";
 
 /** What `rest` did with the box of a run that waits (DIPO-278). */
 export type BoxRest =
@@ -361,7 +359,7 @@ export interface BoxWorkersDeps {
    * The adapter holds: the post-run token check holds through them, and a sticky hold (the
    * box-token hold) refuses a new box before anything is made.
    */
-  readonly holds: Pick<AdapterHolds, "hold" | "adapterHeld">;
+  readonly holds: Pick<AdapterPauses, "pause" | "adapterPaused" | "message">;
   /** The adapter the boxes run, for its hold. */
   readonly adapter: string;
   /** dipo's temp root: code and file stages, token check exports. */
@@ -665,12 +663,11 @@ export class BoxWorkers {
 
   /**
    * Whether the run of `runDir` still has its box (DIPO-278): `ready` when its record says the box
-   * lives and the backend lists it, `gone` when it was deleted or lost, `none` without a record.
+   * lives and the backend lists it, `gone` when it was deleted or lost, or has no record.
    */
   async has(runId: string, runDir: string): Promise<BoxPresence> {
     const record = readBoxRun(runDir);
-    if (record === null || record.runId !== runId) return "none";
-    if (record.finished === true) return "gone";
+    if (record === null || record.runId !== runId || record.finished === true) return "gone";
     const listed = await this.#deps.boxes.list();
     return listed.some((box) => box.name === record.box) ? "ready" : "gone";
   }
@@ -845,8 +842,9 @@ export class BoxWorkers {
     readonly code?: string;
   }): Promise<BoxMade> {
     const { boxes } = this.#deps;
-    const held = this.#deps.holds.adapterHeld(this.#deps.adapter);
-    if (held?.liftedBy !== undefined) throw new BoxError("box.held", holdMessage(held));
+    const held = this.#deps.holds.adapterPaused(this.#deps.adapter);
+    if (held?.liftedBy !== undefined)
+      throw new BoxError("box.paused", this.#deps.holds.message(held));
     const check = await boxes.check();
     if (!check.ok) throw new BoxError("box.unavailable", `boxes cannot run here: ${check.reason}`);
     const base = await this.#deps.readBaseBox(input.git);
@@ -919,7 +917,7 @@ export class BoxWorkers {
       }
       // The box's own local repository of what was copied in (0008, DIPO-346), as the box user.
       await initBoxRepository(boxes, name);
-      // The worker's one way to hand dipo a part (0021 W1, DIPO-272): dipo's own command.
+      // The worker's one way to hand dipo a part (0008 W1, DIPO-272): dipo's own command.
       await installDipoPart({ boxes, tmpRoot: this.#deps.tmpRoot }, name);
       for (const skipped of staged.skipped) {
         this.#deps.warn?.("a listed box file was not copied into the box", {
@@ -1013,8 +1011,9 @@ export class BoxWorkers {
     readonly systemFile: string;
   }): Promise<BoxSession> {
     const { boxes } = this.#deps;
-    const held = this.#deps.holds.adapterHeld(this.#deps.adapter);
-    if (held?.liftedBy !== undefined) throw new BoxError("box.held", holdMessage(held));
+    const held = this.#deps.holds.adapterPaused(this.#deps.adapter);
+    if (held?.liftedBy !== undefined)
+      throw new BoxError("box.paused", this.#deps.holds.message(held));
     const check = await boxes.check();
     if (!check.ok) throw new BoxError("box.unavailable", `boxes cannot run here: ${check.reason}`);
     const base = await this.#deps.readBaseBox(input.git);
@@ -1323,7 +1322,7 @@ export class BoxWorkers {
   }
 
   /**
-   * Stops the box of a run whose story waits (DIPO-278; 0021 section 6): for a review, an answer,
+   * Stops the box of a run whose story waits (DIPO-278; 0008): for a review, an answer,
    * a resume, CI or the maintainer. The post-run token check runs first, as at the end of a box
    * run, then the box stops with its files kept and its routes are released; the record says it
    * rests, so later passes leave it alone until the next session clears that. Never rejects; once
@@ -1431,7 +1430,7 @@ export class BoxWorkers {
           name,
         );
         try {
-          if (failure !== null) this.#deps.holds.hold(this.#deps.adapter, [failure]);
+          if (failure !== null) this.#deps.holds.pause(this.#deps.adapter, [failure]);
         } catch (holdError) {
           this.#deps.warn?.("holding after a failed box run end failed", {
             run: runId,

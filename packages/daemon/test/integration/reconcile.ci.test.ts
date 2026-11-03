@@ -1,4 +1,4 @@
-// CI only (0017 section 1): a daemon start reconciles every registered office in `recovering`,
+// CI only (0017): a daemon start reconciles every registered office in `recovering`,
 // before it enters `running` and scheduling turns on (DIPO-56 test plan, AC #7 and #8). A real
 // `dipo daemon --foreground` opens an office, stops, and starts again: the second start loads and
 // reconciles the office without any office command, and the log orders reconcile before

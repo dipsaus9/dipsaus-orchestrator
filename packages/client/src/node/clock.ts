@@ -1,5 +1,5 @@
 // The real clock of `client/node`: the only client code that reads wall-clock time or arms real
-// timers (0017 section 4). The protocol core receives it by injection.
+// timers (0017). The protocol core receives it by injection.
 
 import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
 

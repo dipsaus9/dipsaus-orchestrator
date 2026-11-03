@@ -2,9 +2,9 @@
 
 Status: accepted. First written 2026-10-09. Rewritten 2026-10-24 for the simplified design; it now also holds the review loop (former 0019) and the merge of story PRs (formerly in 0010 and 0016). The research behind the rewrite is in `docs/research/2026-10-24-simplification-audit.md`.
 
-## Two gates, one authority
+## Who decides
 
-1. **A bot reviews the code.** A reviewer session judges each pushed head against the story's outcome, criteria and test plan. It is a separate session from the developer and never sees the developer's reasoning.
+1. **A bot reviews the code.** A reviewer session judges each pushed head against the story's Story line (0012), criteria and test plan. It is a separate session from the developer and never sees the developer's reasoning.
 2. **The maintainer tests behaviour, only when they choose to.** They run the software instead of reading code. A story the maintainer flags **test before merge** waits for their test.
 3. **The maintainer keeps merge authority.** dipo merges by itself only after the reviewer approved and the required checks passed, on a story nobody asked to wait for (section 7).
 
@@ -28,7 +28,7 @@ The run is one run per claim. Its active period ends at In Review and reopens fo
 
 - **When it opens.** The PR opens at the first In Review push, ready for review rather than as a draft. dipo looks for an open PR with the story branch as head before it creates one, so a crash never opens a second PR. A failed create is a notice, and the PR poll retries it.
 - **Title.** Code builds it from the story as `<type>(<ID>): <subject>` (0016). `feature` and `enhancement` map to `feat`, `bug` to `fix`, `docs` and `spike` to `docs`, and everything else to `chore`. The subject is cut to 100 characters on a word boundary.
-- **Body.** Code builds it from facts, with no model text: the outcome, the criteria ticked as the task file has them, the test plan, the references, and a status block (review, required checks, merge). It is rewritten only when the rendered text changes.
+- **Body.** Code builds it from facts, with no model text: the Story line, the criteria ticked as the task file has them, the test plan, the references, and a status block (review, required checks, merge). It is rewritten only when the rendered text changes.
 - **Review comments.** After each round, dipo posts one PR comment built from the stored verdict: criteria with evidence, findings with `file:line` and the quoted line, and the summary. It never edits or deletes an earlier comment. Before posting, code replaces every value from the env files dipo copied into the box with `[redacted]`. The repository is public, so the comment is public.
 - **Hand changes.** dipo never merges a head it did not push. If someone pushes to the branch, the story stays out of the merge, and the desk shows the PR with two ways on: merge by hand, or `dipo discard`. A PR closed on GitHub without a merge parks the story `by-maintainer` with the detail "PR #n closed on GitHub". A resume opens a new PR that names the closed one.
 
@@ -39,7 +39,7 @@ The run is one run per claim. Its active period ends at In Review and reopens fo
 - **Where it runs.** In a read-only box of its own (0008), never the developer's. The box holds a `git archive` copy of the pushed head and nothing else: no `box.files`, so no secrets. Its tools are read, glob, grep, web search and web fetch, with no shell, no write and no `gh`. Its web traffic goes through the box web proxy like any box. No session has hooks.
 - **What it receives.** The story, its criteria and test plan, the resolved unknowns, the diff of the branch against its start commit, and the previous round's findings. It also gets the developer's test-plan statuses and deviations from the done report, marked as the developer's words. It never gets the developer's reasoning, notes or transcript.
 - **The report and the verdict.** The reviewer returns one result per criterion (`met`, `unmet` or `maintainer`), findings and a summary. Code validates the report against the reviewed commit and computes the verdict. A finding blocks only when it is one of these four kinds and its evidence checks out:
-  - `scope`: content beyond the outcome and criteria, with a quoted changed line.
+  - `scope`: content beyond the Story line and criteria, with a quoted changed line.
   - `test`: an automated test-plan entry with no test, naming the entry.
   - `correctness`: a problem at a quoted changed line.
   - `security`: a problem at a quoted changed line.
@@ -48,11 +48,11 @@ The run is one run per claim. Its active period ends at In Review and reopens fo
 - **Rounds.** A round is one reviewer session that returns a valid report. The cap counts failed rounds only: after the third blocked round the story parks `review-blocked`. A verdict is keyed on the code tree, which is the tree without the story's own task file. A head whose tree already has a verdict in this claim gets no new review, so commits that change only the task file never start one.
 - **Failures.** An invalid report gets one correction turn. A crash gets one fresh session for the same round, which is not counted. A second crash, or a reviewer cap, parks the story `worker-failed`. A review never uses the story's budget.
 
-## 4. Verify in the box, CI as the final gate
+## 4. Verify in the box, required checks last
 
 - **Which checks.** The required checks are the ones GitHub's branch protection or ruleset requires on the base branch. That is one list, owned by GitHub. Every one of them must pass on the head dipo pushed.
 - **dipo runs verify.** When the done report passes the report gate, dipo runs the office's verify command in the story's box, as the box user, with a deadline. The box has its own local git repository (0008), so tests that need git pass. Red is feedback (section 5); green goes on to the conflict check. The worker may run tests and verify while it works, but only dipo's run counts.
-- **CI is the final gate.** The required checks must pass on the head that merges: GitHub's auto-merge waits for them on the close-out head, and a merge gate that waits for the maintainer opens only once they are green on the reviewed head. A red verify is caught in the box, so a CI round is rarely the one that finds it.
+- **The required checks come last.** They must pass on the head that merges: GitHub's auto-merge waits for them on the close-out head, and a merge gate that waits for the maintainer opens only once they are green on the reviewed head. A red verify is caught in the box, so a CI round is rarely the one that finds it.
 - **Polling.** One PR poll per office, every `polling.prStateSeconds`, for each story PR whose head has unfinished checks: `gh pr view` (state, head, labels, mergeable) and `gh pr checks`. A head whose checks stay unfinished past a time limit raises one notice, and its polling slows down.
 - **Logs.** For each failed check that is a GitHub Actions job, dipo fetches the tail of the failed job's log once per head, capped, and parses `file:line` locations for the feedback.
 - **Who talks to GitHub.** Only engine code, with the maintainer's `gh` login. Workers and the reviewer never get `gh`.
@@ -68,7 +68,7 @@ Every kind of feedback reaches the developer the same way: as a message to the d
 
   | Source | Cap | At the cap |
   |---|---|---|
-  | Report gate refusals and a red verify in the box | Tier `loops` | `verify-failing` |
+  | Report gate refusals and a red verify in the box (a send-back of proposal Story lines alone is not counted, 0020) | Tier `loops` | `verify-failing` |
   | Red required checks, on a reviewed head or a close-out head | CI attempts, default 2 | `verify-failing` |
   | Blocked review | Failed rounds, default 3 | `review-blocked` |
   | Conflict | Failed conflict hand-offs, default 2 | `conflict` |
@@ -84,13 +84,14 @@ Every kind of feedback reaches the developer the same way: as a message to the d
 
 ## 7. The merge gate
 
-The gate opens when the review approved the head. It is decided **by rule**, and recorded, at once: dipo does not wait for the head's checks, unless they are already red or one of them already failed, because GitHub's auto-merge waits for them on the close-out head (section 8), so CI runs once. When one of the reasons below holds as the gate is first decided, the gate instead **waits for the maintainer**, and it opens only once the head's required checks are green, so the maintainer only ever approves something that can merge and no task file reads Done while that gate waits. A hold label, or a release-path change, that arrives after the close-out reopens the gate on the closed-out head, whose Done stands on the branch until the merge or a fix round; the merge still waits for green checks. The gate waits for the maintainer when:
+The gate opens when the review approved the head. It is decided **by rule**, and recorded, at once: dipo does not wait for the head's checks, unless they are already red or one of them already failed, because GitHub's auto-merge waits for them on the close-out head (section 8), so CI runs once. When one of the reasons below holds as the gate is first decided, the gate instead **waits for the maintainer**, and it opens only once the head's required checks are green, so the maintainer only ever approves something that can merge and no task file reads Done while that gate waits. A wait label, or a release-path change, that arrives after the close-out reopens the gate on the closed-out head, whose Done stands on the branch until the merge or a fix round; the merge still waits for green checks. The gate waits for the maintainer when:
 
 - `merge.autoMerge` is `false` in the office config;
 - the story is flagged test before merge, and no test pass is recorded for this head. A flagged story waits for green checks even when a pass was recorded while it was reviewed;
 - the reviewer marked a criterion `maintainer`;
 - the story passed review only through a maintainer override;
-- the PR has a hold label from `merge.holdLabels`;
+- the PR has a wait label from `merge.waitLabels`;
+- the base requires no checks: a read of its required checks succeeded and listed none, so GitHub's auto-merge would not wait for CI;
 - the diff changes a path that the base's `CODEOWNERS` gives an owner (the release path). Such a gate is decided only by a hand merge on GitHub: `dipo approve` refuses it, and dipo never merges it or uses `--admin`;
 - the diff, read fresh from the merge base to the head with renames as a delete and an add, adds, changes or deletes any file under `docs/decisions/` (any depth, any file type, any letter case), so no ADR change merges without the maintainer's approval of its wording. `dipo approve` decides this gate; when git cannot read the changed files, the gate waits too and nothing merges. A backlog PR that touches `docs/decisions/` gets no auto-merge for the same reason (0010);
 - the PR is labelled `autorelease: pending`. dipo never merges such a PR. This rule is in code, and no setting removes it.
@@ -113,7 +114,7 @@ When the gate is approved, dipo:
 3. Watches through the PR poll:
    - **Merged:** Done.
    - **Conflict, or red checks:** dipo turns auto-merge off and starts a fix round. The status goes back to In Progress in the next commit, and the next close-out replaces the final summary.
-   - **A hold label appears, or a head dipo did not push:** dipo turns auto-merge off and the gate waits again.
+   - **A wait label appears, or a head dipo did not push:** dipo turns auto-merge off and the gate waits again.
 
 **One Done check.** A story is Done when its PR is merged, or when the story reads `Done` on the base while dipo holds a claim (a story finished outside dipo, 0020). One function decides this from the PR poll and the base. Teardown releases the claim and deletes the box and the branch.
 
@@ -129,6 +130,8 @@ An office runs at most one developer session per story, at most one developer se
 
 ## Building this repository
 
+- **Two lanes** (maintainer, 2026-10-29). dipo builds the small stories (`tier:S`) itself, one at a time, as it has built its own stories since the cutover (DIPO-115): the orchestrating Claude session starts the runs, answers worker questions and files every gap a run shows as a story. Builder agents build the medium and large ones (`tier:M`, `tier:L`) in parallel, ordered so that stories touching the same code do not run at once. A story that needs a real box test by hand goes to a builder.
+- **A pinned binary.** dipo runs from a pinned build, upgraded only after a smoke run of the new build.
 - A separate agent reviews every PR against the story goal before it merges. The maintainer does not review code.
 - Pull requests that change only `backlog/` merge after dipo's structural check, without the reviewer (0010).
 - Dependency update PRs follow 0016's rules.
@@ -139,10 +142,10 @@ An office runs at most one developer session per story, at most one developer se
 - The office list of required checks (`mergeSlot.requiredChecks`), joined with GitHub's (2026-10-16). Replaced by GitHub's required checks only (2026-10-24), because auto-merge waits for GitHub's list, and one list has one owner.
 - A per-round review allowance that grew the story's budget, so reviewer tokens counted against the story (2026-10-16). Replaced by the reviewer's own caps (2026-10-24).
 - A reviewer with a read-only Bash sandbox in the story worktree (2026-10-16), then a reviewer on the Mac fenced by its tool list, permission rules and a web-gate hook (2026-10-21). Replaced by a read-only reviewer box (2026-10-24).
-- Verify run by dipo inside an `srt` sandbox (2026-10-10), then CI as the only verify while the box had no git (2026-10-22), with dipo reading the worker's tool calls to see whether it ran verify. Replaced by dipo running verify in the box, which has a local git repository, with CI as the final gate (2026-10-24).
+- Verify run by dipo inside an `srt` sandbox (2026-10-10), then CI as the only verify while the box had no git (2026-10-22), with dipo reading the worker's tool calls to see whether it ran verify. Replaced by dipo running verify in the box, which has a local git repository, with the required checks last (2026-10-24).
 - A conflict merge left in progress in a Mac worktree (2026-10-16). Replaced by a merge committed with markers and copied into the box (2026-10-22), since dipo never runs git in a folder a worker can write.
 - A building-time sync for tier L and flagged stories. Removed (2026-10-24); a merge without a conflict is not needed.
-- `storyPr.open` to switch story PRs off (2026-10-19). Removed (2026-10-24): every story needs its PR, because CI on the PR is the final gate.
+- `storyPr.open` to switch story PRs off (2026-10-19). Removed (2026-10-24): every story needs its PR, because the required checks run on it.
 - A PR closed on GitHub parked as `stopped` with cause `pr-closed`. Replaced by `by-maintainer` with a detail (2026-10-24).
 - A forwarder inside the test box on the box's address, with that address as the test URL (2026-10-22). Replaced by a forwarder on the Mac's loopback (2026-10-28): the Mac does not reach a box address while a VPN routes the box network's range.
 - Schema validity in the report gate, a bad report parked `ambiguous-spec`, and markers left at done failing the hand-off (2026-10-24). Replaced by one correction turn and then `worker-failed` for a report that does not parse or match the schema (0008), and by markers as report gate feedback against the tier `loops` (2026-10-28).

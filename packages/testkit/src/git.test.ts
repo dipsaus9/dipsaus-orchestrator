@@ -1,4 +1,4 @@
-// Integration tests on real temporary git repositories (0017 section 3). The Backlog.md fixture
+// Integration tests on real temporary git repositories (0017). The Backlog.md fixture
 // against the pinned CLI runs in CI only, in git.ci.test.ts (DIPO-79).
 
 import { describe, expect, it } from "bun:test";

@@ -1,6 +1,6 @@
 // `dipo tui` (DIPO-53, 0009): wires the TUI to this process. The terminal is process stdin and
 // stdout, the session comes from `connectOrStart` (the daemon starts when autostart allows,
-// 0006), and the office of the current directory comes from the workspace, as for every office
+// 0005), and the office of the current directory comes from the workspace, as for every office
 // command. The TUI itself is in `@dipsaus-orchestrator/tui`.
 
 import { homedir } from "node:os";

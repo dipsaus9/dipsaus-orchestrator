@@ -36,7 +36,7 @@ function view(story: Story): string {
     "",
     "Description:",
     "-".repeat(50),
-    `Outcome: ${story.id} works.`,
+    `Story: As maintainer I want ${story.id} to work end to end so that the office can run it.`,
     "",
   ].join("\n");
 }

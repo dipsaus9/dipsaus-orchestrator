@@ -1,4 +1,4 @@
-// Validation of a reviewer report by code, at the reviewed commit (0019 section 5). The report is
+// Validation of a reviewer report by code, at the reviewed commit (0002). The report is
 // valid only with exactly one criteria entry per criterion number of the story and evidence for
 // every `unmet` and `maintainer` entry. Each blocking finding is then checked:
 //
@@ -27,7 +27,7 @@ export interface ReviewFacts {
   readonly diff: StoryDiff;
 }
 
-/** The kinds a blocking finding may have (0002, 0019 decisions 6 and 7). */
+/** The kinds a blocking finding may have (0002). */
 export const BLOCKING_KINDS: ReadonlySet<string> = new Set([
   "scope",
   "test",
@@ -56,7 +56,7 @@ export interface CheckedFinding {
 
 export type ReportCheck =
   | {
-      /** Not a report the verdict can use: one correction turn, then as a crash (section 4). */
+      /** Not a report the verdict can use: one correction turn, then as a crash. */
       readonly valid: false;
       readonly problems: readonly string[];
     }
@@ -134,7 +134,7 @@ function checkFinding(finding: ReviewFinding, facts: ReviewFacts): FindingCheck 
   return problems.length === 0 ? { status: "blocking" } : { status: "failed", problems };
 }
 
-/** Pure: checks the report against the story's facts and diff (0019 section 5). */
+/** Pure: checks the report against the story's facts and diff (0002). */
 export function validateReport(report: ReviewReport, facts: ReviewFacts): ReportCheck {
   const problems = reportProblems(report, facts);
   if (problems.length > 0) return { valid: false, problems };

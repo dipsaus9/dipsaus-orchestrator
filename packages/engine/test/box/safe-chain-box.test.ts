@@ -479,7 +479,7 @@ async function standInSafeChain(answer: string) {
   return { server, port };
 }
 
-// What the check refused before DIPO-383, each pinned as a route that does not start (R30).
+// What the check refuses, each pinned as a route that does not start (R30, DIPO-383).
 describe.skipIf(!RUNS)("what the Safe-Chain check refuses", () => {
   for (const [what, statuses, reason] of [
     [

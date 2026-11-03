@@ -1,4 +1,4 @@
-// `dipo propose accept|dismiss <proposal> [--office <id>]` (DIPO-166; 0020 sections 11c and 16):
+// `dipo propose accept|dismiss <proposal> [--office <id>]` (DIPO-166; 0020):
 // sends `proposal.accept` or `proposal.dismiss` for a worker's proposal that `dipo desk` lists, in
 // the office of `--office` or of the current directory, and `proposal.dismiss` for a decision note
 // (DIPO-404). Neither asks for confirmation. The proposal

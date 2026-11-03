@@ -71,7 +71,7 @@ export function viewText(task: FakeTask): string {
     "",
     "Description:",
     "-".repeat(50),
-    `Outcome: ${task.id} works.`,
+    `Story: As maintainer I want ${task.id} to work end to end so that the office can run it.`,
     "",
     "```dipo",
     `branch: "${branchOf(task.id)}"`,

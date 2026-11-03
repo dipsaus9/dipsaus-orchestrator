@@ -1,4 +1,4 @@
-// CI only (0017 section 1): real processes (DIPO-411). A real `dipo daemon worker-host` is started
+// CI only (0017): real processes (DIPO-411). A real `dipo daemon worker-host` is started
 // detached through the engine with a stub worker, and `story.park` is sent at once, before the host
 // has bound its socket, as in the hand test where the stop went out 0.24 s after the host started.
 // The stop's send waits for the starting host (`hostSocketSteering`, `connectWhenBound`), the host

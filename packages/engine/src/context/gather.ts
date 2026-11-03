@@ -1,4 +1,4 @@
-// Running the providers for one story (0014 section 9): the default provider always runs first;
+// Running the providers for one story (0014): the default provider always runs first;
 // an optional backend fills the rest of the `context` budget. A backend that is not `ready` after
 // one `prepare`, or that throws in `status`, `prepare` or `gather`, is skipped, and the pack's
 // provenance says why; the run continues on the default.

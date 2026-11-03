@@ -1,4 +1,4 @@
-// The Claude CLI `WorkerAdapter`, built per run (DIPO-74; 0008 section 1). `plan(spec)` closes
+// The Claude CLI `WorkerAdapter`, built per run (DIPO-74; 0008). `plan(spec)` closes
 // over the run's `ClaudeLaunchContext`, so the engine calls the 0008 signature while DIPO-40's
 // `plan(spec, ctx)` stays pure. `claudeWorkerPort` is what the daemon hands the run code: the
 // adapter for a run's paths, the launch checks through the adapter hold, and the parser state.
@@ -11,7 +11,7 @@
 
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
-import { type AdapterHolds, gateLaunch } from "../hold";
+import type { AdapterPauses } from "../../run/starts-paused";
 import type { PreparedWorker, RunLaunchPaths, SessionFacts, WorkerPort } from "../port";
 import type {
   AdapterStatus,
@@ -20,9 +20,6 @@ import type {
   LaunchPlan,
   LineScrub,
   ParseState,
-  ResumeCheck,
-  ResumeFacts,
-  SessionRef,
   WorkerAdapter,
   WorkerSpec,
 } from "../types";
@@ -45,8 +42,6 @@ import {
 import { readInstalledPlugins, type PluginFiles } from "./plugins";
 import { probe } from "./probe";
 import { REPORT_JSON_SCHEMAS } from "./report-schema";
-import { CLAUDE_LOCAL_SETTINGS } from "./settings-check";
-import { checkResume } from "./resume-check";
 import { result } from "./result";
 
 export interface ClaudeCliAdapterDeps {
@@ -138,9 +133,6 @@ export function claudeCliAdapter(
       },
     result: (state: ParseState, exit: ExitRecord) =>
       result(state as unknown as ClaudeParseState, exit),
-    // Transcript, version, prompt hash, context share and re-read cost (DIPO-51).
-    canResume: (ref: SessionRef, _spec: WorkerSpec, facts: ResumeFacts): ResumeCheck =>
-      checkResume(ref, { ...facts, home: ctx.home }),
   };
 }
 
@@ -150,7 +142,7 @@ export interface ClaudeWorkerPortDeps extends ClaudeCliAdapterDeps {
   readonly home: string;
   /** The daemon's environment; the plan takes only allowlisted names from it. */
   readonly env: Readonly<Record<string, string | undefined>>;
-  readonly holds: AdapterHolds;
+  readonly holds: AdapterPauses;
   /**
    * Reads Claude Code's plugin lists (DIPO-108); a test seam. Defaults to the files under
    * `home`.
@@ -170,18 +162,18 @@ export interface ClaudeWorkerPortDeps extends ClaudeCliAdapterDeps {
 export type ClaudeBoxWorkers = Pick<BoxWorkers, "isBoxRun" | "session">;
 
 /**
- * Prepares a developer session in the run's box (DIPO-271): the adapter hold first (a sticky
- * box-token hold refuses here), then the box session, then the plan. A box that cannot be made
- * ready holds the adapter with the `box` check, as a failed launch check; a run whose box is gone
- * is refused as a plan (`PlanError`), holding nothing.
+ * Prepares a developer session in the run's box (DIPO-271): the adapter's pause first (a sticky
+ * box-token pause refuses here), then the box session, then the plan. A box that cannot be made
+ * ready pauses the adapter with the `box` check, as a failed launch check; a run whose box is gone
+ * is refused as a plan (`PlanError`), pausing nothing.
  */
 async function prepareInBox(
   spec: WorkerSpec,
   paths: RunLaunchPaths,
   boxes: ClaudeBoxWorkers,
-  holds: AdapterHolds,
+  holds: AdapterPauses,
 ): Promise<PreparedWorker> {
-  const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, async () => ({ ok: true }));
+  const gate = await holds.gateLaunch(CLAUDE_CLI_ADAPTER_ID, async () => ({ ok: true }));
   if (!gate.ok) return gate;
   let session;
   try {
@@ -196,14 +188,14 @@ async function prepareInBox(
   } catch (error) {
     const why = error instanceof Error ? error.message : String(error);
     if (error instanceof BoxError && error.code === "box.gone") throw new PlanError(why);
-    const hold = holds.hold(CLAUDE_CLI_ADAPTER_ID, [
+    const pause = holds.pause(CLAUDE_CLI_ADAPTER_ID, [
       {
         check: BOX_CHECK,
         detail: `the worker's box could not be made ready: ${why}`,
         fix: "Check that Apple container runs (`container system status`) and the daemon log, then name the story again.",
       },
     ]);
-    return { ok: false, outcome: "startFailed", hold };
+    return { ok: false, outcome: "startFailed", pause };
   }
   return { ok: true, plan: scrubbed(planInBox(spec, session, paths.runDir)) };
 }
@@ -264,7 +256,6 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
   return {
     id: CLAUDE_CLI_ADAPTER_ID,
     reportSchema: REPORT_JSON_SCHEMAS,
-    localSettings: CLAUDE_LOCAL_SETTINGS,
     adapter: (paths) =>
       claudeCliAdapter(claudeLaunchContext(deps, paths), deps, {
         boxWorker: deps.boxes?.isBoxRun(paths.runDir) === true,
@@ -274,9 +265,7 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
       // A reviewer session goes into the read-only box made for it, never onto the Mac (0002).
       if (spec.kind === "review") {
         if (place === undefined) throw new PlanError(REVIEWER_ON_MAC_REFUSED);
-        const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, deps.holds, async () => ({
-          ok: true,
-        }));
+        const gate = await deps.holds.gateLaunch(CLAUDE_CLI_ADAPTER_ID, async () => ({ ok: true }));
         if (!gate.ok) return gate;
         return { ok: true, plan: scrubbed(planInBox(spec, place, paths.runDir)) };
       }
@@ -302,12 +291,8 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
       initialState({
         ...(previous === undefined
           ? { plannedModel: spec.model }
-          : nextSessionOptions(
-              previous as unknown as ClaudeParseState,
-              spec.session.resume,
-              spec.model,
-            )),
-        // A reviewer's result carries a `ReviewReport` (0019 section 5); a session's its
+          : nextSessionOptions(previous as unknown as ClaudeParseState, spec.model)),
+        // A reviewer's result carries a `ReviewReport` (0002); a session's its
         // structured output (DIPO-310). A reviewer runs only in its reviewer box, with the
         // placeholder key, whatever its run's directory holds (0002).
         ...(spec.kind === "review" ? { reportKind: "review" as const, placeholderKey: true } : {}),
@@ -321,9 +306,5 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
 
 /** What a Claude session's parser state says for its next session (DIPO-51). */
 export function claudeSessionFacts(state: Partial<ClaudeParseState>): SessionFacts {
-  return {
-    contextTokens: state.contextTokens ?? null,
-    contextWindow: state.contextWindow ?? null,
-    lastReport: state.lastTurn?.report ?? null,
-  };
+  return { lastReport: state.lastTurn?.report ?? null };
 }

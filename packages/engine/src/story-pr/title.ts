@@ -1,7 +1,7 @@
-// The title of a story PR (0019 section 3; 0016 rule 1): `<type>(<ID>): <subject>`, built by code
+// The title of a story PR (0002; 0016): `<type>(<ID>): <subject>`, built by code
 // from the story so the `pr-title` check passes.
 
-/** The subject limit of 0016 rule 1 (`STORY_PR_MAX_SUBJECT` of `scripts/check-pr-title.ts`). */
+/** The subject limit of 0016 (`STORY_PR_MAX_SUBJECT` of `scripts/check-pr-title.ts`). */
 export const STORY_PR_MAX_SUBJECT = 100;
 
 const TYPE_MAP: Readonly<Record<string, string>> = {

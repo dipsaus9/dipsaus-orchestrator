@@ -1,4 +1,4 @@
-// Isolation by key (0007 section 3): every office-scoped table starts its primary key with
+// Isolation by key (0007): every office-scoped table starts its primary key with
 // `office_id`. Runs over the real migrated schema and over fixture tables that break the rule.
 
 import { describe, expect, it } from "bun:test";

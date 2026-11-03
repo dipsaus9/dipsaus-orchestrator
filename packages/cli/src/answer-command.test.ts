@@ -90,7 +90,7 @@ describe("dipo answer", () => {
     ]);
   });
 
-  it("sends --text allow as an answer text, never as a decision (DIPO-159, 0020 section 7)", async () => {
+  it("sends --text allow as an answer text, never as a decision (DIPO-159, 0020)", async () => {
     const ctx = fake(answered);
     expect(await main(["answer", QUESTION, "--text", "allow"], ctx.deps)).toBe(0);
     expect(ctx.sent).toEqual([

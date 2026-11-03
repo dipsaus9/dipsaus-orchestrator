@@ -1,6 +1,6 @@
-// The renderer (0005 section 6): stored entries become contract events when they are sent, not
+// The renderer (0005): stored entries become contract events when they are sent, not
 // when they are written. The entry carries the view its writer computed, so rendering never derives
-// status; a contract change rewrites this module, never the stored log (0005 section 11).
+// status; a contract change rewrites this module, never the stored log (0005).
 
 import { type Cursor, type Event, findEvent, type OfficeId } from "@dipsaus-orchestrator/contract";
 

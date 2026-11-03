@@ -1,6 +1,6 @@
-// The release path as data (DIPO-331; the 0016 amendment of 2026-10-23): CODEOWNERS parsed the way
-// GitHub reads it, the last matching rule deciding, and the repository's own CODEOWNERS giving the
-// release path the amendment names. No git here; the real-git cases are in
+// The release path as data (DIPO-331; 0016): CODEOWNERS parsed the way GitHub reads it, the last
+// matching rule deciding, and the repository's own CODEOWNERS giving the release path 0016
+// names. No git here; the real-git cases are in
 // story-git.ci.test.ts.
 
 import { readFileSync } from "node:fs";

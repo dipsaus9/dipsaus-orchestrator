@@ -1,10 +1,10 @@
-// The 0012 status list and the `statuses:` line of `backlog/config.yml` (0010 sections 1 and 6).
+// The 0012 status list and the `statuses:` line of `backlog/config.yml` (0010).
 // The status list is the one thing the engine reads from a Backlog.md file directly; it is written
-// by rewriting that one line, because the CLI refuses `config set statuses` (0010 fact 6). Pure.
+// by rewriting that one line, because the CLI refuses `config set statuses` (0010). Pure.
 
 import { parseYamlDocument } from "../../platform/yaml";
 
-/** The lifecycle statuses office init sets, in board order (0012 section 2). */
+/** The lifecycle statuses office init sets, in board order (0012). */
 export const LIFECYCLE_STATUSES: readonly string[] = [
   "Refined",
   "Ready",
@@ -14,13 +14,13 @@ export const LIFECYCLE_STATUSES: readonly string[] = [
   "Done",
 ];
 
-/** The status existing tasks migrate from (0010 section 6). */
+/** The status existing tasks migrate from (0010). */
 export const LEGACY_STATUS = "To Do";
 
-/** The default status office init sets (0012 section 2). */
+/** The default status office init sets (0012). */
 export const DEFAULT_STATUS = "Refined";
 
-/** Statuses a run needs on the base: a story it runs moves to them (0012 section 2, DIPO-48). */
+/** Statuses a run needs on the base: a story it runs moves to them (0012, DIPO-48). */
 export const RUN_STATUSES: readonly string[] = ["In Review", "Parked"];
 
 /** `backlog/config.yml`, relative to the repository root. */
@@ -54,14 +54,14 @@ export function missingStatuses(
 }
 
 /**
- * The status list step 1 writes, or null when `current` needs no change.
+ * The status list the `statuses` step writes, or null when `current` needs no change.
  *
  * - While some task still uses a status outside the 0012 list (`To Do` above all), the list holds
  *   both: the old statuses outside the 0012 list, in their order, then the 0012 list. A list that
  *   already holds every 0012 status is left as it is.
  * - Once no task uses `To Do` (`final`), the list is the 0012 list alone, keeping only those other
  *   statuses `inUse` still names, so no task is left with a status the board does not show
- *   (0010 section 6 step 4).
+ *   (0010).
  */
 export function targetStatuses(
   current: readonly string[],

@@ -1,4 +1,4 @@
-// The single write path for a story's fields (0010 section 3), the same in both lanes: view, parse,
+// The single write path for a story's fields (0010), the same in both lanes: view, parse,
 // change the typed value, emit canonically, splice so every byte outside the block is unchanged,
 // write with `task edit --description` (or `draft edit`), read back and compare. Just before writing
 // the description is read again; if it changed since the first read, it is parsed again and the

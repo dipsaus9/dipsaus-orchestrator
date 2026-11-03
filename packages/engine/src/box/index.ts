@@ -1,4 +1,4 @@
-// One real box per story (0021 sections 1 to 6, DIPO-265): the box interface and its Apple
+// One real box per story (0008): the box interface and its Apple
 // `container` backend, the box image built from the office config (DIPO-266) in a build box
 // (DIPO-281), the box firewall (DIPO-281), and the office package cache (DIPO-267).
 
@@ -287,7 +287,7 @@ export {
   BOX_TOKEN_HOLD_FILE,
   BOX_TOKEN_LIFTED_BY,
   boxTokenHoldPath,
-  boxTokenStickyHolds,
+  boxTokenStickyPauses,
   clearBoxTokenHold,
   readBoxTokenHold,
   writeBoxTokenHold,

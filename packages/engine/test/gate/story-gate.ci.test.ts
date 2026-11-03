@@ -1,4 +1,4 @@
-// CI only (0017 section 1): the pickup-mode Ready gate against the pinned Backlog CLI and real git
+// CI only (0017): the pickup-mode Ready gate against the pinned Backlog CLI and real git
 // (DIPO-71 test plan), moved out of the local suite for its time budget (DIPO-79): a pickup-mode
 // `recordGateDecision` stores one decision with every rule result and the content hash, found again
 // by `findPassingDecision` once the story passes after a CLI edit pushed to the base; and the

@@ -1,4 +1,4 @@
-// The budget line (DIPO-256; 0020 note of 2026-10-20): the last line of every verify, CI, review
+// The budget line (DIPO-256; 0020): the last line of every verify, CI, review
 // and reject feedback message and of every handoff. It tells the worker its turns, minutes and
 // tokens used and left, from the run's caps (start snapshot plus grants), so it can wrap up at
 // about 80% of any cap (the worker contract).

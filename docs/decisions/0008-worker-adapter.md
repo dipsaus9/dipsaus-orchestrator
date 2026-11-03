@@ -6,7 +6,7 @@ Status: accepted. First written 2026-10-10 (spike DIPO-5). Rewritten 2026-10-24 
 
 Every developer runs inside its own **box**, a lightweight VM, one per story. The box is the boundary. Inside it the worker may do anything: read the whole repository, run any command, install packages, use the web. It cannot leave the box, it holds nothing of the maintainer's, and its work reaches the repository only as **parts** that dipo checks, commits and pushes. The reviewer runs in a read-only box of its own. The scan session runs on the Mac with every tool off.
 
-The engine reaches every model session through one adapter-neutral contract (section 1). The first adapter wraps the Claude Code CLI on the maintainer's subscription login. Claude names stay inside `engine/src/workers/claude-cli/` (0004).
+The engine reaches every model session through one adapter-neutral contract (section 1). The first adapter wraps the Claude Code CLI on the maintainer's subscription login. Its code lives in `engine/src/workers/claude-cli/`; where else Claude may be named is in 0001.
 
 ## 1. The worker contract
 
@@ -26,7 +26,7 @@ WorkerSpec = { run, agent, kind: "implement" | "review" | "session", place: Box 
 Caps = { budgetTokens: number, maxTurns: number, maxMinutes: number }   // loops and rounds stay in the engine
 SteerOp = { kind: "message", text } | { kind: "stop" | "kill" }
 WorkerEvent = started | activity | output | usage | turn | limit | compacted | modelSwitched | drift
-WorkerReport = { status: "done" | "blocked", criteria: { n, met, evidence }[], summary,
+WorkerReport = { status: "done" | "blocked", criteria: { n, met, evidence }[], summary, commitSubject,
                  testPlan: { entry, status, evidence }[], deviations: string[],
                  question?: string, proposals?: Proposal[], decisionNotes?: DecisionNote[], notes?: string }
 WorkerResult = { exit: "normal" | "capped" | "plan-limit" | "crashed" | "start-failed" | "stopped",
@@ -142,7 +142,7 @@ claude -p --input-format stream-json --output-format stream-json --verbose --inc
 
 The task message is the first stdin line, never on argv. The box's environment holds only the route to the proxies and a placeholder key. Every session's `system/init` is checked: `apiKeySource` must be `none`, and the model must match the planned one or a classifier switch recorded on the run.
 
-**The reviewer** runs in a read-only box of its own, made for each review session from the office image: a `git archive` copy of the pushed head, no `box.files`, and the same firewall, box user and proxies as a developer box. Its tools are read, glob, grep, web search and web fetch: no shell, no write, no `gh`. The box is deleted when the session ends. **The scan session** runs on the Mac with every tool off. Neither session loads settings, hooks, plugins or skills from the repository copy. No session has hooks, so dipo registers none and `dipo hook` goes.
+**The reviewer** runs in a read-only box of its own, made for each review session from the office image: a `git archive` copy of the pushed head, no `box.files`, and the same firewall, box user and proxies as a developer box. Its tools are read, glob, grep, web search and web fetch: no shell, no write, no `gh`. The box is deleted when the session ends. **The scan session** runs on the Mac with every tool off, and so without Claude Code's Bash sandbox: with no tool there is no shell to guard. Neither session loads settings, hooks, plugins or skills from the repository copy. No session has hooks, so dipo registers none and `dipo hook` goes.
 
 **Steering and stop.**
 - Every op the engine sends is first stored as an intent on the run, so the result is read from the intent and never guessed from the exit.
@@ -165,7 +165,7 @@ The task message is the first stdin line, never on argv. The box's environment h
 | Login, billing, start-up or box token failure | The office's starts paused, with a notice. The story stays where it was |
 | `apiKeySource` not `none` | Stops the session and pauses starts in every office |
 
-**The worker host's launch deadline.** A daemon claims a worker host with a `claim` on the host's socket, sent only once the daemon holds the host's verified PID in its `worker_hosts` row and follows its run; a handshake alone claims nothing. Every host must be claimed by its launch deadline, `HOST_LAUNCH_DEADLINE_MS` (30 s) after its row was written, which `launch.json` carries. That is the one rule: a host no daemon claimed by then stops its worker as on SIGTERM and refuses a later handshake or claim. So a host the daemon cannot verify, a host whose run ended while it was asked, and a host whose daemon stopped before recording it are never claimed, and stop themselves. Until the deadline the daemon that started the host keeps connecting, and a restarted daemon keeps a pending row and asks its socket again, so a host that binds its socket late is still re-attached. At the deadline a pending row no verified host answered for goes, and its story parks `worker-failed`; a pending row is never claimed, so none goes while its host runs claimed. dipo never signals a pending host, whose PID is known only from its own handshake. A host from an earlier binary, which has no launch deadline, takes no claim; its pending row is asked once and goes when nothing matches.
+**The worker host's launch deadline.** A daemon claims a worker host with a `claim` on the host's socket, sent only once the daemon holds the host's verified PID in its `worker_hosts` row and follows its run; a handshake alone claims nothing. Every host must be claimed by its launch deadline, `HOST_LAUNCH_DEADLINE_MS` (30 s) after its row was written, which `launch.json` carries. That is the one rule: a host no daemon claimed by then stops its worker as on SIGTERM and refuses a later handshake or claim. So a host the daemon cannot verify, a host whose run ended while it was asked, and a host whose daemon stopped before recording it are never claimed, and stop themselves. Until the deadline the daemon that started the host keeps connecting, and a restarted daemon keeps a pending row and asks its socket again, so a host that binds its socket late is still re-attached. At the deadline a pending row no verified host answered for goes, and its story parks `worker-failed`; a pending row is never claimed, so none goes while its host runs claimed. dipo never signals a pending host, whose PID is known only from its own handshake.
 
 **Resume.** Every session starts with an engine-made session id. A developer resume is always a new session in the story's box with a handoff (0014). The reviewer is never resumed.
 
@@ -195,9 +195,11 @@ An adapter implements section 1. An Agent SDK adapter would share `interpret`, b
 
 - Claude Code's Bash sandbox with permission rules, deny lists, a `PermissionRequest` relay, allow-once answers, a Bash `PreToolUse` hook with `gh` and temp guards, Keychain denies, a launch self-test and the project-settings allowlist (2026-10-10 to 2026-10-20). Replaced by the box (2026-10-21), because only Bash was sandboxed and the rest ran on the Mac.
 - `srt` around engine install and verify steps, and later around Safe-Chain (2026-10-12). Replaced by the box (2026-10-22), and Safe-Chain in a box (2026-10-24).
+- A pass for a host of an earlier binary with no launch deadline, which took no claim, and the stop of an earlier binary's developer session on the Mac at re-attach (2026-10-23, 2026-10-30). Gone with the database squash (0007, 2026-11-03).
+- The same Bash sandbox, with Keychain and credential denies, kept for the scan session on the Mac (2026-10-23). Removed (2026-11-03): every tool of that session is off, so it guarded a shell the session cannot use.
 - Switching off the network rules as root must fail for every target (2026-10-24). Replaced by: it must not open the internet, the local network or the registries (2026-10-28), because root in a box keeps the capability its firewall needs.
 - Safe-Chain box from the office image (2026-10-24). Replaced by one machine-wide Safe-Chain image (2026-10-27), because building an office image needs Safe-Chain.
-- Verify run by dipo in the box at done (2026-10-21), replaced by CI as the only verify (2026-10-22) because the box had no git and many test suites need it. Reinstated (2026-10-24) once the box got its own local git repository, with CI as the final gate (0002).
+- Verify run by dipo in the box at done (2026-10-21), replaced by CI as the only verify (2026-10-22) because the box had no git and many test suites need it. Reinstated (2026-10-24) once the box got its own local git repository, with the required checks last (0002).
 - `bypassPermissions` ruled out as "no guard at all" (2026-10-10). Inside a box it is the documented pattern, and the box is the guard (2026-10-21).
 - A pricing catalog with versioned rates and a drift check against the CLI (2026-10-10). Replaced by the CLI's reported cost (2026-10-24).
 - Any daemon start deleted a helper box a stopped daemon left (2026-10-24). Replaced by a daemon with the same state folder only, named in each box's label (2026-10-30, DIPO-374), because a test's and a daemon's sweeps deleted each other's boxes.

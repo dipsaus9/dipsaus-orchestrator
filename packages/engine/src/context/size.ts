@@ -1,4 +1,4 @@
-// Size classes and the context and inputs budgets (0014 section 4). The class comes from the
+// Size classes and the context and inputs budgets (0014). The class comes from the
 // `git ls-files` count at pickup, in code. Budgets are characters; they are tunable starting
 // defaults, which `prompt.budgets` in `office.yaml` may override later.
 
@@ -47,6 +47,3 @@ export const DIRECTORY_ENTRIES_MAX = 200;
 
 /** A scope directory lists at most this many files, the ones changed most recently on the base. */
 export const DIRECTORY_RECENT_MAX = 15;
-
-/** A component lists at most this many of its files. */
-export const COMPONENT_FILES_MAX = 50;

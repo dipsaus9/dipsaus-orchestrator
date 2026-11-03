@@ -38,7 +38,7 @@ export function spec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
     systemFile: `${RUN_DIR}/system.md`,
     taskMessage: "<story>DIPO-999 Add a greeting</story>",
     web: false,
-    session: { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume: false },
+    session: { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b" },
     reportSchema: WORKER_REPORT_JSON_SCHEMA,
     ...overrides,
   };

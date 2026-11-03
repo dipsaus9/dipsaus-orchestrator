@@ -1,4 +1,4 @@
-// `dipo desk [--office <id>] [--json]` (DIPO-158; 0020 section 12): reads `office.desk` and prints a
+// `dipo desk [--office <id>] [--json]` (DIPO-158; 0020): reads `office.desk` and prints a
 // count line, one line per item with an indented command line, and the stories parked by you apart; an
 // empty desk prints `Nothing waits on you.`; `--json` prints the read's result; the exit code is 0.
 
@@ -77,7 +77,7 @@ function ago(minutes: number): string {
   return new Date(NOW - minutes * MINUTE).toISOString();
 }
 
-// The example of 0020 section 12, as the engine returns it.
+// The example of 0020, as the engine returns it.
 const EXAMPLE: DeskItem[] = officeDesk.result.parse([
   {
     kind: "QUESTION",
@@ -203,13 +203,13 @@ describe("formatDesk", () => {
       detail: "no new session starts · plan limit until 2026-10-23T14:00:00.000Z",
       since: ago(5),
       blocks: [],
-      actions: [{ command: "daemon.resumeScheduling", cli: "dipo daemon resume-scheduling" }],
+      actions: [{ command: "daemon.resumeStarts", cli: "dipo daemon resume-starts" }],
       hand: "It lifts by itself at 2026-10-23T14:02:00.000Z.",
     });
     expect(formatDesk("demo", [paused, byYou("DIPO-1")], NOW)).toEqual([
       "demo · desk 1 · parked by you 1",
       "STARTS PAUSED   no new session starts · plan limit until 2026-10-23T14:00:00.000Z  5m",
-      "              dipo daemon resume-scheduling | It lifts by itself at 2026-10-23T14:02:00.000Z.",
+      "              dipo daemon resume-starts | It lifts by itself at 2026-10-23T14:02:00.000Z.",
       "Parked by you (1)  DIPO-1 dipo resume DIPO-129",
     ]);
   });

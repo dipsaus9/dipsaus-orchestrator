@@ -1190,17 +1190,17 @@ describe("a turn problem's intent that cannot be stored (DIPO-123)", () => {
     const watch = watchRejections();
     expect(
       w.control.act(w.f.run, {
-        intent: "reassign",
+        intent: "new-session",
         detail: "a turn problem",
         ops: encode({ kind: "stop" }),
         retryAtTick: true,
       }),
     ).toBe(false);
-    // A plan-limit hold fails while the turn problem's retry waits; the retry is kept.
+    // A cap fails while the turn problem's retry waits; the retry is kept.
     expect(
       w.control.act(w.f.run, {
-        intent: "pause",
-        detail: "a plan-limit hold",
+        intent: "cap",
+        detail: "a cap",
         ops: [{ closeStdin: true }],
       }),
     ).toBe(false);
@@ -1210,7 +1210,7 @@ describe("a turn problem's intent that cannot be stored (DIPO-123)", () => {
     expect(await watch.stop()).toEqual([]);
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
     expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.detail, i.state])).toEqual([
-      ["reassign", "a turn problem", "sent"],
+      ["new-session", "a turn problem", "sent"],
     ]);
     expect(w.control.live(w.f.run)).toBe(false);
     // Later ticks send nothing more.
@@ -1443,7 +1443,7 @@ const notesTurn = (notes: string | undefined, input = 10): WorkerEvent => ({
   terminal: "completed",
 });
 
-describe("worker notes for the handoff (DIPO-154; 0020 section 6)", () => {
+describe("worker notes for the handoff (DIPO-154; 0020)", () => {
   it("stores the notes of every turn report, replacing that agent's earlier notes, at most 1,500 characters", async () => {
     track();
     w.control.onWorkerEvents(w.f.run, [notesTurn("First: the parser is half done.")], "agt-a");

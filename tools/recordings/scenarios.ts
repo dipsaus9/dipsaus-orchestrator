@@ -1,4 +1,4 @@
-// The live scenarios of 0017 section 2 that `recordings:capture` ran, plus the 0008 live checks
+// The live scenarios of 0017 that `recordings:capture` ran, plus the 0008 live checks
 // (DIPO-41 AC #9). Since every developer runs in its box (DIPO-240) only the review scenarios can be
 // captured again; the developer ones document their committed recordings. The launch self-test
 // scenarios went with the self-test. Every scenario runs on the `greeter` fixture with the
@@ -41,8 +41,6 @@ export interface Scenario {
   /** User messages: the first goes in through the launch plan, each next one after a result. */
   readonly turns: readonly TurnText[];
   readonly midTurn?: MidTurn;
-  /** Turns of a second process started with `--resume` on the same session. */
-  readonly resumeTurns?: readonly TurnText[];
   readonly expected: string;
   /** Checks on disk and on the raw stream in memory; only the findings are stored. */
   readonly verify?: (
@@ -60,14 +58,14 @@ export interface Scenario {
   /** Runs before the session starts, after the fixture is built. */
   readonly prepare?: (paths: CapturePaths) => void;
   /**
-   * Registers the run settings file's hooks (0008 section 5, DIPO-59) and runs a fixture worker
+   * Registers the run settings file's hooks (0008, DIPO-59) and runs a fixture worker
    * host that records every relayed payload as a `ch: "hook"` line and never answers a waiting
    * call, so the `PermissionRequest` hook gives no decision once `waitSeconds` and the relay's grace
    * have passed.
    */
   readonly hookRelay?: { readonly waitSeconds: number };
   /**
-   * The fixture host answers a waiting `PreToolUse` call as the engine does (0020 section 11b): a
+   * The fixture host answers a waiting `PreToolUse` call as the engine does (0020): a
    * URL or query holding a value of the workdir's `.env` (written by `prepare`) gets Claude's deny
    * naming the file and key, any other web call the adapter's marker without a decision
    * (`webGateAnswer` in `capture.ts`). A `PermissionRequest` call, and every waiting call without
@@ -75,14 +73,14 @@ export interface Scenario {
    */
   readonly webGate?: true;
   /**
-   * `review` for a reviewer session (0019 section 4): the plan of the review kind, its report
+   * `review` for a reviewer session (0002): the plan of the review kind, its report
    * schema, every installed plugin switched off, and `kind` in `meta.json`.
    */
   readonly kind?: "review";
 }
 
 /**
- * The `web` scenario's fixed text (0020 section 11b, DIPO-164): a query, a URL, and a URL holding a
+ * The `web` scenario's fixed text (0020, DIPO-164): a query, a URL, and a URL holding a
  * value of the fixture's `.env`. The value is synthetic. `derive.ts` builds the `web-calls`
  * recording from the same text.
  */
@@ -352,23 +350,6 @@ const SCENARIOS_BASE: readonly Scenario[] = [
     timeoutMs: 180_000,
   },
   {
-    name: "resume",
-    fixture: "greeter",
-    model: "haiku",
-    effort: "low",
-    maxTurns: 5,
-    tools: ["Read"],
-    turns: [
-      `Remember the word tangerine. Do not use any tool. ${report("done", "First session.", "chore: record resume")}`,
-    ],
-    resumeTurns: [
-      `Do not use any tool. ${report("done", "Resumed session.", "chore: record resume again")}`,
-    ],
-    expected:
-      "Live pair: run, then --resume on the same session id. Resumed totals include earlier spend and must not be double counted.",
-    timeoutMs: 240_000,
-  },
-  {
     name: "worker-park-ambiguous",
     fixture: "greeter",
     model: "haiku",
@@ -419,7 +400,7 @@ const SCENARIOS_BASE: readonly Scenario[] = [
   },
 ];
 
-// The review kind (DIPO-145; 0019 sections 4 and 5). Each scenario commits a change on the story
+// The review kind (DIPO-145; 0002). Each scenario commits a change on the story
 // branch before the session, then gives the reviewer the review task message of a fixture story
 // about it, built by the engine's own assembly, under the reviewer's own system file.
 
@@ -430,7 +411,8 @@ const REVIEW_STORY: PromptStory = {
   title: "Greet with hello",
   type: "feature",
   tier: "S",
-  outcome: "greet(name) returns hello, <name>, and a test proves it.",
+  storyLine:
+    "As maintainer I want greet to answer hello and the name so that the shop welcomes each customer by name.",
   criteria: [
     { index: 1, text: "greet(name) returns `hello, <name>`." },
     { index: 2, text: "A unit test covers greet." },
@@ -563,7 +545,7 @@ function reviewScenario(
     maxTurns: 12,
     tools: REVIEW_TOOLS,
     turns: [turn],
-    systemPrompt: renderSystemFile("review", "reviewer"),
+    systemPrompt: renderSystemFile("review-box", "reviewer"),
     prepare,
     verify: verifyReview,
     expected,
@@ -578,7 +560,7 @@ const REVIEW_SCENARIOS: readonly Scenario[] = [
       { path: "src/greet.test.ts", added: GREET_TEST.length, removed: 0 },
     ]),
     commitOnStory({ "src/greet.test.ts": `${GREET_TEST.join("\n")}\n` }),
-    "A reviewer's session (0019 section 4) on a change that adds the test of greet: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no plugin beyond Claude Code's built-ins; the worktree is unchanged; the outcome is done with a valid review report, every criterion met and no blocking finding, so the verdict code computes is approved.",
+    "A reviewer's session (0002) on a change that adds the test of greet: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no plugin beyond Claude Code's built-ins; the worktree is unchanged; the outcome is done with a valid review report, every criterion met and no blocking finding, so the verdict code computes is approved.",
   ),
   reviewScenario(
     "review-blocked-live",
@@ -592,7 +574,7 @@ const REVIEW_SCENARIOS: readonly Scenario[] = [
         "",
       ].join("\n"),
     }),
-    "A reviewer's session (0019 section 4) on a change that makes greet say hi and adds no test: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no plugin beyond Claude Code's built-ins; the worktree is unchanged; the outcome is done with a valid review report whose unmet criteria make the verdict code computes blocked.",
+    "A reviewer's session (0002) on a change that makes greet say hi and adds no test: system/init lists Bash, Glob, Grep, Read and StructuredOutput, no skill and no plugin beyond Claude Code's built-ins; the worktree is unchanged; the outcome is done with a valid review report whose unmet criteria make the verdict code computes blocked.",
   ),
   reviewScenario(
     "review-invalid-live",
@@ -600,7 +582,7 @@ const REVIEW_SCENARIOS: readonly Scenario[] = [
       { path: "src/greet.test.ts", added: GREET_TEST.length, removed: 0 },
     ])}\nFor this recording only: do not return the structured report. Reply with the single word reviewed in plain text instead.\n`,
     commitOnStory({ "src/greet.test.ts": `${GREET_TEST.join("\n")}\n` }),
-    "A reviewer's session (0019 section 4) asked not to return its report. The live run (Claude Code 2.1.302, Haiku) returned a valid review report anyway, every criterion met and no finding: the outcome is done and the verdict code computes is approved. The scenario does not provoke an invalid report live; the derived review-invalid recording covers that case (one correction turn, then handled as a crash).",
+    "A reviewer's session (0002) asked not to return its report. The live run (Claude Code 2.1.302, Haiku) returned a valid review report anyway, every criterion met and no finding: the outcome is done and the verdict code computes is approved. The scenario does not provoke an invalid report live; the derived review-invalid recording covers that case (one correction turn, then handled as a crash).",
   ),
 ];
 

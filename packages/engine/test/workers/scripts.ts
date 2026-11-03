@@ -1,4 +1,4 @@
-// Worker event scripts for engine tests that need no Claude detail (0017 section 2). Every script
+// Worker event scripts for engine tests that need no Claude detail (0017). Every script
 // an engine test plays through `ScriptedWorker` belongs here, so the contract test in
 // scripted.test.ts checks it against what the Claude CLI adapter can produce.
 
@@ -57,7 +57,7 @@ export const SCRIPTS: Readonly<Record<string, readonly WorkerEvent[]>> = {
     { t: "waiting", on: "question", detail: "Which greeting should the CLI print?" },
   ],
   // A call `--permission-prompts none` denied; the worker reports blocked with the reason in its
-  // summary and no question (DIPO-50; no report names the call since DIPO-342).
+  // summary and no question; the report has no field for the call (DIPO-50, DIPO-342).
   "blocked-reason": [
     started,
     { t: "denied", tool: "Bash", reason: "permission prompts are off" },

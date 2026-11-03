@@ -1,4 +1,4 @@
-// The reviewer's recordings replayed (DIPO-145; 0019 sections 4 and 5, 0017 section 2): every
+// The reviewer's recordings replayed (DIPO-145; 0002, 0017): every
 // committed recording of the review kind, derived and live (the `review-*-live` scenarios), parses
 // into the review report schema or gives its error, through the adapter's parser as a review run
 // starts it.
@@ -111,11 +111,10 @@ describe("review recordings", () => {
           expect(run.result.park?.detail).toContain("no valid review report");
         }
         // The reviewer is never resumed.
-        expect(run.result.resumable).toBe(false);
       });
 
       if (recording.meta.source === "live") {
-        // A live capture keeps the decision fields of structured_output only (0017 section 2):
+        // A live capture keeps the decision fields of structured_output only (0017):
         // the tool use input and the streamed deltas are redacted, with the same hashes.
         it("carries the result's report, redacted, in the StructuredOutput tool use and its streamed deltas", () => {
           const report = lastResult(recording)["structured_output"];
@@ -212,13 +211,12 @@ describe("the live review reports (Claude Code 2.1.302, Haiku)", () => {
 });
 
 describe("a reviewer that crashed", () => {
-  it("is never resumable: the next review is a fresh session", async () => {
+  it("ends crashed and proposes worker-failed", async () => {
     const recording = loadRecording("review-approved");
     const run = await replay(recording);
     const crashed = claudeResult(run.state, { code: null, signal: "SIGKILL" });
     expect(crashed.outcome).toBe("crashed");
     expect(crashed.park?.reason).toBe("worker-failed");
-    expect(crashed.resumable).toBe(false);
   });
 });
 

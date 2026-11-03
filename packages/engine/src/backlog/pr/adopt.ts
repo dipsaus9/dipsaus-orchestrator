@@ -1,5 +1,5 @@
-// Reading an open backlog PR's branch for adoption after a lost database (DIPO-80; 0007 section 6,
-// 0010 section 2). The lane can take a branch over only when every commit on it beyond the base is
+// Reading an open backlog PR's branch for adoption after a lost database (DIPO-80; 0007,
+// 0010). The lane can take a branch over only when every commit on it beyond the base is
 // a lane commit (`backlog: <kind> <subject>` with one `Dipo-Op` trailer), when the local branch and
 // the PR's head do not diverge, and when the branch still merges into the base: the target states
 // of its operations were journaled in the lost database, so the lane could not rebuild it. Merge

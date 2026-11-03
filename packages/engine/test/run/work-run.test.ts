@@ -62,7 +62,7 @@ import { endRun, findRun, hasActiveRun, insertRun, runSteps, type NewRun } from 
 import type { StoredRun } from "../../src/records/run-records";
 import { SoftwareStream } from "../../src/software-stream";
 import { addStory } from "../../src/records/story-keys";
-import { AdapterHolds } from "../../src/workers/hold";
+import { AdapterPauses } from "../../src/run/starts-paused";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { ClaimOutcome, ClaimRequest } from "../../src/worktree/claim";
 import { insertClaim } from "../../src/worktree/records";
@@ -89,7 +89,7 @@ function task(id: string, status: string, overrides: Partial<PlainTask> = {}): P
     references: ["src/"],
     documentation: [],
     dependencies: [],
-    description: `Outcome: a story.\n\n${BLOCK(id)}`,
+    description: `Story: As maintainer I want a story that passes the gate so that the run can pick it up.\n\n${BLOCK(id)}`,
     acceptanceCriteria: [
       { index: 1, checked: true, text: "It works as described." },
       { index: 2, checked: false, text: "It is tested." },
@@ -125,7 +125,7 @@ interface World {
   readonly claims: ClaimRequest[];
   readonly gates: { key: StoryKey; mode: GateMode; inQueue: boolean; inSession: boolean }[];
   readonly lane: { journaled: LaneOp[]; flushes: number };
-  readonly holds: AdapterHolds;
+  readonly holds: AdapterPauses;
   config: OfficeConfig;
   configErrors: { message: string }[];
   statuses: string | null;
@@ -169,7 +169,7 @@ beforeEach(async () => {
   const claims: ClaimRequest[] = [];
   const gates: World["gates"] = [];
   const lane = { journaled: [] as LaneOp[], flushes: 0 };
-  const holds = new AdapterHolds({ clock: t.clock, notify: () => undefined });
+  const holds = new AdapterPauses({ clock: t.clock, notify: () => undefined });
   const resumeStarts: string[] = [];
   const places = new Places({
     clock: t.clock,
@@ -675,7 +675,10 @@ describe("work.run picks and claims one Ready story", () => {
   });
 
   it("sends a story with no frozen branch through the pickup gate on its own", async () => {
-    const key = story("TASK-1", "Ready", { description: "Outcome: a story." });
+    const key = story("TASK-1", "Ready", {
+      description:
+        "Story: As maintainer I want a story that passes the gate so that the run can pick it up.",
+    });
     world.gate = () => ({
       mode: "pickup",
       passed: false,
@@ -709,7 +712,7 @@ describe("work.run refusals", () => {
     });
     world.configErrors = [];
 
-    world.holds.hold("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
+    world.holds.pause("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
     const held = await codeOf();
     expect(held).toMatchObject({ code: "run.refused", details: { check: "adapter" } });
     expect(held.message).toStartWith(
@@ -918,7 +921,7 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
   it("lets the office's other serialized steps run while the box is prepared", async () => {
     story("TASK-1", "Ready");
     const { pickup, open } = await pickupInSetup();
-    // Before DIPO-314 this step waited for the whole start, box and install included.
+    // The step does not wait for the whole start, box and install included.
     expect(await world.places.serialized(world.officeId, async () => "ran")).toBe("ran");
     open();
     expect(resultOf(await pickup).started.map((s) => s.story)).toEqual(["TASK-1"]);
@@ -1080,12 +1083,12 @@ function resumption(sessions: { count: number }): Resumption {
       offices: { get: () => world.office },
       steering: { send: async () => ({ ok: true }) },
       encode,
-      worker: { id: "claude-cli", result: () => ({ outcome: "done", resumable: true }) as never },
+      worker: { id: "claude-cli", result: () => ({ outcome: "done" }) as never },
       ender: () => ender,
       resumer: {
         next: async () => {
           sessions.count += 1;
-          return { kind: "started", agent: "agt_x" as never, resumed: true };
+          return { kind: "started", agent: "agt_x" as never };
         },
       },
       caps: () => ({ budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 60 }),

@@ -1,4 +1,4 @@
-// The office's one backlog PR (0010 section 2, lane b; 0016 rule 1). After each flush of the
+// The office's one backlog PR (0010, lane b; 0016). After each flush of the
 // planning lane the engine opens a PR for the pushed engine branch `dipo/backlog-*`, or updates the
 // one it has, through the code host (`platform/host.ts`, `gh` with the maintainer's own login), and
 // stores the PR on the journal entries. Whenever the PR's head changes it runs the structural check
@@ -226,8 +226,8 @@ export class BacklogPrs {
   }
 
   /**
-   * Adopts the office's open backlog PR after a lost or replaced database (DIPO-80; 0007 section
-   * 6): lists the open PRs whose head starts with `dipo/backlog-` and takes over the one the
+   * Adopts the office's open backlog PR after a lost or replaced database (0007):
+   * lists the open PRs whose head starts with `dipo/backlog-` and takes over the one the
    * database does not know, into `backlog_prs` and the lane's journal, then runs its structural
    * check. It adopts nothing, with a notice per PR, while the office has an open backlog PR or
    * lane branch of its own, when more than one such PR is open, or when the lane cannot take the
@@ -343,7 +343,7 @@ export class BacklogPrs {
     return record;
   }
 
-  /** Closes the open PR of a branch the lane replaced with a new one (0010 section 2). */
+  /** Closes the open PR of a branch the lane replaced with a new one (0010). */
   async #closeReplaced(office: OfficeId, old: string, report: FlushReport): Promise<void> {
     const handle = this.#handle(office);
     const stored = openPrs(handle).find((pr) => pr.branch === old);

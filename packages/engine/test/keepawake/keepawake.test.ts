@@ -1,4 +1,4 @@
-// Keep-awake while work is active (DIPO-63, 0006 decision 12) on the manual clock with fake
+// Keep-awake while work is active (DIPO-63, 0005) on the manual clock with fake
 // keep-awake processes, so no real assertion is ever taken: one assertion is requested when work
 // starts and released 2 minutes after the last work ends (AC #1); the assertion is
 // `caffeinate -i -w` (0004: macOS only), and `daemon.status` says why it is not held (AC #2).

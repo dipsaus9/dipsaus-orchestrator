@@ -1,4 +1,4 @@
-// The stored run profile (0007 section 4, 0013 section 4): one current profile per office with the
+// The stored run profile (0007, 0013): one current profile per office with the
 // previous one it replaced, and a `scans` row per detection run. Every writer here runs inside the
 // caller's transaction; readers are plain office reads.
 
@@ -20,7 +20,7 @@ import {
 } from "./detect";
 import { readMarks } from "./marks";
 
-/** What starts a scan (0007 section 4). */
+/** What starts a scan (0007). */
 export type ScanTrigger = "start" | "run" | "test" | "rescan";
 
 export interface StoredProfile {
@@ -40,7 +40,7 @@ export interface StoredProfile {
   readonly marks: Readonly<Record<CapabilityName, CapabilityMark>>;
   /** The maintainer marked the product as having nothing to start. */
   readonly nothingToStart: boolean;
-  /** Why the test command refuses (0013 section 2); null when it may run. */
+  /** Why the test command refuses (0013); null when it may run. */
   readonly testRefusal: string | null;
 }
 
@@ -317,7 +317,7 @@ export const NO_PROFILE_REFUSAL =
   "Verify is unresolved: the office has no run profile yet. Run `dipo office rescan`.";
 
 /**
- * Why `run` must refuse the office (0013 section 2 and its 2026-10-11 amendment): the refusal of
+ * Why `run` must refuse the office (0013): the refusal of
  * the current effective profile, which names the script to add and the fallback command
  * (`dipo office infer`, DIPO-310), or null when verify resolved or is confirmed (stale or not). An
  * office that was never scanned is refused too. Reads the database only; no model is asked.
@@ -328,7 +328,7 @@ export function verifyResolved(office: OfficeHandle): string | null {
 }
 
 /**
- * Why the test command (`dipo test`, 0013 section 2 and its amendment of 2026-10-22) must refuse
+ * Why the test command (`dipo test`, 0013) must refuse
  * the office: install unresolved, or `dev` unresolved while the product is not marked as having
  * nothing to start; the refusal names the fallback command. Null when it may run. A seam for the
  * test command's story (DIPO-309), which is not on main yet.

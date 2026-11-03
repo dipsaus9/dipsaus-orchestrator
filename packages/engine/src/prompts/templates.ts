@@ -1,15 +1,13 @@
-// The prompt templates (0014 section 1): logic-free Markdown with named slots (`{{criteria}}`).
+// The prompt templates (0014): logic-free Markdown with named slots (`{{criteria}}`).
 // Code decides whether a section appears, fills its slots, applies budgets and orders it. A
 // template never holds a conditional or a loop; `templateProblems` is the check the tests run
 // over every template file.
 
 import implementBoxContract from "./contract/implement-box.md" with { type: "text" };
 import reviewBoxContract from "./contract/review-box.md" with { type: "text" };
-import reviewContract from "./contract/review.md" with { type: "text" };
 import scanContract from "./contract/scan.md" with { type: "text" };
 import ciFeedback from "./feedback/ci.md" with { type: "text" };
 import reportFeedback from "./feedback/report.md" with { type: "text" };
-import resumeMessage from "./feedback/resume.md" with { type: "text" };
 import verifyFeedback from "./feedback/verify.md" with { type: "text" };
 import developerRole from "./roles/developer.md" with { type: "text" };
 import reviewerRole from "./roles/reviewer.md" with { type: "text" };
@@ -28,7 +26,6 @@ import gateChanges from "./task/gate-changes.md" with { type: "text" };
 import handoff from "./task/handoff.md" with { type: "text" };
 import inputs from "./task/inputs.md" with { type: "text" };
 import instructions from "./task/instructions.md" with { type: "text" };
-import outcome from "./task/outcome.md" with { type: "text" };
 import safeChainRefusals from "./task/safe-chain-refusals.md" with { type: "text" };
 import previousFindings from "./task/previous-findings.md" with { type: "text" };
 import reviewCommit from "./task/review-commit.md" with { type: "text" };
@@ -43,23 +40,21 @@ import testPlan from "./task/test-plan.md" with { type: "text" };
 
 /**
  * L1 worker contracts by run kind: `implement-box` for a developer, who works only in its own box
- * (0021 section 7, 0014 amendment of 2026-10-21, DIPO-272; the Mac worker's `implement` went with
- * DIPO-342): the door messages. `review` (0019 section 4), and `review-box`, the reviewer's of a
- * box run (DIPO-299, DIPO-346): dipo ran the verify in the developer's box at done, and CI runs on
- * the same head at the same time as the review.
+ * (0008, 0014): the door messages. `review-box`, the reviewer's (0002, DIPO-299, DIPO-346):
+ * dipo ran the verify in the developer's box at done, and CI runs on the same head at the same time
+ * as the review.
  */
 export const CONTRACT_TEMPLATES = {
   "implement-box": implementBoxContract,
-  review: reviewContract,
   "review-box": reviewBoxContract,
-  // The scan fallback session (0013 section 6, DIPO-310): no tools, structured output only.
+  // The scan fallback session (0013, DIPO-310): no tools, structured output only.
   scan: scanContract,
 } as const;
 export type ContractKind = keyof typeof CONTRACT_TEMPLATES;
 
 /**
  * Built-in L2 roles until `.dipo/roles/` (M4): `developer`, and `reviewer`, used only by the
- * `review` kind and never named by a story (0019 section 4).
+ * `review-box` kind and never named by a story (0002).
  */
 export const ROLE_TEMPLATES = {
   developer: developerRole,
@@ -79,10 +74,9 @@ export const TASK_TEMPLATES = {
   background,
   handoff,
   story,
-  outcome,
   criteria,
   scope,
-  // The box worker's scope section: References are a forecast (0021 section 13, DIPO-272).
+  // The box worker's scope section: References are a forecast (0008, DIPO-272).
   scopeBox,
   testPlan,
   testPlanNotApplicable,
@@ -103,14 +97,13 @@ export const TASK_TEMPLATES = {
 } as const;
 
 /**
- * Feedback item templates (0014 section 7). M0 builds verify items, the one feedback turn for a
- * missing or invalid report, and the short first message of a resumed session (DIPO-51).
+ * Feedback item templates (0014): CI and verify items, and the one feedback turn for a missing or
+ * invalid report.
  */
 export const FEEDBACK_TEMPLATES = {
   ci: ciFeedback,
   verify: verifyFeedback,
   report: reportFeedback,
-  resume: resumeMessage,
 } as const;
 
 /** A slot: `{{name}}` with a lowercase name of letters, digits and `_`. */
@@ -148,7 +141,7 @@ export function slotsOf(template: string): string[] {
   return [...new Set([...template.matchAll(SLOT)].map((match) => match[1] ?? ""))].toSorted();
 }
 
-/** Text with `\r\n` and lone `\r` turned into `\n` (0014 section 5). */
+/** Text with `\r\n` and lone `\r` turned into `\n` (0014). */
 export function normaliseNewlines(text: string): string {
   return text.replace(/\r\n?/g, "\n");
 }
@@ -164,7 +157,6 @@ export const PROMPT_TAGS: readonly string[] = [
   "background",
   "handoff",
   "story",
-  "outcome",
   "criteria",
   "scope",
   "test_plan",

@@ -1,3 +1,0 @@
-# A version 12 office file: version 12 adds box.localPorts (DIPO-282).
-version: 12
-box: { localPorts: [5432] }

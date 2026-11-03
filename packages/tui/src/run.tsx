@@ -1,5 +1,5 @@
-// `dipo tui` (0009 sections 1, 2 and 7): checks for a terminal, renders `starting…` while the
-// client connects (the connect function starts the daemon when autostart allows, 0006), feeds an
+// `dipo tui` (0009): checks for a terminal, renders `starting…` while the
+// client connects (the connect function starts the daemon when autostart allows, 0005), feeds an
 // `OfficeStore` and opens the office of the current directory, else the first registered one,
 // else the switcher. Quitting, Ctrl+C and SIGTERM unmount Ink, which leaves the alternate screen
 // and raw mode, so the shell gets its terminal back.
@@ -57,7 +57,7 @@ export interface TuiDeps extends TuiStreams {
   readonly clientInfo: { readonly name: string; readonly version: string };
 }
 
-/** The one line printed when stdin is not a terminal (0009 section 1 check 4). */
+/** The one line printed when stdin is not a terminal (0009). */
 export const NO_TTY_MESSAGE =
   "dipo tui: needs an interactive terminal (stdin is not a TTY); use `dipo watch` for plain text";
 
@@ -290,9 +290,9 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
           };
         }
       },
-      readDigest: async (office) => {
+      readDigest: async (office, since) => {
         try {
-          return await connected.read(officeDigest, { office });
+          return await connected.read(officeDigest, { office, since });
         } catch (error) {
           return {
             ok: false,
@@ -336,7 +336,7 @@ function Starting(props: { ascii: boolean; clock: Clock; onQuit: () => void }) {
       return;
     }
     if (input !== "q") return;
-    // The same rule as the App: a second `q` within 2 s quits (0009 section 6).
+    // The same rule as the App: a second `q` within 2 s quits (0009).
     const now = props.clock.now();
     if (quitArmedAt !== null && now - quitArmedAt <= QUIT_WINDOW_MS) props.onQuit();
     else setQuitArmedAt(now);

@@ -273,7 +273,7 @@ describe("office overview board", () => {
     expect(reads()).toBe(before);
   });
 
-  it("shows plain values and no legend while evidence markers are off", async () => {
+  it("shows plain values and no evidence legend", async () => {
     const { ui } = await open(120, 30, null);
     const frame = ui.frame();
     expect(frame).toContain("build   looping @  AC 2/3  loop 2/3  [######--] 78% 22m");

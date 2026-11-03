@@ -1,4 +1,4 @@
-// The facts of review rounds (0019 sections 4, 6 and 12, DIPO-219), read and written through the
+// The facts of review rounds (0002, DIPO-219), read and written through the
 // office handle. Writers run inside the caller's transaction.
 //
 // - Pending reviews. A story run open at In Review in phase review (DIPO-373), whose claim is live
@@ -14,7 +14,7 @@
 //   A round grows no cap: the reviewer has caps of its own per session (0002). A round is open until its verdict is stored; a fresh
 //   session after a failed one continues the open round and writes no step, so it adds nothing.
 // - Failed rounds. Each blocked verdict appends a `review-failed` step; their count is what the
-//   review round cap counts (section 6).
+//   review round cap counts.
 
 import type { RunId } from "@dipsaus-orchestrator/contract";
 
@@ -41,11 +41,10 @@ interface StepRow {
   at: number;
 }
 
-/** A `review` step's value read back; a bare number (a step written before DIPO-219) is its round. */
+/** A `review` step's value read back. */
 function roundOf(row: StepRow, index: number): ReviewRound {
   try {
-    const value = JSON.parse(row.value) as Partial<ReviewRound> | number;
-    if (typeof value === "number") return { round: value, since: row.at, at: row.at };
+    const value = JSON.parse(row.value) as Partial<ReviewRound>;
     return {
       round: typeof value.round === "number" ? value.round : index + 1,
       since: typeof value.since === "number" ? value.since : row.at,
@@ -106,7 +105,7 @@ export function beginReviewRound(
   return { round, started: true };
 }
 
-/** The run's failed review rounds: its `review-failed` steps (0019 section 6). */
+/** The run's failed review rounds: its `review-failed` steps (0002). */
 export function failedReviewRounds(office: OfficeHandle, runId: RunId): number {
   return (
     office.get<{ n: number }>(
@@ -118,10 +117,10 @@ export function failedReviewRounds(office: OfficeHandle, runId: RunId): number {
 }
 
 /**
- * The pending reviews of the office (`PlacesDeps.pending`, 0019 section 12), oldest In Review
+ * The pending reviews of the office (`PlacesDeps.pending`, 0002), oldest In Review
  * first: story runs open at In Review in phase review with a live claim and the review loop's caps, whose head is
  * on the remote (or whose office has none, DIPO-315), and whose story has no open park (a story
- * parked while it waits In Review gets no reviewer until it resumes, as the merge slot and fix
+ * parked while it waits In Review gets no reviewer until it resumes, as the auto-merge and fix
  * rounds skip it). Each waits from its In Review time.
  */
 export function pendingReviews(stories: ParkStore, office: OfficeHandle): PlaceStart[] {
@@ -145,7 +144,7 @@ export function pendingReviews(stories: ParkStore, office: OfficeHandle): PlaceS
 
 /**
  * Inside the caller's transaction: a run open at In Review waiting for its review, whose head's
- * code tree already has `verdict`, takes that verdict without a round (section 6): it enters the
+ * code tree already has `verdict`, takes that verdict without a round: it enters the
  * phase the verdict leads to (`phaseAfterVerdict`), so it is no longer pending. False when the run
  * does not wait for its review.
  */

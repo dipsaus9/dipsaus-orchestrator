@@ -1,4 +1,4 @@
-// The read executor (0005 section 7). Reads change no facts. Args are validated like command args;
+// The read executor (0005). Reads change no facts. Args are validated like command args;
 // a read whose args name an `office` gets that office's handle and runs in one deferred
 // transaction, so a snapshot and its cursor match; story references resolve as for commands. A
 // waiting read (DIPO-71) resolves its references in that transaction and runs its handler after it.

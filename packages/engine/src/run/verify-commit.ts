@@ -1,14 +1,13 @@
-// The end of a developer's turn and In Review (DIPO-49, DIPO-273, DIPO-299; 0010 section 7, 0013
-// section 5, 0007 section 4, 0021 sections 8 and 13 and its amendment of 2026-10-22). Run control
+// The end of a developer's turn and In Review (0007, 0010, 0013, 0008). Run control
 // (DIPO-50) calls `afterTurn` once per worker turn, one at a time per run, unless the turn already
 // ended the run (a cap or a blocked report). Only a turn whose report is `done` goes on.
 //
 // Every developer works in its story's box (DIPO-240): dipo runs no backstop and no scope check,
 // and the only check of what a part changes is the protected-file and secret scan of each part
 // (`box/parts.ts`). dipo runs the office's verify in the box at done (0002, DIPO-346), and CI on
-// the story PR is the final gate. A run without a box (none starts any more; one parked before
-// the change has its box made at its next session, `box/lifetime.ts`) that reports done parks
-// `worker-failed`.
+// the story PR is the final gate. A run without a box record, or a daemon without a box backend,
+// that reports done parks `worker-failed`: a developer session never starts without its box, so
+// this only holds the line.
 //
 // At done, in one held turn of the run's parts (`BoxParts.finishLast`), so no part moves the branch
 // meanwhile: the last part is delivered (a hit, a refused part or a rejected push parks; one dipo
@@ -35,10 +34,10 @@
 //   (0010); any other push failure is a notice and the story stays In Review with the branch local.
 //   A failure in the commit steps parks `worker-failed` with the error. Dependency files the parts
 //   changed (manifests, lockfiles, `requirements*.txt`) raise `verify.dependenciesChanged`.
-// - The story PR (DIPO-144; 0019 section 3): after a push that reached the remote, `storyPr.sync`
+// - The story PR (DIPO-144; 0002): after a push that reached the remote, `storyPr.sync`
 //   opens the story's ready PR, or updates the one it has; the review (a pending review of the
 //   reviewer place) and CI (the PR poll's watch of the pushed head) start together on that head
-//   (0019 section 7). Red CI goes back to the worker through the CI loop of 0019 section 8.
+//   (0002). Red CI goes back to the worker through the CI loop of 0002.
 //
 // The report gate (DIPO-186; 0002, 0014), for every done report before the steps above: the
 // report's test-plan entries and deviations are stored for the run (`done_reports`). The report is
@@ -51,6 +50,11 @@
 // - a decision note whose file is missing at the story branch, or holds no section with that
 //   heading; sent back once per file and section, then left out. Each note that passes is stored in
 //   `decision_notes` with its story and run, also from a report that ends the run (`summarize`).
+// Proposals whose Story line fails 0012 R05 (run control took them out of the report,
+// `splitProposals`) go back once per run in the same message; a refusal that holds only them
+// writes no loop, so a proposal never spends the loop cap or parks the story. A line that still
+// fails, or one with no turn left (a capped turn, a refusal at the loop cap), is dropped with a
+// notice (`droppedProposalNotices`) and the rest of the report goes on.
 // dipo reads none of the worker's tool calls to see whether it ran verify: dipo runs it (DIPO-346).
 // Conflict markers left at done (`conflicts.ts`) are a refusal of the same gate (0002). A done turn
 // that crossed a cap has no turn left: its test-plan miss or its markers park `budget-exceeded`,
@@ -74,12 +78,13 @@ import { GitError } from "../git/runner";
 import {
   decisionNoteFeedback,
   FEEDBACK_LOG_LINES_DEFAULT,
+  proposalLineFeedback,
   testPlanFeedback,
   verifyFeedback,
 } from "../prompts/feedback";
 import { shownSpec } from "../scan/diff";
 import type { CapabilityName, RunProfile } from "../scan/detect";
-import { LOCKFILES, parseManifest } from "../scan/detect/manifest";
+import { parseManifest } from "../scan/detect/manifest";
 import { TASK_FIELD_ERROR } from "../story-store/errors";
 import { deriveStoryView, storyView } from "../views/story";
 import type { WorkerDecisionNote, WorkerReport } from "../workers/types";
@@ -111,10 +116,14 @@ import {
   VERIFY_LOOP,
 } from "../records/run-records";
 import {
+  droppedProposalNotices,
   type NoteMiss,
   noteMiss,
   noteSignature,
+  PROPOSAL_LINE_SIGNATURE,
+  type ProposalDropWhy,
   recordSendBack,
+  type RefusedProposal,
   sentBack,
   storeDecisionNotes,
   storeDoneReport,
@@ -131,7 +140,7 @@ import { storeRunSummary } from "../records/verify-records";
 export const BOX_TIP_MOVED =
   "the story branch moved off the last part's commit before In Review, so dipo did not move the story to review; In Review is written only at the commit the last part left.";
 
-/** The park detail of a run without a box that reports done (DIPO-240). */
+/** The park detail of a run without a box record that reports done (DIPO-240). */
 export const NO_BOX_AT_DONE =
   "the run has no box, so dipo cannot take its work as parts; resume the story, and dipo makes its box from the start commit and the delivered parts first.";
 
@@ -175,17 +184,8 @@ export function dependenciesChangedText(story: string, files: readonly string[])
   return `${story} changed dependency files: ${files.join(", ")}. Review the added or changed packages before you merge.`;
 }
 
-/** Gate capabilities whose change the review is told about (0013 section 5). */
+/** Gate capabilities whose change the review is told about (0013). */
 export const GATE_CAPABILITIES: readonly CapabilityName[] = ["test", "lint", "typecheck", "verify"];
-
-/** Lockfile names paired with manifests (0014 section 3, 0010 amendment); the scope nudge's. */
-export const DEFAULT_LOCKFILES: readonly string[] = LOCKFILES.map(([name]) => name);
-
-/** True when the scope path `scope` covers `path`: equal, or `path` lies under it. */
-export function scopeCovers(scope: string, path: string): boolean {
-  const dir = scope.endsWith("/") ? scope : `${scope}/`;
-  return path === scope || path.startsWith(dir);
-}
 
 function shownCapability(profile: RunProfile, name: CapabilityName): string {
   const capability = profile.capabilities[name];
@@ -198,7 +198,7 @@ function shownScript(value: string | undefined): string {
 }
 
 /**
- * Pure: the gate changes of a branch against the base (0013 section 5), one line each: the root
+ * Pure: the gate changes of a branch against the base (0013), one line each: the root
  * `package.json` gate scripts that differ, then the gate capabilities whose commands differ.
  */
 export function gateChanges(input: {
@@ -245,6 +245,11 @@ export interface TurnContext {
   readonly run: StoredRun;
   readonly work: WorkRef;
   readonly report: WorkerReport | null;
+  /**
+   * The report's proposals whose Story line fails 0012 R05, which run control took out of
+   * `report` (`splitProposals`); the report gate sends them back once or drops them.
+   */
+  readonly refusedProposals?: readonly RefusedProposal[];
   /**
    * The cap this turn crossed while it carried a done report (DIPO-205): its cap step is written
    * with the run's end.
@@ -377,6 +382,9 @@ export class VerifyCommit implements RunFinisher {
       }),
     );
     const items: string[] = [];
+    const refused = ctx.refusedProposals ?? [];
+    // A capped turn has no turn left for a Story line, whatever else it decides.
+    if (refused.length > 0 && ctx.capped != null) this.#dropProposals(ctx, refused, "no-turn");
 
     // The test plan, read on the office base; a base that cannot be read leaves it unchecked.
     const facts = await this.#deps.storyFacts?.(office.officeId, run).catch((error: unknown) => {
@@ -418,12 +426,64 @@ export class VerifyCommit implements RunFinisher {
       );
     }
 
-    if (items.length === 0) return null;
-    return this.#refuse(ctx, items, at, () => {
+    const lines = ctx.capped != null ? null : this.#proposalLines(ctx, refused, items);
+    const sendLines = () => {
+      if (lines !== null)
+        recordSendBack(office, run.runId, "proposal", PROPOSAL_LINE_SIGNATURE, at);
+    };
+    if (items.length === 0) {
+      if (lines === null) return null;
+      // Only Story lines go back: no loop is written, so they never reach the loop cap.
+      if (!ctx.live()) return { kind: "continue" };
+      office.immediate(sendLines);
+      return { kind: "feedback", source: REPORT_GATE_REFUSAL.source, text: lines };
+    }
+    return this.#refuse(ctx, lines === null ? items : [...items, lines], at, () => {
       for (const miss of misses) {
         recordSendBack(office, run.runId, "decision-note", noteSignature(miss.note), at);
       }
+      sendLines();
     });
+  }
+
+  /**
+   * The send-back of the refused proposals' Story lines, or null: once per run while a turn is
+   * left. A line sent back before, or one whose refusal parks at the loop cap, is dropped instead.
+   */
+  #proposalLines(
+    ctx: TurnContext,
+    refused: readonly RefusedProposal[],
+    items: readonly string[],
+  ): string | null {
+    if (refused.length === 0) return null;
+    const { office, run } = ctx;
+    if (items.length > 0 && loopsOf(office, run.runId) + 1 >= runCaps(office, run).loopCap) {
+      this.#dropProposals(ctx, refused, "no-turn");
+      return null;
+    }
+    if (sentBack(office, run.runId, "proposal", PROPOSAL_LINE_SIGNATURE)) {
+      this.#dropProposals(ctx, refused, "still-fails");
+      return null;
+    }
+    return proposalLineFeedback(
+      refused.map(({ proposal, problems }) => ({ title: proposal.title, problems })),
+    );
+  }
+
+  /** Drops refused proposals with one notice each; the report goes on without them. */
+  #dropProposals(
+    ctx: TurnContext,
+    refused: readonly RefusedProposal[],
+    why: ProposalDropWhy,
+  ): void {
+    const { run } = ctx;
+    ctx.write(() =>
+      droppedProposalNotices(
+        { runId: run.runId, key: run.key, story: run.story ?? run.runId },
+        refused,
+        why,
+      ),
+    );
   }
 
   /**
@@ -696,7 +756,7 @@ export class VerifyCommit implements RunFinisher {
   }
 
   /**
-   * The gate changes of a box run (0013 section 5), recorded on the run: the root `package.json`
+   * The gate changes of a box run (0013), recorded on the run: the root `package.json`
    * gate scripts of the delivered branch tip against the base, read from git's objects. A changed
    * script shows at review.
    */
@@ -860,14 +920,14 @@ export class VerifyCommit implements RunFinisher {
       }
       return entries;
     });
-    // 6. The story PR: opened, or updated when an earlier push already opened it (0019 section 3).
+    // 6. The story PR: opened, or updated when an earlier push already opened it (0002).
     if (push.pushed) await this.#deps.storyPr?.sync(officeId, run.runId);
     else if (push.error !== null) this.#deps.storyPr?.pushHeld?.(officeId, run.runId);
     return { kind: "ended" };
   }
 }
 
-/** True when the story's task file was refused for fields dipo does not know (0021 section 14). */
+/** True when the story's task file was refused for fields dipo does not know (0008). */
 function isTaskFieldError(error: unknown): error is GitError {
   return error instanceof GitError && error.code === TASK_FIELD_ERROR;
 }

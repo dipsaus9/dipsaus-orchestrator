@@ -1,7 +1,7 @@
 // `dipo run [ID...] [--box] [--office <id>]` (DIPO-48): sends `work.run` for the office of `--office`
 // or of the current directory, with the main worktree it resolved as `from`, and prints each
 // started story with its run and each skipped story with its reason. Exit 0 when a story started,
-// else 1. Every run is a box run (DIPO-240, 0021): the developer always runs in the story's own box.
+// else 1. Every run is a box run (DIPO-240, 0008): the developer always runs in the story's own box.
 // `--box` (DIPO-271) is still accepted and sent, so scripts that pass it keep working, and changes
 // nothing; with `--dry-run` it is ignored, since the dry run shows the box launch anyway.
 //
@@ -39,7 +39,7 @@ export const RUN_TIMEOUT_MS = 600_000;
 /** The outer deadline of `dipo run`: the claim's limit, then the subscription and explain wait. */
 const RUN_DEADLINE_MS = RUN_TIMEOUT_MS + 60_000;
 
-/** What each skip reason means, for people (0005 section 4). */
+/** What each skip reason means, for people (0005). */
 const REASONS: Readonly<Record<string, string>> = {
   notReady: "not Ready",
   parked: "parked",
@@ -120,7 +120,7 @@ async function explainOffice(
   explanations: StoryExplanations,
 ): Promise<{ unsubscribe(): void }> {
   const live = Promise.withResolvers<void>();
-  // No `filter`: it names the event type prefixes the daemon leaves out (0005 section 5).
+  // No `filter`: it names the event type prefixes the daemon leaves out (0005).
   const subscription = session.subscribe(StreamName.parse(`office:${office}`), {
     onEvent: (event) => explanations.onEvent(event),
     onCaughtUp: () => live.resolve(),

@@ -1,11 +1,11 @@
-// Criteria progress of a story run (DIPO-85; 0008 section 3, 0007 section 4, migration 24).
+// Criteria progress of a story run (DIPO-85; 0008, 0007).
 //
 // The run start records the criterion numbers the story has and the ones already checked. Each
 // turn report the engine accepts replaces the reported set with the numbers it marks met.
 // `Progress.criteriaMet` counts the union of the two among the story's current criterion numbers
 // (a number the story does not have is ignored), so the TUI, `dipo watch` and the overview see
 // progress while the run is live, before the merge brings the checks to the base index. The count
-// stays a worker claim (0009 section 3 evidence `claimed`): the engine only filters it against the
+// stays a worker claim: the engine only filters it against the
 // story, it never verifies it.
 //
 // Writers run inside the caller's `office.immediate`.

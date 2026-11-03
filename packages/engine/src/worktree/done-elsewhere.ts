@@ -27,7 +27,6 @@
 import type { Clock, LostCommit, OfficeId, RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries, type NewEntry } from "../changelog/log";
-import { forgetContextPack } from "../context/pack";
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
 import { closeQuestion, openQuestions } from "../run-state/questions";
@@ -65,7 +64,7 @@ export const DONE_ELSEWHERE_NOTICES = {
   remoteBranch: "doneElsewhere.remoteBranch",
 } as const;
 
-/** The desk kinds a story Done elsewhere puts up (0020 section 12, group 4). */
+/** The desk kinds a story Done elsewhere puts up (0020). */
 export const DONE_ELSEWHERE_DESK = { live: "DONE ELSEWHERE", leftovers: "LEFTOVERS" } as const;
 
 export interface DoneElsewhereRecord {
@@ -186,7 +185,7 @@ export function leftoverTargets(office: OfficeHandle, key: StoryKey): LeftoverTa
   };
 }
 
-/** One item of the desk (0020 section 12) a story Done elsewhere puts up, for `office.desk`. */
+/** One item of the desk (0020) a story Done elsewhere puts up, for `office.desk`. */
 export interface DoneElsewhereDeskItem {
   readonly kind: (typeof DONE_ELSEWHERE_DESK)[keyof typeof DONE_ELSEWHERE_DESK];
   readonly key: StoryKey;
@@ -255,7 +254,7 @@ export interface DoneElsewhereDeps {
   readonly host?: Pick<CodeHost, "closePr"> | null;
   readonly onChanged?: (office: OfficeId) => void;
   /**
-   * Checks and deletes the boxes of ended runs (0021 section 6), as `work.discard` does, after a
+   * Checks and deletes the boxes of ended runs (0008), as `work.discard` does, after a
    * release is settled; best effort.
    */
   readonly finishBoxes?: () => Promise<unknown>;
@@ -404,7 +403,6 @@ export function releaseDoneElsewhere(
       });
     }
     forgetWorkerNotes(office, claim.branch);
-    forgetContextPack(office, claim.branch);
     if (findDoneElsewhere(office, claim.runId) === null) {
       insertRow(office, claim, baseCommit, { releasedAt: at });
     } else {
@@ -464,21 +462,6 @@ export async function releaseMovedPastMerge(
   });
   const row = findDoneElsewhere(deps.office, claim.runId);
   return row === null ? null : settleDoneElsewhere(deps, row);
-}
-
-/**
- * Records a claim released earlier without a row (an own-branch teardown a crash interrupted,
- * released by DIPO-216's reconcile step as `done`), so its kept branch is settled like the others.
- */
-export function adoptReleased(
-  deps: DoneElsewhereDeps,
-  claim: ClaimRecord,
-  baseCommit: string | null,
-): void {
-  if (findDoneElsewhere(deps.office, claim.runId) !== null) return;
-  write(deps, () => {
-    insertRow(deps.office, claim, baseCommit, { releasedAt: claim.releasedAt ?? deps.clock.now() });
-  });
 }
 
 /** What `settleDoneElsewhere` did with the branch. */
@@ -547,7 +530,7 @@ export async function settleDoneElsewhere(
     }
     return entries;
   });
-  // The released run's box goes too (0021 section 6).
+  // The released run's box goes too (0008).
   await deps.finishBoxes?.().catch(() => undefined);
   return { branchKept: outcome.branchKept, commits: outcome.commits };
 }

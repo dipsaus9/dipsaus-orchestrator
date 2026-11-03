@@ -1,4 +1,4 @@
-// CI only (0017 section 1): `work.run` end to end on real git with a bare `origin` and the pinned
+// CI only (0017): `work.run` end to end on real git with a bare `origin` and the pinned
 // Backlog CLI (DIPO-48 test plan). A Ready fixture story goes to In Progress with one claim commit
 // pushed, a stored pickup decision and the events `work.assigned` and `work.phase setup`; a story
 // with an open unknown edited in by hand fails the re-check and goes back to Refined through the

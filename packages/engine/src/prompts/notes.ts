@@ -1,4 +1,4 @@
-// Worker notes for a next session (0014 sections 2 and 6, 0007 section 4): the `notes` of a
+// Worker notes for a next session (0014, 0007): the `notes` of a
 // worker report, the only model-written part of a handoff, stored per story branch and agent at most
 // 1,500 characters. The newest notes of a branch go into the next handoff block. Teardown
 // (DIPO-58) deletes them with `forgetWorkerNotes`.
@@ -8,7 +8,7 @@ import type { Clock } from "@dipsaus-orchestrator/contract";
 import { formatCount } from "../context/truncate";
 import type { OfficeHandle } from "../db/office";
 
-/** Notes are at most this many characters (0014 section 2). */
+/** Notes are at most this many characters (0014). */
 export const WORKER_NOTES_MAX = 1_500;
 
 const notesMarker = (shown: number, total: number): string =>

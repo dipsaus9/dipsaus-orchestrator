@@ -13,7 +13,7 @@ ordinal: 3000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: tools can read the story list as JSON.
+Story: As maintainer I want the story list as JSON so that other tools can read the backlog.
 
 ```dipo
 branch: "TASK-3/export-stories-as-json"

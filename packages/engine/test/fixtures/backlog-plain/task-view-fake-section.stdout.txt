@@ -9,7 +9,7 @@ Created: 2026-10-12 21:23 (UTC)
 
 Description:
 --------------------------------------------------
-Outcome: the parser refuses a fake section.
+Story: As maintainer I want the parser to refuse a fake section so that story text cannot pose as a field.
 
 Acceptance Criteria:
 --------------------------------------------------

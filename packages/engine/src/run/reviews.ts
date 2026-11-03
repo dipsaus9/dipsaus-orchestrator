@@ -1,4 +1,4 @@
-// Review rounds (0019 sections 4, 6 and 12, DIPO-219): a story that reaches In Review gets its
+// Review rounds (0002, DIPO-219): a story that reaches In Review gets its
 // review in the office's reviewer place, its report is judged by code and its verdict stored by
 // code tree key.
 //
@@ -20,7 +20,7 @@
 //   blocked verdict appends a `review-failed` step. The review period ends (`reviewed`) and the
 //   session's stdin is closed. The failed round that reaches the run's review round cap parks
 //   `review-blocked` with the blocking findings as detail instead.
-// - Failures (section 4). The reviewer's own turn or minute cap parks `worker-failed` (run
+// - Failures. The reviewer's own turn or minute cap parks `worker-failed` (run
 //   control). A resume of a park that stopped the reviewer starts a fresh review. A crash, a host
 //   lost, or a report still invalid after its correction turn ends the agent `review-crashed` and
 //   starts one fresh session for the same round; a second failure in the round parks
@@ -61,7 +61,6 @@ import { judgeReview } from "../review/verdict";
 import { recordCrashedEnd } from "../records/agents";
 import { findStoryPr } from "../records/story-prs";
 import { withWorkViews } from "../views/work";
-import { holdMessage, type AdapterHold, type LaunchCheckFailure } from "../workers/hold";
 import type {
   HostOp,
   PlanError,
@@ -107,7 +106,12 @@ import {
   takeVerdict,
 } from "./review-rounds";
 import { endReviewPeriod, reopen, reviewedInReview, reviewPeriodStart } from "../run-state/rounds";
-import { planLimitPause } from "./starts-paused";
+import {
+  type AdapterPause,
+  type LaunchCheckFailure,
+  pauseMessage,
+  planLimitPause,
+} from "./starts-paused";
 
 /** The tags of the review rounds' intents, at the start of their detail. */
 export const REVIEW_TAGS = {
@@ -119,7 +123,7 @@ export const REVIEW_TAGS = {
   retry: "review-retry",
 } as const;
 
-/** `agents.end_reason` of a reviewer session that failed (section 4: crash, host lost, no report). */
+/** `agents.end_reason` of a reviewer session that failed (crash, host lost, no report). */
 export const REVIEW_CRASHED_END = "review-crashed";
 
 /** `engine.notice` codes of the review rounds. */
@@ -150,11 +154,11 @@ export interface ReviewsDeps {
   readonly encode: (op: SteerOp) => HostOp[];
   /** Run control; read when needed, since it is built before this. */
   readonly ender: () => RunEnder | undefined;
-  /** The adapter's id, for its hold. */
+  /** The adapter's id, for its pause. */
   readonly adapter: string;
-  /** DIPO-43's adapter hold, set for a start failure: the office's starts paused (0020). */
+  /** The adapter's pause, set for a start failure: the office's starts paused (0020). */
   readonly holds?: {
-    hold(adapter: string, failures: readonly LaunchCheckFailure[]): AdapterHold;
+    pause(adapter: string, failures: readonly LaunchCheckFailure[]): AdapterPause;
   };
   /** The office's starts paused, which a review's plan limit pauses (0020). */
   readonly startsPaused?: () => PlanLimitPauses | undefined;
@@ -265,7 +269,7 @@ export class Reviews {
       this.#doneOnBase(office, run);
       return false;
     }
-    // A code tree with a verdict in the claim is never reviewed again (section 6).
+    // A code tree with a verdict in the claim is never reviewed again.
     const known = reviewVerdictForTree(office, run.runId, tree);
     if (known !== null) {
       this.#write(office, () => {
@@ -300,7 +304,7 @@ export class Reviews {
         if (findRun(office, run.runId)?.endedAt !== null) return { value: null, entries: [] };
         claimPlace(office, run.runId, at);
         // The reviewer's caps are the run's start snapshot; a run started without them takes the
-        // office's current ones at its first review start and keeps them (0020 section 5).
+        // office's current ones at its first review start and keeps them (0020).
         const config = this.#deps.offices.config(officeId);
         if (config !== undefined) snapshotReviewCaps(office, run.runId, config);
         return { value: beginReviewRound(office, current, start.since, at).round, entries };
@@ -382,7 +386,7 @@ export class Reviews {
       case "started":
         return true;
       case "startFailed":
-        this.#startFailed(office, run, holdMessage(outcome.hold));
+        this.#startFailed(office, run, pauseMessage(outcome.pause));
         return false;
       case "failed":
         // Refused for a park, or for a branch the park's commit moved: the round's head is
@@ -490,7 +494,7 @@ export class Reviews {
     ]);
   }
 
-  /** The `startFailed` row of section 4: a notice; the story stays In Review, the review waits. */
+  /** A reviewer session that failed to start: a notice; the story stays In Review, the review waits. */
   #startFailed(office: OfficeHandle, run: StoredRun, why: string): void {
     const story = run.story ?? run.runId;
     this.#write(office, () => [
@@ -664,7 +668,7 @@ export class Reviews {
     }).done;
   }
 
-  /** Ends the session as a crash: its exit starts one fresh session or parks (section 4). */
+  /** Ends the session as a crash: its exit starts one fresh session or parks. */
   #crash(view: RunView, why: string): void {
     this.#deps.ender()?.act(view.runId, {
       intent: "stop",
@@ -674,7 +678,7 @@ export class Reviews {
     });
   }
 
-  /** A turn's problem in a reviewer session (section 4). */
+  /** A turn's problem in a reviewer session. */
   async onTurnProblem(view: RunView, problem: TurnProblem): Promise<void> {
     const office = this.#deps.offices.get(view.office);
     if (office === undefined || this.#deps.ender()?.live(view.runId) !== true) return;
@@ -764,14 +768,14 @@ export class Reviews {
     if (tag === INTENT_TAGS.startFailed && intent !== null) {
       this.#resolve(office, view.runId, intent, "startFailed", at);
       const why = intentRest(intent.detail);
-      const hold = this.#deps.holds?.hold(this.#deps.adapter, [
+      const hold = this.#deps.holds?.pause(this.#deps.adapter, [
         { check: "start-failed", detail: why },
       ]);
-      this.#startFailed(office, run, hold === undefined ? why : holdMessage(hold));
+      this.#startFailed(office, run, hold === undefined ? why : pauseMessage(hold));
       this.#waitAgain(office, run);
       return;
     }
-    // A crash: no verdict and no decision that explains the exit (section 4).
+    // A crash: no verdict and no decision that explains the exit.
     const why =
       tag === REVIEW_TAGS.retry && intent !== null ? intentRest(intent.detail) : exitWhy(end);
     if (intent !== null) this.#resolve(office, view.runId, intent, "crashed", at);
@@ -896,8 +900,7 @@ function explaining(office: OfficeHandle, runId: RunId): StoredIntent | null {
           (intent.kind === "stop" ||
             intent.kind === "cap" ||
             intent.kind === "park" ||
-            intent.kind === "reassign" ||
-            intent.kind === "pause"),
+            intent.kind === "new-session"),
       )
       .at(-1) ?? null
   );

@@ -1,4 +1,4 @@
-// `dipo daemon start|stop|restart|status` (DIPO-70, 0006 decisions 5 and 14) over a fake
+// `dipo daemon start|stop|restart|status` (DIPO-70, 0005) over a fake
 // lifecycle: the printed reports, `--json`, the exit codes 0, 1 and 3, and the restart hint.
 
 import { describe, expect, it } from "bun:test";
@@ -35,7 +35,7 @@ const STATUS: DaemonStatusResult = {
   keepAwake: { held: false },
   upgradePending: false,
   tools: {
-    claude: "/opt/bin/claude",
+    workerCli: "/opt/bin/claude",
     backlog: "/opt/bin/backlog",
     gh: "/opt/bin/gh",
     git: "/usr/bin/git",
@@ -123,11 +123,11 @@ describe("dipo daemon status", () => {
       "  offices:    0 loaded, 0 active runs",
       "  keep-awake: not held",
       "  tools:",
-      "    claude  /opt/bin/claude",
-      "    backlog /opt/bin/backlog",
-      "    gh      /opt/bin/gh",
-      "    rg      missing",
-      "    git     /usr/bin/git",
+      "    workerCli /opt/bin/claude",
+      "    backlog   /opt/bin/backlog",
+      "    gh        /opt/bin/gh",
+      "    rg        missing",
+      "    git       /usr/bin/git",
     ]);
     expect(ctx.err).toEqual([]);
   });
@@ -258,6 +258,19 @@ describe("dipo daemon start", () => {
     const ctx = fake({ start: { kind: "exited", pid: 999, logs: "/state/logs" } });
     expect(await main(["daemon", "start"], ctx.deps)).toBe(1);
     expect(ctx.err[0]).toContain("/state/logs/daemon.log");
+  });
+
+  it("says why a daemon that cannot use its state database is not usable, and exits 1", async () => {
+    const message =
+      "The state database /h/dipo.db was written by an earlier dipo. No office is loaded. Run `dipo daemon stop`, move /h/dipo.db and its -wal and -shm files away, then start the daemon again.";
+    const ctx = fake({
+      start: { kind: "database unavailable", pid: 77, version: VERSION, message },
+    });
+    expect(await main(["daemon", "start"], ctx.deps)).toBe(1);
+    expect(ctx.out).toEqual([]);
+    expect(ctx.err).toEqual([
+      `dipo: the daemon (pid 77) runs without its state database. ${message}`,
+    ]);
   });
 });
 

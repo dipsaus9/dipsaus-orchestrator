@@ -1006,7 +1006,7 @@ describe("story.drop", () => {
   });
 });
 
-/** Records the branch a drop without a live claim keeps for the story (0010 section 2a). */
+/** Records the branch a drop without a live claim keeps for the story (0010). */
 function keepBranch(key: StoryKey, branch: string): void {
   w.office.immediate(() =>
     w.office.run(

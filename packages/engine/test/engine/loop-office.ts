@@ -1,4 +1,4 @@
-// The review loop of one office, wired as createEngine wires it (DIPO-153; 0019 section 1), for the
+// The review loop of one office, wired as createEngine wires it (DIPO-153; 0002), for the
 // engine's end-to-end scenario test. Real git with a bare `origin` under DIPO_TMP, the pinned
 // Backlog CLI and a migrated state database built from fixtures; the Backlog fixture with TASK-1
 // made to pass the Ready gate. The engine's own services are real and built the way
@@ -14,7 +14,7 @@
 //   the host starter writes them to the run's `events.ndjson` as a worker host would, with the
 //   exit line and `exit.json`; a session the director holds stays live until the scenario
 //   releases it;
-// - the box: every run is a box run (0021, DIPO-240), and a checkout of the story branch the test
+// - the box: every run is a box run (0008, DIPO-240), and a checkout of the story branch the test
 //   makes by hand stands in for its box (`standInBox`; dipo makes no worktree, DIPO-349), so a
 //   developer session's edits are files the director writes there, and its last part at done is
 //   committed on the story branch as dipo commits a part, outside `backlog/`;
@@ -79,8 +79,7 @@ import { gitStoryPrOps, StoryPrs } from "../../src/story-pr";
 import { encode } from "../../src/workers/claude-cli/encode";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { ClaudeWorkerEventSchema } from "../../src/workers/claude-cli/schema";
-import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
-import { AdapterHolds } from "../../src/workers/hold";
+import { AdapterPauses } from "../../src/run/starts-paused";
 import type { WorkerPort } from "../../src/workers/port";
 import { stubReviewBoxes } from "../run/review-boxes";
 import { scriptProblems } from "../workers/scripted-worker";
@@ -232,7 +231,6 @@ function scriptedPort(): WorkerPort {
   return {
     id: "claude-cli",
     reportSchema: REPORT_JSON_SCHEMAS,
-    localSettings: CLAUDE_LOCAL_SETTINGS,
     adapter: () => adapter,
     prepare: async (spec) => ({
       ok: true,
@@ -249,7 +247,7 @@ function scriptedPort(): WorkerPort {
     encode,
     result: (state: ParseState, exit: ExitRecord): WorkerResult => {
       const turn = lastTurn(state);
-      // A reviewer's turn carries its report in `review` (0019 section 5).
+      // A reviewer's turn carries its report in `review` (0002).
       if (turn?.review !== undefined && exit.code === 0 && exit.signal === null) {
         return {
           outcome: "done",
@@ -257,16 +255,11 @@ function scriptedPort(): WorkerPort {
           review: turn.review,
           usage: turn.totals,
           sessionId: "review-session",
-          resumable: false,
         };
       }
       return adapter.result(state, exit);
     },
-    sessionFacts: (state) => ({
-      contextTokens: null,
-      contextWindow: null,
-      lastReport: lastTurn(state)?.report ?? null,
-    }),
+    sessionFacts: (state) => ({ lastReport: lastTurn(state)?.report ?? null }),
   };
 }
 
@@ -295,7 +288,7 @@ export interface Daemon {
   readonly storyPrs: StoryPrs;
   readonly merge: AutoMerge;
   readonly teardown: StoryTeardown;
-  readonly holds: AdapterHolds;
+  readonly holds: AdapterPauses;
   /** What the services warned about. */
   readonly warnings: string[];
   close(): void;
@@ -629,7 +622,7 @@ async function buildDaemon(
   const warnings: string[] = [];
   const warn = (message: string, fields: Readonly<Record<string, unknown>>) =>
     void warnings.push(`${message} ${JSON.stringify(fields)}`);
-  const holds = new AdapterHolds({ clock: officeClock, notify: () => undefined });
+  const holds = new AdapterPauses({ clock: officeClock, notify: () => undefined });
   const implemented = (name: string) => loaded().registry.command(name as never) !== undefined;
   // As the daemon wires them: no park or lift reaches a branch while its PR has auto-merge on.
   let mergeRef: AutoMerge | null = null;
@@ -775,14 +768,13 @@ async function buildDaemon(
       caps: capsFor,
     },
     ci: (office, runId) => storyPrs.ciState(office, runId),
-    boxRun: () => true,
     // Each review session's box is a stand-in: the scripted reviewer needs none (0002).
     reviewBoxes: stubReviewBoxes(),
     // The merges the auto-merge's conflict hand-off made on the branch reach the stand-in box before the worker's
     // next session (DIPO-324), as `BoxCollisions.copyPending` copies them into a real box.
     boxSync: (office, run) => copyIntoWorktree(office, run),
   });
-  const { control, outcomes, resumption, permissions, startsPaused, places, fixRounds, launcher } =
+  const { control, outcomes, resumption, answers, startsPaused, places, fixRounds, launcher } =
     runs;
   if (
     control === null ||
@@ -888,7 +880,7 @@ async function buildDaemon(
       mergeGates.feature,
       control.feature,
       outcomes.feature,
-      permissions.feature,
+      answers.feature,
       startsPaused.feature,
       resumption.feature,
       places.feature,

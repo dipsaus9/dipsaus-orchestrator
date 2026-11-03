@@ -1,9 +1,9 @@
-// Starting the next session of a run, and the start failure that cannot (DIPO-51, split out of
-// `outcomes.ts` by DIPO-128).
+// Starting the next session of a run, and the start failure that cannot, a part of worker
+// outcomes (`outcomes.ts`).
 
 import type { WorkRef } from "@dipsaus-orchestrator/contract";
 
-import { holdMessage, type AdapterHold } from "../workers/hold";
+import { pauseMessage, type AdapterPause } from "./starts-paused";
 import { findClaim, releaseClaim } from "../worktree/records";
 
 import type { OutcomeSupport } from "./outcome-support";
@@ -40,7 +40,7 @@ export class SessionStarts {
     office: OfficeHandle,
     run: StoredRun,
     view: RunView,
-    request: { readonly mode: "resume" | "handoff"; readonly why: string },
+    request: { readonly why: string },
   ): Promise<boolean> {
     const paused = this.#deps.startsPaused?.()?.state(view.office) ?? null;
     if (paused?.reason === "plan-limit") {
@@ -48,8 +48,8 @@ export class SessionStarts {
       await this.#s.park(office, run, view.work, planLimitEnding(pause, []));
       return false;
     }
-    if (paused?.reason === "adapter" && paused.hold !== undefined) {
-      await this.startFailed(office, run, view.work, holdMessage(paused.hold), paused.hold);
+    if (paused?.reason === "adapter" && paused.pause !== undefined) {
+      await this.startFailed(office, run, view.work, pauseMessage(paused.pause), paused.pause);
       return false;
     }
     const resumer = this.#deps.resumer;
@@ -68,7 +68,6 @@ export class SessionStarts {
         office: view.office,
         run,
         work: view.work,
-        mode: request.mode,
         why: request.why,
         caps: view.caps,
         startedAt: view.startedAt,
@@ -80,7 +79,7 @@ export class SessionStarts {
       case "started":
         return true;
       case "startFailed":
-        await this.startFailed(office, run, view.work, holdMessage(outcome.hold), outcome.hold);
+        await this.startFailed(office, run, view.work, pauseMessage(outcome.pause), outcome.pause);
         return false;
       case "failed":
         await this.#s.park(office, run, view.work, {
@@ -103,22 +102,22 @@ export class SessionStarts {
   }
 
   /**
-   * A start failure (0008 section 7 and its 2026-10-14 amendment): the adapter is held and
+   * A start failure (0008): starts pause for the adapter (reason `adapter`) and
    * `run.startFailed` raised. A branch with work parks `worker-failed` and keeps everything;
-   * otherwise the claim is released as DIPO-74 does and the story stays Ready.
+   * otherwise the claim is released and the story stays Ready.
    */
   async startFailed(
     office: OfficeHandle,
     run: StoredRun,
     work: WorkRef,
     detail: string,
-    held: AdapterHold | null,
+    held: AdapterPause | null,
   ): Promise<void> {
     const hold =
       held ??
-      this.#deps.holds?.hold(this.#deps.worker.id, [{ check: "start-failed", detail }]) ??
+      this.#deps.holds?.pause(this.#deps.worker.id, [{ check: "start-failed", detail }]) ??
       null;
-    const message = hold === null ? detail : holdMessage(hold);
+    const message = hold === null ? detail : pauseMessage(hold);
     const claim = findClaim(office, run.runId);
     let holdsWork = true;
     try {

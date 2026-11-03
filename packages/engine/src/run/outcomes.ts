@@ -1,7 +1,7 @@
-// Worker outcomes (DIPO-51; 0008 sections 2, 7 and 8, 0014 section 6). Run control hands this
+// Worker outcomes (0008, 0014). Run control hands this
 // every turn problem, rejected init, plan limit and classifier switch of a tracked run, and the
 // worker's exit once the turns before it are handled. Every op is stored as a `run_intents` row
-// before it is sent; DIPO-51's intents carry a tag at the start of their detail:
+// before it is sent; the intents carry a tag at the start of their detail:
 //
 // - `steer` `feedback report <agent> <via> <text>`: a turn whose report does not parse or match the
 //   schema gets one correction turn "report in the schema" (`prompts/feedback/report.md`) through
@@ -9,21 +9,21 @@
 //   parks `worker-failed` ("no valid report: <why>"; 0008): a bad report is
 //   a broken worker, never a question. A worker that exits before it answered is resumed with the
 //   correction held for its first message.
-// - `reassign` `new-session:context-full`: a turn ended `prompt_too_long`; stdin is closed and
+// - `new-session` `new-session:context-full`: a turn ended `prompt_too_long`; stdin is closed and
 //   SIGTERM follows after 10 s. At the exit the agent ends `prompt-too-long` and one new session
 //   with a handoff starts. A second full context parks `budget-exceeded`.
-// - `reassign` `new-session:error`: a turn ended in an execution error while the process waits
+// - `new-session` `new-session:error`: a turn ended in an execution error while the process waits
 //   (maintainer decision Q4): a crash, handled at the exit as one.
 // - A crash with no intent (a signal, exit 143, an execution error, a cut stream): usage is
 //   already recovered by ingestion; when no earlier agent of the run crashed and no cap fired, the
-//   agent ends `crashed` and the session is resumed once (`--resume` when `canResume` holds, else a
-//   handoff). Otherwise the story parks `worker-failed` with the last error.
+//   agent ends `crashed` and one new session with a handoff starts. Otherwise the story parks
+//   `worker-failed` with the last error.
 // - `stop` `init-rejected`: a `system/init` that fails its checks (key source, model) stops the
 //   worker at once (stdin closed, SIGTERM now, SIGKILL after 30 s) and parks `worker-failed` with
 //   an `engine.notice` `run.initRejected`.
 // - `stop` `start-failed`: a start failure (startup failure, authentication, billing, account on
-//   hold) holds the adapter (DIPO-43's hold) and raises `run.startFailed`. When the branch holds
-//   no work the claim is released as DIPO-74 does (branch kept, story Ready); when it holds
+//   hold) pauses starts for the adapter (reason `adapter`) and raises `run.startFailed`. When the
+//   branch holds no work the claim is released (branch kept, story Ready); when it holds
 //   commits past the claim, the story parks `worker-failed` and everything is kept (0008).
 //   A start the adapter refuses at its first line (`startRefused`, DIPO-108: a plugin the office
 //   does not allow) stores the same intent but stops the worker at once, as a rejected init does
@@ -40,7 +40,7 @@
 // ends goes through `endRun`: parked by a park, dropped by the claim release of a start failure
 // (0020).
 //
-// DIPO-128 split the class by responsibility: `outcome-turns.ts` (after a turn), `outcome-exits.ts`
+// The class is split by responsibility: `outcome-turns.ts` (after a turn), `outcome-exits.ts`
 // (at the exit), `outcome-sessions.ts` (next session, start failure), `outcome-restart.ts` (after
 // a restart), `outcome-support.ts` (shared facts) and `deciding.ts` (the one deciding guard).
 // `outcome-types.ts` holds the vocabulary; this file keeps the public class and re-exports all of

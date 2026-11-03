@@ -1,4 +1,4 @@
-// Ending a run (DIPO-50, split out of `control.ts` by DIPO-128): the intent and its ops, the park
+// Ending a run, a part of run control (`control.ts`): the intent and its ops, the park
 // that follows, a decision without a park, `story.park` of a story with a run, and the writes they
 // share. The reconcile
 // stops are in `control-reconcile.ts`.
@@ -109,7 +109,7 @@ export class RunEndings {
   }
 
   /**
-   * The first decision on a tracked run without a park (a reassign or a start failure): the
+   * The first decision on a tracked run without a park (a new session or a start failure): the
    * intent is stored, then its ops are sent. Nothing else is decided for the run after it; the
    * worker's exit is decided from the intent. False when a decision was made already, or when
    * the intent could not be stored: then no op is sent and the failure is logged (DIPO-119).
@@ -450,7 +450,7 @@ export class RunEndings {
    * Records the intent (synchronously, before the first await), sends its ops through the host and
    * parks the story. A send that fails leaves the intent `failed` and puts a notice on the office;
    * the park still happens. Every entry it writes carries the run's work view where its type has
-   * one (DIPO-52's `withWorkViews`), derived in the transaction that wrote the facts.
+   * one (`withWorkViews`), derived in the transaction that wrote the facts.
    */
   end(
     office: OfficeHandle,

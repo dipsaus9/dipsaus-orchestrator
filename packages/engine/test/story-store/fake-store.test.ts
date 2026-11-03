@@ -31,7 +31,7 @@ const fakeGit = {
 } as unknown as OfficeGit;
 
 const PARKED = [
-  "Outcome: DIPO-1 works.",
+  "Story: As maintainer I want DIPO-1 to work end to end so that the office can run it.",
   "",
   "```dipo",
   'branch: "DIPO-1/story"',

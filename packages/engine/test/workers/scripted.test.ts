@@ -1,4 +1,4 @@
-// `ScriptedWorker` (0017 section 2): it plays Worker events from a list through the Worker
+// `ScriptedWorker` (0017): it plays Worker events from a list through the Worker
 // interface, and a contract test refuses any script event the Claude CLI adapter could not
 // produce. The adapter's own events from every recording pass the same schema (recordings.test.ts).
 
@@ -55,9 +55,8 @@ describe("ScriptedWorker", () => {
     const worker = scriptedWorker({ script: [] });
     expect((await worker.probe()).ok).toBe(true);
     expect(worker.plan({ workdir: "/tmp/wt" } as WorkerSpec).cwd).toBe("/tmp/wt");
-    expect(worker.encode({ kind: "pause" })).toEqual([]);
-    expect(worker.steered).toEqual([{ kind: "pause" }]);
-    expect(worker.canResume()).toEqual({ ok: true });
+    expect(worker.encode({ kind: "stop" })).toEqual([]);
+    expect(worker.steered).toEqual([{ kind: "stop" }]);
   });
 
   describe("(contract) scripts hold only events the Claude CLI adapter can produce", () => {

@@ -1,9 +1,9 @@
-// The `review` task message, L4 (0019 section 4, 0014 sections 2 and 4): what a reviewer receives.
+// The `review` task message, L4 (0002, 0014): what a reviewer receives.
 // The changed paths with line counts, the diff from the merge base without the story's own task
 // file (within the 0014 diff budget), the gate script changes the run recorded, the story facts
-// (story, outcome, criteria, scope, the test plan with its entry numbers, resolved unknowns) and,
+// (story with its Story line, criteria, scope, the test plan with its entry numbers, resolved unknowns) and,
 // on a re-review, the previous round's findings. Of the worker's report only the test-plan
-// statuses with their evidence and the deviations of its last done report (0021 section 15,
+// statuses with their evidence and the deviations of its last done report (0008,
 // DIPO-254), as the worker's own account; never its summary, notes, handoff, reasoning or
 // transcript (0002): the input has no field for them. Pure and deterministic.
 
@@ -23,7 +23,6 @@ export const REVIEW_SECTION_ORDER = [
   "gate_changes",
   "safe_chain_refusals",
   "story",
-  "outcome",
   "criteria",
   "scope",
   "test_plan",
@@ -53,7 +52,7 @@ export interface ReviewTaskInput {
   readonly changes: readonly ReviewChangedPath[];
   /** `git diff <base>...HEAD`, unified; the story's task file is left out here. */
   readonly diff: string;
-  /** The gate changes the run recorded (`runs.gate_changes`, 0013 section 5); empty for none. */
+  /** The gate changes the run recorded (`runs.gate_changes`, 0013); empty for none. */
   readonly gateChanges: readonly string[];
   /**
    * What Safe-Chain refused in the run's box, kept on the run when each session ended (DIPO-376):
@@ -70,7 +69,7 @@ export interface ReviewTaskInput {
     readonly testPlan: readonly WorkerTestPlanEntry[];
     readonly deviations: readonly WorkerDeviation[];
   };
-  /** The `diff` budget of the project's size class, in characters (0014 section 4). */
+  /** The `diff` budget of the project's size class, in characters (0014). */
   readonly diffBudget: number;
   /** `prompt.contractMax`; default 12,000. */
   readonly contractMax?: number;
@@ -146,7 +145,7 @@ const joinFiles = (files: readonly DiffFile[]): string =>
   files.map((file) => `${file.header}${file.hunks.join("")}`).join("");
 
 /**
- * The diff within `budget` (0014 section 4): whole when it fits; otherwise the largest hunks that
+ * The diff within `budget` (0014): whole when it fits; otherwise the largest hunks that
  * fit, each under its file header and in diff order, then a marker that says how to read the rest.
  * The per-file stat is the `changes` section.
  */
@@ -278,7 +277,7 @@ function findingLine(finding: ReviewFinding): string {
   return finding.quote === undefined ? head : `${head}\n  quoted line: ${finding.quote.trim()}`;
 }
 
-/** The reviewer's read-only copy of the pushed commit (0021 section 10, DIPO-276). */
+/** The reviewer's read-only copy of the pushed commit (0008, DIPO-276). */
 export interface ReviewCommitCopy {
   /** The pushed commit the copy holds. */
   readonly commit: string;
@@ -335,7 +334,7 @@ export function assembleReviewTaskMessage(input: ReviewTaskInput): ReviewTaskMes
   // The story facts of the contract, without the developer's extra instructions; the scope and
   // the test plan in the reviewer's words.
   for (const section of contract) {
-    if (section.name === "story" || section.name === "outcome" || section.name === "criteria") {
+    if (section.name === "story" || section.name === "criteria") {
       sections.set(section.name, section.text);
     }
     if (section.name === "answers") sections.set("answers", section.text);

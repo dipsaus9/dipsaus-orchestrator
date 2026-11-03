@@ -1,8 +1,8 @@
 // Newline-delimited text frames over a Unix stream socket (`Bun.listen` and `Bun.connect`). The
 // worker host's steering socket `<runtime>/hosts/<run-id>.sock` speaks its small protocol over it
-// (0006 decision 8): separate from the client contract, so it needs no WebSocket. Access control
-// is the `0700` runtime directory, as for `dipo.sock` (0006 decision 11). Engine code reaches
-// these Bun APIs only through this module (0004 amendment c).
+// (0005): separate from the client contract, so it needs no WebSocket. Access control
+// is the `0700` runtime directory, as for `dipo.sock` (0005). Engine code reaches
+// these Bun APIs only through this module (0004).
 
 import { removeSocketFile } from "./socket";
 

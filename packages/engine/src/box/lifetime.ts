@@ -1,12 +1,12 @@
-// The life of a story's box from claim to merge (DIPO-278; 0021 section 6 and decision 15). Every
-// developer session of a story runs in the story's one box; nothing of a worker runs on the Mac.
+// The life of a story's box from claim to merge (0008). Every developer session of a story runs in
+// the story's one box; nothing of a worker runs on the Mac.
 //
 // - Made at the claim (`BoxLifetime.make`, from the launch's setup): the box at the claim's start
 //   commit (`BoxWorkers.create`), then the office's packages installed in it at the start commit
-//   with the office's install command, within the office's install deadline (DIPO-294, 0021
-//   amendment of 2026-10-22), then `/work` compared with the start commit on dipo's own copy
-//   (`BoxWorkers.changedSinceStart`), never by running git on the box's files (0021 section 14).
-//   A failed step deletes the box again and says why; the launch rolls the claim back.
+//   with the office's install command, within the office's install deadline (0008), then `/work`
+//   compared with the start commit on dipo's own copy (`BoxWorkers.changedSinceStart`), never by
+//   running git on the box's files (0008). A failed step deletes the box again and says why; the
+//   launch rolls the claim back.
 // - Running while the worker works, stopped while the story waits (`boxRunState`, read by the
 //   daemon's passes over the boxes, `BoxWorkers.finishEnded`): a run that ended (at In Review, a
 //   park, a review period's end) with its claim live and its worker hosts exited waits, for a
@@ -14,8 +14,8 @@
 //   stopped with its files (`BoxWorkers.rest`). The next session starts it again
 //   (`BoxWorkers.session`).
 // - Rebuilt when lost (`BoxLifetime.ensure`, before every later developer session): a run whose box
-//   the backend no longer has, whose box was deleted, or that never had one (a run from before
-//   every run was a box run) gets a new box made from the start commit plus the delivered parts:
+//   the backend no longer has, or whose box was deleted, gets a new box made from the start commit
+//   plus the delivered parts:
 //   the story branch's tip with the story folders as the start commit holds them, the tree the next
 //   part is compared with (`box/parts.ts`). The packages are installed again and `/work` is checked
 //   against that tree. Only work the worker had not delivered as a part is lost, and the caller
@@ -97,16 +97,9 @@ export function boxPrepareFailedText(error: unknown): string {
 }
 
 /** The notice of a rebuilt box: what it was made from and what was lost. */
-export function boxRebuiltText(
-  story: string,
-  rebuilt: { had: "gone" | "none"; parts: number },
-): string {
-  const why =
-    rebuilt.had === "none"
-      ? `${story}'s run had no box (it started before every run ran in a box)`
-      : `${story}'s box was gone`;
+export function boxRebuiltText(story: string, rebuilt: { parts: number }): string {
   const parts = rebuilt.parts === 1 ? "1 delivered part" : `${rebuilt.parts} delivered parts`;
-  return `${why}, so dipo made it again from the start commit and the ${parts} on the story branch. Work the worker had not delivered as a part is lost.`;
+  return `${story}'s box was gone, so dipo made it again from the start commit and the ${parts} on the story branch. Work the worker had not delivered as a part is lost.`;
 }
 
 function messageOf(error: unknown): string {
@@ -259,7 +252,7 @@ export type BoxMadeOutcome =
 
 export type BoxEnsured =
   | { readonly kind: "ready" }
-  | { readonly kind: "rebuilt"; readonly had: "gone" | "none"; readonly parts: number }
+  | { readonly kind: "rebuilt"; readonly parts: number }
   | { readonly kind: "failed"; readonly reason: string };
 
 /**
@@ -360,10 +353,10 @@ export class BoxLifetime {
       };
     }
     // A box the record still names may linger in the backend half made: it goes first.
-    if (had === "gone") await boxes.discard(request.runId, "its run's box is made again");
+    await boxes.discard(request.runId, "its run's box is made again");
     const made = await this.#make(request, code, cacheSkipped);
     return made.ok
-      ? { kind: "rebuilt", had, parts: code.parts }
+      ? { kind: "rebuilt", parts: code.parts }
       : { kind: "failed", reason: made.reason };
   }
 

@@ -22,7 +22,7 @@ const LOAD_STEPS = [
   "office.statuses",
   "scan.profile",
   "run-outcomes/redispatch",
-  "expire open permission questions",
+  "expire open questions",
   "starts-paused/recover",
   "places/drain",
   "retention",

@@ -1,4 +1,4 @@
-// CI only (0017 section 1): a plan limit on real git with the pinned Backlog CLI and DIPO-44's
+// CI only (0017): a plan limit on real git with the pinned Backlog CLI and DIPO-44's
 // worker host in this process (DIPO-359 test plan, 0020). `work.run` claims TASK-1 and its first
 // host replays `plan-limit-rejected`: the office's starts pause until two minutes after the reset,
 // the story parks `worker-failed` with the detail "plan limit until <reset>" on its branch, and a

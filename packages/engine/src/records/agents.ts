@@ -20,8 +20,6 @@ export interface NewAgent {
   readonly startedAt: number;
   readonly effort?: string | null;
   readonly sessionId?: string | null;
-  /** The L1+L2 hash a resume compares (DIPO-51). */
-  readonly systemHash?: string | null;
 }
 
 /**
@@ -32,11 +30,11 @@ export function recordAgent(office: OfficeHandle, agent: NewAgent, ifNew = true)
   office.run(
     ifNew
       ? `insert or ignore into agents (office_id, agent_id, run_id, role, model, effort,
-           session_id, system_hash, started_at)
-         values ($office_id, $agent, $run, $role, $model, $effort, $session, $hash, $at)`
+           session_id, started_at)
+         values ($office_id, $agent, $run, $role, $model, $effort, $session, $at)`
       : `insert into agents (office_id, agent_id, run_id, role, model, effort, session_id,
-           system_hash, started_at)
-         values ($office_id, $agent, $run, $role, $model, $effort, $session, $hash, $at)`,
+           started_at)
+         values ($office_id, $agent, $run, $role, $model, $effort, $session, $at)`,
     {
       agent: agent.agentId,
       run: agent.runId,
@@ -44,7 +42,6 @@ export function recordAgent(office: OfficeHandle, agent: NewAgent, ifNew = true)
       model: agent.model,
       effort: agent.effort ?? null,
       session: agent.sessionId ?? null,
-      hash: agent.systemHash ?? null,
       at: agent.startedAt,
     },
   );

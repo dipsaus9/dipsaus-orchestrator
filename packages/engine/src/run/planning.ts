@@ -15,7 +15,7 @@
 // - `story.drop { story, deleteBranch }`: a Draft, Refined, Ready or Parked story is archived.
 //   In Progress or In Review fails `story.active`, and a story another active story depends on
 //   fails `story.hasDependents`. `deleteBranch` needs the typed story id from the client. The order
-//   is 0010 section 2a: journal, close the story PR with a comment, release the claim (branch kept
+//   is 0010: journal, close the story PR with a comment, release the claim (branch kept
 //   and recorded as released, or deleted locally and on the remote; a story has no worktree), then
 //   the park is resolved `drop`, `story.state` says Removed and the lane
 //   flushes. A failure before the facts are written withdraws the journal entry, so the story is
@@ -93,7 +93,7 @@ export interface StoryPlanningDeps {
   readonly host: Pick<CodeHost, "closePr">;
   /** The commands the engine registered, for the `actions` of `story.parked`. */
   readonly implemented: (name: CommandName) => boolean;
-  /** Reads whether a worker host of the claim's run still runs (0020 section 8). */
+  /** Reads whether a worker host of the claim's run still runs (0020). */
   readonly probe: ProcessProbe;
   /** The one-process signal for the verified SIGTERM to a host of the ended run (DIPO-411). */
   readonly signal: SignalProcess;
@@ -121,7 +121,7 @@ export const STORY_ACTIVE = "story.active";
 export const HAS_DEPENDENTS = "story.hasDependents";
 export const PR_NOT_CLOSED = "story.prNotClosed";
 export const NOT_DROPPABLE = "story.notDroppable";
-/** 0005's retryable code: a worker host of the parked run still runs (0020 section 8). */
+/** 0005's retryable code: a worker host of the parked run still runs (0020). */
 export const RUN_HOST_ALIVE = "run.hostAlive";
 
 export class StoryPlanning {
@@ -462,7 +462,7 @@ export class StoryPlanning {
       throw new Error(`The office ${office.officeId} has no git attached.`);
     }
     // A worker host of the parked run that still runs owns the story's box: refuse before anything
-    // is journaled, closed or removed, with or without deleteBranch (0020 section 8). The run has
+    // is journaled, closed or removed, with or without deleteBranch (0020). The run has
     // ended, so the host gets one verified SIGTERM and stops its worker (DIPO-411).
     if (claim !== null) {
       const hosts = await stopHostsOfEndedRun(

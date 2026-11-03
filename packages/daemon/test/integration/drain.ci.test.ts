@@ -1,4 +1,4 @@
-// CI only (0017 section 1): a real daemon process drains on SIGTERM (DIPO-68, 0006 decision 7). It
+// CI only (0017): a real daemon process drains on SIGTERM (DIPO-68, 0005). It
 // waits for a running child it started, removes `dipo.sock` and then `dipo.pid`, and at the drain
 // cap kills the child's process group. State, runtime and temp files stay under the test's temp
 // directory, and every process is stopped in a `finally`.

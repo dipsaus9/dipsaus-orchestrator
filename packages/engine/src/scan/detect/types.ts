@@ -31,7 +31,7 @@ export type EnvFile = {
   readonly ignored: boolean;
 };
 
-/** Where a resolved value came from (0013 section 4). */
+/** Where a resolved value came from (0013). */
 export type Source = "standard" | "declared" | "composed" | "default" | "inferred" | "maintainer";
 export type Confidence = "high" | "medium" | "low";
 
@@ -93,7 +93,7 @@ export type ConformanceLevel = "conforming" | "partial" | "non-standard";
 export type Deviation = {
   /** Stable code, for diffs between scans. */
   readonly code: string;
-  /** True for two sources that disagree: the maintainer must choose (0013 section 3). */
+  /** True for two sources that disagree: the maintainer must choose (0013). */
   readonly conflict: boolean;
   readonly message: string;
 };
@@ -111,12 +111,12 @@ export type RunProfile = {
   };
   /**
    * Why `run` must refuse this office, naming the script to add, when verify is not resolved
-   * (0013 section 2 and its 2026-10-11 amendment); null when verify resolved.
+   * (0013); null when verify resolved.
    */
   readonly runRefusal: string | null;
 };
 
 export type DetectOptions = {
-  /** The maintainer marked the product as having nothing to start (0013 section 2). */
+  /** The maintainer marked the product as having nothing to start (0013). */
   readonly nothingToStart?: boolean;
 };

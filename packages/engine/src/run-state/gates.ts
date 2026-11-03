@@ -8,11 +8,11 @@
 //
 // - Waiting. The gate waits for the maintainer when the run's configuration snapshot sets
 //   `merge.autoMerge` false, the story is flagged test-before-merge, the reviewer marked a
-//   criterion `maintainer`, the story passed review only by a maintainer override, or a hold label
+//   criterion `maintainer`, the story passed review only by a maintainer override, or a wait label
 //   is on the PR (`autorelease: pending` always, which no setting removes, and every label of
-//   `merge.holdLabels`). Otherwise it is decided `approved` by `rule` when it opens, and
+//   `merge.waitLabels`). Otherwise it is decided `approved` by `rule` when it opens, and
 //   recorded, so the audit trail shows every merge decision. `mergeWaits` decides this as data.
-//   A gate reopened because a hold label appeared or a head dipo did not push showed up while
+//   A gate reopened because a wait label appeared or a head dipo did not push showed up while
 //   auto-merge was on waits too. A base the poller read to require no checks waits too: GitHub
 //   would merge at once, so nothing would hold the merge for CI (DIPO-429).
 // - The release path. A PR whose diff changes a path the base's CODEOWNERS gives an owner
@@ -82,7 +82,7 @@ export type MergeWait =
   | { readonly kind: "testBeforeMerge" }
   | { readonly kind: "maintainerCriteria"; readonly criteria: readonly number[] }
   | { readonly kind: "override" }
-  | { readonly kind: "holdLabel"; readonly labels: readonly string[] }
+  | { readonly kind: "waitLabel"; readonly labels: readonly string[] }
   /** The base branch was read to require no checks on GitHub (DIPO-429). */
   | { readonly kind: "noRequiredChecks" }
   | { readonly kind: "releasePath"; readonly paths: readonly string[] }
@@ -91,9 +91,9 @@ export type MergeWait =
   /** The PR's head on GitHub is one dipo did not push (0002): only a hand merge or a discard. */
   | { readonly kind: "foreignHead"; readonly head: string };
 
-/** Pure: the labels of `labels` that hold a PR: `autorelease: pending` and `holdLabels`. */
-export function holdLabelsOn(labels: readonly string[], holdLabels: readonly string[]): string[] {
-  const holding = new Set([AUTORELEASE_LABEL, ...holdLabels].map((label) => label.toLowerCase()));
+/** Pure: the labels of `labels` that hold a PR: `autorelease: pending` and `waitLabels`. */
+export function waitLabelsOn(labels: readonly string[], waitLabels: readonly string[]): string[] {
+  const holding = new Set([AUTORELEASE_LABEL, ...waitLabels].map((label) => label.toLowerCase()));
   return labels.filter((label) => holding.has(label.toLowerCase()));
 }
 
@@ -109,8 +109,8 @@ export interface MergeWaitFacts {
   readonly testBeforeMerge: boolean;
   /** The verdict that holds for the head. */
   readonly verdict: Pick<StoredReviewVerdict, "criteria" | "override">;
-  /** The PR's labels that hold it (`holdLabelsOn`). */
-  readonly holdLabels: readonly string[];
+  /** The PR's labels that hold it (`waitLabelsOn`). */
+  readonly waitLabels: readonly string[];
   /** The base was read to require no checks for the head (`StoryPrs.requiresNoChecks`). */
   readonly noRequiredChecks?: boolean;
   /** The release paths the PR's diff changes (`StoryMergeGit.releasePaths`); none by default. */
@@ -129,7 +129,7 @@ export function mergeWaits(facts: MergeWaitFacts): MergeWait[] {
     .map((entry) => entry.n);
   if (maintainer.length > 0) waits.push({ kind: "maintainerCriteria", criteria: maintainer });
   if (facts.verdict.override !== null) waits.push({ kind: "override" });
-  if (facts.holdLabels.length > 0) waits.push({ kind: "holdLabel", labels: facts.holdLabels });
+  if (facts.waitLabels.length > 0) waits.push({ kind: "waitLabel", labels: facts.waitLabels });
   if (facts.noRequiredChecks === true) waits.push({ kind: "noRequiredChecks" });
   const release = facts.releasePaths ?? [];
   if (release.length > 0) waits.push({ kind: "releasePath", paths: release });
@@ -149,8 +149,8 @@ export function waitLine(wait: MergeWait): string {
       return `the reviewer marked criteria only the maintainer can check: ${wait.criteria.map((n) => `#${n}`).join(", ")}`;
     case "override":
       return "the story passed review only by the maintainer's override";
-    case "holdLabel":
-      return `the PR carries ${wait.labels.length === 1 ? "the hold label" : "the hold labels"} ${wait.labels.map((label) => `"${label}"`).join(", ")}`;
+    case "waitLabel":
+      return `the PR carries ${wait.labels.length === 1 ? "the wait label" : "the wait labels"} ${wait.labels.map((label) => `"${label}"`).join(", ")}`;
     case "noRequiredChecks":
       return "the base branch requires no checks on GitHub, so GitHub would merge the PR without waiting for CI";
     case "releasePath":
@@ -181,7 +181,7 @@ function handMergeLine(story: string, waits: readonly MergeWait[]): string | nul
     return `dipo never merges a head it did not push: merge it by hand on GitHub, or discard the story with \`dipo discard ${story}\`.`;
   }
   const held = waits.find(
-    (wait): wait is Extract<MergeWait, { kind: "holdLabel" }> => wait.kind === "holdLabel",
+    (wait): wait is Extract<MergeWait, { kind: "waitLabel" }> => wait.kind === "waitLabel",
   );
   if (held !== undefined && autoreleasePending(held.labels)) {
     return `It carries "${AUTORELEASE_LABEL}", so dipo never merges it: merge it by hand on GitHub.`;
@@ -251,10 +251,10 @@ export function mergeGateSummary(facts: MergeSummaryFacts): string {
     );
   }
   const hand = handMergeLine(facts.story, facts.waits);
-  const held = facts.waits.some((wait) => wait.kind === "holdLabel");
+  const held = facts.waits.some((wait) => wait.kind === "waitLabel");
   lines.push(
     hand ??
-      `Approve with \`dipo approve ${facts.story}\` or reject with \`dipo reject ${facts.story} --note <text>\`; a merge by hand on GitHub also closes this gate.${held ? " An approved PR still waits until its hold label is gone." : ""}`,
+      `Approve with \`dipo approve ${facts.story}\` or reject with \`dipo reject ${facts.story} --note <text>\`; a merge by hand on GitHub also closes this gate.${held ? " An approved PR still waits until its wait label is gone." : ""}`,
   );
   return lines.join("\n");
 }

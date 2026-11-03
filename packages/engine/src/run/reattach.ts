@@ -16,9 +16,6 @@
 // - No new host ever starts here, and the run's next session (`RunResumer`) waits for every earlier
 //   host of the run to end.
 // - After the catch-up the run's caps are checked once, so a run over its caps is stopped at once.
-// - A living developer host of a run with no box record (an earlier binary's Mac session, from
-//   before every run was a box run; DIPO-240) is stopped with an error notice, and its story parks
-//   `worker-failed`; its next session runs in a box.
 // - A run whose host event file changed parks `worker-failed` with the detail "event file
 //   changed".
 //
@@ -53,7 +50,7 @@ import {
 import { appendEntries } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { connectHost, type ConnectHostResult } from "../host/client";
-import { LAUNCH_FILE, OP_SINCE, type HostExitFile } from "../host/protocol";
+import { LAUNCH_FILE, type HostExitFile } from "../host/protocol";
 import type { IngestAdapter, IngestedExit, IngestTarget, PassResult } from "../ingest/ingestor";
 import {
   isWorkerHostArgv,
@@ -69,7 +66,6 @@ import {
   readHostExit,
   recordHostExit,
   recordPendingPid,
-  setProcessedOffset,
   signalVerifiedHost,
   stopHostOfEndedRun,
   type WorkerHostRow,
@@ -78,7 +74,7 @@ import {
 import { withWorkViews, workRefOf } from "../views/work";
 import type { Caps, ParseState } from "../workers/types";
 
-import { REVIEWER_ROLE, runCaps } from "../records/caps";
+import { runCaps } from "../records/caps";
 import { CAP_TICK_MS, type RunEnding, type TrackedRun } from "./control";
 import {
   claimHost,
@@ -97,7 +93,6 @@ export const REATTACH_STEP = "reattach";
 /** `engine.notice` codes of re-attach. */
 export const REATTACH_NOTICES = {
   hostStopped: "run.hostStopped",
-  macSession: "run.macSessionStopped",
 } as const;
 
 /** What re-attach did with one run. */
@@ -112,23 +107,12 @@ export type ReattachOutcome =
   | "hostLost"
   /** The event file changed; the story parks `worker-failed`. */
   | "fileChanged"
-  /** A developer session on the Mac, outside a box (DIPO-240): stopped, and the story parks. */
-  | "macSession"
   /** Its only host was still pending and no live process matched it: parks. */
   | "neverStarted"
   /** A living host of a run that has ended: one verified SIGTERM, closed out once it exits. */
   | "stopEnded"
   /** A dead host of a run that has ended: closed out. */
   | "closedOut";
-
-/** Why a developer session on the Mac was stopped at re-attach (DIPO-240). */
-export function macSessionText(run: Pick<StoredRun, "story" | "runId">): string {
-  return (
-    `${run.story ?? run.runId} was stopped: its developer session ran on the Mac, outside a box, ` +
-    "as an earlier dipo started it. A developer runs only in its box now; resume the story to " +
-    "go on in one."
-  );
-}
 
 /** The park detail of a run whose pending worker host matched no live process (0005). */
 export const HOST_NEVER_STARTED =
@@ -193,7 +177,6 @@ export interface RunReattacherDeps {
     readonly run: StoredRun;
     readonly agent: string;
     readonly model: string;
-    readonly resume: boolean;
     readonly previous?: ParseState;
   }) => ParseState;
   /** The run's caps by its tier; the run's budget alone when null. */
@@ -202,12 +185,6 @@ export interface RunReattacherDeps {
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   /** How often a signalled host's liveness is checked; `EXIT_CHECK_MS` by default. */
   readonly exitCheckMs?: number;
-  /**
-   * True when a run directory says its run is a box run (`BOX_RUN_FILE`, DIPO-240). With it, a
-   * living developer host of a run without one (a Mac session an earlier binary started) is
-   * stopped, never followed: a developer runs only in its box. Without it no host is checked.
-   */
-  readonly boxRecord?: (runDir: string) => boolean;
 }
 
 /** What one ask of a pending row found (DIPO-386). */
@@ -218,11 +195,6 @@ type PendingAsk =
   /** A host answered, but its PID failed the identity check. */
   | { readonly kind: "refused" };
 
-/** True when the row's host carries a launch deadline: one this binary's protocol started. */
-function hasLaunchDeadline(host: Pick<WorkerHostRow, "protocolVersion">): boolean {
-  return host.protocolVersion >= OP_SINCE.claim;
-}
-
 /** How a pending row was settled by one ask (DIPO-386). */
 type Settled = "matched" | "waiting" | "refused" | "unmatched";
 
@@ -231,7 +203,6 @@ export const EXIT_CHECK_MS = CAP_TICK_MS;
 
 interface AgentRow {
   model: string;
-  session_id: string | null;
   ended_at: number | null;
 }
 
@@ -341,11 +312,7 @@ export class RunReattacher {
    * verify or keep stops itself at its deadline.
    */
   async #settleOne(office: OfficeHandle, host: WorkerHostRow): Promise<Settled> {
-    // A host an earlier binary started (protocol before the claim) has no launch deadline and never
-    // stops itself: it is asked once, as before, and its row goes when it does not match.
-    const deadline = hasLaunchDeadline(host)
-      ? hostLaunchDeadline(host.startedAt)
-      : this.#deps.clock.now() + HOST_CONNECT_TIMEOUT_MS;
+    const deadline = hostLaunchDeadline(host.startedAt);
     const asked = await this.#pendingHost(host, deadline);
     if (asked.kind === "live") {
       // A daemon that stops, or a run that ended, during the ask keeps nothing: no record, so no
@@ -355,7 +322,7 @@ export class RunReattacher {
       recordPendingPid(office, host, asked.pid, asked.startTimeMs);
       return "matched";
     }
-    if (hasLaunchDeadline(host) && this.#deps.clock.now() < deadline) return asked.kind;
+    if (this.#deps.clock.now() < deadline) return asked.kind;
     deletePendingHost(office, host.runId, host.agentId);
     return "unmatched";
   }
@@ -538,7 +505,7 @@ export class RunReattacher {
       model,
       ...(work === null ? {} : { work }),
       adapter,
-      initialState: this.#initialState(office, run, hosts, host, agent, model),
+      initialState: this.#initialState(office, run, hosts, host, model),
     };
   }
 
@@ -603,23 +570,6 @@ export class RunReattacher {
       return { run: run.runId, agent: host.agentId, outcome: "fileChanged" };
     }
 
-    // A living developer on the Mac, outside a box: stopped, never followed (DIPO-240).
-    const onMac =
-      alive &&
-      work.role !== REVIEWER_ROLE &&
-      deps.boxRecord !== undefined &&
-      !deps.boxRecord(host.runDir);
-    if (onMac) {
-      const text = macSessionText(run);
-      const ending = deps.control.interruptedEnding();
-      await deps.control.park(office, run, work, {
-        ...ending,
-        detail: text,
-        notice: { level: "error", code: REATTACH_NOTICES.macSession, text },
-      });
-      return { run: run.runId, agent: host.agentId, outcome: "macSession" };
-    }
-
     const adapter = deps.adapter(office.officeId, run);
     if (adapter === null) {
       deps.warn?.("no worker adapter to re-attach a run with", { run: run.runId });
@@ -645,7 +595,6 @@ export class RunReattacher {
       client = connected.client;
     }
 
-    this.#catchUpOffset(office, hosts, host, agent);
     // The run's start snapshot plus its grants (DIPO-143), for the usage share and the caps.
     const caps = runCaps(office, run);
     const target: IngestTarget = {
@@ -657,7 +606,7 @@ export class RunReattacher {
       model: work.model,
       work,
       adapter,
-      initialState: this.#initialState(office, run, hosts, host, agent, work.model),
+      initialState: this.#initialState(office, run, hosts, host, work.model),
     };
     deps.control.track(office.officeId, {
       runId: run.runId,
@@ -843,7 +792,7 @@ export class RunReattacher {
 
   #agentRow(office: OfficeHandle, agent: string): AgentRow | null {
     return office.get<AgentRow>(
-      `select model, session_id, ended_at from agents
+      `select model, ended_at from agents
         where office_id = $office_id and agent_id = $agent`,
       { agent },
     );
@@ -942,48 +891,24 @@ export class RunReattacher {
     };
   }
 
-  /**
-   * A host recorded without its agent (a binary from before DIPO-57 stopped between the two
-   * writes) has no start offset of its own: it starts where the earlier host's lines end.
-   */
-  #catchUpOffset(
-    office: OfficeHandle,
-    hosts: readonly WorkerHostRow[],
-    host: WorkerHostRow,
-    agent: AgentRow | null,
-  ): void {
-    const previous = hosts.at(-2);
-    if (agent !== null || previous === undefined) return;
-    const from = previous.finalOffset ?? previous.processedOffset;
-    if (host.processedOffset >= from) return;
-    office.immediate(() => setProcessedOffset(office, host.runId, host.agentId, from));
-  }
-
   /** The parser state for an agent with no cursor yet; ignored when it has one. */
   #initialState(
     office: OfficeHandle,
     run: StoredRun,
     hosts: readonly WorkerHostRow[],
     host: WorkerHostRow,
-    agent: AgentRow | null,
     model: string,
   ): ParseState {
     const previous = hosts.at(-2);
     const base = { office: office.officeId, run, agent: host.agentId, model };
-    if (previous === undefined) return this.#deps.initialState({ ...base, resume: false });
+    if (previous === undefined) return this.#deps.initialState(base);
     const cursor = office.get<{ parse_state: string }>(
       `select parse_state from ingest_cursors
         where office_id = $office_id and run_id = $run and agent_id = $agent and source_kind = 'host-events'`,
       { run: host.runId, agent: previous.agentId },
     );
-    const session = office.get<{ session_id: string | null }>(
-      "select session_id from agents where office_id = $office_id and agent_id = $agent",
-      { agent: previous.agentId },
-    )?.session_id;
-    const resume = session != null && agent?.session_id === session;
     return this.#deps.initialState({
       ...base,
-      resume,
       ...(cursor === null ? {} : { previous: JSON.parse(cursor.parse_state) as ParseState }),
     });
   }

@@ -55,13 +55,13 @@ describe("now text", () => {
     const question = {
       question: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C19",
       work: quiet.work,
-      kind: "permission",
-      text: "Bash(docker compose up)",
+      kind: "question",
+      text: "Which greeting should the CLI print?",
       askedAt: "2026-10-14T10:00:00.000Z",
     } as QuestionView;
     const options = { view: quiet, worker: "w", now: NOW, dot: "·" };
     expect(boardNow({ ...options, question })).toBe(
-      "asking you · permission: Bash(docker compose up)",
+      "asking you · Which greeting should the CLI print?",
     );
     expect(boardNow({ ...options, question: undefined })).toBe("reviewing · w");
   });

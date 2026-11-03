@@ -1,4 +1,4 @@
-// `interpret` row by row against the 0008 section 3 table, with small hand-made lines in the
+// `interpret` row by row against the 0008 table, with small hand-made lines in the
 // recorded shapes; the recordings themselves run in recordings.test.ts.
 
 import { describe, expect, it } from "bun:test";
@@ -106,7 +106,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-describe("interpret (0008 section 3)", () => {
+describe("interpret (0008)", () => {
   it("is pure: frozen input state and line, same answer twice", () => {
     const state = deepFreeze(initialState({ plannedModel: "haiku" }));
     const line = deepFreeze(init());
@@ -311,7 +311,7 @@ describe("interpret (0008 section 3)", () => {
     expect(state.live).toEqual({});
   });
 
-  it("on resume adds only the change since the stored totals", () => {
+  it("adds only the change since the totals already seen in the process", () => {
     const stored = { [MODEL]: { input: 3, output: 100, cacheCreate: 150, cacheRead: 60 } };
     const { state } = run([resultLine()], initialState({ baseline: stored }));
     expect(state.committed).toEqual({
@@ -457,7 +457,7 @@ describe("interpret (0008 section 3)", () => {
     expect(result(state, { code: 1, signal: null }).outcome).toBe("startFailed");
   });
 
-  it("permission waits: session_state_changed requires_action; a hook line of an earlier binary is ignored", () => {
+  it("no permission wait: requires_action and a hook line give no event", () => {
     const hook: HostLine = {
       t: 0,
       ch: "hook",
@@ -473,9 +473,7 @@ describe("interpret (0008 section 3)", () => {
       subtype: "session_state_changed",
       state: "requires_action",
     });
-    expect(run([requires]).events).toEqual([
-      { t: "waiting", on: "permission", detail: "requires_action" },
-    ]);
+    expect(run([requires]).events).toEqual([]);
     const idle = out({ type: "system", subtype: "session_state_changed", state: "idle" });
     expect(run([idle]).events).toEqual([]);
   });
@@ -613,7 +611,7 @@ describe("interpret (0008 section 3)", () => {
     expect(state.problems).toEqual(["result failed its schema at session_id"]);
   });
 
-  it("makes an unparseable stdout line a schema drift, and ignores a hook line of an earlier binary", () => {
+  it("makes an unparseable stdout line a schema drift, and ignores a hook line", () => {
     const { events } = run([
       { t: 1, ch: "stdout", data: "{not json\n" },
       { t: 2, ch: "hook", data: "{also not json" },
@@ -754,10 +752,10 @@ describe("worker outcomes (DIPO-51)", () => {
     expect(viaResult.state.acceptedModels).toEqual([SONNET]);
   });
 
-  it("a resumed session inherits the recorded switches, so neither init nor a message repeats it", () => {
+  it("a next session inherits the recorded switches, so neither init nor a message repeats it", () => {
     const first = run([init(), on(SONNET, "msg-1"), EXIT_OK]).state;
-    const resumed = initialState(nextSessionOptions(first, true, "haiku"));
-    const { events } = run([init({ model: SONNET }), on(SONNET, "msg-2")], resumed);
+    const next = initialState(nextSessionOptions(first, "haiku"));
+    const { events } = run([init({ model: SONNET }), on(SONNET, "msg-2")], next);
     expect(events.some((event) => event.t === "modelSwitched" || event.t === "initRejected")).toBe(
       false,
     );
@@ -815,102 +813,9 @@ describe("worker outcomes (DIPO-51)", () => {
     expect((events[turn] as Extract<WorkerEvent, { t: "turn" }>).problem?.kind).toBe("planLimit");
   });
 
-  it("tracks the main agent's context tokens and the context window", () => {
-    const { state } = run([
-      init(),
-      on(MODEL, "msg-1"),
-      on(SONNET, "msg-2", { parent_tool_use_id: "toolu-1" }),
-      resultLine({
-        modelUsage: {
-          [MODEL]: {
-            inputTokens: 4,
-            outputTokens: 155,
-            cacheReadInputTokens: 100,
-            cacheCreationInputTokens: 200,
-            contextWindow: 200_000,
-          },
-        },
-      }),
-    ]);
-    expect(state.contextTokens).toBe(usage.input_tokens + 100 + 50);
-    expect(state.contextWindow).toBe(200_000);
-  });
-
-  it("counts a resumed session's spend once whether the CLI restores the floor or the floor plus later spend", () => {
-    const usageOf = (i: number, o: number, c: number, r: number, cost: number) =>
-      resultLine({
-        modelUsage: {
-          [MODEL]: {
-            inputTokens: i,
-            outputTokens: o,
-            cacheCreationInputTokens: c,
-            cacheReadInputTokens: r,
-            costUSD: cost,
-          },
-        },
-      });
-    // The previous process: totals at its turn end, then one message (live 2/0/100/50).
-    const previous = run([
-      init(),
-      usageOf(4, 155, 200, 100, 0.01),
-      on(MODEL, "msg-9"),
-      EXIT_OK,
-    ]).state;
-    const resumed = () => initialState(nextSessionOptions(previous, true, "haiku"));
-    // The resumed process spends one message (2/100/50) and 20 output tokens.
-    const spent = { [MODEL]: { input: 2, output: 20, cacheCreate: 100, cacheRead: 50 } };
-    // Restores only the floor (the previous turn totals).
-    const floorOnly = run(
-      [init(), on(MODEL, "msg-10"), usageOf(4 + 2, 155 + 20, 200 + 100, 100 + 50, 0.012)],
-      resumed(),
-    ).state;
-    expect(floorOnly.committed).toEqual(spent);
-    expect(floorOnly.costCommitted?.[MODEL]).toBeCloseTo(0.002, 9);
-    // Restores the floor plus the previous process's spend after its turn end.
-    const withLive = run(
-      [init(), on(MODEL, "msg-10"), usageOf(6 + 2, 155 + 20, 300 + 100, 150 + 50, 0.013)],
-      resumed(),
-    ).state;
-    expect(withLive.committed).toEqual(spent);
-    // That later spend was never priced by a result, so its cost counts now.
-    expect(withLive.costCommitted?.[MODEL]).toBeCloseTo(0.003, 9);
-  });
-
-  it("a resume tells restored spend from a restarted count, per field", () => {
+  it("a next session starts its counts at zero and keeps only the switches", () => {
     const previous = run([init(), resultLine(), on(MODEL, "msg-9"), EXIT_OK]).state;
-    // The previous process counted its turn totals plus one message after them.
-    const options = nextSessionOptions(previous, true, "haiku");
-    expect(options.restoredFloor).toEqual({
-      [MODEL]: { input: 4, output: 155, cacheCreate: 200, cacheRead: 100 },
-    });
-    expect(options.baseline).toEqual({
-      [MODEL]: { input: 6, output: 155, cacheCreate: 300, cacheRead: 150 },
-    });
-    const resumed = initialState(options);
-    const totals = (fields: { i: number; o: number; c: number; r: number }) =>
-      resultLine({
-        modelUsage: {
-          [MODEL]: {
-            inputTokens: fields.i,
-            outputTokens: fields.o,
-            cacheCreationInputTokens: fields.c,
-            cacheReadInputTokens: fields.r,
-          },
-        },
-      });
-    // input above the baseline: the rise; output between floor and baseline: live (zero);
-    // cache creation below the floor: all of it; cache read between: live.
-    const step = run(
-      [init(), on(MODEL, "msg-10"), totals({ i: 10, o: 155, c: 50, r: 120 })],
-      resumed,
-    );
-    expect(step.state.committed).toEqual({
-      [MODEL]: { input: 4, output: 0, cacheCreate: 50, cacheRead: 50 },
-    });
-    // The floor applies to the first turn end only.
-    expect(step.state.restoredFloor).toBeUndefined();
-    // A new session (not a resume) starts its counts at zero and keeps only the switches.
-    expect(nextSessionOptions(previous, false, "haiku")).toEqual({
+    expect(nextSessionOptions(previous, "haiku")).toEqual({
       plannedModel: "haiku",
       acceptedModels: [],
     });

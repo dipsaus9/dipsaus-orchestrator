@@ -1,4 +1,4 @@
-// `dipo daemon worker-host <run-id>` (0006 decisions 2 and 8): the detached process that hosts one
+// `dipo daemon worker-host <run-id>` (0005): the detached process that hosts one
 // worker. The engine starts it with `DIPO_RUN_DIR` naming the run directory, stdio appended to
 // `host.log` and the Bun flag variables removed; the host itself is engine code (`runWorkerHost`).
 // `launch.json` holds the task message, so every refusal removes it before returning. SIGTERM to

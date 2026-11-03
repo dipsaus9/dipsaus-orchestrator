@@ -1,4 +1,4 @@
-// Your desk (`3`, 0009 sections 4, 5 and 9, amended by DIPO-132 and DIPO-308): what waits on the
+// Your desk (`3`, 0009, DIPO-132, DIPO-308): what waits on the
 // maintainer, read from `office.desk` and shown in the engine's order. A count line, then one row
 // per item with its kind, story, park reason, detail, age and the keys its actions offer
 // (`keys.ts`); the stories the maintainer parked are listed apart under "Parked by you". An empty
@@ -28,7 +28,7 @@ import type { Display } from "./options";
 import { glyphs } from "./views";
 import { Colored } from "./colour";
 
-/** The narrowest terminal whose desk rows may take a second line (0009 section 9). */
+/** The narrowest terminal whose desk rows may take a second line (0009). */
 export const DESK_WIDE_COLUMNS = 80;
 
 /** The desk reads `office.desk` at most this often. */
@@ -56,7 +56,7 @@ export const DESK_EVENTS: ReadonlySet<string> = new Set([
 /** The `engine.notice` codes of the office's starts paused and its lift (0020, DIPO-359). */
 export const DESK_NOTICES: ReadonlySet<string> = new Set([
   "office.startsPaused",
-  "office.startsLifted",
+  "office.startsResumed",
 ]);
 
 /**

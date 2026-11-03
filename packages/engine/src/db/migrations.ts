@@ -1,16 +1,18 @@
-// Forward-only, numbered, checksummed migrations (0007 section 9). They run once for the whole
+// Forward-only, numbered, checksummed migrations (0007). They run once for the whole
 // file, before any office loads: first a `VACUUM INTO` backup, then each pending step in its own
 // immediate transaction that also records the step and moves `PRAGMA user_version`. Then the schema
 // must equal the one the same steps build in a fresh in-memory database.
 
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
 
 import {
   BACKUPS_DIR,
+  DATABASE_FILE,
+  openImmutableSqlite,
   openMemorySqlite,
   vacuumInto,
   type DbLogger,
@@ -73,7 +75,7 @@ export interface MigrateResult {
   readonly backup: string | null;
 }
 
-/** The database was written by a newer dipo (0007 section 9). */
+/** The database was written by a newer dipo (0007). */
 export class DatabaseTooNewError extends Error {
   constructor(
     readonly found: number,
@@ -83,6 +85,26 @@ export class DatabaseTooNewError extends Error {
       `The state database is at schema version ${found}, newer than this dipo supports (${supported}). Please upgrade dipo, or restore a pre-migration backup.`,
     );
     this.name = "DatabaseTooNewError";
+  }
+}
+
+/** The name of the first step a database recorded before the steps were squashed into one base (0007). */
+export const PRE_SQUASH_FIRST_STEP = "offices and schema_migrations";
+
+/**
+ * The database was written by a dipo from before its migrations were squashed into one base schema
+ * (0007). This dipo cannot read it and does not change or delete it: the maintainer moves it away,
+ * and the next start creates a fresh database.
+ */
+export class DatabaseBeforeSquashError extends Error {
+  constructor(
+    readonly path: string,
+    readonly found: number,
+  ) {
+    super(
+      `The state database ${path} was written by an earlier dipo, before its schema steps were squashed into one base schema (it is at version ${found}), and this dipo cannot read it. Stop the daemon, move ${path} and its -wal and -shm files away, and start the daemon again: it creates a fresh database. Stories, branches and PRs stay in Backlog.md and git; only run history (costs, logs) is lost.`,
+    );
+    this.name = "DatabaseBeforeSquashError";
   }
 }
 
@@ -158,7 +180,7 @@ export function assertMigrationOrder(migrations: readonly Migration[]): void {
   });
 }
 
-/** `yyyymmddThhmmss` in UTC, for backup names (0007 section 2). */
+/** `yyyymmddThhmmss` in UTC, for backup names (0007). */
 export function backupStamp(ms: number): string {
   return new Date(ms)
     .toISOString()
@@ -325,6 +347,39 @@ function removeOldDailyBackups(db: SqliteConnection, logger: DbLogger): void {
 }
 
 /**
+ * Refuses `<stateDir>/dipo.db` when an earlier dipo wrote it before the squash
+ * (`DatabaseBeforeSquashError`), before `openSqlite` touches it: the look goes through an immutable
+ * read-only open, so a refused file gets no new `-wal` or `-shm` next to it. A missing, empty or
+ * unreadable file passes: the open and the migrations say what is wrong with it.
+ */
+export function refuseBeforeSquash(stateDir: string): void {
+  let path: string;
+  try {
+    path = join(realpathSync(stateDir), DATABASE_FILE);
+    if (statSync(path).size === 0) return;
+  } catch {
+    return;
+  }
+  let found: { readonly beforeSquash: boolean; readonly version: number };
+  try {
+    const db = openImmutableSqlite(path);
+    try {
+      found = {
+        beforeSquash: readApplied(db).some(
+          (row) => row.version === 1 && row.name === PRE_SQUASH_FIRST_STEP,
+        ),
+        version: userVersion(db),
+      };
+    } finally {
+      db.close();
+    }
+  } catch {
+    return;
+  }
+  if (found.beforeSquash) throw new DatabaseBeforeSquashError(path, found.version);
+}
+
+/**
  * Brings the database to the head of `migrations`. Refuses a database newer than the binary and
  * one whose recorded steps differ from the binary's; writes `backups/pre-v<N>-<time>.db` before
  * applying anything. Then refuses a database whose schema differs from the one the steps build
@@ -339,8 +394,14 @@ export async function migrate(
   assertMigrationOrder(migrations);
   const head = migrations.length;
   const from = userVersion(db);
+  const applied = readApplied(db);
+  // Backstop for `refuseBeforeSquash`: a pre-squash database its read-only look missed (an
+  // unflushed -wal after an unclean stop) is still named as one, never as "too new".
+  if (applied.some((row) => row.version === 1 && row.name === PRE_SQUASH_FIRST_STEP)) {
+    throw new DatabaseBeforeSquashError(db.path, from);
+  }
   if (from > head) throw new DatabaseTooNewError(from, head);
-  verifyApplied(migrations, readApplied(db), from);
+  verifyApplied(migrations, applied, from);
   if (from === head) {
     verifySchema(db, options, null);
     removeOldDailyBackups(db, logger);

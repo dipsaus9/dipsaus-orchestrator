@@ -106,7 +106,15 @@
           "anyOf": [
             {
               "type": "string",
-              "enum": ["migration", "checksum", "damaged", "tooNew", "networkFilesystem", "open"]
+              "enum": [
+                "migration",
+                "checksum",
+                "damaged",
+                "tooNew",
+                "beforeSquash",
+                "networkFilesystem",
+                "open"
+              ]
             },
             {
               "type": "string"

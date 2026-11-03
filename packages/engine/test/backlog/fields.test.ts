@@ -1,4 +1,4 @@
-// The `dipo` field block and reserved labels (DIPO-29; 0010 section 3): the parser accepts zero or
+// The `dipo` field block and reserved labels (DIPO-29; 0010): the parser accepts zero or
 // one block and fails R02 on a second block, an unclosed block, text after it or an unquoted number;
 // the emitter is canonical and round-trips; the splice keeps every byte outside the block.
 
@@ -15,7 +15,8 @@ import {
   spliceFieldBlock,
 } from "../../src/story-store";
 
-const OUTCOME = "Outcome: the export reports how many rows it wrote.";
+const STORY_LINE =
+  "Story: As maintainer I want the export to report how many rows it wrote so that I can tell a short export from a full one.";
 
 function errorOf(description: string): FieldBlockError {
   try {
@@ -29,7 +30,7 @@ function errorOf(description: string): FieldBlockError {
 
 describe("the block parser", () => {
   it("reads no block as empty fields", () => {
-    expect(parseFieldBlock(`${OUTCOME}\n\nFree context.`)).toEqual({
+    expect(parseFieldBlock(`${STORY_LINE}\n\nFree context.`)).toEqual({
       fields: {},
       block: undefined,
     });
@@ -38,7 +39,7 @@ describe("the block parser", () => {
 
   it("reads one block into typed fields", () => {
     const description = [
-      OUTCOME,
+      STORY_LINE,
       "",
       "```dipo",
       'branch: "TASK-4/count-exported-rows"',
@@ -61,15 +62,15 @@ describe("the block parser", () => {
 
   it("allows blank lines after the block and an empty block", () => {
     expect(
-      parseFieldBlock(`${OUTCOME}\n\n\`\`\`dipo\nunknowns: []\n\`\`\`\n\n  \n`).fields,
+      parseFieldBlock(`${STORY_LINE}\n\n\`\`\`dipo\nunknowns: []\n\`\`\`\n\n  \n`).fields,
     ).toEqual({ unknowns: [] });
-    expect(parseFieldBlock(`${OUTCOME}\n\`\`\`dipo\n\`\`\``).fields).toEqual({});
+    expect(parseFieldBlock(`${STORY_LINE}\n\`\`\`dipo\n\`\`\``).fields).toEqual({});
   });
 
   it("opens only on a line exactly ```dipo, a CRLF ending included", () => {
-    expect(parseFieldBlock(`${OUTCOME}\n \`\`\`dipo\nbranch: 5\n\`\`\``).block).toBeUndefined();
+    expect(parseFieldBlock(`${STORY_LINE}\n \`\`\`dipo\nbranch: 5\n\`\`\``).block).toBeUndefined();
     expect(
-      parseFieldBlock(`${OUTCOME}\r\n\`\`\`dipo\r\nunknowns: []\r\n\`\`\`\r\n`).fields,
+      parseFieldBlock(`${STORY_LINE}\r\n\`\`\`dipo\r\nunknowns: []\r\n\`\`\`\r\n`).fields,
     ).toEqual({
       unknowns: [],
     });
@@ -77,7 +78,7 @@ describe("the block parser", () => {
 
   it("fails R02 on a line that is ```dipo only after trimming other trailing whitespace", () => {
     for (const opener of ["```dipo ", "```dipo\t", "```dipo \r", "```dipo\r\r"]) {
-      const error = errorOf(`${OUTCOME}\n\n${opener}\nbranch: "TASK-1/old"\n\`\`\``);
+      const error = errorOf(`${STORY_LINE}\n\n${opener}\nbranch: "TASK-1/old"\n\`\`\``);
       expect(error.rule).toBe("R02");
       expect(error.detail).toContain("trailing whitespace");
       expect(error.line).toBe(3);
@@ -86,21 +87,21 @@ describe("the block parser", () => {
 
   it("fails R02 on a second block", () => {
     const block = "```dipo\nunknowns: []\n```";
-    const error = errorOf(`${OUTCOME}\n\n${block}\n\n${block}`);
+    const error = errorOf(`${STORY_LINE}\n\n${block}\n\n${block}`);
     expect(error.rule).toBe("R02");
     expect(error.message).toStartWith("structured fields are invalid: a second ```dipo block");
     expect(error.line).toBe(7);
   });
 
   it("fails R02 on an unclosed block", () => {
-    const error = errorOf(`${OUTCOME}\n\n\`\`\`dipo\nunknowns: []\n\`\`\` \n`);
+    const error = errorOf(`${STORY_LINE}\n\n\`\`\`dipo\nunknowns: []\n\`\`\` \n`);
     expect(error.rule).toBe("R02");
     expect(error.detail).toContain("not closed");
     expect(error.line).toBe(3);
   });
 
   it("fails R02 on text after the block", () => {
-    const error = errorOf(`${OUTCOME}\n\n\`\`\`dipo\nunknowns: []\n\`\`\`\n\nMore context.`);
+    const error = errorOf(`${STORY_LINE}\n\n\`\`\`dipo\nunknowns: []\n\`\`\`\n\nMore context.`);
     expect(error.rule).toBe("R02");
     expect(error.detail).toContain("text after");
     expect(error.line).toBe(7);
@@ -109,7 +110,7 @@ describe("the block parser", () => {
   it("fails R02 on `answer: 5173` with the quote hint", () => {
     const error = errorOf(
       [
-        OUTCOME,
+        STORY_LINE,
         "```dipo",
         "unknowns:",
         '  - q: "Which port?"',
@@ -205,14 +206,14 @@ describe("the emitter", () => {
       { park: { reason: "needs-permission", from: "In Progress", note: "" } },
     ];
     for (const value of values) {
-      const description = spliceFieldBlock(OUTCOME, value);
+      const description = spliceFieldBlock(STORY_LINE, value);
       expect(parseFieldBlock(description).fields).toEqual(value);
     }
   });
 });
 
 describe("the splice", () => {
-  const before = `\t${OUTCOME}  \r\n\nContext with \`\`\`fences\`\`\` and trailing space \n`;
+  const before = `\t${STORY_LINE}  \r\n\nContext with \`\`\`fences\`\`\` and trailing space \n`;
   const old =
     '```dipo\nbranch: "TASK-4/old"\npark: {reason: "stopped", from: "Ready", note: "x"}\n```';
 
@@ -228,12 +229,14 @@ describe("the splice", () => {
 
   it("appends a block after a blank line when there is none, keeping the text as a prefix", () => {
     const value: FieldBlock = { unknowns: [] };
-    expect(spliceFieldBlock(OUTCOME, value)).toBe(`${OUTCOME}\n\n\`\`\`dipo\nunknowns: []\n\`\`\``);
-    expect(spliceFieldBlock(`${OUTCOME}\n`, value)).toBe(
-      `${OUTCOME}\n\n\`\`\`dipo\nunknowns: []\n\`\`\``,
+    expect(spliceFieldBlock(STORY_LINE, value)).toBe(
+      `${STORY_LINE}\n\n\`\`\`dipo\nunknowns: []\n\`\`\``,
+    );
+    expect(spliceFieldBlock(`${STORY_LINE}\n`, value)).toBe(
+      `${STORY_LINE}\n\n\`\`\`dipo\nunknowns: []\n\`\`\``,
     );
     expect(spliceFieldBlock("", value)).toBe("```dipo\nunknowns: []\n```");
-    expect(spliceFieldBlock(OUTCOME, {})).toBe(OUTCOME);
+    expect(spliceFieldBlock(STORY_LINE, {})).toBe(STORY_LINE);
   });
 
   it("refuses a description whose block structure is invalid", () => {
@@ -241,12 +244,12 @@ describe("the splice", () => {
   });
 
   it("never appends a second block after a stale near-miss block", () => {
-    const stale = `${OUTCOME}\n\n\`\`\`dipo \nbranch: "TASK-4/old"\n\`\`\``;
+    const stale = `${STORY_LINE}\n\n\`\`\`dipo \nbranch: "TASK-4/old"\n\`\`\``;
     expect(() => spliceFieldBlock(stale, { unknowns: [] })).toThrow(FieldBlockError);
   });
 
   it("splices a CRLF block in place and keeps CRLF endings", () => {
-    const head = `${OUTCOME}\r\n\r\nContext.\r\n\r\n`;
+    const head = `${STORY_LINE}\r\n\r\nContext.\r\n\r\n`;
     const tail = "\r\n";
     const crlf = `${head}\`\`\`dipo\r\nbranch: "TASK-4/old"\r\n\`\`\`${tail}`;
     const spliced = spliceFieldBlock(crlf, { branch: "TASK-4/new", unknowns: [] });
@@ -257,13 +260,13 @@ describe("the splice", () => {
   });
 
   it("appends with CRLF endings to a description that uses them", () => {
-    expect(spliceFieldBlock(`${OUTCOME}\r\n`, { unknowns: [] })).toBe(
-      `${OUTCOME}\r\n\r\n\`\`\`dipo\r\nunknowns: []\r\n\`\`\``,
+    expect(spliceFieldBlock(`${STORY_LINE}\r\n`, { unknowns: [] })).toBe(
+      `${STORY_LINE}\r\n\r\n\`\`\`dipo\r\nunknowns: []\r\n\`\`\``,
     );
   });
 
   it("keeps NFD text outside the block byte for byte and reads NFD block text as NFC", () => {
-    const nfd = "Outcome: the café export writes every röw.\n\nNähe.\n\n";
+    const nfd = "Story: the café export writes every röw.\n\nNähe.\n\n";
     const block = '```dipo\nunknowns:\n  - q: "Café?"\n    status: "open"\n```';
     const parsed = parseFieldBlock(`${nfd}${block}`).fields;
     expect(parsed).toEqual({ unknowns: [{ q: "Café?", status: "open" }] });

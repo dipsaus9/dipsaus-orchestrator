@@ -1,4 +1,4 @@
-// The live agent detail (`Enter` on a running story, 0009 sections 4, 6 and 9). It answers "what is
+// The live agent detail (`Enter` on a running story, 0009). It answers "what is
 // the worker doing right now" first: under the story header a `now` line shows the health, the
 // phase and the newest output line (a tool call such as `[tool] <tool> src/app.ts`, or the agent's
 // words) with its age. Under it the story's open questions show with their kind, age and text and
@@ -9,7 +9,7 @@
 // The output pane shows `work.output` of the worker (`w`) or of verify (`v`) and follows the tail.
 // The key `i` swaps it for the prompt dipo sent the selected agent's session (`work.prompt`,
 // DIPO-137): the system file and the first message, read from the top with the same scroll keys,
-// or a line saying none is stored. `p` stays pause (0009 section 5).
+// or a line saying none is stored. `p` stays pause (0009).
 // The engine's phase markers in the worker output read `── 12:04:31 phase: review ──` (DIPO-83).
 // `k`/`j`, arrows and PageUp/PageDown scroll; scrolling past the text held reads earlier text with
 // `work.outputRange`, and End returns to following. The text lives in an `OutputFeed` outside
@@ -42,10 +42,9 @@ import type {
 import { Box, Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { budgetBar, evidenceOf, marked, truncate } from "./format";
+import { budgetBar, truncate } from "./format";
 import type { Display } from "./options";
 import { endedLine, nowLine, shortAge } from "./now";
-import { EVIDENCE_MARKERS } from "./overview";
 import { compactRecordFactLines, noOutputLine, recordFactLines, recordHeaderLine } from "./past";
 import {
   type FeedChange,
@@ -131,7 +130,7 @@ export const FACTS_WIDTH = 36;
 const MAX_BOXES = 20;
 /** The most open questions the detail lists; more show as a count. */
 export const MAX_QUESTIONS = 3;
-/** The opt-in that puts tool inputs into the worker output (0007 section 8). */
+/** The opt-in that puts tool inputs into the worker output (0007). */
 const COMMAND_BODIES = "privacy.storeCommandBodies";
 
 /**
@@ -150,10 +149,9 @@ export function headerLine(view: WorkView, story: StoryView | undefined, dot: st
   return parts.join(` ${dot} `);
 }
 
-/** How to answer a question from a shell: `dipo answer <id> allow|deny` or `<text>` (DIPO-59). */
+/** How to answer a question from a shell: `dipo answer <id> <text>` (DIPO-59). */
 export function answerHint(question: QuestionView): string {
-  const reply = question.kind === "permission" ? "allow|deny" : "<text>";
-  return `dipo answer ${question.question} ${reply}`;
+  return `dipo answer ${question.question} <text>`;
 }
 
 /**
@@ -188,34 +186,32 @@ function criteriaBoxes(met: number, total: number): string {
   return "[x]".repeat(checked) + "[ ]".repeat(total - checked);
 }
 
-/** The values of the facts panel, with evidence markers when the engine sends them. */
-function facts(view: WorkView, evidence: boolean) {
+/** The values of the facts panel. */
+function facts(view: WorkView) {
   const { progress, usage } = view;
-  const mark = (value: string, path: string) =>
-    marked(value, evidenceOf(view.evidence, path, evidence));
   const run = usage.run;
   return {
     phase: view.phase,
     health: healthLabel(view.health),
-    loop: mark(`${progress.loop}/${progress.loopCap}`, "progress.loop"),
-    verify: mark(progress.verify, "progress.verify"),
+    loop: `${progress.loop}/${progress.loopCap}`,
+    verify: progress.verify,
     review: `round ${progress.reviewRound}`,
-    criteria: mark(`${progress.criteriaMet}/${progress.criteriaTotal}`, "progress.criteriaMet"),
+    criteria: `${progress.criteriaMet}/${progress.criteriaTotal}`,
     boxes: criteriaBoxes(progress.criteriaMet, progress.criteriaTotal),
-    input: `in ${mark(usageTokens(run.inputTokens), "usage.run.inputTokens")}`,
-    output: `out ${mark(usageTokens(run.outputTokens), "usage.run.outputTokens")}`,
-    cacheWrite: `cw ${mark(usageTokens(run.cacheCreateTokens), "usage.run.cacheCreateTokens")}`,
-    cacheRead: `cr ${mark(usageTokens(run.cacheReadTokens), "usage.run.cacheReadTokens")}`,
-    turns: `turns ${mark(String(run.turns), "usage.run.turns")}`,
+    input: `in ${usageTokens(run.inputTokens)}`,
+    output: `out ${usageTokens(run.outputTokens)}`,
+    cacheWrite: `cw ${usageTokens(run.cacheCreateTokens)}`,
+    cacheRead: `cr ${usageTokens(run.cacheReadTokens)}`,
+    turns: `turns ${run.turns}`,
     // Dollars are the cost the worker CLI reports, itself an estimate (0008).
     cost: run.estimatedCost === undefined ? "" : `~$${run.estimatedCost.toFixed(2)}`,
-    budget: `${budgetBar(usage)} ${mark(percent(usage.budgetShare), "usage.budgetShare")} of ${usageTokens(usage.budget.limit)}`,
+    budget: `${budgetBar(usage)} ${percent(usage.budgetShare)} of ${usageTokens(usage.budget.limit)}`,
   };
 }
 
 /** The facts as a column of labelled lines, for the side-by-side layout (AC 2). */
-export function factLines(view: WorkView, evidence: boolean): string[] {
-  const f = facts(view, evidence);
+export function factLines(view: WorkView): string[] {
+  const f = facts(view);
   const lines = [
     `phase    ${f.phase}`,
     `health   ${f.health}`,
@@ -235,8 +231,8 @@ export function factLines(view: WorkView, evidence: boolean): string[] {
 }
 
 /** The facts in four lines, for the stacked layout below 100 columns (AC 2). */
-export function compactFactLines(view: WorkView, evidence: boolean): string[] {
-  const f = facts(view, evidence);
+export function compactFactLines(view: WorkView): string[] {
+  const f = facts(view);
   const cost = f.cost === "" ? "" : ` ${f.cost}`;
   return [
     `phase ${f.phase}  health ${f.health}  loop ${f.loop}  verify ${f.verify}  review ${f.review}`,
@@ -379,13 +375,12 @@ export function Detail(props: DetailProps) {
   }, [source, promptAgent, promptOffice, target.run, state.snapshots, props.readPrompt]);
 
   const side = columns >= SIDE_BY_SIDE_COLUMNS;
-  const evidence = EVIDENCE_MARKERS;
   const record = view === undefined ? target.record : undefined;
   const factText =
     view !== undefined
       ? side
-        ? factLines(view, evidence)
-        : compactFactLines(view, evidence)
+        ? factLines(view)
+        : compactFactLines(view)
       : record === undefined
         ? []
         : side
@@ -497,7 +492,7 @@ export function Detail(props: DetailProps) {
   const feed = shown.feed;
   const tabs = `[w]orker${source === "worker" ? "*" : ""} [v]erify${source === "verify" ? "*" : ""} [i] prompt${source === "prompt" ? "*" : ""}`;
   // With commands stored (the default, DIPO-135), tool lines in the worker output carry their
-  // commands (0007 section 8).
+  // commands (0007).
   const stores = source === "worker" && officeOptIns(state).includes(COMMAND_BODIES);
   const title = `${source === "prompt" ? "prompt (stored)" : `output (${source})`} ${tabs}${stores ? `  ${storedLabel([COMMAND_BODIES])}` : ""}`;
   let status: string;

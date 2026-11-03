@@ -121,7 +121,7 @@ const FACTS: StoryPrFacts = {
     id: "DIPO-1",
     title: "Open the PR.",
     type: "feature",
-    outcome: "a PR opens",
+    storyLine: "As maintainer I want a PR opens so that I can follow the story on GitHub.",
     criteria: [{ index: 1, text: "It opens", checked: true }],
     testPlan: undefined,
     scope: ["packages/engine/src/story-pr/"],
@@ -307,7 +307,7 @@ const advisory = (i: number): ReviewFinding => ({
 });
 
 describe("the review comment", () => {
-  it("renders a blocked round with an unverified finding in the section 3 format", async () => {
+  it("renders a blocked round with an unverified finding in the review comment format", async () => {
     await inWorld(async (w) => {
       const stored = w.round(2, "blocked", {
         criteria: [
@@ -581,7 +581,14 @@ describe("the done report", () => {
     commitSubject: "c",
     notes: "Deviated: kept the old key.\u001b[31m\nSecond line.",
     proposals: [
-      { kind: "follow-up", title: "T".repeat(300), outcome: "o", why: "w", paths: ["a/b.ts"] },
+      {
+        kind: "follow-up",
+        title: "T".repeat(300),
+        story:
+          "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
+        why: "w",
+        paths: ["a/b.ts"],
+      },
     ],
   };
 
@@ -592,7 +599,8 @@ describe("the done report", () => {
       proposals: [...Array(5)].map(() => ({
         kind: "tool",
         title: "t",
-        outcome: "o",
+        story:
+          "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
         why: "w",
       })),
     });

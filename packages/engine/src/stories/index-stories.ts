@@ -1,9 +1,9 @@
-// `indexStories` (0007 section 6 step 3, 0010 section 2): one pass over the office's stories. It
+// `indexStories` (0007, 0010): one pass over the office's stories. It
 // brings the `_base` worktree to `origin/<base>` if it is missing, then, as one item in the office
 // git queue so no fetch moves `_base` meanwhile, reads every task and draft there through the
 // StoryStore and writes every change of the pass, with its change-log entries, in one transaction.
 //
-// A claimed story is read on its story branch (DIPO-56, 0007 section 6 step 3; 0010 section 2a):
+// A claimed story is read on its story branch (DIPO-56, 0007; 0010):
 // from the claim commit until the claim is released, its status, park record (F16), criteria and
 // tier live there, so the pass reads it again as committed at the branch tip (the store's
 // `readOnBranch`; never a worktree's uncommitted edits) and mirrors that read with the branch as `source`. A
@@ -73,7 +73,7 @@ function messageOf(error: unknown): string {
 }
 
 /**
- * True while the claim's branch holds the story (0010 section 2a): from its claim commit until
+ * True while the claim's branch holds the story (0010): from its claim commit until
  * its release or teardown. A claim whose setup never finished has no claim commit yet.
  */
 export function readsOnBranch(claim: ClaimRecord): boolean {
@@ -186,8 +186,7 @@ async function overlayClaimed(
   const baseStatus = new Map<StoryKey, string>();
   for (const claim of liveClaims(deps.office)) {
     if (!readsOnBranch(claim)) continue;
-    // The story's id as the engine knows it now; a story renumbered by hand meanwhile is matched
-    // by the pass and read on its branch from the next pass on.
+    // The story's id as the engine knows it now.
     const id = findStoryByKey(deps.office, claim.key)?.story ?? claim.story;
     const index = read.findIndex((story) => story.story === id && story.kind === "task");
     const listed = read[index];

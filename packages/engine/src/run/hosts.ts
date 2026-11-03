@@ -1,6 +1,6 @@
 // The real `HostStarter` and `RunIngest` the daemon gives the run launcher (DIPO-74). The host is
-// started detached through DIPO-44's `startWorkerHost` and recorded in `worker_hosts`; its events
-// are ingested through one DIPO-45 `Ingestor` per office: a first pass and the 1 s `stat` poll at
+// started detached through `startWorkerHost` and recorded in `worker_hosts`; its events
+// are ingested through one `Ingestor` per office: a first pass and the 1 s `stat` poll at
 // once, and the host's `advanced` announcements as soon as its socket answers.
 
 import type { Clock, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
@@ -12,7 +12,6 @@ import {
   type HostClient,
   type HostRequest,
 } from "../host/client";
-import { OP_SINCE } from "../host/protocol";
 import { Ingestor, type IngestHooks, type IngestTarget, type PassResult } from "../ingest/ingestor";
 import type { OutputPrivacy } from "../ingest/output";
 import type { Env } from "../platform/paths";
@@ -45,14 +44,12 @@ export function hostLaunchDeadline(startedAt: number): number {
  * Claims a host (DIPO-386, 0008): the `claim` op, sent only by a daemon that holds the host's
  * verified PID in its `worker_hosts` row and follows its run, and only when the handshake named
  * that PID. A handshake alone claims nothing, and a host no daemon claimed by its launch deadline
- * stops itself. A host that speaks no `claim` (an earlier binary's, with no launch deadline) needs
- * none. Returns why the host was not claimed, or null.
+ * stops itself. Returns why the host was not claimed, or null.
  */
 export async function claimHost(client: HostClient, recordedPid: number): Promise<string | null> {
   if (client.hostPid !== recordedPid) {
     return `its handshake named pid ${client.hostPid}, not the recorded ${recordedPid}`;
   }
-  if (client.version < OP_SINCE.claim) return null;
   const reply = await client.request({ op: "claim" });
   if (reply === null) return "it did not answer the claim";
   return reply.ok ? null : `${reply.error.code}: ${reply.error.message}`;
@@ -151,13 +148,13 @@ export interface OfficeIngestOptions {
    */
   readonly runEvents?: OfficeRunListener;
   /**
-   * The privacy opt-ins in force for `office` (0007 section 8, DIPO-83), read at every ingest pass.
+   * The privacy opt-ins in force for `office` (0007, DIPO-83), read at every ingest pass.
    * Without it, or for an office without a configuration, nothing beyond the default is stored.
    */
   readonly privacy?: (office: OfficeId) => OutputPrivacy;
   /**
    * Rewrites a pass's output text before it is stored (`IngestorOptions.redactOutput`): the web
-   * check redacts env values from web lines (0020 section 11b, DIPO-164).
+   * check redacts env values from web lines (0020, DIPO-164).
    */
   readonly redactOutput?: (office: OfficeHandle, run: string, text: string) => string;
 }
@@ -308,7 +305,7 @@ export class OfficeIngest implements RunIngest {
     return this.#closed;
   }
 
-  /** Writes the run's pending `work.output` now, before a state change of the run (0005 section 6). */
+  /** Writes the run's pending `work.output` now, before a state change of the run (0005). */
   flushOutput(office: OfficeId, run: string): void {
     this.#ingestors.get(office)?.flushOutput(run);
   }
@@ -345,7 +342,7 @@ export interface HostSocketSteeringOptions {
 }
 
 /**
- * Sends host ops to a run's worker host over its socket (DIPO-44's protocol), to the newest host of
+ * Sends host ops to a run's worker host over its socket (`host/protocol.ts`), to the newest host of
  * the run: one connection, the ops in order, then closed. A newest host whose row is still pending
  * (written before its spawn, DIPO-93) is waited for up to the timeout, and a recorded host whose
  * socket is not bound yet is asked again up to its launch deadline (`connectWhenBound`, DIPO-411),

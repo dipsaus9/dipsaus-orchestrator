@@ -23,8 +23,6 @@ export interface Harness {
   readonly engine: FakeSurface;
   readonly server: ContractServer;
   readonly socket: ServedSocket;
-  /** Each time the server said the last TUI of an office left. */
-  readonly tuiLeft: { readonly office: OfficeId; readonly at: number }[];
   /** Adds an office to the fake's change logs and returns its id. */
   addOffice(): OfficeId;
   close(): Promise<void>;
@@ -54,12 +52,10 @@ export async function startHarness(dir: string, options: HarnessOptions = {}): P
   const logger = createLogger({ clock, sinks: [], component: "test" });
   const engine = options.engine ?? new FakeSurface();
   const socketPath = join(dir, "dipo.sock");
-  const tuiLeft: { office: OfficeId; at: number }[] = [];
   const server = new ContractServer({
     engine,
     clock,
     logger,
-    tuiLeft: (office, at) => tuiLeft.push({ office, at }),
     ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),
     ...(options.readDeadlineMs === undefined ? {} : { readDeadlineMs: options.readDeadlineMs }),
     ...(options.maxInFlight === undefined ? {} : { maxInFlight: options.maxInFlight }),
@@ -77,7 +73,6 @@ export async function startHarness(dir: string, options: HarnessOptions = {}): P
     engine,
     server,
     socket,
-    tuiLeft,
     addOffice() {
       const office = officeId();
       engine.addOffice(office);

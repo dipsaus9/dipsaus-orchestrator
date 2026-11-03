@@ -1,4 +1,4 @@
-// What a running worker is doing now, in words (0009 sections 4 and 6, DIPO-81): the line the live
+// What a running worker is doing now, in words (0009, DIPO-81): the line the live
 // agent detail shows under its header, and the `now:` line under each running row of the overview.
 // Both take the newest stored worker line as stored, and its age from the engine's `lastOutputAt`.
 // Nothing here parses adapter output.
@@ -84,8 +84,7 @@ export function boardNow(options: {
   const { view, worker, question, now, dot } = options;
   const age = outputAge(view, now);
   if (question !== undefined) {
-    const text = question.kind === "permission" ? `permission: ${question.text}` : question.text;
-    return ["asking you", text].join(` ${dot} `);
+    return ["asking you", question.text].join(` ${dot} `);
   }
   const parts = [phaseWord(view.phase), worker ?? "no output yet"];
   if (age !== null) parts.push(age);

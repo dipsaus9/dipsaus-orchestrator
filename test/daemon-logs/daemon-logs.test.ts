@@ -1,4 +1,4 @@
-// `dipo daemon logs` reads what the daemon's log module writes (DIPO-64, 0006 decision 13).
+// `dipo daemon logs` reads what the daemon's log module writes (DIPO-64, 0005).
 // `client` may not import `engine` (0004), so the reader in `client/node` repeats the rotated file
 // names; this test sits outside both packages, where neither boundary applies, and runs the real
 // writer against the real reader. It imports the source files by path because the repository root

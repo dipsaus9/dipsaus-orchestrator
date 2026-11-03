@@ -1,5 +1,5 @@
-// CI only (0017 section 1): the slower claim cases against real temporary repositories, a bare
-// remote and the pinned Backlog CLI (DIPO-38, DIPO-349; 0010 sections 2 and 2a), kept out of the
+// CI only (0017): the slower claim cases against real temporary repositories, a bare
+// remote and the pinned Backlog CLI (DIPO-38, DIPO-349; 0010), kept out of the
 // local suite for its time budget (DIPO-77, DIPO-79): the full claim from origin/main with the
 // push, the skips of a story's own live claim and of a ref tracked for another story with a
 // remote, a lane-b operation submitted during the pickup re-check, and the reuse of a branch after
@@ -49,7 +49,7 @@ function claimed(outcome: ClaimOutcome): Extract<ClaimOutcome, { ok: true }> {
 
 /**
  * Claims TASK-1, commits `file` with `content` on its branch by hand, pushes it and releases the
- * claim keeping the branch as 0010 section 2a does. Returns the kept tip.
+ * claim keeping the branch as 0010 does. Returns the kept tip.
  */
 async function claimWorkRelease(
   repo: TempRepoWithRemote,

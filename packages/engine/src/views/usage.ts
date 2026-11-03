@@ -1,5 +1,5 @@
-// Token spend over all offices (DIPO-311, 0009 section 8, 0007 section 4). Budget tokens (input,
-// output and cache creation; cache reads left out, 0008 section 4) of every run kind are summed per
+// Token spend over all offices (DIPO-311, 0009, 0007). Budget tokens (input,
+// output and cache creation; cache reads left out, 0008) of every run kind are summed per
 // office and over all offices for the UTC calendar day and month: the final rows in `usage_daily`
 // plus the live rows of agents still open (`usage_totals` not final, with the output of a turn in
 // progress). The limits and the level come from the software configuration; with no limit the
@@ -155,7 +155,7 @@ export function summaryUsage(
   const own = snapshot.offices.get(office) ?? { day: NONE, month: NONE };
   const dayUsage = windowUsage(own.day, snapshot.total.day, limits.dayTokens, limits.level);
   const monthUsage = windowUsage(own.month, snapshot.total.month, limits.monthTokens, limits.level);
-  // Tokens are the CLI's own claim; the cost is the catalog's estimate (0009 section 3).
+  // Tokens are the CLI's own claim; the cost is the catalog's estimate (0009).
   const evidence: EvidenceMap = {
     "dayUsage.tokens": "claimed",
     "monthUsage.tokens": "claimed",

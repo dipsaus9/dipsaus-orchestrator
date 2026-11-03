@@ -1,4 +1,4 @@
-// The code a box gets (0021 section 2 and decision 9, DIPO-271): a plain copy of the repository at
+// The code a box gets (0008): a plain copy of the repository at
 // the story's start commit, with no `.git` and no history, plus only the files outside git the base
 // office config lists in `box.files`, each marked as holding no real secrets. dipo stages it in a
 // folder of its own and copies that folder into the box; nothing else goes in. In the box, dipo
@@ -11,7 +11,7 @@
 //   git's config defines, with the `_base` checkout's LFS settings (`BASE_CHECKOUT_CONFIG`): no
 //   filter program runs.
 // - Each listed file comes from the office's main checkout, the registered office path: it is the
-//   maintainer's, where files outside git live, and no worker writes it (0021). Never from a story
+//   maintainer's, where files outside git live, and no worker writes it (0008). Never from a story
 //   worktree or `_base`, a clean checkout that holds no file outside git. It must be a regular file
 //   whose real path stays in that checkout, no folder on its way there may be a symlink, it may not
 //   replace a tracked file, and no folder on its way into the stage may be a symlink either. A

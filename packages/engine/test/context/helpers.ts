@@ -27,11 +27,10 @@ export function memoryWorkspace(
 export function request(overrides: Partial<ContextRequest> = {}): ContextRequest {
   return {
     storyId: "DIPO-1",
-    outcome: "Do the thing.",
+    storyLine: "As maintainer I want the thing done so that the story is finished.",
     criteria: ["It works."],
     scope: [],
     inputs: [],
-    components: [],
     baseSha: "a".repeat(40),
     headSha: "b".repeat(40),
     sizeClass: "S",

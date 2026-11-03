@@ -56,7 +56,7 @@ import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemListenHttp } from "../../src/platform/box-host";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
-import { AdapterHolds } from "../../src/workers/hold";
+import { AdapterPauses } from "../../src/run/starts-paused";
 import { backlogLayout } from "../story-store/backlog";
 import { cleanUpRealBoxes } from "./real-box-cleanup";
 
@@ -162,7 +162,7 @@ if (registers) {
                 }),
               readBaseBox,
               code: { spawn: systemSpawn, clock: systemClock },
-              holds: new AdapterHolds({ clock: systemClock, notify: () => {} }),
+              holds: new AdapterPauses({ clock: systemClock, notify: () => {} }),
               adapter: "claude-cli",
               tmpRoot: tmp,
               indexDir: join(tmp, "state", BOX_INDEX_DIR),

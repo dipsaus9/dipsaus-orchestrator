@@ -1,6 +1,6 @@
 // Temporary directories for tests. They live under `$DIPO_TMP` when set (the sandboxed verify
 // temp root, DIPO-37), else under `/tmp`, with short `dipo-XXXXXX` names because macOS limits
-// Unix socket paths to about 104 bytes (0017 section 3). A temp root too long for a test daemon's
+// Unix socket paths to about 104 bytes (0017). A temp root too long for a test daemon's
 // socket paths is refused (DIPO-109): the daemon would otherwise fall back to the real runtime
 // directory and remove a live daemon's socket.
 

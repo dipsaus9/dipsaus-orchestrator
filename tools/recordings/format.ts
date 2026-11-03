@@ -1,4 +1,4 @@
-// The recording format of 0017 section 2: one directory per scenario under
+// The recording format of 0017: one directory per scenario under
 // `packages/engine/test/recordings/claude-cli/<scenario>/` with `stream.jsonl` (one envelope per
 // observed item, in arrival order) and `meta.json` (how it was made and what it should cause).
 
@@ -61,7 +61,7 @@ export interface Meta {
   readonly testConfig?: Readonly<Record<string, unknown>>;
   /**
    * The worker kind the session ran as, when it is not `implement`: `review` for a reviewer
-   * session (0019 section 4), whose result carries a `ReviewReport`.
+   * session (0002), whose result carries a `ReviewReport`.
    */
   readonly kind?: "review";
 }

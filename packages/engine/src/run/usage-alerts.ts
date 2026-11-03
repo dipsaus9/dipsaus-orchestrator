@@ -1,4 +1,4 @@
-// Usage alerts (DIPO-311, 0009 section 8): once a minute the daemon sums the tokens of all offices
+// Usage alerts (DIPO-311, 0009): once a minute the daemon sums the tokens of all offices
 // (`views/usage.ts`), tells the offices' subscribers the summaries may have changed, and raises one
 // `engine.notice` on the software stream when the all-office total crosses the alert level (warn)
 // or the limit (error) of the UTC day or month. Each notice is recorded in `once_notices` under the

@@ -1,10 +1,9 @@
-// `work.discard { story, note }` (DIPO-161; 0020 section 8, 0005
-// amendment of 2026-10-17: the waiting command path). It throws a story's work away and returns the
-// story to Refined, so it must pass the Ready gate again. The client listed what is lost first
-// (`story.losses` with `command: work.discard`) and asked for the story id typed out: the command
-// is `irreversible`. It removes nothing that list did not show.
+// `work.discard { story, note }` (0020; on the waiting command path, 0005). It throws a story's
+// work away and returns the story to Refined, so it must pass the Ready gate again. The client
+// listed what is lost first (`story.losses` with `command: work.discard`) and asked for the story
+// id typed out: the command is `irreversible`. It removes nothing that list did not show.
 //
-// From In Progress, In Review or Parked with a claim, in the order of 0010 section 2a:
+// From In Progress, In Review or Parked with a claim, in the order of 0010:
 // 1. An active run is stopped as `story.park` stops it. A worker host of the ended run that still
 //    runs gets one verified SIGTERM, as at a resume or a drop (DIPO-418), and the discard answers
 //    the retryable `run.hostAlive` with nothing changed; a host dipo cannot verify gets no signal.
@@ -17,12 +16,12 @@
 //    commits (someone pushed to it) keeps the remote branch with a notice and the other steps go
 //    on.
 // 5. One transaction: the run's open questions closed `ended`, an open park resolved `discard`, and
-//    `story.state` to Refined unless the base says Done. The boxes of ended runs are deleted (0021
-//    section 6), and the lane flushes.
-// The leftovers of a story Done on the base through another branch (0020 section 10) are discarded
+//    `story.state` to Refined unless the base says Done. The boxes of ended runs are deleted
+//    (0008), and the lane flushes.
+// The leftovers of a story Done on the base through another branch (0020) are discarded
 // the same way without a claim and with no lane-b write: their kept branches go
 // (`leftoverTargets`, exactly what the loss list shows) and the leftovers are cleared. A story whose
-// PR head changed outside dipo (0019 section 9) is discarded like any other.
+// PR head changed outside dipo (0002) is discarded like any other.
 // Refused: a story whose PR in `story_prs` merged (`story.prMerged`), and a story with neither a
 // claim nor leftovers that was never discarded (`story.notDiscardable`). A failure before the
 // release withdraws the journal entry. A re-run after a crash between the release and the facts
@@ -106,7 +105,7 @@ export interface StoryDiscardDeps {
   readonly signal: SignalProcess;
   /** Stops an active run as `story.park` does; without it a running story is refused. */
   readonly stop?: DiscardStop;
-  /** Checks and deletes the boxes of ended runs (0021 section 6); best effort. */
+  /** Checks and deletes the boxes of ended runs (0008); best effort. */
   readonly finishBoxes?: () => Promise<unknown>;
   /**
    * Reads the story's status in `_base`: a story Done there gets no backlog write and no Refined
@@ -198,7 +197,7 @@ export class StoryDiscard {
     }
 
     // A story Done on the base (its leftovers, or a claim the Done poll has not released yet) gets
-    // no backlog write and keeps its state: Done is terminal (0020 section 10).
+    // no backlog write and keeps its state: Done is terminal (0020).
     const doneOnBase = claim === null || (await this.#isDone(office, git, story, claim));
     const lane = doneOnBase ? null : this.#lane(office);
     const entry = lane === null ? null : await lane.discard({ key, story });

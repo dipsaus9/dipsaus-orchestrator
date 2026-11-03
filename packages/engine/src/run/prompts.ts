@@ -1,4 +1,4 @@
-// The prompts of a run's first session (DIPO-74; 0014 sections 1, 2, 4 and 9): the L1+L2 system
+// The prompts of a run's first session (DIPO-74; 0014): the L1+L2 system
 // file for `implement-box` (DIPO-272) and the developer role, and the L4 task message from the
 // story, its dependencies and the context pack the default provider gathers from a checkout. A real run reads
 // its new worktree; the dry run reads `_base`, which holds the same commit the worktree would start
@@ -12,7 +12,7 @@ import type { OfficeConfig } from "../config";
 import { createDefaultProvider } from "../context/default-provider";
 import { gatherContext } from "../context/gather";
 import { sizeClassOfWorkspace } from "../context/size";
-import type { ContextPack, Workspace } from "../context/types";
+import type { Workspace } from "../context/types";
 import { assembleTaskMessage, taskBudgetsFor } from "../prompts/assemble";
 import type { Section } from "../prompts/contract";
 import type { HandoffFacts } from "../prompts/handoff";
@@ -20,7 +20,7 @@ import { promptStoryOf } from "../prompts/story";
 import { renderSystemFile } from "../prompts/system";
 import type { PlainTask } from "../story-store/story";
 
-/** The system file's name in the run directory (0014 section 1). */
+/** The system file's name in the run directory (0014). */
 export const SYSTEM_FILE = "system.md";
 
 export interface RunPromptsInput {
@@ -35,7 +35,7 @@ export interface RunPromptsInput {
   /** The commit the story branch starts from. */
   readonly baseSha: string;
   readonly config: Pick<OfficeConfig, "prompt">;
-  /** The handoff of a new session for a story with earlier work (0014 section 6, DIPO-51). */
+  /** The handoff of a new session for a story with earlier work (0014, DIPO-51). */
   readonly handoff?: HandoffFacts;
   /** The developer works in its own box (DIPO-271): the scope section is a forecast (DIPO-272). */
   readonly box?: boolean;
@@ -46,14 +46,8 @@ export interface RunPrompts {
   readonly systemFile: string;
   /** The task message (L4), the first user message. */
   readonly taskMessage: string;
-  /** The task message's sections in message order, measured per section (0014 section 2). */
+  /** The task message's sections in message order, measured per section (0014). */
   readonly sections: readonly Section[];
-  /**
-   * The context pack the task message was built from and the head it was read at, for its
-   * `context_packs` record (`recordContextPack`, 0014 section 10, 0020 section 6).
-   */
-  readonly pack: ContextPack;
-  readonly headSha: string;
 }
 
 /**
@@ -75,11 +69,10 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
     defaultProvider: createDefaultProvider({ workspace }),
     request: {
       storyId: story.id,
-      outcome: story.outcome,
+      storyLine: story.storyLine,
       criteria: story.criteria.map((criterion) => criterion.text),
       scope: story.scope,
       inputs: story.inputs,
-      components: [],
       baseSha: input.baseSha,
       headSha,
       sizeClass: size,
@@ -99,8 +92,6 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
     systemFile: renderSystemFile("implement-box", "developer"),
     taskMessage: task.text,
     sections: task.sections,
-    pack,
-    headSha,
   };
 }
 

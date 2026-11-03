@@ -1,19 +1,15 @@
 // The one wiring of the run services (DIPO-129): ingestion with the web call counts, `work.answer`
-// (`PermissionAsks`), run control, worker outcomes, the resumer, the office's starts paused, the office's session
+// (`QuestionAnswers`), run control, worker outcomes, the resumer, the office's starts paused, the office's session
 // places (DIPO-142) with the pending reviews and their starter (DIPO-219), the fix rounds and
 // their starter (DIPO-148), the launcher and re-attach, built from injected ports. The daemon and
 // the engine's run tests both build them here, so a test exercises the wiring the daemon runs.
 // What differs between them is only which ports are injected.
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
 import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 
-import { BOX_RUN_FILE } from "../box/workers";
 import type { BoxWorkers } from "../box/workers";
 
-import { PermissionAsks } from "../questions/permissions";
+import { QuestionAnswers } from "../questions/answers";
 import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
 import { currentProfile } from "../scan/store";
 import type { RunProfile } from "../scan/detect";
@@ -115,8 +111,6 @@ export interface RunPorts {
    * for its checks (DIPO-148). Without it no CI is waited for.
    */
   readonly ci?: FixRoundsDeps["ci"];
-  /** Whether a run's developer works in a box (DIPO-271): its fix round starts a new session. */
-  readonly boxRun?: FixRoundsDeps["boxRun"];
   /** Replaces run control as the resumer's and the launcher's tracker (a test's caps override). */
   readonly tracker?: (control: RunControl) => NonNullable<RunLauncherDeps["control"]>;
   /** Replaces ingestion as the resumer's (a test recording each start). */
@@ -144,7 +138,7 @@ export interface RunPorts {
 export interface ComposedRuns {
   readonly ingest: OfficeIngest;
   /** `work.answer` on the question a park carries (0020). */
-  readonly permissions: PermissionAsks;
+  readonly answers: QuestionAnswers;
   readonly control: RunControl | null;
   readonly outcomes: RunOutcomes | null;
   /** Park resume and `work.resume` (DIPO-138), sharing the outcomes' facts. */
@@ -223,14 +217,14 @@ function buildControl(ports: RunPorts, partners: RunPartners): RunControl | null
 }
 
 interface RunListeners {
-  readonly permissions: PermissionAsks;
+  readonly answers: QuestionAnswers;
   readonly webCalls: WebCalls;
   readonly runEvents: OfficeRunListener;
 }
 
 /** `work.answer` and the web calls, and the one listener per ingestion pass. */
 function buildRunListeners(ports: RunPorts, partners: RunPartners): RunListeners {
-  const permissions = new PermissionAsks({
+  const answers = new QuestionAnswers({
     stories: ports.stories,
     clock: ports.clock,
     // An answer to a question park resumes it through work.resume's park path (DIPO-159).
@@ -251,7 +245,7 @@ function buildRunListeners(ports: RunPorts, partners: RunPartners): RunListeners
       onEnded?.(office, run);
     },
   };
-  return { permissions, webCalls, runEvents };
+  return { answers, webCalls, runEvents };
 }
 
 function buildIngest(
@@ -264,11 +258,11 @@ function buildIngest(
     clock: ports.clock,
     ...(control === null ? {} : { hooks: control.hooks }),
     runEvents,
-    // No env value of the listed files reaches the stored web lines (0020 section 11b, DIPO-164).
+    // No env value of the listed files reaches the stored web lines (0020, DIPO-164).
     redactOutput: (office, run, text) => webCalls.redactOutput(office, run, text),
     ...given("watchdog", ports.ingest.watchdog),
     ...given("onAppended", ports.onChanged),
-    // `privacy.storeCommandBodies` of the configuration in force (0007 section 8, DIPO-83).
+    // `privacy.storeCommandBodies` of the configuration in force (0007, DIPO-83).
     privacy: (office) => ({
       storeCommandBodies: ports.offices.config(office)?.privacy.storeCommandBodies ?? false,
     }),
@@ -344,7 +338,6 @@ function buildOutcomes(
       ...given("holds", ports.holdResumer),
       parks: {
         ...given("scheduling", ports.scheduling),
-        ...given("boxRun", ports.boxRun),
         // Built after the resumption: a resumed review-blocked park queues its fix round (DIPO-155).
         fixRounds: () => partners.fixRounds.get() ?? undefined,
         ...given("merge", ports.mergeReentry),
@@ -389,12 +382,11 @@ function buildOutcomes(
     sessions: outcomes.parts.sessions,
     view: (officeId, office, run) => outcomes.parts.support.viewOf(officeId, office, run),
     ...given("unpark", outcomePorts.unpark),
-    ...given("boxRun", ports.boxRun),
     places: () => partners.places.get() ?? undefined,
     guard: outcomes.parts.support.guard,
     // A round that cannot start and will not on its own parks the story (DIPO-148).
     park: (office, run, work, ending) => control.park(office, run, work, ending),
-    // A verdict on another commit holds for a head with the same code tree (0019 section 6).
+    // A verdict on another commit holds for a head with the same code tree (0002).
     treeKey: (office, run, taskFile, head) =>
       gitReviewOps(ports.git).codeTreeKey(office, taskFile, head),
     ...given("refreshStory", ports.refreshStory),
@@ -403,7 +395,7 @@ function buildOutcomes(
   });
   const reviews = buildReviews(ports, control, ingest, startsPaused, fixRounds);
   // The places wait while the office's starts are paused, start a queued resume through the
-  // resumption and a pending review through the review rounds (0019 section 12).
+  // resumption and a pending review through the review rounds (0002).
   const places = new Places({
     ...ports.places,
     clock: ports.clock,
@@ -421,7 +413,7 @@ function buildOutcomes(
     starters: {
       resume: (office, run) => resumption.startQueued(office, run),
       review: (office, run, start) => reviews.start(office, run, start),
-      // A maintainer resume that starts a fresh review of the same round (0020 section 2, DIPO-155).
+      // A maintainer resume that starts a fresh review of the same round (0020, DIPO-155).
       "review-resume": (office, run, start) => reviews.start(office, run, start),
       fix: (office, run, start) => fixRounds.start(office, run, start),
     },
@@ -462,7 +454,7 @@ function conflictResumesOf(
     },
     tell: (runId, text) => control.tellWorker(runId, text, "conflict"),
     parkLive: (runId, park) => control.parkRun(runId, park),
-    // An unwritable path that still conflicts parks again before any session (0020 section 2).
+    // An unwritable path that still conflicts parks again before any session (0020).
     park: async (office, run, park) => {
       await control.park(office, run, workRefOf(office, run.runId) ?? undefined, {
         intent: "park",
@@ -550,8 +542,6 @@ function buildReattacher(
     offices: ports.offices,
     ingest,
     control,
-    // A developer runs only in its box: a living Mac session of an earlier binary is stopped.
-    boxRecord: (runDir) => existsSync(join(runDir, BOX_RUN_FILE)),
     ...given("outcomes", outcomes ?? undefined),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
@@ -663,7 +653,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
   const partners = runPartners();
   const control = buildControl(ports, partners);
   const listeners = buildRunListeners(ports, partners);
-  const { permissions } = listeners;
+  const { answers } = listeners;
   const ingest = buildIngest(ports, control, listeners);
   const built = buildOutcomes(ports, control, ingest, partners);
   const outcomes = built?.outcomes ?? null;
@@ -673,7 +663,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
   const launcher = buildLauncher(ports, control, ingest);
   return {
     ingest,
-    permissions,
+    answers,
     control,
     outcomes,
     resumption: built?.resumption ?? null,

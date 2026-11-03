@@ -1,4 +1,4 @@
-// The Backlog.md version check (DIPO-28; 0010 section 1): a load step registered through the
+// The Backlog.md version check (DIPO-28; 0010): a load step registered through the
 // DIPO-27 seam runs `backlog --version`; anything outside 1.53.x refuses the office with a notice
 // naming the version and `bun add -g backlog.md@1.53.0`.
 

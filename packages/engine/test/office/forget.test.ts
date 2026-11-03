@@ -1,4 +1,4 @@
-// `office.forget` (DIPO-27; 0005 section 4, 0007 section 3): it sets `forgotten_at`, keeps every
+// `office.forget` (DIPO-27; 0005, 0007): it sets `forgotten_at`, keeps every
 // row, emits `office.forgotten` and refuses with `office.busy` while an active-work check reports
 // work; opening the repository again restores the office with its rows.
 

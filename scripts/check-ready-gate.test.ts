@@ -64,7 +64,7 @@ function viewOf(story: FixtureStory): string {
     "",
     "Description:",
     RULE,
-    `Outcome: the export writes every row of the table to a CSV file.\n\n${block}`,
+    `Story: As maintainer I want the export to write every row of the table to a CSV file so that I can open the nightly data in a spreadsheet.\n\n${block}`,
     "",
     "Acceptance Criteria:",
     RULE,

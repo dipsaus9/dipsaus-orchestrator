@@ -1,4 +1,4 @@
-// How a path resolves to an office location (0007 section 2), shared by the engine and the CLI so
+// How a path resolves to an office location (0007), shared by the engine and the CLI so
 // both name the same main worktree. The contract has no I/O: the caller hands in how to run git
 // and how to canonicalise a path (realpath).
 

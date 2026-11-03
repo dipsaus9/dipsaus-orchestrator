@@ -1,5 +1,5 @@
-// What a turn or an event of a running worker asks of worker outcomes (DIPO-51, split out of
-// `outcomes.ts` by DIPO-128): a turn's problem, the report feedback, a rejected plan limit and a
+// What a turn or an event of a running worker asks of worker outcomes
+// (`outcomes.ts`): a turn's problem, the report feedback, a rejected plan limit and a
 // classifier switch.
 
 import type { HostOp, TurnProblem } from "../workers/types";
@@ -12,7 +12,7 @@ import {
   OUTCOME_NOTICES,
   type PlanLimitHit,
   planLimitEnding,
-  REASSIGN_SIGTERM_AFTER_MS,
+  NEW_SESSION_SIGTERM_AFTER_MS,
   reportFeedbackText,
   type RunOutcomesDeps,
   type RunView,
@@ -34,7 +34,7 @@ export class TurnOutcomes {
     if (office === undefined || !ender.live(view.runId)) return;
     const close: HostOp[] = [
       { closeStdin: true },
-      { signal: "SIGTERM", afterMs: REASSIGN_SIGTERM_AFTER_MS },
+      { signal: "SIGTERM", afterMs: NEW_SESSION_SIGTERM_AFTER_MS },
     ];
     switch (problem.kind) {
       case "planLimit":
@@ -60,7 +60,7 @@ export class TurnOutcomes {
           return;
         }
         ender.act(view.runId, {
-          intent: "reassign",
+          intent: "new-session",
           detail: INTENT_TAGS.contextFull,
           ops: close,
           retryAtTick: true,
@@ -78,7 +78,7 @@ export class TurnOutcomes {
           return;
         }
         ender.act(view.runId, {
-          intent: "reassign",
+          intent: "new-session",
           detail: `${INTENT_TAGS.error} ${problem.detail}`,
           ops: close,
           retryAtTick: true,
@@ -135,7 +135,7 @@ export class TurnOutcomes {
         view.runId,
         planLimitEnding(pause, [
           { closeStdin: true },
-          { signal: "SIGTERM", afterMs: REASSIGN_SIGTERM_AFTER_MS },
+          { signal: "SIGTERM", afterMs: NEW_SESSION_SIGTERM_AFTER_MS },
         ]),
       );
   }

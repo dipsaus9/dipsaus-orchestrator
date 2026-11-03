@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { encode, PAUSE_MESSAGE, STOP_MESSAGE } from "../../src/workers/claude-cli/encode";
+import { encode, STOP_MESSAGE } from "../../src/workers/claude-cli/encode";
 import type { HostOp } from "../../src/workers/types";
 
 function written(op: HostOp): unknown {
@@ -28,12 +28,6 @@ describe("claude-cli encode", () => {
     const ops = encode({ kind: "answer", text: "Yes, keep the old flag." });
     expect(ops).toHaveLength(1);
     expect(written(ops[0]!)).toEqual(user("Yes, keep the old flag."));
-  });
-
-  it("sends a pause as a priority now message and nothing else", () => {
-    const ops = encode({ kind: "pause" });
-    expect(ops).toHaveLength(1);
-    expect(written(ops[0]!)).toEqual(user(PAUSE_MESSAGE, "now"));
   });
 
   it("stops with a priority now message, closes stdin, SIGTERM after 10 s and SIGKILL after 30 s", () => {

@@ -1,58 +1,30 @@
-// The exits a restart left undecided (DIPO-51 maintainer decision Q6, split out of `outcomes.ts`
-// by DIPO-128): the load step that decides them once an office is loaded.
+// The exits a restart left undecided, a part of worker outcomes (`outcomes.ts`): the load step that
+// decides them once an office is loaded.
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
 import type { FeatureModule } from "../commands/registry";
-import type { OfficeHandle } from "../db/office";
 import { workRefOf } from "../views/work";
 
-import type { RunEnding } from "./control-types";
-import { runIntents } from "../records/intents";
 import type { ExitOutcomes } from "./outcome-exits";
 import type { SessionStarts } from "./outcome-sessions";
 import type { OutcomeSupport } from "./outcome-support";
 import {
   HOST_LOST_END,
-  intentTag,
   messageOf,
   REDISPATCH_STEP,
   type RunOutcomesDeps,
   type RunView,
 } from "./outcome-types";
-import { activeRuns, capsStartedAt, type StoredRun } from "../records/run-records";
-import { activeSignals, clearSignals } from "../records/signals";
-
-/**
- * The intent detail tag of a maintainer pause, which `work.pause` stored before `story.park`
- * replaced it (DIPO-344). No code writes it any more; a run still paused by one is parked at load.
- */
-export const LEGACY_PAUSE_TAG = "maintainer-pause";
-
-/** The detail of the park of a run that was paused when dipo was upgraded. */
-export const LEGACY_PAUSE_DETAIL =
-  "Paused by the maintainer before dipo replaced pausing with parking; resume it to continue";
-
-/**
- * The intent detail tag of a plan-limit hold, which a rejected plan limit stored before the
- * office's starts paused replaced the hold (DIPO-359). No code writes it any more; a run still held
- * by one, or by its `plan-limit` signal, is parked at load.
- */
-export const LEGACY_PLAN_LIMIT_TAG = "plan-limit";
-
-/** The detail of the park of a run that a plan limit held when dipo was upgraded. */
-export const LEGACY_PLAN_LIMIT_DETAIL =
-  "plan limit (held before dipo paused the office's starts instead)";
+import { activeRuns, capsStartedAt } from "../records/run-records";
 
 export class Redispatch {
-  readonly #s: OutcomeSupport;
   readonly #deps: RunOutcomesDeps;
   readonly #guard: OutcomeSupport["guard"];
   readonly #exits: ExitOutcomes;
   readonly #sessions: SessionStarts;
 
   constructor(support: OutcomeSupport, exits: ExitOutcomes, sessions: SessionStarts) {
-    this.#s = support;
     this.#deps = support.deps;
     this.#guard = support.guard;
     this.#exits = exits;
@@ -85,65 +57,6 @@ export class Redispatch {
   }
 
   /**
-   * Runs paused or held before the upgrade: with no pause or hold left, such a run would stay
-   * active with no session, holding its worker place. A maintainer's pause (an unresolved
-   * `maintainer-pause` intent, DIPO-344) parks `by-maintainer`, so `work.resume` continues it. A
-   * plan-limit hold (an unresolved `plan-limit` pause intent, or the run's `plan-limit` signal,
-   * DIPO-359) parks `worker-failed` to resume by itself once the office's starts are not paused,
-   * its signal cleared. Each pause is resolved `run-ended` and a live worker is stopped first.
-   * Returns how many runs it parked.
-   */
-  async #parkPaused(office: OfficeHandle): Promise<number> {
-    let parked = 0;
-    for (const run of activeRuns(office)) {
-      if (run.kind !== "story" || this.#guard.busy(run.runId)) continue;
-      const pauses = runIntents(office, run.runId).filter(
-        (intent) => intent.resolvedAt === null && intent.kind === "pause",
-      );
-      const byMaintainer = pauses.some((pause) => pause.detail.startsWith(LEGACY_PAUSE_TAG));
-      const held =
-        !byMaintainer &&
-        (pauses.some((pause) => intentTag(pause.detail) === LEGACY_PLAN_LIMIT_TAG) ||
-          activeSignals(office, run.runId).some((signal) => signal.signal === "plan-limit"));
-      if (!byMaintainer && !held) continue;
-      const at = this.#deps.clock.now();
-      for (const pause of pauses) this.#s.resolve(office, run.runId, pause, "run-ended", at);
-      if (held) office.immediate(() => clearSignals(office, run.runId, ["plan-limit"], at));
-      parked += 1;
-      const ending: Omit<RunEnding, "intent" | "ops"> = byMaintainer
-        ? { reason: "by-maintainer", detail: LEGACY_PAUSE_DETAIL }
-        : {
-            reason: "worker-failed",
-            detail: LEGACY_PLAN_LIMIT_DETAIL,
-            resumeOnLift: true,
-          };
-      await this.#guard.within(`${run.runId} legacy-pause`, () =>
-        this.#parkRun(office, run, ending),
-      );
-    }
-    return parked;
-  }
-
-  async #parkRun(
-    office: OfficeHandle,
-    run: StoredRun,
-    ending: Omit<RunEnding, "intent" | "ops">,
-  ): Promise<void> {
-    const ender = this.#deps.ender();
-    // A worker re-attached after the restart still runs: run control stops it, then parks.
-    if (ender.live(run.runId)) {
-      ender.begin(run.runId, {
-        ...ending,
-        intent: "stop",
-        ops: this.#deps.encode({ kind: "stop" }),
-      });
-      return;
-    }
-    const work = workRefOf(office, run.runId) ?? undefined;
-    await ender.park(office, run, work, { ...ending, intent: "park", ops: [] });
-  }
-
-  /**
    * Decides the exits that were ingested but not decided before the daemon stopped: every active
    * story run whose newest agent ended with no recorded decision (`end_reason` still `exited`),
    * and no other session after it. A newest agent that ended `crashed` or
@@ -155,7 +68,6 @@ export class Redispatch {
     if (office === undefined) return 0;
     // Park resumes a restart interrupted (DIPO-75) first: their runs are skipped below.
     let count = (await this.#deps.recoverParks?.(officeId, office)) ?? 0;
-    count += await this.#parkPaused(office);
     for (const run of activeRuns(office)) {
       // A run decided here, or followed by run control (re-attached, DIPO-57), is decided there.
       const tracked = this.#deps.ender().isTracked?.(run.runId) ?? false;
@@ -229,11 +141,8 @@ export class Redispatch {
             run,
             view,
             decided === "crashed"
-              ? { mode: "resume", why: "a crash decided before the daemon restarted" }
-              : {
-                  mode: "handoff",
-                  why: "a full context (prompt_too_long) decided before the daemon restarted",
-                },
+              ? { why: "a crash decided before the daemon restarted" }
+              : { why: "a full context (prompt_too_long) decided before the daemon restarted" },
           );
         });
         continue;

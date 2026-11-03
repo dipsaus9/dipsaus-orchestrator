@@ -1,7 +1,7 @@
-// The body of a story PR (0019 section 3), built by code from facts, no model text. Sections in
-// this order: the outcome, the acceptance criteria ticked as the task file has them, the test plan,
+// The body of a story PR (0002), built by code from facts, no model text. Sections in
+// this order: the Story line, the acceptance criteria ticked as the task file has them, the test plan,
 // the declared scope, a status block and a footer. The body is capped at `STORY_PR_MAX_BODY`; the
-// story contract (outcome, criteria and test plan) is never cut, the scope list is cut with a
+// story contract (Story line, criteria and test plan) is never cut, the scope list is cut with a
 // marker. The engine writes a body to the host only when its hash changed.
 
 import { createHash } from "node:crypto";
@@ -10,12 +10,13 @@ import type { DoneReport, TestPlan } from "@dipsaus-orchestrator/contract";
 
 import type { RequiredCheckState } from "./checks";
 
-/** GitHub allows 65,536 characters; dipo keeps its bodies well under (0019 section 3). */
+/** GitHub allows 65,536 characters; dipo keeps its bodies well under (0002). */
 export const STORY_PR_MAX_BODY = 20_000;
 
 export interface PrBodyStory {
   readonly id: string;
-  readonly outcome: string;
+  /** F3, the text of the `Story:` line. */
+  readonly storyLine: string;
   readonly criteria: readonly {
     readonly index: number;
     readonly text: string;
@@ -29,7 +30,7 @@ export interface PrBodyStory {
   readonly doneReport?: DoneReport | null;
 }
 
-/** The stored review verdict the status block shows (0019 section 3, DIPO-152). */
+/** The stored review verdict the status block shows (0002, DIPO-152). */
 export interface PrBodyReview {
   readonly round: number;
   readonly verdict: "approved" | "blocked";
@@ -53,13 +54,13 @@ export interface PrBodyStatus {
   readonly head: string;
   /**
    * `passed` (the default) when dipo's verify passed at the head; `ci` for a box run, whose
-   * verify is CI on the PR (0021 amendment of 2026-10-22, DIPO-299).
+   * verify is CI on the PR (0008).
    */
   readonly verify?: "passed" | "ci";
   /** True when the host reported no CI check for the head: no CI ran, the review decides. */
   readonly noCi?: boolean;
   /**
-   * The required checks of the head with their states (0019 section 3); the body has no checks
+   * The required checks of the head with their states (0002); the body has no checks
    * line when this is left out.
    */
   readonly checks?: readonly RequiredCheckState[];
@@ -198,7 +199,7 @@ function doneReportSection(report: DoneReport | null | undefined): string | null
         .map((p) => {
           const paths =
             p.paths === undefined ? "" : ` Paths: ${p.paths.map((x) => `\`${x}\``).join(", ")}.`;
-          return `- ${p.kind}: ${p.title}. Outcome: ${p.outcome} Why: ${p.why}${paths}`.replaceAll(
+          return `- ${p.kind}: ${p.title}. Story: ${p.story} Why: ${p.why}${paths}`.replaceAll(
             "\n",
             " ",
           );
@@ -235,7 +236,7 @@ function scopeSection(paths: readonly string[], budget: number): string {
 
 /** The body of a story PR. */
 export function storyPrBody(story: PrBodyStory, status: PrBodyStatus): string {
-  const outcome = `## Outcome\n\n${story.outcome.trim() === "" ? "none" : story.outcome.trim()}`;
+  const storyLine = `## Story\n\n${story.storyLine.trim() === "" ? "none" : story.storyLine.trim()}`;
   const criteria = [
     "## Acceptance criteria",
     "",
@@ -244,7 +245,7 @@ export function storyPrBody(story: PrBodyStory, status: PrBodyStatus): string {
         `- [${criterion.checked ? "x" : " "}] #${criterion.index} ${criterion.text.trim()}`,
     ),
   ].join("\n");
-  const head = [outcome, criteria, testPlanSection(story.testPlan)].filter(
+  const head = [storyLine, criteria, testPlanSection(story.testPlan)].filter(
     (part): part is string => part !== null,
   );
   const tail = [

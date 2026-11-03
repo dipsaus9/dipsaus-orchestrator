@@ -98,14 +98,14 @@ A sample `office.yaml`. Every key is optional and has a default; the keys and th
 
 ```yaml
 # yaml-language-server: $schema=https://<release-url>/office.schema.json
-version: 15
+version: 16
 tiers:            # 0008
   S: { model: haiku,  effort: low,    budgetTokens: 300000,  maxTurns: 90,  maxMinutes: 45,  loops: 3 }
   M: { model: sonnet, effort: medium, budgetTokens: 800000,  maxTurns: 200, maxMinutes: 90,  loops: 5 }
   L: { model: opus,   effort: high,   budgetTokens: 2000000, maxTurns: 300, maxMinutes: 180, loops: 8 }
 review: { model: opus, effort: high, maxRounds: 3, maxTurns: 60, maxMinutes: 30, budgetTokens: 200000 }  # 0002
 caps: { ciAttempts: 2, conflictAttempts: 2 }                       # 0002
-merge: { autoMerge: true, holdLabels: [], checksWaitMinutes: 30 }  # 0002
+merge: { autoMerge: true, waitLabels: [], checksWaitMinutes: 30 }  # 0002
 box: { files: [], localPorts: [] }                                 # 0008
 scan: { model: sonnet, effort: low, budgetTokens: 100000, maxMinutes: 5 }  # 0013
 story: { bannedPhrases: [...], securityPhrases: [...] }            # 0012
@@ -125,14 +125,15 @@ scripts: { verify: bun run verify }                                # 0013
 
 ### 7. Versioning
 
-- Every file has a required integer `version`. A file newer than the binary is refused with "upgrade dipo".
-- **One reset to version 14.** It keeps only the keys code reads, and gives every key a default. One migration takes any file from versions 1 to 13 to version 14, and drops retired keys with a warning that names them.
-- **After version 14,** adding a key with a default needs no version bump. A version changes only when a key's meaning or shape changes, and then a pure migration function from the previous version comes with it, tested on fixture files.
-- **Rewriting a file.** Only `dipo config migrate` rewrites a configuration file. It uses the `yaml` library's document API, which keeps comments, and the change shows as a normal git diff. One exception: the privacy toggle rewrites `office.local.yaml` at the current version, migrating it first with the same function; it drops that file's comments and puts a header on top.
+- Every file has a required integer `version`. A file newer than the binary is refused with "upgrade dipo". A file older than the binary reads is refused with the version it holds, the one it needs, and what to do.
+- **One squash before 1.0.** The office file is at version 16 and `config.yaml` at version 4. They keep only the keys code reads, and every key has a default. The upgrades from earlier versions were dropped before 1.0 (2026-11-03), so the binary reads only these versions.
+- **After that,** adding a key with a default needs no version bump. A version changes only when a key's meaning or shape changes. The binary then carries the upgrade from the version before as a list of steps that the load and `dipo config migrate` both apply; the list is empty now, so `dipo config migrate` reports a current file as current and refuses an older one with the load's message.
+- **Rewriting a file.** Only `dipo config migrate` rewrites a configuration file. It uses the `yaml` library's document API, which keeps comments, and the change shows as a normal git diff. One exception: the privacy toggle rewrites `office.local.yaml` at the current version, through the same function; it drops that file's comments and puts a header on top.
 
 ## Replaced
 
 - A version bump for every added key (2026-10-12). It produced 13 office versions in 15 days. Replaced by the reset to version 14 and defaults (2026-10-24).
+- The migration of office files from versions 1 to 15 with warnings for retired keys, and `config.yaml` versions 1 to 3 (2026-10-24). Replaced by the squash: an older file is refused (2026-11-03).
 - About 150 office keys across 17 sections, including `permissions`, `sandbox`, `storyPr`, `mergeSlot.requiredChecks`, `scope.*`, `worker.plugins`, `worker.web`, and `worktree.files`, `ports`, `env` and `post_create`. Each served a mechanism that is gone (2026-10-24).
 - `sandbox.toolchainReadPaths` in the local file, with its `.npmrc` checks (2026-10-18). Gone with the Mac sandbox (0008).
 - Recordings and scenarios for the permission wait, `needs-permission`, credit holds and the Mac sandbox safety checks (2026-10-10, 2026-10-12). Gone with the box (0008); the escape probe is the box's safety test.

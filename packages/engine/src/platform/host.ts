@@ -1,4 +1,4 @@
-// The code host behind the GitHub CLI (0010 section 2, 0008 section 2). This file is the only engine
+// The code host behind the GitHub CLI (0010, 0008). This file is the only engine
 // code that runs `gh`. The engine runs it outside the sandbox with the maintainer's own login;
 // workers never get `gh` (0014). `gh` never prompts: prompts, update notices, colour and the pager
 // are switched off, and a missing login is reported, not asked for.
@@ -113,7 +113,7 @@ export interface CodeHost {
 }
 
 /**
- * The PR state the Done detection reads (DIPO-58; 0010 section 7, "Merge and Done"). Kept apart
+ * The PR state the Done detection reads (0010). Kept apart
  * from `CodeHost` so a code host that only opens and merges PRs need not implement it.
  */
 export interface PrStateHost {
@@ -174,8 +174,8 @@ export interface PrCheck extends RequiredCheck {
 }
 
 /**
- * What the review loop and the autorelease guard read and write on a Pull request (DIPO-141;
- * 0019 section 7 and fact 3). Kept apart from `CodeHost`, like `PrStateHost`, so the `CodeHost`
+ * What the review loop and the autorelease guard read and write on a pull request (0002).
+ * Kept apart from `CodeHost`, like `PrStateHost`, so the `CodeHost`
  * fakes stay as they are. It has no call to deployments or environments.
  */
 export interface PrReviewHost {

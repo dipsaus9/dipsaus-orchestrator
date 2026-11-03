@@ -1,7 +1,6 @@
-// The web route of the boxes (0021 section 3 and its amendment of 2026-10-21, DIPO-268): a
-// CONNECT proxy, ported from the reviewed probe proxy (`tools/box-probe/web-proxy.ts`). A box sits
-// on a host-only network with no route out; this proxy, listening only on the network's host
-// address on the Mac, is its one way to the internet.
+// The web route of the boxes (0008, DIPO-268): a CONNECT proxy, ported from the reviewed probe
+// proxy (`tools/box-probe/web-proxy.ts`). A box sits on a host-only network with no route out; this
+// proxy, listening only on the network's host address on the Mac, is its one way to the internet.
 //
 // - A tunnel to a package registry Safe-Chain checks (host name normalised: lower case, one
 //   trailing dot dropped) goes to the Safe-Chain box (DIPO-343, `safe-chain-box.ts`), on the port
@@ -57,7 +56,7 @@
 //   a relay of the worker's own on the internet, or a request coalesced into a TLS session with
 //   another name the registry's certificate covers still reaches registry content directly.
 // - The rule knows private hosts only by their address ranges, so two are not recognised (both
-//   from the 0021 amendment of 2026-10-21): a private host on a public range reached through a
+//   named in 0008): a private host on a public range reached through a
 //   VPN's route, and the Mac's own public IPv4 address reached back through the router.
 
 import { randomBytes } from "node:crypto";

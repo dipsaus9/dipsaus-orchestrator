@@ -8,6 +8,6 @@
   "derivedFrom": "success-single",
   "transform": "The first rate_limit_event becomes status \"rejected\" (five_hour, its resetsAt kept); the stream ends after it with exit 0, as when the engine closes stdin.",
   "cites": [
-    "rate_limit_event status \"rejected\" is illustrative; live runs showed only \"allowed\" (0008 source 10)"
+    "rate_limit_event status \"rejected\" is illustrative; live runs showed only \"allowed\" (0008)"
   ]
 }

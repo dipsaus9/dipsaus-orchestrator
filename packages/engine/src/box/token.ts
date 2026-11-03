@@ -1,7 +1,7 @@
-// The maintainer's subscription login for boxes (0021 section 4 and its amendment of 2026-10-21,
-// DIPO-269): one token, kept in the macOS Keychain under a dipo entry and read by the model proxy
-// alone. Both ways in go through the `security` program, and the token is never one of its
-// arguments, since any process on the Mac can read a process list:
+// The maintainer's subscription login for boxes (0008, DIPO-269): one token, kept in the macOS
+// Keychain under a dipo entry and read by the model proxy alone. Both ways in go through the
+// `security` program, and the token is never one of its arguments, since any process on the Mac can
+// read a process list:
 //
 // - storing runs `security add-generic-password ... -w` with `-w` last and no value, on the
 //   maintainer's terminal: `security` prompts for the token itself, so it never passes through

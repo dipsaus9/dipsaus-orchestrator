@@ -1,5 +1,5 @@
 // Software-level messages: the office list, the daemon, the handshake and command descriptions
-// (0005 sections 4, 5 and 7; 0006 decision 5). Office-level work messages are DIPO-20's.
+// (0005). Office-level work messages are DIPO-20's.
 
 import { z } from "zod";
 
@@ -11,6 +11,7 @@ import {
   ReadDescription,
 } from "./definition";
 import { ConfigErrorData } from "./config";
+import { DatabaseUnavailableDetails } from "./errors";
 import { Cursor, OfficeId } from "./ids";
 import { EvidenceMap, openEnum } from "./work";
 
@@ -23,7 +24,7 @@ export type LogLevel = z.infer<typeof LogLevel>;
 
 const Count = z.int().nonnegative();
 
-// Today's (or this month's, DIPO-311) token usage of an office, engine-derived from the usage alerts (0009 section 8). `tokens`
+// Today's (or this month's, DIPO-311) token usage of an office, engine-derived from the usage alerts (0009). `tokens`
 // counts as the budget does; `estimatedCost` is always estimated.
 export const DayUsage = z.object({
   tokens: z.number().nonnegative(),
@@ -59,14 +60,14 @@ export const OfficeSummary = z.object({
   monthUsage: DayUsage.optional(),
   evidence: EvidenceMap.optional(), // [`evidence`]
   // The privacy opt-ins on for the office, as full keys such as `privacy.storeCommandBodies`
-  // (0007 section 8: the overview shows when one is on). Absent when none is on. DIPO-83.
+  // (0007: the overview shows when one is on). Absent when none is on. DIPO-83.
   optIns: z.array(z.string().min(1)).optional(),
   // The days stored output is kept (`retention.days`, 0007), so a client can say
   // that output was removed after this period. Absent when the office has no valid configuration.
   // DIPO-97.
   outputRetentionDays: z.int().positive().optional(),
   // The three privacy settings with their effective value and where it comes from, so a client can
-  // show and change them (0007 section 8). Absent when the office has no valid configuration.
+  // show and change them (0007). Absent when the office has no valid configuration.
   // DIPO-136.
   privacy: z.array(PrivacySetting).optional(),
 });
@@ -75,9 +76,9 @@ export type OfficeSummary = z.infer<typeof OfficeSummary>;
 const AbsolutePath = z.string().regex(/^\//, "expected an absolute path");
 
 // The external tools the daemon resolved from the user's PATH at start. A tool it did not find is
-// absent (M0 review, DIPO-15).
+// absent (M0 review, DIPO-15). `workerCli` is the worker adapter's command-line tool.
 export const ToolPaths = z.object({
-  claude: AbsolutePath.optional(),
+  workerCli: AbsolutePath.optional(),
   backlog: AbsolutePath.optional(),
   gh: AbsolutePath.optional(),
   rg: AbsolutePath.optional(),
@@ -117,7 +118,7 @@ export const officeForget = defineCommand({
   irreversible: false,
 });
 
-// (DIPO-36): runs office init (0010 section 6) through one backlog PR. `changed` in
+// (DIPO-36): runs office init (0010) through one backlog PR. `changed` in
 // the reply is false when every step was already on the base or on the open backlog branch. `pr`
 // is the open backlog PR of the init steps; without one, `branch` is the engine branch waiting for
 // it and `waiting` says why (no remote, `gh` unusable, its PR has auto-merge on, a failed apply).
@@ -147,7 +148,7 @@ export const officeRescan = defineCommand({
   irreversible: false,
 });
 
-// Re-reads the office configuration (0017 section 5, DIPO-27). An invalid file keeps the previous
+// Re-reads the office configuration (0017, DIPO-27). An invalid file keeps the previous
 // configuration for running work, and new runs are refused until a valid reload. `configHash` is
 // the hash of the configuration in force, absent while the office never had a valid one.
 export const officeReloadConfig = defineCommand({
@@ -165,7 +166,7 @@ export const officeReloadConfig = defineCommand({
 });
 
 // Changes one privacy setting of an office in `.dipo/office.local.yaml` and reloads the
-// configuration (0007 section 8, DIPO-136). `key` is `storeCommandBodies`, `storePrompts` or
+// configuration (0007, DIPO-136). `key` is `storeCommandBodies`, `storePrompts` or
 // `keepRawEvents`; an unknown key or a value that is not a boolean is refused with the file and key
 // named. `configHash` is the hash of the configuration in force after the reload. Every client asks
 // before it sends it (the maintainer, 2026-10-20): turning storage on widens what dipo keeps on disk,
@@ -204,8 +205,8 @@ export const daemonSetLogLevel = defineCommand({
   irreversible: false,
 });
 
-export const daemonResumeScheduling = defineCommand({
-  name: "daemon.resumeScheduling",
+export const daemonResumeStarts = defineCommand({
+  name: "daemon.resumeStarts",
   level: "software",
   args: z.object({}),
   result: z.object({ state: DaemonState }), // lifts every office's starts paused (0020)
@@ -244,6 +245,9 @@ export const daemonStatus = defineRead({
   result: z.object({
     state: DaemonState,
     stateReason: z.string().optional(),
+    // Present while the state database cannot be used: the daemon stays in `recovering` and
+    // `stateReason` says what to do (0005, 0007).
+    databaseUnavailable: DatabaseUnavailableDetails.optional(),
     pid: z.int().positive(),
     version: z.string(),
     uptimeMs: z.int().nonnegative(),
@@ -296,12 +300,12 @@ export const daemonStateChanged = defineEvent({
   data: z.object({ from: DaemonState, to: DaemonState, reason: z.string().optional() }),
 });
 
-// What started a scan (0007 section 4). Open enum.
+// What started a scan (0007). Open enum.
 // (DIPO-310): `infer` (the fallback session's proposals) and `confirm` (a confirm command).
 export const ScanTrigger = openEnum(["start", "run", "test", "rescan", "infer", "confirm"]);
 export type ScanTrigger = z.infer<typeof ScanTrigger>;
 
-// The conformance level of a run profile (0013 section 2). Open enum.
+// The conformance level of a run profile (0013). Open enum.
 export const ConformanceLevel = openEnum(["conforming", "partial", "non-standard"]);
 export type ConformanceLevel = z.infer<typeof ConformanceLevel>;
 
@@ -349,7 +353,7 @@ export const softwareCommands = [
   officeSetPrivacy,
   daemonStop,
   daemonSetLogLevel,
-  daemonResumeScheduling,
+  daemonResumeStarts,
 ] as const;
 
 export const softwareReads = [engineHello, commandsDescribe, daemonStatus] as const;

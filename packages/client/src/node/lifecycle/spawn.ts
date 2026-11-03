@@ -1,4 +1,4 @@
-// Starting the daemon process (0006 decisions 5 and 8): `dipo daemon --foreground` in its own
+// Starting the daemon process (0005): `dipo daemon --foreground` in its own
 // session (`detached`, `setsid`), stdio ignored, so it outlives the client. The environment is the
 // caller's, `PATH` included, so the daemon resolves the same tools as the maintainer's shell, minus
 // the variables that carry Bun flags: `BUN_OPTIONS` and `BUN_FEATURE_FLAG_NO_ORPHANS`, which a Bun

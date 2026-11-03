@@ -1,12 +1,12 @@
-// The pure stream-json parser of the Claude CLI adapter (0008 sections 1, 3 and 4). The engine
+// The pure stream-json parser of the Claude CLI adapter (0008). The engine
 // runs it over `events.ndjson`, live and on replay after a daemon restart, so it never reads a
 // clock, a file or a global: everything it knows travels in the returned state.
 //
-// Usage (0008 section 4): live numbers come from assistant messages, counted once per message
+// Usage (0008): live numbers come from assistant messages, counted once per message
 // id (parallel tool calls repeat one id); per-message output is a placeholder, so live output
 // stays zero. At each turn end the result's cumulative `modelUsage` replaces the live numbers.
-// The CLI's totals are cumulative per process and include restored spend on resume, so the run
-// adds only the change since the last totals it saw (`baseline`). A result whose totals are
+// The CLI's totals are cumulative per process, so the run adds only the change since the last
+// totals it saw (`baseline`). A result whose totals are
 // empty or zero (a crash, an aborted turn) keeps the live numbers instead: the DIPO-41 recording
 // `pause-now` shows the CLI's next totals leave an aborted turn's spend out.
 //
@@ -79,13 +79,13 @@ import type { z } from "zod";
 export const REPORT_TOOL = "StructuredOutput";
 /** Tools that start a subagent. */
 export const SUBAGENT_TOOLS: readonly string[] = ["Agent", "Task"];
-/** Assistant `error` values that mean the login or the account cannot run (0008 section 7). */
+/** Assistant `error` values that mean the login or the account cannot run (0008). */
 export const START_FAILURE_ERRORS: readonly string[] = [
   "authentication_failed",
   "billing_error",
   "account_on_hold",
 ];
-/** Model aliases `--model` accepts (0008 section 2). */
+/** Model aliases `--model` accepts (0008). */
 const MODEL_ALIASES: readonly string[] = ["haiku", "sonnet", "opus", "fable"];
 
 /** What the last `result` of the run said. */
@@ -93,7 +93,7 @@ export interface TurnRecord {
   readonly subtype: string;
   readonly terminal: string;
   readonly report: WorkerReport | null;
-  /** A `review` session's valid report (0019 section 5); absent in other kinds. */
+  /** A `review` session's valid report (0002); absent in other kinds. */
   readonly review?: ReviewReport;
   /** A `session` kind's structured output (DIPO-310); absent in other kinds. */
   readonly answer?: unknown;
@@ -119,12 +119,12 @@ export interface ClaudeParseState {
   /** Planned model (alias or id) and recorded classifier switches; null skips the check. */
   readonly plannedModel: string | null;
   readonly acceptedModels: readonly string[];
-  /** Why `system/init` failed its checks (0008 section 2), or null. */
+  /** Why `system/init` failed its checks (0008), or null. */
   readonly initRejected: string | null;
   /**
-   * The plugins a session may load (DIPO-108; none in a run, 0008): a `system/init` that lists another plugin is a
-   * start failure. Absent or null skips the check (states stored before it existed, tests). The
-   * run's adapter sets it from the configuration of its launch on every line.
+   * The plugins a session may load (DIPO-108; none in a run, 0008): a `system/init` that lists
+   * another plugin is a start failure. Absent or null skips the check (states stored before it
+   * existed, tests). The run's adapter sets it from the configuration of its launch on every line.
    */
   readonly allowedPlugins?: readonly string[] | null;
   /**
@@ -146,7 +146,7 @@ export interface ClaudeParseState {
   /** The skills of the last `system/init` (DIPO-130). Absent in states stored before it existed. */
   readonly skills?: readonly string[];
   /**
-   * `review` when the session is a reviewer's (0019 sections 4 and 5): its result carries a
+   * `review` when the session is a reviewer's (0002): its result carries a
    * `ReviewReport`, and `system/init` may list no plugin but the
    * builtin ones. Absent means `implement`, as in states stored before it existed.
    */
@@ -178,7 +178,7 @@ export interface ClaudeParseState {
   /** Tool use ids already reported as `denied`. */
   readonly denied: readonly string[];
   readonly lastTurn: TurnRecord | null;
-  /** Set once a turn ends `error_max_turns`; the backstop fired (0008 section 7). */
+  /** Set once a turn ends `error_max_turns`; the backstop fired (0008). */
   readonly capped: string | null;
   /** A start failure: `startup_failure_reason` or an account error. */
   readonly startFailure: string | null;
@@ -197,19 +197,6 @@ export interface ClaudeParseState {
    * errors that way, such as an invalid `--json-schema`, and a run that ends with no result says it.
    */
   readonly unparsedLine?: string;
-  /**
-   * The CLI totals a resumed session restored (DIPO-51): the previous session's totals at its
-   * last turn end. Set only until the first turn end of the resumed session; a field the CLI
-   * reports below `baseline` but at or above this floor counts only this session's live numbers.
-   * Absent in states stored before it existed and outside a resume.
-   */
-  readonly restoredFloor?: UsageTotalsByModel;
-  /** The CLI cost a resumed session restored, as `restoredFloor` for `costUSD`. */
-  readonly costFloor?: Readonly<Record<string, number>>;
-  /** Context tokens (input, cache creation, cache read) of the main agent's last request. */
-  readonly contextTokens?: number | null;
-  /** The main model's context window as the last result reported it. */
-  readonly contextWindow?: number | null;
   /**
    * Compactions this process reported through `compact_boundary`, and those it already emitted
    * as `compacted` (DIPO-100). Absent in states stored before they existed.
@@ -248,60 +235,40 @@ export interface InitialStateOptions {
   readonly knownPlugins?: readonly string[];
   /** True when `system/init` may list no skill (DIPO-130). */
   readonly refuseSkills?: boolean;
-  /** `review` for a reviewer session (0019 section 5); `implement` by default. */
+  /** `review` for a reviewer session (0002); `implement` by default. */
   readonly reportKind?: ReportKind;
-  /** Classifier switches already recorded on the run (0008 open question 7). */
+  /** Classifier switches already recorded on the run (0008). */
   readonly acceptedModels?: readonly string[];
-  /** Totals the run starts from, for a resumed run. */
+  /** Totals the session starts from. */
   readonly totals?: UsageTotalsByModel;
-  /** The CLI totals stored at the last turn end, for a resumed session; defaults to `totals`. */
+  /** The CLI totals already seen in this process; defaults to `totals`. */
   readonly baseline?: UsageTotalsByModel;
-  /** The CLI cost in USD per model the run starts from, for a resumed run. */
+  /** The CLI cost in USD per model the session starts from. */
   readonly costUsd?: Readonly<Record<string, number>>;
-  /** The CLI cost stored at the last turn end, for a resumed session; defaults to `costUsd`. */
+  /** The CLI cost already seen in this process; defaults to `costUsd`. */
   readonly costBaseline?: Readonly<Record<string, number>>;
-  /** The CLI totals a resumed session restores (DIPO-51); see `ClaudeParseState.restoredFloor`. */
-  readonly restoredFloor?: UsageTotalsByModel;
-  /** The CLI cost a resumed session restores. */
-  readonly costFloor?: Readonly<Record<string, number>>;
 }
 
 /**
  * The options of the next session of a run from the previous session's stored state (DIPO-51):
- * the recorded classifier switches always carry over. A `resume` continues the CLI's counts, so
- * the new agent starts with no totals of its own, a baseline of what the previous process had
- * counted (its last turn totals plus the live numbers after them), and the previous turn totals
- * as the restored floor; a new session's counts start at zero.
+ * the recorded classifier switches carry over; the new session's counts start at zero.
  */
 export function nextSessionOptions(
   previous: ClaudeParseState,
-  resume: boolean,
   plannedModel: string,
 ): InitialStateOptions {
-  const accepted = { plannedModel, acceptedModels: [...(previous.acceptedModels ?? [])] };
-  if (!resume) return accepted;
-  return {
-    ...accepted,
-    totals: {},
-    baseline: addTotals(previous.baseline ?? {}, previous.live ?? {}),
-    restoredFloor: previous.baseline ?? {},
-    costUsd: {},
-    costBaseline: previous.costBaseline ?? {},
-    costFloor: previous.costBaseline ?? {},
-  };
+  return { plannedModel, acceptedModels: [...(previous.acceptedModels ?? [])] };
 }
 
 export function initialState(options: InitialStateOptions = {}): ClaudeParseState {
   const totals = options.totals ?? {};
   return {
-    ...(options.restoredFloor === undefined ? {} : { restoredFloor: options.restoredFloor }),
     ...(options.allowedPlugins === undefined ? {} : { allowedPlugins: options.allowedPlugins }),
     ...(options.knownPlugins === undefined ? {} : { knownPlugins: options.knownPlugins }),
     ...(options.refuseSkills === undefined ? {} : { refuseSkills: options.refuseSkills }),
     ...(options.reportKind === undefined || options.reportKind === "implement"
       ? {}
       : { reportKind: options.reportKind }),
-    ...(options.costFloor === undefined ? {} : { costFloor: options.costFloor }),
     ...(options.placeholderKey === true ? { placeholderKey: true } : {}),
     pending: "",
     truncated: false,
@@ -370,34 +337,6 @@ function delta(now: ModelUsageTotals, before: ModelUsageTotals): ModelUsageTotal
   };
 }
 
-/**
- * The change at the first turn end of a resumed session (DIPO-51), per field: at or above the
- * baseline (what the previous process had counted) the rise is new, but at least this session's
- * live numbers, since a CLI that restored only the floor reaches the baseline with less new
- * spend than it shows; between the restored floor and the baseline the CLI restored less than
- * was counted, so only this session's live numbers are new; below the floor the CLI's count
- * restarted, so all of it is new.
- */
-function resumedDelta(
-  now: ModelUsageTotals,
-  baseline: ModelUsageTotals,
-  floor: ModelUsageTotals,
-  live: ModelUsageTotals,
-): ModelUsageTotals {
-  const field = (name: (typeof FIELDS)[number]): number =>
-    now[name] >= baseline[name]
-      ? Math.max(now[name] - baseline[name], live[name])
-      : now[name] >= floor[name]
-        ? live[name]
-        : now[name];
-  return {
-    input: field("input"),
-    output: field("output"),
-    cacheCreate: field("cacheCreate"),
-    cacheRead: field("cacheRead"),
-  };
-}
-
 /** Per field the larger of two totals. */
 function larger(a: ModelUsageTotals, b: ModelUsageTotals): ModelUsageTotals {
   return {
@@ -428,22 +367,10 @@ function costStep(
 ): Pick<ClaudeParseState, "costCommitted" | "costBaseline"> {
   const committed: Record<string, number> = { ...state.costCommitted };
   const baseline: Record<string, number> = { ...state.costBaseline };
-  const floor = state.costFloor;
   for (const [model, entry] of Object.entries(modelUsage)) {
     if (entry.costUSD === undefined) continue;
     const before = baseline[model] ?? 0;
-    // A resumed session's first turn end. The cost baseline is the floor (costs come only from
-    // results, so the previous session's spend after its last result was never priced): at or
-    // above it the rise is new whichever way the CLI restored, so nothing is undercounted. A value
-    // between floor and baseline (only possible with a baseline above the floor) adds nothing the
-    // engine can price; below the floor the count restarted.
-    const restored = floor === undefined ? null : (floor[model] ?? 0);
-    const change =
-      entry.costUSD >= before
-        ? entry.costUSD - before
-        : restored !== null && entry.costUSD >= restored
-          ? 0
-          : entry.costUSD;
+    const change = entry.costUSD >= before ? entry.costUSD - before : entry.costUSD;
     committed[model] = (committed[model] ?? 0) + change;
     baseline[model] = entry.costUSD;
   }
@@ -455,7 +382,7 @@ export function currentTotals(state: ClaudeParseState): UsageTotalsByModel {
   return addTotals(state.committed, state.live);
 }
 
-/** Budget tokens (0008 section 4): input plus output plus cache creation, over every model. */
+/** Budget tokens (0008): input plus output plus cache creation, over every model. */
 export function budgetTokens(totals: UsageTotalsByModel): number {
   let sum = 0;
   for (const usage of Object.values(totals)) sum += usage.input + usage.output + usage.cacheCreate;
@@ -567,12 +494,12 @@ function withDrift(before: ClaudeParseState, step: Step, kind: StreamDriftKind):
   };
 }
 
-/** Compactions this process already emitted; a state stored before DIPO-100 emitted every one. */
+/** Compactions this process already emitted. */
 function reportedCompactions(state: ClaudeParseState): number {
-  return state.compactReported ?? state.compactBoundaries ?? 0;
+  return state.compactReported ?? 0;
 }
 
-/** Pure: one host line to Worker events (0008 section 3). */
+/** Pure: one host line to Worker events (0008). */
 export function interpret(line: HostLine, state: ClaudeParseState): Step {
   switch (line.ch) {
     case "stdout":
@@ -762,12 +689,9 @@ function readMessage(value: unknown, state: ClaudeParseState): Step {
           };
     }
     case "system/session_state_changed": {
+      // Liveness only: a box worker has every permission (0008), so `requires_action` is no wait.
       const parsed = parseWith(SessionStateMessage, value, state);
-      if (!parsed.ok) return { events: [], state: parsed.state };
-      // Secondary signal of a permission wait (0008 section 3); idle and running are liveness.
-      return parsed.value.state === "requires_action"
-        ? { events: [{ t: "waiting", on: "permission", detail: "requires_action" }], state }
-        : { events: [], state };
+      return { events: [], state: parsed.ok ? state : parsed.state };
     }
     case "system/thinking_tokens":
       return thinkingTokens(value, state);
@@ -826,7 +750,7 @@ function init(value: unknown, state: ClaudeParseState): Step {
     skills: msg.skills,
   };
 
-  // 0008 section 2: no API key, and the planned model or a recorded classifier switch.
+  // 0008: no API key, and the planned model or a recorded classifier switch.
   if (next.initRejected === null) {
     const placeholder = next.placeholderKey === true;
     if (msg.apiKeySource !== "none" && !placeholder) {
@@ -845,7 +769,7 @@ function init(value: unknown, state: ClaudeParseState): Step {
     if (next.initRejected !== null) events.push({ t: "initRejected", reason: next.initRejected });
   }
 
-  // 0008 amendment of 2026-10-12 (DIPO-108): a plugin the run settings did not switch off is a
+  // 0008 (DIPO-108): a plugin the run settings did not switch off is a
   // start failure, not a rejected init, so the story stays Ready. Plugin hooks may already have
   // run (SessionStart runs before `system/init`); the run settings are the guard, this the backstop.
   // Checked only when the key source and the model passed: a session that fails those as well
@@ -1027,7 +951,7 @@ function assistant(value: unknown, state: ClaudeParseState): Step {
     } else {
       const path = toolPath(tool.data.input);
       const input = toolInput(tool.data.name, tool.data.input);
-      // A web call always shows its query or URL (0020 section 11b), whatever the privacy opt-in
+      // A web call always shows its query or URL (0020), whatever the privacy opt-in
       // for tool inputs: its line is an output line of its own, and the activity carries no input.
       const web = WEB_TOOLS.includes(tool.data.name);
       const call = webCallOf(tool.data.name);
@@ -1078,14 +1002,10 @@ function assistant(value: unknown, state: ClaudeParseState): Step {
       ...next,
       seen: [...next.seen, msg.message.id],
       live: addTotals(next.live, { [msg.message.model]: counted }),
-      // The main agent's context size, for the resume check (0014 section 6).
-      ...(agentId === undefined
-        ? { contextTokens: counted.input + counted.cacheCreate + counted.cacheRead }
-        : {}),
     };
   }
-  // A main-agent message on a model the plan did not name is a classifier switch (0008 section
-  // 2): recorded, so the next `system/init` on it is accepted.
+  // A main-agent message on a model the plan did not name is a classifier switch
+  // (0008): recorded, so the next `system/init` on it is accepted.
   if (agentId === undefined) {
     const switched = acceptSwitch(next, msg.message.model);
     events.push(...switched.events);
@@ -1190,15 +1110,9 @@ function result(value: unknown, state: ClaudeParseState): Step {
     (msg.terminal_reason ?? (msg.subtype === "success" ? "completed" : msg.subtype)) ===
     "completed";
   const change: Record<string, ModelUsageTotals> = {};
-  // The first turn end of a resumed session tells restored spend from a restarted count.
-  const floor = next.restoredFloor;
   if (!none) {
     for (const [model, usage] of Object.entries(reported)) {
-      const base = next.baseline[model] ?? ZERO_USAGE;
-      change[model] =
-        floor === undefined
-          ? delta(usage, base)
-          : resumedDelta(usage, base, floor[model] ?? ZERO_USAGE, next.live[model] ?? ZERO_USAGE);
+      change[model] = delta(usage, next.baseline[model] ?? ZERO_USAGE);
     }
   }
   if (none || !completed) {
@@ -1206,10 +1120,9 @@ function result(value: unknown, state: ClaudeParseState): Step {
       change[model] = larger(change[model] ?? ZERO_USAGE, next.live[model] ?? ZERO_USAGE);
     }
   }
-  const { restoredFloor: _floor, costFloor: _costFloor, ...rest } = next;
   const cost = costStep(next, msg.modelUsage);
   next = {
-    ...(none ? next : rest),
+    ...next,
     committed: addTotals(next.committed, change),
     live: {},
     baseline: none ? next.baseline : { ...next.baseline, ...reported },
@@ -1231,13 +1144,6 @@ function result(value: unknown, state: ClaudeParseState): Step {
     }
     next = { ...next, models: remember(next.models, model) };
   }
-  // The main model's context window, for the resume check (0014 section 6).
-  const main = next.model === null ? undefined : msg.modelUsage[next.model];
-  const window =
-    main?.contextWindow ??
-    Object.values(msg.modelUsage).find((entry) => entry.contextWindow !== undefined)?.contextWindow;
-  if (window !== undefined) next = { ...next, contextWindow: window };
-
   // A completed turn always spent tokens: one that reports none means the CLI's usage moved where
   // dipo does not read it, so the caps would not see the turn (DIPO-315). An aborted or failed
   // turn may report none (the `pause-now` and `start-failed` recordings), so only a completed
@@ -1279,7 +1185,7 @@ function result(value: unknown, state: ClaudeParseState): Step {
     next = { ...next, startFailure: `startup_failure_reason ${turn.startupFailure}` };
   }
   if (turn.apiErrorStatus === 429) {
-    // 0008 section 7: a turn ended by a 429 is a rejected plan limit, as a `rate_limit_event`
+    // 0008: a turn ended by a 429 is a rejected plan limit, as a `rate_limit_event`
     // with `status: rejected` would be.
     events.push({ t: "limit", status: "rejected" });
     if (next.planLimit === null)
@@ -1312,7 +1218,7 @@ function result(value: unknown, state: ClaudeParseState): Step {
 }
 
 /**
- * What was wrong with a turn, in the order 0008 section 7 reads it (DIPO-51): a plan limit, a
+ * What was wrong with a turn, in the order 0008 reads it (DIPO-51): a plan limit, a
  * start failure, a full context, an execution error, then a missing or invalid report. A turn at
  * the CLI's turn cap carries `capped` instead.
  */

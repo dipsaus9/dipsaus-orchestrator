@@ -61,7 +61,7 @@ import { systemSpawn } from "../../src/platform/process";
 import { REVIEW_TOOLS } from "../../src/workers/claude-cli/tools";
 import { planInBox } from "../../src/workers/claude-cli/box-plan";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
-import { AdapterHolds } from "../../src/workers/hold";
+import { AdapterPauses } from "../../src/run/starts-paused";
 import { PlanError, type WorkerSpec } from "../../src/workers/types";
 import { cleanUpRealBoxes } from "./real-box-cleanup";
 
@@ -298,7 +298,7 @@ async function setup(
       };
     },
     code: { spawn: systemSpawn, clock: systemClock },
-    holds: new AdapterHolds({ clock: systemClock, notify: () => {} }),
+    holds: new AdapterPauses({ clock: systemClock, notify: () => {} }),
     adapter: "claude-cli",
     tmpRoot: tmp,
     indexDir: join(tmp, "state", BOX_INDEX_DIR),
@@ -324,7 +324,7 @@ function reviewerSpec(systemFile: string, overrides: Partial<WorkerSpec> = {}): 
     systemFile,
     taskMessage: `Read ${REVIEW_CODE_DIR}/README.md, then report every criterion as none and the summary "ok".`,
     web: false,
-    session: { id: crypto.randomUUID(), resume: false },
+    session: { id: crypto.randomUUID() },
     reportSchema: REPORT_JSON_SCHEMAS.review,
     ...overrides,
   };
@@ -558,7 +558,7 @@ if (registers) {
               child.stdin?.end();
               const init = lines.find((line) => line["subtype"] === "init");
               fact(
-                `init: cwd ${String(init?.["cwd"])}, tools ${JSON.stringify(init?.["tools"])}, apiKeySource ${String(init?.["apiKeySource"])}`,
+                `init: cwd ${String(init?.["cwd"])}, tools ${JSON.stringify(init?.["tools"])}, apiKeySource ${init?.["apiKeySource"] === undefined ? "absent" : "present"}`,
               );
               expect(init?.["cwd"]).toBe("/review/session");
               // The reviewer's tools, and the CLI's own tool for the structured report.

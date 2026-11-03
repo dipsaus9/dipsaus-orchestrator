@@ -1,9 +1,9 @@
-// Where the active work comes from (0006 decision 12), read across every office from the one
+// Where the active work comes from (0005), read across every office from the one
 // state database (0007), never from daemon memory alone, so a restarted daemon sees the hosts that
 // outlived the previous one:
 //
 // - a run with a live worker host: a `worker_hosts` row without `ended_at` whose PID and start time
-//   still match a running process (0006 decision 8);
+//   still match a running process (0005);
 // - a confirmed batch waiting to start: a live claim (`claims.released_at` null) whose run has no
 //   worker host yet, only within `CLAIM_START_WINDOW_MS` of the claim, so an orphan claim (a run
 //   that died between claim and host start) cannot keep the machine awake for ever. Releasing such

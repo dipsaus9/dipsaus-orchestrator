@@ -66,7 +66,8 @@ describe("the report's data fields", () => {
   const proposal = {
     kind: "follow-up",
     title: "Split the parser",
-    outcome: "The parser is two modules.",
+    story:
+      "As maintainer I want the parser split into two modules so that each module stays small enough to read.",
     why: "It grew past one screen.",
   } as const;
 
@@ -79,7 +80,17 @@ describe("the report's data fields", () => {
         { n: 3, status: "not-done", evidence: "needs a live box" },
       ],
       deviations: [{ where: "criterion #2", what: "exits 64", why: "the CLI's usage code" }],
-      proposals: [proposal, { ...proposal, kind: "spike", title: "Ask", paths: ["src/a.ts"] }],
+      proposals: [
+        proposal,
+        {
+          ...proposal,
+          kind: "spike",
+          title: "Ask",
+          story:
+            "We need to decide which parser design the project keeps so that the next stories build on one design.",
+          paths: ["src/a.ts"],
+        },
+      ],
       decisionNotes: [note],
     };
     expect<WorkerReport>(WorkerReportSchema.parse(full)).toEqual(full);
@@ -114,13 +125,25 @@ describe("the report's data fields", () => {
     expect(ok({ ...done, deviations: Array.from({ length: 11 }, () => deviation) })).toBe(false);
   });
 
-  it("takes three proposals and refuses a fourth, with caps on title, outcome and why", () => {
+  it("takes three proposals and refuses a fourth, with caps on title, story and why", () => {
     expect(ok({ ...done, proposals: [proposal, proposal, proposal] })).toBe(true);
     expect(ok({ ...done, proposals: [proposal, proposal, proposal, proposal] })).toBe(false);
     expect(ok({ ...done, status: "blocked", proposals: [proposal] })).toBe(true);
+    const head = "As maintainer I want ";
+    const tail = " so that the maintainer can read it in one go.";
+    const story = (length: number) =>
+      `${head}${"x".repeat(length - head.length - tail.length)}${tail}`;
+    expect(
+      ok({ ...done, proposals: [{ ...proposal, story: story(WORKER_REPORT_CAPS.proposalStory) }] }),
+    ).toBe(true);
+    expect(
+      ok({
+        ...done,
+        proposals: [{ ...proposal, story: story(WORKER_REPORT_CAPS.proposalStory + 1) }],
+      }),
+    ).toBe(false);
     for (const [field, cap] of [
       ["title", WORKER_REPORT_CAPS.proposalTitle],
-      ["outcome", WORKER_REPORT_CAPS.proposalOutcome],
       ["why", WORKER_REPORT_CAPS.proposalWhy],
     ] as const) {
       expect(ok({ ...done, proposals: [{ ...proposal, [field]: "p".repeat(cap) }] })).toBe(true);
@@ -129,6 +152,19 @@ describe("the report's data fields", () => {
       );
     }
     expect(ok({ ...done, proposals: [{ ...proposal, kind: "chore" }] })).toBe(false);
+  });
+
+  it("takes a proposal whose story line fails the Ready gate's shape: the engine judges the line, not the door", () => {
+    const report = {
+      ...done,
+      proposals: [proposal, { ...proposal, story: "Split src/parse.ts with `parseAll()`." }],
+    };
+    expect(parseWorkerReport(report)).toEqual({ ok: true, report });
+    // Other schema problems still fail the report, unnamed.
+    expect(parseWorkerReport({ ...done, proposals: [{ ...proposal, kind: "chore" }] })).toEqual({
+      ok: false,
+      error: "structured_output fails the report schema",
+    });
   });
 
   it("takes a decision note with file, section and text; refuses a missing part, a long one, a fourth note or a file outside the decision records", () => {

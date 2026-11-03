@@ -173,7 +173,7 @@ export interface ProfileDeskItem {
 }
 
 /**
- * What refuses while a capability is unresolved (0013 section 2): `run` for verify, the test
+ * What refuses while a capability is unresolved (0013): `run` for verify, the test
  * command for install and `dev` (`dev` not when the product has nothing to start).
  */
 function refusedBy(name: CapabilityName, nothingToStart: boolean): string | null {

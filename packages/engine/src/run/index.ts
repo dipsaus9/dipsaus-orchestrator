@@ -22,7 +22,6 @@ export {
   runLaunchPaths,
   runWorkerSpec,
   START_FAILED_RELEASE,
-  systemHashOf,
 } from "./launch";
 export type {
   HostStarter,
@@ -99,7 +98,6 @@ export {
   reviewerSettings,
   reviewModelOf,
   snapshotReviewCaps,
-  sweepOldReviewFolders,
 } from "./review-launch";
 export type {
   ReviewGit,
@@ -188,14 +186,12 @@ export { gitStoryOps, IN_REVIEW_STATUS } from "./story-git";
 export type { BranchStory, PushResult, StoryGit } from "./story-git";
 export {
   BOX_TIP_MOVED,
-  DEFAULT_LOCKFILES,
   dependenciesChangedText,
   DEPENDENCY_FILES,
   dependencyFiles,
   GATE_CAPABILITIES,
   gateChanges,
   NO_BOX_AT_DONE,
-  scopeCovers,
   VERIFY_NOTICES,
   VerifyCommit,
 } from "./verify-commit";
@@ -210,7 +206,7 @@ export {
   intentTag,
   planLimitEnding,
   OUTCOME_NOTICES,
-  REASSIGN_SIGTERM_AFTER_MS,
+  NEW_SESSION_SIGTERM_AFTER_MS,
   reportFeedbackText,
   REDISPATCH_STEP,
   RunOutcomes,
@@ -230,7 +226,7 @@ export type {
 // The office's starts paused: a plan limit or a failed adapter check (0020, DIPO-359).
 export {
   LIFT_COMMAND,
-  officeHoldStore,
+  officePauseStore,
   PLAN_LIMIT_RESUME_AFTER_MS,
   PLAN_LIMIT_UNKNOWN_RESET_MS,
   planLimitPause,
@@ -241,7 +237,7 @@ export {
   startsPausedRefusal,
 } from "./starts-paused";
 export type {
-  HoldStoreOffices,
+  PauseStoreOffices,
   LiftedPark,
   LiftedResume,
   PlanLimitPause,
@@ -297,7 +293,6 @@ export {
   baseStoryFacts,
   HOST_EXIT_WAIT_MS,
   RESUME_NOTICES,
-  RESUME_POLICY,
   RunResumer,
   startTierOf,
 } from "./resume";
@@ -314,7 +309,6 @@ export {
   EXIT_CHECK_MS,
   HOST_NEVER_STARTED,
   hostStoppedDetail,
-  macSessionText,
   REATTACH_NOTICES,
   REATTACH_STEP,
   RunReattacher,

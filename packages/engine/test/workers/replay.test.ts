@@ -1,4 +1,4 @@
-// Steering through the fake process with real recordings (0017 section 2, "Replay"): SIGINT jumps
+// Steering through the fake process with real recordings (0017): SIGINT jumps
 // to the recorded post-interrupt tail, SIGTERM ends with exit 143 and no result, stdin writes are
 // recorded, and the manual clock moves by the recorded deltas.
 
@@ -60,7 +60,7 @@ describe("replaying recordings through the fake process", () => {
     const run = await replay(recording, {
       beforeRead: (child, chunks) => {
         if (chunks !== 5) return;
-        for (const op of encode({ kind: "pause" })) {
+        for (const op of encode({ kind: "stop" })) {
           if ("write" in op) child.stdin?.write(op.write);
         }
         child.stdin?.end();
@@ -92,11 +92,5 @@ describe("replaying recordings through the fake process", () => {
     expect(run.elapsed).toBeGreaterThan(30 * 60 * 1000);
     expect(stalledAt).toBe(20 * 60 * 1000);
     expect(performance.now() - started).toBeLessThan(2000);
-  });
-
-  it("resume: one spawn per recorded process", async () => {
-    const run = await replay(loadRecording("resume"));
-    expect(run.fake.calls.length).toBe(2);
-    expect(run.events.filter((event) => event.t === "started").length).toBe(2);
   });
 });

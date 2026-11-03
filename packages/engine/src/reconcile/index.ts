@@ -1,4 +1,4 @@
-// Reconcile of the database with Backlog.md and git (DIPO-56, 0007 section 6).
+// Reconcile of the database with Backlog.md and git (DIPO-56, 0007).
 
 export { RECONCILE_STEP, Reconciler } from "./feature";
 export type { ReconcilerDeps } from "./feature";

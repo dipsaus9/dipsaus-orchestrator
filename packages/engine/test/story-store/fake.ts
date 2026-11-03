@@ -39,7 +39,7 @@ export function fakeStory(id: string, overrides: Partial<PlainTask> = {}): Plain
     references: [],
     documentation: [],
     dependencies: [],
-    description: `Outcome: ${id} works.`,
+    description: `Story: As maintainer I want ${id} to work end to end so that the office can run it.`,
     acceptanceCriteria: [{ index: 1, checked: false, text: `${id} works.` }],
     definitionOfDone: [],
     modifiedFiles: [],

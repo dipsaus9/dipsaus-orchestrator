@@ -2,16 +2,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import {
-  evidenceOf,
-  elapsed,
-  gateLine,
-  marked,
-  shortRole,
-  skipReason,
-  truncate,
-  widthOf,
-} from "./format";
+import { elapsed, gateLine, shortRole, skipReason, truncate, widthOf } from "./format";
 
 describe("format", () => {
   it("picks the 0009 width breakpoints", () => {
@@ -43,14 +34,6 @@ describe("format", () => {
   it("explains a full office, and shows an unknown reason as is", () => {
     expect(skipReason("capacity")).toBe("the office runs as many stories as it may");
     expect(skipReason("quota")).toBe("quota");
-  });
-
-  it("marks claimed, estimated and missing values only with the evidence flag", () => {
-    const map = { a: "claimed", b: "estimated", c: "none" } as const;
-    expect(marked("4/7", evidenceOf(map, "a", true))).toBe("4/7*");
-    expect(marked("$3", evidenceOf(map, "b", true))).toBe("~$3");
-    expect(marked("12", evidenceOf(map, "c", true))).toBe("?");
-    expect(marked("4/7", evidenceOf(map, "a", false))).toBe("4/7");
   });
 
   it("formats time, roles and truncation", () => {

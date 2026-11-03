@@ -1,4 +1,4 @@
-// CI only (0017 section 1; DIPO-70 test plan): `dipo daemon start`, `status`, `restart` and `stop`
+// CI only (0017; DIPO-70 test plan): `dipo daemon start`, `status`, `restart` and `stop`
 // on the compiled binary in a temp DIPO_HOME, plus autostart through a command that needs the
 // daemon, a stale `runtime.json`, and an invalid `config.yaml` that refuses the autostart. State,
 // runtime directory and temp files stay under the test's temp directory (DIPO_HOME,
@@ -92,7 +92,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               expect(status.code).toBe(0);
               expect(status.stdout).toStartWith("running\n");
               expect(status.stdout).toContain(`  pid:        ${first}\n`);
-              expect(status.stdout).toContain("    git     /");
+              expect(status.stdout).toContain("    git       /");
 
               const json = await dipo(bin, ["daemon", "status", "--json"], env);
               expect(json.code).toBe(0);
@@ -144,7 +144,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               // An invalid config.yaml refuses the autostart instead of a daemon that exits 78.
               writeFileSync(
                 join(state, "config.yaml"),
-                "version: 1\ndaemon:\n  autostart: maybe\n",
+                "version: 4\ndaemon:\n  autostart: maybe\n",
               );
               const refused = await dipo(bin, ["daemon", "log-level", "debug"], env);
               expect(refused.code).toBe(1);
@@ -152,7 +152,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               expect((await dipo(bin, ["daemon", "status"], env)).code).toBe(3);
 
               // Autostart through a command that needs the daemon.
-              writeFileSync(join(state, "config.yaml"), "version: 1\n");
+              writeFileSync(join(state, "config.yaml"), "version: 4\n");
               const auto = await dipo(bin, ["daemon", "log-level", "debug"], env);
               expect(auto.code).toBe(0);
               expect(auto.stderr).toContain("dipo: started the daemon (pid ");

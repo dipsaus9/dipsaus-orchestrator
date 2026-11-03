@@ -1,4 +1,4 @@
-// The opt-in `privacy.storeCommandBodies` (0007 section 8, DIPO-83): with it on, a tool line in
+// The opt-in `privacy.storeCommandBodies` (0007, DIPO-83): with it on, a tool line in
 // `output_chunks` holds the call's input as one cut line; with it off, the default, the lines are
 // exactly as before and no command text reaches the state database. Hand-made stream-json lines
 // run through the real Claude parser.

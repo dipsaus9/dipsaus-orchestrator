@@ -1,4 +1,4 @@
-// Stored Ready gate decisions (0007 section 4, 0012 section 3). A rule-decided Ready gate is one
+// Stored Ready gate decisions (0007, 0012). A rule-decided Ready gate is one
 // `gates` row of kind `ready` or `pickup` (the mode) and its one `gate_decisions` row: approved
 // when every rule passed, rejected otherwise, with every rule result and the story content hash.
 // The writes here run inside the caller's transaction.

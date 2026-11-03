@@ -1,4 +1,4 @@
-// `commands.describe` (0005 section 7, M0 review): every command and read this engine registered,
+// `commands.describe` (0005): every command and read this engine registered,
 // with JSON Schemas of args and result and its `since`; provisional ones are left out. It is the
 // conversation layer's tool list, so it shows only what the engine can actually run.
 

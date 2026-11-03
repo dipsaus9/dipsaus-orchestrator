@@ -32,11 +32,11 @@ describe("runConfigOf", () => {
     const run = findRun(w.office, story.run)!;
     const inForce: OfficeConfig = {
       ...OFFICE_DEFAULTS,
-      merge: { ...OFFICE_DEFAULTS.merge, autoMerge: true, holdLabels: ["later"] },
+      merge: { ...OFFICE_DEFAULTS.merge, autoMerge: true, waitLabels: ["later"] },
     };
     // No snapshot: the configuration in force.
     expect(runConfigOf(w.office, run, inForce)).toBe(inForce);
-    // A version 13 snapshot: `mergeSlot` without `holdLabels`, and keys version 14 retired.
+    // A snapshot older than this binary reads: the configuration in force.
     const { merge: _merge, caps: _caps, ...rest } = OFFICE_DEFAULTS;
     w.office.immediate(() =>
       recordConfigSnapshot(
@@ -52,14 +52,7 @@ describe("runConfigOf", () => {
         0,
       ),
     );
-    const started = runConfigOf(w.office, run, inForce);
-    // The moved keys are read at their new place (the migration of 0017).
-    expect(started.merge).toEqual({ ...inForce.merge, autoMerge: false });
-    expect(started.caps).toEqual({ ...inForce.caps, ciAttempts: 7 });
-    expect(started.version).toBe(15);
-    expect(Object.keys(started)).not.toContain("mergeSlot");
-    expect(Object.keys(started)).not.toContain("storyPr");
-    expect(Object.keys(started)).not.toContain("worker");
+    expect(runConfigOf(w.office, run, inForce)).toBe(inForce);
   });
 
   it("gives the reviewer the model and effort the run started with", async () => {

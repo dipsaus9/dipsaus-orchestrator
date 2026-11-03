@@ -1,4 +1,4 @@
-// The `OfficeStore` (0009 sections 2 and 7, 0005 section 8): the state every UI renders, fed by
+// The `OfficeStore` (0009, 0005): the state every UI renders, fed by
 // `engine.hello`, the software stream, one office's snapshot and that office's stream. It applies
 // events by subject (story `key`, `run`, `gate`, `question`, `test`, `office`), drops stored
 // events whose cursor it already has, and replaces the views the engine sends. It never computes
@@ -36,7 +36,6 @@ import {
   type OutputMarker,
   type OutputSource,
   officeSummary,
-  officeSwitch,
   questionAsked,
   questionClosed,
   type QuestionView,
@@ -77,7 +76,7 @@ import { RECOVERY_POLL_MS } from "../recovery";
 /** What the store needs from a connected client; `DipoClient` is one. */
 export type StoreClient = Pick<DipoClient, "state" | "hello" | "onState" | "read" | "subscribe">;
 
-/** Shown once after a history gap made the store drop its view and read it again (0009 section 7). */
+/** Shown once after a history gap made the store drop its view and read it again (0009). */
 export const RELOADED_NOTICE = "view reloaded (history gap)";
 
 const SOFTWARE = StreamName.parse("software");
@@ -124,7 +123,7 @@ export interface OfficeStoreState {
   readonly engine: string | null;
   /** Registered offices in `engine.hello` order, then in order of registration. */
   readonly offices: readonly OfficeEntry[];
-  /** The selected office; client state (0006). */
+  /** The selected office; client state (0005). */
   readonly office: OfficeId | null;
   /** True while the selected office's snapshot is being read. */
   readonly loading: boolean;
@@ -136,7 +135,7 @@ export interface OfficeStoreState {
   /**
    * The last stored cursor of the selected office stream the store applied, starting at the
    * snapshot cursor; null without an office. A client compares a command reply cursor with it to
-   * wait for its own write (read-your-writes, 0009 section 5).
+   * wait for its own write (read-your-writes, 0009).
    */
   readonly cursor: Cursor | null;
   /**
@@ -164,9 +163,9 @@ export interface OfficeStoreState {
 }
 
 /**
- * One `work.output` byte range of the selected office (0005 section 5). The store passes it on to
+ * One `work.output` byte range of the selected office (0005). The store passes it on to
  * `onOutput` listeners and keeps none of it: an output pane holds the text it shows and reads the
- * rest with `work.outputRange` (0009 section 9).
+ * rest with `work.outputRange` (0009).
  */
 export interface OutputChunk {
   readonly run: RunId;
@@ -251,7 +250,7 @@ export class OfficeStore {
    * once when the daemon reaches `running`. A daemon held in `recovering` without its state
    * database answers it with `database.unavailable`, which ends the retry (DIPO-111).
    */
-  #retry: { readonly office: OfficeId; readonly read: "snapshot" | "switch" } | null = null;
+  #retry: { readonly office: OfficeId } | null = null;
   #retryTimer: TimerHandle | null = null;
   #stopState: (() => void) | null = null;
   #closed = false;
@@ -319,18 +318,18 @@ export class OfficeStore {
     this.#subscribeSoftware(hello?.cursor);
   }
 
-  /** Opens `office` from `office.snapshot` and follows its stream (0009 section 2). */
+  /** Opens `office` from `office.snapshot` and follows its stream (0009). */
   open(office: OfficeId): Promise<ReadOutcome<OfficeSnapshot>> {
-    return this.#load(office, "snapshot");
+    return this.#load(office);
   }
 
   /**
-   * Switches to `office` with the read `office.switch` (0005 section 8): the state is replaced by
-   * the returned snapshot, the previous office stream is unsubscribed, and `office:<id>` is
-   * subscribed after the returned cursor. A failed read keeps the current office.
+   * Switches to `office` with `office.snapshot` (0005): the state is replaced by the returned
+   * snapshot, the previous office stream is unsubscribed, and `office:<id>` is subscribed after the
+   * returned cursor. A failed read keeps the current office.
    */
   switchTo(office: OfficeId): Promise<ReadOutcome<OfficeSnapshot>> {
-    return this.#load(office, "switch");
+    return this.#load(office);
   }
 
   dismissNotice(): void {
@@ -396,25 +395,20 @@ export class OfficeStore {
    * it sets no `loading` and publishes a failure only when the error changed, so a daemon that
    * stays in `recovering` does not make listeners render every `RECOVERY_POLL_MS`.
    */
-  async #load(
-    office: OfficeId,
-    read: "snapshot" | "switch",
-    timed = false,
-  ): Promise<ReadOutcome<OfficeSnapshot>> {
+  async #load(office: OfficeId, timed = false): Promise<ReadOutcome<OfficeSnapshot>> {
     const generation = ++this.#generation;
     this.#retry = null;
     this.#clearRetryTimer();
     if (!timed) this.#update({ loading: true });
-    const definition = read === "switch" ? officeSwitch : officeSnapshot;
-    const outcome = await this.#read(definition, { office });
+    const outcome = await this.#read(officeSnapshot, { office });
     if (this.#closed || generation !== this.#generation) return outcome;
     if (!outcome.ok) {
       if (outcome.error.code === "engine.recovering") {
-        const retry = { office, read };
+        const retry = { office };
         this.#retry = retry;
         this.#retryTimer = this.#clock.setTimeout(() => {
           this.#retryTimer = null;
-          if (!this.#closed && this.#retry === retry) void this.#load(office, read, true);
+          if (!this.#closed && this.#retry === retry) void this.#load(office, true);
         }, RECOVERY_POLL_MS);
       }
       const unchanged =
@@ -596,7 +590,7 @@ export class OfficeStore {
     if (this.#closed || generation !== this.#generation) return;
     if (hello.ok) this.#applyHello(hello.result);
     this.#update({ ...EMPTY_OFFICE, notice: RELOADED_NOTICE });
-    await this.#load(office, "snapshot");
+    await this.#load(office);
   }
 
   // The software stream
@@ -709,7 +703,7 @@ export class OfficeStore {
         const to = data.data.to;
         this.#update({ daemon: to, ...(to === "draining" ? { database: null } : {}) });
         const retry = this.#retry;
-        if (to === "running" && retry !== null) void this.#load(retry.office, retry.read);
+        if (to === "running" && retry !== null) void this.#load(retry.office);
         // Out of `recovering`, the daemon serves office streams again (DIPO-322).
         if (to === "running") this.#resumeNow();
         if (to === "recovering" && this.#state.office === null) void this.#probeDatabase();

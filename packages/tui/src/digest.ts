@@ -1,10 +1,11 @@
-// The "since you left" line of the overview (0009 sections 4 and 8, DIPO-308): `office.digest`
-// without `since` counts from when the office's last TUI client disconnected, as the engine
-// stored it. The TUI reads it once per office it opens and shows
-// the engine's non-zero counts in the engine's order; it counts nothing itself.
+// The "since you left" line of the overview (0009): the TUI keeps, in memory, the time it last saw
+// each office (when it switched away from it) and sends it as `since` each time it opens the
+// office; an office it has not shown yet in this run counts from the time it opens, so nothing
+// shows. The engine keeps no such time (0001). The TUI shows the engine's non-zero counts in the
+// engine's order; it counts nothing itself.
 
-import type { EngineError, OfficeId } from "@dipsaus-orchestrator/contract";
-import { useEffect, useState } from "react";
+import type { Clock, EngineError, OfficeId } from "@dipsaus-orchestrator/contract";
+import { useEffect, useRef, useState } from "react";
 
 import { clockTime } from "./views";
 
@@ -18,13 +19,14 @@ export type DigestOutcome =
   | { readonly ok: true; readonly result: DigestResult }
   | { readonly ok: false; readonly error: EngineError };
 
-export type ReadDigest = (office: OfficeId) => Promise<DigestOutcome>;
+/** `office.digest` for `office` from `since` (an ISO time). */
+export type ReadDigest = (office: OfficeId, since: string) => Promise<DigestOutcome>;
 
 /** How a count reads, singular and plural; a count the TUI does not know shows as its name. */
 const COUNT_WORDS: Readonly<Record<string, readonly [string, string]>> = {
   done: ["done", "done"],
   parked: ["parked", "parked"],
-  held: ["held", "held"],
+  parkedByYou: ["parked by you", "parked by you"],
   questions: ["question", "questions"],
   merges: ["merge waits on you", "merges wait on you"],
   proposals: ["proposal", "proposals"],
@@ -42,22 +44,30 @@ export function digestLine(digest: DigestResult, dot: string): string {
   return `${since}: ${parts.length === 0 ? "nothing changed" : parts.join(` ${dot} `)}`;
 }
 
-/** The digest of the open office, read once when it opens; null without one. */
+/**
+ * The digest of the open office, read once when it opens, from the time this TUI last switched
+ * away from it; null without one.
+ */
 export function useDigest(options: {
   readonly office: OfficeId | null;
   readonly readDigest: ReadDigest;
+  readonly clock: Clock;
 }): DigestResult | null {
-  const { office, readDigest } = options;
+  const { office, readDigest, clock } = options;
   const [digest, setDigest] = useState<{ office: OfficeId; result: DigestResult } | null>(null);
+  /** When this TUI last stopped showing each office, in ms. */
+  const lastSeen = useRef(new Map<OfficeId, number>());
   useEffect(() => {
     if (office === null) return;
     let current = true;
-    void readDigest(office).then((outcome) => {
+    const since = lastSeen.current.get(office) ?? clock.now();
+    void readDigest(office, new Date(since).toISOString()).then((outcome) => {
       if (current && outcome.ok) setDigest({ office, result: outcome.result });
     });
     return () => {
       current = false;
+      lastSeen.current.set(office, clock.now());
     };
-  }, [office, readDigest]);
+  }, [office, readDigest, clock]);
   return digest !== null && digest.office === office ? digest.result : null;
 }

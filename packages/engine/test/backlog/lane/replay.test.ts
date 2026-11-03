@@ -1,4 +1,4 @@
-// Crash recovery of the planning lane (DIPO-34; 0007 section 6 step 2, 0010 section 2a step 3):
+// Crash recovery of the planning lane (DIPO-34; 0007, 0010):
 // an operation journaled before a crash is replayed by the office load step, after `git.version`
 // attached the office's git and before any other git queue item; a commit made just before a
 // crash is found again by its trailer instead of being applied twice.

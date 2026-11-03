@@ -1,4 +1,4 @@
-// CI only (0017 section 1): real processes (0005, DIPO-355). A real `dipo daemon worker-host`
+// CI only (0017): real processes (0005, DIPO-355). A real `dipo daemon worker-host`
 // started detached through the engine runs a stub worker; its socket is removed, as after a restart
 // whose host socket does not answer. Re-attach's verified SIGTERM (`signalVerifiedHost`) reaches it
 // as one SIGTERM to the host PID: the host stops its worker and writes `exit.json`. A host whose

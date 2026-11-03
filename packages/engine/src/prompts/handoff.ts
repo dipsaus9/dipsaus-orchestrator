@@ -1,6 +1,6 @@
-// The handoff block (0014 section 6): what a new session for a story with earlier work gets
+// The handoff block (0014): what a new session for a story with earlier work gets
 // instead of a transcript. Code gathers it: the commits on the branch since the merge base, the
-// criteria status of the last report, the last verify result, open feedback (0020 section 6), and
+// criteria status of the last report, the last verify result, open feedback (0020), and
 // the previous worker's notes, the only model-written part (at most 1,500 characters). The
 // maintainer's resume note is not in the block: it is a held message of the one feedback path
 // (0002), after the task message. The reviewer never gets one.
@@ -97,7 +97,7 @@ const NONE = "none";
 const listMarker = (label: string, hint: string) => (shown: number, total: number) =>
   `[dipo: ${label} cut, showing ${formatCount(shown)} of ${formatCount(total)} characters; ${hint}]`;
 
-/** A box run's verify is CI on the story PR (0021 amendment of 2026-10-22); dipo runs none. */
+/** A box run's verify is CI on the story PR (0008); dipo runs none. */
 export const BOX_VERIFY =
   "none by dipo in a box run: CI on the story PR checks the delivered parts, and red CI is listed under open feedback";
 

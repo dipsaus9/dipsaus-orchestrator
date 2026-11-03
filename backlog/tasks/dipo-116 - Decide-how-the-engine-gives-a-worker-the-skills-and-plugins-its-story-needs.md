@@ -4,7 +4,7 @@ title: Decide how the engine gives a worker the skills and plugins its story nee
 status: Refined
 assignee: []
 created_date: '2026-10-16 09:39'
-updated_date: '2026-10-25 09:55'
+updated_date: '2026-11-03 09:51'
 labels:
   - architecture
   - 'tier:M'
@@ -31,7 +31,9 @@ ordinal: 106000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: an ADR (a new decision or an amendment to 0008, approved by the maintainer) that decides how the engine, not the worker or a model, gives each worker session exactly the skills and plugins its work needs, for example a react architecture skill for a developer working on React code, while everything else stays off.
+Story: We need to decide how dipo gives each worker the skills and plugins its story needs, and nothing more, so that workers get expert help where it fits without opening the box to tools nobody chose.
+
+For example, a React architecture skill for a developer working on React code, while every other skill and plugin stays off.
 
 Context: DIPO-108 switches every user-scope plugin off unless the office names it in worker.plugins, and the developer role has neither the Skill nor the Agent tool (0008 amendment 2026-10-12, DIPO-43), so today a worker gets no skills at all. The maintainer wants skills granted per need, chosen by the orchestrator (code drives, AI fills the gaps). Questions the ADR answers:
 - Selection: which facts choose a skill, in code: the run profile and scan facts (0013, for example React detected), the story's components or labels (0012), the role (M4 roster), office config; and how a maintainer overrides it per office and per story.

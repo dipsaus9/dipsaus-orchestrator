@@ -1,5 +1,5 @@
 #!/bin/sh
-# The escape probe of 0008 (DIPO-264; the Safe-Chain box and dipo's own web route since DIPO-343),
+# The escape probe of 0008 (DIPO-264, DIPO-343), inside a developer box and the Safe-Chain box,
 # run by hand. Results are in RESULTS.md.
 #
 # Fill in before running (placeholders keep the maintainer's machine out of the repository):

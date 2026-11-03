@@ -1,4 +1,4 @@
-// Fix rounds (DIPO-148; 0019 sections 7, 8 and 13, 0021 sections 6 and 10): the review and CI
+// Fix rounds (DIPO-148; 0002, 0008): the review and CI
 // feedback on a pushed head goes back to the same worker in one round, once per head. The places,
 // run control, the fix rounds and the feedback facts are real on a migrated state database; the
 // story read, the CI state of the PR poll, the status commit and the developer's next session are
@@ -117,7 +117,6 @@ const red = (check = "ci-ok"): CiFeedbackItem =>
 
 interface Started {
   readonly run: RunId;
-  readonly mode: "resume" | "handoff";
   readonly why: string;
   readonly message: string | undefined;
   readonly work: WorkRef;
@@ -130,7 +129,6 @@ interface World {
   readonly started: Started[];
   readonly lifts: UnparkBranchRequest[];
   readonly ci: Map<string, CiHeadState>;
-  readonly box: Set<string>;
   readonly warned: unknown[];
   config: OfficeConfig;
   facts: RunStoryFacts;
@@ -169,7 +167,6 @@ function world(): World {
   const started: Started[] = [];
   const lifts: UnparkBranchRequest[] = [];
   const ci = x?.ci ?? new Map<string, CiHeadState>();
-  const box = x?.box ?? new Set<string>();
   const s: Knobs = {
     trees: x?.s.trees ?? new Map(),
     viewNull: false,
@@ -206,7 +203,6 @@ function world(): World {
       next: async (_office, run, runView, request) => {
         started.push({
           run: run.runId,
-          mode: request.mode,
           why: request.why,
           // The held messages, delivered with the agent's record as `RunResumer` does.
           message: heldFirstMessage(w.office, run.runId, now(), state.starts),
@@ -233,7 +229,6 @@ function world(): World {
       },
       (office, branch, run) => (s.guard === null ? run() : s.guard(office, branch, run)),
     ),
-    boxRun: (_office, run) => box.has(run.runId),
     places: () => places ?? undefined,
     park: (office, run, work, ending) => control.park(office, run, work, ending),
     treeKey: async (_office, _run, _taskFile, head) =>
@@ -254,7 +249,6 @@ function world(): World {
     started,
     lifts,
     ci,
-    box,
     warned,
     s,
     get config() {
@@ -355,7 +349,7 @@ const fixIntentsOf = (run: RunId) =>
     /^feedback (review|ci|reject|conflict) \S+ next /.test(intent.detail),
   );
 
-describe("the timing of a fix round (0019 section 7)", () => {
+describe("the timing of a fix round (0002)", () => {
   it("waits for both the head's verdict and its final checks, then sends one message", async () => {
     const s = inReview("DIPO-1");
     x.ci.set(s.run, { kind: "pending", head: H1 });
@@ -381,7 +375,6 @@ describe("the timing of a fix round (0019 section 7)", () => {
     ]);
     expect(x.started).toHaveLength(1);
     const [session] = x.started;
-    expect(session?.mode).toBe("resume");
     expect(session?.message).toContain(`Your pushed commit ${H1.slice(0, 12)} got feedback`);
     expect(session?.message).toContain("Item 1 (review):");
     expect(session?.message).toContain("acceptance criterion #2 unmet");
@@ -475,7 +468,7 @@ describe("the timing of a fix round (0019 section 7)", () => {
   });
 });
 
-describe("send-once (0019 section 8)", () => {
+describe("send-once (0002)", () => {
   it("sends an item for one head once across a daemon restart, and marks the same signature on a new head a repeat", async () => {
     // The worker place is held, so the queued round waits across the restart.
     const busy = storyRun(w, { story: "DIPO-9" });
@@ -527,17 +520,6 @@ describe("send-once (0019 section 8)", () => {
     expect(events("work.observed").at(-1)).toMatchObject({ data: { signal: "same-failure" } });
   });
 
-  it("gives a box run's developer a new session in its box with the feedback as its task", async () => {
-    const s = inReview("DIPO-1");
-    x.box.add(s.run);
-    reviewed(s, H1, BLOCKED);
-    x.ci.set(s.run, { kind: "none", head: H1 });
-    expect(await x.fix.consider(officeId(), s.run)).toBe(true);
-    await x.fix.idle();
-    expect(x.started.map((started) => started.mode)).toEqual(["handoff"]);
-    expect(x.started[0]?.message).toContain("Item 1 (review):");
-  });
-
   it("keeps the feedback undelivered with its intent when the session does not start", async () => {
     const s = inReview("DIPO-1");
     reviewed(s, H1, BLOCKED);
@@ -579,11 +561,11 @@ describe("the pre-start cap check (DIPO-205)", () => {
   });
 });
 
-describe("a maintainer reject (0019 sections 8 and 11)", () => {
+describe("a maintainer reject (0002)", () => {
   it("goes to the worker at once through the same send path, the note verbatim and keyed on the gate id", async () => {
     const s = inReview("DIPO-1");
     reviewed(s, H1, APPROVED);
-    // Before DIPO-151 nothing produces a reject: an approved, green head sends nothing.
+    // Without a reject, an approved, green head sends nothing.
     x.ci.set(s.run, { kind: "green", head: H1 });
     expect(await x.fix.consider(officeId(), s.run)).toBe(false);
     const note = "Keep the old flag: `shop greet --name` must still work.";

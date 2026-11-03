@@ -1,4 +1,4 @@
-// The `lifecycle` module of `client/node` (0006 decision 2 and its 2026-10-12 amendment).
+// The `lifecycle` module of `client/node` (0005).
 
 export {
   AutostartOffError,

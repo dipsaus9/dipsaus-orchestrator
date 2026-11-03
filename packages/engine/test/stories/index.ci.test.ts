@@ -1,7 +1,7 @@
-// CI only (0017 section 1): the slower story index cases against the pinned Backlog CLI and real
+// CI only (0017): the slower story index cases against the pinned Backlog CLI and real
 // git (DIPO-32 test plan), kept out of the local suite for its time budget (DIPO-77): an archived
-// or completed task closes as Removed with a notice, a hand-promoted draft is renumbered, an
-// ambiguous created date matches nothing, and a status pushed to the remote is indexed after
+// or completed task closes as Removed with a notice, a hand-promoted draft is Removed and its new
+// id a new story, and a status pushed to the remote is indexed after
 // `polling.fetchSeconds` on the manual clock, as is a new story merged while the office is loaded,
 // which a story refresh also reads at once (DIPO-104).
 // Also keys that stay stable across a second pass and a retitle with the CLI (DIPO-79); the fast
@@ -168,44 +168,24 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(keyOf(office, "TASK-1")).toBeNull();
       }));
 
-    it("matches a hand-promoted draft and emits story.renumbered", () =>
+    it("closes a hand-promoted draft as Removed and gives its new id a new key", () =>
       withIndexedOffice(async ({ repo, index, officeId, office }) => {
         const key = keyOf(office, "DRAFT-1");
         const seq = lastSeq(office);
         await backlog(repo, ["draft", "promote", "DRAFT-1"]);
         await publish(repo, "promote DRAFT-1");
         const result = await index.indexStories(officeId);
-        expect(result.stats).toMatchObject({ renumbered: 1, added: 0, removed: 0 });
+        expect(result.stats).toMatchObject({ added: 1, removed: 1 });
         const entries = entriesAfter(office, seq);
-        const renumbered = entries.find((e) => e.type === "story.renumbered");
-        expect(renumbered?.delta).toMatchObject({ key, from: "DRAFT-1", detectedBy: "reconcile" });
-        const to = String(renumbered?.delta["to"]);
-        expect(to).toMatch(/^TASK-\d+$/);
-        expect(keyOf(office, to)).toBe(key);
-        expect(entries.find((e) => e.type === "story.state")?.delta).toMatchObject({
-          story: to,
-          from: "Draft",
-          to: "Refined",
-        });
-      }));
-
-    it("reports story.ambiguous when two vanished stories share the created date", () =>
-      withIndexedOffice(async ({ repo, index, officeId, office }) => {
-        const oldKeys = [keyOf(office, "TASK-1"), keyOf(office, "DRAFT-1")];
-        const seq = lastSeq(office);
-        await backlog(repo, ["task", "archive", "TASK-1"]);
-        await backlog(repo, ["draft", "promote", "DRAFT-1"]);
-        await publish(repo, "archive TASK-1, promote DRAFT-1");
-        const result = await index.indexStories(officeId);
-        expect(result.stats).toMatchObject({ ambiguous: 1, renumbered: 0, removed: 2, added: 1 });
-        const entries = entriesAfter(office, seq);
-        expect(entries.find((e) => e.type === "engine.notice")?.delta).toMatchObject({
-          level: "warn",
-          code: "story.ambiguous",
-        });
         expect(entries.some((e) => e.type === "story.renumbered")).toBe(false);
-        const live = storyRows(office).filter((row) => !row.removed);
-        for (const key of oldKeys) expect(live.map((row) => row.key)).not.toContain(key);
+        expect(entries.find((e) => e.key === key && e.type === "story.state")?.delta).toMatchObject(
+          { from: "Draft", to: "Removed" },
+        );
+        const promoted = entries.find(
+          (e) => e.key !== key && e.type === "story.state" && e.delta["from"] === "Refined",
+        );
+        expect(String(promoted?.delta["story"])).toMatch(/^TASK-\d+$/);
+        expect(promoted?.key).not.toBe(key);
       }));
 
     it("indexes a status pushed to the remote after polling.fetchSeconds", () =>

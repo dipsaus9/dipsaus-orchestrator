@@ -16,7 +16,7 @@ import type { z } from "zod";
 import { CommandError } from "../commands/errors";
 import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
-import type { QuestionParkResumer } from "../questions/permissions";
+import type { QuestionParkResumer } from "../questions/answers";
 
 import { RunOutcomes, type OutcomeParts } from "./outcomes";
 import { openPark } from "./park";
@@ -34,7 +34,7 @@ export { NOT_PARKED, RUN_HOST_ALIVE, WorkResumeCommand } from "./work-resume";
  * tried again: scheduling off, a worker that has not exited, the starts paused again.
  */
 const LIFTED_RETRY_CODES: ReadonlySet<string> = new Set([
-  "scheduling.off",
+  "daemon.draining",
   "run.hostAlive",
   "run.refused",
 ]);

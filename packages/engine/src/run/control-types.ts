@@ -1,4 +1,4 @@
-// The vocabulary of run control (DIPO-50, split out of `control.ts` by DIPO-128): its constants,
+// The vocabulary of run control: its constants,
 // ports, dependencies, the tracked run and the ending of a run. `control.ts` re-exports all of it.
 
 import type {
@@ -24,6 +24,7 @@ import type { IntentKind } from "../records/intents";
 import type { RunAct, RunOutcomesPort, RunView } from "./outcome-types";
 import type { ParkOutcome, ParkWriter } from "./park";
 import type { ParkStore } from "../records/park-state";
+import type { RefusedProposal } from "./report-data";
 import type { StoredRun } from "../records/run-records";
 import type { RunFinisher } from "./verify-commit";
 
@@ -36,13 +37,13 @@ export const STORY_NOT_RUNNING = "story.notRunning";
  */
 export const STOP_ALL_EXIT_WAIT_MS = 45_000;
 
-/** How often the caps are rechecked without new events (DIPO-15 M0 review): one minute. */
+/** How often the caps are rechecked without new events: one minute. */
 export const CAP_TICK_MS = 60_000;
 
 /** `agents.end_reason` of a session reconcile stopped (DIPO-56): its story left In Progress. */
 export const RECONCILE_STOP_REASON = "reconciled";
 
-/** The park detail of a run whose host event file changed (0007 section 5, DIPO-57). */
+/** The park detail of a run whose host event file changed (0007, DIPO-57). */
 export const EVENT_FILE_CHANGED = "event file changed";
 
 /** The park detail of a worker `daemon.stop { stopWorkers: true }` stopped (DIPO-315). */
@@ -94,7 +95,7 @@ export interface RunControlDeps {
   readonly encode: (op: SteerOp) => HostOp[];
   /** True when the engine implements a command; parks offer only those. None by default. */
   readonly implemented?: (name: CommandName) => boolean;
-  /** Writes pending `work.output` of a run before its state changes (0005 section 6). */
+  /** Writes pending `work.output` of a run before its state changes (0005). */
   readonly flushOutput?: (office: OfficeId, run: string) => void;
   /** Called after change-log entries were appended outside a command. */
   readonly onChanged?: (office: OfficeId) => void;
@@ -106,8 +107,7 @@ export interface RunControlDeps {
   readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
   /**
    * Hears a park written to resume by itself when the office's starts paused lifts (0020,
-   * `StartsPaused.resumeLifted`): one that lands while the office is not paused (a run a plan limit
-   * held before the upgrade, parked at load) resumes then.
+   * `StartsPaused.resumeLifted`): one that lands while the office is not paused resumes then.
    */
   readonly parkedToResume?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
@@ -171,6 +171,8 @@ export interface Tracked extends TrackedRun {
    */
   heldDone: {
     readonly report: WorkerReport;
+    /** The held report's proposals whose Story line fails, for the report gate. */
+    readonly refused: readonly RefusedProposal[];
     readonly take: () => void;
     timer: TimerHandle | null;
   } | null;

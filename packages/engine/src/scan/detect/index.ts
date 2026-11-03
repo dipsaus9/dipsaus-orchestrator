@@ -1,5 +1,5 @@
 // Repository scan, code part (0013): read the file facts of a checkout, detect its run profile,
-// fingerprint the inputs. No model is called in M0 (0013 amendment of 2026-10-11).
+// fingerprint the inputs. No model is called (0013).
 
 export { BOX_TOOLS, detectBoxToolchain, exactVersion } from "./box";
 export type { BoxTool, DetectedBoxTool, DetectedBoxToolchain } from "./box";

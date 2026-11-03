@@ -155,8 +155,8 @@ export const gateView = {
 export const questionView = {
   question: ids.question,
   work: workRef,
-  kind: "permission",
-  text: "Bash(docker compose up)",
+  kind: "question",
+  text: "Which greeting should the CLI print?",
   askedAt: "2026-10-12T09:02:00Z",
 };
 
@@ -257,7 +257,6 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
 
 const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
   "office.snapshot": { args: { office: ids.office }, result: officeSnapshot },
-  "office.switch": { args: { office: ids.office }, result: officeSnapshot },
   "story.detail": {
     args: { office: ids.office, story: "DIPO-21" },
     result: {
@@ -539,7 +538,7 @@ const officeEventFixtures: Record<string, unknown> = {
   "test.ended": { test: ids.test, story: "DIPO-15", key: ids.storyKey, reason: "new-head" },
 };
 
-// `dipo` field blocks (0010 section 3).
+// `dipo` field blocks (0010).
 export const validFieldBlock = {
   branch: "DIPO-12/daemon-restart-keeps-workers",
   unknowns: [
@@ -627,7 +626,7 @@ export const commandFixtures: Record<string, { args: unknown; result: unknown }>
   },
   "daemon.stop": { args: { stopWorkers: false }, result: { state: "draining" } },
   "daemon.setLogLevel": { args: { level: "debug" }, result: { level: "debug" } },
-  "daemon.resumeScheduling": { args: {}, result: { state: "running" } },
+  "daemon.resumeStarts": { args: {}, result: { state: "running" } },
   ...officeCommandFixtures,
 };
 
@@ -682,7 +681,7 @@ export const readFixtures: Record<string, { args: unknown; result: unknown }> = 
       buildCommit: "1a2b3c4d5e6f-dirty",
       engineBehind: [{ office: ids.office, name: "dipsaus-orchestrator", commits: 2 }],
       tools: {
-        claude: "/Users/me/.local/bin/claude",
+        workerCli: "/Users/me/.local/bin/claude",
         backlog: "/opt/homebrew/bin/backlog",
         gh: "/opt/homebrew/bin/gh",
         git: "/usr/bin/git",

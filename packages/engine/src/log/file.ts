@@ -1,4 +1,4 @@
-// The log file sink: appends lines to `<logs>/daemon.log` (0006 decision 13). The directory is
+// The log file sink: appends lines to `<logs>/daemon.log` (0005). The directory is
 // created with mode 0700 and the file with mode 0600. The daemon rotates the file itself, because
 // launchd does not rotate and journald sees only stderr: a line that would take `daemon.log` past
 // 10 MB first moves it to `daemon.log.1`, shifts older files up to `daemon.log.5` and drops the
@@ -14,7 +14,7 @@ import type { LogSink } from "./logger";
 
 export { DAEMON_LOG_FILE, DAEMON_LOG_KEEP } from "@dipsaus-orchestrator/contract";
 
-/** Rotation size of `daemon.log` (0006 decision 13). */
+/** Rotation size of `daemon.log` (0005). */
 export const DAEMON_LOG_MAX_BYTES = 10 * 1024 * 1024;
 
 export interface LogFile {

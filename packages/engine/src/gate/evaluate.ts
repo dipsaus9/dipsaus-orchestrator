@@ -1,4 +1,4 @@
-// `evaluateGate`, the Ready gate as a pure function (0012 section 3). Inputs in, verdict out: it
+// `evaluateGate`, the Ready gate as a pure function (0012). Inputs in, verdict out: it
 // reads no file, process, clock, database or model, and the same input gives the same result.
 
 import { FieldBlockError, parseFieldBlock } from "../story-store/fields/block";

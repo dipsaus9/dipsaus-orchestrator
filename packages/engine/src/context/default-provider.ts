@@ -1,4 +1,4 @@
-// The default context provider (0014 section 9, M0): no external tool, no model.
+// The default context provider (0014): no external tool, no model.
 //
 // 1. Scope: an existing file in full when under the per-item cap, else its head with a marker; a
 //    directory as its file count and the 15 files changed most recently on the base sha (none at
@@ -6,9 +6,7 @@
 //    a path that does not exist yet is marked new, with that summary of its parent directory.
 // 2. Inputs: every declared input listed; files pre-fetched within the `inputs` budget; URLs
 //    listed only.
-// 3. Component map, when `.dipo/components.yaml` exists: the components whose globs match the
-//    scope and their direct neighbours, with name, purpose line and a capped file list.
-// 4. Tests next to scope files by name (`x.ts` to `x.test.ts`), listed, not inlined.
+// 3. Tests next to scope files by name (`x.ts` to `x.test.ts`), listed, not inlined.
 //
 // A scope or input file named like a secret (`.env*`, `.npmrc`, `*.pem`, ...; see `secrets.ts`) is
 // never read: it is listed with content `secret`, empty text and no blob id.
@@ -16,16 +14,8 @@
 // Every list is sorted and newlines are normalised, so the same checkout and request give the same
 // pack bytes.
 
-import {
-  COMPONENT_MAP_PATH,
-  componentFiles,
-  matchComponents,
-  type ScopeKind,
-  validateComponentMap,
-} from "./components";
 import { gitBlobId } from "./pack";
 import {
-  COMPONENT_FILES_MAX,
   CONTEXT_ITEM_MAX,
   DIRECTORY_ENTRIES_MAX,
   DIRECTORY_RECENT_MAX,
@@ -45,7 +35,7 @@ import type {
 
 export const DEFAULT_PROVIDER_ID = "default";
 /** Changes whenever the default provider's output for the same inputs changes. */
-export const DEFAULT_PROVIDER_VERSION = "2";
+export const DEFAULT_PROVIDER_VERSION = "3";
 
 const URL_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
 
@@ -98,10 +88,10 @@ const HIDDEN_DIRECTORIES = ["docs/decisions", "packages/engine/test/recordings"]
 const isHidden = (dir: string): boolean =>
   HIDDEN_DIRECTORIES.some((hidden) => dir === hidden || dir.startsWith(`${hidden}/`));
 
-/** True when the outcome or a criterion names a path inside `dir`. */
+/** True when the Story line or a criterion names a path inside `dir`. */
 function namesPathIn(req: ContextRequest, dir: string): boolean {
   const pattern = new RegExp(`(^|[^\\w./-])${escapeRegExp(dir)}/[^\\s]`);
-  return [req.outcome, ...req.criteria].some((text) => pattern.test(text));
+  return [req.storyLine, ...req.criteria].some((text) => pattern.test(text));
 }
 
 /**
@@ -127,6 +117,12 @@ async function filesByRecentChange(
   const done = new Set(first);
   return [...first, ...files.filter((file) => !done.has(file)).toSorted()];
 }
+
+/** What a scope path is in the checkout: a file, a directory with its files, or a new path. */
+type ScopeKind =
+  | { readonly kind: "file"; readonly path: string }
+  | { readonly kind: "dir"; readonly path: string; readonly files: readonly string[] }
+  | { readonly kind: "new"; readonly path: string };
 
 function classify(
   path: string,
@@ -218,9 +214,7 @@ async function gatherDefault(
   req: ContextRequest,
   budget: number,
 ): Promise<ContextPack> {
-  const [files, tracked] = await Promise.all([ws.files(), ws.trackedFiles()]);
-  const sortedFiles = [...files].toSorted();
-  const sortedTracked = [...tracked].toSorted();
+  const sortedFiles = [...(await ws.files())].toSorted();
   const fileSet = new Set(sortedFiles);
   const index = indexDirectories(sortedFiles);
   const blobIds: Record<string, string> = {};
@@ -285,38 +279,7 @@ async function gatherDefault(
     }
   }
 
-  // 3. Component map
-  const mapText = fileSet.has(COMPONENT_MAP_PATH)
-    ? await readText(ws, COMPONENT_MAP_PATH)
-    : undefined;
-  if (mapText !== undefined) {
-    const map = validateComponentMap(mapText.text, sortedTracked);
-    notes.push(...map.warnings);
-    if (map.state === "invalid") {
-      notes.push(...map.errors.map((error) => `component map not used: ${error}`));
-    } else {
-      for (const match of matchComponents(map.components, scope, req.components)) {
-        const owned = componentFiles(match.component, sortedTracked);
-        const list = listing(owned, COMPONENT_FILES_MAX, CONTEXT_ITEM_MAX, match.component.name);
-        candidates.push({
-          item: {
-            path: match.component.name,
-            text: list.text,
-            reason: {
-              kind: "component",
-              name: match.component.name,
-              purpose: match.component.purpose,
-              via: match.via,
-              shown: list.shown,
-              total: list.total,
-            },
-          },
-        });
-      }
-    }
-  }
-
-  // 4. Tests next to scope files
+  // 3. Tests next to scope files
   const scopeFiles = new Set(scope.filter((e) => e.kind !== "dir").map((e) => e.path));
   const tests = new Map<string, string>();
   for (const path of [...scopeFiles].toSorted()) {

@@ -35,7 +35,7 @@ describe("the pinned Backlog.md CLI", () => {
           "create",
           "Count the exported rows",
           "-d",
-          "Outcome: the export reports how many rows it wrote.",
+          "Story: As maintainer I want the export to report how many rows it wrote so that I can tell a short export from a full one.",
           "-l",
           "tier:S",
           "--type",
@@ -80,7 +80,8 @@ describe("the pinned Backlog.md CLI", () => {
               status: "Ready",
             },
           ],
-          description: "Outcome: the export reports how many rows it wrote.",
+          description:
+            "Story: As maintainer I want the export to report how many rows it wrote so that I can tell a short export from a full one.",
           acceptanceCriteria: [{ index: 1, checked: true, text: "The count is printed" }],
           implementationNotes: "Counted in the writer.",
           unknown: [],

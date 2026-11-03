@@ -1,4 +1,4 @@
-// The Ready gate (0012 section 3, R26 from 0014 section 4): a pure function of the story, the
+// The Ready gate (0012, R26 from 0014): a pure function of the story, the
 // office's active tasks and office configuration. `gate-decisions/` keeps decisions and serves the read
 // `story.gate` (DIPO-71).
 
@@ -6,13 +6,14 @@ export { evaluateGate, rulesFor } from "./evaluate";
 export { gateContent, gateContentHash } from "./hash";
 export { gateStoryFromView, gateTaskFromView } from "./input";
 export {
+  checkStoryLine,
   contractCharacters,
   cycleThrough,
   gateMessage,
   gateWarningMessage,
   gateText,
   isValidScopePath,
-  outcomeLines,
+  storyLines,
   pathsCollide,
   r01a,
   r01b,
@@ -45,6 +46,7 @@ export {
   r30,
   r31,
   SHARED_RULES,
+  STORY_PART_MIN,
   WARNING_RULES,
   TEST_PLAN_TEXT_MIN,
 } from "./rules";

@@ -1,10 +1,10 @@
 // Starting a reviewer session of a story run (0002, DIPO-219), and the git reads a review needs.
 // The reviewer is a new agent of the run with role `reviewer`, always a fresh session (0008): the
-// `review` system file (L1+L2; `review-box` for a box run, whose verify ran in the developer's box)
-// in its own file of the run directory, the review task message as its first message, the
-// reviewer's tools, model, effort and its own turn, minute and token caps (`runWorkerSpec` with the
-// review settings). Ingestion starts after what earlier hosts wrote to the run's event file, and
-// run control tracks the session with the reviewer's caps.
+// `review-box` system file (L1+L2: the verify ran in the developer's box at done) in its own file
+// of the run directory, the review task message as its first message, the reviewer's tools, model,
+// effort and its own turn, minute and token caps (`runWorkerSpec` with the review settings).
+// Ingestion starts after what earlier hosts wrote to the run's event file, and run control tracks
+// the session with the reviewer's caps.
 //
 // Each review session runs in a read-only box of its own (0002, 0008, `BoxWorkers.review`): a new
 // box from the office image with a copy of exactly the head the review round read
@@ -19,8 +19,7 @@
 // (`ReviewSessionRequest.held`, DIPO-346): a park that landed while the box was made starts no
 // reviewer, and the box goes.
 
-import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { chmod, lstat, readdir, rm } from "node:fs/promises";
+import { readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -36,7 +35,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { REVIEW_CODE_DIR, ReviewCopyMismatchError } from "../box/review-box";
-import { BOX_RUN_FILE, type BoxWorkers } from "../box/workers";
+import type { BoxWorkers } from "../box/workers";
 import { appendEntries } from "../changelog/log";
 import type { OfficeConfig } from "../config";
 import { sizeClassOfWorkspace } from "../context/size";
@@ -54,7 +53,7 @@ import { recordAgent } from "../records/agents";
 import { setProcessedOffset } from "../records/worker-hosts";
 import { branchTip } from "../git/write";
 import { withWorkViews } from "../views/work";
-import type { AdapterHold } from "../workers/hold";
+import type { AdapterPause } from "./starts-paused";
 import type { WorkerPort } from "../workers/port";
 import { PlanError, type Caps } from "../workers/types";
 
@@ -67,7 +66,6 @@ import {
   type RunIngest,
   runLaunchPaths,
   runWorkerSpec,
-  systemHashOf,
   type TierCaps,
 } from "./launch";
 import { sessionUuid } from "./prompts";
@@ -86,7 +84,7 @@ export interface ReviewGit {
     base: string,
     commit: string,
   ): Promise<{ readonly diff: string; readonly changes: readonly ReviewChangedPath[] }>;
-  /** The project's size class at `commit`, for the diff budget (0014 section 4). */
+  /** The project's size class at `commit`, for the diff budget (0014). */
   sizeClass(office: OfficeId, commit: string): Promise<SizeClass>;
 }
 
@@ -115,7 +113,7 @@ function revision(commit: string): string {
 /**
  * The `git diff` arguments of the story diff the reviewer gets. The prefixes are fixed, so a user's
  * or a repository's diff.noprefix, diff.srcPrefix or diff.dstPrefix cannot change the `+++ b/<path>`
- * lines parseStoryDiff reads (DIPO-146 review).
+ * lines parseStoryDiff reads.
  */
 export function storyDiffArgs(range: string): string[] {
   return [
@@ -170,53 +168,6 @@ export function gitReviewOps(gitOf: (office: OfficeId) => OfficeGit | undefined)
   };
 }
 
-/**
- * The name of a reviewer session's folder an earlier binary made in dipo's temp root for its Mac
- * reviewer (DIPO-276): `dipo-review-<run>-<agent>`, with a read-only copy (0555 folders) inside.
- */
-const OLD_REVIEW_FOLDER = /^dipo-review-(run_[0-9A-Za-z]+)-(agt_[0-9A-Za-z]+)$/;
-
-/** Gives every folder below `dir` its owner's write bit back, never through a link. */
-async function unlockTree(dir: string): Promise<void> {
-  await chmod(dir, 0o700);
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    if (entry.isDirectory() && !entry.isSymbolicLink()) await unlockTree(join(dir, entry.name));
-  }
-}
-
-/**
- * Removes, at daemon start, every reviewer folder an earlier binary left in `tmpRoot` (its Mac
- * reviewer's read-only copy; the reviewer now runs in a box, 0002): only real folders of this user
- * with that name, never through a link, made writable first. A one-time cleanup of the move to
- * reviewer boxes. Never rejects; resolves to the names removed.
- */
-export async function sweepOldReviewFolders(
-  tmpRoot: string,
-  uid: number | undefined = process.getuid?.(),
-): Promise<string[]> {
-  let entries: string[];
-  try {
-    entries = await readdir(tmpRoot);
-  } catch {
-    return [];
-  }
-  const removed: string[] = [];
-  for (const name of entries.toSorted()) {
-    if (!OLD_REVIEW_FOLDER.test(name)) continue;
-    const path = join(tmpRoot, name);
-    try {
-      const stat = await lstat(path);
-      if (!stat.isDirectory() || (uid !== undefined && stat.uid !== uid)) continue;
-      await unlockTree(path);
-      await rm(path, { recursive: true, force: true });
-      removed.push(name);
-    } catch {
-      // Left for the next start.
-    }
-  }
-  return removed;
-}
-
 /** The prefix of the file in the run directory that names the head a reviewer session reviews. */
 export const REVIEW_COMMIT_PREFIX = "review-commit-";
 
@@ -252,7 +203,7 @@ export interface ReviewSessionRequest {
 export type ReviewSessionOutcome =
   | { readonly kind: "started"; readonly agent: AgentId }
   /** A launch check refused the session; the adapter hold is set. */
-  | { readonly kind: "startFailed"; readonly hold: AdapterHold }
+  | { readonly kind: "startFailed"; readonly pause: AdapterPause }
   | {
       readonly kind: "failed";
       readonly reason: string;
@@ -356,7 +307,7 @@ export function reviewerSettings(
     current = findRun(office, run.runId) ?? run;
   }
   const caps = runCaps(office, current);
-  // Model and effort as the run started with them (its configuration snapshot, DIPO-303 review),
+  // Model and effort as the run started with them (its configuration snapshot),
   // for the story's tier.
   const started = runConfigOf(office, current, config);
   return {
@@ -489,11 +440,9 @@ export class ReviewLauncher implements ReviewSessions {
       (config.tiers as Readonly<Record<string, TierCaps>>)[run.tier ?? ""] ?? config.tiers.M;
     const settings = reviewerSettings(office, run, config);
     const paths = runLaunchPaths(git, deps, run.runId);
-    // The reviewer of a box run reads that dipo ran the verify in the developer's box at done and
-    // that CI runs with the review (DIPO-346). The run directory says the run is a box worker's,
-    // as for its developer.
-    const boxRun = existsSync(join(paths.runDir, BOX_RUN_FILE));
-    const systemFile = renderSystemFile(boxRun ? "review-box" : "review", "reviewer");
+    // The reviewer reads that dipo ran the verify in the developer's box at done and that CI runs
+    // with the review (DIPO-346).
+    const systemFile = renderSystemFile("review-box", "reviewer");
     const taskMessage = withReviewCommit(request.taskMessage, {
       commit: request.head,
       dir: REVIEW_CODE_DIR,
@@ -510,7 +459,7 @@ export class ReviewLauncher implements ReviewSessions {
       { runId: run.runId, agent, caps: tier, reviewer: settings },
       paths,
       taskMessage,
-      { id: sessionUuid(agent), resume: false },
+      { id: sessionUuid(agent) },
       caps,
     );
     try {
@@ -560,8 +509,8 @@ export class ReviewLauncher implements ReviewSessions {
         planRefused: error,
       };
     }
-    if (!prepared.ok) return { kind: "startFailed", hold: prepared.hold };
-    // Right before the session (DIPO-346 review): a park that landed while the box was made starts
+    if (!prepared.ok) return { kind: "startFailed", pause: prepared.pause };
+    // Right before the session: a park that landed while the box was made starts
     // no reviewer.
     if (request.held?.() === true) {
       return { kind: "failed", reason: "the story is parked", parked: true };
@@ -592,7 +541,6 @@ export class ReviewLauncher implements ReviewSessions {
         model: settings.model,
         effort: settings.effort,
         sessionId: spec.session.id,
-        systemHash: systemHashOf(systemFile),
         startedAt: at,
       });
       recordPromptParts(

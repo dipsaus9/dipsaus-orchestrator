@@ -1,4 +1,4 @@
-// The client's `lifecycle` module (0006 decisions 2, 5, 6 and 14): the process-level steps that
+// The client's `lifecycle` module (0005): the process-level steps that
 // cannot use the socket. It starts, stops, restarts and reports the daemon for
 // `dipo daemon start|stop|restart|status`, and starts it for any client command that needs it
 // unless `daemon.autostart` is false in `<state>/config.yaml` (autostart).
@@ -12,7 +12,7 @@
 // - Stop sends `daemon.stop`. `--force`, and a daemon of another version (0005), get SIGTERM to the
 //   verified PID (every version drains on it); `--force` adds SIGKILL after 10 s. Code never
 //   signals a PID whose start time or command does not match the record.
-// - Installed autostart (0006 decision 15, DIPO-63): start, stop and restart go through
+// - Installed autostart (0005, DIPO-63): start, stop and restart go through
 //   `launchctl` (`supervisor.ts`), so launchd and the CLI never fight; `install` and `uninstall`
 //   write and remove the plist.
 
@@ -58,7 +58,7 @@ export type DaemonStatusResult = z.output<typeof daemonStatus.result>;
 /** What the lifecycle needs from a connection to the daemon. */
 export type DaemonSession = Pick<DipoClient, "read" | "command" | "subscribe" | "close" | "hello">;
 
-/** Waits, in ms; tests shorten them. The defaults are 0006 decisions 5 and 6. */
+/** Waits, in ms; tests shorten them. The defaults are 0005. */
 export interface LifecycleTimings {
   /** How long a start waits for `engine.hello`, and a live PID may stay silent. */
   readonly startWaitMs: number;
@@ -153,7 +153,7 @@ function installedSupervisor(deps: LifecycleDeps): SupervisorDeps | null {
   return supervisor !== undefined && isInstalled(supervisor) ? supervisor : null;
 }
 
-/** What `dipo daemon status` reports (0006 decision 5). */
+/** What `dipo daemon status` reports (0005). */
 export type DaemonObservation =
   | {
       readonly kind: "running";
@@ -327,6 +327,16 @@ async function signalVerified(
 export type StartResult =
   | { readonly kind: "started"; readonly pid: number; readonly version: string }
   | { readonly kind: "already running"; readonly pid: number; readonly version: string }
+  /**
+   * The daemon runs but holds itself in `recovering` because it cannot use its state database
+   * (0005, 0007); `message` is its `stateReason`: what failed and what to do.
+   */
+  | {
+      readonly kind: "database unavailable";
+      readonly pid: number;
+      readonly version: string;
+      readonly message: string;
+    }
   | { readonly kind: "unresponsive"; readonly pid: number }
   | { readonly kind: "config"; readonly errors: readonly ConfigError[] }
   /** The daemon process ended during the start; its log says why. */
@@ -359,7 +369,23 @@ async function spawnAndWait(deps: LifecycleDeps, options: StartOptions): Promise
   return waitForStart(deps, spawned.pid, logs);
 }
 
-/** Waits up to `startWaitMs` for the daemon `pid` (or, under a supervisor, any daemon) to answer. */
+/** A daemon held in `recovering` without its state database, as a start result; else null. */
+function heldWithoutDatabase(status: DaemonStatusResult): StartResult | null {
+  if (status.databaseUnavailable === undefined) return null;
+  return {
+    kind: "database unavailable",
+    pid: status.pid,
+    version: status.version,
+    message: status.stateReason ?? "the daemon cannot use its state database",
+  };
+}
+
+/**
+ * Waits up to `startWaitMs` for the daemon `pid` (or, under a supervisor, any daemon) to answer,
+ * and while it answers `starting` or `recovering`, for it to run or to report that it cannot use
+ * its state database: that refusal comes from the first recovery step, so a start says it instead
+ * of "started". A daemon still recovering at the deadline counts as started.
+ */
 async function waitForStart(
   deps: LifecycleDeps,
   pid: number | null,
@@ -370,7 +396,15 @@ async function waitForStart(
   for (;;) {
     const answer = await ask(deps);
     if (answer.kind === "status") {
-      return { kind: "started", pid: answer.status.pid, version: answer.status.version };
+      const { status } = answer;
+      const held = heldWithoutDatabase(status);
+      if (held !== null) return held;
+      const settling = status.state === "starting" || status.state === "recovering";
+      if (!settling || clock.now() >= deadline) {
+        return { kind: "started", pid: status.pid, version: status.version };
+      }
+      await sleep(clock, timings.pollMs);
+      continue;
     }
     const info = pid === null ? null : await deps.probe(pid);
     if (pid !== null && (info === null || info.zombie)) {
@@ -395,13 +429,15 @@ async function waitForStart(
   }
 }
 
-/** `dipo daemon start` (0006 decision 5). */
+/** `dipo daemon start` (0005). */
 export async function startDaemon(
   deps: LifecycleDeps,
   options: StartOptions = {},
 ): Promise<StartResult> {
   const before = await inspectDaemon(deps);
   if (before.kind === "running") {
+    const held = heldWithoutDatabase(before.status);
+    if (held !== null) return held;
     return { kind: "already running", pid: before.status.pid, version: before.status.version };
   }
   if (before.kind === "foreign") {
@@ -497,7 +533,7 @@ async function stopObserved(
     }
   }
   if (await waitForExit(deps, record, deps.timings.stopWaitMs)) {
-    // A clean exit removes dipo.sock and dipo.pid (0006 decision 6) but leaves runtime.json,
+    // A clean exit removes dipo.sock and dipo.pid (0005) but leaves runtime.json,
     // which is stale now; removing it here keeps the next `status` at `not running`.
     await inspectDaemon(deps);
     return { kind: "stopped", pid, killed: false };
@@ -506,7 +542,7 @@ async function stopObserved(
 }
 
 /**
- * `dipo daemon stop [--force]` (0006 decision 5). With autostart installed, the supervisor stops
+ * `dipo daemon stop [--force]` (0005). With autostart installed, the supervisor stops
  * the daemon first (`launchctl bootout`, `systemctl --user stop`), so it does not restart it; a
  * daemon still running after that was started outside the supervisor and is stopped directly.
  */
@@ -594,6 +630,8 @@ export function describeStartFailure(result: StartResult): string {
       return `the daemon (pid ${result.pid}) did not answer within 5 s; see ${result.logs}/daemon.log and \`dipo daemon status\``;
     case "supervisor failed":
       return `${result.message}; see ${result.logs}/daemon.log and \`dipo daemon status\``;
+    case "database unavailable":
+      return `the daemon (pid ${result.pid}) runs without its state database. ${result.message}`;
     default:
       return `the daemon is running (pid ${result.pid}, version ${result.version})`;
   }
@@ -615,7 +653,7 @@ export async function connectRunning(deps: LifecycleDeps): Promise<DaemonSession
 
 /**
  * Connects for a client command that needs the daemon, and starts it first when none runs and
- * `daemon.autostart` is not false (0006 decision 5). The configuration is read before the start,
+ * `daemon.autostart` is not false (0005). The configuration is read before the start,
  * and its errors are thrown instead of starting a daemon that would exit 78.
  */
 export async function connectOrStart(deps: LifecycleDeps): Promise<ConnectedDaemon> {
@@ -640,7 +678,7 @@ export async function connectOrStart(deps: LifecycleDeps): Promise<ConnectedDaem
 }
 
 /**
- * The hint of 0006 decision 14 when this binary and the daemon differ, else null.
+ * The hint of 0005 when this binary and the daemon differ, else null.
  */
 export function versionHint(own: string, daemon: string | undefined): string | null {
   if (daemon === undefined || daemon === own) return null;
@@ -663,7 +701,7 @@ export type InstallResult =
     };
 
 /**
- * `dipo daemon install` (0006): stops a running daemon, writes the plist with
+ * `dipo daemon install` (0005): stops a running daemon, writes the plist with
  * this binary's absolute path and the caller's `PATH`, loads it, and waits for the supervised
  * daemon. Running it again after moving the binary rewrites the file.
  */

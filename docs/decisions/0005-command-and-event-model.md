@@ -20,7 +20,7 @@ A command writes its facts and their change-log entries in one transaction, then
 
 ### 2. Ids
 
-Engine-made ids are a prefix plus a ULID: `off_` (office), `sto_` (story key), `run_`, `agt_` (one session), `gat_` (gate), `qst_` (question), `prp_` (proposal). A `StoryId` is the Backlog.md id unchanged. A `RequestId` is a ULID the client makes for every command and read. A `Cursor` is `{ stream: "office:<id>" | "software", seq }`.
+Engine-made ids are a prefix plus a ULID: `off_` (office), `sto_` (story key), `run_`, `agt_` (one session), `gat_` (gate), `qst_` (question), `tst_` (a maintainer's test). A proposal's id is a hash of its content (0020). A `StoryId` is the Backlog.md id unchanged. A `RequestId` is a ULID the client makes for every command and read. A `Cursor` is `{ stream: "office:<id>" | "software", seq }`.
 
 **Story keys.** The engine gives each story a `StoryKey` when it first sees it. Facts and events refer to the key, and every event that names a story carries both the key and the Backlog.md id of that moment. A command may name a story by either. The id of a story changes only when the engine promotes a draft (M3), which emits `story.renumbered`. A story whose id vanishes from Backlog.md outside the engine is `Removed`, and a new id is a new story; reconcile says so with a notice. The key lives only in the database (0001).
 
@@ -51,7 +51,7 @@ The daemon serves the frames of one connection side by side. Reads run as they a
 | Gates | `gate.approve`, `gate.reject` |
 | Proposals | `proposal.accept`, `proposal.dismiss` |
 | Testing | `test.start`, `test.record` |
-| Daemon | `daemon.stop`, `daemon.setLogLevel`, `daemon.resumeScheduling` |
+| Daemon | `daemon.stop`, `daemon.setLogLevel`, `daemon.resumeStarts` |
 
 Their behaviour is decided where the subject lives: 0020 for park, resume, drop and discard; 0002 for gates and testing; 0013 for scan, infer and confirm; 0010 for init. `commands.describe` lists every command and read with the JSON Schema of its args and result, and marks those a client must confirm first (`confirm`) or ask for a typed id (`irreversible`). A ritual or roster command arrives with its milestone (0003).
 
@@ -87,7 +87,8 @@ Every event about running work carries a `WorkRef` (story, key, run, agent, role
 ### 9. Idempotency and target state
 
 - **Commands are target-state.** Parking what is parked, or resuming a story that already runs, replies `changed: false` and changes nothing.
-- **Run commands are stored.** For the commands that start or change a run (`work.run`, `work.resume`, `work.answer`, `work.steer`, `story.park`, `work.discard`, `gate.approve`, `gate.reject`, `test.record`), the request id, a hash of the resolved args and the reply are written in the same transaction as the facts. A retry with the same id after a lost reply gets the same reply. The same id with other args fails with `request.reused`. The records go when their run ends.
+- **Office commands are stored.** For every office command, the request id, a hash of the resolved args and the reply are written with the facts, and kept one day (0007). A retry with the same id after a lost reply gets the same reply. The same id with other args fails with `request.reused`.
+- **Slow commands wait.** A command whose work takes time (`work.run`, `work.resume`, `work.answer`, `work.steer`, `work.discard`, `story.park`, `story.drop`, `gate.approve`, `gate.reject`, `test.start`, `test.record`, `proposal.accept`, `proposal.dismiss`) replies when that work is done, and its record is written then. A duplicate that arrives meanwhile waits for the same reply. Software commands keep their records in memory while they run.
 - **The text the maintainer writes** (notes, answers, steers) is a maintainer-authored fact, kept for the audit trail and as worker input.
 
 ### 10. Errors
@@ -96,7 +97,7 @@ Every event about running work carries a `WorkRef` (story, key, run, agent, role
 
 The generic codes are `args.invalid`, `office.unknown`, `story.unknown`, `story.ambiguous`, `capability.missing`, `request.reused`, `request.timedOut`, `confirmation.required`, `not.permitted`, `stream.resetRequired`, `internal` and `database.unavailable`. `request.timedOut` means a read or subscribe the daemon did not answer within its 90 s deadline. On a read or subscribe, `request.reused` means another read or subscribe with the same id is still running on the connection.
 
-The retryable codes are `engine.recovering`, `scheduling.off`, `run.hostAlive` and `git.fetchFailed`. They are the only codes for which the same request may succeed later: `engine.recovering` waits for `running`, `scheduling.off` waits for the daemon to schedule work again, `run.hostAlive` waits for an old worker host to stop, and `git.fetchFailed` waits for a fetch that succeeds.
+The retryable codes are `engine.recovering`, `daemon.draining`, `run.hostAlive` and `git.fetchFailed`. They are the only codes for which the same request may succeed later: `engine.recovering` waits for `running`, `daemon.draining` waits for the daemon to schedule work again, `run.hostAlive` waits for an old worker host to stop, and `git.fetchFailed` waits for a fetch that succeeds.
 
 ### 11. One version
 
@@ -129,7 +130,7 @@ There is one daemon process per user. Inside it each office is its own engine in
 
 ### 14. Start, stop, status
 
-- `dipo daemon start` backgrounds `dipo daemon --foreground` through a short-lived `/bin/sh` in its own session, so the daemon is no descendant of the client. It removes `BUN_OPTIONS` and `BUN_FEATURE_FLAG_NO_ORPHANS`, then waits up to 5 s for `engine.hello`.
+- `dipo daemon start` backgrounds `dipo daemon --foreground` through a short-lived `/bin/sh` in its own session, so the daemon is no descendant of the client. It removes `BUN_OPTIONS` and `BUN_FEATURE_FLAG_NO_ORPHANS`, then waits up to 5 s for `engine.hello` and for the daemon to leave `starting` and `recovering`. A daemon that cannot use its state database (`daemon.status` names why) makes start print that text and exit 1; a healthy recovery still running at the deadline counts as started.
 - Client commands start the daemon when it is not running, unless `daemon.autostart` is false. Read-only commands (`dipo gate`, `dipo run --dry-run`, `dipo stats`, `dipo watch`) never start one.
 - `daemon.stop` drains. `dipo daemon stop --force` sends SIGTERM to the PID in `dipo.pid` after checking its start time, then SIGKILL after 10 s.
 - `dipo daemon status` prints the state with its reason, PID, version, build commit, loaded offices, active runs and keep-awake. Exit 0 means running, 3 not running, 1 unresponsive.
@@ -167,6 +168,7 @@ The daemon never owns a worker process. Each session gets a worker host, `dipo d
 - **What the host does.** It starts the session through the adapter's launch plan (for a developer, a `container exec` into the story's box, 0008). It appends every output line to the run's `events.ndjson` with its byte offset, and listens on `<runtime>/hosts/<run>.sock` for writes to the session's stdin and for signals. When the session exits, it writes `exit.json` and exits. It has no engine logic.
 - **Facts and offsets move together.** The engine reads the events file from a stored offset. That offset advances in the same transaction as the facts derived from the lines, so a crash never skips or doubles an event.
 - **Liveness** is the PID plus its start time, never socket reachability.
+- **The claim.** A daemon claims each host it follows, and a host no daemon claimed by its launch deadline stops itself; the claim protocol is in 0008.
 - **Re-attach at recovery,** for each host:
   - Alive, and its socket answers the handshake: catch up from the offset, then follow live.
   - Alive, but its socket does not answer, or it speaks another host protocol version: send its verified PID one SIGTERM, and park the story `worker-failed` once it exits.
@@ -193,7 +195,7 @@ The daemon never owns a worker process. Each session gets a worker host, `dipo d
 
 - Contract major and minor versions, capability flags and provisional commands (2026-10-10). Replaced by one contract version per binary (2026-10-24), because client and daemon ship together.
 - A random epoch in every cursor and a replay floor (2026-10-10). Gone with backups and restore (0007, 2026-10-24). A cursor beyond the last seq asks for a reset.
-- A 24-hour idempotency table for every command, a waiting path for slow commands, and a crash-injection test per command (2026-10-10, 2026-10-17). Replaced by target-state commands plus stored replies for run commands only (2026-10-24).
+- A crash-injection test per command (2026-10-10, 2026-10-17). Replaced by target-state commands with stored replies (2026-10-24).
 - A browser listener on 127.0.0.1 with a bootstrap code, session tokens, an `auth` frame and DNS-rebinding checks (2026-10-10). Never used; removed until a web client is planned (2026-10-24).
 - A `confirmed` flag for a conversation layer (2026-10-10). It returns with M5.
 - Story identity after a database loss matched by frozen branch, then created date (2026-10-10). Replaced by: a vanished id is Removed, a new id is a new story (2026-10-24).
@@ -201,7 +203,7 @@ The daemon never owns a worker process. Each session gets a worker host, `dipo d
 - A crash-loop `safe` state, a held `recovering` state with crash markers and `needsCheck`, and a minute-by-minute lock self-check that recreated a missing record and took a foreign one back (2026-10-10 to 2026-10-16). Replaced by the plain states of section 16 (2026-10-24) and the SQLite lock of section 15, which no starter takes from a running daemon (2026-10-30).
 - A PID lock broken by rename-and-verify with a `link()` restore and a stale-break window re-check (2026-10-10). Replaced by the plain lock of section 15 (2026-10-24).
 - `dipo.pid` as the lock: created with `O_EXCL`, a stale record deleted only when unchanged, and lock checks after the bind and at the minute upgrade check (2026-10-24 to 2026-10-30). A starter paused between its re-read and its delete could still run beside another. Replaced by the SQLite lock of section 15, which the operating system releases (2026-10-30).
-- Follow-only worker hosts, a verified-SIGTERM protocol for them, and a `launch.json` claim and rename protocol for pending hosts (2026-10-15). Replaced by re-attach or park (2026-10-24).
+- Follow-only worker hosts and a verified-SIGTERM protocol for them (2026-10-15). Replaced by re-attach or park (2026-10-24).
 - Linux support: systemd units and scopes, `systemd-inhibit`, lingering checks (2026-10-10). macOS only (0004, 2026-10-24).
 - Auto-restart on upgrade (`daemon.autoRestartOnUpgrade`, default off). Removed; `dipo daemon restart` is the way (2026-10-24).
 - `createEngine` building its own spawn and clock from the daemon's options (2026-10-24). The daemon passes them in with its other process concerns, so tests replace them (2026-10-29).

@@ -1,4 +1,4 @@
-// The `dipo` field block of a story description (0010 section 3; 0012 F10, F14, F15, F16). The
+// The `dipo` field block of a story description (0010; 0012 F10, F14, F15, F16). The
 // engine parses the block's YAML and validates it with this schema; a failure is Ready gate rule
 // R02. Unknown keys fail, and every text value must be a YAML string, so `answer: 5173` fails.
 // The schema checks shape only: presence and content rules (R15, R18, R20) belong to the gate.

@@ -197,14 +197,14 @@ describe("commands, reads and events", () => {
   it("reports a tool the daemon did not find as absent", () => {
     const status = contractReads.find((d) => d.name === "daemon.status");
     const result = status?.result.parse(readFixtures["daemon.status"]?.result) as { tools: object };
-    expect(Object.keys(result.tools).toSorted()).toEqual(["backlog", "claude", "gh", "git"]);
+    expect(Object.keys(result.tools).toSorted()).toEqual(["backlog", "gh", "git", "workerCli"]);
     const relative = { ...(readFixtures["daemon.status"]?.result as object), tools: { rg: "rg" } };
     expect(status?.result.safeParse(relative).success).toBe(false);
   });
 });
 
 describe("errors", () => {
-  it("exports every generic code of 0005 section 10", () => {
+  it("exports every generic code of 0005", () => {
     expect(([...GENERIC_ERROR_CODES] as string[]).toSorted()).toEqual(
       [
         "args.invalid",
@@ -222,7 +222,7 @@ describe("errors", () => {
       ].toSorted(),
     );
     expect(([...RETRYABLE_ERROR_CODES] as string[]).toSorted()).toEqual(
-      ["engine.recovering", "run.hostAlive", "scheduling.off", "git.fetchFailed"].toSorted(),
+      ["engine.recovering", "run.hostAlive", "daemon.draining", "git.fetchFailed"].toSorted(),
     );
   });
 
@@ -258,7 +258,7 @@ describe("errors", () => {
     ]);
   });
 
-  it("marks only engine.recovering, scheduling.off, run.hostAlive and git.fetchFailed retryable", () => {
+  it("marks only engine.recovering, daemon.draining, run.hostAlive and git.fetchFailed retryable", () => {
     const retryable = [
       ...GENERIC_ERROR_CODES,
       ...RETRYABLE_ERROR_CODES,
@@ -269,10 +269,10 @@ describe("errors", () => {
       .filter((code) => engineError(code, "m").retryable)
       .toSorted();
     expect(retryable).toEqual([
+      "daemon.draining",
       "engine.recovering",
       "git.fetchFailed",
       "run.hostAlive",
-      "scheduling.off",
     ]);
     expect(isRetryableErrorCode("internal")).toBe(false);
     expect(engineError("story.notSteerable", "m").retryable).toBe(false);

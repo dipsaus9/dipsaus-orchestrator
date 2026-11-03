@@ -6,10 +6,6 @@ export const greeting = (name: string) => `Hi ${name}`;
 src/cli.ts
 src/greet.ts
 </item>
-<item path="cli" about="component cli, matches the scope, 2 of 2 files, purpose: The command line.">
-src/cli.ts
-src/greet.ts
-</item>
 </context>
 
 <inputs>
@@ -25,7 +21,7 @@ Warm, short, one exclamation mark at most.
 
 <dependencies>
 This story builds on:
-- SHOP-3 Parse CLI flags: the CLI reads its flags into one typed object.
+- SHOP-3 Parse CLI flags: As maintainer I want the CLI to read its flags into one typed object so that every command reads them the same way.
 </dependencies>
 
 <background>
@@ -37,11 +33,8 @@ Id: SHOP-12
 Title: Add a greeting to the CLI
 Type: feature
 Tier: M
+Story: As maintainer I want the shop to greet a customer by name in its own voice so that customers feel welcome when they start it.
 </story>
-
-<outcome>
-`shop greet <name>` prints a friendly greeting in the shop's voice.
-</outcome>
 
 <criteria>
 #1 `shop greet Ada` prints `Hello, Ada!`.

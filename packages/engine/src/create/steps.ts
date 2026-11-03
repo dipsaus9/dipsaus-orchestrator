@@ -42,7 +42,7 @@ function privacySummaryFeature(core: Core): FeatureModule {
   };
 }
 
-/** `engine.hello` and the `daemon.*` read and commands (0006 decision 5). */
+/** `engine.hello` and the `daemon.*` read and commands (0005). */
 function processFeatures(core: Core, services: Services): FeatureModule[] {
   const { deps, lifecycle, offices } = core;
   const { daemon } = deps;
@@ -70,7 +70,7 @@ function processFeatures(core: Core, services: Services): FeatureModule[] {
       upgradePending: daemon.upgradePending,
       keepAwake: () => office.keepAwake.status(),
       loadedOffices: () => offices.loadedOffices(),
-      // `daemon.resumeScheduling` lifts every office's starts paused too (0020).
+      // `daemon.resumeStarts` lifts every office's starts paused too (0020).
       liftStartsPaused: (why) => commands.runs.startsPaused.liftAll(why),
       activeRuns: () =>
         sumActiveRuns(offices.loadedOffices(), (id: OfficeId) => {
@@ -128,7 +128,7 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
     commands.proposals.feature,
     runs.control.feature,
     runs.outcomes.feature,
-    runs.permissions.feature,
+    runs.answers.feature,
     // The office's starts paused, armed again at load, and `work.resume` (0020).
     runs.startsPaused.feature,
     runs.resumption.feature,
@@ -221,7 +221,7 @@ function loadOfficesStep(core: Core): RecoveryStep {
 }
 
 /**
- * Re-attach (DIPO-57, 0006 decisions 7 and 8): after reconcile, every active run of a loaded
+ * Re-attach (DIPO-57, 0005): after reconcile, every active run of a loaded
  * office follows its worker host again (or has its exit or lost host decided) before scheduling
  * turns on.
  */
@@ -244,8 +244,7 @@ function reattachStep(core: Core, services: Services): RecoveryStep {
 /**
  * Run temp directories (DIPO-102): after re-attach, every `dipo-run-*` directory of a run that
  * ended, or that no database row names when this daemon made it, goes; then the boxes of box runs
- * that ended while no daemon ran (DIPO-271), the reviewer boxes a stopped daemon left (0002) and
- * the read-only reviewer folders of an earlier binary (DIPO-347).
+ * that ended while no daemon ran (DIPO-271) and the reviewer boxes a stopped daemon left (0002).
  */
 function tempSweepStep(services: Services): RecoveryStep {
   const { runs } = services.commands;
@@ -257,12 +256,6 @@ function tempSweepStep(services: Services): RecoveryStep {
         context.logger.info("removed run temp directories of ended runs", { removed });
       }
       await runs.finishEndedBoxes({ listBoxes: true });
-      const folders = await runs.sweepOldReviewFolders();
-      if (folders.length > 0) {
-        context.logger.info("removed reviewer folders an earlier binary left", {
-          removed: folders,
-        });
-      }
     },
   };
 }

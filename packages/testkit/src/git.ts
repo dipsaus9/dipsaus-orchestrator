@@ -1,4 +1,4 @@
-// Isolated temporary git repositories for integration tests (0017 section 3). The maintainer's
+// Isolated temporary git repositories for integration tests (0017). The maintainer's
 // global git config, hooks, identity and signing never reach a test: every git call testkit
 // makes, and every command run through `TempRepo.run`, gets the environment from `isolatedEnv`.
 
@@ -188,7 +188,7 @@ export type TempRepoWithRemote = TempRepo & {
 
 /**
  * A `withTempRepo` repository whose `origin` is a bare repository in the same temp directory,
- * so push and fetch are real with no network (0017 section 3).
+ * so push and fetch are real with no network (0017).
  */
 export async function withBareRemote<T>(
   fn: (repo: TempRepoWithRemote) => T | Promise<T>,

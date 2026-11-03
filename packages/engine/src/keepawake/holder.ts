@@ -1,4 +1,4 @@
-// One keep-awake process at a time (0006 decision 12). `acquire` starts it and waits a short
+// One keep-awake process at a time (0005). `acquire` starts it and waits a short
 // settle time: a process still running then holds the assertion, one that exited was refused. A
 // refused or missing `caffeinate` leaves the assertion not held, and the status says why.
 
@@ -12,7 +12,7 @@ import {
   type SpawnKeepAwake,
 } from "../platform/keepawake";
 
-/** `daemon.status.keepAwake` (0005, 0006 decision 5). */
+/** `daemon.status.keepAwake` (0005). */
 export interface KeepAwakeStatus {
   readonly held: boolean;
   readonly reason?: string;

@@ -1,4 +1,4 @@
-// `bun run recordings:capture <scenario>` (0017 section 2, "Capture"). A dev script, never a test:
+// `bun run recordings:capture <scenario>` (0017). A dev script, never a test:
 //
 // 1. builds the fixture repository `packages/engine/test/fixtures/repos/<name>` as a main checkout
 //    plus a linked worktree in a fresh temp directory under `$DIPO_TMP` (else `/tmp`);
@@ -13,7 +13,10 @@ import { homedir, tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
 import { systemClock } from "../../packages/engine/src/platform/clock";
-import { encode as encodeClaudeOp } from "../../packages/engine/src/workers/claude-cli/encode";
+import {
+  encode as encodeClaudeOp,
+  userMessageLine,
+} from "../../packages/engine/src/workers/claude-cli/encode";
 import {
   plan as planClaudeLaunch,
   SETTINGS_FILE,
@@ -42,6 +45,8 @@ import { stdoutOf, usageChecksum } from "./usage";
 /** Quiet time after a `result` before the next message is sent or stdin is closed. */
 const SETTLE_MS = 3_000;
 const EXTRA_FLAGS = ["--include-partial-messages"] as const;
+/** The priority `now` message a `pause` scenario sends mid-turn, as the `pause-now` recording holds it. */
+const INTERRUPT_MESSAGE = "Paused by the maintainer: stop and reply only `paused`.";
 
 /** The extra flags the plan does not pass itself (it passes `--include-partial-messages`). */
 function extraFlags(argv: readonly string[]): string[] {
@@ -130,7 +135,6 @@ async function runProcess(
   scenario: Scenario,
   turns: readonly string[],
   start: number,
-  resume: boolean,
   out: ProcessRun,
 ): Promise<void> {
   const now = () => Math.round(performance.now() - start);
@@ -142,7 +146,7 @@ async function runProcess(
     stdout: "pipe",
     stderr: "pipe",
   });
-  out.steering.push({ t: now(), op: "spawn", resume });
+  out.steering.push({ t: now(), op: "spawn" });
   const queue = new LineQueue();
   const stdoutDone = readLines(proc.stdout, (text) =>
     queue.push({ t: now(), ch: "stdout", data: parseLine(text) }),
@@ -167,7 +171,7 @@ async function runProcess(
   let settling = false;
   let stdinClosed = false;
   let deltas = 0;
-  let midDone = scenario.midTurn === undefined || resume;
+  let midDone = scenario.midTurn === undefined;
   const deadline = performance.now() + scenario.timeoutMs;
 
   for (;;) {
@@ -214,9 +218,7 @@ async function runProcess(
           proc.kill(mid.signal);
           out.steering.push({ t: now(), op: "signal", signal: mid.signal });
         } else {
-          for (const op of encodeClaudeOp({ kind: "pause" })) {
-            if ("write" in op) write(op.write, "now");
-          }
+          write(userMessageLine(INTERRUPT_MESSAGE, "now"), "now");
         }
       }
     }
@@ -282,8 +284,7 @@ function normaliseFlags(argv: readonly string[], scrubber: Scrubber): string[] {
     if (previous === "--json-schema") {
       return `<report schema sha256:${createHash("sha256").update(flag).digest("hex").slice(0, 12)}>`;
     }
-    if (previous === "--session-id" || previous === "--resume")
-      return scrubber.id(flag, "session_id");
+    if (previous === "--session-id") return scrubber.id(flag, "session_id");
     return scrubber.normalisePaths(flag);
   });
 }
@@ -316,14 +317,13 @@ export async function capture(scenario: Scenario): Promise<string> {
       mkdirSync(sandboxTmp, { recursive: true });
       const paths: CapturePaths = { root: repo.root, main: repo.dir, workdir, runDir };
       const turns = scenario.turns.map((turn) => turnText(turn, paths));
-      const resumeTurns = (scenario.resumeTurns ?? []).map((turn) => turnText(turn, paths));
       const systemFile = join(runDir, "system.md");
       const systemPrompt = scenario.systemPrompt ?? SYSTEM_PROMPT;
       writeFileSync(systemFile, systemPrompt);
       scenario.prepare?.(paths);
 
       const sessionId = randomUUID();
-      const specFor = (resume: boolean, first: string): WorkerSpec => ({
+      const specFor = (first: string): WorkerSpec => ({
         run: "run-0001",
         agent: "agt-0001",
         kind: scenario.kind ?? "implement",
@@ -334,7 +334,7 @@ export async function capture(scenario: Scenario): Promise<string> {
         systemFile,
         taskMessage: first,
         web: false,
-        session: { id: sessionId, resume },
+        session: { id: sessionId },
         reportSchema: REPORT_JSON_SCHEMAS[scenario.kind ?? "implement"],
       });
       const hostSocket = join(repo.root, "host.sock");
@@ -347,7 +347,7 @@ export async function capture(scenario: Scenario): Promise<string> {
         runDir,
         hostSocket,
         tmpDir: sandboxTmp,
-        // A reviewer loads no plugin: the plan switches off every installed one (0019 section 4).
+        // A reviewer loads no plugin: the plan switches off every installed one (0002).
         ...(scenario.kind === "review"
           ? { plugins: { installed: readInstalledPlugins(home), allowed: [] } }
           : {}),
@@ -360,25 +360,14 @@ export async function capture(scenario: Scenario): Promise<string> {
         argv[at + 1] = scenario.tools.join(",");
         return { ...launch, argv };
       };
-      const launches: [LaunchPlan, readonly string[], boolean][] = [];
-      const first = withTools(planClaudeLaunch(specFor(false, turns[0] ?? ""), context));
-      launches.push([first, turns, false]);
-      if (resumeTurns.length > 0) {
-        launches.push([
-          withTools(planClaudeLaunch(specFor(true, resumeTurns[0] ?? ""), context)),
-          resumeTurns,
-          true,
-        ]);
-      }
+      const launch = withTools(planClaudeLaunch(specFor(turns[0] ?? ""), context));
 
       const start = performance.now();
       const run = { lines: [] as Envelope[], steering: [] as SteerRecord[] };
-      for (const [launch, processTurns, resume] of launches) {
-        for (const file of launch.files) {
-          writeFileSync(join(runDir, file.name), withExtraAllow(file.name, file.content, scenario));
-        }
-        await runProcess(launch, scenario, processTurns, start, resume, run);
+      for (const file of launch.files) {
+        writeFileSync(join(runDir, file.name), withExtraAllow(file.name, file.content, scenario));
       }
+      await runProcess(launch, scenario, turns, start, run);
       const checks =
         scenario.verify === undefined ? undefined : await scenario.verify(paths, run.lines);
 
@@ -405,7 +394,7 @@ export async function capture(scenario: Scenario): Promise<string> {
         );
       }
 
-      const prompt = [systemPrompt, ...turns, ...resumeTurns].join("\n");
+      const prompt = [systemPrompt, ...turns].join("\n");
       const meta: Meta = {
         scenario: scenario.name,
         source: "live",
@@ -416,10 +405,10 @@ export async function capture(scenario: Scenario): Promise<string> {
         fixture: scenario.fixture,
         fixture_sha256: fixtureHash(fixtureDir),
         model: scenario.model,
-        flags: normaliseFlags(first.argv, scrubber),
+        flags: normaliseFlags(launch.argv, scrubber),
         prompt_bytes: Buffer.byteLength(prompt),
         prompt_sha256: createHash("sha256").update(prompt).digest("hex"),
-        processes: launches.length,
+        processes: 1,
         steering: run.steering,
         unknown_types: scrubber.report.unknownTypes,
         ...(scenario.kind === undefined ? {} : { kind: scenario.kind }),

@@ -1,4 +1,4 @@
-// The office load-step seam (M0 review, DIPO-15). Feature modules add load steps and active-work
+// The office load-step seam. Feature modules add load steps and active-work
 // checks from their `register(registry)`: the Backlog CLI version check (DIPO-28), the story index
 // (DIPO-32), the scan (DIPO-72) and journal replay (DIPO-34) run as load steps, and the run check
 // (DIPO-48) as an active-work check, so none of them edits `office/`.
@@ -12,11 +12,11 @@ import type { OfficeHandle } from "../db/office";
 export interface OfficeLoadContext {
   readonly officeId: OfficeId;
   readonly office: OfficeHandle;
-  /** The main worktree, the office path (0007 section 2). */
+  /** The main worktree, the office path (0007). */
   readonly path: string;
   /** `<git-common-dir>`, shared by every worktree of the repository. */
   readonly commonDir: string;
-  /** The configuration in force; undefined while the office has no valid one (0017 section 5). */
+  /** The configuration in force; undefined while the office has no valid one (0017). */
   readonly config: OfficeConfig | undefined;
   readonly clock: Clock;
   readonly ids: IdSource;

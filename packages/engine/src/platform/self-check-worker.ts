@@ -1,4 +1,4 @@
-// Bun Worker used by the `worker` self-check (DIPO-17). It mirrors 0007 section 1: a Worker opens its
+// Bun Worker used by the `worker` self-check (DIPO-17). It mirrors 0007: a Worker opens its
 // own read-only connection and writes a `VACUUM INTO` snapshot without taking the write lock.
 // `scripts/build.ts` passes this file to `bun build --compile` as an extra entrypoint.
 

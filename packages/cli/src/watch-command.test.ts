@@ -1,4 +1,4 @@
-// `dipo watch [ID]` (DIPO-52; 0009 section 9): the state of each running story from the snapshot,
+// `dipo watch [ID]` (DIPO-52; 0009): the state of each running story from the snapshot,
 // then one plain line per event after its cursor: output, usage, health and its evidence, notices,
 // parks and the end of a run from `run.ended`. Its state is the client's `OfficeStore`
 // (DIPO-320): the store opens the office and follows its stream, so the fake session records the

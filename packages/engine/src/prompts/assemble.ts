@@ -1,4 +1,4 @@
-// The `implement` task message, L4 (0014 sections 2, 4 and 5): long reference material first, the
+// The `implement` task message, L4 (0014): long reference material first, the
 // story contract and feedback last, each section in its tag and present only under its 0014
 // condition. Every section has a budget; over the total cap, sections drop in the order
 // dependencies, background, context tail, inputs content (the path list stays), each with a
@@ -118,18 +118,6 @@ function aboutItem(item: ContextItem, stale: ReadonlySet<string>): string {
         `new scope path, ${formatCount(reason.total)} files in ${reason.parent === "" ? "the repository root" : reason.parent}, ${formatCount(reason.shown)} changed most recently on the base`,
       );
       break;
-    case "component": {
-      const via =
-        reason.via === "scope"
-          ? "matches the scope"
-          : reason.via === "depends-on"
-            ? "the scope depends on it"
-            : "depends on the scope";
-      parts.push(`component ${reason.name}, ${via}`);
-      parts.push(`${formatCount(reason.shown)} of ${formatCount(reason.total)} files`);
-      if (reason.purpose !== null) parts.push(`purpose: ${reason.purpose}`);
-      break;
-    }
     case "test":
       parts.push(`test of ${reason.of}`);
       break;
@@ -247,7 +235,9 @@ function dependenciesSection(story: PromptStory, budget: number, dropped: boolea
     });
   }
   const lines = story.dependencies
-    .map((dep) => `- ${dep.id} ${dep.title.trim()}${dep.outcome === "" ? "" : `: ${dep.outcome}`}`)
+    .map(
+      (dep) => `- ${dep.id} ${dep.title.trim()}${dep.storyLine === "" ? "" : `: ${dep.storyLine}`}`,
+    )
     .join("\n");
   const cut = cutHead(
     lines,

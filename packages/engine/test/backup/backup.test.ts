@@ -85,7 +85,7 @@ describe("daily copies of an earlier dipo", () => {
       const backups = join(stateDir, "backups");
       seed(backups, ["dipo-20251230.db"]);
       // A binary that knows fewer migrations than the file has: the database is too new.
-      await expect(open(MIGRATIONS.slice(0, 1))).rejects.toThrow(DatabaseTooNewError);
+      await expect(open([])).rejects.toThrow(DatabaseTooNewError);
       expect(files(backups)).toEqual(["dipo-20251230.db"]);
     }));
 });

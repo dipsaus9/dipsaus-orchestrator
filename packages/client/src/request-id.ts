@@ -1,4 +1,4 @@
-// Client-made request ids (0005 section 2): a bare ULID, the time part from the injected clock and
+// Client-made request ids (0005): a bare ULID, the time part from the injected clock and
 // the random part from Web Crypto, which every runtime the client targets has.
 
 import type { Clock, RequestId } from "@dipsaus-orchestrator/contract";

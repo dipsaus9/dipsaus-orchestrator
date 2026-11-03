@@ -1,4 +1,4 @@
-// The parser for Backlog.md 1.53 `--plain` output (0010 section 1, facts 1 to 3). One parser reads
+// The parser for Backlog.md 1.53 `--plain` output (0010). One parser reads
 // `task view`, `draft view`, `task list` and `draft list`; it is tested against output recorded
 // from the pinned CLI (`test/fixtures/backlog-plain/`). Lines are LF-split and NFC-normalised.
 //

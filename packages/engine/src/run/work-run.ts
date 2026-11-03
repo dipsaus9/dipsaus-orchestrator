@@ -1,5 +1,5 @@
-// `work.run` (DIPO-48; 0005 section 4, 0012 sections 2 and 3, 0010 sections 2 and 7, 0013 section 2,
-// 0014 section 4, 0008 section 9): pick one Ready story from `origin/<base>` (or the named ones),
+// `work.run` (DIPO-48; 0005, 0012, 0010, 0013,
+// 0014, 0008): pick one Ready story from `origin/<base>` (or the named ones),
 // re-check it at pickup, claim it and record the run. With a launcher (DIPO-74, `launch.ts`) the
 // claim's setup also renders the prompts and runs the launch checks, and the worker starts after
 // the claim. `work.preview` (DIPO-74) is the same selection as a read that changes nothing.
@@ -12,14 +12,14 @@
 //    lifts, and repeats the launch checks, which lift it when they pass), a failed
 //    fetch (the retryable `git.fetchFailed`), statuses the base lacks (`run.refused`,
 //    `officeStatusesReady`) and an unresolved verify (`run.refused`, `verifyResolved`). The daemon
-//    answers the retryable `scheduling.off` while draining before the command reaches the engine.
+//    answers the retryable `daemon.draining` while draining before the command reaches the engine.
 // 2. The stories are indexed (DIPO-32) and the run profile refreshed (DIPO-72).
 // 3. Without `stories`, the candidates are the Ready stories on the base in pickup order; with
 //    `stories`, only those, in the order given.
 // 4. Each candidate not started is a skip: its status (`notReady`, `parked`, `notRunnable`), a
 //    live claim, a pending lane-b operation or a failed backlog PR check (`notRunnable`), the
 //    office's worker place held by a developer session or owed to a waiting resume, fix round or
-//    conflict hand-off first (`capacity`, 0019 section 12, DIPO-142; a reviewer or a session run
+//    conflict hand-off first (`capacity`, 0002, DIPO-142; a reviewer or a session run
 //    takes no worker place), a dependency not Done (`dependency`), or a failed pickup
 //    check (`pickupCheckFailed`).
 // 5. Before the claim the story contract is assembled (DIPO-47); `prompt.contractTooLarge` moves
@@ -36,9 +36,9 @@
 // 8. With a launcher, the worker host starts and `work.phase build` follows; a failed setup or
 //    launch check rolled the claim back in step 6 (a `pickupCheckFailed` skip, the story Ready).
 //
-// Every run's developer works in its story's box (DIPO-240, 0021): the launcher makes the box
-// whenever the daemon has box workers. `args.box` (DIPO-271's opt-in) is accepted and changes
-// nothing, so older clients that still send it keep working.
+// Every run's developer works in its story's box (DIPO-240, 0008): the launcher makes the box
+// whenever the daemon has box workers. `args.box` is accepted and changes nothing, so
+// clients that still send it keep working.
 
 import { relative } from "node:path";
 
@@ -68,7 +68,6 @@ import type {
   ReadContext,
 } from "../commands/registry";
 import type { OfficeConfig } from "../config";
-import { recordContextPack } from "../context/pack";
 import type { OfficeHandle } from "../db/office";
 import type { BaseCheckout } from "../gate-decisions/feature";
 import type { GateMode, GateResult } from "../gate/types";
@@ -109,7 +108,7 @@ import { type StartsPausedState, startsPausedRefusal } from "./starts-paused";
 /** The role every M0 run starts with (0012 F12). */
 export const DEVELOPER_ROLE = RoleId.parse("developer");
 
-/** The status a failed pickup check moves a story back to (0012 section 3). */
+/** The status a failed pickup check moves a story back to (0012). */
 export const REFINED_STATUS = "Refined";
 
 /** The error code of a run refused by an office check (`details.check` names it). */
@@ -239,7 +238,7 @@ interface StartInput {
   readonly started: Started[];
 }
 
-/** Inside the run's transaction: the developer agent with the engine-made session id (0007 section 4). */
+/** Inside the run's transaction: the developer agent with the engine-made session id (0007). */
 function recordDeveloper(
   handle: OfficeHandle,
   input: {
@@ -260,8 +259,6 @@ function recordDeveloper(
       model: caps.model,
       effort: prepared === null ? null : caps.effort,
       sessionId: prepared === null ? null : prepared.spec.session.id,
-      // The L1+L2 hash a resume compares (DIPO-51).
-      systemHash: prepared?.systemHash ?? null,
       startedAt: input.at,
     },
     false,
@@ -282,17 +279,14 @@ function recordPrepared(
   },
 ): void {
   const { runId, agent, prepared, clock } = input;
-  const { pack, headSha } = prepared.promptSources;
-  // The pack the task message was built from, with its head and blob ids (0020 section 6).
-  recordContextPack(handle, input.branch, headSha, pack, clock);
-  // The prompt parts of the session's text, measured for the run (0014 section 2).
+  // The prompt parts of the session's text, measured for the run (0014).
   recordPromptParts(handle, runId, agent, prepared.parts, clock);
   // The prompt text itself, with `privacy.storePrompts` on (DIPO-137).
   recordPromptTexts(handle, runId, agent, prepared.texts, input.config, clock);
 }
 
 /**
- * True when a new pickup cannot take the office's worker place (0019 section 12): a developer
+ * True when a new pickup cannot take the office's worker place (0002): a developer
  * session holds it, or a resume, fix round or conflict hand-off waits for it and goes first.
  */
 function workerPlaceTaken(office: OfficeHandle): boolean {
@@ -319,7 +313,7 @@ function repeatsChecks(
     named &&
     deps.launcher !== undefined &&
     paused.reason === "adapter" &&
-    paused.hold?.liftedBy === undefined
+    paused.pause?.liftedBy === undefined
   );
 }
 
@@ -696,7 +690,7 @@ export class WorkRun {
         loopCap: caps.loops,
         maxTurns: caps.maxTurns,
         maxMinutes: caps.maxMinutes,
-        // The review loop's caps, fixed at the start (0019 sections 4 and 8, 0020 section 5).
+        // The review loop's caps, fixed at the start (0002, 0020).
         reviewRoundCap: c.config.review.maxRounds,
         ciCap: c.config.caps.ciAttempts,
         conflictCap: c.config.caps.conflictAttempts,

@@ -255,7 +255,7 @@ describe("dipo office rescan", () => {
       type: "scan.finished",
       data: eventData,
     });
-    // As the daemon does: `filter` names the event type prefixes left out (0005 section 5).
+    // As the daemon does: `filter` names the event type prefixes left out (0005).
     const deliver = (sent: ReturnType<typeof event>) => {
       if (listener?.filter?.some((prefix) => sent.type.startsWith(prefix)) === true) return;
       listener?.onEvent(sent as never);

@@ -1,4 +1,4 @@
-// The git facts reconcile reads (0007 section 6 step 4, 0010 "A branch changed outside dipo"):
+// The git facts reconcile reads (0007, 0010):
 // `git worktree list --porcelain -z` and the local refs of claimed branches, read in one office git
 // queue item. A story has no worktree (0010), so a hand change shows only in its branch: a live
 // claim's branch tip is compared with the commits dipo recorded for it, the claim commit (or the

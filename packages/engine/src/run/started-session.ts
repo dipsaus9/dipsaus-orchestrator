@@ -19,7 +19,6 @@ export interface StartedSession {
   /** The office's tier caps in force now. */
   readonly inForce: TierCaps;
   readonly paths: Parameters<typeof runWorkerSpec>[2];
-  readonly resume: boolean;
   readonly previous?: ParseState;
 }
 
@@ -27,11 +26,10 @@ export function startedSessionState(
   worker: Pick<WorkerPort, "reportSchema" | "initialState">,
   session: StartedSession,
 ): ParseState {
-  const { handle, run, agent, inForce, paths, resume, previous } = session;
+  const { handle, run, agent, inForce, paths, previous } = session;
   const tier = startTierOf(handle, run, inForce);
   const spec = runWorkerSpec(worker, { runId: run.runId, agent, caps: tier }, paths, "", {
     id: "",
-    resume,
   });
   return worker.initialState(spec, previous);
 }

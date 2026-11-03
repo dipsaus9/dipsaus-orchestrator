@@ -1,8 +1,8 @@
-// Optional autostart (0005, 0006): `dipo daemon install` writes a launchd agent that
+// Optional autostart (0005): `dipo daemon install` writes a launchd agent that
 // runs `dipo daemon --foreground` and restarts it after a crash, and `uninstall` removes it. When
 // installed, `dipo daemon start|stop|restart` go through `launchctl`, so launchd and the CLI never
 // fight. `install` is a named offline
-// maintenance operation outside the contract (0006 amendment of 2026-10-12).
+// maintenance operation outside the contract (0005).
 //
 // The agent is `~/Library/LaunchAgents/dipo.daemon.plist`, in the `gui/<uid>` domain, or
 // `user/<uid>` where the GUI domain is missing (an SSH session). `KeepAlive.SuccessfulExit = false`
@@ -34,7 +34,7 @@ export interface ExecResult {
 export type SupervisorExec = (cmd: readonly [string, ...string[]]) => Promise<ExecResult>;
 
 export interface SupervisorDeps {
-  /** The passwd home directory (0006 decision 3). */
+  /** The passwd home directory (0005). */
   readonly home: string;
   readonly uid: number;
   readonly exec: SupervisorExec;
@@ -97,7 +97,7 @@ export interface UnitOptions {
   readonly path: string;
 }
 
-/** The launchd agent (0006 decision 15). */
+/** The launchd agent (0005). */
 export function launchdPlist(options: UnitOptions): string {
   const args = options.program.map((arg) => `\t\t<string>${xml(arg)}</string>`).join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>

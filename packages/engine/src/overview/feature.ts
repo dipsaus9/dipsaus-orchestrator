@@ -1,14 +1,13 @@
-// The view reads (0005 sections 7 and 8, 0009 sections 2 and 4): `office.snapshot` and its alias
-// `office.switch`, `story.detail` and `work.outputRange`. Each runs in one deferred read
+// The view reads (0005, 0009): `office.snapshot`, `story.detail`
+// and `work.outputRange`. Each runs in one deferred read
 // transaction (`reads/execute.ts`), so a snapshot's views and its cursor match: a client that
-// subscribes after the cursor gets every later event once (0005 section 8).
+// subscribes after the cursor gets every later event once (0005).
 
 import {
   AgentId,
   GateId,
   type OfficeSnapshot,
   officeSnapshot,
-  officeSwitch,
   type OutputSource,
   RoleId,
   RunId,
@@ -156,7 +155,7 @@ export function storyVerdicts(office: OfficeHandle, key: StoryKey): Verdict[] {
   return rows.map((row) => {
     const failures = failuresOf(row.rule_results);
     const gate = GateId.parse(row.gate_id);
-    // A review gate carries its round's verdict (0019 section 14, DIPO-146).
+    // A review gate carries its round's verdict (0002, DIPO-146).
     const review = row.kind === "review" ? reviewVerdictOfGate(office, gate) : null;
     return {
       gate,
@@ -302,11 +301,6 @@ export function viewsFeatureWith(
     register(registry) {
       registry.addRead({
         definition: officeSnapshot,
-        handle: (ctx) => snapshot(officeOf(ctx)),
-      });
-      // `office.switch` changes no fact: the same snapshot (0005 section 7, 0009 section 4).
-      registry.addRead({
-        definition: officeSwitch,
         handle: (ctx) => snapshot(officeOf(ctx)),
       });
       registry.addRead({

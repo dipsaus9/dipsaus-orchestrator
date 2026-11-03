@@ -1,4 +1,4 @@
-// The daemon banner lines (0009 section 7, DIPO-120): the database line of a daemon held in
+// The daemon banner lines (0009, DIPO-120): the database line of a daemon held in
 // `recovering` replaces the reconcile line, and the ordinary recovering banner is unchanged.
 
 import { describe, expect, it } from "bun:test";

@@ -27,7 +27,6 @@ import { cleanEnv, readRecording } from "@dipsaus-orchestrator/testkit";
 
 import type { RunBoxes } from "../../src/box/lifetime";
 import { BOX_RUN_FILE } from "../../src/box/workers";
-import { contextPackOf, gitBlobId } from "../../src/context/pack";
 import { BOX_CHANGES, BOX_VERIFY } from "../../src/prompts/handoff";
 import { recordWorkerNotes } from "../../src/prompts/notes";
 import { renderSystemFile } from "../../src/prompts/system";
@@ -55,7 +54,6 @@ import {
   HOST_NEVER_STARTED,
   hostLaunchDeadline,
   hostStoppedDetail,
-  macSessionText,
   type NextSessionOutcome,
   type NextSessionRequest,
   OfficeIngest,
@@ -86,14 +84,11 @@ import {
 } from "../../src/workers/claude-cli/interpret";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
-import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import type { WorkerPort } from "../../src/workers/port";
 import {
   type Caps,
   type HostOp,
   type ParseState,
-  type ResumeCheck,
-  type SessionRef,
   type WorkerAdapter,
 } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
@@ -182,7 +177,7 @@ function daemon(
   options: Partial<
     Pick<
       ConstructorParameters<typeof RunReattacher>[0],
-      "exitCheckMs" | "boxRecord" | "adapter" | "signal" | "probe" | "connect" | "clock"
+      "exitCheckMs" | "adapter" | "signal" | "probe" | "connect" | "clock"
     >
   > = {},
 ): Daemon {
@@ -283,7 +278,7 @@ beforeEach(async () => {
     work: { ...f.work, key },
     sent: [],
     next: [],
-    nextOutcome: { kind: "started", agent: "agt_next" as never, resumed: true },
+    nextOutcome: { kind: "started", agent: "agt_next" as never },
     onNext: null,
     hang: false,
     alive: true,
@@ -584,26 +579,20 @@ describe("re-attach (0005)", () => {
     expect(countDaily()).toBeGreaterThan(0);
   });
 
-  it("a reattached run with an old transcript cursor parks and counts usage from host events only", async () => {
+  it("a reattached dead run parks and counts usage from its host events", async () => {
     w.alive = false;
     beforeRestart("success-single", 6, 20);
-    const transcript = join(w.dir, "session.jsonl");
-    writeFileSync(transcript, `${message("msg-lost", 9, 11)}\n`);
-    seedLeftTranscriptCursor(transcript);
     const d = daemon();
     await d.reattacher.reattach(w.f.office.officeId);
     await d.control.idle();
     expect(agentRow()?.end_reason).toBe("host-lost");
     expect(w.next).toEqual([]);
-    // The transcript's message is not counted; the totals are the host events' usage alone.
     const streamed = w.f.office.get<{ input: number; output: number }>(
       `select coalesce(sum(input), 0) as input, coalesce(sum(output), 0) as output
-         from usage_messages where office_id = $office_id and agent_id = $agent
-           and message_id not like 'msg-lost%'`,
+         from usage_messages where office_id = $office_id and agent_id = $agent`,
       { agent: w.f.agent },
     );
     expect(streamed?.input).toBeGreaterThan(0);
-    expect(lostMessages()).toBe(0);
     // The totals hold the host's input; its output joins them at a turn end, which this host never sent.
     expect(
       w.f.office.get<{ input: number }>(
@@ -713,60 +702,6 @@ describe("re-attach (0005)", () => {
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
   });
 
-  it("a living developer on the Mac, with no box record, is stopped with a notice and parks worker-failed (DIPO-240)", async () => {
-    recordedStart();
-    beforeRestart("success-single", 6, 20);
-    const asked: string[] = [];
-    const d = daemon({
-      boxRecord: (runDir) => {
-        asked.push(runDir);
-        return false;
-      },
-    });
-    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "macSession" },
-      // The parked run's host still runs after the stop: one verified SIGTERM (0005).
-      { run: w.f.run, agent: w.f.agent, outcome: "stopEnded" },
-    ]);
-    expect(w.signals).toEqual([[4242, "SIGTERM"]]);
-    await d.control.idle();
-    expect(asked).toEqual([w.dir]);
-    const text = macSessionText({ story: "DIPO-1", runId: w.f.run });
-    expect(parks()).toEqual([["worker-failed", text]]);
-    expect(text).toContain("outside a box");
-    expect(w.sent).toEqual([encode({ kind: "stop" })]);
-    const notice = loggedEvents(w.f.office).find(
-      (event) =>
-        event.type === "engine.notice" &&
-        (event.data as { code?: string }).code === REATTACH_NOTICES.macSession,
-    );
-    expect(notice?.data).toMatchObject({ level: "error", text });
-  });
-
-  it("a living developer in its box is followed as before (DIPO-240)", async () => {
-    beforeRestart("success-single", 6, 20);
-    const inBox = daemon({ boxRecord: () => true });
-    expect(await inBox.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "steer" },
-    ]);
-    expect(parks()).toEqual([]);
-  });
-
-  it("a living reviewer on the Mac is followed, never stopped as a Mac developer (DIPO-240)", async () => {
-    beforeRestart("success-single", 6, 20);
-    w.f.office.immediate(() =>
-      w.f.office.run(
-        "update agents set role = 'reviewer' where office_id = $office_id and agent_id = $agent",
-        { agent: w.f.agent },
-      ),
-    );
-    const d = daemon({ boxRecord: () => false });
-    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "steer" },
-    ]);
-    expect(parks()).toEqual([]);
-  });
-
   it("an ingest.fileChanged report a previous daemon left parks the run worker-failed (AC #7)", async () => {
     beforeRestart("success-single", 10, 10);
     w.f.office.immediate(() =>
@@ -800,50 +735,6 @@ function expectOutputSentOnce(): void {
   expect(sent.at(-1)?.to).toBe(chunks.at(-1)?.to_offset);
 }
 
-/** One assistant line of a worker transcript. */
-const message = (id: string, input: number, output: number): string =>
-  JSON.stringify({
-    type: "assistant",
-    message: {
-      id,
-      model: "claude-haiku-5-5",
-      usage: {
-        input_tokens: input,
-        output_tokens: output,
-        cache_creation_input_tokens: 0,
-        cache_read_input_tokens: 0,
-      },
-    },
-  });
-
-/** The messages of the lost transcript that were counted (none may be). */
-function lostMessages(): number {
-  return (
-    w.f.office.get<{ n: number }>(
-      "select count(*) as n from usage_messages where office_id = $office_id and message_id like 'msg-lost%'",
-    )?.n ?? -1
-  );
-}
-
-/**
- * A transcript cursor an earlier binary left (DIPO-134). The migration drops such rows, so the
- * check constraint is lifted for this one insert.
- */
-function seedLeftTranscriptCursor(path: string): void {
-  const db = w.f.t.state.connection;
-  db.exec("pragma ignore_check_constraints = on");
-  try {
-    db.run(
-      `insert into ingest_cursors (office_id, run_id, agent_id, source_kind, path, read_offset,
-         parse_state, updated_at)
-       values ($office, $run, $agent, 'transcript', $path, 0, '{"subagents":{}}', $at)`,
-      { office: w.f.office.officeId, run: w.f.run, agent: w.f.agent, path, at: w.f.t.clock.now() },
-    );
-  } finally {
-    db.exec("pragma ignore_check_constraints = off");
-  }
-}
-
 function countDaily(): number {
   return (
     w.f.office.get<{ n: number }>(
@@ -861,7 +752,7 @@ const preparedSpecs: {
   readonly effort?: string;
 }[] = [];
 
-/** The real `RunResumer` on fakes: a resumable session, the given host starter and probe. */
+/** The real `RunResumer` on fakes: the given host starter and probe. */
 function realResumer(
   hosts: ConstructorParameters<typeof RunResumer>[0]["hosts"],
   extra: Partial<
@@ -878,7 +769,6 @@ function realResumer(
       | "boxSync"
     >
   > = {},
-  canResume: (ref: SessionRef) => ResumeCheck = () => ({ ok: true }),
   config: OfficeConfig = OFFICE_DEFAULTS,
   /** The launch checks; by default a pass that records the spec. */
   prepare?: WorkerPort["prepare"],
@@ -886,12 +776,10 @@ function realResumer(
   const worker: WorkerPort = {
     id: "claude-cli",
     reportSchema: REPORT_JSON_SCHEMAS,
-    localSettings: CLAUDE_LOCAL_SETTINGS,
     adapter: () =>
       ({
         id: "claude-cli",
         probe: async () => ({ version: "2.1.0" }),
-        canResume,
         interpret: claude.interpret,
       }) as unknown as WorkerAdapter,
     prepare:
@@ -906,7 +794,7 @@ function realResumer(
     initialState: () => ({}),
     encode,
     result: (state, exit) => claudeResult(state as unknown as ClaudeParseState, exit),
-    sessionFacts: () => ({ contextTokens: null, contextWindow: null, lastReport: null }),
+    sessionFacts: () => ({ lastReport: null }),
   };
   return new RunResumer({
     stories: backlogLayout,
@@ -925,9 +813,9 @@ function realResumer(
         run: async <T>(fn: (session: unknown) => Promise<T>) =>
           fn({ repository: {}, ok: async () => `${"f".repeat(40)}\n` }),
       }) as unknown as ReturnType<NonNullable<ConstructorParameters<typeof RunResumer>[0]["git"]>>,
-    story: async () => {
-      throw new Error("no story read in this test");
-    },
+    // Every next session is a new one with a handoff (0008): a story and its workspace to build it.
+    story: async () => storyOf(),
+    workspace,
     runtimeDir: join(w.dir, "rt"),
     tmpRoot: join(w.dir, "tmp"),
     hosts,
@@ -945,7 +833,6 @@ function nextRequest(): NextSessionRequest {
     office: w.f.office.officeId as OfficeId,
     run,
     work: w.work,
-    mode: "resume",
     why: "a crash",
     caps: ROOMY,
     startedAt: 0,
@@ -1119,54 +1006,6 @@ describe("restart windows of DIPO-51's review", () => {
     expect(workView(w.f.office, w.f.run)?.health).not.toBe("stuck");
   });
 
-  it("the resume check gets the previous session's version from agents.adapter_version (DIPO-101)", async () => {
-    beforeRestart("terminated", 0);
-    w.f.office.immediate(() =>
-      w.f.office.run(
-        `update agents set ended_at = 1, end_reason = 'exited', session_id = 'session-1',
-           adapter_version = '2.0.9'
-          where office_id = $office_id and agent_id = $agent`,
-        { agent: w.f.agent },
-      ),
-    );
-    const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
-    mkdirSync(runDir, { recursive: true });
-    copyFileSync(w.f.eventFile, join(runDir, "events.ndjson"));
-    const seen: (string | null)[] = [];
-    const resumer = realResumer(
-      {
-        start: async (office, options) => {
-          const host = {
-            pid: 4243,
-            startTimeMs: 0,
-            runId: options.runId,
-            agentId: options.agentId,
-            socketPath: join(w.dir, "host.sock"),
-            protocolVersion: 1,
-            runDir,
-            eventFile: join(runDir, "events.ndjson"),
-            launchDeadline: w.f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
-          };
-          recordWorkerHost(office, host, w.f.t.clock, {
-            ...(options.processedOffset === undefined
-              ? {}
-              : { processedOffset: options.processedOffset }),
-            ...(options.record === undefined ? {} : { record: options.record }),
-          });
-          return host;
-        },
-      },
-      { probe: async () => null },
-      (ref) => {
-        seen.push(ref.version);
-        return { ok: true };
-      },
-    );
-    const outcome = await resumer.next(nextRequest());
-    expect(outcome.kind).toBe("started");
-    expect(seen).toEqual(["2.0.9"]);
-  });
-
   it("gives the CLI the developer's remaining turns and tokens, a reviewer's usage left out (0002)", async () => {
     beforeRestart("terminated", 0);
     const before = runTotals(w.f.office, w.f.run, 0, 0);
@@ -1257,43 +1096,8 @@ describe("restart windows of DIPO-51's review", () => {
     expect(starts).toBe(0);
   });
 
-  it("a host recorded without its agent (an older binary) is left to re-attach, never a second session (window 1)", async () => {
-    beforeRestart("terminated", 0);
-    w.f.office.immediate(() =>
-      w.f.office.run(
-        "update agents set end_reason = 'crashed' where office_id = $office_id and agent_id = $agent",
-        { agent: w.f.agent },
-      ),
-    );
-    const orphan = w.f.t.ids.next("agt");
-    recordWorkerHost(
-      w.f.office,
-      {
-        pid: 4243,
-        startTimeMs: 0,
-        runId: w.f.run,
-        agentId: orphan,
-        socketPath: join(w.dir, "host.sock"),
-        protocolVersion: 1,
-        runDir: w.dir,
-        eventFile: w.f.eventFile,
-        launchDeadline: w.f.t.clock.now() + HOST_LAUNCH_DEADLINE_MS,
-      },
-      w.f.t.clock,
-    );
-    w.f.t.clock.advance(1);
-    const d = daemon();
-    expect(await d.outcomes.redispatch(w.f.office.officeId)).toBe(0);
-    expect(w.next).toEqual([]);
-    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: orphan, outcome: "steer" },
-    ]);
-    // It starts where the earlier host's lines end, so nothing is ingested twice.
-    expect(hostRow().processedOffset).toBe(statSync(w.f.eventFile).size);
-  });
-
-  it("a stop between the reassign's resolution and the next session decides by the tag (window 2)", async () => {
-    // crash-zeroed: an execution error while the worker waits is a `reassign` `new-session:error`.
+  it("a stop between the new-session intent's resolution and the next session decides by the tag (window 2)", async () => {
+    // crash-zeroed: an execution error while the worker waits is a `new-session` intent, tag `new-session:error`.
     // The first daemon's next session never returns: the daemon stops inside its await.
     w.hang = true;
     const first = daemon();
@@ -1314,16 +1118,15 @@ describe("restart windows of DIPO-51's review", () => {
     expect(w.next).toHaveLength(1);
     // At the window, the intent's resolution and the agent's end reason are both stored.
     expect(runIntents(w.f.office, w.f.run).map((intent) => [intent.kind, intent.outcome])).toEqual([
-      ["reassign", "reassigned"],
+      ["new-session", "reassigned"],
     ]);
     expect(agentRow()?.end_reason).toBe("crashed");
 
-    // The restart decides by the recorded decision: the resume, not the adapter's result.
+    // The restart decides by the recorded decision: the next session, not the adapter's result.
     w.hang = false;
     const second = daemon();
     expect(await second.outcomes.redispatch(w.f.office.officeId)).toBe(1);
     expect(w.next).toHaveLength(2);
-    expect(w.next[1]?.mode).toBe("resume");
     expect(w.next[1]?.why).toBe("a crash decided before the daemon restarted");
     expect(parks()).toEqual([]);
   });
@@ -1463,43 +1266,6 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
     expect(w.signals).toEqual([]);
   });
 
-  it("asks a pending row of an earlier binary's host (protocol 2, no launch deadline) once, also past the deadline, and re-attaches it (DIPO-386)", async () => {
-    beforeRestart("success-single", 6, 20);
-    makePending(2);
-    w.f.t.clock.advance(HOST_LAUNCH_DEADLINE_MS);
-    w.hostPid = 4343;
-    w.hostVersion = 2;
-    w.startTimeMs = w.f.t.clock.now();
-    let asked = 0;
-    const d = daemon({
-      connect: async () => {
-        asked += 1;
-        return { ok: true, client: fakeClient() };
-      },
-    });
-    expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "steer" },
-    ]);
-    // Asked for its PID, then the handshake that follows it; such a host takes no claim.
-    expect(asked).toBe(2);
-    expect(hostRow()).toMatchObject({ pending: false, pid: 4343 });
-    expect(w.ops).toEqual([]);
-    expect(w.signals).toEqual([]);
-  });
-
-  it("removes a pending row of an earlier binary's host that does not answer at once, as before: it parks, with no signal (DIPO-386)", async () => {
-    makePending(2);
-    w.answers = false;
-    const startedAt = hostRow().startedAt;
-    const d = daemon();
-    expect(await settled(d.reattacher.reattach(w.f.office.officeId))).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "neverStarted" },
-    ]);
-    expect(w.f.t.clock.now()).toBeLessThan(hostLaunchDeadline(startedAt));
-    expect(workerHostsOf(w.f.office, w.f.run)).toEqual([]);
-    expect(w.signals).toEqual([]);
-  });
-
   it("never takes a process that is not this run's host for a pending row: it parks at the deadline, with no signal", async () => {
     makePending();
     w.command = "/usr/bin/vim notes.txt";
@@ -1551,21 +1317,6 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
     expect(hostRow().endedAt).not.toBeNull();
     expect(agentRow()?.end_reason).toBe("host-lost");
     expect(w.next).toEqual([]);
-  });
-
-  it("closes out a followed host of an ended run that died without exit.json from host events only", async () => {
-    beforeRestart("success-single", 6, 20);
-    const transcript = join(w.dir, "session.jsonl");
-    writeFileSync(transcript, `${message("msg-lost", 9, 11)}\n`);
-    seedLeftTranscriptCursor(transcript);
-    endRunByHand();
-    w.alive = false;
-    const d = daemon();
-    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "closedOut" },
-    ]);
-    expect(agentRow()?.end_reason).toBe("host-lost");
-    expect(lostMessages()).toBe(0);
     expect(
       w.f.office.get<{ final: number }>(
         "select min(final) as final from usage_totals where office_id = $office_id and agent_id = $agent",
@@ -1575,7 +1326,6 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
     // Closed for good: a later restart reads nothing again.
     stopDaemon(d);
     expect(await daemon().reattacher.reattach(w.f.office.officeId)).toEqual([]);
-    expect(lostMessages()).toBe(0);
   });
 
   it("stops a living host of an ended run with one verified SIGTERM per restart, and closes it out once it exits", async () => {
@@ -1612,7 +1362,7 @@ describe("re-attach of hosts left pending and of ended runs (0005)", () => {
   });
 });
 
-/** The run's first session with its pack, ready to be resumed. */
+/** The run's first session with its pack, ready for its next session. */
 function firstSession(): void {
   beforeRestart("terminated", 0);
   w.f.office.immediate(() => {
@@ -1944,8 +1694,8 @@ const handoff = async () => ({
 });
 const workspace = () => memoryWorkspace({ "src/new.ts": "export const fresh = 1;\n" });
 
-describe("the prompt parts of a resume and a handoff (DIPO-177)", () => {
-  it("a resume records the task message it sent, under the resumed session's agent", async () => {
+describe("the prompt parts of the next session (DIPO-177)", () => {
+  it("a handoff records its system file and its task message, under the new agent", async () => {
     firstSession();
     const outcome = await realResumer(hosts, {
       probe: async () => null,
@@ -1953,28 +1703,7 @@ describe("the prompt parts of a resume and a handoff (DIPO-177)", () => {
       handoff,
       workspace,
     }).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: true });
-    const agent = (outcome as { agent: string }).agent;
-    const text = sentText();
-    expect(promptPartsOf(w.f.office, w.f.run, agent)).toMatchObject([
-      { name: "task", sha256: sha(text), bytes: Buffer.byteLength(text) },
-    ]);
-    expect(promptPartsOf(w.f.office, w.f.run, w.f.agent)).toEqual([]);
-  });
-
-  it("a handoff records its system file and its task message, under the new agent", async () => {
-    firstSession();
-    const outcome = await realResumer(
-      hosts,
-      {
-        probe: async () => null,
-        story: async () => storyOf(),
-        handoff,
-        workspace,
-      },
-      () => ({ ok: false, reason: "the context is too full" }),
-    ).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    expect(outcome).toMatchObject({ kind: "started" });
     const agent = (outcome as { agent: string }).agent;
     const system = readFileSync(preparedSpecs.at(-1)?.systemFile ?? "", "utf8");
     const text = sentText();
@@ -2017,7 +1746,7 @@ describe("the held messages in the next session (0002, 0020)", () => {
     ]);
   }
 
-  it("a native resume sends the delta, then the findings, then the maintainer's words oldest first", async () => {
+  it("a handoff sends the task message, then the held messages once, never starting with the note", async () => {
     firstSession();
     const ids = holdResume();
     const outcome = await realResumer(hosts, {
@@ -2026,27 +1755,7 @@ describe("the held messages in the next session (0002, 0020)", () => {
       handoff,
       workspace,
     }).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: true });
-    const text = sentText();
-    expect(text.split("\n\n").slice(-3)).toEqual([PARKED, STEER, NOTE]);
-    expect(text.startsWith("dipo resumed this session")).toBe(true);
-    // Delivered in the transaction that recorded the new agent.
-    expect(intentStates(ids)).toEqual([
-      ["resolved", "resumed"],
-      ["resolved", "resumed"],
-      ["resolved", "resumed"],
-    ]);
-  });
-
-  it("a handoff sends the task message, then the held messages once, never starting with the note", async () => {
-    firstSession();
-    const ids = holdResume();
-    const outcome = await realResumer(
-      hosts,
-      { probe: async () => null, story: async () => storyOf(), handoff, workspace },
-      () => ({ ok: false, reason: "the context is too full" }),
-    ).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    expect(outcome).toMatchObject({ kind: "started" });
     const text = sentText();
     expect(text.split("Note from the maintainer: /compact the tests first")).toHaveLength(2);
     expect(text.startsWith("/")).toBe(false);
@@ -2064,14 +1773,13 @@ describe("the held messages in the next session (0002, 0020)", () => {
       hosts,
       { probe: async () => null, story: async () => storyOf(), handoff, workspace },
       undefined,
-      undefined,
       async () => ({
         ok: false,
         outcome: "startFailed",
-        hold: { adapter: "claude-cli", ...failure, failures: [failure], since: 0 },
+        pause: { adapter: "claude-cli", ...failure, failures: [failure], since: 0 },
       }),
     ).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "startFailed", hold: { check: "probe" } });
+    expect(outcome).toMatchObject({ kind: "startFailed", pause: { check: "probe" } });
     expect(intentStates(ids)).toEqual([
       ["pending", null],
       ["pending", null],
@@ -2086,12 +1794,13 @@ describe("the prompts of a box worker's next session (DIPO-272)", () => {
     const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
     mkdirSync(runDir, { recursive: true });
     writeFileSync(join(runDir, BOX_RUN_FILE), JSON.stringify({ runId: w.f.run, box: "dipo-x" }));
-    const outcome = await realResumer(
-      hosts,
-      { probe: async () => null, story: async () => storyOf(), handoff, workspace },
-      () => ({ ok: false, reason: "the context is too full" }),
-    ).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      handoff,
+      workspace,
+    }).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started" });
     const system = readFileSync(preparedSpecs.at(-1)?.systemFile ?? "", "utf8");
     expect(system).toBe(renderSystemFile("implement-box", "developer"));
     const text = sentText();
@@ -2110,12 +1819,14 @@ describe("the prompts of a box worker's next session (DIPO-272)", () => {
         return "ready" as const;
       },
     } as unknown as RunBoxes;
-    const outcome = await realResumer(
-      hosts,
-      { probe: async () => null, story: async () => storyOf(), handoff, workspace, boxes },
-      () => ({ ok: false, reason: "the context is too full" }),
-    ).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      handoff,
+      workspace,
+      boxes,
+    }).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started" });
     expect(asked).toEqual([`has ${w.f.run}`]);
     // No box record in the run directory, yet the box contract: every developer is a box worker.
     const system = readFileSync(preparedSpecs.at(-1)?.systemFile ?? "", "utf8");
@@ -2125,11 +1836,13 @@ describe("the prompts of a box worker's next session (DIPO-272)", () => {
   it("starts nothing when a lost box cannot be rebuilt, and says why (DIPO-278)", async () => {
     firstSession();
     const boxes = { has: async () => "gone" as const } as unknown as RunBoxes;
-    const outcome = await realResumer(
-      hosts,
-      { probe: async () => null, story: async () => storyOf(), handoff, workspace, boxes },
-      () => ({ ok: false, reason: "the context is too full" }),
-    ).next(nextRequest());
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      handoff,
+      workspace,
+      boxes,
+    }).next(nextRequest());
     expect(outcome.kind).toBe("failed");
     expect(outcome.kind === "failed" ? outcome.reason : "").toContain(
       "the run's box could not be made ready: the delivered parts of",
@@ -2148,20 +1861,16 @@ describe("the merges dipo made outside the box reach it before the worker (DIPO-
         return "ready" as const;
       },
     } as unknown as RunBoxes;
-    const outcome = await realResumer(
-      hosts,
-      {
-        probe: async () => null,
-        story: async () => storyOf(),
-        handoff,
-        workspace,
-        boxes,
-        boxSync: async (_office, run) => {
-          order.push(`copy ${run.runId} after ${preparedSpecs.length - before} launch checks`);
-        },
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      handoff,
+      workspace,
+      boxes,
+      boxSync: async (_office, run) => {
+        order.push(`copy ${run.runId} after ${preparedSpecs.length - before} launch checks`);
       },
-      () => ({ ok: false, reason: "the context is too full" }),
-    ).next(nextRequest());
+    }).next(nextRequest());
     expect(outcome).toMatchObject({ kind: "started" });
     expect(order).toEqual(["box ready", `copy ${w.f.run} after 0 launch checks`]);
     expect(preparedSpecs.length).toBe(before + 1);
@@ -2171,20 +1880,16 @@ describe("the merges dipo made outside the box reach it before the worker (DIPO-
     firstSession();
     const before = preparedSpecs.length;
     const boxes = { has: async () => "ready" as const } as unknown as RunBoxes;
-    const outcome = await realResumer(
-      hosts,
-      {
-        probe: async () => null,
-        story: async () => storyOf(),
-        handoff,
-        workspace,
-        boxes,
-        boxSync: async () => {
-          throw new Error("the box is gone");
-        },
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      handoff,
+      workspace,
+      boxes,
+      boxSync: async () => {
+        throw new Error("the box is gone");
       },
-      () => ({ ok: false, reason: "the context is too full" }),
-    ).next(nextRequest());
+    }).next(nextRequest());
     expect(outcome).toEqual({
       kind: "failed",
       reason: "dipo's merge on the story branch could not be copied into the box: the box is gone",
@@ -2193,33 +1898,17 @@ describe("the merges dipo made outside the box reach it before the worker (DIPO-
   });
 });
 
-const tooFull = () => ({ ok: false as const, reason: "the context is too full" });
-
-describe("the prompt texts of a resume and a handoff (DIPO-137)", () => {
+describe("the prompt texts of the next session (DIPO-137)", () => {
   const noPrompts: OfficeConfig = {
     ...OFFICE_DEFAULTS,
     privacy: { ...OFFICE_DEFAULTS.privacy, storePrompts: false },
   };
   const facts = { probe: async () => null, story: async () => storyOf(), handoff, workspace };
 
-  it("a resume stores only its first message, under the resumed session's agent", async () => {
-    firstSession();
-    const outcome = await realResumer(hosts, facts).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: true });
-    const agent = (outcome as { agent: string }).agent;
-    expect(promptTextsOf(w.f.office, w.f.run, agent)).toEqual([
-      { part: "message", text: sentText() },
-    ]);
-    expect(promptTextsOf(w.f.office, w.f.run, w.f.agent)).toEqual([]);
-  });
-
   it("a handoff stores its system file and its handoff message, under the new agent", async () => {
     firstSession();
-    const outcome = await realResumer(hosts, facts, () => ({
-      ok: false,
-      reason: "the context is too full",
-    })).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    const outcome = await realResumer(hosts, facts).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started" });
     const agent = (outcome as { agent: string }).agent;
     expect(promptTextsOf(w.f.office, w.f.run, agent)).toEqual([
       { part: "system", text: readFileSync(preparedSpecs.at(-1)?.systemFile ?? "", "utf8") },
@@ -2229,11 +1918,11 @@ describe("the prompt texts of a resume and a handoff (DIPO-137)", () => {
 
   it("stores nothing with storePrompts off", async () => {
     firstSession();
-    const resumed = await realResumer(hosts, facts, undefined, noPrompts).next(nextRequest());
-    expect(resumed).toMatchObject({ kind: "started" });
+    const started = await realResumer(hosts, facts, noPrompts).next(nextRequest());
+    expect(started).toMatchObject({ kind: "started" });
     expect(w.f.office.all("select * from prompt_texts where office_id = $office_id")).toEqual([]);
     // The measurement is not the text: the parts are still recorded.
-    expect(promptPartsOf(w.f.office, w.f.run, (resumed as { agent: string }).agent)).not.toEqual(
+    expect(promptPartsOf(w.f.office, w.f.run, (started as { agent: string }).agent)).not.toEqual(
       [],
     );
   });
@@ -2286,7 +1975,6 @@ describe("a later session keeps the model and effort its run started with (DIPO-
         },
       },
       { probe: async () => null },
-      () => ({ ok: true }),
       EDITED,
     );
     const outcome = await resumer.next(nextRequest());
@@ -2325,7 +2013,7 @@ const quietGit = () =>
   }) as unknown as ReturnType<NonNullable<ConstructorParameters<typeof RunResumer>[0]["git"]>>;
 const branchOf = () => findRun(w.f.office, w.f.run)?.branch ?? "";
 
-/** 0019's `feedback_items` as DIPO-148's migration 43 makes it, when this database lacks it. */
+/** 0002's `feedback_items` as DIPO-148's migration 43 makes it, when this database lacks it. */
 function feedbackTable(): void {
   w.f.t.state.connection.exec(
     `create table if not exists feedback_items (
@@ -2364,12 +2052,13 @@ describe("the handoff of a new session: notes, open feedback and the context pac
       },
       w.f.t.clock,
     );
-    const outcome = await realResumer(
-      hosts,
-      { probe: async () => null, story: async () => storyOf(), workspace, git: quietGit },
-      tooFull,
-    ).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      workspace,
+      git: quietGit,
+    }).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started" });
     expect(sentText()).toContain(
       [
         "Open feedback:",
@@ -2444,23 +2133,6 @@ describe("the handoff of a new session: notes, open feedback and the context pac
     ]);
   });
 
-  it("records the context pack of a new session's task message, and none for a resume", async () => {
-    firstSession();
-    const facts = { probe: async () => null, story: async () => storyOf(), handoff, workspace };
-    const resumed = await realResumer(hosts, facts).next(nextRequest());
-    expect(resumed).toMatchObject({ kind: "started", resumed: true });
-    expect(contextPackOf(w.f.office, branchOf())).toBeNull();
-
-    const fresh = await realResumer(hosts, facts, tooFull).next(nextRequest());
-    expect(fresh).toMatchObject({ kind: "started", resumed: false });
-    const pack = contextPackOf(w.f.office, branchOf());
-    // The head the pack read and the blob id of the scope file it holds (0014 section 10).
-    expect(pack?.headSha).toBe("0".repeat(40));
-    expect(pack?.blobIds).toEqual({
-      "src/new.ts": gitBlobId(Buffer.from("export const fresh = 1;\n")),
-    });
-  });
-
   it("a box run's handoff says its changes are in the box and reads no worktree diff", async () => {
     firstSession();
     const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
@@ -2480,12 +2152,13 @@ describe("the handoff of a new session: notes, open feedback and the context pac
             },
           }),
       }) as unknown as ReturnType<typeof quietGit>;
-    const outcome = await realResumer(
-      hosts,
-      { probe: async () => null, story: async () => storyOf(), workspace, git },
-      tooFull,
-    ).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      workspace,
+      git,
+    }).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started" });
     // The branch's commits, then its tip for the context pack: nothing of a worktree (DIPO-349).
     expect(asked.map((args) => args[0])).toEqual(["log", "rev-parse"]);
     expect(sentText()).toContain("Commits on this branch:\nabc1234 the first part\n");

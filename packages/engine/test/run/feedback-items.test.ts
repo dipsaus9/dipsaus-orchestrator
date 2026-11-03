@@ -1,4 +1,4 @@
-// Send-once feedback items (DIPO-148; 0019 section 8): review item signatures over the identifying
+// Send-once feedback items (DIPO-148; 0002): review item signatures over the identifying
 // fields only, the reject item's stored shape, one message per head with repeats marked and
 // advisories optional, and the send-once and same-failure facts of `feedback_items` on a migrated
 // state database.
@@ -52,7 +52,7 @@ const unmetItems = (evidence: string) =>
     findings: [],
   });
 
-describe("review item signatures (0019 section 8)", () => {
+describe("review item signatures (0002)", () => {
   it("ignore the reviewer's free text and the line number, and collapse whitespace in quotes", () => {
     const base = reviewFindingSignature(finding());
     expect(reviewFindingSignature(finding({ text: "It should add, not subtract." }))).toBe(base);
@@ -103,7 +103,7 @@ describe("review item signatures (0019 section 8)", () => {
   });
 });
 
-describe("a maintainer reject item (0019 sections 8 and 11)", () => {
+describe("a maintainer reject item (0002)", () => {
   it("holds the note verbatim, keyed on the gate id", () => {
     const note = "Keep the old flag working:\n  `shop greet --name` must still print Hi.";
     const item = rejectFeedbackItem({ gateId: "gat-7", note });

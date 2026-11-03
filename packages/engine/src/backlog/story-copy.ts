@@ -1,4 +1,4 @@
-// dipo's own copy of a story's backlog (0010 section 2): every Backlog CLI call for a claimed story
+// dipo's own copy of a story's backlog (0010): every Backlog CLI call for a claimed story
 // runs in a fresh folder that holds only two files read from git objects, the Backlog configuration
 // from the office's base and the story's task file as committed at the tip of its branch. No work
 // tree of any kind is read or written: a story has no Mac worktree, and the box's files never reach

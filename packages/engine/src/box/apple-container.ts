@@ -1,8 +1,8 @@
-// The Apple `container` backend of the box interface (DIPO-265, 0021 section 1 and its amendment
-// of 2026-10-21). Each call is one `container` command through the injected `Spawn`, its argv from
-// `apple-args.ts`, killed at its deadline (default 60 s) and failed with `box.timedOut`. Only
-// `execLive`, a long-running command, has no deadline. The JSON shapes read here are those of
-// `container` 1.6.0, the version the escape probe passed on (tools/box-probe/RESULTS.md).
+// The Apple `container` backend of the box interface (0008). Each call is one `container` command
+// through the injected `Spawn`, its argv from `apple-args.ts`, killed at its deadline (default
+// 60 s) and failed with `box.timedOut`. Only `execLive`, a long-running command, has no deadline.
+// The JSON shapes read here are those of `container` 1.6.0, the version the escape probe passed on
+// (tools/box-probe/RESULTS.md).
 
 import { isIP } from "node:net";
 import { availableParallelism, homedir, totalmem } from "node:os";
@@ -66,10 +66,10 @@ import {
 import { SAFE_CHAIN_BOX_RUN_PREFIX } from "./safe-chain";
 
 export const APPLE_CONTAINER_BACKEND_ID = "apple-container";
-/** The oldest `container` dipo runs boxes on: the version the escape probe passed on (0021). */
+/** The oldest `container` dipo runs boxes on: the version the escape probe passed on (0008). */
 export const MIN_CONTAINER_VERSION = "1.6.0";
 
-/** The Mac's total memory and CPU count, which every box may use (0021 decision 16). */
+/** The Mac's total memory and CPU count, which every box may use (0008). */
 export function systemHostResources(): HostResources {
   return { memoryBytes: totalmem(), cpus: availableParallelism() };
 }

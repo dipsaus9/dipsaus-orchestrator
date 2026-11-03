@@ -1,4 +1,4 @@
-// The Ready gate against an office (DIPO-71, 0012 section 3). It reads the story, the active tasks
+// The Ready gate against an office (DIPO-71, 0012). It reads the story, the active tasks
 // and the milestones through the StoryStore on the office's `_base` worktree, as one item in the
 // office git queue so no fetch moves `_base` meanwhile, and evaluates them with `evaluateGate`.
 //

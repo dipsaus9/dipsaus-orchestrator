@@ -23,8 +23,9 @@ export {
   LOCAL_ALLOWED_KEYS,
   LOCAL_ONLY_KEYS,
   migrateOfficeDocument,
-  MOVED_KEYS,
   OFFICE_CONFIG_VERSION,
+  OFFICE_UPGRADES,
+  OLDEST_OFFICE_CONFIG_VERSION,
   OFFICE_DEFAULTS,
   OfficeConfigSchema,
   OfficeFileSchema,
@@ -32,19 +33,20 @@ export {
   OfficeOverridesSchema,
   PRIVACY_KEYS,
   privacyOptIns,
+  RENAMED_KEYS,
   RETIRED_KEYS,
 } from "./schema";
 export type {
   Migration,
   MigrationStep,
-  MovedKey,
   OfficeBoxSection,
   OfficeConfig,
   OfficeConfigVersion,
   OfficeFile,
   OfficeLocalFile,
   OfficeOverrides,
-  RetiredKey,
+  OfficeUpgrade,
+  RenamedKey,
 } from "./schema";
 
 /** The JSON Schema of `.dipo/office.yaml` at the current version, for editor completion (0017). */

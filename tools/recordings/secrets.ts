@@ -1,4 +1,4 @@
-// The secret guard (0017 section 2, "Secret scan"). It runs over the scrubbed output before
+// The secret guard (0017). It runs over the scrubbed output before
 // anything is written, and as a unit test over every committed recording, so neither the scrubber
 // nor a hand edit can put a token or a real path into the repository.
 

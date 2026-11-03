@@ -26,12 +26,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
-import {
-  ManualClock,
-  type TempRepo,
-  withTempDir,
-  withTempRepo,
-} from "@dipsaus-orchestrator/testkit";
+import { ManualClock, type TempRepo, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import {
   checkCopyComplete,
@@ -42,13 +37,12 @@ import {
 } from "../../src/box/review-box";
 import { BoxError } from "../../src/box/port";
 import type { BoxSession } from "../../src/box/workers";
-import { BOX_RUN_FILE } from "../../src/box/workers";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import { renderSystemFile } from "../../src/prompts/system";
 import { reviewComment, reviewerEffort, type StoredReviewVerdict } from "../../src/review";
-import { reviewCommitFile, ReviewLauncher, sweepOldReviewFolders } from "../../src/run";
+import { reviewCommitFile, ReviewLauncher } from "../../src/run";
 import { findRun, recordConfigSnapshot, type StoredRun } from "../../src/records";
 import type { LaunchedHost } from "../../src/records/worker-hosts";
 import { planInBox } from "../../src/workers/claude-cli/box-plan";
@@ -425,7 +419,7 @@ describe("the reviewer's box for each session (0002)", () => {
       w.prepare = () => ({
         ok: false,
         outcome: "startFailed",
-        hold: { adapter: "claude-cli", check: "probe", detail: "x", failures: [], since: 0 },
+        pause: { adapter: "claude-cli", check: "probe", detail: "x", failures: [], since: 0 },
       });
       expect((await w.launcher.start(request)).kind).toBe("startFailed");
       w.prepare = () => {
@@ -587,22 +581,15 @@ describe("no configuration from the reviewer's copy (0002)", () => {
     }));
 });
 
-describe("the reviewer's system file by the kind of run", () => {
-  it("says dipo ran verify for a Mac run, and that the developer's box ran it for a box run", () =>
+describe("the reviewer's system file", () => {
+  it("says the developer's box ran the verify, whatever the run directory holds", () =>
     withWorld(async (w) => {
       const office = w.rounds.office.officeId as OfficeId;
-      const mac = await startSession(w);
-      const macText = readFileSync(mac.spec.systemFile, "utf8");
-      expect(macText).toBe(renderSystemFile("review", "reviewer"));
-      await w.launcher.finish(office, w.run.runId, mac.agent);
-
-      // The run directory says the run is a box worker's, as the box launch writes it.
-      writeFileSync(join(dirname(mac.spec.systemFile), BOX_RUN_FILE), "{}\n");
-      const box = await startSession(w);
-      const boxText = readFileSync(box.spec.systemFile, "utf8");
-      expect(boxText).toBe(renderSystemFile("review-box", "reviewer"));
-      expect(boxText).toContain("the engine ran it on this change in the developer's box");
-      await w.launcher.finish(office, w.run.runId, box.agent);
+      const session = await startSession(w);
+      const text = readFileSync(session.spec.systemFile, "utf8");
+      expect(text).toBe(renderSystemFile("review-box", "reviewer"));
+      expect(text).toContain("the engine ran it on this change in the developer's box");
+      await w.launcher.finish(office, w.run.runId, session.agent);
     }));
 });
 
@@ -709,50 +696,5 @@ describe("the reviewer's model per tier (DIPO-405)", () => {
         `· reviewer sonnet (effort medium) ·`,
       );
       await w.launcher.finish(office.officeId as OfficeId, run.runId, outcome.agent);
-    }));
-});
-
-describe("the reviewer folders an earlier binary left (DIPO-347)", () => {
-  it("are removed at daemon start, read-only copy included; nothing else and nothing through a link", () =>
-    withTempDir(async (dir) => {
-      const root = realpathSync(dir);
-      /** An earlier binary's Mac reviewer folder: an empty session and a read-only copy. */
-      const old = (name: string) => {
-        const folder = join(root, name);
-        mkdirSync(join(folder, "session"), { recursive: true });
-        mkdirSync(join(folder, "dipo-box-code-abc", "code", "src"), { recursive: true });
-        writeFileSync(join(folder, "dipo-box-code-abc", "code", "src", "a.ts"), "x\n");
-        writeFileSync(join(folder, "commit"), "c\n");
-        chmodSync(join(folder, "dipo-box-code-abc", "code", "src", "a.ts"), 0o444);
-        for (const sub of [
-          "dipo-box-code-abc/code/src",
-          "dipo-box-code-abc/code",
-          "dipo-box-code-abc",
-        ]) {
-          chmodSync(join(folder, sub), 0o555);
-        }
-        return folder;
-      };
-      const first = old("dipo-review-run_01JDEAD-agt_01JDEAD");
-      const second = old("dipo-review-run_01JMORE-agt_01JMORE");
-      // Not such a folder: another name, and a link with the name.
-      mkdirSync(join(root, "dipo-review-other"));
-      const target = old("elsewhere");
-      symlinkSync(target, join(root, "dipo-review-run_01JLINK-agt_01JLINK"));
-
-      expect(await sweepOldReviewFolders(root)).toEqual([
-        "dipo-review-run_01JDEAD-agt_01JDEAD",
-        "dipo-review-run_01JMORE-agt_01JMORE",
-      ]);
-      expect(existsSync(first)).toBe(false);
-      expect(existsSync(second)).toBe(false);
-      expect(existsSync(join(root, "dipo-review-other"))).toBe(true);
-      expect(lstatSync(join(root, "dipo-review-run_01JLINK-agt_01JLINK")).isSymbolicLink()).toBe(
-        true,
-      );
-      expect(existsSync(join(target, "dipo-box-code-abc", "code", "src", "a.ts"))).toBe(true);
-      // Once: a second start finds nothing.
-      expect(await sweepOldReviewFolders(root)).toEqual([]);
-      unlock(target);
     }));
 });

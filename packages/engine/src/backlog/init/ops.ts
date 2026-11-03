@@ -1,4 +1,4 @@
-// The lane-b operation kind `init` (0010 sections 2 and 6): each step of office init is one
+// The lane-b operation kind `init` (0010): each step of office init is one
 // journaled operation with a target state, applied through the Backlog CLI in the engine's backlog
 // worktree and committed as `backlog: init <step>`. Every step reads what the worktree holds and
 // changes only what differs, so a step whose target is already there changes nothing and the lane
@@ -6,15 +6,16 @@
 //
 // Steps, in the order office init journals them:
 //   statuses        rewrite only the `statuses:` line of `backlog/config.yml`, checked with
-//                   `config get statuses` (step 1, and step 4 once no task uses `To Do`);
-//   defaultStatus   `config set defaultStatus Refined` (step 2);
+//                   `config get statuses`; once no task uses `To Do`, again with the 0012
+//                   list alone;
+//   defaultStatus   `config set defaultStatus Refined`;
 //   settings        `checkActiveBranches: true`, `remoteOperations: true`, `autoCommit: false`
 //                   (the office checks); before the migration, so a CLI that would commit by
 //                   itself (`autoCommit: true`) does not commit the migration's edits;
 //   migrate         every `To Do` task gets `task edit -s Refined`, except those in progress on
-//                   their own branch (step 3);
-//   gitignore       add `.dipo/.gitignore` holding `office.local.yaml` when it is absent (0007
-//                   section 2); the only path outside `backlog/` the kind may change.
+//                   their own branch;
+//   gitignore       add `.dipo/.gitignore` holding `office.local.yaml` when it is absent (0007);
+//                   the only path outside `backlog/` the kind may change.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -41,7 +42,7 @@ export const INIT_KIND = "init";
 export const DIPO_GITIGNORE = ".dipo/.gitignore";
 export const DIPO_GITIGNORE_TEXT = "office.local.yaml\n";
 
-/** The office checks at load (0010 section 6): Backlog.md settings and the value dipo needs. */
+/** The office checks at load (0010): Backlog.md settings and the value dipo needs. */
 export const OFFICE_SETTINGS: readonly { readonly key: string; readonly value: string }[] = [
   { key: "checkActiveBranches", value: "true" },
   { key: "remoteOperations", value: "true" },
@@ -52,7 +53,7 @@ export const InitTarget = z.discriminatedUnion("step", [
   z
     .object({
       step: z.literal("statuses"),
-      /** True once no task on the base uses `To Do`: the 0012 list alone (step 4). */
+      /** True once no task on the base uses `To Do`: the 0012 list alone. */
       final: z.boolean(),
       /** Statuses outside the 0012 list that tasks on the base still use; a final list keeps them. */
       inUse: z.array(z.string()),
@@ -162,7 +163,7 @@ async function applyMigrate(
 
 function applyGitignore(ctx: ApplyContext): ApplyOutcome {
   const file = join(ctx.cwd, DIPO_GITIGNORE);
-  // Added only if absent; an existing file is never changed (0007 section 2, 0010 section 11).
+  // Added only if absent; an existing file is never changed (0007, 0010).
   if (existsSync(file)) return { applies: true };
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, DIPO_GITIGNORE_TEXT);

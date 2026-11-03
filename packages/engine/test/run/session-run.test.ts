@@ -34,7 +34,6 @@ import { type ClaudeParseState, initialState } from "../../src/workers/claude-cl
 import { plan, type ClaudeLaunchContext } from "../../src/workers/claude-cli/plan";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
-import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
 import type { HostOp, LaunchPlan, ParseState } from "../../src/workers/types";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
@@ -151,7 +150,6 @@ function world(t: TestState, dir: string): World {
   const worker: WorkerPort = {
     id: "claude-cli",
     reportSchema: REPORT_JSON_SCHEMAS,
-    localSettings: CLAUDE_LOCAL_SETTINGS,
     adapter: (paths) => claudeCliAdapter(ctxOf(paths), { spawn: neverSpawn, clock: t.clock }),
     // The real plan of the session kind; the probe and settings checks are not run here.
     prepare: async (spec, paths) => ({ ok: true, plan: plan(spec, ctxOf(paths)) }),
@@ -162,7 +160,7 @@ function world(t: TestState, dir: string): World {
       }) as unknown as ParseState,
     encode,
     result: (state, exit) => claudeResult(state as unknown as ClaudeParseState, exit),
-    sessionFacts: () => ({ contextTokens: null, contextWindow: null, lastReport: null }),
+    sessionFacts: () => ({ lastReport: null }),
   };
   (w as { runs: SessionRuns }).runs = new SessionRuns({
     clock: t.clock,

@@ -1,6 +1,6 @@
 // The maintainer's office reads (0004, 0005, 0009, 0020): the office summary for `engine.hello`
 // and the software stream send, the desk, the digest, the proposals on the desk, and the view
-// reads (`office.snapshot`, `office.switch`, `story.detail`, `work.outputRange`).
+// reads (`office.snapshot`, `story.detail`, `work.outputRange`).
 
 export {
   activeRunCount,
@@ -24,14 +24,7 @@ export {
   registerDesk,
 } from "./desk";
 export type { DeskGate, DeskSources, HandDeskItem, Implemented } from "./desk";
-export {
-  digest,
-  DIGEST_COUNTS,
-  DIGEST_LINES_MAX,
-  recordTuiLeft,
-  registerDigest,
-  tuiLeftAt,
-} from "./digest";
+export { digest, DIGEST_COUNTS, DIGEST_LINES_MAX, registerDigest } from "./digest";
 export type { DigestCount } from "./digest";
 export { openDecisionNotes, openProposals, proposalItems } from "./proposals";
 export type { ProposalItem } from "./proposals";

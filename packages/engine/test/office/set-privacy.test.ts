@@ -1,4 +1,4 @@
-// `office.setPrivacy` (DIPO-136; 0007 section 8): writes `.dipo/office.local.yaml`, reloads the
+// `office.setPrivacy` (DIPO-136; 0007): writes `.dipo/office.local.yaml`, reloads the
 // configuration and answers with the new hash; a refused change leaves the file unchanged.
 
 import { describe, expect, it } from "bun:test";
@@ -77,14 +77,14 @@ describe("office.setPrivacy", () => {
       async (repo) => {
         mkdirSync(join(repo.dir, ".dipo"), { recursive: true });
         const file = join(repo.dir, ".dipo", "office.local.yaml");
-        writeFileSync(file, "# note\nversion: 15\nretention:\n  days: 3\n");
+        writeFileSync(file, "# note\nversion: 16\nretention:\n  days: 3\n");
         const s = await officeSetup(repo.root);
         const office = resultOf<{ office: OfficeId }>(
           await send(s, "office.open", { path: repo.dir }),
         ).office;
         resultOf(await send(s, "office.setPrivacy", { office, key: "keepRawEvents", value: true }));
         const text = readFileSync(file, "utf8");
-        expect(text).toContain("version: 15");
+        expect(text).toContain("version: 16");
         expect(text).toContain("days: 3");
         expect(text).not.toContain("# note");
         expect(s.manager.config(office)?.retention.days).toBe(3);
@@ -94,18 +94,15 @@ describe("office.setPrivacy", () => {
     );
   });
 
-  it("migrates a version 14 office.local.yaml to the current version and never touches office.yaml", async () => {
+  it("writes a current office.local.yaml, keeping its keys, and never touches office.yaml", async () => {
     await withTempRepo(
       async (repo) => {
         mkdirSync(join(repo.dir, ".dipo"), { recursive: true });
         const file = join(repo.dir, ".dipo", "office.local.yaml");
         const committed = join(repo.dir, ".dipo", "office.yaml");
-        const committedText = "version: 14\nbase: main\n";
+        const committedText = "version: 16\nbase: main\n";
         writeFileSync(committed, committedText);
-        writeFileSync(
-          file,
-          "# a note\nversion: 14\ntimeouts: { questionWaitMinutes: 5 }\nprivacy: { keepRawEvents: true }\n",
-        );
+        writeFileSync(file, "# a note\nversion: 16\nprivacy: { keepRawEvents: true }\n");
         const s = await officeSetup(repo.root);
         const office = resultOf<{ office: OfficeId }>(
           await send(s, "office.open", { path: repo.dir }),
@@ -116,7 +113,6 @@ describe("office.setPrivacy", () => {
         expect(reply.valid).toBe(true);
         const text = readFileSync(file, "utf8");
         expect(text).toContain(`version: ${OFFICE_CONFIG_VERSION}`);
-        expect(text).not.toContain("version: 14");
         expect(text).toContain("keepRawEvents: true");
         expect(text).toContain("storePrompts: false");
         expect(s.manager.config(office)?.privacy.keepRawEvents).toBe(true);
@@ -148,7 +144,7 @@ describe("office.setPrivacy", () => {
         expect(!bad.ok && bad.error.message).toContain("privacy.storePrompts");
         expect(existsSync(file)).toBe(false);
 
-        const invalid = "version: 15\ntimeouts:\n  workerStallMinutes: soon\n";
+        const invalid = "version: 16\ntimeouts:\n  workerStallMinutes: soon\n";
         writeFileSync(file, invalid);
         const refused = await send(s, "office.setPrivacy", {
           office,
@@ -167,7 +163,7 @@ describe("office.setPrivacy", () => {
           value: false,
         });
         expect(!olderRefused.ok && olderRefused.error.message).toContain(
-          "timeouts.workerStallMinutes",
+          "configuration version 14 is older than this dipo reads (version 16)",
         );
         expect(readFileSync(file, "utf8")).toBe(olderInvalid);
       },

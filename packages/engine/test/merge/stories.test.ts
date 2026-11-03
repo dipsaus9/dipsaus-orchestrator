@@ -4,7 +4,7 @@
 // - an approved gate leads to the close-out commit, one push, the PR at the pushed head, and
 //   `gh pr merge --auto --squash --match-head-commit` at exactly that head, with the PR title;
 // - while auto-merge is on, a conflict and red checks turn it off and lead to a fix round, and a
-//   hold label or a head dipo did not push turn it off and reopen the merge gate;
+//   wait label or a head dipo did not push turn it off and reopen the merge gate;
 // - a release-path PR and a PR labelled `autorelease: pending` never get auto-merge, also when the
 //   label or the release path comes after auto-merge went on;
 // - the merge gate opens and is decided by rule or waits for the maintainer;
@@ -286,11 +286,11 @@ describe("while auto-merge is on", () => {
     expect(s.host.armedAt).toHaveLength(1);
   });
 
-  it("turns it off on a hold label and reopens the merge gate for the maintainer", async () => {
+  it("turns it off on a wait label and reopens the merge gate for the maintainer", async () => {
     s = await storyWorld();
     s.config = {
       ...OFFICE_DEFAULTS,
-      merge: { ...OFFICE_DEFAULTS.merge, holdLabels: ["hold"] },
+      merge: { ...OFFICE_DEFAULTS.merge, waitLabels: ["hold"] },
     };
     await toArmed();
     s.host.prLabelsOf.set(PR, ["hold"]);
@@ -299,7 +299,7 @@ describe("while auto-merge is on", () => {
     const [first, reopened] = gates();
     expect(first?.decision).toMatchObject({ decision: "approved", by: "rule" });
     expect(reopened).toMatchObject({ head: C1, waitingOn: "maintainer", decision: null });
-    expect(reopened?.summary).toContain('the PR carries the hold label "hold"');
+    expect(reopened?.summary).toContain('the PR carries the wait label "hold"');
     // Nothing turns it on again while the gate waits, even with the label gone.
     s.host.prLabelsOf.set(PR, []);
     s.ci.set(s.run, { kind: "green", head: C1 });
@@ -339,7 +339,7 @@ describe("while auto-merge is on", () => {
     s = await storyWorld();
     s.config = {
       ...OFFICE_DEFAULTS,
-      merge: { ...OFFICE_DEFAULTS.merge, holdLabels: ["hold"] },
+      merge: { ...OFFICE_DEFAULTS.merge, waitLabels: ["hold"] },
     };
     await toArmed();
     s.host.prLabelsOf.set(PR, ["hold"]);
@@ -368,7 +368,7 @@ describe("the release-path and autorelease guard", () => {
     await s.tick();
     expect(s.host.armedAt).toEqual([]);
     expect(s.git.calls).toEqual([]);
-    expect(noticeCodes(s.w.office)).toContain(STORY_MERGE_NOTICES.held);
+    expect(noticeCodes(s.w.office)).toContain(STORY_MERGE_NOTICES.waiting);
   });
 
   it("turns auto-merge off when autorelease: pending is added after it went on", async () => {
@@ -1204,7 +1204,7 @@ interface WaitingPath {
   readonly decide: ((gate: string) => void) | null;
 }
 
-const HOLD = { ...OFFICE_DEFAULTS.merge, holdLabels: ["hold"] };
+const HOLD = { ...OFFICE_DEFAULTS.merge, waitLabels: ["hold"] };
 
 const WAITING: readonly WaitingPath[] = [
   {
@@ -1237,7 +1237,7 @@ const WAITING: readonly WaitingPath[] = [
     decide: approve,
   },
   {
-    name: "a hold label",
+    name: "a wait label",
     setup: () => {
       s.config = { ...OFFICE_DEFAULTS, merge: HOLD };
       s.host.prLabelsOf.set(PR, ["hold"]);
@@ -1301,7 +1301,7 @@ describe("a merge gate that waits for the maintainer", () => {
 
 // The DIPO-382 review's fix round: what still holds a by-rule close-out, and what a later hold does.
 describe("the by-rule path's holds", () => {
-  it("a hold label after the close-out, while its checks run, turns auto-merge off and waits for the maintainer and green", async () => {
+  it("a wait label after the close-out, while its checks run, turns auto-merge off and waits for the maintainer and green", async () => {
     s = await storyWorld();
     s.config = { ...OFFICE_DEFAULTS, merge: HOLD };
     s.ci.set(s.run, { kind: "pending", head: H1 });

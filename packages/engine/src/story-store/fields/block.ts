@@ -1,4 +1,4 @@
-// The `dipo` field block in a story description (0010 section 3; 0012 F10, F14, F15, F16).
+// The `dipo` field block in a story description (0010; 0012 F10, F14, F15, F16).
 //
 // Parser: zero or one block. A line exactly ```` ```dipo ```` opens it and the next line exactly
 // ```` ``` ```` closes it; a second block, an unclosed block or text after it is an R02 error. The

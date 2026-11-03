@@ -1,6 +1,5 @@
-// The facts and writes the worker outcome units share (DIPO-51, split out of `outcomes.ts` by
-// DIPO-128): which intent explains an exit, what an agent ended as, the crash retry check, the
-// park of an exited worker and the change-log write.
+// The facts and writes the worker outcome units share: which intent explains an exit, what an agent
+// ended as, the crash retry check, the park of an exited worker and the change-log write.
 
 import type { OfficeId, RunId, WorkRef } from "@dipsaus-orchestrator/contract";
 
@@ -25,15 +24,14 @@ import type { ParkOutcome } from "./park";
 import { capsStartedAt, type StoredRun } from "../records/run-records";
 
 /** Kinds of intent that explain a worker's exit. */
-const EXPLAINING: readonly IntentKind[] = ["stop", "cap", "park", "reassign", "pause"];
+const EXPLAINING: readonly IntentKind[] = ["stop", "cap", "park", "new-session"];
 
-/** The outcome an untagged explaining intent gives the exit (0008 section 7). */
+/** The outcome an untagged explaining intent gives the exit (0008). */
 const UNTAGGED_OUTCOMES: Readonly<Partial<Record<IntentKind, string>>> = {
   stop: "stopped",
   cap: "capped",
   park: "blocked",
-  reassign: "reassigned",
-  pause: "paused",
+  "new-session": "reassigned",
 };
 
 export class OutcomeSupport {

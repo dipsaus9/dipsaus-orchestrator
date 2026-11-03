@@ -106,8 +106,9 @@ export interface ProposedDraft {
 export interface PlanningLane {
   /**
    * Parks a story that has no run (0020): status Parked with the park record
-   * `{reason: by-maintainer, from, note}`, applied only while the story is Refined, Ready or the
-   * legacy To Do. An open hold of the story is reused.
+   * `{reason: by-maintainer, from, note}`, applied only while the story is Refined, Ready or
+   * To Do (Backlog.md's default status, which office init moves to Refined). An open hold of the
+   * story is reused.
    */
   hold(
     story: PlanningStory,

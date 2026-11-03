@@ -1,5 +1,5 @@
-// The daemon and a client must accept and refuse the same `<state>/config.yaml` (0006 amendment of
-// 2026-10-12). `client` may not import `engine` (0004), so each reads the file on its own path;
+// The daemon and a client must accept and refuse the same `<state>/config.yaml` (0005).
+// `client` may not import `engine` (0004), so each reads the file on its own path;
 // this test sits outside both packages and runs the two readers on the same files. It imports the
 // source files by path because the repository root has no package links.
 
@@ -13,14 +13,17 @@ import { withTempDir } from "../../packages/testkit/src/temp";
 
 const FILES: Record<string, string | undefined> = {
   absent: undefined,
-  "only a version": "version: 1\n",
-  "every key": "version: 1\ndaemon:\n  autostart: false\n  autoRestartOnUpgrade: true\n",
-  "flow style": "version: 1\ndaemon: { autostart: false }\n",
-  "a typo": "version: 1\ndaemon:\n  autostrat: true\n",
-  "a wrong type": "version: 1\ndaemon:\n  autostart: yes\n",
+  "only a version": "version: 4\n",
+  "every key":
+    "version: 4\ndaemon:\n  autostart: false\nusage:\n  alerts: { dayTokens: 5, monthTokens: 9, level: 0.5 }\nnotify:\n  desk: false\n",
+  "a retired key": "version: 4\ndaemon:\n  autoRestartOnUpgrade: true\n",
+  "an older version": "version: 4\n",
+  "flow style": "version: 4\ndaemon: { autostart: false }\n",
+  "a typo": "version: 4\ndaemon:\n  autostrat: true\n",
+  "a wrong type": "version: 4\ndaemon:\n  autostart: yes\n",
   "no version": "daemon:\n  autostart: true\n",
   "a string version": 'version: "1"\n',
-  "two documents": "version: 1\n---\nversion: 1\n",
+  "two documents": "version: 4\n---\nversion: 1\n",
   "a newer version": "version: 5\n",
   "invalid YAML": "daemon: {\n",
   "a list": "- version: 1\n",

@@ -1,9 +1,9 @@
-// The reserved labels (0010 section 3; 0012 F11, F12, F13): `tier:<T>`, `role:<name>` and the flag
+// The reserved labels (0010; 0012 F11, F12, F13): `tier:<T>`, `role:<name>` and the flag
 // `test-before-merge`. Every label follows the grammar `[a-z0-9-]+(:[A-Za-z0-9-]+)?`; a label
 // outside it is reported. How many tiers or roles a story may carry (R16, R17) is the gate's rule,
 // so every one found is returned.
 
-/** The label grammar of 0010 section 3. */
+/** The label grammar of 0010. */
 export const LABEL_GRAMMAR = /^[a-z0-9-]+(:[A-Za-z0-9-]+)?$/;
 
 export const TIER_PREFIX = "tier:";

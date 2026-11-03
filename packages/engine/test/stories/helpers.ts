@@ -10,8 +10,6 @@ import { applyIndex, type IndexStats } from "../../src/stories/apply";
 import type { BacklogStory } from "../../src/stories/read";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 
-export const CREATED = "2026-10-12 11:28 (UTC)";
-
 export async function withOffice(
   fn: (t: TestState, office: OfficeHandle) => void | Promise<void>,
 ): Promise<void> {
@@ -25,14 +23,13 @@ export async function withOffice(
   });
 }
 
-/** A task as a pass reads it: Refined, created at `CREATED`, no labels, no branch. */
+/** A task as a pass reads it: Refined, no labels, no branch. */
 export function task(id: string, overrides: Partial<BacklogStory> = {}): BacklogStory {
   return {
     kind: "task",
     story: StoryId.parse(id),
     title: `Story ${id}`,
     status: "Refined",
-    created: CREATED,
     labels: [],
     contentHash: `hash-${id}`,
     ...overrides,

@@ -9,11 +9,11 @@ import { BacklogLane } from "../backlog/lane/feature";
 import { initKind } from "../backlog/init/ops";
 import { OfficeInit } from "../backlog/init/init";
 import { BacklogPrs } from "../backlog/pr/feature";
-import { boxTokenHoldPath, boxTokenStickyHolds } from "../box/token-hold";
+import { boxTokenHoldPath, boxTokenStickyPauses } from "../box/token-hold";
 import { GateStore } from "../gate-decisions/feature";
 import type { AutoMergeGuard } from "../merge/guard";
 import { gitParkWriter } from "../run/park";
-import { officeHoldStore } from "../run/starts-paused";
+import { ADAPTER_RESUMED_NOTICE, AdapterPauses, officePauseStore } from "../run/starts-paused";
 import { storyRunBase, type RunBase } from "../run/work-run";
 import { StoryIndex } from "../stories/feature";
 import { StoryPlanning, type StoryPlanningDeps } from "../run/planning";
@@ -22,7 +22,6 @@ import { StoryPrs } from "../story-pr/prs";
 import { guardedParkWriter } from "../merge/guard";
 import { type ProcessProbe, type SignalProcess, signalProcess } from "../platform/process";
 import { CLAUDE_CLI_ADAPTER_ID } from "../workers/claude-cli/plan";
-import { AdapterHolds, RELEASE_NOTICE_CODE } from "../workers/hold";
 import { StoryClaims } from "../worktree/feature";
 import { hasLiveClaim } from "../worktree/records";
 import type { Core } from "./core";
@@ -36,7 +35,7 @@ export interface StoryServices {
   readonly officeInit: OfficeInit;
   readonly storyIndex: StoryIndex;
   readonly gates: GateStore;
-  readonly holds: AdapterHolds;
+  readonly holds: AdapterPauses;
   readonly runBase: RunBase;
   readonly planning: StoryPlanning;
   /** Turns auto-merge off for a story branch's PR before a park or a lift is written (0002). */
@@ -181,24 +180,24 @@ function storyIndexOf(core: Core, backlogPrs: BacklogPrs): StoryIndex {
  * (DIPO-271) is sticky: kept in the state directory over a restart, and lifted only when
  * `dipo login box` replaces the token and removes its record.
  */
-function holdsOf(core: Core, partners: EnginePartners): AdapterHolds {
+function holdsOf(core: Core, partners: EnginePartners): AdapterPauses {
   const { clock } = core.deps;
   const { offices } = core;
-  return new AdapterHolds({
+  return new AdapterPauses({
     clock,
     notify: (notice) => {
       core.software.append("engine.notice", notice);
-      if (notice.code === RELEASE_NOTICE_CODE) {
+      if (notice.code === ADAPTER_RESUMED_NOTICE) {
         partners.runs.get().startsPaused.adapterReleased();
       }
     },
     // Kept for every registered office, loaded or not: one adapter runs them all (0001).
-    store: officeHoldStore(clock, {
+    store: officePauseStore(clock, {
       get: (office) => offices.get(office),
       loaded: () => offices.loadedOffices(),
       connection: () => core.database.get()?.connection ?? null,
     }),
-    sticky: boxTokenStickyHolds(boxTokenHoldPath(core.deps.paths.stateDir), CLAUDE_CLI_ADAPTER_ID),
+    sticky: boxTokenStickyPauses(boxTokenHoldPath(core.deps.paths.stateDir), CLAUDE_CLI_ADAPTER_ID),
     warn: (message, fields) => core.logger.warn(message, fields),
   });
 }

@@ -1,13 +1,12 @@
-// The worker report as Claude returns it through `--json-schema` (0008 section 1 and option A of
-// "Report channel"; fields from 0014). The zod schema parses the `structured_output` of a result;
-// the JSON Schema is what the launch plan passes on argv and writes to the run directory. Each
-// report kind has its own (0008 amendment of 2026-10-16): `WorkerReport` for `implement`,
-// `ReviewReport` for `review` (0019 section 5).
+// The worker report as Claude returns it through `--json-schema` (0008; fields from 0014). The zod
+// schema parses the `structured_output` of a result; the JSON Schema is what the launch plan passes
+// on argv and writes to the run directory. Each report kind has its own (0008): `WorkerReport` for
+// `implement`, `ReviewReport` for `review` (0002).
 //
-// The worker report is the door of the messages story done, question, blocked and proposal (0021
-// section 7, W2 to W5; DIPO-272): `parseWorkerReport` holds it to `WORKER_REPORT_MAX_CHARS`, cleans
-// every string of terminal control and other unsafe characters (`cleanDoorText`) and then parses
-// it strictly, every text field with its length cap. dipo reads the report as data only.
+// The worker report is the door of the messages story done, question, blocked and proposal (0008,
+// W2 to W5): `parseWorkerReport` holds it to `WORKER_REPORT_MAX_CHARS`, cleans every string of
+// terminal control and other unsafe characters (`cleanDoorText`) and then parses it strictly, every
+// text field with its length cap. dipo reads the report as data only.
 
 import { z } from "zod";
 
@@ -36,7 +35,7 @@ export const WORKER_REPORT_CAPS = {
   notes: 8_000,
   proposals: 3,
   proposalTitle: 120,
-  proposalOutcome: 500,
+  proposalStory: 500,
   proposalWhy: 1_000,
   proposalPaths: 20,
   path: 300,
@@ -54,19 +53,25 @@ export const WORKER_REPORT_CAPS = {
 
 /**
  * A decision file a note may name: a Markdown file directly under the decision records folder, by
- * its repo-relative path (0008 section 1 note of 2026-10-20).
+ * its repo-relative path (0008).
  */
 export const DECISION_FILE = /^docs\/decisions\/[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
 
 const caps = WORKER_REPORT_CAPS;
 
-/** A proposal (0021 W5): a follow-up story, a spike, or a tool the box lacks. Data only. */
+/**
+ * A proposal (0008 W5): a follow-up story, a spike, or a tool the box lacks. Data only. Its story
+ * line is held to its length cap here; the engine checks its shape (0012 R05) and sends a line that
+ * fails back once, then drops that proposal (`run/proposal-lines.ts`).
+ */
 export const WorkerProposalSchema = z.strictObject({
   kind: z
     .enum(["follow-up", "spike", "tool"])
     .describe("follow-up: a story; spike: a question to research; tool: a tool the box lacks"),
   title: Text.max(caps.proposalTitle).describe("a short title"),
-  outcome: Text.max(caps.proposalOutcome).describe("what would be true when it is done"),
+  story: Text.max(caps.proposalStory).describe(
+    "one line: As <maintainer|worker|reviewer> I want <capability> so that <value>. For a spike: We need to decide <question> so that <value>. Plain words: no backticks, file paths or code",
+  ),
   why: Text.max(caps.proposalWhy).describe("why it is needed, and what you saw"),
   paths: z
     .array(Text.max(caps.path))
@@ -232,7 +237,7 @@ void reviewFromContract;
 /** The JSON Schema of `WorkerReport` for `--json-schema`. */
 export const WORKER_REPORT_JSON_SCHEMA: JsonSchema = toJsonSchema(WorkerCliReportSchema, "output");
 
-/** The JSON Schema of `ReviewReport` for `--json-schema` (0019 section 5). */
+/** The JSON Schema of `ReviewReport` for `--json-schema` (0002). */
 export const REVIEW_REPORT_JSON_SCHEMA: JsonSchema = toJsonSchema(ReviewReportSchema, "output");
 
 /** The report schema of each report kind, as `WorkerPort.reportSchema` hands it out. */

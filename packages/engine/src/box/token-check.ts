@@ -1,4 +1,4 @@
-// The post-run token check (0021 section 16, line 9, DIPO-269): after a run, dipo looks for the
+// The post-run token check (0008, DIPO-269): after a run, dipo looks for the
 // maintainer's subscription token in the box's environment and files, and holds the adapter when
 // it finds it or cannot tell. The token never goes into the box for this:
 //
@@ -14,7 +14,7 @@ import { createReadStream } from "node:fs";
 import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { AdapterHold, AdapterHolds, LaunchCheckFailure } from "../workers/hold";
+import type { AdapterPause, AdapterPauses, LaunchCheckFailure } from "../run/starts-paused";
 import { BoxError, type BoxPort } from "./port";
 import type { TokenMatcher } from "./token";
 
@@ -211,12 +211,12 @@ export function tokenCheckFailure(result: BoxTokenCheck, name: string): LaunchCh
     check: BOX_TOKEN_CHECK,
     detail: `the check for the subscription token in box ${name} could not finish: ${result.reason}`,
     // A box-token hold is sticky (DIPO-271): a passing launch check does not lift it.
-    fix: "Look at the box and the daemon log; the hold lifts once the box login is stored again with `dipo login box`.",
+    fix: "Look at the box and the daemon log; the pause lifts once the box login is stored again with `dipo login box`.",
   };
 }
 
 export interface TokenHoldDeps extends TokenCheckDeps {
-  readonly holds: Pick<AdapterHolds, "hold">;
+  readonly holds: Pick<AdapterPauses, "pause">;
   /** The adapter the box ran, for example the Claude worker's. */
   readonly adapter: string;
 }
@@ -230,8 +230,8 @@ export interface TokenHoldDeps extends TokenCheckDeps {
 export async function checkBoxAfterRun(
   deps: TokenHoldDeps,
   name: string,
-): Promise<{ readonly result: BoxTokenCheck; readonly hold: AdapterHold | null }> {
+): Promise<{ readonly result: BoxTokenCheck; readonly hold: AdapterPause | null }> {
   const result = await checkBoxForToken(deps, name);
   const failure = tokenCheckFailure(result, name);
-  return { result, hold: failure === null ? null : deps.holds.hold(deps.adapter, [failure]) };
+  return { result, hold: failure === null ? null : deps.holds.pause(deps.adapter, [failure]) };
 }

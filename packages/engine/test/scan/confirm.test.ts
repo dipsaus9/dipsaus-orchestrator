@@ -1,4 +1,4 @@
-// The confirmations laid over the code profile (DIPO-310, 0013 sections 2 to 6): a confirmation
+// The confirmations laid over the code profile (DIPO-310, 0013): a confirmation
 // resolves only what code left unresolved or in conflict and gives the source it was made with;
 // a pending proposal never enters the effective profile; a confirmation made at another
 // fingerprint is stale and keeps working; code that now resolves a capability replaces its

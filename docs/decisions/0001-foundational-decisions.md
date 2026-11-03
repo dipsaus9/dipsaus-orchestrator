@@ -23,7 +23,7 @@ Every other ADR follows these. A design that breaks one is wrong, or this ADR ch
 3. **The engine is headless.** Clients send commands and read events. The engine never changes its behaviour based on which client is connected.
 4. **Park, don't guess.** A story that cannot go on parks with a reason, and the rest continues. Parked is the only waiting state.
 5. **Effort follows difficulty.** A story's tier sets its model and its caps. A cap is never raised without a maintainer command.
-6. **Model-agnostic at the edge.** Claude is reached only through the worker adapter (0008). Claude names stay out of the engine and the contract.
+6. **Model-agnostic at the edge.** Claude is reached only through the worker adapter (0008). Claude-specific code lives in the adapter (`engine/src/workers/claude-cli/`), the box model proxy and the box image. A fixed list of other files may name Claude: every file that named it when the check was added, such as the composition root that wires the adapter, secret patterns and protected paths, login help text, model ids in usage records, the scan evidence files, the recording tools, testkit, and files that name it only in a comment. A check in `bun run verify` refuses Claude names in any other non-test source file, and refuses a listed file that no longer names Claude, so the list only shrinks (0004). The office configuration's model defaults are data, not code (0017).
 7. **One source per fact.** Every fact has one owner (see Data ownership). A second copy is a cache and never overrules the owner.
 8. **One mechanism per goal.** When a gap needs a fix, the fix replaces the mechanism that failed instead of adding one beside it (0003).
 9. **Built to last.** Each milestone is production quality for its scope (0003).
@@ -55,9 +55,9 @@ Work can run without the maintainer, overnight included.
 
 | Owner | Facts |
 |---|---|
-| Backlog.md, through the Backlog CLI | Story facts: title, outcome, criteria, dependencies, references, tier, test plan, status and park reason. dipo writes status and park reason itself, through the CLI, never by editing the file |
+| Backlog.md, through the Backlog CLI | Story facts: title, Story line, criteria, dependencies, references, tier, test plan, status and park reason. dipo writes status and park reason itself, through the CLI, never by editing the file |
 | Git and GitHub | Code, branches, pull requests, CI results and merges |
-| dipo's local database (0007) | Run detail only: runs, worker output, usage and cost, reviewer verdicts, gate decisions and claims. One database for all offices, keyed by office, never inside a repository |
+| dipo's local database (0007) | Run detail and dipo's own state: runs, worker output, usage and cost, reviewer verdicts, gate decisions, claims, the office list, the run profile, questions and proposals. Never the only copy of a story fact. One database for all offices, keyed by office, never inside a repository |
 
 Losing the database loses history, never the project. At daemon start dipo reconciles its database against Backlog.md and git. On a mismatch, Backlog.md and git win, dipo corrects its own copy and shows a notice.
 
@@ -84,9 +84,7 @@ Comparable tools (`docs/research/2026-10-comparable-tools.md`) are a source of i
 
 ## Way of working on this repository
 
-- Stories live in Backlog.md, and project rules in `CLAUDE.md`.
-- Work happens on `<ID>/<slug>` branches and merges by PR. A separate agent reviews every PR (0002).
-- dipo has delivered its own stories since the cutover (DIPO-115).
+Stories live in Backlog.md, and project rules in `CLAUDE.md`. How this repository is built, reviewed and merged, and which stories dipo builds itself, is in 0002.
 
 ## Replaced
 
@@ -94,3 +92,4 @@ Comparable tools (`docs/research/2026-10-comparable-tools.md`) are a source of i
 - References as a write fence on what a worker may change. Replaced by references as a forecast plus protected files (2026-10-21), because the box makes the fence unenforceable and unneeded.
 - Eleven park reasons, including `stopped`, `on-hold`, `interrupted` and `needs-permission`. Replaced by the eight above (2026-10-24): `by-maintainer` covers stop and hold, `worker-failed` covers interrupted, and a box worker never needs a permission.
 - A first command list (`plan`, `refine`, `estimate`, `ready`, `run`, `review`, `retro`). The rituals now live in the milestones (0003).
+- No Claude names anywhere outside the adapter (2026-10-24). Replaced by three named places (2026-11-03), because the box image installs the CLI and the model proxy forwards to its API.

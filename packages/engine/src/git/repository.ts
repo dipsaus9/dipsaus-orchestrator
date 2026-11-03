@@ -1,4 +1,4 @@
-// Where an office lives (0007 section 2): the office path is the main worktree, the first entry of
+// Where an office lives (0007): the office path is the main worktree, the first entry of
 // `git worktree list --porcelain`, so a linked worktree opens the same office; the office's own
 // directory is `<git-common-dir>/dipo/`, with the common directory from
 // `git rev-parse --path-format=absolute --git-common-dir`. Git runs through the injected `Spawn` as
@@ -84,7 +84,7 @@ export async function resolveRepository(runner: GitRunner, path: string): Promis
 }
 
 /**
- * The network filesystem type `path` sits on, or null on a local disk (0007 section 2). An
+ * The network filesystem type `path` sits on, or null on a local disk (0007). An
  * unreadable mount table counts as local: this only decides whether to warn.
  */
 export async function networkFsType(

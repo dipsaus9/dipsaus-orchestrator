@@ -1,35 +1,28 @@
-// The next session of a run (DIPO-51; 0008 sections 7 and 8, 0014 section 6). After a crash, a
+// The next session of a run (0008, 0014). After a crash, a
 // full context or a missing report the engine starts one more session of the same run, never a
 // new run: a new agent of the run with its own `worker_hosts` row, on the same branch and box.
 //
-// - Resume first. When the previous session can be resumed (`canResume`: transcript present, the
-//   same Claude Code version and L1+L2 hash, under the context share, re-reading cheaper than the
-//   re-read factor times a handoff) the new agent continues it with `--resume` and the full flag
-//   set, with a short delta as first message (`prompts/feedback/resume.md`). A full context always
-//   starts a new session.
-// - Otherwise a new session with an engine-made session id and a 0014 handoff: the story's task
+// - Always a new session with an engine-made session id and a 0014 handoff (0008), never a native
+//   resume of the previous session: the story's task
 //   message with the handoff block of the branch (commits since the claim's base, the last
-//   report's criteria, the last verify, the run's open feedback from `feedback_items`, the previous
-//   worker's notes; 0020 section 6), and the context pack read from the branch tip's git objects.
-//   The context pack the task message was built from is recorded for the branch
-//   (`recordContextPack`) when the new session starts with it.
+//   report's criteria, the run's open feedback from `feedback_items`, the previous
+//   worker's notes; 0020), and the context pack read from the branch tip's git objects.
 // - The one feedback path (0002): every message held for the run's next developer session
 //   (`heldFeedback`: a fix round's findings, a resumed park's reason and note, a steer, also one
-//   the last session was sent and did not read) follows the delta or the task message, and is
+//   the last session was sent and did not read) follows the task message, and is
 //   marked delivered in the transaction that records the new agent; the start's notice says when
 //   it carries an unread steer (DIPO-412). The caller passes no text of its own.
-// - The launch checks run again before every launch or resume (`WorkerPort.prepare`), with the
+// - The launch checks run again before every launch (`WorkerPort.prepare`), with the
 //   office's resolved verify for the verify tools check (DIPO-173); a refused check is
-//   `startFailed` with the adapter hold set, a refused verify tool `failed` with the plan's
-//   refusal and no hold, and the caller decides what follows.
+//   `startFailed` with the adapter's pause set, a refused verify tool `failed` with the plan's
+//   refusal and no pause, and the caller decides what follows.
 // - Caps: the CLI's own caps get what remains of the run's budget, turns and minutes (at least
 //   one each); run control keeps tracking the run's own caps from the original start.
 // - No double ingestion: the run's event file is shared by its hosts, so the new host's row starts
 //   at the file's size before the host started, and the new agent's parser starts from the
-//   previous session's stored state (`WorkerPort.initialState(spec, previous)`), so a resume does
-//   not count restored spend twice.
-// - It records the agent (session, effort, system hash), emits `work.assigned` for the new agent
-//   and an `engine.notice` `run.resumed` or `run.handoff`. The old host's signals end in the
+//   previous session's stored state (`WorkerPort.initialState(spec, previous)`).
+// - It records the agent (session, effort), emits `work.assigned` for the new agent and an
+//   `engine.notice` `run.handoff`. The old host's signals end in the
 //   transaction that records the agent.
 
 import { existsSync, statSync, writeFileSync } from "node:fs";
@@ -48,8 +41,7 @@ import type {
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeConfig } from "../config";
-import { recordContextPack } from "../context/pack";
-import type { ContextPack, Workspace } from "../context/types";
+import type { Workspace } from "../context/types";
 import type { OfficeHandle } from "../db/office";
 import { parseFieldBlock } from "../story-store/fields/block";
 import type { StoryStore } from "../story-store/store";
@@ -60,23 +52,16 @@ import { EVENTS_FILE } from "../host/protocol";
 import type { IngestAdapter } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
 import type { ProcessProbe } from "../platform/process";
-import {
-  CHARS_PER_TOKEN,
-  measurePart,
-  promptParts,
-  recordPromptParts,
-  recordPromptTexts,
-  TASK_PART,
-} from "../prompts/parts";
+import { promptParts, recordPromptParts, recordPromptTexts } from "../prompts/parts";
 import { BOX_RUN_FILE } from "../box/workers";
 import { BOX_LIFETIME_NOTICES, BoxLifetime, boxRebuiltText, type RunBoxes } from "../box/lifetime";
 import type { RunProfile } from "../scan/detect";
 import { capNote, gatherHandoff, type HandoffFacts } from "../prompts/handoff";
 import { renderSystemFile } from "../prompts/system";
 import maintainerNoteTemplate from "../prompts/feedback/maintainer-note.md" with { type: "text" };
-import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
+import { renderTemplate } from "../prompts/templates";
 import { withWorkViews } from "../views/work";
-import type { AdapterHold } from "../workers/hold";
+import type { AdapterPause } from "./starts-paused";
 import type { WorkerPort } from "../workers/port";
 import { PlanError, type Caps, type ParseState, type WorkerReport } from "../workers/types";
 import { branchTip } from "../git/write";
@@ -94,7 +79,6 @@ import {
   packageCacheSkippedText,
   runLaunchPaths,
   runWorkerSpec,
-  systemHashOf,
   type HostStarter,
   type RunIngest,
   type TierCaps,
@@ -108,7 +92,7 @@ import { clearSignals } from "../records/signals";
 import type { RunBase } from "./work-run";
 
 /**
- * The maintainer's note as the worker reads it (`feedback/maintainer-note.md`, 0020 section 3): never
+ * The maintainer's note as the worker reads it (`feedback/maintainer-note.md`, 0020): never
  * sent verbatim, so maintainer text never starts a message, and capped with a marker (`capNote`).
  */
 export function noteText(note: string): string {
@@ -127,10 +111,7 @@ export function sessionFeedback(office: OfficeHandle, run: StoredRun): HeldFeedb
     : heldFeedback(office, run.runId);
 }
 
-/** 0014 section 6 until `office.yaml` version 2 (0014 amendment, DIPO-51): engine constants. */
-export const RESUME_POLICY = { maxContextShare: 0.6, rereadFactor: 3 } as const;
-
-/** How long a run's next session waits for an earlier host of the run to end (0006 decision 8). */
+/** How long a run's next session waits for an earlier host of the run to end (0005). */
 export const HOST_EXIT_WAIT_MS = 30_000;
 const HOST_EXIT_POLL_MS = 250;
 
@@ -142,7 +123,6 @@ const HOST_SIGNALS = ["host-lost", "no-output"] as const;
 
 /** `engine.notice` codes of a run's next session. */
 export const RESUME_NOTICES = {
-  resumed: "run.resumed",
   handoff: "run.handoff",
 } as const;
 
@@ -187,7 +167,7 @@ export interface RunResumerDeps {
   };
   readonly onChanged?: (office: OfficeId) => void;
   /**
-   * Liveness of the run's earlier hosts (DIPO-57, 0006 decision 8): no new host starts while one
+   * Liveness of the run's earlier hosts (DIPO-57, 0005): no new host starts while one
    * of them still runs. Without it nothing is checked.
    */
   readonly probe?: ProcessProbe;
@@ -202,9 +182,9 @@ export interface RunResumerDeps {
    */
   readonly boxes?: RunBoxes;
   /**
-   * Copies into the run's box the merges dipo committed on its branch outside the box (the merge
-   * slot's, DIPO-324), before the next developer session; throws when that fails, and the session
-   * does not start (the caller parks the story). Nothing is copied without it.
+   * Copies into the run's box the merges dipo committed on its branch outside the box (the
+   * auto-merge's conflict hand-off), before the next developer session; throws when that fails, and
+   * the session does not start (the caller parks the story). Nothing is copied without it.
    */
   readonly boxSync?: (office: OfficeId, run: StoredRun) => Promise<void>;
   /** The office's current run profile, whose install a rebuilt box gets (DIPO-294). */
@@ -224,11 +204,9 @@ export interface HandoffExtra {
   readonly box: boolean;
 }
 
-/** A new session's task message with its handoff block, and what it was built from. */
+/** A new session's task message with its handoff block. */
 interface HandoffMessage {
   readonly text: string;
-  readonly pack: ContextPack;
-  readonly headSha: string;
 }
 
 export interface NextSessionRequest {
@@ -236,9 +214,7 @@ export interface NextSessionRequest {
   readonly run: StoredRun;
   /** Who worked on the run until now. */
   readonly work: WorkRef;
-  /** `resume` when `canResume` allows it, else a handoff; `handoff` always starts a new session. */
-  readonly mode: "resume" | "handoff";
-  /** Why the previous session ended, for the notice and the resume message. */
+  /** Why the previous session ended, for the notice. */
   readonly why: string;
   /** The run's caps as run control tracks them. */
   readonly caps: Caps;
@@ -247,16 +223,10 @@ export interface NextSessionRequest {
 }
 
 export type NextSessionOutcome =
-  | {
-      readonly kind: "started";
-      readonly agent: AgentId;
-      readonly resumed: boolean;
-      /** Why a resume was not possible, for a handoff that was asked to resume first. */
-      readonly notResumed?: string;
-    }
-  | { readonly kind: "startFailed"; readonly hold: AdapterHold }
+  | { readonly kind: "started"; readonly agent: AgentId }
+  | { readonly kind: "startFailed"; readonly pause: AdapterPause }
   /**
-   * An earlier host of the run still runs after the wait (0006 decision 8): nothing started. The
+   * An earlier host of the run still runs after the wait (0005): nothing started. The
    * code is 0005's retryable `run.hostAlive`.
    */
   | {
@@ -272,11 +242,7 @@ export interface NextSession {
 }
 
 interface PreviousAgent {
-  readonly sessionId: string | null;
-  readonly version: string | null;
-  readonly systemHash: string | null;
   readonly state: ParseState | undefined;
-  readonly lastLineAt: number | null;
 }
 
 function messageOf(error: unknown): string {
@@ -303,26 +269,13 @@ export function startTierOf(office: OfficeHandle, run: StoredRun, tier: TierCaps
 }
 
 function previousAgent(office: OfficeHandle, runId: string, agent: string): PreviousAgent {
-  const row = office.get<{
-    session_id: string | null;
-    adapter_version: string | null;
-    system_hash: string | null;
-  }>(
-    `select session_id, adapter_version, system_hash from agents
-      where office_id = $office_id and agent_id = $agent`,
-    { agent },
-  );
-  const cursor = office.get<{ parse_state: string; updated_at: number }>(
-    `select parse_state, updated_at from ingest_cursors
+  const cursor = office.get<{ parse_state: string }>(
+    `select parse_state from ingest_cursors
       where office_id = $office_id and run_id = $run and agent_id = $agent and source_kind = 'host-events'`,
     { run: runId, agent },
   );
   return {
-    sessionId: row?.session_id ?? null,
-    version: row?.adapter_version ?? null,
-    systemHash: row?.system_hash ?? null,
     state: cursor === null ? undefined : (JSON.parse(cursor.parse_state) as ParseState),
-    lastLineAt: cursor?.updated_at ?? null,
   };
 }
 
@@ -372,82 +325,23 @@ export class RunResumer implements NextSession {
     // developer session is a box worker's, a run from before them included, whose box is made below.
     const box = deps.boxes !== undefined || existsSync(join(paths.runDir, BOX_RUN_FILE));
     const systemFile = renderSystemFile("implement-box", "developer");
-    const systemHash = systemHashOf(systemFile);
 
-    // The handoff message: the new session's task message, and the size a resume is weighed with.
-    let handoff: HandoffMessage | { error: string };
+    // The handoff message: the new session's task message.
+    let handoff: HandoffMessage;
     try {
       handoff = await this.#handoffMessage(office, git, run, config, facts?.lastReport ?? null, {
         box,
       });
     } catch (error) {
-      handoff = { error: messageOf(error) };
+      return { kind: "failed", reason: `the handoff could not be built: ${messageOf(error)}` };
     }
 
     const adapter = deps.worker.adapter(paths, config);
-    let resume = false;
-    let notResumed: string | undefined;
-    if (request.mode === "resume" && previous.sessionId !== null) {
-      const version = await adapter.probe().then(
-        (status) => status.version,
-        () => null,
-      );
-      const check = adapter.canResume(
-        {
-          id: previous.sessionId,
-          transcriptPath: null,
-          version: previous.version,
-          systemHash: previous.systemHash,
-          contextTokens: facts?.contextTokens ?? null,
-          contextWindow: facts?.contextWindow ?? null,
-          lastRequestAt: previous.lastLineAt,
-        },
-        runWorkerSpec(
-          deps.worker,
-          { runId: run.runId, agent: request.work.agent, caps: tier },
-          paths,
-          "",
-          {
-            id: previous.sessionId,
-            resume: true,
-          },
-        ),
-        {
-          now: deps.clock.now(),
-          version,
-          systemHash,
-          handoffTokens:
-            "text" in handoff
-              ? Math.ceil(handoff.text.length / CHARS_PER_TOKEN)
-              : Number.POSITIVE_INFINITY,
-          ...RESUME_POLICY,
-        },
-      );
-      resume = check.ok;
-      if (!check.ok) notResumed = check.reason;
-    } else if (request.mode === "resume") {
-      notResumed = "the previous session never started";
-    }
-    if (!resume && "error" in handoff) {
-      return { kind: "failed", reason: `the handoff could not be built: ${handoff.error}` };
-    }
-
     const agent = deps.ids.next("agt") as AgentId;
-    const session =
-      resume && previous.sessionId !== null
-        ? { id: previous.sessionId, resume: true }
-        : { id: sessionUuid(agent), resume: false };
-    // The messages of the one feedback path that waited for this session follow the resume delta
-    // or the task message.
+    const session = { id: sessionUuid(agent) };
+    // The messages of the one feedback path that waited for this session follow the task message.
     const held = sessionFeedback(office, run);
-    const taskMessage = [
-      resume
-        ? renderTemplate(FEEDBACK_TEMPLATES.resume, { reason: request.why })
-        : (handoff as { text: string }).text,
-      ...held.texts,
-    ]
-      .filter((part) => part !== "")
-      .join("\n\n");
+    const taskMessage = [handoff.text, ...held.texts].filter((part) => part !== "").join("\n\n");
     const spec = runWorkerSpec(
       deps.worker,
       { runId: run.runId, agent, caps: tier },
@@ -459,7 +353,7 @@ export class RunResumer implements NextSession {
     try {
       // The developer's temp files live in its box: no run temp directory on the Mac (DIPO-240).
       ensurePrivateDir(paths.runDir);
-      if (!resume) writeFileSync(spec.systemFile, systemFile, { mode: 0o600 });
+      writeFileSync(spec.systemFile, systemFile, { mode: 0o600 });
     } catch (error) {
       return {
         kind: "failed",
@@ -482,7 +376,7 @@ export class RunResumer implements NextSession {
       }
     }
 
-    // The launch checks run before every launch and resume (0008 section 2).
+    // The launch checks run before every launch (0008).
     let prepared;
     try {
       prepared = await deps.worker.prepare(
@@ -498,9 +392,9 @@ export class RunResumer implements NextSession {
           : messageOf(error);
       return { kind: "failed", reason: why };
     }
-    if (!prepared.ok) return { kind: "startFailed", hold: prepared.hold };
+    if (!prepared.ok) return { kind: "startFailed", pause: prepared.pause };
 
-    // Never a new host while an earlier host of the run still runs (0006 decision 8).
+    // Never a new host while an earlier host of the run still runs (0005).
     const alive = await this.#earlierHostAlive(office, run.runId);
     if (alive !== null) return { kind: "hostAlive", code: "run.hostAlive", pid: alive };
 
@@ -526,42 +420,31 @@ export class RunResumer implements NextSession {
         model: tier.model,
         effort: tier.effort,
         sessionId: session.id,
-        // A resume keeps the system file the session started with.
-        systemHash: resume ? previous.systemHash : systemHash,
         startedAt: deps.clock.now(),
       });
       // The held messages went with this session, in the transaction that records it.
       deliverHeld(office, run.runId, held.ids, deps.clock.now());
-      // The prompt parts this session sent (0014 section 2): a handoff sends the system file and
-      // the task message; a resume sends only its task message, the system file being the
-      // session's own.
+      // The prompt parts this session sent (0014): the system file and the task message.
       recordPromptParts(
         office,
         run.runId,
         agent,
-        resume ? [measurePart(TASK_PART, taskMessage)] : promptParts(systemFile, taskMessage, []),
+        promptParts(systemFile, taskMessage, []),
         deps.clock,
       );
-      // The prompt text, with `privacy.storePrompts` on (DIPO-137): a resume stores only its
-      // message, the session keeping the system file it started with.
+      // The prompt text, with `privacy.storePrompts` on (DIPO-137).
       recordPromptTexts(
         office,
         run.runId,
         agent,
-        resume
-          ? [{ part: "message", text: taskMessage }]
-          : [
-              { part: "system", text: systemFile },
-              { part: "message", text: taskMessage },
-            ],
+        [
+          { part: "system", text: systemFile },
+          { part: "message", text: taskMessage },
+        ],
         config,
         deps.clock,
       );
       const at = deps.clock.now();
-      // The pack a new session's task message was built from (0020 section 6); a resume sends none.
-      if (!resume && "pack" in handoff && run.branch !== null) {
-        recordContextPack(office, run.branch, handoff.headSha, handoff.pack, deps.clock);
-      }
       const cleared = clearSignals(office, run.runId, HOST_SIGNALS, at);
       if (cleared.length === 0) return;
       appendEntries(
@@ -625,9 +508,7 @@ export class RunResumer implements NextSession {
       initialState: deps.worker.initialState(spec, previous.state),
     });
     const story = run.story ?? run.runId;
-    const started = resume
-      ? `${story}: dipo resumed the worker's session after ${request.why}.`
-      : `${story}: dipo started a new session with a handoff after ${request.why}${notResumed === undefined ? "" : ` (no resume: ${notResumed})`}.`;
+    const started = `${story}: dipo started a new session with a handoff after ${request.why}.`;
     const text =
       held.unread === 0
         ? started
@@ -640,17 +521,12 @@ export class RunResumer implements NextSession {
         run: run.runId,
         delta: {
           level: "info",
-          code: resume ? RESUME_NOTICES.resumed : RESUME_NOTICES.handoff,
+          code: RESUME_NOTICES.handoff,
           text,
         },
       },
     ]);
-    return {
-      kind: "started",
-      agent,
-      resumed: resume,
-      ...(notResumed === undefined ? {} : { notResumed }),
-    };
+    return { kind: "started", agent };
   }
 
   /**
@@ -791,11 +667,7 @@ export class RunResumer implements NextSession {
       handoff,
       ...(box ? { box: true } : {}),
     });
-    return {
-      text: prompts.taskMessage,
-      pack: prompts.pack,
-      headSha: prompts.headSha,
-    };
+    return { text: prompts.taskMessage };
   }
 
   async #gather(
@@ -815,7 +687,7 @@ export class RunResumer implements NextSession {
       lastReport,
       // dipo stores no verify result of its own: the box worker runs verify, CI checks (DIPO-342).
       lastVerify: null,
-      // The items no later approval answered (0020 section 6).
+      // The items no later approval answered (0020).
       openFeedback: openFeedbackOf(office, run.runId),
       ...(extra.box ? { box: true } : {}),
       budget: runBudgetFacts(office, run, this.#deps.clock.now()),

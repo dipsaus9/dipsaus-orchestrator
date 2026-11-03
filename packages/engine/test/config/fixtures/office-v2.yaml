@@ -1,4 +1,0 @@
-# A version 2 office file: version 2 adds worker.plugins (DIPO-108).
-version: 2
-worker: { plugins: [tool@market] }
-scripts: { test: bun test }

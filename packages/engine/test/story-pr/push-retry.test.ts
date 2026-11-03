@@ -68,7 +68,8 @@ const FACTS: StoryPrFacts = {
     id: "DIPO-1",
     title: "Push again.",
     type: "feature",
-    outcome: "the branch reaches the remote",
+    storyLine:
+      "As maintainer I want the branch reaches the remote so that I can follow the story on GitHub.",
     criteria: [{ index: 1, text: "It is pushed", checked: true }],
     testPlan: undefined,
     scope: ["packages/engine/src/story-pr/"],

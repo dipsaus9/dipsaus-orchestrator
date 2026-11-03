@@ -4,7 +4,7 @@
 // opened, and its verdict did not carry).
 //
 // - `gate.approve { gate, note? }` decides the merge gate `approved` by `maintainer`, and dipo
-//   turns auto-merge on for the PR at its next poll (a hold label still holds it). It answers
+//   turns auto-merge on for the PR at its next poll (a wait label still holds it). It answers
 //   `gate.handMergeOnly`, and decides nothing, when only a hand merge on GitHub can merge the PR:
 //   a PR labelled `autorelease: pending`, a PR whose diff changes the release path (it needs the
 //   maintainer's code owner approval, which is the maintainer's merge on the host), and a PR whose

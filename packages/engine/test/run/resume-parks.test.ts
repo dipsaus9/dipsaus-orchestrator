@@ -26,8 +26,7 @@ import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import type { AsyncCommandContext } from "../../src/commands/registry";
-import { workerAnswerText } from "../../src/questions/permissions";
-import { closeQuestion, findQuestion, insertWorkerQuestion } from "../../src/run-state/questions";
+import { findQuestion, insertWorkerQuestion } from "../../src/run-state/questions";
 import { HANDOFF_NOTE_MAX } from "../../src/prompts/handoff";
 import { recordReviewVerdict } from "../../src/review/store";
 import {
@@ -73,8 +72,8 @@ import { type IngestFixture, ingestFixture } from "../ingest/helpers";
 import { backlogLayout } from "../story-store/backlog";
 
 /**
- * The first message the session of `request` got (`RunResumer`): the resume delta of a native
- * resume, then every held message, the findings before the maintainer's words.
+ * The first message the session of `request` got (`RunResumer`): every held message, the findings
+ * before the maintainer's words.
  */
 function first(request: HeldSession | undefined): string {
   return request?.message ?? "";
@@ -83,7 +82,7 @@ function first(request: HeldSession | undefined): string {
 /** Every command counts as implemented. */
 const all = () => true;
 
-/** Tier S of the office defaults (0008 section 9). */
+/** Tier S of the office defaults (0008). */
 const TIER_S: Caps = { budgetTokens: 300_000, maxTurns: 60, maxMinutes: 30 };
 
 interface World {
@@ -188,12 +187,12 @@ function resumption(options: Partial<ResumptionOptions> = {}): Resumption {
       offices: { get: () => f.office },
       steering: { send: async () => ({ ok: true }) },
       encode,
-      worker: { id: "claude-cli", result: () => ({ outcome: "done", resumable: true }) as never },
+      worker: { id: "claude-cli", result: () => ({ outcome: "done" }) as never },
       ender: () => ender,
       resumer: {
         next: async (request) => {
           w.sessions.push(withHeld(f.office, request, f.t.clock.now()));
-          return { kind: "started", agent: f.t.ids.next("agt") as AgentId, resumed: true };
+          return { kind: "started", agent: f.t.ids.next("agt") as AgentId };
         },
       },
       caps: () => TIER_S,
@@ -729,12 +728,12 @@ describe("work.resume refusals", () => {
     expect(signals).toEqual([]);
   });
 
-  it("answers scheduling.off while the daemon schedules no work", async () => {
+  it("answers daemon.draining while the daemon schedules no work", async () => {
     park("by-maintainer");
     const error = await refusal(
       resumption({ parks: { scheduling: () => false } } as Partial<ResumptionOptions>),
     );
-    expect(error.error.code).toBe("scheduling.off");
+    expect(error.error.code).toBe("daemon.draining");
     expect(error.error.retryable).toBe(true);
   });
 
@@ -1113,7 +1112,7 @@ describe("no resume raises a cap without a recorded grant (0020, never silent)",
     });
   }
 });
-describe("a resume whose place is taken (0020 section 1, 0019 section 12)", () => {
+describe("a resume whose place is taken (0020, 0002)", () => {
   it("is accepted with its intent stored, replies queued, and starts when the worker place frees", async () => {
     const { office, t } = w.f;
     // Another story run holds the office's worker place with a live session.
@@ -1410,12 +1409,12 @@ function createRunOutcomesWithLift(
     offices: { get: () => f.office },
     steering: { send: async () => ({ ok: true }) },
     encode,
-    worker: { id: "claude-cli", result: () => ({ outcome: "done", resumable: true }) as never },
+    worker: { id: "claude-cli", result: () => ({ outcome: "done" }) as never },
     ender: () => ender,
     resumer: {
       next: async (request) => {
         w.sessions.push(withHeld(f.office, request, f.t.clock.now()));
-        return { kind: "started", agent: f.t.ids.next("agt") as AgentId, resumed: true };
+        return { kind: "started", agent: f.t.ids.next("agt") as AgentId };
       },
     },
     caps: () => TIER_S,
@@ -1568,7 +1567,7 @@ describe("two resumes of one park (DIPO-155 review)", () => {
 describe("the maintainer's note in a worker's message (DIPO-155 review)", () => {
   const long = `${"word ".repeat(400)}end`;
 
-  it("caps a long note in the native resume with the handoff block's limit and marker", () => {
+  it("caps a long note with the handoff block's limit and marker", () => {
     const text = noteText(long);
     expect(text.startsWith("Note from the maintainer: ")).toBe(true);
     expect(text.length).toBeLessThanOrEqual("Note from the maintainer: ".length + HANDOFF_NOTE_MAX);
@@ -1588,7 +1587,7 @@ describe("the maintainer's note in a worker's message (DIPO-155 review)", () => 
   });
 });
 
-describe("the client name of a top-up (0020 section 4, DIPO-155 review)", () => {
+describe("the client name of a top-up (0020, DIPO-155 review)", () => {
   it("records the client name the connection gave in engine.hello on the budget grant", async () => {
     park("budget-exceeded");
     usage(61, 100_000);
@@ -1711,30 +1710,6 @@ describe("an ambiguous-spec park resumed with its answer (DIPO-159; 0020)", () =
     expect(String(notices[0]?.["text"])).toContain("(R26)");
     // The answer still reaches the worker.
     expect(w.sessions[0]?.message).toContain("The maintainer's answer: Print Hello, Ada!");
-  });
-
-  it("resumes with no note when the park's question was answered while its run was ending, the held answer going first", async () => {
-    const { parkId, question } = questionPark();
-    w.f.office.immediate(() => {
-      closeQuestion(w.f.office, question, "answered", w.f.t.clock.now(), {
-        text: "Print Hello, Ada!",
-        decision: null,
-        delivered: "on-resume",
-      });
-      sendFeedback(
-        w.f.office,
-        w.f.run,
-        { source: "answer", text: workerAnswerText("Print Hello, Ada!") },
-        { at: w.f.t.clock.now() },
-      );
-    });
-    const reply = await resume(resumption());
-    expect(reply.result.to).toBe("In Progress");
-    expect(w.lifts[0]?.answer?.answer).toBe("Print Hello, Ada!");
-    // The held answer goes with the first message once; no answer.md repeats it.
-    expect(first(w.sessions[0])).toContain(workerAnswerText("Print Hello, Ada!"));
-    expect(first(w.sessions[0])).not.toContain("The maintainer's answer:");
-    expect(parkRow(parkId)?.resolved_how).toBe("resume");
   });
 
   it("expires every other open question of a park it resumes, and a budget park's carried question", async () => {

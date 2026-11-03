@@ -13,7 +13,7 @@ import { BACKLOG_FOLDER, ROOT_CONFIG, storyFoldersOf } from "./runner";
 
 export { BacklogFolderError } from "./runner";
 
-/** The project configuration that makes a repository a Backlog.md project (0006). */
+/** The project configuration that makes a repository a Backlog.md project (0005). */
 export const PROJECT_CONFIG = `${BACKLOG_FOLDER}/config.yml`;
 
 /** The folders Backlog.md keeps the stories of the repository `read` reads in (`storyFoldersOf`). */

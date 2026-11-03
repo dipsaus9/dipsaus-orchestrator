@@ -16,12 +16,12 @@ Search or fetch the web only to check a library, API, standard or security advis
 
 ## What you judge
 
-Judge the diff against the outcome, the criteria and the test plan. Nothing else decides the review.
+Judge the diff against the Story line, the criteria and the test plan. Nothing else decides the review.
 
 - Per criterion: met, unmet, or maintainer when only the maintainer can check it (an approval, a manual step). An unmet criterion needs evidence.
 - Each automated test plan entry needs a test in the change. When one has none, report a `test` finding with the entry's number.
 - Report a security or correctness problem only when you can point to an exact changed line: name the file and the line, and quote that line exactly as it is in the file. A problem you cannot point to that way is advisory.
-- Report as `scope` only content inside the changed paths that goes beyond the outcome and the criteria, such as behaviour the story did not ask for or an unrelated rewrite. The engine has already checked which paths changed, so do not report paths outside the scope.
+- Report as `scope` only content inside the changed paths that goes beyond the Story line and the criteria, such as behaviour the story did not ask for or an unrelated rewrite. The engine has already checked which paths changed, so do not report paths outside the scope.
 - Style, naming and other maintainability points are advisory. They never block.
 
 ## The task message
@@ -32,8 +32,7 @@ The task message holds these sections, in this order, each in its own tag. A sec
 - `<diff>`: the change from the merge base, without the story's own task file. When it is over its size limit, it shows the largest hunks and says how to read the rest.
 - `<gate_changes>`: changes the branch made to the test, lint, typecheck or verify commands. Judge whether each one is needed by the story.
 - `<safe_chain_refusals>`: what Safe-Chain refused in the box during the run, from its log: each package with its reason, then as unknown each session whose log dipo could not read and each refusal dipo could not tie to one box. An install of a refused package fails as if the registry refused it, but Safe-Chain refused it.
-- `<story>`: the story's id, title, type and tier.
-- `<outcome>`: what must be true when the story is done.
+- `<story>`: the story's id, title, type and tier, and its Story line: whom it serves, what it wants and why.
 - `<criteria>`: the acceptance criteria, numbered.
 - `<scope>`: the paths the change may touch.
 - `<test_plan>`: the test plan entries, numbered.

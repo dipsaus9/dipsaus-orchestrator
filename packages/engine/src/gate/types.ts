@@ -1,4 +1,4 @@
-// Inputs and verdict of the Ready gate (0012 section 3, R26 from 0014 section 4). The caller reads
+// Inputs and verdict of the Ready gate (0012, R26 from 0014). The caller reads
 // the story, the office's active tasks and its milestones through the Backlog CLI, and the base
 // tree's file paths through git (R29), and passes them in; the gate itself reads nothing.
 
@@ -89,7 +89,7 @@ export interface GateTask {
   readonly branch?: string;
 }
 
-/** A roster role (0011). `code: false` marks a non-code role such as a designer (M4). */
+/** A roster role (0001). `code: false` marks a non-code role such as a designer (M4). */
 export interface GateRole {
   readonly name: string;
   readonly code: boolean;

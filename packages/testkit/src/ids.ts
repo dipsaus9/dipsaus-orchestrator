@@ -1,4 +1,4 @@
-// Deterministic ids for tests: `run-0001`, `run-0002`, `agt-0001` (0017 section 4).
+// Deterministic ids for tests: `run-0001`, `run-0002`, `agt-0001` (0017).
 
 import type { IdPrefix, IdSource } from "@dipsaus-orchestrator/contract";
 
