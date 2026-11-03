@@ -11,7 +11,6 @@
 import { z } from "zod";
 
 import { cleanDoorStrings, doorKeysClean } from "../../box/door";
-import { checkStoryLine } from "../../gate";
 import { toJsonSchema } from "../json-schema";
 import {
   REVIEW_SUMMARY_MAX,
@@ -62,30 +61,24 @@ const caps = WORKER_REPORT_CAPS;
 
 /**
  * A proposal (0008 W5): a follow-up story, a spike, or a tool the box lacks. Data only. Its story
- * line has the shape the Ready gate's R05 checks (0012, `checkStoryLine`); a line that fails is
- * refused with each problem, so the worker can write it again.
+ * line is held to its length cap here; the engine checks its shape (0012 R05) and sends a line that
+ * fails back once, then drops that proposal (`run/proposal-lines.ts`).
  */
-export const WorkerProposalSchema = z
-  .strictObject({
-    kind: z
-      .enum(["follow-up", "spike", "tool"])
-      .describe("follow-up: a story; spike: a question to research; tool: a tool the box lacks"),
-    title: Text.max(caps.proposalTitle).describe("a short title"),
-    story: Text.max(caps.proposalStory).describe(
-      "one line: As <maintainer|worker|reviewer> I want <capability> so that <value>. For a spike: We need to decide <question> so that <value>. Plain words: no backticks, file paths or code",
-    ),
-    why: Text.max(caps.proposalWhy).describe("why it is needed, and what you saw"),
-    paths: z
-      .array(Text.max(caps.path))
-      .max(caps.proposalPaths)
-      .exactOptional()
-      .describe("files it concerns, relative to the repository root"),
-  })
-  .superRefine((proposal, ctx) => {
-    for (const problem of checkStoryLine(proposal.story, proposal.kind === "spike")) {
-      ctx.addIssue({ code: "custom", path: ["story"], message: problem });
-    }
-  });
+export const WorkerProposalSchema = z.strictObject({
+  kind: z
+    .enum(["follow-up", "spike", "tool"])
+    .describe("follow-up: a story; spike: a question to research; tool: a tool the box lacks"),
+  title: Text.max(caps.proposalTitle).describe("a short title"),
+  story: Text.max(caps.proposalStory).describe(
+    "one line: As <maintainer|worker|reviewer> I want <capability> so that <value>. For a spike: We need to decide <question> so that <value>. Plain words: no backticks, file paths or code",
+  ),
+  why: Text.max(caps.proposalWhy).describe("why it is needed, and what you saw"),
+  paths: z
+    .array(Text.max(caps.path))
+    .max(caps.proposalPaths)
+    .exactOptional()
+    .describe("files it concerns, relative to the repository root"),
+});
 
 /** A test-plan entry as the worker reports it (DIPO-254): number, status and evidence. */
 export const WorkerTestPlanEntrySchema = z.strictObject({
@@ -283,26 +276,8 @@ export function parseWorkerReport(output: unknown): WorkerReportRead {
   if (!doorKeysClean(output))
     return { ok: false, error: "structured_output fails the report schema" };
   const parsed = WorkerReportSchema.safeParse(cleanDoorStrings(output));
-  if (!parsed.success) {
-    const story = storyLineProblems(parsed.error.issues);
-    return {
-      ok: false,
-      error: `structured_output fails the report schema${story.length === 0 ? "" : `: ${story.join("; ")}`}`,
-    };
-  }
+  if (!parsed.success) return { ok: false, error: "structured_output fails the report schema" };
   return { ok: true, report: parsed.data };
-}
-
-/**
- * The story line problems of a report's proposals (0012 R05), each named by its proposal's number,
- * so the worker can write the line again; the other problems of the report stay unnamed.
- */
-function storyLineProblems(issues: readonly z.core.$ZodIssue[]): string[] {
-  return issues.flatMap((issue) => {
-    const [field, index, key] = issue.path;
-    if (issue.code !== "custom" || field !== "proposals" || key !== "story") return [];
-    return typeof index === "number" ? [`proposal ${index + 1}: ${issue.message}`] : [];
-  });
 }
 
 /** A review report, or why the output is not one. */

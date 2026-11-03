@@ -24,6 +24,7 @@ import decisionNoteTemplate from "./feedback/decision-note.md" with { type: "tex
 import fixRoundOptionalTemplate from "./feedback/fix-round-optional.md" with { type: "text" };
 import fixRoundTemplate from "./feedback/fix-round.md" with { type: "text" };
 import maintainerTestTemplate from "./feedback/maintainer-test.md" with { type: "text" };
+import proposalLineTemplate from "./feedback/proposal-line.md" with { type: "text" };
 import rejectTemplate from "./feedback/reject.md" with { type: "text" };
 import reviewCriterionTemplate from "./feedback/review-criterion.md" with { type: "text" };
 import reviewEvidenceTemplate from "./feedback/review-evidence.md" with { type: "text" };
@@ -82,6 +83,20 @@ export function decisionNoteFeedback(
         (miss) =>
           `- ${miss.file}, section "${miss.section}": ${miss.miss === "file" ? "the file does not exist" : "the file has no section with that heading"}`,
       )
+      .join("\n"),
+  });
+}
+
+/**
+ * A done report's proposals whose Story line fails 0012 R05, sent back once: one line per
+ * proposal with its title (capped by the report schema) and the gate's problems.
+ */
+export function proposalLineFeedback(
+  refused: readonly { readonly title: string; readonly problems: readonly string[] }[],
+): string {
+  return renderTemplate(proposalLineTemplate, {
+    proposals: refused
+      .map((item) => `- "${item.title.replace(/\s+/g, " ").trim()}": ${item.problems.join("; ")}`)
       .join("\n"),
   });
 }

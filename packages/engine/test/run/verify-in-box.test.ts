@@ -75,6 +75,7 @@ import {
 } from "../../src/records";
 import { appendHandOff, type DoneConflictDecision, handOffState } from "../../src/run/conflicts";
 import type { BoxVerifyResult } from "../../src/box/verify";
+import { PROPOSAL_DROPPED_NOTICE } from "../../src/run/report-data";
 import {
   BOX_TIP_MOVED,
   NO_BOX_AT_DONE,
@@ -2017,6 +2018,124 @@ describe("the report gate at done, in a box run (DIPO-186, DIPO-240)", () => {
     expect(texts).toHaveLength(1);
     expect(texts[0]).toContain("these automated test-plan entries are not done");
     expect(texts[0]).toContain(`- ${DECISION}, section "1. The port": the file does not exist`);
+  });
+
+  // A proposal whose Story line fails 0012 R05 never parks finished work: one send-back per run,
+  // with no loop, then the proposal is dropped with a notice and the rest of the report goes on.
+  const GOOD = {
+    kind: "follow-up",
+    title: "Greet in Dutch",
+    story:
+      "As maintainer I want the shop greeting in Dutch so that Dutch customers are greeted in their own language.",
+    why: "Asked for twice.",
+  } as const;
+  const BAD = {
+    kind: "follow-up",
+    title: "Split the parser",
+    story: "Split src/parse.ts into two modules.",
+    why: "It grew past one screen.",
+  } as const;
+  const dropped = () =>
+    events("engine.notice").filter((notice) => notice["code"] === PROPOSAL_DROPPED_NOTICE);
+
+  it("sends a failing proposal Story line back once without a loop; still failing, the proposal is dropped with a notice and the story goes to review", async () => {
+    await play({ ...DONE, proposals: [GOOD, BAD] });
+    const texts = feedbackTexts();
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toContain(
+      "Your report proposes work whose Story line does not have the shape",
+    );
+    expect(texts[0]).toContain('- "Split the parser": Story line does not read');
+    expect(texts[0]).toContain("names the path src/parse.ts");
+    expect(feedbackDetails()[0]).toStartWith("feedback report-gate - now ");
+    expect(loopSteps()).toEqual([]);
+    expect(w.calls).toEqual([]);
+    expect(parks()).toEqual([]);
+    expect(dropped()).toEqual([]);
+    // The good proposal next to the bad one is stored; the bad one never is.
+    expect(proposals().map((p) => p.title)).toEqual(["Greet in Dutch"]);
+
+    // The same line again: dropped, and the done report goes on to review.
+    await play({ ...DONE, proposals: [GOOD, BAD] });
+    expect(feedbackTexts()).toHaveLength(1);
+    expect(w.calls[0]).toBe(commit);
+    expect(openAtInReview(findRun(w.f.office, w.f.run)!)).toBe(true);
+    expect(parks()).toEqual([]);
+    expect(loopSteps()).toEqual([]);
+    expect(proposals().map((p) => p.title)).toEqual(["Greet in Dutch"]);
+    const [notice, ...more] = dropped();
+    expect(more).toEqual([]);
+    expect(notice?.["level"]).toBe("warn");
+    expect(notice?.["text"]).toStartWith(
+      "DIPO-1: dipo dropped a follow-up proposal of the worker because its Story line still failed after dipo sent it back once",
+    );
+    // The notice carries the proposal's words for the maintainer.
+    expect(notice?.["text"]).toContain(
+      'title "Split the parser"; Story: Split src/parse.ts into two modules.; why: It grew past one screen.',
+    );
+  });
+
+  it("stores a proposal whose Story line the worker corrected after the send-back", async () => {
+    await play({ ...DONE, proposals: [BAD] });
+    expect(feedbackTexts()).toHaveLength(1);
+    await play({
+      ...DONE,
+      proposals: [
+        {
+          ...BAD,
+          story:
+            "As maintainer I want the parser split into two modules so that each module stays small enough to read.",
+        },
+      ],
+    });
+    expect(w.calls[0]).toBe(commit);
+    expect(proposals().map((p) => p.title)).toEqual(["Split the parser"]);
+    expect(dropped()).toEqual([]);
+  });
+
+  it("never parks for a proposal at the loop cap: a send-back of Story lines alone writes no loop", async () => {
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        "update runs set loop_cap = 1 where office_id = $office_id and run_id = $run",
+        { run: w.f.run },
+      ),
+    );
+    await play({ ...DONE, proposals: [BAD] });
+    expect(feedbackTexts()).toHaveLength(1);
+    expect(parks()).toEqual([]);
+    expect(loopSteps()).toEqual([]);
+    await play({ ...DONE, proposals: [BAD] });
+    expect(parks()).toEqual([]);
+    expect(w.calls[0]).toBe(commit);
+    expect(dropped()).toHaveLength(1);
+  });
+
+  it("sends a failing Story line back with a test-plan miss in one item, and drops it when that refusal parks at the loop cap", async () => {
+    w.fields = PLAN;
+    await play({ ...DONE, proposals: [BAD] });
+    const [text] = feedbackTexts();
+    expect(text).toContain("these automated test-plan entries are not done");
+    expect(text).toContain('- "Split the parser": ');
+    expect(loopSteps()).toEqual([REPORT_GATE_LOOP]);
+    await play(DONE);
+    await play({ ...DONE, proposals: [BAD] });
+    expect(parks().map((park) => park.reason)).toEqual(["verify-failing"]);
+    expect(dropped()).toHaveLength(1);
+    expect(dropped()[0]?.["text"]).toContain("the report left no turn to correct it");
+  });
+
+  it("drops a blocked report's failing proposal at once with a notice, and parks as the report asks", async () => {
+    await play({
+      ...DONE,
+      status: "blocked",
+      question: "Which language?",
+      proposals: [GOOD, BAD],
+    });
+    expect(feedbackTexts()).toEqual([]);
+    expect(parks().map((park) => park.reason)).toEqual(["ambiguous-spec"]);
+    expect(proposals().map((p) => p.title)).toEqual(["Greet in Dutch"]);
+    expect(dropped()).toHaveLength(1);
+    expect(dropped()[0]?.["text"]).toContain("the report left no turn to correct it");
   });
 
   it("keeps the checked notes of a report that ends the run in a park", async () => {

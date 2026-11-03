@@ -154,38 +154,13 @@ describe("the report's data fields", () => {
     expect(ok({ ...done, proposals: [{ ...proposal, kind: "chore" }] })).toBe(false);
   });
 
-  it("refuses a proposal whose story line fails the Ready gate's shape, naming each problem for the worker", () => {
-    const refused = (story: string, kind: "follow-up" | "spike" | "tool" = "follow-up") =>
-      parseWorkerReport({ ...done, proposals: [proposal, { ...proposal, kind, story }] });
-    expect(refused("The parser is two modules.")).toEqual({
-      ok: false,
-      error:
-        'structured_output fails the report schema: proposal 2: Story line does not read "As <maintainer|worker|reviewer> I want <capability> so that <value>."',
-    });
-    // A spike needs the spike's shape, and a story line the story's.
-    expect(refused(proposal.story, "spike")).toMatchObject({
-      ok: false,
-      error: expect.stringContaining('proposal 2: Story line does not read "We need to decide'),
-    });
-    expect(
-      refused(
-        "We need to decide which queue design the office uses so that the next stories build on one design.",
-        "spike",
-      ),
-    ).toMatchObject({ ok: true });
-    // Short parts, a backtick, a path and code are each named.
-    expect(refused("As worker I want it short so that ok.")).toMatchObject({
-      error: expect.stringContaining("capability is shorter than 20 characters"),
-    });
-    const words = refused(
-      "As maintainer I want the `parser` in src/parse.ts split with parseAll() so that each module stays small to read.",
-    );
-    expect(words.ok).toBe(false);
-    if (words.ok) return;
-    expect(words.error).toContain("proposal 2: Story line holds a backtick");
-    expect(words.error).toContain("names the path src/parse.ts");
-    expect(words.error).toContain("holds code (parseAll())");
-    // Other schema problems stay unnamed.
+  it("takes a proposal whose story line fails the Ready gate's shape: the engine judges the line, not the door", () => {
+    const report = {
+      ...done,
+      proposals: [proposal, { ...proposal, story: "Split src/parse.ts with `parseAll()`." }],
+    };
+    expect(parseWorkerReport(report)).toEqual({ ok: true, report });
+    // Other schema problems still fail the report, unnamed.
     expect(parseWorkerReport({ ...done, proposals: [{ ...proposal, kind: "chore" }] })).toEqual({
       ok: false,
       error: "structured_output fails the report schema",

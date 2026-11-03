@@ -743,7 +743,7 @@ create index decision_notes_state on decision_notes (office_id, state, created_a
 create table report_sendbacks (
   office_id text not null,
   run_id text not null,
-  kind text not null check (kind in ('decision-note', 'verify-run')),
+  kind text not null check (kind in ('decision-note', 'proposal')),
   signature text not null,
   at integer not null,
   primary key (office_id, run_id, kind, signature),

@@ -10,6 +10,7 @@ import { capEnding, type RunEndings } from "./control-endings";
 import { disarm, messageOf, type RunControlDeps, type Tracked, viewOf } from "./control-types";
 import { notSentNotice, sendFeedback } from "./feedback";
 import type { ParkOutcome } from "./park";
+import type { RefusedProposal } from "./report-data";
 import { findRun } from "../records/run-records";
 import type { RunFinisher } from "./verify-commit";
 
@@ -26,7 +27,8 @@ export class AfterTurns {
 
   /**
    * Queues the after-turn work of one turn; turns of a run are handled one at a time. `review` is
-   * a reviewer session's valid report (DIPO-219).
+   * a reviewer session's valid report (DIPO-219); `refused` the done report's proposals whose
+   * Story line fails, for the report gate.
    */
   queue(
     tracked: Tracked,
@@ -34,9 +36,11 @@ export class AfterTurns {
     problem?: TurnProblem,
     capped: FiredCap | null = null,
     review?: ReviewReport,
+    refused: readonly RefusedProposal[] = [],
   ): void {
     tracked.turns = background(
-      () => tracked.turns.then(() => this.#runTurn(tracked, report, problem, capped, review)),
+      () =>
+        tracked.turns.then(() => this.#runTurn(tracked, report, problem, capped, review, refused)),
       {
         failed: "verify and commit after a turn failed",
         fields: { run: tracked.runId },
@@ -52,13 +56,14 @@ export class AfterTurns {
     problem: TurnProblem | undefined,
     capped: FiredCap | null,
     review: ReviewReport | undefined,
+    refused: readonly RefusedProposal[],
   ): Promise<void> {
     if (tracked.ending !== null) return;
     const finisher = this.#deps.finisher;
     let decided: "continue" | "decided" = "continue";
     if (finisher !== undefined) {
       try {
-        decided = await this.#finishTurn(tracked, finisher, report, capped);
+        decided = await this.#finishTurn(tracked, finisher, report, capped, refused);
       } catch (thrown: unknown) {
         // A capped done turn must still end at its cap when the finisher throws (DIPO-235): the
         // run has no other ending yet, so the cap ending goes in its place.
@@ -99,6 +104,7 @@ export class AfterTurns {
     finisher: RunFinisher,
     report: WorkerReport | null,
     capped: FiredCap | null,
+    refused: readonly RefusedProposal[],
   ): Promise<"continue" | "decided"> {
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined) return "decided";
@@ -122,6 +128,7 @@ export class AfterTurns {
         run,
         work: tracked.work,
         report,
+        ...(refused.length === 0 ? {} : { refusedProposals: refused }),
         capped,
         live: () => tracked.ending === null || tracked.ending === mine,
         claimEnd: claim,

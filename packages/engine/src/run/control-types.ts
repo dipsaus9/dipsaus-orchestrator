@@ -24,6 +24,7 @@ import type { IntentKind } from "../records/intents";
 import type { RunAct, RunOutcomesPort, RunView } from "./outcome-types";
 import type { ParkOutcome, ParkWriter } from "./park";
 import type { ParkStore } from "../records/park-state";
+import type { RefusedProposal } from "./report-data";
 import type { StoredRun } from "../records/run-records";
 import type { RunFinisher } from "./verify-commit";
 
@@ -170,6 +171,8 @@ export interface Tracked extends TrackedRun {
    */
   heldDone: {
     readonly report: WorkerReport;
+    /** The held report's proposals whose Story line fails, for the report gate. */
+    readonly refused: readonly RefusedProposal[];
     readonly take: () => void;
     timer: TimerHandle | null;
   } | null;

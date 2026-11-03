@@ -50,6 +50,11 @@
 // - a decision note whose file is missing at the story branch, or holds no section with that
 //   heading; sent back once per file and section, then left out. Each note that passes is stored in
 //   `decision_notes` with its story and run, also from a report that ends the run (`summarize`).
+// Proposals whose Story line fails 0012 R05 (run control took them out of the report,
+// `splitProposals`) go back once per run in the same message; a refusal that holds only them
+// writes no loop, so a proposal never spends the loop cap or parks the story. A line that still
+// fails, or one with no turn left (a capped turn, a refusal at the loop cap), is dropped with a
+// notice (`droppedProposalNotices`) and the rest of the report goes on.
 // dipo reads none of the worker's tool calls to see whether it ran verify: dipo runs it (DIPO-346).
 // Conflict markers left at done (`conflicts.ts`) are a refusal of the same gate (0002). A done turn
 // that crossed a cap has no turn left: its test-plan miss or its markers park `budget-exceeded`,
@@ -73,6 +78,7 @@ import { GitError } from "../git/runner";
 import {
   decisionNoteFeedback,
   FEEDBACK_LOG_LINES_DEFAULT,
+  proposalLineFeedback,
   testPlanFeedback,
   verifyFeedback,
 } from "../prompts/feedback";
@@ -110,10 +116,14 @@ import {
   VERIFY_LOOP,
 } from "../records/run-records";
 import {
+  droppedProposalNotices,
   type NoteMiss,
   noteMiss,
   noteSignature,
+  PROPOSAL_LINE_SIGNATURE,
+  type ProposalDropWhy,
   recordSendBack,
+  type RefusedProposal,
   sentBack,
   storeDecisionNotes,
   storeDoneReport,
@@ -235,6 +245,11 @@ export interface TurnContext {
   readonly run: StoredRun;
   readonly work: WorkRef;
   readonly report: WorkerReport | null;
+  /**
+   * The report's proposals whose Story line fails 0012 R05, which run control took out of
+   * `report` (`splitProposals`); the report gate sends them back once or drops them.
+   */
+  readonly refusedProposals?: readonly RefusedProposal[];
   /**
    * The cap this turn crossed while it carried a done report (DIPO-205): its cap step is written
    * with the run's end.
@@ -367,6 +382,9 @@ export class VerifyCommit implements RunFinisher {
       }),
     );
     const items: string[] = [];
+    const refused = ctx.refusedProposals ?? [];
+    // A capped turn has no turn left for a Story line, whatever else it decides.
+    if (refused.length > 0 && ctx.capped != null) this.#dropProposals(ctx, refused, "no-turn");
 
     // The test plan, read on the office base; a base that cannot be read leaves it unchecked.
     const facts = await this.#deps.storyFacts?.(office.officeId, run).catch((error: unknown) => {
@@ -408,12 +426,64 @@ export class VerifyCommit implements RunFinisher {
       );
     }
 
-    if (items.length === 0) return null;
-    return this.#refuse(ctx, items, at, () => {
+    const lines = ctx.capped != null ? null : this.#proposalLines(ctx, refused, items);
+    const sendLines = () => {
+      if (lines !== null)
+        recordSendBack(office, run.runId, "proposal", PROPOSAL_LINE_SIGNATURE, at);
+    };
+    if (items.length === 0) {
+      if (lines === null) return null;
+      // Only Story lines go back: no loop is written, so they never reach the loop cap.
+      if (!ctx.live()) return { kind: "continue" };
+      office.immediate(sendLines);
+      return { kind: "feedback", source: REPORT_GATE_REFUSAL.source, text: lines };
+    }
+    return this.#refuse(ctx, lines === null ? items : [...items, lines], at, () => {
       for (const miss of misses) {
         recordSendBack(office, run.runId, "decision-note", noteSignature(miss.note), at);
       }
+      sendLines();
     });
+  }
+
+  /**
+   * The send-back of the refused proposals' Story lines, or null: once per run while a turn is
+   * left. A line sent back before, or one whose refusal parks at the loop cap, is dropped instead.
+   */
+  #proposalLines(
+    ctx: TurnContext,
+    refused: readonly RefusedProposal[],
+    items: readonly string[],
+  ): string | null {
+    if (refused.length === 0) return null;
+    const { office, run } = ctx;
+    if (items.length > 0 && loopsOf(office, run.runId) + 1 >= runCaps(office, run).loopCap) {
+      this.#dropProposals(ctx, refused, "no-turn");
+      return null;
+    }
+    if (sentBack(office, run.runId, "proposal", PROPOSAL_LINE_SIGNATURE)) {
+      this.#dropProposals(ctx, refused, "still-fails");
+      return null;
+    }
+    return proposalLineFeedback(
+      refused.map(({ proposal, problems }) => ({ title: proposal.title, problems })),
+    );
+  }
+
+  /** Drops refused proposals with one notice each; the report goes on without them. */
+  #dropProposals(
+    ctx: TurnContext,
+    refused: readonly RefusedProposal[],
+    why: ProposalDropWhy,
+  ): void {
+    const { run } = ctx;
+    ctx.write(() =>
+      droppedProposalNotices(
+        { runId: run.runId, key: run.key, story: run.story ?? run.runId },
+        refused,
+        why,
+      ),
+    );
   }
 
   /**

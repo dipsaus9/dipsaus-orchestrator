@@ -27,7 +27,9 @@
 //   conflict cap parks `conflict` instead.
 // - Report data (DIPO-186). The proposals of every report, done or blocked, are stored for the
 //   maintainer (`storeProposals`, deduplicated by title and paths); storing them changes nothing
-//   about the story, the run or the commit.
+//   about the story, the run or the commit. A proposal whose Story line fails 0012 R05 leaves the
+//   report first (`splitProposals`): a done report's go to the report gate, which sends them
+//   back once (`verify-commit.ts`); any other report's are dropped at once with a notice.
 // - `story.park { story, note }` of a story with a run (`parkByMaintainer`, 0020). The engine
 //   records a `stop` intent, sends the stop sequence through the host (the adapter's `encode`: a
 //   now-priority message, stdin closed, SIGTERM after 10 s, SIGKILL after 30 s) and parks the
@@ -143,7 +145,12 @@ import { findRun, type StoredRun } from "../records/run-records";
 
 /** The intent detail of the stop of a worker whose run ended before it was tracked (DIPO-411). */
 export const ENDED_BEFORE_START = "the run ended before its worker started";
-import { storeProposals } from "./report-data";
+import {
+  droppedProposalNotices,
+  type RefusedProposal,
+  splitProposals,
+  storeProposals,
+} from "./report-data";
 
 export {
   CAP_TICK_MS,
@@ -400,10 +407,17 @@ export class RunControl implements RunEnder {
         return;
       }
       if (event.t === "modelSwitched") outcomes?.onModelSwitched(viewOf(tracked), event.to);
-      if (event.t === "turn" && (event.report?.proposals?.length ?? 0) > 0) {
-        this.#storeProposals(tracked, event.report as WorkerReport);
-      }
       if (event.t === "turn") {
+        // Proposals whose Story line fails leave the report before anything reads it.
+        const split = event.report === null ? null : splitProposals(event.report);
+        const report = split?.report ?? null;
+        const refused = split?.refused ?? [];
+        if (report !== null && (report.proposals?.length ?? 0) > 0) {
+          this.#storeProposals(tracked, report);
+        }
+        // Only a done report the finisher takes has a turn left to correct them.
+        const toGate = report?.status === "done" && this.#deps.finisher !== undefined;
+        if (refused.length > 0 && !toGate) this.#dropProposals(tracked, refused);
         // A newer turn decides instead of a done turn held back for a steer (DIPO-412).
         this.#dropHeldDone(tracked);
         // A done report on the turn that crosses a cap takes the done path (0008); without a
@@ -414,22 +428,22 @@ export class RunControl implements RunEnder {
             : event.capped !== undefined
               ? { cap: "maxTurns" as const, detail: capDetail("maxTurns", event.capped) }
               : (this.#crossings.get(event) ?? pending ?? tracked.waitingCrossing);
-        if (event.report !== null) this.#keepNotes(tracked, event.report, agent);
-        if (event.report?.status === "done" && crossed !== null) {
-          tracked.lastReport = event.report;
+        if (report !== null) this.#keepNotes(tracked, report, agent);
+        if (report?.status === "done" && crossed !== null) {
+          tracked.lastReport = report;
           outcomes?.answered(viewOf(tracked));
-          this.#cappedDone(tracked, event.report, crossed);
+          this.#cappedDone(tracked, report, crossed, refused);
           continue;
         }
         if (event.capped !== undefined && tracked.capped === null) {
           this.#cap(tracked, "maxTurns", event.capped);
           return;
         }
-        const report = event.report;
         if (report !== null) tracked.lastReport = report;
         // A turn after the report feedback answers it (DIPO-51).
         outcomes?.answered(viewOf(tracked));
         if (event.problem?.kind === "planLimit" && outcomes !== undefined) {
+          if (toGate && refused.length > 0) this.#dropProposals(tracked, refused);
           outcomes.onPlanLimit(viewOf(tracked), { credits: false });
           return;
         }
@@ -467,13 +481,14 @@ export class RunControl implements RunEnder {
         const problem = outcomes === undefined ? undefined : event.problem;
         const review = outcomes === undefined ? undefined : event.review;
         if (this.#deps.finisher !== undefined || problem !== undefined || review !== undefined) {
-          const take = () => this.#turns.queue(tracked, report, problem, null, review);
+          const take = () =>
+            this.#turns.queue(tracked, report, problem, null, review, toGate ? refused : []);
           // A done report while the session has a steer it has not read: the session reads it
           // after this result and starts a new turn, which decides (DIPO-412).
           const held =
             report?.status === "done" &&
             problem === undefined &&
-            this.#holdDone(tracked, report, take);
+            this.#holdDone(tracked, report, toGate ? refused : [], take);
           if (!held) take();
         }
       }
@@ -643,11 +658,32 @@ export class RunControl implements RunEnder {
    * (verify, commit, In Review) and no cap ends it meanwhile. The step keeps the crossed cap; a
    * red verify parks `budget-exceeded`, since no turn is left (`verify-commit.ts`).
    */
-  #cappedDone(tracked: Tracked, report: WorkerReport, crossed: FiredCap): void {
+  #cappedDone(
+    tracked: Tracked,
+    report: WorkerReport,
+    crossed: FiredCap,
+    refused: readonly RefusedProposal[],
+  ): void {
     tracked.capped = crossed;
     tracked.waitingCrossing = null;
     disarm(this.#deps.clock, tracked);
-    this.#turns.queue(tracked, report, undefined, crossed);
+    this.#turns.queue(tracked, report, undefined, crossed, undefined, refused);
+  }
+
+  /** Drops proposals whose Story line fails, with a notice each: the report has no turn left. */
+  #dropProposals(tracked: Tracked, refused: readonly RefusedProposal[]): void {
+    const office = this.#deps.offices.get(tracked.office);
+    if (office === undefined) return;
+    this.#endings.writer(
+      office,
+      tracked.office,
+    )(() =>
+      droppedProposalNotices(
+        { runId: tracked.runId, key: tracked.work.key, story: tracked.work.story ?? tracked.runId },
+        refused,
+        "no-turn",
+      ),
+    );
   }
 
   /**
@@ -694,7 +730,12 @@ export class RunControl implements RunEnder {
    * after all when no steer was read within `STEER_READ_WAIT_MS`, or the worker exits first. True
    * when it held the turn.
    */
-  #holdDone(tracked: Tracked, report: WorkerReport, take: () => void): boolean {
+  #holdDone(
+    tracked: Tracked,
+    report: WorkerReport,
+    refused: readonly RefusedProposal[],
+    take: () => void,
+  ): boolean {
     if (this.#deps.finisher === undefined) return false;
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined || unreadSteers(office, tracked.runId).length === 0) return false;
@@ -705,7 +746,7 @@ export class RunControl implements RunEnder {
       if (tracked.heldDone === held) tracked.heldDone = null;
       if (tracked.ending === null && this.#tracked.get(tracked.runId) === tracked) take();
     };
-    const held: NonNullable<Tracked["heldDone"]> = { report, take: once, timer: null };
+    const held: NonNullable<Tracked["heldDone"]> = { report, refused, take: once, timer: null };
     held.timer = this.#deps.clock.setTimeout(() => {
       held.timer = null;
       once();
@@ -985,7 +1026,7 @@ export class RunControl implements RunEnder {
     const held = tracked.heldDone;
     if (held !== null && held.timer !== null && this.#deps.finisher !== undefined) {
       tracked.lastReport = held.report;
-      this.#cappedDone(tracked, held.report, { cap, detail });
+      this.#cappedDone(tracked, held.report, { cap, detail }, held.refused);
       return;
     }
     const ending = reviewing(tracked)
