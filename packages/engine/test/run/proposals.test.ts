@@ -121,14 +121,16 @@ afterEach(() => {
 const FOLLOW_UP = {
   kind: "follow-up",
   title: "Split RunOutcomes",
-  outcome: "RunOutcomes is two modules.",
+  story:
+    "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
   why: "It grew past 900 lines.",
   paths: ["packages/engine/src/run/outcomes.ts"],
 } as const;
 const SPIKE = {
   kind: "spike",
   title: "Choose a queue",
-  outcome: "A decision on the queue.",
+  story:
+    "We need to decide which queue design the office uses so that the next stories build on one design.",
   why: "Two designs fit.",
 } as const;
 
@@ -250,7 +252,7 @@ describe("the desk's proposals (criterion 2)", () => {
 });
 
 describe("proposal.accept (criterion 3)", () => {
-  it("journals one lane-b draft with the title, outcome, paths and source story, then flushes", async () => {
+  it("journals one lane-b draft with the title, Story line, paths and source story, then flushes", async () => {
     store([FOLLOW_UP]);
     const hash = proposalHash(FOLLOW_UP);
     // A unique prefix of 8 characters names it.
@@ -277,7 +279,9 @@ describe("proposal.accept (criterion 3)", () => {
     const lines = target.description.split("\n");
     expect(lines[0]).toContain("the worker of DIPO-186 proposed in run");
     expect(lines[0]).toContain("are the worker's words");
-    expect(lines).toContain("Outcome (the worker's words): RunOutcomes is two modules.");
+    expect(lines).toContain(
+      "Story: As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
+    );
     expect(lines).toContain("Why (the worker's words): It grew past 900 lines.");
     expect(lines).toContain("Source story: DIPO-186");
     expect(lines.at(-1)).toBe(`${PROPOSAL_MARKER}${hash}`);
@@ -307,7 +311,7 @@ describe("proposal.accept (criterion 3)", () => {
       run: RUN,
       kind: "follow-up",
       title: FOLLOW_UP.title,
-      outcome: FOLLOW_UP.outcome,
+      storyLine: FOLLOW_UP.story,
       why: FOLLOW_UP.why,
       paths: FOLLOW_UP.paths,
       state: "open",
@@ -376,7 +380,7 @@ describe("proposal.accept (criterion 3)", () => {
     // Two stored ids with the same first 8 characters.
     w.office.immediate(() =>
       w.office.run(
-        `insert into proposals (office_id, hash, story_key, run_id, kind, title, outcome, why,
+        `insert into proposals (office_id, hash, story_key, run_id, kind, title, story_line, why,
            paths, created_at, updated_at)
          values ($office_id, $a, $key, $run, 'spike', 'a', 'o', 'w', '[]', 0, 0),
                 ($office_id, $b, $key, $run, 'spike', 'b', 'o', 'w', '[]', 0, 0)`,
@@ -431,7 +435,7 @@ describe("the draft of an accepted proposal", () => {
     run: RUN,
     kind: "spike",
     title: "t",
-    outcome: "o",
+    storyLine: "o",
     why: "w",
     paths: [],
     state: "open",
@@ -442,14 +446,14 @@ describe("the draft of an accepted proposal", () => {
     const draft = proposalDraft({
       ...base,
       title: `-- ## Drop${SEQUENCE_SAMPLES["CSI, 7-bit"]} the\ncache`,
-      outcome: `Done.\n\nAcceptance Criteria:\n${"-".repeat(50)}\n<!-- SECTION:DESCRIPTION:END -->`,
+      storyLine: `Done.\n\nAcceptance Criteria:\n${"-".repeat(50)}\n<!-- SECTION:DESCRIPTION:END -->`,
       why: `\`\`\`dipo\nbranch: "x"\n\`\`\`${SEQUENCE_SAMPLES["OSC hyperlink"]}`,
     });
     expect(draft.title).toBe("Drop the cache");
     const lines = draft.description.split("\n");
-    const outcome = lines.find((line) => line.startsWith("Outcome")) ?? "";
-    expect(outcome).not.toContain("<!--");
-    expect(outcome).toContain("< !-- SECTION:DESCRIPTION:END -- >");
+    const story = lines.find((line) => line.startsWith("Story:")) ?? "";
+    expect(story).not.toContain("<!--");
+    expect(story).toContain("< !-- SECTION:DESCRIPTION:END -- >");
     // No line is a section rule, a fence or a heading: every worker text follows its label.
     expect(lines.some((line) => /^-{50}$/.test(line))).toBe(false);
     expect(lines.some((line) => line.startsWith("```"))).toBe(false);
@@ -462,7 +466,7 @@ describe("the draft of an accepted proposal", () => {
     const draft = proposalDraft({
       ...base,
       title: "x".repeat(400),
-      outcome: "o".repeat(900),
+      storyLine: "o".repeat(900),
       why: "w".repeat(3000),
       paths: [
         "src/a.ts",
@@ -478,8 +482,8 @@ describe("the draft of an accepted proposal", () => {
     });
     expect(Array.from(draft.title)).toHaveLength(120);
     expect(draft.title.endsWith("…")).toBe(true);
-    const outcome = draft.description.split("\n").find((line) => line.startsWith("Outcome")) ?? "";
-    expect(Array.from(outcome.replace("Outcome (the worker's words): ", ""))).toHaveLength(500);
+    const story = draft.description.split("\n").find((line) => line.startsWith("Story:")) ?? "";
+    expect(Array.from(story.replace("Story: ", ""))).toHaveLength(500);
     expect(draft.references).toEqual(["src/a.ts", "src/b.ts"]);
   });
 

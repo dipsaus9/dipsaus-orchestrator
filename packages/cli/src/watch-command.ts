@@ -697,7 +697,7 @@ export function doneReportLines(run: RunRecord): string[] {
       ? []
       : report.notes.split("\n").map((line) => `    ${line}`.trimEnd())),
     ...(report.proposals ?? []).map(
-      (proposal) => `    proposal (${proposal.kind}): ${proposal.title} — ${proposal.outcome}`,
+      (proposal) => `    proposal (${proposal.kind}): ${proposal.title} — ${proposal.story}`,
     ),
   ];
 }

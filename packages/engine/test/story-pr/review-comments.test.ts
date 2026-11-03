@@ -581,7 +581,14 @@ describe("the done report", () => {
     commitSubject: "c",
     notes: "Deviated: kept the old key.\u001b[31m\nSecond line.",
     proposals: [
-      { kind: "follow-up", title: "T".repeat(300), outcome: "o", why: "w", paths: ["a/b.ts"] },
+      {
+        kind: "follow-up",
+        title: "T".repeat(300),
+        story:
+          "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
+        why: "w",
+        paths: ["a/b.ts"],
+      },
     ],
   };
 
@@ -592,7 +599,8 @@ describe("the done report", () => {
       proposals: [...Array(5)].map(() => ({
         kind: "tool",
         title: "t",
-        outcome: "o",
+        story:
+          "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
         why: "w",
       })),
     });

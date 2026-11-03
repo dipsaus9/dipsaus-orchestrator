@@ -39,7 +39,15 @@ describe("the proposals group of the desk", () => {
           storeProposals(office, {
             key,
             runId: RUN,
-            proposals: [{ kind: "tool", title: "jq", outcome: "jq runs", why: "to read JSON" }],
+            proposals: [
+              {
+                kind: "tool",
+                title: "jq",
+                story:
+                  "As worker I want jq installed in the box image so that reports can be read as structured data.",
+                why: "to read JSON",
+              },
+            ],
             at: at + 1,
           });
         });
@@ -62,7 +70,11 @@ describe("the proposals group of the desk", () => {
             "Decision note for docs/decisions/0019-review-loop.md",
             expect.stringContaining('section "4. The reviewer session"'),
           ],
-          ["tool", "jq", "jq runs Why: to read JSON"],
+          [
+            "tool",
+            "jq",
+            "Story: As worker I want jq installed in the box image so that reports can be read as structured data. Why: to read JSON",
+          ],
         ]);
       } finally {
         t.state.close();

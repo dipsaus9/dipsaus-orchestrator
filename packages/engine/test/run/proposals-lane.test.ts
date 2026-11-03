@@ -41,7 +41,8 @@ const RUN = RunId.parse("run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D");
 const PROPOSAL = {
   kind: "follow-up",
   title: "Split RunOutcomes",
-  outcome: "RunOutcomes is two modules.",
+  story:
+    "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
   why: "It grew.",
   paths: ["packages/engine/src/run/outcomes.ts", "docs/plan.md"],
 } as const;
@@ -81,7 +82,7 @@ describe("the propose kind with the pinned Backlog CLI", () => {
             run: RUN,
             kind: PROPOSAL.kind,
             title: PROPOSAL.title,
-            outcome: PROPOSAL.outcome,
+            storyLine: PROPOSAL.story,
             why: PROPOSAL.why,
             paths: PROPOSAL.paths,
             state: "accepted",
@@ -115,7 +116,9 @@ describe("the propose kind with the pinned Backlog CLI", () => {
         expect(file).toContain("title: Split RunOutcomes");
         expect(file).toContain("packages/engine/src/run/outcomes.ts");
         expect(file).toContain("docs/plan.md");
-        expect(file).toContain("Outcome (the worker's words): RunOutcomes is two modules.");
+        expect(file).toContain(
+          "Story: As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
+        );
         expect(file).toContain("Source story: DIPO-186");
         expect(
           s.office.get<{ draft_id: string | null }>(

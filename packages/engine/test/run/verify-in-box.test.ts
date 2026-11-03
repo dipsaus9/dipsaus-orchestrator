@@ -1801,7 +1801,8 @@ describe("a box run's report data at done (DIPO-186)", () => {
   const PROPOSAL = {
     kind: "follow-up",
     title: "Greet in Dutch",
-    outcome: "shop greet --nl prints Hallo.",
+    story:
+      "As maintainer I want the shop greeting in Dutch so that Dutch customers are greeted in their own language.",
     why: "Asked for twice.",
     paths: ["src/greet.ts"],
   } as const;

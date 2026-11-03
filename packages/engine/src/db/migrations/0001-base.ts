@@ -711,7 +711,7 @@ create table proposals (
   run_id text not null,
   kind text not null check (kind in ('follow-up', 'spike', 'tool')),
   title text not null,
-  outcome text not null,
+  story_line text not null,
   why text not null,
   paths text not null,
   state text not null default 'open' check (state in ('open', 'accepted', 'dismissed')),

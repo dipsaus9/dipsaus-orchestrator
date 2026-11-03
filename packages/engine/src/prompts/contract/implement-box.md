@@ -39,7 +39,7 @@ End every turn with the structured report:
 - `question`: only when blocked, the one question for the maintainer.
 - `testPlan`: always present, empty if none. One per plan entry, by number: done when its test is written and passes, not-done otherwise, manual for an entry the maintainer checks by hand, each with its evidence. dipo refuses done while an automated entry is not done.
 - `deviations`: each place where the change differs from a criterion or from the story's context: where, what differs, and why.
-- `proposals`: at most three, each with its kind, a title, its outcome and why it is needed.
+- `proposals`: at most three, each with its kind, a title, a `story` line as its schema says, and why it is needed.
 - `decisionNotes`: a note you propose for a decision record: the decision file, the heading of its section and the text of the note. Never write such a note into the decision records yourself, and never only describe it in `summary` or `notes`.
 - `notes`: short notes for a later session on this story.
 

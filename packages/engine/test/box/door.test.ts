@@ -449,14 +449,22 @@ describe("the report kinds: story done, question, blocked and proposal (criteria
         {
           kind: "follow-up",
           title: "Cut the part subject",
-          outcome: "Subjects fit.",
+          story:
+            "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
           why: "Long.",
         },
-        { kind: "spike", title: "Linux boxes", outcome: "A decision.", why: "Asked twice." },
+        {
+          kind: "spike",
+          title: "Linux boxes",
+          story:
+            "We need to decide which queue design the office uses so that the next stories build on one design.",
+          why: "Asked twice.",
+        },
         {
           kind: "tool",
           title: "Add jq to the image",
-          outcome: "jq runs in the box.",
+          story:
+            "As worker I want jq installed in the box image so that reports can be read as structured data.",
           why: "The tests read JSON.",
           paths: ["tools/check.sh"],
         },
@@ -466,7 +474,13 @@ describe("the report kinds: story done, question, blocked and proposal (criteria
   });
 
   it("refuses more than three proposals, an unknown proposal kind and fields over their caps", () => {
-    const one = { kind: "follow-up", title: "T", outcome: "O", why: "W" };
+    const one = {
+      kind: "follow-up",
+      title: "T",
+      story:
+        "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
+      why: "W",
+    };
     for (const report of [
       { ...DONE, proposals: [one, one, one, one] },
       { ...DONE, proposals: [{ ...one, kind: "rewrite-dipo" }] },
@@ -501,7 +515,13 @@ describe("the report kinds: story done, question, blocked and proposal (criteria
         error: "structured_output fails the report schema",
       });
     }
-    const proposal = { kind: "tool", title: "jq", outcome: "jq runs", [`why${TAG_A}`]: "x" };
+    const proposal = {
+      kind: "tool",
+      title: "jq",
+      story:
+        "As worker I want jq installed in the box image so that reports can be read as structured data.",
+      [`why${TAG_A}`]: "x",
+    };
     expect(parseWorkerReport({ ...DONE, proposals: [proposal] }).ok).toBe(false);
   });
 
@@ -511,7 +531,15 @@ describe("the report kinds: story done, question, blocked and proposal (criteria
       status: "blocked",
       summary: `Blocked ${ESC}[2J${RLO}on the image`,
       question: `Which ${ESC}]8;;https://example.com${ESC}\\link${ESC}]8;;${ESC}\\?`,
-      proposals: [{ kind: "tool", title: `jq${ZWSP}`, outcome: "jq runs", why: `x${TAG_A}y` }],
+      proposals: [
+        {
+          kind: "tool",
+          title: `jq${ZWSP}`,
+          story:
+            "As worker I want jq installed in the box image so that reports can be read as structured data.",
+          why: `x${TAG_A}y`,
+        },
+      ],
     });
     expect(read).toEqual({
       ok: true,
@@ -520,7 +548,15 @@ describe("the report kinds: story done, question, blocked and proposal (criteria
         status: "blocked",
         summary: "Blocked on the image",
         question: "Which link?",
-        proposals: [{ kind: "tool", title: "jq", outcome: "jq runs", why: "xy" }],
+        proposals: [
+          {
+            kind: "tool",
+            title: "jq",
+            story:
+              "As worker I want jq installed in the box image so that reports can be read as structured data.",
+            why: "xy",
+          },
+        ],
       },
     });
     expect(parseWorkerReport({ ...DONE, summary: `${ESC}[31m${RLO}` }).ok).toBe(false);

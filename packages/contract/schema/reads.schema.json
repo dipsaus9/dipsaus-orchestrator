@@ -1715,7 +1715,7 @@
                         "title": {
                           "type": "string"
                         },
-                        "outcome": {
+                        "story": {
                           "type": "string"
                         },
                         "why": {
@@ -1728,7 +1728,7 @@
                           }
                         }
                       },
-                      "required": ["kind", "title", "outcome", "why"]
+                      "required": ["kind", "title", "story", "why"]
                     }
                   }
                 }

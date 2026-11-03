@@ -271,7 +271,7 @@ export type LaneFlush = z.infer<typeof LaneFlush>;
 
 // (DIPO-166; 0020 sections 11c and 14) [`proposals`]: files an open follow-up, spike
 // or tool proposal of a worker as a Backlog draft through the planning lane, with the title, the
-// outcome line, the paths as references and the source story in the description, the worker's
+// Story line, the paths as references and the source story in the description, the worker's
 // text marked as the worker's words. `draft` is the draft's id once the lane created it; draft ids
 // are reused by Backlog.md, so it names the draft only until it is promoted or archived. Accepting
 // an accepted proposal changes nothing. Errors: `proposal.unknown`, `proposal.ambiguous` (a prefix
@@ -375,7 +375,7 @@ export const DoneReport = z.object({
       z.object({
         kind: z.string(),
         title: z.string(),
-        outcome: z.string(),
+        story: z.string(), // the worker's story line, without the "Story:" prefix (0012 R05)
         why: z.string(),
         paths: z.array(z.string()).optional(),
       }),

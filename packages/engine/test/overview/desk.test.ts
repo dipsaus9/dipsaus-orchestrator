@@ -222,13 +222,29 @@ describe("the desk order (0020 section 12)", () => {
           storeProposals(office, {
             key: key11,
             runId: run,
-            proposals: [{ kind: "follow-up", title: "Split RunOutcomes", outcome: "o", why: "w" }],
+            proposals: [
+              {
+                kind: "follow-up",
+                title: "Split RunOutcomes",
+                story:
+                  "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
+                why: "w",
+              },
+            ],
             at: base,
           });
           storeProposals(office, {
             key: key11,
             runId: run,
-            proposals: [{ kind: "spike", title: "Choose a queue", outcome: "o", why: "w" }],
+            proposals: [
+              {
+                kind: "spike",
+                title: "Choose a queue",
+                story:
+                  "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
+                why: "w",
+              },
+            ],
             at: base + HOUR,
           });
           storeDecisionNotes(office, {
@@ -647,7 +663,15 @@ describe("the office.desk read", () => {
           storeProposals(office, {
             key,
             runId: run,
-            proposals: [{ kind: "follow-up", title: "Split it", outcome: "split", why: "size" }],
+            proposals: [
+              {
+                kind: "follow-up",
+                title: "Split it",
+                story:
+                  "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
+                why: "size",
+              },
+            ],
             at: at + 1,
           });
         });
@@ -663,7 +687,7 @@ describe("the office.desk read", () => {
               title: "Split it",
               run,
             },
-            detail: `follow-up "Split it" · split Why: size · from ${run}`,
+            detail: `follow-up "Split it" · Story: As maintainer I want the run outcomes split into two modules so that each module stays small enough to read. Why: size · from ${run}`,
             since: new Date(at + 1).toISOString(),
             blocks: [],
             // proposal.accept and proposal.dismiss are not registered in this engine yet.

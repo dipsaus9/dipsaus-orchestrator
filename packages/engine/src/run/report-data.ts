@@ -291,9 +291,9 @@ export function storeProposals(
   for (const proposal of input.proposals) {
     const hash = proposalHash(proposal);
     const changes = office.run(
-      `insert into proposals (office_id, hash, story_key, run_id, kind, title, outcome, why, paths,
-         created_at, updated_at)
-       values ($office_id, $hash, $key, $run, $kind, $title, $outcome, $why, $paths, $at, $at)
+      `insert into proposals (office_id, hash, story_key, run_id, kind, title, story_line, why,
+         paths, created_at, updated_at)
+       values ($office_id, $hash, $key, $run, $kind, $title, $story_line, $why, $paths, $at, $at)
        on conflict (office_id, hash) do nothing`,
       {
         hash,
@@ -301,7 +301,7 @@ export function storeProposals(
         run: input.runId,
         kind: proposal.kind,
         title: proposal.title,
-        outcome: proposal.outcome,
+        story_line: proposal.story,
         why: proposal.why,
         paths: JSON.stringify(proposal.paths ?? []),
         at: input.at,

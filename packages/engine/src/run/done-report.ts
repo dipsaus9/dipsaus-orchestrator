@@ -17,7 +17,7 @@ export const DONE_REPORT_CAPS = {
   notes: 8_000,
   proposals: 3,
   title: 120,
-  outcome: 500,
+  story: 500,
   why: 1_000,
   paths: 20,
   path: 300,
@@ -34,7 +34,7 @@ export function doneReportOf(
     readonly proposals?: readonly {
       readonly kind: string;
       readonly title: string;
-      readonly outcome: string;
+      readonly story: string;
       readonly why: string;
       readonly paths?: readonly string[] | undefined;
     }[];
@@ -45,7 +45,7 @@ export function doneReportOf(
   const proposals = (report.proposals ?? []).slice(0, caps.proposals).map((proposal) => ({
     kind: clean(proposal.kind, 20),
     title: clean(proposal.title, caps.title),
-    outcome: clean(proposal.outcome, caps.outcome),
+    story: clean(proposal.story, caps.story),
     why: clean(proposal.why, caps.why),
     ...(proposal.paths === undefined || proposal.paths.length === 0
       ? {}

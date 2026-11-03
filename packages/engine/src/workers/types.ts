@@ -145,7 +145,8 @@ export interface WorkerReportCriterion {
 export interface WorkerProposal {
   readonly kind: "follow-up" | "spike" | "tool";
   readonly title: string;
-  readonly outcome: string;
+  /** One story line of the Ready gate's shape (0012 R05), without the `Story:` prefix. */
+  readonly story: string;
   readonly why: string;
   readonly paths?: readonly string[];
 }

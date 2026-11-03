@@ -6,8 +6,8 @@ export { evaluateGate, rulesFor } from "./evaluate";
 export { gateContent, gateContentHash } from "./hash";
 export { gateStoryFromView, gateTaskFromView } from "./input";
 export {
-  contractCharacters,
   checkStoryLine,
+  contractCharacters,
   cycleThrough,
   gateMessage,
   gateWarningMessage,

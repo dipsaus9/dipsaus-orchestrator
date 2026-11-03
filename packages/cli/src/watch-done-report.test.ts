@@ -15,14 +15,22 @@ describe("dipo watch done report", () => {
       doneReportLines(
         record({
           notes: "Deviated: kept the old key.\nSecond line.",
-          proposals: [{ kind: "tool", title: "Add jq", outcome: "jq is installed", why: "w" }],
+          proposals: [
+            {
+              kind: "tool",
+              title: "Add jq",
+              story:
+                "As worker I want jq installed in the box image so that reports can be read as structured data.",
+              why: "w",
+            },
+          ],
         }),
       ),
     ).toEqual([
       "  worker's done report (the worker's words, not checked by dipo):",
       "    Deviated: kept the old key.",
       "    Second line.",
-      "    proposal (tool): Add jq — jq is installed",
+      "    proposal (tool): Add jq — As worker I want jq installed in the box image so that reports can be read as structured data.",
     ]);
   });
 

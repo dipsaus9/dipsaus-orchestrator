@@ -98,7 +98,7 @@ function draft(n: number): ProposedDraft {
   return {
     proposal: String(n).repeat(64),
     title: `Split the module ${n}`,
-    description: `Outcome (the worker's words): module ${n} is two.`,
+    description: `Story: As maintainer I want module ${n} split in two so that each module stays small enough to read.`,
     references: ["src/module.ts"],
   };
 }

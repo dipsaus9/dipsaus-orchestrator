@@ -199,7 +199,7 @@ function doneReportSection(report: DoneReport | null | undefined): string | null
         .map((p) => {
           const paths =
             p.paths === undefined ? "" : ` Paths: ${p.paths.map((x) => `\`${x}\``).join(", ")}.`;
-          return `- ${p.kind}: ${p.title}. Outcome: ${p.outcome} Why: ${p.why}${paths}`.replaceAll(
+          return `- ${p.kind}: ${p.title}. Story: ${p.story} Why: ${p.why}${paths}`.replaceAll(
             "\n",
             " ",
           );
