@@ -39,7 +39,7 @@ export {
   decideOnHandMerge,
   decideTestedMergeGates,
   HAND_MERGE_NOTE,
-  holdLabelsOn,
+  waitLabelsOn,
   MERGE_GATE_KIND,
   mergeGate,
   mergeGatesOfRun,

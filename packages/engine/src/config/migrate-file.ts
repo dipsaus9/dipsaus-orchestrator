@@ -1,8 +1,8 @@
-// `dipo config migrate` (0017): the new text of an office file of versions 1 to 14, at version 15.
+// `dipo config migrate` (0017): the new text of an office file of versions 1 to 15, at version 16.
 // The steps are the ones the load applies in memory (`migrateOfficeDocument`), applied here to the
 // `yaml` library's document, so every comment and the order of the keys that stay are kept and the
 // change shows as a normal git diff. The new text is loaded again before it is returned: a file
-// that would not load as version 15 is refused, and nothing is written.
+// that would not load as version 16 is refused, and nothing is written.
 
 import { configError, type ConfigError } from "@dipsaus-orchestrator/contract";
 import { type Document, isMap, parseDocument } from "yaml";
@@ -56,8 +56,8 @@ function loadErrors(file: string, text: string): readonly ConfigError[] {
 }
 
 /**
- * Pure: `text` of `file` (`.dipo/office.yaml` or `.dipo/office.local.yaml`) migrated to version 15
- * with its comments. A version 15 file comes back unchanged once it loads. Errors name the file
+ * Pure: `text` of `file` (`.dipo/office.yaml` or `.dipo/office.local.yaml`) migrated to version 16
+ * with its comments. A version 16 file comes back unchanged once it loads. Errors name the file
  * and the key, and mean nothing may be written.
  */
 export function migrateOfficeFileText(file: string, text: string): MigratedFile {

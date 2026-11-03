@@ -1,5 +1,5 @@
 // Loads an office's configuration (0017): parse each file as one YAML document, check its version,
-// migrate a file of versions 1 to 14 in memory to version 15 (`migrateOfficeDocument`), validate it
+// migrate a file of versions 1 to 15 in memory to version 16 (`migrateOfficeDocument`), validate it
 // strictly, merge defaults < `.dipo/office.yaml` < allowed keys of `.dipo/office.local.yaml` <
 // command flags, and hash the result. Errors are values, never thrown, so the office can keep its
 // previous configuration. A retired key that an older file still sets is dropped by the migration

@@ -1,5 +1,5 @@
-// `dipo config migrate` (0017) on a temp folder: it rewrites older office files at version 15 with
-// their comments, names each key it moved or deleted, leaves a version 15 file alone, and refuses a
+// `dipo config migrate` (0017) on a temp folder: it rewrites older office files at version 16 with
+// their comments, names each key it moved or deleted, leaves a version 16 file alone, and refuses a
 // file that would not load without touching it.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -38,7 +38,7 @@ function write(dir: string, name: string, text: string): string {
 }
 
 describe("dipo config migrate", () => {
-  it("rewrites both older files at version 15, keeping comments, and names each change", () =>
+  it("rewrites both older files at version 16, keeping comments, and names each change", () =>
     withTempDir(async (dir) => {
       const office = write(
         dir,
@@ -54,28 +54,28 @@ describe("dipo config migrate", () => {
       expect(await runConfigMigrateForm([dir], io)).toBe(0);
       expect(err).toEqual([]);
       expect(readFileSync(office, "utf8")).toBe(
-        "# our office\nversion: 15\ncaps:\n  ciAttempts: 3 # three tries\n",
+        "# our office\nversion: 16\ncaps:\n  ciAttempts: 3 # three tries\n",
       );
       expect(readFileSync(local, "utf8")).toBe(
-        "version: 15\ntimeouts: { workerStallMinutes: 25 } # slow mac\n",
+        "version: 16\ntimeouts: { workerStallMinutes: 25 } # slow mac\n",
       );
       expect(out).toEqual([
-        ".dipo/office.yaml: version 7 to 15",
+        ".dipo/office.yaml: version 7 to 16",
         "  moved mergeSlot.ciAttempts to caps.ciAttempts",
         "  deleted storyPr, because every story gets its PR: CI on it is the final gate (0002)",
-        ".dipo/office.local.yaml: version 4 to 15",
+        ".dipo/office.local.yaml: version 4 to 16",
         "  deleted sandbox, because the Mac sandbox is gone: the box is the boundary (0008)",
       ]);
     }));
 
-  it("leaves a version 15 file as it is and says so", () =>
+  it("leaves a version 16 file as it is and says so", () =>
     withTempDir(async (dir) => {
-      const text = "# mine\nversion: 15\nbase: main\n";
+      const text = "# mine\nversion: 16\nbase: main\n";
       const office = write(dir, "office.yaml", text);
       const { io, out } = fakeIo();
       expect(await runConfigMigrateForm([dir], io)).toBe(0);
       expect(readFileSync(office, "utf8")).toBe(text);
-      expect(out).toEqual([".dipo/office.yaml: already version 15"]);
+      expect(out).toEqual([".dipo/office.yaml: already version 16"]);
     }));
 
   it("refuses a file that would not load and leaves it untouched, still migrating the other", () =>
@@ -89,8 +89,8 @@ describe("dipo config migrate", () => {
       expect(err[0]).toContain(".dipo/office.yaml: timeouts.workerStalMinutes: unknown key");
       expect(err[0]).toContain("this key may need a newer dipo");
       expect(err.at(-1)).toBe("dipo: .dipo/office.yaml is left as it was");
-      expect(readFileSync(local, "utf8")).toBe("version: 15\n");
-      expect(out).toEqual([".dipo/office.local.yaml: version 3 to 15"]);
+      expect(readFileSync(local, "utf8")).toBe("version: 16\n");
+      expect(out).toEqual([".dipo/office.local.yaml: version 3 to 16"]);
     }));
 
   it("says when there is nothing to migrate, and refuses a missing folder argument", () =>

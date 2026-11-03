@@ -8,11 +8,13 @@
 // version 14 retired. Version 15 (DIPO-428) retires the question wait under `timeouts`, since a
 // worker's question parks at once (0020); its migration from 14 drops the key. Both run in
 // `migrateOfficeDocument`, and every key they drop (`RETIRED_KEYS`) is named in a warning.
+// Version 16 renames `merge.holdLabels` to `merge.waitLabels`, with no migration: a file that still
+// sets the old name is refused.
 
 import { z } from "zod";
 
 /** The office configuration version this binary writes and reads natively. */
-export const OFFICE_CONFIG_VERSION = 15;
+export const OFFICE_CONFIG_VERSION = 16;
 export type OfficeConfigVersion = number;
 
 const count = () => z.int().positive();
@@ -74,7 +76,7 @@ const Merge = z
       .describe(
         "Whether dipo commits the close-out and turns GitHub's auto-merge on for a story PR as soon as its review approves it, without the maintainer's approval. GitHub merges it once its required checks pass on the close-out head.",
       ),
-    holdLabels: z
+    waitLabels: z
       .array(text())
       .refine((labels) => new Set(labels).size === labels.length, "must not name a label twice")
       .describe("Labels that keep auto-merge off for a PR while it carries one."),
@@ -479,7 +481,7 @@ export const MOVED_KEYS: readonly MovedKey[] = [
   { from: "mergeSlot.ciAttempts", to: "caps.ciAttempts" },
   { from: "mergeSlot.conflictAttempts", to: "caps.conflictAttempts" },
   { from: "mergeSlot.autoMerge", to: "merge.autoMerge" },
-  { from: "mergeSlot.holdLabels", to: "merge.holdLabels" },
+  { from: "mergeSlot.holdLabels", to: "merge.waitLabels" },
   { from: "mergeSlot.checksWaitMinutes", to: "merge.checksWaitMinutes" },
 ];
 
@@ -543,11 +545,11 @@ function withValue(
 }
 
 /**
- * Pure: an office file's document of a version from 1 to 14 migrated to version 15 (0017). From a
+ * Pure: an office file's document of a version from 1 to 15 migrated to version 16 (0017). From a
  * version before 14, each moved key goes to its new place, unless the file sets that place already;
  * then each key retired by a version after the file's is dropped. `steps` lists what it did, in
  * order, for the warnings and for `dipo config migrate`, which applies the same steps to the YAML
- * document so its comments stay. A version 15 document comes back unchanged. Works for both office
+ * document so its comments stay. A version 16 document comes back unchanged. Works for both office
  * files.
  */
 export function migrateOfficeDocument(
@@ -631,7 +633,7 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
     budgetTokens: 200_000,
   },
   caps: { ciAttempts: 2, conflictAttempts: 2 },
-  merge: { autoMerge: true, holdLabels: [], checksWaitMinutes: 30 },
+  merge: { autoMerge: true, waitLabels: [], checksWaitMinutes: 30 },
   // 0008: no committed box block; the box is detected from the repository.
   box: {},
   // 0013: the scan fallback session.

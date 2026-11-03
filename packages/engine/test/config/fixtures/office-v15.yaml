@@ -1,0 +1,3 @@
+# A version 15 office file: version 16 renames merge.holdLabels with no migration, so it sets none.
+version: 15
+merge: { autoMerge: false } # the maintainer approves every merge

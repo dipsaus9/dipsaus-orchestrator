@@ -431,7 +431,7 @@ describe("review-blocked parks and hand-merge-only gates", () => {
           id: "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0C1C",
           key: started.key,
           run: started.run,
-          summary: "the PR carries a hold label",
+          summary: "the PR carries a wait label",
           at,
         });
         const seen: string[] = [];

@@ -41,11 +41,11 @@ describe("updateLocalPrivacy", () => {
 
   it("keeps the other keys and the version of an existing file and drops its comments", () => {
     const before =
-      "# my note\nversion: 15\ntimeouts:\n  workerStallMinutes: 9\nretention:\n  days: 3\nprivacy:\n  keepRawEvents: true\n";
+      "# my note\nversion: 16\ntimeouts:\n  workerStallMinutes: 9\nretention:\n  days: 3\nprivacy:\n  keepRawEvents: true\n";
     const text = written(before, "storePrompts", false);
     expect(text).not.toContain("my note");
     expect(parsed(text)).toEqual({
-      version: 15,
+      version: 16,
       timeouts: { workerStallMinutes: 9 },
       retention: { days: 3 },
       privacy: { keepRawEvents: true, storePrompts: false },
@@ -111,7 +111,7 @@ describe("updateLocalPrivacy", () => {
 
   it("refuses a file that does not validate", () => {
     const update = updateLocalPrivacy(
-      "version: 15\ntimeouts:\n  workerStallMinutes: soon\n",
+      "version: 16\ntimeouts:\n  workerStallMinutes: soon\n",
       "storePrompts",
       true,
     );

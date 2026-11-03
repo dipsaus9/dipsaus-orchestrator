@@ -19,7 +19,7 @@ const tier = (name: string) =>
   );
 const box = (name: string) => `box.${name}`;
 
-// Version 15 (0017): only keys code reads. A key added later with a default needs no version bump,
+// Version 16 (0017): only keys code reads. A key added later with a default needs no version bump,
 // so a new key is added here and to the schema in the same change.
 const KEY_PATHS = [
   "version",
@@ -39,7 +39,7 @@ const KEY_PATHS = [
   "caps.ciAttempts",
   "caps.conflictAttempts",
   "merge.autoMerge",
-  "merge.holdLabels",
+  "merge.waitLabels",
   "merge.checksWaitMinutes",
   ...["debian", "packages", "claudeCode", "files", "localPorts"].map(box),
   ...["node", "bun", "pnpm", "yarn", "nodeSha256.arm64", "nodeSha256.x64"].map((tool) =>
@@ -92,10 +92,10 @@ const localAllowed = (path: string) =>
   path === "version" || /^(timeouts|privacy|retention)\./.test(path);
 
 function boxFile(section: object): boolean {
-  return OfficeFileSchema.safeParse({ version: 15, box: section }).success;
+  return OfficeFileSchema.safeParse({ version: 16, box: section }).success;
 }
 
-describe("version 15 key paths", () => {
+describe("version 16 key paths", () => {
   it("are the keys code reads", () => {
     expect(schemaKeyPaths(OfficeConfigSchema)).toEqual(KEY_PATHS.toSorted());
   });
@@ -170,18 +170,18 @@ describe("the box block", () => {
 });
 
 describe("migrateOfficeDocument", () => {
-  it("leaves a version 15 document as it is", () => {
-    const document = { version: 15, sandbox: {}, timeouts: { questionWaitMinutes: 5 } };
-    expect(migrateOfficeDocument(15, document)).toEqual({ document, steps: [] });
+  it("leaves a version 16 document as it is", () => {
+    const document = { version: 16, sandbox: {}, timeouts: { questionWaitMinutes: 5 } };
+    expect(migrateOfficeDocument(16, document)).toEqual({ document, steps: [] });
   });
 
-  it("raises an older document to version 15 with no step when it sets no retired key", () => {
+  it("raises an older document to version 16 with no step when it sets no retired key", () => {
     expect(migrateOfficeDocument(3, { version: 3, base: "main" })).toEqual({
-      document: { version: 15, base: "main" },
+      document: { version: 16, base: "main" },
       steps: [],
     });
     expect(migrateOfficeDocument(14, { version: 14, base: "main" })).toEqual({
-      document: { version: 15, base: "main" },
+      document: { version: 16, base: "main" },
       steps: [],
     });
   });
@@ -195,7 +195,7 @@ describe("migrateOfficeDocument", () => {
     };
     const migrated = migrateOfficeDocument(14, before);
     expect(migrated.document).toEqual({
-      version: 15,
+      version: 16,
       timeouts: { workerStallMinutes: 40 },
       sandbox: {},
     });
@@ -212,7 +212,7 @@ describe("migrateOfficeDocument", () => {
     // A section left empty goes with it.
     expect(
       migrateOfficeDocument(14, { version: 14, timeouts: { questionWaitMinutes: 5 } }).document,
-    ).toEqual({ version: 15 });
+    ).toEqual({ version: 16 });
   });
 
   it("drops the keys of both versions from a file before 14", () => {
@@ -221,7 +221,7 @@ describe("migrateOfficeDocument", () => {
       remote: "origin",
       timeouts: { questionWaitMinutes: 20 },
     });
-    expect(migrated.document).toEqual({ version: 15 });
+    expect(migrated.document).toEqual({ version: 16 });
     expect(
       migrated.steps.map((step) =>
         step.kind === "drop" ? [step.path.join("."), step.version] : [],
@@ -236,13 +236,13 @@ describe("migrateOfficeDocument", () => {
     const before = {
       version: 5,
       mergeSlot: { requiredChecks: ["ci-ok"], autoMerge: false, ciAttempts: 3 },
-      merge: { holdLabels: ["hold"] },
+      merge: { waitLabels: ["hold"] },
     };
     const migrated = migrateOfficeDocument(5, before);
     expect(migrated.document).toEqual({
-      version: 15,
+      version: 16,
       caps: { ciAttempts: 3 },
-      merge: { holdLabels: ["hold"], autoMerge: false },
+      merge: { waitLabels: ["hold"], autoMerge: false },
     });
     expect(migrated.steps).toEqual([
       { kind: "move", from: ["mergeSlot", "ciAttempts"], to: ["caps", "ciAttempts"] },
@@ -266,7 +266,7 @@ describe("migrateOfficeDocument", () => {
       sandbox: { allowLocalBinding: true },
     });
     expect(migrated.document).toEqual({
-      version: 15,
+      version: 16,
       worktree: { root: "../x" },
       prompt: { contractMax: 9 },
     });
@@ -281,7 +281,7 @@ describe("migrateOfficeDocument", () => {
 });
 
 describe("defaults", () => {
-  it("are a complete version 15 configuration", () => {
+  it("are a complete version 16 configuration", () => {
     expect(OfficeConfigSchema.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
   });
 

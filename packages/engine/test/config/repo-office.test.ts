@@ -27,7 +27,7 @@ describe("this repository's .dipo/office.yaml", () => {
     if (!migrated.ok) throw new Error(migrated.errors.map((error) => error.message).join("\n"));
     expect(migrated.from).toBe(14);
     expect(migrated.changes).toEqual([]);
-    expect(migrated.text.startsWith("version: 15\n")).toBe(true);
+    expect(migrated.text.startsWith("version: 16\n")).toBe(true);
     const before = resolveOfficeConfig({ office });
     const after = resolveOfficeConfig({ office: migrated.text });
     expect(after.ok && after.configHash).toBe(before.ok && before.configHash);

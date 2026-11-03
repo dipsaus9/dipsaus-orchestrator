@@ -140,7 +140,7 @@ describe("office configuration", () => {
         expect(r.valid).toBe(true);
         expect(r.errors).toEqual([]);
         expect(s.manager.configBlocksRuns(office)).toEqual([]);
-        expect(s.manager.config(office)?.version).toBe(15);
+        expect(s.manager.config(office)?.version).toBe(16);
         const [notice, ...rest] = notices(s, office) as {
           level: string;
           code: string;

@@ -1,7 +1,7 @@
 // GitHub's auto-merge for backlog PRs (0010 planning lane, 0002) with a fake host and a scripted
 // backlog git: a PR whose structural check passed on its head gets auto-merge at exactly that head,
 // the lane holds while it is on, and a merge on GitHub marks the journal entries merged, deletes the
-// branch and lets the lane go on. A hold label, `autorelease: pending`, a red required check, a
+// branch and lets the lane go on. A wait label, `autorelease: pending`, a red required check, a
 // conflict or a head dipo did not push keeps auto-merge off, or turns it off, and dipo never passes
 // `--admin`.
 
@@ -130,9 +130,9 @@ describe("the label guard", () => {
     expect(s.host.armedAt).toHaveLength(1);
   });
 
-  it("holds a PR with a hold label of the office until the label is gone", async () => {
+  it("holds a PR with a wait label of the office until the label is gone", async () => {
     await openBacklogPr(s);
-    s.config = { ...s.config, merge: { ...s.config.merge, holdLabels: ["hold"] } };
+    s.config = { ...s.config, merge: { ...s.config.merge, waitLabels: ["hold"] } };
     s.host.prLabelsOf.set(1, ["Hold"]);
     await s.merge.tick(s.officeId);
     expect(s.host.armedAt).toEqual([]);
