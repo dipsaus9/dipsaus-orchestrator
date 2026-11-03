@@ -1,4 +1,4 @@
-// Checks a pull request title against the grammar of decision 0016, rule 1:
+// Checks a pull request title against the grammar of 0016:
 //
 //   <type>(<scope>)[!]: <subject>
 //   type    = feat | fix | perf | refactor | docs | test | build | ci | chore | revert

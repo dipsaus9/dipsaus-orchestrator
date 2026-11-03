@@ -1,4 +1,4 @@
-// CI only (0017 section 1, DIPO-225): a real `bun test` run whose second file waits 6 s, so the
+// CI only (0017, DIPO-225): a real `bun test` run whose second file waits 6 s, so the
 // timeout really reaches a file that is not the first. The timeout rules themselves are unit tested
 // in test.test.ts.
 

@@ -1,4 +1,4 @@
-// Builds the single `dipo` binary (0004 "Tooling", 0016 rules 1, 5 and 6). CI smoke jobs and the
+// Builds the single `dipo` binary (0004 "Tooling", 0016). CI smoke jobs and the
 // release build run this same script.
 //
 // Usage: bun scripts/build.ts [--target bun-darwin-arm64] [--release] [--outfile <path>]
@@ -121,7 +121,7 @@ export function readGitState(): GitState {
     commit: runGit(["rev-parse", "--short=12", "HEAD"]),
     // A dirty tree has changes to tracked files; untracked files do not count.
     dirty: runGit(["status", "--porcelain", "--untracked-files=no"]) !== "",
-    // Commit date, not build time, so builds stay reproducible (0016 rule 5).
+    // Commit date, not build time, so builds stay reproducible (0016).
     commitDate: runGit(["show", "-s", "--format=%cd", "--date=format-local:%Y-%m-%d", "HEAD"]),
   };
 }
@@ -133,7 +133,7 @@ function run(command: string[]): void {
   }
 }
 
-/** Ad hoc signs a darwin binary when `codesign -v` fails (0016 rule 6). */
+/** Ad hoc signs a darwin binary when `codesign -v` fails (0016). */
 function ensureSigned(outfile: string): void {
   const verify = Bun.spawnSync(["codesign", "-v", outfile], { stdout: "pipe", stderr: "pipe" });
   if (verify.exitCode === 0) return;

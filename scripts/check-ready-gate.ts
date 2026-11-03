@@ -1,5 +1,5 @@
 // Checks every story whose status is Ready on the checked-out backlog against the Ready gate
-// (DIPO-196, 0012 section 3), so a PR that leaves a story Ready which fails the gate fails CI with
+// (DIPO-196, 0012), so a PR that leaves a story Ready which fails the gate fails CI with
 // the gate's own messages, not only at `dipo run --dry-run`.
 //
 // Every listed task is viewed once: the views of the Ready stories and the other tasks both come

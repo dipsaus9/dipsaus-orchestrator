@@ -1,4 +1,4 @@
-// Decision 0016 rules 10 and 11: automerge is limited by `renovate.json`, not by convention. This
+// Decision 0016: automerge is limited by `renovate.json`, not by convention. This
 // test replays the config's `packageRules` the way Renovate applies them (in order, later rules
 // win, every matcher in a rule must match) for each kind of update and checks the outcome. It
 // supports only the matchers the config uses and fails on any other, so a new matcher cannot make
@@ -122,7 +122,7 @@ function backlogAutomerges(config: RenovateConfig): string[] {
 const config = (await Bun.file(CONFIG_PATH).json()) as RenovateConfig;
 
 describe("renovate.json settings (AC #1)", () => {
-  it("extends the presets 0016 rule 10 names", () => {
+  it("extends the presets 0016 names", () => {
     expect(config.extends).toEqual(
       expect.arrayContaining([
         "config:recommended",
@@ -301,7 +301,7 @@ describe("lockfile maintenance (DIPO-321)", () => {
   });
 });
 
-describe("backlog.md (0016 amendment of 2026-10-12)", () => {
+describe("backlog.md (0016)", () => {
   it("never automerges and stays on 1.53.x", () => {
     expect(backlogAutomerges(config)).toEqual([]);
     const rule = (config.packageRules ?? []).find((r) =>

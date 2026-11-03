@@ -1,4 +1,4 @@
-// Decision 0016 rule 11: a devDependency must not slip into the `dipo` binary. Every import in
+// Decision 0016: a devDependency must not slip into the `dipo` binary. Every import in
 // `packages/*/src` (test files excepted) must name a runtime dependency of that package. This is a
 // test script rather than an oxlint rule because oxlint support for the check is not confirmed
 // (DIPO-15). Imports are read with Bun's own scanner, the one that builds the binary, so
