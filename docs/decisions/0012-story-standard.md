@@ -79,7 +79,7 @@ Every other transition is refused. Three more rules:
 | R02 | The field block parses and has no unknown fields |
 | R03 | The story has no subtasks |
 | R04 | Title of 1 to 100 characters |
-| R05 | Exactly one `Story:` line of the shape `As <maintainer\|worker\|reviewer> I want <capability> so that <value>.`, or for a spike `We need to decide <question> so that <value>.` The capability or question, and the value, each have at least 20 characters. The line holds no file path, no backtick and no code |
+| R05 | Exactly one `Story:` line of the shape `As <maintainer\|worker\|reviewer> I want <capability> so that <value>.`, or for a spike `We need to decide <question> so that <value>.` The role may read "a maintainer" or "the maintainer" and take a comma, and the closing full stop is optional. The capability or question, and the value, each have at least 20 characters. The line holds no backtick, no path (a word with two or more slashes, or one slash and a leading `/`, `~` or `./`, a trailing slash or a file extension), no URL, domain with a path, file name or dotfile, and no code: a call, braces, an operator, a tag, a shell variable, a flag, or a snake_case, camelCase or dotted camelCase name. A plain dotted name such as `github.com` or `node.js` is prose |
 | R06 | Type is set and is a configured type |
 | R07 | Milestone is set and exists |
 | R08 | At least one criterion |
