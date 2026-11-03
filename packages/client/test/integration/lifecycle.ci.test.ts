@@ -1,4 +1,4 @@
-// CI only (0017 section 1; DIPO-70 test plan): `dipo daemon start`, `status`, `restart` and `stop`
+// CI only (0017; DIPO-70 test plan): `dipo daemon start`, `status`, `restart` and `stop`
 // on the compiled binary in a temp DIPO_HOME, plus autostart through a command that needs the
 // daemon, a stale `runtime.json`, and an invalid `config.yaml` that refuses the autostart. State,
 // runtime directory and temp files stay under the test's temp directory (DIPO_HOME,

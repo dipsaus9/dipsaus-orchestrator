@@ -1,4 +1,4 @@
-// The plain-text wording of the token usage in an office summary (DIPO-311, 0009 section 8), shared
+// The plain-text wording of the token usage in an office summary (DIPO-311, 0009), shared
 // by the TUI and the CLI so every view says the same: `today 1.2M of 4M tokens (30%, resets 00:00
 // UTC)` and `this month 20M of 90M tokens (22%, ALERT, resets 1 Nov 00:00 UTC)`. The windows are the
 // UTC calendar day and month; the reset time always says UTC. Without a limit only the tokens show.

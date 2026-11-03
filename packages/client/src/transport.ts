@@ -1,5 +1,5 @@
-// The seam between the runtime-free protocol core and a real connection (0004 amendment of
-// 2026-10-12). `client/node` implements it on the Unix socket with `ws+unix://`; a browser client
+// The seam between the runtime-free protocol core and a real connection (0004).
+// `client/node` implements it on the Unix socket with `ws+unix://`; a browser client
 // will implement it on the loopback listener. A transport carries text frames and knows nothing of
 // their meaning.
 

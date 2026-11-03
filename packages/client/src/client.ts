@@ -1,11 +1,11 @@
-// The runtime-free protocol core (0005 sections 3, 8 and 9; 0009 section 7). One connection per
+// The runtime-free protocol core (0005; 0009). One connection per
 // client carries everything. Each connection starts with the `engine.hello` read; replies are
 // matched by `requestId` in any order; events are routed by `cursor.stream`. After a lost
 // connection the client reconnects with backoff (0.5 s doubling to 5 s) on the injected clock,
 // sends `engine.hello` again, re-subscribes after the last cursor it has, and re-sends every
 // unanswered command and read with its original `requestId`, which is safe because the engine
-// stores commands by `requestId` (0005 section 9). Stored events whose cursor the client already
-// has are dropped; derived events are exempt (0005 section 8).
+// stores commands by `requestId` (0005). Stored events whose cursor the client already
+// has are dropped; derived events are exempt (0005).
 
 import type { z } from "zod";
 
@@ -33,13 +33,13 @@ import {
 import { type RequestIds, ulidRequestIds } from "./request-id";
 import type { Transport, TransportConnection } from "./transport";
 
-/** The first reconnect waits this long; each failed attempt doubles it (0009 section 7). */
+/** The first reconnect waits this long; each failed attempt doubles it (0009). */
 export const RECONNECT_INITIAL_MS = 500;
 /** Reconnect attempts never wait longer than this. */
 export const RECONNECT_MAX_MS = 5_000;
 /** How long the first connection may take to answer `engine.hello`. */
 export const CONNECT_TIMEOUT_MS = 5_000;
-/** The daemon sends a `stream.mark` on an idle subscription this often (0005 section 8). */
+/** The daemon sends a `stream.mark` on an idle subscription this often (0005). */
 export const STREAM_MARK_MS = 15_000;
 /**
  * While subscribed, a connection with no frame for this long (three idle `stream.mark` intervals)
@@ -89,14 +89,14 @@ export type ReadOutcome<R> =
   | { readonly ok: false; readonly error: EngineError };
 
 export interface CommandOptions extends RequestOptions {
-  /** Required on office-level commands (0005 section 3). */
+  /** Required on office-level commands (0005). */
   readonly office?: OfficeId;
-  /** Set only after the maintainer agreed (0005 section 9). */
+  /** Set only after the maintainer agreed (0005). */
   readonly confirmed?: boolean;
   /**
    * The request id to send; a fresh one by default. A client that retries a command the engine
    * refused with a retryable error passes the first id again, so the engine runs it at most once
-   * (0005 section 9, 0009 section 5).
+   * (0005, 0009).
    */
   readonly requestId?: RequestId;
 }
@@ -138,7 +138,7 @@ export interface ClientOptions {
   readonly clock: Clock;
   /** Sent in `engine.hello`. */
   readonly client: { readonly name: string; readonly version: string };
-  /** Sent on every command (0005 section 3). */
+  /** Sent on every command (0005). */
   readonly origin: Origin;
   readonly requestIds?: RequestIds;
   /** No frame for this long while subscribed closes the connection; `LIVENESS_MS` by default. */
@@ -520,7 +520,7 @@ export class DipoClient {
     this.#send(pending.frame);
   }
 
-  // Liveness (DIPO-52, 0005 section 8): an idle subscription gets a `stream.mark` every 15 s, so
+  // Liveness (DIPO-52, 0005): an idle subscription gets a `stream.mark` every 15 s, so
   // no frame for `livenessMs` while subscribed, or a request past its deadline, means the daemon
   // hangs; the connection is closed and the client reconnects.
 

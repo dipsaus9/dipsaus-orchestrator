@@ -1,8 +1,8 @@
-// Waiting out a recovering daemon (0006 decision 7, DIPO-86). In `starting` and `recovering` the
-// daemon answers office commands and reads with the retryable `engine.recovering` (0005 section 10),
+// Waiting out a recovering daemon (0006, DIPO-86). In `starting` and `recovering` the
+// daemon answers office commands and reads with the retryable `engine.recovering` (0005),
 // which ends when `daemon.status` reports another state. A session wrapped here polls
 // `daemon.status` on the injected clock and sends the request again after every answered poll: a
-// command with its first `requestId`, so the engine runs it at most once (0005 section 9), a read
+// command with its first `requestId`, so the engine runs it at most once (0005), a read
 // with a fresh one. It sends again also while the daemon is still `starting` or `recovering`,
 // because a daemon whose state database turned out unusable stays in `recovering` for good and
 // answers the non-retryable `database.unavailable` instead (DIPO-111): the wait ends with that

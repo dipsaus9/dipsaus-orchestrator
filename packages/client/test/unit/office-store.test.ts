@@ -1,4 +1,4 @@
-// The `OfficeStore` (DIPO-53, 0009 sections 2 and 7): snapshot then events by subject, duplicate
+// The `OfficeStore` (DIPO-53, 0009): snapshot then events by subject, duplicate
 // cursors dropped, views replaced and never derived, `stream.resetRequired` reloads once, and
 // `switchTo` replaces the office and its stream. A read refused with `engine.recovering` is
 // sent again on a timer, so a daemon held without its state database ends it (DIPO-111). A stream

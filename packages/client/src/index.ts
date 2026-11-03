@@ -1,5 +1,5 @@
 // The main entry of `@dipsaus-orchestrator/client`: the runtime-free protocol core every UI shares
-// (0004 amendment of 2026-10-12). A lint rule keeps Bun and Node APIs out of it; the Unix-socket
+// (0004). A lint rule keeps Bun and Node APIs out of it; the Unix-socket
 // transport is in `@dipsaus-orchestrator/client/node`.
 
 export const packageName = "@dipsaus-orchestrator/client";

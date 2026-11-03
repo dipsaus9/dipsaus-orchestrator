@@ -1,5 +1,5 @@
-// Software-level configuration for clients, `<state>/config.yaml` (0006 and 0017 amendments of
-// 2026-10-12). A client reads it before it starts the daemon (`daemon.autostart`, DIPO-70). The
+// Software-level configuration for clients, `<state>/config.yaml` (0006, 0017). A
+// client reads it before it starts the daemon (`daemon.autostart`, DIPO-70). The
 // schema, the one-document rule and the error shape are the contract's, so a client and the
 // daemon accept and refuse the same files; this file is the only client code that parses YAML.
 

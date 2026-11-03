@@ -1,4 +1,4 @@
-// The Unix-socket transport (0006 decision 9): WebSocket over `<runtime>/dipo.sock` with Bun's
+// The Unix-socket transport (0006): WebSocket over `<runtime>/dipo.sock` with Bun's
 // `ws+unix://` URL scheme, one text frame per contract frame.
 
 import type { Transport } from "../transport";

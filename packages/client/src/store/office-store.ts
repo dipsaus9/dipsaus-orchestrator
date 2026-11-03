@@ -1,4 +1,4 @@
-// The `OfficeStore` (0009 sections 2 and 7, 0005 section 8): the state every UI renders, fed by
+// The `OfficeStore` (0009, 0005): the state every UI renders, fed by
 // `engine.hello`, the software stream, one office's snapshot and that office's stream. It applies
 // events by subject (story `key`, `run`, `gate`, `question`, `test`, `office`), drops stored
 // events whose cursor it already has, and replaces the views the engine sends. It never computes
@@ -76,7 +76,7 @@ import { RECOVERY_POLL_MS } from "../recovery";
 /** What the store needs from a connected client; `DipoClient` is one. */
 export type StoreClient = Pick<DipoClient, "state" | "hello" | "onState" | "read" | "subscribe">;
 
-/** Shown once after a history gap made the store drop its view and read it again (0009 section 7). */
+/** Shown once after a history gap made the store drop its view and read it again (0009). */
 export const RELOADED_NOTICE = "view reloaded (history gap)";
 
 const SOFTWARE = StreamName.parse("software");
@@ -135,7 +135,7 @@ export interface OfficeStoreState {
   /**
    * The last stored cursor of the selected office stream the store applied, starting at the
    * snapshot cursor; null without an office. A client compares a command reply cursor with it to
-   * wait for its own write (read-your-writes, 0009 section 5).
+   * wait for its own write (read-your-writes, 0009).
    */
   readonly cursor: Cursor | null;
   /**
@@ -163,9 +163,9 @@ export interface OfficeStoreState {
 }
 
 /**
- * One `work.output` byte range of the selected office (0005 section 5). The store passes it on to
+ * One `work.output` byte range of the selected office (0005). The store passes it on to
  * `onOutput` listeners and keeps none of it: an output pane holds the text it shows and reads the
- * rest with `work.outputRange` (0009 section 9).
+ * rest with `work.outputRange` (0009).
  */
 export interface OutputChunk {
   readonly run: RunId;
@@ -318,7 +318,7 @@ export class OfficeStore {
     this.#subscribeSoftware(hello?.cursor);
   }
 
-  /** Opens `office` from `office.snapshot` and follows its stream (0009 section 2). */
+  /** Opens `office` from `office.snapshot` and follows its stream (0009). */
   open(office: OfficeId): Promise<ReadOutcome<OfficeSnapshot>> {
     return this.#load(office);
   }

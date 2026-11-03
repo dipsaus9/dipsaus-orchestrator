@@ -1,4 +1,4 @@
-// The office store every UI shares (0009 sections 2 and 10).
+// The office store every UI shares (0009).
 
 export {
   cursorReached,

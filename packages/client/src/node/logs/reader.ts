@@ -1,6 +1,6 @@
-// The log reader behind `dipo daemon logs` (0006 decisions 5 and 13, DIPO-64). It reads
+// The log reader behind `dipo daemon logs` (0006, DIPO-64). It reads
 // `<logs>/daemon.log` and its rotated files directly, so it works with the daemon stopped (named
-// offline maintenance, 0006 amendment of 2026-10-12), filters the JSON lines by office, run and
+// offline maintenance, 0006), filters the JSON lines by office, run and
 // level, and renders them for people. The file names the daemon's log module rotates
 // (`daemon.log`, then `daemon.log.1` to `.5`) are the contract's runtime layout (DIPO-320).
 
