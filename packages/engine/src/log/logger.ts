@@ -26,9 +26,8 @@ export const REDACTED = "[redacted]";
 export const DEBUG_ONLY = "[debug only]";
 
 /**
- * Endings of secret field names (0006 amendment of 2026-10-15 (DIPO-91)): `token`,
- * `session.token`, `sessionToken`, `engineToken`, `engine_token`, `bootstrapCode`, ... Names are
- * compared lowercased with `_`, `-` and `.` removed.
+ * Endings of secret field names (0006, DIPO-91): `token`, `session.token`, `sessionToken`,
+ * `bootstrapCode`, ... Names are compared lowercased with `_`, `-` and `.` removed.
  */
 const SECRET_SUFFIXES: readonly string[] = [
   "token",

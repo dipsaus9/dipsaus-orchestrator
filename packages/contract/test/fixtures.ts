@@ -317,7 +317,6 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
       story: "DIPO-21",
       key: ids.storyKey,
       commits: [{ sha: "3f9a1c2", subject: "feat(DIPO-21): retry the lookup" }],
-      files: ["scratch.txt"],
     },
   },
   "story.gate": {
@@ -634,11 +633,9 @@ export const commandFixtures: Record<string, { args: unknown; result: unknown }>
 
 export const readFixtures: Record<string, { args: unknown; result: unknown }> = {
   "engine.hello": {
-    args: { contract: { major: 1, minor: 0 }, client: { name: "dipo-cli", version: "0.1.0" } },
+    args: { client: { name: "dipo-cli", version: "0.1.0" } },
     result: {
       engine: "0.1.0",
-      contract: { major: 1, minor: 0 },
-      capabilities: ["replay", "daemon.control"],
       daemon: "running",
       offices: [officeSummary],
       cursor: softwareCursor,
@@ -656,7 +653,6 @@ export const readFixtures: Record<string, { args: unknown; result: unknown }> = 
             required: ["office"],
           },
           result: { type: "object" },
-          since: 1,
           level: "software",
           confirm: true,
           irreversible: false,
@@ -667,7 +663,6 @@ export const readFixtures: Record<string, { args: unknown; result: unknown }> = 
           name: "daemon.status",
           args: { type: "object", properties: {} },
           result: { type: "object" },
-          since: 0,
         },
       ],
     },
