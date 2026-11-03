@@ -1,4 +1,4 @@
-// Size classes and the context and inputs budgets (0014 section 4). The class comes from the
+// Size classes and the context and inputs budgets (0014). The class comes from the
 // `git ls-files` count at pickup, in code. Budgets are characters; they are tunable starting
 // defaults, which `prompt.budgets` in `office.yaml` may override later.
 

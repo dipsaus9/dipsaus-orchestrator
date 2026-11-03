@@ -78,7 +78,7 @@ export function isSecretPartPath(path: string): boolean {
     .some((segment) => SECRET_DIRS.some((pattern) => pattern.test(segment)));
 }
 
-// Secret content (DIPO-273, 0021 section 8): the patterns a delivered part is scanned for before
+// Secret content (DIPO-273, 0021): the patterns a delivered part is scanned for before
 // dipo commits it. Each names a fixed kind, so a hit can be reported without quoting what matched.
 // They are the well-known shapes of keys and tokens: specific enough that ordinary code rarely
 // matches, and a hit parks the story for the maintainer rather than guessing.

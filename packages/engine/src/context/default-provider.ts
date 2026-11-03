@@ -1,4 +1,4 @@
-// The default context provider (0014 section 9, M0): no external tool, no model.
+// The default context provider (0014): no external tool, no model.
 //
 // 1. Scope: an existing file in full when under the per-item cap, else its head with a marker; a
 //    directory as its file count and the 15 files changed most recently on the base sha (none at

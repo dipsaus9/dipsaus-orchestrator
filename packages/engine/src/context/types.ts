@@ -1,8 +1,8 @@
-// The context provider interface (0014 section 9). A provider decides which code a worker sees
+// The context provider interface (0014). A provider decides which code a worker sees
 // and returns items: data with a structured reason, never prompt prose. The engine renders them
 // (DIPO-47). Output is deterministic for the same inputs.
 
-/** Project size class from the `git ls-files` count (0014 section 4). */
+/** Project size class from the `git ls-files` count (0014). */
 export type SizeClass = "S" | "M" | "L" | "XL";
 
 /** What a provider reads: one checkout (a story worktree, or `_base`). */
@@ -56,7 +56,7 @@ export interface ContextRequest {
   readonly baseSha: string;
   readonly headSha: string;
   readonly sizeClass: SizeClass;
-  /** The `inputs` section budget in characters (0014 section 4). */
+  /** The `inputs` section budget in characters (0014). */
   readonly inputsBudget: number;
 }
 
@@ -132,7 +132,7 @@ export interface ContextProvenance {
   readonly notes: readonly string[];
 }
 
-/** The `inputs` section (0014 section 2): the full path list plus pre-fetched content. */
+/** The `inputs` section (0014): the full path list plus pre-fetched content. */
 export interface InputsPart {
   /** Every declared input, in request order; never cut. */
   readonly paths: readonly string[];

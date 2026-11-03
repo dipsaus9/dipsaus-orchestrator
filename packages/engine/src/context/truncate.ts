@@ -1,4 +1,4 @@
-// Deterministic truncation (0014 section 4): cut on line boundaries, keep the head, and leave a
+// Deterministic truncation (0014): cut on line boundaries, keep the head, and leave a
 // marker. A file's marker names the path and the first line not shown, so a worker can read on;
 // a listing's marker names the list and has no line, because a listing is not a file.
 

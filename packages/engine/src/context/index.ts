@@ -1,4 +1,4 @@
-// The context provider (0014 section 9) and the default provider (DIPO-46).
+// The context provider (0014) and the default provider (DIPO-46).
 
 export {
   createDefaultProvider,
