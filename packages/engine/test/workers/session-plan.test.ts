@@ -41,12 +41,7 @@ import {
   REVIEW_TOOLS,
   WEB_TOOLS,
 } from "../../src/workers/claude-cli/tools";
-import {
-  type HostLine,
-  type LaunchPlan,
-  PlanError,
-  type WorkerSpec,
-} from "../../src/workers/types";
+import { type HostLine, type LaunchPlan, type WorkerSpec } from "../../src/workers/types";
 
 const HOME = "/home/maintainer";
 const RUN_DIR = "/home/maintainer/code/shop/.git/dipo/runs/run-0002";
