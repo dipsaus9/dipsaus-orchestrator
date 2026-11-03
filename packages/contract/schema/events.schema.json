@@ -537,7 +537,7 @@
         },
         "detectedBy": {
           "type": "string",
-          "enum": ["engine", "reconcile"]
+          "const": "engine"
         }
       },
       "required": ["key", "from", "to", "detectedBy"]

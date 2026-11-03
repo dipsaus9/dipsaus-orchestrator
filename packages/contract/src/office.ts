@@ -720,7 +720,7 @@ export const storyRenumbered = defineEvent({
     key: StoryKey,
     from: StoryId,
     to: StoryId,
-    detectedBy: z.enum(["engine", "reconcile"]),
+    detectedBy: z.literal("engine"),
   }),
 });
 
