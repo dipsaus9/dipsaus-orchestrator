@@ -1,13 +1,23 @@
 // The Backlog CLI runner (DIPO-28; 0010 section 1): the never-run list and anything outside the
 // allowlist are refused before spawning, text holding a 50-dash line never reaches the CLI, and a
-// non-zero exit or a `not found` line is an error carrying the command and its output.
+// non-zero exit or a `not found` line is an error carrying the command and its output. Calls on one
+// checkout run alone while the CLI could rewrite its config.yml, and at the same time once it is
+// settled (DIPO-434).
 
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import type { Spawn } from "@dipsaus-orchestrator/contract";
+import { ManualClock, makeTempDir, removeTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { BacklogCommandError, BacklogRefusedError, refusal, runBacklog } from "../../src/backlog";
-import { BACKLOG_ENV_KEYS, backlogEnv } from "../../src/backlog/runner";
+import { listAll } from "../../src/backlog/list";
+import { BACKLOG_ENV_KEYS, BacklogTimedOutError, backlogEnv } from "../../src/backlog/runner";
+import { CALL_DEADLINE_MS, KILL_GRACE_MS } from "../../src/platform/deadline";
+import { hangingSpawn, settle } from "../platform/hanging";
 import { readManifest, stubSpawn } from "./helpers";
 
 const RULE = "-".repeat(50);
@@ -254,5 +264,229 @@ describe("running the CLI", () => {
     );
     expect(error).toBeInstanceOf(BacklogCommandError);
     expect((error as Error).message).toContain("could not start: ENOENT: backlog");
+  });
+});
+
+// ---- the checkout gate (DIPO-434) ---------------------------------------------------------------
+
+/** A config.yml without the CLI's defaults, as an office adopted from before dipo keeps it. */
+const BARE_CONFIG = 'project_name: "fixture"\nstatuses: ["To Do", "Done"]\n';
+/** The line the stand-in CLI adds to a config.yml that lacks it. */
+const DEFAULTS = "max_column_width: 20\n";
+const WHOLE_LIST = "To Do:\n  TASK-1 - One\n  TASK-2 - Two\n  TASK-3 - Three\n\n";
+const ENTRIES = ["TASK-1", "TASK-2", "TASK-3"];
+
+/** One step of a stand-in run: a call started or ended, by its arguments. */
+type Step = `${"start" | "end"} ${string}`;
+
+interface StandIn {
+  readonly spawn: Spawn;
+  readonly steps: Step[];
+  /** The most calls that ran at the same time. */
+  readonly most: () => number;
+}
+
+/**
+ * A stand-in Backlog CLI over the checkout it runs in. Like Backlog.md 1.53 it rewrites a
+ * config.yml that lacks its defaults on its read: it leaves the file half-written for `holdMs`
+ * on a timer, then writes it whole and exits. A call that reads a half-written file sees no
+ * tasks: an empty list, a count of 0, a view that is not found. Every call runs for `holdMs`.
+ * `fail` makes the calls whose arguments it matches exit 1.
+ */
+function standIn(holdMs = 40, fail: (args: string) => boolean = () => false): StandIn {
+  const steps: Step[] = [];
+  let running = 0;
+  let most = 0;
+  const spawn: Spawn = ({ cmd, cwd }) => {
+    const args = cmd.slice(1).join(" ");
+    steps.push(`start ${args}`);
+    running++;
+    most = Math.max(most, running);
+    const file = join(cwd ?? ".", "backlog", "config.yml");
+    const config = existsSync(file) ? readFileSync(file, "utf8") : "";
+    const whole = config.includes("statuses:");
+    const rewrite = whole && !config.includes(DEFAULTS);
+    if (rewrite) writeFileSync(file, config.slice(0, 10));
+    const view = /^task view (\S+)/.exec(args)?.[1];
+    let stdout = "";
+    let stderr = "";
+    if (view !== undefined) {
+      if (whole) stdout = `File: /x/${view}.md\n\nTask ${view} - Story\n`;
+      else stderr = `Task ${view} not found.\n`;
+    } else if (args.includes("--count")) stdout = whole ? `${ENTRIES.length}\n` : "0\n";
+    else stdout = whole ? WHOLE_LIST : "";
+    const code = stderr !== "" || fail(args) ? 1 : 0;
+    const exited = Bun.sleep(holdMs).then(() => {
+      if (rewrite) writeFileSync(file, `${config}${DEFAULTS}`);
+      running--;
+      steps.push(`end ${args}`);
+      return { code, signal: null };
+    });
+    return {
+      pid: 4242,
+      stdin: null,
+      stdout: new Response(stdout).body as ReadableStream<Uint8Array>,
+      stderr: new Response(stderr).body as ReadableStream<Uint8Array>,
+      exited,
+      kill: () => {},
+    };
+  };
+  return { spawn, steps, most: () => most };
+}
+
+const VIEW = (id: string) => ["task", "view", id, "--plain"];
+
+/** A `Spawn` that cannot start the CLI. */
+const unstartable: Spawn = () => {
+  throw new Error("ENOENT: backlog");
+};
+
+describe("the checkout gate (DIPO-434)", () => {
+  const dirs: string[] = [];
+  /** A fresh checkout under the test temp root, so no gate state leaks between tests. */
+  const checkout = (config: string | null = BARE_CONFIG): string => {
+    const dir = makeTempDir();
+    dirs.push(dir);
+    mkdirSync(join(dir, "backlog", "tasks"), { recursive: true });
+    if (config !== null) writeFileSync(join(dir, "backlog", "config.yml"), config);
+    return dir;
+  };
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) removeTempDir(dir);
+  });
+
+  it("lets calls at once on a config the CLI rewrites each see the whole backlog", async () => {
+    const dir = checkout();
+    const cli = standIn();
+    const [first, list, second, third] = await Promise.all([
+      runBacklog(cli, dir, VIEW("TASK-1")),
+      listAll(cli, dir, "task"),
+      runBacklog(cli, dir, VIEW("TASK-2")),
+      runBacklog(cli, dir, VIEW("TASK-3")),
+    ]);
+    expect(list.entries.map((entry) => entry.id)).toEqual(ENTRIES);
+    expect(first.stdout).toContain("Task TASK-1 - Story");
+    expect(second.stdout).toContain("Task TASK-2 - Story");
+    expect(third.stdout).toContain("Task TASK-3 - Story");
+    expect(readFileSync(join(dir, "backlog", "config.yml"), "utf8")).toBe(
+      `${BARE_CONFIG}${DEFAULTS}`,
+    );
+    // The call that rewrote the file ran alone; the rest ran at the same time after it.
+    expect(cli.steps.slice(0, 2)).toEqual([
+      "start task view TASK-1 --plain",
+      "end task view TASK-1 --plain",
+    ]);
+    expect(cli.steps.slice(2, 6).every((step) => step.startsWith("start "))).toBe(true);
+    expect(cli.most()).toBe(4);
+  });
+
+  it("runs calls on a settled config at the same time, after the first", async () => {
+    const dir = checkout(`${BARE_CONFIG}${DEFAULTS}`);
+    const cli = standIn();
+    await runBacklog(cli, dir, VIEW("TASK-1"));
+    expect(cli.most()).toBe(1);
+    await Promise.all(["TASK-1", "TASK-2", "TASK-3"].map((id) => runBacklog(cli, dir, VIEW(id))));
+    expect(cli.most()).toBe(3);
+  });
+
+  it("counts a config.yml as unchanged only when it was missing then too", async () => {
+    const dir = checkout(null);
+    // The project is configured in config.yaml, so the CLI runs there without a config.yml.
+    writeFileSync(join(dir, "backlog", "config.yaml"), BARE_CONFIG);
+    const cli = standIn();
+    await runBacklog(cli, dir, VIEW("TASK-1")).catch(() => undefined);
+    await Promise.all([
+      runBacklog(cli, dir, VIEW("TASK-1")).catch(() => undefined),
+      runBacklog(cli, dir, VIEW("TASK-2")).catch(() => undefined),
+    ]);
+    expect(cli.most()).toBe(2);
+    writeFileSync(join(dir, "backlog", "config.yml"), `${BARE_CONFIG}${DEFAULTS}`);
+    const steps = cli.steps.length;
+    await Promise.all(["TASK-1", "TASK-2"].map((id) => runBacklog(cli, dir, VIEW(id))));
+    expect(cli.steps.slice(steps, steps + 2)).toEqual([
+      "start task view TASK-1 --plain",
+      "end task view TASK-1 --plain",
+    ]);
+  });
+
+  it("runs calls on different checkouts at the same time, even before they are settled", async () => {
+    const cli = standIn();
+    const [one, two] = [checkout(), checkout()];
+    await Promise.all([runBacklog(cli, one, VIEW("TASK-1")), runBacklog(cli, two, VIEW("TASK-2"))]);
+    expect(cli.most()).toBe(2);
+  });
+
+  it("makes the next call run alone again once a checkout changed its config.yml", async () => {
+    const dir = checkout();
+    const cli = standIn();
+    await runBacklog(cli, dir, VIEW("TASK-1"));
+    // A checkout of an old commit puts the config without the defaults back (`sideAt`).
+    writeFileSync(join(dir, "backlog", "config.yml"), BARE_CONFIG);
+    const steps = cli.steps.length;
+    const [list, view] = await Promise.all([
+      listAll(cli, dir, "task"),
+      runBacklog(cli, dir, VIEW("TASK-2")),
+    ]);
+    expect(list.entries.map((entry) => entry.id)).toEqual(ENTRIES);
+    expect(view.stdout).toContain("Task TASK-2 - Story");
+    expect(cli.steps.slice(steps, steps + 2)).toEqual([
+      "start task list --plain",
+      "end task list --plain",
+    ]);
+  });
+
+  it("releases the gate when a call fails, and when one never starts", async () => {
+    const dir = checkout();
+    const cli = standIn(40, (args) => args.includes("TASK-9"));
+    const [failed, ...rest] = await Promise.allSettled([
+      runBacklog(cli, dir, VIEW("TASK-9")),
+      runBacklog(cli, dir, VIEW("TASK-1")),
+      runBacklog(cli, dir, VIEW("TASK-2")),
+    ]);
+    expect(failed?.status).toBe("rejected");
+    expect(rest.map((result) => result.status)).toEqual(["fulfilled", "fulfilled"]);
+
+    const other = checkout();
+    const error = await caught(runBacklog({ spawn: unstartable }, other, VIEW("TASK-1")));
+    expect((error as Error).message).toContain("could not start");
+    // Nothing is remembered after a call that never started: the next call runs alone.
+    const steps = cli.steps.length;
+    await Promise.all(["TASK-1", "TASK-2"].map((id) => runBacklog(cli, other, VIEW(id))));
+    expect(cli.steps.slice(steps, steps + 2)).toEqual([
+      "start task view TASK-1 --plain",
+      "end task view TASK-1 --plain",
+    ]);
+  });
+
+  it("releases the gate when a call times out, and times out a call waiting at it", async () => {
+    const dir = checkout();
+    const clock = new ManualClock();
+    const later = standIn();
+    // The first call hangs; the rest are answered by the stand-in.
+    let first = true;
+    const hang = hangingSpawn((options) => {
+      if (first) {
+        first = false;
+        return null;
+      }
+      return later.spawn(options);
+    });
+    const cli = { spawn: hang.spawn, clock, env: {} };
+    const hung = caught(runBacklog(cli, dir, VIEW("TASK-1")));
+    const waiting = caught(runBacklog(cli, dir, VIEW("TASK-2")));
+    await settle();
+    expect(hang.calls).toHaveLength(1);
+    clock.advance(CALL_DEADLINE_MS);
+    // The waiting call fails at its own deadline, without starting the CLI.
+    const waited = await waiting;
+    expect(waited).toBeInstanceOf(BacklogTimedOutError);
+    expect((waited as Error).message).toContain("`backlog task view TASK-2 --plain`");
+    clock.advance(KILL_GRACE_MS);
+    expect(await hung).toBeInstanceOf(BacklogTimedOutError);
+    expect(hang.calls).toHaveLength(1);
+    // The gate is free again.
+    const out = await runBacklog(cli, dir, VIEW("TASK-3"));
+    expect(out.stdout).toContain("Task TASK-3 - Story");
+    expect(later.steps).toEqual(["start task view TASK-3 --plain", "end task view TASK-3 --plain"]);
   });
 });

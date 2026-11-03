@@ -28,13 +28,27 @@
 // group; past the deadline the group is killed and the call throws `BacklogTimedOutError` (code
 // `timedOut`, a `BacklogCommandError`, so every caller that handles a failed CLI call handles it)
 // naming the command and the deadline, without waiting for the CLI's output.
+//
+// Every call that reads a project first passes its checkout's gate (`CheckoutGate`, DIPO-434):
+// the Backlog CLI rewrites a backlog/config.yml that lacks its defaults on its first read, and a
+// call that reads the file while another writes it can see no tasks. A call runs alone when it
+// finds the file other than it was after the last call that ran alone there ended, or finds
+// nothing remembered; while the file stays as remembered, calls run at the same time. Waiting at
+// the gate counts toward the call's deadline.
 
 import { createHash } from "node:crypto";
-import { type Dirent, readdirSync, readFileSync, type Stats, statSync } from "node:fs";
+import {
+  type Dirent,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  type Stats,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, normalize } from "node:path";
+import { isAbsolute, join, normalize, resolve } from "node:path";
 
-import type { ChildProcess, Clock, Spawn } from "@dipsaus-orchestrator/contract";
+import type { ChildProcess, Clock, Spawn, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import { systemClock } from "../platform/clock";
 import {
@@ -444,8 +458,86 @@ export async function runBacklog(
   const startedAt = clock.now();
   const reason = refusal(args);
   if (reason !== null) throw new BacklogRefusedError(args, reason);
-  // `backlog --version` prints the CLI's version and reads no project.
-  const project = !(args.length === 1 && args[0] === "--version");
+  // `backlog --version` prints the CLI's version and reads no project, so it needs no gate.
+  if (args.length === 1 && args[0] === "--version") {
+    return callBacklog(cli, cwd, args, { startedAt, project: false, ended: () => {} });
+  }
+  const entered = CHECKOUT_GATE.enter(cwd);
+  const leave =
+    typeof entered === "function"
+      ? entered
+      : await waitAtGate(entered, clock, deadlineMs - (clock.now() - startedAt), () => {
+          const command = [...(cli.command ?? ["backlog"]), ...args];
+          return new BacklogTimedOutError(command, deadlineMs);
+        });
+  let ended = false;
+  try {
+    return await callBacklog(cli, cwd, args, {
+      startedAt,
+      project: true,
+      ended: () => (ended = true),
+    });
+  } finally {
+    // A call the CLI ended, with an error or not, ran to its end; one refused, never started or
+    // killed at its deadline did not, and the next call there runs alone.
+    leave(ended);
+  }
+}
+
+/**
+ * Waits for the gate's pass `entered` until `leftMs` on `clock` ran out, then rejects with
+ * `timedOut()`; a pass that comes later is left at once, as a call that did not run.
+ */
+async function waitAtGate(
+  entered: Promise<GateLeave>,
+  clock: Clock,
+  leftMs: number,
+  timedOut: () => Error,
+): Promise<GateLeave> {
+  if (!Number.isFinite(leftMs)) return entered;
+  // Whichever comes first wins: the pass or the deadline.
+  let first: "pass" | "deadline" | undefined;
+  void entered.then((leave) => {
+    if (first === "deadline") leave(false);
+    else first = "pass";
+  });
+  let timer: TimerHandle | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = clock.setTimeout(
+      () => {
+        if (first !== undefined) return;
+        first = "deadline";
+        reject(timedOut());
+      },
+      Math.max(0, leftMs),
+    );
+  });
+  try {
+    return await Promise.race([entered, expired]);
+  } finally {
+    if (timer !== undefined) clock.clearTimeout(timer);
+  }
+}
+
+/** How `runBacklog` hands one call past its gate to `callBacklog`. */
+interface GatedCall {
+  /** When the call started, on the engine clock. */
+  readonly startedAt: number;
+  /** False for a call that reads no project. */
+  readonly project: boolean;
+  /** Called once the CLI exited and its output was read. */
+  readonly ended: () => void;
+}
+
+/** One `runBacklog` call past its gate: the scan, the spawn and the wait. */
+async function callBacklog(
+  cli: BacklogCli,
+  cwd: string,
+  args: readonly string[],
+  { startedAt, project, ended }: GatedCall,
+): Promise<BacklogOutput> {
+  const clock = cli.clock ?? systemClock;
+  const deadlineMs = cli.deadlineMs ?? CALL_DEADLINE_MS;
   const scan = scanBacklogFiles(cwd, VERDICTS, { project });
   if (scan.refused.length > 0) {
     const refused = new BacklogFileRefusedError(args, scan.refused);
@@ -504,6 +596,7 @@ export async function runBacklog(
     const why = error instanceof Error ? error.message : String(error);
     throw new BacklogCommandError(command, null, "", "", `output could not be read: ${why}`);
   }
+  ended();
   if (exit.code !== 0) {
     const how =
       exit.code === null ? `was killed by ${exit.signal ?? "a signal"}` : `exited ${exit.code}`;
@@ -515,6 +608,134 @@ export async function runBacklog(
   }
   return { stdout, stderr };
 }
+
+// ---- the checkout gate (DIPO-434) --------------------------------------------------------------
+//
+// Backlog.md 1.53 rewrites a backlog/config.yml that lacks its defaults (`max_column_width`,
+// `auto_open_browser`, `default_port`, `bypass_git_hooks`, `active_branch_days`) on the first read
+// of any command, and a call that reads the file while another writes it can see no tasks
+// (DIPO-377). An office adopted from before dipo keeps such a file, and a checkout of an old commit
+// (the PR diff's `sideAt`) puts one back. So the runner keeps a gate per checkout. It remembers the
+// file's content (a hash, or that there is none) as it was after the last call that ran alone on
+// the checkout ended. A call that finds the file other than that, or nothing remembered, runs
+// alone: it waits for the calls already running there, and later calls wait for it. While the file
+// stays as remembered, calls run at the same time, and calls on different checkouts always do. So
+// the CLI's rewrite happens in a call that runs alone, without the engine knowing which defaults
+// the CLI adds. A call that did not run to its end (refused, never started, killed at its
+// deadline) leaves nothing remembered, so the next call there runs alone again; every call leaves
+// the gate, however it ends.
+//
+// The checkout is the real path of the folder the call runs in, not the top of its repository: the
+// scan below refuses a folder without a project configuration of its own, so the CLI always reads
+// that folder's backlog/config.yml, and the real path makes a link and its target one checkout. The
+// gate holds within one process; two processes on one checkout are not covered.
+
+/** The configuration file the Backlog CLI rewrites, relative to the checkout. */
+const REWRITTEN_CONFIG = "backlog/config.yml";
+
+/** Leaves a checkout's gate; `ended` is true when the CLI ran to its end. */
+export type GateLeave = (ended: boolean) => void;
+
+interface CheckoutState {
+  /** The config's hash after the last call that ran alone ended; null for none; undefined: unknown. */
+  settled: string | null | undefined;
+  /** How many calls run at the same time. */
+  running: number;
+  /** True while a call runs alone, or waits for the running calls to end so it can. */
+  alone: boolean;
+  /** Starts the call waiting to run alone, once the running calls ended. */
+  drained: (() => void) | undefined;
+  /** The calls waiting for the call that runs alone. */
+  readonly waiting: (() => void)[];
+}
+
+/** The real path of `cwd`, or its absolute path when it has none (it does not exist). */
+function checkoutOf(cwd: string): string {
+  try {
+    return realpathSync(cwd);
+  } catch {
+    return resolve(cwd);
+  }
+}
+
+/** The hash of the checkout's backlog/config.yml, or null when it cannot be read. */
+function configHash(checkout: string): string | null {
+  try {
+    return createHash("sha256")
+      .update(readFileSync(join(checkout, REWRITTEN_CONFIG)))
+      .digest("base64url");
+  } catch {
+    return null;
+  }
+}
+
+/** The gate of every checkout the runner calls the CLI in (see the section above). */
+export class CheckoutGate {
+  readonly #checkouts = new Map<string, CheckoutState>();
+
+  /** At most `max` checkouts are remembered; the least recently used idle ones go first. */
+  constructor(readonly max = 1024) {}
+
+  /**
+   * Enters the gate of the checkout `cwd` is: at once (a `GateLeave`) when the call may run now,
+   * else a promise of one. The caller calls the `GateLeave` once, when the call ends.
+   */
+  enter(cwd: string): GateLeave | Promise<GateLeave> {
+    const checkout = checkoutOf(cwd);
+    const state = this.#state(checkout);
+    if (state.alone) {
+      return new Promise<void>((wake) => state.waiting.push(wake)).then(() => this.enter(cwd));
+    }
+    if (state.settled !== undefined && configHash(checkout) === state.settled) {
+      state.running++;
+      return () => {
+        state.running--;
+        if (state.running > 0 || state.drained === undefined) return;
+        const start = state.drained;
+        state.drained = undefined;
+        start();
+      };
+    }
+    state.alone = true;
+    const leave: GateLeave = (ended) => {
+      state.settled = ended ? configHash(checkout) : undefined;
+      state.alone = false;
+      for (const wake of state.waiting.splice(0)) wake();
+    };
+    if (state.running === 0) return leave;
+    return new Promise<GateLeave>((start) => (state.drained = () => start(leave)));
+  }
+
+  /** How many checkouts the gate remembers. */
+  get size(): number {
+    return this.#checkouts.size;
+  }
+
+  #state(checkout: string): CheckoutState {
+    const known = this.#checkouts.get(checkout);
+    if (known !== undefined) {
+      this.#checkouts.delete(checkout);
+      this.#checkouts.set(checkout, known);
+      return known;
+    }
+    for (const [key, state] of this.#checkouts) {
+      if (this.#checkouts.size < this.max) break;
+      if (state.running === 0 && !state.alone) this.#checkouts.delete(key);
+    }
+    const state: CheckoutState = {
+      settled: undefined,
+      running: 0,
+      alone: false,
+      drained: undefined,
+      waiting: [],
+    };
+    this.#checkouts.set(checkout, state);
+    return state;
+  }
+}
+
+/** The daemon's one checkout gate. */
+const CHECKOUT_GATE = new CheckoutGate();
 
 // ---- the Backlog files a call runs with (DIPO-312, 0021 section 14) ----------------------------
 //

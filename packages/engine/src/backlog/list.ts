@@ -7,6 +7,11 @@
 // mismatch is read once more before it fails, so one cut output does not fail a check. The error
 // says how much arrived: the bytes, the last line and whether the output ended with a newline
 // (DIPO-333).
+//
+// The list and its count run at once. That is safe even where the CLI is about to rewrite
+// backlog/config.yml on its first read (DIPO-434): were both to read the half-written file, both
+// would see no tasks and agree. The runner's checkout gate (`runBacklog`) lets a call that could
+// rewrite the file run alone, so the two read it only once it is settled.
 
 import type { PlainList } from "../story-store/story";
 
@@ -70,7 +75,8 @@ export const LIST_ATTEMPTS = 2;
 
 /**
  * Every entry of `<kind> list --plain` in `cwd`, checked against `<kind> list --plain --count`
- * (both run at once). On a mismatch both run once more, so one cut output does not fail the read;
+ * (both run at once; the runner's checkout gate keeps them from reading a config.yml the CLI is
+ * rewriting, DIPO-434). On a mismatch both run once more, so one cut output does not fail the read;
  * a second mismatch throws `BacklogListIncompleteError`. Throws `BacklogParseError` when an output
  * does not parse, and as `runBacklog` does when the CLI fails.
  */
