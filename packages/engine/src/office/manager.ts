@@ -380,7 +380,7 @@ export class OfficeManager implements OfficeDirectory {
    *
    * Reads the office's configuration (DIPO-26). A valid result replaces the one in force and clears
    * the errors; an invalid one keeps it, records the errors and puts an `engine.notice` on the
-   * office stream. A valid result's warnings, such as a retired key it still sets (DIPO-285), each
+   * office stream. A valid result's warnings, such as a key an upgrade dropped (DIPO-285), each
    * become a `config.warning` notice there. Returns whether anything changed.
    */
   async #readConfig(instance: OfficeInstance): Promise<boolean> {

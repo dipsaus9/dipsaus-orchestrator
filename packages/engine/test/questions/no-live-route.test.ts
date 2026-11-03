@@ -1,8 +1,6 @@
 // One question path (DIPO-428 AC #2; 0001, 0020): a worker's question parks at once, whichever
 // client is connected. No source file of any package names the live question route, the TUI
-// presence the daemon fed the engine, or the office's question wait, nor their plumbing. One
-// written exception: the office configuration's version 15 retires `timeouts.questionWaitMinutes`,
-// so its retired-key entry in `config/schema.ts` names the path once, for the migration from 14.
+// presence the daemon fed the engine, or the office's question wait, nor their plumbing.
 
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
@@ -23,9 +21,6 @@ const NAMES = [
   "presenceMayHaveChanged",
   "questionWaitMs",
 ];
-
-const SCHEMA = "engine/src/config/schema.ts";
-const RETIRED_ENTRY = 'path: "timeouts.questionWaitMinutes",';
 
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -52,18 +47,14 @@ describe("no live question route (DIPO-428)", () => {
     const files = srcFiles().map((file) => relative(PACKAGES, file));
     expect(files).toContain("engine/src/questions/answers.ts");
     expect(files).toContain("daemon/src/server.ts");
-    expect(files).toContain(SCHEMA);
+    expect(files).toContain("engine/src/config/schema.ts");
   });
 
-  it("finds none of the names in any package's src, apart from the version 15 retired key", () => {
+  it("finds none of the names in any package's src", () => {
     const found: string[] = [];
     for (const file of srcFiles()) {
       const name = relative(PACKAGES, file);
-      let text = readFileSync(file, "utf8");
-      if (name === SCHEMA) {
-        expect(text.split(RETIRED_ENTRY)).toHaveLength(2);
-        text = text.replace(RETIRED_ENTRY, "");
-      }
+      const text = readFileSync(file, "utf8");
       for (const forbidden of NAMES) {
         if (text.includes(forbidden)) found.push(`${name}: ${forbidden}`);
       }
