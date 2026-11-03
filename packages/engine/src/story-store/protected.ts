@@ -1,4 +1,4 @@
-// The protected paths of 0021 section 8: the paths only dipo or the maintainer writes. One check for
+// The protected paths of 0021: the paths only dipo or the maintainer writes. One check for
 // every guard that asks, the box's parts (`box/parts.ts`), its collisions (`box/collisions.ts`) and
 // the pickup gate's References (R31, `gate/rules.ts`), so they never disagree. It lives beside the
 // story folders it protects, since the gate (band 2) may not import the box (band 3, 0004).
@@ -62,8 +62,8 @@ function protectedOf(key: string, folders: readonly string[]): ProtectedKind | n
   return toolConfigOf(key, parts);
 }
 
-// The configuration of the tools dipo runs on checkouts of the repository (DIPO-312, 0021 section
-// 14): after a story merges, dipo runs the Backlog CLI (a program built with Bun) and Bun in
+// The configuration of the tools dipo runs on checkouts of the repository (0021):
+// after a story merges, dipo runs the Backlog CLI (a program built with Bun) and Bun in
 // checkouts of the base, and the reviewer, a Claude Code session, runs on a copy of the story's
 // commit. A part may not add, change or delete a file any of them reads its configuration from.
 // The story folders themselves are the `backlog` kind.
