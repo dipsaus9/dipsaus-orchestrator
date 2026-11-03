@@ -373,7 +373,7 @@ describe("allowlist", () => {
     }
   });
 
-  it("knows the hook events 0008 section 5 registers", () => {
+  it("knows the hook events 0008 registers", () => {
     for (const event of [
       "SessionStart",
       "PermissionRequest",

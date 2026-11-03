@@ -1,4 +1,4 @@
-// `bun run recordings:capture <scenario>` (0017 section 2, "Capture"). A dev script, never a test:
+// `bun run recordings:capture <scenario>` (0017). A dev script, never a test:
 //
 // 1. builds the fixture repository `packages/engine/test/fixtures/repos/<name>` as a main checkout
 //    plus a linked worktree in a fresh temp directory under `$DIPO_TMP` (else `/tmp`);
@@ -347,7 +347,7 @@ export async function capture(scenario: Scenario): Promise<string> {
         runDir,
         hostSocket,
         tmpDir: sandboxTmp,
-        // A reviewer loads no plugin: the plan switches off every installed one (0019 section 4).
+        // A reviewer loads no plugin: the plan switches off every installed one (0019).
         ...(scenario.kind === "review"
           ? { plugins: { installed: readInstalledPlugins(home), allowed: [] } }
           : {}),

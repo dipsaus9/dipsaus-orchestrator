@@ -1,4 +1,4 @@
-// Usage checksum (0017 section 2, "Usage for 0014's measurement"). The capture takes it from the
+// Usage checksum (0017). The capture takes it from the
 // raw stream before scrubbing and stores it in `meta.json`; a unit test recomputes it from the
 // committed stream, so a scrubber change that touches a usage number fails the build.
 
@@ -64,7 +64,7 @@ export function stdoutOf(lines: readonly Envelope[]): unknown[] {
   return lines.filter((line) => line.ch === "stdout").map((line) => line.data);
 }
 
-/** Budget tokens (0008 section 4) from the last result's `modelUsage`, summed over models. */
+/** Budget tokens (0008) from the last result's `modelUsage`, summed over models. */
 export function budgetTokens(lines: readonly Envelope[]): number {
   let total = 0;
   for (const message of stdoutOf(lines)) {

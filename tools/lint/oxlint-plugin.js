@@ -1,8 +1,8 @@
-// Local oxlint rules for what the built-in rules cannot express (0017 section 4).
+// Local oxlint rules for what the built-in rules cannot express (0017).
 // oxlint has no `no-restricted-syntax`, so `new Date()` without arguments needs its own rule;
 // `new Date(value)` stays allowed because it reads no clock.
 //
-// The engine seams (0004, 0008 section 1; DIPO-113) and the StoryStore seam (0010) are rules of
+// The engine seams (0004, 0008; DIPO-113) and the StoryStore seam (0010) are rules of
 // their own, not `no-restricted-imports` patterns: an override replaces a rule's whole option
 // list, so a ban added to that rule would have to be repeated in every engine override. They are
 // scoped by `.oxlintrc.json` overrides: on for `packages/engine/src/**` (the Bun rules also for
@@ -75,9 +75,9 @@ function importRule(description, messageFor) {
 }
 
 const CLAUDE_CLI_MESSAGE =
-  "Claude specifics stay in packages/engine/src/workers/claude-cli (0004, CLAUDE.md). Reach the adapter through the WorkerPort (0008 section 1); only workers/claude-cli/** and the composition root (the engine entry and the wiring of createEngine) import it, type-only imports included.";
+  "Claude specifics stay in packages/engine/src/workers/claude-cli (0004, CLAUDE.md). Reach the adapter through the WorkerPort (0008); only workers/claude-cli/** and the composition root (the engine entry and the wiring of createEngine) import it, type-only imports included.";
 const ENGINE_ENTRY_MESSAGE =
-  "Engine code does not import the engine entry, which is the daemon's (0004). Import the module itself; reach the adapter through the WorkerPort (0008 section 1).";
+  "Engine code does not import the engine entry, which is the daemon's (0004). Import the module itself; reach the adapter through the WorkerPort (0008).";
 
 const DAEMON_ENGINE_MESSAGE =
   "The daemon imports from the engine only `createEngine`, types and the platform entry (0004, 0005): take a process piece from @dipsaus-orchestrator/engine/platform and reach everything else through the engine `createEngine` gives.";
@@ -215,7 +215,7 @@ function readsBun(node) {
 const REGISTRATIONS = new Set(["describe", "it", "test"]);
 
 const CI_GUARD_MESSAGE =
-  'A *.ci.test.ts file registers its tests only when DIPO_TEST_CI is 1 (0017 section 1): put every top-level describe, it or test inside `if (process.env["DIPO_TEST_CI"] === "1") { ... }` (or a top-level const bound to that comparison), or use `describe.if(<that>)`.';
+  'A *.ci.test.ts file registers its tests only when DIPO_TEST_CI is 1 (0017): put every top-level describe, it or test inside `if (process.env["DIPO_TEST_CI"] === "1") { ... }` (or a top-level const bound to that comparison), or use `describe.if(<that>)`.';
 
 /** `process.env.DIPO_TEST_CI` or `process.env["DIPO_TEST_CI"]`. */
 function readsCiVariable(node) {
@@ -865,8 +865,7 @@ export default {
             ) {
               context.report({
                 node,
-                message:
-                  "`new Date()` reads wall-clock time. Use the injected Clock (0017 section 4).",
+                message: "`new Date()` reads wall-clock time. Use the injected Clock (0017).",
               });
             }
           },

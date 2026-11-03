@@ -1,4 +1,4 @@
-// Checks shared by the capture and the unit tests over committed recordings (0017 section 2).
+// Checks shared by the capture and the unit tests over committed recordings (0017).
 
 import { isRecord } from "./format";
 import type { Envelope } from "./format";

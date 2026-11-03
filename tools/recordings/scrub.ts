@@ -1,4 +1,4 @@
-// The recording scrubber (0017 section 2, "Scrubbing"). It works from an allowlist per channel and
+// The recording scrubber (0017). It works from an allowlist per channel and
 // message type: listed fields are kept, ids and paths are normalised to stable placeholders, and
 // every other string at any depth becomes `[redacted sha256:<12 hex> len:<n>]`. A message type or
 // hook event the allowlist does not know is redacted whole and reported. Numbers, booleans and
@@ -68,8 +68,8 @@ const CONTENT_BLOCKS = (prefix: string): PathRule[] => [
 ];
 
 /**
- * The stdout allowlist, keyed by `type/subtype` or `type`. Decision fields (0008 sections 2, 3, 5
- * and 7) are listed in `DECISION_FIELDS` below and must be kept here; a test checks both lists.
+ * The stdout allowlist, keyed by `type/subtype` or `type`. Decision fields (0008) are
+ * listed in `DECISION_FIELDS` below and must be kept here; a test checks both lists.
  */
 export const STDOUT_RULES: Readonly<Record<string, readonly PathRule[]>> = {
   "system/init": [
@@ -186,7 +186,7 @@ export const STDOUT_RULES: Readonly<Record<string, readonly PathRule[]>> = {
     // Report exemption: the fixture story makes the worker report fixed, fixture-controlled text.
     ["structured_output.status", "keep"],
     ["structured_output.question", "keep"],
-    // A review report's enums (0019 section 5): code computes the verdict from them.
+    // A review report's enums (0019): code computes the verdict from them.
     ["structured_output.criteria.*.status", "keep"],
     ["structured_output.findings.*.severity", "keep"],
     ["structured_output.findings.*.kind", "keep"],
@@ -213,7 +213,7 @@ export const STDOUT_RULES: Readonly<Record<string, readonly PathRule[]>> = {
   auth_status: [["error", "keep"]],
 };
 
-/** Fields kept on every known hook payload (`ch: "hook"`, 0008 section 5). */
+/** Fields kept on every known hook payload (`ch: "hook"`, 0008). */
 const HOOK_COMMON: readonly PathRule[] = [
   ["hook_event_name", "keep"],
   ["session_id", "id"],
@@ -252,7 +252,7 @@ export const HOOK_RULES: Readonly<Record<string, readonly PathRule[]>> = {
 };
 
 /**
- * The web rules (0020 section 11b, DIPO-164): the input field of each web tool that is kept, as the
+ * The web rules (0020, DIPO-164): the input field of each web tool that is kept, as the
  * `web` scenario's query and URLs are fixed synthetic fixture text. They apply only to a call of
  * these tools, matched by name: the `tool_input` of a `PreToolUse` hook line, the `input` of an
  * assistant `tool_use` block and its `wire_tool_inputs` entry. The `tool_result` of a web call
