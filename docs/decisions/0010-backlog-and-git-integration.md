@@ -98,7 +98,7 @@ dipo records the previous values. Existing ignore files are never edited.
 | Hardened calls | Every call runs with `GIT_CONFIG_NOSYSTEM=1`, `GIT_DIR` and `GIT_COMMON_DIR` set from recorded paths, `core.hooksPath=/dev/null`, `core.fsmonitor=false` and `commit --no-verify` |
 | One queue | One serial git queue per office orders refs and pushes |
 | Base and remote | `base` in `.dipo/office.yaml`, else `refs/remotes/origin/HEAD`; else `run` is refused. The remote is `origin` |
-| Worktrees | Only dipo's own two: `_base` (detached at `origin/<base>`, for reads) and `_backlog` (the planning lane), under `worktree.root` (default `../<repo>.worktrees`), outside the main checkout. A story worktree an earlier binary left there (locked `dipo <run-id>`) is removed at office load with `git worktree remove` when it has a branch checked out and every file `git status` lists is deleted, a `node_modules/` folder, a `.DS_Store` file, or bytes git holds for that path at a commit reachable from the branch tip; any other, or one on a detached HEAD, is kept and listed on the desk |
+| Worktrees | Only dipo's own two: `_base` (detached at `origin/<base>`, for reads) and `_backlog` (the planning lane), under `worktree.root` (default `../<repo>.worktrees`), outside the main checkout |
 | Claim | The exact local ref is absent and `git ls-remote --heads origin <branch>` is empty. Then `git update-ref refs/heads/<branch> <start> ""` creates the branch atomically, and a `claims` row with unique indexes holds it (0007). Then come the claim commit, the push and the box (0008). A lost race is a skip |
 | Parts | Committed from git objects on the branch ref, then pushed (0008) |
 | Code tree key | The hash of `git ls-tree -r <commit>` without the story's own task file. Verdicts are keyed on it (0002) |
@@ -134,6 +134,7 @@ There are no git hooks, no changes to existing ignore files or `info/exclude`, a
 
 - A Mac worktree per story at `<root>/<ID>`, locked with `git worktree lock`, plus a setup contract that copied env files, ran install, `setup` and `post_create` on the Mac, and gave each worktree a machine-wide port slot (2026-10-10). Replaced by the box (0008), with files copied through `box.files` and install in the box. The test box needs no port slots (0002).
 - A merge slot for story and backlog PRs (2026-10-10). Replaced by GitHub auto-merge (0002, 2026-10-24).
+- The office-load sweep of story worktrees an earlier binary left, with `worktree.rebuildable` and a desk item for the kept ones (2026-10-29). Gone with the database squash (0007, 2026-11-03).
 - Verify and commit at done with a scope check on the worktree, and lockfile pairing (2026-10-10). Replaced by parts, verify in the box with the required checks last (0002), and references as a forecast (0008).
 - A building-time sync for riskier stories (2026-10-10). Removed; dipo syncs only on a conflict (2026-10-24).
 - A conflict merge left in progress in a worktree (2026-10-16). Replaced by a merge committed with markers (0002).

@@ -117,9 +117,9 @@ The worker host appends the session's stream to `events.ndjson`. The engine read
 - **Migrations.** Forward-only, numbered steps compiled into the binary, each with a checksum. `PRAGMA user_version` holds the head, and `schema_migrations` records each step.
 - **Order.** They run once for the whole file in `recovering`, before any office loads. Each step runs in its own transaction, and each of its statements runs on its own, so any failing statement fails the step.
 - **The backup.** Before the first step, dipo writes `VACUUM INTO backups/pre-v<N>-<time>.db`. A fresh database gets no backup. The two newest are kept. This is the only backup.
-- **Failure.** A failed step rolls back, and the daemon stays in `recovering` with `database.unavailable` and the backup's name (0005). An edited step (checksum mismatch) is treated the same way, and so is a schema that differs from the one the steps build in a fresh in-memory database, with the differing objects named. A database newer than the binary is refused with "upgrade dipo".
+- **Failure.** A failed step rolls back, and the daemon stays in `recovering` with `database.unavailable` and the backup's name (0005). An edited step (checksum mismatch) is treated the same way, and so is a schema that differs from the one the steps build in a fresh in-memory database, with the differing objects named. A database newer than the binary is refused with "upgrade dipo". A database an earlier dipo wrote before the squash is refused with what happened and where the file is: the maintainer moves it away and dipo starts a fresh one. dipo deletes nothing.
 - **Tests.** A database built from all steps must equal one migrated from each released schema, compared by schema dump.
-- **One squash before 1.0.** Before 1.0 the steps are squashed once into one base schema. Code that settles state an earlier binary left (a row, a file or a folder in an older shape) is temporary and goes at that squash.
+- **One squash before 1.0.** The steps were squashed once into one base schema (2026-11-03), and the code that settled state earlier binaries left (a row, a file or a folder in an older shape) went with them.
 - **Losing the database** loses run history, never a project (0001). A new file is created. `office open` registers each repository again from its marker, and reconcile and a rescan rebuild the rest from Backlog.md, git and the repository.
 
 ## Replaced
@@ -133,3 +133,4 @@ The worker host appends the session's stream to `events.ndjson`. The engine read
 - `merge_slot`, `nudge_sources`, `base_verifies`, `verify_results`, the pricing tables, transcript cursors and `usage_high_water`. Each served a mechanism that is gone (2026-10-24).
 - The 24-hour request table for every command. Replaced by stored replies for run commands only (0005, 2026-10-24).
 - Linux paths and the systemd log location (2026-10-10). macOS only (0004).
+- 74 migration steps and the load-time code that settled state earlier binaries left (2026-10-12 to 2026-11-02). Replaced by one base schema and a fresh database (2026-11-03).
