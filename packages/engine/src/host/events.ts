@@ -1,4 +1,4 @@
-// The run's event file `events.ndjson` (0006 decision 8, 0007 section 5). The host appends one
+// The run's event file `events.ndjson` (0006, 0007). The host appends one
 // `{ t, ch, data }` line per worker stdout line, stderr line and exit, in the 0017
 // recording envelope; `data` is the text the adapter's `interpret` reads. Offsets are byte
 // offsets into the file and only grow: each append returns the offset after it, which the engine

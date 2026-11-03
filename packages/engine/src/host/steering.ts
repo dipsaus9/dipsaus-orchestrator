@@ -1,5 +1,5 @@
 // Steering inside the worker host: each host op becomes a stdin write, a stdin close or a signal
-// to the worker (0008 sections 1 and 6). A signal with `afterMs` is armed on the injected clock
+// to the worker (0008). A signal with `afterMs` is armed on the injected clock
 // and cancelled when the worker exits, so a delayed SIGTERM or SIGKILL can never reach a process
 // that later reuses the worker's PID (DIPO-44 AC #9).
 

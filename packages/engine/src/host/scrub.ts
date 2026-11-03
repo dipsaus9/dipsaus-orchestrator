@@ -1,4 +1,4 @@
-// The stdout scrub of the worker host (DIPO-105, 0007 section 8): the plan's `lineScrub` names the
+// The stdout scrub of the worker host (DIPO-105, 0007): the plan's `lineScrub` names the
 // fields to remove from the typed objects of a stdout line, so a thinking text or signature never
 // reaches `events.ndjson`. The host applies the rule as data and does not know what the types
 // mean. A line the rule does not touch comes back byte for byte, so only changed lines are
