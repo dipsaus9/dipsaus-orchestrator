@@ -1,4 +1,4 @@
-// Worker event ingestion (0007 sections 4, 5 and 8; 0006 decision 8; 0005 section 6). For each
+// Worker event ingestion (0007; 0006; 0005). For each
 // tracked run and agent the engine reads the complete lines of the host's `events.ndjson` from the
 // stored `processed_offset`, runs the adapter's pure `interpret` over them, and in one
 // transaction writes the derived facts (agent details, usage rows, output chunks), any change-log
@@ -7,12 +7,12 @@
 // before the commit leaves offset and facts as they were, so the next pass neither skips nor
 // repeats an event.
 //
-// Debounce before the log (0005 section 6): stored output becomes a `work.output` entry per run
+// Debounce before the log (0005): stored output becomes a `work.output` entry per run
 // every 250 ms or at 16 KiB, and `usage.updated` at most once per second, on the injected clock.
 // A pass starts when the host announces `advanced` on its socket, with a `stat` poll every second
 // as fallback; `fs.watch` is not used. A host event file that shrank below the offset or was
-// replaced stops ingestion for that run and reports `ingest.fileChanged`; parking the run is
-// DIPO-57's.
+// replaced stops ingestion for that run and reports `ingest.fileChanged`; run control parks
+// the run.
 //
 // Stream drift (DIPO-315). The adapter turns each line it cannot read into a `streamDrift` event.
 // The ingestor counts the `schema` and `dropped` ones per agent in `ingest_cursors.drift_lines`,
@@ -54,7 +54,7 @@ import {
   type UsageScope,
 } from "../records/usage";
 
-/** The engine notice code a changed host event file reports (M0 review, DIPO-15). */
+/** The engine notice code a changed host event file reports. */
 export const FILE_CHANGED_CODE = "ingest.fileChanged";
 /** The engine notice code of a worker newer than the adapter was checked with (DIPO-315). */
 export const NEWER_VERSION_CODE = "worker.newerVersion";
@@ -67,7 +67,7 @@ export interface StreamDriftCount {
   readonly threshold: number;
 }
 
-/** Debounce and poll defaults (0005 section 6 open question 5, 0007 section 5). */
+/** Debounce and poll defaults (0005, 0007). */
 export interface IngestTimings {
   readonly outputFlushMs: number;
   readonly outputFlushBytes: number;
@@ -82,7 +82,7 @@ export const INGEST_DEFAULTS: IngestTimings = {
   pollMs: 1000,
 };
 
-/** The interpret half of a worker adapter (0008 section 1). */
+/** The interpret half of a worker adapter (0008). */
 export interface IngestAdapter {
   interpret(
     line: HostLine,
@@ -96,7 +96,7 @@ export interface IngestTarget extends UsageScope {
   readonly model: string;
   /**
    * Who works on what, for `work.output` and `usage.updated`. A run with no story (a `session`
-   * run, 0007 amendment of 2026-10-12) has none: its facts are stored, but no work event.
+   * run, 0007) has none: its facts are stored, but no work event.
    */
   readonly work?: WorkRef;
   readonly adapter: IngestAdapter;
@@ -183,14 +183,14 @@ export interface IngestorOptions {
   /** Called for a host line that is not a `{ t, ch, data }` object; the line is skipped. */
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   /**
-   * The office's privacy opt-ins in force (0007 section 8, DIPO-83), read at every pass so a
+   * The office's privacy opt-ins in force (0007, DIPO-83), read at every pass so a
    * reloaded configuration applies to the next output. Without it nothing beyond the default is
    * stored.
    */
   readonly privacy?: () => OutputPrivacy;
   /**
    * Rewrites a pass's output text of `run` before it is stored in `output_chunks`, in the pass
-   * transaction: the web check redacts env values from web lines (0020 section 11b, DIPO-164).
+   * transaction: the web check redacts env values from web lines (0020, DIPO-164).
    * Without it the text is stored as it is.
    */
   readonly redactOutput?: (run: string, text: string) => string;
@@ -386,7 +386,7 @@ export class Ingestor {
 
   /**
    * Writes pending `work.output` of the run now. Call it before a state change of the run
-   * (0005 section 6: state changes flush pending output first). Returns the last cursor written.
+   * (0005: state changes flush pending output first). Returns the last cursor written.
    */
   flushOutput(run: string): Cursor | undefined {
     let cursor: Cursor | undefined;
@@ -440,7 +440,7 @@ export class Ingestor {
     const end = lines[lines.length - 1]?.end ?? offset;
 
     this.#office.immediate(() => {
-      // Rows a run's end already made final (0007 amendment, DIPO-51): what changes in them now
+      // Rows a run's end already made final (0007): what changes in them now
       // feeds `usage_daily` as a change only.
       const finalBefore = finalRows(this.#office, run, agent);
       let state = JSON.parse(cursor.parse_state) as ParseState;

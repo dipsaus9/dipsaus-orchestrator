@@ -1,4 +1,4 @@
-// Worker output that is stored but not yet sent as `work.output` (0005 section 6). Ingestion sends
+// Worker output that is stored but not yet sent as `work.output` (0005). Ingestion sends
 // an agent's pending output after its debounce; a phase marker (DIPO-83) sends it first, in its own
 // transaction, so the marker's byte range follows every range already sent and each byte of the
 // run's worker output goes out exactly once, in order.
