@@ -246,7 +246,7 @@ if (registers) {
               child.stdin?.end();
               const init = lines.find((line) => line["subtype"] === "init");
               fact(
-                `init: cwd ${String(init?.["cwd"])}, permissionMode ${String(init?.["permissionMode"])}, apiKeySource ${String(init?.["apiKeySource"])}`,
+                `init: cwd ${String(init?.["cwd"])}, permissionMode ${String(init?.["permissionMode"])}, apiKeySource ${init?.["apiKeySource"] === undefined ? "absent" : "present"}`,
               );
               expect(init?.["cwd"]).toBe("/work");
               expect(init?.["permissionMode"]).toBe("bypassPermissions");

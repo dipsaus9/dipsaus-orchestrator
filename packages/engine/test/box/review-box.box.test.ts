@@ -558,7 +558,7 @@ if (registers) {
               child.stdin?.end();
               const init = lines.find((line) => line["subtype"] === "init");
               fact(
-                `init: cwd ${String(init?.["cwd"])}, tools ${JSON.stringify(init?.["tools"])}, apiKeySource ${String(init?.["apiKeySource"])}`,
+                `init: cwd ${String(init?.["cwd"])}, tools ${JSON.stringify(init?.["tools"])}, apiKeySource ${init?.["apiKeySource"] === undefined ? "absent" : "present"}`,
               );
               expect(init?.["cwd"]).toBe("/review/session");
               // The reviewer's tools, and the CLI's own tool for the structured report.

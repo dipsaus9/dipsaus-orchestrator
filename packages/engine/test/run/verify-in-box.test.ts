@@ -16,7 +16,15 @@
 //    output, counted with the report gate's refusals against the loop cap; the last part's parks.
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -446,7 +454,7 @@ describe("the wrapper and the kill script under /bin/sh", () => {
       });
       expect(ran.status).toBe(7);
       expect(ran.stdout).toBe("a b|c|");
-      expect(spawnSync("cat", [pidFile], { encoding: "utf8" }).stdout).toMatch(/^\d+\n$/);
+      expect(readFileSync(pidFile, "utf8")).toMatch(/^\d+\n$/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -480,8 +488,7 @@ describe("the wrapper and the kill script under /bin/sh", () => {
       const exit = new Promise<string | null>((resolve) => {
         child.on("exit", (_code, signal) => resolve(signal));
       });
-      const recorded = () =>
-        /^\d+\n$/.test(spawnSync("cat", [pidFile], { encoding: "utf8" }).stdout);
+      const recorded = () => existsSync(pidFile) && /^\d+\n$/.test(readFileSync(pidFile, "utf8"));
       for (let i = 0; i < 250 && !recorded(); i += 1) await Bun.sleep(20);
       mkdirSync(join(dir, "proc", String(child.pid)), { recursive: true });
       try {

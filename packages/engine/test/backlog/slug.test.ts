@@ -41,7 +41,7 @@ describe("slug", () => {
   }
 });
 
-const R18 = (id: string) => new RegExp(`^${id.replace(/\./g, "\\.")}/[a-z0-9]+(-[a-z0-9]+)*$`);
+const R18 = (id: string) => new RegExp(`^${id.replace(/[\\.]/g, "\\$&")}/[a-z0-9]+(-[a-z0-9]+)*$`);
 
 describe("branchFor", () => {
   it("joins the id and the slug and matches R18", () => {
