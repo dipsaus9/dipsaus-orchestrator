@@ -15,7 +15,14 @@ import { ManualClock, makeTempDir, removeTempDir } from "@dipsaus-orchestrator/t
 
 import { BacklogCommandError, BacklogRefusedError, refusal, runBacklog } from "../../src/backlog";
 import { listAll } from "../../src/backlog/list";
-import { BACKLOG_ENV_KEYS, BacklogTimedOutError, backlogEnv } from "../../src/backlog/runner";
+import {
+  BACKLOG_ENV_KEYS,
+  BacklogTimedOutError,
+  backlogEnv,
+  CheckoutGate,
+  type GateLeave,
+  waitAtGate,
+} from "../../src/backlog/runner";
 import { CALL_DEADLINE_MS, KILL_GRACE_MS } from "../../src/platform/deadline";
 import { hangingSpawn, settle } from "../platform/hanging";
 import { readManifest, stubSpawn } from "./helpers";
@@ -336,6 +343,9 @@ function standIn(holdMs = 40, fail: (args: string) => boolean = () => false): St
 
 const VIEW = (id: string) => ["task", "view", id, "--plain"];
 
+/** The error of a call whose deadline came while it waited at the gate. */
+const gateTimedOut = () => new BacklogTimedOutError(["backlog", "task", "list"], 10);
+
 /** A `Spawn` that cannot start the CLI. */
 const unstartable: Spawn = () => {
   throw new Error("ENOENT: backlog");
@@ -456,6 +466,29 @@ describe("the checkout gate (DIPO-434)", () => {
       "start task view TASK-1 --plain",
       "end task view TASK-1 --plain",
     ]);
+  });
+
+  it("lets a call either run or leave when its deadline comes in the tick its pass does", async () => {
+    const dir = checkout(`${BARE_CONFIG}${DEFAULTS}`);
+    const gate = new CheckoutGate();
+    const clock = new ManualClock();
+    const alone = gate.enter(dir);
+    if (typeof alone !== "function") throw new Error("expected the first call to pass at once");
+    const waiting = gate.enter(dir);
+    alone(true);
+    await settle();
+    // The pass is given, but the waiting call has not seen it yet when its deadline comes.
+    expect(gate.running(dir)).toBe(1);
+    const call = caught(waitAtGate(waiting as Promise<GateLeave>, clock, 10, gateTimedOut));
+    clock.advance(10);
+    expect(await call).toBeInstanceOf(BacklogTimedOutError);
+    await settle();
+    // It left once and never ran: no call holds the gate, and the next one passes at once.
+    expect(gate.running(dir)).toBe(0);
+    const next = gate.enter(dir);
+    expect(typeof next).toBe("function");
+    if (typeof next === "function") next(true);
+    expect(gate.running(dir)).toBe(0);
   });
 
   it("releases the gate when a call times out, and times out a call waiting at it", async () => {

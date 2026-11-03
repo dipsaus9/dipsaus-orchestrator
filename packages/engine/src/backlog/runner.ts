@@ -48,7 +48,7 @@ import {
 import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize, resolve } from "node:path";
 
-import type { ChildProcess, Clock, Spawn, TimerHandle } from "@dipsaus-orchestrator/contract";
+import type { ChildProcess, Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
 import { systemClock } from "../platform/clock";
 import {
@@ -486,37 +486,33 @@ export async function runBacklog(
 
 /**
  * Waits for the gate's pass `entered` until `leftMs` on `clock` ran out, then rejects with
- * `timedOut()`; a pass that comes later is left at once, as a call that did not run.
+ * `timedOut()`; a pass that comes later is left at once, as a call that did not run. Exactly one
+ * wins, so a call either runs or leaves, never both.
  */
-async function waitAtGate(
+export function waitAtGate(
   entered: Promise<GateLeave>,
   clock: Clock,
   leftMs: number,
   timedOut: () => Error,
 ): Promise<GateLeave> {
   if (!Number.isFinite(leftMs)) return entered;
-  // Whichever comes first wins: the pass or the deadline.
-  let first: "pass" | "deadline" | undefined;
-  void entered.then((leave) => {
-    if (first === "deadline") leave(false);
-    else first = "pass";
-  });
-  let timer: TimerHandle | undefined;
-  const expired = new Promise<never>((_, reject) => {
-    timer = clock.setTimeout(
+  return new Promise<GateLeave>((pass, fail) => {
+    let decided = false;
+    const timer = clock.setTimeout(
       () => {
-        if (first !== undefined) return;
-        first = "deadline";
-        reject(timedOut());
+        if (decided) return;
+        decided = true;
+        fail(timedOut());
       },
       Math.max(0, leftMs),
     );
+    void entered.then((leave) => {
+      if (decided) return leave(false);
+      decided = true;
+      clock.clearTimeout(timer);
+      pass(leave);
+    });
   });
-  try {
-    return await Promise.race([entered, expired]);
-  } finally {
-    if (timer !== undefined) clock.clearTimeout(timer);
-  }
 }
 
 /** How `runBacklog` hands one call past its gate to `callBacklog`. */
@@ -709,6 +705,11 @@ export class CheckoutGate {
   /** How many checkouts the gate remembers. */
   get size(): number {
     return this.#checkouts.size;
+  }
+
+  /** How many calls run at the same time on the checkout `cwd` is. */
+  running(cwd: string): number {
+    return this.#checkouts.get(checkoutOf(cwd))?.running ?? 0;
   }
 
   #state(checkout: string): CheckoutState {
