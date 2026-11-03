@@ -1,6 +1,6 @@
 // The default provider on a real temporary repository (DIPO-46 AC #5, #6 and #8): git lists the
-// files through the office's hardened queue, the component map gives the expected components and
-// neighbours, and the pack is recorded in `context_packs` with the head sha and blob ids.
+// files through the office's hardened queue, the pack lists the tests next to scope files, and the
+// pack is recorded in `context_packs` with the head sha and blob ids.
 
 import { describe, expect, it } from "bun:test";
 import { linkSync, mkdirSync, realpathSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
@@ -35,12 +35,6 @@ import { request } from "./helpers";
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z00000046" as OfficeId;
 
 const FIXTURE = {
-  ".dipo/components.yaml": `components:
-  contract: { paths: ["packages/contract/**"], purpose: "Shared types and messages." }
-  engine: { paths: ["packages/engine/**"], depends_on: ["contract"], purpose: "The headless engine." }
-  tui: { paths: ["packages/tui/**"], depends_on: ["engine"] }
-  docs: { paths: ["docs/**", "site/**"] }
-`,
   "packages/contract/src/index.ts": "export type Id = string;\n",
   "packages/engine/src/context/old.ts": "export const old = 1;\n",
   "packages/engine/src/context/old.test.ts": "test('old', () => {});\n",
@@ -71,7 +65,7 @@ function workspaceOf(repo: TempRepo) {
 }
 
 describe("default provider on a repository", () => {
-  it("gives the matching components, their neighbours and the tests next to scope files", () =>
+  it("gives the scope, the inputs and the tests next to scope files", () =>
     withTempRepo(
       async (repo) => {
         const head = await repo.commitAll("first");
@@ -94,53 +88,11 @@ describe("default provider on a repository", () => {
         });
         const pack = await provider.gather({ ...req, baseSha: head }, 12_000);
 
-        expect(pack.provenance.notes).toEqual([
-          'component "docs": glob "site/**" matches no tracked file',
-        ]);
-        const components = pack.items.flatMap((item) =>
-          item.reason.kind === "component" ? [item.reason] : [],
-        );
-        expect(components).toEqual([
-          {
-            kind: "component",
-            name: "engine",
-            purpose: "The headless engine.",
-            via: "scope",
-            shown: 3,
-            total: 3,
-          },
-          {
-            kind: "component",
-            name: "contract",
-            purpose: "Shared types and messages.",
-            via: "depends-on",
-            shown: 1,
-            total: 1,
-          },
-          {
-            kind: "component",
-            name: "tui",
-            purpose: null,
-            via: "depended-on-by",
-            shown: 1,
-            total: 1,
-          },
-        ]);
-        // Tracked files only: the untracked draft and link are not part of the component list.
-        expect(pack.items.find((item) => item.path === "engine")?.text).toBe(
-          [
-            "packages/engine/src/context/old.test.ts",
-            "packages/engine/src/context/old.ts",
-            "packages/engine/src/index.ts",
-          ].join("\n"),
-        );
+        expect(pack.provenance.notes).toEqual([]);
         expect(pack.items.map((item) => `${item.reason.kind} ${item.path}`)).toEqual([
           "scope-dir packages/engine/src/context/",
           "scope-file packages/engine/src/context/link.ts",
           "scope-file packages/engine/src/context/old.ts",
-          "component engine",
-          "component contract",
-          "component tui",
           "test packages/engine/src/context/old.test.ts",
         ]);
         expect(pack.items[0]?.text).toBe(
@@ -219,32 +171,6 @@ describe("default provider on a repository", () => {
           "src/b.ts": "b\n",
           "src/c.ts": "c\n",
           "src/sub/d.ts": "d\n",
-        },
-      },
-    ));
-
-  it("reports an invalid map with a cycle and gives no components", () =>
-    withTempRepo(
-      async (repo) => {
-        await repo.commitAll("first");
-        const ws = workspaceOf(repo);
-        const pack = await createDefaultProvider({ workspace: ws }).gather(
-          request({ scope: ["packages/engine/src/index.ts"] }),
-          12_000,
-        );
-        expect(pack.provenance.notes).toEqual([
-          "component map not used: components depend on each other in a cycle: contract -> engine -> contract",
-        ]);
-        expect(pack.items.some((item) => item.reason.kind === "component")).toBe(false);
-      },
-      {
-        fixture: {
-          ".dipo/components.yaml": `components:
-  contract: { paths: ["packages/contract/**"], depends_on: ["engine"] }
-  engine: { paths: ["packages/engine/**"], depends_on: ["contract"] }
-`,
-          "packages/contract/src/index.ts": "",
-          "packages/engine/src/index.ts": "",
         },
       },
     ));

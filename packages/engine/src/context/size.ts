@@ -47,6 +47,3 @@ export const DIRECTORY_ENTRIES_MAX = 200;
 
 /** A scope directory lists at most this many files, the ones changed most recently on the base. */
 export const DIRECTORY_RECENT_MAX = 15;
-
-/** A component lists at most this many of its files. */
-export const COMPONENT_FILES_MAX = 50;

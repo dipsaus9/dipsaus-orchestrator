@@ -118,18 +118,6 @@ function aboutItem(item: ContextItem, stale: ReadonlySet<string>): string {
         `new scope path, ${formatCount(reason.total)} files in ${reason.parent === "" ? "the repository root" : reason.parent}, ${formatCount(reason.shown)} changed most recently on the base`,
       );
       break;
-    case "component": {
-      const via =
-        reason.via === "scope"
-          ? "matches the scope"
-          : reason.via === "depends-on"
-            ? "the scope depends on it"
-            : "depends on the scope";
-      parts.push(`component ${reason.name}, ${via}`);
-      parts.push(`${formatCount(reason.shown)} of ${formatCount(reason.total)} files`);
-      if (reason.purpose !== null) parts.push(`purpose: ${reason.purpose}`);
-      break;
-    }
     case "test":
       parts.push(`test of ${reason.of}`);
       break;

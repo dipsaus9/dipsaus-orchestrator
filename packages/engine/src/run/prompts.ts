@@ -79,7 +79,6 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
       criteria: story.criteria.map((criterion) => criterion.text),
       scope: story.scope,
       inputs: story.inputs,
-      components: [],
       baseSha: input.baseSha,
       headSha,
       sizeClass: size,

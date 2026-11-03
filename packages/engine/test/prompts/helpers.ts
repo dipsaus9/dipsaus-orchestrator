@@ -125,18 +125,6 @@ export function fixturePack(extra: readonly ContextItem[] = []): ContextPack {
           total: 2,
         },
       },
-      {
-        path: "cli",
-        text: "src/cli.ts\nsrc/greet.ts\n",
-        reason: {
-          kind: "component",
-          name: "cli",
-          purpose: "The command line.",
-          via: "scope",
-          shown: 2,
-          total: 2,
-        },
-      },
       ...extra,
     ],
     usedChars: 0,

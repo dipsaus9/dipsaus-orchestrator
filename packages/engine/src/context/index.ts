@@ -1,19 +1,6 @@
 // The context provider (0014 section 9) and the default provider (DIPO-46).
 
 export {
-  COMPONENT_MAP_PATH,
-  componentFiles,
-  matchComponents,
-  validateComponentMap,
-} from "./components";
-export type {
-  Component,
-  ComponentMapResult,
-  ComponentMatch,
-  ComponentVia,
-  ScopeKind,
-} from "./components";
-export {
   createDefaultProvider,
   DEFAULT_PROVIDER_ID,
   DEFAULT_PROVIDER_VERSION,
@@ -33,7 +20,6 @@ export {
 } from "./pack";
 export type { ContextPackRecord } from "./pack";
 export {
-  COMPONENT_FILES_MAX,
   CONTEXT_BUDGETS,
   CONTEXT_ITEM_MAX,
   DIRECTORY_ENTRIES_MAX,

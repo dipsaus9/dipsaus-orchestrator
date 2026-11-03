@@ -31,7 +31,6 @@ export function request(overrides: Partial<ContextRequest> = {}): ContextRequest
     criteria: ["It works."],
     scope: [],
     inputs: [],
-    components: [],
     baseSha: "a".repeat(40),
     headSha: "b".repeat(40),
     sizeClass: "S",

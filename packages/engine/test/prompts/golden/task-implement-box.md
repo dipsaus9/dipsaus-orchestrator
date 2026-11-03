@@ -6,10 +6,6 @@ export const greeting = (name: string) => `Hi ${name}`;
 src/cli.ts
 src/greet.ts
 </item>
-<item path="cli" about="component cli, matches the scope, 2 of 2 files, purpose: The command line.">
-src/cli.ts
-src/greet.ts
-</item>
 </context>
 
 <inputs>

@@ -53,8 +53,6 @@ export interface ContextRequest {
   readonly scope: readonly string[];
   /** F9: repo-relative paths or URLs the worker reads but does not write. */
   readonly inputs: readonly string[];
-  /** Component names already matched by the engine, if any; providers may add their own. */
-  readonly components: readonly string[];
   readonly baseSha: string;
   readonly headSha: string;
   readonly sizeClass: SizeClass;
@@ -98,16 +96,6 @@ export type ContextReason =
       readonly shown: number;
       readonly total: number;
     }
-  /** A declared component: `text` lists its files, one per line, capped. */
-  | {
-      readonly kind: "component";
-      readonly name: string;
-      readonly purpose: string | null;
-      /** `scope` when its globs match the scope; otherwise the direct neighbour relation. */
-      readonly via: "scope" | "depends-on" | "depended-on-by";
-      readonly shown: number;
-      readonly total: number;
-    }
   /** A test next to a scope file by name; listed, never inlined (`text` is empty). */
   | { readonly kind: "test"; readonly of: string }
   /** An input file, pre-fetched within the inputs budget. */
@@ -127,7 +115,7 @@ export type ContextReason =
   | { readonly kind: "input-missing"; readonly input: string };
 
 export interface ContextItem {
-  /** Repo-relative path, component name for components, or URL for URL inputs. */
+  /** Repo-relative path, or URL for URL inputs. */
   readonly path: string;
   /** 1-based inclusive line range when `text` is part of a file. */
   readonly range?: { readonly from: number; readonly to: number };
@@ -140,7 +128,7 @@ export interface ContextProvenance {
   readonly version: string;
   readonly indexState: ProviderState;
   readonly staleFiles: readonly string[];
-  /** Why a backend was skipped, or component map problems; empty when there are none. */
+  /** Why a backend was skipped; empty when there are none. */
   readonly notes: readonly string[];
 }
 

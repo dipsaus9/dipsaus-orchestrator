@@ -44,7 +44,7 @@ describe("default provider: scope", () => {
     expect(gitBlobId(new Uint8Array())).toBe("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
     expect(pack.provenance).toEqual({
       provider: "default",
-      version: "2",
+      version: "3",
       indexState: "ready",
       staleFiles: [],
       notes: [],
@@ -318,7 +318,6 @@ describe("default provider: inputs", () => {
 describe("default provider: determinism", () => {
   it("gives the same pack bytes for the same inputs, whatever the request order", async () => {
     const files = {
-      ".dipo/components.yaml": 'components:\n  core: { paths: ["src/**"] }\n',
       "src/a.ts": lines(30),
       "src/a.test.ts": "t",
       "src/dir/x.ts": "x",
@@ -499,22 +498,20 @@ describe("default provider: secret files", () => {
   });
 });
 
-describe("default provider: component listing truncation", () => {
-  it("cuts a long component file list with the listing marker", async () => {
-    const files: Record<string, string> = {
-      ".dipo/components.yaml": 'components:\n  engine: { paths: ["engine/**"] }\n',
-    };
-    for (let i = 0; i < 50; i += 1) {
-      files[`engine/${"c".repeat(90)}${String(i).padStart(2, "0")}.ts`] = "";
+describe("default provider: scope directory listing truncation", () => {
+  it("cuts a long scope directory listing with the listing marker", async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 15; i += 1) {
+      files[`engine/${"c".repeat(300)}${String(i).padStart(2, "0")}.ts`] = "";
     }
     const pack = await gather(files, { scope: ["engine/"] }, 1_000_000);
-    const item = pack.items.find((i) => i.reason.kind === "component");
+    const item = pack.items.find((i) => i.reason.kind === "scope-dir");
     expect(
       item?.text.endsWith(
         " listing; list the rest yourself only if the shown part is not enough.]",
       ),
     ).toBe(true);
-    expect(item?.text.includes("the engine listing")).toBe(true);
+    expect(item?.text.includes("the engine/ listing")).toBe(true);
     expect(item?.text.includes("from line")).toBe(false);
   });
 });
