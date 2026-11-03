@@ -130,7 +130,7 @@ There is one daemon process per user. Inside it each office is its own engine in
 
 ### 14. Start, stop, status
 
-- `dipo daemon start` backgrounds `dipo daemon --foreground` through a short-lived `/bin/sh` in its own session, so the daemon is no descendant of the client. It removes `BUN_OPTIONS` and `BUN_FEATURE_FLAG_NO_ORPHANS`, then waits up to 5 s for `engine.hello` and for the daemon to leave `starting`. A daemon that cannot use its state database (`daemon.status` names why) makes start print that text and exit 1; a healthy recovery still running at the deadline counts as started.
+- `dipo daemon start` backgrounds `dipo daemon --foreground` through a short-lived `/bin/sh` in its own session, so the daemon is no descendant of the client. It removes `BUN_OPTIONS` and `BUN_FEATURE_FLAG_NO_ORPHANS`, then waits up to 5 s for `engine.hello` and for the daemon to leave `starting` and `recovering`. A daemon that cannot use its state database (`daemon.status` names why) makes start print that text and exit 1; a healthy recovery still running at the deadline counts as started.
 - Client commands start the daemon when it is not running, unless `daemon.autostart` is false. Read-only commands (`dipo gate`, `dipo run --dry-run`, `dipo stats`, `dipo watch`) never start one.
 - `daemon.stop` drains. `dipo daemon stop --force` sends SIGTERM to the PID in `dipo.pid` after checking its start time, then SIGKILL after 10 s.
 - `dipo daemon status` prints the state with its reason, PID, version, build commit, loaded offices, active runs and keep-awake. Exit 0 means running, 3 not running, 1 unresponsive.
