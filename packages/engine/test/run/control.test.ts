@@ -1190,7 +1190,7 @@ describe("a turn problem's intent that cannot be stored (DIPO-123)", () => {
     const watch = watchRejections();
     expect(
       w.control.act(w.f.run, {
-        intent: "reassign",
+        intent: "new-session",
         detail: "a turn problem",
         ops: encode({ kind: "stop" }),
         retryAtTick: true,
@@ -1210,7 +1210,7 @@ describe("a turn problem's intent that cannot be stored (DIPO-123)", () => {
     expect(await watch.stop()).toEqual([]);
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
     expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.detail, i.state])).toEqual([
-      ["reassign", "a turn problem", "sent"],
+      ["new-session", "a turn problem", "sent"],
     ]);
     expect(w.control.live(w.f.run)).toBe(false);
     // Later ticks send nothing more.

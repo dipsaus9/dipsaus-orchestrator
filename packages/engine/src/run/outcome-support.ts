@@ -25,14 +25,14 @@ import type { ParkOutcome } from "./park";
 import { capsStartedAt, type StoredRun } from "../records/run-records";
 
 /** Kinds of intent that explain a worker's exit. */
-const EXPLAINING: readonly IntentKind[] = ["stop", "cap", "park", "reassign"];
+const EXPLAINING: readonly IntentKind[] = ["stop", "cap", "park", "new-session"];
 
 /** The outcome an untagged explaining intent gives the exit (0008 section 7). */
 const UNTAGGED_OUTCOMES: Readonly<Partial<Record<IntentKind, string>>> = {
   stop: "stopped",
   cap: "capped",
   park: "blocked",
-  reassign: "reassigned",
+  "new-session": "reassigned",
 };
 
 export class OutcomeSupport {

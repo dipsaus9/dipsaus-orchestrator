@@ -212,7 +212,7 @@ describe("outcomeOfIntent per kind", () => {
     steer: null,
     answer: null,
     stop: "stopped",
-    reassign: "reassigned",
+    "new-session": "reassigned",
     cap: "capped",
     park: "blocked",
   };

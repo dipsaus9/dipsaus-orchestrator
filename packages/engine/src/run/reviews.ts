@@ -900,7 +900,7 @@ function explaining(office: OfficeHandle, runId: RunId): StoredIntent | null {
           (intent.kind === "stop" ||
             intent.kind === "cap" ||
             intent.kind === "park" ||
-            intent.kind === "reassign"),
+            intent.kind === "new-session"),
       )
       .at(-1) ?? null
   );

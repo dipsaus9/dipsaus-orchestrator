@@ -109,7 +109,7 @@ export class RunEndings {
   }
 
   /**
-   * The first decision on a tracked run without a park (a reassign or a start failure): the
+   * The first decision on a tracked run without a park (a new session or a start failure): the
    * intent is stored, then its ops are sent. Nothing else is decided for the run after it; the
    * worker's exit is decided from the intent. False when a decision was made already, or when
    * the intent could not be stored: then no op is sent and the failure is logged (DIPO-119).

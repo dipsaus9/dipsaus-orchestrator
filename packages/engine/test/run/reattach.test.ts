@@ -1148,8 +1148,8 @@ describe("restart windows of DIPO-51's review", () => {
     expect(starts).toBe(0);
   });
 
-  it("a stop between the reassign's resolution and the next session decides by the tag (window 2)", async () => {
-    // crash-zeroed: an execution error while the worker waits is a `reassign` `new-session:error`.
+  it("a stop between the new-session intent's resolution and the next session decides by the tag (window 2)", async () => {
+    // crash-zeroed: an execution error while the worker waits is a `new-session` intent, tag `new-session:error`.
     // The first daemon's next session never returns: the daemon stops inside its await.
     w.hang = true;
     const first = daemon();
@@ -1170,7 +1170,7 @@ describe("restart windows of DIPO-51's review", () => {
     expect(w.next).toHaveLength(1);
     // At the window, the intent's resolution and the agent's end reason are both stored.
     expect(runIntents(w.f.office, w.f.run).map((intent) => [intent.kind, intent.outcome])).toEqual([
-      ["reassign", "reassigned"],
+      ["new-session", "reassigned"],
     ]);
     expect(agentRow()?.end_reason).toBe("crashed");
 

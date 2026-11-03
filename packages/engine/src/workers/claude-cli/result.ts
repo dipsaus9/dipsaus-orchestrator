@@ -1,5 +1,5 @@
 // The run's result once `exit.json` exists (0008 sections 1 and 7). Pure. It applies only when
-// no pending intent explains the exit: the engine reads `stop`, `reassign`, `cap` and `pause`
+// no pending intent explains the exit: the engine reads `stop`, `new-session`, `cap` and `park`
 // first. The adapter reports facts and proposes a park; the engine decides.
 
 import type { ParkReason } from "@dipsaus-orchestrator/contract";

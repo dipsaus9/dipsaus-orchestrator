@@ -63,8 +63,8 @@ export const HOST_LOST_END = "host-lost";
 /** Why a run lost its host, for the park and the resume (0006 decision 8, 0008 section 7). */
 export const HOST_LOST_WHY = "the worker host died while the daemon was down";
 
-/** Milliseconds from closing stdin to SIGTERM for a reassign (0008 section 6). */
-export const REASSIGN_SIGTERM_AFTER_MS = 10_000;
+/** Milliseconds from closing stdin to SIGTERM before a new session (0008 section 6). */
+export const NEW_SESSION_SIGTERM_AFTER_MS = 10_000;
 /** Milliseconds to SIGKILL after a rejected init. */
 export const INIT_REJECTED_SIGKILL_AFTER_MS = 30_000;
 

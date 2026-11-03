@@ -206,7 +206,7 @@ export {
   intentTag,
   planLimitEnding,
   OUTCOME_NOTICES,
-  REASSIGN_SIGTERM_AFTER_MS,
+  NEW_SESSION_SIGTERM_AFTER_MS,
   reportFeedbackText,
   REDISPATCH_STEP,
   RunOutcomes,

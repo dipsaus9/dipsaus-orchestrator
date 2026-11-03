@@ -20,7 +20,7 @@ import type { HostOp, WorkerOutcome } from "../workers/types";
  * The ops 0008 section 6 names, plus `park`: closing stdin of a worker whose report parks the story
  * (blocked with a question).
  */
-export type IntentKind = "steer" | "answer" | "stop" | "reassign" | "cap" | "park";
+export type IntentKind = "steer" | "answer" | "stop" | "new-session" | "cap" | "park";
 
 export type IntentState = "pending" | "sent" | "failed" | "resolved";
 
@@ -203,7 +203,7 @@ const INTENT_OUTCOMES: Readonly<Partial<Record<IntentKind, WorkerOutcome>>> = {
   stop: "stopped",
   cap: "capped",
   park: "blocked",
-  reassign: "reassigned",
+  "new-session": "reassigned",
 };
 
 /**

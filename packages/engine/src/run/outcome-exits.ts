@@ -115,7 +115,7 @@ export class ExitOutcomes {
     const tag = intentTag(intent.detail);
     // The intent is resolved in the transaction that records why the agent ended (DIPO-57), so a
     // restart before the next session started finds the decision and starts that session.
-    if (intent.kind === "reassign" && tag === INTENT_TAGS.contextFull) {
+    if (intent.kind === "new-session" && tag === INTENT_TAGS.contextFull) {
       office.immediate(() => {
         resolveIntent(office, view.runId, intent.intentId, "reassigned", at);
         this.#s.endAgentIn(office, agent, "prompt-too-long");
@@ -123,7 +123,7 @@ export class ExitOutcomes {
       await this.#sessions.next(office, run, view, { why: "a full context (prompt_too_long)" });
       return;
     }
-    if (intent.kind === "reassign" && tag === INTENT_TAGS.error) {
+    if (intent.kind === "new-session" && tag === INTENT_TAGS.error) {
       office.immediate(() => {
         resolveIntent(office, view.runId, intent.intentId, "reassigned", at);
         this.#s.endAgentIn(office, agent, "crashed");

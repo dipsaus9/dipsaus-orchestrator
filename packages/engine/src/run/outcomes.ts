@@ -9,10 +9,10 @@
 //   parks `worker-failed` ("no valid report: <why>"; 0008): a bad report is
 //   a broken worker, never a question. A worker that exits before it answered is resumed with the
 //   correction held for its first message.
-// - `reassign` `new-session:context-full`: a turn ended `prompt_too_long`; stdin is closed and
+// - `new-session` `new-session:context-full`: a turn ended `prompt_too_long`; stdin is closed and
 //   SIGTERM follows after 10 s. At the exit the agent ends `prompt-too-long` and one new session
 //   with a handoff starts. A second full context parks `budget-exceeded`.
-// - `reassign` `new-session:error`: a turn ended in an execution error while the process waits
+// - `new-session` `new-session:error`: a turn ended in an execution error while the process waits
 //   (maintainer decision Q4): a crash, handled at the exit as one.
 // - A crash with no intent (a signal, exit 143, an execution error, a cut stream): usage is
 //   already recovered by ingestion; when no earlier agent of the run crashed and no cap fired, the

@@ -473,7 +473,7 @@ describe("a full context (AC #2)", () => {
     track();
     await ingestRecording("prompt-too-long");
     expect(w.sent).toEqual([CLOSE]);
-    expect(intents()).toEqual([["reassign", "new-session:context-full", "reassigned"]]);
+    expect(intents()).toEqual([["new-session", "new-session:context-full", "reassigned"]]);
     expect(endReason()).toBe("prompt-too-long");
     expect(w.next).toHaveLength(1);
     expect(parks()).toEqual([]);
@@ -521,7 +521,7 @@ describe("a crash (AC #3)", () => {
     track();
     await ingestRecording("crash-zeroed");
     expect(w.sent).toEqual([CLOSE]);
-    expect(intents()).toEqual([["reassign", "new-session:error", "reassigned"]]);
+    expect(intents()).toEqual([["new-session", "new-session:error", "reassigned"]]);
     expect(endReason()).toBe("crashed");
     expect(w.next).toHaveLength(1);
   });
@@ -1193,12 +1193,12 @@ describe("a turn problem whose intent cannot be stored (DIPO-123)", () => {
   const PROBLEMS: [TurnProblem, string, string][] = [
     [
       { kind: "error", detail: "error_during_execution (an API error)" },
-      "reassign",
+      "new-session",
       "new-session:error",
     ],
     [
       { kind: "contextFull", detail: "prompt_too_long: the context is full" },
-      "reassign",
+      "new-session",
       "new-session:context-full",
     ],
     [{ kind: "startFailed", detail: "startup_failure_reason sandbox" }, "stop", "start-failed"],
