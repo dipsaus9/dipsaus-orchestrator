@@ -20,7 +20,7 @@ A command writes its facts and their change-log entries in one transaction, then
 
 ### 2. Ids
 
-Engine-made ids are a prefix plus a ULID: `off_` (office), `sto_` (story key), `run_`, `agt_` (one session), `gat_` (gate), `qst_` (question), `prp_` (proposal). A `StoryId` is the Backlog.md id unchanged. A `RequestId` is a ULID the client makes for every command and read. A `Cursor` is `{ stream: "office:<id>" | "software", seq }`.
+Engine-made ids are a prefix plus a ULID: `off_` (office), `sto_` (story key), `run_`, `agt_` (one session), `gat_` (gate), `qst_` (question), `tst_` (a maintainer's test). A proposal's id is a hash of its content (0020). A `StoryId` is the Backlog.md id unchanged. A `RequestId` is a ULID the client makes for every command and read. A `Cursor` is `{ stream: "office:<id>" | "software", seq }`.
 
 **Story keys.** The engine gives each story a `StoryKey` when it first sees it. Facts and events refer to the key, and every event that names a story carries both the key and the Backlog.md id of that moment. A command may name a story by either. The id of a story changes only when the engine promotes a draft (M3), which emits `story.renumbered`. A story whose id vanishes from Backlog.md outside the engine is `Removed`, and a new id is a new story; reconcile says so with a notice. The key lives only in the database (0001).
 
@@ -167,6 +167,7 @@ The daemon never owns a worker process. Each session gets a worker host, `dipo d
 - **What the host does.** It starts the session through the adapter's launch plan (for a developer, a `container exec` into the story's box, 0008). It appends every output line to the run's `events.ndjson` with its byte offset, and listens on `<runtime>/hosts/<run>.sock` for writes to the session's stdin and for signals. When the session exits, it writes `exit.json` and exits. It has no engine logic.
 - **Facts and offsets move together.** The engine reads the events file from a stored offset. That offset advances in the same transaction as the facts derived from the lines, so a crash never skips or doubles an event.
 - **Liveness** is the PID plus its start time, never socket reachability.
+- **The claim.** A daemon claims each host it follows, and a host no daemon claimed by its launch deadline stops itself; the claim protocol is in 0008.
 - **Re-attach at recovery,** for each host:
   - Alive, and its socket answers the handshake: catch up from the offset, then follow live.
   - Alive, but its socket does not answer, or it speaks another host protocol version: send its verified PID one SIGTERM, and park the story `worker-failed` once it exits.
@@ -201,7 +202,7 @@ The daemon never owns a worker process. Each session gets a worker host, `dipo d
 - A crash-loop `safe` state, a held `recovering` state with crash markers and `needsCheck`, and a minute-by-minute lock self-check that recreated a missing record and took a foreign one back (2026-10-10 to 2026-10-16). Replaced by the plain states of section 16 (2026-10-24) and the SQLite lock of section 15, which no starter takes from a running daemon (2026-10-30).
 - A PID lock broken by rename-and-verify with a `link()` restore and a stale-break window re-check (2026-10-10). Replaced by the plain lock of section 15 (2026-10-24).
 - `dipo.pid` as the lock: created with `O_EXCL`, a stale record deleted only when unchanged, and lock checks after the bind and at the minute upgrade check (2026-10-24 to 2026-10-30). A starter paused between its re-read and its delete could still run beside another. Replaced by the SQLite lock of section 15, which the operating system releases (2026-10-30).
-- Follow-only worker hosts, a verified-SIGTERM protocol for them, and a `launch.json` claim and rename protocol for pending hosts (2026-10-15). Replaced by re-attach or park (2026-10-24).
+- Follow-only worker hosts and a verified-SIGTERM protocol for them (2026-10-15). Replaced by re-attach or park (2026-10-24).
 - Linux support: systemd units and scopes, `systemd-inhibit`, lingering checks (2026-10-10). macOS only (0004, 2026-10-24).
 - Auto-restart on upgrade (`daemon.autoRestartOnUpgrade`, default off). Removed; `dipo daemon restart` is the way (2026-10-24).
 - `createEngine` building its own spawn and clock from the daemon's options (2026-10-24). The daemon passes them in with its other process concerns, so tests replace them (2026-10-29).
