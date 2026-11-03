@@ -77,7 +77,7 @@ A resume of a story whose reviewer was the one that stopped (a reviewer cap or a
 
 ## 6. Starts paused
 
-Some problems belong to the office, not to a story: the subscription's plan limit, or a broken Claude CLI or box token. For these the office has one state, **starts paused**, with a reason and, when known, a time. While it holds, no new session starts in that office. The desk shows it with what lifts it. It lifts by itself when its condition clears (the reset time passes, the check passes again), or with `dipo daemon resume-scheduling`.
+Some problems belong to the office, not to a story: the subscription's plan limit, or a broken Claude CLI or box token. For these the office has one state, **starts paused**, with a reason and, when known, a time. While it holds, no new session starts in that office. The desk shows it with what lifts it. It lifts by itself when its condition clears (the reset time passes, the check passes again), or with `dipo daemon resume-scheduling`. A pause for the box token is the exception: it lifts only when a new box login (`dipo login box`) replaces the token, so a token that may have leaked is never waved away.
 
 A session already running when the plan limit hits ends, and its story parks `worker-failed` with the detail "plan limit until <time>". When the office's starts paused lifts, dipo resumes exactly those parks by itself. This is the one resume that needs no command: no cap grows, nobody has to decide anything, and code knows both the cause and the time. That way overnight work continues after the reset.
 
@@ -113,7 +113,7 @@ Within a group, items that block the most other stories come first, then the old
 
 - Parks with 11 reasons and 28 causes, and a resume matrix of about 25 rows. Replaced by 8 reasons, a text detail and one resume table (2026-10-24).
 - `on-hold`, `pause` and `stop` as separate mechanisms with their own resume paths, plus an `on-hold` label. Replaced by `dipo park` with reason `by-maintainer` (2026-10-24).
-- The plan-limit hold and the adapter hold. Replaced by the office's starts paused (2026-10-24).
+- The plan-limit hold and the adapter hold. Replaced by the office's starts paused, with the reasons plan limit and adapter (2026-10-24).
 - Seven grant kinds and a per-round review allowance that grew the story's budget. Replaced by two grant kinds and a separate reviewer budget (2026-10-24).
 - An implicit +50% top-up on a capped verify. Replaced by: every top-up is a `--budget` command (2026-10-24).
 - Native `--resume` versus handoff, chosen by a cost check. Replaced by: a resume always starts a new session in the box with a handoff (2026-10-22, box runs).
