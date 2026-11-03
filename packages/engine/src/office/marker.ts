@@ -1,4 +1,4 @@
-// The office marker (0007 section 2): `<git-common-dir>/dipo/office.json` holds
+// The office marker (0007): `<git-common-dir>/dipo/office.json` holds
 // `{ officeId, createdAt }`, inside `.git/` so git never tracks it and every worktree shares it.
 // The directory is `0700`. The marker is how `office.open` tells a moved repository from a copy.
 

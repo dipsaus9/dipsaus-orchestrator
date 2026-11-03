@@ -1,11 +1,11 @@
-// The office list and the office engine instances (0006 decision 4, 0007 sections 2 and 3, 0011).
+// The office list and the office engine instances (0006, 0007, 0011).
 // `office.open` registers a repository explicitly and writes its marker; `office.forget` hides it
 // from the list and keeps every row, which age out under the one retention rule (0007); an
 // office's engine instance loads lazily on its first
 // command, read or subscription, after checking that its marker still names it, reading its
 // configuration and running the load steps feature modules registered, in order. An invalid
 // configuration never refuses an office: it keeps the previous configuration for running work and
-// `configBlocksRuns` reports the errors until a valid reload (0017 section 5).
+// `configBlocksRuns` reports the errors until a valid reload (0017).
 
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
@@ -67,7 +67,7 @@ export interface OfficeManagerDeps {
   readonly ids: IdSource;
   readonly git: GitRunner;
   readonly logger: Logger;
-  /** The story store: whether a repository holds a project of it (0006 decision 4). */
+  /** The story store: whether a repository holds a project of it (0006). */
   readonly stories: Pick<StoryStore, "isProject">;
   /** Replaces the system mount table, for tests. */
   readonly readMounts?: MountReader;
@@ -144,7 +144,7 @@ export type BaseOfficeFile =
 /**
  * Reads `.dipo/office.yaml` at the commit `<remote>/<base>` points at, from git's objects, never
  * from a checkout: a poll or `office.rescan` moves only the base, not the maintainer's checkout
- * (0010 section 2). One queue item of the office git. Null when the office has no base branch or
+ * (0010). One queue item of the office git. Null when the office has no base branch or
  * `<remote>/<base>` does not exist; the load and the scan report that already.
  */
 export function readBaseOfficeFile(git: OfficeGit): Promise<BaseOfficeFile | null> {
@@ -237,7 +237,7 @@ export class OfficeManager implements OfficeDirectory {
   }
 
   /**
-   * The configuration errors that block new runs in `office` (0017 section 5): those of the last
+   * The configuration errors that block new runs in `office` (0017): those of the last
    * read when it was invalid, empty after a valid one. `work.run` (DIPO-48) refuses while any
    * remain. An office that is not loaded has no runs and reports none.
    */
@@ -543,7 +543,7 @@ export class OfficeManager implements OfficeDirectory {
 
   // Commands
 
-  /** `office.open { path }` (0005 section 4, 0007 section 2). */
+  /** `office.open { path }` (0005, 0007). */
   open(path: string): Promise<CommandOutcome<OpenResult>> {
     return this.#serialised(() => this.#open(path));
   }
@@ -557,7 +557,7 @@ export class OfficeManager implements OfficeDirectory {
   }
 
   /**
-   * `office.reloadConfig { office, from? }` (0017 section 5). A valid configuration of a loaded
+   * `office.reloadConfig { office, from? }` (0017). A valid configuration of a loaded
    * office goes to every registered config-reload listener, for example the office's git (DIPO-48).
    */
   reloadConfig(office: OfficeId): Promise<CommandOutcome<ReloadConfigResult>> {
@@ -565,7 +565,7 @@ export class OfficeManager implements OfficeDirectory {
   }
 
   /**
-   * `office.setPrivacy { office, key, value }` (0007 section 8, DIPO-136): writes one privacy
+   * `office.setPrivacy { office, key, value }` (0007, DIPO-136): writes one privacy
    * setting to `.dipo/office.local.yaml`, then reads the configuration again like
    * `office.reloadConfig`. A refused change leaves the file as it was.
    */
@@ -684,7 +684,7 @@ export class OfficeManager implements OfficeDirectory {
     }
 
     const row = this.#row(db, marker.officeId);
-    // The database lost the office (0007 section 10): register it again under its marker's id.
+    // The database lost the office (0007): register it again under its marker's id.
     if (row === null) return { ...this.#register(db, repository, marker), warnings: [] };
     if (row.path === mainWorktree) return { ...this.#reopen(db, row, mainWorktree), warnings: [] };
 
@@ -694,7 +694,7 @@ export class OfficeManager implements OfficeDirectory {
       return { ...this.#reopen(db, row, mainWorktree), warnings: [] };
     }
     if (other?.officeId === marker.officeId) {
-      // The registered path still exists with the same id: this is a copy (0007 section 2).
+      // The registered path still exists with the same id: this is a copy (0007).
       const placed = this.#register(db, repository, null);
       return {
         ...placed,
@@ -756,7 +756,7 @@ export class OfficeManager implements OfficeDirectory {
 
   /**
    * An office that is already registered: unchanged when listed at this path, else restored from
-   * forgotten and moved to this path with every row kept (0007 section 3).
+   * forgotten and moved to this path with every row kept (0007).
    */
   #reopen(
     db: StateDatabase,
@@ -784,7 +784,7 @@ export class OfficeManager implements OfficeDirectory {
     const db = this.#deps.database();
     if (db === null) throw new CommandError(recovering().code, recovering().message);
     const row = this.#existing(db, officeId);
-    // Target state: forgetting a forgotten office changes nothing (0005 section 9).
+    // Target state: forgetting a forgotten office changes nothing (0005).
     if (row.forgotten_at !== null) {
       return { result: { office: officeId, path: row.path }, changed: false };
     }
