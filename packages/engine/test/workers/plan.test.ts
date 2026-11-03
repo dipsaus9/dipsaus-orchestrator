@@ -21,7 +21,8 @@ import {
 import { PlanError } from "../../src/workers/types";
 import type { LaunchPlan, WorkerSpec } from "../../src/workers/types";
 
-const TASK = "<story>DIPO-999 Add a greeting</story>\n<outcome>The CLI prints hello.</outcome>";
+const TASK =
+  "<story>DIPO-999 Add a greeting\nStory: As maintainer I want the CLI to print hello so that I can see it start.</story>";
 const API_KEY = "sk-ant-api03-not-a-real-key";
 const HOME = "/home/maintainer";
 const RUN_DIR = "/home/maintainer/code/shop/.git/dipo/runs/run-0001";
