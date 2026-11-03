@@ -544,7 +544,7 @@ function reviewScenario(
     maxTurns: 12,
     tools: REVIEW_TOOLS,
     turns: [turn],
-    systemPrompt: renderSystemFile("review", "reviewer"),
+    systemPrompt: renderSystemFile("review-box", "reviewer"),
     prepare,
     verify: verifyReview,
     expected,

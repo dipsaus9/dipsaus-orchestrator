@@ -1,10 +1,10 @@
 // Starting a reviewer session of a story run (0002, DIPO-219), and the git reads a review needs.
 // The reviewer is a new agent of the run with role `reviewer`, always a fresh session (0008): the
-// `review` system file (L1+L2; `review-box` for a box run, whose verify ran in the developer's box)
-// in its own file of the run directory, the review task message as its first message, the
-// reviewer's tools, model, effort and its own turn, minute and token caps (`runWorkerSpec` with the
-// review settings). Ingestion starts after what earlier hosts wrote to the run's event file, and
-// run control tracks the session with the reviewer's caps.
+// `review-box` system file (L1+L2: the verify ran in the developer's box at done) in its own file
+// of the run directory, the review task message as its first message, the reviewer's tools, model,
+// effort and its own turn, minute and token caps (`runWorkerSpec` with the review settings).
+// Ingestion starts after what earlier hosts wrote to the run's event file, and run control tracks
+// the session with the reviewer's caps.
 //
 // Each review session runs in a read-only box of its own (0002, 0008, `BoxWorkers.review`): a new
 // box from the office image with a copy of exactly the head the review round read
@@ -19,7 +19,7 @@
 // (`ReviewSessionRequest.held`, DIPO-346): a park that landed while the box was made starts no
 // reviewer, and the box goes.
 
-import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { chmod, lstat, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -36,7 +36,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { REVIEW_CODE_DIR, ReviewCopyMismatchError } from "../box/review-box";
-import { BOX_RUN_FILE, type BoxWorkers } from "../box/workers";
+import type { BoxWorkers } from "../box/workers";
 import { appendEntries } from "../changelog/log";
 import type { OfficeConfig } from "../config";
 import { sizeClassOfWorkspace } from "../context/size";
@@ -488,11 +488,9 @@ export class ReviewLauncher implements ReviewSessions {
       (config.tiers as Readonly<Record<string, TierCaps>>)[run.tier ?? ""] ?? config.tiers.M;
     const settings = reviewerSettings(office, run, config);
     const paths = runLaunchPaths(git, deps, run.runId);
-    // The reviewer of a box run reads that dipo ran the verify in the developer's box at done and
-    // that CI runs with the review (DIPO-346). The run directory says the run is a box worker's,
-    // as for its developer.
-    const boxRun = existsSync(join(paths.runDir, BOX_RUN_FILE));
-    const systemFile = renderSystemFile(boxRun ? "review-box" : "review", "reviewer");
+    // The reviewer reads that dipo ran the verify in the developer's box at done and that CI runs
+    // with the review (DIPO-346).
+    const systemFile = renderSystemFile("review-box", "reviewer");
     const taskMessage = withReviewCommit(request.taskMessage, {
       commit: request.head,
       dir: REVIEW_CODE_DIR,

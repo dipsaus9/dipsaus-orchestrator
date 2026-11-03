@@ -5,7 +5,6 @@
 
 import implementBoxContract from "./contract/implement-box.md" with { type: "text" };
 import reviewBoxContract from "./contract/review-box.md" with { type: "text" };
-import reviewContract from "./contract/review.md" with { type: "text" };
 import scanContract from "./contract/scan.md" with { type: "text" };
 import ciFeedback from "./feedback/ci.md" with { type: "text" };
 import reportFeedback from "./feedback/report.md" with { type: "text" };
@@ -43,13 +42,12 @@ import testPlan from "./task/test-plan.md" with { type: "text" };
 /**
  * L1 worker contracts by run kind: `implement-box` for a developer, who works only in its own box
  * (0021 section 7, 0014 amendment of 2026-10-21, DIPO-272; the Mac worker's `implement` went with
- * DIPO-342): the door messages. `review` (0019 section 4), and `review-box`, the reviewer's of a
- * box run (DIPO-299, DIPO-346): dipo ran the verify in the developer's box at done, and CI runs on
- * the same head at the same time as the review.
+ * DIPO-342): the door messages. `review-box`, the reviewer's (0019 section 4, DIPO-299, DIPO-346):
+ * dipo ran the verify in the developer's box at done, and CI runs on the same head at the same time
+ * as the review.
  */
 export const CONTRACT_TEMPLATES = {
   "implement-box": implementBoxContract,
-  review: reviewContract,
   "review-box": reviewBoxContract,
   // The scan fallback session (0013 section 6, DIPO-310): no tools, structured output only.
   scan: scanContract,
@@ -58,7 +56,7 @@ export type ContractKind = keyof typeof CONTRACT_TEMPLATES;
 
 /**
  * Built-in L2 roles until `.dipo/roles/` (M4): `developer`, and `reviewer`, used only by the
- * `review` kind and never named by a story (0019 section 4).
+ * `review-box` kind and never named by a story (0019 section 4).
  */
 export const ROLE_TEMPLATES = {
   developer: developerRole,

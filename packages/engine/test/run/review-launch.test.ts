@@ -42,7 +42,6 @@ import {
 } from "../../src/box/review-box";
 import { BoxError } from "../../src/box/port";
 import type { BoxSession } from "../../src/box/workers";
-import { BOX_RUN_FILE } from "../../src/box/workers";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
@@ -587,22 +586,15 @@ describe("no configuration from the reviewer's copy (0002)", () => {
     }));
 });
 
-describe("the reviewer's system file by the kind of run", () => {
-  it("says dipo ran verify for a Mac run, and that the developer's box ran it for a box run", () =>
+describe("the reviewer's system file", () => {
+  it("says the developer's box ran the verify, whatever the run directory holds", () =>
     withWorld(async (w) => {
       const office = w.rounds.office.officeId as OfficeId;
-      const mac = await startSession(w);
-      const macText = readFileSync(mac.spec.systemFile, "utf8");
-      expect(macText).toBe(renderSystemFile("review", "reviewer"));
-      await w.launcher.finish(office, w.run.runId, mac.agent);
-
-      // The run directory says the run is a box worker's, as the box launch writes it.
-      writeFileSync(join(dirname(mac.spec.systemFile), BOX_RUN_FILE), "{}\n");
-      const box = await startSession(w);
-      const boxText = readFileSync(box.spec.systemFile, "utf8");
-      expect(boxText).toBe(renderSystemFile("review-box", "reviewer"));
-      expect(boxText).toContain("the engine ran it on this change in the developer's box");
-      await w.launcher.finish(office, w.run.runId, box.agent);
+      const session = await startSession(w);
+      const text = readFileSync(session.spec.systemFile, "utf8");
+      expect(text).toBe(renderSystemFile("review-box", "reviewer"));
+      expect(text).toContain("the engine ran it on this change in the developer's box");
+      await w.launcher.finish(office, w.run.runId, session.agent);
     }));
 });
 
