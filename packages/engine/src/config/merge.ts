@@ -1,4 +1,4 @@
-// Layer merging and the configuration hash (0017 section 5, 0007).
+// Layer merging and the configuration hash (0017, 0007).
 
 import { createHash } from "node:crypto";
 

@@ -1,4 +1,4 @@
-// Software-level configuration, `<state>/config.yaml` (0006 and 0017 amendments of 2026-10-12).
+// Software-level configuration, `<state>/config.yaml` (0006, 0017).
 // The schema and its validation are the contract's, so the daemon and every client agree; the
 // engine only reads the file and parses it through `platform/yaml.ts`.
 
