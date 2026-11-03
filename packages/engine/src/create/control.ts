@@ -1,8 +1,8 @@
-// Operations on the running daemon are contract messages (0006 decision 5): the `daemon.status`
+// Operations on the running daemon are contract messages (0006): the `daemon.status`
 // read and the `daemon.stop`, `daemon.setLogLevel` and `daemon.resumeStarts` commands. They are
 // software-level, so their idempotency records live in the daemon's in-memory request table
-// (0005 section 9). Every lifecycle transition goes onto the software stream as `daemon.state`
-// (0006 decision 7).
+// (0005). Every lifecycle transition goes onto the software stream as `daemon.state`
+// (0006).
 
 import {
   type Clock,
@@ -46,13 +46,13 @@ export interface ControlDeps {
   readonly socket: string;
   /** The absolute tool paths resolved from the daemon's `PATH` at start (DIPO-70). */
   readonly tools: ToolPaths;
-  /** True once the executable on disk changed (0006 decision 14, DIPO-70). */
+  /** True once the executable on disk changed (0006, DIPO-70). */
   readonly upgradePending: () => boolean;
   /** Offices whose engine instance is loaded (DIPO-27). */
   readonly loadedOffices: () => readonly OfficeId[];
   /** Active runs over the loaded offices, for `daemon.status.activeRuns` (DIPO-48, DIPO-125). */
   readonly activeRuns?: () => number;
-  /** `daemon.status.keepAwake` (0006 decision 12, DIPO-63); not held when absent. */
+  /** `daemon.status.keepAwake` (0006, DIPO-63); not held when absent. */
   readonly keepAwake?: () => { readonly held: boolean; readonly reason?: string };
   /**
    * Lifts every loaded office's starts paused (0020, `StartsPaused.liftAll`); answers how many
@@ -109,7 +109,7 @@ export function controlFeature(deps: ControlDeps): FeatureModule {
       registry.addSoftwareCommand({
         definition: daemonStop,
         handle: (_ctx, args) => {
-          // Target state: stopping a draining daemon changes nothing (0005 section 9).
+          // Target state: stopping a draining daemon changes nothing (0005).
           if (lifecycle.state === "draining") {
             return { result: { state: "draining" as const }, changed: false };
           }

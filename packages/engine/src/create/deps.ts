@@ -27,7 +27,7 @@ import type { DrainCaps, DrainRequest, DrainResult } from "./drain";
 import type { RecoveryStep } from "./recovery";
 import type { EngineSurface } from "./surface";
 
-/** The directories the engine works in (0005 section 13). */
+/** The directories the engine works in (0005). */
 export interface EnginePaths {
   /** The state directory: `dipo.db`, the box index, the package caches. */
   readonly stateDir: string;
@@ -50,7 +50,7 @@ export interface DaemonFacts {
   /** When the daemon started, on the engine clock. */
   readonly startedAt: number;
   readonly socket: string;
-  /** True once the executable on disk changed (0006 decision 14). */
+  /** True once the executable on disk changed (0006). */
   readonly upgradePending: () => boolean;
   /** Starts the daemon's drain; the first request wins. */
   readonly requestStop: (request: DrainRequest) => void;
@@ -63,9 +63,9 @@ export interface EngineDeps {
   readonly spawn: Spawn;
   /** Reads a process's start time: the worker hosts and the claims' holders. */
   readonly probe: ProcessProbe;
-  /** Starts the keep-awake assertion (0006 decision 12). */
+  /** Starts the keep-awake assertion (0006). */
   readonly spawnKeepAwake: SpawnKeepAwake;
-  /** Starts the detached worker hosts (0006 decision 8). */
+  /** Starts the detached worker hosts (0006). */
   readonly hosts: HostStarter;
   /** The test boxes' forwarders on the Mac's loopback, and the check that one answers (DIPO-309). */
   readonly forwarders: Pick<TestBoxesDeps, "forward" | "reach">;
@@ -99,7 +99,7 @@ export interface EngineDeps {
 
 /** A running engine: its surface, and what the daemon drives through its life. */
 export interface Engine extends EngineSurface {
-  /** The daemon state (0006 decision 7). */
+  /** The daemon state (0006). */
   state(): DaemonState;
   /**
    * Moves to `recovering`, runs the recovery steps in their order, then enters `running` and starts
@@ -107,7 +107,7 @@ export interface Engine extends EngineSurface {
    * runs no further step.
    */
   recover(): Promise<void>;
-  /** Enters `draining` and drains within the cap (0006 decision 7). */
+  /** Enters `draining` and drains within the cap (0006). */
   drain(request: DrainRequest, caps?: DrainCaps): Promise<DrainResult>;
   /** True while an engine step runs: a child process the engine started, or a command's writes. */
   busy(): boolean;

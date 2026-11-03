@@ -1,5 +1,5 @@
 // The engine's surface to a socket server (0005, DIPO-318): commands and reads after the lifecycle
-// checks of 0006 decision 7, and the streams a subscriber follows: the software stream's replay and
+// checks of 0006, and the streams a subscriber follows: the software stream's replay and
 // live events, and an office's change log, rendered page by page. The frame protocol, the
 // connections and their backpressure stay with the server; the engine keeps no per-connection
 // state.
@@ -104,7 +104,7 @@ export interface EngineSurface {
   onSoftwareEvent(listener: (event: Event) => void): () => void;
   /** Each office whose change log has new entries; returns the call that stops it. */
   onOfficeChanged(listener: (office: OfficeId) => void): () => void;
-  /** The summary of every office (0005 section 5). */
+  /** The summary of every office (0005). */
   officeSummaries(): readonly OfficeSummary[];
   /** The summary of one office, or undefined when it has none. */
   officeSummary(office: OfficeId): OfficeSummary | undefined;
@@ -168,7 +168,7 @@ async function runCommand(
   const end = parts.lifecycle.beginWork();
   try {
     const reply = await commandReply(parts, request, connection);
-    // The reply first, then the office's subscribers (0005 section 3).
+    // The reply first, then the office's subscribers (0005).
     send(reply);
     if (reply.ok && reply.cursor !== undefined && request.office !== undefined) {
       parts.changes.notify(request.office);

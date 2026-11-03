@@ -175,8 +175,8 @@ function failure(
 }
 
 /**
- * What a failed open or migration of the state database means for the maintainer (0007 sections 9
- * and 10, DIPO-111): the reason, the newest backup when one exists, and one paragraph
+ * What a failed open or migration of the state database means for the maintainer (0007,
+ * DIPO-111): the reason, the newest backup when one exists, and one paragraph
  * that says what to do. A failed migration left `dipo.db` as it was (the step rolled back), so the
  * fix is a dipo whose migrations work: the previous version or a fixed release; the backup is for
  * a file that is itself suspect. An edited migration, a damaged file or any other failure: stop

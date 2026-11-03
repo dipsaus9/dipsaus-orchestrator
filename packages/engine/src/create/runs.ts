@@ -1,5 +1,5 @@
 // The worker start of claimed runs in the engine (DIPO-74): the run launcher with the Claude CLI
-// worker port, DIPO-39's setup, detached worker hosts and ingestion, all with the tools this
+// worker port, the worker setup, detached worker hosts and ingestion, all with the tools this
 // daemon resolved on its PATH at start. `claude` and `backlog` are absolute paths, never looked up
 // again; a missing `claude` refuses each launch with a notice instead of stopping the daemon.
 //
@@ -123,7 +123,7 @@ import type { StoryClaims } from "../worktree/feature";
 /**
  * The Backlog CLI at the absolute path the daemon resolved, else `backlog` on `PATH` (AC #8). The
  * runner gives each call only `PATH` and `HOME` of the daemon's environment (`backlogEnv`), and a
- * story's calls run in dipo's own copy of its backlog, never its worktree (0021 section 14).
+ * story's calls run in dipo's own copy of its backlog, never its worktree (0021).
  */
 export function backlogCliFor(tools: ToolPaths, spawn: Spawn = systemSpawn): BacklogCli {
   return tools.backlog === undefined ? { spawn } : { spawn, command: [tools.backlog] };
@@ -135,7 +135,7 @@ export interface RunsOptions {
   readonly probe: ProcessProbe;
   /** Starts the processes of the runs: boxes, the Keychain, the worker. */
   readonly spawn: Spawn;
-  /** Starts the detached worker hosts (0006 decision 8). */
+  /** Starts the detached worker hosts (0006). */
   readonly hosts: HostStarter;
   /** The test boxes' forwarders on the Mac's loopback, and the check that one answers (DIPO-309). */
   readonly forwarders: Pick<TestBoxesDeps, "forward" | "reach">;
@@ -1062,7 +1062,7 @@ function controlRunPorts(
     // The park written on the story branch (DIPO-50), after auto-merge is off (0002).
     control: { finisher: parts.finisher, writer: writers.park, implemented: options.implemented },
     outcomes: {
-      // No new host while an earlier host of the run still runs (DIPO-57, 0006 decision 8).
+      // No new host while an earlier host of the run still runs (DIPO-57, 0006).
       probe: options.probe,
       // A host still alive for a parked run gets one verified SIGTERM at its resume (DIPO-411).
       signal: signalProcess,
@@ -1302,7 +1302,7 @@ function engineRunsOf(
 
 /**
  * The auto-merge's ports (0002): its conflicts and the maintainer's rejects go through the fix
- * rounds, and its conflict merges are recorded as DIPO-149's catch-ups are.
+ * rounds, and its conflict merges are recorded as the catch-ups of `run/conflicts.ts` are.
  */
 function mergePortsOf(
   options: RunsOptions,

@@ -1,8 +1,8 @@
-// The drain (0006 decision 7). `draining` starts no new work, lets pending work finish (command
+// The drain (0006). `draining` starts no new work, lets pending work finish (command
 // writes, the current recovery step), waits for every child process the daemon started itself, and
 // is capped at 20 s, or 60 s while workers are being stopped. At the cap the daemon kills the
 // process group of every child still running and exits anyway; the next start recovers as after a
-// crash. Worker hosts are never the daemon's children here, so they keep running (decision 8),
+// crash. Worker hosts are never the daemon's children here, so they keep running (0006),
 // unless `daemon.stop { stopWorkers: true }` asked for them to be stopped: then run control stops
 // every live worker through its host first (DIPO-315), each story parks `by-maintainer`, and the drain
 // waits for the parks and the exits under the longer cap. The log line says what happened.

@@ -258,11 +258,11 @@ function buildIngest(
     clock: ports.clock,
     ...(control === null ? {} : { hooks: control.hooks }),
     runEvents,
-    // No env value of the listed files reaches the stored web lines (0020 section 11b, DIPO-164).
+    // No env value of the listed files reaches the stored web lines (0020, DIPO-164).
     redactOutput: (office, run, text) => webCalls.redactOutput(office, run, text),
     ...given("watchdog", ports.ingest.watchdog),
     ...given("onAppended", ports.onChanged),
-    // `privacy.storeCommandBodies` of the configuration in force (0007 section 8, DIPO-83).
+    // `privacy.storeCommandBodies` of the configuration in force (0007, DIPO-83).
     privacy: (office) => ({
       storeCommandBodies: ports.offices.config(office)?.privacy.storeCommandBodies ?? false,
     }),
@@ -386,7 +386,7 @@ function buildOutcomes(
     guard: outcomes.parts.support.guard,
     // A round that cannot start and will not on its own parks the story (DIPO-148).
     park: (office, run, work, ending) => control.park(office, run, work, ending),
-    // A verdict on another commit holds for a head with the same code tree (0019 section 6).
+    // A verdict on another commit holds for a head with the same code tree (0019).
     treeKey: (office, run, taskFile, head) =>
       gitReviewOps(ports.git).codeTreeKey(office, taskFile, head),
     ...given("refreshStory", ports.refreshStory),
@@ -395,7 +395,7 @@ function buildOutcomes(
   });
   const reviews = buildReviews(ports, control, ingest, startsPaused, fixRounds);
   // The places wait while the office's starts are paused, start a queued resume through the
-  // resumption and a pending review through the review rounds (0019 section 12).
+  // resumption and a pending review through the review rounds (0019).
   const places = new Places({
     ...ports.places,
     clock: ports.clock,
@@ -413,7 +413,7 @@ function buildOutcomes(
     starters: {
       resume: (office, run) => resumption.startQueued(office, run),
       review: (office, run, start) => reviews.start(office, run, start),
-      // A maintainer resume that starts a fresh review of the same round (0020 section 2, DIPO-155).
+      // A maintainer resume that starts a fresh review of the same round (0020, DIPO-155).
       "review-resume": (office, run, start) => reviews.start(office, run, start),
       fix: (office, run, start) => fixRounds.start(office, run, start),
     },
@@ -454,7 +454,7 @@ function conflictResumesOf(
     },
     tell: (runId, text) => control.tellWorker(runId, text, "conflict"),
     parkLive: (runId, park) => control.parkRun(runId, park),
-    // An unwritable path that still conflicts parks again before any session (0020 section 2).
+    // An unwritable path that still conflicts parks again before any session (0020).
     park: async (office, run, park) => {
       await control.park(office, run, workRefOf(office, run.runId) ?? undefined, {
         intent: "park",
