@@ -4,7 +4,7 @@ Status: accepted. First written 2026-10-10 (spike DIPO-13). Rewritten 2026-10-24
 
 ## Decision in short
 
-One CI workflow checks every PR and every push to `main`, behind two required checks, `ci-ok` and `pr-title`. Versions come from Conventional Commit PR titles through release-please. A release is one `darwin-arm64` binary (0004). It is published only by the maintainer, through two gates, after a live smoke run.
+One CI workflow checks every PR and every push to `main`, behind two required checks, `ci-ok` and `pr-title`. Versions come from Conventional Commit PR titles through release-please. A release is one `darwin-arm64` binary (0004). It is published only by the maintainer, who merges the release PR and approves the `release` environment after a live smoke run.
 
 ## 1. CI (`.github/workflows/ci.yml`)
 
@@ -24,7 +24,7 @@ It runs on `pull_request` and on `push` to `main`, with `concurrency` per ref.
 | `checks` | `ubuntu-24.04` | `bun run check`: format, lint and typecheck, once, since both OS give the same result |
 | `test-shards` | `ubuntu-24.04` | The coverage check: every test file is in exactly one shard of `verify` and of `verify-macos` |
 | `verify` | `ubuntu-24.04` | `bun test` with `DIPO_TEST_CI=1`, so with the CI-only tests, as a matrix of three parallel shards; `scripts/test-shards.ts` splits the files by the per-file times in `scripts/test-timings.json` |
-| `verify-macos` | `macos-26` | The same in four shards, on macOS, where the box and the platform code are real |
+| `verify-macos` | `macos-26` | The same in four shards, on macOS, where the macOS platform code runs for real. No runner can run a box, so box tests run only by hand (0017) |
 | `shellcheck` | `ubuntu-24.04` | `install.sh` and other shell scripts |
 | `actionlint` | `ubuntu-24.04` | The workflow files |
 | `dependency-review` | `ubuntu-24.04` | PRs only: fails on new dependencies with high or critical advisories, or with a licence outside the allow list |
@@ -44,7 +44,7 @@ Runner labels are explicit, never `-latest`.
 type    = feat | fix | perf | refactor | docs | test | build | ci | chore | revert
 scope   = DIPO-<n>[.<m>]    story PRs
         | deps              Renovate only
-        | main              release-please only
+        | main              release-please, and repository chores with no story
         | backlog           backlog PRs with no single story
 subject = 1 to 100 characters, no trailing period
 ```
