@@ -1,4 +1,4 @@
-// The box toolchain a repository asks for (0021 section 5, DIPO-266): which tools its box needs
+// The box toolchain a repository asks for (0021, DIPO-266): which tools its box needs
 // and the exact versions the repository pins for them, read from the scan's probe and toolchain.
 // dipo fills a tool without a pinned version from its own defaults (`box/image.ts`), so a new
 // office needs no hand-written box block. Pure.

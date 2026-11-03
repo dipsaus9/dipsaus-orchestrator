@@ -1,4 +1,4 @@
-// The run profile fingerprint (0013 section 5): a hash over exactly the inputs the profile
+// The run profile fingerprint (0013): a hash over exactly the inputs the profile
 // depends on. Lockfile contents are left out on purpose: a dependency change means "install
 // again", not "rescan".
 
@@ -59,7 +59,7 @@ export function fingerprintInputs(probe: Probe): Record<string, unknown> {
   };
 }
 
-/** `sha256:<hex>` over the 0013 section 5 inputs of the probe. */
+/** `sha256:<hex>` over the inputs of the probe that 0013 names. */
 export function fingerprint(probe: Probe): string {
   const hash = createHash("sha256")
     .update(canonical(fingerprintInputs(probe)))

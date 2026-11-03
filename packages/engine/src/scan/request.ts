@@ -1,4 +1,4 @@
-// The fallback session's prompts (0014 section 1 for the shape, DIPO-310): the L1+L2 system file
+// The fallback session's prompts (0014 for the shape, DIPO-310): the L1+L2 system file
 // of the `scan` kind and the `scanner` role, and the task message built from the evidence bundle
 // with the `scan` task template. Repository text goes in as data: every file's text has its prompt
 // tags neutralised, so a README cannot close `<scan_evidence>` and start a section of its own.

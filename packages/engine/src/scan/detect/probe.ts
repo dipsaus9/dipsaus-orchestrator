@@ -1,6 +1,6 @@
 // `readProbe` collects the file facts `detect` and `fingerprint` need from a checkout. It reads
 // manifests and config files, checks env files by path only (presence, ignore status), and runs
-// no repository script (0013 sections 3, 4 and 7).
+// no repository script (0013).
 
 import { posix } from "node:path";
 
@@ -46,7 +46,7 @@ export async function readProbe(
   const workflowText = await files.readText(WORKFLOW_FILE);
   const workflow = workflowText === undefined ? null : parseWorkflow(workflowText);
 
-  // Env files: by path only (0013 section 4). They are known before anything else is read, so
+  // Env files: by path only (0013). They are known before anything else is read, so
   // `read` can refuse every env path, even one whose name looks like a config file.
   const candidates: { example: string | null; path: string }[] = [];
   for (const example of listed.filter(isEnvExample)) {

@@ -8,12 +8,12 @@ export const PNPM_WORKSPACE = "pnpm-workspace.yaml";
 export const WORKFLOW_FILE = ".claude/backlog-workflow.json";
 export const RUNTIME_FILES = [".node-version", ".nvmrc"] as const;
 /**
- * The Bun version file, read for the box's default toolchain (0021 section 5, DIPO-266). It is no
+ * The Bun version file, read for the box's default toolchain (0021, DIPO-266). It is no
  * run profile input, so it stays out of the fingerprint.
  */
 export const BUN_VERSION_FILE = ".bun-version";
 
-/** Lockfiles in 0013 section 3 order, with the package manager each belongs to. */
+/** Lockfiles in the order 0013 gives, with the package manager each belongs to. */
 export const LOCKFILES: readonly (readonly [string, PackageManagerName])[] = [
   ["bun.lock", "bun"],
   ["bun.lockb", "bun"],
@@ -22,7 +22,7 @@ export const LOCKFILES: readonly (readonly [string, PackageManagerName])[] = [
   ["package-lock.json", "npm"],
 ];
 
-/** Dev server and runtime config files (0013 section 5), matched on the file name. */
+/** Dev server and runtime config files (0013), matched on the file name. */
 const CONFIG_FILE =
   /^(?:vite\.config|next\.config|react-router\.config|playwright\.config)\.[^/]+$|^wrangler\.[^/]+$/;
 
@@ -102,7 +102,7 @@ function stripComment(line: string): string {
 
 /**
  * The `packages` list of a pnpm-workspace.yaml. Only that key is read: other keys, such as a
- * dependency `catalog`, are dependency changes (0013 section 5). Handles the block and flow
+ * dependency `catalog`, are dependency changes (0013). Handles the block and flow
  * sequence forms pnpm documents.
  */
 export function parsePnpmWorkspacePackages(text: string): string[] {
@@ -133,7 +133,7 @@ export type Workflow = {
   readonly includeGitignored: readonly string[];
 };
 
-/** The parts of .claude/backlog-workflow.json the scan reads as evidence (0013 section 3). */
+/** The parts of .claude/backlog-workflow.json the scan reads as evidence (0013). */
 export function parseWorkflow(text: string): Workflow | null {
   let parsed: unknown;
   try {

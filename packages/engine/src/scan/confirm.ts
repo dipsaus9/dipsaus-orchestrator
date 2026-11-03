@@ -1,15 +1,15 @@
-// The maintainer's confirmations laid over the profile code detected (0013 sections 2 to 6, DIPO-310).
+// The maintainer's confirmations laid over the profile code detected (0013).
 // Pure: a code profile and the stored marks (confirmations, pending proposals, nothing to start)
 // go in; the effective profile, the per-capability marks and the refusals come out.
 //
 // - A confirmation applies only to a capability code leaves unresolved or in conflict: the fallback
-//   and the confirm command exist for those (0013 section 6). A capability code resolves wins, and
+//   and the confirm command exist for those (0013). A capability code resolves wins, and
 //   the scan removes a confirmation it made redundant (`supersededConfirmations`).
-// - A confirmation made at another fingerprint is stale (0013 section 5): it keeps working for
+// - A confirmation made at another fingerprint is stale (0013): it keeps working for
 //   `run` and the test command (the maintainer's answer of 2026-10-22) and waits on the desk to be
 //   confirmed again.
 // - A pending proposal is never part of the effective profile, so nothing runs it.
-// - Nothing to start drops the missing-`dev` deviation and counts toward Conforming (0013 section 2).
+// - Nothing to start drops the missing-`dev` deviation and counts toward Conforming (0013).
 
 import { shownSpec } from "./diff";
 import {
@@ -23,7 +23,7 @@ import {
   type RunProfile,
 } from "./detect";
 
-/** The CLI the refusals and the desk name for the fallback (0013 amendment of 2026-10-22). */
+/** The CLI the refusals and the desk name for the fallback (0013). */
 export const INFER_COMMAND = "dipo office infer";
 /** The CLI of the confirm command (DIPO-310's design choice: `dipo office confirm <action>`). */
 export const CONFIRM_COMMAND = "dipo office confirm";
@@ -45,7 +45,7 @@ export interface Confirmation {
   readonly confirmedAt: number;
 }
 
-/** One pending proposal of the fallback (0013 section 6 step 3). Never executed. */
+/** One pending proposal of the fallback (0013). Never executed. */
 export interface Proposal {
   readonly capability: CapabilityName;
   readonly spec: CommandSpec;
@@ -85,7 +85,7 @@ export interface EffectiveProfile {
   readonly profile: RunProfile;
   readonly marks: Readonly<Record<CapabilityName, CapabilityMark>>;
   readonly nothingToStart: boolean;
-  /** Why the test command refuses (0013 section 2): install or `dev` unresolved; null when not. */
+  /** Why the test command refuses (0013): install or `dev` unresolved; null when not. */
   readonly testRefusal: string | null;
 }
 
@@ -107,7 +107,7 @@ function confirmedResolution(confirmation: Confirmation): Resolution<CommandSpec
   };
 }
 
-/** The conformance level of a code profile with the nothing-to-start mark (0013 section 2). */
+/** The conformance level of a code profile with the nothing-to-start mark (0013). */
 export function levelOf(profile: RunProfile, nothingToStart: boolean): ConformanceLevel {
   if (profile.conformance.level === "non-standard") return "non-standard";
   const { capabilities, conformance, toolchain } = profile;
@@ -136,7 +136,7 @@ function runRefusalOf(code: RunProfile, verify: Resolution<CommandSpec>): string
 }
 
 /**
- * Why the test command refuses (0013 section 2): install unresolved, or `dev` unresolved while the
+ * Why the test command refuses (0013): install unresolved, or `dev` unresolved while the
  * product is not marked as having nothing to start. A stale confirmation still counts; a pending
  * proposal never does. Null when the test command may run.
  */
@@ -229,7 +229,7 @@ export function staleLines(before: string | null, after: string, marks: ScanMark
 }
 
 /**
- * The standard script that would remove a deviation, as one line (0013 section 6 step 6); null for
+ * The standard script that would remove a deviation, as one line (0013); null for
  * a deviation no script removes.
  */
 export function deviationFix(deviation: Deviation): string | null {
@@ -257,7 +257,7 @@ export function deviationFix(deviation: Deviation): string | null {
   return null;
 }
 
-/** The script whose rename or addition would let a confirmation go (0013 section 6 step 6). */
+/** The script whose rename or addition would let a confirmation go (0013). */
 export function confirmationFix(capability: CapabilityName): string {
   if (capability === "install") {
     return "commit the package manager's lockfile, so install is derived from it";

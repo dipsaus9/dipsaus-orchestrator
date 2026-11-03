@@ -1,5 +1,5 @@
-// The diff between two run profiles (0013 section 4: "the previous confirmed profile, so a rescan
-// can show a diff"). Each profile becomes a flat list of named facts in plain text; the diff is
+// The diff between two run profiles (0013): a rescan shows what changed since the previous
+// confirmed profile. Each profile becomes a flat list of named facts in plain text; the diff is
 // the facts that were added, removed or changed. Pure.
 
 import { CAPABILITIES, type CommandSpec, type Resolution, type RunProfile } from "./detect";
@@ -88,7 +88,7 @@ export function diffProfiles(previous: RunProfile | null, next: RunProfile): str
   return lines;
 }
 
-/** The resolved capabilities by name, as `scan.finished` reports them (0005 section 6). */
+/** The resolved capabilities by name, as `scan.finished` reports them (0005). */
 export function profileScripts(profile: RunProfile): Record<string, string> {
   const scripts: Record<string, string> = {};
   for (const name of CAPABILITIES) {

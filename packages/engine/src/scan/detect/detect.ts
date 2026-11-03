@@ -1,4 +1,4 @@
-// `detect` turns a probe into a run profile (0013 sections 2 to 4 and 7). It is pure: no file,
+// `detect` turns a probe into a run profile (0013). It is pure: no file,
 // process, clock or model is touched, so the same probe always gives the same profile.
 
 import { fingerprint } from "./fingerprint";
@@ -310,7 +310,7 @@ function resolveVerify(
   return UNRESOLVED;
 }
 
-/** The message `run` refuses with when verify is not resolved (0013 amendment of 2026-10-11). */
+/** The message `run` refuses with when verify is not resolved (0013). */
 function refusal(
   verify: Resolution<CommandSpec>,
   hasManifest: boolean,
