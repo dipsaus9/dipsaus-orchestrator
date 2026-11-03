@@ -1,4 +1,4 @@
-// Forward-only, numbered, checksummed migrations (0007 section 9). They run once for the whole
+// Forward-only, numbered, checksummed migrations (0007). They run once for the whole
 // file, before any office loads: first a `VACUUM INTO` backup, then each pending step in its own
 // immediate transaction that also records the step and moves `PRAGMA user_version`. Then the schema
 // must equal the one the same steps build in a fresh in-memory database.
@@ -73,7 +73,7 @@ export interface MigrateResult {
   readonly backup: string | null;
 }
 
-/** The database was written by a newer dipo (0007 section 9). */
+/** The database was written by a newer dipo (0007). */
 export class DatabaseTooNewError extends Error {
   constructor(
     readonly found: number,
@@ -178,7 +178,7 @@ export function assertMigrationOrder(migrations: readonly Migration[]): void {
   });
 }
 
-/** `yyyymmddThhmmss` in UTC, for backup names (0007 section 2). */
+/** `yyyymmddThhmmss` in UTC, for backup names (0007). */
 export function backupStamp(ms: number): string {
   return new Date(ms)
     .toISOString()

@@ -1,4 +1,4 @@
-// The office-scoped handle (0007 sections 1 and 3). Each office's engine instance gets one on the
+// The office-scoped handle (0007). Each office's engine instance gets one on the
 // daemon's single connection. Every statement it runs binds that office's `office_id`, and it has
 // no way to reach the connection or name another office.
 
