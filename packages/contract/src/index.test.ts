@@ -36,6 +36,7 @@ import {
   readFixtures,
   serverFrameFixtures,
 } from "../test/fixtures";
+import { staleKeys } from "../test/stale-keys";
 
 describe("contract", () => {
   it("names its package", () => {
@@ -130,8 +131,8 @@ describe("commands, reads and events", () => {
     it(`command ${definition.name} has fixtures that parse`, () => {
       const fixture = commandFixtures[definition.name];
       expect(fixture).toBeDefined();
-      definition.args.parse(fixture?.args);
-      definition.result.parse(fixture?.result);
+      expect(staleKeys(fixture?.args, definition.args.parse(fixture?.args))).toEqual([]);
+      expect(staleKeys(fixture?.result, definition.result.parse(fixture?.result))).toEqual([]);
     });
   }
 
@@ -139,17 +140,44 @@ describe("commands, reads and events", () => {
     it(`read ${definition.name} has fixtures that parse`, () => {
       const fixture = readFixtures[definition.name];
       expect(fixture).toBeDefined();
-      definition.args.parse(fixture?.args);
-      definition.result.parse(fixture?.result);
+      expect(staleKeys(fixture?.args, definition.args.parse(fixture?.args))).toEqual([]);
+      expect(staleKeys(fixture?.result, definition.result.parse(fixture?.result))).toEqual([]);
     });
   }
 
   for (const definition of contractEvents) {
     it(`event ${definition.type} has data that parses`, () => {
       expect(Object.hasOwn(eventFixtures, definition.type)).toBe(true);
-      definition.data.parse(eventFixtures[definition.type]);
+      const data = eventFixtures[definition.type];
+      expect(staleKeys(data, definition.data.parse(data))).toEqual([]);
     });
   }
+
+  it("finds a fixture key its schema does not know, also nested", () => {
+    const command = contractCommands.find((d) => d.name === "daemon.stop");
+    const args = { ...(commandFixtures["daemon.stop"]?.args as object), stale: 1 };
+    expect(staleKeys(args, command?.args.parse(args))).toEqual(["$.stale"]);
+
+    const read = contractReads.find((d) => d.name === "story.losses");
+    const losses = readFixtures["story.losses"]?.result as { commits: object[] };
+    const nested = { ...losses, commits: [{ ...losses.commits[0], stale: 1 }] };
+    expect(staleKeys(nested, read?.result.parse(nested))).toEqual(["$.commits[0].stale"]);
+
+    const event = contractEvents.find((d) => d.type === "scan.finished");
+    const data = { ...(eventFixtures["scan.finished"] as object), stale: 1 };
+    expect(staleKeys(data, event?.data.parse(data))).toEqual(["$.stale"]);
+  });
+
+  it("keeps record entries and unknown values whole", () => {
+    const event = contractEvents.find((d) => d.type === "scan.finished");
+    const data = eventFixtures["scan.finished"] as { scripts: object };
+    const scripts = { ...data, scripts: { ...data.scripts, test: "bun test" } };
+    expect(staleKeys(scripts, event?.data.parse(scripts))).toEqual([]);
+
+    const command = contractCommands.find((d) => d.name === "office.setPrivacy");
+    const args = { office: ids.office, key: "privacy.x", value: { deep: [{ kept: true }] } };
+    expect(staleKeys(args, command?.args.parse(args))).toEqual([]);
+  });
 
   it("has no fixture without a definition", () => {
     const commands = new Set(contractCommands.map((d) => d.name));
