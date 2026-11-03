@@ -127,4 +127,5 @@ gh attestation verify <file> --repo dipsaus9/dipsaus-orchestrator \
 - Lockfile maintenance automerge (2026-10-10). Turned off (2026-10-23).
 - The full CI on every PR, backlog-only ones included (2026-10-10). Replaced by the light path for backlog-only PRs (2026-10-24).
 - A Homebrew tap after the first stable minor. Moved to Later (0003).
+- The PR title scope `main` for release-please only (2026-10-10). Also used by repository chores with no story (2026-11-03).
 - `setup-bun` with its cache in the release build (2026-10-10). Replaced by a Bun checked against a pinned SHA-256 (2026-10-23).
