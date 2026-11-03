@@ -1,4 +1,4 @@
-// The Ready gate (0012 section 3, R26 from 0014 section 4): a pure function of the story, the
+// The Ready gate (0012, R26 from 0014): a pure function of the story, the
 // office's active tasks and office configuration. `gate-decisions/` keeps decisions and serves the read
 // `story.gate` (DIPO-71).
 

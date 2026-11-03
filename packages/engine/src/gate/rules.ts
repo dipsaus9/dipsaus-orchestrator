@@ -1,4 +1,4 @@
-// The Ready gate rules of 0012 section 3 and R26 of 0014 section 4, one function each. A rule
+// The Ready gate rules of 0012 and R26 of 0014, one function each. A rule
 // returns its failures with the full message `ready <ID> failed <rule>: <message>`, or none.
 // Thresholds, the type list, the tier set and the banned phrases come from office configuration;
 // a message that names a threshold names the configured one (the 0012 text shows the defaults).
@@ -705,7 +705,7 @@ function warn(context: GateContext, rule: GateRule, message: string): GateFailur
  * holds one in the base tree. Manual entries are exempt. One warning per entry and name.
  *
  * R29 warns and never fails (maintainer decision of 2026-10-22): References are the planner's
- * forecast, not a write fence (0021 section 13), so an uncovered name is reported in the gate's
+ * forecast, not a write fence (0021), so an uncovered name is reported in the gate's
  * output and decision record but does not keep the story from Ready or from pickup.
  */
 export const r29: RuleCheck = (context) => {

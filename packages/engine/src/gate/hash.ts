@@ -1,4 +1,4 @@
-// The story content hash a gate decision applies to (0007 section 4, 0010 structural check):
+// The story content hash a gate decision applies to (0007, 0010 structural check):
 // sha256 over the canonical JSON of the story fields the Ready gate reads. Free context in the
 // description is left out: of the description only the `Story:` lines and the parsed field
 // block count, so editing the context around them keeps the hash.

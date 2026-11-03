@@ -1,4 +1,4 @@
-// Inputs and verdict of the Ready gate (0012 section 3, R26 from 0014 section 4). The caller reads
+// Inputs and verdict of the Ready gate (0012, R26 from 0014). The caller reads
 // the story, the office's active tasks and its milestones through the Backlog CLI, and the base
 // tree's file paths through git (R29), and passes them in; the gate itself reads nothing.
 

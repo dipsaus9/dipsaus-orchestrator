@@ -1,4 +1,4 @@
-// The text definitions of 0012 section 3: characters and word matches.
+// The text definitions of 0012: characters and word matches.
 
 /** Text after NFC normalisation, trimmed of leading and trailing whitespace. */
 export function clean(text: string): string {
