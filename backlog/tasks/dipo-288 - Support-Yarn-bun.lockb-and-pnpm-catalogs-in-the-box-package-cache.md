@@ -1,10 +1,10 @@
 ---
 id: DIPO-288
 title: 'Support Yarn, bun.lockb and pnpm catalogs in the box package cache'
-status: To Do
+status: Refined
 assignee: []
 created_date: '2026-10-21 17:40'
-updated_date: '2026-10-25 09:55'
+updated_date: '2026-11-03 09:08'
 labels:
   - box
   - needs-refinement
@@ -47,7 +47,11 @@ unknowns:
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-2026-10-23 (maintainer): moved to M2; no M1 office uses these lockfile formats (this repository uses the text bun.lock).
+2026-10-23 (maintainer): moved out of M1; no M1 office uses these lockfile formats (this repository uses the text bun.lock).
 
-2026-10-23: now comes after DIPO-281 and DIPO-225 (it was a dependency of both before it moved to M2; the order keeps their shared files apart).
+2026-10-23: now comes after DIPO-281 and DIPO-225 (it was a dependency of both before it moved out of M1; the order keeps their shared files apart).
+
+2026-10-25: milestone removed (Later, no milestone yet) by #400.
+
+2026-11-03: status To Do to Refined, so the backlog uses only the 0012 statuses. It still needs refinement (open unknowns) before it can be made Ready.
 <!-- SECTION:NOTES:END -->

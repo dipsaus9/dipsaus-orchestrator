@@ -3,10 +3,10 @@ id: DIPO-255
 title: >-
   Run a story's new and changed tests against the base commit and send back any
   that pass there
-status: To Do
+status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-25 09:55'
+updated_date: '2026-11-03 09:08'
 labels:
   - 'tier:M'
   - cutover
@@ -78,5 +78,9 @@ Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite befo
 
 2026-10-22: dropped the dependency on DIPO-149 (which now holds DIPO-291) to break a dependency cycle left by the M1 combine; that story now comes after this one.
 
-2026-10-23 (maintainer): moved to M2. In box runs CI is the verify, so the step this story hooks into (verify before the commit) no longer exists; rewrite where the base check runs before it is made Ready.
+2026-10-23 (maintainer): moved out of M1. In box runs CI is the verify, so the step this story hooks into (verify before the commit) no longer exists; rewrite where the base check runs before it is made Ready.
+
+2026-10-25: milestone removed (Later, no milestone yet) by #400.
+
+2026-11-03: status To Do to Refined, so the backlog uses only the 0012 statuses. It still needs refinement (open unknowns, stale references) before it can be made Ready.
 <!-- SECTION:NOTES:END -->
