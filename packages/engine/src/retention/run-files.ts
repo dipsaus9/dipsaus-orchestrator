@@ -14,7 +14,7 @@ import { officeDirectory } from "../office/marker";
 import { ofNoOpenRun } from "../records/retired";
 import { runDirectory } from "../records/worker-hosts";
 
-/** Whether the run summary of `run` exists (0005, 0007 section 4 `run_summaries`). */
+/** Whether the run summary of `run` exists (0005, 0007 `run_summaries`). */
 export type SummaryCheck = (office: OfficeHandle, run: string) => boolean;
 
 /** The default check: a `run_summaries` row for the run (written at run end, DIPO-49). */

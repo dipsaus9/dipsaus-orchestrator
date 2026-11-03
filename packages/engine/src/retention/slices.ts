@@ -1,4 +1,4 @@
-// Work in slices on the daemon's one JS thread (0007 sections 1 and 7). Every SQLite call blocks
+// Work in slices on the daemon's one JS thread (0007). Every SQLite call blocks
 // every office, so retention and maintenance run in short calls with a budget of 50 ms each and
 // let the event loop run between them. A retention batch deletes at most 5,000 rows; after a call
 // over budget the next batch is half the size, after a quick one it grows back.
@@ -7,10 +7,10 @@ import type { Clock } from "@dipsaus-orchestrator/contract";
 
 import { yieldToEventLoop } from "../platform/clock";
 
-/** At most this many rows per retention transaction (0007 section 7). */
+/** At most this many rows per retention transaction (0007). */
 export const MAX_BATCH_ROWS = 5_000;
 
-/** The time budget of one SQLite call of a background job (0007 section 1). */
+/** The time budget of one SQLite call of a background job (0007). */
 export const SLICE_BUDGET_MS = 50;
 
 const MIN_BATCH = 50;
