@@ -1,4 +1,4 @@
-// Reconcile (DIPO-56; 0007 section 6, 0001 "Data ownership", 0010 section 7): after an index pass
+// Reconcile (0001, 0007, 0010): after an index pass
 // read every story (claimed ones on their branch), the engine compares its database with what
 // Backlog.md and git say and writes each mismatch as facts with an `engine.notice`, in one
 // transaction per mismatch. Nothing changes silently. In order:
@@ -27,7 +27,7 @@
 //    open `parks` row of a story Backlog.md does not hold as Parked is closed `reconcile`, with a
 //    notice; Backlog.md is not touched. A park Backlog.md holds with no open row is recorded with
 //    detail "recorded by hand". An F16 record on any other status is a stale fact, not a park
-//    (0012 F16 and 0010 section 3 allow it only while Parked; DIPO-190): no park row, and one warn
+//    (0012 F16 and 0010 allow it only while Parked; DIPO-190): no park row, and one warn
 //    `reconcile.parkStale` notice per pass naming the story, its status and the park reason.
 // 5. Ready: a Ready story with no passing gate decision for its current content gets a notice;
 //    the pickup re-check decides.
@@ -95,7 +95,7 @@ export const RECONCILE_NOTICES = {
   failed: "reconcile.failed",
 } as const;
 
-/** The park detail of an F16 record reconcile finds without a park row (0007 section 6). */
+/** The park detail of an F16 record reconcile finds without a park row (0007). */
 export const RECORDED_BY_HAND = "recorded by hand";
 
 /** The release reason of an orphaned claim. */
@@ -146,7 +146,7 @@ export interface ReconcileDeps {
    * (`claimPr`, DIPO-363); without it dipo's record of the story PR answers.
    */
   readonly prs?: PrStateHost | null;
-  /** Checks and deletes the boxes of ended runs after a release (0021 section 6). */
+  /** Checks and deletes the boxes of ended runs after a release (0021). */
   readonly finishBoxes?: () => Promise<unknown>;
 }
 

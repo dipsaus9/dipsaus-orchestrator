@@ -1,4 +1,4 @@
-// Reconcile as a feature (DIPO-56, 0007 section 6, 0006 decision 7). Its office load step
+// Reconcile as a feature (DIPO-56, 0007, 0006). Its office load step
 // `reconcile` runs last, after the claims, the story index's load pass and the scan, and compares
 // that pass with the database (`reconcileOffice`). The daemon loads every registered office in its
 // `recovering` state, so reconcile of every office finishes before the daemon enters `running`
@@ -63,7 +63,7 @@ export interface ReconcilerDeps {
   readonly host?: Pick<CodeHost, "closePr"> | null;
   /** Where the one Done check reads the merged PR of a claim's branch (DIPO-363). */
   readonly prs?: PrStateHost | null;
-  /** Checks and deletes the boxes of ended runs after a release (0021 section 6). */
+  /** Checks and deletes the boxes of ended runs after a release (0021). */
   readonly finishBoxes?: () => Promise<unknown>;
   /** Reconcile appended entries outside a command; subscribers catch up. */
   readonly onOfficeChanged?: (office: OfficeId) => void;
