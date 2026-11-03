@@ -1,4 +1,4 @@
-// Criteria progress of a story run (DIPO-85; 0008 section 3, 0007 section 4, migration 24).
+// Criteria progress of a story run (DIPO-85; 0008 section 3, 0007 section 4).
 //
 // The run start records the criterion numbers the story has and the ones already checked. Each
 // turn report the engine accepts replaces the reported set with the numbers it marks met.

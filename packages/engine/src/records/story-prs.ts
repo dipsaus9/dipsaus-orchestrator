@@ -1,4 +1,4 @@
-// The story PRs (migration 36; 0019 section 16). Every statement binds the office through its
+// The story PRs (0019 section 16). Every statement binds the office through its
 // handle; writes run inside the caller's transaction.
 
 import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
@@ -22,7 +22,7 @@ export interface StoryPrRecord {
   readonly bodyHash: string;
   readonly openedAt: number;
   readonly closedAt: number | null;
-  /** The number of the closed PR of the run this one replaces (migration 52, DIPO-324). */
+  /** The number of the closed PR of the run this one replaces (DIPO-324). */
   readonly replaces?: number | null;
 }
 

@@ -1,4 +1,4 @@
-// The `questions` table (0007 section 4, migrations 22, 23, 50 and 73) and its views (0005 `QuestionView`): what the
+// The `questions` table (0007 section 4) and its views (0005 `QuestionView`): what the
 // engine asks the maintainer for a run's agent, and how each question stopped waiting. The writers
 // run inside the caller's immediate transaction; nothing here sends anything.
 
@@ -13,7 +13,7 @@ import {
 import type { OfficeHandle } from "../db/office";
 import { workRefOf } from "../views/work";
 
-/** How a question stopped waiting (migration 22). */
+/** How a question stopped waiting. */
 export type QuestionClose = "answered" | "timeout" | "ended" | "expired";
 
 export interface StoredQuestion {

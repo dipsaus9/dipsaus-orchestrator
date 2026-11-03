@@ -1,5 +1,5 @@
-// The office's backlog PRs and the stories a failed check blocks (migration 15). Every statement
-// binds the office through its handle; writes run inside the caller's transaction.
+// The office's backlog PRs and the stories a failed check blocks. Every statement binds the
+// office through its handle; writes run inside the caller's transaction.
 
 import type { StoryKey } from "@dipsaus-orchestrator/contract";
 

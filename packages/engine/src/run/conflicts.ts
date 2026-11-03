@@ -5,7 +5,7 @@
 // result, markers and all, is committed on the story branch from git objects and copied into the
 // box, and the worker's resolution comes back as an ordinary part.
 //
-// - Records (`catch_ups`, migration 46). Every merge dipo made into a story branch is recorded
+// - Records (`catch_ups`). Every merge dipo made into a story branch is recorded
 //   with the base commit, the tip it was made on, the merge commit and the conflicted paths (a
 //   catch-up of the poll or the sync before In Review). This is dipo's ref journal for carried
 //   approvals and the list of paths the check at done reads. A conflict the poll finds while the
@@ -14,7 +14,7 @@
 //   reporting the conflict at its merge, handles it (0002); a later check that finds none clears it (`cleared`).
 // - Merges outside the box (DIPO-324). The auto-merge's conflict hand-off merges the base into the
 //   branch in dipo's own git while the story waits In Review, with no box turn. Such a merge is recorded as one the box
-//   still lacks (`box_copy` `pending`, migration 52, `pendingBoxCopy`); the run's next developer
+//   still lacks (`box_copy` `pending`, `pendingBoxCopy`); the run's next developer
 //   session copies what the branch got since the tip of the oldest such merge into the box before
 //   the worker starts (`RunResumerDeps.boxSync`, `BoxCollisions.copyPending`), and no part is taken
 //   while one is pending (`BoxPartsDeps.behind`): a part against that tip would undo the merge.
@@ -180,7 +180,7 @@ export function recordCatchUp(
     readonly tip: string;
     readonly commit: string | null;
     readonly conflicts: readonly ConflictFile[];
-    /** `pending` for a merge dipo made outside the run's box (migration 52, DIPO-324). */
+    /** `pending` for a merge dipo made outside the run's box (DIPO-324). */
     readonly boxCopy?: "pending" | null;
   },
   at: number,

@@ -17,16 +17,8 @@ import { runDirectory } from "../records/worker-hosts";
 /** Whether the run summary of `run` exists (0005, 0007 section 4 `run_summaries`). */
 export type SummaryCheck = (office: OfficeHandle, run: string) => boolean;
 
-/**
- * The default check: a `run_summaries` row for the run (written at run end since DIPO-49). A
- * database before migration 21 has no such table, so a processed event file waits for the fallback.
- */
+/** The default check: a `run_summaries` row for the run (written at run end, DIPO-49). */
 export const runSummaryExists: SummaryCheck = (office, run) => {
-  const table = office.get(
-    `select 1 as found from sqlite_schema s join offices o on o.office_id = $office_id
-      where s.type = 'table' and s.name = 'run_summaries'`,
-  );
-  if (table === null) return false;
   return (
     office.get(
       "select 1 as found from run_summaries where office_id = $office_id and run_id = $run",

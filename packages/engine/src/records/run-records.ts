@@ -79,7 +79,7 @@ export interface StoredRun extends NewRun {
   /** How the run ended: done, parked or dropped; null while it is open (0020). */
   readonly ending: RunEnd | null;
   /**
-   * Milliseconds the run stood parked before an answer reopened it (DIPO-75, migration 23), and
+   * Milliseconds the run stood parked before an answer reopened it (DIPO-75), and
    * stood ended or in review between its rounds (DIPO-142); its caps and minutes count the time
    * its developer worked, not these. 0 when absent.
    */
