@@ -6,6 +6,8 @@
 // This module builds the commands and starts them; the decision when to hold the assertion is the
 // engine's (`keepawake/`). Tests replace `SpawnKeepAwake`, so no real assertion is ever taken.
 
+import { childExit } from "./process";
+
 /** The command that holds the assertion for as long as it runs. */
 export function keepAwakeCommand(daemonPid: number): [string, ...string[]] {
   return ["caffeinate", "-i", "-w", String(daemonPid)];
@@ -65,11 +67,7 @@ export const systemSpawnKeepAwake: SpawnKeepAwake = (cmd, env) => {
   }
   child.unref();
   const exited = Promise.all([new Response(child.stderr).text(), child.exited]).then(
-    ([stderr]) => ({
-      code: child.signalCode === null ? child.exitCode : null,
-      signal: child.signalCode ?? null,
-      stderr,
-    }),
+    ([stderr]) => ({ ...childExit(child), stderr }),
   );
   return {
     pid: child.pid,

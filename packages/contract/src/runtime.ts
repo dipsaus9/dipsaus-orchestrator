@@ -68,7 +68,7 @@ export interface ChildStdin {
 export interface ChildExit {
   /** Exit code, or null when the child ended by a signal. */
   readonly code: number | null;
-  /** Name of the signal that ended the child, or null. */
+  /** Name of the signal that ended the child (its number as text when it has none), or null. */
   readonly signal: string | null;
 }
 
