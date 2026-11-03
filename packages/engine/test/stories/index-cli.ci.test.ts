@@ -2,9 +2,9 @@
 // run.
 // The story index against the pinned Backlog CLI and real git (DIPO-32 test plan): the office
 // loads and indexes the Backlog fixture from `_base`, keys stay stable across passes and a retitle,
-// an archived or completed task closes as Removed with a notice, a hand-promoted draft is
-// renumbered, an ambiguous created date matches nothing, and a status pushed to the remote is
-// indexed after `polling.fetchSeconds` on the manual clock.
+// an archived or completed task closes as Removed with a notice, a hand-promoted draft is Removed
+// and its new id a new story, and a status pushed to the remote is indexed after
+// `polling.fetchSeconds` on the manual clock.
 // The slower cases run in CI only, in index.ci.test.ts (DIPO-77); so do the second pass and the
 // retitle with the CLI (DIPO-79), whose fast local versions are in apply.test.ts.
 
@@ -108,11 +108,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         ]);
         expect(mirrorStatus(office, "TASK-1")).toBe("Ready");
         expect(mirrorStatus(office, "DRAFT-1")).toBe("Draft");
-        expect(
-          office.get<{ backlog_created: string }>(
-            "select backlog_created from stories where office_id = $office_id and story_id = 'TASK-1'",
-          )?.backlog_created,
-        ).toBe("2026-10-12 11:28 (UTC)");
         const states = entriesAfter(office).filter((e) => e.type === "story.state");
         expect(states.map((e) => [e.delta["story"], e.delta["to"], e.view?.["column"]])).toEqual([
           ["DRAFT-1", "Draft", "draft"],

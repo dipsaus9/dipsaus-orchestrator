@@ -101,8 +101,6 @@ export interface NewStory {
   readonly story: StoryId;
   /** The frozen branch (0012 F15), from Refined on. */
   readonly frozenBranch?: string;
-  /** The created date exactly as the Backlog CLI prints it. */
-  readonly backlogCreated?: string;
 }
 
 /** Records a story the engine sees for the first time and gives it a new `sto_<ulid>` key. */
@@ -114,14 +112,13 @@ export function addStory(
 ): StoryIdentity {
   const key = StoryKey.parse(ids.next("sto"));
   office.run(
-    `insert into stories (office_id, key, story_id, provisional, frozen_branch, backlog_created, first_seen_at)
-     values ($office_id, $key, $story, $provisional, $branch, $created, $at)`,
+    `insert into stories (office_id, key, story_id, provisional, frozen_branch, first_seen_at)
+     values ($office_id, $key, $story, $provisional, $branch, $at)`,
     {
       key,
       story: story.story,
       provisional: isProvisionalId(story.story) ? 1 : 0,
       branch: story.frozenBranch ?? null,
-      created: story.backlogCreated ?? null,
       at,
     },
   );
@@ -130,8 +127,8 @@ export function addStory(
 }
 
 /**
- * Gives a story a new current id (draft promotion or a renumbering found by reconcile). The former
- * id becomes an alias of the story, and any other story's live alias equal to the new id retires.
+ * Gives a story a new current id: the one rename path, kept for draft promotion. The former id
+ * becomes an alias of the story, and any other story's live alias equal to the new id retires.
  */
 export function renumberStory(
   office: OfficeHandle,
@@ -145,34 +142,6 @@ export function renumberStory(
   if (from === to) return { from, to };
   applyRenumber(office, key, from, to, at);
   return { from, to };
-}
-
-export interface StoryMove {
-  readonly key: StoryKey;
-  readonly from: StoryId;
-  readonly to: StoryId;
-}
-
-/**
- * Renumbers several stories at once, as reconcile finds them (0005 section 2). Ids may move in a
- * chain or a swap (A to B while B goes to C), so every moved story first takes its own key as a
- * placeholder id, which no Backlog.md id can equal, and then its new id.
- */
-export function renumberStories(
-  office: OfficeHandle,
-  moves: readonly StoryMove[],
-  at: number,
-): void {
-  const real = moves.filter((move) => move.from !== move.to);
-  for (const { key } of real) {
-    office.run(
-      "update stories set story_id = $key where office_id = $office_id and key = $key and removed_at is null",
-      { key },
-    );
-  }
-  for (const { key, from, to } of real) applyRenumber(office, key, from, to, at);
-  // A later move may have made an earlier move's new id its former id: retire that alias too.
-  for (const { key, to } of real) retireAliases(office, to, key, at);
 }
 
 function applyRenumber(

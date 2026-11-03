@@ -186,8 +186,7 @@ async function overlayClaimed(
   const baseStatus = new Map<StoryKey, string>();
   for (const claim of liveClaims(deps.office)) {
     if (!readsOnBranch(claim)) continue;
-    // The story's id as the engine knows it now; a story renumbered by hand meanwhile is matched
-    // by the pass and read on its branch from the next pass on.
+    // The story's id as the engine knows it now.
     const id = findStoryByKey(deps.office, claim.key)?.story ?? claim.story;
     const index = read.findIndex((story) => story.story === id && story.kind === "task");
     const listed = read[index];

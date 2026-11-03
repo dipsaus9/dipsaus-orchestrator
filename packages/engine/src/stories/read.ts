@@ -21,8 +21,6 @@ export interface BacklogStory {
   readonly title: string;
   /** The status as the CLI printed it, without its icon. */
   readonly status: string;
-  /** The created date exactly as the CLI printed it; absent when the view did not parse. */
-  readonly created?: string;
   readonly labels: readonly string[];
   /** The tier when exactly one `tier:<T>` label is set. */
   readonly tier?: string;
@@ -117,7 +115,6 @@ function derive(read: StoryRead): BacklogStory {
     story: StoryId.parse(view.id),
     title: view.title,
     status: view.status,
-    created: view.created,
     labels: view.labels,
     ...(tier === undefined ? {} : { tier }),
     ...(role === undefined ? {} : { role }),

@@ -1,14 +1,9 @@
 // One index pass applied to the state database (0005 section 2, 0007 sections 4 and 6 step 3).
 // It runs inside the caller's write transaction, so every change of a pass commits together.
 //
-// Identity: a story whose id is a current id keeps that key unless its identity no longer matches
-// (a different frozen branch, or else a different created date; a title change alone never
-// counts). The keys left over have vanished. A vanished key is matched to a new id by its frozen
-// branch, then by its created date. A created date shared by more than one vanished story or more
-// than one new id is ambiguous: the pass reports `story.ambiguous` with an `engine.notice` and
-// matches none of them. A match renumbers the key (`story.renumbered`, detected by reconcile); a
-// key left unmatched is closed as `Removed` with an `engine.notice`, and an id nobody matched
-// gets a new key.
+// Identity (0005, 0007): a story whose id is a current id keeps its key. A key whose id vanished
+// is closed as `Removed` with an `engine.notice`, and an id no key has gets a new key: a new id
+// is a new story. Nothing is matched by branch, date or title.
 
 import {
   type IdSource,
@@ -20,7 +15,7 @@ import {
 
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import { addStory, removeStory, renumberStories, type StoryMove } from "../records/story-keys";
+import { addStory, removeStory } from "../records/story-keys";
 import { isUnknownStatus, storyView, workByKey } from "../views/story";
 
 import type { BacklogStory } from "./read";
@@ -49,12 +44,9 @@ export interface IndexStats {
   /** Active stories after the pass. */
   readonly stories: number;
   readonly added: number;
-  readonly renumbered: number;
   readonly removed: number;
   /** Stories whose view changed (status, title, tier or id), new ones included. */
   readonly changed: number;
-  /** Created dates the fallback could not resolve. */
-  readonly ambiguous: number;
 }
 
 export interface ApplyResult {
@@ -67,8 +59,6 @@ interface KnownRow {
   key: string;
   story_id: string;
   provisional: number;
-  frozen_branch: string | null;
-  backlog_created: string | null;
 }
 
 interface Known {
@@ -76,33 +66,10 @@ interface Known {
   readonly story: StoryId;
   /** A provisional draft id (`DRAFT-n`) when the key was last seen. */
   readonly provisional: boolean;
-  readonly frozenBranch: string | null;
-  readonly created: string | null;
 }
 
 interface MirrorRow {
   status: string;
-}
-
-/** Both sides know the value and it differs. */
-function differs(known: string | null, read: string | undefined): boolean {
-  return known !== null && read !== undefined && known !== read;
-}
-
-/**
- * The story under a known id is still that story: its frozen branch matches when both have one,
- * else its created date matches when both have one. A title change alone is an edit.
- */
-function sameIdentity(known: Known, read: BacklogStory): boolean {
-  if (known.frozenBranch !== null && read.frozenBranch !== undefined) {
-    return known.frozenBranch === read.frozenBranch;
-  }
-  return !differs(known.created, read.created);
-}
-
-/** Two frozen branches that are both known and differ name two stories. */
-function compatible(known: Known, read: BacklogStory): boolean {
-  return !differs(known.frozenBranch, read.frozenBranch);
 }
 
 function sameView(a: StoryView, b: StoryView): boolean {
@@ -131,8 +98,8 @@ function byStoryId<T extends { readonly story: string }>(a: T, b: T): number {
 }
 
 /**
- * Matches what a pass read against the office's story keys and writes the result: keys, aliases,
- * removals and the `backlog_mirror` rows. Returns the change-log entries to append in the same
+ * Matches what a pass read against the office's story keys and writes the result: keys, removals
+ * and the `backlog_mirror` rows. Returns the change-log entries to append in the same
  * transaction. Must run inside the caller's write transaction.
  */
 export function applyIndex(
@@ -144,14 +111,12 @@ export function applyIndex(
   const { at } = options;
   const known: Known[] = office
     .all<KnownRow>(
-      "select key, story_id, provisional, frozen_branch, backlog_created from stories where office_id = $office_id and removed_at is null order by story_id",
+      "select key, story_id, provisional from stories where office_id = $office_id and removed_at is null order by story_id",
     )
     .map((row) => ({
       key: StoryKey.parse(row.key),
       story: StoryId.parse(row.story_id),
       provisional: row.provisional === 1,
-      frozenBranch: row.frozen_branch,
-      created: row.backlog_created,
     }));
   // Who works on which story does not change during a pass: derived once (DIPO-52).
   const work = workByKey(office);
@@ -169,114 +134,45 @@ export function applyIndex(
     if (view !== null) before.set(k.key, view);
   }
 
-  // 1. Known ids whose identity still matches keep their key.
+  // 1. A known id keeps its key; the keys left over have vanished.
   const byId = new Map(known.map((k) => [k.story as string, k]));
   const matched = new Map<StoryKey, BacklogStory>();
   const unmatched: BacklogStory[] = [];
-  const reused = new Map<StoryKey, BacklogStory>();
   for (const story of read) {
     const k = byId.get(story.story);
-    if (k !== undefined && sameIdentity(k, story)) {
-      matched.set(k.key, story);
-    } else {
-      if (k !== undefined) reused.set(k.key, story);
-      unmatched.push(story);
-    }
+    if (k === undefined) unmatched.push(story);
+    else matched.set(k.key, story);
   }
-  let vanished = known.filter((k) => !matched.has(k.key));
-
-  const moves: StoryMove[] = [];
+  const vanished = known.filter((k) => !matched.has(k.key));
   const entries: NewEntry[] = [];
-  const take = (k: Known, story: BacklogStory) => {
-    matched.set(k.key, story);
-    moves.push({ key: k.key, from: k.story, to: story.story });
-    unmatched.splice(unmatched.indexOf(story), 1);
-    vanished = vanished.filter((v) => v.key !== k.key);
-  };
 
-  // 2. Vanished keys matched by frozen branch.
-  for (const k of vanished) {
-    if (k.frozenBranch === null) continue;
-    const candidates = unmatched.filter((s) => s.frozenBranch === k.frozenBranch);
-    const rivals = vanished.filter((v) => v.frozenBranch === k.frozenBranch);
-    const [only] = candidates;
-    if (candidates.length === 1 && rivals.length === 1 && only !== undefined) take(k, only);
-  }
-
-  // 3. Then by created date; a date shared on either side is ambiguous and matches nothing.
-  let ambiguous = 0;
-  const dates = [
-    ...new Set(vanished.map((k) => k.created).filter((d): d is string => d !== null)),
-  ].toSorted();
-  for (const date of dates) {
-    const keys = vanished.filter(
-      (k) => k.created === date && unmatched.some((s) => s.created === date && compatible(k, s)),
-    );
-    const stories = unmatched.filter(
-      (s) => s.created === date && keys.some((k) => compatible(k, s)),
-    );
-    const [onlyKey] = keys;
-    const [onlyStory] = stories;
-    if (keys.length === 0 || stories.length === 0) continue;
-    if (keys.length === 1 && stories.length === 1 && onlyKey !== undefined && onlyStory) {
-      take(onlyKey, onlyStory);
-      continue;
-    }
-    ambiguous += 1;
-    const formerIds = keys.map((k) => k.story).join(", ");
-    const newIds = stories
-      .map((s) => s.story)
-      .toSorted()
-      .join(", ");
-    entries.push(
-      notice(
-        "warn",
-        "story.ambiguous",
-        `Stories ${formerIds} vanished and ${newIds} appeared, all created ${date}, so dipo cannot tell which is which; it matched none of them. The vanished stories are closed as Removed and the new ids get new keys.`,
-      ),
-    );
-  }
-
-  // 4. Keys left over are closed as Removed.
+  // 2. Vanished keys are closed as Removed.
   for (const k of vanished) {
     removeStory(office, k.key, at);
     const view = storyView(office, k.key, work);
     // Without a prior view the stories row tells: a provisional draft id was a Draft, else Refined.
     const from = before.get(k.key)?.lifecycle ?? (k.provisional ? "Draft" : "Refined");
     if (view !== null) entries.push(stateEntry(view, from));
-    const reuse = reused.get(k.key);
     entries.push(
       notice(
         "warn",
         "story.removed",
-        reuse === undefined
-          ? `${k.story} is no longer an active task or draft (archived, completed or deleted); dipo closed its story as Removed.`
-          : `${k.story} now names another story (its frozen branch or created date changed); dipo closed the old story as Removed and gave the story now under ${k.story} a new key.`,
+        `${k.story} is no longer an active task or draft (archived, completed, deleted or renamed); dipo closed its story as Removed.`,
         k.key,
       ),
     );
   }
 
-  // 5. Renumberings, then the frozen branch and created date of every matched key.
-  renumberStories(office, moves, at);
-  for (const move of moves.toSorted(byStoryIdOf)) {
-    entries.push({
-      type: "story.renumbered",
-      key: move.key,
-      delta: { key: move.key, from: move.from, to: move.to, detectedBy: "reconcile" },
-    });
-  }
+  // 3. The frozen branch of every known key, once the story has one.
   for (const [key, story] of matched) {
     office.run(
-      `update stories set
-         frozen_branch = coalesce(frozen_branch, $branch),
-         backlog_created = coalesce(backlog_created, $created)
+      `update stories set frozen_branch = coalesce(frozen_branch, $branch)
        where office_id = $office_id and key = $key`,
-      { key, branch: story.frozenBranch ?? null, created: story.created ?? null },
+      { key, branch: story.frozenBranch ?? null },
     );
   }
 
-  // 6. New keys for ids nobody matched.
+  // 4. New keys for new ids.
   const added = new Set<StoryKey>();
   for (const story of unmatched) {
     const identity = addStory(
@@ -285,7 +181,6 @@ export function applyIndex(
       {
         story: story.story,
         ...(story.frozenBranch === undefined ? {} : { frozenBranch: story.frozenBranch }),
-        ...(story.created === undefined ? {} : { backlogCreated: story.created }),
       },
       at,
     );
@@ -293,7 +188,7 @@ export function applyIndex(
     added.add(identity.key);
   }
 
-  // 7. The mirror, and a `story.state` for every story whose view changed.
+  // 5. The mirror, and a `story.state` for every story whose view changed.
   const changes: { view: StoryView; from: Lifecycle }[] = [];
   for (const [key, story] of matched) {
     if (!(options.keepMirror?.has(key) === true && statusBefore.has(key))) {
@@ -324,10 +219,8 @@ export function applyIndex(
     stats: {
       stories: matched.size,
       added: added.size,
-      renumbered: moves.length,
       removed: vanished.length,
       changed: changes.length,
-      ambiguous,
     },
     entries,
   };
@@ -424,8 +317,4 @@ export function applyStory(
   if (options.quiet === true || view === null) return [];
   if (previous !== null && sameView(previous, view)) return [];
   return [stateEntry(view, previous?.lifecycle ?? view.lifecycle)];
-}
-
-function byStoryIdOf(a: StoryMove, b: StoryMove): number {
-  return a.to < b.to ? -1 : a.to > b.to ? 1 : 0;
 }
