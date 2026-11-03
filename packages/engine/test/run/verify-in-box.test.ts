@@ -1041,6 +1041,11 @@ function events(type: string): Record<string, unknown>[] {
     .map((event) => event.data as Record<string, unknown>);
 }
 
+/** The notices of proposals dipo dropped for their Story line. */
+function dropped(): Record<string, unknown>[] {
+  return events("engine.notice").filter((notice) => notice["code"] === PROPOSAL_DROPPED_NOTICE);
+}
+
 function parks(): { reason: string; detail: string }[] {
   return w.f.office.all("select reason, detail from parks where office_id = $office_id");
 }
@@ -2035,8 +2040,6 @@ describe("the report gate at done, in a box run (DIPO-186, DIPO-240)", () => {
     story: "Split src/parse.ts into two modules.",
     why: "It grew past one screen.",
   } as const;
-  const dropped = () =>
-    events("engine.notice").filter((notice) => notice["code"] === PROPOSAL_DROPPED_NOTICE);
 
   it("sends a failing proposal Story line back once without a loop; still failing, the proposal is dropped with a notice and the story goes to review", async () => {
     await play({ ...DONE, proposals: [GOOD, BAD] });
