@@ -1,6 +1,6 @@
-// Where the CLI runs (0006 decision 4, DIPO-27): the current directory, whether a person is at the
+// Where the CLI runs (0006, DIPO-27): the current directory, whether a person is at the
 // terminal, and the git repository around a path. The CLI resolves an office from `--office`, else
-// from the `office.json` marker in the repository's `<git-common-dir>/dipo/` (0007 section 2). The
+// from the `office.json` marker in the repository's `<git-common-dir>/dipo/` (0007). The
 // daemon still decides whether that office is registered and whether this main worktree is its
 // registered path (`from`), so an unopened copy carrying the original's marker is not that office.
 // The repository is resolved with the contract's `resolveRepositoryWith`, the same logic as the

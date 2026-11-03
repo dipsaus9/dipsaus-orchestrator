@@ -1,4 +1,4 @@
-// `dipo desk [--office <id>] [--json]` (DIPO-158; 0020 section 12): reads `office.desk` and prints a
+// `dipo desk [--office <id>] [--json]` (DIPO-158; 0020): reads `office.desk` and prints a
 // count line, one line per item with an indented command line, and the stories parked by you apart; an
 // empty desk prints `Nothing waits on you.`; `--json` prints the read's result; the exit code is 0.
 
@@ -77,7 +77,7 @@ function ago(minutes: number): string {
   return new Date(NOW - minutes * MINUTE).toISOString();
 }
 
-// The example of 0020 section 12, as the engine returns it.
+// The example of 0020, as the engine returns it.
 const EXAMPLE: DeskItem[] = officeDesk.result.parse([
   {
     kind: "QUESTION",

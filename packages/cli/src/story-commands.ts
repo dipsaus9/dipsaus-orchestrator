@@ -4,7 +4,7 @@
 //
 // Park has no confirmation; its note is required. Drop is `confirm: true` in the contract, so the
 // CLI asks yes or no first (`--yes` answers for a script, and without a terminal it refuses).
-// With `--delete-branch` the command is irreversible (`irreversibleWhen`, 0009 section 5): the CLI
+// With `--delete-branch` the command is irreversible (`irreversibleWhen`, 0009): the CLI
 // reads what is lost (`story.losses`, DIPO-228), lists it, and asks for the story id typed out,
 // which `--yes` does not replace.
 //
@@ -139,7 +139,7 @@ export async function dropCommand(
   const { story, deleteBranch } = parsed;
   const confirm = async (): Promise<boolean> => {
     if (deleteBranch) {
-      // Irreversible: the story id typed out, after what is lost (0009 section 5, 0020 section 8).
+      // Irreversible: the story id typed out, after what is lost (0009, 0020).
       if (!deps.workspace.interactive) {
         deps.writeError(
           `dipo: dropping ${story} with --delete-branch cannot be undone, so it needs the story id typed at a terminal.`,
@@ -213,7 +213,7 @@ export async function dropCommand(
 }
 
 /**
- * `dipo discard <id> --note <text>` (DIPO-161; 0020 sections 8 and 16): `work.discard` is
+ * `dipo discard <id> --note <text>` (DIPO-161; 0020): `work.discard` is
  * irreversible, so the CLI reads what is lost (`story.losses`), lists it, and asks for the story id
  * typed out at a terminal before it sends the command; `--yes` does not replace it.
  */

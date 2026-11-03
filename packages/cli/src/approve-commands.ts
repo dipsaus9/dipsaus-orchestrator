@@ -1,5 +1,5 @@
 // `dipo approve <id> [--note <text>]` and `dipo reject <id> --note <text> [--yes]` (DIPO-150 with
-// DIPO-151; 0019 section 11): the maintainer's decision on the story's merge that waits for them.
+// DIPO-151; 0019): the maintainer's decision on the story's merge that waits for them.
 // Both read the story's open gate that waits for the maintainer from `story.detail` (its newest
 // one) and send its id with `gate.approve` or `gate.reject`; with none they print that nothing
 // waits and exit 1. `dipo gate` stays the Ready gate check.

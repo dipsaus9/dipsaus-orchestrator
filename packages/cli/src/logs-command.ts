@@ -1,5 +1,5 @@
-// `dipo daemon logs [-f] [--office <id>] [--run <id>] [--level <level>]` (0006 decision 13,
-// DIPO-64). Named offline maintenance (0006 amendment of 2026-10-12): it reads `daemon.log` and its
+// `dipo daemon logs [-f] [--office <id>] [--run <id>] [--level <level>]` (0006,
+// DIPO-64). Named offline maintenance (0006): it reads `daemon.log` and its
 // rotated files through the log reader of `client/node`, never through the daemon, so it works
 // with the daemon stopped and never starts one.
 

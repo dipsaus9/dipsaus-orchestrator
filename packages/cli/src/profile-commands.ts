@@ -1,4 +1,4 @@
-// `dipo office infer`, `dipo office profile` and `dipo office confirm` (DIPO-310, 0013 section 6):
+// `dipo office infer`, `dipo office profile` and `dipo office confirm` (DIPO-310, 0013):
 //
 // - `infer` sends `office.infer`, which starts the scan fallback's model session for what code
 //   left unresolved or in conflict, and waits for its `scan.finished` (trigger `infer`) to print

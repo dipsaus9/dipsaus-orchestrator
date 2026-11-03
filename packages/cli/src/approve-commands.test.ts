@@ -1,4 +1,4 @@
-// `dipo approve` and `dipo reject` (DIPO-150 with DIPO-151; 0019 section 11): both read the story's
+// `dipo approve` and `dipo reject` (DIPO-150 with DIPO-151; 0019): both read the story's
 // open gate that waits for the maintainer from `story.detail` and send its id; with none they print
 // that nothing waits and exit 1. Reject needs a note and asks yes or no first (`confirm: true`).
 

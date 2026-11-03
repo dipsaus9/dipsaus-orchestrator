@@ -1,4 +1,4 @@
-// `dipo office` subcommands (0006 decision 4, DIPO-27): `open [path]` registers a repository,
+// `dipo office` subcommands (0006, DIPO-27): `open [path]` registers a repository,
 // `forget` removes an office from the list, `reload-config` re-reads its configuration, `rescan`
 // (DIPO-72) scans its run profile again and prints the diff, `init` (DIPO-36) prepares its backlog
 // for the 0012 lifecycle through one backlog PR and prints the PR or the waiting branch. The
@@ -203,7 +203,7 @@ async function openCommand(args: readonly string[], deps: OfficeCommandDeps): Pr
 async function forgetCommand(args: readonly string[], deps: OfficeCommandDeps): Promise<number> {
   const options = parseOptions(args, true);
   if (typeof options === "string") return usage(deps, `office forget: ${options}`);
-  // `office.forget` has `confirm: true`: every client asks first (0005 section 4).
+  // `office.forget` has `confirm: true`: every client asks first (0005).
   const confirm: Confirm = async (office, path) => {
     const named = path === null ? `office ${office}` : `the office at ${path}`;
     if (options.yes) return true;
@@ -349,7 +349,7 @@ async function rescanAndWait(
 > {
   const finished = Promise.withResolvers<ScanFinished>();
   const live = Promise.withResolvers<void>();
-  // No `filter`: it names the event type prefixes the daemon leaves out (0005 section 5), so
+  // No `filter`: it names the event type prefixes the daemon leaves out (0005), so
   // `filter: ["scan.finished"]` dropped the very event this waits for (DIPO-72).
   const subscription = session.subscribe(StreamName.parse(`office:${office}`), {
     onEvent: (event) => {

@@ -39,7 +39,7 @@ export const RUN_TIMEOUT_MS = 600_000;
 /** The outer deadline of `dipo run`: the claim's limit, then the subscription and explain wait. */
 const RUN_DEADLINE_MS = RUN_TIMEOUT_MS + 60_000;
 
-/** What each skip reason means, for people (0005 section 4). */
+/** What each skip reason means, for people (0005). */
 const REASONS: Readonly<Record<string, string>> = {
   notReady: "not Ready",
   parked: "parked",
@@ -120,7 +120,7 @@ async function explainOffice(
   explanations: StoryExplanations,
 ): Promise<{ unsubscribe(): void }> {
   const live = Promise.withResolvers<void>();
-  // No `filter`: it names the event type prefixes the daemon leaves out (0005 section 5).
+  // No `filter`: it names the event type prefixes the daemon leaves out (0005).
   const subscription = session.subscribe(StreamName.parse(`office:${office}`), {
     onEvent: (event) => explanations.onEvent(event),
     onCaughtUp: () => live.resolve(),

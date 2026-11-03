@@ -1,4 +1,4 @@
-// `dipo daemon start|stop|restart|status` (DIPO-70, 0006 decisions 5 and 14) over a fake
+// `dipo daemon start|stop|restart|status` (DIPO-70, 0006) over a fake
 // lifecycle: the printed reports, `--json`, the exit codes 0, 1 and 3, and the restart hint.
 
 import { describe, expect, it } from "bun:test";
