@@ -1,4 +1,4 @@
-version: 14
+version: 16
 
 # The box image gets jq (DIPO-372): scripts/ci-light-path.test.ts runs the ci-ok step of ci.yml,
 # which reads the needs context with jq, so bun run verify needs it in the box as on the runner.
