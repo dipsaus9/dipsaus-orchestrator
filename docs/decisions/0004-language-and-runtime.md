@@ -18,7 +18,7 @@ The maintainer accepted the costs: Bun is young and owned by one company, which 
 
 - **Product:** macOS on Apple silicon, with Apple `container` for boxes. The box keeps a backend interface (0008), so a Linux backend can be added when there is a real need.
 - **Autostart:** launchd. There are no systemd units, no `systemd-run` scopes, no `systemd-inhibit` and no `bwrap`.
-- **CI:** Linux runners run the tests that need no box; a macOS job runs the rest (0016). Linux is a test host, not a product platform.
+- **CI:** runs the tests on Linux and on macOS, where the macOS platform code runs for real (0016). No CI runner can run a box, so box tests run by hand (0017). Linux is a test host, not a product platform.
 - **Windows:** out of scope.
 
 ## Repository layout
@@ -48,7 +48,7 @@ These are lint rules in `.oxlintrc.json` and `tools/lint/`, proven by `test/lint
 - `engine` never imports `daemon`, `client`, `tui` or `cli`, and finds no file of theirs by path.
 - Inside `engine`, the directories form no import cycle, and no directory imports a value from a directory in a higher band or a higher layer of the plugin's order (see Engine layers). Types may cross.
 - Inside `engine` and `daemon`, only `engine/src/platform/**` touches `bun`, `bun:*` (except `bun:test`) or the global `Bun`.
-- Inside `engine`, only `workers/claude-cli/**` imports the Claude adapter. No other source file of any package names Claude's tools or model aliases, in code or in prose; the office configuration's model defaults are the one exception.
+- Inside `engine`, only `workers/claude-cli/**` imports the Claude adapter. Where else Claude-specific code may live is in 0001.
 - `daemon` imports from `engine` only `createEngine`, types and the engine's platform entry (0005).
 - `client`'s main entry uses no Bun or Node API.
 - No runtime import cycles (`import/no-cycle`, type-only cycles allowed).
@@ -69,7 +69,7 @@ Type-only imports may cross both rules. Inside a band, one directory may import 
 | 2. Checks and texts | `gate`, `scan/detect`, `prompts` | Pure functions over stories and repositories: the Ready gate's rules and content hash, repository detection, and the prompt templates, which quote the gate's text limits. |
 | 3. Facts and boxes | `db`, `records`, `box` | What every service reads or runs in. `records` holds the stored facts that are read and written without a change-log entry: runs, agents, worker hosts, signals, caps, park state, usage, story keys and story PR rows. `db` holds the schema and migrations; two migrations render prompt texts. `box` is the box backend, which reads detection and renders conflict texts. |
 | 4. Views and writers | `views`, `commands`, `review`, `reads`, `ingest`, `office`, `scan`, `run-state`, `workers/claude-cli`, `worktree`, `stories` | Views are derived from the facts (0005), and every writer stores a fact with its change-log entry and the derived view, so the views sit first. Then come ingest of worker output with its phase markers, offices, the repository profile, the run-state writes shared by the run, claims, merges and reconcile (phases, places, parks, questions, merge gates), the Claude adapter, claims and the story index. |
-| 5. Run and services | `run`, `gate-decisions`, `retention`, `backup`, `merge`, `overview`, `questions`, `reconcile`, `story-pr`, `backlog` | They act through the writers. `run` drives a story's run with park, resume, discard and tests. Around it sit stored gate decisions, retention and backups, the merge slot, `work.answer`, the story PR, reconcile at start, the Backlog.md implementation of the StoryStore, and `overview`, the reads the maintainer sees (snapshot, desk, digest, summary). |
+| 5. Run and services | `run`, `gate-decisions`, `retention`, `backup`, `merge`, `overview`, `questions`, `reconcile`, `story-pr`, `backlog` | They act through the writers. `run` drives a story's run with park, resume, discard and tests. Around it sit stored gate decisions, retention and backups, close-out and the auto-merge request, `work.answer`, the story PR, reconcile at start, the Backlog.md implementation of the StoryStore, and `overview`, the reads the maintainer sees (snapshot, desk, digest, summary). |
 | 6. Composition | `features.ts`, `create`, `index.ts`, `platform-entry.ts` | The feature list, the composition root with the run's wiring, and the engine's two entries. |
 
 **The fine order.** The lint plugin holds one list, a finer order of layers inside the bands, and each layer sits in one band. `dipo/engine-layers` refuses a value import into a higher layer of that list, in every import form, and reports a file whose directory is in no layer. It lets a value import between two entries of one layer pass. The directory cycle such an import can close is refused by the cycle check of `scripts/engine-graph.ts`, which reads the same list; a test in `bun run verify` runs it on `packages/engine/src`, and `bun scripts/engine-graph.ts --check` runs it by hand.
@@ -81,7 +81,7 @@ Type-only imports may cross both rules. Inside a band, one directory may import 
 
 | Concern | Tool |
 |---|---|
-| Runtime and package manager | Bun, exact version in `.bun-version` (1.4.4), `bun.lock` committed |
+| Runtime and package manager | Bun, exact version in `.bun-version`, `bun.lock` committed |
 | Language | TypeScript 7, `strict`, `noUncheckedIndexedAccess`, `verbatimModuleSyntax` |
 | Typecheck | `tsc -b` over project references |
 | Lint | oxlint 1.x, `--deny-warnings` |
@@ -89,9 +89,9 @@ Type-only imports may cross both rules. Inside a band, one directory may import 
 | Test | `bun test`, using only `describe`, `it` and `expect` |
 | Build | `bun build --compile --target=bun-darwin-arm64` |
 
-Pinned versions are listed in `CLAUDE.md`.
+Versions are pinned exactly in `package.json`, and Bun's in `.bun-version`.
 
-One command checks everything, locally, in workers and in CI:
+One command checks everything, locally and in workers; CI runs the same checks split into jobs (0016):
 
 ```sh
 bun run verify   # format:check, lint, typecheck, test; stops at the first failure
@@ -113,3 +113,4 @@ bun run verify   # format:check, lint, typecheck, test; stops at the first failu
 - `dipo hook <event>` and its versioned handshake with the worker host (2026-10-12). Removed (2026-10-24): no session has hooks (0008).
 - One domain layer holding every orchestration directory of the engine (2026-10-29), while those directories still imported each other both ways. Replaced by six bands, a fine layer order in the lint plugin and no directory cycles (2026-10-30, DIPO-381).
 - A copy of the daemon's runtime rules in `client/node`, kept equal by a parity test (2026-10-12). Replaced by the contract's runtime layout, which both import (2026-10-30).
+- A table of pinned versions in `CLAUDE.md` (2026-10-10). Replaced by `package.json` and `.bun-version` alone (2026-11-03), because the copy drifted.
