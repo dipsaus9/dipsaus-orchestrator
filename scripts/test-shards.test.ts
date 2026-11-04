@@ -13,6 +13,7 @@ import {
   isTestFile,
   readTimings,
   SHARD_RUN,
+  SHARDED_JOBS,
   splitShards,
   testFiles,
   TIMINGS_PATH,
@@ -116,30 +117,26 @@ describe("the coverage check of the test-shards job", () => {
   const files = testFiles(ROOT);
   const timings = readTimings(ROOT);
 
-  it("passes ci.yml as it is, with every test file in exactly one shard per OS", () => {
+  it("passes ci.yml as it is, with every test file in exactly one Linux verify shard", () => {
     const { problems, report } = checkShards(FLOW, files, timings);
     expect(problems).toEqual([]);
+    expect(SHARDED_JOBS).toEqual({ verify: "Linux" });
     expect(report.join("\n")).toContain("verify (Linux)");
-    expect(report.join("\n")).toContain("verify-macos (macOS)");
+    expect(report.join("\n")).not.toContain("macOS");
   });
 
-  it("has a time for most files on both OS", () => {
-    for (const os of ["Linux", "macOS"]) {
-      const timed = files.filter((file) => Object.hasOwn(timings[os] ?? {}, file));
-      expect(timed.length).toBeGreaterThan(files.length * 0.9);
-    }
+  it("has a time for most files on Linux, and holds no other OS", () => {
+    const timed = files.filter((file) => Object.hasOwn(timings["Linux"] ?? {}, file));
+    expect(timed.length).toBeGreaterThan(files.length * 0.9);
+    expect(Object.keys(timings)).toEqual(["Linux"]);
   });
 
   it("fails when a shard runs twice or not at all", () => {
     const twice = checkShards(edited("shard: [1, 2, 3]\n", "shard: [1, 2, 2]\n"), files, timings);
     expect(twice.problems.some((line) => line.endsWith("is in no shard"))).toBe(true);
     expect(twice.problems.some((line) => line.endsWith("is in more than one shard"))).toBe(true);
-    const beyond = checkShards(
-      edited("shard: [1, 2, 3, 4]\n", "shard: [1, 2, 3, 5]\n"),
-      files,
-      timings,
-    );
-    expect(beyond.problems.some((line) => line.startsWith("verify-macos: "))).toBe(true);
+    const beyond = checkShards(edited("shard: [1, 2, 3]\n", "shard: [1, 2, 4]\n"), files, timings);
+    expect(beyond.problems.some((line) => line.startsWith("verify: "))).toBe(true);
     expect(beyond.problems.some((line) => line.endsWith("is in no shard"))).toBe(true);
   });
 
@@ -156,26 +153,24 @@ describe("the coverage check of the test-shards job", () => {
     const flow = Bun.YAML.parse(FLOW) as {
       jobs: Record<string, { steps: { run?: string; env?: Record<string, string> }[] }>;
     };
-    for (const id of ["verify", "verify-macos"]) {
-      const step = flow.jobs[id]?.steps.find((each) => each.run === SHARD_RUN);
-      expect(step?.env).toEqual({
-        SHARD: "${{ matrix.shard }}",
-        SHARDS: "${{ strategy.job-total }}",
-      });
-    }
+    const step = flow.jobs["verify"]?.steps.find((each) => each.run === SHARD_RUN);
+    expect(step?.env).toEqual({
+      SHARD: "${{ matrix.shard }}",
+      SHARDS: "${{ strategy.job-total }}",
+    });
     const other = checkShards(FLOW.replaceAll(SHARD_RUN, "bun test"), files, timings);
-    expect(other.problems).toHaveLength(2);
+    expect(other.problems).toHaveLength(1);
     const lost = checkShards(
       FLOW.replaceAll("SHARDS: ${{ strategy.job-total }}", "SHARDS: 3"),
       files,
       timings,
     );
-    expect(lost.problems).toHaveLength(2);
+    expect(lost.problems).toHaveLength(1);
   });
 
   it("fails when a sharded job is gone", () => {
     const { problems } = checkShards("jobs: {}\n", files, timings);
-    expect(problems).toEqual(["verify: no such job", "verify-macos: no such job"]);
+    expect(problems).toEqual(["verify: no such job"]);
   });
 });
 

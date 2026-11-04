@@ -12,7 +12,6 @@ import {
   shardCount,
   testArgs,
   testTimeout,
-  timingKey,
 } from "./test";
 import { coverage, readTimings, testFiles } from "./test-shards";
 
@@ -48,22 +47,19 @@ describe("the local test shards (DIPO-337)", () => {
     expect(shardCount()).toBeGreaterThanOrEqual(2);
   });
 
-  it("take the times of the OS: macOS on darwin, Linux elsewhere", () => {
-    expect(timingKey("darwin")).toBe("macOS");
-    expect(timingKey("linux")).toBe("Linux");
+  it("take the Linux times, the only ones CI records", () => {
     const files = ["a.test.ts", "b.test.ts", "c.test.ts"];
     const timings = {
       macOS: { "a.test.ts": 100, "b.test.ts": 1, "c.test.ts": 1 },
       Linux: { "a.test.ts": 1, "b.test.ts": 100, "c.test.ts": 1 },
     };
-    // The slow file of the OS gets a shard of its own.
-    expect(planShards(files, timings, 2, {}, "darwin")[0]?.files).toEqual(["a.test.ts"]);
-    expect(planShards(files, timings, 2, {}, "linux")[0]?.files).toEqual(["b.test.ts"]);
+    // The slow Linux file gets a shard of its own.
+    expect(planShards(files, timings, 2, {})[0]?.files).toEqual(["b.test.ts"]);
   });
 
-  it("split evenly by file count for an OS without times", () => {
+  it("split evenly by file count without Linux times", () => {
     const files = ["a", "b", "c", "d", "e", "f"].map((name) => `${name}.test.ts`);
-    const shards = planShards(files, { Linux: { "a.test.ts": 999 } }, 3, {}, "darwin");
+    const shards = planShards(files, { macOS: { "a.test.ts": 999 } }, 3, {});
     expect(shards.map((shard) => shard.files.length)).toEqual([2, 2, 2]);
   });
 
@@ -73,19 +69,17 @@ describe("the local test shards (DIPO-337)", () => {
     expect(localTimes(times, { DIPO_TEST_CI: "1" })).toEqual(times);
   });
 
-  it("hold every test file of the repository exactly once, on either OS, in or out of CI", () => {
+  it("hold every test file of the repository exactly once, in or out of CI", () => {
     const files = testFiles(ROOT);
     const timings = readTimings(ROOT);
-    for (const platform of ["darwin", "linux"] as const) {
-      for (const env of [{}, { DIPO_TEST_CI: "1" }]) {
-        const shards = planShards(files, timings, shardCount(), env, platform);
-        expect(
-          coverage(
-            files,
-            shards.map((shard) => shard.files),
-          ),
-        ).toEqual({ missing: [], duplicated: [] });
-      }
+    for (const env of [{}, { DIPO_TEST_CI: "1" }]) {
+      const shards = planShards(files, timings, shardCount(), env);
+      expect(
+        coverage(
+          files,
+          shards.map((shard) => shard.files),
+        ),
+      ).toEqual({ missing: [], duplicated: [] });
     }
   });
 

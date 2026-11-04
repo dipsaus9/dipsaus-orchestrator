@@ -5,9 +5,10 @@
 //   gh run list --workflow ci.yml --branch main --event push --status success --limit 1
 //
 // In GitHub Actions `bun test` opens a log group per file when the file starts and closes it when
-// the file is done, so a file's time is the time between the two log lines. The run's `verify` and
-// `verify-macos` jobs (each shard, or the one job of a run from before the shards) give the times
-// of their OS. Files the run has no time for keep their old time; files no longer tracked go.
+// the file is done, so a file's time is the time between the two log lines. The run's `verify` job
+// (each shard, or the one job of a run from before the shards) gives the Linux times. Files the run
+// has no time for keep their old time; files no longer tracked go, as do the times of an OS no
+// sharded job runs on.
 
 import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -53,8 +54,8 @@ export function jobOs(name: string): string | undefined {
 }
 
 /**
- * `old` with the times of `fresh` in place, per OS, kept only for the test files in `files`, in
- * path order.
+ * `old` with the times of `fresh` in place, per OS of a sharded job, kept only for the test files
+ * in `files`, in path order.
  */
 export function mergeTimings(
   old: TimingFile,
@@ -63,7 +64,9 @@ export function mergeTimings(
 ): TimingFile {
   const current = new Set(files);
   const merged: TimingFile = {};
+  const sharded = new Set(Object.values(SHARDED_JOBS));
   for (const os of [...new Set([...Object.keys(old), ...Object.keys(fresh)])].toSorted()) {
+    if (!sharded.has(os)) continue;
     const times = { ...old[os], ...fresh[os] };
     merged[os] = Object.fromEntries(
       Object.keys(times)
@@ -103,7 +106,7 @@ if (import.meta.main) {
     fresh[os] = { ...fresh[os], ...times };
   }
   if (Object.keys(fresh).length === 0) {
-    console.error(`run ${runId} has no verify or verify-macos job`);
+    console.error(`run ${runId} has no verify job`);
     process.exit(1);
   }
   const merged = mergeTimings(readTimings(ROOT), fresh, testFiles(ROOT));

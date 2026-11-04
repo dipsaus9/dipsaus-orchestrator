@@ -28,7 +28,10 @@ interface Job {
   if?: string;
   "runs-on"?: string;
   env?: Record<string, string>;
-  strategy?: { "fail-fast"?: boolean; matrix?: { shard?: number[] } };
+  strategy?: {
+    "fail-fast"?: boolean;
+    matrix?: { shard?: number[]; include?: Record<string, string>[] };
+  };
   steps?: Step[];
 }
 
@@ -68,7 +71,6 @@ const HEAVY = [
   "checks",
   "test-shards",
   "verify",
-  "verify-macos",
   "shellcheck",
   "actionlint",
   "dependency-review",
@@ -115,6 +117,16 @@ describe("ci.yml light path: the jobs", () => {
 });
 
 describe("ci.yml test shards (DIPO-406)", () => {
+  it("runs no tests on macOS: smoke (darwin-arm64) is the one macOS job", () => {
+    expect(Object.keys(flow.jobs)).not.toContain("verify-macos");
+    expect(needs("ci-ok")).not.toContain("verify-macos");
+    const macos = Object.keys(flow.jobs).filter((id) => JSON.stringify(job(id)).includes("macos-"));
+    expect(macos).toEqual(["smoke"]);
+    expect(job("smoke").strategy?.matrix?.include).toEqual([
+      expect.objectContaining({ target: "darwin-arm64", runner: "macos-26" }),
+    ]);
+  });
+
   it("runs format, lint and typecheck once, in the checks job", () => {
     const runs = (job("checks").steps ?? []).map((step) => step.run).filter(Boolean);
     expect(runs).toEqual(["bun install --frozen-lockfile", "bun run check"]);
@@ -126,25 +138,20 @@ describe("ci.yml test shards (DIPO-406)", () => {
     expect(runs).toEqual(["bun scripts/test-shards.ts check"]);
   });
 
-  it("keeps verify and verify-macos as matrices of at least three shards that run only bun test", () => {
-    for (const [id, runner] of [
-      ["verify", "ubuntu-24.04"],
-      ["verify-macos", "macos-26"],
-    ] as const) {
-      const sharded = job(id);
-      expect(sharded["runs-on"]).toBe(runner);
-      expect(sharded.strategy?.["fail-fast"]).toBe(false);
-      const shards = sharded.strategy?.matrix?.shard ?? [];
-      expect(shards.length).toBeGreaterThanOrEqual(3);
-      expect(shards).toEqual(shards.map((_, i) => i + 1));
-      expect(sharded.env).toEqual({ DIPO_TEST_CI: "1" });
-      const runs = (sharded.steps ?? []).map((step) => step.run).filter(Boolean);
-      expect(runs).toEqual([
-        "bun install --frozen-lockfile",
-        'echo "DIPO_TMP=$(mktemp -d /tmp/d.XXXXXX)" >> "$GITHUB_ENV"',
-        SHARD_RUN,
-      ]);
-    }
+  it("keeps verify as a matrix of at least three shards on Linux that run only bun test", () => {
+    const sharded = job("verify");
+    expect(sharded["runs-on"]).toBe("ubuntu-24.04");
+    expect(sharded.strategy?.["fail-fast"]).toBe(false);
+    const shards = sharded.strategy?.matrix?.shard ?? [];
+    expect(shards.length).toBeGreaterThanOrEqual(3);
+    expect(shards).toEqual(shards.map((_, i) => i + 1));
+    expect(sharded.env).toEqual({ DIPO_TEST_CI: "1" });
+    const runs = (sharded.steps ?? []).map((step) => step.run).filter(Boolean);
+    expect(runs).toEqual([
+      "bun install --frozen-lockfile",
+      'echo "DIPO_TMP=$(mktemp -d /tmp/d.XXXXXX)" >> "$GITHUB_ENV"',
+      SHARD_RUN,
+    ]);
   });
 });
 
@@ -319,31 +326,27 @@ describe("ci.yml light path: ci-ok", () => {
     }
   });
 
-  it("fails a full PR and a push when one shard of verify or verify-macos failed", () => {
+  it("fails a full PR and a push when one shard of verify failed", () => {
     // A matrix job's result in needs is failure when any of its shards failed.
-    for (const id of ["verify", "verify-macos"]) {
-      expect(ciOk("pull_request", results("success", { [id]: "failure" }), "full")).toBe(1);
-      expect(
-        ciOk(
-          "push",
-          results("success", { [id]: "failure", "dependency-review": "skipped" }),
-          "full",
-        ),
-      ).toBe(1);
-    }
+    expect(ciOk("pull_request", results("success", { verify: "failure" }), "full")).toBe(1);
+    expect(
+      ciOk(
+        "push",
+        results("success", { verify: "failure", "dependency-review": "skipped" }),
+        "full",
+      ),
+    ).toBe(1);
   });
 
-  it("fails a full PR and a push when one shard of verify or verify-macos was cancelled", () => {
-    for (const id of ["verify", "verify-macos"]) {
-      expect(ciOk("pull_request", results("success", { [id]: "cancelled" }), "full")).toBe(1);
-      expect(
-        ciOk(
-          "push",
-          results("success", { [id]: "cancelled", "dependency-review": "skipped" }),
-          "full",
-        ),
-      ).toBe(1);
-    }
+  it("fails a full PR and a push when one shard of verify was cancelled", () => {
+    expect(ciOk("pull_request", results("success", { verify: "cancelled" }), "full")).toBe(1);
+    expect(
+      ciOk(
+        "push",
+        results("success", { verify: "cancelled", "dependency-review": "skipped" }),
+        "full",
+      ),
+    ).toBe(1);
   });
 
   it("fails a full PR whose checks or test-shards job failed, and passes the light path without them", () => {
