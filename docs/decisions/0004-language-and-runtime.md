@@ -18,7 +18,7 @@ The maintainer accepted the costs: Bun is young and owned by one company, which 
 
 - **Product:** macOS on Apple silicon, with Apple `container` for boxes. The box keeps a backend interface (0008), so a Linux backend can be added when there is a real need.
 - **Autostart:** launchd. There are no systemd units, no `systemd-run` scopes, no `systemd-inhibit` and no `bwrap`.
-- **CI:** runs the tests on Linux and on macOS, where the macOS platform code runs for real (0016). No CI runner can run a box, so box tests run by hand (0017). Linux is a test host, not a product platform.
+- **CI:** runs the tests on Linux, and on macOS only builds and smoke-tests the binary (0016). The macOS-only tests run locally. No CI runner can run a box, so box tests run by hand (0017). Linux is a test host, not a product platform.
 - **Windows:** out of scope.
 
 ## Repository layout
