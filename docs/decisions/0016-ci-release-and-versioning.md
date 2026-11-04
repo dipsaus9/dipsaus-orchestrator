@@ -32,7 +32,7 @@ It runs on `pull_request` and on `push` to `main`, with `concurrency` per ref.
 
 Runner labels are explicit, never `-latest`.
 
-**Tests run on Linux only.** A macOS job can wait for a runner, and its time limit counts the waiting, so parallel PRs got cancelled macOS shards and a red `ci-ok` with no real failure. The macOS-only tests (the compiled-binary daemon lifecycle test and the darwin cases of the process and proxy tests) run locally under `DIPO_TEST_CI=1 bun run verify`. No runner can run a box, so box tests run only by hand (0017).
+**Tests run on Linux only.** The macOS-only tests (the compiled-binary daemon lifecycle test and the darwin cases of the process and proxy tests) run locally under `DIPO_TEST_CI=1 bun run verify`. No runner can run a box, so box tests run only by hand (0017).
 
 **Test shards.** Together `checks` and the shards run what `bun run verify` runs locally in one go. A failed or cancelled shard makes its matrix job failed or cancelled, so `ci-ok` fails. A test file with no recorded time goes to the shard with the least time. `bun scripts/test-timings.ts <run id>` refreshes the times from the logs of a green run.
 

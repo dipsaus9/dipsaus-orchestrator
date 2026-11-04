@@ -1,7 +1,6 @@
 // `bun run test` (and the test step of `bun run verify`): runs `bun test` with the per-test timeout
 // for where it runs. In CI (`DIPO_TEST_CI=1`) a test that sets no timeout of its own gets 30 s, since
-// the CI runners are much slower than a developer machine; elsewhere Bun's own
-// 5 s stays (DIPO-335). The timeout goes on the command line because a `setDefaultTimeout` in a
+// the CI runners are much slower than a developer machine; elsewhere Bun's own 5 s stays (DIPO-335). The timeout goes on the command line because a `setDefaultTimeout` in a
 // preload reaches only the first test file of a run, and one in a test file only that file.
 //
 // With no arguments it runs every test file in parallel shards, one `bun test` per shard, split by
