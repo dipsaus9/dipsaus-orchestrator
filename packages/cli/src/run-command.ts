@@ -340,10 +340,11 @@ export async function runCommand(
       const { started, skipped } = outcome.result;
       for (const story of started) deps.writeLine(`started ${story.story} (run ${story.run})`);
       for (const story of skipped) {
-        deps.writeLine(`skipped ${story.story}: ${REASONS[story.reason] ?? story.reason}`);
-        for (const line of [...(story.detail ?? []), ...explanations.of(story.story)]) {
-          deps.writeLine(`  ${line}`);
-        }
+        // The engine's detail says why exactly (a full office names its limit, a run without ids
+        // started its one story); without one, the reason's text.
+        const [why, ...more] = story.detail ?? [];
+        deps.writeLine(`skipped ${story.story}: ${why ?? REASONS[story.reason] ?? story.reason}`);
+        for (const line of [...more, ...explanations.of(story.story)]) deps.writeLine(`  ${line}`);
       }
       if (started.length > 0) return 0;
       if (skipped.length === 0) deps.writeLine("no Ready story to start");
