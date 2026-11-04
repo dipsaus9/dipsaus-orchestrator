@@ -1,10 +1,10 @@
 ---
 id: DIPO-439
 title: 'Run several stories at once, each in its own box, up to a limit per office'
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-04 12:24'
-updated_date: '2026-11-04 15:57'
+updated_date: '2026-11-04 18:49'
 labels:
   - 'tier:L'
 milestone: m-2
@@ -61,11 +61,11 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An office setting sets how many stories run at the same time; its default is 3 and the office config schema documents it
-- [ ] #2 dipo run of a story starts it while other stories of the office run, as long as the number of running stories stays under the limit
-- [ ] #3 At the limit a start is refused or skipped as capacity, with a message that names the limit and the setting
-- [ ] #4 Each running story has its own worker place and its own reviewer place, so one story's review never waits for another story's worker
-- [ ] #5 Waiting reopened runs (resume, fix, conflict and review rounds) count against the same limit and restart when a slot frees up
-- [ ] #6 The maxAgents argument and its M2 refusal are removed; the office setting is the only limit
-- [ ] #7 ADRs 0002 and 0010 describe several runs at once and the office limit where they now describe one run per office; the two-lanes text in 0002 changes only when dipo runs in parallel on itself
+- [x] #1 An office setting sets how many stories run at the same time; its default is 3 and the office config schema documents it
+- [x] #2 dipo run of a story starts it while other stories of the office run, as long as the number of running stories stays under the limit
+- [x] #3 At the limit a start is refused or skipped as capacity, with a message that names the limit and the setting
+- [x] #4 Each running story has its own worker place and its own reviewer place, so one story's review never waits for another story's worker
+- [x] #5 Waiting reopened runs (resume, fix, conflict and review rounds) count against the same limit and restart when a slot frees up
+- [x] #6 The maxAgents argument and its M2 refusal are removed; the office setting is the only limit
+- [x] #7 ADRs 0002 and 0010 describe several runs at once and the office limit where they now describe one run per office; the two-lanes text in 0002 changes only when dipo runs in parallel on itself
 <!-- AC:END -->
