@@ -4,6 +4,7 @@ title: Split the TUI main screen into one part per mode
 status: Refined
 assignee: []
 created_date: '2026-11-04 12:24'
+updated_date: '2026-11-04 13:59'
 labels:
   - 'tier:M'
 milestone: m-2
@@ -24,7 +25,7 @@ Story: As maintainer I want the TUI main screen split into one part per mode, so
 
 From DIPO-438 (M1 close-out review finding M1-14), split off in the planning interview 2026-11-04. Does not block M2.
 
-packages/tui/src/app.tsx is one component of about 1,264 lines with 21 useState calls, and every new view adds to its one key handler. The change splits it into one component per mode with a mode reducer. Key bindings and screens do not change.
+packages/tui/src/app.tsx is one component of about 1,264 lines with 21 useState calls, and every new view adds to its one key handler. The change splits it into one component per mode with a mode reducer. Key bindings and screens do not change. Built by dipo: it is off dipo's run path.
 
 ```dipo
 branch: "DIPO-443/split-tui-main-screen"

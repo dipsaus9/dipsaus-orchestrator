@@ -6,6 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-11-04 12:24'
+updated_date: '2026-11-04 13:59'
 labels:
   - 'tier:L'
 milestone: m-2
@@ -22,6 +23,8 @@ references:
   - packages/cli/src/office-commands.ts
   - packages/tui/src/desk.tsx
   - docs/decisions/0010-backlog-and-git-integration.md
+  - docs/decisions/0003-milestones-and-quality-bar.md
+  - docs/decisions/0002-review-and-testing.md
   - docs/how-dipo-works.md
 priority: high
 type: feature
@@ -43,7 +46,7 @@ What exists to build on:
 - Story order: packages/engine/src/records/select.ts sorts Ready stories by priority, ordinal and id and skips stories with a dependency not Done. The milestone is parsed (packages/engine/src/backlog/plain.ts) but not used; milestone list gives done and total per milestone.
 - Overlap: the story's references are its forecast of files (0012 F8). overlappingPaths in packages/engine/src/box/collisions.ts compares paths, and storyChangedFiles reads a running story's changed files.
 
-M2 closes with the manual entry below.
+M2 closes with the manual entry below. Built by builder agents: it changes dipo's own run path.
 
 ```dipo
 branch: "DIPO-440/next-up-for-each-free-slot"
@@ -65,11 +68,12 @@ test_plan:
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 When a run slot is free and a Ready story can start, dipo puts one next-up item per free slot on the desk, naming the story and one line of why
-- [ ] #2 Stories are offered in this order: Ready stories of the earliest milestone that still has open stories, then priority, ordinal and id; a story with a dependency not Done is never offered
+- [ ] #2 Stories are offered in this order: Ready stories of the earliest milestone, by milestone number, that still has open stories, then priority, ordinal and id; stories without a milestone come last; a story with a dependency not Done is never offered
 - [ ] #3 The item lists the files its references share with the references or changed files of running stories, or says it shares none
 - [ ] #4 A confirm command starts the offered story through the same start path as dipo run; a decline command removes the item and dipo offers the next story at once
 - [ ] #5 A declined story is not offered again until its task file changes or the maintainer starts it by hand
 - [ ] #6 Nothing starts without a confirm, and with no startable Ready story there is no item
 - [ ] #7 The item shows in dipo desk and the TUI desk view, and the desk notification posts once for it
 - [ ] #8 ADR 0010 describes next up as how a free slot gets its story, and docs/how-dipo-works.md mentions it
+- [ ] #9 ADR 0003's M2 line and 0002's merge-queue sentence match the maintainer's decisions: each story is confirmed, nothing checks overlap while stories run, and there is no merge queue (GitHub offers none for a repository owned by a user account; the maintainer accepted the risk)
 <!-- AC:END -->

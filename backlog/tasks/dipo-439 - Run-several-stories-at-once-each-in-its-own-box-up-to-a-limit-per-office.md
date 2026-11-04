@@ -4,6 +4,7 @@ title: 'Run several stories at once, each in its own box, up to a limit per offi
 status: Refined
 assignee: []
 created_date: '2026-11-04 12:24'
+updated_date: '2026-11-04 13:59'
 labels:
   - 'tier:L'
 milestone: m-2
@@ -14,11 +15,12 @@ references:
   - packages/engine/src/config/schema.ts
   - packages/contract/src/office.ts
   - packages/contract/schema/config.schema.json
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/src/work.ts
   - packages/engine/test/run/work-run.test.ts
   - packages/engine/test/run/work-run.ci.test.ts
   - packages/engine/test/run-state/places.test.ts
   - docs/decisions/0002-review-and-testing.md
-  - docs/decisions/0003-milestones-and-quality-bar.md
   - docs/decisions/0010-backlog-and-git-integration.md
 priority: high
 type: feature
@@ -39,7 +41,9 @@ Today one office runs one story at a time on purpose:
 
 The change: an office setting sets how many stories may run at once, default 3 (maintainer's choice). Each running story gets its own worker place and its own reviewer place. The maxAgents argument goes; the office setting is the one limit (one mechanism per goal, 0001). Reopened runs (resume, fix, conflict, review) that wait in Places.drain count against the same limit. Shared parts stay shared: the per-office git queue (packages/engine/src/git/queue.ts), the box network with its web route and Safe-Chain box, the model proxy, the image build and the package cache already handle several boxes.
 
-How a free slot gets its next story is DIPO-440; this story only makes room for several runs and lets `dipo run <id>` start a story while others run.
+How a free slot gets its next story is DIPO-440; this story only makes room for several runs and lets `dipo run <id>` start a story while others run. The capacity comment in packages/contract/src/work.ts names maxAgents and changes with it. The new office.yaml key means the pinned dipo binary is rebuilt right after merge, before the next run.
+
+Built by builder agents: it changes dipo's own run path.
 
 ```dipo
 branch: "DIPO-439/run-several-stories-at-once"
@@ -63,5 +67,5 @@ test_plan:
 - [ ] #4 Each running story has its own worker place and its own reviewer place, so one story's review never waits for another story's worker
 - [ ] #5 Waiting reopened runs (resume, fix, conflict and review rounds) count against the same limit and restart when a slot frees up
 - [ ] #6 The maxAgents argument and its M2 refusal are removed; the office setting is the only limit
-- [ ] #7 ADRs 0002, 0003 and 0010 describe several runs at once and the limit, and no ADR still says one story at a time
+- [ ] #7 ADRs 0002 and 0010 describe several runs at once and the office limit where they now describe one run per office; the two-lanes text in 0002 changes only when dipo runs in parallel on itself
 <!-- AC:END -->
