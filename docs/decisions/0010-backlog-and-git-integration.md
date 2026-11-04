@@ -47,6 +47,8 @@ Each edit runs the CLI in a fresh folder of dipo's own. The folder holds only th
 
 **Pickup reads the base.** `work.run` reads stories from `_base`, a detached worktree moved to `origin/<base>` after every fetch, and picks only stories that are `Ready` there.
 
+**Several stories at once.** An office runs up to `caps.parallelRuns` stories at the same time (default 3, 0002), and `work.run` claims a story while others run. Each running story has its own claim, branch, story PR and box; the office's one git queue orders their refs and pushes, and the planning lane stays one per office. A start at the limit is skipped as `capacity`, naming the limit and the setting.
+
 ## 2a. The StoryStore seam
 
 The engine reads and writes stories only through one interface, `StoryStore`:
@@ -134,6 +136,7 @@ There are no git hooks, no changes to existing ignore files or `info/exclude`, a
 
 - A Mac worktree per story at `<root>/<ID>`, locked with `git worktree lock`, plus a setup contract that copied env files, ran install, `setup` and `post_create` on the Mac, and gave each worktree a machine-wide port slot (2026-10-10). Replaced by the box (0008), with files copied through `box.files` and install in the box. The test box needs no port slots (0002).
 - A merge slot for story and backlog PRs (2026-10-10). Replaced by GitHub auto-merge (0002, 2026-10-24).
+- One running story per office, with `work.run` calls of an office run one after another (2026-10-10). Replaced by up to `caps.parallelRuns` stories at once (0002, 2026-11-04).
 - The office-load sweep of story worktrees an earlier binary left, with `worktree.rebuildable` and a desk item for the kept ones (2026-10-29). Gone with the database squash (0007, 2026-11-03).
 - Verify and commit at done with a scope check on the worktree, and lockfile pairing (2026-10-10). Replaced by parts, verify in the box with the required checks last (0002), and references as a forecast (0008).
 - A building-time sync for riskier stories (2026-10-10). Removed; dipo syncs only on a conflict (2026-10-24).

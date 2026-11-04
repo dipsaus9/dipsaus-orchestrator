@@ -126,7 +126,9 @@ The repository setting "Allow auto-merge" must be on; the maintainer sets it by 
 
 ## 10. Capacity
 
-An office runs at most one developer session per story, at most one developer session in total until M2, one reviewer session, and one scan session. A story that waits for CI, for the maintainer or for GitHub's merge holds no session.
+An office runs at most `caps.parallelRuns` stories at once (default 3, set per office in `.dipo/office.yaml`), each in its own box, and one scan session besides them. Each running story has its own worker place for its developer session and its own reviewer place for its reviewer session, and runs one of the two at a time, so it holds one run slot. A story holds its slot while its developer or reviewer works or starts, and while it waits In Review for its review, so its review never waits for another story. A story that waits for CI, for the maintainer, for GitHub's merge or in a park holds no slot.
+
+A resume, fix round, conflict hand-off or review that finds every slot taken waits, and counts against the same limit: when a slot frees up, the waiting ones start before any new story, maintainer resumes first, then fix rounds, conflict hand-offs and reviews, oldest first. `dipo run` starts a story while others run; a run without story ids starts one story, and named stories each start while a slot is free. At the limit the story is skipped as `capacity`, with a message that names the limit and the setting.
 
 ## Building this repository
 
@@ -138,6 +140,7 @@ An office runs at most one developer session per story, at most one developer se
 
 ## Replaced
 
+- One developer session and one reviewer session per office, with `work.run`'s `maxAgents` above 1 refused until M2 (2026-10-16). Replaced by up to `caps.parallelRuns` stories at once, each with its own worker and reviewer place (2026-11-04).
 - A merge slot that merged one PR at a time, with a base sync, a re-check loop, a refusal cap and a persisted occupant (2026-10-16). Replaced by GitHub auto-merge (2026-10-24). The slot existed for "require branches to be up to date", which has been off since 2026-10-22.
 - The office list of required checks (`mergeSlot.requiredChecks`), joined with GitHub's (2026-10-16). Replaced by GitHub's required checks only (2026-10-24), because auto-merge waits for GitHub's list, and one list has one owner.
 - A per-round review allowance that grew the story's budget, so reviewer tokens counted against the story (2026-10-16). Replaced by the reviewer's own caps (2026-10-24).
