@@ -959,7 +959,7 @@ export class ParkResumes {
               text:
                 waits === null
                   ? `${story}: ${detail.lifted === true ? "dipo resumed it after the office's starts paused lifted" : "the maintainer resumed it"} from ${current.reason}${granted}.`
-                  : `${story}: resumed${granted}; its session starts when the office's ${detail.session === "review" ? "reviewer" : "worker"} place frees (${waits}).`,
+                  : `${story}: resumed${granted}; its session starts when one of the office's run slots frees (${waits}).`,
             },
           };
           return [...entries, ...liftNotices, resumed];
