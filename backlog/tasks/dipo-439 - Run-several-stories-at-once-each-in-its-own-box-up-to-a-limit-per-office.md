@@ -1,10 +1,10 @@
 ---
 id: DIPO-439
 title: 'Run several stories at once, each in its own box, up to a limit per office'
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-04 12:24'
-updated_date: '2026-11-04 13:59'
+updated_date: '2026-11-04 15:57'
 labels:
   - 'tier:L'
 milestone: m-2

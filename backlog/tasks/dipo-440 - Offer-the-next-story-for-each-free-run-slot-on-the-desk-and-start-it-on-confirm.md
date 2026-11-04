@@ -3,10 +3,10 @@ id: DIPO-440
 title: >-
   Offer the next story for each free run slot on the desk and start it on
   confirm
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-04 12:24'
-updated_date: '2026-11-04 13:59'
+updated_date: '2026-11-04 15:57'
 labels:
   - 'tier:L'
 milestone: m-2
