@@ -1,10 +1,10 @@
 ---
 id: DIPO-442
 title: Merge the base into a running story only when git reports a conflict
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-04 12:24'
-updated_date: '2026-11-04 13:59'
+updated_date: '2026-11-04 15:57'
 labels:
   - 'tier:M'
 milestone: m-2

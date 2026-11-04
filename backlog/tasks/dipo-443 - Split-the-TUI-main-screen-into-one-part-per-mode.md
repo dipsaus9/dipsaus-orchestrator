@@ -1,10 +1,10 @@
 ---
 id: DIPO-443
 title: Split the TUI main screen into one part per mode
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-04 12:24'
-updated_date: '2026-11-04 13:59'
+updated_date: '2026-11-04 15:57'
 labels:
   - 'tier:M'
 milestone: m-2

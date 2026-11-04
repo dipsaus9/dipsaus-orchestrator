@@ -1,10 +1,10 @@
 ---
 id: DIPO-438
 title: Release a claim that a daemon crash cut short without the maintainer
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-03 09:54'
-updated_date: '2026-11-04 13:59'
+updated_date: '2026-11-04 15:57'
 labels:
   - 'tier:S'
 milestone: m-2
