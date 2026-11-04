@@ -6,10 +6,9 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-11-03 09:54'
-updated_date: '2026-11-03 09:54'
+updated_date: '2026-11-04 13:59'
 labels:
   - 'tier:M'
-milestone: m-2
 dependencies: []
 references:
   - packages/engine/src/run/temp-dirs.ts
@@ -38,6 +37,8 @@ Three low findings of the M1 close-out review (2026-11-02), filed together. They
 - Run temp folder (M1-8): prepareRunTempDir in packages/engine/src/run/temp-dirs.ts makes the run temp folder and its owner file without the checks its sibling prepareShortTempDir has (lstat, not a link, owned by this user). A second local user who plants /tmp/dipo-run-<id> as a link to a folder of the maintainer gets that folder set to mode 0700 with an owner file in it. Only the Mac scan session uses this folder today, with a fresh id each time.
 - Sweeps (M1-9): sweepBranchReads in packages/engine/src/worktree/sweep.ts removes every _branch-read-* folder under the repository's worktree root that is older than this daemon's start, and sweepOutputDirs in packages/engine/src/platform/output-files.ts checks only the owner uid and the age, in a temp root every daemon on the Mac shares. Two daemons on one repository (a second state folder in a test or a hand check) remove each other's work. Same class as DIPO-419 and DIPO-423. Branch reads are made in packages/engine/src/backlog/branch-read.ts and packages/engine/src/merge/story-git.ts. The fix writes an owner file with the state folder's hash when a folder is made, as packages/engine/src/run/temp-dirs.ts does for run temp folders (RUN_TEMP_OWNER_FILE, runTempOwner), and sweeps only folders whose owner file matches. A folder with no owner file or another owner is left alone, so folders left by an earlier binary stay until the maintainer removes them (design choice, not a maintainer decision; the maintainer may change it before a run).
 - Secret names (M1-13): .yarnrc.yml can hold npmAuthToken but is missing from SECRET_NAMES in packages/engine/src/context/secrets.ts, so the context pack can show it and the part scan in packages/engine/src/box/parts.ts does not refuse it by name. Many Yarn projects commit a .yarnrc.yml without a token; after this change a worker's change to that file parks the story for the maintainer, which is the wanted trade (design choice, not a maintainer decision; the maintainer may change it before a run).
+
+Not now (maintainer, 2026-11-04): this story left M2 and also holds the reload-loop finding split off DIPO-438. Reload loop (M1-10, a risk the review did not show can happen): on stream.resetRequired the office store in packages/client/src/store/office-store.ts reloads and resubscribes at once, with no backoff and no cap; the fix uses the store's retry backoff (#scheduleRetry) for a second reset within a short window. Before this story is picked up it is split again by what the maintainer then wants.
 
 ```dipo
 branch: "DIPO-437/own-temp-folders-and-yarn-secret"
