@@ -5,9 +5,8 @@
 // the claim. `work.preview` (DIPO-74) is the same selection as a read that changes nothing.
 //
 // Order:
-// 1. Refusals of the whole command, each with the predicate's message: `maxAgents` above 1
-//    (`args.invalid`, M0 runs one story at a time), an invalid configuration (`config.invalid`,
-//    `configBlocksRuns`), the office's starts paused (`run.refused`, check `plan-limit` or
+// 1. Refusals of the whole command, each with the predicate's message: an invalid configuration
+//    (`config.invalid`, `configBlocksRuns`), the office's starts paused (`run.refused`, check `plan-limit` or
 //    `adapter`, 0020; a run that names its stories goes on through an adapter pause a launch check
 //    lifts, and repeats the launch checks, which lift it when they pass), a failed
 //    fetch (the retryable `git.fetchFailed`), statuses the base lacks (`run.refused`,
@@ -17,19 +16,20 @@
 // 3. Without `stories`, the candidates are the Ready stories on the base in pickup order; with
 //    `stories`, only those, in the order given.
 // 4. Each candidate not started is a skip: its status (`notReady`, `parked`, `notRunnable`), a
-//    live claim, a pending lane-b operation or a failed backlog PR check (`notRunnable`), the
-//    office's worker place held by a developer session or owed to a waiting resume, fix round or
-//    conflict hand-off first (`capacity`, 0002, DIPO-142; a reviewer or a session run
-//    takes no worker place), a dependency not Done (`dependency`), or a failed pickup
-//    check (`pickupCheckFailed`).
+//    live claim, a pending lane-b operation or a failed backlog PR check (`notRunnable`), every
+//    one of the office's `caps.parallelRuns` slots held by a running or starting story or owed to
+//    a waiting resume, fix round, conflict hand-off or review first (`capacity`, with the limit in
+//    its detail, 0002, DIPO-142; a session run takes no slot), a dependency not Done
+//    (`dependency`), or a failed pickup check (`pickupCheckFailed`). A call starts its
+//    candidates in order while a slot is free, so it can start a story while others run.
 // 5. Before the claim the story contract is assembled (DIPO-47); `prompt.contractTooLarge` moves
 //    the story to Refined like a failed pickup re-check.
 // 6. The claim (DIPO-38) runs the pickup re-check (the Ready gate in `pickup` mode, stored through
 //    DIPO-71) first inside its git queue item. A failed re-check moves the story to Refined through
 //    the backlog lane and emits `story.state` with the gate messages in `detail`. The office's
-//    serialized step (the place check and the claim) ends once the claim row is committed
+//    serialized step (the slot check and the claim) ends once the claim row is committed
 //    (DIPO-314): the box preparation, its install and the launch run outside it, while the pickup
-//    holds the worker place (`Places.reservePickup`) until its run row is in.
+//    holds its slot (`Places.reservePickup`) until its run row is in.
 // 7. A claimed story gets its run row (with the slot setup took), its developer agent (with the
 //    engine-made session id), the configuration snapshot and the `setup` phase, and
 //    `work.assigned` and `work.phase setup` in the same transaction.
@@ -194,18 +194,21 @@ export interface WorkRunDeps {
   readonly launcher?: RunLauncher;
 
   /**
-   * The office's serialized steps (`Places.serialized`, DIPO-208): each candidate's worker-place
-   * check, claim and run record run in one of them, so a queued start cannot take the place between
-   * the check and the record. Without it the steps run unserialized, as the tests of one run do.
+   * The office's serialized steps (`Places.serialized`, DIPO-208): each candidate's slot check
+   * and claim run in one of them, so a queued start cannot take the slot between the check and the
+   * claim. Without it the steps run unserialized and the slots are counted from the office's runs
+   * alone, as the tests of one run do.
    */
   readonly places?: Pick<Places, "serialized"> &
-    Partial<Pick<Places, "reservePickup" | "pickupStarting">>;
+    Partial<Pick<Places, "reservePickup" | "slotTaken">>;
 }
 
 type Args = z.output<typeof workRun.args>;
 type Result = z.input<typeof workRun.result>;
 type Started = Result["started"][number];
 type Skipped = Result["skipped"][number];
+/** Why a candidate did not start, with the detail of a `capacity` skip. */
+type Skip = Pick<Skipped, "reason" | "detail">;
 
 type PreviewArgs = z.output<typeof workPreview.args>;
 type Preview = z.input<typeof workPreview.result>;
@@ -232,7 +235,8 @@ interface StartInput {
   readonly view: PlainTask | undefined;
   readonly unparsed: boolean;
   readonly checkout: BaseCheckout;
-  readonly full: boolean;
+  /** Why no slot is free for a new pickup (`slotsFullText`), or null. */
+  readonly full: string | null;
   readonly config: OfficeConfig;
   readonly configHash: string;
   readonly started: Started[];
@@ -285,13 +289,15 @@ function recordPrepared(
   recordPromptTexts(handle, runId, agent, prepared.texts, input.config, clock);
 }
 
-/**
- * True when a new pickup cannot take the office's worker place (0002): a developer
- * session holds it, or a resume, fix round or conflict hand-off waits for it and goes first.
- */
-function workerPlaceTaken(office: OfficeHandle): boolean {
-  return placeTaken(office, { kind: START_KINDS.pickup, runId: null, since: 0 }) !== null;
-}
+/** A new pickup by `work.run`, as the slots see it. */
+const PICKUP = { kind: START_KINDS.pickup, runId: null, since: 0 } as const;
+
+/** Why a run without named stories starts no second one, though a slot is free. */
+export const ONE_STORY =
+  "a run without story ids starts one story; name the stories to start more at once";
+
+/** Why `work.preview` skips the candidates after the story it shows. */
+const ONE_PREVIEWED = "the preview shows the first story a run starts";
 
 /** `git.fetchFailed` and other git refusals as command errors; anything else as it is. */
 function commandErrorOf(error: unknown): unknown {
@@ -323,38 +329,19 @@ function refused(office: OfficeId, check: string, message: string): CommandError
 
 export class WorkRun {
   readonly #deps: WorkRunDeps;
-  readonly #busy = new Map<OfficeId, Promise<unknown>>();
 
   constructor(deps: WorkRunDeps) {
     this.#deps = deps;
   }
 
-  /** `work.run`: one run per office at a time. */
-  run(ctx: AsyncCommandContext, args: Args): Promise<CommandOutcome<Result>> {
-    const office = ctx.office.officeId;
-    const before = this.#busy.get(office) ?? Promise.resolve();
-    const run = before.then(
-      () => this.#run(ctx, args),
-      () => this.#run(ctx, args),
-    );
-    this.#busy.set(
-      office,
-      run.catch(() => undefined),
-    );
-    return run;
-  }
-
-  async #run(ctx: AsyncCommandContext, args: Args): Promise<CommandOutcome<Result>> {
+  /**
+   * `work.run`: calls of one office run side by side; the office's serialized steps decide each
+   * slot (DIPO-208), so a story starts while others run.
+   */
+  async run(ctx: AsyncCommandContext, args: Args): Promise<CommandOutcome<Result>> {
     const deps = this.#deps;
     const handle = ctx.office;
     const office = handle.officeId;
-    if (args.maxAgents !== undefined && args.maxAgents > 1) {
-      throw new CommandError(
-        "args.invalid",
-        `M0 runs one story at a time; maxAgents ${args.maxAgents} is refused until M2.`,
-        { maxAgents: args.maxAgents },
-      );
-    }
     const blocks = deps.offices.configBlocksRuns(office);
     const config = deps.offices.config(office);
     const configHash = deps.offices.configHash(office);
@@ -418,37 +405,47 @@ export class WorkRun {
         const resolved = resolveStoryRef(handle, view.id);
         return resolved.ok ? [{ story: resolved.story, key: resolved.key }] : [];
       });
-    return { result: await this.#startEach(ctx, read, candidates, config, configHash) };
+    return {
+      result: await this.#startEach(ctx, read, candidates, {
+        config,
+        configHash,
+        oneStory: named === null,
+      }),
+    };
   }
 
-  /** Starts the candidates in order, one at a time, each in its serialized step (step 4 on). */
+  /**
+   * Starts the candidates in order, one at a time, each in its serialized step (step 4 on): every
+   * named story while a slot is free, or the first startable one when `oneStory`.
+   */
   async #startEach(
     ctx: AsyncCommandContext,
     read: BaseRead,
     candidates: readonly Candidate[],
-    config: OfficeConfig,
-    configHash: string,
+    run: { readonly config: OfficeConfig; readonly configHash: string; readonly oneStory: boolean },
   ): Promise<{ started: Started[]; skipped: Skipped[] }> {
+    const { config, configHash, oneStory } = run;
     const handle = ctx.office;
     const views = new Map(read.views.map((view) => [view.id, view]));
     const started: Started[] = [];
     const skipped: Skipped[] = [];
     for (const candidate of candidates) {
-      // The worker place is decided and taken in one serialized step (DIPO-208): the check and the
-      // claim row. The step ends there (DIPO-314); until the run row is in, the pickup holds the
-      // worker place through the places, so a drain or another pickup never takes it meanwhile.
-      const reason = await this.#startSerialized(ctx, () => ({
+      // A slot is decided and taken in one serialized step (DIPO-208): the check and the claim
+      // row. The step ends there (DIPO-314); until the run row is in, the pickup holds its slot
+      // through the places, so a drain or another pickup never takes it meanwhile.
+      const skip = await this.#startSerialized(ctx, () => ({
         candidate,
         status: read.statuses.get(candidate.story),
         view: views.get(candidate.story),
         unparsed: read.unparsed.includes(candidate.story),
         checkout: read.checkout,
-        full: this.#placeTaken(handle) || started.length > 0,
+        full:
+          this.#slotTaken(handle, config) ?? (oneStory && started.length > 0 ? ONE_STORY : null),
         config,
         configHash,
         started,
       }));
-      if (reason !== null) skipped.push({ ...candidate, reason });
+      if (skip !== null) skipped.push({ ...candidate, ...skip });
     }
     return { started, skipped };
   }
@@ -465,7 +462,7 @@ export class WorkRun {
       readonly view: PlainTask | undefined;
       readonly unparsed: boolean;
       readonly checkout: BaseCheckout;
-      readonly full: boolean;
+      readonly full: string | null;
       readonly config: OfficeConfig;
     },
   ): SkipReason | "gate" | Startable | { readonly tooLarge: string } {
@@ -475,7 +472,7 @@ export class WorkRun {
     const byStatus = statusSkip(c.status);
     if (byStatus !== null) return byStatus;
     if (liveClaimOf(handle, key) !== null) return "notRunnable";
-    if (c.full) return "capacity";
+    if (c.full !== null) return "capacity";
     if (this.#deps.base.planningHold(handle, key) !== null) return "notRunnable";
     const view = c.view;
     if (view === undefined || c.unparsed) return "gate";
@@ -508,12 +505,13 @@ export class WorkRun {
   }
 
   /**
-   * True when a new pickup cannot take the office's worker place: `workerPlaceTaken`, or another
-   * pickup past its claim row holds it while it starts (DIPO-314).
+   * Why a new pickup finds no free slot in the office (0002): `Places.slotTaken`, or without the
+   * places the office's runs counted against `caps.parallelRuns`; null when one is free.
    */
-  #placeTaken(handle: OfficeHandle): boolean {
-    const starting = this.#deps.places?.pickupStarting?.(handle.officeId) ?? null;
-    return workerPlaceTaken(handle) || starting !== null;
+  #slotTaken(handle: OfficeHandle, config: OfficeConfig): string | null {
+    const places = this.#deps.places;
+    if (places?.slotTaken !== undefined) return places.slotTaken(handle.officeId, PICKUP);
+    return placeTaken(handle, PICKUP, { limit: config.caps.parallelRuns });
   }
 
   /** Runs `fn` as one of the office's serialized steps (DIPO-208), or at once without places. */
@@ -524,14 +522,11 @@ export class WorkRun {
   /**
    * Starts one candidate in the office's serialized step (DIPO-208), which ends once the claim row
    * is committed (DIPO-314): the box preparation, its install and the launch run after it, while
-   * the pickup holds the worker place through `reservePickup`. A start that ends before its claim
-   * row (a skip) ends the step too.
+   * the pickup holds its slot through `reservePickup`. A start that ends before its claim row (a
+   * skip) ends the step too.
    */
-  async #startSerialized(
-    ctx: AsyncCommandContext,
-    input: () => StartInput,
-  ): Promise<SkipReason | null> {
-    let finished: Promise<SkipReason | null> = Promise.resolve(null);
+  async #startSerialized(ctx: AsyncCommandContext, input: () => StartInput): Promise<Skip | null> {
+    let finished: Promise<Skip | null> = Promise.resolve(null);
     await this.#serialized(ctx.office.officeId, () => {
       const claimed = Promise.withResolvers<void>();
       finished = this.#tryStart(ctx, input(), () => claimed.resolve());
@@ -546,6 +541,16 @@ export class WorkRun {
 
   /** Starts one candidate, or returns why it was skipped; `claimed` is told at the claim row. */
   async #tryStart(
+    ctx: AsyncCommandContext,
+    c: StartInput,
+    claimed: () => void,
+  ): Promise<Skip | null> {
+    const reason = await this.#tryStartReason(ctx, c, claimed);
+    if (reason === null) return null;
+    return reason === "capacity" && c.full !== null ? { reason, detail: [c.full] } : { reason };
+  }
+
+  async #tryStartReason(
     ctx: AsyncCommandContext,
     c: StartInput,
     claimed: () => void,
@@ -571,7 +576,7 @@ export class WorkRun {
       config: c.config,
       taskFile: checked.taskFile,
     };
-    // From the claim row until the run row the pickup holds the worker place (DIPO-314).
+    // From the claim row until the run row the pickup holds its slot (DIPO-314).
     let release: (() => void) | null = null;
     try {
       const outcome = await this.#claim(ctx, c, checked, facts, () => {
@@ -918,17 +923,22 @@ export class WorkRun {
 
     const skipped: Preview["skipped"] = [];
     let chosen: { readonly candidate: Candidate; readonly startable: Startable } | null = null;
-    const busy = this.#placeTaken(handle);
+    const full = this.#slotTaken(handle, config);
     for (const candidate of candidates) {
+      // The preview shows the first story a run would start; the ones after it as capacity.
       const checked = this.#precheck(handle, {
         candidate,
         status: read.statuses.get(candidate.story),
         view: views.get(candidate.story),
         unparsed: read.unparsed.includes(candidate.story),
         checkout: read.checkout,
-        full: busy || chosen !== null,
+        full: full ?? (chosen === null ? null : ONE_PREVIEWED),
         config,
       });
+      if (checked === "capacity" && full !== null) {
+        skipped.push({ ...candidate, reason: checked, detail: [full] });
+        continue;
+      }
       if (typeof checked === "string" && checked !== "gate") {
         skipped.push({ ...candidate, reason: checked });
         continue;

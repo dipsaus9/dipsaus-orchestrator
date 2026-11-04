@@ -2,9 +2,9 @@
 //
 // - `work.resume` (`work-resume.ts`) resumes a parked story through `ParkResumes`
 //   (`park-resume.ts`), the one resume path, by the 0020 table of its reason; a story parked with
-//   no run returns to its status through the planning lane. A resume whose worker place is taken is
-//   still accepted: the run waits for the place (`run-state/places.ts`) and `startQueued` starts
-//   its session when the place frees. `recoverParkResumes` finishes a resume a restart interrupted.
+//   no run returns to its status through the planning lane. A resume that finds every run slot
+//   taken is still accepted: the run waits for a slot (`run-state/places.ts`) and `startQueued`
+//   starts its session when one frees. `recoverParkResumes` finishes a resume a restart interrupted.
 // - `resumeLifted` is the one resume no command asks for: when the office's starts paused lifts,
 //   `StartsPaused` resumes each park a plan limit made through the same path (0020).
 // - `questionParks` is the resume of an `ambiguous-spec` park by `work.answer` on its question:

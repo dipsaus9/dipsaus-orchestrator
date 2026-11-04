@@ -1,7 +1,8 @@
 // The run-state writes that the run, claims, merges and reconcile share (0004): phases and review
-// rounds, the worker and reviewer places with the pre-start caps, parks, questions and merge gates.
+// rounds, the run slots and places with the pre-start caps, parks, questions and merge gates.
 
-// The office's worker and reviewer places and the run across review rounds (DIPO-142).
+// The office's run slots, each story's worker and reviewer places and the run across review rounds
+// (DIPO-142).
 export {
   claimPlace,
   PLACE_NOTICES,
@@ -14,12 +15,14 @@ export {
   PLACES,
   PLACES_STEP,
   placeTaken,
+  slotHolders,
+  slotsFullText,
   START_KINDS,
   startOrder,
   waitForPlace,
   waitingStarts,
 } from "./places";
-export type { Place, PlacesDeps, PlaceStart, PlaceStarter, StartKind } from "./places";
+export type { Place, PlacesDeps, PlaceStart, PlaceStarter, SlotUse, StartKind } from "./places";
 export {
   endReviewPeriod,
   enterPhase,

@@ -1115,7 +1115,7 @@ describe("no resume raises a cap without a recorded grant (0020, never silent)",
 describe("a resume whose place is taken (0020, 0002)", () => {
   it("is accepted with its intent stored, replies queued, and starts when the worker place frees", async () => {
     const { office, t } = w.f;
-    // Another story run holds the office's worker place with a live session.
+    // Another story run holds the office's one slot with a live session.
     const other = t.ids.next("run") as RunId;
     const otherAgent = t.ids.next("agt");
     const { key: otherKey } = office.immediate(() =>
@@ -1161,9 +1161,11 @@ describe("a resume whose place is taken (0020, 0002)", () => {
     });
     let places: Places | undefined;
     const resuming = resumption({ places: () => places });
+    // One slot, held by the other story.
     places = new Places({
       clock: t.clock,
       offices: { get: () => office },
+      limit: () => 1,
       starters: { resume: (officeId, run) => resuming.startQueued(officeId, run) },
     });
     park("by-maintainer");

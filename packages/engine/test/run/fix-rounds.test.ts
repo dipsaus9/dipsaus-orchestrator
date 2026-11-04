@@ -235,9 +235,11 @@ function world(): World {
       s.trees.get(head) ?? `tree-${head.slice(0, 4)}`,
     warn: (message, fields) => warned.push({ message, fields }),
   });
+  // One slot, so a story that runs makes a fix round wait.
   places = new Places({
     clock: w.t.clock,
     offices: { get: () => w.office },
+    limit: () => 1,
     park: (office, run, work, ending) => control.park(office, run, work, ending),
     starters: { fix: (office, run, start) => fix.start(office, run, start) },
   });
@@ -470,7 +472,7 @@ describe("the timing of a fix round (0002)", () => {
 
 describe("send-once (0002)", () => {
   it("sends an item for one head once across a daemon restart, and marks the same signature on a new head a repeat", async () => {
-    // The worker place is held, so the queued round waits across the restart.
+    // The office's one slot is held, so the queued round waits across the restart.
     const busy = storyRun(w, { story: "DIPO-9" });
     addAgent(w, busy.run, "developer", true);
     const s = inReview("DIPO-1");
@@ -488,7 +490,7 @@ describe("send-once (0002)", () => {
     expect(fixIntentsOf(s.run)).toHaveLength(1);
     expect(feedbackItems(w.office, s.run)).toHaveLength(1);
 
-    // The place frees: the one stored round starts with its one message.
+    // The slot frees: the one stored round starts with its one message.
     write(() =>
       w.office.run(
         "update agents set ended_at = $at where office_id = $office_id and run_id = $run",

@@ -279,7 +279,7 @@ function discardOf(core: Core, story: StoryServices, runs: EngineRuns): StoryDis
 /**
  * `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the story
  * index, the run profile, office init's statuses check, the claims, the Ready gate and the
- * planning lane; the worker place is decided and taken in the places' serialized steps (DIPO-208).
+ * planning lane; a run slot is decided and taken in the places' serialized steps (DIPO-208).
  */
 function workRunOf(
   core: Core,

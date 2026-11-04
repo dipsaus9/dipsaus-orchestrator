@@ -1,10 +1,11 @@
 // Review rounds (0002, DIPO-219): a story that reaches In Review gets its
-// review in the office's reviewer place, its report is judged by code and its verdict stored by
+// review in its own reviewer place, its report is judged by code and its verdict stored by
 // code tree key.
 //
 // - Start. A pending review (`pendingReviews`, fed to the places as `PlacesDeps.pending`) starts
-//   through the review starter (`START_KINDS.review`) once the reviewer place is free, oldest In
-//   Review first. The starter reads the head's code tree key first: a tree that already has a
+//   through the review starter (`START_KINDS.review`) in the story's own reviewer place: a story
+//   waiting for its review holds its run slot (`reviewingRuns`, `PlacesDeps.reviewing`), so it
+//   never waits for another story. The starter reads the head's code tree key first: a tree that already has a
 //   verdict in the claim takes it without a round (commits that change only the task file never
 //   start a review). Otherwise the run reopens for the review (phase `review`, at the start time,
 //   while its wait counts from the In Review time), takes the reviewer place, starts or continues
@@ -103,6 +104,7 @@ import {
   openReviewRound,
   pendingReviews,
   type ReviewRound,
+  reviewingRuns,
   takeVerdict,
 } from "./review-rounds";
 import { endReviewPeriod, reopen, reviewedInReview, reviewPeriodStart } from "../run-state/rounds";
@@ -229,6 +231,11 @@ export class Reviews {
   /** The office's pending reviews, oldest In Review first (`PlacesDeps.pending`). */
   pending(office: OfficeHandle): PlaceStart[] {
     return pendingReviews(this.#deps.stories, office);
+  }
+
+  /** The office's runs waiting for their review, pushed or not (`PlacesDeps.reviewing`). */
+  reviewing(office: OfficeHandle): RunId[] {
+    return reviewingRuns(this.#deps.stories, office);
   }
 
   /**

@@ -1,7 +1,8 @@
 // `dipo run [ID...] [--box] [--office <id>]` (DIPO-48): sends `work.run` for the office of `--office`
 // or of the current directory, with the main worktree it resolved as `from`, and prints each
-// started story with its run and each skipped story with its reason. Exit 0 when a story started,
-// else 1. Every run is a box run (DIPO-240, 0008): the developer always runs in the story's own box.
+// started story with its run and each skipped story with its reason and detail (a full office names
+// its limit). Exit 0 when a story started, else 1. Every run is a box run (DIPO-240, 0008): the
+// developer always runs in the story's own box.
 // `--box` (DIPO-271) is still accepted and sent, so scripts that pass it keep working, and changes
 // nothing; with `--dry-run` it is ignored, since the dry run shows the box launch anyway.
 //
@@ -47,7 +48,7 @@ const REASONS: Readonly<Record<string, string>> = {
     "not runnable (not on the base, already claimed or past Ready, or a backlog change for it is pending)",
   dependency: "a dependency is not Done",
   collision: "its branch is taken",
-  capacity: "the office already runs a story",
+  capacity: "no run slot is free (caps.parallelRuns in .dipo/office.yaml)",
   pickupCheckFailed:
     "it failed its pickup check (it goes back to Refined) or its setup, launch checks or worker start (it stays Ready)",
 };
@@ -340,7 +341,9 @@ export async function runCommand(
       for (const story of started) deps.writeLine(`started ${story.story} (run ${story.run})`);
       for (const story of skipped) {
         deps.writeLine(`skipped ${story.story}: ${REASONS[story.reason] ?? story.reason}`);
-        for (const line of explanations.of(story.story)) deps.writeLine(`  ${line}`);
+        for (const line of [...(story.detail ?? []), ...explanations.of(story.story)]) {
+          deps.writeLine(`  ${line}`);
+        }
       }
       if (started.length > 0) return 0;
       if (skipped.length === 0) deps.writeLine("no Ready story to start");
