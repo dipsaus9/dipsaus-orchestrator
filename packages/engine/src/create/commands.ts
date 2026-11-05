@@ -17,7 +17,7 @@ import { signalProcess } from "../platform/process";
 import { planLimitPause } from "../run/starts-paused";
 import { openTestIdsOfRegistered } from "../run/test-records";
 import { StoryTests, TEST_BOX_DIR } from "../run/tests";
-import { gitChangedFiles, NextUp } from "../run/next-up";
+import { gitBranchTips, gitChangedFiles, NextUp } from "../run/next-up";
 import { WorkRun } from "../run/work-run";
 import { RunProfiles } from "../scan/feature";
 import { StoryDiscard } from "../run/discard";
@@ -319,6 +319,7 @@ function nextUpOf(core: Core, story: StoryServices, runs: EngineRuns, workRun: W
     scheduling: () => core.lifecycle.state === "running",
     start: (ctx, key) => workRun.run(ctx, { stories: [key] }),
     changedFiles: gitChangedFiles({ git: core.gitOf, stories: core.stories }),
+    branchTips: gitBranchTips(core.gitOf),
     onChanged: core.onChanged,
     warn: (message, fields) => logger.warn(message, fields),
   });

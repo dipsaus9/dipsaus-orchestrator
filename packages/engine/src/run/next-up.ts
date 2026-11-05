@@ -20,8 +20,10 @@
 //   run of it started after the decline.
 // - Refresh. The offers are worked out again after every change of the office, coalesced per
 //   office. A cheap signature (free slots, live claims, the statuses and hashes the story index
-//   mirrored from the base, the declines, the planning holds) decides whether the base is read
-//   again. A newly offered story puts an `engine.notice`
+//   mirrored from the base, the declines, the planning holds, and the running branches' tips, read
+//   with one `git for-each-ref` at most every 30 seconds) decides whether the base is read again.
+//   A confirm or decline that comes in while the base is read wins over that read, and a confirm
+//   whose start fails offers the story again. A newly offered story puts an `engine.notice`
 //   on the office stream, so the TUI reads its desk again; the desk notification posts it once.
 
 import { createHash } from "node:crypto";
@@ -111,6 +113,14 @@ export interface NextUpDeps {
     office: OfficeId,
     runs: readonly RunningStory[],
   ) => Promise<ReadonlyMap<string, readonly string[]>>;
+  /**
+   * The tip of each running story's branch, by run, so a commit there recomputes the shared files;
+   * none without it. Read at most every `TIP_READ_MS` while the running stories stay the same.
+   */
+  readonly branchTips?: (
+    office: OfficeId,
+    runs: readonly RunningStory[],
+  ) => Promise<ReadonlyMap<string, string>>;
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
@@ -122,7 +132,12 @@ interface OfficeOffers {
   again: boolean;
   /** The keys of the stories a confirm is starting. */
   readonly confirming: Set<string>;
+  /** The running branches' tips as last read, the runs they were read for, and when. */
+  tips: { readonly runs: string; readonly tips: string; readonly at: number } | null;
 }
+
+/** The running branches' tips are read again at most this often while the same stories run. */
+export const TIP_READ_MS = 30_000;
 
 /** The number in a milestone such as `m-2`, or null. */
 export function milestoneNumber(milestone: string | undefined): number | null {
@@ -162,13 +177,15 @@ export function whyNext(task: Pick<PlainTask, "milestone" | "priority">, first: 
 }
 
 /**
- * The hash of a story as read, without where its file lies and without its dependencies' statuses
- * (another task's file holds those): it changes when its own task file does.
+ * The hash of a story as read, without where its file lies and without what other task files hold
+ * (its dependencies' statuses and titles, its parent's title, its subtasks): it changes when its
+ * own task file does.
  */
 export function storyHash(view: PlainTask): string {
+  const { file: _file, subtasks: _subtasks, parent, ...own } = view;
   const dependencies = view.dependencies.map((dependency) => dependency.id);
   return createHash("sha256")
-    .update(JSON.stringify({ ...view, file: "", dependencies }))
+    .update(JSON.stringify({ ...own, dependencies, parent: parent?.id ?? null }))
     .digest("hex");
 }
 
@@ -306,6 +323,8 @@ export class NextUp {
       return await this.#deps.start(ctx, offer.key);
     } finally {
       state.confirming.delete(offer.key);
+      // Worked out again from the base: a start that failed offers the story again.
+      state.signature = null;
       void this.refresh(officeId);
     }
   }
@@ -319,6 +338,7 @@ export class NextUp {
     const state = this.#state(officeId);
     const offer = this.#offered(ctx, args.story);
     ctx.commit(() => recordDecline(ctx.office, offer.key, offer.hash, ctx.clock.now()));
+    state.signature = null;
     this.#publish(
       officeId,
       state,
@@ -372,7 +392,14 @@ export class NextUp {
   #state(officeId: OfficeId): OfficeOffers {
     let state = this.#offices.get(officeId);
     if (state === undefined) {
-      state = { offers: [], signature: null, running: null, again: false, confirming: new Set() };
+      state = {
+        offers: [],
+        signature: null,
+        running: null,
+        again: false,
+        confirming: new Set(),
+        tips: null,
+      };
       this.#offices.set(officeId, state);
     }
     return state;
@@ -392,7 +419,7 @@ export class NextUp {
   }
 
   /** What decides whether the offers can have changed, besides the base's own content. */
-  #signature(office: OfficeHandle, free: number, state: OfficeOffers): string {
+  #signature(office: OfficeHandle, free: number, state: OfficeOffers, tips: string): string {
     const mirror = office.get<{ digest: string | null }>(
       `select group_concat(key || ':' || status || ':' || content_hash, ',') as digest
          from (select key, status, content_hash from backlog_mirror
@@ -419,6 +446,7 @@ export class NextUp {
       mirror?.digest ?? "",
       declines?.digest ?? "",
       held,
+      tips,
     ]);
   }
 
@@ -434,11 +462,41 @@ export class NextUp {
       this.#publish(officeId, state, []);
       return;
     }
-    const signature = this.#signature(office, free, state);
+    const tips = await this.#tips(officeId, office, state);
+    const signature = this.#signature(office, free, state, tips);
     if (signature === state.signature) return;
     const offers = await this.#offersFor(officeId, office, state, free);
     state.signature = signature;
-    this.#publish(officeId, state, offers);
+    // A confirm or decline that came in while the base or git was read wins over this read.
+    const now = this.#slots(officeId, office, state);
+    this.#publish(
+      officeId,
+      state,
+      offers
+        .filter((offer) => !state.confirming.has(offer.key))
+        .filter((offer) => liveClaimOf(office, offer.key) === null)
+        .filter((offer) => !declined(office, offer.key, offer.hash))
+        .slice(0, now),
+    );
+  }
+
+  /** The running branches' tips, read through git at most every `TIP_READ_MS` for the same runs. */
+  async #tips(officeId: OfficeId, office: OfficeHandle, state: OfficeOffers): Promise<string> {
+    const read = this.#deps.branchTips;
+    if (read === undefined) return "";
+    const running = runningStories(office);
+    const runs = running.map((run) => run.runId).join(",");
+    const now = this.#deps.clock.now();
+    const kept = state.tips;
+    if (kept !== null && kept.runs === runs && now - kept.at < TIP_READ_MS) return kept.tips;
+    if (running.length === 0) {
+      state.tips = { runs, tips: "", at: now };
+      return "";
+    }
+    const tips = await read(officeId, running).catch(() => new Map<string, string>());
+    const digest = running.map((run) => `${run.runId}:${tips.get(run.runId) ?? ""}`).join(",");
+    state.tips = { runs, tips: digest, at: now };
+    return digest;
   }
 
   /** The first `free` stories that can start, in next-up order, with their shared files. */
@@ -548,6 +606,34 @@ export function gitChangedFiles(deps: {
         if (changed !== null) out.set(run.runId, changed.files);
       }
     });
+    return out;
+  };
+}
+
+/** The tip of each running story's branch, read with one `git for-each-ref` of their refs. */
+export function gitBranchTips(
+  git: (office: OfficeId) => OfficeGit | undefined,
+): NonNullable<NextUpDeps["branchTips"]> {
+  return async (officeId, runs) => {
+    const out = new Map<string, string>();
+    const office = git(officeId);
+    if (office === undefined) return out;
+    const refs = runs.map((run) => `refs/heads/${run.branch}`);
+    const listed = await office.run((session) =>
+      session.step(session.repository, [
+        "for-each-ref",
+        "--format=%(refname) %(objectname)",
+        ...refs,
+      ]),
+    );
+    if (listed.code !== 0) return out;
+    const byRef = new Map(
+      listed.stdout
+        .split("\n")
+        .filter((line) => line !== "")
+        .map((line) => line.split(" ") as [string, string]),
+    );
+    for (const run of runs) out.set(run.runId, byRef.get(`refs/heads/${run.branch}`) ?? "");
     return out;
   };
 }

@@ -40,6 +40,7 @@ import {
   NextUp,
   nextUpOrder,
   storyHash,
+  TIP_READ_MS,
 } from "../../src/run/next-up";
 import type { PlainTask } from "../../src/story-store/story";
 import { insertClaim } from "../../src/worktree/records";
@@ -77,6 +78,12 @@ interface World {
   readonly keys: Map<string, StoryKey>;
   readonly started: string[];
   readonly changed: Map<string, readonly string[]>;
+  readonly tips: Map<string, string>;
+  /** Holds the changed-files read open when set. */
+  changedGate: Promise<void> | null;
+  changedReads: number;
+  /** The start throws when set, as a failed `work.run` does. */
+  startFails: boolean;
   readonly nextUp: NextUp;
   readonly deps: ExecutorDeps;
   limit: number;
@@ -109,11 +116,17 @@ beforeEach(async () => {
     start: async (ctx, key) => {
       const id = ctx.stories.get(key)?.story ?? key;
       w.started.push(id);
+      if (w.startFails) throw new Error("the box could not be prepared");
       await w.hold.get(id);
       const run = claim(id);
       return { result: { started: [{ story: id, key, run }], skipped: [] } };
     },
-    changedFiles: async () => w.changed,
+    changedFiles: async () => {
+      w.changedReads += 1;
+      await w.changedGate;
+      return w.changed;
+    },
+    branchTips: async () => w.tips,
     onChanged: () => {
       w.notified += 1;
     },
@@ -127,6 +140,10 @@ beforeEach(async () => {
     keys: new Map(),
     started: [],
     changed: new Map(),
+    tips: new Map(),
+    changedGate: null,
+    changedReads: 0,
+    startFails: false,
     nextUp,
     deps: {
       registry,
@@ -446,5 +463,140 @@ describe("the item on the desk", () => {
     await notifier.observe(w.officeId, "demo", read());
     expect(posted).toHaveLength(1);
     expect(posted[0]?.body).toStartWith("DIPO-1 · NEXT UP: ");
+  });
+});
+
+/** The `run.nextUp` notices of the office, by story key. */
+function nextUpNotices(): string[] {
+  return w.office
+    .all<{ key: string }>(
+      `select key from change_log where office_id = $office_id and type = 'engine.notice'
+          and json_extract(delta, '$.code') = $code order by seq`,
+      { code: NEXT_UP_NOTICE },
+    )
+    .map((row) => row.key);
+}
+
+const deskSources = (): DeskSources => ({
+  ...DESK_SOURCES,
+  stories: backlogLayout,
+  nextUp: () => w.nextUp.offers(w.officeId),
+});
+
+describe("review fixes", () => {
+  it("notifies again for a story offered again after its offer was withdrawn", async () => {
+    story("DIPO-1", { milestone: "m-1" });
+    const posted: NotificationText[] = [];
+    const notifier = new DeskNotifier({
+      post: async (notice) => {
+        posted.push(notice);
+      },
+      logger: createLogger({ clock: systemClock, sinks: [], level: "info", component: "test" }),
+    });
+    const read = () => desk(w.office, () => true, deskSources());
+    await notifier.observe(w.officeId, "demo", read());
+    expect(await refresh()).toEqual(["DIPO-1"]);
+    await notifier.observe(w.officeId, "demo", read());
+    // A slot fills: the offer is withdrawn; it frees again: the story is offered again.
+    story("DIPO-9");
+    const run = claim("DIPO-9");
+    expect(await refresh()).toEqual([]);
+    await notifier.observe(w.officeId, "demo", read());
+    w.office.immediate(() =>
+      w.office.run(
+        "update claims set released_at = 1 where office_id = $office_id and run_id = $run",
+        { run },
+      ),
+    );
+    w.tasks.splice(
+      w.tasks.findIndex((x) => x.id === "DIPO-9"),
+      1,
+    );
+    expect(await refresh()).toEqual(["DIPO-1"]);
+    await notifier.observe(w.officeId, "demo", read());
+    expect(posted.map((one) => one.body.split(" · ")[0])).toEqual(["DIPO-1", "DIPO-1"]);
+  });
+
+  it("lets a decline or confirm made while the base is read win over that read", async () => {
+    story("DIPO-1", { milestone: "m-1" });
+    story("DIPO-2", { milestone: "m-1" });
+    story("DIPO-3", { milestone: "m-1" });
+    story("DIPO-9");
+    w.limit = 3;
+    claim("DIPO-9");
+    expect(await refresh()).toEqual(["DIPO-1", "DIPO-2"]);
+    // The next read waits on the running story's changed files.
+    const gate = Promise.withResolvers<void>();
+    w.changedGate = gate.promise;
+    const at = w.tasks.findIndex((x) => x.id === "DIPO-3");
+    w.tasks[at] = { ...w.tasks[at]!, title: "Story DIPO-3, edited" };
+    indexPass();
+    const reading = w.nextUp.refresh(w.officeId);
+    await Bun.sleep(5);
+    expect(w.changedReads).toBe(2);
+    const confirmed = command("nextUp.confirm", { story: "DIPO-1" });
+    const declined = command("nextUp.decline", { story: "DIPO-2" });
+    await Bun.sleep(5);
+    w.changedGate = null;
+    gate.resolve();
+    await reading;
+    expect(resultOf<{ started: unknown[] }>(await confirmed).started).toHaveLength(1);
+    expect(resultOf<{ offered: string[] }>(await declined).offered).toEqual(["DIPO-3"]);
+    // The stale read never put DIPO-1 or DIPO-2 back: each was told once.
+    expect(nextUpNotices().filter((key) => key !== w.keys.get("DIPO-3"))).toEqual([
+      w.keys.get("DIPO-1") as string,
+      w.keys.get("DIPO-2") as string,
+    ]);
+    expect(await refresh()).toEqual(["DIPO-3"]);
+  });
+
+  it("keeps a declined story out when only its parent's title or its subtasks change", async () => {
+    story("DIPO-1", { milestone: "m-1", parent: { id: "DIPO-50", title: "Epic" } });
+    expect(await refresh()).toEqual(["DIPO-1"]);
+    await command("nextUp.decline", { story: "DIPO-1" });
+    w.tasks[0] = {
+      ...w.tasks[0]!,
+      parent: { id: "DIPO-50", title: "Epic, renamed" },
+      subtasks: [{ id: "DIPO-1.1", title: "A part" }],
+    };
+    expect(await refresh()).toEqual([]);
+  });
+
+  it("reads the shared files again once a running story's branch moved", async () => {
+    story("DIPO-1", { milestone: "m-1", references: ["src/a.ts", "src/b.ts"] });
+    story("DIPO-9");
+    w.limit = 2;
+    const run = claim("DIPO-9");
+    w.tips.set(run, "t1");
+    w.changed.set(run, ["src/a.ts"]);
+    await refresh();
+    expect(w.nextUp.offers(w.officeId)[0]?.shared).toEqual([
+      { story: "DIPO-9", paths: ["src/a.ts"] },
+    ]);
+    // The branch moves and changes src/b.ts too; within 30 s of the last read nothing is read.
+    w.tips.set(run, "t2");
+    w.changed.set(run, ["src/a.ts", "src/b.ts"]);
+    expect(w.changedReads).toBe(1);
+    await refresh();
+    expect(w.changedReads).toBe(1);
+    w.t.clock.advance(TIP_READ_MS);
+    await refresh();
+    expect(w.changedReads).toBe(2);
+    expect(w.nextUp.offers(w.officeId)[0]?.shared).toEqual([
+      { story: "DIPO-9", paths: ["src/a.ts", "src/b.ts"] },
+    ]);
+    // Without a move, a later read of the tips reads no changed files.
+    w.t.clock.advance(TIP_READ_MS);
+    await refresh();
+    expect(w.changedReads).toBe(2);
+  });
+
+  it("offers the story again when its confirmed start fails", async () => {
+    story("DIPO-1", { milestone: "m-1" });
+    expect(await refresh()).toEqual(["DIPO-1"]);
+    w.startFails = true;
+    const reply = await command("nextUp.confirm", { story: "DIPO-1" });
+    expect(reply.ok).toBe(false);
+    expect(await refresh()).toEqual(["DIPO-1"]);
   });
 });
