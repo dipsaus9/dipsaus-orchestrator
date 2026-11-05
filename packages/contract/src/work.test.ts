@@ -240,6 +240,8 @@ describe("office commands and reads", () => {
         "gate.reject",
         "proposal.accept",
         "proposal.dismiss",
+        "nextUp.confirm",
+        "nextUp.decline",
         "test.start",
         "test.record",
       ].toSorted(),

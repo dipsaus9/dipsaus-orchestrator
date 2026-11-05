@@ -896,6 +896,132 @@
       },
       "required": ["proposal", "state"]
     },
+    "nextUp.confirm.args": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            }
+          ]
+        }
+      },
+      "required": ["story"]
+    },
+    "nextUp.confirm.result": {
+      "type": "object",
+      "properties": {
+        "started": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "story": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+              },
+              "key": {
+                "type": "string",
+                "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              },
+              "run": {
+                "type": "string",
+                "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              }
+            },
+            "required": ["story", "key", "run"]
+          }
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "story": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+              },
+              "key": {
+                "type": "string",
+                "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "parked",
+                      "notReady",
+                      "notRunnable",
+                      "dependency",
+                      "collision",
+                      "capacity",
+                      "pickupCheckFailed"
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "detail": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["story", "key", "reason"]
+          }
+        }
+      },
+      "required": ["started", "skipped"]
+    },
+    "nextUp.decline.args": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            }
+          ]
+        }
+      },
+      "required": ["story"]
+    },
+    "nextUp.decline.result": {
+      "type": "object",
+      "properties": {
+        "story": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "offered": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+          }
+        }
+      },
+      "required": ["story", "key", "offered"]
+    },
     "test.start.args": {
       "type": "object",
       "properties": {

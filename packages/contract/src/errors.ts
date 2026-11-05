@@ -91,6 +91,8 @@ export const SOFTWARE_ERROR_CODES = [
 //   `test.refused` (install or `dev` unresolved; `details.capability`), `test.startFailed` (the
 //   test box, install, setup or `dev` failed) and `test.closed` (the test is no longer open, or its
 //   head is older than the story's current head).
+// - `nextUp.notOffered` when `nextUp.confirm` or `nextUp.decline` names a story the desk does not
+//   offer as next up now (DIPO-440, 0010).
 export const OFFICE_ERROR_CODES = [
   "config.invalid",
   "backlog.unreadable",
@@ -119,6 +121,7 @@ export const OFFICE_ERROR_CODES = [
   "test.refused",
   "test.startFailed",
   "test.closed",
+  "nextUp.notOffered",
 ] as const;
 
 export type GenericErrorCode = (typeof GENERIC_ERROR_CODES)[number];

@@ -248,6 +248,14 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
     args: { proposal: ids.proposal },
     result: { proposal: ids.proposal, state: "dismissed" },
   },
+  "nextUp.confirm": {
+    args: { story: "DIPO-15" },
+    result: { started: [{ story: "DIPO-15", key: ids.storyKey, run: ids.run }], skipped: [] },
+  },
+  "nextUp.decline": {
+    args: { story: "DIPO-15" },
+    result: { story: "DIPO-15", key: ids.storyKey, offered: ["DIPO-16"] },
+  },
   "test.start": {
     args: { story: "DIPO-15" },
     result: {

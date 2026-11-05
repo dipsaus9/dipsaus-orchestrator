@@ -255,6 +255,7 @@ describe("errors", () => {
       "test.refused",
       "test.startFailed",
       "test.closed",
+      "nextUp.notOffered",
     ]);
   });
 
