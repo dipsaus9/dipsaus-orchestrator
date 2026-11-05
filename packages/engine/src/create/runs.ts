@@ -822,16 +822,14 @@ function storyConflictsOf(
 ): StoryConflicts | null {
   if (boxed === null) return null;
   return new StoryConflicts({
-    stories: options.storyStore,
     clock: options.clock,
-    ids: options.ids,
     offices: options.offices,
     git: (office) => options.engineGit.forOffice(office),
-    sync: async (runId, mode) => {
+    sync: async (runId) => {
       const run = paths.partRun(runId);
       const service = collisions.get();
       if (run === null || service === null) return { kind: "none" };
-      return service.syncInTurn(run, mode);
+      return service.syncInTurn(run);
     },
     onChanged: options.onChanged,
     warn: (message, fields) => options.logger.warn(message, fields),

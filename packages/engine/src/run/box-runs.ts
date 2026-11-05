@@ -182,8 +182,9 @@ export function boxBehind(offices: {
 
 /**
  * The merge a resumed conflict park needs in its live run's box (DIPO-324,
- * `BoxCollisions.mergeOnResume`). The worker was told dipo merges, so a merge dipo cannot make
- * here is never silent: it is a park of the live run with what went wrong, and a warning.
+ * `BoxCollisions.mergeOnResume`, which merges only when git still reports a conflict). The worker
+ * was told dipo merges, so a merge dipo cannot even check here is never silent: it is a park of
+ * the live run with what went wrong, and a warning.
  */
 export function conflictMergeOf(deps: {
   readonly run: (runId: string) => PartRun | null;

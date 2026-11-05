@@ -165,7 +165,6 @@ interface World {
       criteria?: { n: number; status: "met" | "unmet" | "maintainer"; evidence: string }[];
       findings?: ReviewFinding[];
       summary?: string;
-      carriedFrom?: string;
       commit?: string;
     },
   ): StoredReviewVerdict;
@@ -252,7 +251,6 @@ async function inWorld(
               summary: over.summary ?? "Fine.",
               notes: [],
             },
-            ...(over.carriedFrom === undefined ? {} : { carriedFrom: over.carriedFrom }),
             at: t.clock.now(),
           }),
         );
@@ -411,7 +409,7 @@ describe("posting the review comment", () => {
     });
   });
 
-  it("posts once per round, stores the URL, never edits, and posts nothing for a carried approval", async () => {
+  it("posts once per round, stores the URL, and never edits", async () => {
     await inWorld(async (w) => {
       const id = w.office.officeId;
       const first = w.round(1, "blocked", { findings: [FINDING_BLOCKING] });
@@ -421,13 +419,11 @@ describe("posting the review comment", () => {
       expect(w.host.comments).toHaveLength(1);
       expect(verdictOf(w, 0).commentUrl).toBe(`https://github.com/${REPO}/pull/7#issuecomment-1`);
       const second = w.round(2, "approved", { commit: "d".repeat(40) });
-      w.round(3, "approved", { commit: "e".repeat(40), carriedFrom: "d".repeat(40) });
       await w.prs.retry(id);
       expect(w.host.comments).toHaveLength(2);
       expect(w.host.comments[1]).toContain("round 2 of the story: approved");
       expect(reviewVerdictOfGate(w.office, second.gate)?.commentUrl).toContain("issuecomment-2");
       expect(reviewVerdictOfGate(w.office, first.gate)?.commentUrl).toContain("issuecomment-1");
-      expect(verdictOf(w, 2).commentUrl).toBeNull();
       await w.prs.retry(id);
       expect(w.host.comments).toHaveLength(2);
     });

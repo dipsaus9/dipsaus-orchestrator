@@ -403,7 +403,7 @@ describe("the texts", () => {
       paths: ["src/shared.ts"],
     };
     expect(overlapNotice(overlap)).toBe(
-      "DIPO-1 and DIPO-2 are both in progress and change the same 1 file: src/shared.ts. Both continue; when one merges, dipo merges the new base into the other's branch and box.",
+      "DIPO-1 and DIPO-2 are both in progress and change the same 1 file: src/shared.ts. Both continue; dipo merges the base into a story's branch and box only when git reports a conflict.",
     );
     expect(overlapMessage("DIPO-1", ["src/shared.ts"])).toContain(
       "another story in progress, DIPO-1, changes the same 1 file as you: src/shared.ts. Both stories continue.",
@@ -413,19 +413,19 @@ describe("the texts", () => {
     expect(shownPaths(["a\u001b[2J.ts"])).toBe("a.ts");
   });
 
-  it("tells a clean catch-up and a fix round apart", () => {
+  it("tells a task-file-only conflict and a fix round apart", () => {
     const facts = {
       story: "DIPO-2",
       base: "main",
       onto: "b".repeat(40),
-      overlap: ["src/shared.ts"],
       conflicts: [] as ConflictFile[],
       written: 2,
       removed: 1,
     };
     expect(catchUpNotice(facts)).toBe(
-      `dipo merged main at ${"b".repeat(12)} into DIPO-2's branch and box: the base changed 1 file the story changed too (src/shared.ts).`,
+      `git merged main at ${"b".repeat(12)} into DIPO-2's branch with a conflict only in the story's task file. dipo took the base's version of it, kept the branch's status, and copied the merge into the box.`,
     );
+    expect(catchUpMessage(facts)).toContain("a conflict only in your story's task file");
     expect(catchUpMessage(facts)).toContain("2 files written, 1 file removed");
     const conflict = {
       ...facts,

@@ -688,7 +688,6 @@ describe("the reviewer's model per tier (DIPO-405)", () => {
         summary: "Fine.",
         notes: [],
         commentUrl: null,
-        carriedFrom: null,
         override: null,
         decidedAt: 0,
       };

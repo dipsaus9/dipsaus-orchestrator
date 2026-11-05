@@ -260,7 +260,7 @@ export const ReviewOverride = z.object({
 export type ReviewOverride = z.infer<typeof ReviewOverride>;
 
 // One review round as shown on `story.detail` (0002). `codeTreeKey` is the code tree key
-// the verdict is keyed on; `carried` is set when an approval moved to a later head.
+// the verdict is keyed on.
 export const ReviewVerdict = z.object({
   round: z.int().positive(),
   commit: z.string().min(1),
@@ -272,7 +272,6 @@ export const ReviewVerdict = z.object({
   model: z.string(),
   usage: UsageTotals,
   commentUrl: z.url().optional(),
-  carried: z.boolean().optional(),
   override: ReviewOverride.optional(),
 });
 export type ReviewVerdict = z.infer<typeof ReviewVerdict>;

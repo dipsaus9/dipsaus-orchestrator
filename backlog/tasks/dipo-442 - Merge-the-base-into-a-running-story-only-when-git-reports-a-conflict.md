@@ -1,10 +1,10 @@
 ---
 id: DIPO-442
 title: Merge the base into a running story only when git reports a conflict
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-04 12:24'
-updated_date: '2026-11-04 15:57'
+updated_date: '2026-11-05 10:10'
 labels:
   - 'tier:M'
 milestone: m-2
@@ -55,11 +55,11 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The collisions poll merges the base into a story only when merge-tree reports a conflict, never for overlapping paths alone
-- [ ] #2 The sync at done treats every story the same: the always mode for tier L and test-before-merge stories is removed
-- [ ] #3 Resuming a story parked for a conflict merges the base only when merge-tree still reports a conflict, not whenever the base moved
-- [ ] #4 The overlap notices to the worker and the maintainer stay, as information only: dipo takes no action on them
-- [ ] #5 The carried approvals and the clean-merge notice and message texts are removed with the paths that used them
-- [ ] #6 The conflict path works as before: its tests for the catch-up, the unwritable park, the marker check and the In Review conflict check pass
-- [ ] #7 ADRs 0002 and 0008 still describe what runs, and only one of them states the only-on-conflict rule
+- [x] #1 The collisions poll merges the base into a story only when merge-tree reports a conflict, never for overlapping paths alone
+- [x] #2 The sync at done treats every story the same: the always mode for tier L and test-before-merge stories is removed
+- [x] #3 Resuming a story parked for a conflict merges the base only when merge-tree still reports a conflict, not whenever the base moved
+- [x] #4 The overlap notices to the worker and the maintainer stay, as information only: dipo takes no action on them
+- [x] #5 The carried approvals and the clean-merge notice and message texts are removed with the paths that used them
+- [x] #6 The conflict path works as before: its tests for the catch-up, the unwritable park, the marker check and the In Review conflict check pass
+- [x] #7 ADRs 0002 and 0008 still describe what runs, and only one of them states the only-on-conflict rule
 <!-- AC:END -->

@@ -81,7 +81,7 @@ export interface MergeGatesDeps {
   readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
   /**
    * True when `gate` holds for the story PR's head `head` (`AutoMerge.gateHolds`: its own head,
-   * or a head its verdict carried to); by default only its own head.
+   * or a task-file-only commit on top with the same verdict); by default only its own head.
    */
   readonly holds?: (office: OfficeHandle, gate: StoredMergeGate, head: string) => Promise<boolean>;
   /**

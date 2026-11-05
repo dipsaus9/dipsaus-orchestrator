@@ -453,7 +453,6 @@ export type {
   ConflictFile,
   StoryChanges,
   StoryOverlap,
-  SyncMode,
   SyncOutcome,
 } from "./collisions";
 export {

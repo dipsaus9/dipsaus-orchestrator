@@ -71,7 +71,7 @@ function judged(office: OfficeHandle, runId: RunId, round: number): boolean {
   return (
     office.get(
       `select 1 as found from review_verdicts where office_id = $office_id and run_id = $run
-        and round = $round and carried_from is null limit 1`,
+        and round = $round limit 1`,
       { run: runId, round },
     ) !== null
   );

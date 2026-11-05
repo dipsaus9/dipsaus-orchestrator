@@ -123,7 +123,7 @@ function addReviewer(t: TestState, office: OfficeHandle, started: StartedRun): s
 }
 
 describe("review verdict store", () => {
-  it("reads a stored verdict back by its code tree key with its notes, comment URL, carried-from commit and override", () =>
+  it("reads a stored verdict back by its code tree key with its notes, comment URL and override", () =>
     withRun(async (t, office, started) => {
       const agent = addReviewer(t, office, started);
       const at = t.clock.now();
@@ -144,7 +144,6 @@ describe("review verdict store", () => {
         verdict: "blocked",
         round: 1,
         commentUrl: null,
-        carriedFrom: null,
         override: null,
         notes: [
           "finding 2 (maintainability): marked blocking, stored as advisory; only scope, test, correctness and security findings block",
@@ -180,9 +179,9 @@ describe("review verdict store", () => {
       });
       expect(reviewVerdictForTree(office, started.run, "tree-2")).toBeNull();
 
-      // An approval carried to a new head is a verdict on its new tree, naming where it came from.
+      // A later verdict, with no agent recorded, is a verdict on its own tree.
       t.clock.advance(1000);
-      const carried = office.immediate(() =>
+      const later = office.immediate(() =>
         recordReviewVerdict(office, t.ids, {
           runId: started.run,
           key: started.key,
@@ -199,18 +198,17 @@ describe("review verdict store", () => {
             ],
             findings: [],
           }),
-          carriedFrom: "c1".repeat(20),
           at: t.clock.now(),
         }),
       );
-      expect(reviewVerdictOfGate(office, carried.gate)).toMatchObject({
+      expect(reviewVerdictOfGate(office, later.gate)).toMatchObject({
         verdict: "approved",
-        carriedFrom: "c1".repeat(20),
+        agent: null,
         codeTreeKey: "tree-2",
       });
       expect(reviewVerdictsOf(office, started.key).map((v) => v.gate)).toEqual([
         stored.gate,
-        carried.gate,
+        later.gate,
       ]);
       expect(reviewDecidedEntry(back ?? stored)).toEqual({
         type: "gate.decided",
@@ -246,7 +244,6 @@ describe("review verdict store", () => {
           commit: "c1".repeat(20),
           codeTreeKey: "tree-1",
           judged: judged(BLOCKED),
-          carriedFrom: "c0".repeat(20),
           at,
         }),
       );
@@ -289,7 +286,6 @@ describe("review verdict store", () => {
               elapsedMs: 0,
             },
             commentUrl: "https://github.com/o/r/pull/7#c-2",
-            carried: true,
             override: { note: "merge it anyway", at: new Date(at + 5).toISOString() },
           },
         },

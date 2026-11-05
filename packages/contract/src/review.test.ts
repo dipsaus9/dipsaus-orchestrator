@@ -52,7 +52,6 @@ const reviewVerdict = {
     elapsedMs: 300_000,
   },
   commentUrl: "https://github.com/example/demo/pull/142#issuecomment-1",
-  carried: false,
   override: { note: "Accepted for now, fix later.", at: "2026-10-17T09:00:00Z" },
 };
 
@@ -77,7 +76,7 @@ describe("review verdict (0002)", () => {
   });
 
   it("parses a minimal review verdict without the optional fields", () => {
-    const { commentUrl: _url, carried: _carried, override: _override, ...minimal } = reviewVerdict;
+    const { commentUrl: _url, override: _override, ...minimal } = reviewVerdict;
     expect(ReviewVerdict.safeParse(minimal).success).toBe(true);
   });
 

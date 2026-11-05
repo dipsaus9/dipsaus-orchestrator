@@ -587,7 +587,7 @@ export class StoryMerges {
 
   /**
    * True when `gate` holds for `head`: its own head, or a head whose verdict is the one of the
-   * gate's head or an approval carried from it (task-file commits such as the close-out).
+   * gate's head (task-file-only commits such as the close-out share its code tree key).
    */
   async #holds(
     officeId: OfficeId,
@@ -602,7 +602,7 @@ export class StoryMerges {
     if (verdict === null) return false;
     const atGate = await this.#verdictFor(officeId, office, run, gate.head);
     if (atGate === null) return false;
-    return atGate.gate === verdict.gate || verdict.carriedFrom === atGate.commit;
+    return atGate.gate === verdict.gate;
   }
 
   /**
@@ -623,7 +623,8 @@ export class StoryMerges {
 
   /**
    * True when the merge gate `gate` holds for `head` (its own head, or a head whose verdict is the
-   * gate head's or carried from it): `gate.approve` and `gate.reject` decide only such a gate.
+   * gate head's, as task-file-only commits share its code tree key): `gate.approve` and
+   * `gate.reject` decide only such a gate.
    */
   async gateHolds(
     officeId: OfficeId,
