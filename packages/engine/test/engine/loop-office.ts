@@ -720,9 +720,7 @@ async function buildDaemon(
   // Conflicts with the base (DIPO-149): no box, so no sync in the held turn; the marker check of
   // dipo's conflicted merges and the record of each merge the auto-merge's hand-off makes stay.
   const conflicts = new StoryConflicts({
-    stories: backlogLayout,
     clock: officeClock,
-    ids: { next: (prefix: IdPrefix) => loaded().ids.next(prefix) },
     offices,
     git: gitOf,
   });

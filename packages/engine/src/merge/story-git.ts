@@ -384,7 +384,6 @@ function conflictMergeIn(
         story: run.story,
         base: base.base,
         baseRef: base.ref,
-        mode: "always" as const,
         scratch,
       };
       const planned = await planCatchUp(session, { ...input, write: false });

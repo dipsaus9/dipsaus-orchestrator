@@ -9,13 +9,15 @@
 // - a kept merge (its hand-offs failed at the conflict cap), with the base where it left it: the
 //   first message is the conflict item rebuilt from git (what is left unresolved, with its hunks at
 //   the tip), a new hand-off starts, and nothing is merged;
-// - a kept merge with a moved base: the same item, and once the session runs the base is merged
-//   again and the worker gets the new conflict item;
+// - a kept merge with a moved base that conflicts: the same item, and once the session runs the
+//   base is merged again and the worker gets the new conflict item; a moved base that merges
+//   cleanly merges nothing;
 // - commits only the remote branch holds (a rejected push): the remote is fetched, the first
 //   message names those commits (subject, author, files), and they are merged before the session
 //   and pushed, never forced, with the box copy left for the session's start;
 // - otherwise the base again: a path the worker cannot write that still conflicts parks again at
-//   once, and once the maintainer fixed it on the base the base is merged again.
+//   once, and once the maintainer fixed it on the base nothing is merged, since git merges it
+//   cleanly.
 
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -155,9 +157,7 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
     config: () => OFFICE_DEFAULTS,
   };
   const conflicts = new StoryConflicts({
-    stories: backlogLayout,
     clock: f.t.clock,
-    ids: f.t.ids,
     offices,
     git: (id) => (id === officeId ? git : undefined),
   });
@@ -334,13 +334,28 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(handOffState(w.f.office, w.f.run)).toMatchObject({ current: 2, open: true });
       }));
 
-    it("merges the base again once the session runs when it moved, and hands over the new conflict item", () =>
+    it("merges nothing once the session runs when the base moved without a conflict", () =>
+      inWorld(async (w) => {
+        const { merge } = await keptMerge(w);
+        await onBase(w, { "docs/later.md": "later\n" });
+        const out = prepared(await w.resumes.prepare(w.part.office, runOf(w)));
+        expect(out.message).toContain("Conflicted files: content: src/shared.ts");
+        expect(out.message).not.toContain("moved since");
+        expect(out.afterStart).toBeUndefined();
+        expect(w.merges).toEqual([]);
+        expect((await w.repo.git("rev-parse", `refs/heads/${BRANCH}`)).trim()).toBe(merge);
+      }));
+
+    it("merges the base again once the session runs when it moved with a conflict, and hands over the new conflict item", () =>
       inWorld(async (w) => {
         await keptMerge(w);
-        const moved = await onBase(w, { "docs/later.md": "later\n" });
+        const moved = await onBase(w, {
+          "src/shared.ts": "one\ntwo from the base, again\nthree\n",
+        });
         const out = prepared(await w.resumes.prepare(w.part.office, runOf(w)));
         expect(out.message).toContain("Conflicted files: content: src/shared.ts");
         expect(out.message).toContain(`main moved since dipo's merge, to ${moved.slice(0, 12)}`);
+        expect(out.message).toContain("git cannot merge it into your branch cleanly");
         expect(out.message).toContain("dipo does not undo it");
         expect(w.merges).toEqual([]);
         // Once the session runs: the base is merged into the branch and the box, the item told.
@@ -359,7 +374,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             story: "DIPO-1",
             base: "main",
             onto: moved,
-            overlap: [],
             conflicts: [{ path: "src/shared.ts", kind: "content" }],
             written: 1,
             removed: 0,
@@ -375,7 +389,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     it("parks the live run when the merge once the session runs asks for it", () =>
       inWorld(async (w) => {
         await keptMerge(w);
-        await onBase(w, { "docs/later.md": "later\n" });
+        await onBase(w, { "src/shared.ts": "one\ntwo from the base, again\nthree\n" });
         const out = prepared(await w.resumes.prepare(w.part.office, runOf(w)));
         const park: PartPark = { reason: "conflict", detail: "rejected" };
         w.merge = { kind: "park", park };
@@ -435,7 +449,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
   });
 
   describe("a conflict resume that merges the base again", () => {
-    it("parks again at once while a path the worker cannot write still conflicts, and merges the base again once it does not", () =>
+    it("parks again at once while a path the worker cannot write still conflicts, and merges nothing once git merges the base cleanly", () =>
       inWorld(async (w) => {
         await onBranch(w, { ".github/ci.yml": "story\n" }, "Story touches CI");
         await onBase(w, { ".github/ci.yml": "base\n" });
@@ -455,11 +469,20 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           "src/shared.ts": "one\ntwo\nthree\nfour\n",
         });
         const out = prepared(await w.resumes.prepare(w.part.office, runOf(w)));
-        expect(out.message).toContain("git merges it cleanly");
-        w.merge = { kind: "none" };
+        expect(out.message).toContain("without a conflict now, so dipo merges nothing");
+        expect(out.afterStart).toBeUndefined();
+        expect(w.merges).toEqual([]);
+        expect(w.parked).toHaveLength(1);
+      }));
+
+    it("merges the base once the session runs while it conflicts in a path the worker can write", () =>
+      inWorld(async (w) => {
+        await onBranch(w, { "src/shared.ts": "one\ntwo from the story\nthree\n" }, "Story");
+        await onBase(w, { "src/shared.ts": "one\ntwo from the base\nthree\n" });
+        const out = prepared(await w.resumes.prepare(w.part.office, runOf(w)));
+        expect(out.message).toContain("git cannot merge src/shared.ts cleanly");
         await out.afterStart?.();
         expect(w.merges).toEqual([1]);
-        expect(w.parked).toHaveLength(1);
       }));
   });
 }

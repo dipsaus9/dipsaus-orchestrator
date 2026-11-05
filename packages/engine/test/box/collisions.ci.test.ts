@@ -4,7 +4,7 @@
 // and git's output read as data, then the flow on real git with a bare remote: two box runs whose
 // boxes are folders here (a fake box: `tar` of the folder for the parts, `rm` and a folder copy for
 // the catch-up), real `BoxParts` delivering their parts, and `BoxCollisions` telling the overlap
-// and letting the second story catch up, cleanly and with a conflict.
+// and letting the second story catch up only on a conflict.
 
 import { spawnSync } from "node:child_process";
 import {
@@ -38,7 +38,6 @@ import {
   type CollisionNotice,
   markersAt,
   storyChangedFiles,
-  type SyncMode,
   type SyncOutcome,
 } from "../../src/box/collisions";
 import { BoxParts, type PartPark, type PartRun } from "../../src/box/parts";
@@ -368,9 +367,12 @@ async function onBase(w: World, files: Readonly<Record<string, string>>): Promis
 
 // ---- the sync before In Review and the check In Review (DIPO-149) ----------------------------------
 
-/** Both stories change line four of `src/shared.ts`, then the first merges. */
-async function conflictAndMerge(w: World): Promise<{ before: string; onto: string }> {
-  write(w.a.work, { "src/shared.ts": lines({ 3: "FOUR from one" }) });
+/** Both stories change line four of `src/shared.ts` (the first also `extra`), then the first merges. */
+async function conflictAndMerge(
+  w: World,
+  extra: Readonly<Record<string, string>> = {},
+): Promise<{ before: string; onto: string }> {
+  write(w.a.work, { "src/shared.ts": lines({ 3: "FOUR from one" }), ...extra });
   await handPart(w, w.a, "A changes line four");
   write(w.b.work, { "src/shared.ts": lines({ 3: "FOUR from two" }) });
   await handPart(w, w.b, "B changes line four");
@@ -379,8 +381,8 @@ async function conflictAndMerge(w: World): Promise<{ before: string; onto: strin
 }
 
 /** The sync of the second story in its held turn, as verify and commit runs it at done. */
-function syncB(w: World, mode: SyncMode): Promise<SyncOutcome> {
-  return w.parts.inTurn(w.b.run.runId, () => w.collisions.syncInTurn(w.b.run, mode));
+function syncB(w: World): Promise<SyncOutcome> {
+  return w.parts.inTurn(w.b.run.runId, () => w.collisions.syncInTurn(w.b.run));
 }
 
 /** A commit on the remote story branch the local branch lacks (pushed from elsewhere). */
@@ -438,7 +440,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           {
             level: "warn",
             code: COLLISION_NOTICES.overlap,
-            text: "DIPO-1 and DIPO-2 are both in progress and change the same 1 file: src/shared.ts. Both continue; when one merges, dipo merges the new base into the other's branch and box.",
+            text: "DIPO-1 and DIPO-2 are both in progress and change the same 1 file: src/shared.ts. Both continue; dipo merges the base into a story's branch and box only when git reports a conflict.",
           },
         ]);
         expect(w.told.map((t) => t.runId)).toEqual(["run_1", "run_2"]);
@@ -459,12 +461,30 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(await tipOf(w, w.b)).toBe(tips[1]!);
       }));
 
-    it("merges the new base into the second story's branch and box once the first merged", () =>
+    it("merges nothing when the base changed the same file as the story without a conflict", () =>
       inWorld(async (w) => {
-        write(w.a.work, { "src/shared.ts": lines({ 0: "ONE" }), "src/a.ts": "a\n" });
+        const { before } = await overlapAndMerge(w);
+        await w.collisions.check();
+        expect(await tipOf(w, w.b)).toBe(before);
+        expect(await tipOf(w, w.b, "remote")).toBe(before);
+        expect(w.copies).toEqual([]);
+        expect(w.recorded).toEqual([]);
+        expect(w.parks).toEqual([]);
+        expect(w.notices).toEqual([]);
+        expect(w.told).toEqual([]);
+        expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toBe(lines({ 7: "EIGHT" }));
+        expect(existsSync(join(w.b.work, "src/a.ts"))).toBe(false);
+        // A later pass leaves it alone too.
+        await w.collisions.check();
+        expect(await tipOf(w, w.b)).toBe(before);
+      }));
+
+    it("merges the new base into the second story's branch and box once the first merged with a conflict", () =>
+      inWorld(async (w) => {
+        write(w.a.work, { "src/shared.ts": lines({ 3: "FOUR from one" }), "src/a.ts": "a\n" });
         rmSync(join(w.a.work, "src/old.ts"));
         await handPart(w, w.a, "A changes shared");
-        write(w.b.work, { "src/shared.ts": lines({ 7: "EIGHT" }) });
+        write(w.b.work, { "src/shared.ts": lines({ 3: "FOUR from two" }) });
         await handPart(w, w.b, "B changes shared");
         const before = await tipOf(w, w.b);
         // An edit the second worker has not handed yet.
@@ -485,12 +505,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         );
         expect((await w.repo.git("rev-parse", `${first}^`)).trim()).toBe(before);
         expect((await w.repo.git("log", "-1", "--format=%s%n%n%b", tip)).trim()).toBe(
-          `Merge main into ${w.b.run.branch}\n\nCatch-up of DIPO-2 with main at ${onto.slice(0, 12)}, merged by dipo.`,
+          `Merge main into ${w.b.run.branch}\n\nCatch-up of DIPO-2 with main at ${onto.slice(0, 12)}, merged by dipo.\n\n1 file conflicted (content) and stay as git left them for the worker's fix round.`,
         );
         expect(await tipOf(w, w.b, "remote")).toBe(tip);
-        // The branch holds both changes, and the box holds what the branch holds.
-        const merged = lines({ 0: "ONE", 7: "EIGHT" });
-        expect(await w.repo.git("show", `${tip}:src/shared.ts`)).toBe(merged);
+        // The branch holds git's merge, markers and all, and the box holds what the branch holds.
+        const merged = await w.repo.git("show", `${tip}:src/shared.ts`);
+        expect(merged).toContain("<<<<<<< ");
         expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toBe(merged);
         expect(readFileSync(join(w.b.work, "src/a.ts"), "utf8")).toBe("a\n");
         expect(existsSync(join(w.b.work, "src/old.ts"))).toBe(false);
@@ -502,11 +522,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(w.copies).toEqual(["dipo-run_2"]);
         // The first story merged: its changes are the base now, so only the catch-up is told.
         expect(w.notices.map((n) => [n.level, n.code])).toEqual([
-          ["info", COLLISION_NOTICES.caughtUp],
+          ["warn", COLLISION_NOTICES.conflict],
         ]);
         const message = w.told.at(-1)!;
         expect(message.runId).toBe("run_2");
-        expect(message.text).toContain("dipo merged main into your branch");
+        expect(message.text).toStartWith("dipo: fix round.");
         expect(message.text).toContain("2 files written, 1 file removed");
 
         // The next part sees the merged box as delivered: nothing of the base comes back as a change.
@@ -582,12 +602,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
 
     it("parks the second story and keeps its branch when the merge cannot reach its box", () =>
       inWorld(async (w) => {
-        write(w.a.work, { "src/shared.ts": lines({ 0: "ONE" }) });
-        await handPart(w, w.a, "A changes shared");
-        write(w.b.work, { "src/shared.ts": lines({ 7: "EIGHT" }) });
-        await handPart(w, w.b, "B changes shared");
-        const before = await tipOf(w, w.b);
-        await mergeFirst(w);
+        const { before } = await conflictAndMerge(w);
         w.failCopy = true;
         await w.collisions.check();
         expect(await tipOf(w, w.b)).toBe(before);
@@ -608,7 +623,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     it("fails the catch-up when an export attribute drops a merged file from the archive", () =>
       inWorld(async (w) => {
         await onBase(w, { ".gitattributes": "src/a.ts export-ignore\n" });
-        const { before } = await overlapAndMerge(w);
+        const { before } = await conflictAndMerge(w, { "src/a.ts": "a\n" });
         await w.collisions.check();
         expect(await tipOf(w, w.b)).toBe(before);
         expect(w.parks).toEqual([
@@ -617,12 +632,14 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         // Checked on the Mac before the box was touched.
         expect(w.copies).toEqual([]);
         expect(existsSync(join(w.b.work, "src/a.ts"))).toBe(false);
-        expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toBe(lines({ 7: "EIGHT" }));
+        expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toBe(
+          lines({ 3: "FOUR from two" }),
+        );
       }));
 
     it("takes the worker's edits made during the catch-up as a part and plans again once", () =>
       inWorld(async (w) => {
-        const { before, onto } = await overlapAndMerge(w);
+        const { before, onto } = await conflictAndMerge(w);
         let streams = 0;
         w.onStream = (box) => {
           if (box !== w.b.run.box) return;
@@ -645,14 +662,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(readFileSync(join(w.b.work, "src/b.ts"), "utf8")).toBe(
           "written during the catch-up\n",
         );
-        expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toBe(
-          lines({ 0: "ONE", 7: "EIGHT" }),
-        );
+        expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toContain("<<<<<<< ");
       }));
 
     it("parks when the worker keeps changing files during the catch-up", () =>
       inWorld(async (w) => {
-        await overlapAndMerge(w);
+        await conflictAndMerge(w);
         let streams = 0;
         w.onStream = (box) => {
           if (box !== w.b.run.box) return;
@@ -670,7 +685,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(
           (await w.repo.git("rev-list", "--parents", "-n", "1", tip)).trim().split(" "),
         ).toHaveLength(2);
-        expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toBe(lines({ 7: "EIGHT" }));
+        expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toBe(
+          lines({ 3: "FOUR from two" }),
+        );
       }));
 
     it("resolves a conflict in the story's own task file to the base's version and writes the branch's status back", () =>
@@ -697,7 +714,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           lines({ 0: "ONE", 7: "EIGHT" }),
         );
         expect(readFileSync(join(w.b.work, task), "utf8")).toContain("status: Ready");
-        expect(w.told.at(-1)!.text).toContain("dipo merged main into your branch");
+        expect(w.told.at(-1)!.text).toContain("a conflict only in your story's task file");
         expect(w.notices.map((n) => n.code)).toEqual([COLLISION_NOTICES.caughtUp]);
       }));
 
@@ -730,7 +747,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
 
     it("parks the story when the push after the merge is rejected", () =>
       inWorld(async (w) => {
-        const { before, onto } = await overlapAndMerge(w);
+        const { before, onto } = await conflictAndMerge(w);
         // The remote branch gets a commit the local branch lacks.
         const tree = (await w.repo.git("rev-parse", `${before}^{tree}`)).trim();
         const remoteOnly = (
@@ -751,12 +768,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             }),
           },
         ]);
-        expect(w.told.some((t) => t.text.includes("merged main into your branch"))).toBe(false);
+        expect(w.told.some((t) => t.text.startsWith("dipo: fix round."))).toBe(false);
       }));
 
     it("parks the story when its branch moves between the plan and the move", () =>
       inWorld(async (w) => {
-        const { before } = await overlapAndMerge(w);
+        const { before } = await conflictAndMerge(w);
         let elsewhere = "";
         w.onCopy = async () => {
           const tree = (await w.repo.git("rev-parse", `${before}^{tree}`)).trim();
@@ -773,53 +790,33 @@ if (process.env["DIPO_TEST_CI"] === "1") {
   });
 
   describe("the sync before In Review on real git (DIPO-149)", () => {
-    it("merges a base that changed none of the story's files only for a riskier story, and records it", () =>
+    it("merges nothing at done when the base moved without a conflict, overlapping files or not", () =>
       inWorld(async (w) => {
         write(w.a.work, { "src/a.ts": "a\n" });
         await handPart(w, w.a, "A adds a");
         write(w.b.work, { "src/b.ts": "b\n" });
         await handPart(w, w.b, "B adds b");
         const before = await tipOf(w, w.b);
-        const onto = await mergeFirst(w);
-        expect(await syncB(w, "onConflict")).toEqual({ kind: "none" });
+        await mergeFirst(w);
+        expect(await syncB(w)).toEqual({ kind: "none" });
         expect(await tipOf(w, w.b)).toBe(before);
-
-        const synced = await syncB(w, "always");
-        expect(synced.kind).toBe("merged");
-        if (synced.kind !== "merged") return;
-        expect(synced.item).toBeNull();
+        // The base changes the story's file in lines apart: still no conflict, so still no merge.
+        await onBase(w, { "src/shared.ts": lines({ 0: "ONE" }) });
+        write(w.b.work, { "src/shared.ts": lines({ 7: "EIGHT" }) });
+        await handPart(w, w.b, "B changes shared");
         const tip = await tipOf(w, w.b);
-        expect(synced.head).toBe(tip);
-        expect((await w.repo.git("rev-list", "--parents", "-n", "1", tip)).trim()).toBe(
-          `${tip} ${before} ${onto}`,
-        );
-        expect(await tipOf(w, w.b, "remote")).toBe(tip);
-        expect(readFileSync(join(w.b.work, "src/a.ts"), "utf8")).toBe("a\n");
-        expect(w.recorded).toEqual([
-          { base: "main", onto, tip: before, commit: tip, conflicts: [], taskFile: null },
-        ]);
-        expect(w.notices.at(-1)).toEqual({
-          level: "info",
-          code: COLLISION_NOTICES.caughtUp,
-          text: `dipo merged main at ${onto.slice(0, 12)} into DIPO-2's branch and box before review: a story of tier L or flagged test-before-merge always syncs with its base.`,
-        });
-        // The caller tells the worker, not the sync.
-        expect(w.told).toEqual([]);
-        expect(await syncB(w, "always")).toEqual({ kind: "none" });
-      }));
-
-    it("leaves a clean overlap for later unless the story is riskier", () =>
-      inWorld(async (w) => {
-        const { before } = await overlapAndMerge(w);
-        expect(await syncB(w, "onConflict")).toEqual({ kind: "none" });
-        expect(await tipOf(w, w.b)).toBe(before);
+        expect(await syncB(w)).toEqual({ kind: "none" });
+        expect(await tipOf(w, w.b)).toBe(tip);
         expect(w.copies).toEqual([]);
+        expect(w.recorded).toEqual([]);
+        expect(w.notices).toEqual([]);
+        expect(existsSync(join(w.b.work, "src/a.ts"))).toBe(false);
       }));
 
     it("commits a conflict as git left it, copies it into the box and hands back one conflict item", () =>
       inWorld(async (w) => {
         const { before, onto } = await conflictAndMerge(w);
-        const synced = await syncB(w, "onConflict");
+        const synced = await syncB(w);
         expect(synced.kind).toBe("merged");
         if (synced.kind !== "merged" || synced.item === null) throw new Error("no conflict item");
         const tip = await tipOf(w, w.b);
@@ -941,11 +938,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
 
     it("installs the packages in the box again after a catch-up changed a lockfile", () =>
       inWorld(async (w) => {
-        write(w.a.work, { "src/shared.ts": lines({ 0: "ONE" }), "bun.lock": "{ lock: 2 }\n" });
-        await handPart(w, w.a, "A changes shared and the lockfile");
-        write(w.b.work, { "src/shared.ts": lines({ 7: "EIGHT" }) });
-        await handPart(w, w.b, "B changes shared");
-        await mergeFirst(w);
+        await conflictAndMerge(w, { "bun.lock": "{ lock: 2 }\n" });
         await w.collisions.check();
         expect(w.parks).toEqual([]);
         expect(readFileSync(join(w.b.work, "bun.lock"), "utf8")).toBe("{ lock: 2 }\n");
@@ -966,7 +959,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const reclaimed = { ...w.b.run, startSha: earlier };
         write(w.b.work, { "src/shared.ts": lines({ 3: "FOUR from the earlier run" }) });
         const synced = await w.parts.inTurn(reclaimed.runId, () =>
-          w.collisions.syncInTurn(reclaimed, "onConflict"),
+          w.collisions.syncInTurn(reclaimed),
         );
         expect(synced.kind).toBe("merged");
         if (synced.kind === "merged") {
@@ -1019,19 +1012,17 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect((await w.repo.git("show", `${tip}:src/early.ts`)).trim()).toBe("early");
       }));
 
-    it("merges the base again whenever it moved, without an overlap, and hands back a conflict", () =>
+    it("merges nothing when the base moved without a conflict, and merges and hands back a conflict", () =>
       inWorld(async (w) => {
         write(w.b.work, { "src/b.ts": "b\n" });
         await handPart(w, w.b, "B adds b");
         const before = await tipOf(w, w.b);
-        const onto = await onBase(w, { "docs/elsewhere.md": "elsewhere\n" });
-        const clean = await w.collisions.mergeOnResume(w.b.run);
-        expect(clean.kind).toBe("merged");
-        if (clean.kind !== "merged") return;
-        expect((await w.repo.git("rev-list", "--parents", "-n", "1", clean.head)).trim()).toBe(
-          `${clean.head} ${before} ${onto}`,
-        );
-        expect(readFileSync(join(w.b.work, "docs/elsewhere.md"), "utf8")).toBe("elsewhere\n");
+        await onBase(w, { "docs/elsewhere.md": "elsewhere\n" });
+        expect(await w.collisions.mergeOnResume(w.b.run)).toEqual({ kind: "none" });
+        expect(await tipOf(w, w.b)).toBe(before);
+        expect(existsSync(join(w.b.work, "docs/elsewhere.md"))).toBe(false);
+        expect(w.copies).toEqual([]);
+        expect(w.recorded).toEqual([]);
 
         const { onto: conflicting } = await conflictAndMerge(w);
         const conflicted = await w.collisions.mergeOnResume(w.b.run);

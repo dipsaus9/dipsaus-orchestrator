@@ -59,7 +59,6 @@ export {
 } from "./fix-rounds";
 export type { FixRoundsDeps, FixSessions } from "./fix-rounds";
 export {
-  approvalCarries,
   baseConflictOf,
   blockedHandOff,
   CONFLICT_CAP_DEFAULT,

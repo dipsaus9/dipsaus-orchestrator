@@ -13,13 +13,16 @@
 //   above the other. A new overlap (another pair of stories, or more paths) is told to the maintainer
 //   as an `engine.notice` (the TUI and `dipo watch` show it) and to both workers as a message. What
 //   was told lives in memory only: after a daemon restart an overlap still in place is told once
-//   more. That is accepted; it is a notice and a message, never a change.
-// - Catching up. The second story catches up once the first has merged: when the base branch holds
-//   changes, since the story's merge base, to files the story changed too. The check is git's own
-//   merge (`git merge-tree --write-tree`, from git objects alone, no checkout, no model). First the
-//   box's work is taken as a part, so the branch tip is the box's code. Then, in the run's turn of
+//   more. That is accepted; it is a notice and a message, never a change: dipo takes no action on an
+//   overlap (0008).
+// - Catching up. dipo merges the base into a story only when git reports a conflict (0002), never
+//   for overlapping paths alone. The check is git's own merge (`git merge-tree --write-tree`, from
+//   git objects alone, no checkout, no model), planned on git's merge alone, never on the overlap of
+//   changed files: a re-claimed branch's earlier work lies below its start commit. First the box's
+//   work is taken as a part, so the branch tip is the box's code. Then, in the run's turn of
 //   `BoxParts` (no other part is taken in between):
-//   1. dipo commits the merge from git objects (`commit-tree` with the tip and the base as parents);
+//   1. dipo plans again and commits the merge from git objects (`commit-tree` with the tip and the
+//      base as parents); a conflict the part resolved merges nothing;
 //   2. it stages the paths the merge changed against the tip, outside the story folders (dipo's
 //      task-file commits never reach the box, `readView`; a symlink the merge writes that points
 //      into one refuses the catch-up), from a `git archive` of the merge, and checks that
@@ -55,10 +58,8 @@
 //   or a task-file conflict other than in its content, merges nothing, into neither the branch nor
 //   the box, and parks `conflict`.
 // - The sync before In Review (`syncInTurn`, DIPO-149): verify and commit runs the same catch-up
-//   at done, in the run's held turn, for a riskier story whenever the base moved and for any other
-//   on a conflict; the caller tells the worker. Both are planned on git's merge alone, never on the
-//   overlap of changed files: a re-claimed branch's earlier work lies below its start commit. A
-//   merge that changed a lockfile installs the office's packages in the box again (`reinstall`,
+//   at done, in the run's held turn, on a conflict, the same for every story; the caller tells the
+//   worker. A merge that changed a lockfile installs the office's packages in the box again (`reinstall`,
 //   the launch's install). Accepted: a conflicted catch-up during a fix round pushes the merge, its
 //   markers included, to the story branch and so to its open PR; the check at done keeps that head
 //   from review until the worker resolved it.
@@ -332,12 +333,12 @@ function files(n: number): string {
 
 /** Pure: the maintainer's notice of an overlap. */
 export function overlapNotice(overlap: StoryOverlap): string {
-  return `${overlap.a.story} and ${overlap.b.story} are both in progress and change the same ${files(overlap.paths.length)}: ${shownPaths(overlap.paths)}. Both continue; when one merges, dipo merges the new base into the other's branch and box.`;
+  return `${overlap.a.story} and ${overlap.b.story} are both in progress and change the same ${files(overlap.paths.length)}: ${shownPaths(overlap.paths)}. Both continue; dipo merges the base into a story's branch and box only when git reports a conflict.`;
 }
 
 /** Pure: the message to a worker whose story overlaps `other`'s. */
 export function overlapMessage(other: string, paths: readonly string[]): string {
-  return `dipo: another story in progress, ${other}, changes the same ${files(paths.length)} as you: ${shownPaths(paths)}. Both stories continue. Keep your changes to these files to what your story needs. When ${other} merges first, dipo merges the new base into your branch, copies the result into your box and tells you.`;
+  return `dipo: another story in progress, ${other}, changes the same ${files(paths.length)} as you: ${shownPaths(paths)}. Both stories continue. Keep your changes to these files to what your story needs. When ${other} merges first and git cannot merge the new base into your branch cleanly, dipo merges it, copies the result into your box and tells you.`;
 }
 
 /** What a catch-up did, for its texts. */
@@ -346,9 +347,7 @@ export interface CatchUpFacts {
   readonly base: string;
   /** The base commit merged in. */
   readonly onto: string;
-  /** The paths of the story that the base changed too. */
-  readonly overlap: readonly string[];
-  /** The files git could not merge cleanly; empty for a clean merge. */
+  /** The files git could not merge cleanly; empty when only the story's task file conflicted. */
   readonly conflicts: readonly ConflictFile[];
   /** The paths written into the box and removed from it. */
   readonly written: number;
@@ -358,11 +357,8 @@ export interface CatchUpFacts {
 /** Pure: the maintainer's notice of a catch-up. */
 export function catchUpNotice(facts: CatchUpFacts): string {
   const at = `${facts.base} at ${facts.onto.slice(0, 12)}`;
-  if (facts.conflicts.length === 0 && facts.overlap.length === 0) {
-    return `dipo merged ${at} into ${facts.story}'s branch and box before review: a story of tier L or flagged test-before-merge always syncs with its base.`;
-  }
   return facts.conflicts.length === 0
-    ? `dipo merged ${at} into ${facts.story}'s branch and box: the base changed ${files(facts.overlap.length)} the story changed too (${shownPaths(facts.overlap)}).`
+    ? `git merged ${at} into ${facts.story}'s branch with a conflict only in the story's task file. dipo took the base's version of it, kept the branch's status, and copied the merge into the box.`
     : `${files(facts.conflicts.length)} conflicted when git merged ${at} into ${facts.story}'s branch (${conflictSummary(facts.conflicts)}). dipo committed the merge as git left it, copied it into the box, and gave the worker a fix round.`;
 }
 
@@ -373,7 +369,7 @@ export function catchUpNotice(facts: CatchUpFacts): string {
 export function catchUpMessage(facts: CatchUpFacts & { readonly hunks?: string }): string {
   const copied = `It copied the merge into your box: ${files(facts.written)} written, ${files(facts.removed)} removed.`;
   if (facts.conflicts.length === 0) {
-    return `dipo: ${facts.base} changed files your story changes too (${shownPaths(facts.overlap)}), so dipo merged ${facts.base} into your branch. ${copied} Read those files again before you change them further, and keep going.`;
+    return `dipo: git merged ${facts.base} into your branch with a conflict only in your story's task file, which dipo resolved. ${copied} Read the files it changed again before you change them further, and keep going.`;
   }
   const help = kindsOf(facts.conflicts).map((kind) => CONFLICT_KIND_HELP[kind]);
   const text = `dipo: fix round. ${facts.base} changed files your story changes too, and ${files(facts.conflicts.length)} conflicted when git merged ${facts.base} into your branch: ${conflictSummary(facts.conflicts)}. dipo committed the merge as git left it. ${copied} ${help.join(" ")} Then run the tests and hand a part with dipo-part. dipo does not move the story to review while a conflict marker line remains in one of these files.`;
@@ -760,7 +756,7 @@ export async function storyChangedFiles(
 export type CatchUpPlan =
   /** The branch holds the base already, or there is no base to merge. */
   | { readonly kind: "current" }
-  /** The base changed nothing the story changed: no catch-up. */
+  /** The branch and the base share no history: nothing to merge. */
   | { readonly kind: "apart"; readonly onto: string }
   /**
    * The merge conflicts in paths the worker cannot write (0002): any protected path
@@ -782,7 +778,6 @@ export type CatchUpPlan =
       readonly tree: string;
       /** The merge commit, made only when asked to write. */
       readonly commit: string | null;
-      readonly overlap: readonly string[];
       /** The conflicts left for the worker; the story's own task file is never one. */
       readonly conflicts: readonly ConflictFile[];
       /**
@@ -793,8 +788,13 @@ export type CatchUpPlan =
       readonly taskFile: string | null;
     };
 
-/** How a catch-up check merges: on an overlap (the poll), or whenever the base moved (DIPO-149). */
-export type CatchUpMode = "overlap" | "always";
+/**
+ * True when git reports a conflict for a planned merge: a conflict for the worker, or one in the
+ * story's own task file that dipo resolves. Only then does dipo merge the base (0002).
+ */
+export function conflicted(plan: Extract<CatchUpPlan, { kind: "merge" }>): boolean {
+  return plan.conflicts.length > 0 || plan.taskFile !== null;
+}
 
 /**
  * The tree `tree` with the blob `id` (mode 100644) at `path`, written through a temporary index in
@@ -823,10 +823,10 @@ async function treeWith(
 }
 
 /**
- * The catch-up check of one story (criterion 4): does the base hold changes, since the merge base,
- * to files the story changed (with mode `always`, any change since the merge base: the sync of a
- * riskier story before In Review, DIPO-149), and does git merge them cleanly
- * (`git merge-tree --write-tree` from objects alone, `mergeOffConfig`)? With `write` the merge
+ * The catch-up check of one story: has the base moved past the branch, and does git merge it
+ * cleanly (`git merge-tree --write-tree` from objects alone, `mergeOffConfig`)? Planned on git's
+ * merge alone, never on the overlap of changed files: a re-claimed branch's earlier work lies
+ * below its start commit. Callers merge only when it `conflicted`. With `write` the merge
  * commit is made too (`commit-tree`, the tip and the base as parents), but no ref moves; a
  * conflict in the story's own task file is resolved to the base's version in it, through a
  * temporary index in `scratch`.
@@ -840,7 +840,6 @@ export async function planCatchUp(
     readonly base: string;
     readonly baseRef: string;
     readonly write: boolean;
-    readonly mode?: CatchUpMode;
     /** A folder of dipo's own for the temporary index; needed to write a task-file resolution. */
     readonly scratch?: string;
     /** The store that finds the story's own file and its folders at the branch tip. */
@@ -853,14 +852,9 @@ export async function planCatchUp(
   if (tip === null || onto === null || (await isAncestor(session, onto, tip))) {
     return { kind: "current" };
   }
-  const { from, mergeBase } = await startPoint(session, tip, input.startSha, input.baseRef);
+  const { mergeBase } = await startPoint(session, tip, input.startSha, input.baseRef);
   if (mergeBase === null) return { kind: "apart", onto };
   const folders = await foldersAt(session, input.stories, tip);
-  const overlap = overlappingPaths(
-    await namesBetween(session, from, tip, folders),
-    await namesBetween(session, mergeBase, onto, folders),
-  );
-  if (overlap.length === 0 && input.mode !== "always") return { kind: "apart", onto };
   const merged = await session.step(
     repo,
     ["merge-tree", "--write-tree", "--name-only", "-z", tip, onto],
@@ -908,7 +902,7 @@ export async function planCatchUp(
       message: { subject: message.subject, body: [message.body] },
     });
   }
-  return { kind: "merge", tip, onto, tree, commit, overlap, conflicts, taskFile };
+  return { kind: "merge", tip, onto, tree, commit, conflicts, taskFile };
 }
 
 /** The `BoxError` code of a merge dipo does not copy into a box: nothing of it is copied. */
@@ -1103,7 +1097,7 @@ export interface CatchUpFound {
 
 /** What a base sync in the run's held turn did (`BoxCollisions.syncInTurn`, DIPO-149). */
 export type SyncOutcome =
-  /** Nothing merged: the branch holds the base, or the mode leaves a clean merge for later. */
+  /** Nothing merged: the branch holds the base, or git merges it without a conflict. */
   | { readonly kind: "none" }
   | {
       readonly kind: "merged";
@@ -1111,20 +1105,13 @@ export type SyncOutcome =
       /** The branch tip after the merge, and after the task file's status commit when one ran. */
       readonly head: string;
       readonly facts: CatchUpFacts;
-      /** The conflict item for the worker; null for a clean merge. */
+      /** The conflict item for the worker; null when only the story's task file conflicted. */
       readonly item: ConflictItem | null;
     }
   /** The sync parks the story: a path the worker cannot write, a failed copy, a rejected push. */
   | { readonly kind: "park"; readonly park: PartPark }
   /** The run stopped going on meanwhile. */
   | { readonly kind: "stopped" };
-
-/** How the sync before In Review merges (0002). */
-export type SyncMode =
-  /** A riskier story (tier L or flagged test-before-merge): whenever the base moved. */
-  | "always"
-  /** Any other story: only when git cannot merge cleanly. */
-  | "onConflict";
 
 export interface BoxCollisionsDeps {
   readonly boxes: Pick<BoxPort, "copyIn" | "exec">;
@@ -1156,8 +1143,8 @@ export interface BoxCollisionsDeps {
   /** Tells the maintainer (an `engine.notice` of the run). */
   readonly notice: (office: OfficeId, runId: string, notice: CollisionNotice) => void;
   /**
-   * Records a merge dipo made into the branch (DIPO-149): its conflicted paths, a conflict
-   * hand-off, and an approval carried over a clean merge. Called once the branch moved.
+   * Records a merge dipo made into the branch (DIPO-149): its conflicted paths and a conflict
+   * hand-off. Called once the branch moved.
    */
   readonly recorded?: (run: PartRun, merged: CatchUpMerged) => Promise<void>;
   /**
@@ -1339,32 +1326,26 @@ export class BoxCollisions {
 
   /**
    * The sync before In Review of a box run at done (DIPO-149, 0002), inside the run's
-   * held turn of parts (`BoxParts.finishLast`), so no part or catch-up runs meanwhile: `always`
-   * merges the base whenever it moved, `onConflict` only when git cannot merge it cleanly. The
-   * merge is made as a catch-up is (committed from git objects, copied into the box, the branch
-   * moved and pushed, recorded), but nothing is told to the worker: the caller decides the turn.
+   * held turn of parts (`BoxParts.finishLast`), so no part or catch-up runs meanwhile: the base
+   * is merged only when git reports a conflict, the same for every story. The merge is made as a
+   * catch-up is (committed from git objects, copied into the box, the branch moved and pushed,
+   * recorded), but nothing is told to the worker: the caller decides the turn.
    */
-  async syncInTurn(run: PartRun, mode: SyncMode): Promise<SyncOutcome> {
+  async syncInTurn(run: PartRun): Promise<SyncOutcome> {
     const git = this.#deps.git(run.office);
     if (git === undefined) return { kind: "none" };
-    // Planned on git's merge alone, never on the overlap of changed files: a re-claimed branch's
-    // earlier work lies below its start commit, so the overlap would miss a conflict there.
-    const planMode: CatchUpMode = "always";
-    const plan = await this.#plan(git, run, false, planMode);
+    const plan = await this.#plan(git, run, false);
     if (plan === null || plan.kind === "current" || plan.kind === "apart") return { kind: "none" };
     if (plan.kind === "unwritable") return { kind: "park", park: this.#unwritable(run, plan) };
-    if (mode === "onConflict" && plan.conflicts.length === 0 && plan.taskFile === null) {
-      return { kind: "none" };
-    }
-    return this.#catchUp(git, run, planMode);
+    if (!conflicted(plan)) return { kind: "none" };
+    return this.#catchUp(git, run);
   }
 
   /**
    * The merge a maintainer resume of a `conflict` park asks for once its new session runs in the
-   * box (DIPO-324, 0020): whatever the box holds goes first, then the base is merged into
-   * the story branch and the box as a catch-up is, whenever it moved, never on the overlap of
-   * changed files. Nothing is told to the worker and nothing parks here: the caller decides from
-   * the outcome.
+   * box (DIPO-324, 0020): whatever the box holds goes first, then the base is merged into the
+   * story branch and the box as a catch-up is, only when git still reports a conflict. Nothing is
+   * told to the worker and nothing parks here: the caller decides from the outcome.
    */
   async mergeOnResume(run: PartRun): Promise<SyncOutcome> {
     const git = this.#deps.git(run.office);
@@ -1374,12 +1355,13 @@ export class BoxCollisions {
     if (park !== null) return { kind: "park", park };
     if (before.kind === "stopped") return { kind: "stopped" };
     return this.#deps.parts.inTurn(run.runId, async (): Promise<SyncOutcome> => {
-      const plan = await this.#plan(git, run, false, "always");
+      const plan = await this.#plan(git, run, false);
       if (plan === null || plan.kind === "current" || plan.kind === "apart") {
         return { kind: "none" };
       }
       if (plan.kind === "unwritable") return { kind: "park", park: this.#unwritable(run, plan) };
-      return this.#catchUp(git, run, "always");
+      if (!conflicted(plan)) return { kind: "none" };
+      return this.#catchUp(git, run);
     });
   }
 
@@ -1507,20 +1489,19 @@ export class BoxCollisions {
     });
   }
 
-  /** Plans without writing first, so a story whose base did not touch its files is left alone. */
+  /** Plans without writing first, so a story whose base merges without a conflict is left alone. */
   async #maybeCatchUp(git: OfficeGit, run: PartRun): Promise<void> {
-    const plan = await this.#plan(git, run, false, "overlap");
+    const plan = await this.#plan(git, run, false);
     if (plan === null || plan.kind === "current" || plan.kind === "apart") return;
     if (plan.kind === "unwritable") {
       this.#deps.park(run.runId, this.#unwritable(run, plan));
       return;
     }
+    if (!conflicted(plan)) return;
     // Whatever the box holds goes first, so the branch tip is the box's code when git merges.
     const before = await this.#deps.parts.deliverLast(run.runId, CATCH_UP_PART_MESSAGE);
     if (this.#parked(run, partPark(before)) || before.kind === "stopped") return;
-    const outcome = await this.#deps.parts.inTurn(run.runId, () =>
-      this.#catchUp(git, run, "overlap"),
-    );
+    const outcome = await this.#deps.parts.inTurn(run.runId, () => this.#catchUp(git, run));
     if (outcome.kind === "park") {
       this.#deps.park(run.runId, outcome.park);
       return;
@@ -1551,7 +1532,7 @@ export class BoxCollisions {
       return `${tip ?? ""} ${onto ?? ""}`;
     });
     if (this.#reviewSeen.get(run.runId) === heads) return;
-    const plan = await this.#plan(git, run, false, "always");
+    const plan = await this.#plan(git, run, false);
     const conflicts: readonly ConflictFile[] =
       plan === null || plan.kind === "current" || plan.kind === "apart"
         ? []
@@ -1599,7 +1580,6 @@ export class BoxCollisions {
     git: OfficeGit,
     run: PartRun,
     write: boolean,
-    mode: CatchUpMode,
     scratch?: string,
   ): Promise<(CatchUpPlan & { readonly base: string }) | null> {
     return git.run(async (session) => {
@@ -1613,7 +1593,6 @@ export class BoxCollisions {
         base: base.base,
         baseRef: base.ref,
         write,
-        mode,
         ...(scratch === undefined ? {} : { scratch }),
       });
       return { ...plan, base: base.base };
@@ -1631,27 +1610,24 @@ export class BoxCollisions {
   }
 
   /** The catch-up itself, in the run's turn (see the file comment). */
-  async #catchUp(git: OfficeGit, run: PartRun, mode: CatchUpMode): Promise<SyncOutcome> {
+  async #catchUp(git: OfficeGit, run: PartRun): Promise<SyncOutcome> {
     const scratch = await realpath(await mkdtemp(join(this.#deps.tmpRoot, CATCH_UP_STAGE_PREFIX)));
     try {
-      return await this.#catchUpWith(git, run, mode, scratch);
+      return await this.#catchUpWith(git, run, scratch);
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
   }
 
-  async #catchUpWith(
-    git: OfficeGit,
-    run: PartRun,
-    mode: CatchUpMode,
-    scratch: string,
-  ): Promise<SyncOutcome> {
+  async #catchUpWith(git: OfficeGit, run: PartRun, scratch: string): Promise<SyncOutcome> {
     for (let attempt = 1; attempt <= CATCH_UP_ATTEMPTS; attempt += 1) {
       if (!this.#deps.live(run.runId)) return { kind: "stopped" };
-      const plan = await this.#plan(git, run, true, mode, scratch);
+      const plan = await this.#plan(git, run, true, scratch);
       if (plan === null || plan.kind === "current" || plan.kind === "apart")
         return { kind: "none" };
       if (plan.kind === "unwritable") return { kind: "park", park: this.#unwritable(run, plan) };
+      // A part taken since the first plan may have resolved the conflict: then nothing merges.
+      if (!conflicted(plan)) return { kind: "none" };
       const commit = plan.commit;
       if (commit === null) return { kind: "none" };
       let changes: BoxChanges;
@@ -1762,7 +1738,6 @@ export class BoxCollisions {
       story: run.story,
       base: plan.base,
       onto: plan.onto,
-      overlap: plan.overlap,
       conflicts: plan.conflicts,
       written: changes.written.length,
       removed: changes.removed.length,

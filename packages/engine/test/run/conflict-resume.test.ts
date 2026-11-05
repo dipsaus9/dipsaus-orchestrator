@@ -148,9 +148,7 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
     config: () => OFFICE_DEFAULTS,
   };
   const conflicts = new StoryConflicts({
-    stories: backlogLayout,
     clock: f.t.clock,
-    ids: f.t.ids,
     offices,
     git: (id) => (id === officeId ? git : undefined),
   });
