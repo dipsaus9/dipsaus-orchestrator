@@ -34,7 +34,7 @@ export interface PrBodyStory {
 export interface PrBodyReview {
   readonly round: number;
   readonly verdict: "approved" | "blocked";
-  /** The reviewed head, or the head an approval was carried to. */
+  /** The reviewed head. */
   readonly commit: string;
   readonly blocking: number;
   readonly advisory: number;

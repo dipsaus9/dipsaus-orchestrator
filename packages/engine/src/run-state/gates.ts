@@ -29,8 +29,8 @@
 // - Summary. Built by code: why the gate waits and what to do; for a flagged story the manual
 //   test-plan entries and the `dipo test` line, and for any story the test recorded for the head.
 //   The gate's phase is `test` for a flagged story and `merge` otherwise.
-// - A head per gate. A gate holds for its own head and for a head its approval was carried to
-//   (task-file commits such as the close-out); a new head after a fix round opens a new gate with a
+// - A head per gate. A gate holds for its own head and for task-file-only commits on top of it
+//   (such as the close-out), which share its code tree key; a new head after a fix round opens a new gate with a
 //   new id. An open gate whose head no longer holds is decided `rejected` by rule as superseded,
 //   so nothing waits on a head that is gone.
 // - The override gate. A story parked `review-blocked` gets a merge gate waiting

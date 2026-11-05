@@ -2,7 +2,7 @@
 // row of kind `review` with its rule decision in `gate_decisions` (approved, or rejected for a
 // blocked verdict; its content hash is the code tree key), and one `review_verdicts` row with the
 // round, the reviewed commit, the code tree key, the judged criteria and findings, the validation
-// notes, the comment URL, the commit an approval was carried from and any maintainer override. A
+// notes, the comment URL and any maintainer override. A
 // verdict holds for every commit with the same code tree key, so the engine reads it back by run
 // and code tree key and never reviews a tree that has one. Writes run inside the
 // caller's transaction.
@@ -30,15 +30,13 @@ export interface NewReviewVerdict {
   readonly runId: RunId;
   readonly key: StoryKey;
   readonly round: number;
-  /** The reviewer agent whose report was judged; null for an approval carried to a new head. */
+  /** The reviewer agent whose report was judged; null when none is recorded. */
   readonly agent: string | null;
   readonly model: string;
   /** The reviewed commit, and its code tree key (0010). */
   readonly commit: string;
   readonly codeTreeKey: string;
   readonly judged: JudgedReview;
-  /** The approved head this approval was carried from; absent for a reviewed head. */
-  readonly carriedFrom?: string | null;
   readonly at: number;
 }
 
@@ -58,7 +56,6 @@ export interface StoredReviewVerdict {
   readonly summary: string;
   readonly notes: readonly string[];
   readonly commentUrl: string | null;
-  readonly carriedFrom: string | null;
   readonly override: { readonly note: string; readonly at: number } | null;
   readonly decidedAt: number;
 }
@@ -78,14 +75,13 @@ interface VerdictRow {
   summary: string;
   validation_notes: string;
   comment_url: string | null;
-  carried_from: string | null;
   override_note: string | null;
   override_at: number | null;
   decided_at: number;
 }
 
 const COLUMNS = `gate_id, run_id, key, round, agent_id, model, commit_sha, code_tree_key, verdict,
-  criteria, findings, summary, validation_notes, comment_url, carried_from, override_note,
+  criteria, findings, summary, validation_notes, comment_url, override_note,
   override_at, decided_at`;
 
 function toRecord(row: VerdictRow): StoredReviewVerdict {
@@ -104,7 +100,6 @@ function toRecord(row: VerdictRow): StoredReviewVerdict {
     summary: row.summary,
     notes: JSON.parse(row.validation_notes) as string[],
     commentUrl: row.comment_url,
-    carriedFrom: row.carried_from,
     override:
       row.override_note === null || row.override_at === null
         ? null
@@ -171,7 +166,7 @@ export function recordReviewVerdict(
   office.run(
     `insert into review_verdicts (office_id, ${COLUMNS})
      values ($office_id, $gate, $run, $key, $round, $agent, $model, $commit, $tree, $verdict,
-       $criteria, $findings, $summary, $notes, null, $carried, null, null, $at)`,
+       $criteria, $findings, $summary, $notes, null, null, null, $at)`,
     {
       gate,
       run: verdict.runId,
@@ -186,7 +181,6 @@ export function recordReviewVerdict(
       findings: JSON.stringify(judged.findings),
       summary: judged.summary,
       notes: JSON.stringify(judged.notes),
-      carried: verdict.carriedFrom ?? null,
       at,
     },
   );
@@ -246,14 +240,13 @@ export function recordReviewCommentUrl(office: OfficeHandle, gate: GateId, url: 
 
 /**
  * The verdicts of the run still to be posted as a PR comment, oldest first: a reviewed head with
- * no comment URL. An approval carried to a new head posts nothing.
+ * no comment URL.
  */
 export function uncommentedVerdicts(office: OfficeHandle, runId: RunId): StoredReviewVerdict[] {
   return office
     .all<VerdictRow>(
       `select ${COLUMNS} from review_verdicts
         where office_id = $office_id and run_id = $run and comment_url is null
-          and carried_from is null
         order by decided_at, rowid`,
       { run: runId },
     )
@@ -296,7 +289,7 @@ export function recordReviewOverride(
 
 /**
  * The verdict as `story.detail` shows it (`Verdict.review`, 0002): the reviewer agent's
- * usage, zero for a carried approval or an agent retention removed.
+ * usage, zero for a verdict with no agent or one retention removed.
  */
 export function reviewVerdictView(
   office: OfficeHandle,
@@ -320,7 +313,6 @@ export function reviewVerdictView(
     model: stored.model,
     usage,
     ...(stored.commentUrl === null ? {} : { commentUrl: stored.commentUrl }),
-    ...(stored.carriedFrom === null ? {} : { carried: true }),
     ...(stored.override === null
       ? {}
       : {

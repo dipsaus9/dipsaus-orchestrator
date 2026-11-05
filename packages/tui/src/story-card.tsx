@@ -52,7 +52,7 @@ function oneLine(text: string): string {
 /** The lines of one review round. */
 export function verdictLines(review: ReviewVerdict, decided: Verdict, dot: string): string[] {
   const lines = [
-    `round ${review.round} ${dot} ${review.commit.slice(0, 12)} ${dot} ${review.verdict}${review.carried === true ? " (carried to a later head)" : ""} ${dot} ${clockTime(Date.parse(decided.at))}`,
+    `round ${review.round} ${dot} ${review.commit.slice(0, 12)} ${dot} ${review.verdict} ${dot} ${clockTime(Date.parse(decided.at))}`,
   ];
   if (review.criteria.length > 0) {
     lines.push(

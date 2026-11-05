@@ -152,8 +152,9 @@ export class AutoMerge {
   }
 
   /**
-   * True when the merge gate `gate` holds for the PR head `head`: its own head, or one its verdict
-   * carried to (`StoryMerges.gateHolds`); only its own head without story PRs.
+   * True when the merge gate `gate` holds for the PR head `head`: its own head, or one with the
+   * same verdict, a task-file-only commit on top (`StoryMerges.gateHolds`); only its own head
+   * without story PRs.
    */
   async gateHolds(office: OfficeHandle, gate: StoredMergeGate, head: string): Promise<boolean> {
     if (gate.head === head) return true;
