@@ -4,8 +4,10 @@
 // dipo's record gives it, and its story's status in `_base`, which the story index's fetch keeps
 // at `<remote>/<base>`, read through the story store. `git merge-tree` is no Done signal (0010).
 //
-// - Merged: the story is torn down (`teardown.ts`) unless it is Parked or a worker host of its run
-//   is still live: a parked story keeps its branch. A branch that moved past the merged head with
+// - Merged: dipo's record of the story PR says merged first, also when the host answered for a
+//   record that still said open, so next up never offers the story once its claim goes. The story
+//   is torn down (`teardown.ts`) unless it is Parked or a worker host of its run is still live: a
+//   parked story keeps its branch. A branch that moved past the merged head with
 //   changes the base lacks (`git merge-tree` decides only that, 0010) is released as `done` with its
 //   branch as a leftover once no worker runs (`releaseMovedPastMerge`, DIPO-332), or kept with a
 //   notice while it is parked.
@@ -38,6 +40,7 @@ import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
 import { decideOnHandMerge } from "../run-state/gates";
+import { findStoryPr, setStoryPrState, updateStoryPr } from "../records/story-prs";
 import { type CodeHost, type PrStateHost, repoOfRemoteUrl } from "../platform/host";
 import type { PrStatePoll } from "../story-pr/pr-state";
 import type { StoryStore } from "../story-store/store";
@@ -69,6 +72,39 @@ import {
   type TeardownDeps,
   TEARDOWN_NOTICES,
 } from "./teardown";
+
+/**
+ * Records the claim's story PR as merged, with the head that merged, when dipo's record does not
+ * say so yet (the host answered the Done check), with the `story.pr` entry the PR poll writes.
+ */
+function recordMerged(deps: TeardownDeps, claim: ClaimRecord, pr: DonePr): void {
+  const at = deps.clock.now();
+  const appended = deps.office.immediate(() => {
+    const stored = findStoryPr(deps.office, claim.runId);
+    if (stored === null || stored.state === "merged" || stored.number !== pr.number) return 0;
+    setStoryPrState(deps.office, claim.runId, { state: "merged", closedAt: at });
+    if (/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(pr.headSha) && pr.headSha !== stored.headSha) {
+      updateStoryPr(deps.office, claim.runId, {
+        headSha: pr.headSha,
+        title: stored.title,
+        bodyHash: stored.bodyHash,
+      });
+    }
+    const entry = {
+      type: "story.pr",
+      key: claim.key,
+      run: claim.runId,
+      delta: {
+        story: claim.story,
+        key: claim.key,
+        pr: { number: stored.number, url: stored.url, state: "merged" },
+      },
+    };
+    appendEntries(deps.office, [entry], { at });
+    return 1;
+  });
+  if (appended > 0) deps.onChanged?.(deps.officeId);
+}
 
 /** The load step's name in the registry. */
 export const TEARDOWN_STEP = "worktree.teardown";
@@ -362,6 +398,7 @@ export class StoryTeardown {
   ): Promise<"open" | "kept" | "tornDown" | "released"> {
     // A merge by hand on the host closes the story's open merge gate (0002, DIPO-150).
     this.#handMerged(deps, claim);
+    recordMerged(deps, claim, pr);
     const { tip } = facts;
     if (tip !== null && tip !== pr.headSha) {
       // The branch moved past the merged head. `git merge-tree` decides only whether the branch

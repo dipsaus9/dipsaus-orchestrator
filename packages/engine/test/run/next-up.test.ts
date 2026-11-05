@@ -358,10 +358,9 @@ describe("which story is next up", () => {
   it("withdraws an offer as soon as the story's PR is recorded merged, without a change of the mirror", async () => {
     story("DIPO-1", { milestone: "m-1" });
     story("DIPO-2", { milestone: "m-2" });
-    const run = claim("DIPO-1");
+    // An open PR of the story that no claim holds; the PR poll records its merge on the host.
+    const run = RunId.parse(w.t.ids.next("run"));
     storyPr("DIPO-1", run, "open");
-    // The claim went before the merge was recorded (the host answered the Done poll).
-    release(run);
     expect(await refresh()).toEqual(["DIPO-1"]);
     w.office.immediate(() =>
       setStoryPrState(w.office, run, { state: "merged", closedAt: w.t.clock.now() }),

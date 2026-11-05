@@ -6,8 +6,9 @@
 //   has one, then priority, ordinal and id (`comparePickup`); a milestone without a number after the
 //   numbered ones, by name, and stories without a milestone last. A story is offered only when it
 //   is Ready on the base, has no live claim, no pending planning operation, every dependency Done,
-//   is not declined, and its newest story PR is not recorded merged: the PR poll records the merge
-//   before the Done poll releases the claim, and the base says Done only after its next fetch.
+//   is not declined, and its newest story PR is not recorded merged: the PR poll, or the Done poll
+//   when the host answered it, records the merge before the Done poll releases the claim, and the
+//   base says Done only after its next fetch.
 // - Free slots. `Places.freeSlots`, less the confirms whose story has no claim yet.
 // - Shared files. Each offer lists the files its references share, by the prefix rule
 //   (`overlappingPaths`), with the references and the changed files (`storyChangedFiles`) of every
