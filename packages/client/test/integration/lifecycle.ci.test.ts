@@ -50,7 +50,8 @@ function alive(pid: number): boolean {
   }
 }
 
-// The binary builds only for darwin-arm64 (0004), so this test runs in the macOS CI job only.
+// The binary builds only for darwin-arm64 (0004) and CI runs no tests on macOS (0016), so this test
+// runs only locally, under `DIPO_TEST_CI=1 bun run verify` on a Mac.
 const DARWIN_ARM64 = process.platform === "darwin" && process.arch === "arm64";
 
 if (process.env["DIPO_TEST_CI"] === "1") {

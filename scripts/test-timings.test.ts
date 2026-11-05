@@ -37,16 +37,21 @@ describe("jobOs", () => {
   it("knows the shards and the unsharded jobs of before, and nothing else", () => {
     expect(jobOs("verify (2)")).toBe("Linux");
     expect(jobOs("verify")).toBe("Linux");
-    expect(jobOs("verify-macos (4)")).toBe("macOS");
-    expect(jobOs("verify-macos")).toBe("macOS");
-    for (const name of ["checks", "smoke (darwin-arm64)", "test-shards", "verify-linux (1)"]) {
+    for (const name of [
+      "checks",
+      "smoke (darwin-arm64)",
+      "test-shards",
+      "verify-linux (1)",
+      "verify-macos (4)",
+      "verify-macos",
+    ]) {
       expect(jobOs(name)).toBeUndefined();
     }
   });
 });
 
 describe("mergeTimings", () => {
-  it("takes the new times, keeps old ones the run lacks, and drops files that are gone", () => {
+  it("takes the new times, keeps old ones the run lacks, and drops files and OS that are gone", () => {
     const old = {
       Linux: { "a.test.ts": 1, "b.test.ts": 2, "gone.test.ts": 3 },
       macOS: { "a.test.ts": 9 },
@@ -55,7 +60,6 @@ describe("mergeTimings", () => {
     const merged = mergeTimings(old, fresh, ["c.test.ts", "b.test.ts", "a.test.ts"]);
     expect(merged).toEqual({
       Linux: { "a.test.ts": 1, "b.test.ts": 20, "c.test.ts": 30 },
-      macOS: { "a.test.ts": 9 },
     });
     expect(Object.keys(merged["Linux"] ?? {})).toEqual(["a.test.ts", "b.test.ts", "c.test.ts"]);
   });

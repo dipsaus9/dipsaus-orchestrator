@@ -97,7 +97,7 @@ jobs:
         if: needs.changes.outputs.scope == 'backlog-only'
         run: bun scripts/check-backlog-pr.ts HEAD^1 HEAD
 
-  # 0016: format, lint and typecheck, once, since they give the same result on Linux and macOS.
+  # 0016: format, lint and typecheck, once, on Linux.
   checks:
     name: checks
     needs: changes
@@ -150,41 +150,6 @@ jobs:
       matrix:
         shard: [1, 2, 3]
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    env:
-      DIPO_TEST_CI: "1"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: .bun-version
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
-      - run: bun install --frozen-lockfile
-      # 0017: every shard has its own short temp folder.
-      - name: Make this shard's DIPO_TMP
-        run: echo "DIPO_TMP=$(mktemp -d /tmp/d.XXXXXX)" >> "$GITHUB_ENV"
-      - name: bun test on this shard's files
-        env:
-          SHARD: ${{ matrix.shard }}
-          SHARDS: ${{ strategy.job-total }}
-        run: bun scripts/test-shards.ts run "$RUNNER_OS" "$SHARD" "$SHARDS"
-
-  # DIPO-316: the same shards on macOS, where the maintainer runs the daemon and the boxes.
-  verify-macos:
-    name: verify-macos (${{ matrix.shard }})
-    needs: changes
-    if: needs.changes.outputs.scope != 'backlog-only'
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
-    runs-on: macos-26
     permissions:
       contents: read
     env:
@@ -322,7 +287,6 @@ jobs:
         checks,
         test-shards,
         verify,
-        verify-macos,
         shellcheck,
         actionlint,
         dependency-review,
@@ -350,8 +314,8 @@ jobs:
                 or (
                   (.key == "dependency-review" and $event != "pull_request")
                   or ($event == "pull_request" and $light
-                    and (.key | IN("checks", "test-shards", "verify", "verify-macos",
-                      "shellcheck", "actionlint", "dependency-review", "smoke")))
+                    and (.key | IN("checks", "test-shards", "verify", "shellcheck",
+                      "actionlint", "dependency-review", "smoke")))
                   | not))
             | .key')
           if [ -n "$failed" ]; then

@@ -1,5 +1,5 @@
-// CI runs `bun test` in parallel shards (0016, DIPO-406): the `verify` and `verify-macos` jobs are
-// matrices whose every shard runs one list of test files, split here by the per-file times in
+// CI runs `bun test` in parallel shards (0016, DIPO-406): the `verify` job, on Linux, is a matrix
+// whose every shard runs one list of test files, split here by the per-file times in
 // scripts/test-timings.json (refreshed by scripts/test-timings.ts). Locally `bun run verify`
 // runs them in parallel shards of the same split (scripts/test.ts, DIPO-337).
 //
@@ -14,13 +14,12 @@ import { join } from "node:path";
 /** Where the per-file times live, relative to the repository root. */
 export const TIMINGS_PATH = "scripts/test-timings.json";
 
-/** Per OS (`RUNNER_OS`: `Linux`, `macOS`), each test file's time in milliseconds. */
+/** Per OS (`RUNNER_OS`, only `Linux`), each test file's time in milliseconds. */
 export type TimingFile = Record<string, Record<string, number>>;
 
 /** The sharded jobs of ci.yml and the `RUNNER_OS` each runs on. */
 export const SHARDED_JOBS: Readonly<Record<string, string>> = {
   verify: "Linux",
-  "verify-macos": "macOS",
 };
 
 /** The file names `bun test` takes as test files. */

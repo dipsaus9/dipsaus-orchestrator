@@ -1,7 +1,6 @@
 // `bun run test` (and the test step of `bun run verify`): runs `bun test` with the per-test timeout
 // for where it runs. In CI (`DIPO_TEST_CI=1`) a test that sets no timeout of its own gets 30 s, since
-// the CI runners (the macOS one most) are much slower than a developer machine; elsewhere Bun's own
-// 5 s stays (DIPO-335). The timeout goes on the command line because a `setDefaultTimeout` in a
+// the CI runners are much slower than a developer machine; elsewhere Bun's own 5 s stays (DIPO-335). The timeout goes on the command line because a `setDefaultTimeout` in a
 // preload reaches only the first test file of a run, and one in a test file only that file.
 //
 // With no arguments it runs every test file in parallel shards, one `bun test` per shard, split by
@@ -30,11 +29,6 @@ export function testTimeout(env: Env = process.env): number {
 /** The `bun test` arguments for `args` (the caller's own, kept) under `env`. */
 export function testArgs(args: readonly string[], env: Env = process.env): string[] {
   return ["test", `--timeout=${testTimeout(env)}`, ...args];
-}
-
-/** The key of scripts/test-timings.json for `platform`: `macOS` on darwin, else `Linux`. */
-export function timingKey(platform: NodeJS.Platform = process.platform): string {
-  return platform === "darwin" ? "macOS" : "Linux";
 }
 
 /** How many shards a run starts: half the cores, rounded down, at least 2 (DIPO-424). */
@@ -71,15 +65,17 @@ export function assertCovered(files: readonly string[], shards: readonly Shard[]
   );
 }
 
-/** The shards of a run of `files` under `env` on `platform`, checked to hold each file once. */
+/**
+ * The shards of a run of `files` under `env`, checked to hold each file once. They split by the
+ * Linux times, the only ones CI records (0016), on any OS.
+ */
 export function planShards(
   files: readonly string[],
   timings: Readonly<Record<string, Record<string, number>>>,
   total: number,
   env: Env = process.env,
-  platform: NodeJS.Platform = process.platform,
 ): Shard[] {
-  const shards = splitShards(files, localTimes(timings[timingKey(platform)] ?? {}, env), total);
+  const shards = splitShards(files, localTimes(timings["Linux"] ?? {}, env), total);
   assertCovered(files, shards);
   return shards;
 }

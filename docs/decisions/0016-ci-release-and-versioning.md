@@ -21,21 +21,22 @@ It runs on `pull_request` and on `push` to `main`, with `concurrency` per ref.
 |---|---|---|
 | `changes` | `ubuntu-24.04` | Decides whether the PR changes only `backlog/`; the heavy jobs below skip when it does |
 | `ready-gate` | `ubuntu-24.04` | The Ready gate and the structural check of 0010 on every story the PR changes |
-| `checks` | `ubuntu-24.04` | `bun run check`: format, lint and typecheck, once, since both OS give the same result |
-| `test-shards` | `ubuntu-24.04` | The coverage check: every test file is in exactly one shard of `verify` and of `verify-macos` |
+| `checks` | `ubuntu-24.04` | `bun run check`: format, lint and typecheck, once |
+| `test-shards` | `ubuntu-24.04` | The coverage check: every test file is in exactly one shard of `verify` |
 | `verify` | `ubuntu-24.04` | `bun test` with `DIPO_TEST_CI=1`, so with the CI-only tests, as a matrix of three parallel shards; `scripts/test-shards.ts` splits the files by the per-file times in `scripts/test-timings.json` |
-| `verify-macos` | `macos-26` | The same in four shards, on macOS, where the macOS platform code runs for real. No runner can run a box, so box tests run only by hand (0017) |
 | `shellcheck` | `ubuntu-24.04` | `install.sh` and other shell scripts |
 | `actionlint` | `ubuntu-24.04` | The workflow files |
 | `dependency-review` | `ubuntu-24.04` | PRs only: fails on new dependencies with high or critical advisories, or with a licence outside the allow list |
-| `smoke (darwin-arm64)` | `macos-26` | `bun scripts/build.ts`, then `dipo --version`, `dipo --help`, a `file` check and `codesign -v` (an ad-hoc signature is added when missing) |
+| `smoke (darwin-arm64)` | `macos-26` | The one macOS job; it runs no tests. `bun scripts/build.ts`, then `dipo --version`, `dipo --help`, a `file` check and `codesign -v` (an ad-hoc signature is added when missing) |
 | `ci-ok` | `ubuntu-24.04` | Needs every job above; fails unless each succeeded or was skipped by design |
 
 Runner labels are explicit, never `-latest`.
 
+**Tests run on Linux only.** The macOS-only tests (the compiled-binary daemon lifecycle test and the darwin cases of the process and proxy tests) run locally under `DIPO_TEST_CI=1 bun run verify`. No runner can run a box, so box tests run only by hand (0017).
+
 **Test shards.** Together `checks` and the shards run what `bun run verify` runs locally in one go. A failed or cancelled shard makes its matrix job failed or cancelled, so `ci-ok` fails. A test file with no recorded time goes to the shard with the least time. `bun scripts/test-timings.ts <run id>` refreshes the times from the logs of a green run.
 
-**Backlog-only PRs take the light path.** When `changes` finds that a PR changes only `backlog/`, the `checks`, `test-shards`, `verify`, `verify-macos`, smoke, shellcheck, actionlint and dependency-review jobs skip by design, and only `ready-gate` and `pr-title` run. `ci-ok` stays required and passes on that path. Setting stories Ready, in bulk if needed, then takes minutes and changes no code.
+**Backlog-only PRs take the light path.** When `changes` finds that a PR changes only `backlog/`, the `checks`, `test-shards`, `verify`, smoke, shellcheck, actionlint and dependency-review jobs skip by design, and only `ready-gate` and `pr-title` run. `ci-ok` stays required and passes on that path. Setting stories Ready, in bulk if needed, then takes minutes and changes no code.
 
 **The PR title check** (`.github/workflows/pr-title.yml`, job `pr-title`) runs `scripts/check-pr-title.ts` on `opened`, `edited`, `synchronize` and `reopened`. It is the second required check. Accepted titles:
 
@@ -129,3 +130,4 @@ gh attestation verify <file> --repo dipsaus9/dipsaus-orchestrator \
 - A Homebrew tap after the first stable minor. Moved to Later (0003).
 - The PR title scope `main` for release-please only (2026-10-10). Also used by repository chores with no story (2026-11-03).
 - `setup-bun` with its cache in the release build (2026-10-10). Replaced by a Bun checked against a pinned SHA-256 (2026-10-23).
+- `verify-macos`, the test suite in four shards on `macos-26` (2026-10-23). Removed (2026-11-04): its shards queued for runners and were cancelled at the time limit when PRs ran in parallel; the smoke job alone stays on macOS.

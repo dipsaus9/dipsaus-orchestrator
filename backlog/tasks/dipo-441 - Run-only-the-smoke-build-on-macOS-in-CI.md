@@ -1,10 +1,10 @@
 ---
 id: DIPO-441
 title: Run only the smoke build on macOS in CI
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-11-04 12:24'
-updated_date: '2026-11-04 13:59'
+updated_date: '2026-11-04 18:31'
 labels:
   - 'tier:S'
 milestone: m-2
@@ -52,9 +52,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ci.yml has no verify-macos job, ci-ok no longer needs it, and the smoke (darwin-arm64) job stays
-- [ ] #2 The test-shards check covers only the Linux verify shards and still fails when a test file is in no shard
-- [ ] #3 ADRs 0004 and 0016 and the CI paragraph in CLAUDE.md describe CI without macOS tests, and 0016's Replaced list says why in one line
-- [ ] #4 The test timings hold no macOS timings, and the comment of the lifecycle test no longer says it runs in a macOS CI job
-- [ ] #5 Backlog-only pull requests keep the light path
+- [x] #1 ci.yml has no verify-macos job, ci-ok no longer needs it, and the smoke (darwin-arm64) job stays
+- [x] #2 The test-shards check covers only the Linux verify shards and still fails when a test file is in no shard
+- [x] #3 ADRs 0004 and 0016 and the CI paragraph in CLAUDE.md describe CI without macOS tests, and 0016's Replaced list says why in one line
+- [x] #4 The test timings hold no macOS timings, and the comment of the lifecycle test no longer says it runs in a macOS CI job
+- [x] #5 Backlog-only pull requests keep the light path
 <!-- AC:END -->
