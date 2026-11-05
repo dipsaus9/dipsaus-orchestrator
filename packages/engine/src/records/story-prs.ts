@@ -82,13 +82,14 @@ export function latestStoryPr(office: OfficeHandle, key: string): StoryPrRecord 
   return row === null ? null : toRecord(row);
 }
 
-/** The stories the mirror holds Ready whose newest PR dipo recorded as merged, by key, in key order. */
+/**
+ * The stories whose newest PR dipo recorded as merged, by key, in key order, whatever status the
+ * mirror holds for them: it can lag behind the base read either way.
+ */
 export function mergedStoryKeys(office: OfficeHandle): string[] {
   return office
     .all<{ key: string }>(
       `select p.key as key from story_prs p
-        join backlog_mirror m on m.office_id = p.office_id and m.key = p.key
-          and m.kind = 'task' and m.status = 'Ready'
         where p.office_id = $office_id and p.state = 'merged'
           and not exists (select 1 from story_prs q
             where q.office_id = p.office_id and q.key = p.key

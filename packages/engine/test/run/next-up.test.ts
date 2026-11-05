@@ -355,6 +355,30 @@ describe("which story is next up", () => {
     expect(await refresh()).toEqual(["DIPO-2"]);
   });
 
+  for (const mirrored of ["In Review", "In Progress", "Done"]) {
+    it(`never offers a merged story while the base still says Ready and the mirror says ${mirrored}`, async () => {
+      story("DIPO-1", { milestone: "m-1" });
+      story("DIPO-2", { milestone: "m-2" });
+      const run = claim("DIPO-1");
+      storyPr("DIPO-1", run, "open");
+      // The mirror moved with the run on its branch; the base read still says Ready.
+      indexPass();
+      w.office.immediate(() =>
+        w.office.run(
+          "update backlog_mirror set status = $status where office_id = $office_id and key = $key",
+          { status: mirrored, key: w.keys.get("DIPO-1") as string },
+        ),
+      );
+      w.office.immediate(() =>
+        setStoryPrState(w.office, run, { state: "merged", closedAt: w.t.clock.now() }),
+      );
+      release(run);
+      await w.nextUp.refresh(w.officeId);
+      expect(offered()).toEqual(["DIPO-2"]);
+      expect(w.started).toEqual([]);
+    });
+  }
+
   it("withdraws an offer as soon as the story's PR is recorded merged, without a change of the mirror", async () => {
     story("DIPO-1", { milestone: "m-1" });
     story("DIPO-2", { milestone: "m-2" });
