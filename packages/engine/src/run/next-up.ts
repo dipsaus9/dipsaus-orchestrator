@@ -20,7 +20,7 @@
 //   run of it started after the decline.
 // - Refresh. The offers are worked out again after every change of the office, coalesced per
 //   office. A cheap signature (free slots, live claims, the statuses and hashes the story index
-//   mirrored from the base, the declines, the planning journal) decides whether the base is read
+//   mirrored from the base, the declines, the planning holds) decides whether the base is read
 //   again. A newly offered story puts an `engine.notice`
 //   on the office stream, so the TUI reads its desk again; the desk notification posts it once.
 
@@ -403,11 +403,14 @@ export class NextUp {
          from (select key, view_hash, declined_at from next_up_declines
                 where office_id = $office_id order by key)`,
     );
-    // A journaled planning operation holds its story from pickup (0010).
-    const journal = office.get<{ digest: string }>(
-      `select count(*) || ':' || coalesce(max(updated_at), 0) as digest from backlog_journal
-        where office_id = $office_id`,
+    // A pending planning operation holds its story from pickup (0010), as the StoryStore says.
+    const ready = office.all<{ key: string }>(
+      `select key from backlog_mirror where office_id = $office_id and kind = 'task'
+          and status = 'Ready' order by key`,
     );
+    const held = ready
+      .filter((row) => this.#deps.base.planningHold(office, StoryKey.parse(row.key)) !== null)
+      .map((row) => row.key);
     const claims = liveClaims(office).map((claim) => claim.runId);
     return JSON.stringify([
       free,
@@ -415,7 +418,7 @@ export class NextUp {
       [...state.confirming].toSorted(),
       mirror?.digest ?? "",
       declines?.digest ?? "",
-      journal?.digest ?? "",
+      held,
     ]);
   }
 
