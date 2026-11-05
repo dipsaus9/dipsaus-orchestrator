@@ -1,7 +1,8 @@
-// The office's worker and reviewer places (DIPO-142, 0002), fast and local: place
-// counting from open story runs and their agents' roles (session runs left out), the start order of
-// each place, a maintainer resume queued while its place is taken and started when it frees, and
-// the office's starts paused, which keeps every waiting session waiting and never parks it (0020).
+// The office's run slots and each story's worker and reviewer places (DIPO-142, 0002), fast and
+// local: slot counting from open story runs and their agents' roles (session runs left out) against
+// `caps.parallelRuns`, the office's start order, a maintainer resume queued while every slot is
+// taken and started when one frees, and the office's starts paused, which keeps every waiting
+// session waiting and never parks it (0020).
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
@@ -16,6 +17,7 @@ import {
   Places,
   placeTaken,
   reopen,
+  slotHolders,
   stopAtInReview,
   START_KINDS,
   startOrder,
@@ -60,6 +62,8 @@ const holderIds = () => {
   };
 };
 const pickup: PlaceStart = { kind: START_KINDS.pickup, runId: null, since: 0 };
+/** The slot check with the limit `limit` and nothing else counted. */
+const taken = (what: PlaceStart, limit: number) => placeTaken(w.office, what, { limit });
 
 /** A story run that worked and stands open at In Review, its developer agent ended. */
 function inReview(story: string): StoryRun {
@@ -75,14 +79,58 @@ describe("counting (0002)", () => {
     expect(activeRuns(w.office).map((run) => run.runId)).toEqual([session]);
     expect(hasActiveRun(w.office)).toBe(true);
     expect(holderIds()).toEqual({ worker: [], reviewer: [] });
-    expect(placeTaken(w.office, pickup)).toBeNull();
+    expect(taken(pickup, 1)).toBeNull();
 
-    // A developer session holds the worker place; the session run still holds none.
+    // A developer session holds its story's worker place and a slot; the session run holds none.
     const a = storyRun(w, { story: "DIPO-1" });
     addAgent(w, a.run, "developer", true);
     expect(activeRuns(w.office)).toHaveLength(2);
     expect(holderIds()).toEqual({ worker: ["DIPO-1"], reviewer: [] });
-    expect(placeTaken(w.office, pickup)).toContain("held by DIPO-1");
+    expect(taken(pickup, 1)).toBe(
+      "the office runs at most 1 story at once (caps.parallelRuns in .dipo/office.yaml); running: DIPO-1",
+    );
+    expect(taken(pickup, 2)).toBeNull();
+  });
+
+  it("holds three worker places and three reviewer places at limit 3; a fourth pickup waits, naming the limit", () => {
+    const developers = ["DIPO-1", "DIPO-2", "DIPO-3"].map((story) => {
+      const s = storyRun(w, { story });
+      addAgent(w, s.run, "developer", true);
+      return s;
+    });
+    expect(holderIds()).toEqual({ worker: ["DIPO-1", "DIPO-2", "DIPO-3"], reviewer: [] });
+    const full =
+      "the office runs at most 3 stories at once (caps.parallelRuns in .dipo/office.yaml); running: DIPO-1, DIPO-2, DIPO-3";
+    expect(taken(pickup, 3)).toBe(full);
+
+    // Each story's review runs in its own reviewer place: three reviewers at once.
+    for (const s of developers) {
+      write(() => stopAtInReview(w.office, s.run, now()));
+      write(() => reopen(w.office, findRun(w.office, s.run)!, now(), { kind: "review" }));
+      write(() => claimPlace(w.office, s.run, now()));
+      addAgent(w, s.run, "reviewer", true, "opus");
+    }
+    expect(holderIds()).toEqual({ worker: [], reviewer: ["DIPO-1", "DIPO-2", "DIPO-3"] });
+    expect(taken(pickup, 3)).toBe(full);
+    expect(taken(pickup, 4)).toBeNull();
+  });
+
+  it("keeps a story's slot from its developer to its own review, so the review never waits for another story", () => {
+    const a = storyRun(w, { story: "DIPO-1" });
+    const developer = addAgent(w, a.run, "developer", true);
+    const b = storyRun(w, { story: "DIPO-2" });
+    addAgent(w, b.run, "developer", true);
+    // DIPO-1 reaches In Review and waits for its review: it holds its slot (`reviewing`).
+    endAgent(w, developer);
+    write(() => stopAtInReview(w.office, a.run, now()));
+    expect(slotHolders(w.office, [a.run]).map((run) => run.story)).toEqual(["DIPO-2", "DIPO-1"]);
+    expect(placeTaken(w.office, pickup, { limit: 2, reviewing: [a.run] })).toContain(
+      "running: DIPO-2, DIPO-1",
+    );
+    // Its review starts in its own slot, though every slot is held.
+    const review = start("review", a.run, now());
+    expect(placeTaken(w.office, review, { limit: 2, reviewing: [a.run] })).toBeNull();
+    expect(placeTaken(w.office, review, { limit: 1, reviewing: [a.run] })).toBeNull();
   });
 
   it("counts a starting session and a run held between sessions, from the agent's role", () => {
@@ -99,14 +147,15 @@ describe("counting (0002)", () => {
     expect(waitingStarts(w.office).map((waiting) => [waiting.kind, waiting.runId])).toEqual([
       ["review", b.run],
     ]);
+    // The waiting review holds its story's slot already.
+    expect(slotHolders(w.office).map((run) => run.story)).toEqual(["DIPO-1", "DIPO-2"]);
     write(() => claimPlace(w.office, b.run, now()));
     expect(holderIds()).toEqual({ worker: ["DIPO-1"], reviewer: ["DIPO-2"] });
     addAgent(w, b.run, "reviewer", true, "opus");
     expect(holderIds()).toEqual({ worker: ["DIPO-1"], reviewer: ["DIPO-2"] });
-    // A reviewer next to a worker takes no worker place.
-    expect(placeTaken(w.office, { kind: START_KINDS.review, runId: null, since: 0 })).toContain(
-      "reviewer place is held by DIPO-2",
-    );
+    // A worker and a reviewer of two stories hold two slots.
+    expect(taken(pickup, 2)).toContain("running: DIPO-1, DIPO-2");
+    expect(taken(pickup, 3)).toBeNull();
   });
 });
 
@@ -116,7 +165,7 @@ function start(kind: PlaceStart["kind"], run: string, since: number): PlaceStart
 }
 
 describe("start order (0002)", () => {
-  it("starts maintainer resumes, then conflict hand-offs and fix rounds, then pickups in the worker place", () => {
+  it("starts maintainer resumes, then conflict hand-offs and fix rounds, then pickups", () => {
     const order = startOrder([
       { ...pickup, since: -1 },
       start("fix", "run_c", 1),
@@ -146,10 +195,12 @@ describe("start order (0002)", () => {
     const c = inReview("DIPO-3");
     write(() => reopen(w.office, findRun(w.office, c.run)!, now(), { kind: "fix" }));
     expect(holderIds().worker).toEqual([]);
-    expect(placeTaken(w.office, pickup)).toBe("DIPO-3 waits for the office's worker place first");
-    expect(
-      placeTaken(w.office, { kind: START_KINDS.resume, runId: null, since: now() }),
-    ).toBeNull();
+    expect(taken(pickup, 1)).toBe(
+      "the office runs at most 1 story at once (caps.parallelRuns in .dipo/office.yaml); waiting first: DIPO-3",
+    );
+    expect(taken({ kind: START_KINDS.resume, runId: null, since: now() }, 1)).toBeNull();
+    // With a second slot the pickup goes too: a waiting start counts against the same limit.
+    expect(taken(pickup, 2)).toBeNull();
   });
 });
 
@@ -180,9 +231,9 @@ describe("a resume that finds its place taken (0020)", () => {
     return { s };
   }
 
-  it("is accepted and waits, then starts first when the worker place frees", async () => {
+  it("is accepted and waits, then starts first when a slot frees", async () => {
     sessions.length = 0;
-    // DIPO-4's developer holds the worker place.
+    // DIPO-4's developer holds the office's one slot.
     const busy = storyRun(w, { story: "DIPO-4" });
     const developer = addAgent(w, busy.run, "developer", true);
     const { s } = parked();
@@ -217,6 +268,7 @@ describe("a resume that finds its place taken (0020)", () => {
     places = new Places({
       clock: w.t.clock,
       offices: { get: () => w.office },
+      limit: () => 1,
       starters: {
         resume: (office, run) => resumption.startQueued(office, run),
         fix: async (_office, run) => {
@@ -326,7 +378,7 @@ function waitingAs(story: string, kind: "fix" | "conflict", turns: number): Stor
   return s;
 }
 
-function world() {
+function world(limit?: number) {
   const started: string[] = [];
   const control = new RunControl({
     stories: backlogLayout,
@@ -347,6 +399,7 @@ function world() {
   const places = new Places({
     clock: w.t.clock,
     offices: { get: () => w.office },
+    ...(limit === undefined ? {} : { limit: () => limit }),
     park: (office, run, work, ending) => control.park(office, run, work, ending),
     starters: {
       fix: async (_office, run) => {
@@ -406,6 +459,49 @@ describe("the pre-start cap check (DIPO-205)", () => {
       expect(await x.places.drain(officeId())).toBe(1);
       expect(x.started).toEqual(["fix DIPO-8"]);
       expect(parksOf()).toEqual([]);
+    } finally {
+      x.close();
+    }
+  });
+});
+
+describe("the drain fills the office's free slots (0002)", () => {
+  it("starts waiting rounds in start order while a slot is free and the rest when one frees", async () => {
+    const busy = storyRun(w, { story: "DIPO-1" });
+    const developer = addAgent(w, busy.run, "developer", true);
+    waitingAs("DIPO-2", "fix", 1);
+    w.t.clock.advance(1);
+    waitingAs("DIPO-3", "conflict", 1);
+    w.t.clock.advance(1);
+    waitingAs("DIPO-4", "fix", 1);
+    const x = world(3);
+    try {
+      expect(await x.places.drain(officeId())).toBe(2);
+      expect(x.started).toEqual(["fix DIPO-2", "conflict DIPO-3"]);
+      // DIPO-4 still waits, and goes before any pickup.
+      expect(x.places.slotTaken(officeId(), pickup)).toBe(
+        "the office runs at most 3 stories at once (caps.parallelRuns in .dipo/office.yaml); running: DIPO-1, DIPO-2, DIPO-3; waiting first: DIPO-4",
+      );
+      expect(await x.places.drain(officeId())).toBe(0);
+      endAgent(w, developer);
+      write(() => stopAtInReview(w.office, busy.run, now()));
+      expect(x.places.slotTaken(officeId(), pickup)).toContain("waiting first: DIPO-4");
+      expect(await x.places.drain(officeId())).toBe(1);
+      expect(x.started).toEqual(["fix DIPO-2", "conflict DIPO-3", "fix DIPO-4"]);
+    } finally {
+      x.close();
+    }
+  });
+
+  it("counts a pickup that is starting against the limit until its release", async () => {
+    const x = world(1);
+    try {
+      const release = x.places.reservePickup(officeId(), "run_x" as RunId, "DIPO-9");
+      expect(x.places.pickupsStarting(officeId())).toEqual(["DIPO-9"]);
+      expect(x.places.slotTaken(officeId(), pickup)).toContain("running: DIPO-9");
+      release();
+      expect(x.places.slotTaken(officeId(), pickup)).toBeNull();
+      await x.places.idle();
     } finally {
       x.close();
     }

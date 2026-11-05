@@ -153,8 +153,8 @@ describe("story references", () => {
       const a = office.immediate(() => addStory(office, t.ids, { story: id("DIPO-1") }, 0));
       const b = office.immediate(() => addStory(office, t.ids, { story: id("DIPO-2") }, 0));
       const fields = findStoryRefFields(workRun.args);
-      const ok = resolveStoryRefs(office, fields, { stories: ["DIPO-1", b.key], maxAgents: 2 });
-      expect(ok.ok && ok.args).toEqual({ stories: [a.key, b.key], maxAgents: 2 });
+      const ok = resolveStoryRefs(office, fields, { stories: ["DIPO-1", b.key], from: "/w" });
+      expect(ok.ok && ok.args).toEqual({ stories: [a.key, b.key], from: "/w" });
       expect(ok.ok && [...ok.stories.keys()]).toEqual([a.key, b.key]);
       const bad = resolveStoryRefs(office, fields, { stories: ["DIPO-1", "DIPO-8"] });
       expect(!bad.ok && bad.error.code).toBe("story.unknown");

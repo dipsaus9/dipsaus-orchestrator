@@ -690,14 +690,14 @@ export class FixRounds {
           delta: {
             level: "info",
             code: FIX_NOTICES.queued,
-            text: `${story}: dipo sends ${planned.length} feedback item${planned.length === 1 ? "" : "s"} on ${round.head.slice(0, 12)} back to its worker in fix round ${number}${repeats === 0 ? "" : ` (${repeats} still failing after the last change)`}; the round starts when the office's worker place is free.`,
+            text: `${story}: dipo sends ${planned.length} feedback item${planned.length === 1 ? "" : "s"} on ${round.head.slice(0, 12)} back to its worker in fix round ${number}${repeats === 0 ? "" : ` (${repeats} still failing after the last change)`}; the round starts when one of the office's run slots is free.`,
           },
         };
         return { value: true, entries: [...entries, ...observed, notice] };
       });
     const queued = places === undefined ? await step() : await places.serialized(officeId, step);
     if (queued && places !== undefined) {
-      // Started by the places when the worker place is free; a drain now starts it or arms the tick.
+      // Started by the places when a slot is free; a drain now starts it or arms the tick.
       const drained = places
         .drain(officeId)
         .catch((error: unknown) => {

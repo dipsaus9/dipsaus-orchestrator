@@ -63,6 +63,7 @@ import type { StoredRun } from "../../src/records/run-records";
 import { SoftwareStream } from "../../src/software-stream";
 import { addStory } from "../../src/records/story-keys";
 import { AdapterPauses } from "../../src/run/starts-paused";
+import { ONE_STORY } from "../../src/run/work-run";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { ClaimOutcome, ClaimRequest } from "../../src/worktree/claim";
 import { insertClaim } from "../../src/worktree/records";
@@ -174,6 +175,7 @@ beforeEach(async () => {
   const places = new Places({
     clock: t.clock,
     offices: { get: () => office },
+    limit: () => w.config.caps.parallelRuns,
     starters: {
       resume: async (target, started) => {
         resumeStarts.push(started.story ?? "");
@@ -366,7 +368,7 @@ function run(
 
 interface RunResult {
   started: { story: string; key: string; run: string }[];
-  skipped: { story: string; key: string; reason: string }[];
+  skipped: { story: string; key: string; reason: string; detail?: string[] }[];
 }
 
 function resultOf(reply: CommandReply): RunResult {
@@ -378,6 +380,16 @@ function entries(): { type: string; delta: unknown; view?: unknown }[] {
   const result = replay(world.office, cursorAt(world.officeId, 0));
   if (!result.ok) throw new Error(result.error.message);
   return result.entries.map(({ type, delta, view }) => ({ type, delta, view }));
+}
+
+/** The office runs at most `n` stories at once (`caps.parallelRuns`). */
+function limitTo(n: number): void {
+  world.config = { ...world.config, caps: { ...world.config.caps, parallelRuns: n } };
+}
+
+/** The capacity detail of a full office with the limit `n` and these stories running. */
+function fullText(n: number, running: string): string {
+  return `the office runs at most ${n} ${n === 1 ? "story" : "stories"} at once (caps.parallelRuns in .dipo/office.yaml); running: ${running}`;
 }
 
 describe("work.run picks and claims one Ready story", () => {
@@ -399,9 +411,15 @@ describe("work.run picks and claims one Ready story", () => {
     const reply = await run();
     const result = resultOf(reply);
     expect(result.started.map((s) => s.story)).toEqual(["TASK-3"]);
+    // A run without named stories starts one story.
     expect(result.skipped).toEqual([
       { story: "TASK-2", key: world.keys.get("TASK-2") as string, reason: "dependency" },
-      { story: "TASK-1", key: world.keys.get("TASK-1") as string, reason: "capacity" },
+      {
+        story: "TASK-1",
+        key: world.keys.get("TASK-1") as string,
+        reason: "capacity",
+        detail: [ONE_STORY],
+      },
     ]);
     expect(reply.ok && reply.changed).toBe(true);
     // work.assigned, the setup marker's work.output (DIPO-83) and work.phase setup.
@@ -465,14 +483,15 @@ describe("work.run picks and claims one Ready story", () => {
       },
     });
 
-    // One active run per office: the next run starts nothing; the claimed story is notRunnable.
+    // At the office's limit the next run starts nothing; the claimed story is notRunnable.
     expect(hasActiveRun(world.office)).toBe(true);
+    limitTo(1);
     const again = resultOf(await run());
     expect(again.started).toEqual([]);
-    expect(again.skipped.map((s) => [s.story, s.reason])).toEqual([
-      ["TASK-2", "capacity"],
-      ["TASK-3", "notRunnable"],
-      ["TASK-1", "capacity"],
+    expect(again.skipped.map((s) => [s.story, s.reason, s.detail])).toEqual([
+      ["TASK-2", "capacity", [fullText(1, "TASK-3")]],
+      ["TASK-3", "notRunnable", undefined],
+      ["TASK-1", "capacity", [fullText(1, "TASK-3")]],
     ]);
     expect(world.claims).toHaveLength(1);
   });
@@ -487,7 +506,7 @@ describe("work.run picks and claims one Ready story", () => {
         maxMinutes: 25,
         budgetTokens: 150_000,
       },
-      caps: { ciAttempts: 5, conflictAttempts: 3 },
+      caps: { parallelRuns: 3, ciAttempts: 5, conflictAttempts: 3 },
     };
     story("TASK-1", "Ready");
     const runId = RunId.parse(resultOf(await run()).started[0]?.run);
@@ -701,8 +720,6 @@ describe("work.run refusals", () => {
   it("refuses with each predicate's message and starts nothing", async () => {
     story("TASK-1", "Ready");
 
-    expect(await codeOf({ maxAgents: 2 })).toMatchObject({ code: "args.invalid" });
-
     world.configErrors = [{ message: "tiers.S.loops must be an integer" }];
     expect(await codeOf()).toMatchObject({
       code: "config.invalid",
@@ -878,6 +895,9 @@ function previewRun(): Promise<Awaited<ReturnType<typeof executeRead>>> {
 }
 
 describe("a queued resume and a pickup never take the worker place together (DIPO-208)", () => {
+  // One slot, so a pickup and a resume compete for it.
+  beforeEach(() => limitTo(1));
+
   it("drains a resume queued inside the pickup's claim only after the pickup's run is recorded", async () => {
     story("TASK-1", "Ready");
     // Hold work.run's claim open: the pickup has passed its worker place check and not recorded its run.
@@ -918,6 +938,9 @@ async function pickupInSetup(args: Record<string, unknown> = {}) {
 }
 
 describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => {
+  // One slot, so a pickup and a resume compete for it.
+  beforeEach(() => limitTo(1));
+
   it("lets the office's other serialized steps run while the box is prepared", async () => {
     story("TASK-1", "Ready");
     const { pickup, open } = await pickupInSetup();
@@ -937,14 +960,14 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
       { story: "DIPO-7" },
     );
     world.office.immediate(() => waitForPlace(world.office, resume.run, START_KINDS.resume, 0));
-    expect(world.places.pickupStarting(world.officeId)).toBe("TASK-1");
+    expect(world.places.pickupsStarting(world.officeId)).toEqual(["TASK-1"]);
     expect(
       world.places.blocked(world.officeId, {
         kind: START_KINDS.resume,
         runId: resume.run,
         since: 0,
       }),
-    ).toBe("the office's worker place is held by TASK-1, which is starting");
+    ).toBe(fullText(1, "TASK-1"));
     // A drain inside the window starts nothing.
     expect(await world.places.drain(world.officeId)).toBe(0);
     expect(world.resumeStarts).toEqual([]);
@@ -952,7 +975,7 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
     open();
     const result = resultOf(await pickup);
     expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
-    expect(world.places.pickupStarting(world.officeId)).toBeNull();
+    expect(world.places.pickupsStarting(world.officeId)).toEqual([]);
     // The pickup's run holds the place now; the resume still waits.
     expect(placeHolders(world.office).worker.map((r) => r.story)).toEqual(["TASK-1"]);
     await world.places.idle();
@@ -972,7 +995,7 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
     world.setupFails = true;
     open();
     expect(resultOf(await pickup).skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
-    expect(world.places.pickupStarting(world.officeId)).toBeNull();
+    expect(world.places.pickupsStarting(world.officeId)).toEqual([]);
     // The release drained the office: the resume took the place.
     await world.places.idle();
     expect(world.resumeStarts).toEqual(["DIPO-7"]);
@@ -984,20 +1007,16 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
     story("TASK-2", "Ready");
     const { pickup, open } = await pickupInSetup({ stories: ["TASK-1"] });
     world.setupGate = null;
-    // A second work.run of the office waits for the first, whose claim row and place hold.
-    let secondDone = false;
-    const second = run({ stories: ["TASK-1", "TASK-2"] }).finally(() => (secondDone = true));
-    await Bun.sleep(5);
-    expect(secondDone).toBe(false);
+    // A second work.run of the office goes on beside the first, whose claim row and slot hold:
+    // the same story's live claim stops it, and another story finds the one slot taken.
+    const result = resultOf(await run({ stories: ["TASK-1", "TASK-2"] }));
+    expect(result.started).toEqual([]);
+    expect(result.skipped.map((s) => [s.story, s.reason, s.detail])).toEqual([
+      ["TASK-1", "notRunnable", undefined],
+      ["TASK-2", "capacity", [fullText(1, "TASK-1")]],
+    ]);
     open();
     expect(resultOf(await pickup).started.map((s) => s.story)).toEqual(["TASK-1"]);
-    // The same story: its live claim stops it. Another story: the first pickup holds the place.
-    const result = resultOf(await second);
-    expect(result.started).toEqual([]);
-    expect(result.skipped.map((s) => [s.story, s.reason])).toEqual([
-      ["TASK-1", "notRunnable"],
-      ["TASK-2", "capacity"],
-    ]);
     expect(world.claims.map((c) => c.story)).toEqual(["TASK-1"]);
     world.places.close();
   });
@@ -1042,10 +1061,83 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
     expect(held.skipped.map((s) => s.reason)).toEqual(["capacity"]);
     release();
     release();
-    expect(world.places.pickupStarting(world.officeId)).toBeNull();
+    expect(world.places.pickupsStarting(world.officeId)).toEqual([]);
     const freed = resultOf(await run());
     expect(freed.started.map((s) => s.story)).toEqual(["TASK-1"]);
     await world.places.idle();
+    world.places.close();
+  });
+});
+
+describe("several stories at once, up to caps.parallelRuns (0002)", () => {
+  it("starts a second story while one runs, and skips a third at the limit naming the limit", async () => {
+    limitTo(2);
+    story("TASK-1", "Ready");
+    story("TASK-2", "Ready");
+    story("TASK-3", "Ready");
+    expect(resultOf(await run({ stories: ["TASK-1"] })).started.map((s) => s.story)).toEqual([
+      "TASK-1",
+    ]);
+    expect(resultOf(await run({ stories: ["TASK-2"] })).started.map((s) => s.story)).toEqual([
+      "TASK-2",
+    ]);
+    expect(placeHolders(world.office).worker.map((r) => r.story)).toEqual(["TASK-1", "TASK-2"]);
+    const full = resultOf(await run({ stories: ["TASK-3"] }));
+    expect(full.started).toEqual([]);
+    expect(full.skipped).toEqual([
+      {
+        story: "TASK-3",
+        key: world.keys.get("TASK-3") as string,
+        reason: "capacity",
+        detail: [fullText(2, "TASK-1, TASK-2")],
+      },
+    ]);
+    expect(world.claims.map((c) => c.story)).toEqual(["TASK-1", "TASK-2"]);
+    world.places.close();
+  });
+
+  it("starts a story while another one still prepares its box", async () => {
+    limitTo(2);
+    story("TASK-1", "Ready");
+    story("TASK-2", "Ready");
+    const { pickup, open } = await pickupInSetup({ stories: ["TASK-1"] });
+    world.setupGate = null;
+    const second = resultOf(await run({ stories: ["TASK-2"] }));
+    expect(second.started.map((s) => s.story)).toEqual(["TASK-2"]);
+    open();
+    expect(resultOf(await pickup).started.map((s) => s.story)).toEqual(["TASK-1"]);
+    world.places.close();
+  });
+
+  it("starts each named story while a slot is free", async () => {
+    for (const id of ["TASK-1", "TASK-2", "TASK-3", "TASK-4"]) story(id, "Ready");
+    const result = resultOf(await run({ stories: ["TASK-1", "TASK-2", "TASK-3", "TASK-4"] }));
+    expect(result.started.map((s) => s.story)).toEqual(["TASK-1", "TASK-2", "TASK-3"]);
+    expect(result.skipped.map((s) => [s.story, s.reason, s.detail])).toEqual([
+      ["TASK-4", "capacity", [fullText(3, "TASK-1, TASK-2, TASK-3")]],
+    ]);
+    world.places.close();
+  });
+
+  it("counts a waiting fix round against the limit, ahead of a new story", async () => {
+    limitTo(2);
+    story("TASK-1", "Ready");
+    story("TASK-2", "Ready");
+    expect(resultOf(await run({ stories: ["TASK-1"] })).started).toHaveLength(1);
+    const fix = storyRun(
+      { dir, t: world.t, office: world.office, close: () => undefined },
+      { story: "DIPO-7" },
+    );
+    world.office.immediate(() => waitForPlace(world.office, fix.run, START_KINDS.fix, 0));
+    const held = resultOf(await run({ stories: ["TASK-2"] }));
+    expect(held.skipped.map((s) => [s.reason, s.detail])).toEqual([
+      [
+        "capacity",
+        [
+          "the office runs at most 2 stories at once (caps.parallelRuns in .dipo/office.yaml); running: TASK-1; waiting first: DIPO-7",
+        ],
+      ],
+    ]);
     world.places.close();
   });
 });
@@ -1169,6 +1261,9 @@ async function pickupWithAnswerInClaim(
 }
 
 describe("a park resume and a pickup never take the worker place together (DIPO-229)", () => {
+  // One slot, so a pickup and a resume compete for it.
+  beforeEach(() => limitTo(1));
+
   it("holds a park answer inside work.run's claim window: the pickup takes the worker place and the resume waits", async () => {
     story("TASK-1", "Ready");
     const parked = parkedRun("DIPO-7");

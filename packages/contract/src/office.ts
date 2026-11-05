@@ -61,20 +61,28 @@ const StoryResult = z.object({ story: StoryId, key: StoryKey });
 export const workRun = defineCommand({
   name: "work.run",
   level: "office",
-  // Omit `stories` and the engine picks from the Ready queue. (DIPO-48): `from` is
+  // Omit `stories` and the engine picks one story from the Ready queue; named stories each start
+  // while the office has a free slot (`caps.parallelRuns`, 0002). (DIPO-48): `from` is
   // the main worktree a client resolved the office from (its current directory); the daemon
   // answers `office.unknown` when it is not the office's registered path.
   // (DIPO-271): `box` is accepted and changes nothing, because every run is a box run (0008).
   args: z.object({
     stories: z.array(StoryRefValue).optional(),
-    maxAgents: z.int().positive().optional(),
     from: z.string().min(1).optional(),
     box: z.boolean().optional(),
   }),
-  // Per-story problems are skips, not command errors.
+  // Per-story problems are skips, not command errors. A `capacity` skip's `detail` names the
+  // office's limit and its setting.
   result: z.object({
     started: z.array(z.object({ story: StoryId, key: StoryKey, run: RunId })),
-    skipped: z.array(z.object({ story: StoryId, key: StoryKey, reason: SkipReason })),
+    skipped: z.array(
+      z.object({
+        story: StoryId,
+        key: StoryKey,
+        reason: SkipReason,
+        detail: z.array(z.string()).optional(),
+      }),
+    ),
   }),
   confirm: false,
   irreversible: false,

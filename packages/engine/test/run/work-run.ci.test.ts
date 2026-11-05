@@ -2,15 +2,22 @@
 // Backlog CLI (DIPO-48 test plan). A Ready fixture story goes to In Progress with one claim commit
 // pushed, a stored pickup decision and the events `work.assigned` and `work.phase setup`; a story
 // with an open unknown edited in by hand fails the re-check and goes back to Refined through the
-// planning lane with the R15 message. Each case needs several CLI calls, an office load, a fetch,
-// a claim and a push, well over the local per-test budget; the same rules run locally against
-// fakes in work-run.test.ts.
+// planning lane with the R15 message. Two stories with scripted workers run at once on an office
+// wired as the daemon wires it (`loop-office.ts`, 0002): both developers work side by side, and both
+// stories reach In Review with their own pull request and their own reviewer. Each case needs
+// several CLI calls, an office load, a fetch, a claim and a push, well over the local per-test
+// budget; the same rules run locally against fakes in work-run.test.ts.
 
 import { describe, expect, it } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { type CommandReply, type OfficeId, RequestId } from "@dipsaus-orchestrator/contract";
+import {
+  type CommandReply,
+  type OfficeId,
+  RequestId,
+  type RunId,
+} from "@dipsaus-orchestrator/contract";
 import { type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
 import { BacklogLane } from "../../src/backlog/lane";
@@ -22,13 +29,24 @@ import { GateStore } from "../../src/gate-decisions";
 import { EngineGit } from "../../src/git";
 import { officeStatusesReady } from "../../src/backlog/init";
 import { storyRunBase, WorkRun } from "../../src/run";
-import { findRun } from "../../src/records";
+import { findRun, findStoryPr } from "../../src/records";
 import { StoryIndex } from "../../src/stories/feature";
 import { hasLiveClaim, StoryClaims } from "../../src/worktree";
 import { countRows } from "../commands/helpers";
 import { backlog, CLI, publish } from "../gate/gated-office";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";
 import { backlogStoryStore } from "../../src/backlog/store";
+import {
+  addTask4,
+  devScript,
+  type Session,
+  TASK_1,
+  TASK_4,
+  TSV,
+  TSV_DONE,
+  withLoopOffice,
+  writeFile,
+} from "../engine/loop-office";
 
 interface Running {
   readonly repo: TempRepoWithRemote;
@@ -289,6 +307,64 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           },
         ),
       30_000,
+    );
+
+    it(
+      "runs two stories with scripted workers at once, each reaching In Review with its own pull request",
+      () =>
+        withLoopOffice({ prepare: addTask4 }, async (w) => {
+          const storyOf = (session: Session) => findRun(w.office, session.runId as RunId)?.story;
+          // Every session holds until the scenario lets it go.
+          w.director = () => "hold";
+          const result = resultOf<{ started: { story: string; run: string }[] }>(
+            await w.command("work.run", { from: w.repo.dir, stories: [TASK_1, TASK_4] }),
+          );
+          expect(result.started.map((started) => started.story)).toEqual([TASK_1, TASK_4]);
+          const heldOf = (story: string, kind: Session["kind"]) =>
+            [...w.held.values()].find(
+              (h) => h.session.kind === kind && storyOf(h.session) === story,
+            );
+          await w.until(
+            "both developers run",
+            () =>
+              heldOf(TASK_1, "implement") !== undefined &&
+              heldOf(TASK_4, "implement") !== undefined,
+          );
+          const live = () =>
+            w.office.all<{ story_id: string; role: string }>(
+              `select r.story_id, a.role from agents a join runs r
+                on r.office_id = a.office_id and r.run_id = a.run_id
+                where a.office_id = $office_id and a.ended_at is null order by r.story_id`,
+            );
+          expect(live()).toEqual([
+            { story_id: TASK_1, role: "developer" },
+            { story_id: TASK_4, role: "developer" },
+          ]);
+
+          // Both developers finish; each story gets its own PR and its own reviewer at once.
+          const first = heldOf(TASK_1, "implement")?.session;
+          const second = heldOf(TASK_4, "implement")?.session;
+          if (first === undefined || second === undefined) throw new Error("no developers held");
+          writeFile(first, "packages/export/csv.ts", "export const csv = 1;\n");
+          writeFile(second, TSV, "export const tsv = 1;\n");
+          w.release(first.agentId, devScript(first.n).slice(1));
+          w.release(second.agentId, devScript(second.n, TSV_DONE).slice(1));
+          const runs = result.started.map((started) => started.run as RunId);
+          await w.until("both pull requests", () =>
+            runs.every((run) => findStoryPr(w.office, run) !== null),
+          );
+          await w.until(
+            "both reviews run",
+            () => heldOf(TASK_1, "review") !== undefined && heldOf(TASK_4, "review") !== undefined,
+          );
+          const prs = runs.map((run) => findStoryPr(w.office, run)?.number);
+          expect(new Set(prs).size).toBe(2);
+          expect(live()).toEqual([
+            { story_id: TASK_1, role: "reviewer" },
+            { story_id: TASK_4, role: "reviewer" },
+          ]);
+        }),
+      300_000,
     );
   });
 }

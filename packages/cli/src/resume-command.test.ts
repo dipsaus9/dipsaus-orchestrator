@@ -126,7 +126,7 @@ describe("dipo resume", () => {
     const ctx = fake(() => resumed({ queued: true }));
     expect(await main(["resume", "DIPO-7"], ctx.deps)).toBe(0);
     expect(ctx.out).toEqual([
-      `resumed DIPO-7 (run ${RUN}); it is In Progress; its session starts when the office's place frees`,
+      `resumed DIPO-7 (run ${RUN}); it is In Progress; its session starts when one of the office's run slots frees`,
     ]);
   });
 

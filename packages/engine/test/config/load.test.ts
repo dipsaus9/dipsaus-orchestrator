@@ -24,7 +24,7 @@ tiers:            # 0008
   M: { model: sonnet, effort: medium, budgetTokens: 800000,  maxTurns: 200, maxMinutes: 90,  loops: 5 }
   L: { model: opus,   effort: high,   budgetTokens: 2000000, maxTurns: 300, maxMinutes: 180, loops: 8 }
 review: { model: opus, effort: high, maxRounds: 3, maxTurns: 60, maxMinutes: 30, budgetTokens: 200000 }  # 0002
-caps: { ciAttempts: 2, conflictAttempts: 2 }                       # 0002
+caps: { parallelRuns: 3, ciAttempts: 2, conflictAttempts: 2 }      # 0002
 merge: { autoMerge: true, waitLabels: [] }                         # 0002
 box: { files: [], localPorts: [] }                                 # 0008
 scan: { model: sonnet, effort: low, budgetTokens: 100000, maxMinutes: 5 }  # 0013
@@ -83,7 +83,7 @@ describe("version 16", () => {
     expect(OFFICE_DEFAULTS.worktree).toEqual({
       root: "../{repo}.worktrees",
     });
-    expect(OFFICE_DEFAULTS.caps).toEqual({ ciAttempts: 2, conflictAttempts: 2 });
+    expect(OFFICE_DEFAULTS.caps).toEqual({ parallelRuns: 3, ciAttempts: 2, conflictAttempts: 2 });
     expect(OFFICE_DEFAULTS.merge).toEqual({
       autoMerge: true,
       waitLabels: [],
@@ -94,6 +94,14 @@ describe("version 16", () => {
   it("gives every key a default: an empty file loads as the defaults", () => {
     const result = ok(resolveOfficeConfig({ office: "version: 16\n", local: "version: 16\n" }));
     expect(result.config).toEqual(OFFICE_DEFAULTS);
+  });
+
+  it("has caps.parallelRuns, the stories run at once, with its default 3 and reads it", () => {
+    expect(OFFICE_DEFAULTS.caps.parallelRuns).toBe(3);
+    const office = "version: 16\ncaps: { parallelRuns: 5 }\n";
+    expect(ok(resolveOfficeConfig({ office })).config.caps.parallelRuns).toBe(5);
+    const zero = resolveOfficeConfig({ office: "version: 16\ncaps: { parallelRuns: 0 }\n" });
+    expect(zero.ok).toBe(false);
   });
 
   it("has timeouts.testIdleMinutes (DIPO-309) with its default and accepts it in both files", () => {
@@ -112,7 +120,7 @@ describe("version 16", () => {
       "",
     ].join("\n");
     const result = ok(resolveOfficeConfig({ office }));
-    expect(result.config.caps).toEqual({ ciAttempts: 5, conflictAttempts: 2 });
+    expect(result.config.caps).toEqual({ parallelRuns: 3, ciAttempts: 5, conflictAttempts: 2 });
     expect(result.config.merge).toEqual({
       autoMerge: false,
       waitLabels: ["hold"],

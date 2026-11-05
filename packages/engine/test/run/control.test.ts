@@ -620,7 +620,7 @@ describe("story.park of a running story", () => {
     expect(findRun(w.f.office, w.f.run)?.endedAt).not.toBeNull();
     expect(openPark(backlogLayout, w.f.office, w.work.key)).toBeNull();
     expect(heldByPark(backlogLayout, w.f.office, w.work.key)).toBe(true);
-    // The office's worker place is free, and a restart finds nothing to start for the run.
+    // The run holds no place, and a restart finds nothing to start for it.
     expect(placeHolders(w.f.office).worker).toEqual([]);
     expect(activeRuns(w.f.office)).toEqual([]);
     expect(waitingStarts(w.f.office)).toEqual([]);

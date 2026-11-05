@@ -207,6 +207,72 @@ export function reviewScript(n: number, review: ReviewReport): WorkerEvent[] {
   ];
 }
 
+/** A second Ready story, TASK-4, after TASK-1 in the queue: a TSV export with one criterion. */
+export const TASK_4 = "TASK-4";
+/** The file TASK-4's developer writes. */
+export const TSV = "packages/tsv/tsv.ts";
+const TSV_DESCRIPTION = [
+  "Story: As maintainer I want to export the story list as TSV so that I can paste it into a spreadsheet.",
+  "",
+  "```dipo",
+  'branch: "TASK-4/add-the-tsv-export-command"',
+  "unknowns: []",
+  "test_plan:",
+  "  entries:",
+  '    - kind: "automated"',
+  '      check: "(unit) one TSV row per story, header first"',
+  "```",
+].join("\n");
+
+/** TASK-4's done report. */
+export const TSV_DONE: WorkerReport = {
+  status: "done",
+  criteria: [{ n: 1, met: true, evidence: "packages/tsv/tsv.ts writes one row per story" }],
+  summary: "The export command writes the stories as TSV.",
+  commitSubject: "add the TSV export command",
+  testPlan: [{ n: 1, status: "done", evidence: "packages/tsv/tsv.test.ts checks the rows" }],
+};
+
+/** The reviewer's report that approves TASK-4. */
+export const TSV_APPROVE: ReviewReport = {
+  criteria: [{ n: 1, status: "met", evidence: "packages/tsv/tsv.ts:1 writes one row per story" }],
+  findings: [],
+  summary: "One TSV row per story.",
+};
+
+/** `LoopOptions.prepare`: adds TASK-4 as a Ready story on the base. */
+export async function addTask4(repo: TempRepoWithRemote): Promise<void> {
+  await backlog(repo, [
+    "task",
+    "create",
+    "Add the TSV export command",
+    "-d",
+    TSV_DESCRIPTION,
+    "--ac",
+    "The export command writes one TSV row per story",
+    "-s",
+    "Ready",
+    "-l",
+    "tier:S",
+    "--type",
+    "feature",
+    "-m",
+    "m-0",
+    "--ref",
+    "packages/tsv/",
+    "--ordinal",
+    "9000",
+  ]);
+  await publish(repo, "add TASK-4");
+}
+
+/** Writes `text` to `path` in a session's working directory, as its edits. */
+export function writeFile(session: Pick<Session, "cwd">, path: string, text: string): void {
+  const file = join(session.cwd, path);
+  mkdirSync(join(file, ".."), { recursive: true });
+  writeFileSync(file, text);
+}
+
 /** The reviewer's report that approves both criteria of TASK-1. */
 export const APPROVE: ReviewReport = {
   criteria: [

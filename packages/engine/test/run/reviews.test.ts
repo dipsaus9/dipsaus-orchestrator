@@ -518,8 +518,8 @@ async function reviewStarts(s: StoryRun): Promise<Session> {
 }
 
 describe("a pending review (0002)", () => {
-  it("starts once the reviewer place is free, oldest In Review first, and stores its verdict by code tree key", async () => {
-    // Another story's review holds the reviewer place.
+  it("starts in its story's own reviewer place while another story's review runs, oldest In Review first, and stores its verdict by code tree key", async () => {
+    // Another story's review runs in that story's reviewer place.
     const busy = storyRun(w, { story: "DIPO-7", reviewRoundCap: 3 });
     write(() =>
       w.office.run(
@@ -528,7 +528,7 @@ describe("a pending review (0002)", () => {
         { run: busy.run, at: now() },
       ),
     );
-    const holder = addAgent(w, busy.run, REVIEWER_ROLE, true, "opus");
+    addAgent(w, busy.run, REVIEWER_ROLE, true, "opus");
     const older = inReview("DIPO-1", "tree-1");
     heads.set(older.run, "tree-1");
     const olderAt = now();
@@ -540,21 +540,13 @@ describe("a pending review (0002)", () => {
       { kind: START_KINDS.review, runId: older.run, since: olderAt },
       { kind: START_KINDS.review, runId: newer.run, since: now() },
     ]);
-    expect(await x.places.drain(officeId())).toBe(0);
-    expect(x.sessions).toEqual([]);
-
-    // The place frees; ten minutes after the older story reached In Review its review starts.
-    w.office.immediate(() =>
-      w.office.run(
-        "update agents set ended_at = $at where office_id = $office_id and agent_id = $agent",
-        { at: now(), agent: holder },
-      ),
-    );
-    write(() => stopAtInReview(w.office, busy.run, now()));
+    // Each story waiting for its review holds its own slot: both reviews start, the older first,
+    // next to DIPO-7's reviewer.
     w.t.clock.advance(5 * MINUTE);
     const reopenedAt = now();
     const session = await reviewStarts(older);
-    expect(x.sessions.map((started) => started.run)).toEqual([older.run]);
+    expect(x.sessions.map((started) => started.run)).toEqual([older.run, newer.run]);
+    expect(findRun(w.office, busy.run)).toMatchObject({ endedAt: null });
     // The reopen and its review phase step keep their own time; the wait was the In Review time.
     expect(findRun(w.office, older.run)).toMatchObject({ endedAt: null, waiting: null });
     expect(stepsOf(older.run, "phase").at(-1)).toMatchObject({ value: "review", at: reopenedAt });
@@ -579,10 +571,6 @@ describe("a pending review (0002)", () => {
     expect(parksOf()).toEqual([]);
     // The round's read-only copy goes with the session's exit (DIPO-276).
     expect(x.finished).toEqual([session.agent]);
-
-    // The newer story's review starts next.
-    await reviewStarts(newer);
-    expect(x.sessions.map((started) => started.run)).toEqual([older.run, newer.run]);
   });
 
   it("waits again from its In Review time when its session does not start", async () => {

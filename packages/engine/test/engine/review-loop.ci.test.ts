@@ -32,7 +32,7 @@
 // (`describe.concurrent`, DIPO-407), each in a world of its own: its office and state database,
 // temp folders, bare remote, code host, request ids and manual clock.
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
@@ -44,13 +44,13 @@ import { mergeGatesOfRun } from "../../src/run-state";
 import { reviewVerdictsOf } from "../../src/review/store";
 import { openPark } from "../../src/run";
 import { findRun, findStoryPr } from "../../src/records";
-import type { ReviewReport, WorkerReport } from "../../src/workers/types";
+import type { ReviewReport } from "../../src/workers/types";
 import { findClaim } from "../../src/worktree/records";
 import { otherClone } from "../backlog/lane/helpers";
-import { backlog, publish } from "../gate/gated-office";
 
 import { GREEN_CHECKS, PENDING_CHECKS, RED_CHECKS } from "./loop-host";
 import {
+  addTask4,
   APPROVE,
   BRANCH_1,
   devScript,
@@ -59,8 +59,13 @@ import {
   type Session,
   startStory,
   TASK_1,
+  TASK_4,
   TASK_FILE_1,
+  TSV,
+  TSV_APPROVE,
+  TSV_DONE,
   withLoopOffice,
+  writeFile,
 } from "./loop-office";
 import { backlogLayout } from "../story-store/backlog";
 
@@ -76,33 +81,6 @@ const TITLE = "feat(TASK-1): add the CSV export command";
 const NOTES = "docs/export.md";
 const NOTES_TEXT = "# Export\n\nThe export writes semicolons.\n";
 
-const TASK_4 = "TASK-4";
-const TSV = "packages/tsv/tsv.ts";
-const TSV_DESCRIPTION = [
-  "Story: As maintainer I want to export the story list as TSV so that I can paste it into a spreadsheet.",
-  "",
-  "```dipo",
-  'branch: "TASK-4/add-the-tsv-export-command"',
-  "unknowns: []",
-  "test_plan:",
-  "  entries:",
-  '    - kind: "automated"',
-  '      check: "(unit) one TSV row per story, header first"',
-  "```",
-].join("\n");
-const TSV_DONE: WorkerReport = {
-  status: "done",
-  criteria: [{ n: 1, met: true, evidence: "packages/tsv/tsv.ts writes one row per story" }],
-  summary: "The export command writes the stories as TSV.",
-  commitSubject: "add the TSV export command",
-  testPlan: [{ n: 1, status: "done", evidence: "packages/tsv/tsv.test.ts checks the rows" }],
-};
-const TSV_APPROVE: ReviewReport = {
-  criteria: [{ n: 1, status: "met", evidence: "packages/tsv/tsv.ts:1 writes one row per story" }],
-  findings: [],
-  summary: "One TSV row per story.",
-};
-
 /** Criterion #2 is one only the maintainer can check; the review itself approves. */
 const MAINTAINER_CHECK: ReviewReport = {
   ...APPROVE,
@@ -111,12 +89,6 @@ const MAINTAINER_CHECK: ReviewReport = {
     { n: 2, status: "maintainer", evidence: "Opening the file in a spreadsheet is a hand check." },
   ],
 };
-
-function writeFile(session: Pick<Session, "cwd">, path: string, text: string): void {
-  const file = join(session.cwd, path);
-  mkdirSync(join(file, ".."), { recursive: true });
-  writeFileSync(file, text);
-}
 
 /** A blocking finding of `kind` at line 2 of the CSV file, quoting `quote`, and an advisory one. */
 function blocked(kind: "correctness" | "security", quote: string, text: string): ReviewReport {
@@ -544,30 +516,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         withLoopOffice(
           {
             // A second Ready story, after TASK-1 in the queue.
-            prepare: async (repo) => {
-              await backlog(repo, [
-                "task",
-                "create",
-                "Add the TSV export command",
-                "-d",
-                TSV_DESCRIPTION,
-                "--ac",
-                "The export command writes one TSV row per story",
-                "-s",
-                "Ready",
-                "-l",
-                "tier:S",
-                "--type",
-                "feature",
-                "-m",
-                "m-0",
-                "--ref",
-                "packages/tsv/",
-                "--ordinal",
-                "9000",
-              ]);
-              await publish(repo, "add TASK-4");
-            },
+            prepare: addTask4,
           },
           async (w) => {
             const storyOf = (session: Session) => findRun(w.office, session.runId as RunId)?.story;
@@ -586,7 +535,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
                 (h) => h.session.kind === kind && storyOf(h.session) === story,
               );
             await w.until("TASK-1's review runs", () => heldOf(TASK_1, "review") !== undefined);
-            // The worker place is free while TASK-1 is reviewed: TASK-4's developer starts.
+            // A slot is free while TASK-1 is reviewed: TASK-4's developer starts.
             const second = await startStory(w, TASK_4);
             await w.until(
               "TASK-4's developer runs",

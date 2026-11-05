@@ -56,6 +56,9 @@ const Review = z
 
 const Caps = z
   .strictObject({
+    parallelRuns: count().describe(
+      "How many stories of the office run at the same time, each in its own box with its own developer and reviewer. A story holds a run slot while its developer or reviewer works or starts, and while it waits In Review for its review; a story that waits for CI, for the maintainer, for its merge or in a park holds none. A fix round, a conflict hand-off or a resume that finds every slot taken waits and starts when one frees up, before any new story.",
+    ),
     ciAttempts: count().describe(
       "Pushed heads with red required checks before the story parks with the reason verify-failing. A reviewed head and a close-out head each count once their checks are red; a head whose CI run a later push cancelled does not count.",
     ),
@@ -63,7 +66,9 @@ const Caps = z
       "Failed conflict hand-offs of a story before it parks with the reason conflict.",
     ),
   })
-  .describe("How often a story may try again before it parks (0002).");
+  .describe(
+    "How many stories run at once, and how often a story may try again before it parks (0002).",
+  );
 
 const Merge = z
   .strictObject({
@@ -601,7 +606,7 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
     maxMinutes: 30,
     budgetTokens: 200_000,
   },
-  caps: { ciAttempts: 2, conflictAttempts: 2 },
+  caps: { parallelRuns: 3, ciAttempts: 2, conflictAttempts: 2 },
   merge: { autoMerge: true, waitLabels: [], checksWaitMinutes: 30 },
   // 0008: no committed box block; the box is detected from the repository.
   box: {},

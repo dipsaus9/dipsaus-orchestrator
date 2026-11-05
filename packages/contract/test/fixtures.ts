@@ -195,10 +195,20 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
     },
   },
   "work.run": {
-    args: { stories: ["DIPO-21", ids.storyKey], maxAgents: 1, from: "/work/app" },
+    args: { stories: ["DIPO-21", ids.storyKey], from: "/work/app" },
     result: {
       started: [{ story: "DIPO-21", key: ids.storyKey, run: ids.run }],
-      skipped: [{ story: "DIPO-31", key: ids.storyKey, reason: "dependency" }],
+      skipped: [
+        { story: "DIPO-31", key: ids.storyKey, reason: "dependency" },
+        {
+          story: "DIPO-32",
+          key: ids.storyKey,
+          reason: "capacity",
+          detail: [
+            "the office runs at most 3 stories at once (caps.parallelRuns in .dipo/office.yaml); running: DIPO-21, DIPO-22, DIPO-23",
+          ],
+        },
+      ],
     },
   },
   "work.answer": {
@@ -605,9 +615,9 @@ export const commandFixtures: Record<string, { args: unknown; result: unknown }>
       errors: [
         {
           file: ".dipo/office.yaml",
-          path: "caps.maxAgents",
+          path: "caps.parallelRuns",
           expected: "integer",
-          message: ".dipo/office.yaml: caps.maxAgents: expected integer, got string",
+          message: ".dipo/office.yaml: caps.parallelRuns: expected integer, got string",
         },
       ],
       configHash: "9f2c4e0b7a1d3f5e8c6b4a2d0e1f3a5c7b9d1e3f5a7c9e1b3d5f7a9c1e3b5d7f",

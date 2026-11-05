@@ -181,7 +181,7 @@ export async function resumeCommand(
         }
         const where =
           result.queued === true
-            ? `it is ${result.to}; its session starts when the office's place frees`
+            ? `it is ${result.to}; its session starts when one of the office's run slots frees`
             : `it is ${result.to}`;
         deps.writeLine(
           `resumed ${story}${result.run === undefined ? "" : ` (run ${result.run})`}; ${where}`,

@@ -117,29 +117,48 @@ export function failedReviewRounds(office: OfficeHandle, runId: RunId): number {
 }
 
 /**
- * The pending reviews of the office (`PlacesDeps.pending`, 0002), oldest In Review
- * first: story runs open at In Review in phase review with a live claim and the review loop's caps, whose head is
- * on the remote (or whose office has none, DIPO-315), and whose story has no open park (a story
- * parked while it waits In Review gets no reviewer until it resumes, as the auto-merge and fix
- * rounds skip it). Each waits from its In Review time.
+ * Story runs open at In Review in phase review with a live claim and the review loop's caps, whose
+ * story has no open park (a story parked while it waits In Review gets no reviewer until it
+ * resumes, as the auto-merge and fix rounds skip it), oldest In Review first; with `pushed`, only
+ * those whose head is on the remote (or whose office has none, DIPO-315).
  */
-export function pendingReviews(stories: ParkStore, office: OfficeHandle): PlaceStart[] {
-  const rows = office.all<{ run_id: string; ended_at: number }>(
-    `select r.run_id, r.ended_at from runs r
+function awaitingReview(
+  stories: ParkStore,
+  office: OfficeHandle,
+  pushed: boolean,
+): { readonly run_id: string; readonly ended_at: number }[] {
+  const onRemote = pushed ? "and (c.pushed_at >= r.ended_at or c.no_remote_at >= r.ended_at)" : "";
+  return office
+    .all<{ run_id: string; ended_at: number }>(
+      `select r.run_id, r.ended_at from runs r
       where r.office_id = $office_id and r.kind = 'story' and r.ended_at is not null
         and r.end_kind is null and ${RUN_PHASE_SQL} = 'review' and r.review_round_cap is not null
         and exists (select 1 from claims c where c.office_id = r.office_id
-          and c.run_id = r.run_id and c.released_at is null
-          and (c.pushed_at >= r.ended_at or c.no_remote_at >= r.ended_at))
+          and c.run_id = r.run_id and c.released_at is null ${onRemote})
       order by r.ended_at, r.run_id`,
-  );
-  return rows
-    .filter((row) => !runHeldByPark(stories, office, row.run_id))
-    .map((row): PlaceStart => ({
-      kind: START_KINDS.review,
-      runId: row.run_id as RunId,
-      since: row.ended_at,
-    }));
+    )
+    .filter((row) => !runHeldByPark(stories, office, row.run_id));
+}
+
+/**
+ * The pending reviews of the office (`PlacesDeps.pending`, 0002), oldest In Review first: the runs
+ * waiting for their review whose head is on the remote (or whose office has none, DIPO-315). Each
+ * waits from its In Review time.
+ */
+export function pendingReviews(stories: ParkStore, office: OfficeHandle): PlaceStart[] {
+  return awaitingReview(stories, office, true).map((row): PlaceStart => ({
+    kind: START_KINDS.review,
+    runId: row.run_id as RunId,
+    since: row.ended_at,
+  }));
+}
+
+/**
+ * The runs waiting for their review, pushed or not (`PlacesDeps.reviewing`, 0002): each holds its
+ * story's run slot, so the story's developer hands its slot to its own review.
+ */
+export function reviewingRuns(stories: ParkStore, office: OfficeHandle): RunId[] {
+  return awaitingReview(stories, office, false).map((row) => row.run_id as RunId);
 }
 
 /**

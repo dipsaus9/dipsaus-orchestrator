@@ -59,7 +59,8 @@ export const ParkReason = openEnum(KNOWN_PARK_REASONS);
 export type ParkReason = z.infer<typeof ParkReason>;
 
 // Why `work.run` did not start a story (0005). `notRunnable` covers states run never
-// picks; `capacity` means `maxAgents` or the office cap was reached. The office's starts paused
+// picks; `capacity` means the office runs as many stories as `caps.parallelRuns` allows, or a run
+// without named stories started its one story. The office's starts paused
 // (0020) refuses the whole `work.run` instead of skipping a story.
 export const KNOWN_SKIP_REASONS = [
   "parked",

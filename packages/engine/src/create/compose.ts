@@ -10,6 +10,7 @@ import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 import type { BoxWorkers } from "../box/workers";
 
 import { QuestionAnswers } from "../questions/answers";
+import { OFFICE_DEFAULTS } from "../config";
 import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
 import { currentProfile } from "../scan/store";
 import type { RunProfile } from "../scan/detect";
@@ -104,8 +105,8 @@ export interface RunPorts {
    * adapter holds of a failed adapter check; needs `outcomes`.
    */
   readonly startsPaused?: Pick<StartsPausedDeps, "loaded" | "holds" | "adapter">;
-  /** The office's session places (DIPO-142): its pending reviews. */
-  readonly places?: Pick<PlacesDeps, "pending">;
+  /** The office's run slots (DIPO-142): its pending reviews and the runs waiting for one. */
+  readonly places?: Pick<PlacesDeps, "pending" | "reviewing">;
   /**
    * Where the CI of a run's pushed head stands (`StoryPrs.ciState`, DIPO-147): a fix round waits
    * for its checks (DIPO-148). Without it no CI is waited for.
@@ -146,7 +147,7 @@ export interface ComposedRuns {
   readonly resumer: RunResumer | null;
   /** The office's starts paused (0020); needs `outcomes` and the `startsPaused` port. */
   readonly startsPaused: StartsPaused | null;
-  /** The worker and reviewer places with their start orders (DIPO-142); needs `outcomes`. */
+  /** The run slots with their start order (DIPO-142); needs `outcomes`. */
   readonly places: Places | null;
   /** The review rounds (DIPO-219): pending reviews, their starter and the reviewer's outcomes. */
   readonly reviews: Reviews | null;
@@ -395,12 +396,15 @@ function buildOutcomes(
   });
   const reviews = buildReviews(ports, control, ingest, startsPaused, fixRounds);
   // The places wait while the office's starts are paused, start a queued resume through the
-  // resumption and a pending review through the review rounds (0002).
+  // resumption and a pending review through the review rounds, up to the office's limit (0002).
   const places = new Places({
     ...ports.places,
     clock: ports.clock,
     offices: ports.offices,
     pending: ports.places?.pending ?? ((office) => reviews.pending(office)),
+    reviewing: ports.places?.reviewing ?? ((office) => reviews.reviewing(office)),
+    limit: (office) =>
+      ports.offices.config(office)?.caps.parallelRuns ?? OFFICE_DEFAULTS.caps.parallelRuns,
     ...(startsPaused === null
       ? {}
       : {

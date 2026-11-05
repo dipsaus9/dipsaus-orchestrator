@@ -102,7 +102,7 @@ function fake(
 
 const result = (
   started: { story: string; key: string; run: string }[],
-  skipped: { story: string; key: string; reason: string }[] = [],
+  skipped: { story: string; key: string; reason: string; detail?: string[] }[] = [],
 ) => ({ ok: true, changed: started.length > 0, result: { started, skipped } });
 
 /** Refuses the office stream `refusals` times with `error`, as the daemon does while it recovers or has a history gap. */
@@ -208,12 +208,29 @@ describe("dipo run", () => {
   });
 
   it("names stories, upper-cases ids, keeps keys, and sends no from with --office", async () => {
-    const ctx = fake(() => result([], [{ story: "DIPO-7", key: KEY, reason: "capacity" }]));
+    const full =
+      "the office runs at most 3 stories at once (caps.parallelRuns in .dipo/office.yaml); running: DIPO-1, DIPO-2, DIPO-3";
+    const ctx = fake(() =>
+      result([], [{ story: "DIPO-7", key: KEY, reason: "capacity", detail: [full] }]),
+    );
     expect(await main(["run", "dipo-7", KEY, "--office", OTHER], ctx.deps)).toBe(1);
     expect(ctx.sent).toEqual([
       { name: "work.run", args: { stories: ["DIPO-7", KEY] }, office: OTHER },
     ]);
-    expect(ctx.out).toEqual(["skipped DIPO-7: the office already runs a story"]);
+    expect(ctx.out).toEqual([`skipped DIPO-7: ${full}`]);
+  });
+
+  it("says a run without ids started its one story, not that no slot is free", async () => {
+    const one = "a run without story ids starts one story; name the stories to start more at once";
+    const ctx = fake(() =>
+      result(
+        [{ story: "DIPO-7", key: KEY, run: RUN }],
+        [{ story: "DIPO-8", key: KEY_2, reason: "capacity", detail: [one] }],
+      ),
+    );
+    expect(await main(["run", "--office", OTHER], ctx.deps)).toBe(0);
+    expect(ctx.out).toEqual([`started DIPO-7 (run ${RUN})`, `skipped DIPO-8: ${one}`]);
+    expect(ctx.out.join("\n")).not.toContain("no run slot is free");
   });
 
   it("still sends --box, which changes nothing now, and ignores it in a dry run (DIPO-271, DIPO-240)", async () => {
@@ -439,7 +456,9 @@ describe("dipo run --dry-run", () => {
       expect(out).toContain(header);
     }
     expect(out).toContain("would start DIPO-7");
-    expect(out).toContain("skipped DIPO-8: the office already runs a story");
+    expect(out).toContain(
+      "skipped DIPO-8: no run slot is free (caps.parallelRuns in .dipo/office.yaml)",
+    );
     expect(out).toContain("branch:        DIPO-7/add-a-greeting");
     expect(out).not.toContain("worktree");
     expect(out).toContain("program:           /opt/claude/bin/claude");

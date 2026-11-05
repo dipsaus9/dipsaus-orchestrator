@@ -38,6 +38,7 @@ const KEY_PATHS = [
   "review.maxTurns",
   "review.maxMinutes",
   "review.budgetTokens",
+  "caps.parallelRuns",
   "caps.ciAttempts",
   "caps.conflictAttempts",
   "merge.autoMerge",

@@ -222,8 +222,8 @@ export interface EngineRuns {
    */
   readonly startsPaused: StartsPaused;
   /**
-   * The office's worker and reviewer places (DIPO-142): a resume whose place is taken waits and
-   * starts when it frees; its feature starts what waited across a restart at load.
+   * The office's run slots (DIPO-142): a resume that finds every slot taken waits and starts when
+   * one frees; its feature starts what waited across a restart at load.
    */
   readonly places: Places;
   /**

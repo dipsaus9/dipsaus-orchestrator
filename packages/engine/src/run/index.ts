@@ -85,6 +85,7 @@ export {
   failedReviewRounds,
   openReviewRound,
   pendingReviews,
+  reviewingRuns,
   reviewRounds,
   takeVerdict,
 } from "./review-rounds";
