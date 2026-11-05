@@ -26,7 +26,7 @@ The project grew to about 137k source lines in 15 days, with up to 40 amendments
 
 - **M0, walking skeleton.** Done. Engine, daemon, database, Claude CLI adapter, minimal TUI, office init and switching, repository scan, caps, tiers and parking. Cutover (DIPO-115): dipo delivers its own stories since then.
 - **M1, review and park.** Done (2026-11-02). The story PR, a reviewer session, one feedback loop for review, CI and conflicts, merge on approval, resume for every park reason, the maintainer's commands (park, resume, drop, discard, steer, answer, approve, reject), and `dipo desk`. Then the triage view in the TUI, `dipo test` in a test box, the scan's AI fallback with its confirm command, and daily and monthly spend alerts. Stories carry `slice:m1a` for the unattended loop and `slice:m1b` for the rest.
-- **M2, parallel runs.** Several stories at once, up to `caps.parallelRuns` per office, each in its own box. For each free slot dipo offers the next story on the desk, and the maintainer confirms each one (next up, 0010). The offer shows the files a story shares with the running ones; nothing acts on overlap while stories run, and a conflict is fixed at merge. There is no merge queue: GitHub offers none for a repository owned by a user account, and the maintainer accepted the risk (0002).
+- **M2, parallel runs.** Done (2026-11-05). Several stories at once, up to `caps.parallelRuns` per office, each in its own box. For each free slot dipo offers the next story on the desk, and the maintainer confirms each one (next up, 0010). The offer shows the files a story shares with the running ones; nothing acts on overlap while stories run, and a conflict is fixed at merge. There is no merge queue: GitHub offers none for a repository owned by a user account, and the maintainer accepted the risk (0002).
 - **M3, rituals.** `plan`, `refine`, `ready` and `estimate` with model interviews, including the tier proposal. `retro` with insights from the database: park reasons, loops and cost per kind of work.
 - **M4, roster.** Roles as stored definitions, hiring, a role chosen per story, non-code roles, and the skills and plugins each role brings to its sessions.
 - **M5, conversation.** A conversation layer that maps the maintainer's words to commands, with confirmation.
@@ -45,7 +45,7 @@ Until M3, stories are written by hand through the Backlog CLI to the 0012 standa
 
 ## Current state
 
-M0 and M1 are done. M2 is next. How this repository is built is in 0002.
+M0, M1 and M2 are done. M3 is next. How this repository is built is in 0002.
 
 ## Rationale
 

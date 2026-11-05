@@ -94,4 +94,4 @@ Every term on this page, and the rest, is in [concepts](concepts.md), one meanin
 
 ## What is next
 
-The milestones, M2 parallel runs first, are in [0003](decisions/0003-milestones-and-quality-bar.md).
+The milestones, M3 rituals next, are in [0003](decisions/0003-milestones-and-quality-bar.md).
