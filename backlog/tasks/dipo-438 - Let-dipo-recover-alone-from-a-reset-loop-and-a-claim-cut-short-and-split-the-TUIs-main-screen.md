@@ -1,10 +1,10 @@
 ---
 id: DIPO-438
 title: Release a claim that a daemon crash cut short without the maintainer
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-03 09:54'
-updated_date: '2026-11-04 15:57'
+updated_date: '2026-11-05 10:02'
 labels:
   - 'tier:S'
 milestone: m-2
@@ -40,8 +40,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After a daemon stop between the claim commit and the recorded claim, the next start rolls the claim back without the maintainer: a branch whose only commit past its start is dipo's claim commit for this story is reset or deleted, with no claim.leftover notice
-- [ ] #2 A branch with any other commit past its start is still left for the maintainer with the claim.leftover notice
-- [ ] #3 dipo recognises a commit as its own claim commit for this story only when its parent is the claim's start commit and it changes only the story's task file, and that change sets the status to In Progress
-- [ ] #4 A commit with the claim commit's subject (<ID>: status In Progress) that has another parent or changes anything else still leaves the branch for the maintainer with the claim.leftover notice
+- [x] #1 After a daemon stop between the claim commit and the recorded claim, the next start rolls the claim back without the maintainer: a branch whose only commit past its start is dipo's claim commit for this story is reset or deleted, with no claim.leftover notice
+- [x] #2 A branch with any other commit past its start is still left for the maintainer with the claim.leftover notice
+- [x] #3 dipo recognises a commit as its own claim commit for this story only when its parent is the claim's start commit and it changes only the story's task file, and that change sets the status to In Progress
+- [x] #4 A commit with the claim commit's subject (<ID>: status In Progress) that has another parent or changes anything else still leaves the branch for the maintainer with the claim.leftover notice
 <!-- AC:END -->

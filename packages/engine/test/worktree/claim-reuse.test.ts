@@ -1,6 +1,6 @@
 // Fast local cases of the claim rules whose full versions run in CI only (claim.ci.test.ts,
 // DIPO-77): the reuse of a released branch at its kept tip, a reused branch moved back to its kept
-// tip when the claim fails after its claim commit, and a foreign commit on the claim commit left
+// tip when the claim fails after its claim commit or the daemon stops before its record, and a foreign commit on the claim commit left
 // over with a notice (DIPO-38, DIPO-349; 0010). No remote: the base is the local
 // `main`, so nothing is cloned, pushed or fetched, and the released branch is made by hand instead
 // of by a first claim.
@@ -28,8 +28,10 @@ import {
   claimSetup,
   type ClaimSetup,
   filesOf,
+  nextStart,
   notices,
   publish,
+  stoppedAfterClaimCommit,
   subjects,
   TASK_1,
   TASK_FILE_1,
@@ -154,6 +156,23 @@ describe("reusing a released branch against the local base", () => {
       const again = claimed(await claimStory(s.deps(), s.request(key))).claim;
       expect(again.reused).toBe(true);
       expect(again.startSha).toBe(kept);
+    }, FIXTURE);
+  });
+
+  it("moves a reused branch back to its kept tip at the next start when the daemon stopped before the claim commit was recorded", async () => {
+    await withTempRepo(async (repo) => {
+      await publish(repo);
+      const s = await claimSetup(repo);
+      const key = s.key();
+      const kept = await releasedBranch(repo, s, key, "work.txt", "work\n");
+      const { runId } = await stoppedAfterClaimCommit(s, key);
+
+      await nextStart(s);
+
+      expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(kept);
+      expect(releasedBranchFor(s.office, key, BRANCH_1)).not.toBeNull();
+      expect(findClaim(s.office, runId)?.releaseReason).toBe("setup-failed");
+      expect(notices(s.office).map((n) => n.code)).toEqual([CLAIM_NOTICES.setupInterrupted]);
     }, FIXTURE);
   });
 });

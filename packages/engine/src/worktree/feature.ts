@@ -3,8 +3,8 @@
 // `EngineGit.feature`. `work.run` (DIPO-48) calls `claim`.
 //
 // The step rolls back every live claim whose setup never finished (no recorded claim commit), for
-// example because the daemon stopped during setup (DIPO-39): its branch is restored and its row
-// ended as `setup-failed`.
+// example because the daemon stopped during setup (DIPO-39) or between the claim commit and its
+// record: its branch is restored and its row ended as `setup-failed`.
 //
 // Before the rollback, the step sweeps the `_branch-read-*` scratch directories a killed or
 // crashed daemon left under the worktree root (DIPO-90, see `sweep.ts`). The story index's load
@@ -120,6 +120,7 @@ export class StoryClaims {
       officeId,
       office: loaded.office,
       git,
+      stories: this.#deps.stories,
       clock: loaded.clock,
       ...(this.#deps.onChanged === undefined ? {} : { onChanged: this.#deps.onChanged }),
     };

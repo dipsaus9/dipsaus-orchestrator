@@ -1,7 +1,8 @@
 // Claiming a story against real temporary repositories, a bare remote and the pinned Backlog CLI
 // (DIPO-38, DIPO-349; 0010): the branch, one claim commit of only the task
 // file, no worktree of any kind; a lost race; collisions that delete nothing; the rollback of a
-// claim that fails after its branch exists; and the ordering against the planning lane.
+// claim that fails after its branch exists; the rollback at the next start of a claim the daemon
+// stopped between its claim commit and its record; and the ordering against the planning lane.
 // The reuse of a released branch is in claim-reuse.test.ts; the slower cases run in CI only, in
 // claim.ci.test.ts (DIPO-77, DIPO-79).
 
@@ -9,7 +10,7 @@ import { describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { git, withBareRemote, withTempRepo } from "@dipsaus-orchestrator/testkit";
+import { git, type TempRepo, withBareRemote, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { type GitCall, type GitResult, type GitSettings, spawnGitExec } from "../../src/git";
 import { updateEntry } from "../../src/backlog/lane/journal";
@@ -27,15 +28,18 @@ import {
 import {
   BACKLOG_FIXTURE,
   BRANCH_1,
+  byHandOn,
   claimSetup,
   type ClaimSetup,
   filesOf,
   inRemote,
   laneOf,
+  nextStart,
   notices,
   otherClone,
   publish,
   secondGit,
+  stoppedAfterClaimCommit,
   subjects,
   TASK_1,
   TASK_FILE_1,
@@ -289,6 +293,126 @@ describe("a claim that fails after its branch exists", () => {
       claimed(await claimStory(s.deps(), s.request(key)));
     }, FIXTURE);
   });
+});
+
+describe("a claim the daemon stopped between its claim commit and its record", () => {
+  it("is rolled back at the next start with no leftover notice, and the story can be claimed again", async () => {
+    await withTempRepo(async (repo) => {
+      await publish(repo);
+      const s = await claimSetup(repo);
+      const key = s.key();
+      const { runId } = await stoppedAfterClaimCommit(s, key);
+
+      await nextStart(s);
+
+      expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
+      expect(findClaim(s.office, runId)?.releaseReason).toBe("setup-failed");
+      expect(hasLiveClaim(s.office, key)).toBe(false);
+      expect(notices(s.office).map((n) => n.code)).toEqual([CLAIM_NOTICES.setupInterrupted]);
+      claimed(await claimStory(s.deps(), s.request(key)));
+    }, FIXTURE);
+  });
+
+  it("rolls back only that story's branch and claim while another story's claim stays", async () => {
+    await withTempRepo(async (repo) => {
+      await publish(repo);
+      const s = await claimSetup(repo);
+      const other = s.key();
+      const otherBranch = "TASK-2/rename-the-export-setting";
+      const kept = claimed(
+        await claimStory(s.deps(), s.request(other, { story: "TASK-2", branch: otherBranch })),
+      ).claim;
+      const key = s.key();
+      const { runId } = await stoppedAfterClaimCommit(s, key);
+
+      await nextStart(s);
+
+      expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
+      expect(findClaim(s.office, runId)?.releaseReason).toBe("setup-failed");
+      expect((await repo.git("rev-parse", otherBranch)).trim()).toBe(kept.claimSha!);
+      expect(findClaim(s.office, kept.runId)).toMatchObject({
+        releasedAt: null,
+        claimSha: kept.claimSha,
+      });
+      expect(notices(s.office).map((n) => [n.code, n.key])).toEqual([
+        [CLAIM_NOTICES.setupInterrupted, key],
+      ]);
+    }, FIXTURE);
+  });
+
+  it("leaves a branch with a foreign commit past the claim commit for the maintainer", async () => {
+    await withTempRepo(async (repo) => {
+      await publish(repo);
+      const s = await claimSetup(repo);
+      const { claimSha } = await stoppedAfterClaimCommit(s, s.key());
+      const foreign = (
+        await repo.git("commit-tree", `${claimSha}^{tree}`, "-p", claimSha, "-m", "foreign")
+      ).trim();
+      await repo.git("update-ref", `refs/heads/${BRANCH_1}`, foreign, claimSha);
+
+      await nextStart(s);
+
+      expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(foreign);
+      expect(notices(s.office).map((n) => n.code)).toContain(CLAIM_NOTICES.leftover);
+    }, FIXTURE);
+  });
+
+  // Look-alikes of the claim commit, each with its subject `TASK-1: status In Progress`.
+  const subject = `${TASK_1}: status In Progress`;
+  const lookAlikes: readonly {
+    readonly name: string;
+    readonly make: (repo: TempRepo, at: { claimSha: string; startSha: string }) => Promise<string>;
+  }[] = [
+    {
+      name: "with another parent",
+      make: async (repo, { claimSha, startSha }) => {
+        const between = (
+          await repo.git("commit-tree", `${startSha}^{tree}`, "-p", startSha, "-m", "foreign")
+        ).trim();
+        return (
+          await repo.git("commit-tree", `${claimSha}^{tree}`, "-p", between, "-m", subject)
+        ).trim();
+      },
+    },
+    {
+      name: "that also changes another file",
+      make: (repo) =>
+        byHandOn(repo, BRANCH_1, async (dir) => {
+          writeFileSync(join(dir, "extra.txt"), "extra\n");
+          await git(dir, repo.home, "add", "extra.txt");
+          await git(dir, repo.home, "commit", "--quiet", "--amend", "-m", subject);
+          return (await git(dir, repo.home, "rev-parse", "HEAD")).trim();
+        }),
+    },
+    {
+      name: "that changes the task file without setting In Progress",
+      make: (repo, { startSha }) =>
+        byHandOn(repo, BRANCH_1, async (dir) => {
+          await git(dir, repo.home, "reset", "--quiet", "--hard", startSha);
+          const file = join(dir, TASK_FILE_1);
+          writeFileSync(file, `${readFileSync(file, "utf8")}\nmore\n`);
+          await git(dir, repo.home, "commit", "--quiet", "-am", subject);
+          return (await git(dir, repo.home, "rev-parse", "HEAD")).trim();
+        }),
+    },
+  ];
+  for (const lookAlike of lookAlikes) {
+    it(`leaves a branch whose tip is a look-alike ${lookAlike.name} for the maintainer`, async () => {
+      await withTempRepo(async (repo) => {
+        await publish(repo);
+        const s = await claimSetup(repo);
+        const at = await stoppedAfterClaimCommit(s, s.key());
+        const tip = await lookAlike.make(repo, at);
+        await repo.git("update-ref", `refs/heads/${BRANCH_1}`, tip);
+        expect(await subjects(repo.dir, repo.home, BRANCH_1, "main")).toContain(subject);
+
+        await nextStart(s);
+
+        expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(tip);
+        expect(notices(s.office).map((n) => n.code)).toContain(CLAIM_NOTICES.leftover);
+      }, FIXTURE);
+    });
+  }
 });
 
 describe("the claim and the planning lane in the office git queue", () => {
