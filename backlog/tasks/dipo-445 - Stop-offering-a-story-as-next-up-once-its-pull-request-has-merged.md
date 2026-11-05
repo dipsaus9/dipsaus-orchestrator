@@ -1,10 +1,10 @@
 ---
 id: DIPO-445
 title: Stop offering a story as next up once its pull request has merged
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-05 12:06'
-updated_date: '2026-11-05 12:12'
+updated_date: '2026-11-05 12:19'
 labels:
   - 'tier:S'
 milestone: m-2
