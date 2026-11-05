@@ -26,7 +26,10 @@
 //    and parks whose write to Backlog.md failed), and the run profile's rows
 //    (DIPO-310): each pending proposal of the scan fallback and each stale confirmation, an office
 //    item with no story, offering its `dipo office confirm` lines (no TUI keys yet);
-// 6. proposals and decision notes of worker reports (`proposals.ts`), spike before follow-up.
+// 6. proposals and decision notes of worker reports (`proposals.ts`), spike before follow-up;
+// 7. next up (0010, `run/next-up.ts`): one Ready story per free run slot, in next-up order, with
+//    one line of why and the files its references share with running stories, offering
+//    `dipo next confirm <ID>` and `dipo next decline <ID>`.
 // Within a group the items whose story blocks the most active stories come first, then the oldest.
 //
 // Every stored free text an item shows (questions, park details, gate summaries, PR titles, check
@@ -104,6 +107,18 @@ export interface OfficeHandItem {
   readonly hand: string;
 }
 
+/** A story offered for a free run slot (`run/next-up.ts`), as the desk shows it. */
+export interface NextUpDeskItem {
+  readonly story: StoryId;
+  readonly key: StoryKey;
+  readonly title: string;
+  readonly why: string;
+  /** The files its references share with each running story; empty when it shares none. */
+  readonly shared: readonly { readonly story: string; readonly paths: readonly string[] }[];
+  /** When it was first offered, in ms. */
+  readonly since: number;
+}
+
 /** An open merge gate, as `DeskSources.handMergeOnly` sees it. */
 export interface DeskGate {
   readonly gate: string;
@@ -144,6 +159,8 @@ export interface DeskSources {
   readonly officeItems?: (office: OfficeHandle, now: number) => readonly OfficeHandItem[];
   /** The office's starts paused (`StartsPaused.state`, 0020); none without it. */
   readonly startsPaused?: (office: OfficeHandle) => StartsPausedState | null;
+  /** The stories offered for the office's free run slots, in order (0010); none without it. */
+  readonly nextUp?: (office: OfficeHandle) => readonly NextUpDeskItem[];
 }
 
 /**
@@ -226,7 +243,26 @@ export function implementedIn(registry: Registry): Implemented {
 }
 
 // The groups of 0020, in order.
-const GROUP = { paused: 0, live: 1, merge: 2, park: 3, byYou: 4, hand: 5, proposal: 6 } as const;
+const GROUP = {
+  paused: 0,
+  live: 1,
+  merge: 2,
+  park: 3,
+  byYou: 4,
+  hand: 5,
+  proposal: 6,
+  nextUp: 7,
+} as const;
+
+/** The kind of a story offered for a free run slot (0010). */
+export const NEXT_UP_KIND = "NEXT UP";
+
+/** What a NEXT UP item says about the files its references share with running stories. */
+export function sharedText(shared: NextUpDeskItem["shared"]): string {
+  if (shared.length === 0) return "its references share no files with running stories";
+  const each = shared.map((other) => `${other.story} (${other.paths.join(", ")})`);
+  return `its references share files with running stories: ${each.join("; ")}`;
+}
 
 /** Group 3's order: by reason, as 0020 lists them; a reason outside the eight comes last. */
 const PARK_RANK: Readonly<Record<string, number>> = {
@@ -713,6 +749,25 @@ class DeskBuilder {
     }
   }
 
+  /** Group 7: the stories offered for free run slots, in their order (0010). */
+  nextUp(): void {
+    const offers = this.#sources.nextUp?.(this.#office) ?? [];
+    offers.forEach((offer, rank) => {
+      this.#add(GROUP.nextUp, rank, offer.since, {
+        kind: NEXT_UP_KIND,
+        story: offer.story,
+        key: offer.key,
+        detail: `${JSON.stringify(deskText(offer.title))} · ${offer.why} · ${sharedText(offer.shared)}`,
+        since: iso(offer.since),
+        blocks: this.#blocks(offer.story),
+        actions: [
+          ...this.#action("nextUp.confirm", `dipo next confirm ${offer.story}`),
+          ...this.#action("nextUp.decline", `dipo next decline ${offer.story}`),
+        ],
+      });
+    });
+  }
+
   /** The items in desk order: group, rank in it, most blocked stories, oldest, then by story. */
   sorted(): DeskItem[] {
     return this.#items
@@ -745,6 +800,7 @@ export function desk(
   builder.gatesAndParks();
   builder.handActions();
   builder.proposals();
+  builder.nextUp();
   return builder.sorted();
 }
 

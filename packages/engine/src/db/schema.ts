@@ -3,6 +3,7 @@
 
 import type { Migration } from "./migrations";
 import { base } from "./migrations/0001-base";
+import { nextUpDeclines } from "./migrations/0002-next-up-declines";
 
 /**
  * Software-wide tables (0007). Every other table is office-scoped and has `office_id` as the first
@@ -10,4 +11,4 @@ import { base } from "./migrations/0001-base";
  */
 export const SOFTWARE_TABLES: ReadonlySet<string> = new Set(["offices", "schema_migrations"]);
 
-export const MIGRATIONS: readonly Migration[] = [base];
+export const MIGRATIONS: readonly Migration[] = [base, nextUpDeclines];

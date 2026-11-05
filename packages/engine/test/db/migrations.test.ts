@@ -357,14 +357,14 @@ create table context_packs (office_id text not null, branch text not null, prima
 }
 
 describe("the base schema", () => {
-  it("builds every table the code reads in a fresh database, at version 1", () =>
+  it("builds every table the code reads in a fresh database, at the head version", () =>
     withTempDir(async (dir) => {
       const state = await openStateDatabase(options(dir, MIGRATIONS));
       try {
         const db = state.connection;
-        expect(MIGRATIONS.map((step) => step.version)).toEqual([1]);
+        expect(MIGRATIONS.map((step) => step.version)).toEqual([1, 2]);
         expect(db.get<{ user_version: number }>("pragma user_version")).toEqual({
-          user_version: 1,
+          user_version: 2,
         });
         const tables = db
           .all<{ name: string; strict: number }>(
@@ -393,6 +393,7 @@ describe("the base schema", () => {
           "gate_decisions",
           "gates",
           "ingest_cursors",
+          "next_up_declines",
           "office_scan_marks",
           "offices",
           "once_notices",

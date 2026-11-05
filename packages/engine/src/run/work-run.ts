@@ -95,7 +95,7 @@ import { recordRunCriteria } from "../records/criteria";
 import { planRefusedText, type PreparedRun, type RunFacts, type RunLauncher } from "./launch";
 import { markPhase } from "../ingest/markers";
 
-import { placeTaken, type Places, START_KINDS } from "../run-state/places";
+import { PICKUP_START, placeTaken, type Places } from "../run-state/places";
 import {
   currentProfileId,
   hasActiveRun,
@@ -288,9 +288,6 @@ function recordPrepared(
   // The prompt text itself, with `privacy.storePrompts` on (DIPO-137).
   recordPromptTexts(handle, runId, agent, prepared.texts, input.config, clock);
 }
-
-/** A new pickup by `work.run`, as the slots see it. */
-const PICKUP = { kind: START_KINDS.pickup, runId: null, since: 0 } as const;
 
 /** Why a run without named stories starts no second one, though a slot is free. */
 export const ONE_STORY =
@@ -510,8 +507,8 @@ export class WorkRun {
    */
   #slotTaken(handle: OfficeHandle, config: OfficeConfig): string | null {
     const places = this.#deps.places;
-    if (places?.slotTaken !== undefined) return places.slotTaken(handle.officeId, PICKUP);
-    return placeTaken(handle, PICKUP, { limit: config.caps.parallelRuns });
+    if (places?.slotTaken !== undefined) return places.slotTaken(handle.officeId, PICKUP_START);
+    return placeTaken(handle, PICKUP_START, { limit: config.caps.parallelRuns });
   }
 
   /** Runs `fn` as one of the office's serialized steps (DIPO-208), or at once without places. */

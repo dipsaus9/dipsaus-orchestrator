@@ -102,6 +102,8 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
           ...story.lane.deskItems(handle, now),
           ...story.backlogPrs.loadFailureDeskItems(handle.officeId as OfficeId),
         ],
+        // The stories offered for free run slots (DIPO-440, 0010).
+        nextUp: (handle) => commands.nextUp.offers(handle.officeId as OfficeId),
       },
     }),
     core.engineGit.feature,
@@ -134,6 +136,8 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
     runs.resumption.feature,
     // After the outcomes' load step: what waited for a place starts once exits are decided.
     runs.places.feature,
+    // After the places' drain: the offers count what waited for a slot.
+    commands.nextUp.feature,
     office.retention.feature,
     office.usageAlerts.feature,
     // The last office load step, so every office is reconciled before scheduling turns on.

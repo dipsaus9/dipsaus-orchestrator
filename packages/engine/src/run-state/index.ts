@@ -5,6 +5,8 @@
 // (DIPO-142).
 export {
   claimPlace,
+  freeSlots,
+  PICKUP_START,
   PLACE_NOTICES,
   PLACE_TICK_MS,
   placeHolders,
