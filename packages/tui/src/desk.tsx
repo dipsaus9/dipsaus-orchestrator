@@ -53,10 +53,14 @@ export const DESK_EVENTS: ReadonlySet<string> = new Set([
   "work.phase",
 ]);
 
-/** The `engine.notice` codes of the office's starts paused and its lift (0020, DIPO-359). */
+/**
+ * The `engine.notice` codes of the office's starts paused and its lift (0020, DIPO-359), and of a
+ * story newly offered as next up (0010, DIPO-440).
+ */
 export const DESK_NOTICES: ReadonlySet<string> = new Set([
   "office.startsPaused",
   "office.startsResumed",
+  "run.nextUp",
 ]);
 
 /**

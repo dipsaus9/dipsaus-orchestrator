@@ -41,7 +41,7 @@ export const RUN_TIMEOUT_MS = 600_000;
 const RUN_DEADLINE_MS = RUN_TIMEOUT_MS + 60_000;
 
 /** What each skip reason means, for people (0005). */
-const REASONS: Readonly<Record<string, string>> = {
+export const REASONS: Readonly<Record<string, string>> = {
   notReady: "not Ready",
   parked: "parked",
   notRunnable:

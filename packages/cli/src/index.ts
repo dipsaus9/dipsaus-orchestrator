@@ -33,6 +33,7 @@ import { gateCommand } from "./gate-command";
 import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
 import { PROFILE_SUBCOMMANDS } from "./profile-commands";
+import { nextCommand } from "./next-command";
 import { proposeCommand } from "./propose-command";
 import { runCommand } from "./run-command";
 import { steerCommand } from "./intervene-commands";
@@ -199,14 +200,20 @@ Usage:
   dipo desk [--office <id>] [--json]
                     list what waits on you, in the order to handle it: questions
                     a worker waits on, merges, parked stories, hand actions,
-                    proposals and the stories you hold, each with the command to
-                    type; --json prints the engine's list as it is
+                    proposals, the stories you hold and the stories next up for
+                    a free run slot, each with the command to type; --json
+                    prints the engine's list as it is
   dipo propose accept|dismiss <proposal> [--office <id>]
                     decide a worker's follow-up, spike or tool proposal from
                     dipo desk: accept files it as a Backlog draft through the
                     backlog PR, the worker's words marked as theirs, and says
                     which PR took it or why it waits; dismiss closes it and
                     files nothing
+  dipo next confirm|decline <id> [--office <id>]
+                    decide a story dipo desk offers as next up for a free run
+                    slot: confirm starts it as dipo run <id> does; decline
+                    offers the next story instead, and the declined one is not
+                    offered again until its task file changes or you start it
   dipo watch [<id>] [--office <id>]
                     follow the office, or one story, in plain text until Ctrl-C:
                     each running story's phase, health, loop, verify, criteria
@@ -451,6 +458,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "propose") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return proposeCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "next") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return nextCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "watch") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
