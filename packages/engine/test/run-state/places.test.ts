@@ -12,6 +12,7 @@ import { insertPark } from "../run/park-fixture";
 import { createRunOutcomes, type RunEnder, RunControl, type UnparkWriter } from "../../src/run";
 import {
   claimPlace,
+  freeSlots,
   type PlaceStart,
   placeHolders,
   Places,
@@ -156,6 +157,16 @@ describe("counting (0002)", () => {
     // A worker and a reviewer of two stories hold two slots.
     expect(taken(pickup, 2)).toContain("running: DIPO-1, DIPO-2");
     expect(taken(pickup, 3)).toBeNull();
+  });
+
+  it("counts the slots a new pickup could take: the limit less running, starting and waiting stories (DIPO-440)", () => {
+    expect(freeSlots(w.office, { limit: 3 })).toBe(3);
+    storyRun(w, { story: "DIPO-1" });
+    expect(freeSlots(w.office, { limit: 3 })).toBe(2);
+    expect(freeSlots(w.office, { limit: 3, starting: ["DIPO-2"] })).toBe(1);
+    const waiting = start("resume", "run_w", 1);
+    expect(freeSlots(w.office, { limit: 3, starting: ["DIPO-2"], waiting: [waiting] })).toBe(0);
+    expect(freeSlots(w.office, { limit: 1, starting: ["DIPO-2"] })).toBe(0);
   });
 });
 

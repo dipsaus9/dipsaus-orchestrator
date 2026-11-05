@@ -37,18 +37,24 @@ function compareIds(a: string, b: string): number {
   return 0;
 }
 
+/** Below 0 when `a` goes before `b` in the pickup order: priority, then ordinal, then id. */
+export function comparePickup(
+  a: Pick<PlainTask, "id" | "priority" | "ordinal">,
+  b: Pick<PlainTask, "id" | "priority" | "ordinal">,
+): number {
+  const priority = priorityRank(a.priority) - priorityRank(b.priority);
+  if (priority !== 0) return priority;
+  const left = a.ordinal ?? Number.POSITIVE_INFINITY;
+  const right = b.ordinal ?? Number.POSITIVE_INFINITY;
+  if (left !== right) return left < right ? -1 : 1;
+  return compareIds(a.id, b.id);
+}
+
 /** The pickup order of `tasks`: priority, then ordinal, then id. */
 export function pickupOrder<T extends Pick<PlainTask, "id" | "priority" | "ordinal">>(
   tasks: readonly T[],
 ): T[] {
-  return tasks.toSorted((a, b) => {
-    const priority = priorityRank(a.priority) - priorityRank(b.priority);
-    if (priority !== 0) return priority;
-    const left = a.ordinal ?? Number.POSITIVE_INFINITY;
-    const right = b.ordinal ?? Number.POSITIVE_INFINITY;
-    if (left !== right) return left < right ? -1 : 1;
-    return compareIds(a.id, b.id);
-  });
+  return tasks.toSorted(comparePickup);
 }
 
 /** Dependency statuses that count as Done: `Done`, and `completed` for a task in `completed/`. */

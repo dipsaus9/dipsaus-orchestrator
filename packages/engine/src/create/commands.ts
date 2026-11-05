@@ -17,6 +17,7 @@ import { signalProcess } from "../platform/process";
 import { planLimitPause } from "../run/starts-paused";
 import { openTestIdsOfRegistered } from "../run/test-records";
 import { StoryTests, TEST_BOX_DIR } from "../run/tests";
+import { gitBranchTips, gitChangedFiles, NextUp } from "../run/next-up";
 import { WorkRun } from "../run/work-run";
 import { RunProfiles } from "../scan/feature";
 import { StoryDiscard } from "../run/discard";
@@ -35,6 +36,7 @@ export interface CommandServices {
   readonly runProfiles: RunProfiles;
   readonly storyTests: StoryTests;
   readonly workRun: WorkRun;
+  readonly nextUp: NextUp;
   readonly teardown: StoryTeardown;
   readonly autoMerge: AutoMerge;
   readonly mergeGates: MergeGates;
@@ -303,6 +305,32 @@ function workRunOf(
 }
 
 /**
+ * Next up (DIPO-440, 0010): one Ready story offered per free run slot, worked out again after every
+ * change of an office and when scheduling turns on; a confirm starts it through `work.run`.
+ */
+function nextUpOf(core: Core, story: StoryServices, runs: EngineRuns, workRun: WorkRun): NextUp {
+  const logger = core.logger.child({ component: "next-up" });
+  const nextUp = new NextUp({
+    clock: core.deps.clock,
+    offices: core.offices,
+    base: story.runBase,
+    freeSlots: (office) => runs.places.freeSlots(office),
+    startsPaused: (office) => runs.startsPaused.state(office),
+    scheduling: () => core.lifecycle.state === "running",
+    start: (ctx, key) => workRun.run(ctx, { stories: [key] }),
+    changedFiles: gitChangedFiles({ git: core.gitOf, stories: core.stories }),
+    branchTips: gitBranchTips(core.gitOf),
+    onChanged: core.onChanged,
+    warn: (message, fields) => logger.warn(message, fields),
+  });
+  core.changes.listen((office) => void nextUp.refresh(office));
+  core.lifecycle.onTransition((change) => {
+    if (change.to === "running") nextUp.refreshAll();
+  });
+  return nextUp;
+}
+
+/**
  * The Done poll and teardown (DIPO-58, DIPO-363): the one Done check reads the merged PR of each
  * finished claim and the story's status on the base; a Done story's worktree and branches are
  * removed and its slot freed. A story Done on the base through another branch has its open story
@@ -331,6 +359,7 @@ export function buildCommandServices(
   const reconciler = reconcilerOf(core, story, runs);
   const runProfiles = runProfilesOf(core, story, runs, reconciler);
   const autoMerge = autoMergeOf(core, story, runs);
+  const workRun = workRunOf(core, story, runs, runProfiles);
   return {
     runs,
     discard: discardOf(core, story, runs),
@@ -342,7 +371,8 @@ export function buildCommandServices(
     reconciler,
     runProfiles,
     storyTests: storyTestsOf(core, story, runs, { runProfiles, autoMerge }),
-    workRun: workRunOf(core, story, runs, runProfiles),
+    workRun,
+    nextUp: nextUpOf(core, story, runs, workRun),
     teardown: teardownOf(core, runs),
     autoMerge,
     mergeGates: mergeGatesOf(core, story, runs, autoMerge),

@@ -106,6 +106,7 @@ Order, by what unblocks work soonest:
 4. Parked stories: `ambiguous-spec`, then `review-blocked` (one row with both `dipo resume --note` and `dipo approve --note`), `budget-exceeded`, `verify-failing`, `conflict`, `scope-violation`, `worker-failed`, and last `by-maintainer`, listed apart as "Parked by you".
 5. Hand actions: leftovers, a backlog PR that failed its check, and a PR whose head changed outside dipo.
 6. Proposals, spikes before follow-ups.
+7. Next up: one Ready story per free run slot, with `dipo next confirm` and `dipo next decline` (0010).
 
 Within a group, items that block the most other stories come first, then the oldest.
 

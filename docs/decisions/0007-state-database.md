@@ -45,7 +45,7 @@ One SQLite file holds the run detail and dipo's own state of every office, keyed
 
 ## 4. What the database holds
 
-Run detail and dipo's own state, grouped by subject. The groups below hold the main tables; the office list and small per-office state tables (starts paused, one-time notices and done-elsewhere records) sit beside them.
+Run detail and dipo's own state, grouped by subject. The groups below hold the main tables; the office list and small per-office state tables (starts paused, one-time notices, done-elsewhere records and declined next-up offers, 0010) sit beside them.
 
 | Group | Holds |
 |---|---|

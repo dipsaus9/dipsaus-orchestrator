@@ -25,6 +25,7 @@ const LOAD_STEPS = [
   "expire open questions",
   "starts-paused/recover",
   "places/drain",
+  "next-up/refresh",
   "retention",
   "usage.alerts",
   "reconcile",

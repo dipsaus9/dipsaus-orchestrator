@@ -2,9 +2,10 @@
 // desk, naming the office, the story and the kind of wait. The daemon reads `office.desk` after a
 // change of the office and passes the items here; the notifier posts each item once. An item is
 // identified by what it is (its kind, story, key, question, gate, reason and proposal), not by its
-// detail or its time, which change on every read. The first read of an office shows nothing: those
-// items were on the desk before, and a restart must not announce them again. A failed post is
-// logged and never reaches the caller.
+// detail or its time, which change on every read. An item that leaves the desk is forgotten, so it
+// posts again when it comes back (a story offered as next up again, a story parked again). The
+// first read of an office shows nothing: those items were on the desk before, and a restart must
+// not announce them again. A failed post is logged and never reaches the caller.
 
 import {
   DESK_LOADING_KIND,
@@ -51,7 +52,7 @@ export interface DeskNotifierDeps {
 /** Posts a notification for each desk item an office gains; see the file comment. */
 export class DeskNotifier {
   readonly #deps: DeskNotifierDeps;
-  /** The keys of the items each office's desk has shown in this run of the daemon. */
+  /** The keys of the items each office's desk shows now, as last read. */
   readonly #shown = new Map<OfficeId, Set<string>>();
 
   constructor(deps: DeskNotifierDeps) {
@@ -65,6 +66,9 @@ export class DeskNotifier {
     const first = !this.#shown.has(office);
     const shown = this.#shown.get(office) ?? new Set<string>();
     this.#shown.set(office, shown);
+    // An item no longer on the desk is forgotten: it posts again when it comes back.
+    const current = new Set(items.map(deskItemKey));
+    for (const key of shown) if (!current.has(key)) shown.delete(key);
     for (const item of items) {
       const key = deskItemKey(item);
       if (shown.has(key)) continue;

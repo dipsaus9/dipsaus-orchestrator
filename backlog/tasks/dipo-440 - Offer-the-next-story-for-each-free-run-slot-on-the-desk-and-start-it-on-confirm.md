@@ -3,10 +3,10 @@ id: DIPO-440
 title: >-
   Offer the next story for each free run slot on the desk and start it on
   confirm
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-04 12:24'
-updated_date: '2026-11-04 15:57'
+updated_date: '2026-11-05 09:21'
 labels:
   - 'tier:L'
 milestone: m-2
@@ -67,13 +67,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When a run slot is free and a Ready story can start, dipo puts one next-up item per free slot on the desk, naming the story and one line of why
-- [ ] #2 Stories are offered in this order: Ready stories of the earliest milestone, by milestone number, that still has open stories, then priority, ordinal and id; stories without a milestone come last; a story with a dependency not Done is never offered
-- [ ] #3 The item lists the files its references share with the references or changed files of running stories, or says it shares none
-- [ ] #4 A confirm command starts the offered story through the same start path as dipo run; a decline command removes the item and dipo offers the next story at once
-- [ ] #5 A declined story is not offered again until its task file changes or the maintainer starts it by hand
-- [ ] #6 Nothing starts without a confirm, and with no startable Ready story there is no item
-- [ ] #7 The item shows in dipo desk and the TUI desk view, and the desk notification posts once for it
-- [ ] #8 ADR 0010 describes next up as how a free slot gets its story, and docs/how-dipo-works.md mentions it
-- [ ] #9 ADR 0003's M2 line and 0002's merge-queue sentence match the maintainer's decisions: each story is confirmed, nothing checks overlap while stories run, and there is no merge queue (GitHub offers none for a repository owned by a user account; the maintainer accepted the risk)
+- [x] #1 When a run slot is free and a Ready story can start, dipo puts one next-up item per free slot on the desk, naming the story and one line of why
+- [x] #2 Stories are offered in this order: Ready stories of the earliest milestone, by milestone number, that still has open stories, then priority, ordinal and id; stories without a milestone come last; a story with a dependency not Done is never offered
+- [x] #3 The item lists the files its references share with the references or changed files of running stories, or says it shares none
+- [x] #4 A confirm command starts the offered story through the same start path as dipo run; a decline command removes the item and dipo offers the next story at once
+- [x] #5 A declined story is not offered again until its task file changes or the maintainer starts it by hand
+- [x] #6 Nothing starts without a confirm, and with no startable Ready story there is no item
+- [x] #7 The item shows in dipo desk and the TUI desk view, and the desk notification posts once for it
+- [x] #8 ADR 0010 describes next up as how a free slot gets its story, and docs/how-dipo-works.md mentions it
+- [x] #9 ADR 0003's M2 line and 0002's merge-queue sentence match the maintainer's decisions: each story is confirmed, nothing checks overlap while stories run, and there is no merge queue (GitHub offers none for a repository owned by a user account; the maintainer accepted the risk)
 <!-- AC:END -->

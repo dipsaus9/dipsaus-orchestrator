@@ -334,6 +334,30 @@ export const testStart = defineCommand({
   irreversible: false,
 });
 
+// (DIPO-440, 0010): starts the story a NEXT UP desk item offers for a free run slot, through the
+// same start as `work.run` with the story named, and answers with `work.run`'s result. Error:
+// `nextUp.notOffered` when the desk does not offer the story as next up now.
+export const nextUpConfirm = defineCommand({
+  name: "nextUp.confirm",
+  level: "office",
+  args: StoryRef,
+  result: workRun.result,
+  confirm: false,
+  irreversible: false,
+});
+
+// (DIPO-440, 0010): removes a NEXT UP item without starting its story; the story is not offered
+// again until its task file changes or it is started by hand. `offered` lists the stories the
+// desk offers as next up after the decline. Error: `nextUp.notOffered` as `nextUp.confirm`.
+export const nextUpDecline = defineCommand({
+  name: "nextUp.decline",
+  level: "office",
+  args: StoryRef,
+  result: z.object({ story: StoryId, key: StoryKey, offered: z.array(StoryId) }),
+  confirm: false,
+  irreversible: false,
+});
+
 // (DIPO-309, 0002) [`test.sessions`]: records the open test's result for the head
 // it tested and closes its box. A pass decides the story's test gate for that head; a fail needs a
 // note and sends it to the same builder as a fix round item. Error: `test.closed` for a test that
@@ -633,7 +657,7 @@ export const officeStats = defineRead({
 // `STARTS PAUSED`, the office's starts paused with its reason and what lifts it, with no story;
 // DIPO-380 `LOADING`, an office whose load is still running, with no story; DIPO-401
 // `PLANNING LANE`, a planning lane whose operations wait for a backlog PR longer than 30 minutes,
-// with no story).
+// with no story; DIPO-440 `NEXT UP`, a Ready story offered for a free run slot).
 export const KNOWN_DESK_KINDS = [
   "STARTS PAUSED",
   "QUESTION",
@@ -647,6 +671,7 @@ export const KNOWN_DESK_KINDS = [
   "PLANNING LANE",
   "NOTICE",
   "PROPOSAL",
+  "NEXT UP",
   "PARKED BY YOU",
   "PROFILE",
   "LOADING",
@@ -953,6 +978,8 @@ export const officeCommands = [
   gateReject,
   proposalAccept,
   proposalDismiss,
+  nextUpConfirm,
+  nextUpDecline,
   testStart,
   testRecord,
 ] as const;

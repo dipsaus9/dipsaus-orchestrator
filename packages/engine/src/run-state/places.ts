@@ -210,11 +210,15 @@ export function slotsFullText(
 }
 
 /**
- * Why `start` cannot start now, or null: the office's slots are all held, by running stories,
- * starting pickups and starts that go before it in the start order. A start whose story holds its
- * slot already (a review) never waits for the limit. Starts paused is not asked here.
+ * What holds the office's slots against `start`: the running stories and starting pickups, and
+ * the starts that go before it in the start order; null when its story holds its slot already (a
+ * review), so it never waits for the limit.
  */
-export function placeTaken(office: OfficeHandle, start: PlaceStart, use: SlotUse): string | null {
+function slotsAgainst(
+  office: OfficeHandle,
+  start: PlaceStart,
+  use: SlotUse,
+): { readonly running: string[]; readonly ahead: PlaceStart[] } | null {
   const holders = slotHolders(office, use.reviewing);
   const own = holders.find((run) => run.runId === start.runId);
   if (
@@ -234,6 +238,31 @@ export function placeTaken(office: OfficeHandle, start: PlaceStart, use: SlotUse
       (other.runId === null || !held.has(other.runId)) &&
       compareStarts(other, start) < 0,
   );
+  return { running, ahead };
+}
+
+/** A new pickup by `work.run`, as the slots see it. */
+export const PICKUP_START: PlaceStart = { kind: START_KINDS.pickup, runId: null, since: 0 };
+
+/**
+ * How many of the office's slots a new pickup could take now: the limit less the running stories,
+ * the starting pickups and the starts that wait first (as `placeTaken` counts them); never below 0.
+ */
+export function freeSlots(office: OfficeHandle, use: SlotUse): number {
+  const against = slotsAgainst(office, PICKUP_START, use);
+  if (against === null) return use.limit;
+  return Math.max(0, use.limit - against.running.length - against.ahead.length);
+}
+
+/**
+ * Why `start` cannot start now, or null: the office's slots are all held, by running stories,
+ * starting pickups and starts that go before it in the start order. A start whose story holds its
+ * slot already (a review) never waits for the limit. Starts paused is not asked here.
+ */
+export function placeTaken(office: OfficeHandle, start: PlaceStart, use: SlotUse): string | null {
+  const against = slotsAgainst(office, start, use);
+  if (against === null) return null;
+  const { running, ahead } = against;
   if (running.length + ahead.length < use.limit) return null;
   const names = ahead.map((other) => {
     const run = other.runId === null ? null : findRun(office, other.runId);
@@ -353,17 +382,32 @@ export class Places {
   }
 
   #slotTaken(officeId: OfficeId, office: OfficeHandle, start: PlaceStart): string | null {
+    return placeTaken(office, start, this.#use(officeId, office, start));
+  }
+
+  /**
+   * How many of the office's slots a new pickup could take now (`freeSlots`, counted as
+   * `slotTaken` counts them); 0 for an office that is not loaded.
+   */
+  freeSlots(officeId: OfficeId): number {
+    const office = this.#deps.offices.get(officeId);
+    if (office === undefined) return 0;
+    return freeSlots(office, this.#use(officeId, office, PICKUP_START));
+  }
+
+  /** What a slot check of `start` counts: the limit, the reviews, the pickups starting, the waits. */
+  #use(officeId: OfficeId, office: OfficeHandle, start: PlaceStart): SlotUse {
     const pending = this.#deps.pending?.(office) ?? [];
     const reviewing =
       this.#deps.reviewing?.(office) ??
       pending.flatMap((other) => (other.runId === null ? [] : [other.runId]));
     const starting = this.#offices.get(officeId)?.starting ?? new Map<RunId, string>();
-    return placeTaken(office, start, {
+    return {
       limit: this.limit(officeId),
       reviewing,
       starting: [...starting].flatMap(([runId, story]) => (runId === start.runId ? [] : [story])),
       waiting: [...waitingStarts(office), ...pending],
-    });
+    };
   }
 
   /** How many stories the office runs at once (`caps.parallelRuns`). */

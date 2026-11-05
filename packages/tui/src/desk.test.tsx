@@ -347,6 +347,12 @@ describe("the desk stays current", () => {
       event(10, "engine.notice", { level: "info", code: "office.startsResumed", text: "lifted" }),
     );
     await until(() => deskReads(session) === 3, "the read after the lift");
+    await Bun.sleep(DESK_READ_INTERVAL_MS + 50);
+    // A story newly offered as next up (0010).
+    office?.onEvent(
+      event(11, "engine.notice", { level: "info", code: "run.nextUp", text: "Next up" }),
+    );
+    await until(() => deskReads(session) === 4, "the read after a next-up offer");
   });
 
   it("reads it again after a stream reset and keeps the selected story", async () => {
@@ -417,6 +423,27 @@ describe("the key table on desk rows", () => {
     const rows = lines(frame).filter((line) => /^ [> ] [A-Z]/.test(line));
     expect(rows[0]).toMatch(/^ > STARTS PAUSED +no new session starts · plan limit until/);
     expect(frame).toContain("by hand: It lifts by itself at 2026-10-14T12:02:00.000Z");
+  });
+
+  it("shows a story offered as next up with its why, its shared files and the confirm and decline lines (0010)", async () => {
+    const nextUp = DeskItem.parse({
+      kind: "NEXT UP",
+      story: "DIPO-29",
+      key: KEY_29,
+      detail:
+        '"Story 29" · m-2 is the earliest milestone with a Ready story that can start; priority high · its references share no files with running stories',
+      since: ago(1),
+      blocks: [],
+      actions: [
+        { command: "nextUp.confirm", cli: "dipo next confirm DIPO-29" },
+        { command: "nextUp.decline", cli: "dipo next decline DIPO-29" },
+      ],
+    });
+    const { ui } = await openDesk({ desk: [nextUp] });
+    const frame = await ui.waitFor("type: dipo next confirm DIPO-29");
+    expect(frame).toContain("NEXT UP");
+    expect(frame).toContain("dipo next decline DIPO-29");
+    expect(frame).toContain("m-2 is the earliest milestone");
   });
 
   it("shows the command line of an action the table does not bind", async () => {
