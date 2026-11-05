@@ -534,25 +534,36 @@ async function restoreBranch(
     : `deleting it at ${tip} failed (${result?.stderr.trim() || "no result"})`;
 }
 
+/** What the rollback of an interrupted setup needs: a rollback's, plus the story store. */
+export type InterruptedSetupDeps = RollbackDeps & Pick<ClaimDeps, "stories">;
+
 /**
  * Rolls back a live claim whose setup never finished (no recorded claim commit), for example
- * because the daemon stopped during setup: a new branch is deleted while it still points at its
- * start, a reused branch's release opens again, the row ends as `setup-failed`, and a
- * `claim.setupInterrupted` notice goes on the office. Runs as its own git queue item.
+ * because the daemon stopped during setup or between the claim commit and its record: a new branch
+ * is deleted, and a reused one moved back to its start, while its tip is its start or this
+ * claim's own claim commit (`isOwnClaimCommit`); a reused branch's release opens again, the row
+ * ends as `setup-failed`, and a `claim.setupInterrupted` notice goes on the office. Any other tip
+ * is left with a `claim.leftover` notice. Touches only this claim's branch and row. Runs as its
+ * own git queue item.
  */
 export async function rollBackInterruptedSetup(
-  deps: RollbackDeps,
+  deps: InterruptedSetupDeps,
   claim: ClaimRecord,
 ): Promise<void> {
   await deps.git.run(async (git) => {
     const released = claim.reused ? releaseReclaimedBy(deps.office, claim.runId) : null;
+    const tip = await revParse(git, `refs/heads/${claim.branch}`).catch(() => null);
+    const made =
+      tip !== null && (await isOwnClaimCommit(deps.stories, git, claim, tip))
+        ? [claim.startSha, tip]
+        : [claim.startSha];
     await rollback(
       deps,
       git,
       claim,
       { startSha: claim.startSha, released },
       true,
-      [claim.startSha],
+      made,
       "setup-failed",
     );
   });
@@ -564,6 +575,48 @@ export async function rollBackInterruptedSetup(
       claim.key,
     ),
   ]);
+}
+
+/**
+ * True when `tip` is dipo's own claim commit of `claim.story`: its one parent is the claim's
+ * start, it modifies only the story's task file, and that change sets the status to In Progress.
+ * A git step that fails or times out is a no, so the branch is left for the maintainer.
+ */
+async function isOwnClaimCommit(
+  stories: Pick<StoryStore, "isStoryFile" | "statusIn">,
+  git: GitSession,
+  claim: Pick<ClaimRecord, "story" | "startSha">,
+  tip: string,
+): Promise<boolean> {
+  try {
+    const parents = await git.step(git.repository, ["rev-list", "--parents", "-n", "1", tip]);
+    if (parents.code !== 0) return false;
+    const [, ...parentShas] = parents.stdout.trim().split(" ");
+    if (parentShas.length !== 1 || parentShas[0] !== claim.startSha) return false;
+    const diff = await git.step(git.repository, [
+      "diff-tree",
+      "-r",
+      "-z",
+      "--no-renames",
+      "--name-status",
+      claim.startSha,
+      tip,
+    ]);
+    if (diff.code !== 0) return false;
+    const fields = diff.stdout.split("\0").filter((field) => field !== "");
+    const [kind, file] = fields;
+    if (fields.length !== 2 || kind !== "M" || file === undefined) return false;
+    if (!stories.isStoryFile(file, claim.story)) return false;
+    const statusAt = async (commit: string): Promise<string | null> => {
+      const shown = await git.step(git.repository, ["cat-file", "blob", `${commit}:${file}`]);
+      return shown.code === 0 ? stories.statusIn(shown.stdout) : null;
+    };
+    const before = await statusAt(claim.startSha);
+    const after = await statusAt(tip);
+    return before !== CLAIM_STATUS && after === CLAIM_STATUS;
+  } catch {
+    return false;
+  }
 }
 
 /**

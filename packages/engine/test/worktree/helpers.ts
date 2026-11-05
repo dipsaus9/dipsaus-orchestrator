@@ -12,7 +12,14 @@ import { git, type TempRepo } from "@dipsaus-orchestrator/testkit";
 import { type GitExec, type GitSettings, OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import { EDIT_KIND, editKind, OfficeLane } from "../../src/backlog/lane";
-import { type ClaimDeps, type ClaimRequest, hasLiveClaim } from "../../src/worktree";
+import {
+  type ClaimDeps,
+  type ClaimRequest,
+  claimStory,
+  hasLiveClaim,
+  StoryClaims,
+} from "../../src/worktree";
+import type { OfficeLoadContext } from "../../src/office/steps";
 import { type LaneSetup, laneSetup } from "../backlog/lane/helpers";
 import { backlogStoryStore } from "../../src/backlog/store";
 
@@ -113,4 +120,36 @@ export function laneOf(s: ClaimSetup): OfficeLane {
     kinds: new Map([[EDIT_KIND, editKind(EDIT_KIND)]]),
     liveClaim: hasLiveClaim,
   });
+}
+
+/**
+ * The state a daemon stop between the claim commit and its record leaves: the claim of `key`
+ * commits on its branch, then its row is put back to no recorded claim commit. Returns the claim's
+ * run, its claim commit and its start.
+ */
+export async function stoppedAfterClaimCommit(
+  s: ClaimSetup,
+  key: StoryKey,
+  overrides: Partial<ClaimRequest> = {},
+): Promise<{ runId: RunId; claimSha: string; startSha: string }> {
+  const outcome = await claimStory(s.deps(), s.request(key, overrides));
+  if (!outcome.ok) throw new Error(`expected a claim, got the skip ${outcome.reason}`);
+  const { runId, claimSha, startSha } = outcome.claim;
+  s.office.immediate(() =>
+    s.office.run(
+      "update claims set claim_sha = null where office_id = $office_id and run_id = $run",
+      { run: runId },
+    ),
+  );
+  return { runId: RunId.parse(runId), claimSha: claimSha as string, startSha };
+}
+
+/** Runs the claims' office load step rollback, as the next daemon start does. */
+export async function nextStart(s: ClaimSetup): Promise<void> {
+  const deps = s.deps();
+  const claims = new StoryClaims({ git: () => deps.git, stories: deps.stories });
+  const ctx = { officeId: s.office.officeId, office: s.office, clock: s.t.clock };
+  const refused = claims.attach(ctx as unknown as OfficeLoadContext);
+  if (refused !== null) throw new Error(refused);
+  await claims.recover(s.office.officeId);
 }
