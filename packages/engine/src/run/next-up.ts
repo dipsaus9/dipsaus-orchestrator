@@ -6,7 +6,9 @@
 //   has one, then priority, ordinal and id (`comparePickup`); a milestone without a number after the
 //   numbered ones, by name, and stories without a milestone last. A story is offered only when it
 //   is Ready on the base, has no live claim, no pending planning operation, every dependency Done,
-//   and is not declined.
+//   is not declined, and its newest story PR is not recorded merged: the PR poll, or the Done poll
+//   when the host answered it, records the merge before the Done poll releases the claim, and the
+//   base says Done only after its next fetch.
 // - Free slots. `Places.freeSlots`, less the confirms whose story has no claim yet.
 // - Shared files. Each offer lists the files its references share, by the prefix rule
 //   (`overlappingPaths`), with the references and the changed files (`storyChangedFiles`) of every
@@ -20,7 +22,8 @@
 //   run of it started after the decline.
 // - Refresh. The offers are worked out again after every change of the office, coalesced per
 //   office. A cheap signature (free slots, live claims, the statuses and hashes the story index
-//   mirrored from the base, the declines, the planning holds, and the running branches' tips, read
+//   mirrored from the base, the declines, the planning holds, the stories whose story PR merged,
+//   and the running branches' tips, read
 //   with one `git for-each-ref` at most every 30 seconds) decides whether the base is read again.
 //   A confirm or decline that comes in while the base is read wins over that read, and a confirm
 //   whose start fails offers the story again. A newly offered story puts an `engine.notice`
@@ -49,6 +52,7 @@ import type { OfficeGit } from "../git/office";
 import { findRun } from "../records/run-records";
 import { comparePickup, openDependencies, statusSkip } from "../records/select";
 import { resolveStoryRef } from "../records/story-keys";
+import { mergedStoryKeys } from "../records/story-prs";
 import type { StoryStore } from "../story-store/store";
 import type { PlainTask } from "../story-store/story";
 import { liveClaimOf, liveClaims } from "../worktree/records";
@@ -446,6 +450,7 @@ export class NextUp {
       mirror?.digest ?? "",
       declines?.digest ?? "",
       held,
+      mergedStoryKeys(office),
       tips,
     ]);
   }
@@ -469,12 +474,14 @@ export class NextUp {
     state.signature = signature;
     // A confirm or decline that came in while the base or git was read wins over this read.
     const now = this.#slots(officeId, office, state);
+    const merged = new Set(mergedStoryKeys(office));
     this.#publish(
       officeId,
       state,
       offers
         .filter((offer) => !state.confirming.has(offer.key))
         .filter((offer) => liveClaimOf(office, offer.key) === null)
+        .filter((offer) => !merged.has(offer.key))
         .filter((offer) => !declined(office, offer.key, offer.hash))
         .slice(0, now),
     );
@@ -507,13 +514,14 @@ export class NextUp {
     free: number,
   ): Promise<NextUpOffer[]> {
     const read = await this.#deps.base.read(officeId, null);
+    const merged = new Set(mergedStoryKeys(office));
     const startable = read.views.filter((view) => {
       const status = read.statuses.get(view.id);
       if (status === undefined || statusSkip(status) !== null) return false;
       if (openDependencies(view).length > 0) return false;
       const resolved = resolveStoryRef(office, view.id);
       if (!resolved.ok || state.confirming.has(resolved.key)) return false;
-      if (liveClaimOf(office, resolved.key) !== null) return false;
+      if (liveClaimOf(office, resolved.key) !== null || merged.has(resolved.key)) return false;
       if (this.#deps.base.planningHold(office, resolved.key) !== null) return false;
       return !declined(office, resolved.key, storyHash(view));
     });

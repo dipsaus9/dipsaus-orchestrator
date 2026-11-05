@@ -28,7 +28,7 @@ import {
   TEARDOWN_STEP,
   tearDown,
 } from "../../src/worktree";
-import { insertStoryPr } from "../../src/records/story-prs";
+import { findStoryPr, insertStoryPr } from "../../src/records/story-prs";
 import { HOST_FAILURES_NOTICED } from "../../src/worktree/done";
 import { insertClaim, markTeardownStarted } from "../../src/worktree/records";
 import { notices } from "../backlog/lane/helpers";
@@ -288,6 +288,42 @@ describe("detecting Done (the one Done check, DIPO-363)", () => {
       expect(world.claim().releaseReason).toBe(DONE_RELEASE_REASON);
       // The host decided; merge-tree did not run.
       expect(world.steps.some((s) => s.startsWith("merge-tree"))).toBe(false);
+    }));
+
+  it("records the story PR merged when the host answered for a record that said open, so next up skips it once the claim goes", () =>
+    withWorld(async (world) => {
+      const officeId = world.office.officeId as OfficeId;
+      const claim = world.claim();
+      // The PR poll has not recorded the merge: the record says open, the host says merged.
+      expect(findStoryPr(world.office, claim.runId)?.state).toBe("open");
+      const teardown = teardownOf(world, { host: host({ headSha: "5".repeat(40) }) });
+      world.answer = (args) =>
+        args.join(" ").startsWith("merge-tree") ? { stdout: `${BASE_TREE}\n` } : undefined;
+      await teardown.poll(officeId);
+      const recorded = findStoryPr(world.office, claim.runId);
+      expect(recorded?.state).toBe("merged");
+      expect(recorded?.closedAt).not.toBeNull();
+      expect(recorded?.headSha).toBe("5".repeat(40));
+      expect(world.claim().releasedAt).not.toBeNull();
+      const prEntries = world.office.all<{ delta: string }>(
+        "select delta from change_log where office_id = $office_id and type = 'story.pr'",
+      );
+      expect(prEntries.map((row) => JSON.parse(row.delta).pr.state)).toEqual(["merged"]);
+    }));
+
+  it("leaves a story PR dipo already recorded merged as it is", () =>
+    withWorld(async (world) => {
+      const claim = world.claim();
+      recordPr(world, "merged");
+      const before = findStoryPr(world.office, claim.runId);
+      await teardownOf(world).poll(world.office.officeId as OfficeId);
+      expect(world.claim().releasedAt).not.toBeNull();
+      expect(findStoryPr(world.office, claim.runId)).toEqual(before);
+      expect(
+        world.office.all(
+          "select 1 from change_log where office_id = $office_id and type = 'story.pr'",
+        ),
+      ).toEqual([]);
     }));
 
   it("is not Done when merge-tree returns the base tree: merge-tree is no Done signal (0010)", () =>

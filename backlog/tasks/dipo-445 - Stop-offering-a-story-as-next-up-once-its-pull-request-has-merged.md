@@ -1,10 +1,10 @@
 ---
 id: DIPO-445
 title: Stop offering a story as next up once its pull request has merged
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-05 12:06'
-updated_date: '2026-11-05 12:19'
+updated_date: '2026-11-05 12:24'
 labels:
   - 'tier:S'
 milestone: m-2
@@ -50,7 +50,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A story whose story pull request dipo recorded as merged is never offered as next up, also while the backlog mirror still says Ready
-- [ ] #2 The check uses the merge dipo already records and adds no fetch of the base
-- [ ] #3 A confirm of a story whose pull request merged is refused as not runnable and starts no run, shown by a regression test
+- [x] #1 A story whose story pull request dipo recorded as merged is never offered as next up, also while the backlog mirror still says Ready
+- [x] #2 The check uses the merge dipo already records and adds no fetch of the base
+- [x] #3 A confirm of a story whose pull request merged is refused as not runnable and starts no run, shown by a regression test
 <!-- AC:END -->

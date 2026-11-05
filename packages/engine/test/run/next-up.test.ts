@@ -32,6 +32,7 @@ import { systemClock } from "../../src/platform/clock";
 import type { NotificationText } from "../../src/platform/notify";
 import { insertRun } from "../../src/records";
 import { addStory } from "../../src/records/story-keys";
+import { insertStoryPr, setStoryPrState, type StoryPrState } from "../../src/records/story-prs";
 import { freeSlots } from "../../src/run-state";
 import type { BaseRead } from "../../src/run/work-run";
 import {
@@ -43,7 +44,7 @@ import {
   TIP_READ_MS,
 } from "../../src/run/next-up";
 import type { PlainTask } from "../../src/story-store/story";
-import { insertClaim } from "../../src/worktree/records";
+import { insertClaim, releaseClaim } from "../../src/worktree/records";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { backlogLayout } from "../story-store/backlog";
 
@@ -214,6 +215,38 @@ function claim(id: string, scope: readonly string[] = []): RunId {
   return run;
 }
 
+/** The story PR of the run `run` of `id`, as the PR poll records it. */
+function storyPr(id: string, run: RunId, state: StoryPrState): void {
+  w.office.immediate(() =>
+    insertStoryPr(w.office, {
+      runId: run,
+      key: w.keys.get(id) as StoryKey,
+      number: 40,
+      url: "https://github.com/o/r/pull/40",
+      branch: `${id}/a-story`,
+      base: "main",
+      headSha: "d".repeat(40),
+      state,
+      title: `feat(${id}): x`,
+      bodyHash: "h",
+      openedAt: w.t.clock.now(),
+      closedAt: state === "open" ? null : w.t.clock.now(),
+    }),
+  );
+}
+
+/** The Done poll's release of the claim of `run` at its merge. */
+function release(run: RunId): void {
+  w.office.immediate(() =>
+    releaseClaim(w.office, run, {
+      at: w.t.clock.now(),
+      reason: "done",
+      ending: "done",
+      keepBranch: false,
+    }),
+  );
+}
+
 const offered = () => w.nextUp.offers(w.officeId).map((offer) => offer.story as string);
 
 /** The story index's pass: the mirror holds each story's status and hash as the base reads. */
@@ -302,6 +335,39 @@ describe("which story is next up", () => {
     w.limit = 3;
     claim("DIPO-4");
     expect(await refresh()).toEqual(["DIPO-5"]);
+  });
+
+  it("never offers a story whose story PR dipo recorded merged, while the mirror still says Ready", async () => {
+    story("DIPO-1", { milestone: "m-1" });
+    story("DIPO-2", { milestone: "m-2" });
+    expect(await refresh()).toEqual(["DIPO-1"]);
+    // Confirmed and run; the PR poll records the merge, then the Done poll releases the claim.
+    const run = claim("DIPO-1");
+    storyPr("DIPO-1", run, "open");
+    expect(await refresh()).toEqual([]);
+    w.office.immediate(() =>
+      setStoryPrState(w.office, run, { state: "merged", closedAt: w.t.clock.now() }),
+    );
+    release(run);
+    // The base and its mirror move only at the next fetch: they still say Ready.
+    await w.nextUp.refresh(w.officeId);
+    expect(offered()).toEqual(["DIPO-2"]);
+    expect(await refresh()).toEqual(["DIPO-2"]);
+  });
+
+  it("withdraws an offer as soon as the story's PR is recorded merged, without a change of the mirror", async () => {
+    story("DIPO-1", { milestone: "m-1" });
+    story("DIPO-2", { milestone: "m-2" });
+    // An open PR of the story that no claim holds; the PR poll records its merge on the host.
+    const run = RunId.parse(w.t.ids.next("run"));
+    storyPr("DIPO-1", run, "open");
+    expect(await refresh()).toEqual(["DIPO-1"]);
+    w.office.immediate(() =>
+      setStoryPrState(w.office, run, { state: "merged", closedAt: w.t.clock.now() }),
+    );
+    await w.nextUp.refresh(w.officeId);
+    expect(offered()).toEqual(["DIPO-2"]);
+    expect(w.started).toEqual([]);
   });
 
   it("offers nothing without a free slot or without a startable Ready story, and starts nothing by itself", async () => {
