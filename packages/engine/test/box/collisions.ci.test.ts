@@ -665,6 +665,27 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toContain("<<<<<<< ");
       }));
 
+    it("merges nothing when the part taken for the catch-up resolved the conflict", () =>
+      inWorld(async (w) => {
+        const { before } = await conflictAndMerge(w);
+        // The worker took the base's line in its box but has not handed it yet.
+        write(w.b.work, { "src/shared.ts": lines({ 3: "FOUR from one" }) });
+        await w.collisions.check();
+        expect(w.parks).toEqual([]);
+        const tip = await tipOf(w, w.b);
+        // The box's work went in as a part, and no merge followed it.
+        expect((await w.repo.git("rev-list", "--parents", "-n", "1", tip)).trim()).toBe(
+          `${tip} ${before}`,
+        );
+        expect((await w.repo.git("log", "-1", "--format=%s", tip)).trim()).toBe(
+          CATCH_UP_PART_MESSAGE,
+        );
+        expect(w.copies).toEqual([]);
+        expect(w.recorded).toEqual([]);
+        expect(w.notices).toEqual([]);
+        expect(w.told).toEqual([]);
+      }));
+
     it("parks when the worker keeps changing files during the catch-up", () =>
       inWorld(async (w) => {
         await conflictAndMerge(w);
