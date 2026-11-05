@@ -50,10 +50,11 @@ The daemon serves the frames of one connection side by side. Reads run as they a
 | Story | `story.park`, `story.drop` |
 | Gates | `gate.approve`, `gate.reject` |
 | Proposals | `proposal.accept`, `proposal.dismiss` |
+| Next up | `nextUp.confirm`, `nextUp.decline` |
 | Testing | `test.start`, `test.record` |
 | Daemon | `daemon.stop`, `daemon.setLogLevel`, `daemon.resumeStarts` |
 
-Their behaviour is decided where the subject lives: 0020 for park, resume, drop and discard; 0002 for gates and testing; 0013 for scan, infer and confirm; 0010 for init. `commands.describe` lists every command and read with the JSON Schema of its args and result, and marks those a client must confirm first (`confirm`) or ask for a typed id (`irreversible`). A ritual or roster command arrives with its milestone (0003).
+Their behaviour is decided where the subject lives: 0020 for park, resume, drop and discard; 0002 for gates and testing; 0013 for scan, infer and confirm; 0010 for init and next up. `commands.describe` lists every command and read with the JSON Schema of its args and result, and marks those a client must confirm first (`confirm`) or ask for a typed id (`irreversible`). A ritual or roster command arrives with its milestone (0003).
 
 ### 5. Reads
 
@@ -88,7 +89,7 @@ Every event about running work carries a `WorkRef` (story, key, run, agent, role
 
 - **Commands are target-state.** Parking what is parked, or resuming a story that already runs, replies `changed: false` and changes nothing.
 - **Office commands are stored.** For every office command, the request id, a hash of the resolved args and the reply are written with the facts, and kept one day (0007). A retry with the same id after a lost reply gets the same reply. The same id with other args fails with `request.reused`.
-- **Slow commands wait.** A command whose work takes time (`work.run`, `work.resume`, `work.answer`, `work.steer`, `work.discard`, `story.park`, `story.drop`, `gate.approve`, `gate.reject`, `test.start`, `test.record`, `proposal.accept`, `proposal.dismiss`) replies when that work is done, and its record is written then. A duplicate that arrives meanwhile waits for the same reply. Software commands keep their records in memory while they run.
+- **Slow commands wait.** A command whose work takes time (`work.run`, `work.resume`, `work.answer`, `work.steer`, `work.discard`, `story.park`, `story.drop`, `gate.approve`, `gate.reject`, `test.start`, `test.record`, `proposal.accept`, `proposal.dismiss`, `nextUp.confirm`, `nextUp.decline`) replies when that work is done, and its record is written then. A duplicate that arrives meanwhile waits for the same reply. Software commands keep their records in memory while they run.
 - **The text the maintainer writes** (notes, answers, steers) is a maintainer-authored fact, kept for the audit trail and as worker input.
 
 ### 10. Errors
