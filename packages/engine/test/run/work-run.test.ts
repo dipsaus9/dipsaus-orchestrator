@@ -62,6 +62,7 @@ import { endRun, findRun, hasActiveRun, insertRun, runSteps, type NewRun } from 
 import type { StoredRun } from "../../src/records/run-records";
 import { SoftwareStream } from "../../src/software-stream";
 import { addStory } from "../../src/records/story-keys";
+import { insertStoryPr } from "../../src/records/story-prs";
 import { AdapterPauses } from "../../src/run/starts-paused";
 import { ONE_STORY } from "../../src/run/work-run";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -132,6 +133,8 @@ interface World {
   statuses: string | null;
   verify: string | null;
   fetchError: Error | null;
+  /** Runs as the fetch moves the base when set. */
+  fetched: (() => void) | null;
   gate: (key: StoryKey, mode: GateMode) => GateResult;
   /** The office's starts paused (0020): a plan limit, or the adapter holds above. */
   readonly startsPaused: StartsPaused;
@@ -200,6 +203,7 @@ beforeEach(async () => {
     statuses: null,
     verify: null,
     fetchError: null,
+    fetched: null,
     gate: (_key, mode) => passed(mode),
     startsPaused: new StartsPaused({
       clock: t.clock,
@@ -238,6 +242,7 @@ beforeEach(async () => {
     base: {
       fetch: async () => {
         if (w.fetchError !== null) throw w.fetchError;
+        w.fetched?.();
       },
       read: async (_office, ids) => read(ids),
       planningHold: (handle, key) => backlogLayout.planningHold(handle, key),
@@ -615,6 +620,37 @@ describe("work.run picks and claims one Ready story", () => {
     // An unknown story fails the whole command.
     const unknown = await run({ stories: ["TASK-99"] });
     expect(!unknown.ok && unknown.error.code).toBe("story.unknown");
+  });
+
+  it("refuses a confirm of a story whose PR merged as notRunnable and starts no run: the fetch first brings its Done", async () => {
+    const key = story("TASK-1", "Ready");
+    const runId = RunId.parse(world.t.ids.next("run"));
+    world.office.immediate(() =>
+      insertStoryPr(world.office, {
+        runId,
+        key,
+        number: 40,
+        url: "https://github.com/o/r/pull/40",
+        branch: "TASK-1/a-story",
+        base: "main",
+        headSha: "d".repeat(40),
+        state: "merged",
+        title: "feat(TASK-1): x",
+        bodyHash: "h",
+        openedAt: 1,
+        closedAt: 2,
+      }),
+    );
+    // The office's base still said Ready; the merge set the story Done on the remote.
+    world.fetched = () => {
+      const at = world.tasks.findIndex((x) => x.id === "TASK-1");
+      world.tasks.splice(at, 1, task("TASK-1", "Done"));
+    };
+    const result = resultOf(await run({ stories: ["TASK-1"] }));
+    expect(result.started).toEqual([]);
+    expect(result.skipped.map((s) => [s.story, s.reason])).toEqual([["TASK-1", "notRunnable"]]);
+    expect(world.claims).toEqual([]);
+    expect(countRows(world.office, "runs")).toBe(0);
   });
 
   it("returns a story whose pickup re-check fails to Refined through the lane with the gate messages", async () => {
