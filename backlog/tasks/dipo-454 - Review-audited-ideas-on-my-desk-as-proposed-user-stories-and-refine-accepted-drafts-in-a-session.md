@@ -3,10 +3,10 @@ id: DIPO-454
 title: >-
   Review audited ideas on my desk as proposed user stories and refine accepted
   drafts in a session
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-06 09:37'
-updated_date: '2026-11-06 14:48'
+updated_date: '2026-11-06 15:19'
 labels:
   - 'tier:L'
 milestone: m-3
@@ -56,6 +56,10 @@ test_plan:
       check: "(unit) dipo idea and the TUI key hand the text to the audit as a quick idea"
     - kind: "automated"
       check: "(unit) a confirmed triage refine turns a draft into a Refined story that passes the story standard, with a branch named for its new id, and emits story.renumbered; a confirmed drop archives it"
+park:
+  reason: "budget-exceeded"
+  from: "In Progress"
+  note: "turn cap (--max-turns) after 301 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -69,3 +73,16 @@ test_plan:
 - [ ] #6 A triage session lists the drafts with their origin, and on confirm refines a draft through the lane into a Refined story that meets the story standard (0012), with a branch named for its new id, or drops it
 - [ ] #7 ADR 0020 describes the proposed-story desk item, with one Replaced line
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-06 15:19 UTC: budget-exceeded
+- Detail: turn cap (--max-turns) after 301 turns
+- Run: run_01M6RNA5RQ1Z23NYTZBYYB934E
+- Criteria met: 0 of 7 (as the worker reported them)
+- Loops: 0 of 8; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 690,539 of 2,000,000 tokens; 301 of 300 turns; 31 of 180 minutes
+- Last good commit: 334e7c3dc355c2683f7bd9bec188c317d010aeee
+<!-- SECTION:NOTES:END -->
