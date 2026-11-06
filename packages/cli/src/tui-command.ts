@@ -54,7 +54,7 @@ export function systemTui(
     const clientInfo = { name: TUI_CLIENT_NAME, version };
     const lifecycle = systemLifecycleDeps({ client: clientInfo, origin: "tui" });
     // The TUI loads only for `dipo tui`, so every other command starts without it (DIPO-318).
-    const { runTui } = await import("@dipsaus-orchestrator/tui");
+    const { queryBackground, runTui } = await import("@dipsaus-orchestrator/tui");
     const code = await runTui(args, {
       stdin: process.stdin,
       stdout: process.stdout,
@@ -78,6 +78,7 @@ export function systemTui(
         return () => process.off(signal, handler);
       },
       clientInfo,
+      queryBackground: () => queryBackground(process.stdin, process.stdout, systemClock),
     });
     releaseStdin(process.stdin);
     return code;

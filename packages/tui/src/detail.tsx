@@ -548,15 +548,11 @@ export function Detail(props: DetailProps) {
           ellipsis,
         )}`}
       </Colored>
-      <Colored
-        display={display}
-        color={ended === undefined ? "cyan" : "yellow"}
-        wrap="truncate-end"
-      >
+      <Colored display={display} role={ended === undefined ? "ok" : "dim"} wrap="truncate-end">
         {` ${truncate(now, columns - 1, ellipsis)}`}
       </Colored>
       {questionText.map((line, i) => (
-        <Colored key={`q${i}`} display={display} color="yellow" wrap="truncate-end">
+        <Colored key={`q${i}`} display={display} role="acc" wrap="truncate-end">
           {` ${truncate(line, columns - 1, ellipsis)}`}
         </Colored>
       ))}

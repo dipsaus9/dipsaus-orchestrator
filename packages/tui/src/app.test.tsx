@@ -246,20 +246,19 @@ describe("quitting", () => {
 });
 
 describe("terminal size and display", () => {
-  it("shows one list with widen for detail below 60 columns", async () => {
+  it("asks to widen the terminal below 60 columns instead of the layout", async () => {
     const { ui } = await open({ columns: 59, rows: 30 });
-    const frame = await ui.waitFor("widen for detail");
-    expect(frame).toContain("DIPO-21 busy >");
-    expect(frame).toContain("desk 2");
+    const frame = await ui.waitFor("Widen the terminal to at least 60 columns");
     expect(frame).not.toContain("STORY");
+    expect(frame).not.toContain("DIPO-21");
   });
 
-  it("shows one list below 16 rows and the full view after a resize", async () => {
+  it("asks to widen below 16 rows and shows the full view after a resize", async () => {
     const { ui } = await open({ columns: 100, rows: 15 });
-    await ui.waitFor("widen for detail");
+    await ui.waitFor("Widen the terminal to at least 60 columns");
     ui.resize(100, 30);
     const frame = await ui.waitFor("RUNNING (3)");
-    expect(frame).not.toContain("widen for detail");
+    expect(frame).not.toContain("Widen the terminal");
   });
 
   it("--ascii writes only ASCII", async () => {

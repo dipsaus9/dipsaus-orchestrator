@@ -9,6 +9,8 @@ import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { ansiPaint, ROLES, roleStyle, TRUECOLOR, type Role } from "./colour";
+
 const MAIN = join(import.meta.dir, "..", "test", "support", "colour-main.ts");
 const SRC = import.meta.dir;
 /** An SGR sequence: a colour, bold or a reset of one. */
@@ -61,11 +63,14 @@ describe("colour", () => {
       ]);
       // The control: the same walk colours the selection, the titles, messages and the offline header.
       expect(coloured.match(SGR)).toEqual(
-        expect.arrayContaining(["\u001b[36m", "\u001b[1m", "\u001b[33m", "\u001b[31m"]),
+        expect.arrayContaining(["\u001b[48;5;235m", "\u001b[1m", "\u001b[33m", "\u001b[31m"]),
       );
+      // Without colour only bold and underline stay (roles.json, noColor).
       for (const raw of [noColorEnv, noColorFlag]) {
         expect(raw).toContain("OFFLINE");
-        expect(raw.match(SGR)).toBeNull();
+        const codes = new Set(raw.match(SGR) ?? []);
+        for (const code of codes)
+          expect(["\u001b[1m", "\u001b[22m", "\u001b[4m", "\u001b[24m"]).toContain(code);
       }
     },
     TIMEOUT_MS,
@@ -95,5 +100,50 @@ describe("colour", () => {
     ];
     for (const sample of samples) expect(styleOffenders("x.tsx", sample)).toHaveLength(1);
     expect(styleOffenders("x.tsx", '<Text wrap="truncate-end">x</Text>')).toEqual([]);
+  });
+});
+
+const ROLES_JSON = JSON.parse(
+  readFileSync(join(SRC, "..", "..", "..", "docs", "design", "tui-v2", "roles.json"), "utf8"),
+) as { roles: Record<string, { truecolor: { dark: string; light: string } }> };
+
+describe("colour roles", () => {
+  it("are the ten roles of roles.json with its truecolor values", () => {
+    expect(Object.keys(ROLES_JSON.roles).toSorted()).toEqual([...ROLES].toSorted());
+    for (const role of ROLES)
+      expect(TRUECOLOR[role]).toEqual(ROLES_JSON.roles[role]?.truecolor as never);
+  });
+
+  it("map to ANSI slots by theme, with hi brighter than fg and dim apart from faint", () => {
+    const on = { color: true, ascii: false } as const;
+    expect(roleStyle("acc", on)).toEqual({ color: "yellow" });
+    expect(roleStyle("ok", on)).toEqual({ color: "green" });
+    expect(roleStyle("err", on)).toEqual({ color: "red" });
+    expect(roleStyle("fg", on)).toEqual({});
+    expect(roleStyle("bg", on)).toEqual({});
+    expect(roleStyle("hi", on)).toEqual({ color: "whiteBright" });
+    expect(roleStyle("hi", { ...on, tone: "light" })).toEqual({ color: "black" });
+    expect(roleStyle("sel", on)).toEqual({ backgroundColor: "ansi256(235)" });
+    expect(roleStyle("sel", { ...on, tone: "light" })).toEqual({ backgroundColor: "ansi256(255)" });
+    expect(roleStyle("dim", on)).toEqual({ color: "blackBright" });
+    expect(roleStyle("faint", on)).toEqual({ color: "blackBright", dimColor: true });
+    expect(roleStyle("shade", on)).toEqual({ color: "black", dimColor: true });
+    expect(roleStyle("shade", { ...on, tone: "light" })).toEqual({
+      color: "white",
+      dimColor: true,
+    });
+    expect(ansiPaint("hi", "dark").faint).toBeUndefined();
+  });
+
+  it("use the previews' truecolor values on the opt-in Classical theme", () => {
+    const classical = { color: true, ascii: false, classical: true } as const;
+    expect(roleStyle("acc", classical)).toEqual({ color: "#e1ad66" });
+    expect(roleStyle("acc", { ...classical, tone: "light" })).toEqual({ color: "#7d5411" });
+    expect(roleStyle("sel", classical)).toEqual({ backgroundColor: "#2a2824" });
+  });
+
+  it("drop under NO_COLOR, so sel equals bg", () => {
+    const off = { color: false, ascii: false } as const;
+    for (const role of ROLES as readonly Role[]) expect(roleStyle(role, off)).toEqual({});
   });
 });

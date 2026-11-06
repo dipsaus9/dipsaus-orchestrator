@@ -120,7 +120,7 @@ const StoryRow = memo(
     return (
       <Colored
         display={props.display}
-        color={props.selected ? "cyan" : undefined}
+        role={props.selected ? "sel" : undefined}
         wrap="truncate-end"
       >
         {text}
@@ -168,7 +168,7 @@ export function Queue(props: {
             <Colored
               key="next"
               display={display}
-              color={index === selected ? "cyan" : undefined}
+              role={index === selected ? "sel" : undefined}
               wrap="truncate-end"
             >
               {text}

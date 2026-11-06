@@ -436,7 +436,7 @@ const Line = memo(function Line(props: {
     <Colored
       display={display}
       bold={tone === "section"}
-      color={tone === undefined || tone === "section" ? undefined : "cyan"}
+      role={tone === undefined || tone === "section" ? undefined : "sel"}
       wrap="truncate-end"
     >
       {text}

@@ -87,7 +87,7 @@ export function Settings(props: {
           <Colored
             key={setting.key}
             display={display}
-            color={index === selected ? "cyan" : undefined}
+            role={index === selected ? "sel" : undefined}
             wrap="truncate-end"
           >
             {line}

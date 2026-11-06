@@ -2,12 +2,7 @@
 // office switcher, the narrow list and the footer. They render store state as
 // the engine sent it; every state is a word plus an ASCII glyph, colour is extra.
 
-import {
-  healthLabel,
-  type OfficeEntry,
-  type OfficeStoreState,
-  percent,
-} from "@dipsaus-orchestrator/client";
+import { type OfficeEntry, type OfficeStoreState, percent } from "@dipsaus-orchestrator/client";
 import type { DatabaseUnavailableDetails } from "@dipsaus-orchestrator/contract";
 import { Box, Text } from "ink";
 
@@ -15,9 +10,6 @@ import type { Display } from "./options";
 import { Colored } from "./colour";
 
 /** Below either size the TUI shows one list (0009). */
-export const NARROW_COLUMNS = 60;
-export const NARROW_ROWS = 16;
-
 export function glyphs(ascii: boolean) {
   return { dot: ascii ? "-" : "·", dash: ascii ? "-" : "–", ellipsis: ascii ? "..." : "…" };
 }
@@ -84,7 +76,7 @@ export function Header(props: { state: OfficeStoreState; display: Display; title
   // Disconnected, the daemon state is not known: the header says so instead (0009).
   if (offline !== null) {
     return (
-      <Colored display={display} color="red" wrap="truncate-end">
+      <Colored display={display} role="err" wrap="truncate-end">
         {` ${title} ${dot} ${offline}`}
       </Colored>
     );
@@ -143,7 +135,7 @@ export function Banners(props: { state: OfficeStoreState; display: Display }) {
         <Colored
           key={line}
           display={props.display}
-          color={line.startsWith("OFFLINE") ? "red" : "yellow"}
+          role={line.startsWith("OFFLINE") ? "err" : "acc"}
         >
           {` ${line}`}
         </Colored>
@@ -228,7 +220,7 @@ export function SwitcherBody(props: {
             <Colored
               key={state.offices[i]?.office ?? i}
               display={display}
-              color={i === index ? "cyan" : undefined}
+              role={i === index ? "sel" : undefined}
               wrap="truncate-end"
             >
               {text}
@@ -236,54 +228,6 @@ export function SwitcherBody(props: {
           ))}
         </>
       )}
-    </Box>
-  );
-}
-
-/** Below 60 columns or 16 rows: one list of story, health and the desk count (0009). */
-export function NarrowBody(props: {
-  state: OfficeStoreState;
-  display: Display;
-  switcher: { index: number } | null;
-}) {
-  const { state, display, switcher } = props;
-  const offline = isOffline(state) && state.offlineSince !== null;
-  const lines: string[] = [];
-  if (switcher !== null) {
-    state.offices.forEach((entry, i) => {
-      lines.push(
-        `${i === switcher.index ? ">" : " "} ${entry.name} desk ${entry.summary?.waitingOnMaintainer ?? "?"}`,
-      );
-    });
-  } else {
-    for (const view of state.work) lines.push(`${view.work.story} ${healthLabel(view.health)}`);
-    const summary = state.offices.find((entry) => entry.office === state.office)?.summary;
-    lines.push(`desk ${summary?.waitingOnMaintainer ?? "?"}`);
-  }
-  return (
-    <Box flexDirection="column">
-      <Text wrap="truncate-end">
-        {`${officeName(state) ?? "no office"}${offline ? ` ${glyphs(display.ascii).dot} OFFLINE` : ""}`}
-      </Text>
-      {lines.map((line, i) => (
-        <Text key={i} wrap="truncate-end">
-          {line}
-        </Text>
-      ))}
-      <Text>widen for detail</Text>
-    </Box>
-  );
-}
-
-export function Footer(props: { keys: string; message: string | null; display: Display }) {
-  return (
-    <Box flexDirection="column">
-      {props.message === null ? null : (
-        <Colored display={props.display} color="yellow">
-          {` ${props.message}`}
-        </Colored>
-      )}
-      <Text wrap="truncate-end">{` ${props.keys}`}</Text>
     </Box>
   );
 }

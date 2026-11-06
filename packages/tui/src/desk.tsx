@@ -261,7 +261,7 @@ export function Desk(props: {
         key={key}
         display={display}
         bold={tone === "title"}
-        color={tone === "selected" ? "cyan" : undefined}
+        role={tone === "selected" ? "sel" : undefined}
         wrap="truncate-end"
       >
         {` ${shown}`}

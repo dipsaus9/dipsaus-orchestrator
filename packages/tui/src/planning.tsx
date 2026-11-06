@@ -23,7 +23,7 @@ import { Box, type Key, Text } from "ink";
 import { useEffect, useRef, useState } from "react";
 
 import type { TuiActions } from "./app";
-import type { Hint } from "./footer";
+import { Composer, composerKey, composerRows } from "./composer";
 import { truncate } from "./format";
 import type { Display } from "./options";
 import { splitLines, wrapLines } from "./output";
@@ -31,33 +31,6 @@ import { clockTime, glyphs } from "./views";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-
-/** The lines of the input the view shows; the rest scrolls up out of sight. */
-const INPUT_ROWS = 6;
-
-/** The text a key adds to the draft: a paste keeps its line breaks, control characters go. */
-function typed(input: string): string {
-  let text = "";
-  for (const char of input.replace(/\r\n?/g, "\n")) {
-    if (char === "\n" || char.charCodeAt(0) >= 32) {
-      if (char.charCodeAt(0) !== 127) text += char;
-    }
-  }
-  return text;
-}
-
-/**
- * The draft after `key`, or null when the key is not an edit. Enter adds a line; the send key
- * (Ctrl-S) is not an edit.
- */
-export function editDraft(draft: string, input: string, key: Key): string | null {
-  if (key.return) return `${draft}\n`;
-  if (key.backspace || key.delete) return draft.slice(0, -1);
-  if (key.ctrl || key.meta || key.escape || key.tab) return null;
-  if (key.upArrow || key.downArrow || key.leftArrow || key.rightArrow) return null;
-  const text = typed(input);
-  return text === "" ? null : draft + text;
-}
 
 /** What the planning view needs from the app around it. */
 export interface PlanningArgs {
@@ -79,32 +52,7 @@ export interface Planning {
   /** What is under way: a start, a message or an end; null otherwise. */
   readonly sending: Sending | null;
   readonly confirmingEnd: boolean;
-  readonly hints: readonly Hint[];
   onKey(input: string, key: Key): void;
-}
-
-const QUIT = 100;
-
-function planningHints(
-  view: PlanningView | null,
-  confirmingEnd: boolean,
-  sending: boolean,
-): Hint[] {
-  if (confirmingEnd) {
-    return [
-      ["[y] end the session", QUIT],
-      ["[any other key] keep it", 50],
-    ];
-  }
-  const hints: Hint[] = [
-    [view === null ? "[Ctrl-S] start" : "[Ctrl-S] send", QUIT],
-    ["[Enter] new line", 90],
-  ];
-  if (view === null) hints.push(["[Tab] kind", 80]);
-  else hints.push(["[Ctrl-E] end session", 70]);
-  if (sending) hints.push(["sending", 60]);
-  hints.push(["[Esc] back", 85]);
-  return hints;
 }
 
 /** Appends `chunk` to what is shown when it continues it; true when it did. */
@@ -270,22 +218,21 @@ export function usePlanning(args: PlanningArgs): Planning {
       send("end", "planning.end", {}, () => args.setMessage("planning session ended"));
       return;
     }
-    if (key.escape) {
-      args.setMessage(null);
-      args.leave();
-      return;
-    }
-    if (key.ctrl) {
-      if (input === "s") submit();
-      else if (input === "e" && view !== null && sending === null) setConfirmingEnd(true);
+    if (key.ctrl && input === "e") {
+      if (view !== null && sending === null) setConfirmingEnd(true);
       return;
     }
     if (key.tab) {
       if (view === null) setKindIndex((index) => (index + 1) % PLANNING_KINDS.length);
       return;
     }
-    const next = editDraft(draft, input, key);
-    if (next !== null) setDraft(next);
+    const event = composerKey(draft, input, key);
+    if (event.kind === "cancel") {
+      // The session keeps running.
+      args.setMessage(null);
+      args.leave();
+    } else if (event.kind === "send") submit();
+    else if (event.kind === "edit") setDraft(event.draft);
   };
 
   return {
@@ -295,7 +242,6 @@ export function usePlanning(args: PlanningArgs): Planning {
     transcript,
     sending,
     confirmingEnd,
-    hints: planningHints(view, confirmingEnd, sending !== null),
     onKey,
   };
 }
@@ -327,16 +273,6 @@ export function headLines(view: PlanningView, columns: number, display: Display)
   return lines;
 }
 
-/** The input as rows: the last `INPUT_ROWS`, a prompt on the first, the cursor on the last. */
-export function inputRows(draft: string, columns: number): string[] {
-  const rows = wrapLines(
-    draft.split("\n").map((line, i) => `${i === 0 ? "> " : "  "}${line}`),
-    Math.max(10, columns - 2),
-  );
-  rows[rows.length - 1] = `${rows.at(-1) ?? "> "}_`;
-  return rows.slice(-INPUT_ROWS);
-}
-
 export interface PlanningModeProps {
   readonly planning: Planning;
   readonly display: Display;
@@ -358,7 +294,7 @@ export function PlanningMode(props: PlanningModeProps) {
           "goal (what do you want to plan?):",
         ]
       : headLines(view, columns, display);
-  const input = inputRows(planning.draft, columns);
+  const input = composerRows(planning.draft, columns);
   const confirm = planning.confirmingEnd ? ["End the planning session? [y/N]"] : [];
   const room = Math.max(0, props.height - head.length - input.length - confirm.length - 2);
   const rows =
@@ -383,9 +319,7 @@ export function PlanningMode(props: PlanningModeProps) {
             ]
           : rows.map((row, i) => <Text key={`row:${i}`} wrap="truncate-end">{` ${row}`}</Text>)}
       {view === null ? null : <Text wrap="truncate-end">{` ${rule}`}</Text>}
-      {input.map((row, i) => (
-        <Text key={`input:${i}`} wrap="truncate-end">{` ${row}`}</Text>
-      ))}
+      <Composer draft={planning.draft} columns={columns} />
       {confirm.map((line) => (
         <Text key="confirm">{` ${line}`}</Text>
       ))}

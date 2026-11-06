@@ -15,6 +15,10 @@ export interface TuiOptions {
 export interface Display {
   readonly color: boolean;
   readonly ascii: boolean;
+  /** The terminal's theme; dark when not given. */
+  readonly tone?: "dark" | "light";
+  /** True for the opt-in truecolor Classical theme. */
+  readonly classical?: boolean;
 }
 
 /** `NO_COLOR` set to any non-empty value turns colour off (no-color.org). */

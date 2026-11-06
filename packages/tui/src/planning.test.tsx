@@ -9,7 +9,6 @@ import type { Event, PlanningView } from "@dipsaus-orchestrator/contract";
 
 import { goldenSnapshots, OFFICES } from "../test/support/fake-session";
 import { mount } from "../test/support/setup";
-import { editDraft } from "./planning";
 
 const mounted: { unmount(): Promise<void> }[] = [];
 const STREAM = `office:${OFFICES.dipsaus}`;
@@ -56,15 +55,6 @@ async function open(options: Parameters<typeof mount>[0] = { columns: 120, rows:
   await view.ui.waitFor("dipsaus-orchestrator");
   return view;
 }
-
-describe("editDraft", () => {
-  it("adds a line on Enter, erases on Backspace and keeps a paste's line breaks", () => {
-    expect(editDraft("a", "\r", { return: true } as never)).toBe("a\n");
-    expect(editDraft("ab", "", { backspace: true } as never)).toBe("a");
-    expect(editDraft("", "x\r\ny\rz", {} as never)).toBe("x\ny\nz");
-    expect(editDraft("a", "s", { ctrl: true } as never)).toBeNull();
-  });
-});
 
 describe("the planning view", () => {
   it("starts a session, sends a multi-line message, streams the answer with its spend and ends it", async () => {

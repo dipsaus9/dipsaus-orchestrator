@@ -35,7 +35,7 @@ import { Detail, type DetailTarget } from "./detail";
 import { type Hint } from "./footer";
 import { skipReason, widthOf } from "./format";
 import { digestLine, useDigest } from "./digest";
-import { type ActionId, rowKeys, viewKeys } from "./keys";
+import { type ActionId, binding, rowKeys, viewKeys } from "./keys";
 import { useLatestLines } from "./latest";
 import type { Display } from "./options";
 import { OUTPUT_TAIL_BYTES } from "./output";
@@ -647,18 +647,26 @@ export function useHome(args: HomeArgs) {
   // The key table's hints for what is selected (DIPO-308).
   const rowHintList: Hint[] = [];
   if (detail !== null) {
-    if (asks(detail.target.run)) rowHintList.push(["[a]nswer", 85]);
-    if (detailLive) {
-      for (const entry of viewKeys("detail")) {
-        rowHintList.push([entry.hint, 72]);
-      }
+    const commands = new Set<string>();
+    if (asks(detail.target.run)) commands.add("work.answer");
+    if (detailLive) commands.add("story.park").add("work.steer");
+    if (asks(detail.target.run)) {
+      const answer = binding("answer");
+      rowHintList.push([answer.hint, answer.priority]);
+    }
+    for (const entry of viewKeys("detail", { commands })) {
+      rowHintList.push([entry.hint, entry.priority]);
     }
   } else if (view === "overview") {
-    if (overviewEntry !== null && asks(overviewEntry.run)) rowHintList.push(["[a]nswer", 85]);
+    if (overviewEntry !== null && asks(overviewEntry.run)) {
+      const answer = binding("answer");
+      rowHintList.push([answer.hint, answer.priority]);
+    }
   } else if (view === "queue") {
     if (queue[queueSelected]?.kind === "story") {
-      for (const entry of viewKeys("queue")) {
-        rowHintList.push([entry.hint, 25]);
+      const commands = new Set(["story.park", "story.drop"]);
+      for (const entry of viewKeys("queue", { commands })) {
+        rowHintList.push([entry.hint, entry.priority]);
       }
     }
   } else if (view === "desk" && card === null && deskItem !== null) {
