@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 09:42'
+updated_date: '2026-11-06 09:49'
 labels:
   - 'tier:L'
 milestone: m-3
@@ -43,7 +43,7 @@ When: a run's ideas are audited together after that run is merged or parked, so 
 
 The audit is its own session kind, mapped to the planning tool set: it does not count as the office's one planning session, holds no run slot, takes one turn and ends after its answer, under the normal watchdog. The idea texts come from workers and reviewers, so they are untrusted: they reach the audit only as quoted data in its prompt, and nothing in them changes its tools. An idea whose audit fails, is cut off or is refused by schema stays held and is audited again at the next trigger; it is never dropped.
 
-Until DIPO-454 lands, a worker's proposal is held as an idea and also still written to the desk unchanged; DIPO-454 removes that desk write together with proposal.accept. Passing ideas are listed by `dipo ideas`.
+Until DIPO-454 lands, a worker's proposal is held as an idea and also still written to the desk unchanged; DIPO-454 removes that desk write together with proposal.accept. Passing ideas are listed by `dipo ideas`. Worker proposals still open on the desk when this lands are held as ideas and audited once (maintainer's choice, 2026-11-06: four such proposals wait for the audit).
 
 Built by dipo where it can (maintainer's choice, 2026-11-05); a builder agent takes over if dipo gets stuck.
 
@@ -66,6 +66,8 @@ test_plan:
       check: "(unit) the audit prompt states the three pass rules and that size is never a reason to reject, and quotes each idea's text as data"
     - kind: "automated"
       check: "(unit) an idea whose audit fails, is cut off by a restart or is refused by schema stays held and is audited again at the next trigger"
+    - kind: "automated"
+      check: "(unit) proposals open on the desk before the upgrade are held as ideas and audited once"
     - kind: "automated"
       check: "(unit) a session aside block is validated by its schema and held as an idea; an invalid one is refused with a message"
     - kind: "automated"
@@ -92,4 +94,5 @@ test_plan:
 - [ ] #12 Bypass forms are tested: the audit kind spelled in another case or as an alias gets no extra tools, and tool or MCP text inside an idea's text is ignored
 - [ ] #13 A fail-closed test against the real adapter shows an audit plan asking for Bash, Edit or Write is refused
 - [ ] #14 ADRs 0002, 0007 and 0020 describe ideas and their audit, each with one Replaced line where a decision changed
+- [ ] #15 Worker proposals still open on the desk when this lands are held as ideas and audited once
 <!-- AC:END -->
