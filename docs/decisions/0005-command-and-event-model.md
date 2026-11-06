@@ -89,7 +89,8 @@ Every event about running work carries a `WorkRef` (story, key, run, agent, role
 
 - **Commands are target-state.** Parking what is parked, or resuming a story that already runs, replies `changed: false` and changes nothing.
 - **Office commands are stored.** For every office command, the request id, a hash of the resolved args and the reply are written with the facts, and kept one day (0007). A retry with the same id after a lost reply gets the same reply. The same id with other args fails with `request.reused`.
-- **Slow commands wait.** A command whose work takes time (`work.run`, `work.resume`, `work.answer`, `work.steer`, `work.discard`, `story.park`, `story.drop`, `gate.approve`, `gate.reject`, `test.start`, `test.record`, `proposal.accept`, `proposal.dismiss`, `nextUp.confirm`, `nextUp.decline`) replies when that work is done, and its record is written then. A duplicate that arrives meanwhile waits for the same reply. Software commands keep their records in memory while they run.
+- **Slow commands wait.** A command whose work takes time (`work.resume`, `work.answer`, `work.steer`, `work.discard`, `story.park`, `story.drop`, `gate.approve`, `gate.reject`, `test.start`, `test.record`, `proposal.accept`, `proposal.dismiss`, `nextUp.decline`) replies when that work is done, and its record is written then. A duplicate that arrives meanwhile waits for the same reply. Software commands keep their records in memory while they run.
+- **Starting a story answers at its decision.** `work.run` and `nextUp.confirm` decide at once, from the base as last fetched, which stories start and why the others do not, and reply with that, its record written in the same transaction. The claim, the push, the box and the install follow after the reply and show as the run's `setup` phase. They fetch the base again first; a story that can no longer start there, or whose start fails, gets a notice and stays as it was.
 - **The text the maintainer writes** (notes, answers, steers) is a maintainer-authored fact, kept for the audit trail and as worker input.
 
 ### 10. Errors
@@ -194,6 +195,7 @@ The daemon never owns a worker process. Each session gets a worker host, `dipo d
 
 ## Replaced
 
+- `work.run` and `nextUp.confirm` as slow commands that replied after the claim, the box and the install (2026-10-10). Replaced by an answer at the decision, with the start after it (2026-11-06, DIPO-456).
 - Contract major and minor versions, capability flags and provisional commands (2026-10-10). Replaced by one contract version per binary (2026-10-24), because client and daemon ship together.
 - A random epoch in every cursor and a replay floor (2026-10-10). Gone with backups and restore (0007, 2026-10-24). A cursor beyond the last seq asks for a reset.
 - A crash-injection test per command (2026-10-10, 2026-10-17). Replaced by target-state commands with stored replies (2026-10-24).

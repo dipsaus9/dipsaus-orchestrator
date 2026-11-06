@@ -407,7 +407,7 @@ describe("dipo run without a daemon (DIPO-187)", () => {
     expect(ctx.out).toEqual([`started DIPO-7 (run ${RUN})`]);
   });
 
-  it("says plainly that the claim is still going at its limit and how to follow it", async () => {
+  it("says plainly that work.run has not answered at its limit and how to follow it", async () => {
     const ctx = fake(() => new Promise<never>(() => undefined), IN_OFFICE);
     const running = main(["run"], ctx.deps);
     for (let i = 0; i < 20 && ctx.sent.length === 0; i++) await Bun.sleep(0);
@@ -415,7 +415,7 @@ describe("dipo run without a daemon (DIPO-187)", () => {
     expect(await running).toBe(1);
     expect(ctx.out).toEqual([]);
     expect(ctx.err).toEqual([
-      "dipo: the claim is still going after 600 s; it may still start a story. Follow it with `dipo watch` or `dipo daemon status`.",
+      "dipo: work.run has not answered after 600 s; it may still start a story. Follow it with `dipo watch` or `dipo daemon status`.",
     ]);
   });
 });
