@@ -1,10 +1,10 @@
 ---
 id: DIPO-456
 title: Tell me at once whether a story starts and why when I start a run
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-06 09:49'
-updated_date: '2026-11-06 13:02'
+updated_date: '2026-11-06 13:13'
 labels:
   - 'tier:S'
 milestone: m-3
@@ -48,6 +48,10 @@ test_plan:
     - kind: "manual"
       check: "On the scratch repository with a Haiku office, press u on a Ready story in the TUI queue"
       expect: "the footer says the story starts, or why not, within about 2 seconds, and the overview shows it in setup"
+park:
+  reason: "budget-exceeded"
+  from: "In Progress"
+  note: "turn cap (--max-turns) after 91 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -59,3 +63,16 @@ test_plan:
 - [ ] #4 Next-up confirm answers the same way
 - [ ] #5 work.run and next-up confirm are not registered as waiting office commands and no client waits for setup to finish, while the shared waiting registration stays for its other commands
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-06 13:13 UTC: budget-exceeded
+- Detail: turn cap (--max-turns) after 91 turns
+- Run: run_01M6RF775NBN15XRHV6V3D8R04
+- Criteria met: 0 of 5 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 230,767 of 300,000 tokens; 91 of 90 turns; 11 of 45 minutes
+- Last good commit: 1da83cfd5299c780cc0590c74f941fb9913b3f0b
+<!-- SECTION:NOTES:END -->
