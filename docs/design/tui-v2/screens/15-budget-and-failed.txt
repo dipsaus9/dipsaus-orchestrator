@@ -1,0 +1,18 @@
+=== S6 Budget reached (lands on the Desk) · ux-spec mock 18 · 112 cols × 8 rows ===
+[dim]NEEDS YOU · BUDGET[/]
+
+[acc]![/] [hi]DIPO-447 paused: token budget reached[/]
+
+[dim]  Used 2.0M of 2.0M · loop 6 of 8 · criteria 8/10[/]
+[dim]  Last says: "Two flaky shards left, fixing reattach."[/]
+
+  [acc]+[/] add 1M and continue   [acc]p[/] park   [acc]⏎[/] inspect
+=== S6 Run failed · ux-spec mock 19 · 112 cols × 8 rows ===
+[dim]NEEDS YOU · FAILED[/]
+
+[err]✗[/] [hi]DIPO-450 failed in verify, 3 of 3 attempts[/]
+
+[ok]  setup ━━ [/][err]✗ build · verify[/][faint] ┄┄ review ┄┄ test ┄┄ merge[/]
+[dim]  bun run verify → 2 shards failed (reattach.test.ts)[/]
+
+  [acc]r[/] retry   [acc]s[/] retry with a hint   [acc]⏎[/] open run

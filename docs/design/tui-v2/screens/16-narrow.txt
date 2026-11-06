@@ -1,0 +1,29 @@
+=== S6 At 80 × 24: single pane, no preview, no ticker, no Since line · ux-spec mock 20 · 80 cols × 24 rows ===
+[acc]**dipo**[/][dim] / [/]dipsaus-orch…                                                     [ok]●[/][dim] 10:42[/]
+[hi]__1 Desk [acc]3[/]__[/]   [dim]2 Floor 2[/]   [dim]3 Queue[/]   [dim]4 Retro[/]
+────────────────────────────────────────────────────────────────────────────────
+[dim]SETUP[/]
+  [err]✗[/] dev profile unresolved, blocks every story                                [dim]1h[/]
+
+[dim]PROPOSALS[/]
+[sel][acc]▌[/] [acc]◆[/] [hi]CLI verbs for the planning session[/]                                        [dim]7m[/][/]
+[sel][dim]    DIPO-447 · blocks 448 449 450[/]                                               [/]
+  [acc]◆[/] Show open session in snapshot  [dim]×2[/]                                         [dim]3m[/]
+  [acc]◆[/] Claude Code minimum from flags                                           [dim]34m[/]
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+[acc]y[/] accept  [acc]n[/] dismiss  [acc]⏎[/] read                                               [dim][acc]?[/] keys[/]
+--- notes ---
+Below 100 columns the preview pane goes away and ⏎ opens it full screen. Each list row keeps its most important secondary line. The ticker and the Since line drop out. The header shortens the office name before it drops the daemon dot.
+Below 60 columns dipo shows only: Widen the terminal to at least 60 columns
+The ux-spec has no mock for the below-60 screen; place and role of that line are not specified.

@@ -1,27 +1,31 @@
-[hi]dipo[/] [dim]/[/] dipsaus-orchestrator                                          [ok]●[/] daemon live    [dim]$22.80 today    13:12[/]
-[hi]1 Desk [acc]6[/][/]    [dim]2 Floor 2    3 Queue 1·4    4 Retro[/]
+=== S1b Desk: a full day, every kind (engine order, MERGE in focus) · ux-spec mock 2 · 112 cols × 30 rows ===
+[acc]**dipo**[/][dim] / [/]dipsaus-orchestrator                                               [ok]●[/] daemon live[dim]    $22.80 today    13:12[/]
+[hi]__1 Desk [acc]6[/]__[/]    [dim]2 Floor 2[/]    [dim]3 Queue 1·4[/]    [dim]4 Retro[/]
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-[dim]STARTS PAUSED[/]                                 │ [dim]MERGE · waits for you[/]
-  [acc]![/] plan limit reached              ~14:00   │ [hi]DIPO-446 Planning tools for workers[/]
-                                              │ [ok]setup ━━ build ✓ ━━ review ✓ ━━[/] [acc]● test[/] [faint]┄┄ merge[/]
-[dim]QUESTION[/]                                      │
-  [acc]?[/] DIPO-450 keep the ordinal?          12m   │ [dim]Why     [/]you flagged it test-before-merge
-                                              │ [dim]Review  [/][ok]approved[/] round 1 · 8/8 criteria
-[dim]MERGE[/]                                         │ [dim]CI      [/][ok]✓[/] 4 required checks green
-[sel][acc]▌○[/] [hi]DIPO-446 Planning tools…[/]           8m  [/] │ [dim]Change  [/]6 files · +214 −38
-[sel][dim]    test before merge · blocks 2[/]          [/] │ [dim]Blocks  [/]DIPO-448 · DIPO-449
-                                              │ [dim]Tests   [/]3 manual steps
-[dim]PARKED[/]                                        │
-  [err]✗[/] DIPO-447 budget reached            31m   │ ⟦[acc]t[/] Test first⟧ ⟦[acc]y[/] Approve⟧ ⟦[acc]n[/] Reject…⟧ ⟦[acc]o[/] PR⟧
-[dim]    blocks 3[/]                                  │
-                                              │ [dim]Approve merges once the checks pass on the close-out head.[/]
-[dim]PROPOSAL[/]                                      │ [dim]$ dipo approve DIPO-446[/]
-  [acc]◆[/] CLI verbs for planning              2h   │
-                                              │
-[dim]NEXT UP[/]                                       │
-  [ok]→[/] DIPO-452 triage drafts             slot   │
+[dim]STARTS PAUSED[/]                                 [faint]│[/]  [dim]MERGE · waits for you[/]
+  [acc]![/] plan limit reached                [dim]~14:00  [/][faint]│[/]  [hi]**DIPO-446 Planning tools for workers**[/]
+                                              [faint]│[/]  [ok]setup ━━ build ✓ ━━ review ✓ ━━ [/][acc]● test [/][faint]┄┄ merge[/]
+[dim]QUESTION[/]                                      [faint]│[/]
+  [acc]?[/] DIPO-450 keep the ordinal?           [dim]12m  [/][faint]│[/]  [dim]Why     [/]you flagged it test-before-merge
+                                              [faint]│[/]  [dim]Review  [/][ok]approved[/] round 1 · 8/8 criteria
+[dim]MERGE[/]                                         [faint]│[/]  [dim]CI      [/][ok]✓[/] 4 required checks green
+[sel][acc]▌[/] [acc]○[/] [hi]DIPO-446 Planning tools…[/]              [dim]8m  [/][/][faint]│[/]  [dim]Change  [/]6 files · +214 −38
+[sel][dim]    test before merge · blocks 2[/]              [/][faint]│[/]  [dim]Blocks  [/]DIPO-448 · DIPO-449
+                                              [faint]│[/]  [dim]Tests   [/]3 manual steps
+[dim]PARKED[/]                                        [faint]│[/]
+  [err]✗[/] DIPO-447 budget reached              [dim]31m  [/][faint]│[/]
+[dim]    blocks 3[/]                                  [faint]│[/]  [acc]⟦[/] [acc]t[/] Test first [acc]⟧[/]  [faint]⟦[/] [acc]y[/] Approve [faint]⟧[/]  [faint]⟦[/] [acc]n[/] Reject… [faint]⟧[/]  [faint]⟦[/] [acc]o[/] PR [faint]⟧[/]
+                                              [faint]│[/]
+[dim]PROPOSAL[/]                                      [faint]│[/]  [dim]Approve merges once the checks pass on the close-out head.[/]
+  [acc]◆[/] CLI verbs for planning                [dim]2h  [/][faint]│[/]  [dim]$ dipo approve DIPO-446[/]
+                                              [faint]│[/]
+[dim]NEXT UP[/]                                       [faint]│[/]
+  [ok]→[/] DIPO-452 triage drafts              [dim]slot  [/][faint]│[/]
+                                              [faint]│[/]
+                                              [faint]│[/]
+                                              [faint]│[/]
+                                              [faint]│[/]
+                                              [faint]│[/]
 [dim]13:04 DIPO-447 parked budget-exceeded  ·  12:58 review approved DIPO-446[/]
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-[acc]↑↓[/] move   [acc]t[/] test   [acc]y[/] approve   [acc]n[/] reject   [acc]⏎[/] open story                              [acc]:[/] commands   [acc]?[/] keys
-
-⟦ ⟧ = outlined button (1-col border in acc for the primary, faint for the others); clickable.
+[acc]↑↓[/] move   [acc]t[/] test   [acc]y[/] approve   [acc]n[/] reject   [acc]⏎[/] open story                                       [dim][acc]:[/] commands   [acc]?[/] keys[/]

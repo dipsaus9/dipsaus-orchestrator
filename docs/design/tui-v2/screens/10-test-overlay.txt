@@ -1,15 +1,24 @@
-(overlay on the Desk, 84 columns, acc border)
-┌[acc]──────────────────────────────────────────────────────────────────────────────────┐[/]
-│ [hi]TEST[/][dim] · DIPO-446 at 5cdb387 · box test-446[/]                                   [ok]● running[/] │
-│ [dim]open   [/][acc]http://localhost:4321[/][dim]   o opens[/]                                              │
-│ [dim]shell  [/]dipo test shell DIPO-446[dim]          y copies[/]                                │
-│────────────────────────────────────────────────────────────────────────────────────│
-│   [ok]✓ 1[/] [dim]Start a planning session from the TUI[/]                                       │
-│       [dim]→ the planning view opens with kind and goal[/]                               │
-│   [ok]✓ 2[/] [dim]Send a two-line message[/]                                                     │
-│       [dim]→ both lines arrive, the answer streams with spend[/]                         │
-│[sel] [acc]▌○ 3[/] [hi]Close the TUI, reopen it, ask a third question[/]                             [/]│
-│[sel]       → the session continues where it stopped                                   [/]│
-│────────────────────────────────────────────────────────────────────────────────────│
-│ [acc]space[/] tick   [acc]y[/] pass   [acc]n[/] fail…   [acc]↑↓[/] step                        [dim][acc]esc[/] hide · test stays open[/] │
-└[acc]──────────────────────────────────────────────────────────────────────────────────┘[/]
+=== S1d Test overlay over the Desk (t on a MERGE item) · ux-spec mock 7 · 112 cols × 23 rows ===
+[shade]dipo / dipsaus-orchestrator                                                       ● daemon live    13:15[/]
+[shade]1 Desk 6    2 Floor 2    3 Queue 1·4    4 Retro[/]
+[shade]───────────[/][acc]┌────────────────────────────────────────────────────────────────────────────────────────┐[/][shade]───────────[/]
+[shade]MERGE[/]      [acc]│[/]  [hi]**TEST**[/][dim] · DIPO-446 at 5cdb387 · box test-446[/]                                  [ok]● running[/]  [acc]│[/]
+[shade] ○ DIPO-446[/][acc]│[/]  [dim]open   [/][acc]__http://localhost:4321__[/][dim]   o opens[/]                                                [acc]│[/]
+[shade]           [/][acc]│[/]  [dim]shell  [/]dipo test shell DIPO-446[dim]          y copies[/]                                     [acc]│[/]
+           [acc]│[/]  ────────────────────────────────────────────────────────────────────────────────────  [acc]│[/]
+           [acc]│[/]    [ok]✓ 1[/] [dim]Start a planning session from the TUI[/]                                           [acc]│[/]
+           [acc]│[/]        [dim]→ the planning view opens with kind and goal[/]                                    [acc]│[/]
+           [acc]│[/]    [ok]✓ 2[/] [dim]Send a two-line message[/]                                                         [acc]│[/]
+           [acc]│[/]        [dim]→ both lines arrive, the answer streams with spend[/]                              [acc]│[/]
+           [acc]│[/]  [sel][acc]▌[/] [acc]○ 3[/] [hi]Close the TUI, reopen it, ask a third question[/]                                [/]  [acc]│[/]
+           [acc]│[/]  [sel]      → the session continues where it stopped                                      [/]  [acc]│[/]
+           [acc]│[/]  ────────────────────────────────────────────────────────────────────────────────────  [acc]│[/]
+           [acc]│[/]  [acc]space[/] tick   [acc]y[/] pass   [acc]n[/] fail…   [acc]↑↓[/] step                   [dim][acc]esc[/] hide · test stays open[/]  [acc]│[/]
+           [acc]└────────────────────────────────────────────────────────────────────────────────────────┘[/]
+
+
+
+
+
+
+

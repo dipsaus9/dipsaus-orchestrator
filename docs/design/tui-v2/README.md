@@ -3,6 +3,7 @@
 This folder is the design for the next dipo TUI. It was made from the TUI on `main` (packages/tui) and the contract (packages/contract/src/office.ts) as of 2026-11-06.
 
 ## Read in this order
+0. `designs/dipo-ux-spec.html` and `designs/dipo-code-review.html`: the visual designs. Open them in a browser; they are self-contained and work offline. The text files below are the same designs in a form an agent can read.
 1. `spec.md`: principles, information architecture, vocabulary, keymap, every screen and state.
 2. `screens/`: each screen as a plain-text terminal mock at 112 columns. Role markup is `[role]text[/]`; see `roles.json`.
 3. `keymap.json`: the action registry the footer, `?` overlay and palette all read from.

@@ -1,266 +1,124 @@
 {
-  "rule": "lowercase = act on focused item, safe/undoable · Capitals = spend or destroy · digits = rooms · symbols = tools",
+  "rule": "Lowercase letters act on the focused item and are safe or undoable; they never navigate. Capitals spend or destroy. Digits switch rooms. Symbols (: / ? .) open tools. The footer, the ? overlay and the palette all read this registry.",
+  "fields": {
+    "key": "the key as the footer prints it",
+    "label": "the footer / overlay word for it",
+    "views": "where it is bound",
+    "when": "the condition on the focused item or state",
+    "priority": "footer drop order when the width is short: 1 is kept longest (the 80-column Desk footer keeps y, n, ⏎ and ? and drops ↑↓ and :)",
+    "side": "left = verbs for the focused item, right = global keys",
+    "layer": "ux-spec keymap layer: L0 everyone, L1 verbs, L2 vim motions, L3 everything else",
+    "open": "true where spec.md lists an open question about this key"
+  },
   "global": [
-    {
-      "key": "↑↓ / j k",
-      "action": "move"
-    },
-    {
-      "key": "⏎ / l",
-      "action": "open"
-    },
-    {
-      "key": "esc / h",
-      "action": "back / close"
-    },
-    {
-      "key": "tab",
-      "action": "next pane / field"
-    },
-    {
-      "key": "g G",
-      "action": "top / bottom (G follows stream)"
-    },
-    {
-      "key": "1-4",
-      "action": "Desk, Floor, Queue, Retro"
-    },
-    {
-      "key": "P",
-      "action": "plan session"
-    },
-    {
-      "key": "O",
-      "action": "offices"
-    },
-    {
-      "key": ": / ctrl-k",
-      "action": "palette"
-    },
-    {
-      "key": "?",
-      "action": "keys overlay"
-    },
-    {
-      "key": "/",
-      "action": "filter"
-    },
-    {
-      "key": "q q",
-      "action": "quit within 2 s (daemon keeps working)"
-    },
-    {
-      "key": "ctrl-c",
-      "action": "quit"
-    },
-    {
-      "key": "ctrl-r",
-      "action": "retry failed action (same request id)"
-    },
-    {
-      "key": "u",
-      "action": "undo last verb (10 s)"
-    }
+    { "key": "↑↓", "label": "move", "layer": "L0", "views": ["*"], "when": "a list has focus", "priority": 5, "side": "left" },
+    { "key": "⏎", "label": "open", "layer": "L0", "views": ["*"], "when": "drill in; the footer names what it opens (open story, watch run, story, read, open)", "priority": 2, "side": "left" },
+    { "key": "esc", "label": "back", "layer": "L0", "views": ["*"], "when": "climb back a level or close an overlay", "priority": 3, "side": "right" },
+    { "key": "tab", "label": "next pane", "layer": "L0", "views": ["*"], "when": "moves focus to the next pane or field", "priority": 6, "side": "left" },
+    { "key": "1–4", "label": "rooms", "layer": "L0", "views": ["office"], "when": "Desk, Floor, Queue, Retro", "priority": 9 },
+    { "key": "?", "label": "keys", "layer": "L0", "views": ["*"], "when": "keys for this screen", "priority": 3, "side": "right" },
+    { "key": "q", "label": "quit", "layer": "L0", "views": ["*"], "when": "quit the TUI; the daemon keeps working, and the first quit of a session says so once", "priority": 3, "side": "right", "open": true },
+    { "key": "j k", "label": "move", "layer": "L2", "views": ["*"], "when": "same as ↑↓", "priority": 9 },
+    { "key": "h l", "label": "back / open", "layer": "L2", "views": ["*"], "when": "same as esc / ⏎", "priority": 9, "open": true },
+    { "key": "g G", "label": "top / bottom", "layer": "L2", "views": ["*"], "when": "G also follows the run stream", "priority": 9 },
+    { "key": "/", "label": "filter", "layer": "L2", "views": ["desk", "queue", "floor", "offices"], "when": "filter the list in focus", "priority": 4, "side": "right" },
+    { "key": "n N", "label": "next / previous match", "layer": "L2", "views": ["*"], "when": "a / filter is active", "priority": 9, "open": true },
+    { "key": "y", "label": "copy id", "layer": "L2", "views": ["run", "*"], "when": "only where y has no item verb", "priority": 6, "side": "left", "open": true },
+    { "key": ":", "label": "commands", "layer": "L3", "views": ["*"], "when": "command palette", "priority": 5, "side": "right" },
+    { "key": "ctrl-k", "label": "commands", "layer": "L3", "views": ["*"], "when": "same as :, for non-vim hands", "priority": 9 },
+    { "key": "O", "label": "offices", "layer": "L3", "views": ["*"], "when": "switch office, from anywhere", "priority": 9, "open": true },
+    { "key": "P", "label": "plan", "layer": "L3", "views": ["*"], "when": "open or continue the planning session", "priority": 9 },
+    { "key": "^R", "label": "retry", "layer": "L1", "views": ["*"], "when": "an action failed; resends with the same request id", "priority": 1, "side": "left" },
+    { "key": "u", "label": "undo", "layer": "L1", "views": ["*"], "when": "for 10 s after a verb; shown in the ticker (Accepted · u undo) and on the result row", "priority": 1, "side": "left", "open": true },
+    { "key": "any key", "label": "dismiss", "views": ["desk"], "when": "the Since band is showing", "priority": 9, "side": "right" },
+    { "key": "ctrl-c", "label": "quit", "views": ["*"], "when": "as today", "priority": 9 }
   ],
   "actions": [
-    {
-      "id": "approve",
-      "key": "y",
-      "command": "gate.approve",
-      "views": [
-        "desk"
-      ],
-      "when": "item.gate"
-    },
-    {
-      "id": "reject",
-      "key": "n",
-      "command": "gate.reject",
-      "views": [
-        "desk"
-      ],
-      "when": "item.gate",
-      "prompt": "note required"
-    },
-    {
-      "id": "accept",
-      "key": "y",
-      "command": "proposal.accept",
-      "views": [
-        "desk"
-      ],
-      "when": "item.proposal"
-    },
-    {
-      "id": "dismiss",
-      "key": "n",
-      "command": "proposal.dismiss",
-      "views": [
-        "desk"
-      ],
-      "when": "item.proposal"
-    },
-    {
-      "id": "nextConfirm",
-      "key": "y",
-      "command": "nextUp.confirm",
-      "views": [
-        "desk"
-      ],
-      "when": "item.kind==NEXT UP"
-    },
-    {
-      "id": "nextDecline",
-      "key": "n",
-      "command": "nextUp.decline",
-      "views": [
-        "desk"
-      ],
-      "when": "item.kind==NEXT UP"
-    },
-    {
-      "id": "answer",
-      "key": "a",
-      "command": "work.answer",
-      "views": [
-        "desk",
-        "detail",
-        "overview"
-      ],
-      "when": "item.question",
-      "prompt": "Composer"
-    },
-    {
-      "id": "resume",
-      "key": "r",
-      "command": "work.resume",
-      "views": [
-        "desk"
-      ],
-      "when": "parked && reason!=scope-violation",
-      "prompt": "by park reason"
-    },
-    {
-      "id": "test",
-      "key": "t",
-      "command": "test.start",
-      "views": [
-        "desk"
-      ],
-      "when": "MERGE && story has manual steps",
-      "opens": "test overlay"
-    },
-    {
-      "id": "pass",
-      "key": "y",
-      "command": "test.record",
-      "views": [
-        "test"
-      ],
-      "args": {
-        "result": "pass"
-      }
-    },
-    {
-      "id": "fail",
-      "key": "n",
-      "command": "test.record",
-      "views": [
-        "test"
-      ],
-      "args": {
-        "result": "fail"
-      },
-      "prompt": "note prefilled with first unticked step"
-    },
-    {
-      "id": "steer",
-      "key": "s",
-      "command": "work.steer",
-      "views": [
-        "detail",
-        "floor"
-      ],
-      "when": "running developer session",
-      "prompt": "Composer"
-    },
-    {
-      "id": "park",
-      "key": "p",
-      "command": "story.park",
-      "views": [
-        "desk",
-        "detail",
-        "queue",
-        "floor"
-      ],
-      "prompt": "note required"
-    },
-    {
-      "id": "run",
-      "key": "R",
-      "command": "work.run",
-      "views": [
-        "queue"
-      ],
-      "when": "Ready"
-    },
-    {
-      "id": "drop",
-      "key": "X",
-      "command": "story.drop",
-      "views": [
-        "desk",
-        "queue"
-      ],
-      "confirm": "y; typed id when deleteBranch"
-    },
-    {
-      "id": "discard",
-      "key": "D",
-      "command": "work.discard",
-      "views": [
-        "desk"
-      ],
-      "confirm": "typed id + note"
-    },
-    {
-      "id": "openGithub",
-      "key": "o",
-      "views": [
-        "desk",
-        "story",
-        "test"
-      ],
-      "local": true
-    },
-    {
-      "id": "raiseAdvisory",
-      "key": "f",
-      "views": [
-        "story"
-      ],
-      "local": true,
-      "note": "turns a finding into a proposal"
-    },
-    {
-      "id": "copyId",
-      "key": "y",
-      "views": [
-        "detail"
-      ],
-      "local": true,
-      "note": "only where y has no item verb"
-    }
+    { "id": "approve", "key": "y", "label": "approve", "command": "gate.approve", "views": ["desk"], "when": "item.kind == MERGE", "priority": 1 },
+    { "id": "reject", "key": "n", "label": "reject", "command": "gate.reject", "views": ["desk"], "when": "item.kind == MERGE", "prompt": "Composer, note required", "priority": 1 },
+    { "id": "testFirst", "key": "t", "label": "test", "command": "test.start", "views": ["desk"], "when": "item.kind == MERGE and the story has manual steps", "opens": "test overlay", "priority": 1 },
+    { "id": "openPr", "key": "o", "label": "PR", "views": ["desk"], "when": "item.kind == MERGE", "local": true, "priority": 7, "open": true },
+    { "id": "accept", "key": "y", "label": "accept", "command": "proposal.accept", "views": ["desk"], "when": "item.kind == PROPOSAL", "consequence": "Accepting files it as a Backlog draft. You refine it in a planning session.", "priority": 1 },
+    { "id": "dismiss", "key": "n", "label": "dismiss", "command": "proposal.dismiss", "views": ["desk"], "when": "item.kind == PROPOSAL", "priority": 1 },
+    { "id": "nextConfirm", "key": "y", "label": "Start it", "command": "nextUp.confirm", "views": ["desk"], "when": "item.kind == NEXT UP", "consequence": "Nothing starts until you confirm.", "priority": 1 },
+    { "id": "nextDecline", "key": "n", "label": "Offer the next one", "command": "nextUp.decline", "views": ["desk"], "when": "item.kind == NEXT UP", "consequence": "Declined stories return once their task file changes.", "priority": 1 },
+    { "id": "answer", "key": "a", "label": "answer", "command": "work.answer", "views": ["desk"], "when": "item.kind == QUESTION, or PARKED ambiguous-spec (same as r)", "prompt": "Composer under the question", "priority": 1 },
+    { "id": "resume", "key": "r", "label": "resume", "command": "work.resume", "views": ["desk"], "when": "item.kind == PARKED and reason != scope-violation", "prompt": "by park reason (spec.md, What r asks for)", "priority": 1, "open": true },
+    { "id": "overrule", "key": "y", "label": "overrule and approve", "command": "gate.approve", "views": ["desk"], "when": "PARKED review-blocked", "prompt": "Composer, note required", "priority": 1, "open": true },
+    { "id": "topUp", "key": "+", "label": "add 1M and continue", "command": "work.resume", "views": ["desk"], "when": "budget reached (screens/15-budget-and-failed.txt)", "priority": 1, "open": true },
+    { "id": "inspect", "key": "⏎", "label": "inspect", "views": ["desk"], "when": "budget reached", "priority": 2 },
+    { "id": "retry", "key": "r", "label": "retry", "command": "work.resume", "views": ["desk"], "when": "run failed (screens/15-budget-and-failed.txt)", "priority": 1, "open": true },
+    { "id": "retryHint", "key": "s", "label": "retry with a hint", "command": "work.steer", "views": ["desk"], "when": "run failed; reuses steer", "prompt": "Composer", "priority": 1 },
+    { "id": "openRun", "key": "⏎", "label": "open run", "views": ["desk"], "when": "run failed, or PARKED verify-failing · conflict · worker-failed · by-maintainer", "priority": 2 },
+    { "id": "steer", "key": "s", "label": "steer", "command": "work.steer", "views": ["floor", "run"], "when": "a running developer session; a reviewer session answers 'Not steerable: the reviewer is working'", "prompt": "Composer at the foot of the stream", "priority": 1 },
+    { "id": "park", "key": "p", "label": "park", "command": "story.park", "views": ["floor", "run", "queue", "desk"], "prompt": "note required", "priority": 1 },
+    { "id": "watchRun", "key": "⏎", "label": "watch run", "views": ["floor"], "when": "a running story", "priority": 2 },
+    { "id": "graph", "key": "3", "label": "full graph", "views": ["floor"], "when": "UP NEXT chain", "priority": 9 },
+    { "id": "runNow", "key": "R", "label": "run now", "command": "work.run", "views": ["queue"], "when": "Ready; skips NEXT UP and asks nothing when a slot is free", "priority": 1 },
+    { "id": "drop", "key": "X", "label": "drop", "command": "story.drop", "views": ["queue", "desk"], "confirm": "acc prompt, y drops; ticking 'also delete its branch' (space) turns it red and asks for the typed id", "priority": 1, "open": true },
+    { "id": "discard", "key": "D", "label": "discard", "command": "work.discard", "views": ["desk"], "when": "parked, also the only way out of scope-violation", "confirm": "red prompt, note required, typed id; ⏎ discards when the id matches, esc keeps it", "priority": 1, "open": true },
+    { "id": "story", "key": "⏎", "label": "story", "views": ["queue"], "priority": 2 },
+    { "id": "showDone", "key": ".", "label": "done", "views": ["queue"], "when": "toggles '. show done (N)'", "priority": 4 },
+    { "id": "goDesk", "key": "1", "label": "go there", "views": ["queue"], "when": "the chain is blocked by a park on the Desk", "priority": 9 },
+    { "id": "period", "key": "←→", "label": "period", "views": ["retro"], "when": "7d · 30d · all", "priority": 1 },
+    { "id": "tierType", "key": "tab", "label": "tier · type", "views": ["retro"], "priority": 2 },
+    { "id": "behindRow", "key": "⏎", "label": "stories behind a row", "views": ["retro"], "priority": 2 },
+    { "id": "discussPlan", "key": "P", "label": "discuss in a plan", "views": ["retro"], "when": "starts a planning session with the numbers as text in its first message", "priority": 3 },
+    { "id": "planConfirm", "key": "c", "label": "confirm", "views": ["plan"], "when": "a proposed story block has focus", "priority": 1 },
+    { "id": "planEdit", "key": "e", "label": "edit", "views": ["plan"], "when": "a story block has focus", "priority": 1 },
+    { "id": "planDrop", "key": "x", "label": "drop from plan", "views": ["plan"], "when": "a story block has focus", "priority": 1 },
+    { "id": "planReady", "key": "Y", "label": "set them Ready", "views": ["plan"], "when": "ON END preview: sets the confirmed stories Ready in one confirm", "priority": 1 },
+    { "id": "planToStories", "key": "tab", "label": "to stories", "views": ["plan"], "when": "Composer has focus", "priority": 2 },
+    { "id": "planEnd", "key": "ctrl-e", "label": "end session", "views": ["plan"], "priority": 2 },
+    { "id": "planLeave", "key": "esc", "label": "leave (keeps open)", "views": ["plan"], "when": "the session stays open; the Desk header shows ● plan open", "priority": 3, "side": "right" },
+    { "id": "officeOpen", "key": "⏎", "label": "open", "views": ["offices"], "priority": 2 },
+    { "id": "officeNew", "key": "n", "label": "new path", "views": ["offices"], "when": "opens '+ n  open a repository path…'", "priority": 1, "open": true },
+    { "id": "streamTab", "key": "tab", "label": "stream", "views": ["run"], "when": "next stream filter: all, worker, reviewer, verify, prompt", "priority": 3 },
+    { "id": "scroll", "key": "↑↓", "label": "scroll", "views": ["run", "story"], "when": "scrolling up pauses following: 'paused · G to follow'", "priority": 4 },
+    { "id": "follow", "key": "G", "label": "follow", "views": ["run"], "priority": 4 },
+    { "id": "fullCommand", "key": "⏎", "label": "full", "views": ["run"], "when": "a long command line has focus ('⏎ full')", "priority": 9 },
+    { "id": "section", "key": "←→", "label": "section", "views": ["story"], "when": "Story, Criteria, Reviews, Runs, Diff", "priority": 1 },
+    { "id": "expandRound", "key": "⏎", "label": "expand round", "views": ["story"], "when": "a folded review round has focus", "priority": 2 },
+    { "id": "openGithub", "key": "o", "label": "open on GitHub", "views": ["story"], "when": "opens the PR comment in the browser", "local": true, "priority": 3 },
+    { "id": "raiseAdvisory", "key": "f", "label": "raise as proposal", "views": ["story"], "when": "an advisory finding has focus; it becomes a proposal on the Desk", "local": false, "priority": 3, "open": true },
+    { "id": "testTick", "key": "space", "label": "tick", "views": ["test"], "when": "ticks stay local; the engine never sees them", "local": true, "priority": 1 },
+    { "id": "testPass", "key": "y", "label": "pass", "command": "test.record", "args": { "result": "pass" }, "views": ["test"], "priority": 1, "open": true },
+    { "id": "testFail", "key": "n", "label": "fail…", "command": "test.record", "args": { "result": "fail" }, "views": ["test"], "prompt": "Composer prefilled with the first unticked step; the note goes to the same builder as a fix round", "priority": 1 },
+    { "id": "testStep", "key": "↑↓", "label": "step", "views": ["test"], "priority": 2 },
+    { "id": "testHide", "key": "esc", "label": "hide · test stays open", "views": ["test"], "when": "the MERGE row shows ● testing and ⏎ brings the overlay back", "priority": 3, "side": "right" },
+    { "id": "testOpenUrl", "key": "o", "label": "opens", "views": ["test"], "when": "the test has a url", "local": true, "priority": 9 },
+    { "id": "testCopyShell", "key": "y", "label": "copies", "views": ["test"], "when": "the shell line", "local": true, "priority": 9, "open": true },
+    { "id": "testAgain", "key": "t", "label": "test again", "views": ["test"], "when": "test.ended: 'New head 8a1e2f0, this test closed'", "priority": 1 },
+    { "id": "composerNewLine", "key": "⏎", "label": "new line", "views": ["composer"], "priority": 2 },
+    { "id": "composerSend", "key": "ctrl-s", "label": "send", "views": ["composer"], "when": "the resume prompt labels it 'resume'", "priority": 1 },
+    { "id": "composerField", "key": "tab", "label": "field", "views": ["composer"], "when": "a prompt with several fields (top up, note)", "priority": 2 },
+    { "id": "composerChoice", "key": "←→", "label": "choose", "views": ["composer"], "when": "the top-up choice +25% · +50% · +100%", "priority": 9 },
+    { "id": "composerCancel", "key": "esc", "label": "cancel", "views": ["composer"], "priority": 2 },
+    { "id": "paletteRun", "key": "⏎", "label": "run", "views": ["palette", "keys"], "when": "runs the highlighted match", "priority": 1 },
+    { "id": "paletteChoose", "key": "↑↓", "label": "choose", "views": ["palette"], "priority": 2 },
+    { "id": "paletteClose", "key": "esc", "label": "close", "views": ["palette", "keys"], "priority": 3 },
+    { "id": "expandStream", "key": "f", "label": "Expand stream to full screen", "views": ["palette", "run"], "when": "palette row 'ON DIPO-447'", "priority": 9, "open": true },
+    { "id": "openOffices", "key": "o", "label": "Open offices…", "views": ["palette"], "when": "palette row 'GO TO'", "priority": 9, "open": true },
+    { "id": "dropConfirm", "key": "y", "label": "drop", "views": ["drop prompt"], "priority": 1 },
+    { "id": "dropBranch", "key": "space", "label": "toggle branch", "views": ["drop prompt"], "priority": 2 },
+    { "id": "keepIt", "key": "esc", "label": "keep it", "views": ["drop prompt", "discard prompt"], "priority": 3 },
+    { "id": "discardConfirm", "key": "⏎", "label": "discard (when the id matches)", "views": ["discard prompt"], "when": "the hint stays dim until the typed id matches", "priority": 1 },
+    { "id": "daemonRestart", "key": "r", "label": "restart daemon", "views": ["daemon stopped"], "priority": 1, "open": true },
+    { "id": "daemonLog", "key": "l", "label": "open its log", "views": ["daemon stopped", "recovering"], "when": "recovering labels it 'open daemon log'", "priority": 1, "open": true },
+    { "id": "copyRestore", "key": "y", "label": "copy the restore command", "views": ["recovering"], "when": "database unavailable", "priority": 1, "open": true },
+    { "id": "watchFloor", "key": "2", "label": "watch the floor", "views": ["desk"], "when": "the Desk is empty", "priority": 1 }
   ],
+  "offline": "While offline only ↑↓ move, ⏎ read and q quit show, then 'actions off while offline' in err. Action keys disappear from the footer instead of failing when pressed.",
+  "noKey": "An action without a key shows its exact cli line (dim, starting with $) in the preview and in the ? overlay under 'NO KEY · TYPE IT'.",
   "changedFromToday": {
     "u run": "R",
     "d drop": "X",
     "P park": "p",
-    "P pass": "y in test overlay",
-    "F fail": "n in test overlay",
-    "o offices": "O",
-    "p privacy": "palette → Settings",
-    "4 checklist": "t overlay; 4 = Retro"
+    "P pass": "y in the test overlay",
+    "F fail": "n in the test overlay",
+    "o offices": "O (the palette mock shows o; spec.md, Open questions)",
+    "p privacy": "palette → SETTINGS",
+    "4 checklist": "t overlay; 4 = Retro",
+    "q q quit": "q (the keys overlay mock still shows q q; spec.md, Open questions)"
   }
 }
