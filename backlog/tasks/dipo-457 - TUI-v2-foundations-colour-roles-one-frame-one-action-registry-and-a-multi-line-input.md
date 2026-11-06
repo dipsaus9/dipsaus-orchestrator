@@ -3,10 +3,10 @@ id: DIPO-457
 title: >-
   TUI v2 foundations: colour roles, one frame, one action registry and a
   multi-line input
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-06 14:11'
-updated_date: '2026-11-06 15:46'
+updated_date: '2026-11-06 15:47'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -83,6 +83,10 @@ test_plan:
     - kind: "manual"
       check: "Open the TUI in a dark and a light terminal, once with NO_COLOR=1, next to designs/dipo-ux-spec.html S10 (Tweaks: dark/light, truecolor/ansi16)"
       expect: "Each terminal matches the HTML preview side by side: same roles, the focus row on sel, and under NO_COLOR only ▌ marks it"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "Please merge current main (with DIPO-456's queue test) into my box so I can see and fix the failing test. Or paste that test's body and the CI frame it printed."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -97,6 +101,19 @@ test_plan:
 - [ ] #7 The four theme mocks of screens/17-themes.txt match the HTML preview's S10 in truecolor light, 16 colours light and dark, and NO_COLOR. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
 - [x] #8 The planning view uses the Composer; its own input code is gone
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-06 15:47 UTC: ambiguous-spec
+- Detail: Please merge current main (with DIPO-456's queue test) into my box so I can see and fix the failing test. Or paste that test's body and the CI frame it printed.
+- Run: run_01M6RMCQYTBTB2HDN3M12C4NV8
+- Criteria met: 6 of 8 (as the worker reported them)
+- Loops: 0 of 5; CI attempts: 1 of 2
+- Review rounds: 2, failed 1 of 3
+- Budget used: 254,313 of 800,000 tokens; 94 of 200 turns; 18 of 90 minutes
+- Last good commit: 15233fc3268030953ab7fafc8ab510fa78c17a48
+<!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
