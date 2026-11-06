@@ -3,10 +3,10 @@ id: DIPO-444
 title: >-
   Say refused in daemon status, remove code for older dipo versions, explain the
   Claude minimum
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-04 12:24'
-updated_date: '2026-11-06 09:05'
+updated_date: '2026-11-06 09:08'
 labels:
   - 'tier:S'
 milestone: m-2
@@ -59,7 +59,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 dipo daemon status prints refused, with the reason and the fix, for every database the daemon cannot use (from before the squash, too new or damaged), while the protocol state stays recovering as 0005 says
-- [ ] #2 Each code path kept only for state older than the squashed database is removed together with its test: the older dipo signalStop branch, the hand-off of older steps and the earlier dipo's daily copies; tests of robustness against an entry that does not render stay
-- [ ] #3 MIN_CLAUDE_VERSION has one comment naming what needs it, and it is lowered only when the code shows no newer feature is used
+- [x] #1 dipo daemon status prints refused, with the reason and the fix, for every database the daemon cannot use (from before the squash, too new or damaged), while the protocol state stays recovering as 0005 says
+- [x] #2 Each code path kept only for state older than the squashed database is removed together with its test: the older dipo signalStop branch, the hand-off of older steps and the earlier dipo's daily copies; tests of robustness against an entry that does not render stay
+- [x] #3 MIN_CLAUDE_VERSION has one comment naming what needs it, and it is lowered only when the code shows no newer feature is used
 <!-- AC:END -->
