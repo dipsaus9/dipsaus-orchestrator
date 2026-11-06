@@ -122,22 +122,37 @@ export function failedReviewRounds(office: OfficeHandle, runId: RunId): number {
  * resumes, as the auto-merge and fix rounds skip it), oldest In Review first; with `pushed`, only
  * those whose head is on the remote (or whose office has none, DIPO-315).
  */
-function awaitingReview(
-  stories: ParkStore,
+function openInReviewRows(
   office: OfficeHandle,
   pushed: boolean,
 ): { readonly run_id: string; readonly ended_at: number }[] {
   const onRemote = pushed ? "and (c.pushed_at >= r.ended_at or c.no_remote_at >= r.ended_at)" : "";
-  return office
-    .all<{ run_id: string; ended_at: number }>(
-      `select r.run_id, r.ended_at from runs r
+  return office.all<{ run_id: string; ended_at: number }>(
+    `select r.run_id, r.ended_at from runs r
       where r.office_id = $office_id and r.kind = 'story' and r.ended_at is not null
         and r.end_kind is null and ${RUN_PHASE_SQL} = 'review' and r.review_round_cap is not null
         and exists (select 1 from claims c where c.office_id = r.office_id
           and c.run_id = r.run_id and c.released_at is null ${onRemote})
       order by r.ended_at, r.run_id`,
-    )
-    .filter((row) => !runHeldByPark(stories, office, row.run_id));
+  );
+}
+
+function awaitingReview(
+  stories: ParkStore,
+  office: OfficeHandle,
+  pushed: boolean,
+): { readonly run_id: string; readonly ended_at: number }[] {
+  return openInReviewRows(office, pushed).filter(
+    (row) => !runHeldByPark(stories, office, row.run_id),
+  );
+}
+
+/**
+ * The story runs open at In Review, whatever their park: `awaitingReview` without the park filter.
+ * The office summary counts the run slots they hold with it (DIPO-446).
+ */
+export function openInReview(office: OfficeHandle): RunId[] {
+  return openInReviewRows(office, false).map((row) => row.run_id as RunId);
 }
 
 /**

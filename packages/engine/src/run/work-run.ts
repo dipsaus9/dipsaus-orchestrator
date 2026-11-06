@@ -671,7 +671,6 @@ export class WorkRun {
       criteriaTotal: view.acceptanceCriteria.length,
       loop: 0,
       loopCap: caps.loops,
-      verify: "none",
       reviewRound: 0,
     };
     const at = ctx.clock.now();

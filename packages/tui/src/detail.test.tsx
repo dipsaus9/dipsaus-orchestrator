@@ -94,14 +94,14 @@ describe("live agent detail", () => {
       " phase    build                      │ output (worker) [w]orker* [v]erify [i] prompt",
       " health   looping @                  │ [tool] Read src/retry.ts (step 25)",
       " loop     2/3                        │ [tool] Edit src/verify.ts (step 26)",
-      " verify   failing                    │ Step 27: retries now stop at the cap in test/retry.test.ts.",
-      " review   round 0                    │ [tool] Read src/log.ts (step 28)",
-      " criteria 2/3                        │ [tool] Edit src/notice.ts (step 29)",
-      "          [x][x][ ]                  │ Step 30: retries now stop at the cap in src/retry.ts.",
-      " usage    in 1k out 100              │ [tool] Read src/verify.ts (step 31)",
-      "          cw 0 cr 0                  │ [tool] Edit test/retry.test.ts (step 32)",
-      "          turns 22                   │ Step 33: retries now stop at the cap in src/log.ts.",
-      " budget   [######--] 78% of 300k     │ [tool] Read src/notice.ts (step 34)",
+      " review   round 0                    │ Step 27: retries now stop at the cap in test/retry.test.ts.",
+      " criteria 2/3                        │ [tool] Read src/log.ts (step 28)",
+      "          [x][x][ ]                  │ [tool] Edit src/notice.ts (step 29)",
+      " usage    in 1k out 100              │ Step 30: retries now stop at the cap in src/retry.ts.",
+      "          cw 0 cr 0                  │ [tool] Read src/verify.ts (step 31)",
+      "          turns 22                   │ [tool] Edit test/retry.test.ts (step 32)",
+      " budget   [######--] 78% of 300k     │ Step 33: retries now stop at the cap in src/log.ts.",
+      "                                     │ [tool] Read src/notice.ts (step 34)",
       "                                     │ [tool] Edit src/retry.ts (step 35)",
       "                                     │ Step 36: retries now stop at the cap in src/verify.ts.",
       "                                     │ [tool] Read test/retry.test.ts (step 37)",
@@ -123,7 +123,7 @@ describe("live agent detail", () => {
     for (const columns of [99, 80, 60]) {
       const { ui } = await openDetail({ columns });
       const frame = ui.frame();
-      expect(frame).toContain(" phase build  health looping @  loop 2/3  verify failing");
+      expect(frame).toContain(" phase build  health looping @  loop 2/3  review round 0");
       expect(frame).toContain(" criteria 2/3  [x][x][ ]");
       expect(frame).not.toContain("signals");
       expect(frame).toContain(" output (worker)");

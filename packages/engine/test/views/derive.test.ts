@@ -212,7 +212,7 @@ describe("work view", () => {
         expect(view).toMatchObject({
           work: started.work,
           phase: "setup",
-          progress: { criteriaMet: 1, criteriaTotal: 4, loop: 0, loopCap: 3, verify: "none" },
+          progress: { criteriaMet: 1, criteriaTotal: 4, loop: 0, loopCap: 3 },
           health: "quiet",
           startedAt: new Date(t.clock.now()).toISOString(),
         });

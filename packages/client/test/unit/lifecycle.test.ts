@@ -74,7 +74,7 @@ function status(pid = DAEMON_PID): DaemonStatusResult {
     uptimeMs: 1000,
     socket: "/run/dipo.sock",
     loadedOffices: [],
-    activeRuns: 0,
+    runningStories: 0,
     keepAwake: { held: false },
     upgradePending: false,
     tools: { git: "/usr/bin/git" },

@@ -15,9 +15,9 @@ import { FIX_ROUNDS_RECOVERY_STEP } from "../run/fix-rounds";
 import { TEST_RECOVERY_STEP } from "../run/tests";
 import { RUN_TEMP_SWEEP_STEP } from "../run/temp-dirs";
 import { RECONCILE_STEP } from "../reconcile/feature";
-import { activeRunCount } from "../overview/summary";
+import { runningStoryCount, sessionRunCount } from "../overview/summary";
 import type { CommandServices } from "./commands";
-import { controlFeature, sumActiveRuns } from "./control";
+import { controlFeature, sumOverOffices } from "./control";
 import type { Core } from "./core";
 import { DATABASE_UNAVAILABLE } from "./lifecycle";
 import type { OfficeServices } from "./office-services";
@@ -72,10 +72,15 @@ function processFeatures(core: Core, services: Services): FeatureModule[] {
       loadedOffices: () => offices.loadedOffices(),
       // `daemon.resumeStarts` lifts every office's starts paused too (0020).
       liftStartsPaused: (why) => commands.runs.startsPaused.liftAll(why),
-      activeRuns: () =>
-        sumActiveRuns(offices.loadedOffices(), (id: OfficeId) => {
+      runningStories: () =>
+        sumOverOffices(offices.loadedOffices(), (id: OfficeId) => {
           const handle = offices.get(id);
-          return handle === undefined ? undefined : activeRunCount(handle);
+          return handle === undefined ? undefined : runningStoryCount(handle);
+        }),
+      sessions: () =>
+        sumOverOffices(offices.loadedOffices(), (id: OfficeId) => {
+          const handle = offices.get(id);
+          return handle === undefined ? undefined : sessionRunCount(handle);
         }),
       requestStop: daemon.requestStop,
     }),

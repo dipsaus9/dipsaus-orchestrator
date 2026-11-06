@@ -83,7 +83,6 @@ function progress(criteriaMet: number) {
     criteriaTotal: 3,
     loop: 1,
     loopCap: 3,
-    verify: "none" as const,
     reviewRound: 0,
   };
 }

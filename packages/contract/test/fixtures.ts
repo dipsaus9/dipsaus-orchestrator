@@ -54,7 +54,6 @@ export const progress = {
   criteriaTotal: 7,
   loop: 2,
   loopCap: 5,
-  verify: "passing",
   reviewRound: 0,
 };
 
@@ -693,7 +692,7 @@ export const readFixtures: Record<string, { args: unknown; result: unknown }> = 
       uptimeMs: 60_000,
       socket: "/var/folders/xy/abc123/T/dipo/dipo.sock",
       loadedOffices: [ids.office],
-      activeRuns: 1,
+      runningStories: 1,
       keepAwake: { held: true, reason: "1 active run" },
       upgradePending: false,
       buildCommit: "1a2b3c4d5e6f-dirty",

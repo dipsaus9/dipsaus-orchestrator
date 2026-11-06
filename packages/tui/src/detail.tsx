@@ -3,7 +3,7 @@
 // phase and the newest output line (a tool call such as `[tool] <tool> src/app.ts`, or the agent's
 // words) with its age. Under it the story's open questions show with their kind, age and text and
 // how to answer them (`dipo answer`, DIPO-83). Facts sit on the left (phase, health, loop over
-// cap, verify, criteria, usage in, out, cache writes, cache reads and turns, budget bar) and the
+// cap, criteria, usage in, out, cache writes, cache reads and turns, budget bar) and the
 // output of the selected source on the right; below 100 columns they stack.
 //
 // The output pane shows `work.output` of the worker (`w`) or of verify (`v`) and follows the tail.
@@ -194,7 +194,6 @@ function facts(view: WorkView) {
     phase: view.phase,
     health: healthLabel(view.health),
     loop: `${progress.loop}/${progress.loopCap}`,
-    verify: progress.verify,
     review: `round ${progress.reviewRound}`,
     criteria: `${progress.criteriaMet}/${progress.criteriaTotal}`,
     boxes: criteriaBoxes(progress.criteriaMet, progress.criteriaTotal),
@@ -216,7 +215,6 @@ export function factLines(view: WorkView): string[] {
     `phase    ${f.phase}`,
     `health   ${f.health}`,
     `loop     ${f.loop}`,
-    `verify   ${f.verify}`,
     `review   ${f.review}`,
     `criteria ${f.criteria}`,
   ];
@@ -235,7 +233,7 @@ export function compactFactLines(view: WorkView): string[] {
   const f = facts(view);
   const cost = f.cost === "" ? "" : ` ${f.cost}`;
   return [
-    `phase ${f.phase}  health ${f.health}  loop ${f.loop}  verify ${f.verify}  review ${f.review}`,
+    `phase ${f.phase}  health ${f.health}  loop ${f.loop}  review ${f.review}`,
     `criteria ${f.criteria}${f.boxes === "" ? "" : `  ${f.boxes}`}`,
     `usage ${f.input} ${f.output} ${f.cacheWrite} ${f.cacheRead} ${f.turns}${cost}  budget ${f.budget}`,
   ];

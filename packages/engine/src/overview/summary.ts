@@ -18,6 +18,8 @@ import type { StateDatabase } from "../db/database";
 import type { OfficeHandle } from "../db/office";
 import { openQuestions } from "../run-state/questions";
 import { activeRuns } from "../records/run-records";
+import { slotHolders } from "../run-state/places";
+import { openInReview } from "../run/review-rounds";
 import { activeStoryViews } from "../views/story";
 import type { SummaryUsage } from "../views/usage";
 import { workRefOf } from "../views/work";
@@ -32,20 +34,20 @@ export function columnCounts(office: OfficeHandle): Partial<Record<QueueColumn, 
 }
 
 /**
- * The office's active runs (`records/run-records.ts`), and each run that has ended while a worker
- * host of it is still open (DIPO-411): its exit is not in yet, so its worker may still run, and
- * keep-awake counts it as active too (0005). It stops counting once the host's exit is ingested or
- * re-attach closes the host out.
+ * The stories holding a run slot (0002, DIPO-446): the open story runs `slotHolders` counts, the
+ * runs open at In Review included, so `dipo daemon status` and the watch header count the same set
+ * the run slots use. A story that waits for CI, the maintainer or a park holds none.
  */
-export function activeRunCount(office: OfficeHandle): number {
-  const ended =
-    office.get<{ n: number }>(
-      `select count(distinct h.run_id) as n from worker_hosts h
-         join runs r on r.office_id = h.office_id and r.run_id = h.run_id
-        where h.office_id = $office_id and h.ended_at is null and h.pending = 0
-          and r.ended_at is not null`,
-    )?.n ?? 0;
-  return activeRuns(office).length + ended;
+export function runningStoryCount(office: OfficeHandle): number {
+  return slotHolders(office, openInReview(office)).length;
+}
+
+/**
+ * The session runs of the office that have not ended (scan sessions). They hold no run slot, so
+ * they are shown apart from the running stories (DIPO-446).
+ */
+export function sessionRunCount(office: OfficeHandle): number {
+  return activeRuns(office).filter((run) => run.kind === "session").length;
 }
 
 interface OpenGateRow {
@@ -133,7 +135,8 @@ export function summarySettings(
 }
 
 /**
- * The summary of one office: `running` counts active runs, `parked` the stories in the `desk`
+ * The summary of one office: `running` counts the stories holding a run slot, `sessions` the session
+ * runs (DIPO-446), `parked` the stories in the `desk`
  * column, and `waitingOnMaintainer` the parked stories, the open gates waiting on the maintainer and
  * the open questions (no test sessions), `ready` the stories in the `ready` column
  * (DIPO-81), `optIns` the privacy opt-ins that are on (0007, DIPO-83) and
@@ -152,7 +155,8 @@ export function deriveOfficeSummary(
     office: identity.office,
     name: identity.name,
     path: identity.path,
-    running: activeRunCount(office),
+    running: runningStoryCount(office),
+    sessions: sessionRunCount(office),
     parked: desk,
     waitingOnMaintainer: desk + gates + openQuestions(office).length,
     ready: counts.ready ?? 0,

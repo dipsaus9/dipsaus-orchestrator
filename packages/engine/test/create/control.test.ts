@@ -7,7 +7,7 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { buildRegistry } from "../../src/commands/registry";
-import { controlFeature, type ControlDeps, sumActiveRuns } from "../../src/create/control";
+import { controlFeature, type ControlDeps, sumOverOffices } from "../../src/create/control";
 import { EngineBehindCache } from "../../src/create/engine-behind";
 import { DaemonLifecycle } from "../../src/create/lifecycle";
 import type { EngineCommitsRead } from "../../src/git/build-commit";
@@ -39,7 +39,7 @@ describe("daemon.status build commit (DIPO-198)", () => {
     const result = (read.handle as (ctx: unknown, args: unknown) => unknown)({}, {});
     // A synchronous read: daemon.status answers from memory and never waits on git.
     expect(result instanceof Promise).toBe(false);
-    return result as { buildCommit?: string; engineBehind?: unknown; activeRuns?: number };
+    return result as { buildCommit?: string; engineBehind?: unknown; runningStories?: number };
   }
 
   it("carries the build commit, dirty suffix included, and the offices behind", () => {
@@ -66,10 +66,10 @@ describe("daemon.status build commit (DIPO-198)", () => {
     const offices = [OFFICE, B];
     const result = status({
       loadedOffices: () => offices,
-      activeRuns: () => sumActiveRuns(offices, (office) => counts.get(office)),
+      runningStories: () => sumOverOffices(offices, (office) => counts.get(office)),
     });
-    expect(result.activeRuns).toBe(3);
-    expect(sumActiveRuns([OFFICE, B], (office) => (office === OFFICE ? undefined : 4))).toBe(4);
+    expect(result.runningStories).toBe(3);
+    expect(sumOverOffices([OFFICE, B], (office) => (office === OFFICE ? undefined : 4))).toBe(4);
   });
 
   it("answers at once while the office's git read never finishes", async () => {

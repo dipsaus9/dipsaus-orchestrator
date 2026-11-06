@@ -50,8 +50,10 @@ export interface ControlDeps {
   readonly upgradePending: () => boolean;
   /** Offices whose engine instance is loaded (DIPO-27). */
   readonly loadedOffices: () => readonly OfficeId[];
-  /** Active runs over the loaded offices, for `daemon.status.activeRuns` (DIPO-48, DIPO-125). */
-  readonly activeRuns?: () => number;
+  /** Stories holding a run slot over the loaded offices, for `daemon.status.runningStories` (DIPO-446). */
+  readonly runningStories?: () => number;
+  /** Session runs (scan sessions) over the loaded offices, for `daemon.status.sessions` (DIPO-446). */
+  readonly sessions?: () => number;
   /** `daemon.status.keepAwake` (0005, DIPO-63); not held when absent. */
   readonly keepAwake?: () => { readonly held: boolean; readonly reason?: string };
   /**
@@ -67,10 +69,10 @@ export interface ControlDeps {
 export const STOP_REASON = "daemon.stop";
 
 /**
- * The active runs over `offices` (DIPO-125): the sum of each loaded office's count. An office with
+ * The sum of `countOf` over `offices` (DIPO-125, DIPO-446): each loaded office's count. An office with
  * no count (not loaded any more) adds nothing.
  */
-export function sumActiveRuns(
+export function sumOverOffices(
   offices: readonly OfficeId[],
   countOf: (office: OfficeId) => number | undefined,
 ): number {
@@ -96,7 +98,8 @@ export function controlFeature(deps: ControlDeps): FeatureModule {
           uptimeMs: Math.max(0, Math.floor(clock.now() - deps.startedAt)),
           socket: deps.socket,
           loadedOffices: [...deps.loadedOffices()],
-          activeRuns: deps.activeRuns?.() ?? 0,
+          runningStories: deps.runningStories?.() ?? 0,
+          sessions: deps.sessions?.() ?? 0,
           keepAwake: { ...(deps.keepAwake?.() ?? { held: false }) },
           upgradePending: deps.upgradePending(),
           tools: { ...deps.tools },

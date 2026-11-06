@@ -484,7 +484,7 @@ describe("DipoClient liveness (DIPO-52)", () => {
         uptimeMs: 1,
         socket: "/s",
         loadedOffices: [],
-        activeRuns: 0,
+        runningStories: 0,
         keepAwake: { held: false },
         upgradePending: false,
         tools: {},
