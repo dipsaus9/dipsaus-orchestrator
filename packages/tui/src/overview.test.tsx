@@ -143,7 +143,7 @@ describe("office overview board", () => {
       " dipsaus-orchestrator · daemon running · live",
       " 3 running · 2 needs you · 1 in review · Ready 2 · waiting 1",
       " RUNNING (3)",
-      ">DIPO-21 Stream worker events to th… developer M  build   busy >     AC 4/7  loop 2/5  [####----] 52% 38m  claude-sonnet",
+      "▌DIPO-21 Stream worker events to th… developer M  build   busy >     AC 4/7  loop 2/5  [####----] 52% 38m  claude-sonnet",
       "     now: building · no output yet",
       " DIPO-24 Add verify retry            developer S  build   looping @  AC 2/3  loop 2/3  [######--] 78% 22m  claude-sonnet",
       "     now: building · Step 39: retries now stop at the cap in src/notice.ts. · 12s ago",
@@ -168,7 +168,7 @@ describe("office overview board", () => {
       " dipsaus-orchestrator · daemon running · live",
       " 3 running · 2 needs you · 1 in review · Ready 2 · waiting 1",
       " RUNNING (3)",
-      ">DIPO-21 Stream worker events … build  busy >    AC 4/7 [####----] 52% 38m",
+      "▌DIPO-21 Stream worker events … build  busy >    AC 4/7 [####----] 52% 38m",
       "     now: building · no output yet",
       " DIPO-24 Add verify retry       build  looping @ AC 2/3 [######--] 78% 22m",
       "     now: building · Step 39: retries now stop at the cap in src/notice.ts. · 1…",
@@ -203,7 +203,7 @@ describe("office overview board", () => {
       " 0 running · 2 needs you · 0 in review · Ready 0 · waiting 1",
       " Nothing is running and nothing is Ready: DIPO-31 waits on DIPO-21, DIPO-33 is Refined (R15), DIPO-29 is parked (by mai…",
       " NEEDS YOU (1)",
-      ">DIPO-29 Web client shell  parked 3d · by maintainer: after M2",
+      "▌DIPO-29 Web client shell  parked 3d · by maintainer: after M2",
       " [Enter] detail  [j/k] move  [2] queue  [3] desk  [p] privacy  [o] offices  [q] quit",
     ]);
   });
@@ -303,7 +303,7 @@ describe("office overview board", () => {
     expect(first.length).toBeLessThanOrEqual(16);
     await ui.press("j");
     await ui.press("j");
-    const frame = await ui.waitFor(">DIPO-19");
+    const frame = await ui.waitFor("▌DIPO-19");
     expect(lines(frame).length).toBeLessThanOrEqual(16);
     expect(frame).toContain("[q] quit");
   });
@@ -393,7 +393,7 @@ async function selectReview(ui: {
   waitFor(text: string): Promise<string>;
 }) {
   for (let i = 0; i < 5; i++) await ui.press("j");
-  return ui.waitFor(">DIPO-28");
+  return ui.waitFor("▌DIPO-28");
 }
 
 describe("opening any board row (DIPO-81)", () => {
@@ -409,14 +409,14 @@ describe("opening any board row (DIPO-81)", () => {
       "DIPO-32",
     ]) {
       await ui.press("j");
-      await ui.waitFor(`>${story}`);
+      await ui.waitFor(`▌${story}`);
     }
     await ui.press("j");
-    expect(ui.frame()).toContain(">DIPO-32");
+    expect(ui.frame()).toContain("▌DIPO-32");
     await ui.press("k");
-    await ui.waitFor(">DIPO-30");
+    await ui.waitFor("▌DIPO-30");
     expect(ui.frame()).toContain(" DIPO-21 ");
-    expect(ui.frame()).not.toContain(">DIPO-21");
+    expect(ui.frame()).not.toContain("▌DIPO-21");
   });
 
   it("Enter on an In Review row opens its last run with the stored output; Esc goes back", async () => {
@@ -453,7 +453,7 @@ describe("opening any board row (DIPO-81)", () => {
     expect(session.commands).toEqual([]);
     await ui.press("escape");
     frame = await ui.waitFor("RUNNING (3)");
-    expect(frame).toContain(">DIPO-28 Show the merge queue");
+    expect(frame).toContain("▌DIPO-28 Show the merge queue");
   });
 
   it("says the output was removed after the retention period, or that none was stored", async () => {
@@ -513,7 +513,7 @@ describe("opening any board row (DIPO-81)", () => {
   it("Enter on a Ready row that never ran says so in the footer", async () => {
     const { ui } = await open(120, 30, boardSnapshot());
     for (let i = 0; i < 6; i++) await ui.press("j");
-    await ui.waitFor(">DIPO-30");
+    await ui.waitFor("▌DIPO-30");
     await ui.press("enter");
     const frame = await ui.waitFor("DIPO-30 Add park reasons to digest · Ready, not run yet");
     expect(frame).toContain("RUNNING (3)");

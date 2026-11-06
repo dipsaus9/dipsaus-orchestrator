@@ -220,7 +220,7 @@ describe("the planning view", () => {
     expect(frame).toContain("proposals · 2 · 2 open");
     expect(frame).toContain("#1 story [M] Export as CSV · open");
     expect(frame).toContain("why: Why Export as XML: the maintainer asked for it.");
-    expect(frame).toContain("› #2");
+    expect(frame).toContain("▌ #2");
     expect(frame).toContain("refused a proposal at");
     expect(frame).toContain("tier: Invalid option");
     expect(frame).toContain("[Ctrl-Y] confirm");
@@ -236,7 +236,7 @@ describe("the planning view", () => {
     await ui.press("ctrl-d");
     expect((await sent("planning.decline"))?.args).toEqual({ proposal: 2 });
     await ui.press("up");
-    await ui.waitFor("› #1");
+    await ui.waitFor("▌ #1");
     session.commandReply = (name) =>
       name === "planning.confirm"
         ? {

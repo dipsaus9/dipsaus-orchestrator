@@ -68,7 +68,7 @@ async function openDetail(options: { columns?: number; rows?: number; tail?: num
   mounted.push(view.ui);
   await view.ui.waitFor("· live");
   await view.ui.press("j");
-  await view.ui.waitFor(">DIPO-24");
+  await view.ui.waitFor("▌DIPO-24");
   // Only the detail's own reads count; the overview read the tails of every run before (DIPO-81).
   view.session.reads.splice(0);
   await view.ui.press("enter");
@@ -363,18 +363,18 @@ describe("live agent detail", () => {
     const { ui } = await openDetail();
     await ui.press("escape");
     let frame = await ui.waitFor("RUNNING (3)");
-    expect(frame).toContain(">DIPO-24");
+    expect(frame).toContain("▌DIPO-24");
 
     await ui.press("2");
     await ui.waitFor("next Ready story");
     // RUNNING: DIPO-21 is the row after six others in the queue.
     for (let i = 0; i < 6; i++) await ui.press("j");
-    await ui.waitFor("> RUNNING (3) DIPO-21");
+    await ui.waitFor("▌ RUNNING (3) DIPO-21");
     await ui.press("enter");
     await ui.waitFor("DIPO-21 Stream worker events to the TUI · developer");
     await ui.press("escape");
     frame = await ui.waitFor("next Ready story");
-    expect(frame).toContain("> RUNNING (3) DIPO-21");
+    expect(frame).toContain("▌ RUNNING (3) DIPO-21");
   });
 
   it("Enter on a story that never ran says it has not run yet (DIPO-81)", async () => {
@@ -463,7 +463,7 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
       false,
     );
     await first.ui.press("escape");
-    await first.ui.waitFor(">DIPO-24");
+    await first.ui.waitFor("▌DIPO-24");
     await first.ui.press("enter");
     const reread = await first.ui.waitFor("phase: verify ──");
     expect(reread).toContain("[dipo] 2026-10-14T10:03:59.000Z phase done");

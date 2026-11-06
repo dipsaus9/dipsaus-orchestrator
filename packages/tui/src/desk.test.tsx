@@ -206,8 +206,8 @@ async function selectRow(
   story: string,
 ) {
   for (let i = 0; i < 12; i++) {
-    const rows = lines(ui.frame()).filter((line) => /^ [> ] [A-Z]/.test(line));
-    const at = rows.findIndex((line) => line.startsWith(" > "));
+    const rows = lines(ui.frame()).filter((line) => /^ [▌ ] [A-Z]/.test(line));
+    const at = rows.findIndex((line) => line.startsWith(" ▌ "));
     const want = rows.findIndex((line) => line.includes(` ${story} `));
     if (want === -1) break;
     if (at === want) return;
@@ -224,7 +224,7 @@ async function openQueue() {
   await view.ui.press("2");
   await view.ui.waitFor("next Ready story");
   await view.ui.press("j");
-  await view.ui.waitFor("> READY (2)   DIPO-30");
+  await view.ui.waitFor("▌ READY (2)   DIPO-30");
   return view;
 }
 
@@ -254,7 +254,7 @@ describe("key 3 shows Your desk", () => {
     const shown = lines(frame);
     const start = shown.indexOf(" Your desk (7)");
     expect(start).toBeGreaterThan(0);
-    const rows = shown.slice(start + 1).filter((line) => /^ [> ] [A-Z]/.test(line));
+    const rows = shown.slice(start + 1).filter((line) => /^ [▌ ] [A-Z]/.test(line));
     const kinds = ["PARKED BY YOU", "BACKLOG PR", "QUESTION", "PROPOSAL", "PARKED", "MERGE"];
     expect(rows.map((row) => kinds.find((kind) => row.slice(3).startsWith(kind)))).toEqual([
       "QUESTION",
@@ -268,7 +268,7 @@ describe("key 3 shows Your desk", () => {
     ]);
     // Kind, story, reason, detail, age and the row's keys.
     expect(rows[0]).toMatch(
-      /^ > QUESTION +DIPO-19 +"Is a 404 on an empty office ok\?" +6m {2}\[a\]nswer$/,
+      /^ ▌ QUESTION +DIPO-19 +"Is a 404 on an empty office ok\?" +6m {2}\[a\]nswer$/,
     );
     expect(rows[2]).toMatch(
       /^ {3}PARKED +DIPO-26 +ambiguous-spec · May the compose file start the database\? +40m {2}\[a\]nswer \[r\]esume$/,
@@ -371,14 +371,14 @@ describe("the desk stays current", () => {
     });
     await until(() => store.state.snapshots === snapshots + 1, "the snapshot after the reset");
     await until(() => deskReads(session) === 2, "the desk read after the reset");
-    const rows = () => lines(ui.frame()).filter((line) => /^ [> ] [A-Z]/.test(line));
+    const rows = () => lines(ui.frame()).filter((line) => /^ [▌ ] [A-Z]/.test(line));
     await until(
       () => rows()[0]?.includes("PROPOSAL") === true,
       `the desk read after the reset on screen:\n${ui.frame()}`,
     );
-    const selected = rows().filter((line) => line.startsWith(" > "));
+    const selected = rows().filter((line) => line.startsWith(" ▌ "));
     expect(selected).toHaveLength(1);
-    expect(selected[0]).toStartWith(" > PARKED");
+    expect(selected[0]).toStartWith(" ▌ PARKED");
     expect(selected[0]).toContain("DIPO-26");
   });
 });
@@ -420,8 +420,8 @@ describe("the key table on desk rows", () => {
     });
     const { ui } = await openDesk({ desk: [paused, byYou] });
     const frame = await ui.waitFor("type: dipo daemon resume-starts");
-    const rows = lines(frame).filter((line) => /^ [> ] [A-Z]/.test(line));
-    expect(rows[0]).toMatch(/^ > STARTS PAUSED +no new session starts · plan limit until/);
+    const rows = lines(frame).filter((line) => /^ [▌ ] [A-Z]/.test(line));
+    expect(rows[0]).toMatch(/^ ▌ STARTS PAUSED +no new session starts · plan limit until/);
     expect(frame).toContain("by hand: It lifts by itself at 2026-10-14T12:02:00.000Z");
   });
 
@@ -732,7 +732,7 @@ describe("answers, closed prompts, read-your-writes and retry", () => {
     // DIPO-19 is the third running row.
     await ui.press("j");
     await ui.press("j");
-    await ui.waitFor(">DIPO-19");
+    await ui.waitFor("▌DIPO-19");
     await until(() => lines(ui.frame()).at(-1)?.includes("[a]nswer") === true, "[a]nswer");
     await ui.press("a");
     await ui.waitFor('answer DIPO-19: "Is a 404 ok?"');
@@ -915,7 +915,7 @@ describe("Enter on a desk row", () => {
     });
     await ui.press("escape");
     await ui.waitFor("Your desk (7)");
-    const row = lines(ui.frame()).find((line) => line.startsWith(" > "));
+    const row = lines(ui.frame()).find((line) => line.startsWith(" ▌ "));
     expect(row).toContain("DIPO-24");
   });
 });

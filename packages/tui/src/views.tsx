@@ -11,7 +11,12 @@ import { Colored } from "./colour";
 
 /** Below either size the TUI shows one list (0009). */
 export function glyphs(ascii: boolean) {
-  return { dot: ascii ? "-" : "·", dash: ascii ? "-" : "–", ellipsis: ascii ? "..." : "…" };
+  return {
+    bar: ascii ? ">" : "▌",
+    dot: ascii ? "-" : "·",
+    dash: ascii ? "-" : "–",
+    ellipsis: ascii ? "..." : "…",
+  };
 }
 
 /** The privacy opt-ins on for the selected office, from its `office.summary` (DIPO-83). */

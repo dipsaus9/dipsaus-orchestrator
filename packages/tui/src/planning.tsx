@@ -472,7 +472,7 @@ export function proposalLines(
     `proposals ${dot} ${proposals.length} ${dot} ${proposals.filter((p) => p.state === "open").length} open`,
   ];
   for (const proposal of shown) {
-    const mark = proposal.n === selected ? (display.ascii ? ">" : "›") : " ";
+    const mark = proposal.n === selected ? glyphs(display.ascii).bar : " ";
     lines.push(
       truncate(
         `${mark} #${proposal.n} ${proposalSummary(proposal.proposal)} ${dot} ${proposalState(proposal)}`,

@@ -220,9 +220,9 @@ export function rowLines(options: {
   readonly display: Display;
 }): string[] {
   const { item, widths, columns, now, display } = options;
-  const { dot, ellipsis } = glyphs(display.ascii);
+  const { bar, dot, ellipsis } = glyphs(display.ascii);
   const wide = columns >= DESK_WIDE_COLUMNS;
-  const marker = options.selected ? ">" : " ";
+  const marker = options.selected ? bar : " ";
   const head = `${marker} ${item.kind.padEnd(widths.kind)} ${(item.story ?? "").padEnd(widths.story)}`;
   const park = parkWords(item);
   const middle = park === "" ? item.detail : `${park} ${dot} ${item.detail}`;

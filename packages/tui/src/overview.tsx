@@ -230,10 +230,11 @@ function sections(options: {
   latest: LatestLines | null;
   now: number;
   dot: string;
+  bar: string;
   columns: number;
   ellipsis: string;
 }): Section[] {
-  const { state, width, latest, now, dot, ellipsis } = options;
+  const { state, width, latest, now, dot, bar, ellipsis } = options;
   const { needs, review, ready, gated } = waitingStories(state);
   const titleOf = new Map(state.stories.map((story) => [String(story.key), story.title]));
   const named = [
@@ -279,7 +280,7 @@ function sections(options: {
   const running = state.work.map((view, i): BoardRow => {
     const row = runCells[i]!;
     const selected = String(view.work.key) === options.selected;
-    const marker = selected ? ">" : " ";
+    const marker = selected ? bar : " ";
     const title = titleOf.get(String(view.work.key)) ?? "";
     const nowText = boardNow({
       view,
@@ -315,7 +316,7 @@ function sections(options: {
     width === "full" && story.tier !== undefined ? `${story.tier}  ` : "";
   const line = (story: StoryView, note: string): BoardRow => {
     const selected = String(story.key) === options.selected;
-    const text = `${head(String(story.story), story.title, widths, ellipsis, selected ? ">" : " ")}  ${note}`;
+    const text = `${head(String(story.story), story.title, widths, ellipsis, selected ? bar : " ")}  ${note}`;
     return {
       key: String(story.key),
       lines: [
@@ -497,6 +498,7 @@ export function Overview(props: {
       now: props.clock.now(),
       columns,
       dot,
+      bar: glyphs(display.ascii).bar,
       ellipsis,
     }),
     Math.max(0, props.height - top.length),
