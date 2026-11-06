@@ -1,0 +1,47 @@
+=== S3 Run: watch and steer a live box · ux-spec mock 13 · 112 cols × 30 rows ===
+[acc]**dipo**[/][dim] / dipsaus-orchestrator / Floor / [/]DIPO-447                                                   [ok]●[/] live[dim]    10:42[/]
+[hi]**Run a planning session with Claude in a read-only box that I talk to turn by turn**[/]
+[ok]setup ━━ build ✓ ━━ review ✓ ━━ test ━━ [/][acc]● merge[/]                                                [dim]loop 1 of 8 · 36m[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[dim]PHASE     [/]merge             [faint]│[/]  [hi]__all__[/]   [dim]worker[/]   [dim]reviewer[/]   [dim]verify[/]   [dim]prompt[/]                             [dim]following ↓[/]
+[dim]HEALTH    [/][ok]●[/] busy            [faint]│[/]
+[dim]CRITERIA  [/][ok]10/10 ✓[/]           [faint]│[/]  [dim]── review · reviewer · 10:39 ───────────────────────────────────────[/]
+[dim]REVIEW    [/]round 1 [ok]✓[/]         [faint]│[/]  [dim]10:39  read   [/]engine/src/workers/claude-cli/tools.ts
+[dim]VERIFY    [/]passed 10:39      [faint]│[/]  [dim]10:39  read   [/]engine/test/workers/planning-tools.test.ts
+                            [faint]│[/]  [dim]10:39  read   [/]engine/src/workers/claude-cli/box-plan.ts
+[dim]USAGE[/]                       [faint]│[/]  [dim]10:39  grep   [/]box/workers.ts  [dim]planning|Planning[/]
+[dim]in        [/]474               [faint]│[/]  [dim]10:40  ··     4 thoughts · 1.0k tokens[/]
+[dim]out       [/]152k              [faint]│[/]  [dim]10:40  read   [/]engine/test/run/planning-session.ci.test.ts
+[dim]cache w   [/]491k              [faint]│[/]  [dim]10:40  grep   [/]docs/decisions  [dim][Pp]lanning[/]
+[dim]cache r   [/]58.9M             [faint]│[/]  [dim]10:40  grep   [/]engine/src/ingest  [dim]maxMinutes|PLANNER_ROLE[/]
+[dim]turns     [/]255               [faint]│[/]  [dim]10:40  [/][acc]says   [/][hi]Tool sets, the read-only box, the bypass tests and the ADR[/]
+                            [faint]│[/]                [hi]text all check out so far. Next I'm looking at the model[/]
+[dim]BUDGET    [/]28% of 2.0M       [faint]│[/]                [hi]proxy's cap handling.[/]
+[acc]━━━━━━━[/][faint]━━━━━━━━━━━━━━━━━━[/]   [faint]│[/]  [dim]10:40  grep   [/]records/proxied-usage.ts  [dim]PLANNER|planning[/]
+                            [faint]│[/]  [dim]10:40  grep   [/]box/review-box.ts  [dim]PLANNING|planning[/]
+[dim]MODEL     [/]opus-5.5          [faint]│[/]  [dim]10:40  [/][ok]verdict [/][hi]approved · 10/10 criteria met · 1 advisory[/]
+[dim]RUN       [/]…HQXTSVN67        [faint]│[/]
+                            [faint]│[/]  [dim]── merge · 10:40 ───────────────────────────────────────────────────[/]
+                            [faint]│[/]  [dim]10:41  bash   [/]git merge --ff-only dipo/447  [dim]⏎ full[/]
+                            [faint]│[/]  [dim]10:41  ··     thinking 1.1s[/][acc] ▍[/]
+                            [faint]│[/]
+                            [faint]│[/]
+                            [faint]│[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]s[/] steer   [acc]p[/] park   [acc]v[/] stream   [acc]↑↓[/] scroll   [acc]G[/] follow   [acc]c[/] copy id                                 [dim][acc]esc[/] back   [acc]?[/] keys[/]
+=== S7 Steer open at the foot of the stream, then the sent `you` line · ux-spec mock 21 · 112 cols × 13 rows ===
+[dim]10:40  read   engine/src/box/review-box.ts[/]
+[dim]10:41  ··     2 thoughts · 0.6k tokens[/]
+[dim]10:41  [/][acc]says   [/][hi]Fixing the reattach shard timeout next.[/]
+[dim]10:41  bash   bun test reattach.test.ts[/]
+
+[acc]┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐[/]
+[acc]│[/] [dim]steer DIPO-447 · arrives at its next turn[/]                                                                    [acc]│[/]
+[acc]│[/] [hi]Don’t raise the timeout. The real host must[/]                                                                  [acc]│[/]
+[acc]│[/] [hi]bind within 4.5 s; find why it doesn’t.[acc]▍[/][/]                                                                     [acc]│[/]
+[acc]└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘[/]
+[dim][acc]⏎[/] new line   [acc]ctrl-s[/] send   [acc]esc[/] cancel[/]
+
+[dim]10:42  [/][ok]you    [/]Don’t raise the timeout… [dim]· delivered next turn[/]
+--- notes ---
+The second block is the foot of the stream pane: `s` opens the Composer under the last stream lines; after ctrl-s the message lands as a `you` line with its delivery state.

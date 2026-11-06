@@ -405,9 +405,257 @@ export const KNOWN_PLANNING_END_REASONS = [
 export const PlanningEndReason = openEnum(KNOWN_PLANNING_END_REASONS);
 export type PlanningEndReason = z.infer<typeof PlanningEndReason>;
 
+// A story or an edit a planning session proposes (DIPO-450, 0022). The session writes each in its
+// answer as a fenced block whose info string is `dipo-proposal`, holding one JSON object; the
+// engine validates it against `PlanningProposal` and refuses an invalid one with a message to
+// the session that lists its problems. `story` is a new story, filed Refined to the story standard
+// (0012); `edit` changes an existing task's title, Story line, context, criteria or references;
+// `split` files a new story and edits the existing one. Every text is one line unless it is the
+// context below the Story line; `storyLine` is the Story line without its `Story:` prefix.
+export const PLANNING_PROPOSAL_FENCE = "dipo-proposal";
+
+export const PLANNING_PROPOSAL_CAPS = {
+  title: 100,
+  storyLine: 500,
+  context: 4_000,
+  why: 300,
+  criteria: 20,
+  criterion: 500,
+  references: 30,
+  path: 200,
+  dependencies: 10,
+  testPlan: 20,
+  check: 500,
+} as const;
+
+// The story types of 0012 F5.
+export const STORY_TYPES = [
+  "feature",
+  "bug",
+  "enhancement",
+  "task",
+  "chore",
+  "docs",
+  "spike",
+] as const;
+
+// The shortest criterion (0012 R09) and test-plan text (R20).
+const CHECKABLE_MIN = 10;
+
+const proposalCaps = PLANNING_PROPOSAL_CAPS;
+
+// Texts the description of a task could not hold as they are: Backlog.md finds its sections by
+// HTML comment marks, a line of 50 `-` prints as a section, only dipo writes the field block, and a
+// story has exactly one Story line (0010, 0012 R05).
+function descriptionProblems(text: string): string[] {
+  const problems: string[] = [];
+  const lines = text.split(/\r?\n/);
+  if (text.includes("<!--")) problems.push("holds <!--, which Backlog.md reads as a section mark");
+  if (lines.some((line) => /^-{50,}$/.test(line.trim()))) {
+    problems.push("holds a line of 50 -, which Backlog.md prints as a section");
+  }
+  if (lines.some((line) => line.trim() === "```dipo")) {
+    problems.push("holds a ```dipo line; only dipo writes the field block");
+  }
+  if (lines.some((line) => line.startsWith("Story:"))) {
+    problems.push("holds a Story: line; the Story line goes in storyLine");
+  }
+  return problems;
+}
+
+const OneLine = (min: number, max: number) =>
+  z
+    .string()
+    .min(min)
+    .max(max)
+    .regex(/^[^\r\n]*$/, "must be one line")
+    .refine(
+      (text) => !text.includes("<!--"),
+      "holds <!--, which Backlog.md reads as a section mark",
+    );
+
+const ProposalContext = z
+  .string()
+  .min(1)
+  .max(proposalCaps.context)
+  .superRefine((text, ctx) => {
+    for (const problem of descriptionProblems(text))
+      ctx.addIssue({ code: "custom", message: problem });
+  });
+
+// A repo-relative POSIX path outside the backlog (0012 F8, R12): plain characters only, so no comma
+// splits it and no leading `-` reads as an option.
+const ProposalPath = z
+  .string()
+  .max(proposalCaps.path)
+  .regex(/^[A-Za-z0-9_.@+][A-Za-z0-9_./@+-]*$/, "must be a plain repo-relative path")
+  .refine(
+    (path) => !path.split("/").includes("..") && !path.startsWith("backlog/"),
+    "must stay inside the repository and outside backlog/",
+  );
+
+// A task id such as `DIPO-12`; a draft's `DRAFT-n` is not one.
+const ProposalTaskId = z
+  .string()
+  .regex(/^[A-Za-z][A-Za-z0-9]*-[0-9]+$/, "must be a task id such as DIPO-12")
+  .refine((id) => !/^DRAFT-/i.test(id), "must name a task, not a draft");
+
+export const PlanningTestPlanEntry = z.strictObject({
+  kind: z.enum(["automated", "manual"]),
+  check: OneLine(CHECKABLE_MIN, proposalCaps.check).describe("what the test or the step checks"),
+  expect: OneLine(CHECKABLE_MIN, proposalCaps.check)
+    .optional()
+    .describe("manual entries: the expected result"),
+});
+
+export const PlanningTestPlan = z.union([
+  z.strictObject({
+    entries: z.array(PlanningTestPlanEntry).min(1).max(proposalCaps.testPlan),
+  }),
+  z.strictObject({
+    notApplicable: OneLine(CHECKABLE_MIN, proposalCaps.check).describe("why no test applies"),
+  }),
+]);
+export type PlanningTestPlan = z.infer<typeof PlanningTestPlan>;
+
+const storyShape = {
+  title: OneLine(1, proposalCaps.title)
+    .regex(/^[\p{L}\p{N}]/u, "must start with a letter or a digit")
+    .describe("a short name"),
+  type: z.enum(STORY_TYPES),
+  milestone: OneLine(1, 40).describe("the milestone it belongs to, as the backlog names it"),
+  tier: z.enum(KNOWN_TIERS).describe("the proposed tier"),
+  storyLine: OneLine(1, proposalCaps.storyLine).describe(
+    "As <maintainer|worker|reviewer> I want <capability> so that <value>. For a spike: We need to decide <question> so that <value>. Plain words: no backticks, paths or code",
+  ),
+  context: ProposalContext.optional().describe("technical context below the Story line"),
+  criteria: z
+    .array(OneLine(CHECKABLE_MIN, proposalCaps.criterion))
+    .min(1)
+    .max(proposalCaps.criteria)
+    .describe("done-when statements, one checkable fact each"),
+  references: z
+    .array(ProposalPath)
+    .min(1)
+    .max(proposalCaps.references)
+    .describe("the files the story will probably touch"),
+  dependencies: z
+    .array(ProposalTaskId)
+    .max(proposalCaps.dependencies)
+    .optional()
+    .describe("stories that must be Done first"),
+  testPlan: PlanningTestPlan.optional().describe("every story but a spike has one; a spike none"),
+};
+
+type StoryShape = z.infer<z.ZodObject<typeof storyShape>>;
+
+function storyChecks(story: Pick<StoryShape, "type" | "testPlan">, ctx: z.RefinementCtx): void {
+  if (story.type === "spike" && story.testPlan !== undefined) {
+    ctx.addIssue({ code: "custom", path: ["testPlan"], message: "a spike has no test plan" });
+  }
+  if (story.type !== "spike" && story.testPlan === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["testPlan"],
+      message: "a story that is no spike needs a test plan",
+    });
+  }
+  if (story.testPlan !== undefined && "entries" in story.testPlan) {
+    for (const [index, entry] of story.testPlan.entries.entries()) {
+      if (entry.kind === "manual" && entry.expect === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["testPlan", "entries", index, "expect"],
+          message: "a manual entry needs its expected result",
+        });
+      }
+    }
+  }
+}
+
+const editShape = {
+  title: storyShape.title.optional(),
+  storyLine: storyShape.storyLine.optional(),
+  context: ProposalContext.optional().describe(
+    "the whole technical context below the Story line, replacing the old one",
+  ),
+  criteria: storyShape.criteria
+    .optional()
+    .describe("the whole list of criteria, replacing the old one"),
+  references: storyShape.references
+    .optional()
+    .describe("the whole list of references, replacing the old one"),
+};
+
+type EditShape = z.infer<z.ZodObject<typeof editShape>>;
+
+function editChecks(edit: EditShape, ctx: z.RefinementCtx): void {
+  if (Object.values(edit).every((value) => value === undefined)) {
+    ctx.addIssue({ code: "custom", message: "an edit changes at least one field" });
+  }
+}
+
+const Why = OneLine(1, proposalCaps.why).describe("one line of why");
+
+// A new story's fields.
+export const PlanningStoryFields = z.strictObject(storyShape).superRefine(storyChecks);
+export type PlanningStoryFields = z.infer<typeof PlanningStoryFields>;
+
+// The changes of an edit: each field given replaces the story's.
+export const PlanningEditFields = z
+  .strictObject(editShape)
+  .superRefine((edit, ctx) => editChecks(edit, ctx));
+export type PlanningEditFields = z.infer<typeof PlanningEditFields>;
+
+export const PlanningProposal = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("story"), ...storyShape, why: Why }).superRefine(storyChecks),
+  z
+    .strictObject({
+      kind: z.literal("edit"),
+      id: ProposalTaskId.describe("the task the edit changes"),
+      ...editShape,
+      why: Why,
+    })
+    .superRefine(({ kind: _kind, id: _id, why: _why, ...edit }, ctx) => editChecks(edit, ctx)),
+  z.strictObject({
+    kind: z.literal("split"),
+    id: ProposalTaskId.describe("the task that is split"),
+    edit: PlanningEditFields.describe("the changes to the task that is split"),
+    story: PlanningStoryFields.describe("the new story split off it"),
+    why: Why,
+  }),
+]);
+export type PlanningProposal = z.infer<typeof PlanningProposal>;
+
+// How far a proposal got: `open` until the maintainer confirms or declines it, `filing` while its
+// lane changes are journaled and not yet applied, `filed` once the lane applied them, `declined`,
+// or `failed` when the lane closed a change of it with the reason in `detail`.
+export const KNOWN_PROPOSAL_STATES = ["open", "filing", "filed", "declined", "failed"] as const;
+export const PlanningProposalState = openEnum(KNOWN_PROPOSAL_STATES);
+export type PlanningProposalState = z.infer<typeof PlanningProposalState>;
+
+// One proposal of a planning session as the engine shows it: its number in the session, the
+// proposal (as the maintainer last edited it, `edited`), its state, and the ids it filed or edited,
+// from the session's record.
+export const PlanningProposalView = z.object({
+  n: z.int().positive(),
+  proposal: PlanningProposal,
+  state: PlanningProposalState,
+  edited: z.boolean().optional(),
+  stories: z.array(z.string()).optional(),
+  detail: z.string().optional(),
+  at: Timestamp,
+});
+export type PlanningProposalView = z.infer<typeof PlanningProposalView>;
+
+// A proposal block the engine refused, with its problems, as the message to the session listed them.
+export const PlanningRefusal = z.object({ at: Timestamp, problems: z.array(z.string()) });
+export type PlanningRefusal = z.infer<typeof PlanningRefusal>;
+
 // The view of a planning session, derived by the engine. `usage` is the session's spend so far, as
 // the model proxy counted it; `turns` the answers it finished; `health` is `quiet` or `stuck`
-// only while it works on an answer, never while it waits for the maintainer.
+// only while it works on an answer, never while it waits for the maintainer. `proposals` are the
+// session's proposals in order, `refusals` the latest refused blocks (DIPO-450).
 export const PlanningView = z.object({
   run: RunId,
   agent: AgentId.optional(),
@@ -426,6 +674,8 @@ export const PlanningView = z.object({
   // When the session last continued in a fresh model session, after its context filled or its
   // model session ended (DIPO-448); absent while it never did.
   continuedAt: Timestamp.optional(),
+  proposals: z.array(PlanningProposalView).optional(),
+  refusals: z.array(PlanningRefusal).optional(),
 });
 export type PlanningView = z.infer<typeof PlanningView>;
 

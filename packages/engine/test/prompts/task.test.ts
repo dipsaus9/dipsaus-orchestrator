@@ -234,6 +234,7 @@ describe("tags inside slot text", () => {
       "desk",
       "recent_runs",
       "copy",
+      "proposal_schema",
       "ideas",
       "idea",
     ]);

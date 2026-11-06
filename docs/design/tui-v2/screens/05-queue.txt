@@ -1,0 +1,33 @@
+=== S2b Queue: what's next and why it waits · ux-spec mock 9 · 112 cols × 30 rows ===
+[acc]**dipo**[/][dim] / [/]dipsaus-orchestrator                                               [ok]●[/] daemon live[dim]    $22.80 today    13:20[/]
+[dim]1 Desk [acc]6[/][/]    [dim]2 Floor 2[/]    [hi]__3 Queue 1·4__[/]    [dim]4 Retro[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[hi]**READY**[/]                                                      [dim]1  [/][faint]│[/]  [dim]READY · tier M · offered as next up[/]
+[sel][acc]▌[/] [ok]→[/] [dim]DIPO-452[/]  [hi]File every idea as a draft[/]      [dim]M[/]  [ok]next up  [/]    [/][faint]│[/]  [hi]**DIPO-452 File every incoming idea**[/]
+                                                              [faint]│[/]  [hi]**as a draft and triage drafts**[/]
+[hi]**WAITING ON A DEPENDENCY**[/]                                    [dim]4  [/][faint]│[/]
+  [acc]○[/] [dim]DIPO-448[/]  Keep session decisions          [dim]M[/]  [dim]needs [/][err]447✗[/]   [faint]│[/]  [dim]Gate     [/][ok]✓[/] 31 rules · [acc]1 warning[/] R29
+  [acc]○[/] [dim]DIPO-449[/]  Plan in the TUI                 [dim]M[/]  [dim]needs [/][err]447✗[/]   [faint]│[/]  [dim]Needs    [/][ok]all done[/]
+  [acc]○[/] [dim]DIPO-450[/]  File confirmed stories          [dim]M[/]  [dim]needs 449[/]    [faint]│[/]  [dim]Unblocks [/]DIPO-453
+  [acc]○[/] [dim]DIPO-453[/]  Retro view                      [dim]M[/]  [dim]needs [/][ok]452→[/]   [faint]│[/]  [dim]Touches  [/]engine/src/backlog/
+                                                              [faint]│[/]  [dim]         [/]contract/src/office.ts
+[hi]**REFINED · not Ready yet**[/]                                    [dim]2  [/][faint]│[/]
+  [err]✗[/] [dim]DIPO-116[/]  Skills and plugins              [dim]L[/]  [dim]2 unknowns  [/] [faint]│[/]  [dim]CHAIN[/]
+  [err]✗[/] [dim]DIPO-288[/]  Yarn, bun.lockb, pnpm           [dim]M[/]  [dim]no test plan  [/][faint]│[/]  [err]447✗[/] → 448 · 449 → 450 → 451
+                                                              [faint]│[/]  [ok]452[/]  → 453
+[dim]  . show done (418)[/]                                           [faint]│[/]
+                                                              [faint]│[/]  [dim]Everything below 447 waits on the park[/]
+                                                              [faint]│[/]  [dim]on your Desk. [acc]1[/] go there.[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+                                                              [faint]│[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]↑↓[/] move   [acc]R[/] run now   [acc]p[/] park   [acc]X[/] drop   [acc]⏎[/] story   [acc].[/] done                                       [dim][acc]/[/] filter   [acc]?[/] keys[/]
+--- notes ---
+needs NNN✗ = the dependency is parked (yours to clear) · needs NNN→ = the dependency is moving by itself.

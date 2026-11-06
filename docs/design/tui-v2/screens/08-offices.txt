@@ -1,0 +1,16 @@
+=== S2e Offices · ux-spec mock 12 · 112 cols × 15 rows ===
+[acc]**dipo**[/][dim] / [/]Offices                                               [ok]●[/] daemon live[dim]    $27.10 today, all offices    13:31[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[dim]    OFFICE                                                  NEEDS YOU   RUNNING   READY   TODAY[/]
+[sel][acc]▌[/] [ok]●[/] [hi]dipsaus-orchestrator [dim]· open[/][/]                             [acc]**6**[/]           2         1       [acc]━━━━━━━━[/][faint]━━━━[/] 62%      [/]
+  [acc]![/] backlog-site [dim]· starts paused[/]                            [acc]**1**[/]           [dim]0[/]         2       [err]━━━━━━━━━━━━[/] [err]96% ALERT[/]
+  [dim]○[/] [dim]notes-cli · idle 3 days[/]                                 [dim]0[/]           [dim]0[/]         [dim]0[/]       [faint]━━━━━━━━━━━━ [dim]0%[/][/]
+
+[dim]  + a  open a repository path…[/]
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]↑↓[/] move   [acc]⏎[/] open   [acc]a[/] new path                                                                [dim][acc]esc[/] back   [acc]q q[/] quit[/]

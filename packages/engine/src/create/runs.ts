@@ -136,6 +136,8 @@ export interface RunsOptions {
   readonly tools: ToolPaths;
   /** The office's desk now, for a planning session's first message (DIPO-447). */
   readonly planningDesk?: RunPorts["planningDesk"];
+  /** The office's planning lane, which files a planning session's confirmed proposals (DIPO-450). */
+  readonly planningLane?: RunPorts["planningLane"];
   /** Reads a process's start time: whether a worker host still runs (DIPO-57). */
   readonly probe: ProcessProbe;
   /** Starts the processes of the runs: boxes, the Keychain, the worker. */
@@ -1039,6 +1041,7 @@ function boxRunPorts(options: RunsOptions, parts: RunPortParts): Partial<RunPort
     // session (DIPO-447) and each audit session (DIPO-452).
     ...(boxWorkers === null ? {} : { reviewBoxes: boxWorkers, planningBoxes: boxWorkers }),
     ...(options.planningDesk === undefined ? {} : { planningDesk: options.planningDesk }),
+    ...(options.planningLane === undefined ? {} : { planningLane: options.planningLane }),
     // The merges dipo made on a box run's branch outside the box reach its box before the worker's
     // next session (DIPO-324): the box is started, the files copied in as a catch-up's are.
     boxSync: boxSyncOf(options, parts),

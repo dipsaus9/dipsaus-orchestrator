@@ -1,0 +1,148 @@
+{
+  "note": "Ten roles: the nine of the ux-spec (bg, fg, hi, dim, faint, acc, ok, err, sel) and shade, for overlay backdrops and the frozen offline body. Each role has an ANSI slot (theme-following default) and per-theme values exactly as the HTML previews paint them: the opt-in truecolor Classical theme and the ansi16 mocks, in dark and light. Bold and underline are separate from the role: screens/ marks them with **x** and __x__; hi is never bold by itself.",
+  "detect": "Query the terminal background (OSC 11), fall back to COLORFGBG, then to dark. Respect NO_COLOR.",
+  "roles": {
+    "bg": {
+      "use": "default background",
+      "ansi": "default bg, never painted in 16-colour",
+      "truecolor": {
+        "dark": "#1c1b19",
+        "light": "#f6f4f1"
+      },
+      "ansi16": {
+        "dark": "#0c0c0c",
+        "light": "#ffffff"
+      }
+    },
+    "fg": {
+      "use": "body text",
+      "ansi": "default fg",
+      "truecolor": {
+        "dark": "#ddd8cf",
+        "light": "#2d2b2b"
+      },
+      "ansi16": {
+        "dark": "#cccccc",
+        "light": "#1a1a1a"
+      }
+    },
+    "hi": {
+      "use": "titles, agent words (a brighter colour; bold only where a screen marks **)",
+      "ansi": "bright white (97) on dark, black (30) on light; not bold",
+      "truecolor": {
+        "dark": "#f6f2ea",
+        "light": "#141312"
+      },
+      "ansi16": {
+        "dark": "#ffffff",
+        "light": "#000000"
+      }
+    },
+    "dim": {
+      "use": "labels, meta, ticker",
+      "ansi": "bright black",
+      "truecolor": {
+        "dark": "#8f8a82",
+        "light": "#6e6a66"
+      },
+      "ansi16": {
+        "dark": "#808080",
+        "light": "#6c6c6c"
+      }
+    },
+    "faint": {
+      "use": "rules, future stages",
+      "ansi": "bright black (90) with the faint attribute (SGR 2), so it stays darker than dim as in the previews",
+      "truecolor": {
+        "dark": "#3d3a35",
+        "light": "#d3cfca"
+      },
+      "ansi16": {
+        "dark": "#4a4a4a",
+        "light": "#c6c6c6"
+      }
+    },
+    "acc": {
+      "name": "accent",
+      "use": "keys, focus bar, now",
+      "ansi": "yellow",
+      "truecolor": {
+        "dark": "#e1ad66",
+        "light": "#7d5411"
+      },
+      "ansi16": {
+        "dark": "#d7af00",
+        "light": "#875f00"
+      }
+    },
+    "ok": {
+      "use": "live, done, met",
+      "ansi": "green",
+      "truecolor": {
+        "dark": "#a3c48e",
+        "light": "#3f6b2f"
+      },
+      "ansi16": {
+        "dark": "#5faf00",
+        "light": "#2e7d00"
+      }
+    },
+    "err": {
+      "use": "failed, blocked",
+      "ansi": "red",
+      "truecolor": {
+        "dark": "#e58b78",
+        "light": "#a33a2b"
+      },
+      "ansi16": {
+        "dark": "#d75f5f",
+        "light": "#af0000"
+      }
+    },
+    "sel": {
+      "use": "focused row (background)",
+      "ansi": "background in the preview values (256-colour 235 dark, 255 light); inverse only where the terminal cannot paint a background",
+      "truecolor": {
+        "dark": "#2a2824",
+        "light": "#ebe6de"
+      },
+      "ansi16": {
+        "dark": "#262626",
+        "light": "#eeeeee"
+      }
+    },
+    "shade": {
+      "use": "content behind an overlay, and the frozen body while offline",
+      "ansi": "black (30) on dark, white (37) on light, with the faint attribute (SGR 2): darker than faint, as in the previews",
+      "truecolor": {
+        "dark": "#4a4740",
+        "light": "#c9c5c0"
+      },
+      "ansi16": {
+        "dark": "#3a3a3a",
+        "light": "#cfcfcf"
+      }
+    }
+  },
+  "noColor": {
+    "rule": "Under NO_COLOR every role is the terminal's default foreground and sel equals bg, so only the ▌ focus bar marks the focused row. Bold and underline stay. Every state still reads through glyphs (▌ ○ ✗ ━ ┄) and words.",
+    "preview": {
+      "bg": "#0c0c0c",
+      "fg": "#cccccc",
+      "hi": "#cccccc",
+      "dim": "#cccccc",
+      "faint": "#cccccc",
+      "acc": "#cccccc",
+      "ok": "#cccccc",
+      "err": "#cccccc",
+      "sel": "#0c0c0c"
+    }
+  },
+  "markup": {
+    "role": "[role]text[/], nestable; [/] closes the innermost role",
+    "bold": "**text**, inside a role",
+    "underline": "__text__, inside a role; drawn in acc (room tab, stream filter, reader tab, Retro period, link, palette match)",
+    "buttons": "⟦ key Label ⟧. [acc]⟦[/] … [acc]⟧[/] is the primary button (acc border), [faint]⟦[/] … [faint]⟧[/] the others (faint border)",
+    "rules": "an unmarked │ or full-width ─ rule is faint; a box carries its border role on every border cell"
+  }
+}

@@ -1,0 +1,48 @@
+=== S10 Truecolor, light (Classical on paper) · ux-spec mock 28 · 80 cols × 10 rows ===
+[acc]**dipo**[/][dim] / [/]dipsaus-orch…                                                [ok]●[/][dim] live 13:44[/]
+[hi]__1 Desk [acc]6[/]__[/]   [dim]2 Floor 2[/]   [dim]3 Queue[/]
+────────────────────────────────────────────────────────────────────────────────
+[dim]MERGE[/]
+[sel][acc]▌[/] [acc]○[/] [hi]DIPO-446 Planning tools[/]                                                   [dim]8m[/][/]
+[sel][ok]    setup ━ build ✓ ━ review ✓ ━ [/][acc]● test[/][faint] ┄ merge[/]                                 [/]
+[dim]PARKED[/]
+  [err]✗[/] DIPO-447 budget reached                                                  [dim]31m[/]
+────────────────────────────────────────────────────────────────────────────────
+[acc]t[/] test   [acc]y[/] approve   [acc]n[/] reject
+=== S10 16 colours, light · ux-spec mock 29 · 80 cols × 10 rows ===
+[acc]**dipo**[/][dim] / [/]dipsaus-orch…                                                [ok]●[/][dim] live 13:44[/]
+[hi]__1 Desk [acc]6[/]__[/]   [dim]2 Floor 2[/]   [dim]3 Queue[/]
+────────────────────────────────────────────────────────────────────────────────
+[dim]MERGE[/]
+[sel][acc]▌[/] [acc]○[/] [hi]DIPO-446 Planning tools[/]                                                   [dim]8m[/][/]
+[sel][ok]    setup ━ build ✓ ━ review ✓ ━ [/][acc]● test[/][faint] ┄ merge[/]                                 [/]
+[dim]PARKED[/]
+  [err]✗[/] DIPO-447 budget reached                                                  [dim]31m[/]
+────────────────────────────────────────────────────────────────────────────────
+[acc]t[/] test   [acc]y[/] approve   [acc]n[/] reject
+=== S10 16 colours, dark · ux-spec mock 30 · 80 cols × 10 rows ===
+[acc]**dipo**[/][dim] / [/]dipsaus-orch…                                                [ok]●[/][dim] live 13:44[/]
+[hi]__1 Desk [acc]6[/]__[/]   [dim]2 Floor 2[/]   [dim]3 Queue[/]
+────────────────────────────────────────────────────────────────────────────────
+[dim]MERGE[/]
+[sel][acc]▌[/] [acc]○[/] [hi]DIPO-446 Planning tools[/]                                                   [dim]8m[/][/]
+[sel][ok]    setup ━ build ✓ ━ review ✓ ━ [/][acc]● test[/][faint] ┄ merge[/]                                 [/]
+[dim]PARKED[/]
+  [err]✗[/] DIPO-447 budget reached                                                  [dim]31m[/]
+────────────────────────────────────────────────────────────────────────────────
+[acc]t[/] test   [acc]y[/] approve   [acc]n[/] reject
+=== S10 NO_COLOR · ux-spec mock 31 · 80 cols × 10 rows ===
+[acc]**dipo**[/][dim] / [/]dipsaus-orch…                                                [ok]●[/][dim] live 13:44[/]
+[hi]__1 Desk [acc]6[/]__[/]   [dim]2 Floor 2[/]   [dim]3 Queue[/]
+────────────────────────────────────────────────────────────────────────────────
+[dim]MERGE[/]
+[sel][acc]▌[/] [acc]○[/] [hi]DIPO-446 Planning tools[/]                                                   [dim]8m[/][/]
+[sel][ok]    setup ━ build ✓ ━ review ✓ ━ [/][acc]● test[/][faint] ┄ merge[/]                                 [/]
+[dim]PARKED[/]
+  [err]✗[/] DIPO-447 budget reached                                                  [dim]31m[/]
+────────────────────────────────────────────────────────────────────────────────
+[acc]t[/] test   [acc]y[/] approve   [acc]n[/] reject
+--- notes ---
+The four blocks have the same text and roles; only the palette differs (roles.json: truecolor.light, ansi16.light, ansi16.dark, noColor).
+NO_COLOR: every role is the terminal's default colour, sel equals bg, so only ▌ marks the focused row. Bold and underline stay.
+--ascii swaps the glyphs for their ASCII twins (spec.md, Glyphs).

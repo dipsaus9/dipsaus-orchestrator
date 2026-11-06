@@ -8,7 +8,7 @@ You write a story in your project's backlog and say it is Ready. dipo takes it f
 
 ## A story's life, step by step
 
-**1. You write the story.** Until M3 brings the planning commands, you write stories by hand with the Backlog CLI, as Refined. The heart of a story is its **Story line**: "As maintainer I want ... so that ...". Below it go the acceptance criteria, the files you expect it to touch, a test plan and a tier, S, M or L. The tier picks the model and the limits (0008, 0012). You see the story in the TUI's queue (key `2`), where a Refined row shows its first gate failure.
+**1. You write the story.** You plan it with Claude in the TUI's planning view (key `5`), where each story you confirm is filed Refined through dipo's backlog PR and each edit you confirm is applied (0022), or you write it by hand with the Backlog CLI, as Refined. The heart of a story is its **Story line**: "As maintainer I want ... so that ...". Below it go the acceptance criteria, the files you expect it to touch, a test plan and a tier, S, M or L. The tier picks the model and the limits (0008, 0012). You see the story in the TUI's queue (key `2`), where a Refined row shows its first gate failure.
 
 **2. The Ready gate checks it.** `dipo gate <id>` runs about thirty rules over the story's fields. It uses no model and reads no files, so the same story always gets the same answer. To make a story Ready, you set the status in a backlog-only pull request. CI runs the gate on every story that PR makes Ready, and dipo's structural check stands in for a reviewer, so the PR merges in minutes (0010, 0012). A failure prints the rule and what is wrong.
 

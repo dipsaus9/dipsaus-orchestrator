@@ -1,0 +1,65 @@
+=== S1c QUESTION preview, `a` pressed (Composer open) · ux-spec mock 3 · 63 cols × 16 rows ===
+[dim]QUESTION · worker waiting 12m · build, loop 2[/]
+[hi]**DIPO-450 Should filed stories keep their ordinal?**[/]
+
+“The session confirms three stories. Backlog.md gives drafts
+a new ordinal on promote. Should I keep the ordinal the
+session showed, or let Backlog assign it?”
+
+[acc]┌─────────────────────────────────────────────────────────────┐[/]
+[acc]│[/] [dim]answer[/]                                                      [acc]│[/]
+[acc]│[/] [hi]Keep the session's order. Only new drafts[/]                   [acc]│[/]
+[acc]│[/] [hi]get a fresh ordinal.[acc]▍[/][/]                                       [acc]│[/]
+[acc]└─────────────────────────────────────────────────────────────┘[/]
+[dim][acc]⏎[/] new line   [acc]ctrl-s[/] send   [acc]esc[/] cancel[/]
+
+[dim]The worker gets it on resume, and the run continues.[/]
+[dim]$ dipo answer q_7f2c "…"[/]
+=== S1c PARKED budget-exceeded preview, `r` pressed · ux-spec mock 4 · 63 cols × 15 rows ===
+[dim]PARKED · budget-exceeded · 31m · blocks 3[/]
+[hi]**DIPO-447 paused: token budget reached**[/]
+[dim]Used 2.0M of 2.0M · loop 6 of 8 · criteria 8/10[/]
+[dim]Last said: “Two flaky shards left, fixing reattach.”[/]
+
+[acc]┌─────────────────────────────────────────────────────────────┐[/]
+[acc]│[/] [dim]top up   +25% [/] [acc]⟦[/][hi] +50% [/][acc]⟧[/] [dim] +100%    ←→[/]                        [acc]│[/]
+[acc]│[/] [dim]caps    [/]2.0M → [hi]3.0M[/] tokens · 400 → [hi]600[/] turns                [acc]│[/]
+[acc]│[/] [dim]note    [/][hi]Only the two reattach shards.[/][acc]▍[/]                      [acc]│[/]
+[acc]└─────────────────────────────────────────────────────────────┘[/]
+[dim][acc]ctrl-s[/] resume   [acc]tab[/] field   [acc]esc[/] cancel[/]
+
+[dim]A fresh session starts with a handoff. The box and branch are[/]
+[dim]kept.[/]
+[dim]$ dipo resume DIPO-447 --budget 50% --note "…"[/]
+=== S1c NEXT UP preview · ux-spec mock 5 · 63 cols × 14 rows ===
+[dim]NEXT UP · run slot 2 of 3 is free[/]
+[hi]**DIPO-452 File every incoming idea as a draft**[/]
+
+[dim]Why     [/]first Ready story whose dependencies are Done
+[dim]Tier    [/]M · opus-5.5 · 2.0M tokens · 8 loops
+[dim]Shares  [/][acc]![/] engine/src/backlog/drafts.ts
+[dim]        [/]with DIPO-447 (parked)
+
+
+[acc]⟦[/] [acc]y[/] Start it [acc]⟧[/]  [faint]⟦[/] [acc]n[/] Offer the next one [faint]⟧[/]
+
+[dim]Nothing starts until you confirm. Declined stories return[/]
+[dim]once their task file changes.[/]
+[dim]$ dipo next confirm DIPO-452[/]
+=== S1c STARTS PAUSED preview · ux-spec mock 6 · 63 cols × 13 rows ===
+[dim]STARTS PAUSED · whole office · since 12:40[/]
+[hi]**No new sessions start in this office**[/]
+
+[dim]Reason  [/]Claude plan limit reached
+[dim]Lifts   [/]by itself
+[dim]Running [/]DIPO-446 waits for you, unaffected
+[dim]Parked  [/]sessions that hit the limit resume
+[dim]        [/]on their own when it lifts
+
+[ok]✓ Nothing to do. Look away until it lifts.[/]
+
+[dim]Lift it early, only if you raised your plan:[/]
+[dim]$ dipo daemon resume-starts[/]
+--- notes ---
+These are the right pane only, drawn at its width in a 112-column frame (63 columns after `│` and 2 spaces).
+The HTML draws them in fluid cards; two dim lines are longer than 63 columns there and are wrapped here (spec.md, Reading the screen files).

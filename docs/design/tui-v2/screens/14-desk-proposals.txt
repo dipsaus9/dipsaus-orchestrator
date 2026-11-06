@@ -1,0 +1,33 @@
+=== S1 Desk: what needs you (Since band, SETUP, PROPOSALS, PROPOSAL preview, +2 elsewhere) · ux-spec mock 1 · 112 cols × 30 rows ===
+[acc]**dipo**[/][dim] / [/]dipsaus-orchestrator[dim]   [/][acc]+2[/][dim] elsewhere · [/][acc]O[/]                            [ok]●[/] daemon live[dim]    $19.14 today    10:42[/]
+[hi]__1 Desk [acc]3[/]__[/]    [dim]2 Floor 2[/]    [dim]3 Queue 0·6[/]    [dim]4 Retro[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[dim]Since 09:41 · [fg]1 merged[/] · 2 new proposals · $4.10 spent                                        any key to dismiss[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[hi]**NEEDS YOU**[/]                                  [acc]3  [/][faint]│[/]  [dim]PROPOSAL · follow-up to DIPO-447[/]
+                                              [faint]│[/]  [hi]**CLI verbs for the planning session**[/]
+[dim]SETUP[/]                                         [faint]│[/]
+  [err]✗[/] dev profile unresolved                [dim]1h  [/][faint]│[/]  As maintainer I want [acc]dipo plan start[/], [acc]say[/] and [acc]end[/] so I can
+[dim]    blocks every story in this office[/]         [faint]│[/]  drive a planning session from my shell without opening the
+                                              [faint]│[/]  TUI.
+[dim]PROPOSALS · from your AI team[/]                 [faint]│[/]
+[sel][acc]▌[/] [acc]◆[/] [hi]CLI verbs for the planning session[/]    [dim]7m  [/][/][faint]│[/]  [dim]Why     [/]Reviewer asked for it in round 2 of DIPO-447
+[sel][dim]    follow-up · DIPO-447[/]                      [/][faint]│[/]  [dim]Blocks  [/]DIPO-448 · DIPO-449 · DIPO-450
+  [acc]◆[/] Show open session in snapshot         [dim]3m  [/][faint]│[/]  [dim]Size    [/]S
+[dim]    follow-up · DIPO-447[/]                      [faint]│[/]  [dim]Raised  [/]7 min ago by reviewer (opus-5.5)
+  [acc]◆[/] Claude Code minimum from flags       [dim]34m  [/][faint]│[/]
+[dim]    follow-up · DIPO-444[/]                      [faint]│[/]
+                                              [faint]│[/]  [acc]⟦[/] [acc]y[/] Accept [acc]⟧[/]  [faint]⟦[/] [acc]n[/] Dismiss [faint]⟧[/]
+                                              [faint]│[/]
+                                              [faint]│[/]  [dim]Accepting files it as a Backlog draft. You refine it in a[/]
+                                              [faint]│[/]  [dim]planning session.[/]
+                                              [faint]│[/]  [dim]$ dipo proposal accept 3f9a01c2[/]
+                                              [faint]│[/]
+                                              [faint]│[/]
+                                              [faint]│[/]
+                                              [faint]│[/]
+[dim]10:41 merged DIPO-444  ·  10:40 DIPO-447 → merge  ·  10:38 reviewer raised 2 proposals[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]↑↓[/] move   [acc]y[/] accept   [acc]n[/] dismiss   [acc]⏎[/] open story                                                [dim][acc]:[/] commands   [acc]?[/] keys[/]
+--- notes ---
+The dim consequence line under the buttons is one line in the HTML and runs past column 112 there; it is wrapped here at the pane width.
