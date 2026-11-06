@@ -477,10 +477,8 @@ export class WorkRun {
    * office has none yet (after every change of the office). Never throws.
    */
   baseChanged(office: OfficeId): void {
-    if (this.#deps.offices.get(office) === undefined) {
-      this.#snapshots.delete(office);
-      return;
-    }
+    // Not loaded, or still loading: its load step reads the base.
+    if (this.#deps.offices.get(office) === undefined) return;
     const snapshot = this.#snapshots.get(office);
     const sha = this.#deps.stories.baseSha?.(office) ?? null;
     if (snapshot !== undefined && snapshot.sha === sha && snapshot.complete) return;
