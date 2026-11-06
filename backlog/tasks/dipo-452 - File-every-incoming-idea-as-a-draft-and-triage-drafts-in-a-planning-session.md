@@ -3,10 +3,10 @@ id: DIPO-452
 title: >-
   Audit every incoming idea by code and a short Claude session before it reaches
   me
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 09:49'
+updated_date: '2026-11-06 14:02'
 labels:
   - 'tier:L'
 milestone: m-3
@@ -25,6 +25,67 @@ references:
   - docs/decisions/0007-state-database.md
   - docs/decisions/0020-park-and-resume.md
   - docs/decisions/0022-planning-sessions.md
+modified_files:
+  - docs/decisions/0002-review-and-testing.md
+  - docs/decisions/0007-state-database.md
+  - docs/decisions/0020-park-and-resume.md
+  - docs/decisions/0022-planning-sessions.md
+  - packages/cli/src/ideas-command.test.ts
+  - packages/cli/src/ideas-command.ts
+  - packages/cli/src/index.ts
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/catalog.ts
+  - packages/contract/src/ideas.ts
+  - packages/contract/src/index.ts
+  - packages/contract/src/office.ts
+  - packages/contract/src/work.test.ts
+  - packages/contract/test/fixtures.ts
+  - packages/daemon/test/integration/foreground.ci.test.ts
+  - packages/daemon/test/integration/step-order.test.ts
+  - packages/engine/schema/office.schema.json
+  - packages/engine/src/config/schema.ts
+  - packages/engine/src/create/commands.ts
+  - packages/engine/src/create/compose.ts
+  - packages/engine/src/create/create-engine.ts
+  - packages/engine/src/create/runs.ts
+  - packages/engine/src/create/steps.ts
+  - packages/engine/src/db/idea-ids.ts
+  - packages/engine/src/db/migrations/0003-ideas.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/prompts/contract/audit-box.md
+  - packages/engine/src/prompts/contract/planning-box.md
+  - packages/engine/src/prompts/roles/auditor.md
+  - packages/engine/src/prompts/task/audit-idea.md
+  - packages/engine/src/prompts/task/audit.md
+  - packages/engine/src/prompts/templates.ts
+  - packages/engine/src/records/caps.ts
+  - packages/engine/src/records/ideas.ts
+  - packages/engine/src/retention/policy.ts
+  - packages/engine/src/review/store.ts
+  - packages/engine/src/review/verdict.ts
+  - packages/engine/src/run/asides.ts
+  - packages/engine/src/run/audit-session.ts
+  - packages/engine/src/run/idea-audits.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/run/report-data.ts
+  - packages/engine/src/workers/claude-cli/adapter.ts
+  - packages/engine/src/workers/claude-cli/box-plan.ts
+  - packages/engine/src/workers/claude-cli/interpret.ts
+  - packages/engine/src/workers/claude-cli/plan.ts
+  - packages/engine/src/workers/claude-cli/result.ts
+  - packages/engine/src/workers/claude-cli/tools.ts
+  - packages/engine/src/workers/types.ts
+  - packages/engine/test/config/load.test.ts
+  - packages/engine/test/config/schema.test.ts
+  - packages/engine/test/db/ideas-migration.test.ts
+  - packages/engine/test/db/migrations.test.ts
+  - packages/engine/test/prompts/task.test.ts
+  - packages/engine/test/run/audit-session.test.ts
+  - packages/engine/test/run/ideas.test.ts
+  - packages/engine/test/run/planning-session.test.ts
+  - packages/engine/test/run/planning-world.ts
+  - packages/engine/test/workers/audit-tools.test.ts
 priority: medium
 type: feature
 ordinal: 425000
@@ -80,19 +141,34 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A worker's proposal, a reviewer's advisory finding, a planning session's aside and a quick idea are each held as an idea with its origin and source story, not as a draft
-- [ ] #2 A run's ideas are audited together after that run is merged or parked, and an idea without a run is audited when it arrives
-- [ ] #3 Code rejects, with its reason and no model call, an idea equal to one already held or whose title is that of an open or Done story
-- [ ] #4 The audit session passes an idea only when no open or Done story covers it, the problem is real in the code with file and line, and it serves a milestone goal or is tech debt, and never rejects for size
-- [ ] #5 For a passing idea the audit gives a proposed user story the engine validates: what was found with its evidence and source story, a Story line in the 0012 shape, what is proposed, why, and the milestone it serves or tech debt
-- [ ] #6 Every rejected idea is kept with its reason, and dipo ideas lists the held, passing and rejected ideas with their reasons
-- [ ] #7 The audit is its own session kind on the planning tool set and the office setting audit.model with default sonnet (a schema default, not written into .dipo/office.yaml); it holds no run slot, does not count as the planning session and ends after its answer
-- [ ] #8 A planning session's aside reaches dipo as an aside block with a schema in the contract that the engine validates
-- [ ] #9 An idea whose audit fails, is cut off or is refused by schema stays held and is audited again at the next trigger, and is never dropped
-- [ ] #10 Until DIPO-454 lands, a worker's proposal is held as an idea and also still written to the desk unchanged
-- [ ] #11 Old barrier: what the planning, review and session tool sets allowed before is unchanged, with a test for each
-- [ ] #12 Bypass forms are tested: the audit kind spelled in another case or as an alias gets no extra tools, and tool or MCP text inside an idea's text is ignored
-- [ ] #13 A fail-closed test against the real adapter shows an audit plan asking for Bash, Edit or Write is refused
-- [ ] #14 ADRs 0002, 0007 and 0020 describe ideas and their audit, each with one Replaced line where a decision changed
-- [ ] #15 Worker proposals still open on the desk when this lands are held as ideas and audited once
+- [x] #1 A worker's proposal, a reviewer's advisory finding, a planning session's aside and a quick idea are each held as an idea with its origin and source story, not as a draft
+- [x] #2 A run's ideas are audited together after that run is merged or parked, and an idea without a run is audited when it arrives
+- [x] #3 Code rejects, with its reason and no model call, an idea equal to one already held or whose title is that of an open or Done story
+- [x] #4 The audit session passes an idea only when no open or Done story covers it, the problem is real in the code with file and line, and it serves a milestone goal or is tech debt, and never rejects for size
+- [x] #5 For a passing idea the audit gives a proposed user story the engine validates: what was found with its evidence and source story, a Story line in the 0012 shape, what is proposed, why, and the milestone it serves or tech debt
+- [x] #6 Every rejected idea is kept with its reason, and dipo ideas lists the held, passing and rejected ideas with their reasons
+- [x] #7 The audit is its own session kind on the planning tool set and the office setting audit.model with default sonnet (a schema default, not written into .dipo/office.yaml); it holds no run slot, does not count as the planning session and ends after its answer
+- [x] #8 A planning session's aside reaches dipo as an aside block with a schema in the contract that the engine validates
+- [x] #9 An idea whose audit fails, is cut off or is refused by schema stays held and is audited again at the next trigger, and is never dropped
+- [x] #10 Until DIPO-454 lands, a worker's proposal is held as an idea and also still written to the desk unchanged
+- [x] #11 Old barrier: what the planning, review and session tool sets allowed before is unchanged, with a test for each
+- [x] #12 Bypass forms are tested: the audit kind spelled in another case or as an alias gets no extra tools, and tool or MCP text inside an idea's text is ignored
+- [x] #13 A fail-closed test against the real adapter shows an audit plan asking for Bash, Edit or Write is refused
+- [x] #14 ADRs 0002, 0007 and 0020 describe ideas and their audit, each with one Replaced line where a decision changed
+- [x] #15 Worker proposals still open on the desk when this lands are held as ideas and audited once
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-06 14:02 UTC
+- Criteria met: 15 of 15 (as the worker reported them)
+- Loops: 1; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 669,980 of 2,000,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 2
+<!-- SECTION:FINAL_SUMMARY:END -->

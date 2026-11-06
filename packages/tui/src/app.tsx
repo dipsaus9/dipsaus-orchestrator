@@ -5,7 +5,7 @@
 // privacy settings and the agent detail, is `home.tsx`; the hints are `footer.ts`.
 //
 // Global keys: `1` overview, `2` queue, `3` Your desk, `4` the test checklist, `o` offices, `q`
-// twice within 2 s quits, Ctrl+C quits. Action keys are off while offline. Each view's keys are
+// twice within 2 s quits, Ctrl+C quits. `5` opens the planning view (`planning.tsx`, DIPO-449). Action keys are off while offline. Each view's keys are
 // in the header of its file (`home.tsx` holds the handlers; the key table is `keys.ts`).
 //
 // An action is done only when the office stream passes its reply cursor (read-your-writes). An
@@ -44,6 +44,7 @@ import { useKeys, useQuitKey } from "./input";
 import { type ReadDigest } from "./digest";
 import type { ActionId } from "./keys";
 import { initialMode, modeReducer } from "./mode";
+import { usePlanning } from "./planning";
 import {
   type ModeKeys,
   onConfirmPrivacyKey,
@@ -183,6 +184,14 @@ export function App(props: AppProps) {
     openSwitcher: () => dispatch({ type: "switcher", index: selectedOfficeIndex(state) }),
     confirmPrivacy: (key, value) => dispatch({ type: "confirm-privacy", key, value }),
   });
+  const planning = usePlanning({
+    store,
+    actions,
+    state,
+    setMessage,
+    refusedOffline,
+    leave: () => dispatch({ type: "home" }),
+  });
   const modeKeys: ModeKeys = {
     store,
     actions,
@@ -208,12 +217,14 @@ export function App(props: AppProps) {
     acts.setMessage(null);
     if (mode.kind === "path") onPathKey(mode, input, key, modeKeys);
     else if (mode.kind === "confirm-privacy") onConfirmPrivacyKey(mode, input, modeKeys);
+    else if (mode.kind === "planning") planning.onKey(input, key);
     else if (onQuitKey(input)) return;
     else if (mode.kind === "switcher") onSwitcherKey(mode, input, key, modeKeys);
+    else if (input === "5") dispatch({ type: "planning" });
     else home.onKey(input, key);
   };
 
-  useKeys(mode.kind === "path" || acts.typing, handleKey);
+  useKeys(mode.kind === "path" || mode.kind === "planning" || acts.typing, handleKey);
 
   return (
     <Screen
@@ -223,6 +234,7 @@ export function App(props: AppProps) {
       display={display}
       home={home}
       acts={acts}
+      planning={planning}
       message={message}
       {...(props.outputTailBytes === undefined ? {} : { outputTailBytes: props.outputTailBytes })}
     />

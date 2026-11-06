@@ -3,6 +3,7 @@
 // template never holds a conditional or a loop; `templateProblems` is the check the tests run
 // over every template file.
 
+import auditBoxContract from "./contract/audit-box.md" with { type: "text" };
 import implementBoxContract from "./contract/implement-box.md" with { type: "text" };
 import planningBoxContract from "./contract/planning-box.md" with { type: "text" };
 import reviewBoxContract from "./contract/review-box.md" with { type: "text" };
@@ -10,11 +11,14 @@ import scanContract from "./contract/scan.md" with { type: "text" };
 import ciFeedback from "./feedback/ci.md" with { type: "text" };
 import reportFeedback from "./feedback/report.md" with { type: "text" };
 import verifyFeedback from "./feedback/verify.md" with { type: "text" };
+import auditorRole from "./roles/auditor.md" with { type: "text" };
 import developerRole from "./roles/developer.md" with { type: "text" };
 import plannerRole from "./roles/planner.md" with { type: "text" };
 import reviewerRole from "./roles/reviewer.md" with { type: "text" };
 import scannerRole from "./roles/scanner.md" with { type: "text" };
 import answers from "./task/answers.md" with { type: "text" };
+import auditIdea from "./task/audit-idea.md" with { type: "text" };
+import audit from "./task/audit.md" with { type: "text" };
 import background from "./task/background.md" with { type: "text" };
 import changes from "./task/changes.md" with { type: "text" };
 import contextItem from "./task/context-item.md" with { type: "text" };
@@ -54,6 +58,8 @@ export const CONTRACT_TEMPLATES = {
   scan: scanContract,
   // The maintainer's planning session (DIPO-447): read-only tools, turn by turn, text answers.
   "planning-box": planningBoxContract,
+  // An idea's audit session (DIPO-452): the planning tools, one structured answer.
+  "audit-box": auditBoxContract,
 } as const;
 export type ContractKind = keyof typeof CONTRACT_TEMPLATES;
 
@@ -68,6 +74,8 @@ export const ROLE_TEMPLATES = {
   scanner: scannerRole,
   // Used only by the `planning-box` kind (DIPO-447).
   planner: plannerRole,
+  // Used only by the `audit-box` kind (DIPO-452).
+  auditor: auditorRole,
 } as const;
 export type BuiltInRole = keyof typeof ROLE_TEMPLATES;
 
@@ -103,6 +111,9 @@ export const TASK_TEMPLATES = {
   scan,
   // The first message of a planning session (DIPO-447).
   planning,
+  // The first message of an idea's audit session, and each idea in it (DIPO-452).
+  audit,
+  auditIdea,
 } as const;
 
 /**
@@ -191,6 +202,9 @@ export const PROMPT_TAGS: readonly string[] = [
   "desk",
   "recent_runs",
   "copy",
+  // An idea's audit (DIPO-452): an idea's text cannot close its idea or the list.
+  "ideas",
+  "idea",
 ];
 
 // Whitespace around the slash is allowed, so `</ criteria>` and `< /criteria>` are caught too.

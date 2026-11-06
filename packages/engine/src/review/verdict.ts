@@ -74,6 +74,33 @@ export function judgeReview(
   };
 }
 
+/** One advisory finding as the idea it is held as (0022, DIPO-452): a title and a text. */
+export interface FindingIdea {
+  readonly title: string;
+  readonly text: string;
+}
+
+/**
+ * Pure: the advisory findings of a judged review as ideas, in report order (DIPO-452). Each is held
+ * with its run and story and audited once the run is merged or parked; a blocking finding is the
+ * fix round's, never an idea. The title is the finding's first line; the text says it is a
+ * reviewer's advisory finding, its kind and place, and the finding's words.
+ */
+export function advisoryIdeas(findings: readonly ReviewFinding[]): FindingIdea[] {
+  return findings
+    .filter((finding) => finding.severity === "advisory")
+    .map((finding) => {
+      const where =
+        finding.file === undefined
+          ? ""
+          : ` at ${finding.file}${finding.line === undefined ? "" : `:${finding.line}`}`;
+      const words = finding.text.trim();
+      const lines = [`A reviewer's advisory ${finding.kind} finding${where}: ${words}`];
+      if (finding.quote !== undefined) lines.push(`Quoted line: ${finding.quote}`);
+      return { title: words.split("\n", 1)[0] ?? words, text: lines.join("\n") };
+    });
+}
+
 /** The count of blocking and advisory findings, as the review summary of `gate.decided` has it. */
 export function findingCounts(findings: readonly ReviewFinding[]): {
   blocking: number;

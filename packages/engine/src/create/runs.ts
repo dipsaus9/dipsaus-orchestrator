@@ -119,6 +119,8 @@ import { claudeWorkerPort } from "../workers/claude-cli/adapter";
 import { CLAUDE_CLI_ADAPTER_ID } from "../workers/claude-cli/plan";
 import type { WorkerPort } from "../workers/port";
 import type { PlanningSessions } from "../run/planning-session";
+import type { AuditSessions } from "../run/audit-session";
+import type { IdeaAudits } from "../run/idea-audits";
 import type { StoryClaims } from "../worktree/feature";
 
 /**
@@ -271,6 +273,10 @@ export interface EngineRuns {
   readonly sessions: ScanSessionRunner;
   /** The maintainer's planning sessions (DIPO-447): `planning.start`, `.message` and `.end`. */
   readonly planning: PlanningSessions;
+  /** The audit of incoming ideas and `office.ideas` (DIPO-452). */
+  readonly audits: IdeaAudits;
+  /** The audit sessions (DIPO-452): stopped at daemon stop, the lost ones ended at its start. */
+  readonly auditSessions: AuditSessions;
 }
 
 /** What the auto-merge and the merge gates use of the run services (0002). */
@@ -1030,7 +1036,7 @@ function boxRunPorts(options: RunsOptions, parts: RunPortParts): Partial<RunPort
       ? {}
       : { beforeExit: (runId: string) => boxWorkers.sessionEnded(runId) }),
     // Each review session runs in a read-only box of its own (0002), and so does each planning
-    // session (DIPO-447).
+    // session (DIPO-447) and each audit session (DIPO-452).
     ...(boxWorkers === null ? {} : { reviewBoxes: boxWorkers, planningBoxes: boxWorkers }),
     ...(options.planningDesk === undefined ? {} : { planningDesk: options.planningDesk }),
     // The merges dipo made on a box run's branch outside the box reach its box before the worker's
@@ -1278,6 +1284,8 @@ function engineRunsOf(
   return {
     sessions: composed.sessions,
     planning: composed.planning,
+    audits: composed.audits,
+    auditSessions: composed.auditSessions,
     launcher: composed.launcher,
     ingest: composed.ingest,
     control: composed.control,

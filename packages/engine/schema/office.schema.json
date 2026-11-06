@@ -418,6 +418,35 @@
       "additionalProperties": false,
       "description": "The planning session the maintainer talks to turn by turn (plan, refine or triage): it runs Claude in a read-only box with a copy of the base branch and the backlog, holds no run slot and has no run cap; it ends when the maintainer ends it or after idleHours without a message."
     },
+    "audit": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The model of the audit session."
+        },
+        "effort": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The effort of the audit session."
+        },
+        "maxTurns": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Model turns the audit session's one answer may take before it is stopped."
+        },
+        "maxMinutes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Minutes one audit session may run before dipo stops it; its ideas stay held and are audited again at the next trigger."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The audit of incoming ideas (worker proposals, reviewer advisory findings, planning asides and quick ideas): after code rejects duplicates and the titles of stories, one short session per batch, in a read-only box with the planning session's tools, passes an idea only when no story covers it, its problem is real in the code and it serves a milestone or is tech debt. It holds no run slot and is not the planning session."
+    },
     "story": {
       "type": "object",
       "properties": {

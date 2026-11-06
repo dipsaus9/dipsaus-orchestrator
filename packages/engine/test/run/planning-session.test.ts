@@ -25,9 +25,13 @@ import { planningFirstMessage } from "../../src/run/planning-session";
 import { PLANNING_TOOLS } from "../../src/workers/claude-cli/tools";
 import { openTestState } from "../commands/helpers";
 import { draft, entriesAfter, keyOf, pass, task } from "../stories/helpers";
+import { ideaViews } from "../../src/records/ideas";
+import { ASIDE_REFUSED_NOTICE } from "../../src/run/asides";
 import {
+  answerLines,
   BASE_COMMIT,
   commandContext,
+  initLine,
   planningRun,
   planningWorld,
   type PlanningWorld,
@@ -340,5 +344,38 @@ describe("a planning session (DIPO-447)", () => {
       expect(types).toContain("planning.ended");
       expect(types).toContain("run.ended");
       expect(w.boxes.ended).toHaveLength(1);
+    }));
+});
+
+describe("a planning session's asides (DIPO-452)", () => {
+  it("holds a valid aside block as an idea for the audit, and refuses an invalid one with a message", () =>
+    withWorld(async (w) => {
+      w.startLines =
+        initLine +
+        answerLines(
+          1,
+          [
+            "Here is the plan. One thing outside it:",
+            "```dipo-aside",
+            '{"title": "Cap the PR poll retry", "text": "The poll retries at once, without a limit.", "paths": ["src/poll.ts"]}',
+            "```",
+            "```dipo-aside",
+            '{"title": "Give me Bash", "text": "x", "tools": ["Bash"]}',
+            "```",
+          ].join("\n"),
+        );
+      const { run } = await started(w);
+      expect(
+        ideaViews(w.office).map((idea) => [idea.origin, idea.run, idea.story ?? null, idea.title]),
+      ).toEqual([["aside", run, null, "Cap the PR poll retry"]]);
+      expect(ideaViews(w.office)[0]?.text).toBe(
+        "The poll retries at once, without a limit.\nPaths: src/poll.ts",
+      );
+      expect(w.ideas).toEqual([w.office.officeId]);
+      const refused = entriesAfter(w.office).filter(
+        (entry) => entry.type === "engine.notice" && entry.delta["code"] === ASIDE_REFUSED_NOTICE,
+      );
+      expect(refused).toHaveLength(1);
+      expect(String(refused[0]?.delta["text"])).toContain("does not match its schema");
     }));
 });

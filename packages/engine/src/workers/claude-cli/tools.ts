@@ -1,10 +1,10 @@
-// The Claude Code tools of each worker kind (0002, 0008, 0020, DIPO-310, DIPO-318, DIPO-447). The
-// engine says only which kind a session is and whether its developer may use the web; the tool
-// names live here, and no spec can ask for any other tool.
+// The Claude Code tools of each worker kind (0002, 0008, 0020, DIPO-310, DIPO-318, DIPO-447,
+// DIPO-452). The engine says only which kind a session is and whether its developer may use the
+// web; the tool names live here, and no spec can ask for any other tool.
 //
-// A read-only kind (`review`, `planning`) is checked again where its tools leave dipo and where they
-// come back: `checkReadOnlyTools` refuses any name that is not exactly one of the kind's own, so a
-// writing tool asked for in another case (`bash`), as a rule (`Bash(*)`), under an alias
+// A read-only kind (`review`, `planning`, `audit`) is checked again where its tools leave dipo and
+// where they come back: `checkReadOnlyTools` refuses any name that is not exactly one of the kind's
+// own, so a writing tool asked for in another case (`bash`), as a rule (`Bash(*)`), under an alias
 // (`MultiEdit`, `NotebookEdit`, `Task`) or from an MCP server (`mcp__<server>__<tool>`) never runs.
 
 import { PlanError, type WorkerSpec } from "../types";
@@ -31,13 +31,21 @@ export const REVIEW_TOOLS: readonly string[] = ["Read", "Glob", "Grep", ...WEB_T
  */
 export const PLANNING_TOOLS: readonly string[] = ["Read", "Glob", "Grep", ...WEB_TOOLS];
 
+/**
+ * The kind of an idea's audit session (DIPO-452): its own kind, mapped to the planning tool set and
+ * nothing more. Only this exact name is the audit: another case or an alias names no kind and gets
+ * no tools.
+ */
+export const AUDIT_KIND = "audit";
+
 /** The kinds whose sessions only read, with their tool sets. */
 const READ_ONLY_TOOLS: Readonly<Record<string, readonly string[]>> = {
   review: REVIEW_TOOLS,
   planning: PLANNING_TOOLS,
+  [AUDIT_KIND]: PLANNING_TOOLS,
 };
 
-/** True for a kind whose sessions only read (`review`, `planning`). */
+/** True for a kind whose sessions only read (`review`, `planning`, `audit`). */
 export function isReadOnlyKind(kind: string): boolean {
   return Object.hasOwn(READ_ONLY_TOOLS, kind);
 }
@@ -45,7 +53,8 @@ export function isReadOnlyKind(kind: string): boolean {
 /**
  * The tools a session gets, from its kind alone, plus the web for a developer, which always has it
  * (0008): a `session` gets none (DIPO-310), a `review` the review set, a `planning` the planning
- * set. Any other kind gets no tool list at all: it is refused, never given the developer's.
+ * set, an `audit` the planning set too. Any other kind gets no tool list at all: it is refused,
+ * never given the developer's.
  */
 export function allowedTools(spec: Pick<WorkerSpec, "kind" | "web">): readonly string[] {
   switch (spec.kind) {
@@ -54,6 +63,7 @@ export function allowedTools(spec: Pick<WorkerSpec, "kind" | "web">): readonly s
     case "review":
       return REVIEW_TOOLS;
     case "planning":
+    case AUDIT_KIND:
       return PLANNING_TOOLS;
     case "implement":
       return spec.web ? [...DEVELOPER_TOOLS, ...WEB_TOOLS] : DEVELOPER_TOOLS;

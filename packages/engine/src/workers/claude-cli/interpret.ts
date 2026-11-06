@@ -765,15 +765,19 @@ function init(value: unknown, state: ClaudeParseState): Step {
         initRejected: `model ${msg.model} is not the planned ${next.plannedModel}`,
       };
     }
-    // A planning session has only its read-only tools (DIPO-447): a tool its plan did not name,
-    // a writing one in any case or an MCP server's, means the plan did not hold, so it is stopped
-    // before it does anything.
-    if (next.initRejected === null && next.reportKind === "planning") {
-      const foreign = foreignTools("planning", msg.tools);
+    // A planning or audit session has only its read-only tools (DIPO-447, DIPO-452): a tool its
+    // plan did not name, a writing one in any case or an MCP server's, means the plan did not
+    // hold, so it is stopped before it does anything.
+    if (
+      next.initRejected === null &&
+      (next.reportKind === "planning" || next.reportKind === "audit")
+    ) {
+      const foreign = foreignTools(next.reportKind, msg.tools);
       if (foreign.length > 0) {
+        const whose = next.reportKind === "audit" ? "an audit" : "a planning";
         next = {
           ...next,
-          initRejected: `tools ${foreign.join(", ")} are not a planning session's`,
+          initRejected: `tools ${foreign.join(", ")} are not ${whose} session's`,
         };
       }
     }
@@ -793,12 +797,13 @@ function init(value: unknown, state: ClaudeParseState): Step {
     next.initRejected === null &&
     next.startFailure === null
   ) {
-    // A `session` (DIPO-310) and a planning session (DIPO-447) load no plugin either: each is
-    // planned with every plugin off.
+    // A `session` (DIPO-310), a planning (DIPO-447) and an audit session (DIPO-452) load no plugin
+    // either: each is planned with every plugin off.
     const noPlugins =
       next.reportKind === "review" ||
       next.reportKind === "session" ||
-      next.reportKind === "planning";
+      next.reportKind === "planning" ||
+      next.reportKind === "audit";
     const refused = refusedPlugins(plugins, noPlugins ? [] : allowed, next.knownPlugins ?? []);
     if (refused.length > 0) {
       const reason = pluginRefusal(refused, next.reportKind);
@@ -1088,7 +1093,8 @@ function readAnswer(output: unknown): ReportRead {
 
 /** The report of the session's kind: a `WorkerReport`, or a `ReviewReport` for `review`. */
 function readReport(output: unknown, kind: ReportKind | undefined): ReportRead {
-  if (kind === "session") return readAnswer(output);
+  // An audit session's answer is checked by the engine, as a session's is (DIPO-452).
+  if (kind === "session" || kind === "audit") return readAnswer(output);
   // A planning session's turns end in text (DIPO-447): there is no report to read.
   if (kind === "planning") return { report: null, problem: null };
   if (kind === "review") {

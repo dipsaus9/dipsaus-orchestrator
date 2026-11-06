@@ -64,7 +64,11 @@ Run detail and dipo's own state, grouped by subject. The groups below hold the m
 | Prompts | Prompt part sizes and, when stored, prompt texts, plus worker notes for the handoff (0014) |
 | Config | Snapshots of the effective office configuration, keyed by hash (0017) |
 | Proposals | Worker proposals for the desk (0020) |
+<<<<<<< 1bb0b9e3e3e8cede5bb40e9c4280407566fe7a8a
 | Planning record | `planning_records`: per planning session, in order, its goal, each confirmed choice, each filed or edited story, each open question, and when each model session of it started and ended. A fresh model session's first message is built from it (0022). Kept until none of its entries is newer than the retention period |
+=======
+| Ideas | Every incoming idea (0022): a worker's proposal, a reviewer's advisory finding, a planning session's aside or a quick idea, with its origin, source story and run, and its audit: held, passed with its proposed user story, or rejected with its reason and by whom (code or the audit). A held idea counts the audits that missed it and is never dropped |
+>>>>>>> c1e3809cae86f370901a442e5048a9dee26663d6
 
 The database stores facts. Display status, columns, health and budget shares are derived by engine code when it reads, and go out in change-log entries and snapshots (0005).
 
@@ -99,7 +103,7 @@ The worker host appends the session's stream to `events.ndjson`. The engine read
 ## 8. One retention rule
 
 - **The rule.** Everything about a run that ended more than `retention.days` ago (default 30) is deleted: its change-log rows, output, usage messages, steps, verdicts and feedback.
-- **Kept.** The run's outcome row and the daily usage rollup are kept, for retro and trends.
+- **Kept.** The run's outcome row and the daily usage rollup are kept, for retro and trends, and so is every idea with its audit, a rejected one with its reason (0022).
 - **When it runs.** At office load and then hourly, in batches of at most 5,000 rows.
 - **Run directories.** `events.ndjson` is deleted as soon as its run has ended and was processed to its final offset. The rest of the run directory goes with the rule.
 - **Daily upkeep** while no work is active: incremental vacuum in slices, a truncating checkpoint, and `PRAGMA optimize`.
@@ -133,4 +137,5 @@ The worker host appends the session's stream to `events.ndjson`. The engine read
 - Identity matching by field-block key, frozen branch and created date after a database loss (2026-10-10). Replaced by: a vanished id is Removed (0005, 2026-10-24).
 - `merge_slot`, `nudge_sources`, `base_verifies`, `verify_results`, the pricing tables, transcript cursors and `usage_high_water`. Each served a mechanism that is gone (2026-10-24).
 - Linux paths and the systemd log location (2026-10-10). macOS only (0004).
+- Worker proposals as the only incoming ideas the database held, each stored for the desk as it came (2026-10-24). Replaced by an `ideas` table that holds every incoming idea with its origin and its audit; the step that added it held the worker proposals then open as ideas (0022, 2026-11-06).
 - 74 migration steps and the load-time code that settled state earlier binaries left (2026-10-12 to 2026-11-02). Replaced by one base schema and a fresh database (2026-11-03).

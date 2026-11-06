@@ -6,8 +6,8 @@
 // A developer session runs only in its run's box (DIPO-240, 0008): `prepare` plans it there with
 // `planInBox`, and refuses one whose run has no box as a plan (`PlanError`). A reviewer session
 // runs only in the read-only box its caller made for it (`BoxWorkers.review`, 0002), handed to
-// `prepare` as its place, and so does a planning session (`BoxWorkers.planning`, DIPO-447). A
-// `session` runs on the Mac with its plan and launch checks (`plan.ts`, `launch-checks.ts`).
+// `prepare` as its place, and so does a planning session (`BoxWorkers.planning`, DIPO-447) and an
+// audit session in a planning box of its own (DIPO-452). A `session` runs on the Mac with its plan and launch checks (`plan.ts`, `launch-checks.ts`).
 
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
@@ -36,6 +36,7 @@ import {
   DEVELOPER_ON_MAC_REFUSED,
   ENV_ALLOWLIST,
   plan,
+  AUDITOR_ON_MAC_REFUSED,
   PLANNER_ON_MAC_REFUSED,
   REVIEWER_ON_MAC_REFUSED,
   type ClaudeLaunchContext,
@@ -44,6 +45,7 @@ import { readInstalledPlugins, type PluginFiles } from "./plugins";
 import { probe } from "./probe";
 import { REPORT_JSON_SCHEMAS } from "./report-schema";
 import { result } from "./result";
+import { AUDIT_KIND } from "./tools";
 
 export interface ClaudeCliAdapterDeps {
   readonly spawn: Spawn;
@@ -263,14 +265,10 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
       }),
     previewBox: (spec, paths) => scrubbed(planInBox(spec, previewSession(), paths.runDir)),
     prepare: async (spec, paths, _config, _checkSession, place) => {
-      // A reviewer or planning session goes into the read-only box made for it, never onto the
-      // Mac (0002, DIPO-447).
-      if (spec.kind === "review" || spec.kind === "planning") {
-        if (place === undefined) {
-          throw new PlanError(
-            spec.kind === "review" ? REVIEWER_ON_MAC_REFUSED : PLANNER_ON_MAC_REFUSED,
-          );
-        }
+      // A reviewer, planning or audit session goes into the read-only box made for it, never onto
+      // the Mac (0002, DIPO-447, DIPO-452).
+      if (spec.kind === "review" || spec.kind === "planning" || spec.kind === AUDIT_KIND) {
+        if (place === undefined) throw new PlanError(onMacRefusal(spec.kind));
         const gate = await deps.holds.gateLaunch(CLAUDE_CLI_ADAPTER_ID, async () => ({ ok: true }));
         if (!gate.ok) return gate;
         return { ok: true, plan: scrubbed(planInBox(spec, place, paths.runDir)) };
@@ -307,11 +305,20 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
           ? { reportKind: "planning" as const, placeholderKey: true }
           : {}),
         ...(spec.kind === "session" ? { reportKind: "session" as const } : {}),
+        // An audit session answers once in structured output, only in its own read-only box
+        // (DIPO-452).
+        ...(spec.kind === AUDIT_KIND ? { reportKind: "audit" as const, placeholderKey: true } : {}),
       }) as unknown as ParseState,
     encode,
     result: (state, exit) => result(state as unknown as ClaudeParseState, exit),
     sessionFacts: (state) => claudeSessionFacts(state as unknown as ClaudeParseState),
   };
+}
+
+/** Why a read-only kind's session is never planned on the Mac. */
+function onMacRefusal(kind: string): string {
+  if (kind === "review") return REVIEWER_ON_MAC_REFUSED;
+  return kind === AUDIT_KIND ? AUDITOR_ON_MAC_REFUSED : PLANNER_ON_MAC_REFUSED;
 }
 
 /** What a Claude session's parser state says for its next session (DIPO-51). */

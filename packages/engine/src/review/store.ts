@@ -5,7 +5,8 @@
 // notes, the comment URL and any maintainer override. A
 // verdict holds for every commit with the same code tree key, so the engine reads it back by run
 // and code tree key and never reviews a tree that has one. Writes run inside the
-// caller's transaction.
+// caller's transaction. Each advisory finding is held as an idea of the run (DIPO-452), for the
+// audit once the run is merged or parked.
 
 import type {
   GateId,
@@ -20,10 +21,11 @@ import type {
 
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
+import { holdIdea } from "../records/ideas";
 import { readUsage } from "../records/usage";
 import { REVIEWER_ROLE } from "../records/caps";
 
-import { findingCounts, type JudgedReview, type ReviewDecision } from "./verdict";
+import { advisoryIdeas, findingCounts, type JudgedReview, type ReviewDecision } from "./verdict";
 
 /** What a review round's verdict is stored with. */
 export interface NewReviewVerdict {
@@ -184,6 +186,9 @@ export function recordReviewVerdict(
       at,
     },
   );
+  for (const idea of advisoryIdeas(judged.findings)) {
+    holdIdea(office, { origin: "finding", key: verdict.key, runId: verdict.runId, ...idea, at });
+  }
   const stored = reviewVerdictOfGate(office, gate);
   if (stored === null) throw new Error(`review verdict ${gate} vanished inside its write`);
   return stored;

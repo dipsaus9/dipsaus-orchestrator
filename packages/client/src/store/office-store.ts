@@ -5,7 +5,10 @@
 // column, health, phase, evidence or cost: a work event without a view changes nothing it shows.
 // `run.ended` drops the run from `work` at once, as the next snapshot would (DIPO-421); the work
 // events the engine writes after a run ended carry no view, so they change nothing shown.
-// `work.output` text is passed to `onOutput` listeners and never kept in the state (DIPO-55).
+// `work.output` text is passed to `onOutput` listeners and never kept in the state (DIPO-55). The
+// open planning session is a view the engine sends (`planning.started`, `.updated`, `.output`
+// with a view, `.ended`); its `planning.output` text goes to `onPlanningOutput` listeners the same
+// way (DIPO-449).
 // A stream the daemon ends with any other error than `stream.resetRequired` (such as
 // `engine.recovering` right after a daemon restart) is subscribed again after the store's last
 // cursor, so an open view keeps following (DIPO-322): while the error is retryable on a backoff
@@ -36,6 +39,11 @@ import {
   type OutputMarker,
   type OutputSource,
   officeSummary,
+  planningEnded,
+  planningOutput,
+  planningStarted,
+  planningUpdated,
+  type PlanningView,
   questionAsked,
   questionClosed,
   type QuestionView,
@@ -132,6 +140,8 @@ export interface OfficeStoreState {
   readonly gates: readonly GateView[];
   readonly questions: readonly QuestionView[];
   readonly tests: readonly TestView[];
+  /** The selected office's open planning session (DIPO-449); null without one. */
+  readonly planning: PlanningView | null;
   /**
    * The last stored cursor of the selected office stream the store applied, starting at the
    * snapshot cursor; null without an office. A client compares a command reply cursor with it to
@@ -178,6 +188,17 @@ export interface OutputChunk {
   readonly markers?: readonly OutputMarker[];
 }
 
+/**
+ * One `planning.output` byte range of the selected office: the planning session's answer as it
+ * streams (DIPO-449). Like `OutputChunk` it is passed on and never kept in the state.
+ */
+export interface PlanningChunk {
+  readonly run: RunId;
+  readonly from: number;
+  readonly to: number;
+  readonly text: string;
+}
+
 export interface OfficeStoreOptions {
   readonly client: StoreClient;
   readonly clock: Clock;
@@ -191,6 +212,7 @@ const EMPTY_OFFICE = {
   gates: [],
   questions: [],
   tests: [],
+  planning: null,
   cursor: null,
 } as const;
 
@@ -217,6 +239,7 @@ export class OfficeStore {
   readonly #clientInfo: { readonly name: string; readonly version: string };
   readonly #listeners = new Set<() => void>();
   readonly #outputListeners = new Set<(chunk: OutputChunk) => void>();
+  readonly #planningListeners = new Set<(chunk: PlanningChunk) => void>();
   readonly #officeListeners = new Set<(event: Event) => void>();
   #state: OfficeStoreState;
 
@@ -294,6 +317,15 @@ export class OfficeStore {
   onOutput(listener: (chunk: OutputChunk) => void): () => void {
     this.#outputListeners.add(listener);
     return () => this.#outputListeners.delete(listener);
+  }
+
+  /**
+   * Calls `listener` with the text of every `planning.output` event of the selected office, once
+   * per stored cursor; returns a function that stops it. The state never holds it (DIPO-449).
+   */
+  onPlanningOutput(listener: (chunk: PlanningChunk) => void): () => void {
+    this.#planningListeners.add(listener);
+    return () => this.#planningListeners.delete(listener);
   }
 
   /**
@@ -466,6 +498,7 @@ export class OfficeStore {
       gates: snapshot.gates,
       questions: snapshot.questions,
       tests: snapshot.tests,
+      planning: snapshot.planning ?? null,
       cursor: snapshot.cursor,
       snapshots: this.#state.snapshots + 1,
     });
@@ -733,6 +766,7 @@ export class OfficeStore {
       if (event.type === workOutput.type) this.#emitOutput(event);
       return;
     }
+    if (this.#applyPlanning(event)) return;
     switch (event.type) {
       case runEnded.type: {
         const data = runEnded.data.safeParse(event.data);
@@ -809,6 +843,38 @@ export class OfficeStore {
     }
   }
 
+  /** Applies a planning event (DIPO-449); false for any other event. */
+  #applyPlanning(event: Event): boolean {
+    switch (event.type) {
+      case planningStarted.type:
+      case planningUpdated.type: {
+        const definition = event.type === planningStarted.type ? planningStarted : planningUpdated;
+        const data = definition.data.safeParse(event.data);
+        if (data.success) this.#putPlanning(data.data.view);
+        return true;
+      }
+      case planningOutput.type: {
+        const data = planningOutput.data.safeParse(event.data);
+        if (!data.success) return true;
+        if (data.data.view !== undefined) this.#putPlanning(data.data.view);
+        const { run, from, to, text } = data.data;
+        if (!this.#closed) {
+          for (const listener of this.#planningListeners) listener({ run, from, to, text });
+        }
+        return true;
+      }
+      case planningEnded.type: {
+        const data = planningEnded.data.safeParse(event.data);
+        if (data.success && this.#state.planning?.run === data.data.run) {
+          this.#update({ planning: null });
+        }
+        return true;
+      }
+      default:
+        return false;
+    }
+  }
+
   /** Replaces the story's view; a run the new view no longer names is no longer shown. */
   #putStory(view: StoryView): void {
     const stories = this.#state.stories;
@@ -836,6 +902,11 @@ export class OfficeStore {
       ...(markers === undefined ? {} : { markers }),
     };
     for (const listener of this.#outputListeners) listener(chunk);
+  }
+
+  /** Replaces the planning view of its session; an ended session is no longer open. */
+  #putPlanning(view: PlanningView): void {
+    this.#update({ planning: view.state === "ended" ? null : view });
   }
 
   /** Replaces the run's view by `run`. */

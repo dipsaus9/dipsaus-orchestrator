@@ -423,6 +423,9 @@ export const PlanningView = z.object({
   endedAt: Timestamp.optional(),
   ended: PlanningEndReason.optional(),
   detail: z.string().optional(),
+  // When the session last continued in a fresh model session, after its context filled or its
+  // model session ended (DIPO-448); absent while it never did.
+  continuedAt: Timestamp.optional(),
 });
 export type PlanningView = z.infer<typeof PlanningView>;
 

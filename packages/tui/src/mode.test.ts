@@ -70,6 +70,12 @@ describe("modeReducer", () => {
     ).toEqual({ kind: "confirm-privacy", key: "storePrompts", value: false });
   });
 
+  it("planning opens from home only and Esc goes home (DIPO-449)", () => {
+    expect(modeReducer(HOME, { type: "planning" })).toEqual({ kind: "planning" });
+    expect(modeReducer(SWITCHER, { type: "planning" })).toBe(SWITCHER);
+    expect(modeReducer({ kind: "planning" }, { type: "home" })).toEqual(HOME);
+  });
+
   it("inSwitcherMode is true for the switcher and the path entry only", () => {
     expect(inSwitcherMode(SWITCHER)).toBe(true);
     expect(inSwitcherMode(PATH)).toBe(true);

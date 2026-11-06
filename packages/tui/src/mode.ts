@@ -1,12 +1,13 @@
-// The TUI's mode and its reducer (DIPO-443): home, the office switcher, the typed repository path
-// and the privacy confirmation. A mode change is one action, so each one is a pure step that
+// The TUI's mode and its reducer (DIPO-443): home, the office switcher, the typed repository path,
+// the privacy confirmation and the planning view (DIPO-449). A mode change is one action, so each one is a pure step that
 // `mode.test.ts` covers.
 
 export type Mode =
   | { readonly kind: "home" }
   | { readonly kind: "switcher"; readonly index: number }
   | { readonly kind: "path"; readonly index: number; readonly text: string }
-  | { readonly kind: "confirm-privacy"; readonly key: string; readonly value: boolean };
+  | { readonly kind: "confirm-privacy"; readonly key: string; readonly value: boolean }
+  | { readonly kind: "planning" };
 
 export type ModeAction =
   /** Back to home: an office opened, Esc in the switcher, or a privacy answer. */
@@ -22,7 +23,9 @@ export type ModeAction =
   /** Backspace while typing the path. */
   | { readonly type: "erase" }
   /** The privacy setting `key` is to become `value`, once the maintainer says yes. */
-  | { readonly type: "confirm-privacy"; readonly key: string; readonly value: boolean };
+  | { readonly type: "confirm-privacy"; readonly key: string; readonly value: boolean }
+  /** `5` on home: the planning view (DIPO-449). */
+  | { readonly type: "planning" };
 
 export function initialMode(startInSwitcher: boolean): Mode {
   return startInSwitcher ? { kind: "switcher", index: 0 } : { kind: "home" };
@@ -54,5 +57,7 @@ export function modeReducer(mode: Mode, action: ModeAction): Mode {
       return mode.kind === "path" ? { ...mode, text: mode.text.slice(0, -1) } : mode;
     case "confirm-privacy":
       return { kind: "confirm-privacy", key: action.key, value: action.value };
+    case "planning":
+      return mode.kind === "home" ? { kind: "planning" } : mode;
   }
 }

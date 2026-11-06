@@ -9,6 +9,7 @@ import {
   type OfficeSnapshot,
   officeSnapshot,
   type OutputSource,
+  type PlanningView,
   RoleId,
   RunId,
   type RunRecord,
@@ -49,7 +50,11 @@ function officeOf(ctx: ReadContext): OfficeHandle {
 }
 
 /** The office's derived state and the cursor it matches, read in the caller's transaction. */
-export function snapshot(office: OfficeHandle): OfficeSnapshot {
+export function snapshot(
+  office: OfficeHandle,
+  planning: (office: OfficeHandle) => PlanningView | null = () => null,
+): OfficeSnapshot {
+  const session = planning(office);
   return {
     cursor: headCursor(office),
     stories: activeStoryViews(office),
@@ -58,6 +63,8 @@ export function snapshot(office: OfficeHandle): OfficeSnapshot {
     questions: openQuestionViews(office),
     // The open tests whose product runs (DIPO-309).
     tests: openTestViews(office),
+    // The open planning session (DIPO-449).
+    ...(session === null ? {} : { planning: session }),
   };
 }
 
@@ -294,6 +301,7 @@ export function storedPrompt(
  */
 export function viewsFeatureWith(
   desk: Partial<DeskSources> & Pick<DeskSources, "stories">,
+  planning?: (office: OfficeHandle) => PlanningView | null,
 ): FeatureModule {
   const sources: DeskSources = { ...DESK_SOURCES, ...desk };
   return {
@@ -301,7 +309,7 @@ export function viewsFeatureWith(
     register(registry) {
       registry.addRead({
         definition: officeSnapshot,
-        handle: (ctx) => snapshot(officeOf(ctx)),
+        handle: (ctx) => snapshot(officeOf(ctx), planning),
       });
       registry.addRead({
         definition: storyDetail,

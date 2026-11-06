@@ -464,6 +464,43 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
       },
     ],
   },
+  "office.ideas": {
+    args: { office: ids.office, state: "passed" },
+    result: [
+      {
+        id: "3f2a9c1b7d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8",
+        origin: "proposal",
+        story: "DIPO-140",
+        title: "Cap the PR poll retry",
+        text: "Story: As maintainer I want the PR poll to stop retrying so that a dead host is not hammered\nWhy: it retries at once",
+        state: "passed",
+        decidedBy: "audit",
+        proposal: {
+          found: "The poll retries a failed read at once, without a limit.",
+          evidence: [{ file: "src/poll.ts", line: 42, quote: "retry();" }],
+          sourceStory: "DIPO-140",
+          storyLine:
+            "As maintainer I want the PR poll to back off after a failed read so that a dead host is not hammered",
+          proposed: "Back off the retry and cap it.",
+          why: "A dead host gets one request per second.",
+          serves: "tech-debt",
+        },
+        attempts: 0,
+        createdAt: "2026-11-06T10:00:00.000Z",
+        decidedAt: "2026-11-06T11:00:00.000Z",
+      },
+      {
+        id: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        origin: "aside",
+        title: "Rename the desk",
+        text: "The desk could read better.",
+        state: "held",
+        attempts: 1,
+        lastProblem: "the audit session failed: dipo stopped it",
+        createdAt: "2026-11-06T10:00:00.000Z",
+      },
+    ],
+  },
   "work.preview": {
     args: { office: ids.office, stories: ["DIPO-21"] },
     result: {
