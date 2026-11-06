@@ -29,8 +29,10 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries, type NewEntry } from "../changelog/log";
+import { proposalIdeaText } from "../db/idea-ids";
 import type { OfficeHandle } from "../db/office";
 import { checkStoryLine } from "../gate/rules";
+import { holdIdea } from "../records/ideas";
 import type {
   WorkerDecisionNote,
   WorkerDeviation,
@@ -351,6 +353,10 @@ const FILED_TITLE_MAX = 120;
  * paths as a stored one is not stored again. Each stored one appends a `proposal.filed` entry
  * (DIPO-166) in the caller's transaction, its title cleaned and on one line. Returns how many rows
  * were added.
+ *
+ * Each proposal is also held as an idea of the run (DIPO-452), audited once the run is merged or
+ * parked; until the desk shows the audited ideas (DIPO-454) the proposal still goes to the desk
+ * unchanged.
  */
 export function storeProposals(
   office: OfficeHandle,
@@ -368,6 +374,14 @@ export function storeProposals(
     )?.story_id ?? null;
   const filed: NewEntry[] = [];
   for (const proposal of input.proposals) {
+    holdIdea(office, {
+      origin: "proposal",
+      key: input.key,
+      runId: input.runId,
+      title: proposal.title,
+      text: proposalIdeaText(proposal.story, proposal.why, proposal.paths ?? []),
+      at: input.at,
+    });
     const hash = proposalHash(proposal);
     const changes = office.run(
       `insert into proposals (office_id, hash, story_key, run_id, kind, title, story_line, why,

@@ -29,6 +29,7 @@ import {
   type DaemonControl,
 } from "./daemon-commands";
 import { deskCommand } from "./desk-command";
+import { ideasCommand } from "./ideas-command";
 import { gateCommand } from "./gate-command";
 import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
@@ -203,6 +204,11 @@ Usage:
                     proposals, the stories you hold and the stories next up for
                     a free run slot, each with the command to type; --json
                     prints the engine's list as it is
+  dipo ideas [--state held|passed|rejected] [--office <id>] [--json]
+                    list the incoming ideas dipo audits before they reach you:
+                    each held one with what it waits for, each passed one with
+                    its proposed user story, and each rejected one with its
+                    reason; it never starts the daemon
   dipo propose accept|dismiss <proposal> [--office <id>]
                     decide a worker's follow-up, spike or tool proposal from
                     dipo desk: accept files it as a Backlog draft through the
@@ -454,6 +460,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "desk") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return deskCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "ideas") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return ideasCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "propose") {
     const { version } = versionInfo(deps.stamp, deps.runtime);

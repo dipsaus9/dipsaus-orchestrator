@@ -189,6 +189,8 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
   // What the maintainer decided; an open note, proposal or park is kept.
   await rows("decision_notes", "state <> 'open' and updated_at < $cutoff");
   await rows("proposals", "state <> 'open' and updated_at < $cutoff");
+  // A rejected idea is kept with its reason for retention.days; a held or passed one is kept.
+  await rows("ideas", "state = 'rejected' and updated_at < $cutoff");
   await batches("parks", (limit) => deleteParksResolvedBefore(office, cutoff, limit));
   // Leftovers of a story Done elsewhere stay until `dipo discard` cleared them (DIPO-161).
   await rows("done_elsewhere", "cleared_at < $cutoff");
