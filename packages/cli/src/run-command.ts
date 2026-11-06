@@ -50,6 +50,8 @@ export const REASONS: Readonly<Record<string, string>> = {
   capacity: "no run slot is free (caps.parallelRuns in .dipo/office.yaml)",
   pickupCheckFailed:
     "it failed its pickup check (it goes back to Refined) or its setup, launch checks or worker start (it stays Ready)",
+  starting:
+    "already starting: an earlier run decided to start it, and its claim and box are under way",
 };
 
 /** Skips whose reason the engine explains on the office stream (a notice or the gate output). */

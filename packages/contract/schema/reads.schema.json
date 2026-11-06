@@ -2710,7 +2710,8 @@
                       "dependency",
                       "collision",
                       "capacity",
-                      "pickupCheckFailed"
+                      "pickupCheckFailed",
+                      "starting"
                     ]
                   },
                   {
