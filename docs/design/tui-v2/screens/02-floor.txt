@@ -1,0 +1,24 @@
+[hi]dipo[/] [dim]/[/] dipsaus-orchestrator                                          [ok]●[/] daemon live    [dim]$19.14 today    10:42[/]
+[dim]1 Desk [acc]3[/]    [/][hi]2 Floor 2[/][dim]    3 Queue 0·6    4 Retro[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[hi]RUNNING[/]                                                                                     [dim]1 of 3 slots[/]
+
+[sel][acc]▌[/][ok]●[/] [dim]DIPO-447[/]  [hi]Run a planning session with Claude in a read-only box[/]                         [dim]36m[/] [/]
+[sel]             [ok]setup ━━ build ━━ review ━━ test ━━[/] [acc]● merge[/]                              [dim]loop 1 of 8[/] [/]
+[sel]             [dim]now[/] merging [dim]· thinking 1.1s[/]                          [dim]budget[/] [acc]━━━━[/][faint]━━━━━━━━━━[/] 28% [/]
+[sel]             [dim]criteria [ok]10/10 ✓[/] · review round 1 [ok]approved[/] · opus-5.5[/]                          [/]
+
+[hi]IN REVIEW[/]                                                                                              [dim]1[/]
+
+  [acc]○[/] [dim]DIPO-446[/]  Planning tools for workers                                                    [dim]4m[/]
+             [ok]setup ━━ build ━━[/] [acc]● review[/] [faint]┄┄ test ┄┄ merge[/]                                   [dim]round 1[/]
+             [dim]reviewer reading · criteria 6 of 8 checked so far[/]
+
+[hi]UP NEXT[/]                                                                                  [dim]0 ready · 6 waiting[/]
+
+    When [acc]DIPO-447[/] merges → 448, 449 start in parallel, then 450 → 451, 452 → 453
+    [dim]Next decision for you: ~11:20, DIPO-446 review verdict[/]
+
+[dim]10:41 merged DIPO-444  ·  10:40 DIPO-447 → merge  ·  10:38 reviewer raised 2 proposals[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]↑↓[/] move   [acc]⏎[/] watch run   [acc]s[/] steer   [acc]p[/] park                                                [acc]:[/] commands   [acc]?[/] keys

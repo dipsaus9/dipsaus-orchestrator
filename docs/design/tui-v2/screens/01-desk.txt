@@ -1,0 +1,27 @@
+[hi]dipo[/] [dim]/[/] dipsaus-orchestrator                                          [ok]●[/] daemon live    [dim]$22.80 today    13:12[/]
+[hi]1 Desk [acc]6[/][/]    [dim]2 Floor 2    3 Queue 1·4    4 Retro[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[dim]STARTS PAUSED[/]                                 │ [dim]MERGE · waits for you[/]
+  [acc]![/] plan limit reached              ~14:00   │ [hi]DIPO-446 Planning tools for workers[/]
+                                              │ [ok]setup ━━ build ✓ ━━ review ✓ ━━[/] [acc]● test[/] [faint]┄┄ merge[/]
+[dim]QUESTION[/]                                      │
+  [acc]?[/] DIPO-450 keep the ordinal?          12m   │ [dim]Why     [/]you flagged it test-before-merge
+                                              │ [dim]Review  [/][ok]approved[/] round 1 · 8/8 criteria
+[dim]MERGE[/]                                         │ [dim]CI      [/][ok]✓[/] 4 required checks green
+[sel][acc]▌○[/] [hi]DIPO-446 Planning tools…[/]           8m  [/] │ [dim]Change  [/]6 files · +214 −38
+[sel][dim]    test before merge · blocks 2[/]          [/] │ [dim]Blocks  [/]DIPO-448 · DIPO-449
+                                              │ [dim]Tests   [/]3 manual steps
+[dim]PARKED[/]                                        │
+  [err]✗[/] DIPO-447 budget reached            31m   │ ⟦[acc]t[/] Test first⟧ ⟦[acc]y[/] Approve⟧ ⟦[acc]n[/] Reject…⟧ ⟦[acc]o[/] PR⟧
+[dim]    blocks 3[/]                                  │
+                                              │ [dim]Approve merges once the checks pass on the close-out head.[/]
+[dim]PROPOSAL[/]                                      │ [dim]$ dipo approve DIPO-446[/]
+  [acc]◆[/] CLI verbs for planning              2h   │
+                                              │
+[dim]NEXT UP[/]                                       │
+  [ok]→[/] DIPO-452 triage drafts             slot   │
+[dim]13:04 DIPO-447 parked budget-exceeded  ·  12:58 review approved DIPO-446[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]↑↓[/] move   [acc]t[/] test   [acc]y[/] approve   [acc]n[/] reject   [acc]⏎[/] open story                              [acc]:[/] commands   [acc]?[/] keys
+
+⟦ ⟧ = outlined button (1-col border in acc for the primary, faint for the others); clickable.

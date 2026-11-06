@@ -1,0 +1,46 @@
+QUESTION (a pressed)
+[dim]QUESTION · worker waiting 12m · build, loop 2[/]
+[hi]DIPO-450 Should filed stories keep their ordinal?[/]
+"The session confirms three stories. Backlog.md gives drafts a new ordinal on promote.
+Should I keep the ordinal the session showed, or let Backlog assign it?"
+┌[acc]─ answer ─────────────────────────────────────────┐[/]
+│ [hi]Keep the session's order. Only new drafts[/]             │
+│ [hi]get a fresh ordinal.[/][acc]▍[/]                                   │
+└[acc]───────────────────────────────────────────────────┘[/]
+[dim][acc]⏎[/] new line   [acc]ctrl-s[/] send   [acc]esc[/] cancel[/]
+[dim]The worker gets it on resume, and the run continues.[/]
+[dim]$ dipo answer q_7f2c "…"[/]
+
+PARKED · budget-exceeded (r pressed)
+[dim]PARKED · budget-exceeded · 31m · blocks 3[/]
+[hi]DIPO-447 paused: token budget reached[/]
+[dim]Used 2.0M of 2.0M · loop 6 of 8 · criteria 8/10[/]
+[dim]Last said: "Two flaky shards left, fixing reattach."[/]
+┌[acc]───────────────────────────────────────────────────┐[/]
+│ [dim]top up [/]  +25%  ⟦[hi]+50%[/]⟧  +100%        [dim]←→[/]          │
+│ [dim]caps   [/]  2.0M → [hi]3.0M[/] tokens · 400 → [hi]600[/] turns     │
+│ [dim]note   [/]  [hi]Only the two reattach shards.[/][acc]▍[/]              │
+└[acc]───────────────────────────────────────────────────┘[/]
+[dim][acc]ctrl-s[/] resume   [acc]tab[/] field   [acc]esc[/] cancel[/]
+[dim]A fresh session starts with a handoff. The box and branch are kept.[/]
+[dim]$ dipo resume DIPO-447 --budget 50% --note "…"[/]
+
+NEXT UP
+[dim]NEXT UP · run slot 2 of 3 is free[/]
+[hi]DIPO-452 File every incoming idea as a draft[/]
+[dim]Why     [/]first Ready story whose dependencies are Done
+[dim]Tier    [/]M · opus-5.5 · 2.0M tokens · 8 loops
+[dim]Shares  [/][acc]![/] engine/src/backlog/drafts.ts with DIPO-447 (parked)
+⟦[acc]y[/] Start it⟧  ⟦[acc]n[/] Offer the next one⟧
+[dim]Nothing starts until you confirm. Declined stories return once their task file changes.[/]
+[dim]$ dipo next confirm DIPO-452[/]
+
+STARTS PAUSED
+[dim]STARTS PAUSED · whole office · since 12:40[/]
+[hi]No new sessions start in this office[/]
+[dim]Reason  [/]Claude plan limit reached
+[dim]Lifts   [/]by itself, expected ~14:00
+[dim]Running [/]DIPO-446 waits for you, unaffected
+[ok]✓ Nothing to do. Look away until ~14:00.[/]
+[dim]Lift it early, only if you raised your plan:[/]
+[dim]$ dipo daemon resume-starts[/]

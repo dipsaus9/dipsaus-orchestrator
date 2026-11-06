@@ -30,6 +30,7 @@ The project grew to about 137k source lines in 15 days, with up to 40 amendments
 - **M3, rituals.** A planning session in the TUI: the maintainer talks with Claude in a read-only box, which plans new work, refines stories and triages drafts, and dipo's code files what the maintainer confirms, with a proposed tier per story (0022). Every incoming idea becomes a draft. A retro view shows park reasons, rounds, cost and time, and where stories came from.
 - **M4, roster.** Roles as stored definitions, hiring, a role chosen per story, non-code roles, and the skills and plugins each role brings to its sessions.
 - **M5, conversation.** A conversation layer that maps the maintainer's words to commands, with confirmation.
+- **M6, TUI v2.** The TUI restyled to the maintainer's design in `docs/design/tui-v2/`: colour roles, one frame, one action registry, quieter main screens, the Desk with a preview, one pipeline line per story, the run stream as a table, the story reader, a command palette, and rooms for Plan and Retro. It runs alongside M3 to M5 in no order: next up offers its stories whenever a slot is free and no story of an earlier milestone can start (0010), and the maintainer may start one at any time.
 
 Until M3, stories are written by hand through the Backlog CLI to the 0012 standard. Until M4 there is one developer role plus the reviewer.
 
@@ -45,7 +46,7 @@ Until M3, stories are written by hand through the Backlog CLI to the 0012 standa
 
 ## Current state
 
-M0, M1 and M2 are done. M3 is next. How this repository is built is in 0002.
+M0, M1 and M2 are done. M3 is next, and M6 runs alongside it. How this repository is built is in 0002.
 
 ## Rationale
 

@@ -1,0 +1,266 @@
+{
+  "rule": "lowercase = act on focused item, safe/undoable · Capitals = spend or destroy · digits = rooms · symbols = tools",
+  "global": [
+    {
+      "key": "↑↓ / j k",
+      "action": "move"
+    },
+    {
+      "key": "⏎ / l",
+      "action": "open"
+    },
+    {
+      "key": "esc / h",
+      "action": "back / close"
+    },
+    {
+      "key": "tab",
+      "action": "next pane / field"
+    },
+    {
+      "key": "g G",
+      "action": "top / bottom (G follows stream)"
+    },
+    {
+      "key": "1-4",
+      "action": "Desk, Floor, Queue, Retro"
+    },
+    {
+      "key": "P",
+      "action": "plan session"
+    },
+    {
+      "key": "O",
+      "action": "offices"
+    },
+    {
+      "key": ": / ctrl-k",
+      "action": "palette"
+    },
+    {
+      "key": "?",
+      "action": "keys overlay"
+    },
+    {
+      "key": "/",
+      "action": "filter"
+    },
+    {
+      "key": "q q",
+      "action": "quit within 2 s (daemon keeps working)"
+    },
+    {
+      "key": "ctrl-c",
+      "action": "quit"
+    },
+    {
+      "key": "ctrl-r",
+      "action": "retry failed action (same request id)"
+    },
+    {
+      "key": "u",
+      "action": "undo last verb (10 s)"
+    }
+  ],
+  "actions": [
+    {
+      "id": "approve",
+      "key": "y",
+      "command": "gate.approve",
+      "views": [
+        "desk"
+      ],
+      "when": "item.gate"
+    },
+    {
+      "id": "reject",
+      "key": "n",
+      "command": "gate.reject",
+      "views": [
+        "desk"
+      ],
+      "when": "item.gate",
+      "prompt": "note required"
+    },
+    {
+      "id": "accept",
+      "key": "y",
+      "command": "proposal.accept",
+      "views": [
+        "desk"
+      ],
+      "when": "item.proposal"
+    },
+    {
+      "id": "dismiss",
+      "key": "n",
+      "command": "proposal.dismiss",
+      "views": [
+        "desk"
+      ],
+      "when": "item.proposal"
+    },
+    {
+      "id": "nextConfirm",
+      "key": "y",
+      "command": "nextUp.confirm",
+      "views": [
+        "desk"
+      ],
+      "when": "item.kind==NEXT UP"
+    },
+    {
+      "id": "nextDecline",
+      "key": "n",
+      "command": "nextUp.decline",
+      "views": [
+        "desk"
+      ],
+      "when": "item.kind==NEXT UP"
+    },
+    {
+      "id": "answer",
+      "key": "a",
+      "command": "work.answer",
+      "views": [
+        "desk",
+        "detail",
+        "overview"
+      ],
+      "when": "item.question",
+      "prompt": "Composer"
+    },
+    {
+      "id": "resume",
+      "key": "r",
+      "command": "work.resume",
+      "views": [
+        "desk"
+      ],
+      "when": "parked && reason!=scope-violation",
+      "prompt": "by park reason"
+    },
+    {
+      "id": "test",
+      "key": "t",
+      "command": "test.start",
+      "views": [
+        "desk"
+      ],
+      "when": "MERGE && story has manual steps",
+      "opens": "test overlay"
+    },
+    {
+      "id": "pass",
+      "key": "y",
+      "command": "test.record",
+      "views": [
+        "test"
+      ],
+      "args": {
+        "result": "pass"
+      }
+    },
+    {
+      "id": "fail",
+      "key": "n",
+      "command": "test.record",
+      "views": [
+        "test"
+      ],
+      "args": {
+        "result": "fail"
+      },
+      "prompt": "note prefilled with first unticked step"
+    },
+    {
+      "id": "steer",
+      "key": "s",
+      "command": "work.steer",
+      "views": [
+        "detail",
+        "floor"
+      ],
+      "when": "running developer session",
+      "prompt": "Composer"
+    },
+    {
+      "id": "park",
+      "key": "p",
+      "command": "story.park",
+      "views": [
+        "desk",
+        "detail",
+        "queue",
+        "floor"
+      ],
+      "prompt": "note required"
+    },
+    {
+      "id": "run",
+      "key": "R",
+      "command": "work.run",
+      "views": [
+        "queue"
+      ],
+      "when": "Ready"
+    },
+    {
+      "id": "drop",
+      "key": "X",
+      "command": "story.drop",
+      "views": [
+        "desk",
+        "queue"
+      ],
+      "confirm": "y; typed id when deleteBranch"
+    },
+    {
+      "id": "discard",
+      "key": "D",
+      "command": "work.discard",
+      "views": [
+        "desk"
+      ],
+      "confirm": "typed id + note"
+    },
+    {
+      "id": "openGithub",
+      "key": "o",
+      "views": [
+        "desk",
+        "story",
+        "test"
+      ],
+      "local": true
+    },
+    {
+      "id": "raiseAdvisory",
+      "key": "f",
+      "views": [
+        "story"
+      ],
+      "local": true,
+      "note": "turns a finding into a proposal"
+    },
+    {
+      "id": "copyId",
+      "key": "y",
+      "views": [
+        "detail"
+      ],
+      "local": true,
+      "note": "only where y has no item verb"
+    }
+  ],
+  "changedFromToday": {
+    "u run": "R",
+    "d drop": "X",
+    "P park": "p",
+    "P pass": "y in test overlay",
+    "F fail": "n in test overlay",
+    "o offices": "O",
+    "p privacy": "palette → Settings",
+    "4 checklist": "t overlay; 4 = Retro"
+  }
+}

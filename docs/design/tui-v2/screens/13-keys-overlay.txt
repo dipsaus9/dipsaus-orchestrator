@@ -1,0 +1,18 @@
+(overlay, 90 columns, acc border)
+[hi]KEYS[/][dim] · Desk · on a MERGE item[/]                                                         [dim]type to search[/]
+────────────────────────────────────────────────────────────────────────────────────────────
+[dim]THIS ITEM[/]                                     [dim]MOVE[/]
+[acc]t[/]      test first                             [acc]↑↓ jk[/]  move
+[acc]y[/]      approve                                [acc]⏎ l[/]    open
+[acc]n[/]      reject, with a note                    [acc]esc h[/]  back
+[acc]o[/]      open the PR                            [acc]g G[/]    top · bottom
+[acc]⏎[/]      open the story                         [acc]/[/]      filter
+[faint]r      resume  · not parked[/]
+                                              [dim]ANYWHERE[/]
+[dim]NO KEY · TYPE IT[/]                              [acc]1-4[/]    rooms
+[dim]$ dipo approve DIPO-446 --note[/]                [acc]P[/]      plan
+                                              [acc]O[/]      offices
+                                              [acc]:[/]      all commands
+                                              [acc]q q[/]    quit (daemon keeps working)
+────────────────────────────────────────────────────────────────────────────────────────────
+[dim]Lowercase acts on this item and can be undone. Capitals spend or destroy.[/]   [acc]esc[/] close

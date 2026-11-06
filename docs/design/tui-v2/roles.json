@@ -1,0 +1,77 @@
+{
+  "note": "Each role: ANSI 16 slot (theme-following default) and the optional truecolor 'Classical' values. bg is never painted in 16-color mode.",
+  "roles": {
+    "fg": {
+      "use": "body text",
+      "ansi": "default",
+      "truecolor": {
+        "dark": "#ddd8cf",
+        "light": "#2d2b2b"
+      }
+    },
+    "hi": {
+      "use": "titles, focused text, agent's own words",
+      "ansi": "default+bold",
+      "truecolor": {
+        "dark": "#f6f2ea",
+        "light": "#141312"
+      }
+    },
+    "dim": {
+      "use": "labels, meta, ticker, cli lines",
+      "ansi": "brightBlack",
+      "truecolor": {
+        "dark": "#8f8a82",
+        "light": "#6e6a66"
+      }
+    },
+    "faint": {
+      "use": "rules, future phases, disabled",
+      "ansi": "brightBlack+dim",
+      "truecolor": {
+        "dark": "#3d3a35",
+        "light": "#d3cfca"
+      }
+    },
+    "shade": {
+      "use": "frozen/background content under overlays",
+      "ansi": "brightBlack+dim",
+      "truecolor": {
+        "dark": "#4a4740",
+        "light": "#c9c5c0"
+      }
+    },
+    "acc": {
+      "use": "keys, focus bar, current phase, counts that need you",
+      "ansi": "yellow",
+      "truecolor": {
+        "dark": "#e1ad66",
+        "light": "#7d5411"
+      }
+    },
+    "ok": {
+      "use": "live, done, met, passed",
+      "ansi": "green",
+      "truecolor": {
+        "dark": "#a3c48e",
+        "light": "#3f6b2f"
+      }
+    },
+    "err": {
+      "use": "failed, parked, offline, destructive",
+      "ansi": "red",
+      "truecolor": {
+        "dark": "#e58b78",
+        "light": "#a33a2b"
+      }
+    },
+    "sel": {
+      "use": "focused row background",
+      "ansi": "inverse fallback",
+      "truecolor": {
+        "dark": "#2a2824",
+        "light": "#ebe6de"
+      }
+    }
+  }
+}

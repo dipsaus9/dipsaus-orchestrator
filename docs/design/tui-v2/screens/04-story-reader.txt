@@ -1,0 +1,26 @@
+[hi]dipo[/] [dim]/ dipsaus-orchestrator / Retro /[/] DIPO-444                                        [ok]●[/] live    [dim]10:42[/]
+[hi]Say "refused" in daemon status, remove code for older dipo versions, explain the Claude minimum[/]
+[ok]✓ Done[/][dim] · merged 10:21 · 2 review rounds · 41m · $3.20 · 1 proposal raised[/]
+[dim]Story    Criteria 3[/]    [hi]Reviews 2[/]    [dim]Runs 1    Diff[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+              [hi]ROUND 2[/][dim] · 5cdb387 · 10:19[/]                                              [ok]approved[/]
+
+              [ok]✓ 1[/]  formatRunning in [acc]daemon-commands.ts[/] prints [acc]refused[/] when
+                   status.databaseUnavailable is set, with stateReason after it.
+
+              [ok]✓ 2[/]  The signalStop field, the branch in verifyHostForSignal, the
+                   daily-copy deletion and the older-steps hand-off test are removed.
+
+              [ok]✓ 3[/]  [acc]probe.ts[/] has one comment on MIN_CLAUDE_VERSION that says what set
+                   it and why it is not lowered; the value is unchanged.
+
+              [acc]![/]    [acc]advisory · maintainability[/][dim] · db/migrations/0001-base.ts:790[/]
+                   The signal_stop column is still in the base migration.
+                   [faint]│[/] [dim]signal_stop integer not null default 0 check (signal_stop in (0, 1)),[/]
+                   [dim][acc]o[/] open comment on GitHub   [acc]f[/] raise as proposal[/]
+              ──────────────────────────────────────────────────────────────────────────────
+              [dim]▸[/] ROUND 1[dim] · 975b20c · 10:09 · 3/3 met · 1 advisory[/]                     [ok]approved[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]←→[/] section   [acc]↑↓[/] scroll   [acc]⏎[/] expand round   [acc]o[/] open on GitHub                                [acc]esc[/] back   [acc]?[/] keys
+
+Measure: centred, 84 columns, wraps, never truncates.

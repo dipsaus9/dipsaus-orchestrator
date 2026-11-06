@@ -1,0 +1,22 @@
+[hi]dipo[/] [dim]/ dipsaus-orchestrator /[/] Plan                                         [ok]●[/] planner live    [dim]$0.84 this session    13:30[/]
+[dim]refine ·[/] [hi]Split DIPO-116 into stories that can be Ready this week[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+     [dim]── continued in a fresh session at 13:02 · decisions carried over (4) ──[/]  │ [dim]IN THIS PLAN[/]
+                                                                               │ [ok]✓[/] Copy skills into box
+     [acc]you[/]      Skip the plugin marketplace for now. What's the smallest      │ [acc]◆[/] Refuse missing skill
+              story that lets a worker use one skill?                          │
+                                                                               │ [dim]DECISIONS[/]
+     [dim]planner[/]  [hi]The smallest useful cut copies skills named in the story's[/]    │ [dim]· no marketplace yet[/]
+              [hi]references into the box. Two stories:[/]                            │ [dim]· skills by reference[/]
+                                                                               │ [dim]· tier S each[/]
+              [acc]│[/] [ok]✓[/] [hi]Copy referenced skills into the box[/]  [dim]· S · confirmed[/]       │ [dim]· after DIPO-452[/]
+              [acc]│[/] [dim]As maintainer I want skills named in references available…[/] │
+              [sel][faint]│[/] [acc]◆[/] [hi]Refuse a story whose skill is missing[/]  [dim]· S · proposed[/][/]    │ [dim]ON END[/]
+              [sel][faint]│[/] [dim]As maintainer I want the Ready gate to fail when…[/]       [/] │ 1 confirmed → Refined
+              [sel][faint]│[/] [acc]c[/] confirm   [acc]e[/] edit   [acc]x[/] drop from plan            [/] │ [acc]Y[/] set them Ready
+                                                                               │
+     [dim]planner[/]  [hi]Both touch engine/src/gate/. I'd order them after DIPO-452[/][acc]▍[/]   │
+┌[acc]──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐[/]
+│ [acc]you[/] [hi]Fine. Also add a test plan line for the gate rule.[/][acc]▍[/]                                                    │
+└[acc]──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘[/]
+[acc]⏎[/] new line   [acc]ctrl-s[/] send   [acc]tab[/] to stories   [acc]ctrl-e[/] end session                                       [acc]esc[/] leave (keeps open)

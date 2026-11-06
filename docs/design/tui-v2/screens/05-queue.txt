@@ -1,0 +1,18 @@
+[hi]READY[/]                                                1 │ [dim]READY · tier M · offered as next up[/]
+[sel][acc]▌[/][ok]→[/] [dim]DIPO-452[/]  [hi]File every idea as a draft[/]    [dim]M[/]  [ok]next up[/][/] │ [hi]DIPO-452 File every incoming idea as a draft[/]
+                                                       │
+[hi]WAITING ON A DEPENDENCY[/]                              4 │ [dim]Gate     [/][ok]✓[/] 31 rules · [acc]1 warning[/] R29
+  [acc]○[/] [dim]DIPO-448[/]  Keep session decisions    [dim]M[/]  needs [err]447✗[/] │ [dim]Needs    [/][ok]all done[/]
+  [acc]○[/] [dim]DIPO-449[/]  Plan in the TUI           [dim]M[/]  needs [err]447✗[/] │ [dim]Unblocks [/]DIPO-453
+  [acc]○[/] [dim]DIPO-450[/]  File confirmed stories    [dim]M[/]  needs 449  │ [dim]Touches  [/]engine/src/backlog/, contract/src/office.ts
+  [acc]○[/] [dim]DIPO-453[/]  Retro view                [dim]M[/]  needs [ok]452→[/] │
+                                                       │ [dim]CHAIN[/]
+[hi]REFINED · not Ready yet[/]                              2 │ [err]447✗[/] → 448 · 449 → 450 → 451
+  [err]✗[/] [dim]DIPO-116[/]  Skills and plugins        [dim]L[/]  2 unknowns │ [ok]452[/]  → 453
+  [err]✗[/] [dim]DIPO-288[/]  Yarn, bun.lockb, pnpm     [dim]M[/]  no test plan │ [dim]Everything below 447 waits on the park on your Desk.[/]
+                                                       │
+  [dim]. show done (418)[/]                                   │
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]↑↓[/] move   [acc]R[/] run now   [acc]p[/] park   [acc]X[/] drop   [acc]⏎[/] story   [acc].[/] done                                   [acc]/[/] filter   [acc]?[/] keys
+
+needs NNN✗ = dependency parked (yours to clear) · needs NNN→ = dependency moving by itself

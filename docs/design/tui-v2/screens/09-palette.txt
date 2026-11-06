@@ -1,0 +1,17 @@
+(overlay, centred, 62 columns, acc border; the body behind it is in the shade role)
+┌[acc]────────────────────────────────────────────────────────────┐[/]
+│ [acc]:[/] [hi]pa[/][acc]▍[/]                                                         │
+│──────────────────────────────────────────────────────────────│
+│ [dim]ON DIPO-447[/]                                                  │
+│[sel][acc]▌[/][hi]__Pa__rk run[/]                                                 [acc]p[/] [/]│
+│  Ex__pa__nd stream to full screen                            [dim]f[/] │
+│  [faint]Resume run                                       not parked[/] │
+│ [dim]SETTINGS[/]                                                     │
+│  __P__riv__a__cy: what dipo stores                                     │
+│  __Pa__rallel slots: 3                                          │
+│ [dim]GO TO[/]                                                        │
+│  O__p__en offices…                                            [acc]O[/] │
+│──────────────────────────────────────────────────────────────│
+│ [dim][acc]⏎[/] run   [acc]↑↓[/] choose   [acc]esc[/] close[/]                                │
+└[acc]────────────────────────────────────────────────────────────┘[/]
+__x__ = fuzzy-match underline in acc. Empty query lists recent commands.

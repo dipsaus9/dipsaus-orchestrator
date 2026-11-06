@@ -1,0 +1,15 @@
+(overlay on the Desk, 84 columns, acc border)
+┌[acc]──────────────────────────────────────────────────────────────────────────────────┐[/]
+│ [hi]TEST[/][dim] · DIPO-446 at 5cdb387 · box test-446[/]                                   [ok]● running[/] │
+│ [dim]open   [/][acc]http://localhost:4321[/][dim]   o opens[/]                                              │
+│ [dim]shell  [/]dipo test shell DIPO-446[dim]          y copies[/]                                │
+│────────────────────────────────────────────────────────────────────────────────────│
+│   [ok]✓ 1[/] [dim]Start a planning session from the TUI[/]                                       │
+│       [dim]→ the planning view opens with kind and goal[/]                               │
+│   [ok]✓ 2[/] [dim]Send a two-line message[/]                                                     │
+│       [dim]→ both lines arrive, the answer streams with spend[/]                         │
+│[sel] [acc]▌○ 3[/] [hi]Close the TUI, reopen it, ask a third question[/]                             [/]│
+│[sel]       → the session continues where it stopped                                   [/]│
+│────────────────────────────────────────────────────────────────────────────────────│
+│ [acc]space[/] tick   [acc]y[/] pass   [acc]n[/] fail…   [acc]↑↓[/] step                        [dim][acc]esc[/] hide · test stays open[/] │
+└[acc]──────────────────────────────────────────────────────────────────────────────────┘[/]

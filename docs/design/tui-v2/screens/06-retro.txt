@@ -1,0 +1,20 @@
+[hi]4 Retro[/]                                                                                   [dim]7d[/]  [hi]30d[/]  [dim]all[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[hi]38[/] [dim]merged[/]   [hi]$214[/] [dim]spent · $5.63 per story[/]   [hi]4h 10m[/] [dim]median Ready → merged[/]   [hi]18%[/] [dim]rework[/]
+
+[hi]BY TIER[/]                                               │ [hi]WHERE STORIES CAME FROM[/]
+[dim]      stories  cost/st  rounds  loops  Ready→merged[/]    │ planned               [acc]━━━━━━━━━━━━━━━[/] 21
+[acc]S[/]        14    $1.90     0.4    1.1        1h 05m    │ worker proposal       [acc]━━━━━━━[/] 9
+[acc]M[/]        19    $5.80     1.2    2.3        4h 40m    │ reviewer advisory     [acc]━━━━[/] 5
+[acc]L[/]         5   $15.70     [err]2.8[/]    [err]5.0[/]       [err]11h 20m[/]    │ quick idea            [acc]━━[/] 2
+                                                      │ [dim]unknown (before 452)  [/][faint]━[/] [dim]1[/]
+[hi]WHY STORIES PARKED[/]                                    │
+budget-exceeded  [acc]━━━━━━━━━━━━[/] 6                       │ [hi]WORTH A LOOK[/]
+ambiguous-spec   [acc]━━━━━━━━[/] 4                           │ [acc]![/] L stories take 2.8 fix rounds and park on budget
+verify-failing   [acc]━━━━━━[/] 3                             │   4 of 6 times. Splitting them is cheaper than topping up.
+review-blocked   [acc]━━[/] 1                                 │ [acc]![/] 3 of 4 ambiguous-spec parks were worker proposals.
+[dim]4 other reasons  [/][faint]━━[/] [dim]1[/]                                 │
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]←→[/] period   [acc]tab[/] tier · type   [acc]⏎[/] stories behind a row   [acc]P[/] discuss in a plan              [acc]:[/] commands   [acc]?[/] keys
+
+Red = more than 2× the median. "Worth a look" = fixed rules over the same numbers, no model.

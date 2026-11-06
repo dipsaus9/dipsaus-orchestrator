@@ -1,0 +1,46 @@
+EMPTY DESK
+    [ok]✓[/] [hi]Nothing needs you.[/]
+      The team is on it: 1 running, 1 in review.
+      [dim]Next decision likely ~11:20 (DIPO-446 verdict).[/]
+      [acc]2[/] watch the floor
+
+DAEMON STOPPED (header: [err]✗ daemon stopped[/])
+    [err]✗[/] [hi]The office manager isn't running.[/]
+      No work is lost. Boxes pause until it's back.
+      [dim]Last seen 10:12 · exit 1 · port 4319 in use[/]
+      [acc]r[/] restart daemon    [acc]l[/] open its log
+
+OFFLINE (header: [err]✗ offline since 13:40 · view frozen[/]; body in [shade]shade[/])
+  [err]✗[/] [hi]Lost the daemon. Reconnecting every 2 s…[/]
+  [dim]  What you see is from 13:40. Actions are off.[/]
+  [dim]  The daemon keeps working if it's still up.[/]
+  footer: [dim]↑↓ move   ⏎ read   q quit   [err]actions off while offline[/][/]
+
+RECOVERING · DATABASE UNAVAILABLE (header: [acc]◌ daemon recovering[/])
+  [acc]![/] [hi]Database unavailable[/]
+  [dim]  reason  [/]migration 0004 failed: disk full
+  [dim]  backup  [/]dipo.db.2026-11-06T09-12.bak
+  [dim]  Stories and code are safe: they live in git. Only run history is at stake.[/]
+  [acc]l[/] open daemon log   [acc]y[/] copy the restore command
+
+PENDING → RESULT (row in place, focus does not move)
+  [sel][acc]▌[/][dim]◌ CLI verbs for planning                       accepting…[/][/]
+    [ok]✓[/] accepted · draft-31 in backlog PR #612                  [acc]u[/] undo
+    [err]✗[/] accept failed: lane.waiting · no remote   [dim]push access to origin failed ·[/] [acc]^R[/] [dim]retry[/]
+
+DISCARD (D) — red border
+  [err]✗[/] [hi]Discard DIPO-447?[/]
+  This ends the run, deletes the branch and returns the story to Refined. It can't be undone.
+  [dim]Lost: 3 commits not on main[/]   (from story.losses)
+  [dim]note  [/]Wrong approach, replan as two stories
+  [dim]type  [/][hi]DIPO-44[/][acc]▍[/][dim]   to confirm[/]
+  [dim][acc]⏎[/] discard (when the id matches)   [acc]esc[/] keep it[/]
+
+DROP (X) — acc border, red once the branch box is ticked
+  [acc]![/] [hi]Drop DIPO-288 from the backlog?[/]
+  Archives the story and releases its claim.
+  [acc][ ][/] also delete its branch [dim](space) · keeps 1 commit if left unticked[/]
+  [dim][acc]y[/] drop   [acc]space[/] toggle branch   [acc]esc[/] keep it[/]
+
+NARROW (< 100 cols): single pane; ⏎ opens the preview full screen.
+TOO NARROW (< 60 cols or < 16 rows): existing NarrowBody, "widen for detail".
