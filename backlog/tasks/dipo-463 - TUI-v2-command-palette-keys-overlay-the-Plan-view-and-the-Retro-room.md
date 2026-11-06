@@ -4,12 +4,14 @@ title: 'TUI v2: command palette, keys overlay, the Plan view and the Retro room'
 status: Refined
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-06 14:12'
+updated_date: '2026-11-06 14:17'
 labels:
   - 'tier:M'
 milestone: m-6
 dependencies:
   - DIPO-457
+  - DIPO-449
+  - DIPO-453
 references:
   - packages/tui/src/settings.tsx
   - packages/tui/src/keys.ts

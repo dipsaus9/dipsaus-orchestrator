@@ -4,7 +4,7 @@ title: 'TUI v2: the story reader and the test overlay'
 status: Refined
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-06 14:12'
+updated_date: '2026-11-06 14:17'
 labels:
   - 'tier:S'
 milestone: m-6
@@ -18,6 +18,8 @@ references:
   - docs/design/tui-v2/screens/04-story-reader.txt
   - docs/design/tui-v2/screens/10-test-overlay.txt
   - docs/design/tui-v2/designs/dipo-ux-spec.html
+  - packages/contract/src/office.ts
+  - packages/engine/src/reads
 priority: medium
 type: feature
 ordinal: 435000

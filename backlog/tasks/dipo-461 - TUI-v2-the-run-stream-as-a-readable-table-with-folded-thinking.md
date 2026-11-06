@@ -4,7 +4,7 @@ title: 'TUI v2: the run stream as a readable table with folded thinking'
 status: Refined
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-06 14:12'
+updated_date: '2026-11-06 14:17'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -54,4 +54,6 @@ test_plan:
 - [ ] #5 Steer opens the Composer in the stream and the sent text shows with next-turn or on-resume
 - [ ] #6 The Run screen and the steer prompt match the HTML preview's S3 and S7. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
 - [ ] #7 v switches the stream filter on the Run, and tab stays next pane
+- [ ] #8 says and verdict lines are bright (hi)
+- [ ] #9 Finished stream lines render with Ink Static, so they never re-render
 <!-- AC:END -->

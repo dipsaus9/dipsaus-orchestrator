@@ -4,9 +4,9 @@ title: 'TUI v2: the Desk as a list with a preview, grouped by kind'
 status: Refined
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-06 14:12'
+updated_date: '2026-11-06 14:17'
 labels:
-  - 'tier:M'
+  - 'tier:L'
 milestone: m-6
 dependencies:
   - DIPO-458
@@ -51,7 +51,7 @@ test_plan:
       check: "With a proposal and a parked story on the desk, accept the proposal with y and resume the park with r"
       expect: "Focus moves to the next item and the resume prompt shows the caps before and after the top-up"
     - kind: "manual"
-      check: "With a proposal, a merge item and a parked story on the desk, open the TUI at 112 and at 80 columns next to designs/dipo-ux-spec.html S1, S1b, S1c and S6"
+      check: "With a proposal, a merge item and a parked story on the desk, open the TUI at 112 and at 80 columns next to designs/dipo-ux-spec.html S1, S1b, S1c, S6 and S7 (pending, discard and drop)"
       expect: "List, group headers, preview, buttons, consequence and cli lines match the HTML preview side by side"
     - kind: "automated"
       check: "(unit) KNOWN_DESK_KINDS lists the setup kinds first and the desk keeps the engine order"
@@ -81,4 +81,6 @@ test_plan:
 - [ ] #11 DeskAction has an optional consequence line (engine addition) that the preview shows under the buttons
 - [ ] #12 The story PR read carries the required-check count and state and the change stats (files, +/−) from gh/git (engine addition), and the MERGE preview shows them
 - [ ] #13 The PROPOSAL preview shows the story text, Why, Blocks, Size (the audit's tier only) and Raised … by <role> (<model>) as produced by the M3 idea audit (DIPO-452, DIPO-454)
+- [ ] #14 The header shows ● plan open at the right while a planning session is open
+- [ ] #15 QUESTION opens the Composer to answer
 <!-- AC:END -->
