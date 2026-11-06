@@ -3,9 +3,10 @@ id: DIPO-449
 title: >-
   Plan in the TUI: start, continue and end a planning session with multi-line
   input
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-05 20:51'
+updated_date: '2026-11-06 07:15'
 labels:
   - 'tier:M'
 milestone: m-3
