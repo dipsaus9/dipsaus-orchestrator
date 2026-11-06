@@ -1,4 +1,4 @@
-// The starts `work.run` decided whose run row is not in yet (DIPO-456, migration 4). Every function
+// The starts `work.run` decided whose run row is not in yet (DIPO-456, migration 5). Every function
 // runs inside the caller's transaction.
 
 import type { OfficeHandle } from "../db/office";

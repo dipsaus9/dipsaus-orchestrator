@@ -1,4 +1,4 @@
-// Migration 4: the starts `work.run` decided (DIPO-456). One row per story whose start was
+// Migration 5: the starts `work.run` decided (DIPO-456). One row per story whose start was
 // decided and answered and whose run row is not in yet: the overview shows it in the `setup`
 // phase from the decision, the queue no longer lists it as Ready, and a second run of it answers
 // that it is already starting. The row goes with the run row's transaction, or with the notice of
@@ -8,7 +8,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const runStarts: SqlMigration = {
-  version: 4,
+  version: 5,
   name: "run starts",
   sql: `
 create table run_starts (

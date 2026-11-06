@@ -85,6 +85,8 @@ function runsOf(core: Core, story: StoryServices, partners: EnginePartners): Eng
     // The office's starts paused lifts, and its parks resume, only while the engine schedules
     // work (0020).
     scheduling: () => core.lifecycle.state === "running",
+    // A planning session files the proposals the maintainer confirms through the lane (DIPO-450).
+    planningLane: (office) => story.lane.planning(office),
     // A planning session's first message holds the office's desk (DIPO-447), read through the
     // engine's own `office.desk`.
     planningDesk: (office) => {

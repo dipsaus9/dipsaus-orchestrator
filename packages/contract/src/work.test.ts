@@ -247,6 +247,9 @@ describe("office commands and reads", () => {
         "planning.start",
         "planning.message",
         "planning.end",
+        "planning.confirm",
+        "planning.edit",
+        "planning.decline",
       ].toSorted(),
     );
     expect(officeReads.map((d): string => d.name).toSorted()).toEqual(

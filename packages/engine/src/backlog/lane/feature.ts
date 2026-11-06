@@ -32,6 +32,7 @@ import {
 } from "./ops";
 import { planningLane } from "./planning";
 import { proposeKind } from "./propose";
+import { fileKind, reviseKind } from "./stories";
 
 export class BacklogLane {
   readonly #deps: BacklogLaneDeps;
@@ -49,6 +50,9 @@ export class BacklogLane {
     this.register(editKind(DISCARD_KIND));
     // An accepted worker proposal filed as a Backlog draft (0020, DIPO-166).
     this.register(proposeKind);
+    // The stories a planning session files and edits (0022, DIPO-450).
+    this.register(fileKind);
+    this.register(reviseKind);
     for (const kind of deps.kinds ?? []) this.register(kind);
   }
 

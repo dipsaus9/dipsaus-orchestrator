@@ -201,6 +201,8 @@ export const PROMPT_TAGS: readonly string[] = [
   "desk",
   "recent_runs",
   "copy",
+  // DIPO-450: the proposal schema of a planning session's first message.
+  "proposal_schema",
   // An idea's audit (DIPO-452): an idea's text cannot close its idea or the list.
   "ideas",
   "idea",
