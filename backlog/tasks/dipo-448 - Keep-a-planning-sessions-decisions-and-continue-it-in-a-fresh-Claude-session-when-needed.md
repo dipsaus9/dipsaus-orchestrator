@@ -3,10 +3,10 @@ id: DIPO-448
 title: >-
   Keep a planning session's decisions and continue it in a fresh Claude session
   when needed
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 12:40'
+updated_date: '2026-11-06 12:48'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -49,8 +49,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 dipo stores a record per planning session in its database: each confirmed choice, filed or edited story and open question, in order
-- [ ] #2 When the context nears full, dipo ends the Claude session and starts a fresh one whose first message code builds from the record
-- [ ] #3 A session that continues after its Claude session ended, after an idle end or a daemon restart, continues in a fresh Claude session built from the record
-- [ ] #4 An event says the session continued in a fresh Claude session, and ADR 0007 lists the record
+- [x] #1 dipo stores a record per planning session in its database: each confirmed choice, filed or edited story and open question, in order
+- [x] #2 When the context nears full, dipo ends the Claude session and starts a fresh one whose first message code builds from the record
+- [x] #3 A session that continues after its Claude session ended, after an idle end or a daemon restart, continues in a fresh Claude session built from the record
+- [x] #4 An event says the session continued in a fresh Claude session, and ADR 0007 lists the record
 <!-- AC:END -->
