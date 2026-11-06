@@ -197,6 +197,12 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
     `first_seen < $cutoff and not exists (select 1 from runs r where r.office_id = $office_id
        and r.config_hash = config_snapshots.config_hash)`,
   );
+  // A planning session's record, once none of its entries is newer than the cutoff (DIPO-448).
+  await rows(
+    "planning_records",
+    `not exists (select 1 from planning_records n where n.office_id = $office_id
+       and n.session_id = planning_records.session_id and n.at >= $cutoff)`,
+  );
   // Released claims; a live claim has no release time.
   await rows("claims", "released_at < $cutoff");
   await rows("scans", "finished_at < $cutoff");

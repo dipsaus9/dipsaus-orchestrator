@@ -292,6 +292,10 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
     args: { text: "Split the second draft in two." },
     result: { run: ids.run, delivered: "next-turn" },
   },
+  "planning.continue": {
+    args: {},
+    result: { run: ids.run, view: { ...planningView, state: "working", turns: 0 } },
+  },
   "planning.end": { args: {}, result: { run: ids.run, ended: "maintainer" } },
 };
 
@@ -585,6 +589,12 @@ const officeEventFixtures: Record<string, unknown> = {
     view: planningView,
   },
   "planning.updated": { run: ids.run, view: planningView },
+  "planning.continued": {
+    run: ids.run,
+    previous: ids.run,
+    reason: "context-full",
+    view: { ...planningView, state: "working", turns: 0 },
+  },
   "planning.ended": {
     run: ids.run,
     reason: "maintainer",

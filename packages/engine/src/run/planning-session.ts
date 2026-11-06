@@ -25,6 +25,14 @@
 //   deleted then, and `planning.ended` and `run.ended` follow. At daemon stop every open session
 //   gets the stop and ends `daemon-stopped`; at daemon start a planning run a stopped daemon left
 //   open is ended (`recover`).
+// - The record (DIPO-448, 0007): `planning_records` keeps the session's goal, each confirmed choice,
+//   each filed or edited story and each open question (`record`), and when each model session
+//   started and ended. A planning session is named by the run of its first model session. When a
+//   turn ends and the context nears full (`contextNearFull`), dipo ends that model session
+//   (`context-full`) and starts a fresh one, with a new run, whose first message code builds from
+//   the record and the facts of the first message; `planning.continued` says so. A session whose
+//   model session ended by idle, a daemon stop or its exit continues the same way on
+//   `planning.continue`, unless the maintainer ended it.
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -37,6 +45,7 @@ import {
   type OfficeId,
   type PlanningEndReason,
   type PlanningKind,
+  planningContinue,
   planningEnd,
   planningMessage,
   planningStart,
@@ -64,11 +73,19 @@ import { promptParts, recordPromptParts, recordPromptTexts } from "../prompts/pa
 import { renderSystemFile } from "../prompts/system";
 import { rendered, renderTemplate, TASK_TEMPLATES } from "../prompts/templates";
 import { recordAgent } from "../records/agents";
+import {
+  addPlanningEntry,
+  continuableSession,
+  type NewPlanningEntry,
+  planningRecordText,
+  planningSessionOfRun,
+  readPlanningRecord,
+} from "../records/planning-record";
 import { PLANNER_ROLE } from "../records/caps";
 import type { RunEnd } from "../records/lifecycle";
 import { currentProfileId, endRun, insertRun, recordConfigSnapshot } from "../records/run-records";
 import { activeSignals } from "../records/signals";
-import { readUsage } from "../records/usage";
+import { contextNearFull, readUsage } from "../records/usage";
 import type { LaunchedHost } from "../records/worker-hosts";
 import { activeStoryViews } from "../views/story";
 import type { RunLaunchPaths, WorkerPort } from "../workers/port";
@@ -98,6 +115,8 @@ export const PLANNING_SIGKILL_AFTER_MS = 30_000;
 export const PLANNING_RECOVERY_STEP = "planning-recover";
 /** The most story runs the first message lists. */
 export const PLANNING_RECENT_RUNS = 10;
+/** The counted tokens of a model session from which its context counts as nearly full. */
+export const PLANNING_CONTEXT_TOKENS = 150_000;
 
 const HOUR_MS = 60 * 60_000;
 
@@ -116,6 +135,8 @@ export interface RecentRun {
 export interface PlanningFacts {
   readonly kind: PlanningKind;
   readonly goal: string;
+  /** The session's record as text (`planningRecordText`). */
+  readonly record: string;
   readonly drafts: readonly { readonly story: string; readonly title: string }[];
   readonly desk: readonly Pick<DeskItem, "kind" | "story" | "detail">[];
   readonly runs: readonly RecentRun[];
@@ -133,6 +154,7 @@ export function planningFirstMessage(facts: PlanningFacts): string {
   return renderTemplate(TASK_TEMPLATES.planning, {
     kind: facts.kind,
     goal: facts.goal,
+    record: facts.record,
     drafts: listOr(
       facts.drafts.map((draft) => `- ${draft.story}: ${draft.title}`),
       "No open drafts.",
@@ -201,6 +223,8 @@ export interface PlanningSessionsDeps {
   readonly desk?: (office: OfficeHandle, now: number) => readonly DeskItem[];
   /** The base branch's tip the copy holds; `baseCommit` by default. */
   readonly baseCommit?: (git: OfficeGit) => Promise<string>;
+  /** The counted tokens from which a model session's context nears full; `PLANNING_CONTEXT_TOKENS`. */
+  readonly contextTokens?: number;
   readonly runtimeDir: string;
   /** dipo's temp root: the run temp directories. */
   readonly tmpRoot: string;
@@ -209,11 +233,21 @@ export interface PlanningSessionsDeps {
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
+/** The model session a fresh one continues, and why that one ended. */
+interface Continued {
+  readonly previous: RunId;
+  readonly reason: PlanningEndReason;
+}
+
 /** One open planning session of this daemon. */
 interface Open {
   readonly office: OfficeId;
   readonly handle: OfficeHandle;
   readonly run: RunId;
+  /** The planning session: the run of its first model session. */
+  readonly session: RunId;
+  /** Set for a fresh model session that continues a planning session. */
+  readonly continued: Continued | null;
   readonly agent: AgentId;
   readonly kind: PlanningKind;
   readonly goal: string;
@@ -287,6 +321,10 @@ export class PlanningSessions {
           definition: planningEnd,
           handle: (ctx) => this.end(ctx),
         });
+        registry.addAsyncOfficeCommand({
+          definition: planningContinue,
+          handle: (ctx) => this.continue(ctx),
+        });
       },
     };
   }
@@ -304,6 +342,57 @@ export class PlanningSessions {
 
   async start(ctx: AsyncCommandContext, args: StartArgs): Promise<CommandOutcome<StartResult>> {
     const office = ctx.office.officeId as OfficeId;
+    this.#refuseWhenOpen(office);
+    this.#starting.add(office);
+    try {
+      const view = await this.#begin(ctx.office, office, {
+        ...args,
+        session: null,
+        continued: null,
+      });
+      return { result: { run: view.run, view }, changed: true };
+    } finally {
+      this.#starting.delete(office);
+    }
+  }
+
+  /** `planning.continue`: see the file comment. */
+  async continue(ctx: AsyncCommandContext): Promise<CommandOutcome<StartResult>> {
+    const office = ctx.office.officeId as OfficeId;
+    this.#refuseWhenOpen(office);
+    const found = ctx.office.deferred(() => continuableSession(ctx.office));
+    if (found === null) {
+      throw new CommandError(
+        "planning.notContinuable",
+        "No planning session can continue: start one with planning.start. A session the maintainer ended does not continue.",
+      );
+    }
+    this.#starting.add(office);
+    try {
+      const view = await this.#begin(ctx.office, office, {
+        kind: found.kind,
+        goal: found.goal,
+        session: RunId.parse(found.session),
+        continued: { previous: RunId.parse(found.previous), reason: found.reason },
+      });
+      return { result: { run: view.run, view }, changed: true };
+    } finally {
+      this.#starting.delete(office);
+    }
+  }
+
+  /**
+   * Adds an entry to the record of the open planning session of `office`: a confirmed choice, a
+   * filed or edited story, or an open question. Written by code when the maintainer confirms.
+   */
+  record(office: OfficeId, entry: Omit<NewPlanningEntry, "at">): void {
+    const open = this.#open.get(office);
+    if (open === undefined) throw notOpen("none was started");
+    const at = this.#deps.clock.now();
+    open.handle.immediate(() => addPlanningEntry(open.handle, open.session, { ...entry, at }));
+  }
+
+  #refuseWhenOpen(office: OfficeId): void {
     const open = this.#open.get(office);
     if (open !== undefined || this.#starting.has(office)) {
       throw new CommandError(
@@ -311,13 +400,6 @@ export class PlanningSessions {
         `The office has an open planning session${open === undefined ? "" : ` (${open.run})`}: end it with planning.end first.`,
         open === undefined ? {} : { run: open.run },
       );
-    }
-    this.#starting.add(office);
-    try {
-      const view = await this.#start(ctx.office, office, args);
-      return { result: { run: view.run, view }, changed: true };
-    } finally {
-      this.#starting.delete(office);
     }
   }
 
@@ -327,7 +409,13 @@ export class PlanningSessions {
   ): Promise<CommandOutcome<MessageResult>> {
     const office = ctx.office.officeId as OfficeId;
     const open = this.#open.get(office);
-    if (open === undefined) throw notOpen("start one with planning.start");
+    if (open === undefined) {
+      throw notOpen(
+        this.#starting.has(office)
+          ? "it is continuing in a fresh model session; send the message again in a moment"
+          : "start one with planning.start",
+      );
+    }
     if (open.ending !== null || open.settled) throw notOpen(`${open.run} is ending`);
     // The maintainer's text is the next user message: read after the answer in progress, if any.
     const sent = await this.#send(
@@ -384,7 +472,18 @@ export class PlanningSessions {
         )
         .filter((row) => !followed.has(row.run_id));
       for (const row of left) {
-        handle.immediate(() => endRun(handle, RunId.parse(row.run_id), at, "dropped"));
+        handle.immediate(() => {
+          endRun(handle, RunId.parse(row.run_id), at, "dropped");
+          const session = planningSessionOfRun(handle, row.run_id);
+          if (session !== null) {
+            addPlanningEntry(handle, session, {
+              kind: "ended",
+              run: row.run_id,
+              text: "daemon-stopped",
+              at,
+            });
+          }
+        });
         ended += 1;
       }
       if (left.length > 0) this.#deps.onChanged?.(office);
@@ -394,7 +493,17 @@ export class PlanningSessions {
 
   // ---- start ---------------------------------------------------------------------------------
 
-  async #start(handle: OfficeHandle, office: OfficeId, args: StartArgs): Promise<PlanningView> {
+  async #begin(
+    handle: OfficeHandle,
+    office: OfficeId,
+    args: {
+      readonly kind: PlanningKind;
+      readonly goal: string;
+      /** The planning session this model session continues; null for a new one. */
+      readonly session: RunId | null;
+      readonly continued: Continued | null;
+    },
+  ): Promise<PlanningView> {
     const deps = this.#deps;
     const boxes = deps.boxes;
     const config = deps.offices.config(office);
@@ -416,6 +525,8 @@ export class PlanningSessions {
       office,
       handle,
       run,
+      session: args.session ?? run,
+      continued: args.continued,
       agent,
       kind: args.kind,
       goal: args.goal,
@@ -430,6 +541,29 @@ export class PlanningSessions {
       ingestor: null,
       settled: false,
     };
+    this.#recordStart(open, config);
+    this.#open.set(office, open);
+    this.#announceStart(open);
+    try {
+      await this.#launch(open, config, git, boxes);
+    } catch (error) {
+      const detail = error instanceof CommandError ? error.message : messageOf(error);
+      open.ending = { reason: "start-failed", detail };
+      await this.#finish(open, null);
+      if (error instanceof CommandError) throw error;
+      throw new CommandError(
+        "planning.startFailed",
+        `The planning session did not start: ${detail}`,
+        { run },
+      );
+    }
+    return handle.deferred(() => this.#viewOf(open));
+  }
+
+  /** The run's row and the record's entries, in one transaction. */
+  #recordStart(open: Open, config: OfficeConfig): void {
+    const { handle, run, startedAt } = open;
+    const settings = config.planning;
     const hash = configHash(config);
     handle.immediate(() => {
       recordConfigSnapshot(handle, hash, config, startedAt);
@@ -455,25 +589,44 @@ export class PlanningSessions {
         runProfileId: currentProfileId(handle),
         startedAt,
       });
+      if (open.session === run) {
+        addPlanningEntry(handle, run, {
+          kind: "goal",
+          subject: open.kind,
+          text: open.goal,
+          at: startedAt,
+        });
+      }
+      addPlanningEntry(handle, open.session, {
+        kind: "started",
+        run,
+        subject: open.continued?.reason ?? "start",
+        text: "",
+        at: startedAt,
+      });
     });
-    this.#open.set(office, open);
+  }
+
+  /** `planning.started`, and `planning.continued` for a fresh model session of a session. */
+  #announceStart(open: Open): void {
+    const { run, continued } = open;
     this.#append(open, () => [
       { type: "planning.started", run, delta: { run, view: this.#viewOf(open) } },
+      ...(continued === null
+        ? []
+        : [
+            {
+              type: "planning.continued",
+              run,
+              delta: {
+                run,
+                previous: continued.previous,
+                reason: continued.reason,
+                view: this.#viewOf(open),
+              },
+            },
+          ]),
     ]);
-    try {
-      await this.#launch(open, config, git, boxes);
-    } catch (error) {
-      const detail = error instanceof CommandError ? error.message : messageOf(error);
-      open.ending = { reason: "start-failed", detail };
-      await this.#finish(open, null);
-      if (error instanceof CommandError) throw error;
-      throw new CommandError(
-        "planning.startFailed",
-        `The planning session did not start: ${detail}`,
-        { run },
-      );
-    }
-    return handle.deferred(() => this.#viewOf(open));
   }
 
   /** The session's spec and system file: its first message holds the facts code knows. */
@@ -491,6 +644,7 @@ export class PlanningSessions {
       handle.deferred(() => ({
         kind: open.kind,
         goal: open.goal,
+        record: planningRecordText(readPlanningRecord(handle, open.session)),
         drafts: activeStoryViews(handle)
           .filter((view) => view.lifecycle === "Draft")
           .map((view) => ({ story: view.story, title: view.title })),
@@ -686,6 +840,19 @@ export class PlanningSessions {
     if (open.settled) return;
     open.turns += 1;
     if (open.ending !== null) return;
+    const near = open.handle.deferred(() =>
+      contextNearFull(
+        open.handle,
+        { run: open.run, agent: open.agent, role: PLANNER_ROLE, tier: "", budgetLimit: 0 },
+        this.#deps.contextTokens ?? PLANNING_CONTEXT_TOKENS,
+      ),
+    );
+    if (near) {
+      // The context nears full: this model session ends and a fresh one continues from the record.
+      open.state = "waiting";
+      void this.#stop(open, { reason: "context-full" });
+      return;
+    }
     open.state = "waiting";
     this.#watchdog.waiting(open.run);
     this.#clearIdle(open);
@@ -769,9 +936,37 @@ export class PlanningSessions {
     open.state = "ended";
     const done =
       ending.reason === "maintainer" ||
+      ending.reason === "context-full" ||
       ending.reason === "idle" ||
       (ending.reason === "exited" && clean);
-    const runEnd: RunEnd = done ? "done" : "dropped";
+    this.#endRecords(open, ending.reason, done ? "done" : "dropped");
+    await this.#release(open, ending.reason);
+  }
+
+  /**
+   * Frees the office's open slot and deletes the box. A full context continues in a fresh model
+   * session, and the office stays taken meanwhile.
+   */
+  async #release(open: Open, reason: PlanningEndReason): Promise<void> {
+    const continuing = reason === "context-full";
+    if (continuing) this.#starting.add(open.office);
+    if (this.#open.get(open.office) === open) this.#open.delete(open.office);
+    this.#deps.onChanged?.(open.office);
+    try {
+      await this.#deps.boxes?.endPlanning(open.agent);
+      if (continuing) await this.#continueFresh(open, reason);
+    } catch (error) {
+      this.#deps.warn?.("continuing a planning session failed", {
+        run: open.run,
+        reason: messageOf(error),
+      });
+    } finally {
+      if (continuing) this.#starting.delete(open.office);
+    }
+  }
+
+  /** Ends the run, and appends `planning.ended` and the record's end entry, in one transaction. */
+  #endRecords(open: Open, reason: PlanningEndReason, runEnd: RunEnd): void {
     const at = this.#deps.clock.now();
     const { handle } = open;
     try {
@@ -783,11 +978,12 @@ export class PlanningSessions {
             {
               type: "planning.ended",
               run: open.run,
-              delta: { run: open.run, reason: ending.reason, view: this.#viewOf(open, at) },
+              delta: { run: open.run, reason, view: this.#viewOf(open, at) },
             },
           ],
           { at },
         );
+        addPlanningEntry(handle, open.session, { kind: "ended", run: open.run, text: reason, at });
       });
     } catch (error) {
       this.#deps.warn?.("ending a planning run failed", {
@@ -795,9 +991,16 @@ export class PlanningSessions {
         reason: messageOf(error),
       });
     }
-    if (this.#open.get(open.office) === open) this.#open.delete(open.office);
-    this.#deps.onChanged?.(open.office);
-    await this.#deps.boxes?.endPlanning(open.agent);
+  }
+
+  /** Starts the fresh model session that continues the planning session of `open`. */
+  async #continueFresh(open: Open, reason: PlanningEndReason): Promise<void> {
+    await this.#begin(open.handle, open.office, {
+      kind: open.kind,
+      goal: open.goal,
+      session: open.session,
+      continued: { previous: open.run, reason },
+    });
   }
 
   #clearIdle(open: Open): void {

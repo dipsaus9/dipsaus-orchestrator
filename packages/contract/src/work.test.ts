@@ -245,6 +245,7 @@ describe("office commands and reads", () => {
         "test.start",
         "test.record",
         "planning.start",
+        "planning.continue",
         "planning.message",
         "planning.end",
       ].toSorted(),

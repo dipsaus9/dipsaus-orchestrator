@@ -229,6 +229,7 @@ describe("tags inside slot text", () => {
       "scan_evidence",
       "scan_file",
       "planning",
+      "record",
       "drafts",
       "desk",
       "recent_runs",

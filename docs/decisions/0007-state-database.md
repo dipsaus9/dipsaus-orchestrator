@@ -64,6 +64,7 @@ Run detail and dipo's own state, grouped by subject. The groups below hold the m
 | Prompts | Prompt part sizes and, when stored, prompt texts, plus worker notes for the handoff (0014) |
 | Config | Snapshots of the effective office configuration, keyed by hash (0017) |
 | Proposals | Worker proposals for the desk (0020) |
+| Planning record | `planning_records`: per planning session, in order, its goal, each confirmed choice, each filed or edited story, each open question, and when each model session of it started and ended. A fresh model session's first message is built from it (0022). Kept until none of its entries is newer than the retention period |
 
 The database stores facts. Display status, columns, health and budget shares are derived by engine code when it reads, and go out in change-log entries and snapshots (0005).
 

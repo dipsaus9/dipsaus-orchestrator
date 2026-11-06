@@ -3,6 +3,10 @@ kind: {{kind}}
 goal: {{goal}}
 </planning>
 
+<record>
+{{record}}
+</record>
+
 <drafts>
 {{drafts}}
 </drafts>

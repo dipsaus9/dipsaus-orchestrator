@@ -129,7 +129,11 @@ function planningBox(): BoxSession {
   };
 }
 
-export function planningWorld(t: TestState, dir: string): PlanningWorld {
+export function planningWorld(
+  t: TestState,
+  dir: string,
+  options: { readonly contextTokens?: number } = {},
+): PlanningWorld {
   const office = addOffice(t);
   const officeId = OfficeId.parse(office.officeId);
   const home = join(dir, "home");
@@ -251,6 +255,7 @@ export function planningWorld(t: TestState, dir: string): PlanningWorld {
     },
     desk: () => w.desk,
     baseCommit: async () => BASE_COMMIT,
+    ...(options.contextTokens === undefined ? {} : { contextTokens: options.contextTokens }),
     runtimeDir: join(dir, "runtime"),
     tmpRoot: join(dir, "tmp"),
   });
