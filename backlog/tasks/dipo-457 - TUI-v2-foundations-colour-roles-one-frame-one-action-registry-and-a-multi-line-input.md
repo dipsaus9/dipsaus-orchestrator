@@ -3,10 +3,10 @@ id: DIPO-457
 title: >-
   TUI v2 foundations: colour roles, one frame, one action registry and a
   multi-line input
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-06 14:11'
-updated_date: '2026-11-06 16:17'
+updated_date: '2026-11-06 16:19'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -89,6 +89,10 @@ test_plan:
     - kind: "manual"
       check: "Open the TUI in a dark and a light terminal, once with NO_COLOR=1, next to designs/dipo-ux-spec.html S10 (Tweaks: dark/light, truecolor/ansi16)"
       expect: "Each terminal matches the HTML preview side by side: same roles, the focus row on sel, and under NO_COLOR only ▌ marks it"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "The DIPO-456 test body was cut off after \"session.ru\" in the answer, so I could not add it. Please send the full test, or let dipo's conflict round merge main to bring it in. Criterion 7 also has no test or hand check: what should prove that the four mocks of 17-themes.txt match the rendering?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -128,6 +132,15 @@ Parked 2026-11-06 16:16 UTC: ambiguous-spec
 - Last good commit: 1c6023f95afc7799a03be9757e1a29af399ed445
 
 Resumed 2026-11-06 16:17 UTC; grants: none; note: dipo cannot give the box a remote; here is what you asked for. CI frame: 'error: no frame contains "> READY (2)"' in packages/tui/src/queue.test.tsx. Add this test from main (DIPO-456) to that file,…
+
+Parked 2026-11-06 16:19 UTC: ambiguous-spec
+- Detail: The DIPO-456 test body was cut off after "session.ru" in the answer, so I could not add it. Please send the full test, or let dipo's conflict round merge main to bring it in. Criterion 7 also has no…
+- Run: run_01M6RMCQYTBTB2HDN3M12C4NV8
+- Criteria met: 7 of 8 (as the worker reported them)
+- Loops: 0 of 5; CI attempts: 1 of 2
+- Review rounds: 2, failed 1 of 3
+- Budget used: 306,101 of 800,000 tokens; 104 of 200 turns; 20 of 90 minutes
+- Last good commit: 73db24998f09cbaa21a75b5f49d293d459fae8f5
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
