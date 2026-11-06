@@ -3,10 +3,10 @@ id: DIPO-448
 title: >-
   Keep a planning session's decisions and continue it in a fresh Claude session
   when needed
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 14:43'
+updated_date: '2026-11-06 14:53'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -29,6 +29,8 @@ modified_files:
   - packages/contract/src/work.test.ts
   - packages/contract/src/work.ts
   - packages/contract/test/fixtures.ts
+  - packages/engine/src/backlog/lane/stories.ts
+  - packages/engine/src/db/migrations/0004-planning-record.ts
   - packages/engine/src/db/migrations/0004-planning-records.ts
   - packages/engine/src/db/schema.ts
   - packages/engine/src/prompts/task/planning.md
@@ -40,6 +42,7 @@ modified_files:
   - packages/engine/src/run/planning-session.ts
   - packages/engine/test/db/migrations.test.ts
   - packages/engine/test/prompts/task.test.ts
+  - packages/engine/test/run/planning-filing.test.ts
   - packages/engine/test/run/planning-record.test.ts
   - packages/engine/test/run/planning-session.test.ts
   - packages/engine/test/run/planning-world.ts
@@ -97,11 +100,11 @@ Resumed 2026-11-06 13:30 UTC; grants: +1 CI attempt; note: CI fails only on the 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Closed 2026-11-06 14:34 UTC
+Closed 2026-11-06 14:53 UTC
 - Criteria met: 4 of 4 (as the worker reported them)
 - Loops: 1; CI attempts: 7 (red heads, reviewed or closed out, before this close-out)
-- Review rounds: 3, failed 1
-- Budget used: 425,438 of 800,000 tokens
+- Review rounds: 4, failed 1
+- Budget used: 479,839 of 800,000 tokens
 - Runs: 1; resumes: 1
 - Parks: 1
   - 2026-11-06 13:21 UTC verify-failing: required checks were red on 2 pushed heads (the CI cap is 2). Required check ci-ok failed on the pushed head.
