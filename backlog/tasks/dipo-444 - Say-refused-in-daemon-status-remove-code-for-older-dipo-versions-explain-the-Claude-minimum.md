@@ -3,10 +3,10 @@ id: DIPO-444
 title: >-
   Say refused in daemon status, remove code for older dipo versions, explain the
   Claude minimum
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-04 12:24'
-updated_date: '2026-11-06 09:18'
+updated_date: '2026-11-06 09:19'
 labels:
   - 'tier:S'
 milestone: m-2
@@ -28,6 +28,7 @@ references:
 modified_files:
   - packages/cli/src/daemon-commands.ts
   - packages/cli/src/lifecycle-commands.test.ts
+  - packages/daemon/test/integration/database-unavailable.ci.test.ts
   - packages/engine/src/db/backup-files.ts
   - packages/engine/src/db/migrations.ts
   - packages/engine/src/records/worker-hosts.ts
@@ -81,11 +82,11 @@ test_plan:
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Closed 2026-11-06 09:10 UTC
+Closed 2026-11-06 09:19 UTC
 - Criteria met: 3 of 3 (as the worker reported them)
-- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
-- Review rounds: 1, failed 0
-- Budget used: 128,733 of 300,000 tokens
+- Loops: 0; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 183,727 of 300,000 tokens
 - Runs: 1; resumes: 0
 - Parks: none
 - Grants: none
