@@ -3,10 +3,10 @@ id: DIPO-448
 title: >-
   Keep a planning session's decisions and continue it in a fresh Claude session
   when needed
-status: In Review
+status: In Progress
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 14:02'
+updated_date: '2026-11-06 14:08'
 labels:
   - 'tier:M'
 milestone: m-3
