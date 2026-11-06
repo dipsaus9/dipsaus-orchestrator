@@ -3,10 +3,10 @@ id: DIPO-457
 title: >-
   TUI v2 foundations: colour roles, one frame, one action registry and a
   multi-line input
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-06 14:11'
-updated_date: '2026-11-06 16:15'
+updated_date: '2026-11-06 16:16'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -86,6 +86,10 @@ test_plan:
     - kind: "manual"
       check: "Open the TUI in a dark and a light terminal, once with NO_COLOR=1, next to designs/dipo-ux-spec.html S10 (Tweaks: dark/light, truecolor/ansi16)"
       expect: "Each terminal matches the HTML preview side by side: same roles, the focus row on sel, and under NO_COLOR only ▌ marks it"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "This box has no origin remote and no DIPO-456 test, so I cannot merge main. Please bring the merged branch (story branch plus main, with DIPO-456's queue test) into my box, or paste that test's body and the CI frame it printed. Then I will update only its frame expectations to the ▌ focus bar and the new Queue heading, and run DIPO_TEST_CI=1 bun run verify."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -114,6 +118,15 @@ Parked 2026-11-06 15:47 UTC: ambiguous-spec
 - Last good commit: 15233fc3268030953ab7fafc8ab510fa78c17a48
 
 Resumed 2026-11-06 16:15 UTC; grants: none; note: The failing test is DIPO-456's in packages/tui/src/queue.test.tsx: 'u runs stories > shows the decision at once and the story in setup from it: the answer's cursor is the decision's own entry (DIPO-4…
+
+Parked 2026-11-06 16:16 UTC: ambiguous-spec
+- Detail: This box has no origin remote and no DIPO-456 test, so I cannot merge main. Please bring the merged branch (story branch plus main, with DIPO-456's queue test) into my box, or paste that test's body…
+- Run: run_01M6RMCQYTBTB2HDN3M12C4NV8
+- Criteria met: 6 of 8 (as the worker reported them)
+- Loops: 0 of 5; CI attempts: 1 of 2
+- Review rounds: 2, failed 1 of 3
+- Budget used: 284,492 of 800,000 tokens; 99 of 200 turns; 19 of 90 minutes
+- Last good commit: 1c6023f95afc7799a03be9757e1a29af399ed445
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
