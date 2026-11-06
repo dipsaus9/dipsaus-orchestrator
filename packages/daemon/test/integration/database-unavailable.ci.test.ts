@@ -281,10 +281,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               await client.close();
             }
 
-            // `dipo daemon status` prints the state with the reason that says what to do.
+            // `dipo daemon status` prints `refused` with the reason that says what to do (0005).
             const printed = await dipo(env, ["daemon", "status"]);
             expect(printed.code).toBe(0);
-            expect(printed.out).toContain(`state:      recovering (${status.stateReason})`);
+            expect(printed.out).toContain(`state:      refused (${status.stateReason})`);
 
             // Still up a moment later: no exit, so no supervisor restart loop.
             await Bun.sleep(300);

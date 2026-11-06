@@ -7,7 +7,12 @@ import type { ChildProcess, Clock, Spawn } from "@dipsaus-orchestrator/contract"
 
 import type { AdapterStatus } from "../types";
 
-/** The oldest Claude Code dipo accepts (0008). */
+/**
+ * The oldest Claude Code dipo accepts (0008). It was set for sandbox locks Claude Code no longer
+ * has, and no code here shows a feature that needs this exact version. Nothing lower is shown to
+ * work either, so it stays until the flags dipo passes (`plan.ts`, `box-plan.ts`) are checked
+ * against older versions; lower it only after that check.
+ */
 export const MIN_CLAUDE_VERSION = "2.1.285";
 /**
  * The newest Claude Code dipo was checked with (DIPO-315): the version the box image installs by

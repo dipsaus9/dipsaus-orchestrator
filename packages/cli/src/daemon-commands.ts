@@ -171,12 +171,15 @@ const TOOL_ORDER = ["workerCli", "backlog", "gh", "rg", "git"] as const;
 /** The `running` report: state and reason, PID, version, uptime, socket and tool paths. */
 export function formatRunning(status: DaemonStatusResult): string[] {
   const reason = status.stateReason === undefined ? "" : ` (${status.stateReason})`;
+  // The protocol state stays `recovering` while the database is unusable (0005); the report says
+  // `refused`, with the reason and the fix that `stateReason` carries.
+  const state = status.databaseUnavailable === undefined ? status.state : "refused";
   const keepAwake = status.keepAwake.held
     ? `held${status.keepAwake.reason === undefined ? "" : ` (${status.keepAwake.reason})`}`
     : `not held${status.keepAwake.reason === undefined ? "" : `: ${status.keepAwake.reason}`}`;
   const lines = [
     "running",
-    `  state:      ${status.state}${reason}`,
+    `  state:      ${state}${reason}`,
     `  pid:        ${status.pid}`,
     `  version:    ${status.version}`,
     `  uptime:     ${formatUptime(status.uptimeMs)}`,

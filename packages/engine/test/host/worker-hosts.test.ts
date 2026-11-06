@@ -180,10 +180,8 @@ describe("worker_hosts", () => {
             finalOffset: null,
             endedAt: null,
             startedAt: clock.now(),
-            // Recorded over the pending row written before the spawn (DIPO-93); this host stops
-            // its worker on SIGTERM.
+            // Recorded over the pending row written before the spawn (DIPO-93).
             pending: false,
-            signalStop: true,
           },
         ]);
         recordHostExit(office, AGENT, {

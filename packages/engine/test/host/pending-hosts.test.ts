@@ -108,7 +108,6 @@ describe("the pending host row (AC #3)", () => {
       pid: 0,
       startTimeMs: 0,
       processedOffset: 64,
-      signalStop: true,
     });
     const rows = workerHostsOf(office, RUN);
     expect(rows).toHaveLength(1);
@@ -170,7 +169,7 @@ function pendingRowFresh(): WorkerHostRow {
 }
 
 /** A recorded host row, alone in the table. */
-function recorded(overrides: Partial<{ signalStop: boolean }> = {}): WorkerHostRow {
+function recorded(): WorkerHostRow {
   office.immediate(() => office.run("delete from worker_hosts where office_id = $office_id"));
   recordWorkerHost(
     office,
@@ -187,11 +186,6 @@ function recorded(overrides: Partial<{ signalStop: boolean }> = {}): WorkerHostR
     },
     t.clock,
   );
-  if (overrides.signalStop === false) {
-    office.immediate(() =>
-      office.run("update worker_hosts set signal_stop = 0 where office_id = $office_id"),
-    );
-  }
   const row = workerHostsOf(office, RUN)[0];
   if (row === undefined) throw new Error("no row");
   return row;
@@ -219,7 +213,6 @@ describe("verifyHostForSignal (0005)", () => {
         same({ command: "/opt/dipo daemon worker-host run_01JZ0000000000000000000009" }),
       ),
     ).toContain("does not run");
-    expect(await reasons(recorded({ signalStop: false }), same())).toContain("older dipo");
     expect(await reasons(pendingRowFresh(), same())).toContain("pending");
     const ended = recorded();
     expect(await reasons({ ...ended, endedAt: 5 }, same())).toContain("ended");
@@ -242,13 +235,12 @@ describe("signalVerifiedHost (0005)", () => {
     expect(sent).toEqual([[7001, "SIGTERM"]]);
   });
 
-  it("never signals a PID it cannot verify: gone, reused, a zombie, another command or an older host", async () => {
+  it("never signals a PID it cannot verify: gone, reused, a zombie or another command", async () => {
     for (const [row, probe] of [
       [recorded(), probeOf(null)],
       [recorded(), same({ startTimeMs: START + 60_000 })],
       [recorded(), same({ zombie: true })],
       [recorded(), same({ command: "/usr/bin/vim" })],
-      [recorded({ signalStop: false }), same()],
     ] as const) {
       const sent: number[] = [];
       const why = await signalVerifiedHost(row, probe, (pid) => {

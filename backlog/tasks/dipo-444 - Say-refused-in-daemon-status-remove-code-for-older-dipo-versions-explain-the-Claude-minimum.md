@@ -3,10 +3,10 @@ id: DIPO-444
 title: >-
   Say refused in daemon status, remove code for older dipo versions, explain the
   Claude minimum
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-04 12:24'
-updated_date: '2026-11-04 15:57'
+updated_date: '2026-11-06 09:19'
 labels:
   - 'tier:S'
 milestone: m-2
@@ -25,6 +25,21 @@ references:
   - packages/engine/test/create/surface.test.ts
   - packages/engine/src/workers/claude-cli/probe.ts
   - packages/engine/test/workers/probe.test.ts
+modified_files:
+  - packages/cli/src/daemon-commands.ts
+  - packages/cli/src/lifecycle-commands.test.ts
+  - packages/daemon/test/integration/database-unavailable.ci.test.ts
+  - packages/engine/src/db/backup-files.ts
+  - packages/engine/src/db/migrations.ts
+  - packages/engine/src/records/worker-hosts.ts
+  - packages/engine/src/workers/claude-cli/probe.ts
+  - packages/engine/test/backup/backup.test.ts
+  - packages/engine/test/create/recovery.test.ts
+  - packages/engine/test/host/pending-hosts.test.ts
+  - packages/engine/test/host/verify-real-process.test.ts
+  - packages/engine/test/host/worker-hosts.test.ts
+  - packages/engine/test/run/conflicts.test.ts
+  - packages/engine/test/run/planning.test.ts
 priority: medium
 type: chore
 ordinal: 417000
@@ -59,7 +74,22 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 dipo daemon status prints refused, with the reason and the fix, for every database the daemon cannot use (from before the squash, too new or damaged), while the protocol state stays recovering as 0005 says
-- [ ] #2 Each code path kept only for state older than the squashed database is removed together with its test: the older dipo signalStop branch, the hand-off of older steps and the earlier dipo's daily copies; tests of robustness against an entry that does not render stay
-- [ ] #3 MIN_CLAUDE_VERSION has one comment naming what needs it, and it is lowered only when the code shows no newer feature is used
+- [x] #1 dipo daemon status prints refused, with the reason and the fix, for every database the daemon cannot use (from before the squash, too new or damaged), while the protocol state stays recovering as 0005 says
+- [x] #2 Each code path kept only for state older than the squashed database is removed together with its test: the older dipo signalStop branch, the hand-off of older steps and the earlier dipo's daily copies; tests of robustness against an entry that does not render stay
+- [x] #3 MIN_CLAUDE_VERSION has one comment naming what needs it, and it is lowered only when the code shows no newer feature is used
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-06 09:19 UTC
+- Criteria met: 3 of 3 (as the worker reported them)
+- Loops: 0; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 183,727 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->
