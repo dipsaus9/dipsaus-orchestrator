@@ -90,11 +90,13 @@ A story can reach Done without dipo, for example when it was finished by hand on
 3. Deletes the box, and deletes the branch when it adds nothing to the base.
 4. Keeps a branch with commits not on the base as a desk item, "leftovers". `dipo discard` removes them after showing the loss. Leftovers are never deleted by themselves.
 
-## 8. Proposals
+## 8. Proposals and proposed stories
 
-A worker may add up to three proposals to any report: a follow-up, a spike or a tool it would need. Each carries a Story line of the shape 0012 R05 checks. A proposal whose line fails never parks the story: a done report sends such lines back once per run, with each problem and without spending a loop; a line that still fails, or one with no turn left, drops that proposal with a notice that carries its words, and the rest of the report goes on. A proposal is never done in place. dipo stores it with an id made from a hash of its title and paths, and shows it on the desk. `dipo propose accept <id>` files it as a Backlog draft through the backlog lane, with the worker's words marked as the worker's. A draft is not a story yet: the maintainer refines it into one before it can be made Ready. `dipo propose dismiss <id>` closes it. Nothing is filed without the maintainer's accept.
+A worker may add up to three proposals to any report: a follow-up, a spike or a tool it would need. Each carries a Story line of the shape 0012 R05 checks. A proposal whose line fails never parks the story: a done report sends such lines back once per run, with each problem and without spending a loop; a line that still fails, or one with no turn left, drops that proposal with a notice that carries its words, and the rest of the report goes on. A proposal is never done in place, and it never goes to the desk by itself: dipo holds it as an idea of its run (0022), audited first by code and then by a short audit session once the run is merged or parked. `dipo ideas` lists the held, passed and rejected ideas with their reasons.
 
-Every proposal is also held as an idea of its run (0022) and audited, first by code and then by a short audit session, once the run is merged or parked; the proposals open on the desk when ideas came were held as ideas then, and audited once. `dipo ideas` lists the held, passed and rejected ideas with their reasons. Until the desk shows the audited ideas instead, a proposal still goes to the desk as above.
+**The proposed story.** An idea that passed the audit, whatever its origin (a worker's proposal, a reviewer's advisory finding, a planning session's aside, or the maintainer's quick idea from `dipo idea "<text>"` or the desk's `i` key), is one desk item, a proposed story. Its card shows in full what was found with its evidence and source story, the Story line, what is proposed, why, and the milestone it serves or tech debt. `dipo idea accept <id>` (`y`) files it as a Backlog draft through the backlog lane, with its origin, source story and proposed user story in the description, its evidence files as references and the milestone it serves; a tech-debt draft has no milestone and the label `tech-debt`. A draft has no real id and no branch, so it never runs: a triage session (0022) refines it into a Refined story or drops it. `dipo idea dismiss <id>` (`n`) closes it and files nothing; dipo keeps it as dismissed by the maintainer, for retro. Nothing is filed without the maintainer's accept.
+
+**A decision note** a worker adds for a decision record is not an idea: it is its own desk item, which `dipo note dismiss <id>` closes. dipo never writes the decision records; the maintainer adds the note by hand if they agree.
 
 ## 9. The desk
 
@@ -107,7 +109,7 @@ Order, by what unblocks work soonest:
 3. Merge gates waiting for the maintainer (0002), with the PR link and the reason, plus `dipo approve` and `dipo reject` (or "merge by hand on GitHub" for a release-path PR).
 4. Parked stories: `ambiguous-spec`, then `review-blocked` (one row with both `dipo resume --note` and `dipo approve --note`), `budget-exceeded`, `verify-failing`, `conflict`, `scope-violation`, `worker-failed`, and last `by-maintainer`, listed apart as "Parked by you".
 5. Hand actions: leftovers, a backlog PR that failed its check, and a PR whose head changed outside dipo.
-6. Proposals, spikes before follow-ups.
+6. Proposed stories, then decision notes.
 7. Next up: one Ready story per free run slot, with `dipo next confirm` and `dipo next decline` (0010).
 
 Within a group, items that block the most other stories come first, then the oldest.
@@ -124,5 +126,6 @@ Within a group, items that block the most other stories come first, then the old
 - `needs-permission` and its allow-or-deny answers. A box worker has every permission (2026-10-22).
 - The web-value gate on the developer's web calls and the domain allowlist idea. The box has open web access and holds no real secrets (2026-10-21). No session has a web gate: the reviewer box holds no secrets either (0008, 2026-10-24).
 - A question wait that depended on a TUI being connected (2026-10-21). Replaced by section 4.
-- A worker's proposal that went to the desk with no check first (2026-10-24). Replaced by a proposal held as an idea and audited before it reaches the maintainer (0022, 2026-11-06); until the desk shows the audited ideas, it still goes to the desk as well.
+- A worker's proposal that went to the desk with no check first (2026-10-24). Replaced by a proposal held as an idea and audited before it reaches the maintainer (0022, 2026-11-06).
+- A worker's proposal on the desk as a one-line item, with `dipo propose accept` and `dipo propose dismiss`, and a decision note dismissed by the same command (2026-10-24). Replaced by the proposed story: one desk item per idea that passed the audit, its card in full, with `dipo idea accept` and `dipo idea dismiss`, and a decision note with its own `dipo note dismiss` (2026-11-06).
 - The waiting command path with a crash-injection test per command. Idempotency is limited to commands that start or change a run (0005).

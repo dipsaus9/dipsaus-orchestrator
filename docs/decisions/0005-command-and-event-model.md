@@ -20,7 +20,7 @@ A command writes its facts and their change-log entries in one transaction, then
 
 ### 2. Ids
 
-Engine-made ids are a prefix plus a ULID: `off_` (office), `sto_` (story key), `run_`, `agt_` (one session), `gat_` (gate), `qst_` (question), `tst_` (a maintainer's test). A proposal's id is a hash of its content (0020). A `StoryId` is the Backlog.md id unchanged. A `RequestId` is a ULID the client makes for every command and read. A `Cursor` is `{ stream: "office:<id>" | "software", seq }`.
+Engine-made ids are a prefix plus a ULID: `off_` (office), `sto_` (story key), `run_`, `agt_` (one session), `gat_` (gate), `qst_` (question), `tst_` (a maintainer's test). An idea's id and a decision note's id are a hash of its content (0020, 0022). A `StoryId` is the Backlog.md id unchanged. A `RequestId` is a ULID the client makes for every command and read. A `Cursor` is `{ stream: "office:<id>" | "software", seq }`.
 
 **Story keys.** The engine gives each story a `StoryKey` when it first sees it. Facts and events refer to the key, and every event that names a story carries both the key and the Backlog.md id of that moment. A command may name a story by either. The id of a story changes only when the engine promotes a draft (M3), which emits `story.renumbered`. A story whose id vanishes from Backlog.md outside the engine is `Removed`, and a new id is a new story; reconcile says so with a notice. The key lives only in the database (0001).
 
@@ -49,7 +49,7 @@ The daemon serves the frames of one connection side by side. Reads run as they a
 | Work | `work.run`, `work.answer`, `work.steer`, `work.resume`, `work.discard` |
 | Story | `story.park`, `story.drop` |
 | Gates | `gate.approve`, `gate.reject` |
-| Proposals | `proposal.accept`, `proposal.dismiss` |
+| Ideas | `idea.add`, `idea.accept`, `idea.dismiss`, `note.dismiss` |
 | Next up | `nextUp.confirm`, `nextUp.decline` |
 | Testing | `test.start`, `test.record` |
 | Daemon | `daemon.stop`, `daemon.setLogLevel`, `daemon.resumeStarts` |
@@ -65,7 +65,7 @@ Their behaviour is decided where the subject lives: 0020 for park, resume, drop 
 | Stream | Events |
 |---|---|
 | Software | `office.registered`, `office.forgotten`, `office.summary` (derived), `daemon.state`, `engine.notice`, `stream.mark` (derived) |
-| Office | `story.state`, `story.renumbered`, `story.parked`, `run.ended`, `story.pr`, `work.assigned`, `work.phase`, `work.progress`, `work.output`, `work.observed`, `usage.updated`, `gate.reached`, `gate.decided`, `question.asked`, `question.closed`, `proposal.filed`, `proposal.closed`, `test.started`, `test.recorded`, `test.ended`, `scan.finished`, `engine.notice`, `stream.mark` (derived) |
+| Office | `story.state`, `story.renumbered`, `story.parked`, `run.ended`, `story.pr`, `work.assigned`, `work.phase`, `work.progress`, `work.output`, `work.observed`, `usage.updated`, `gate.reached`, `gate.decided`, `question.asked`, `question.closed`, `proposal.filed` (no longer written), `proposal.closed`, `idea.passed`, `idea.answered`, `test.started`, `test.recorded`, `test.ended`, `scan.finished`, `engine.notice`, `stream.mark` (derived) |
 
 Every event about running work carries a `WorkRef` (story, key, run, agent, role, tier, model) and the engine's view of the run, so the overview shows who works on what without another read. The vocabularies these events carry are short and one per meaning (0009): lifecycle, park reason (0001), phase, and one health value with its signals as evidence.
 
@@ -89,7 +89,7 @@ Every event about running work carries a `WorkRef` (story, key, run, agent, role
 
 - **Commands are target-state.** Parking what is parked, or resuming a story that already runs, replies `changed: false` and changes nothing.
 - **Office commands are stored.** For every office command, the request id, a hash of the resolved args and the reply are written with the facts, and kept one day (0007). A retry with the same id after a lost reply gets the same reply. The same id with other args fails with `request.reused`.
-- **Slow commands wait.** A command whose work takes time (`work.resume`, `work.answer`, `work.steer`, `work.discard`, `story.park`, `story.drop`, `gate.approve`, `gate.reject`, `test.start`, `test.record`, `proposal.accept`, `proposal.dismiss`, `nextUp.decline`) replies when that work is done, and its record is written then. A duplicate that arrives meanwhile waits for the same reply. Software commands keep their records in memory while they run.
+- **Slow commands wait.** A command whose work takes time (`work.resume`, `work.answer`, `work.steer`, `work.discard`, `story.park`, `story.drop`, `gate.approve`, `gate.reject`, `test.start`, `test.record`, `idea.accept`, `idea.dismiss`, `note.dismiss`, `nextUp.decline`) replies when that work is done, and its record is written then. A duplicate that arrives meanwhile waits for the same reply. Software commands keep their records in memory while they run.
 - **Starting a story answers at its decision.** `work.run` and `nextUp.confirm` decide at once, from the base as last fetched, which stories start and why the others do not, and reply with that. In the same transaction each started story is recorded as starting: the overview shows it in the `setup` phase and the queue no longer lists it as Ready from that moment, and another run of it is skipped as `starting`. The claim, the push, the box and the install follow after the reply, and the run replaces the start once it is recorded. They fetch the base again first; a story that can no longer start there, or whose start fails, gets a notice and shows as the base has it again. A story the base as last fetched said fails its pickup check is moved to Refined only when it still fails on the fresh base; when it passes there, a notice says it stays Ready.
 - **The text the maintainer writes** (notes, answers, steers) is a maintainer-authored fact, kept for the audit trail and as worker input.
 
