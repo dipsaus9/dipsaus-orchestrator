@@ -7,11 +7,12 @@
 // (`plannedPark`): that park counts as the story's park before its backlog PR merges
 // (`records/park-state.ts`).
 
-import type {
-  FieldBlockPark,
-  LaneFlush,
-  Lifecycle,
-  StoryKey,
+import {
+  type FieldBlockPark,
+  type LaneFlush,
+  type Lifecycle,
+  type StoryKey,
+  TestPlan,
 } from "@dipsaus-orchestrator/contract";
 import { z } from "zod";
 
@@ -45,6 +46,10 @@ export const DROP_KIND = "drop";
 export const DISCARD_KIND = "discard";
 /** An accepted worker proposal filed as a draft (DIPO-166). */
 export const PROPOSE_KIND = "propose";
+/** A new story a planning session's confirmed proposal files Refined (DIPO-450). */
+export const FILE_KIND = "file";
+/** An edit of a story's wording, criteria or references a planning session confirmed (DIPO-450). */
+export const REVISE_KIND = "revise";
 
 /** The target state of an edit: status, field-block keys and labels. */
 export const EditTarget = z
@@ -67,6 +72,49 @@ export const EditTarget = z
   })
   .strict();
 export type EditTarget = z.infer<typeof EditTarget>;
+
+/** Where a planning-session change came from: the session's run and the proposal's number. */
+const PlanningSource = { run: z.string().min(1), proposal: z.int().positive() };
+
+/**
+ * The target state of a filing (DIPO-450): a task with this title exists whose description starts
+ * with `description` (the Story line and its context), Refined, with the type, milestone, tier
+ * label, criteria, references and dependencies, and a field block with its branch, an empty
+ * unknowns list and the test plan (0012).
+ */
+export const FileTarget = z
+  .object({
+    ...PlanningSource,
+    title: z.string().min(1),
+    type: z.string().min(1),
+    milestone: z.string().min(1),
+    tier: z.string().min(1),
+    description: z.string().min(1),
+    criteria: z.array(z.string().min(1)).min(1),
+    references: z.array(z.string().min(1)),
+    dependencies: z.array(z.string().min(1)),
+    testPlan: TestPlan.optional(),
+  })
+  .strict();
+export type FileTarget = z.infer<typeof FileTarget>;
+
+/**
+ * The target state of a revision (DIPO-450): each field given replaces the story's, while its
+ * status is one of `from`. `storyLine` replaces the `Story:` line and `context` the text between it
+ * and the field block; `criteria` and `references` are whole lists.
+ */
+export const ReviseTarget = z
+  .object({
+    ...PlanningSource,
+    from: z.array(z.string().min(1)).min(1),
+    title: z.string().min(1).optional(),
+    storyLine: z.string().min(1).optional(),
+    context: z.string().min(1).optional(),
+    criteria: z.array(z.string().min(1)).min(1).optional(),
+    references: z.array(z.string().min(1)).min(1).optional(),
+  })
+  .strict();
+export type ReviseTarget = z.infer<typeof ReviseTarget>;
 
 /** The target state of a drop: the story is archived. */
 export const DropTarget = z.object({ kind: z.enum(["task", "draft"]).optional() }).strict();
@@ -124,6 +172,16 @@ export interface PlanningLane {
   toRefined(story: PlanningStory): Promise<PlannedChange>;
   /** Files an accepted proposal as a draft; `subject` names it in the commit. */
   fileDraft(subject: string, draft: ProposedDraft): Promise<PlannedChange>;
+  /** Files a new story a planning session confirmed (DIPO-450). */
+  fileStory(target: FileTarget): Promise<PlannedChange>;
+  /** Changes a story's wording, criteria or references as a planning session confirmed. */
+  reviseStory(story: PlanningStory, target: ReviseTarget): Promise<PlannedChange>;
+  /**
+   * How far the journaled `change` got (DIPO-450): `waiting` to be applied, `applied` (committed,
+   * pushed or merged, or on the open branch already), or `closed` with the notice that says why;
+   * undefined when the journal no longer has it.
+   */
+  outcomeOf(change: PlannedChange): PlannedOutcome | undefined;
   /** Gives a journaled change up before anything of it was applied. */
   withdraw(change: PlannedChange): void;
   /**
@@ -149,6 +207,12 @@ export interface PlanningLane {
   draftOf(proposal: string): (PlannedChange & { readonly open: boolean }) | undefined;
 }
 
+/** How far a journaled change got, as `PlanningLane.outcomeOf` says it. */
+export interface PlannedOutcome {
+  readonly outcome: "waiting" | "applied" | "closed";
+  readonly notice: string | null;
+}
+
 /** Why the planning lane holds a story from pickup (0010: a pending change always wins). */
 export type PlanningHold =
   /** A change of the story is journaled and not on the base yet. */
@@ -160,3 +224,10 @@ export type PlanningHold =
    * story stays out of pickup until the park is sent again or resumed.
    */
   | "holdFailed";
+
+/** Pure: a new story's description (0012 F3): the Story line, and the context below it. */
+export function storyDescription(storyLine: string, context?: string): string {
+  const line = `Story: ${storyLine.trim()}`;
+  const below = context?.trim() ?? "";
+  return below === "" ? line : `${line}\n\n${below}`;
+}

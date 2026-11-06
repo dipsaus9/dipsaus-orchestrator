@@ -74,6 +74,8 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   parks: aged("resolved more than retention.days ago; an open park is kept"),
   done_elsewhere: aged("cleared more than retention.days ago; leftovers not cleared are kept"),
   run_summaries: aged("with its run, ended more than retention.days ago"),
+  // DIPO-450: the stories a planning session filed or edited.
+  planning_record: aged("with its run, ended more than retention.days ago"),
   done_reports: aged("with its run, ended more than retention.days ago"),
   report_sendbacks: aged("with its run, ended more than retention.days ago"),
   decision_notes: aged("decided more than retention.days ago; an open note is kept"),

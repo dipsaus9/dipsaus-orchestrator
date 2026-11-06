@@ -28,6 +28,8 @@ const KEYS: Readonly<Record<string, string>> = {
   "ctrl-r": "\u0012",
   "ctrl-s": "\u0013",
   "ctrl-e": "\u0005",
+  "ctrl-y": "\u0019",
+  "ctrl-d": "\u0004",
   pageup: "\u001b[5~",
   pagedown: "\u001b[6~",
   home: "\u001b[H",

@@ -39,6 +39,26 @@ function planningView(extra: Partial<PlanningView> = {}): PlanningView {
   } as PlanningView;
 }
 
+/** An open story proposal of the planning view (DIPO-450). */
+const proposal = (n: number, title: string, tier: "S" | "M") => ({
+  n,
+  proposal: {
+    kind: "story",
+    title,
+    type: "feature",
+    milestone: "m-3",
+    tier,
+    storyLine:
+      "As maintainer I want to export the stories as a CSV file so that I can share the backlog with people outside dipo.",
+    criteria: ["The export writes one CSV row per active story"],
+    references: ["packages/cli/src/export-command.ts"],
+    testPlan: { entries: [{ kind: "automated", check: "(unit) one CSV row per story" }] },
+    why: `Why ${title}: the maintainer asked for it.`,
+  },
+  state: "open",
+  at: "2026-10-14T10:04:00.000Z",
+});
+
 function officeEvent(seq: number, type: string, data: unknown): Event {
   return { cursor: { stream: STREAM, seq }, at: "2026-10-14T10:05:00.000Z", type, data } as Event;
 }
@@ -179,6 +199,73 @@ describe("the planning view", () => {
     expect(session.commands.find((c) => c.name === "planning.message")?.args).toEqual({
       text: "And a third?",
     });
+  });
+
+  it("shows each proposal with its tier and why and the latest refusal, and confirms, edits and declines by command (DIPO-450)", async () => {
+    const snapshots = new Map([
+      [
+        OFFICES.dipsaus,
+        {
+          ...golden(),
+          planning: planningView({
+            proposals: [proposal(1, "Export as CSV", "M"), proposal(2, "Export as XML", "S")],
+            refusals: [{ at: "2026-10-14T10:03:00.000Z", problems: ["tier: Invalid option"] }],
+          } as Partial<PlanningView>),
+        },
+      ],
+    ]);
+    const { ui, session } = await open({ columns: 140, rows: 34, snapshots });
+    await ui.press("5");
+    const frame = await ui.waitFor("#2 story [S] Export as XML");
+    expect(frame).toContain("proposals · 2 · 2 open");
+    expect(frame).toContain("#1 story [M] Export as CSV · open");
+    expect(frame).toContain("why: Why Export as XML: the maintainer asked for it.");
+    expect(frame).toContain("› #2");
+    expect(frame).toContain("refused a proposal at");
+    expect(frame).toContain("tier: Invalid option");
+    expect(frame).toContain("[Ctrl-Y] confirm");
+
+    const sent = async (name: string) => {
+      for (let i = 0; i < 100 && !session.commands.some((c) => c.name === name); i++) {
+        await Bun.sleep(5);
+      }
+      return session.commands.find((c) => c.name === name);
+    };
+
+    // Decline the selected (the latest), then select the first and confirm it.
+    await ui.press("ctrl-d");
+    expect((await sent("planning.decline"))?.args).toEqual({ proposal: 2 });
+    await ui.press("up");
+    await ui.waitFor("› #1");
+    session.commandReply = (name) =>
+      name === "planning.confirm"
+        ? {
+            ok: true,
+            result: { run: RUN, proposal: 1, state: "filed", stories: ["DIPO-31"] },
+            changed: true,
+          }
+        : undefined;
+    await ui.press("ctrl-y");
+    expect((await sent("planning.confirm"))?.args).toEqual({ proposal: 1 });
+    await ui.waitFor("proposal 1 confirmed: DIPO-31");
+
+    // Edit: the proposal goes into the input as a form, and Ctrl-S sends it as planning.edit.
+    session.commandReply = () => undefined;
+    await ui.press("ctrl-r");
+    const editing = await ui.waitFor("editing proposal 1:");
+    expect(editing).toContain("tier: M");
+    expect(editing).toContain("[Ctrl-S] save proposal 1");
+    const why = "why: Why Export as CSV: the maintainer asked for it.";
+    for (let i = 0; i < why.length; i++) await ui.press("backspace");
+    await ui.press("why: Shorter why.");
+    await ui.press("ctrl-s");
+    const edit = await sent("planning.edit");
+    expect(edit?.args).toMatchObject({
+      proposal: 1,
+      edited: { kind: "story", title: "Export as CSV", tier: "M", why: "Shorter why." },
+    });
+    await ui.waitFor("proposal 1 edited");
+    expect(session.commands.some((c) => c.name === "planning.message")).toBe(false);
   });
 
   it("leaves the other views and keys as they were: Esc returns to the overview", async () => {

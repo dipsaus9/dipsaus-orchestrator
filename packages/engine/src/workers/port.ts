@@ -54,7 +54,8 @@ export interface WorkerPort {
   readonly id: string;
   /**
    * The JSON Schema a run puts in `WorkerSpec.reportSchema`, per kind (0008): `WorkerReport` for
-   * `implement`, `ReviewReport` for `review`.
+   * `implement`, `ReviewReport` for `review`, and for `planning` the proposal block a planning session
+   * writes in its answers (DIPO-450).
    */
   readonly reportSchema: Readonly<Record<SchemaKind, JsonSchema>>;
   /** The adapter for one run, its `plan` bound to the run's launch context (0008). */

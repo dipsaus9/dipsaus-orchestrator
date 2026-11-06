@@ -1,13 +1,15 @@
 // The worker report as Claude returns it through `--json-schema` (0008; fields from 0014). The zod
 // schema parses the `structured_output` of a result; the JSON Schema is what the launch plan passes
 // on argv and writes to the run directory. Each report kind has its own (0008): `WorkerReport` for
-// `implement`, `ReviewReport` for `review` (0002).
+// `implement`, `ReviewReport` for `review` (0002), and the contract's `PlanningProposal` for the
+// proposal blocks of a planning session's answers (DIPO-450).
 //
 // The worker report is the door of the messages story done, question, blocked and proposal (0008,
 // W2 to W5): `parseWorkerReport` holds it to `WORKER_REPORT_MAX_CHARS`, cleans every string of
 // terminal control and other unsafe characters (`cleanDoorText`) and then parses it strictly, every
 // text field with its length cap. dipo reads the report as data only.
 
+import { PlanningProposal } from "@dipsaus-orchestrator/contract";
 import { z } from "zod";
 
 import { cleanDoorStrings, doorKeysClean } from "../../box/door";
@@ -240,10 +242,18 @@ export const WORKER_REPORT_JSON_SCHEMA: JsonSchema = toJsonSchema(WorkerCliRepor
 /** The JSON Schema of `ReviewReport` for `--json-schema` (0002). */
 export const REVIEW_REPORT_JSON_SCHEMA: JsonSchema = toJsonSchema(ReviewReportSchema, "output");
 
+/**
+ * The JSON Schema of the contract's `PlanningProposal` (DIPO-450): a planning session gets it in its
+ * first message, since its answers are text and its proposal blocks pass no `--json-schema`; the
+ * engine validates each block against the zod schema itself.
+ */
+export const PLANNING_PROPOSAL_JSON_SCHEMA: JsonSchema = toJsonSchema(PlanningProposal, "input");
+
 /** The report schema of each report kind, as `WorkerPort.reportSchema` hands it out. */
 export const REPORT_JSON_SCHEMAS: Readonly<Record<SchemaKind, JsonSchema>> = {
   implement: WORKER_REPORT_JSON_SCHEMA,
   review: REVIEW_REPORT_JSON_SCHEMA,
+  planning: PLANNING_PROPOSAL_JSON_SCHEMA,
 };
 
 /** A worker report, or why the output is not one. */
