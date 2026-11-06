@@ -3,10 +3,10 @@ id: DIPO-446
 title: >-
   Count every running story in status and watch and remove the verify field that
   is always none
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-05 12:06'
-updated_date: '2026-11-06 09:18'
+updated_date: '2026-11-06 09:19'
 labels:
   - 'tier:S'
 milestone: m-2
@@ -23,6 +23,42 @@ references:
   - packages/engine/src/views/work.ts
   - packages/client/src/store/office-store.ts
   - packages/contract/src/work.ts
+modified_files:
+  - packages/cli/src/daemon-commands.test.ts
+  - packages/cli/src/daemon-commands.ts
+  - packages/cli/src/index.ts
+  - packages/cli/src/lifecycle-commands.test.ts
+  - packages/cli/src/watch-command.test.ts
+  - packages/cli/src/watch-command.ts
+  - packages/client/test/unit/client.test.ts
+  - packages/client/test/unit/lifecycle.test.ts
+  - packages/client/test/unit/live-updates.test.ts
+  - packages/client/test/unit/office-store.test.ts
+  - packages/client/test/unit/recovery.test.ts
+  - packages/client/test/unit/supervisor.test.ts
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/shared.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/software.ts
+  - packages/contract/src/work.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/create/control.ts
+  - packages/engine/src/create/steps.ts
+  - packages/engine/src/overview/index.ts
+  - packages/engine/src/overview/summary.ts
+  - packages/engine/src/run/review-rounds.ts
+  - packages/engine/src/run/work-run.ts
+  - packages/engine/src/views/work.ts
+  - packages/engine/test/create/control.test.ts
+  - packages/engine/test/create/surface.test.ts
+  - packages/engine/test/retention/retention.test.ts
+  - packages/engine/test/run-state/places.test.ts
+  - packages/engine/test/run/work-run.test.ts
+  - packages/engine/test/stories/views.test.ts
+  - packages/engine/test/views/derive.test.ts
+  - packages/tui/src/detail.test.tsx
+  - packages/tui/src/detail.tsx
 priority: medium
 type: bug
 ordinal: 419000
@@ -58,3 +94,18 @@ test_plan:
 - [x] #3 A scan session, which holds no run slot, is shown apart from the running-stories count when one runs
 - [x] #4 The verify field that is always none is removed from the work view, its contract and the watch lines
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-06 09:19 UTC
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 196,230 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
