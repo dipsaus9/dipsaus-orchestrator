@@ -3,10 +3,10 @@ id: DIPO-455
 title: >-
   Give planning sessions an interviewing standard, my project preferences and
   question dialogs
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-06 09:37'
-updated_date: '2026-11-06 09:42'
+updated_date: '2026-11-06 12:52'
 labels:
   - 'tier:M'
 milestone: m-3
