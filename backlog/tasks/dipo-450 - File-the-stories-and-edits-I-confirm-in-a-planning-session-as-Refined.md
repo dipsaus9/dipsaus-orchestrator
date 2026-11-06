@@ -1,10 +1,10 @@
 ---
 id: DIPO-450
 title: File the stories and edits I confirm in a planning session as Refined
-status: In Review
+status: In Progress
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 14:05'
+updated_date: '2026-11-06 14:10'
 labels:
   - 'tier:L'
 milestone: m-3
