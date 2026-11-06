@@ -37,6 +37,7 @@ import type { MergeReentry, PrReplacement } from "../run/park-resume";
 import type { StoryStore } from "../story-store/store";
 import type { ParkStore } from "../records/park-state";
 import { workRefOf } from "../views/work";
+import { PlanningSessions, type PlanningSessionsDeps } from "../run/planning-session";
 import type { HoldResumer } from "../run/work-resume";
 import { Partner } from "../wiring/partner";
 import type { RunBase } from "../run/work-run";
@@ -124,6 +125,10 @@ export interface RunPorts {
   readonly boxes?: RunLauncherDeps["boxes"];
   /** The reviewer boxes (0002): each review session runs in one. No reviewer runs without them. */
   readonly reviewBoxes?: Pick<BoxWorkers, "review" | "endReview">;
+  /** The planning boxes (DIPO-447): each planning session runs in one. None runs without them. */
+  readonly planningBoxes?: Pick<BoxWorkers, "planning" | "endPlanning">;
+  /** The office's desk, for a planning session's first message (DIPO-447). */
+  readonly planningDesk?: PlanningSessionsDeps["desk"];
   /**
    * Copies into a run's box the merges dipo committed on its branch outside the box, before its
    * next developer session (DIPO-324); a failure parks the story instead of starting the worker.
@@ -163,6 +168,11 @@ export interface ComposedRuns {
    * worker port, hosts and steering as the story runs, outside the worker and reviewer places.
    */
   readonly sessions: SessionRuns;
+  /**
+   * The maintainer's planning sessions (DIPO-447): one per office at most, in a read-only box,
+   * on the same worker port, hosts and steering, holding no run slot.
+   */
+  readonly planning: PlanningSessions;
 }
 
 /** `{ [key]: value }`, or `{}` when `value` is undefined (an optional port left out). */
@@ -678,6 +688,22 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
     fixRounds: built?.fixRounds ?? null,
     launcher,
     reattacher,
+    planning: new PlanningSessions({
+      clock: ports.clock,
+      ids: ports.ids,
+      offices: ports.offices,
+      worker: ports.worker,
+      git: ports.git,
+      hosts: ports.hosts,
+      steering: ports.steering,
+      runtimeDir: ports.runtimeDir,
+      tmpRoot: ports.tmpRoot,
+      ...given("boxes", ports.planningBoxes),
+      ...given("desk", ports.planningDesk),
+      ...given("tempOwner", ports.tempOwner),
+      ...given("onChanged", ports.onChanged),
+      ...given("warn", ports.warn),
+    }),
     sessions: new SessionRuns({
       clock: ports.clock,
       ids: ports.ids,

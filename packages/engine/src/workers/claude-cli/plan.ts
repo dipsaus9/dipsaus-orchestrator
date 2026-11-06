@@ -6,8 +6,8 @@
 // every plugin off, and its structured-output schema. It has no Bash sandbox: with no tool there is
 // no command for one to hold (0008).
 //
-// A developer or reviewer session is never planned here (DIPO-240, DIPO-347): each runs only in a
-// box (`box-plan.ts`, 0008). `checkSpec` is shared with the box plan.
+// A developer, reviewer or planning session is never planned here (DIPO-240, DIPO-347, DIPO-447):
+// each runs only in a box (`box-plan.ts`, 0008). `checkSpec` is shared with the box plan.
 
 import { posix } from "node:path";
 
@@ -30,10 +30,28 @@ export const REPORT_SCHEMA_FILE = "report-schema.json";
 export const INCLUDE_PARTIAL_MESSAGES = "--include-partial-messages";
 
 /**
- * Kinds this adapter plans: `implement` and `review` (0002), only in a box
- * (`box-plan.ts`), and `session` (DIPO-310), on the Mac with `plan`.
+ * Kinds this adapter plans: `implement`, `review` (0002) and `planning` (DIPO-447), only in a
+ * box (`box-plan.ts`), and `session` (DIPO-310), on the Mac with `plan`.
  */
-export const PLANNED_KINDS: readonly WorkerKind[] = ["implement", "review", "session"];
+export const PLANNED_KINDS: readonly WorkerKind[] = ["implement", "review", "session", "planning"];
+
+/**
+ * Spec fields that would name tools, MCP servers or permissions (DIPO-447). The engine names no
+ * tool (DIPO-318), so a planning spec that carries one of them, as its own field or on its
+ * prototype, was built to ask for a tool its kind does not have, and is refused whatever the field
+ * holds. The other kinds ignore such a field, as they always did: their tools come from the kind.
+ */
+export const TOOL_REQUEST_KEYS: readonly string[] = [
+  "tools",
+  "allowedTools",
+  "allowed_tools",
+  "disallowedTools",
+  "mcpServers",
+  "mcpConfig",
+  "permissions",
+  "permissionMode",
+  "settings",
+];
 
 /**
  * The tools a `session` denies by name, on top of `--tools ""` (DIPO-310): every built-in tool
@@ -70,6 +88,10 @@ export const DEVELOPER_ON_MAC_REFUSED =
 export const REVIEWER_ON_MAC_REFUSED =
   "a reviewer session runs only in a read-only box of its own (0002); dipo plans no reviewer on the Mac";
 
+/** Why `plan` refuses a planning session (DIPO-447, 0008). */
+export const PLANNER_ON_MAC_REFUSED =
+  "a planning session runs only in a read-only box of its own (0008); dipo plans no planning session on the Mac";
+
 /**
  * The MCP config file of a `session`, in the run directory: no server. With `--strict-mcp-config`
  * the session loads no MCP server, not even the office's.
@@ -84,7 +106,12 @@ export function kindContext(
   spec: Pick<WorkerSpec, "kind">,
   ctx: ClaudeLaunchContext,
 ): ClaudeLaunchContext {
-  if ((spec.kind !== "review" && spec.kind !== "session") || ctx.plugins === undefined) return ctx;
+  if (
+    (spec.kind !== "review" && spec.kind !== "session" && spec.kind !== "planning") ||
+    ctx.plugins === undefined
+  ) {
+    return ctx;
+  }
   return { ...ctx, plugins: { ...ctx.plugins, allowed: [] } };
 }
 
@@ -185,6 +212,12 @@ export function checkSpec(spec: WorkerSpec): void {
       `the ${CLAUDE_CLI_ADAPTER_ID} adapter cannot plan worker kind "${spec.kind}"; it plans ${PLANNED_KINDS.join(", ")}`,
     );
   }
+  const asked = TOOL_REQUEST_KEYS.filter((key) => key in spec);
+  if (spec.kind === "planning" && asked.length > 0) {
+    throw new PlanError(
+      `a spec names no tools, MCP servers or permissions: its kind does (DIPO-318); this one sets ${asked.join(", ")}`,
+    );
+  }
   if (!UUID.test(spec.session.id)) {
     throw new PlanError(`session id must be a UUID: ${spec.session.id}`);
   }
@@ -198,6 +231,11 @@ export function checkSpec(spec: WorkerSpec): void {
   }
   if (spec.kind === "review" && spec.web === true) {
     throw new PlanError("a review session has its own tools (0002); web is the developer's switch");
+  }
+  if (spec.kind === "planning" && spec.web === true) {
+    throw new PlanError(
+      "a planning session has its own tools (DIPO-447); web is the developer's switch",
+    );
   }
   if (spec.taskMessage.length === 0) throw new PlanError("the task message is empty");
 }
@@ -391,10 +429,12 @@ function planSession(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
 
 /**
  * Pure: the launch plan of one Claude Code `session` on the Mac. Throws `PlanError` when it
- * cannot, and for a developer or reviewer session, which runs only in a box (`planInBox`).
+ * cannot, and for a developer, reviewer or planning session, which runs only in a box
+ * (`planInBox`).
  */
 export function plan(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan {
   checkSpec(spec);
   if (spec.kind === "session") return planSession(spec, launch);
+  if (spec.kind === "planning") throw new PlanError(PLANNER_ON_MAC_REFUSED);
   throw new PlanError(spec.kind === "review" ? REVIEWER_ON_MAC_REFUSED : DEVELOPER_ON_MAC_REFUSED);
 }

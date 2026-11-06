@@ -128,6 +128,11 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
       ? { outcome: "done", report: null, review }
       : { ...crashed(`review report but ${exitText(exit)}`), review };
   }
+  if (state.reportKind === "planning") {
+    // The maintainer's planning session (DIPO-447): its turns end in text, and it ends when the
+    // maintainer ends it, so a clean exit is done.
+    return exit.code === 0 ? { outcome: "done", report: null } : crashed(exitText(exit));
+  }
   const report = turn.report;
   if (report === null) return noReport(turn.reportProblem ?? "no report");
   if (report.status === "done") {

@@ -3,10 +3,10 @@ id: DIPO-447
 title: >-
   Run a planning session with Claude in a read-only box that I talk to turn by
   turn
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 07:15'
+updated_date: '2026-11-06 12:04'
 labels:
   - 'tier:L'
 milestone: m-3
@@ -26,6 +26,56 @@ references:
   - packages/contract/src/office.ts
   - docs/decisions/0008-worker-adapter.md
   - docs/decisions/0002-review-and-testing.md
+modified_files:
+  - docs/decisions/0002-review-and-testing.md
+  - docs/decisions/0008-worker-adapter.md
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/src/errors.ts
+  - packages/contract/src/index.test.ts
+  - packages/contract/src/office.ts
+  - packages/contract/src/work.test.ts
+  - packages/contract/src/work.ts
+  - packages/contract/test/fixtures.ts
+  - packages/daemon/test/integration/foreground.ci.test.ts
+  - packages/daemon/test/integration/step-order.test.ts
+  - packages/daemon/test/integration/uncaught-error.ci.test.ts
+  - packages/engine/schema/office.schema.json
+  - packages/engine/src/box/model-proxy.ts
+  - packages/engine/src/box/review-box.ts
+  - packages/engine/src/box/workers.ts
+  - packages/engine/src/config/schema.ts
+  - packages/engine/src/create/commands.ts
+  - packages/engine/src/create/compose.ts
+  - packages/engine/src/create/create-engine.ts
+  - packages/engine/src/create/runs.ts
+  - packages/engine/src/create/steps.ts
+  - packages/engine/src/ingest/ingestor.ts
+  - packages/engine/src/ingest/pending.ts
+  - packages/engine/src/prompts/contract/planning-box.md
+  - packages/engine/src/prompts/roles/planner.md
+  - packages/engine/src/prompts/task/planning.md
+  - packages/engine/src/prompts/templates.ts
+  - packages/engine/src/records/caps.ts
+  - packages/engine/src/records/proxied-usage.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/run/watchdog.ts
+  - packages/engine/src/workers/claude-cli/adapter.ts
+  - packages/engine/src/workers/claude-cli/box-plan.ts
+  - packages/engine/src/workers/claude-cli/interpret.ts
+  - packages/engine/src/workers/claude-cli/plan.ts
+  - packages/engine/src/workers/claude-cli/result.ts
+  - packages/engine/src/workers/claude-cli/tools.ts
+  - packages/engine/src/workers/types.ts
+  - packages/engine/test/box/workers.test.ts
+  - packages/engine/test/config/load.test.ts
+  - packages/engine/test/config/schema.test.ts
+  - packages/engine/test/prompts/task.test.ts
+  - packages/engine/test/run/planning-session.ci.test.ts
+  - packages/engine/test/run/planning-session.test.ts
+  - packages/engine/test/run/planning-world.ts
+  - packages/engine/test/run/reattach.test.ts
+  - packages/engine/test/workers/planning-tools.test.ts
 priority: high
 type: feature
 ordinal: 420000
@@ -60,14 +110,29 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A planning session starts with a kind (plan, refine or triage) and a goal through a command, and runs Claude in a box set up like the reviewer's: a read-only copy of the base branch's tree with the backlog, no mounts, the box firewall and web proxy, and only reading, search and web tools
-- [ ] #2 The planning model is an office setting with default Opus, the model proxy counts the session's usage with no run cap, and the spend is reported live
-- [ ] #3 An office has at most one open planning session, and it holds no run slot
-- [ ] #4 Each maintainer message, sent by a command, reaches the open session as the next turn, and each answer is streamed as events a client can read, though the session has no story
-- [ ] #5 The session's first message gives it, as text, the open drafts, the desk and recent runs
-- [ ] #6 Waiting for the maintainer never trips the watchdog's quiet or stuck timers or a minute cap; an end command ends the session, and a session idle for a day ends by itself
-- [ ] #7 The old barrier still catches what it caught: the review and session tool sets and the reviewer's box are unchanged, with tests
-- [ ] #8 Bypass forms are tested: Bash, Edit or Write asked for through tool-name case or an alias, an extra MCP server, and allowed-tools text injected through the goal
-- [ ] #9 A fail-closed test against the real path: the real adapter refuses a planning plan that asks for a writing tool, and an unknown session kind gets no tools
-- [ ] #10 ADRs 0008 and 0002 name the planning session where they list session kinds, boxes, the model proxy and slots
+- [x] #1 A planning session starts with a kind (plan, refine or triage) and a goal through a command, and runs Claude in a box set up like the reviewer's: a read-only copy of the base branch's tree with the backlog, no mounts, the box firewall and web proxy, and only reading, search and web tools
+- [x] #2 The planning model is an office setting with default Opus, the model proxy counts the session's usage with no run cap, and the spend is reported live
+- [x] #3 An office has at most one open planning session, and it holds no run slot
+- [x] #4 Each maintainer message, sent by a command, reaches the open session as the next turn, and each answer is streamed as events a client can read, though the session has no story
+- [x] #5 The session's first message gives it, as text, the open drafts, the desk and recent runs
+- [x] #6 Waiting for the maintainer never trips the watchdog's quiet or stuck timers or a minute cap; an end command ends the session, and a session idle for a day ends by itself
+- [x] #7 The old barrier still catches what it caught: the review and session tool sets and the reviewer's box are unchanged, with tests
+- [x] #8 Bypass forms are tested: Bash, Edit or Write asked for through tool-name case or an alias, an extra MCP server, and allowed-tools text injected through the goal
+- [x] #9 A fail-closed test against the real path: the real adapter refuses a planning plan that asks for a writing tool, and an unknown session kind gets no tools
+- [x] #10 ADRs 0008 and 0002 name the planning session where they list session kinds, boxes, the model proxy and slots
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-06 12:04 UTC
+- Criteria met: 10 of 10 (as the worker reported them)
+- Loops: 1; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 624,000 of 2,000,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 1 fetches
+- Proposals filed: 4
+<!-- SECTION:FINAL_SUMMARY:END -->

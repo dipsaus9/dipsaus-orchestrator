@@ -12,15 +12,27 @@ import type { OfficeHandle } from "../db/office";
 export const HOST_EVENTS_SOURCE = "host-events";
 
 /**
+ * The events of a run with no story whose output and spend a client follows (a planning session,
+ * DIPO-447). Each builds one entry inside the ingestion's transaction; it only reads.
+ */
+export interface StorylessEvents {
+  /** The entry of a range of stored output not yet sent. */
+  output(range: { readonly from: number; readonly to: number; readonly text: string }): NewEntry;
+  /** The entry of the run's usage now. */
+  usage(): NewEntry;
+}
+
+/**
  * `work.output` for the output of `agent` not yet sent, and advances its emitted mark. Runs inside
  * the caller's transaction. A run with no story (`work` undefined) advances the mark and sends
- * nothing.
+ * nothing, unless `storyless` builds its entry.
  */
 export function pendingWorkerOutput(
   office: OfficeHandle,
   run: string,
   agent: string,
   work: WorkRef | undefined,
+  storyless?: StorylessEvents,
 ): NewEntry[] {
   const from =
     office.get<{ output_emitted_to: number }>(
@@ -45,7 +57,12 @@ export function pendingWorkerOutput(
        and source_kind = $kind`,
     { to: last.to_offset, run, agent, kind: HOST_EVENTS_SOURCE },
   );
-  if (work === undefined) return [];
+  const text = chunks.map((chunk) => chunk.text).join("");
+  if (work === undefined) {
+    return storyless === undefined
+      ? []
+      : [storyless.output({ from: first.from_offset, to: last.to_offset, text })];
+  }
   return [
     {
       type: "work.output",
@@ -56,7 +73,7 @@ export function pendingWorkerOutput(
         source: "worker",
         from: first.from_offset,
         to: last.to_offset,
-        text: chunks.map((chunk) => chunk.text).join(""),
+        text,
       },
     },
   ];

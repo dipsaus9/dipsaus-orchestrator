@@ -256,6 +256,9 @@ describe("errors", () => {
       "test.startFailed",
       "test.closed",
       "nextUp.notOffered",
+      "planning.open",
+      "planning.notOpen",
+      "planning.startFailed",
     ]);
   });
 

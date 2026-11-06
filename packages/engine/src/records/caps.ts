@@ -98,6 +98,12 @@ export function firedCap(caps: Caps, totals: RunTotals): FiredCap | null {
 export const REVIEWER_ROLE = "reviewer";
 
 /**
+ * The role of a planning session's agent (DIPO-447): a session run with no story, whose usage counts
+ * in the office's usage and spend and against no run cap.
+ */
+export const PLANNER_ROLE = "planner";
+
+/**
  * The developer's totals of the run from the stored usage, and the wall-clock time from
  * `startedAt` (when its worker host started, moved by the time it stood parked, ended or in
  * review) to `now`. The budget and the turns count only the developer's agents: a reviewer's tokens, turns and minutes count against

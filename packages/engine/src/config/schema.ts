@@ -199,6 +199,23 @@ const Scan = z
     "The fallback session that proposes the run profile capabilities code could not resolve, started only by dipo office infer (0013). It runs on the Mac with every tool off, one turn plus one schema retry.",
   );
 
+// DIPO-447: the maintainer's planning session. Its model is a schema default only, so an office
+// file that does not set it needs no re-pin.
+const Planning = z
+  .strictObject({
+    model: text().describe("The model of the planning session."),
+    effort: text().describe("The effort of the planning session."),
+    maxTurns: count().describe(
+      "Model turns one answer of the planning session may take before Claude Code stops it.",
+    ),
+    idleHours: count().describe(
+      "Hours a planning session waits for the maintainer's next message before it ends by itself.",
+    ),
+  })
+  .describe(
+    "The planning session the maintainer talks to turn by turn (plan, refine or triage): it runs Claude in a read-only box with a copy of the base branch and the backlog, holds no run slot and has no run cap; it ends when the maintainer ends it or after idleHours without a message.",
+  );
+
 // 0012: the Ready gate's story rules.
 const SecurityCriteriaPhrases = z
   .strictObject({
@@ -297,6 +314,7 @@ const officeShape = {
   merge: Merge,
   box: BoxSection,
   scan: Scan,
+  planning: Planning,
   story: Story,
   prompt: Prompt,
   // 0010: the base branch; without it `origin/HEAD` decides.
@@ -612,6 +630,8 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
   box: {},
   // 0013: the scan fallback session.
   scan: { model: "sonnet", effort: "low", budgetTokens: 100_000, maxMinutes: 5 },
+  // DIPO-447.
+  planning: { model: "opus", effort: "high", maxTurns: 100, idleHours: 24 },
   // 0012.
   story: {
     types: ["feature", "bug", "enhancement", "task", "chore", "docs", "spike"],

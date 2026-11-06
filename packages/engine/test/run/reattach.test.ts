@@ -1402,6 +1402,11 @@ const CLI_MAIN = resolve(import.meta.dir, "../../../cli/src/main.ts");
 const realProbe = systemProcessProbe(currentPlatform());
 /** Time a real host gets to start Bun and read its launch file before its deadline. */
 const REAL_HOST_DEADLINE_MS = 4_500;
+/**
+ * The timeout of a test that waits for a real host to reach its deadline: the deadline itself plus
+ * room for Bun to start the host and the poll after it, so a loaded machine does not cut it short.
+ */
+const REAL_HOST_TEST_MS = REAL_HOST_DEADLINE_MS + 10_000;
 
 /** Whether a real process runs: a zombie or a PID that is gone does not. */
 async function running(pid: number): Promise<boolean> {
@@ -1577,64 +1582,72 @@ describe("re-attach of real worker host processes left pending (DIPO-386)", () =
     }
   });
 
-  it("a real host that never binds where its row says exits by itself at its launch deadline; the story parks worker-failed, with no signal", async () => {
-    makePending();
-    const { host, deadline } = await realPendingHost([process.execPath, CLI_MAIN]);
-    try {
-      expect(host.socketPath).not.toBe(hostRow().socketPath);
-      const d = daemon({
-        clock: systemClock,
-        probe: realProbe,
-        connect: (path, runId) =>
-          connectHost(path, { runId, clock: systemClock, timeoutMs: HOST_CONNECT_TIMEOUT_MS }),
-      });
-      // The daemon asks the row's socket until the deadline: the recovery step parks the story, or
-      // returns while the row still waits and the later ask parks it, by how the timers fall.
-      const first = await d.reattacher.reattach(w.f.office.officeId);
-      expect(first.filter((done) => done.outcome !== "neverStarted")).toEqual([]);
-      await stoppedItself(host, deadline, d);
-    } finally {
-      if (await running(host.pid)) process.kill(host.pid, "SIGKILL");
-    }
-  });
+  it(
+    "a real host that never binds where its row says exits by itself at its launch deadline; the story parks worker-failed, with no signal",
+    async () => {
+      makePending();
+      const { host, deadline } = await realPendingHost([process.execPath, CLI_MAIN]);
+      try {
+        expect(host.socketPath).not.toBe(hostRow().socketPath);
+        const d = daemon({
+          clock: systemClock,
+          probe: realProbe,
+          connect: (path, runId) =>
+            connectHost(path, { runId, clock: systemClock, timeoutMs: HOST_CONNECT_TIMEOUT_MS }),
+        });
+        // The daemon asks the row's socket until the deadline: the recovery step parks the story, or
+        // returns while the row still waits and the later ask parks it, by how the timers fall.
+        const first = await d.reattacher.reattach(w.f.office.officeId);
+        expect(first.filter((done) => done.outcome !== "neverStarted")).toEqual([]);
+        await stoppedItself(host, deadline, d);
+      } finally {
+        if (await running(host.pid)) process.kill(host.pid, "SIGKILL");
+      }
+    },
+    REAL_HOST_TEST_MS,
+  );
 
-  it("a real host that answers but fails the identity check is asked once, never claimed, and stops itself at its deadline; no signal", async () => {
-    makePending();
-    // Bun under a name the identity check does not know, as an odd install would show.
-    const runtime = join(w.dir, "runtime");
-    symlinkSync(process.execPath, runtime);
-    const { host, deadline } = await realPendingHost([runtime, CLI_MAIN]);
-    try {
-      w.f.office.immediate(() =>
-        w.f.office.run(
-          "update worker_hosts set socket_path = $socket where office_id = $office_id",
-          {
-            socket: host.socketPath,
+  it(
+    "a real host that answers but fails the identity check is asked once, never claimed, and stops itself at its deadline; no signal",
+    async () => {
+      makePending();
+      // Bun under a name the identity check does not know, as an odd install would show.
+      const runtime = join(w.dir, "runtime");
+      symlinkSync(process.execPath, runtime);
+      const { host, deadline } = await realPendingHost([runtime, CLI_MAIN]);
+      try {
+        w.f.office.immediate(() =>
+          w.f.office.run(
+            "update worker_hosts set socket_path = $socket where office_id = $office_id",
+            {
+              socket: host.socketPath,
+            },
+          ),
+        );
+        let answered = 0;
+        const d = daemon({
+          clock: systemClock,
+          probe: realProbe,
+          connect: async (path, runId) => {
+            const asked = await connectHost(path, {
+              runId,
+              clock: systemClock,
+              timeoutMs: HOST_CONNECT_TIMEOUT_MS,
+            });
+            if (asked.ok) answered += 1;
+            return asked;
           },
-        ),
-      );
-      let answered = 0;
-      const d = daemon({
-        clock: systemClock,
-        probe: realProbe,
-        connect: async (path, runId) => {
-          const asked = await connectHost(path, {
-            runId,
-            clock: systemClock,
-            timeoutMs: HOST_CONNECT_TIMEOUT_MS,
-          });
-          if (asked.ok) answered += 1;
-          return asked;
-        },
-      });
-      expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([]);
-      expect(hostRow()).toMatchObject({ pending: true, pid: 0 });
-      await stoppedItself(host, deadline, d);
-      expect(answered).toBe(1);
-    } finally {
-      if (await running(host.pid)) process.kill(host.pid, "SIGKILL");
-    }
-  });
+        });
+        expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([]);
+        expect(hostRow()).toMatchObject({ pending: true, pid: 0 });
+        await stoppedItself(host, deadline, d);
+        expect(answered).toBe(1);
+      } finally {
+        if (await running(host.pid)) process.kill(host.pid, "SIGKILL");
+      }
+    },
+    REAL_HOST_TEST_MS,
+  );
 });
 
 describe("the next session's caps (DIPO-143)", () => {

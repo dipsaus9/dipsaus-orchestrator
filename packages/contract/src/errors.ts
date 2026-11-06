@@ -122,6 +122,9 @@ export const OFFICE_ERROR_CODES = [
   "test.startFailed",
   "test.closed",
   "nextUp.notOffered",
+  "planning.open",
+  "planning.notOpen",
+  "planning.startFailed",
 ] as const;
 
 export type GenericErrorCode = (typeof GENERIC_ERROR_CODES)[number];

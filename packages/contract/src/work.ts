@@ -377,6 +377,52 @@ export const KNOWN_TEST_END_REASONS = [
 export const TestEndReason = openEnum(KNOWN_TEST_END_REASONS);
 export type TestEndReason = z.infer<typeof TestEndReason>;
 
+// The maintainer's planning session (DIPO-447, 0008): one per office, started with a kind and a
+// goal, talked to turn by turn. It has no story, so its events carry the planning view, never a
+// `WorkRef`. `plan` writes new stories, `refine` works on drafts, `triage` goes through the desk.
+export const PLANNING_KINDS = ["plan", "refine", "triage"] as const;
+export const PlanningKind = openEnum(PLANNING_KINDS);
+export type PlanningKind = z.infer<typeof PlanningKind>;
+
+// What the session does now: its box and first turn start (`starting`), it answers (`working`),
+// it waits for the maintainer's next message (`waiting`), or it ended.
+export const KNOWN_PLANNING_STATES = ["starting", "working", "waiting", "ended"] as const;
+export const PlanningState = openEnum(KNOWN_PLANNING_STATES);
+export type PlanningState = z.infer<typeof PlanningState>;
+
+// Why a planning session ended: the maintainer ended it, it waited for a message longer than
+// `planning.idleHours`, its worker exited, its start failed, or the daemon stopped.
+export const KNOWN_PLANNING_END_REASONS = [
+  "maintainer",
+  "idle",
+  "exited",
+  "start-failed",
+  "daemon-stopped",
+] as const;
+export const PlanningEndReason = openEnum(KNOWN_PLANNING_END_REASONS);
+export type PlanningEndReason = z.infer<typeof PlanningEndReason>;
+
+// The view of a planning session, derived by the engine. `usage` is the session's spend so far, as
+// the model proxy counted it; `turns` the answers it finished; `health` is `quiet` or `stuck`
+// only while it works on an answer, never while it waits for the maintainer.
+export const PlanningView = z.object({
+  run: RunId,
+  agent: AgentId.optional(),
+  kind: PlanningKind,
+  goal: z.string(),
+  model: z.string(),
+  state: PlanningState,
+  health: Health.optional(),
+  turns: Count,
+  usage: UsageTotals,
+  startedAt: Timestamp,
+  lastOutputAt: Timestamp.optional(),
+  endedAt: Timestamp.optional(),
+  ended: PlanningEndReason.optional(),
+  detail: z.string().optional(),
+});
+export type PlanningView = z.infer<typeof PlanningView>;
+
 export const GateDecision = z.enum(["approved", "rejected"]);
 export type GateDecision = z.infer<typeof GateDecision>;
 

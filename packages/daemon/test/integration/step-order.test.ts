@@ -38,6 +38,7 @@ const RECOVERY_STEPS = [
   "reattach",
   "run-temp-sweep",
   "tests-recover",
+  "planning-recover",
   "fix-rounds-recover",
 ];
 

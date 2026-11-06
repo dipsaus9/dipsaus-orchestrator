@@ -30,6 +30,9 @@ import {
   OutputSource,
   ParkReason,
   Phase,
+  PLANNING_KINDS,
+  PlanningEndReason,
+  PlanningView,
   Progress,
   QuestionView,
   ReviewSummary,
@@ -372,6 +375,42 @@ export const testRecord = defineCommand({
       path: ["note"],
     }),
   result: z.object({ test: TestId, result: TestResult }),
+  confirm: false,
+  irreversible: false,
+});
+
+// The maintainer's planning session (DIPO-447, 0008): `planning.start` opens it with a kind and a
+// goal, in a read-only box of its own; an office has at most one open, and it holds no run slot. The
+// reply comes once its box is made and its session started (`planning.open` while one is open,
+// `planning.startFailed` when the box or the session cannot start); its answers follow as
+// `planning.output` and `planning.updated` events.
+export const planningStart = defineCommand({
+  name: "planning.start",
+  level: "office",
+  args: z.object({ kind: z.enum(PLANNING_KINDS), goal: z.string().trim().min(1) }),
+  result: z.object({ run: RunId, view: PlanningView }),
+  confirm: false,
+  irreversible: false,
+});
+
+// One maintainer message to the open planning session: its next turn, read once the answer it
+// works on is done (`planning.notOpen` without one).
+export const planningMessage = defineCommand({
+  name: "planning.message",
+  level: "office",
+  args: z.object({ text: z.string().trim().min(1) }),
+  result: z.object({ run: RunId, delivered: z.literal("next-turn") }),
+  confirm: false,
+  irreversible: false,
+});
+
+// Ends the open planning session: its worker stops and its box goes (`planning.notOpen` without
+// one). A session that waits for a message longer than `planning.idleHours` ends by itself.
+export const planningEnd = defineCommand({
+  name: "planning.end",
+  level: "office",
+  args: z.object({}),
+  result: z.object({ run: RunId, ended: PlanningEndReason }),
   confirm: false,
   irreversible: false,
 });
@@ -819,6 +858,45 @@ export const workOutput = defineEvent({
   }),
 });
 
+// The planning session (DIPO-447) has no story, so its events carry no `WorkRef`: each carries its
+// run and the planning view the engine derived when it stored the fact.
+export const planningStarted = defineEvent({
+  type: "planning.started",
+  stream: "office",
+  derived: false,
+  data: z.object({ run: RunId, view: PlanningView }),
+});
+
+// A byte range of the planning session's stored output: its answer as it streams.
+export const planningOutput = defineEvent({
+  type: "planning.output",
+  stream: "office",
+  derived: false,
+  data: z.object({
+    run: RunId,
+    from: Offset,
+    to: Offset,
+    text: z.string(),
+    view: PlanningView.optional(),
+  }),
+});
+
+// The planning session's state, health or spend changed: a turn began or ended, its usage grew
+// (at most once a second), or the watchdog saw no output while it works. Cumulative.
+export const planningUpdated = defineEvent({
+  type: "planning.updated",
+  stream: "office",
+  derived: false,
+  data: z.object({ run: RunId, view: PlanningView }),
+});
+
+export const planningEnded = defineEvent({
+  type: "planning.ended",
+  stream: "office",
+  derived: false,
+  data: z.object({ run: RunId, reason: PlanningEndReason, view: PlanningView }),
+});
+
 // Watchdog facts. `clearedAt` is set when the signal stopped, for example `quiet` on the next line
 // (DIPO-52).
 export const workObserved = defineEvent({
@@ -982,6 +1060,9 @@ export const officeCommands = [
   nextUpDecline,
   testStart,
   testRecord,
+  planningStart,
+  planningMessage,
+  planningEnd,
 ] as const;
 
 export const officeReads = [
@@ -1018,4 +1099,8 @@ export const officeEvents = [
   testStarted,
   testRecorded,
   testEnded,
+  planningStarted,
+  planningOutput,
+  planningUpdated,
+  planningEnded,
 ] as const;

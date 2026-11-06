@@ -38,7 +38,7 @@ import { runProgress, withWorkViews } from "../views/work";
 import type { ExitRecord, HostLine, ParseState, WorkerEvent } from "../workers/types";
 import { readCompleteLines, readRange, statEventFile, type FileIdentity } from "./event-file";
 import { byteLength, DEFAULT_OUTPUT_PRIVACY, type OutputPrivacy, outputText } from "./output";
-import { HOST_EVENTS_SOURCE, pendingWorkerOutput } from "./pending";
+import { HOST_EVENTS_SOURCE, pendingWorkerOutput, type StorylessEvents } from "./pending";
 import {
   applyProxiedTurn,
   applyTurnTotals,
@@ -99,6 +99,11 @@ export interface IngestTarget extends UsageScope {
    * run, 0007) has none: its facts are stored, but no work event.
    */
   readonly work?: WorkRef;
+  /**
+   * The output and usage events of a run with no story that a client follows (a planning
+   * session, DIPO-447), in place of `work.output` and `usage.updated`.
+   */
+  readonly storyless?: StorylessEvents;
   readonly adapter: IngestAdapter;
   /** The parser state the first pass starts from; later passes use the stored one. */
   readonly initialState: ParseState;
@@ -603,7 +608,10 @@ export class Ingestor {
       // Change-log entries that are due now, output first so order stays causal.
       const entries: NewEntry[] = [];
       const pending = this.#outputEnd(run) - this.#emittedTo(target);
-      if (exited || rejected.length > 0 || pending >= this.#timings.outputFlushBytes) {
+      // A session the maintainer talks to (DIPO-447) gets each answer whole at its turn end, ahead
+      // of the update that says it waits for the next message.
+      const answered = target.storyless !== undefined && events.some((event) => event.t === "turn");
+      if (exited || answered || rejected.length > 0 || pending >= this.#timings.outputFlushBytes) {
         entries.push(...this.#outputEntries(target));
       }
       entries.push(...versionNotices);
@@ -762,12 +770,20 @@ export class Ingestor {
 
   /** `work.output` for the agent's output not yet sent; advances the emitted mark. */
   #outputEntries(target: IngestTarget): NewEntry[] {
-    return pendingWorkerOutput(this.#office, target.run, target.agent, target.work);
+    return pendingWorkerOutput(
+      this.#office,
+      target.run,
+      target.agent,
+      target.work,
+      target.storyless,
+    );
   }
 
   /** `usage.updated` with the agent's and run's usage now; the caller marks it sent on commit. */
   #usageEntries(target: IngestTarget): NewEntry[] {
-    if (target.work === undefined) return [];
+    if (target.work === undefined) {
+      return target.storyless === undefined ? [] : [target.storyless.usage()];
+    }
     return [
       {
         type: "usage.updated",
@@ -836,7 +852,9 @@ export class Ingestor {
       });
       this.#append(entries, now);
     });
-    if (tracked.usageDirty && target.work !== undefined) this.#usageSent(tracked, now);
+    if (tracked.usageDirty && (target.work !== undefined || target.storyless !== undefined)) {
+      this.#usageSent(tracked, now);
+    }
     this.#hooks.onFileChanged?.({ run: target.run, agent: target.agent, path, detail });
   }
 

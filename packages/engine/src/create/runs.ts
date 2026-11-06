@@ -118,6 +118,7 @@ import type { StoryStore } from "../story-store/store";
 import { claudeWorkerPort } from "../workers/claude-cli/adapter";
 import { CLAUDE_CLI_ADAPTER_ID } from "../workers/claude-cli/plan";
 import type { WorkerPort } from "../workers/port";
+import type { PlanningSessions } from "../run/planning-session";
 import type { StoryClaims } from "../worktree/feature";
 
 /**
@@ -131,6 +132,8 @@ export function backlogCliFor(tools: ToolPaths, spawn: Spawn = systemSpawn): Bac
 
 export interface RunsOptions {
   readonly tools: ToolPaths;
+  /** The office's desk now, for a planning session's first message (DIPO-447). */
+  readonly planningDesk?: RunPorts["planningDesk"];
   /** Reads a process's start time: whether a worker host still runs (DIPO-57). */
   readonly probe: ProcessProbe;
   /** Starts the processes of the runs: boxes, the Keychain, the worker. */
@@ -266,6 +269,8 @@ export interface EngineRuns {
   readonly merge: RunMergePorts;
   /** The scan fallback's `session` runs (DIPO-310), which `office.infer` starts. */
   readonly sessions: ScanSessionRunner;
+  /** The maintainer's planning sessions (DIPO-447): `planning.start`, `.message` and `.end`. */
+  readonly planning: PlanningSessions;
 }
 
 /** What the auto-merge and the merge gates use of the run services (0002). */
@@ -1024,8 +1029,10 @@ function boxRunPorts(options: RunsOptions, parts: RunPortParts): Partial<RunPort
     ...(boxWorkers === null
       ? {}
       : { beforeExit: (runId: string) => boxWorkers.sessionEnded(runId) }),
-    // Each review session runs in a read-only box of its own (0002).
-    ...(boxWorkers === null ? {} : { reviewBoxes: boxWorkers }),
+    // Each review session runs in a read-only box of its own (0002), and so does each planning
+    // session (DIPO-447).
+    ...(boxWorkers === null ? {} : { reviewBoxes: boxWorkers, planningBoxes: boxWorkers }),
+    ...(options.planningDesk === undefined ? {} : { planningDesk: options.planningDesk }),
     // The merges dipo made on a box run's branch outside the box reach its box before the worker's
     // next session (DIPO-324): the box is started, the files copied in as a catch-up's are.
     boxSync: boxSyncOf(options, parts),
@@ -1270,6 +1277,7 @@ function engineRunsOf(
   const fixRounds = composed.fixRounds;
   return {
     sessions: composed.sessions,
+    planning: composed.planning,
     launcher: composed.launcher,
     ingest: composed.ingest,
     control: composed.control,

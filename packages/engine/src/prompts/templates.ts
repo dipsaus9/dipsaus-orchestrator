@@ -4,12 +4,14 @@
 // over every template file.
 
 import implementBoxContract from "./contract/implement-box.md" with { type: "text" };
+import planningBoxContract from "./contract/planning-box.md" with { type: "text" };
 import reviewBoxContract from "./contract/review-box.md" with { type: "text" };
 import scanContract from "./contract/scan.md" with { type: "text" };
 import ciFeedback from "./feedback/ci.md" with { type: "text" };
 import reportFeedback from "./feedback/report.md" with { type: "text" };
 import verifyFeedback from "./feedback/verify.md" with { type: "text" };
 import developerRole from "./roles/developer.md" with { type: "text" };
+import plannerRole from "./roles/planner.md" with { type: "text" };
 import reviewerRole from "./roles/reviewer.md" with { type: "text" };
 import scannerRole from "./roles/scanner.md" with { type: "text" };
 import answers from "./task/answers.md" with { type: "text" };
@@ -28,6 +30,7 @@ import inputs from "./task/inputs.md" with { type: "text" };
 import instructions from "./task/instructions.md" with { type: "text" };
 import safeChainRefusals from "./task/safe-chain-refusals.md" with { type: "text" };
 import previousFindings from "./task/previous-findings.md" with { type: "text" };
+import planning from "./task/planning.md" with { type: "text" };
 import reviewCommit from "./task/review-commit.md" with { type: "text" };
 import reviewScope from "./task/review-scope.md" with { type: "text" };
 import reviewTestPlan from "./task/review-test-plan.md" with { type: "text" };
@@ -49,6 +52,8 @@ export const CONTRACT_TEMPLATES = {
   "review-box": reviewBoxContract,
   // The scan fallback session (0013, DIPO-310): no tools, structured output only.
   scan: scanContract,
+  // The maintainer's planning session (DIPO-447): read-only tools, turn by turn, text answers.
+  "planning-box": planningBoxContract,
 } as const;
 export type ContractKind = keyof typeof CONTRACT_TEMPLATES;
 
@@ -61,6 +66,8 @@ export const ROLE_TEMPLATES = {
   reviewer: reviewerRole,
   // Used only by the `scan` kind (DIPO-310).
   scanner: scannerRole,
+  // Used only by the `planning-box` kind (DIPO-447).
+  planner: plannerRole,
 } as const;
 export type BuiltInRole = keyof typeof ROLE_TEMPLATES;
 
@@ -94,6 +101,8 @@ export const TASK_TEMPLATES = {
   reviewCommit,
   // The scan fallback's request and evidence (DIPO-310).
   scan,
+  // The first message of a planning session (DIPO-447).
+  planning,
 } as const;
 
 /**
@@ -175,6 +184,12 @@ export const PROMPT_TAGS: readonly string[] = [
   "scan_request",
   "scan_evidence",
   "scan_file",
+  // The planning session's first message (DIPO-447): backlog and desk text cannot close these.
+  "planning",
+  "drafts",
+  "desk",
+  "recent_runs",
+  "copy",
 ];
 
 // Whitespace around the slash is allowed, so `</ criteria>` and `< /criteria>` are caught too.

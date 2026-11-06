@@ -86,6 +86,8 @@ import {
   TEST_BOX_RUN_PREFIX,
 } from "../../src/box/port";
 import {
+  PLANNING_BOX_RUN_PREFIX,
+  planningBoxName,
   REVIEW_BOX_RUN_PREFIX,
   REVIEW_CODE_DIR,
   REVIEW_ROOT,
@@ -2388,6 +2390,80 @@ describe("the reviewer's box (0002, DIPO-347)", () => {
       expect(w.boxes.boxes.has(other)).toBe(false);
       await w.workers.close();
       expect(w.boxes.boxes.has(REVIEW_BOX)).toBe(false);
+    }));
+});
+
+const PLANNER = "agt_01J9ZK5Q8W3V4X6Y7Z0000P447";
+const PLANNING_BOX = planningBoxName(PLANNER);
+
+/** A planning box of the world's commit, standing in for the base branch's tip (DIPO-447). */
+function planningOf(w: World, agent = PLANNER) {
+  return w.workers.planning({
+    office: "off-test",
+    runId: "run_01J9ZK5Q8W3V4X6Y7Z0000P447",
+    agent,
+    git: w.git,
+    commit: w.commit,
+    systemFile: w.systemFile,
+  });
+}
+
+describe("the planning session's box (DIPO-447)", () => {
+  it("is made as a reviewer's: the office image, only a read-only copy of the commit, the firewall and the proxies", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      const session = await planningOf(w);
+      const box = w.boxes.boxes.get(PLANNING_BOX);
+      expect(PLANNING_BOX).toBe(`dipo-${PLANNING_BOX_RUN_PREFIX}${PLANNER}`);
+      expect(box?.spec.image).toBe(boxImageTag(IMAGE));
+      expect(box?.spec.packageCache).toBeUndefined();
+      const copy = box?.copies.find((entry) => entry.to === REVIEW_ROOT);
+      expect(copy?.listing).toEqual([
+        "code/",
+        "code/README.md",
+        "code/src/",
+        "code/src/greet.ts",
+        "session/",
+      ]);
+      expect(JSON.stringify(box?.copies)).not.toContain("local.json");
+      expect(w.boxes.firewalls).toEqual([
+        { box: PLANNING_BOX, firewall: { hostAddress: BOX_HOST_ADDRESS, ports: [3128, 4000] } },
+      ]);
+      expect(w.log).toContain(`web route admitted ${PLANNING_BOX} `);
+      expect(session.workdir).toBe(REVIEW_SESSION_DIR);
+      expect(session.env["ANTHROPIC_BASE_URL"]).toBe(`http://${BOX_HOST_ADDRESS}:4000`);
+      // The model proxy counts what it sends against the planning run.
+      const address = await w.boxes.address(PLANNING_BOX);
+      expect(w.workers.owner(address ?? "")).toEqual({
+        office: "off-test",
+        run: "run_01J9ZK5Q8W3V4X6Y7Z0000P447",
+        agent: PLANNER,
+      });
+      // No reviewer box and no developer box were made, and nothing went into the index.
+      expect(w.boxes.boxes.has(REVIEW_BOX)).toBe(false);
+      expect(w.boxes.boxes.has(BOX)).toBe(false);
+      expect(w.workers.pending()).toEqual([]);
+
+      await w.workers.endPlanning(PLANNER);
+      expect(w.boxes.boxes.has(PLANNING_BOX)).toBe(false);
+      expect(w.workers.owner(address ?? "")).toBeNull();
+    }));
+
+  it("is deleted at daemon stop, and one a stopped daemon left is deleted at daemon start", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await planningOf(w);
+      const other = planningBoxName("agt_01J9ZK5Q8W3V4X6Y7Z0000LEFT");
+      await w.boxes.create({
+        runId: `${PLANNING_BOX_RUN_PREFIX}agt_01J9ZK5Q8W3V4X6Y7Z0000LEFT`,
+        image: boxImageTag(IMAGE),
+        network: await w.boxes.network(),
+      });
+      await w.workers.finishEnded(() => null, { listBoxes: true });
+      expect(w.boxes.boxes.has(PLANNING_BOX)).toBe(true);
+      expect(w.boxes.boxes.has(other)).toBe(false);
+      await w.workers.close();
+      expect(w.boxes.boxes.has(PLANNING_BOX)).toBe(false);
     }));
 });
 

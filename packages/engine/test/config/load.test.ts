@@ -71,6 +71,7 @@ describe("version 16", () => {
       "merge",
       "box",
       "scan",
+      "planning",
       "story",
       "prompt",
       "worktree",
