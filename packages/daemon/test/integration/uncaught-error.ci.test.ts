@@ -45,12 +45,13 @@ type Line = {
   error?: { message?: string };
 };
 
+/** The log's complete lines: a line the daemon is still writing has no newline yet and is left out. */
 function readLog(dir: string): Line[] {
   const path = join(dir, "state", "logs", "daemon.log");
   if (!existsSync(path)) return [];
   return readFileSync(path, "utf8")
-    .trim()
     .split("\n")
+    .slice(0, -1)
     .filter((line) => line !== "")
     .map((line) => JSON.parse(line) as Line);
 }

@@ -186,6 +186,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               "reattach",
               "run-temp-sweep",
               "tests-recover",
+              "planning-recover",
               "fix-rounds-recover",
             ]);
             // The database opens only once the socket is bound: after "listening".
