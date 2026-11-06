@@ -18,6 +18,6 @@
         [acc]│[/]                                                 [acc]:[/]      all commands                          [acc]│[/]
         [acc]│[/]                                                 [acc]q q[/]    quit (daemon keeps working)           [acc]│[/]
         [acc]│[/]  ──────────────────────────────────────────────────────────────────────────────────────────  [acc]│[/]
-        [acc]│[/]  [dim]Lowercase acts on this item and can be undone. Capitals spend or destroy.   [acc]esc[/] close[/]       [acc]│[/]
+        [acc]│[/]  [dim]Lowercase acts on this item. Capitals spend or destroy.   [acc]esc[/] close[/]                            [acc]│[/]
         [acc]└──────────────────────────────────────────────────────────────────────────────────────────────┘[/]
 

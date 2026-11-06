@@ -4,7 +4,7 @@
 [shade]───────────[/][acc]┌────────────────────────────────────────────────────────────────────────────────────────┐[/][shade]───────────[/]
 [shade]MERGE[/]      [acc]│[/]  [hi]**TEST**[/][dim] · DIPO-446 at 5cdb387 · box test-446[/]                                  [ok]● running[/]  [acc]│[/]
 [shade] ○ DIPO-446[/][acc]│[/]  [dim]open   [/][acc]__http://localhost:4321__[/][dim]   o opens[/]                                                [acc]│[/]
-[shade]           [/][acc]│[/]  [dim]shell  [/]dipo test shell DIPO-446[dim]          y copies[/]                                     [acc]│[/]
+[shade]           [/][acc]│[/]  [dim]shell  [/]dipo test shell DIPO-446[dim]          c copies[/]                                     [acc]│[/]
            [acc]│[/]  ────────────────────────────────────────────────────────────────────────────────────  [acc]│[/]
            [acc]│[/]    [ok]✓ 1[/] [dim]Start a planning session from the TUI[/]                                           [acc]│[/]
            [acc]│[/]        [dim]→ the planning view opens with kind and goal[/]                                    [acc]│[/]

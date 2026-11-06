@@ -6,11 +6,11 @@
   [acc]![/] backlog-site [dim]· starts paused[/]                            [acc]**1**[/]           [dim]0[/]         2       [err]━━━━━━━━━━━━[/] [err]96% ALERT[/]
   [dim]○[/] [dim]notes-cli · idle 3 days[/]                                 [dim]0[/]           [dim]0[/]         [dim]0[/]       [faint]━━━━━━━━━━━━ [dim]0%[/][/]
 
-[dim]  + n  open a repository path…[/]
+[dim]  + a  open a repository path…[/]
 
 
 
 
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-[acc]↑↓[/] move   [acc]⏎[/] open   [acc]n[/] new path                                                                  [dim][acc]esc[/] back   [acc]q[/] quit[/]
+[acc]↑↓[/] move   [acc]⏎[/] open   [acc]a[/] new path                                                                [dim][acc]esc[/] back   [acc]q q[/] quit[/]

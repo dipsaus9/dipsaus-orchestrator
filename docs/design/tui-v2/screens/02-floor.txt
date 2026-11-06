@@ -2,7 +2,7 @@
 [acc]**dipo**[/][dim] / [/]dipsaus-orchestrator                                               [ok]●[/] daemon live[dim]    $19.14 today    10:42[/]
 [dim]1 Desk [acc]3[/][/]    [hi]__2 Floor 2__[/]    [dim]3 Queue 0·6[/]    [dim]4 Retro[/]
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-[hi]**RUNNING**[/]                                                                                             [dim]1 of 2 slots[/]
+[hi]**RUNNING**[/]                                                                                             [dim]1 of 3 slots[/]
 
 [sel][acc]▌[/] [ok]●[/] [dim]DIPO-447[/]  [hi]Run a planning session with Claude in a read-only box[/]                                         [dim]36m [/][/]
 [sel]              [ok]setup ━━ build ━━ review ━━ test ━━ [/][acc]● merge[/]                                           [dim]loop 1 of 8 [/][/]
@@ -18,7 +18,7 @@
 [hi]**UP NEXT**[/]                                                                                      [dim]0 ready · 6 waiting[/]
 
     When [acc]DIPO-447[/] merges → [fg]448, 449[/] start in parallel, then 450 → 451, 452 → 453
-    [dim]Next decision for you: expected ~11:20, DIPO-446 review verdict[/]
+
 
 
 

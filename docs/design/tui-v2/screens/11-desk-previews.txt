@@ -51,15 +51,15 @@ session showed, or let Backlog assign it?”
 [hi]**No new sessions start in this office**[/]
 
 [dim]Reason  [/]Claude plan limit reached
-[dim]Lifts   [/]by itself, expected ~14:00
+[dim]Lifts   [/]by itself
 [dim]Running [/]DIPO-446 waits for you, unaffected
 [dim]Parked  [/]sessions that hit the limit resume
 [dim]        [/]on their own when it lifts
 
-[ok]✓ Nothing to do. Look away until ~14:00.[/]
+[ok]✓ Nothing to do. Look away until it lifts.[/]
 
 [dim]Lift it early, only if you raised your plan:[/]
 [dim]$ dipo daemon resume-starts[/]
 --- notes ---
 These are the right pane only, drawn at its width in a 112-column frame (63 columns after `│` and 2 spaces).
-The HTML draws them in fluid cards; two dim lines are longer than 63 columns there and are wrapped here (see spec.md, Open questions).
+The HTML draws them in fluid cards; two dim lines are longer than 63 columns there and are wrapped here (spec.md, Reading the screen files).

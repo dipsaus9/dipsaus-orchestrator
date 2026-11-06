@@ -1,5 +1,5 @@
-=== S1 Desk: what needs you (Since band, SETUP, PROPOSALS, PROPOSAL preview) · ux-spec mock 1 · 112 cols × 30 rows ===
-[acc]**dipo**[/][dim] / [/]dipsaus-orchestrator                                               [ok]●[/] daemon live[dim]    $19.14 today    10:42[/]
+=== S1 Desk: what needs you (Since band, SETUP, PROPOSALS, PROPOSAL preview, +2 elsewhere) · ux-spec mock 1 · 112 cols × 30 rows ===
+[acc]**dipo**[/][dim] / [/]dipsaus-orchestrator[dim]   [/][acc]+2[/][dim] elsewhere · [/][acc]O[/]                            [ok]●[/] daemon live[dim]    $19.14 today    10:42[/]
 [hi]__1 Desk [acc]3[/]__[/]    [dim]2 Floor 2[/]    [dim]3 Queue 0·6[/]    [dim]4 Retro[/]
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [dim]Since 09:41 · [fg]1 merged[/] · 2 new proposals · $4.10 spent                                        any key to dismiss[/]
@@ -13,8 +13,8 @@
 [dim]PROPOSALS · from your AI team[/]                 [faint]│[/]
 [sel][acc]▌[/] [acc]◆[/] [hi]CLI verbs for the planning session[/]    [dim]7m  [/][/][faint]│[/]  [dim]Why     [/]Reviewer asked for it in round 2 of DIPO-447
 [sel][dim]    follow-up · DIPO-447[/]                      [/][faint]│[/]  [dim]Blocks  [/]DIPO-448 · DIPO-449 · DIPO-450
-  [acc]◆[/] Show open session in snapshot         [dim]3m  [/][faint]│[/]  [dim]Size    [/]S · about 1 loop · ~180k tokens
-[dim]    follow-up · DIPO-447 · [fg]×2 merged[/][/]          [faint]│[/]  [dim]Raised  [/]7 min ago by reviewer (opus-5.5)
+  [acc]◆[/] Show open session in snapshot         [dim]3m  [/][faint]│[/]  [dim]Size    [/]S
+[dim]    follow-up · DIPO-447[/]                      [faint]│[/]  [dim]Raised  [/]7 min ago by reviewer (opus-5.5)
   [acc]◆[/] Claude Code minimum from flags       [dim]34m  [/][faint]│[/]
 [dim]    follow-up · DIPO-444[/]                      [faint]│[/]
                                               [faint]│[/]  [acc]⟦[/] [acc]y[/] Accept [acc]⟧[/]  [faint]⟦[/] [acc]n[/] Dismiss [faint]⟧[/]
