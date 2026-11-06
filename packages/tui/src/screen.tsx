@@ -45,6 +45,8 @@ export function Screen(props: ScreenProps) {
       session: planning.view !== null,
       sending: planning.sending !== null,
       confirmingEnd: planning.confirmingEnd,
+      editing: planning.editing,
+      proposals: (planning.view?.proposals?.length ?? 0) > 0,
     },
   });
   const panel =

@@ -280,6 +280,10 @@ export interface FooterContext {
     readonly session: boolean;
     readonly sending: boolean;
     readonly confirmingEnd: boolean;
+    /** The number of the proposal whose form the input holds (DIPO-450). */
+    readonly editing: number | null;
+    /** The session has proposals. */
+    readonly proposals: boolean;
   };
 }
 
@@ -301,7 +305,10 @@ export interface FooterKey {
 const HOME_VIEWS: readonly FooterView[] = ["overview", "desk", "queue", "settings", "checklist"];
 const NEVER = 100;
 const asking = (ctx: FooterContext) => ctx.planning.confirmingEnd;
+const free = (ctx: FooterContext) => !ctx.planning.confirmingEnd && ctx.planning.editing === null;
 const editing = (ctx: FooterContext) => !ctx.planning.confirmingEnd;
+const saving = (ctx: FooterContext) => !ctx.planning.confirmingEnd && ctx.planning.editing !== null;
+const proposing = (ctx: FooterContext) => free(ctx) && ctx.planning.proposals;
 
 /** The footer's keys in the order they print. */
 export const FOOTER_KEYS: readonly FooterKey[] = [
@@ -361,7 +368,16 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     label: "send",
     hint: (ctx) => (ctx.planning.session ? "[Ctrl-S] send" : "[Ctrl-S] start"),
     views: ["planning"],
-    when: editing,
+    when: free,
+    priority: NEVER,
+  },
+  {
+    id: "planningSave",
+    key: "Ctrl-S",
+    label: "save proposal",
+    hint: (ctx) => `[Ctrl-S] save proposal ${ctx.planning.editing}`,
+    views: ["planning"],
+    when: saving,
     priority: NEVER,
   },
   {
@@ -379,7 +395,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     label: "kind",
     hint: "[Tab] kind",
     views: ["planning"],
-    when: (ctx) => editing(ctx) && !ctx.planning.session,
+    when: (ctx) => free(ctx) && !ctx.planning.session,
     priority: 80,
   },
   {
@@ -388,8 +404,53 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     label: "end session",
     hint: "[Ctrl-E] end session",
     views: ["planning"],
-    when: (ctx) => editing(ctx) && ctx.planning.session,
+    when: (ctx) => free(ctx) && ctx.planning.session,
     priority: 70,
+  },
+  {
+    id: "planningConfirm",
+    key: "Ctrl-Y",
+    label: "confirm",
+    hint: "[Ctrl-Y] confirm",
+    views: ["planning"],
+    when: proposing,
+    priority: 78,
+  },
+  {
+    id: "planningEdit",
+    key: "Ctrl-R",
+    label: "edit",
+    hint: "[Ctrl-R] edit",
+    views: ["planning"],
+    when: proposing,
+    priority: 76,
+  },
+  {
+    id: "planningDecline",
+    key: "Ctrl-D",
+    label: "decline",
+    hint: "[Ctrl-D] decline",
+    views: ["planning"],
+    when: proposing,
+    priority: 74,
+  },
+  {
+    id: "planningProposal",
+    key: "Up/Down",
+    label: "proposal",
+    hint: "[Up/Down] proposal",
+    views: ["planning"],
+    when: proposing,
+    priority: 72,
+  },
+  {
+    id: "planningCancelEdit",
+    key: "Esc",
+    label: "cancel the edit",
+    hint: "[Esc] cancel the edit",
+    views: ["planning"],
+    when: saving,
+    priority: 85,
   },
   {
     id: "planningSending",
@@ -406,7 +467,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     label: "back",
     hint: "[Esc] back",
     views: ["planning"],
-    when: editing,
+    when: free,
     priority: 85,
   },
 

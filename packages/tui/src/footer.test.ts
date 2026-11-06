@@ -11,7 +11,13 @@ const ctx: FooterContext = {
   office: true,
   hasRow: true,
   planningOpen: false,
-  planning: { session: false, sending: false, confirmingEnd: false },
+  planning: {
+    session: false,
+    sending: false,
+    confirmingEnd: false,
+    editing: null,
+    proposals: false,
+  },
 };
 
 const texts = (view: FooterView, c: FooterContext = ctx) =>
@@ -59,6 +65,16 @@ describe("the footer registry", () => {
     expect(
       texts("planning", { ...ctx, planning: { ...ctx.planning, confirmingEnd: true } }),
     ).toEqual(["[y] end the session", "[any other key] keep it"]);
+  });
+
+  it("reads the proposal keys and the edit keys of the planning view", () => {
+    const session = { ...ctx.planning, session: true, proposals: true };
+    expect(texts("planning", { ...ctx, planning: session })).toContain("[Ctrl-Y] confirm");
+    expect(texts("planning", { ...ctx, planning: { ...session, editing: 2 } })).toEqual([
+      "[Ctrl-S] save proposal 2",
+      "[Enter] new line",
+      "[Esc] cancel the edit",
+    ]);
   });
 
   it("fits the width by dropping the lowest priority and keeps quit", () => {
