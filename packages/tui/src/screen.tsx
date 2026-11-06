@@ -10,6 +10,7 @@ import { footerKeys } from "./footer";
 import { type Home, HomeMode } from "./home";
 import { inSwitcherMode, type Mode } from "./mode";
 import { ModeScreen, promptHeight } from "./modes";
+import { type Planning, PlanningMode } from "./planning";
 import type { Display } from "./options";
 import {
   Banners,
@@ -29,13 +30,14 @@ export interface ScreenProps {
   readonly display: Display;
   readonly home: Home;
   readonly acts: ReturnType<typeof useActions>;
+  readonly planning: Planning;
   /** The footer's message of the moment, such as "press q again to quit". */
   readonly message: string | null;
   readonly outputTailBytes?: number;
 }
 
 export function Screen(props: ScreenProps) {
-  const { mode, state, clock, display, home, acts } = props;
+  const { mode, state, clock, display, home, acts, planning } = props;
   const { columns, rows } = useWindowSize();
   const offline = isOffline(state);
   const inSwitcher = inSwitcherMode(mode);
@@ -45,11 +47,17 @@ export function Screen(props: ScreenProps) {
   if (columns < NARROW_COLUMNS || rows < NARROW_ROWS) {
     return (
       <Box flexDirection="column">
-        <NarrowBody
-          state={state}
-          display={display}
-          switcher={mode.kind === "switcher" || mode.kind === "path" ? { index: mode.index } : null}
-        />
+        {mode.kind === "planning" ? (
+          <PlanningMode planning={planning} display={display} columns={columns} height={rows - 1} />
+        ) : (
+          <NarrowBody
+            state={state}
+            display={display}
+            switcher={
+              mode.kind === "switcher" || mode.kind === "path" ? { index: mode.index } : null
+            }
+          />
+        )}
         {/* An open action prompt shows at every size, so what a key does is on screen. */}
         {acts.promptLines().map((line, i) => (
           <Text key={`prompt:${i}`} wrap="truncate-end">
@@ -66,8 +74,12 @@ export function Screen(props: ScreenProps) {
     row: home.rowHintList,
     retry: acts.retryable,
     desk: home.deskItem !== null,
+    planning: planning.hints,
   });
-  const panel = inSwitcher ? [] : [...home.panelLines(columns), ...acts.promptLines()];
+  const panel =
+    inSwitcher || mode.kind === "planning"
+      ? []
+      : [...home.panelLines(columns), ...acts.promptLines()];
   // Header, banners, footer keys and message, and the run lines stay on screen; the view gets
   // the rest.
   const height =
@@ -89,6 +101,9 @@ export function Screen(props: ScreenProps) {
         clock={clock}
         columns={columns}
         panel={panel}
+        planning={
+          <PlanningMode planning={planning} display={display} columns={columns} height={height} />
+        }
         home={
           <HomeMode
             home={home}

@@ -12,5 +12,6 @@ export type {
   OfficeStoreOptions,
   OutputChunk,
   OfficeStoreState,
+  PlanningChunk,
   StoreClient,
 } from "./office-store";
