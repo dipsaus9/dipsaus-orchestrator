@@ -769,9 +769,9 @@
         "packages/engine/src/workers/claude-cli/plan.ts",
         "packages/engine/src/workers/claude-cli/result.ts",
         "packages/tui/src/actions.ts",
-        "packages/tui/src/app.tsx",
         "packages/tui/src/desk.tsx",
         "packages/tui/src/detail.tsx",
+        "packages/tui/src/home.tsx",
         "packages/tui/src/overview.tsx",
         "packages/tui/src/run.tsx"
       ],
@@ -832,8 +832,9 @@
         "packages/engine/src/workers/claude-cli/plan.ts",
         "packages/engine/src/workers/claude-cli/result.ts",
         "packages/tui/src/actions.ts",
-        "packages/tui/src/app.tsx",
         "packages/tui/src/detail.tsx",
+        "packages/tui/src/footer.ts",
+        "packages/tui/src/home.tsx",
         "packages/tui/src/story-card.tsx"
       ],
       "rules": {
@@ -865,7 +866,7 @@
         "packages/engine/src/story-pr/prs.ts",
         "packages/engine/src/worktree/claim.ts",
         "packages/engine/src/worktree/done.ts",
-        "packages/tui/src/app.tsx"
+        "packages/tui/src/footer.ts"
       ],
       "rules": {
         "max-params": "off"
