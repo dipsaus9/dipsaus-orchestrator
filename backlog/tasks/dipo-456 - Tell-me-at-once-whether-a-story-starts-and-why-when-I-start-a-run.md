@@ -1,10 +1,10 @@
 ---
 id: DIPO-456
 title: Tell me at once whether a story starts and why when I start a run
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-11-06 09:49'
-updated_date: '2026-11-06 13:34'
+updated_date: '2026-11-06 13:40'
 labels:
   - 'tier:S'
 milestone: m-3
@@ -34,7 +34,10 @@ Built by dipo where it can (maintainer's choice, 2026-11-05); a builder agent ta
 
 ```dipo
 branch: "DIPO-456/answer-run-at-decision"
-unknowns: []
+unknowns:
+  - q: "work.run must answer after it fetches the base and runs the pickup gate, so it cannot be a sync (non-waiting) office command. How should the answer get the base without awaiting git: (a) keep work.run registered as a waiting command and drop only the waiting for the claim and launch (criterion 5 then stays unmet), or (b) make the fetch and gate run before the command, in a background pass that the sync handler reads, so the answer uses the last fetched base (a behaviour change for stale bases)?"
+    status: "resolved"
+    answer: "(b), the maintainer's choice: work.run answers at once from the last fetched base, read by the sync handler; a background pass keeps the base fetched. The start work after the answer still fetches fresh before it claims: if the story can no longer start on the fresh base (merged elsewhere, a dependency or gate change), it does not claim and posts a notice naming the story and why, the same as a failure after the answer. Add a unit test for that case. Criterion 5 stays as written."
 test_plan:
   entries:
     - kind: "automated"
@@ -48,10 +51,6 @@ test_plan:
     - kind: "manual"
       check: "On the scratch repository with a Haiku office, press u on a Ready story in the TUI queue"
       expect: "the footer says the story starts, or why not, within about 2 seconds, and the overview shows it in setup"
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "work.run must answer after it fetches the base and runs the pickup gate, so it cannot be a sync (non-waiting) office command. How should the answer get the base without awaiting git: (a) keep work.run registered as a waiting command and drop only the waiting for the claim and launch (criterion 5 then stays unmet), or (b) make the fetch and gate run before the command, in a background pass that the sync handler reads, so the answer uses the last fetched base (a behaviour change for stale bases)?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -86,4 +85,6 @@ Parked 2026-11-06 13:34 UTC: ambiguous-spec
 - Review rounds: 0, failed 0 of 3
 - Budget used: 298,931 of 450,000 tokens; 115 of 135 turns; 13 of 68 minutes
 - Last good commit: e7114f46c6ad43bc585918dbc428c1842a6ced33
+
+Resumed 2026-11-06 13:40 UTC; grants: none; note: (b), the maintainer's choice: work.run answers at once from the last fetched base, read by the sync handler; a background pass keeps the base fetched. The start work after the answer still fetches fr…
 <!-- SECTION:NOTES:END -->
