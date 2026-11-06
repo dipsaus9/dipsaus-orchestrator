@@ -3,10 +3,10 @@ id: DIPO-446
 title: >-
   Count every running story in status and watch and remove the verify field that
   is always none
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-05 12:06'
-updated_date: '2026-11-05 12:19'
+updated_date: '2026-11-06 09:11'
 labels:
   - 'tier:S'
 milestone: m-2
