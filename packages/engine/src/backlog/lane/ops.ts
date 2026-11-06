@@ -23,6 +23,7 @@ import {
   EDIT_KIND,
   EditTarget,
   HOLD_KIND,
+  READY_KIND,
   RESUME_KIND,
 } from "../../story-store/planning";
 import type { PlainTask } from "../../story-store/story";
@@ -62,7 +63,16 @@ export interface LaneOpKind {
 }
 
 // The target-state model is the seam's (`story-store/planning.ts`); the kinds apply it here.
-export { DISCARD_KIND, DROP_KIND, DropTarget, EDIT_KIND, EditTarget, HOLD_KIND, RESUME_KIND };
+export {
+  DISCARD_KIND,
+  DROP_KIND,
+  DropTarget,
+  EDIT_KIND,
+  EditTarget,
+  HOLD_KIND,
+  READY_KIND,
+  RESUME_KIND,
+};
 
 /** True when the CLI failed because the story does not exist (0010). */
 function isNotFound(error: unknown): boolean {
