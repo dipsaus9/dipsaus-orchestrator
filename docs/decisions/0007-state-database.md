@@ -99,7 +99,7 @@ The worker host appends the session's stream to `events.ndjson`. The engine read
 ## 8. One retention rule
 
 - **The rule.** Everything about a run that ended more than `retention.days` ago (default 30) is deleted: its change-log rows, output, usage messages, steps, verdicts and feedback.
-- **Kept.** The run's outcome row and the daily usage rollup are kept, for retro and trends. A held or passed idea is kept; a rejected one goes `retention.days` after it was rejected (0022).
+- **Kept.** The run's outcome row and the daily usage rollup are kept, for retro and trends, and so is every idea with its audit, a rejected one with its reason (0022).
 - **When it runs.** At office load and then hourly, in batches of at most 5,000 rows.
 - **Run directories.** `events.ndjson` is deleted as soon as its run has ended and was processed to its final offset. The rest of the run directory goes with the rule.
 - **Daily upkeep** while no work is active: incremental vacuum in slices, a truncating checkpoint, and `PRAGMA optimize`.
