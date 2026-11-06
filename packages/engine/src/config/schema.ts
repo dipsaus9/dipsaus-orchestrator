@@ -216,6 +216,22 @@ const Planning = z
     "The planning session the maintainer talks to turn by turn (plan, refine or triage): it runs Claude in a read-only box with a copy of the base branch and the backlog, holds no run slot and has no run cap; it ends when the maintainer ends it or after idleHours without a message.",
   );
 
+// DIPO-452: the audit of incoming ideas (0022). Its model is a schema default only, so an office
+// file that does not set it needs no re-pin.
+const Audit = z
+  .strictObject({
+    model: text().describe("The model of the audit session."),
+    effort: text().describe("The effort of the audit session."),
+    maxTurns: count().describe(
+      "Model turns the audit session's one answer may take before it is stopped.",
+    ),
+    maxMinutes: count().describe(
+      "Minutes one audit session may run before dipo stops it; its ideas stay held and are audited again at the next trigger.",
+    ),
+  })
+  .describe(
+    "The audit of incoming ideas (worker proposals, reviewer advisory findings, planning asides and quick ideas): after code rejects duplicates and the titles of stories, one short session per batch, in a read-only box with the planning session's tools, passes an idea only when no story covers it, its problem is real in the code and it serves a milestone or is tech debt. It holds no run slot and is not the planning session.",
+  );
 // 0012: the Ready gate's story rules.
 const SecurityCriteriaPhrases = z
   .strictObject({
@@ -315,6 +331,7 @@ const officeShape = {
   box: BoxSection,
   scan: Scan,
   planning: Planning,
+  audit: Audit,
   story: Story,
   prompt: Prompt,
   // 0010: the base branch; without it `origin/HEAD` decides.
@@ -632,6 +649,8 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
   scan: { model: "sonnet", effort: "low", budgetTokens: 100_000, maxMinutes: 5 },
   // DIPO-447.
   planning: { model: "opus", effort: "high", maxTurns: 100, idleHours: 24 },
+  // DIPO-452.
+  audit: { model: "sonnet", effort: "medium", maxTurns: 40, maxMinutes: 15 },
   // 0012.
   story: {
     types: ["feature", "bug", "enhancement", "task", "chore", "docs", "spike"],

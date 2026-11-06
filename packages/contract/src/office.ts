@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { defineCommand, defineEvent, defineRead } from "./definition";
 import { CommandName } from "./envelope";
+import { IdeaState, IdeaView } from "./ideas";
 import {
   AgentId,
   Cursor,
@@ -819,6 +820,14 @@ export const officeDesk = defineRead({
   result: z.array(DeskItem),
 });
 
+// The office's ideas (0022, DIPO-452): held, passed with their proposed user story, and rejected
+// with their reason, oldest first; `state` lists only those. Changes nothing [`ideas`].
+export const officeIdeas = defineRead({
+  name: "office.ideas",
+  args: z.object({ office: OfficeId, state: IdeaState.optional() }),
+  result: z.array(IdeaView),
+});
+
 // Events (office stream, 0005)
 
 // `detail` holds gate failure messages, for example a failed pickup re-check.
@@ -1131,6 +1140,7 @@ export const officeReads = [
   workPreview,
   workPrompt,
   officeDesk,
+  officeIdeas,
 ] as const;
 
 export const officeEvents = [

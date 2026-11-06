@@ -25,6 +25,7 @@
 //   deleted then, and `planning.ended` and `run.ended` follow. At daemon stop every open session
 //   gets the stop and ends `daemon-stopped`; at daemon start a planning run a stopped daemon left
 //   open is ended (`recover`).
+<<<<<<< a315ae40412a50f88422a2d1252c1936f3d7d725
 //
 // Proposals (DIPO-450, 0022): the first message gives the session the proposal schema, and at
 // each turn end the answer's proposal blocks are read (`planning-proposals.ts`). A valid one joins
@@ -44,6 +45,11 @@
 //
 // What the maintainer decided reaches the session with their next message, as `[dipo]` lines
 // before it, so it never proposes a filed or declined story again.
+=======
+// - An aside (DIPO-452): an idea the session noticed outside its goal, sent as a `dipo-aside` block
+//   in its answer. Each valid block is held as an idea and audited when it arrives (`onIdea`); an
+//   invalid one is refused with an `engine.notice` that says why (`asides.ts`).
+>>>>>>> c1e3809cae86f370901a442e5048a9dee26663d6
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -103,6 +109,7 @@ import { activeStoryViews, storyView } from "../views/story";
 import type { RunLaunchPaths, WorkerPort } from "../workers/port";
 import { PlanError, type HostOp, type WorkerEvent, type WorkerSpec } from "../workers/types";
 
+import { ASIDE_FENCE, holdAsides } from "./asides";
 import type { RunSteering } from "./control-types";
 import {
   AUTO_REFUSALS_MAX,
@@ -258,6 +265,8 @@ export interface PlanningSessionsDeps {
   /** The office's planning lane (0010), which files the proposals the maintainer confirms. */
   readonly lane?: (office: OfficeId) => PlanningLane | undefined;
   readonly onChanged?: (office: OfficeId) => void;
+  /** The session held an idea from an aside block (DIPO-452): the audit takes it now. */
+  readonly onIdea?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
@@ -1068,7 +1077,11 @@ export class PlanningSessions {
                 detail: event.reason,
               });
             }
+<<<<<<< a315ae40412a50f88422a2d1252c1936f3d7d725
             if (event.t === "output") open.answer.push(event.text);
+=======
+            if (event.t === "output") this.#asides(open, event.text);
+>>>>>>> c1e3809cae86f370901a442e5048a9dee26663d6
             if (event.t === "turn") this.#turnEnded(open);
           }
         },
@@ -1095,6 +1108,30 @@ export class PlanningSessions {
     } catch (error) {
       deps.warn?.("ingesting a planning session failed", { run, reason: messageOf(error) });
       void this.#stop(open, { reason: "exited", detail: "its events could not be ingested" });
+    }
+  }
+
+  /**
+   * Holds the aside blocks of one output text as ideas, and says so of a refused one (DIPO-452).
+   * A failed write is logged; the session goes on.
+   */
+  #asides(open: Open, text: string): void {
+    if (!text.includes(ASIDE_FENCE)) return;
+    const { handle } = open;
+    try {
+      const at = this.#deps.clock.now();
+      const held = handle.immediate(() => {
+        const asides = holdAsides(handle, { run: open.run, text, at });
+        appendEntries(handle, asides.refused, { at });
+        return asides;
+      });
+      if (held.refused.length > 0) this.#deps.onChanged?.(open.office);
+      if (held.held > 0) this.#deps.onIdea?.(open.office);
+    } catch (error) {
+      this.#deps.warn?.("holding a planning session's asides failed", {
+        run: open.run,
+        reason: messageOf(error),
+      });
     }
   }
 

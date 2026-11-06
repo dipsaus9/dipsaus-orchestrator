@@ -6,15 +6,18 @@
 import type { OpenEnum, ParkReason } from "@dipsaus-orchestrator/contract";
 
 /** Run kinds an adapter may know (0008). */
-export const KNOWN_WORKER_KINDS = ["implement", "review", "session", "planning"] as const;
+export const KNOWN_WORKER_KINDS = ["implement", "review", "session", "planning", "audit"] as const;
 /** An open string: a later kind needs no contract change; an adapter refuses kinds it cannot plan. */
 export type WorkerKind = OpenEnum<(typeof KNOWN_WORKER_KINDS)[number]>;
 /**
  * The kinds whose turn ends in a structured report (0008, DIPO-131), and
  * `session` (DIPO-310): a model session outside a story run, whose structured output the engine
  * checks against the schema its spec carries (the scan fallback's answer). A `planning` session
- * (DIPO-447) is the maintainer's: each of its turns ends in plain text, never in a report.
+ * (DIPO-447) is the maintainer's: each of its turns ends in plain text, never in a report. An
+ * `audit` session (DIPO-452) answers once, in structured output the engine checks as a
+ * `session`'s, and has the planning session's tools.
  */
+<<<<<<< a315ae40412a50f88422a2d1252c1936f3d7d725
 export type ReportKind = "implement" | "review" | "session" | "planning";
 /**
  * The kinds whose schema the worker port carries (`WorkerPort.reportSchema`). For `planning` it is
@@ -22,6 +25,11 @@ export type ReportKind = "implement" | "review" | "session" | "planning";
  * message gives it; its turns still end in no report.
  */
 export type SchemaKind = Exclude<ReportKind, "session">;
+=======
+export type ReportKind = "implement" | "review" | "session" | "planning" | "audit";
+/** The kinds whose report schema the worker port carries (`WorkerPort.reportSchema`). */
+export type SchemaKind = Exclude<ReportKind, "session" | "planning" | "audit">;
+>>>>>>> c1e3809cae86f370901a442e5048a9dee26663d6
 
 /** The start of the output line a web call shows as: `[web] <tool> <query or URL>`. */
 export const WEB_LINE_PREFIX = "[web] ";
@@ -46,8 +54,8 @@ export interface WorkerSpec {
   /**
    * Absolute working directory on the Mac: the story worktree for `implement` and `review`, whose
    * sessions run in a box (0008); for `session` an empty folder dipo made, with nothing of any
-   * repository in it (DIPO-310); for `planning` the run directory, since its session runs in a
-   * read-only box of its own (DIPO-447).
+   * repository in it (DIPO-310); for `planning` and `audit` the run directory, since their sessions run in a
+   * read-only box of their own (DIPO-447, DIPO-452).
    */
   readonly workdir: string;
   readonly model: string;
@@ -340,7 +348,7 @@ export type WorkerEvent =
       /** A `review` session's valid report (0002); absent in other kinds. */
       readonly review?: ReviewReport;
       /**
-       * A `session` kind's structured output, cleaned at the door and held to its size cap, for
+       * A `session` or `audit` kind's structured output, cleaned at the door and held to its size cap, for
        * the engine to check against its own schema (DIPO-310); absent in other kinds.
        */
       readonly answer?: unknown;
@@ -468,7 +476,7 @@ export interface WorkerResult {
   readonly report: WorkerReport | null;
   /** A `review` session's valid report; absent in other kinds. */
   readonly review?: ReviewReport;
-  /** A `session` kind's structured output, for the engine to check (DIPO-310). */
+  /** A `session` or `audit` kind's structured output, for the engine to check (DIPO-310). */
   readonly answer?: unknown;
   readonly usage: UsageTotalsByModel;
   readonly sessionId: string;

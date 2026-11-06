@@ -120,6 +120,7 @@ export interface PlanningWorld {
   holdAnswers: boolean;
   /** Gives the answer to the last message it held back. */
   release(): void;
+<<<<<<< a315ae40412a50f88422a2d1252c1936f3d7d725
   /** The text of answer `n` (from 1); `Answer n.` unless a test sets it (DIPO-450). */
   answerText: (n: number) => string;
 }
@@ -130,6 +131,10 @@ export interface PlanningWorldOptions {
   readonly office?: OfficeHandle;
   /** The office's planning lane (DIPO-450); none by default. */
   readonly lane?: PlanningSessionsDeps["lane"];
+=======
+  /** The offices the session held an aside of, in order (DIPO-452). */
+  readonly ideas: string[];
+>>>>>>> c1e3809cae86f370901a442e5048a9dee26663d6
 }
 
 /** The session's box as `BoxWorkers.planning` returns it. */
@@ -169,7 +174,11 @@ export function planningWorld(
     eventFile: "",
     startLines: "",
     holdAnswers: false,
+<<<<<<< a315ae40412a50f88422a2d1252c1936f3d7d725
     answerText: (n: number) => `Answer ${n}.`,
+=======
+    ideas: [],
+>>>>>>> c1e3809cae86f370901a442e5048a9dee26663d6
   } as unknown as PlanningWorld;
   let held: (() => void) | null = null;
   w.release = () => {
@@ -271,7 +280,11 @@ export function planningWorld(
       },
     },
     desk: () => w.desk,
+<<<<<<< a315ae40412a50f88422a2d1252c1936f3d7d725
     ...(options.lane === undefined ? {} : { lane: options.lane }),
+=======
+    onIdea: (id) => w.ideas.push(id),
+>>>>>>> c1e3809cae86f370901a442e5048a9dee26663d6
     baseCommit: async () => BASE_COMMIT,
     runtimeDir: join(dir, "runtime"),
     tmpRoot: join(dir, "tmp"),

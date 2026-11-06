@@ -28,6 +28,8 @@ import { FixRounds, type FixRoundsDeps } from "../run/fix-rounds";
 import { Reviews } from "../run/reviews";
 import { createRunOutcomes, type Resumption } from "../run/resumption";
 import { SessionRuns } from "../run/session-run";
+import { AuditSessions } from "../run/audit-session";
+import { IdeaAudits } from "../run/idea-audits";
 import { StartsPaused, type StartsPausedDeps } from "../run/starts-paused";
 import { afterRunExits } from "../run/temp-dirs";
 import { WebCalls } from "../run/web-calls";
@@ -175,6 +177,12 @@ export interface ComposedRuns {
    * on the same worker port, hosts and steering, holding no run slot.
    */
   readonly planning: PlanningSessions;
+  /**
+   * The audit of incoming ideas (DIPO-452): code first, then one audit session per batch, each in
+   * a planning box of its own, holding no run slot and not the planning session.
+   */
+  readonly audits: IdeaAudits;
+  readonly auditSessions: AuditSessions;
 }
 
 /** `{ [key]: value }`, or `{}` when `value` is undefined (an optional port left out). */
@@ -677,6 +685,29 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
   connectRunPartners(partners, { ingest, built, exitPort });
   const reattacher = buildReattacher(ports, control, ingest, outcomes);
   const launcher = buildLauncher(ports, control, ingest);
+  const auditSessions = new AuditSessions({
+    clock: ports.clock,
+    ids: ports.ids,
+    offices: ports.offices,
+    worker: ports.worker,
+    git: ports.git,
+    hosts: ports.hosts,
+    steering: ports.steering,
+    runtimeDir: ports.runtimeDir,
+    tmpRoot: ports.tmpRoot,
+    ...given("boxes", ports.planningBoxes),
+    ...given("tempOwner", ports.tempOwner),
+    ...given("onChanged", ports.onChanged),
+    ...given("warn", ports.warn),
+  });
+  const audits = new IdeaAudits({
+    clock: ports.clock,
+    offices: ports.offices,
+    runner: () => auditSessions,
+    ...given("active", ports.scheduling),
+    ...given("onChanged", ports.onChanged),
+    ...given("warn", ports.warn),
+  });
   return {
     ingest,
     answers,
@@ -702,11 +733,18 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
       tmpRoot: ports.tmpRoot,
       ...given("boxes", ports.planningBoxes),
       ...given("desk", ports.planningDesk),
+<<<<<<< a315ae40412a50f88422a2d1252c1936f3d7d725
       ...given("lane", ports.planningLane),
+=======
+      // An aside the session sends is audited when it arrives (DIPO-452).
+      onIdea: (office) => audits.poke(office),
+>>>>>>> c1e3809cae86f370901a442e5048a9dee26663d6
       ...given("tempOwner", ports.tempOwner),
       ...given("onChanged", ports.onChanged),
       ...given("warn", ports.warn),
     }),
+    audits,
+    auditSessions,
     sessions: new SessionRuns({
       clock: ports.clock,
       ids: ports.ids,

@@ -392,6 +392,7 @@ describe("the base schema", () => {
           "feedback_items",
           "gate_decisions",
           "gates",
+          "ideas",
           "ingest_cursors",
           "next_up_declines",
           "office_scan_marks",

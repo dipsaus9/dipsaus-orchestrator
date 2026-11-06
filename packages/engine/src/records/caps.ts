@@ -104,6 +104,12 @@ export const REVIEWER_ROLE = "reviewer";
 export const PLANNER_ROLE = "planner";
 
 /**
+ * The role of an idea audit's agent (DIPO-452): a session run with no story and no run slot, whose
+ * usage counts in the office's usage and spend like any session's.
+ */
+export const AUDITOR_ROLE = "auditor";
+
+/**
  * The developer's totals of the run from the stored usage, and the wall-clock time from
  * `startedAt` (when its worker host started, moved by the time it stood parked, ended or in
  * review) to `now`. The budget and the turns count only the developer's agents: a reviewer's tokens, turns and minutes count against

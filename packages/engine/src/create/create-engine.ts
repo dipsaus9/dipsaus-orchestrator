@@ -57,6 +57,8 @@ async function stopServices(core: Core, services: Services): Promise<void> {
   runs.collisions?.stop();
   // An open planning session gets the stop and ends, before its box goes with the others (DIPO-447).
   await runs.planning.stopAll();
+  // A running audit session gets the stop; its ideas stay held for the next daemon (DIPO-452).
+  await runs.auditSessions.stopAll();
   // Every box worker ends inside its box (DIPO-271); the forwarders of open tests stop, and their
   // test boxes keep running for the next daemon (DIPO-309).
   await runs.testBoxes?.stopForwarders();
