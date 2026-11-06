@@ -1997,6 +1997,275 @@
       },
       "required": ["kind", "detail", "since", "blocks", "actions"]
     },
+    "IdeaView": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": ["proposal", "finding", "aside", "quick"]
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "story": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+        },
+        "run": {
+          "type": "string",
+          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "title": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": ["held", "passed", "rejected"]
+        },
+        "decidedBy": {
+          "type": "string",
+          "enum": ["code", "audit"]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "proposal": {
+          "type": "object",
+          "properties": {
+            "found": {
+              "type": "string"
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300,
+                    "description": "the file, relative to the repository root"
+                  },
+                  "line": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "description": "the line number in that file"
+                  },
+                  "quote": {
+                    "description": "the line as it reads",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  }
+                },
+                "required": ["file", "line"],
+                "additionalProperties": false
+              }
+            },
+            "sourceStory": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            },
+            "storyLine": {
+              "type": "string"
+            },
+            "proposed": {
+              "type": "string"
+            },
+            "why": {
+              "type": "string"
+            },
+            "serves": {
+              "type": "string"
+            }
+          },
+          "required": ["found", "evidence", "storyLine", "proposed", "why", "serves"]
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "lastProblem": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        },
+        "decidedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        }
+      },
+      "required": ["id", "origin", "title", "text", "state", "attempts", "createdAt"]
+    },
+    "AsideBlock": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "a short title"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "what the idea is and why it matters"
+        },
+        "paths": {
+          "description": "files it concerns, relative to the repository root",
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        }
+      },
+      "required": ["title", "text"],
+      "additionalProperties": false
+    },
+    "AuditAnswer": {
+      "type": "object",
+      "properties": {
+        "ideas": {
+          "minItems": 1,
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "idea": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "the id of the idea, as its idea tag names it"
+                  },
+                  "verdict": {
+                    "type": "string",
+                    "const": "pass"
+                  },
+                  "found": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000,
+                    "description": "what you found in the code"
+                  },
+                  "evidence": {
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "file": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 300,
+                          "description": "the file, relative to the repository root"
+                        },
+                        "line": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991,
+                          "description": "the line number in that file"
+                        },
+                        "quote": {
+                          "description": "the line as it reads",
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 300
+                        }
+                      },
+                      "required": ["file", "line"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "storyLine": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500,
+                    "description": "one line: As <maintainer|worker|reviewer> I want <capability> so that <value>. Plain words: no backticks, file paths or code"
+                  },
+                  "proposed": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000,
+                    "description": "what the story proposes"
+                  },
+                  "why": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000,
+                    "description": "why it is needed"
+                  },
+                  "serves": {
+                    "type": "string",
+                    "pattern": "^(?:m-\\d+|tech-debt)$",
+                    "description": "the milestone id it serves, such as \"m-3\", or \"tech-debt\""
+                  }
+                },
+                "required": [
+                  "idea",
+                  "verdict",
+                  "found",
+                  "evidence",
+                  "storyLine",
+                  "proposed",
+                  "why",
+                  "serves"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "idea": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "the id of the idea, as its idea tag names it"
+                  },
+                  "verdict": {
+                    "type": "string",
+                    "const": "reject"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000,
+                    "description": "which pass rule it fails, and what you saw"
+                  }
+                },
+                "required": ["idea", "verdict", "reason"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "required": ["ideas"],
+      "additionalProperties": false
+    },
     "ProfileView": {
       "type": "object",
       "properties": {

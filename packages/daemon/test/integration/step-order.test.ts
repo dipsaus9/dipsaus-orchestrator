@@ -39,6 +39,7 @@ const RECOVERY_STEPS = [
   "run-temp-sweep",
   "tests-recover",
   "planning-recover",
+  "audit-recover",
   "fix-rounds-recover",
 ];
 

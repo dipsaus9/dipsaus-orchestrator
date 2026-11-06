@@ -350,6 +350,18 @@ function nextUpOf(core: Core, story: StoryServices, runs: EngineRuns, workRun: W
 }
 
 /**
+ * The audit of incoming ideas (DIPO-452): every change of an office looks for ideas due and never
+ * audited (a run merged or parked, an idea without a run), and once scheduling turns on every held
+ * idea whose run ended is audited, the ones an earlier audit missed included.
+ */
+function listenForIdeas(core: Core, runs: EngineRuns): void {
+  core.changes.listen((office) => runs.audits.poke(office));
+  core.lifecycle.onTransition((change) => {
+    if (change.to === "running") runs.audits.retryAll(core.offices.loadedOffices());
+  });
+}
+
+/**
  * The Done poll and teardown (DIPO-58, DIPO-363): the one Done check reads the merged PR of each
  * finished claim and the story's status on the base; a Done story's worktree and branches are
  * removed and its slot freed. A story Done on the base through another branch has its open story
@@ -379,6 +391,7 @@ export function buildCommandServices(
   const runProfiles = runProfilesOf(core, story, runs, reconciler);
   const autoMerge = autoMergeOf(core, story, runs);
   const workRun = workRunOf(core, story, runs, runProfiles);
+  listenForIdeas(core, runs);
   return {
     runs,
     discard: discardOf(core, story, runs),

@@ -233,6 +233,8 @@ describe("tags inside slot text", () => {
       "desk",
       "recent_runs",
       "copy",
+      "ideas",
+      "idea",
     ]);
     for (const name of REVIEW_SECTION_ORDER) expect(PROMPT_TAGS).toContain(name);
   });

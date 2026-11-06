@@ -86,7 +86,7 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
     };
   }
   if (turn.subtype === "error_max_structured_output_retries") {
-    if (state.reportKind === "session") {
+    if (state.reportKind === "session" || state.reportKind === "audit") {
       return {
         outcome: "blocked",
         report: null,
@@ -104,9 +104,10 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
     return crashed(`${turn.subtype} (${why})${last}, ${exitText(exit)}`);
   }
 
-  if (state.reportKind === "session") {
-    // A session outside a story (DIPO-310): its structured output is all it returns, and the
-    // engine checks it; there is no park and no feedback turn, its retry is the CLI's own.
+  if (state.reportKind === "session" || state.reportKind === "audit") {
+    // A session outside a story (DIPO-310), or an idea's audit (DIPO-452): its structured output
+    // is all it returns, and the engine checks it; there is no park and no feedback turn, its
+    // retry is the CLI's own.
     const answer = turn.answer;
     if (answer === undefined) {
       return {

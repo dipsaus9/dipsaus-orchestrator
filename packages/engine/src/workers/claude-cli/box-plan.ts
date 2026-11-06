@@ -27,8 +27,12 @@
 // `--tools` with only the kind's own tools, no other flag that names tools, permissions, settings,
 // plugins or MCP servers, and `--strict-mcp-config`. Text the maintainer writes (the goal, each
 // message) reaches the session only on stdin, never on argv.
+//
+// An audit session (DIPO-452) is its own kind with the planning session's tools, in a planning box
+// of its own: the same read-only plan and check, plus the audit answer's schema, since it answers
+// once in structured output. The ideas it audits reach it only on stdin, as quoted data.
 
-import { allowedTools, checkReadOnlyTools, isReadOnlyKind } from "./tools";
+import { allowedTools, AUDIT_KIND, checkReadOnlyTools, isReadOnlyKind } from "./tools";
 import { BOX_NPM_PREFIX } from "../../box/firewall";
 import { REVIEW_CODE_DIR } from "../../box/review-box";
 import type { BoxSession } from "../../box/workers";
@@ -114,8 +118,8 @@ export const READ_ONLY_REFUSED_FLAGS: readonly string[] = [
 ];
 
 /**
- * Throws a `PlanError` unless the argv of a read-only session (`review`, `planning`) holds exactly
- * one `--tools` with only the kind's own tools, none of `READ_ONLY_REFUSED_FLAGS` and
+ * Throws a `PlanError` unless the argv of a read-only session (`review`, `planning`, `audit`) holds
+ * exactly one `--tools` with only the kind's own tools, none of `READ_ONLY_REFUSED_FLAGS` and
  * `--strict-mcp-config`.
  */
 export function checkReadOnlyArgv(kind: string, argv: readonly string[]): void {
@@ -142,15 +146,20 @@ export function checkReadOnlyArgv(kind: string, argv: readonly string[]): void {
 }
 
 /**
- * Pure: the launch plan of a developer session in `session`'s box, or of a reviewer or planning
- * session in its read-only box. `runDir` is the host's working directory on the Mac (the run
+ * Pure: the launch plan of a developer session in `session`'s box, or of a reviewer, planning or
+ * audit session in its read-only box. `runDir` is the host's working directory on the Mac (the run
  * directory); nothing of it reaches the box.
  */
 export function planInBox(spec: WorkerSpec, session: BoxSession, runDir: string): LaunchPlan {
   checkSpec(spec);
-  if (spec.kind !== "implement" && spec.kind !== "review" && spec.kind !== "planning") {
+  if (
+    spec.kind !== "implement" &&
+    spec.kind !== "review" &&
+    spec.kind !== "planning" &&
+    spec.kind !== AUDIT_KIND
+  ) {
     throw new PlanError(
-      `only a developer, reviewer or planning session runs in a box, not a ${spec.kind} session`,
+      `only a developer, reviewer, planning or audit session runs in a box, not a ${spec.kind} session`,
     );
   }
   if (!runDir.startsWith("/")) throw new PlanError(`runDir must be an absolute path: ${runDir}`);

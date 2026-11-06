@@ -72,6 +72,7 @@ describe("version 16", () => {
       "box",
       "scan",
       "planning",
+      "audit",
       "story",
       "prompt",
       "worktree",

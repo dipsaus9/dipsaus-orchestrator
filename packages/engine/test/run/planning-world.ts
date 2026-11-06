@@ -51,7 +51,7 @@ export const initLine = line({
 export const answerTokens = (n: number) => ({ input: 1_000 * n, output: 100 * n });
 
 /** One answer of the session: its text and the turn's result. */
-export function answerLines(n: number): string {
+export function answerLines(n: number, text = `Answer ${n}.`): string {
   const { input, output } = answerTokens(n);
   return (
     line({
@@ -61,7 +61,7 @@ export function answerLines(n: number): string {
         id: `msg-${n}`,
         type: "message",
         role: "assistant",
-        content: [{ type: "text", text: `Answer ${n}.` }],
+        content: [{ type: "text", text }],
         usage: {
           input_tokens: input,
           cache_creation_input_tokens: 0,
@@ -114,6 +114,8 @@ export interface PlanningWorld {
   holdAnswers: boolean;
   /** Gives the answer to the last message it held back. */
   release(): void;
+  /** The offices the session held an aside of, in order (DIPO-452). */
+  readonly ideas: string[];
 }
 
 /** The session's box as `BoxWorkers.planning` returns it. */
@@ -149,6 +151,7 @@ export function planningWorld(t: TestState, dir: string): PlanningWorld {
     eventFile: "",
     startLines: "",
     holdAnswers: false,
+    ideas: [],
   } as unknown as PlanningWorld;
   let held: (() => void) | null = null;
   w.release = () => {
@@ -250,6 +253,7 @@ export function planningWorld(t: TestState, dir: string): PlanningWorld {
       },
     },
     desk: () => w.desk,
+    onIdea: (id) => w.ideas.push(id),
     baseCommit: async () => BASE_COMMIT,
     runtimeDir: join(dir, "runtime"),
     tmpRoot: join(dir, "tmp"),

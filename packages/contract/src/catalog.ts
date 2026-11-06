@@ -47,6 +47,7 @@ import {
   softwareReads,
 } from "./software";
 import { FieldBlock } from "./fieldblock";
+import { AsideBlock, AuditAnswer, IdeaView } from "./ideas";
 import { DeskItem, officeCommands, officeEvents, officeReads, OfficeSnapshot } from "./office";
 import { profileCommands, profileReads, ProfileView } from "./profile";
 import {
@@ -159,6 +160,9 @@ const workSchemas: Record<string, z.ZodType> = {
   TestView,
   OfficeSnapshot,
   DeskItem,
+  IdeaView,
+  AsideBlock,
+  AuditAnswer,
   ProfileView,
   FieldBlock,
 };

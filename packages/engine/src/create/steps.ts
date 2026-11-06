@@ -13,6 +13,7 @@ import { helloFeature } from "../reads/hello";
 import { REATTACH_STEP } from "../run/reattach";
 import { FIX_ROUNDS_RECOVERY_STEP } from "../run/fix-rounds";
 import { TEST_RECOVERY_STEP } from "../run/tests";
+import { AUDIT_RECOVERY_STEP } from "../run/audit-session";
 import { PLANNING_RECOVERY_STEP } from "../run/planning-session";
 import { RUN_TEMP_SWEEP_STEP } from "../run/temp-dirs";
 import { RECONCILE_STEP } from "../reconcile/feature";
@@ -135,6 +136,8 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
     commands.storyTests.feature,
     // The maintainer's planning session (DIPO-447).
     runs.planning.feature,
+    // `office.ideas`: the held, passed and rejected ideas (DIPO-452).
+    runs.audits.feature,
     commands.discard.feature,
     commands.proposals.feature,
     runs.control.feature,
@@ -290,6 +293,15 @@ export function recoveryList(core: Core, services: Services): RecoverySteps {
       run: async (context: Parameters<RecoveryStep["run"]>[0]) => {
         const ended = runs.planning.recover(core.offices.loadedOffices());
         if (ended > 0) context.logger.info("ended planning runs a stopped daemon left", { ended });
+      },
+    },
+    // An audit run a stopped daemon left open ends; its ideas stay held, and the audit takes them
+    // again once the daemon runs (DIPO-452).
+    {
+      name: AUDIT_RECOVERY_STEP,
+      run: async (context: Parameters<RecoveryStep["run"]>[0]) => {
+        const ended = runs.auditSessions.recover(core.offices.loadedOffices());
+        if (ended > 0) context.logger.info("ended audit runs a stopped daemon left", { ended });
       },
     },
     // Fix rounds (DIPO-148): a round delivered just before the stop is marked so, and a reviewed

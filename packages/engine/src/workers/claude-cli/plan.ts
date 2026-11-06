@@ -16,6 +16,7 @@ import type { LaunchPlan, WorkerKind, WorkerSpec } from "../types";
 import { userMessageLine } from "./encode";
 import { enabledPluginsSetting, type WorkerPlugins } from "./plugins";
 import { DISABLE_SLASH_COMMANDS } from "./skills";
+import { AUDIT_KIND } from "./tools";
 
 export const CLAUDE_CLI_ADAPTER_ID = "claude-cli";
 /** Run settings file, in the run directory (0008). */
@@ -30,14 +31,20 @@ export const REPORT_SCHEMA_FILE = "report-schema.json";
 export const INCLUDE_PARTIAL_MESSAGES = "--include-partial-messages";
 
 /**
- * Kinds this adapter plans: `implement`, `review` (0002) and `planning` (DIPO-447), only in a
- * box (`box-plan.ts`), and `session` (DIPO-310), on the Mac with `plan`.
+ * Kinds this adapter plans: `implement`, `review` (0002), `planning` (DIPO-447) and `audit`
+ * (DIPO-452), only in a box (`box-plan.ts`), and `session` (DIPO-310), on the Mac with `plan`.
  */
-export const PLANNED_KINDS: readonly WorkerKind[] = ["implement", "review", "session", "planning"];
+export const PLANNED_KINDS: readonly WorkerKind[] = [
+  "implement",
+  "review",
+  "session",
+  "planning",
+  AUDIT_KIND,
+];
 
 /**
  * Spec fields that would name tools, MCP servers or permissions (DIPO-447). The engine names no
- * tool (DIPO-318), so a planning spec that carries one of them, as its own field or on its
+ * tool (DIPO-318), so a planning or audit spec (DIPO-452) that carries one of them, as its own field or on its
  * prototype, was built to ask for a tool its kind does not have, and is refused whatever the field
  * holds. The other kinds ignore such a field, as they always did: their tools come from the kind.
  */
@@ -92,6 +99,10 @@ export const REVIEWER_ON_MAC_REFUSED =
 export const PLANNER_ON_MAC_REFUSED =
   "a planning session runs only in a read-only box of its own (0008); dipo plans no planning session on the Mac";
 
+/** Why `plan` refuses an audit session (DIPO-452, 0008). */
+export const AUDITOR_ON_MAC_REFUSED =
+  "an audit session runs only in a read-only box of its own (0008); dipo plans no audit session on the Mac";
+
 /**
  * The MCP config file of a `session`, in the run directory: no server. With `--strict-mcp-config`
  * the session loads no MCP server, not even the office's.
@@ -107,7 +118,10 @@ export function kindContext(
   ctx: ClaudeLaunchContext,
 ): ClaudeLaunchContext {
   if (
-    (spec.kind !== "review" && spec.kind !== "session" && spec.kind !== "planning") ||
+    (spec.kind !== "review" &&
+      spec.kind !== "session" &&
+      spec.kind !== "planning" &&
+      spec.kind !== AUDIT_KIND) ||
     ctx.plugins === undefined
   ) {
     return ctx;
@@ -213,7 +227,7 @@ export function checkSpec(spec: WorkerSpec): void {
     );
   }
   const asked = TOOL_REQUEST_KEYS.filter((key) => key in spec);
-  if (spec.kind === "planning" && asked.length > 0) {
+  if ((spec.kind === "planning" || spec.kind === AUDIT_KIND) && asked.length > 0) {
     throw new PlanError(
       `a spec names no tools, MCP servers or permissions: its kind does (DIPO-318); this one sets ${asked.join(", ")}`,
     );
@@ -232,9 +246,9 @@ export function checkSpec(spec: WorkerSpec): void {
   if (spec.kind === "review" && spec.web === true) {
     throw new PlanError("a review session has its own tools (0002); web is the developer's switch");
   }
-  if (spec.kind === "planning" && spec.web === true) {
+  if ((spec.kind === "planning" || spec.kind === AUDIT_KIND) && spec.web === true) {
     throw new PlanError(
-      "a planning session has its own tools (DIPO-447); web is the developer's switch",
+      `a ${spec.kind} session has its own tools (DIPO-447, DIPO-452); web is the developer's switch`,
     );
   }
   if (spec.taskMessage.length === 0) throw new PlanError("the task message is empty");
@@ -436,5 +450,6 @@ export function plan(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
   checkSpec(spec);
   if (spec.kind === "session") return planSession(spec, launch);
   if (spec.kind === "planning") throw new PlanError(PLANNER_ON_MAC_REFUSED);
+  if (spec.kind === AUDIT_KIND) throw new PlanError(AUDITOR_ON_MAC_REFUSED);
   throw new PlanError(spec.kind === "review" ? REVIEWER_ON_MAC_REFUSED : DEVELOPER_ON_MAC_REFUSED);
 }
