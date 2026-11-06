@@ -1,10 +1,10 @@
 ---
 id: DIPO-456
 title: Tell me at once whether a story starts and why when I start a run
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-06 09:49'
-updated_date: '2026-11-06 12:52'
+updated_date: '2026-11-06 13:02'
 labels:
   - 'tier:S'
 milestone: m-3
