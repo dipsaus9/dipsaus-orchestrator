@@ -6,7 +6,7 @@
 [dim]  Used 2.0M of 2.0M · loop 6 of 8 · criteria 8/10[/]
 [dim]  Last said: “Two flaky shards left, fixing reattach.”[/]
 
-  [acc]r[/] resume with a top-up: +25% · +50% · +100%   [acc]⏎[/] inspect
+  [acc]r[/] start again with a top-up: +25% · +50% · +100%   [acc]⏎[/] inspect
 === S6 Run failed · ux-spec mock 19 · 112 cols × 8 rows ===
 [dim]NEEDS YOU · FAILED[/]
 

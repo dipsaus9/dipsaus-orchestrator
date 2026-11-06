@@ -28,7 +28,7 @@
                             [faint]│[/]
                             [faint]│[/]
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-[acc]s[/] steer   [acc]p[/] park   [acc]tab[/] stream   [acc]↑↓[/] scroll   [acc]G[/] follow   [acc]c[/] copy id                               [dim][acc]esc[/] back   [acc]?[/] keys[/]
+[acc]s[/] steer   [acc]p[/] park   [acc]v[/] stream   [acc]↑↓[/] scroll   [acc]G[/] follow   [acc]c[/] copy id                                 [dim][acc]esc[/] back   [acc]?[/] keys[/]
 === S7 Steer open at the foot of the stream, then the sent `you` line · ux-spec mock 21 · 112 cols × 13 rows ===
 [dim]10:40  read   engine/src/box/review-box.ts[/]
 [dim]10:41  ··     2 thoughts · 0.6k tokens[/]

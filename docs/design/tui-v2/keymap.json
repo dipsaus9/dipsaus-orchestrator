@@ -1,5 +1,7 @@
 {
   "rule": "Lowercase letters act on the focused item and never navigate. Capitals spend or destroy. Digits switch rooms. Symbols (: / ? .) open tools. There is no undo. Confirm only discard, drop, stopping a run and dismissing a setup issue. The footer, the ? overlay and the palette all read this registry.",
+  "scope": "A key bound to a view wins over a global (`*`) binding in that view: on Plan `c` is confirm, not copy id; in the test overlay `y` is pass.",
+  "confirm": "only discard (D), drop (X), stopping a run and dismissing a setup issue ask to confirm",
   "fields": {
     "key": "the key as the footer prints it",
     "label": "the footer / overlay word for it",
@@ -7,10 +9,12 @@
     "when": "the condition on the focused item or state",
     "priority": "footer drop order when the width is short: 1 is kept longest (the 80-column Desk footer keeps y, n, ⏎ and ? and drops ↑↓ and :)",
     "side": "left = verbs for the focused item, right = global keys",
-    "layer": "ux-spec keymap layer: L0 everyone, L1 verbs, L2 vim motions, L3 everything else"
+    "layer": "ux-spec keymap layer: L0 everyone, L1 verbs, L2 vim motions, L3 everything else",
+    "id": "every entry, global ones included, has an id"
   },
   "global": [
     {
+      "id": "move",
       "key": "↑↓",
       "label": "move",
       "layer": "L0",
@@ -22,6 +26,7 @@
       "side": "left"
     },
     {
+      "id": "open",
       "key": "⏎",
       "label": "open",
       "layer": "L0",
@@ -33,6 +38,7 @@
       "side": "left"
     },
     {
+      "id": "back",
       "key": "esc",
       "label": "back",
       "layer": "L0",
@@ -44,6 +50,7 @@
       "side": "right"
     },
     {
+      "id": "nextPane",
       "key": "tab",
       "label": "next pane",
       "layer": "L0",
@@ -55,6 +62,7 @@
       "side": "left"
     },
     {
+      "id": "rooms",
       "key": "1–4",
       "label": "rooms",
       "layer": "L0",
@@ -65,6 +73,7 @@
       "priority": 9
     },
     {
+      "id": "keys",
       "key": "?",
       "label": "keys",
       "layer": "L0",
@@ -76,6 +85,7 @@
       "side": "right"
     },
     {
+      "id": "quit",
       "key": "q q",
       "label": "quit",
       "layer": "L0",
@@ -87,6 +97,7 @@
       "side": "right"
     },
     {
+      "id": "vimMove",
       "key": "j k",
       "label": "move",
       "layer": "L2",
@@ -97,6 +108,7 @@
       "priority": 9
     },
     {
+      "id": "vimBackOpen",
       "key": "h l",
       "label": "back / open",
       "layer": "L2",
@@ -107,6 +119,7 @@
       "priority": 9
     },
     {
+      "id": "topBottom",
       "key": "g G",
       "label": "top / bottom",
       "layer": "L2",
@@ -117,6 +130,7 @@
       "priority": 9
     },
     {
+      "id": "filter",
       "key": "/",
       "label": "filter",
       "layer": "L2",
@@ -131,6 +145,7 @@
       "side": "right"
     },
     {
+      "id": "nextMatch",
       "key": "n N",
       "label": "next / previous match",
       "layer": "L2",
@@ -141,6 +156,7 @@
       "priority": 9
     },
     {
+      "id": "palette",
       "key": ":",
       "label": "commands",
       "layer": "L3",
@@ -152,6 +168,7 @@
       "side": "right"
     },
     {
+      "id": "paletteAlt",
       "key": "ctrl-k",
       "label": "commands",
       "layer": "L3",
@@ -162,6 +179,7 @@
       "priority": 9
     },
     {
+      "id": "offices",
       "key": "O",
       "label": "offices",
       "layer": "L3",
@@ -172,6 +190,7 @@
       "priority": 9
     },
     {
+      "id": "plan",
       "key": "P",
       "label": "plan",
       "layer": "L3",
@@ -182,6 +201,7 @@
       "priority": 9
     },
     {
+      "id": "retryAction",
       "key": "^R",
       "label": "retry",
       "layer": "L1",
@@ -193,6 +213,7 @@
       "side": "left"
     },
     {
+      "id": "dismissSince",
       "key": "any key",
       "label": "dismiss",
       "views": [
@@ -203,6 +224,7 @@
       "side": "right"
     },
     {
+      "id": "quitNow",
       "key": "ctrl-c",
       "label": "quit",
       "views": [
@@ -212,24 +234,20 @@
       "priority": 9
     },
     {
+      "id": "copyId",
       "key": "c",
       "label": "copy id",
       "layer": "L1",
       "views": [
+        "desk",
+        "floor",
+        "queue",
         "run",
-        "*"
+        "story"
       ],
-      "when": "copies the focused story or run id",
+      "when": "copies the focused story or run id; not in Plan, where c is confirm",
       "priority": 6,
       "side": "left"
-    },
-    {
-      "key": "confirm",
-      "label": "confirmation",
-      "views": [
-        "*"
-      ],
-      "when": "only discard (D), drop (X), stopping a run and dismissing a setup issue ask to confirm"
     }
   ],
   "actions": [
@@ -645,12 +663,12 @@
     },
     {
       "id": "streamTab",
-      "key": "tab",
+      "key": "v",
       "label": "stream",
       "views": [
         "run"
       ],
-      "when": "next stream filter: all, worker, reviewer, verify, prompt",
+      "when": "next stream filter: all, worker, reviewer, verify, prompt; tab stays next pane on the Run",
       "priority": 3
     },
     {
@@ -1000,9 +1018,11 @@
         "run",
         "floor"
       ],
-      "when": "a running story; the key is not drawn in any mock",
+      "when": "a running story",
       "confirm": "asks to confirm",
-      "priority": 9
+      "priority": 9,
+      "key": null,
+      "note": "palette only (no key)"
     },
     {
       "id": "dismissSetup",
@@ -1016,7 +1036,7 @@
       "priority": 1
     }
   ],
-  "offline": "While offline only ↑↓ move, ⏎ read and q quit show, then 'actions off while offline' in err. Action keys disappear from the footer instead of failing when pressed.",
+  "offline": "While offline only ↑↓ move, ⏎ read and q q quit show, then 'actions off while offline' in err. Action keys disappear from the footer instead of failing when pressed.",
   "noKey": "An action without a key shows its exact cli line (dim, starting with $) in the preview and in the ? overlay under 'NO KEY · TYPE IT'.",
   "changedFromToday": {
     "u run": "R",

@@ -51,7 +51,7 @@ Make the maintainer's decisions obvious, and keep everything else quiet but reac
 Three levels and four rooms. Drill down with ⏎ and climb back with esc. Overlays sit above every level.
 - **Offices** (`O`, one per product repo) → **Office** with four rooms → **Story** (⏎: story · criteria · reviews · runs) → **Run** (⏎ on a running story: live stream, steer, park). The ux-spec's IA diagram labels Offices `o`; it is `O`.
 - Rooms: **1 Desk** (needs you, `office.desk`), **2 Floor** (running, in review), **3 Queue** (ready, waiting), **4 Retro** (done, cost; DIPO-453).
-- **Plan** (`P` from anywhere, DIPO-447 to 452) is a document view in the Frame. Esc leaves it open, the Desk header shows `● plan open` at the right while it is open (`01-desk.txt`), and reopening the TUI goes straight back to it.
+- **Plan view** (`P` from anywhere, DIPO-447 to 452) is a document view in the Frame, not a room. Esc leaves it open, the Desk header shows `● plan open` at the right while it is open (`01-desk.txt`), and reopening the TUI goes straight back to it.
 - Overlays: `:` or `ctrl-k` the command palette (everything is reachable there), `?` every key for this screen, `/` filter the list in focus, `t` the test overlay, and the Composer prompts.
 - **Launch rule.** Inside a repo, `dipo` opens that office: on the Desk if anything needs you, otherwise on the Floor. Outside a repo it opens Offices. Quitting the TUI never stops the daemon, and the first quit of a session says so once.
 
@@ -109,8 +109,8 @@ Files: `14-desk-proposals.txt`, `01-desk.txt`, `11-desk-previews.txt`.
 - `y` means what the item asks: approve on MERGE, accept on PROPOSAL, start on NEXT UP.
 
 ### Per kind
-- **PROPOSAL**: `Size` shows only the audit's tier (`S`). `⟦ y Accept ⟧  ⟦ n Dismiss ⟧`. "Accepting files it as a Backlog draft. You refine it in a planning session." `$ dipo proposal accept 3f9a01c2`. Accept files a Backlog draft through the planning lane, never Ready.
-- **MERGE**: pipeline with `● test`, Why, Review (`approved` round 1 · 8/8 criteria), CI (`✓` 4 required checks green), Change (6 files · +214 −38), Blocks, Tests (3 manual steps). `⟦ t Test first ⟧  ⟦ y Approve ⟧  ⟦ n Reject… ⟧  ⟦ o PR ⟧`. "Approve merges once the checks pass on the close-out head." `$ dipo approve DIPO-446`. While a test is open the row shows `● testing` and ⏎ brings the overlay back.
+- **PROPOSAL**: the story text, Why, Blocks, `Size` (only the audit's tier, `S`) and `Raised  7 min ago by reviewer (opus-5.5)` ("by <role> (<model>)") are produced by the M3 idea audit (DIPO-452, {{M3-454}}); an engine addition in step 3. `⟦ y Accept ⟧  ⟦ n Dismiss ⟧`. "Accepting files it as a Backlog draft. You refine it in a planning session." `$ dipo proposal accept 3f9a01c2`. Accept files a Backlog draft through the planning lane, never Ready.
+- **MERGE**: pipeline with `● test`, Why, Review (`approved` round 1 · 8/8 criteria), CI (`✓` 4 required checks green: required-check count and state), Change (6 files · +214 −38: file count and +/−; both from gh/git on the story PR read, an engine addition in step 3), Blocks, Tests (3 manual steps). `⟦ t Test first ⟧  ⟦ y Approve ⟧  ⟦ n Reject… ⟧  ⟦ o PR ⟧`. "Approve merges once the checks pass on the close-out head." `$ dipo approve DIPO-446`. While a test is open the row shows `● testing` and ⏎ brings the overlay back.
 - **QUESTION** (`a`): the question in full, then the Composer under it (label `answer`), footer `⏎ new line   ctrl-s send   esc cancel`, "The worker gets it on resume, and the run continues." `$ dipo answer q_7f2c "…"`. Same Composer as steer, reject notes and DIPO-449.
 - **PARKED** (`r`, start again): asks only for what the park reason needs; seeing the caps is the confirmation, no separate yes/no.
 
@@ -132,19 +132,20 @@ File: `02-floor.txt`. Built for a second monitor.
 - **RUNNING** (bold hi) with `1 of 3 slots` dim at the right (the office's real `caps.parallelRuns`; the numbers in the mocks are examples); **IN REVIEW** with its count; **UP NEXT** with `0 ready · 6 waiting`.
 - A story card: focus column, state glyph (`●` ok running, `○` acc in review), dim id padded to 10, title, age right. Indented 14: the pipeline line with a right-aligned dim `loop 1 of 8` or `round 1`; `now merging · thinking 1.1s` with `budget ━━━━━━━━━━━━━━ 28%` right; `criteria 10/10 ✓ · review round 1 approved · opus-5.5`. In review: `reviewer reading · criteria 6 of 8 checked so far`.
 - States are exclusive: a story is either running or in review, never both. Health shows only when stuck, looping or lost (code review).
-- **UP NEXT** is a sentence: `When DIPO-447 merges → 448, 449 start in parallel, then 450 → 451, 452 → 453`. No "next decision" time. Press `3` for the full graph.
+- **UP NEXT** is a sentence the engine computes from the dependency graph and sends (engine addition in step 4): `When DIPO-447 merges → 448, 449 start in parallel, then 450 → 451, 452 → 453`. No "next decision" time. Press `3` for the full graph.
 
 ## Queue (S2b)
 File: `05-queue.txt`. Replaces the "skipped…" block.
 - Three groups by what you can do: **READY** (it will run), **WAITING ON A DEPENDENCY** (wait), **REFINED · not Ready yet** (you need to fix the story), each with its count right of the list.
-- Row: focus column, glyph (`→` ok ready, `○` acc waiting, `✗` err refined), dim id, title, dim tier, reason column. `needs 447✗` (err) means the dependency is parked, so the wait is yours to clear; `needs 452→` (ok) means it is moving by itself; `next up` (ok) on the Ready row. Refined rows show the first gate failure in words (`2 unknowns`, `no test plan`); the full list is in the story view.
+- Row: focus column, glyph (`→` ok ready, `○` acc waiting, `✗` err refined), dim id, title, dim tier, reason column. `needs 447✗` (err) means the dependency is parked, so the wait is yours to clear; `needs 452→` (ok) means it is moving by itself; a bare `needs 449` (dim) means the dependency is itself waiting (not parked, not moving), a state the engine supplies; `next up` (ok) on the Ready row. Refined rows show the first gate failure in words (`2 unknowns`, `no test plan`); the full list is in the story view.
 - `  . show done (418)` dim at the end of the list.
-- Preview: `READY · tier M · offered as next up`, title, Gate (`✓ 31 rules · 1 warning R29`), Needs, Unblocks, Touches, then `CHAIN` drawn as a picture (`447✗ → 448 · 449 → 450 → 451`, `452  → 453`). When something blocks the chain the preview points to where you can fix it: "Everything below 447 waits on the park on your Desk. 1 go there." A waiting story's preview says "Waiting on DIPO-447".
+- Preview: `READY · tier M · offered as next up`, title, Gate (`✓ 31 rules · 1 warning R29`; `story.gate` returns the rule count, an engine addition in step 4), Needs, Unblocks, Touches, then `CHAIN` drawn as a picture (the engine computes the chain from the dependency graph and sends it, with the "everything below N waits on the park" line; engine addition in step 4) (`447✗ → 448 · 449 → 450 → 451`, `452  → 453`). When something blocks the chain the preview points to where you can fix it: "Everything below 447 waits on the park on your Desk. 1 go there." A waiting story's preview says "Waiting on DIPO-447".
 - `R` run now is a capital because it spends; it skips NEXT UP and asks nothing when a slot is free.
 
 ## Retro (S2c, DIPO-453)
 File: `06-retro.txt`. Every number from code.
 - Period `7d  30d  all` on the rooms row (selected one hi, underlined), switched with ←→.
+- `tab` switches the table between BY TIER and BY TYPE, where type is the story type (feature, bug, chore, spike…).
 - Three headline numbers (bold hi, label dim): `38 merged`, `$214 spent · $5.63 per story`, `4h 10m median Ready → merged`. Rework and "Worth a look" are not part of M6 (the retro, DIPO-453, may add them later).
 - **BY TIER** table (stories, cost/st, rounds, loops, Ready→merged). A value that is double the median turns err. ⏎ on any row lists the stories behind it; the focused row is on sel.
 - Bars for **WHY STORIES PARKED** and **WHERE STORIES CAME FROM**, the same `━` as the pipeline and budget (one visual word for "amount"), acc, with the small rest in faint and dim.
@@ -161,25 +162,25 @@ File: `07-plan.txt`.
 ## Offices (S2e)
 File: `08-offices.txt`. `O` from anywhere, or launched outside a repo.
 - Columns: OFFICE, NEEDS YOU (first column after the name, acc and bold: the only bold accent), RUNNING, READY, TODAY (a bar against the day's usage share; the existing ALERT wording shows in err, no extra column).
-- Office state is a glyph: `●` ok live (`· open` for the current one), `!` acc starts paused, `○` dim idle (`idle 3 days`, whole row dim).
+- Office state is a glyph: `●` ok live (`· open` for the current one), `!` acc starts paused, `○` dim idle (`idle 3 days`, whole row dim; last activity per office in `OfficeSummary`, an engine addition in step 2).
 - `  + a  open a repository path…` dim. Footer `↑↓ move   ⏎ open   a new path`, right `esc back   q q quit`.
 
 ## Run (S3)
 File: `03-run.txt`. ⏎ on a running story.
 - Header path `/ Floor / DIPO-447`, `● live`. Then the title (bold hi) and the pipeline with `loop 1 of 8 · 36m`.
 - Left (28 columns): PHASE, HEALTH, CRITERIA, REVIEW, VERIFY, USAGE (in, out, cache w, cache r, turns), BUDGET with its bar, MODEL, RUN.
-- Right: filter tabs `all   worker   reviewer   verify   prompt` (current one hi, underlined) and `following ↓` dim. The sources are filters, not separate screens (today's `w`, `v`, `i` become these tabs).
+- Right: filter tabs `all   worker   reviewer   verify   prompt`, switched with `v` (`tab` stays next pane on the Run) (current one hi, underlined) and `following ↓` dim. The sources are filters, not separate screens (today's `w`, `v`, `i` become these tabs).
 - The stream is a table: time and verb dim (`10:39  read   `), target in fg, a dim argument after two spaces. Long commands show `⏎ full`. Section dividers in dim: `── review · reviewer · 10:39 ───…`.
 - Thinking folds: consecutive thinking lines collapse into `··     4 thoughts · 1.0k tokens`, dim.
 - The agent's own words stand out: `says   ` acc and `verdict ` ok, followed by hi text wrapped at 62 columns, hung under the target column.
 - Scrolling up pauses following and shows "paused · G to follow". `z` expands the stream to full screen. `c` copies the run id.
 - **Steer** (S7, second block): `s` opens the Composer at the foot of the stream (`steer DIPO-447 · arrives at its next turn`), so the context stays visible above it. Once sent, the message lands as a `you` line (`you` ok), with its delivery state from the reply (`next-turn` or `on-resume`, shown as `· delivered next turn`). A reviewer session answers "Not steerable: the reviewer is working".
-- Stopping a run asks for confirmation.
+- Stopping a run is in the palette only (no key) and asks for confirmation.
 - Render the stream with `<Static>` for finished lines and a live tail below.
 
 ## Story reader (S4)
 File: `04-story-reader.txt`. Nothing truncated.
-- Header path ends in the story id. Title in bold hi; dim status line `✓ Done · merged 10:21 · 2 review rounds · 41m · $3.20 · 1 proposal raised`; section tabs `Story    Criteria 3    Reviews 2    Runs 1    Diff` (current one hi, underlined), ←→ switches.
+- Header path ends in the story id. Title in bold hi; dim status line `✓ Done · merged 10:21 · 2 review rounds · 41m · $3.20 · 1 proposal raised`; section tabs `Story    Criteria 3    Reviews 2    Runs 1    Diff` (Diff needs a diff read for the story's branch, an engine addition in step 6) (current one hi, underlined), ←→ switches.
 - A centred 84-column measure. Prose reads like a document; it wraps and never truncates. A story that waits on another says "Waiting on DIPO-447".
 - The latest round is open (`ROUND 2` bold hi, dim head and time, `approved` ok at the right); earlier ones fold to a one-line summary (`▸ ROUND 1 · 975b20c · 10:09 · 3/3 met · 1 advisory`, ⏎ expands).
 - Criteria in a 5-column margin (`✓ 1` ok). Code-ish words are tinted acc, not boxed. Quotes get a faint rule on the left.
@@ -197,7 +198,7 @@ File: `10-test-overlay.txt`. `t` on a MERGE item; replaces room 4 "checklist".
 File: `09-palette.txt`. `:` or `ctrl-k`, from anywhere.
 - Overlay, acc border, 62 columns inside, over the shaded screen. Query line `: pa▍`. Matches underlined (acc).
 - Scoped first: actions on the focused item (`ON DIPO-447`), then `SETTINGS`, then `GO TO`. Each row shows its key at the right (acc when bound, dim otherwise): `Park run  p`, `Expand stream to full screen  z`, `Open offices…  O`.
-- Disabled rows say why (`Resume run` faint, `not parked` dim) instead of disappearing.
+- Disabled rows say why (`Start again` faint, `not parked` dim) instead of disappearing.
 - With an empty query it lists your recent commands. Rare settings live only here, like privacy (`Privacy: what dipo stores`) and slots (`Parallel slots: 3`, the office's `caps.parallelRuns`), which frees up `p`.
 - Footer inside: `⏎ run   ↑↓ choose   esc close`.
 
@@ -205,7 +206,7 @@ File: `09-palette.txt`. `:` or `ctrl-k`, from anywhere.
 File: `13-keys-overlay.txt`. `?`, built from the same registry as the footer and palette.
 - Overlay, acc border, 90 columns inside. `KEYS · Desk · on a MERGE item`, `type to search` at the right.
 - Left column: THIS ITEM first (what you can do right now), then NO KEY · TYPE IT (actions without a key show their exact `cli` line). Right column: MOVE, then ANYWHERE.
-- Unavailable keys stay, faint, with the reason (`r      resume  · not parked`).
+- Unavailable keys stay, faint, with the reason (`r      start again  · not parked`).
 - The rule is printed at the bottom: "Lowercase acts on this item. Capitals spend or destroy."
 - Typing filters the overlay and ⏎ runs the match: the palette in a smaller form.
 
@@ -213,7 +214,7 @@ File: `13-keys-overlay.txt`. `?`, built from the same registry as the footer and
 Files: `12-states.txt`, `15-budget-and-failed.txt`, `16-narrow.txt`.
 - **Empty Desk**: `✓ Nothing needs you.`, "The team is on it: 1 running, 1 in review.", `2 watch the floor`.
 - **Daemon stopped**: header `✗ daemon stopped` (err). "The office manager isn't running." "No work is lost. Boxes pause until it's back." dim cause line, `r restart daemon    l open its log` (these two keys only on this screen). Reassure first, then the cause and one fix.
-- **Budget reached** (lands on the Desk): `NEEDS YOU · BUDGET`, `! DIPO-447 paused: token budget reached`, dim usage and `Last said: “…”`, `r resume with a top-up: +25% · +50% · +100%   ⏎ inspect`. `r` opens the same top-up prompt as the PARKED preview.
+- **Budget reached** (lands on the Desk): `NEEDS YOU · BUDGET`, `! DIPO-447 paused: token budget reached`, dim usage and `Last said: “…”`, `r start again with a top-up: +25% · +50% · +100%   ⏎ inspect`. `r` opens the same top-up prompt as the PARKED preview.
 - **Run failed**: `NEEDS YOU · FAILED`, `✗ DIPO-450 failed in verify, 3 of 3 attempts`, the pipeline showing where it failed (`setup ━━ ✗ build · verify ┄┄ review ┄┄ test ┄┄ merge`), the dim failing check, `r start again   s start again with a hint   ⏎ open run`. `r` is the same action as resume; the hint reuses steer.
 - **Offline**: header `✗ offline since 13:40 · view frozen` (err). The body is in shade so stale data can't be mistaken for live data; reading still works; action keys disappear from the footer instead of failing when pressed (`↑↓ move   ⏎ read   q q quit   actions off while offline`).
 - **Recovering because of the database** (DIPO-111/120): header `◌ daemon recovering` (acc), a full body: `! Database unavailable`, reason, backup, "Stories and code are safe: they live in git." "Only run history is at stake.", `l open daemon log   c copy the restore command`, `$ dipo daemon logs`. A plain reconcile shows only the header chip, with no body.
@@ -223,16 +224,17 @@ Files: `12-states.txt`, `15-budget-and-failed.txt`, `16-narrow.txt`.
 - **Composer** is one multi-line input for answer, steer, reject note, resume note, fail note and plan: acc border, dim label on the first line, text hi, `▍` cursor in acc; `⏎ new line   ctrl-s send   esc cancel` under it.
 
 ## Keymap
-`keymap.json` is the registry: `{id, key, label, when, priority}` per action; footer, palette, `?` overlay and mouse all read it, so keys stay consistent by construction. Every `DeskAction` without a key still shows its `cli` line. The footer's `fitHints` priority dropping stays; the registry gives each verb its priority.
+`keymap.json` is the registry: `{id, key, label, when, priority}` for every entry, the global keys included; footer, palette, `?` overlay and mouse all read it, so keys stay consistent by construction. Every `DeskAction` without a key still shows its `cli` line. The footer's `fitHints` priority dropping stays; the registry gives each verb its priority.
 
 Four layers. Layer 0 is enough to use dipo; each layer above it is optional speed. Lowercase letters act on the focused item and never navigate; capitals spend or destroy.
 - **L0 · everyone**: `↑ ↓` move focus, `⏎` open / drill in, `esc` back / close, `tab` next pane, `1–4` Desk, Floor, Queue, Retro, `?` keys for this screen, `q q` quit (twice within 2 s; the daemon keeps working).
 - **L1 · verbs on the focused item**: `y` yes (approve, accept, confirm next up, pass a test, overrule), `n` no (reject, dismiss, decline, or fail; asks for a note), `a` answer a question, `r` start again (resume a park, retry a failed run), `t` start a test (opens the checklist), `s` steer the worker, `p` park, `c` copy (the id, the test's shell line, the restore command), `f` raise an advisory as a proposal, `z` expand the stream, `R X D` run · drop · discard. Also `o` open the PR or comment in the browser and `^R` retry a failed action.
 - **L2 · vim motions**: `j k` move, `h l` back / open, `g G` top / bottom (G follows the stream), `/` filter list, `n N` next / previous match only while a search is open.
 - **L3 · everything else**: `:` command palette, `ctrl-k` the same for non-vim hands, `O` switch office (capital O, from anywhere), `P` open or continue the planning session.
+- **Scope**: a key bound to a view wins over a global (`*`) binding in that view. On Plan `c` is confirm, not copy id; on the Run `v` switches the stream filter and `tab` stays next pane.
 - Screen-only keys: Offices `a` new path; daemon stopped `r` restart and `l` log; recovering `l` log.
 
-Confirm only discard, drop, stopping a run and dismissing a setup issue. Everything else is instant. There is no undo.
+Confirm only discard, drop, stopping a run (palette only, no key) and dismissing a setup issue. Everything else is instant. There is no undo.
 
 ## Colour
 See `roles.json`. Nine roles (bg, fg, hi, dim, faint, acc, ok, err, sel) and a tenth, shade, for overlay backdrops and the frozen offline body. Each has an ANSI slot, so dipo picks up the user's terminal theme in light and dark, and per-theme values exactly as the HTML previews paint them. Truecolor is an opt-in "Classical" theme: ink, paper and one gold (light uses the deep gold accent-700, `#7d5411`, so key hints stay readable at body size). hi is a brighter colour, not bold; bold appears only where a screen marks `**`. dim and faint are distinct, as in the previews. In 16 colours yellow becomes a dark amber on light, bright black is the dim role, and nothing is painted on the background except the focus row. Under NO_COLOR sel equals bg and only `▌` marks the focused row. Detect the theme with OSC 11, then `COLORFGBG`, then dark. In code: `Colored` changes `color?: string` to `role?: Role`.
@@ -264,7 +266,7 @@ Box Drawing, Geometric Shapes and two Dingbats only, no Nerd Font glyphs. Colour
 - Layout from `useStdout().columns` and rows: ≥ 100 columns split panes, 60 to 99 one pane, below 60 columns or 16 rows the widen message.
 - Theme: OSC 11, then `COLORFGBG`, then dark; respect `NO_COLOR`.
 - Mouse: SGR mode 1006.
-- The TUI renders what the engine computes; it never derives health, phase, desk order or skip reasons. The four engine and contract additions are in `migration.md`: desk order with setup first, the since-you-last-looked summary, spend today, and the optional `consequence` on `DeskAction`.
+- The TUI renders what the engine computes; it never derives health, phase, desk order or skip reasons. The ten engine and contract additions, each with its step, are in `migration.md`.
 - Evidence labels stay hidden (ADR 0009).
 
 ## Maintainer decisions (2026-11-06)
