@@ -1,10 +1,10 @@
 ---
 id: DIPO-456
 title: Tell me at once whether a story starts and why when I start a run
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-06 09:49'
-updated_date: '2026-11-06 13:40'
+updated_date: '2026-11-06 13:44'
 labels:
   - 'tier:S'
 milestone: m-3
@@ -51,6 +51,10 @@ test_plan:
     - kind: "manual"
       check: "On the scratch repository with a Haiku office, press u on a Ready story in the TUI queue"
       expect: "the footer says the story starts, or why not, within about 2 seconds, and the overview shows it in setup"
+park:
+  reason: "budget-exceeded"
+  from: "In Progress"
+  note: "turn cap (--max-turns) after 21 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -87,4 +91,13 @@ Parked 2026-11-06 13:34 UTC: ambiguous-spec
 - Last good commit: e7114f46c6ad43bc585918dbc428c1842a6ced33
 
 Resumed 2026-11-06 13:40 UTC; grants: none; note: (b), the maintainer's choice: work.run answers at once from the last fetched base, read by the sync handler; a background pass keeps the base fetched. The start work after the answer still fetches fr…
+
+Parked 2026-11-06 13:44 UTC: budget-exceeded
+- Detail: turn cap (--max-turns) after 21 turns
+- Run: run_01M6RF775NBN15XRHV6V3D8R04
+- Criteria met: 3 of 5 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 434,047 of 450,000 tokens; 136 of 135 turns; 17 of 68 minutes
+- Last good commit: 87b456d17391e4939a78782bca2101d1942f9e71
 <!-- SECTION:NOTES:END -->
