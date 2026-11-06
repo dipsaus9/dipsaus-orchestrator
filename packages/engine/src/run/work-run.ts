@@ -120,6 +120,7 @@ export const RUNS_CHECK = "runs";
 /** `engine.notice` codes of `work.run`. */
 export const RUN_NOTICES = {
   notMovedToRefined: "run.notMovedToRefined",
+  startAborted: "run.startAborted",
 } as const;
 
 /** What the base holds for a run: active statuses and the views of the stories asked for. */
@@ -239,7 +240,6 @@ interface StartInput {
   readonly full: string | null;
   readonly config: OfficeConfig;
   readonly configHash: string;
-  readonly started: Started[];
 }
 
 /** Inside the run's transaction: the developer agent with the engine-made session id (0007). */
@@ -324,11 +324,30 @@ function refused(office: OfficeId, check: string, message: string): CommandError
   return new CommandError(RUN_REFUSED, message, { office, check });
 }
 
+/** A candidate the decision started: its claim, run row and launch go on after the answer. */
+interface Decided {
+  readonly candidate: Candidate;
+  readonly c: StartInput;
+  readonly checked: Startable;
+  readonly facts: RunFacts;
+  /** Releases the slot the decision took (`Places.reservePickup`); null without places. */
+  readonly release: (() => void) | null;
+}
+
 export class WorkRun {
   readonly #deps: WorkRunDeps;
+  /** The stories decided and answered whose claim row is not committed yet, by key. */
+  readonly #starting = new Set<string>();
+  /** The claims and launches still under way, for `settled`. */
+  readonly #background = new Set<Promise<void>>();
 
   constructor(deps: WorkRunDeps) {
     this.#deps = deps;
+  }
+
+  /** Resolves once every start decided so far has finished its claim and launch (tests, shutdown). */
+  async settled(): Promise<void> {
+    while (this.#background.size > 0) await Promise.all(this.#background);
   }
 
   /**
@@ -361,6 +380,23 @@ export class WorkRun {
       throw startsPausedRefusal("New runs are refused", paused, { office });
     }
 
+    // Named stories and a full office: each is a capacity skip, decided without a fetch (DIPO-456).
+    if (args.stories !== undefined) {
+      const full = this.#slotTaken(handle, config);
+      if (full !== null) {
+        const skipped = args.stories.map((ref): Skipped => {
+          const identity = ctx.stories.get(ref);
+          if (identity === undefined) throw new Error(`${ref} was not resolved`);
+          // A story already claimed or decided is not runnable, whatever the slots say.
+          const busy =
+            liveClaimOf(handle, identity.key) !== null || this.#starting.has(identity.key);
+          return busy
+            ? { ...identity, reason: "notRunnable" }
+            : { ...identity, reason: "capacity", detail: [full] };
+        });
+        return { result: { started: [], skipped } };
+      }
+    }
     try {
       await deps.base.fetch(office);
     } catch (error) {
@@ -427,10 +463,10 @@ export class WorkRun {
     const started: Started[] = [];
     const skipped: Skipped[] = [];
     for (const candidate of candidates) {
-      // A slot is decided and taken in one serialized step (DIPO-208): the check and the claim
-      // row. The step ends there (DIPO-314); until the run row is in, the pickup holds its slot
-      // through the places, so a drain or another pickup never takes it meanwhile.
-      const skip = await this.#startSerialized(ctx, () => ({
+      // A slot is decided and taken in one serialized step (DIPO-208): the checks and the slot.
+      // The step ends with the decision (DIPO-456); the claim goes on after the answer, and until
+      // its run row is in the pickup holds its slot through the places (DIPO-314).
+      const decided = await this.#startSerialized(ctx, () => ({
         candidate,
         status: read.statuses.get(candidate.story),
         view: views.get(candidate.story),
@@ -440,9 +476,13 @@ export class WorkRun {
           this.#slotTaken(handle, config) ?? (oneStory && started.length > 0 ? ONE_STORY : null),
         config,
         configHash,
-        started,
       }));
-      if (skip !== null) skipped.push({ ...candidate, ...skip });
+      if ("reason" in decided) {
+        skipped.push({ ...candidate, ...decided });
+        continue;
+      }
+      started.push({ story: candidate.story, key: candidate.key, run: decided.facts.runId });
+      this.#start(ctx, decided);
     }
     return { started, skipped };
   }
@@ -469,6 +509,8 @@ export class WorkRun {
     const byStatus = statusSkip(c.status);
     if (byStatus !== null) return byStatus;
     if (liveClaimOf(handle, key) !== null) return "notRunnable";
+    // Decided and answered, its claim row not committed yet (DIPO-456).
+    if (this.#starting.has(key)) return "notRunnable";
     if (c.full !== null) return "capacity";
     if (this.#deps.base.planningHold(handle, key) !== null) return "notRunnable";
     const view = c.view;
@@ -517,49 +559,40 @@ export class WorkRun {
   }
 
   /**
-   * Starts one candidate in the office's serialized step (DIPO-208), which ends once the claim row
-   * is committed (DIPO-314): the box preparation, its install and the launch run after it, while
-   * the pickup holds its slot through `reservePickup`. A start that ends before its claim row (a
-   * skip) ends the step too.
+   * Decides one candidate in the office's serialized step (DIPO-208): the checks that write
+   * nothing, the pickup gate when only it can say what is wrong, and the slot it takes. Returns the
+   * skip, or the start the answer names (DIPO-456).
    */
-  async #startSerialized(ctx: AsyncCommandContext, input: () => StartInput): Promise<Skip | null> {
-    let finished: Promise<Skip | null> = Promise.resolve(null);
-    await this.#serialized(ctx.office.officeId, () => {
-      const claimed = Promise.withResolvers<void>();
-      finished = this.#tryStart(ctx, input(), () => claimed.resolve());
-      const ended = finished.then(
-        () => undefined,
-        () => undefined,
-      );
-      return Promise.race([claimed.promise, ended]);
-    });
-    return finished;
+  #startSerialized(ctx: AsyncCommandContext, input: () => StartInput): Promise<Skip | Decided> {
+    return this.#serialized(ctx.office.officeId, () => this.#decide(ctx, input()));
   }
 
-  /** Starts one candidate, or returns why it was skipped; `claimed` is told at the claim row. */
-  async #tryStart(
-    ctx: AsyncCommandContext,
-    c: StartInput,
-    claimed: () => void,
-  ): Promise<Skip | null> {
-    const reason = await this.#tryStartReason(ctx, c, claimed);
-    if (reason === null) return null;
-    return reason === "capacity" && c.full !== null ? { reason, detail: [c.full] } : { reason };
-  }
-
-  async #tryStartReason(
-    ctx: AsyncCommandContext,
-    c: StartInput,
-    claimed: () => void,
-  ): Promise<SkipReason | null> {
+  /** Decides one candidate: a skip with its reason, or the start (its slot held, `#start`). */
+  async #decide(ctx: AsyncCommandContext, c: StartInput): Promise<Skip | Decided> {
     const handle = ctx.office;
     const office = handle.officeId;
     const checked = this.#precheck(handle, c);
-    if (checked === "gate") return this.#gateOutsideClaim(ctx, c.candidate);
-    if (typeof checked === "string") return checked;
+    if (checked === "gate") return { reason: await this.#gateOutsideClaim(ctx, c.candidate) };
+    if (typeof checked === "string") {
+      return checked === "capacity" && c.full !== null
+        ? { reason: checked, detail: [c.full] }
+        : { reason: checked };
+    }
     if ("tooLarge" in checked) {
       await this.#toRefined(ctx, c.candidate, [{ message: checked.tooLarge }]);
-      return "pickupCheckFailed";
+      return { reason: "pickupCheckFailed" };
+    }
+    // The pickup gate decides before the answer (DIPO-456); the claim's own re-check, in the git
+    // queue, still runs before the claim commit (DIPO-48).
+    const gate = await this.#deps.gates.recordGateDecision(
+      office,
+      c.candidate.key,
+      "pickup",
+      c.checkout,
+    );
+    if (!gate.passed) {
+      await this.#toRefined(ctx, c.candidate, gate.result.failures);
+      return { reason: "pickupCheckFailed" };
     }
     const runId = RunId.parse(ctx.ids.next("run"));
     const agent = ctx.ids.next("agt") as AgentId;
@@ -573,20 +606,50 @@ export class WorkRun {
       config: c.config,
       taskFile: checked.taskFile,
     };
-    // From the claim row until the run row the pickup holds its slot (DIPO-314).
-    let release: (() => void) | null = null;
+    // From the decision until the run row the pickup holds its slot (DIPO-314).
+    const release = this.#deps.places?.reservePickup?.(office, runId, c.candidate.story) ?? null;
+    this.#starting.add(c.candidate.key);
+    return { candidate: c.candidate, c, checked, facts, release };
+  }
+
+  /**
+   * The claim, the run row and the launch of a decided start, after its answer (DIPO-456). The
+   * box preparation, its install and the launch run here; a failure parks the story or posts a
+   * notice, as before the answer.
+   */
+  #start(ctx: AsyncCommandContext, decided: Decided): void {
+    const { candidate } = decided;
+    // The decision writes nothing, so the reply's `changed` and cursor cover no start.
+    const started = this.#run(ctx, decided).catch((error: unknown) => {
+      ctx.commit((): NewEntry[] => [
+        {
+          type: "engine.notice",
+          key: candidate.key,
+          delta: {
+            level: "error",
+            code: RUN_NOTICES.startAborted,
+            text: `${candidate.story} was decided to start, but its start failed: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        },
+      ]);
+    });
+    const tracked = started.finally(() => this.#background.delete(tracked));
+    this.#background.add(tracked);
+  }
+
+  async #run(ctx: AsyncCommandContext, decided: Decided): Promise<void> {
+    const { c, checked, facts, release } = decided;
+    let held = release;
     try {
-      const outcome = await this.#claim(ctx, c, checked, facts, () => {
-        release = this.#deps.places?.reservePickup?.(office, runId, c.candidate.story) ?? null;
-        claimed();
-      });
-      if (!outcome.ok) return outcome.reason;
+      const outcome = await this.#claim(ctx, c, checked, facts);
+      if (!outcome.ok) return;
       const started = this.#recordRun(ctx, c, checked, facts, outcome);
-      (release as (() => void) | null)?.();
-      release = null;
-      return await this.#launch(ctx, c, facts, outcome, started);
+      held?.();
+      held = null;
+      await this.#launch(ctx, c, facts, outcome, started);
     } finally {
-      (release as (() => void) | null)?.();
+      held?.();
+      this.#starting.delete(c.candidate.key);
     }
   }
 
@@ -599,7 +662,6 @@ export class WorkRun {
     c: StartInput,
     checked: Startable,
     facts: RunFacts,
-    onClaimed: () => void,
   ): Promise<ClaimOutcome> {
     const office = ctx.office.officeId;
     const { story, key } = c.candidate;
@@ -624,7 +686,6 @@ export class WorkRun {
           failures = [...decision.result.failures];
           return { ok: false, reason: "pickupCheckFailed", notice: null, code: null };
         },
-        onClaimed,
         // Setup, the prompts and the launch checks, before the claim commit (DIPO-74).
         ...(launcher === undefined
           ? {}
@@ -741,8 +802,8 @@ export class WorkRun {
     facts: RunFacts,
     outcome: Extract<ClaimOutcome, { ok: true }>,
     started: { readonly work: WorkRef; readonly progress: Progress },
-  ): Promise<SkipReason | null> {
-    const { story, key } = c.candidate;
+  ): Promise<void> {
+    const { key } = c.candidate;
     const prepared = outcome.setup as PreparedRun | null;
     const launcher = this.#deps.launcher;
     // From the run row until its worker is followed, a park waits for the start (DIPO-411).
@@ -760,13 +821,12 @@ export class WorkRun {
           work: started.work,
           progress: started.progress,
         });
-        if (!startedRun.ok) return "pickupCheckFailed";
+        // A failed start posted its own notice and released the claim (`RunLauncher.start`).
+        if (!startedRun.ok) return;
       }
     } finally {
       starting?.();
     }
-    c.started.push({ story, key, run: facts.runId });
-    return null;
   }
 
   /**

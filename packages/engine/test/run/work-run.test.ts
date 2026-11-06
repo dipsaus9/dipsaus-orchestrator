@@ -121,6 +121,8 @@ interface World {
   readonly office: OfficeHandle;
   readonly officeId: OfficeId;
   registry: Registry;
+  /** Resolves once the starts decided so far have claimed and launched (DIPO-456). */
+  settled: () => Promise<void>;
   deps: ExecutorDeps;
   readonly tasks: PlainTask[];
   readonly keys: Map<string, StoryKey>;
@@ -191,6 +193,7 @@ beforeEach(async () => {
     office,
     officeId,
     registry: undefined as unknown as Registry,
+    settled: async () => undefined,
     deps: undefined as unknown as ExecutorDeps,
     tasks,
     keys,
@@ -324,7 +327,9 @@ beforeEach(async () => {
         clock: t.clock,
       } as unknown as OfficeLane),
   };
-  w.registry = buildRegistry([new WorkRun(runDeps).feature]);
+  const works = new WorkRun(runDeps);
+  w.registry = buildRegistry([works.feature]);
+  w.settled = () => works.settled();
   w.deps = {
     registry: w.registry,
     offices: stateOfficeDirectory(t.state),
@@ -335,7 +340,9 @@ beforeEach(async () => {
   world = w;
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // The starts a test answered finish before its state closes (DIPO-456).
+  await world.settled();
   world.t.state.close();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -426,14 +433,17 @@ describe("work.run picks and claims one Ready story", () => {
         detail: [ONE_STORY],
       },
     ]);
-    expect(reply.ok && reply.changed).toBe(true);
-    // work.assigned, the setup marker's work.output (DIPO-83) and work.phase setup.
-    expect(reply.ok && reply.cursor?.seq).toBe(3);
+    // The claim goes on after the answer; its writes are not waited for (DIPO-456).
+    await world.settled();
 
     // The claim got the frozen branch and ran the pickup re-check inside its queue item.
     expect(world.claims.map((c) => [c.story, c.branch])).toEqual([["TASK-3", "TASK-3/a-story"]]);
-    expect(world.gates).toEqual([{ key: key3, mode: "pickup", inQueue: true, inSession: true }]);
-    expect(countRows(world.office, "gate_decisions")).toBe(1);
+    // The decision checked the gate before the answer (DIPO-456), the claim's re-check again.
+    expect(world.gates).toEqual([
+      { key: key3, mode: "pickup", inQueue: true, inSession: false },
+      { key: key3, mode: "pickup", inQueue: true, inSession: true },
+    ]);
+    expect(countRows(world.office, "gate_decisions")).toBe(2);
 
     const runId = RunId.parse(result.started[0]?.run);
     expect(findRun(world.office, runId)).toMatchObject({
@@ -514,6 +524,7 @@ describe("work.run picks and claims one Ready story", () => {
     };
     story("TASK-1", "Ready");
     const runId = RunId.parse(resultOf(await run()).started[0]?.run);
+    await world.settled();
     const expected = {
       reviewRoundCap: 4,
       ciCap: 5,
@@ -576,6 +587,7 @@ describe("work.run picks and claims one Ready story", () => {
     const id = "01J9ZK5Q8W3V4X6Y7Z90000003";
     const crashed = await run({}, { id, crash: true });
     expect(crashed.ok ? null : crashed.error.message).toContain(CRASH);
+    await world.settled();
     expect(world.claims).toHaveLength(1);
     // The retry sees the live claim and the active run: it skips the story, claims nothing.
     const retried = resultOf(await run({}, { id, crash: false }));
@@ -953,6 +965,7 @@ describe("a queued resume and a pickup never take the worker place together (DIP
 
     const result = resultOf(await pickup);
     await drained;
+    await world.settled();
     world.places.close();
 
     expect(world.resumeStarts).toEqual([]);
@@ -1010,6 +1023,7 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
     open();
     const result = resultOf(await pickup);
     expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
+    await world.settled();
     expect(world.places.pickupsStarting(world.officeId)).toEqual([]);
     // The pickup's run holds the place now; the resume still waits.
     expect(placeHolders(world.office).worker.map((r) => r.story)).toEqual(["TASK-1"]);
@@ -1029,7 +1043,10 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
     expect(await world.places.drain(world.officeId)).toBe(0);
     world.setupFails = true;
     open();
-    expect(resultOf(await pickup).skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
+    // The answer named the start before the setup ran; the failed setup rolled the claim back.
+    expect(resultOf(await pickup).started.map((s) => s.story)).toEqual(["TASK-1"]);
+    await world.settled();
+    expect(world.claims.map((c) => c.story)).toEqual(["TASK-1"]);
     expect(world.places.pickupsStarting(world.officeId)).toEqual([]);
     // The release drained the office: the resume took the place.
     await world.places.idle();
@@ -1104,6 +1121,47 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
   });
 });
 
+describe("work.run answers once it has decided (DIPO-456)", () => {
+  it("answers the started and skipped stories while the box is still prepared, then shows the run in setup", async () => {
+    limitTo(1);
+    story("TASK-1", "Ready");
+    story("TASK-2", "Ready");
+    const { pickup, open } = await pickupInSetup({ stories: ["TASK-1", "TASK-2"] });
+    // The setup is held open, and the answer comes anyway.
+    const reply = resultOf(await pickup);
+    expect(reply.started.map((s) => s.story)).toEqual(["TASK-1"]);
+    expect(reply.skipped.map((s) => [s.story, s.reason])).toEqual([["TASK-2", "capacity"]]);
+
+    open();
+    await world.settled();
+    expect(world.claims.map((c) => c.story)).toEqual(["TASK-1"]);
+    expect(countRows(world.office, "runs")).toBe(1);
+    expect(placeHolders(world.office).worker.map((r) => r.story)).toEqual(["TASK-1"]);
+    world.places.close();
+  });
+
+  it("answers a named run of a full office as capacity skips, without a fetch", async () => {
+    limitTo(1);
+    story("TASK-1", "Ready");
+    story("TASK-2", "Ready");
+    expect(resultOf(await run({ stories: ["TASK-1"] })).started.map((s) => s.story)).toEqual([
+      "TASK-1",
+    ]);
+    await world.settled();
+    world.fetchError = new Error("the fetch must not run for a full office");
+    const full = resultOf(await run({ stories: ["TASK-2"] }));
+    expect(full.started).toEqual([]);
+    expect(full.skipped).toEqual([
+      {
+        story: "TASK-2",
+        key: world.keys.get("TASK-2") as string,
+        reason: "capacity",
+        detail: [fullText(1, "TASK-1")],
+      },
+    ]);
+  });
+});
+
 describe("several stories at once, up to caps.parallelRuns (0002)", () => {
   it("starts a second story while one runs, and skips a third at the limit naming the limit", async () => {
     limitTo(2);
@@ -1116,6 +1174,7 @@ describe("several stories at once, up to caps.parallelRuns (0002)", () => {
     expect(resultOf(await run({ stories: ["TASK-2"] })).started.map((s) => s.story)).toEqual([
       "TASK-2",
     ]);
+    await world.settled();
     expect(placeHolders(world.office).worker.map((r) => r.story)).toEqual(["TASK-1", "TASK-2"]);
     const full = resultOf(await run({ stories: ["TASK-3"] }));
     expect(full.started).toEqual([]);
@@ -1342,6 +1401,7 @@ describe("a park resume and a pickup never take the worker place together (DIPO-
     const { pickup, reply } = await pickupWithAnswerInClaim(resuming, parked);
     const result = resultOf(await pickup);
     expect(await reply).toEqual({ kind: "started", queued: true });
+    await world.settled();
 
     // The pickup ends, so the worker place frees; the drain starts the queued resume through startQueued.
     world.queuedStart = (officeId, started) => resuming.startQueued(officeId, started);

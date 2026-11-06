@@ -214,6 +214,8 @@ const FROZEN_INSTALL = profileWith({
 } as unknown as RunProfile["capabilities"]["install"]);
 
 let world: World;
+/** The `work.run` of the current world: its starts go on after the answer (DIPO-456). */
+let works: WorkRun;
 
 beforeEach(async () => {
   const dir = mkdtempSync(join(process.env["DIPO_TMP"] || "/tmp", "run-start-"));
@@ -442,6 +444,7 @@ beforeEach(async () => {
     launcher,
   });
   const registry = buildRegistry([workRun.feature]);
+  works = workRun;
   Object.assign(w, {
     registry,
     deps: {
@@ -475,8 +478,9 @@ function requestId(): RequestId {
   return RequestId.parse(`01J9ZK5Q8W3V4X6Y7Z${requests.toString().padStart(8, "0")}`);
 }
 
-function run(args: Record<string, unknown> = {}): Promise<CommandReply> {
-  return executeCommand(world.deps, {
+/** `work.run`, then the starts it answered: their claim, box and launch go on after the answer. */
+async function run(args: Record<string, unknown> = {}): Promise<CommandReply> {
+  const reply = await executeCommand(world.deps, {
     requestId: requestId(),
     name: "work.run",
     args,
@@ -484,6 +488,8 @@ function run(args: Record<string, unknown> = {}): Promise<CommandReply> {
     confirmed: false,
     office: world.officeId,
   });
+  await works.settled();
+  return reply;
 }
 
 function preview(args: Record<string, unknown> = {}): Promise<ReadReply> {
@@ -662,10 +668,9 @@ describe("work.run starts the worker of a claimed run", () => {
       failures: [{ check: "self-test", detail: "the worker wrote into <main>/.git" }],
     };
     const result = resultOf<RunResult>(await run({ stories: ["TASK-1"] }));
-    expect(result.started).toEqual([]);
-    expect(result.skipped).toEqual([
-      { story: "TASK-1", key: world.keys.get("TASK-1") as string, reason: "pickupCheckFailed" },
-    ]);
+    // Answered as started (DIPO-456); the refused check rolled the claim back after the answer.
+    expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
+    expect(result.skipped).toEqual([]);
     expect(world.hosts).toEqual([]);
     expect(world.holds.adapterPaused("claude-cli")?.check).toBe("self-test");
     expect(countRows(world.office, "runs")).toBe(0);
@@ -690,7 +695,7 @@ describe("work.run starts the worker of a claimed run", () => {
     story("TASK-1", "Ready");
     world.repoDir = join(world.dir, "repo (old)");
     const result = resultOf<RunResult>(await run());
-    expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
+    expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
     expect(world.hosts).toEqual([]);
     const notice = entries().find(
       (e) => e.type === "engine.notice" && e.delta["code"] === LAUNCH_NOTICES.planRefused,
@@ -705,8 +710,8 @@ describe("work.run starts the worker of a claimed run", () => {
     story("TASK-1", "Ready");
     world.hostFails = true;
     const result = resultOf<RunResult>(await run());
-    expect(result.started).toEqual([]);
-    expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
+    expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
+    expect(result.skipped).toEqual([]);
     expect(world.released.map((r) => r.reason)).toEqual([START_FAILED_RELEASE]);
     const runId = world.released[0]?.claim.runId as RunId;
     expect(findRun(world.office, runId)).toMatchObject({ ending: "dropped" });
@@ -762,7 +767,7 @@ describe("a box worker's run (DIPO-271)", () => {
     story("TASK-1", "Ready");
     world.boxFails = true;
     const result = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
-    expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
+    expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
     expect(world.hosts).toEqual([]);
     expect(world.boxCalls.filter((call) => call.startsWith("discard"))).toEqual([]);
   });
@@ -878,12 +883,12 @@ describe("the package cache of a box run (DIPO-295)", () => {
 });
 
 /**
- * The skipped run's setup failure: the reason `claimStory` puts in the `setup.failed` notice
- * the maintainer sees.
+ * The start the answer named, whose setup failed after it (DIPO-456): the reason `claimStory` puts
+ * in the `setup.failed` notice the maintainer sees.
  */
 function skipped(result: RunResult): { notice: string } {
-  expect(result.started).toEqual([]);
-  expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
+  expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
+  expect(result.skipped).toEqual([]);
   return { notice: world.setupFailures.at(-1) ?? "" };
 }
 
@@ -1041,7 +1046,7 @@ describe("a failed release after a failed host start", () => {
     world.hostFails = true;
     world.releaseFails = true;
     const result = resultOf<RunResult>(await run());
-    expect(result.started).toEqual([]);
+    expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
     expect(world.warnings).toEqual([
       "releasing the claim after a failed host start failed: the database is busy",
     ]);
