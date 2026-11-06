@@ -5,4 +5,4 @@ title: "M3 Rituals"
 
 ## Description
 
-plan, refine, ready and estimate (with tier proposal) commands with Claude interview sessions. Retro and insights: aggregate park reasons, loops, usage and cost efficiency from the local database and suggest how to prepare work better.
+A planning session in the TUI (0022): the maintainer talks with Claude in a read-only box that plans new work, refines stories and triages drafts; dipo's code files what the maintainer confirms (Refined, then Ready) with a proposed tier per story. Every incoming idea becomes a draft. A retro view shows park reasons, rounds, cost and time, and where stories came from. Done when M4 is planned with dipo's own planning view.
