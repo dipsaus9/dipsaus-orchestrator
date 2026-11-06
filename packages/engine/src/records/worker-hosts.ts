@@ -494,10 +494,10 @@ const no = (reason: string): SignalCheck => ({ ok: false, reason });
 
 /**
  * The checks before the engine signals a host whose socket did not answer after a restart (0005):
- * the row is recorded (not pending) and not ended, no `exit.json` past the processed offset says it exited, and the PID is
- * alive with the recorded start time, did not start before its row was written, and runs
- * `dipo daemon worker-host <run>` (`isWorkerHostArgv`). Any doubt refuses: an unverified PID is
- * never signalled.
+ * the row is recorded (not pending) and not ended, no `exit.json` past the processed offset says
+ * it exited, and the PID is alive with the recorded start time, did not start before its row was
+ * written, and runs `dipo daemon worker-host <run>` (`isWorkerHostArgv`). Any doubt refuses: an
+ * unverified PID is never signalled.
  */
 export async function verifyHostForSignal(
   host: WorkerHostRow,
