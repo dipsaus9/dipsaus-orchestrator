@@ -3,10 +3,10 @@ id: DIPO-452
 title: >-
   Audit every incoming idea by code and a short Claude session before it reaches
   me
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 12:52'
+updated_date: '2026-11-06 13:01'
 labels:
   - 'tier:L'
 milestone: m-3
