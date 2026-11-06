@@ -111,6 +111,7 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
         // The stories offered for free run slots (DIPO-440, 0010).
         nextUp: (handle) => commands.nextUp.offers(handle.officeId as OfficeId),
       },
+      planning: (handle) => runs.planning.view(handle.officeId as OfficeId),
     }),
     core.engineGit.feature,
     // Claims pin their worktree snapshots on the office git, so after it.

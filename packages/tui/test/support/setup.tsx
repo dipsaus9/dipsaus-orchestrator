@@ -54,12 +54,15 @@ export interface MountOptions extends RenderSize {
   readonly outputTailBytes?: number;
   /** Snapshots answered instead of the golden ones, by office (DIPO-81 board scenarios). */
   readonly snapshots?: ReadonlyMap<OfficeId, OfficeSnapshot>;
+  /** Stored output by `<run>:<source>`, there before the office opens (a session left open). */
+  readonly output?: ReadonlyMap<string, string>;
 }
 
 export async function mount(options: MountOptions = {}) {
   const session = new FakeSession();
   for (const [office, snapshot] of options.snapshots ?? [])
     session.nextSnapshots.set(office, snapshot);
+  for (const [key, text] of options.output ?? []) session.output.set(key, text);
   const clock = new TestClock();
   const store = new OfficeStore({
     client: session,

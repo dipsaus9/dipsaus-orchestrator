@@ -427,6 +427,8 @@ export const OfficeSnapshot = z.object({
   gates: z.array(GateView),
   questions: z.array(QuestionView),
   tests: z.array(TestView),
+  // The office's open planning session (DIPO-449); absent without one.
+  planning: PlanningView.optional(),
 });
 export type OfficeSnapshot = z.infer<typeof OfficeSnapshot>;
 

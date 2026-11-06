@@ -40,6 +40,7 @@ export type {
   OfficeStoreOptions,
   OfficeStoreState,
   OutputChunk,
+  PlanningChunk,
   StoreClient,
 } from "./store/index";
 export type { RandomBytes, RequestIds } from "./request-id";

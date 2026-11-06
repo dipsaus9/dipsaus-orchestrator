@@ -36,6 +36,8 @@ export interface FooterExtras {
   readonly retry: boolean;
   /** True when the desk has a row selected. */
   readonly desk: boolean;
+  /** The keys of the planning view (DIPO-449). */
+  readonly planning: readonly Hint[];
 }
 
 export function footerKeys(
@@ -59,6 +61,8 @@ export function footerKeys(
         ],
         width,
       );
+    case "planning":
+      return fitHints([...extras.planning], width);
     case "confirm-privacy":
       return fitHints(
         [
@@ -124,6 +128,8 @@ export function footerKeys(
         }
         hints.push(["[2] queue", 50], ["[3] desk", 48], ["[p] privacy", 45]);
       }
+      // The planning key shows while a session is open; every other footer stays as it was.
+      if (state.planning !== null) hints.push(["[5] planning", 10]);
       hints.push(["[o] offices", 40]);
       hints.push(quit);
       return fitHints(hints, width);

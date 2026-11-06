@@ -2,6 +2,8 @@
 // `register(registry)` adds its commands and reads; a story that adds one lists its module here,
 // in its own line, and never edits `commands/` or `reads/`.
 
+import type { PlanningView } from "@dipsaus-orchestrator/contract";
+
 import { backlogFeature } from "./backlog";
 import { failedHoldDeskItems } from "./backlog/lane/desk";
 import { backlogPrDeskItems } from "./backlog/pr/desk";
@@ -13,6 +15,7 @@ import { describeFeature } from "./reads/describe";
 import { statsFeature } from "./retention/stats";
 import type { StoryStore } from "./story-store/store";
 import { DESK_SOURCES, type DeskSources } from "./overview/desk";
+import type { OfficeHandle } from "./db/office";
 import { viewsFeatureWith } from "./overview/feature";
 
 export interface EngineFeatureOptions {
@@ -25,6 +28,8 @@ export interface EngineFeatureOptions {
   readonly stories: StoryStore;
   /** The desk's sources beyond the engine's own: the daemon's office starts paused (0020). */
   readonly desk?: Partial<DeskSources>;
+  /** The office's open planning session, for `office.snapshot` (DIPO-449). */
+  readonly planning?: (office: OfficeHandle) => PlanningView | null;
 }
 
 /** The engine's own feature modules, with the daemon's tools. */
@@ -38,12 +43,15 @@ export function engineFeatures(options: EngineFeatureOptions): readonly FeatureM
     // `office.snapshot`, `story.detail` and `work.outputRange` (DIPO-52); the
     // desk shows the backlog PRs whose check failed (0010), and the parks whose hold failed to
     // write (DIPO-401).
-    viewsFeatureWith({
-      prItems: backlogPrDeskItems,
-      handItems: [...DESK_SOURCES.handItems, failedHoldDeskItems],
-      stories: options.stories,
-      ...options.desk,
-    }),
+    viewsFeatureWith(
+      {
+        prItems: backlogPrDeskItems,
+        handItems: [...DESK_SOURCES.handItems, failedHoldDeskItems],
+        stories: options.stories,
+        ...options.desk,
+      },
+      options.planning,
+    ),
   ];
 }
 

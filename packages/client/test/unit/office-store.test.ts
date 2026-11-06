@@ -223,6 +223,60 @@ describe("OfficeStore", () => {
     expect(store.state.work).toEqual([]);
   });
 
+  it("holds the open planning session: from the snapshot, replaced by its events, gone when it ends (DIPO-449)", async () => {
+    const { client, store, snapshots } = await setup();
+    const stream = `office:${A}`;
+    expect(store.state.planning).toBeNull();
+    const PLAN_RUN = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0P01";
+    const view = {
+      run: PLAN_RUN,
+      kind: "plan",
+      goal: "Plan it",
+      model: "m",
+      state: "waiting",
+      turns: 1,
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheCreateTokens: 0,
+        cacheReadTokens: 0,
+        turns: 1,
+        elapsedMs: 1,
+      },
+      startedAt: AT,
+    } as never;
+    snapshots.set(A, { ...(snapshots.get(A) as OfficeSnapshot), planning: view });
+    await store.switchTo(B);
+    await store.switchTo(A);
+    expect(String(store.state.planning?.run)).toBe(PLAN_RUN);
+
+    const chunks: string[] = [];
+    store.onPlanningOutput((chunk) => chunks.push(`${chunk.from}-${chunk.to}:${chunk.text}`));
+    const updated = { ...(view as object), state: "working", turns: 2 };
+    client.emit(
+      stream,
+      event(stream, 6, "planning.output", {
+        run: PLAN_RUN,
+        from: 0,
+        to: 3,
+        text: "abc",
+        view: updated,
+      }),
+    );
+    expect(chunks).toEqual(["0-3:abc"]);
+    expect(store.state.planning?.state).toBe("working");
+
+    client.emit(
+      stream,
+      event(stream, 7, "planning.ended", {
+        run: PLAN_RUN,
+        reason: "maintainer",
+        view: { ...updated, state: "ended", ended: "maintainer" },
+      }),
+    );
+    expect(store.state.planning).toBeNull();
+  });
+
   it("drops events whose cursor it already applied", async () => {
     const { client, store } = await setup();
     const stream = `office:${A}`;
