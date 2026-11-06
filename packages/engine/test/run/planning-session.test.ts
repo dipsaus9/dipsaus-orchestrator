@@ -289,6 +289,44 @@ describe("a planning session (DIPO-447)", () => {
       expect(w.sessions.view(w.office.officeId as never)).toBeNull();
     }));
 
+  it("ends at daemon stop, and a run a stopped daemon left open ends at the next start", () =>
+    withWorld(async (w) => {
+      const { run } = await started(w);
+      await w.sessions.stopAll();
+      expect(planningRun(w.office, run)?.end_kind).toBe("dropped");
+      const ended = planningEntries(w, "planning.ended");
+      expect(ended.map((entry) => (entry.delta as { reason: string }).reason)).toEqual([
+        "daemon-stopped",
+      ]);
+      expect(w.boxes.ended).toHaveLength(1);
+      // A planning run some earlier daemon left open: ended once, and only it.
+      const left = RunId.parse("run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1E");
+      w.office.immediate(() =>
+        insertRun(w.office, {
+          runId: left,
+          kind: "session",
+          key: null,
+          story: null,
+          tier: null,
+          role: "planner",
+          model: "opus",
+          startSha: null,
+          branch: null,
+          budgetUnit: "tokens",
+          budgetLimit: 0,
+          loopCap: 0,
+          reviewRoundCap: null,
+          configHash: "h",
+          overrideKeys: null,
+          runProfileId: null,
+          startedAt: w.t.clock.now(),
+        }),
+      );
+      expect(w.sessions.recover([w.office.officeId as never])).toBe(1);
+      expect(planningRun(w.office, left)?.end_kind).toBe("dropped");
+      expect(w.sessions.recover([w.office.officeId as never])).toBe(0);
+    }));
+
   it("ends when the maintainer ends it: its box goes and the run ends", () =>
     withWorld(async (w) => {
       const { run } = await started(w);

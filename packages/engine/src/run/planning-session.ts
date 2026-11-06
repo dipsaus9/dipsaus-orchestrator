@@ -189,7 +189,6 @@ export interface PlanningSessionsDeps {
   readonly offices: {
     get(office: OfficeId): OfficeHandle | undefined;
     config(office: OfficeId): OfficeConfig | undefined;
-    loadedOffices?(): readonly OfficeId[];
   };
   readonly worker: WorkerPort;
   readonly git: (office: OfficeId) => OfficeGit | undefined;
@@ -367,13 +366,13 @@ export class PlanningSessions {
   }
 
   /**
-   * Daemon start: a planning run of a loaded office that a stopped daemon left open is ended
+   * Daemon start: a planning run of the loaded `offices` that a stopped daemon left open is ended
    * dropped; its box went with that daemon's stop or goes with the start sweep. Returns how many.
    */
-  recover(): number {
+  recover(offices: readonly OfficeId[]): number {
     let ended = 0;
     const at = this.#deps.clock.now();
-    for (const office of this.#deps.offices.loadedOffices?.() ?? []) {
+    for (const office of offices) {
       const handle = this.#deps.offices.get(office);
       if (handle === undefined) continue;
       const followed = new Set(this.liveRuns());

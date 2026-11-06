@@ -4,7 +4,7 @@ Status: accepted. First written 2026-10-10 (spike DIPO-5). Rewritten 2026-10-24 
 
 ## Decision in short
 
-Every developer runs inside its own **box**, a lightweight VM, one per story. The box is the boundary. Inside it the worker may do anything: read the whole repository, run any command, install packages, use the web. It cannot leave the box, it holds nothing of the maintainer's, and its work reaches the repository only as **parts** that dipo checks, commits and pushes. The reviewer runs in a read-only box of its own. The scan session runs on the Mac with every tool off.
+Every developer runs inside its own **box**, a lightweight VM, one per story. The box is the boundary. Inside it the worker may do anything: read the whole repository, run any command, install packages, use the web. It cannot leave the box, it holds nothing of the maintainer's, and its work reaches the repository only as **parts** that dipo checks, commits and pushes. The reviewer runs in a read-only box of its own, and so does the maintainer's planning session. The scan session runs on the Mac with every tool off.
 
 The engine reaches every model session through one adapter-neutral contract (section 1). The first adapter wraps the Claude Code CLI on the maintainer's subscription login. Its code lives in `engine/src/workers/claude-cli/`; where else Claude may be named is in 0001.
 
@@ -21,7 +21,7 @@ interface WorkerAdapter {
   interpret(line: HostLine, state: ParseState): { events: WorkerEvent[]; state: ParseState };  // pure
   result(state: ParseState, exit: ExitRecord): WorkerResult;                                    // pure
 }
-WorkerSpec = { run, agent, kind: "implement" | "review" | "session", place: Box | ReadOnlyCopy | None,
+WorkerSpec = { run, agent, kind: "implement" | "review" | "session" | "planning", place: Box | ReadOnlyCopy | None,
                model, effort, caps: Caps, systemFile, taskMessage, web, sessionId, reportSchema }
 Caps = { budgetTokens: number, maxTurns: number, maxMinutes: number }   // loops and rounds stay in the engine
 SteerOp = { kind: "message", text } | { kind: "stop" | "kill" }
@@ -35,7 +35,7 @@ WorkerResult = { exit: "normal" | "capped" | "plan-limit" | "crashed" | "start-f
 
 The adapter reports facts. The engine decides phase, feedback, commits and parks, and maps a result to how the run ends (0020).
 
-The engine names no tools. The adapter names each kind's tools: the developer's, plus web search and fetch when `web` is on; the reviewer's read and web tools; none for a session. `web` is the developer's switch: the adapter refuses it on a review or session spec, and refuses a kind it names no tools for.
+The engine names no tools. The adapter names each kind's tools: the developer's, plus web search and fetch when `web` is on; the reviewer's read and web tools; the same read and web tools for a planning session; none for a session. `web` is the developer's switch: the adapter refuses it on a review, planning or session spec, and refuses a kind it names no tools for. A planning spec that carries a tool, MCP or permission field is refused; the other kinds ignore one. The plan of a read-only kind is checked once built: one `--tools` with only the kind's own names, compared exactly, so another case, a rule, an alias or an MCP tool fails; no flag that adds tools, permissions, settings, plugins or MCP servers; and `--strict-mcp-config`. A planning session whose `system/init` lists any other tool is stopped there.
 
 ## 2. The box
 
@@ -60,7 +60,7 @@ The engine names no tools. The adapter names each kind's tools: the developer's,
 **The count.** Every program in a box may call the model through the proxy: Claude Code, a product's tests using the Anthropic SDK, or `curl`. The proxy counts all of it against the run of the box that sent it:
 - It knows the sender only by its peer address. `BoxWorkers` records each box's address with its session's run and agent when the session starts, and drops it when the box stops. A run named in a header or the body is ignored.
 - A request from an address no running session owns is refused and never forwarded. So is one whose run's usage cannot be recorded: before it forwards any request, the proxy writes the run's usage row, and a failed write refuses the request. After a failed write, no request of that office goes on until a write succeeds.
-- Once the run's token cap is reached (a reviewer's own cap for a reviewer), the proxy refuses new requests with 429, so a program that is not Claude Code cannot run past the cap while the engine stops the session.
+- Once the run's token cap is reached (a reviewer's own cap for a reviewer), the proxy refuses new requests with 429, so a program that is not Claude Code cannot run past the cap while the engine stops the session. A planning session's box is counted the same way, against its planning run, which has no cap: its requests count in the office's usage and spend and are never refused for one.
 - It reads the `usage` of each answer it passes and adds it as the upstream sends it: the JSON body; or a stream's `message_start` usage (input and cache at once) and each later `message_delta` usage over it. It reads a stream from the upstream at the upstream's pace, whether or not the box reads it, so a stream held open unread still counts what was spent. A stream cut off counts what arrived. A `count_tokens` request is forwarded and adds nothing.
 - It adds input, output, cache creation and cache read tokens to the run's records, which the caps, the tier budget and the spend alerts read (section 7).
 - A count is lost for a request in flight when its office unloads, and for the rest of a stream a daemon restart cuts. After a restart, a box that is still running gets 403 until its next session starts, because the registry lives in the daemon.
@@ -142,7 +142,7 @@ claude -p --input-format stream-json --output-format stream-json --verbose --inc
 
 The task message is the first stdin line, never on argv. The box's environment holds only the route to the proxies and a placeholder key. Every session's `system/init` is checked: `apiKeySource` must be `none`, and the model must match the planned one or a classifier switch recorded on the run.
 
-**The reviewer** runs in a read-only box of its own, made for each review session from the office image: a `git archive` copy of the pushed head, no `box.files`, and the same firewall, box user and proxies as a developer box. Its tools are read, glob, grep, web search and web fetch: no shell, no write, no `gh`. The box is deleted when the session ends. **The scan session** runs on the Mac with every tool off, and so without Claude Code's Bash sandbox: with no tool there is no shell to guard. Neither session loads settings, hooks, plugins or skills from the repository copy. No session has hooks, so dipo registers none and `dipo hook` goes.
+**The reviewer** runs in a read-only box of its own, made for each review session from the office image: a `git archive` copy of the pushed head, no `box.files`, and the same firewall, box user and proxies as a developer box. Its tools are read, glob, grep, web search and web fetch: no shell, no write, no `gh`. The box is deleted when the session ends. **The planning session** is the maintainer's: at most one per office, started with a kind (`plan`, `refine` or `triage`) and a goal, and talked to turn by turn until the maintainer ends it. It runs in a read-only box made as a reviewer's, with a copy of the base branch's tip, which holds the backlog, and the reviewer's tools. Its plan passes no structured-output schema: each turn ends in a text answer. Its first message is the kind and goal with the facts code knows, as text: the open drafts, the desk and the recent story runs. Each maintainer message is one user message on its stdin, its next turn. It is a session run with no story: its answers and spend go out as planning events, not work events, and it holds no run slot (0002). It has no token or minute cap; between turns the watchdog's quiet and stuck waits stop, and a session that waits `planning.idleHours` (a day) for a message ends by itself. Its box is deleted when it ends, and at daemon stop. **The scan session** runs on the Mac with every tool off, and so without Claude Code's Bash sandbox: with no tool there is no shell to guard. None of these sessions loads settings, hooks, plugins or skills from the repository copy. No session has hooks, so dipo registers none and `dipo hook` goes.
 
 **Steering and stop.**
 - Every op the engine sends is first stored as an intent on the run, so the result is read from the intent and never guessed from the exit.
@@ -167,7 +167,7 @@ The task message is the first stdin line, never on argv. The box's environment h
 
 **The worker host's launch deadline.** A daemon claims a worker host with a `claim` on the host's socket, sent only once the daemon holds the host's verified PID in its `worker_hosts` row and follows its run; a handshake alone claims nothing. Every host must be claimed by its launch deadline, `HOST_LAUNCH_DEADLINE_MS` (30 s) after its row was written, which `launch.json` carries. That is the one rule: a host no daemon claimed by then stops its worker as on SIGTERM and refuses a later handshake or claim. So a host the daemon cannot verify, a host whose run ended while it was asked, and a host whose daemon stopped before recording it are never claimed, and stop themselves. Until the deadline the daemon that started the host keeps connecting, and a restarted daemon keeps a pending row and asks its socket again, so a host that binds its socket late is still re-attached. At the deadline a pending row no verified host answered for goes, and its story parks `worker-failed`; a pending row is never claimed, so none goes while its host runs claimed. dipo never signals a pending host, whose PID is known only from its own handshake.
 
-**Resume.** Every session starts with an engine-made session id. A developer resume is always a new session in the story's box with a handoff (0014). The reviewer is never resumed.
+**Resume.** Every session starts with an engine-made session id. A developer resume is always a new session in the story's box with a handoff (0014). The reviewer and the planning session are never resumed: a planning session a daemon stop ended stays ended.
 
 ## 7. Usage and cost
 
@@ -185,7 +185,7 @@ The task message is the first stdin line, never on argv. The box's environment h
 | M | sonnet | medium | 800,000 | 200 | 90 | 5 |
 | L | opus | high | 2,000,000 | 300 | 180 | 8 |
 
-The reviewer has its own caps: model opus, effort high, 60 turns, 30 minutes and 200,000 tokens per session (0002). The engine checks the totals after every usage and turn event and stops the session at 100% of a cap. Each feedback message carries a budget line, and at about 80% of a cap the worker wraps up (0014).
+The reviewer has its own caps: model opus, effort high, 60 turns, 30 minutes and 200,000 tokens per session (0002). The planning session has model opus and effort high by default (`planning.model`, `planning.effort`), 100 turns per answer and no token or minute cap. The engine checks the totals after every usage and turn event and stops the session at 100% of a cap. Each feedback message carries a budget line, and at about 80% of a cap the worker wraps up (0014).
 
 ## 9. Another adapter
 

@@ -193,7 +193,6 @@ export function planningWorld(t: TestState, dir: string): PlanningWorld {
     offices: {
       get: () => office,
       config: () => w.config,
-      loadedOffices: () => [officeId],
     },
     worker,
     git: () => git,

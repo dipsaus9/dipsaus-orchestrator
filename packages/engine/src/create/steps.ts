@@ -282,7 +282,7 @@ export function recoveryList(core: Core, services: Services): RecoverySteps {
     {
       name: PLANNING_RECOVERY_STEP,
       run: async (context: Parameters<RecoveryStep["run"]>[0]) => {
-        const ended = runs.planning.recover();
+        const ended = runs.planning.recover(core.offices.loadedOffices());
         if (ended > 0) context.logger.info("ended planning runs a stopped daemon left", { ended });
       },
     },
