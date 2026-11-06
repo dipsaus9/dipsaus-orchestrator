@@ -1,9 +1,10 @@
 ---
 id: DIPO-452
 title: File every incoming idea as a draft and triage drafts in a planning session
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-05 20:51'
+updated_date: '2026-11-06 07:15'
 labels:
   - 'tier:L'
 milestone: m-3
