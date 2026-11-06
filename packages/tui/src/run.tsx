@@ -28,7 +28,8 @@ import {
 import { Box, render, Text, useInput } from "ink";
 import { useState } from "react";
 
-import { App, QUIT_WINDOW_MS, type TuiActions } from "./app";
+import { App, type TuiActions } from "./app";
+import { QUIT_WINDOW_MS } from "./input";
 import { parseTuiArgs } from "./options";
 import { glyphs } from "./views";
 
