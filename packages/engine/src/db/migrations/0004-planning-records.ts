@@ -16,6 +16,7 @@ create table planning_records (
   kind text not null check (kind in ('goal', 'choice', 'story', 'question', 'started', 'ended')),
   run_id text,
   subject text,
+  proposal integer,
   text text not null,
   at integer not null,
   primary key (office_id, session_id, seq)

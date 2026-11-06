@@ -132,6 +132,8 @@ export interface PlanningWorldOptions {
   readonly office?: OfficeHandle;
   /** The office's planning lane (DIPO-450); none by default. */
   readonly lane?: PlanningSessionsDeps["lane"];
+  /** The context size at which the session continues in a fresh model session (DIPO-448). */
+  readonly contextTokens?: number;
 }
 
 /** The session's box as `BoxWorkers.planning` returns it. */
@@ -150,15 +152,9 @@ function planningBox(): BoxSession {
 export function planningWorld(
   t: TestState,
   dir: string,
-<<<<<<< a3c53499afadbe6d931b9eb0de559d51ab63e9b2
-  options: { readonly contextTokens?: number } = {},
-): PlanningWorld {
-  const office = addOffice(t);
-=======
   options: PlanningWorldOptions = {},
 ): PlanningWorld {
   const office = options.office ?? addOffice(t);
->>>>>>> 3e768dfb903d7e05d5e95c751aae1ec3408eccf9
   const officeId = OfficeId.parse(office.officeId);
   const home = join(dir, "home");
   const git = {

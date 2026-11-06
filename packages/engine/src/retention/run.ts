@@ -75,7 +75,6 @@ const RUN_DETAIL = [
   "run_summaries",
   "done_reports",
   "report_sendbacks",
-  "planning_record",
 ] as const;
 
 const PROFILE_CHILDREN = ["run_capabilities", "run_env_files", "run_extra_scripts"] as const;

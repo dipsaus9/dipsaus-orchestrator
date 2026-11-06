@@ -1,4 +1,3 @@
-<<<<<<< a3c53499afadbe6d931b9eb0de559d51ab63e9b2
 // The record of a planning session (0007, DIPO-448): one `planning_records` row per entry, in
 // order, written by code. The goal, each confirmed choice (question and answer), each filed or
 // edited story and each open question are the maintainer's decisions; `started` and `ended` mark
@@ -23,15 +22,18 @@ export interface PlanningEntry {
    * started (`start` or the reason the one before ended).
    */
   readonly subject: string | null;
+  /** The number of the proposal a `story` entry came from. */
+  readonly proposal: number | null;
   /** `goal`: the goal; `choice`: the answer; `story`: `filed` or `edited`; `question`: the question; `ended`: the reason. */
   readonly text: string;
   readonly at: number;
 }
 
 /** What a caller adds; the sequence number is the next one of the session. */
-export type NewPlanningEntry = Omit<PlanningEntry, "seq" | "run" | "subject"> & {
+export type NewPlanningEntry = Omit<PlanningEntry, "seq" | "run" | "subject" | "proposal"> & {
   readonly run?: string;
   readonly subject?: string;
+  readonly proposal?: number;
 };
 
 interface Row {
@@ -39,6 +41,7 @@ interface Row {
   kind: PlanningEntryKind;
   run_id: string | null;
   subject: string | null;
+  proposal: number | null;
   text: string;
   at: number;
 }
@@ -56,14 +59,15 @@ export function addPlanningEntry(
   );
   const seq = next?.seq ?? 1;
   office.run(
-    `insert into planning_records (office_id, session_id, seq, kind, run_id, subject, text, at)
-     values ($office_id, $session, $seq, $kind, $run, $subject, $text, $at)`,
+    `insert into planning_records (office_id, session_id, seq, kind, run_id, subject, proposal, text, at)
+     values ($office_id, $session, $seq, $kind, $run, $subject, $proposal, $text, $at)`,
     {
       session,
       seq,
       kind: entry.kind,
       run: entry.run ?? null,
       subject: entry.subject ?? null,
+      proposal: entry.proposal ?? null,
       text: entry.text,
       at: entry.at,
     },
@@ -75,7 +79,7 @@ export function addPlanningEntry(
 export function readPlanningRecord(office: OfficeHandle, session: string): PlanningEntry[] {
   return office
     .all<Row>(
-      `select seq, kind, run_id, subject, text, at from planning_records
+      `select seq, kind, run_id, subject, proposal, text, at from planning_records
         where office_id = $office_id and session_id = $session order by seq`,
       { session },
     )
@@ -84,6 +88,7 @@ export function readPlanningRecord(office: OfficeHandle, session: string): Plann
       kind: row.kind,
       run: row.run_id,
       subject: row.subject,
+      proposal: row.proposal,
       text: row.text,
       at: row.at,
     }));
@@ -174,63 +179,36 @@ export function planningRecordText(entries: readonly PlanningEntry[]): string {
     section("Open questions", questions, "None."),
   ].join("\n\n");
 }
-=======
-// The record of a planning session (DIPO-450, 0022): the stories its confirmed proposals filed or
-// edited, by the session's run and the proposal's number. Code writes it: an edit when the
-// maintainer confirms it, a new story when the planning lane applied it and the story has its id.
-// A filing applied again on a newer base can get another id, so its row is replaced, not added.
 
-import type { OfficeHandle } from "../db/office";
-
-/** What a record entry says about its story. */
-export type PlanningRecordKind = "filed" | "edited";
-
-export interface PlanningRecordEntry {
-  readonly run: string;
-  readonly proposal: number;
-  readonly kind: PlanningRecordKind;
-  readonly story: string;
-  readonly at: number;
-}
-
-/** Records `entry`, replacing the story of the same run, proposal and kind. Runs in a transaction. */
-export function recordPlanningEntry(office: OfficeHandle, entry: PlanningRecordEntry): void {
-  office.run(
-    `insert into planning_record (office_id, run_id, proposal, kind, story_id, recorded_at)
-     values ($office_id, $run, $proposal, $kind, $story, $at)
-     on conflict (office_id, run_id, proposal, kind)
-       do update set story_id = excluded.story_id, recorded_at = excluded.recorded_at
-       where story_id is not excluded.story_id`,
-    {
-      run: entry.run,
-      proposal: entry.proposal,
-      kind: entry.kind,
-      story: entry.story,
-      at: entry.at,
-    },
+/**
+ * Records a story a confirmed proposal filed or edited (DIPO-450) in the record of the session the
+ * model session `run` belongs to. A story already recorded with the same kind is not added again.
+ * Does nothing for a run no record names.
+ */
+export function recordStoryEntry(
+  office: OfficeHandle,
+  run: string,
+  entry: {
+    readonly proposal: number;
+    readonly story: string;
+    readonly kind: "filed" | "edited";
+    readonly at: number;
+  },
+): void {
+  const session = planningSessionOfRun(office, run);
+  if (session === null) return;
+  const seen = office.get<{ seq: number }>(
+    `select seq from planning_records
+      where office_id = $office_id and session_id = $session and kind = 'story'
+        and subject = $story and text = $text`,
+    { session, story: entry.story, text: entry.kind },
   );
+  if (seen !== null) return;
+  addPlanningEntry(office, session, {
+    kind: "story",
+    subject: entry.story,
+    proposal: entry.proposal,
+    text: entry.kind,
+    at: entry.at,
+  });
 }
-
-/** The record of the session `run`, by proposal and then kind (`filed` first). */
-export function planningRecord(office: OfficeHandle, run: string): PlanningRecordEntry[] {
-  return office
-    .all<{
-      proposal: number;
-      kind: PlanningRecordKind;
-      story_id: string;
-      recorded_at: number;
-    }>(
-      `select proposal, kind, story_id, recorded_at from planning_record
-        where office_id = $office_id and run_id = $run
-        order by proposal, kind desc`,
-      { run },
-    )
-    .map((row) => ({
-      run,
-      proposal: row.proposal,
-      kind: row.kind,
-      story: row.story_id,
-      at: row.recorded_at,
-    }));
-}
->>>>>>> 3e768dfb903d7e05d5e95c751aae1ec3408eccf9

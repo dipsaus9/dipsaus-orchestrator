@@ -28,7 +28,6 @@
 // - An aside (DIPO-452): an idea the session noticed outside its goal, sent as a `dipo-aside` block
 //   in its answer. Each valid block is held as an idea and audited when it arrives (`onIdea`); an
 //   invalid one is refused with an `engine.notice` that says why (`asides.ts`).
-<<<<<<< a3c53499afadbe6d931b9eb0de559d51ab63e9b2
 // - The record (DIPO-448, 0007): `planning_records` keeps the session's goal, each confirmed choice,
 //   each filed or edited story and each open question (`record`), and when each model session
 //   started and ended. A planning session is named by the run of its first model session. When a
@@ -37,7 +36,6 @@
 //   the record and the facts of the first message; `planning.continued` says so. A session whose
 //   model session ended by idle, a daemon stop or its exit continues the same way on
 //   `planning.continue`, unless the maintainer ended it.
-=======
 //
 // Proposals (DIPO-450, 0022): the first message gives the session the proposal schema, and at
 // each turn end the answer's proposal blocks are read (`planning-proposals.ts`). A valid one joins
@@ -57,7 +55,6 @@
 //
 // What the maintainer decided reaches the session with their next message, as `[dipo]` lines
 // before it, so it never proposes a filed or declined story again.
->>>>>>> 3e768dfb903d7e05d5e95c751aae1ec3408eccf9
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -70,15 +67,12 @@ import {
   type OfficeId,
   type PlanningEndReason,
   type PlanningKind,
-<<<<<<< a3c53499afadbe6d931b9eb0de559d51ab63e9b2
   planningContinue,
   planningRecord,
-=======
   PLANNING_PROPOSAL_FENCE,
   planningConfirm,
   planningDecline,
   planningEdit,
->>>>>>> 3e768dfb903d7e05d5e95c751aae1ec3408eccf9
   planningEnd,
   planningMessage,
   type PlanningProposal,
@@ -122,7 +116,6 @@ import { currentProfileId, endRun, insertRun, recordConfigSnapshot } from "../re
 import { activeSignals } from "../records/signals";
 import { contextNearFull, readUsage } from "../records/usage";
 import type { LaunchedHost } from "../records/worker-hosts";
-import { planningRecord } from "../records/planning-record";
 import { isProvisionalId, resolveStoryRef, type StoryIdentity } from "../records/story-keys";
 import { PlanningRefusedError } from "../story-store/errors";
 import type { PlannedChange, PlanningLane } from "../story-store/planning";
@@ -432,10 +425,10 @@ export class PlanningSessions {
           handle: (ctx) => this.end(ctx),
         });
         registry.addAsyncOfficeCommand({
-<<<<<<< a3c53499afadbe6d931b9eb0de559d51ab63e9b2
           definition: planningContinue,
           handle: (ctx) => this.continue(ctx),
-=======
+        });
+        registry.addAsyncOfficeCommand({
           definition: planningConfirm,
           handle: (ctx, args) => this.confirm(ctx, args),
         });
@@ -446,7 +439,6 @@ export class PlanningSessions {
         registry.addAsyncOfficeCommand({
           definition: planningDecline,
           handle: (ctx, args) => this.decline(ctx, args),
->>>>>>> 3e768dfb903d7e05d5e95c751aae1ec3408eccf9
         });
       },
     };
@@ -858,9 +850,9 @@ export class PlanningSessions {
       }
     }
     const stories = handle
-      .deferred(() => planningRecord(handle, open.run))
-      .filter((entry) => entry.proposal === item.n)
-      .map((entry) => entry.story);
+      .deferred(() => readPlanningRecord(handle, open.session))
+      .filter((entry) => entry.kind === "story" && entry.proposal === item.n)
+      .map((entry) => entry.subject ?? "");
     return {
       n: item.n,
       proposal: item.proposal,
@@ -1316,7 +1308,7 @@ export class PlanningSessions {
     if (open.settled) return;
     open.turns += 1;
     if (open.ending !== null) return;
-<<<<<<< a3c53499afadbe6d931b9eb0de559d51ab63e9b2
+    this.#readAnswer(open);
     const near = open.handle.deferred(() =>
       contextNearFull(
         open.handle,
@@ -1330,9 +1322,6 @@ export class PlanningSessions {
       void this.#stop(open, { reason: "context-full" });
       return;
     }
-=======
-    this.#readAnswer(open);
->>>>>>> 3e768dfb903d7e05d5e95c751aae1ec3408eccf9
     open.state = "waiting";
     this.#watchdog.waiting(open.run);
     this.#clearIdle(open);
