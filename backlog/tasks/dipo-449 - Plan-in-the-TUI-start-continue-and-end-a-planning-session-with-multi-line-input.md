@@ -3,10 +3,10 @@ id: DIPO-449
 title: >-
   Plan in the TUI: start, continue and end a planning session with multi-line
   input
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 12:48'
+updated_date: '2026-11-06 12:57'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -52,9 +52,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The TUI has a planning view that starts a session with a kind and a goal, continues the open session and ends it
-- [ ] #2 Messages are written in a multi-line input where Enter adds a line and one documented key sends
-- [ ] #3 Each answer streams into the view as it arrives, with the session's live spend
-- [ ] #4 Opening the TUI shows the office's open planning session, and the view says when the session continued in a fresh Claude session
-- [ ] #5 The view is its own part of the TUI, and the other views and keys are unchanged
+- [x] #1 The TUI has a planning view that starts a session with a kind and a goal, continues the open session and ends it
+- [x] #2 Messages are written in a multi-line input where Enter adds a line and one documented key sends
+- [x] #3 Each answer streams into the view as it arrives, with the session's live spend
+- [x] #4 Opening the TUI shows the office's open planning session, and the view says when the session continued in a fresh Claude session
+- [x] #5 The view is its own part of the TUI, and the other views and keys are unchanged
 <!-- AC:END -->
