@@ -153,6 +153,7 @@ interface World {
   readonly dir: string;
   readonly office: OfficeHandle;
   readonly officeId: OfficeId;
+  readonly workRun: WorkRun;
   readonly registry: Registry;
   readonly deps: ExecutorDeps;
   readonly tasks: PlainTask[];
@@ -443,6 +444,7 @@ beforeEach(async () => {
   });
   const registry = buildRegistry([workRun.feature]);
   Object.assign(w, {
+    workRun,
     registry,
     deps: {
       registry,
@@ -475,8 +477,10 @@ function requestId(): RequestId {
   return RequestId.parse(`01J9ZK5Q8W3V4X6Y7Z${requests.toString().padStart(8, "0")}`);
 }
 
-function run(args: Record<string, unknown> = {}): Promise<CommandReply> {
-  return executeCommand(world.deps, {
+/** Sends `work.run` on the base as read, and waits for the starts it decided (DIPO-456). */
+async function run(args: Record<string, unknown> = {}): Promise<CommandReply> {
+  await world.workRun.refreshBase(world.officeId);
+  const reply = await executeCommand(world.deps, {
     requestId: requestId(),
     name: "work.run",
     args,
@@ -484,6 +488,8 @@ function run(args: Record<string, unknown> = {}): Promise<CommandReply> {
     confirmed: false,
     office: world.officeId,
   });
+  await world.workRun.settled();
+  return reply;
 }
 
 function preview(args: Record<string, unknown> = {}): Promise<ReadReply> {
@@ -662,10 +668,7 @@ describe("work.run starts the worker of a claimed run", () => {
       failures: [{ check: "self-test", detail: "the worker wrote into <main>/.git" }],
     };
     const result = resultOf<RunResult>(await run({ stories: ["TASK-1"] }));
-    expect(result.started).toEqual([]);
-    expect(result.skipped).toEqual([
-      { story: "TASK-1", key: world.keys.get("TASK-1") as string, reason: "pickupCheckFailed" },
-    ]);
+    startedThenFailed(result);
     expect(world.hosts).toEqual([]);
     expect(world.holds.adapterPaused("claude-cli")?.check).toBe("self-test");
     expect(countRows(world.office, "runs")).toBe(0);
@@ -690,7 +693,7 @@ describe("work.run starts the worker of a claimed run", () => {
     story("TASK-1", "Ready");
     world.repoDir = join(world.dir, "repo (old)");
     const result = resultOf<RunResult>(await run());
-    expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
+    startedThenFailed(result);
     expect(world.hosts).toEqual([]);
     const notice = entries().find(
       (e) => e.type === "engine.notice" && e.delta["code"] === LAUNCH_NOTICES.planRefused,
@@ -705,8 +708,7 @@ describe("work.run starts the worker of a claimed run", () => {
     story("TASK-1", "Ready");
     world.hostFails = true;
     const result = resultOf<RunResult>(await run());
-    expect(result.started).toEqual([]);
-    expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
+    startedThenFailed(result);
     expect(world.released.map((r) => r.reason)).toEqual([START_FAILED_RELEASE]);
     const runId = world.released[0]?.claim.runId as RunId;
     expect(findRun(world.office, runId)).toMatchObject({ ending: "dropped" });
@@ -762,7 +764,7 @@ describe("a box worker's run (DIPO-271)", () => {
     story("TASK-1", "Ready");
     world.boxFails = true;
     const result = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
-    expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
+    startedThenFailed(result);
     expect(world.hosts).toEqual([]);
     expect(world.boxCalls.filter((call) => call.startsWith("discard"))).toEqual([]);
   });
@@ -878,12 +880,20 @@ describe("the package cache of a box run (DIPO-295)", () => {
 });
 
 /**
- * The skipped run's setup failure: the reason `claimStory` puts in the `setup.failed` notice
+ * A start the answer named that failed after it (DIPO-456): the answer said it starts, and the
+ * failure is the notice of the step that failed.
+ */
+function startedThenFailed(result: RunResult): void {
+  expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
+  expect(result.skipped).toEqual([]);
+}
+
+/**
+ * The failed start's setup failure: the reason `claimStory` puts in the `setup.failed` notice
  * the maintainer sees.
  */
 function skipped(result: RunResult): { notice: string } {
-  expect(result.started).toEqual([]);
-  expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
+  startedThenFailed(result);
   return { notice: world.setupFailures.at(-1) ?? "" };
 }
 
@@ -1041,7 +1051,7 @@ describe("a failed release after a failed host start", () => {
     world.hostFails = true;
     world.releaseFails = true;
     const result = resultOf<RunResult>(await run());
-    expect(result.started).toEqual([]);
+    startedThenFailed(result);
     expect(world.warnings).toEqual([
       "releasing the claim after a failed host start failed: the database is busy",
     ]);

@@ -351,6 +351,8 @@ export interface Daemon {
   readonly office: OfficeHandle;
   readonly engineGit: EngineGit;
   readonly runs: ComposedRuns;
+  /** `work.run`: its base pass and the starts after its answer (DIPO-456). */
+  readonly workRun: WorkRun;
   readonly storyPrs: StoryPrs;
   readonly merge: AutoMerge;
   readonly teardown: StoryTeardown;
@@ -466,18 +468,26 @@ export async function withLoopOffice(
         director: () => {
           throw new Error("the scenario set no director");
         },
-        command: (name, args) =>
-          executeCommand(
-            { ...world.d.s.deps, ids: createSystemIds(world.d.s.clock) },
-            {
-              requestId: requestId(),
-              name,
-              args,
-              origin: "cli",
-              confirmed: true,
-              office: world.officeId,
-            },
-          ),
+        command: async (name, args) => {
+          const execute = () =>
+            executeCommand(
+              { ...world.d.s.deps, ids: createSystemIds(world.d.s.clock) },
+              {
+                requestId: requestId(),
+                name,
+                args,
+                origin: "cli",
+                confirmed: true,
+                office: world.officeId,
+              },
+            );
+          if (name !== "work.run") return execute();
+          // `work.run` answers at its decision; the claim and the launch run after (DIPO-456).
+          await world.d.workRun.refreshBase(world.officeId);
+          const reply = await execute();
+          await world.d.workRun.settled();
+          return reply;
+        },
         release: (agent, events) => {
           const entry = held.get(agent);
           if (entry === undefined) throw new Error(`no held session ${agent}`);
@@ -965,6 +975,7 @@ async function buildDaemon(
     office: access.office,
     engineGit,
     runs,
+    workRun,
     storyPrs,
     merge,
     teardown,
