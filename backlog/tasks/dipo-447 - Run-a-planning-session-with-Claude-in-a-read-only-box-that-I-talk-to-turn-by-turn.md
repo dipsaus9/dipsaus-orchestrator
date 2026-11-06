@@ -3,10 +3,10 @@ id: DIPO-447
 title: >-
   Run a planning session with Claude in a read-only box that I talk to turn by
   turn
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 07:15'
+updated_date: '2026-11-06 09:04'
 labels:
   - 'tier:L'
 milestone: m-3
