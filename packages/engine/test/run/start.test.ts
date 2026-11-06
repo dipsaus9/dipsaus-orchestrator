@@ -583,6 +583,9 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(runSteps(world.office, runId).map((step) => step.value)).toEqual(["setup", "build"]);
     const events = entries();
     expect(events.map((e) => [e.type, e.delta["phase"] ?? null])).toEqual([
+      // The decision shows the start in setup and moves the story out of Ready (DIPO-456).
+      ["work.phase", "setup"],
+      ["story.state", null],
       ["work.assigned", null],
       // Each phase's marker line goes out right before its `work.phase` (DIPO-83).
       ["work.output", null],

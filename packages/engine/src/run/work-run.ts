@@ -24,23 +24,28 @@
 // 2. Without `stories`, the candidates are the Ready stories on the base in pickup order; with
 //    `stories`, only those, in the order given.
 // 3. Each candidate not started is a skip: its status (`notReady`, `parked`, `notRunnable`), a
-//    live claim, a start already decided, a story PR recorded merged, a pending lane-b operation
-//    or a failed backlog PR check (`notRunnable`), every one of the office's `caps.parallelRuns`
+//    start already decided (`starting`), a live claim, a story PR recorded merged, a pending
+//    lane-b operation or a failed backlog PR check (`notRunnable`), every one of the office's `caps.parallelRuns`
 //    slots held by a running or starting story or owed to a waiting resume, fix round, conflict
 //    hand-off or review first (`capacity`, with the limit in its detail, 0002, DIPO-142; a
 //    session run takes no slot), a dependency not Done (`dependency`), or a failed pickup check
-//    (`pickupCheckFailed`, with the gate messages in its detail; the move to Refined runs after
-//    the answer). A call starts its candidates in order while a slot is free, so it can start a
-//    story while others run. A decided start holds its slot (`Places.reservePickup`) until its run
-//    row is in or its start ends.
+//    (`pickupCheckFailed`; after the answer the base is fetched, and the story moves to Refined
+//    only when it still fails there, else a `run.checkedAgain` notice says it stays Ready). A call
+//    starts its candidates in order while a slot is free, so it can start a story while others
+//    run. A decided start holds its slot (`Places.reservePickup`) and is recorded as starting
+//    (`run_starts`) in the command's transaction, with `work.phase setup` and `story.state`, so the
+//    overview shows it in `setup` and the queue no longer lists it as Ready; its run row replaces
+//    it, or its end clears it (`run.startAborted`). An office load clears the starts a daemon
+//    restart cut short.
 // 4. Before the decision the story contract is assembled (DIPO-47); `prompt.contractTooLarge`
-//    moves the story to Refined like a failed pickup check.
+//    is a failed pickup check, checked again on the fresh base the same way.
 //
 // The start of a decided story, after the answer:
 // 5. The base is fetched and indexed, the run profile refreshed, and the story read again on the
 //    fresh base. A story that can no longer start there (Done or merged elsewhere, a dependency or
 //    its gate changed, verify unresolved, the fetch failed) is not claimed, and a
-//    `run.startAborted` notice names the story and why.
+//    `run.startAborted` notice names the story and why. While the daemon drains, no start runs:
+//    its slot and its row go with the same notice.
 // 6. The claim (DIPO-38) runs the pickup re-check (the Ready gate in `pickup` mode, stored through
 //    DIPO-71) first inside its git queue item. A failed re-check moves the story to Refined through
 //    the backlog lane and emits `story.state` with the gate messages in `detail`.
@@ -96,6 +101,13 @@ import { promptStoryOf } from "../prompts/story";
 import { recordAgent } from "../records/agents";
 import { resolveStoryRef } from "../records/story-keys";
 import { mergedStoryKeys } from "../records/story-prs";
+import {
+  clearRunStarts,
+  deleteRunStart,
+  insertRunStart,
+  runStartOf,
+  runStarts,
+} from "../records/run-starts";
 import { mapLimited, VIEW_CONCURRENCY } from "../stories/read";
 import { PlanningRefusedError, StoryParseError } from "../story-store/errors";
 import { parseFieldBlock } from "../story-store/fields/block";
@@ -104,7 +116,7 @@ import type { PlanningHold, PlanningLane } from "../story-store/planning";
 import type { StoryStore } from "../story-store/store";
 import type { PlainTask } from "../story-store/story";
 import { deriveStoryView, type GateFailureFact, storyView } from "../views/story";
-import { withWorkViews } from "../views/work";
+import { withWorkViews, workView } from "../views/work";
 import { PlanError } from "../workers/types";
 import type { ClaimOutcome, ClaimRequest } from "../worktree/claim";
 import { type ClaimRecord, liveClaimOf } from "../worktree/records";
@@ -143,6 +155,8 @@ export const RUN_NOTICES = {
   notMovedToRefined: "run.notMovedToRefined",
   /** A story `work.run` answered as started that did not start (DIPO-456). */
   startAborted: "run.startAborted",
+  /** A story answered as failing its pickup check that the fresh base did not move (DIPO-456). */
+  checkedAgain: "run.checkedAgain",
 } as const;
 
 /** What the base holds for a run: active statuses and the views of the stories asked for. */
@@ -422,8 +436,6 @@ export class WorkRun {
   /** The base each office's runs decide from (DIPO-456). */
   readonly #snapshots = new Map<OfficeId, BaseSnapshot>();
   readonly #passes = new Map<OfficeId, BasePass>();
-  /** The stories decided to start whose start has not ended, by office, story key to story id. */
-  readonly #starting = new Map<OfficeId, Map<string, string>>();
   /** The starts and base passes still under way, for `settled`. */
   readonly #inflight = new Set<Promise<unknown>>();
 
@@ -436,9 +448,10 @@ export class WorkRun {
     while (this.#inflight.size > 0) await Promise.allSettled(this.#inflight);
   }
 
-  /** The keys of the office's stories decided to start whose start has not ended yet. */
+  /** The keys of the office's stories decided to start whose run row is not in yet. */
   starting(office: OfficeId): readonly string[] {
-    return [...(this.#starting.get(office)?.keys() ?? [])];
+    const handle = this.#deps.offices.get(office);
+    return handle === undefined ? [] : runStarts(handle).map((start) => start.key);
   }
 
   /**
@@ -473,15 +486,16 @@ export class WorkRun {
   }
 
   /**
-   * Reads the base again when the story index read a commit the snapshot was not read at, or the
-   * office has none yet (after every change of the office). Never throws.
+   * Reads the base again when the story index read a commit the snapshot was not read at (after
+   * every change of the office). An incomplete snapshot is read again by the next run and after a
+   * configuration reload, not at every change. Never throws.
    */
   baseChanged(office: OfficeId): void {
     // Not loaded, or still loading: its load step reads the base.
     if (this.#deps.offices.get(office) === undefined) return;
     const snapshot = this.#snapshots.get(office);
     const sha = this.#deps.stories.baseSha?.(office) ?? null;
-    if (snapshot !== undefined && snapshot.sha === sha && snapshot.complete) return;
+    if (snapshot !== undefined && snapshot.sha === sha) return;
     // Coalesced with a pass under way into one more after it.
     void this.refreshBase(office);
   }
@@ -497,7 +511,12 @@ export class WorkRun {
       const gates = new Map<string, GateResult>();
       let complete = true;
       const check = deps.gates.checkGate;
-      if (check !== undefined) {
+      // Without a configuration in force the gate cannot run: the claim's re-check decides.
+      const usable =
+        deps.offices.config(office) !== undefined &&
+        deps.offices.configBlocksRuns(office).length === 0;
+      if (check !== undefined && !usable) complete = false;
+      if (check !== undefined && usable) {
         for (const view of read.views) {
           const result = await check
             .call(deps.gates, office, StoryId.parse(view.id), "pickup")
@@ -627,7 +646,7 @@ export class WorkRun {
     const started: Started[] = [];
     const skipped: Skipped[] = [];
     // What runs after the answer: started only once every candidate is decided.
-    const after: (() => Promise<void>)[] = [];
+    const after: { job: () => Promise<void>; draining?: () => void }[] = [];
     const releases: (() => void)[] = [];
     try {
       for (const candidate of candidates) {
@@ -648,9 +667,9 @@ export class WorkRun {
         }
         if (typeof checked === "object" && "tooLarge" in checked) {
           skipped.push({ ...candidate, reason: "pickupCheckFailed" });
-          after.push(() =>
-            this.#toRefined(this.#afterAnswer(ctx), candidate, [{ message: checked.tooLarge }]),
-          );
+          after.push({
+            job: () => this.#refineOnFreshBase(this.#afterAnswer(ctx), candidate, config),
+          });
           continue;
         }
         const gate = snapshot.gates.get(candidate.story);
@@ -663,19 +682,35 @@ export class WorkRun {
           }
           // The gate messages come with the move to Refined (`story.state`), as before.
           skipped.push({ ...candidate, reason: "pickupCheckFailed" });
-          after.push(async () => {
-            await this.#gateOutsideClaim(this.#afterAnswer(ctx), candidate);
+          after.push({
+            job: () => this.#refineOnFreshBase(this.#afterAnswer(ctx), candidate, config),
           });
           continue;
         }
+        // Only what the claim needs is left here.
+        if (typeof checked !== "object") continue;
         const runId = RunId.parse(ctx.ids.next("run"));
         const agent = ctx.ids.next("agt") as AgentId;
         // From the decision until the run row the start holds its slot (DIPO-314, DIPO-456).
         const release = this.#hold(office, runId, candidate);
         releases.push(release);
+        this.#recordStart(ctx, candidate, { runId, agent, tier: checked.tier, caps: checked.caps });
         started.push({ story: candidate.story, key: candidate.key, run: runId });
         const input: StartInput = { candidate, config, configHash, runId, agent };
-        after.push(() => this.#start(ctx, input, release));
+        const later = this.#afterAnswer(ctx);
+        after.push({
+          job: () => this.#start(ctx, input, release),
+          // Draining: the start never runs; its slot and its row go, with a notice.
+          draining: () => {
+            release();
+            this.#ended(
+              later,
+              candidate,
+              runId,
+              "the daemon is draining, so it starts nothing new",
+            );
+          },
+        });
       }
     } catch (error) {
       for (const release of releases) release();
@@ -686,36 +721,86 @@ export class WorkRun {
   }
 
   /**
-   * Holds a slot of the office for a decided start (`Places.reservePickup`) and marks its story
-   * starting; the release, which does both back, may be called more than once.
+   * Inside the command's transaction: the decided start's row, and the entries that show it in
+   * `setup` and move the story out of Ready in the queue (DIPO-456).
+   */
+  #recordStart(
+    ctx: CommandContext,
+    candidate: Candidate,
+    start: {
+      readonly runId: RunId;
+      readonly agent: AgentId;
+      readonly tier: string;
+      readonly caps: OfficeConfig["tiers"]["S"];
+    },
+  ): void {
+    const handle = ctx.office;
+    insertRunStart(handle, {
+      runId: start.runId,
+      key: candidate.key,
+      story: candidate.story,
+      agent: start.agent,
+      tier: start.tier,
+      model: start.caps.model,
+      loopCap: start.caps.loops,
+      startedAt: ctx.now,
+    });
+    const work = workView(handle, start.runId);
+    // The phase with its view; `work.assigned` comes with the run row, once.
+    if (work !== null) {
+      ctx.emit({
+        type: "work.phase",
+        key: candidate.key,
+        run: start.runId,
+        delta: { work: work.work, phase: "setup", progress: work.progress },
+        view: work,
+      });
+    }
+    const story = storyView(handle, candidate.key);
+    if (story !== null) {
+      ctx.emit({
+        type: "story.state",
+        key: candidate.key,
+        delta: {
+          story: candidate.story,
+          key: candidate.key,
+          from: story.lifecycle,
+          to: story.lifecycle,
+        },
+        view: story,
+      });
+    }
+  }
+
+  /**
+   * Holds a slot of the office for a decided start (`Places.reservePickup`); the release may be
+   * called more than once.
    */
   #hold(office: OfficeId, runId: RunId, candidate: Candidate): () => void {
-    let starting = this.#starting.get(office);
-    if (starting === undefined) {
-      starting = new Map();
-      this.#starting.set(office, starting);
-    }
-    starting.set(candidate.key, candidate.story);
     const slot = this.#deps.places?.reservePickup?.(office, runId, candidate.story) ?? null;
     let released = false;
     return () => {
       if (released) return;
       released = true;
       slot?.();
-      this.#starting.get(office)?.delete(candidate.key);
     };
   }
 
   /**
    * Runs `job` after the answer: after the command's transaction, counted as the daemon's pending
-   * work, its failures logged, and the office's subscribers told at its end.
+   * work, its failures logged, and the office's subscribers told at its end. While the daemon
+   * drains, `draining` runs instead (nothing for a job without one).
    */
-  #later(office: OfficeId, job: () => Promise<void>): void {
-    const end = this.#deps.beginWork?.() ?? null;
+  #later(
+    office: OfficeId,
+    later: { readonly job: () => Promise<void>; readonly draining?: () => void },
+  ): void {
+    const end = this.#deps.beginWork === undefined ? () => undefined : this.#deps.beginWork();
     const done = background(
       async () => {
         await Promise.resolve();
-        await job();
+        if (end === null) later.draining?.();
+        else await later.job();
       },
       {
         failed: "a start after work.run's answer failed",
@@ -747,7 +832,7 @@ export class WorkRun {
     if (byStatus !== null) return byStatus;
     if (liveClaimOf(handle, key) !== null) return "notRunnable";
     // A start decided and not ended yet (DIPO-456).
-    if (!own && this.#starting.get(handle.officeId)?.has(key) === true) return "notRunnable";
+    if (!own && runStartOf(handle, key) !== null) return "starting";
     // Merged, while the base read may still say Ready until its next fetch (DIPO-445).
     if (mergedStoryKeys(handle).includes(key)) return "notRunnable";
     if (c.full !== null) return "capacity";
@@ -792,7 +877,7 @@ export class WorkRun {
     if (places?.slotTaken !== undefined) return places.slotTaken(handle.officeId, PICKUP_START);
     return placeTaken(handle, PICKUP_START, {
       limit: config.caps.parallelRuns,
-      starting: [...(this.#starting.get(handle.officeId)?.values() ?? [])],
+      starting: runStarts(handle).map((start) => start.story),
     });
   }
 
@@ -824,7 +909,7 @@ export class WorkRun {
     try {
       const fresh = await this.#freshCheck(ctx, input);
       if (typeof fresh === "string") {
-        this.#aborted(ctx, candidate, fresh);
+        this.#ended(ctx, candidate, input.runId, fresh);
         return;
       }
       const { checked, checkout } = fresh;
@@ -841,16 +926,24 @@ export class WorkRun {
       const outcome = await this.#claim(ctx, input, checked, facts, checkout);
       if (!outcome.ok) {
         // The claim's own skips put their notice on the office; a silent one gets this one.
-        if (outcome.notice === null) {
-          this.#aborted(ctx, candidate, ABORTED_BECAUSE[outcome.reason] ?? outcome.reason);
-        }
+        this.#ended(
+          ctx,
+          candidate,
+          input.runId,
+          outcome.notice === null ? (ABORTED_BECAUSE[outcome.reason] ?? outcome.reason) : null,
+        );
         return;
       }
       const started = this.#recordRun(ctx, input, checked, facts, outcome);
       release();
       await this.#launch(ctx, input, facts, outcome, started);
     } catch (error) {
-      this.#aborted(ctx, candidate, `its start failed: ${messageOf(commandErrorOf(error))}`);
+      this.#ended(
+        ctx,
+        candidate,
+        input.runId,
+        `its start failed: ${messageOf(commandErrorOf(error))}`,
+      );
     } finally {
       release();
     }
@@ -869,16 +962,8 @@ export class WorkRun {
     const handle = ctx.office;
     const office = handle.officeId;
     const { candidate } = input;
-    try {
-      await deps.base.fetch(office);
-    } catch (error) {
-      return `the fetch of the base failed: ${messageOf(error)}`;
-    }
-    try {
-      await deps.stories.indexStories(office);
-    } catch (error) {
-      return `dipo could not index the office's stories: ${messageOf(error)}`;
-    }
+    const fetched = await this.#freshBase(office);
+    if (fetched !== null) return fetched;
     // A failed scan is recorded as a scan; the stored profile then decides.
     await deps.profiles.ensureFreshProfile(office).catch(() => undefined);
     const verify = deps.profiles.verifyResolved(handle);
@@ -917,19 +1002,108 @@ export class WorkRun {
     return { checked, checkout: read.checkout };
   }
 
-  /** The `run.startAborted` notice of a story the answer started that did not start. */
-  #aborted(ctx: AsyncCommandContext, candidate: Candidate, why: string): void {
-    ctx.commit((): NewEntry[] => [
-      {
-        type: "engine.notice",
-        key: candidate.key,
-        delta: {
-          level: "warn",
-          code: RUN_NOTICES.startAborted,
-          text: `${candidate.story} did not start after all: ${why.replace(/\.$/, "")}. It stays as it is on the base; \`dipo run ${candidate.story}\` tries again.`,
+  /** Fetches and indexes the base; why it could not, or null. */
+  async #freshBase(office: OfficeId): Promise<string | null> {
+    try {
+      await this.#deps.base.fetch(office);
+    } catch (error) {
+      return `the fetch of the base failed: ${messageOf(error)}`;
+    }
+    try {
+      await this.#deps.stories.indexStories(office);
+    } catch (error) {
+      return `dipo could not index the office's stories: ${messageOf(error)}`;
+    }
+    return null;
+  }
+
+  /**
+   * The end of a decided start without a run row, in one transaction: its row goes, the story
+   * shows as the base has it again, and with `why` a `run.startAborted` notice names the story
+   * and why. After its run row is in, only the notice.
+   */
+  #ended(ctx: AsyncCommandContext, candidate: Candidate, runId: RunId, why: string | null): void {
+    ctx.commit((): NewEntry[] => {
+      const entries: NewEntry[] = [];
+      if (deleteRunStart(ctx.office, runId)) {
+        const story = storyView(ctx.office, candidate.key);
+        if (story !== null) {
+          entries.push({
+            type: "story.state",
+            key: candidate.key,
+            delta: {
+              story: candidate.story,
+              key: candidate.key,
+              from: story.lifecycle,
+              to: story.lifecycle,
+            },
+            view: story,
+          });
+        }
+      }
+      if (why !== null) {
+        entries.push({
+          type: "engine.notice",
+          key: candidate.key,
+          delta: {
+            level: "warn",
+            code: RUN_NOTICES.startAborted,
+            text: `${candidate.story} did not start after all: ${why.replace(/\.$/, "")}. It stays as it is on the base; \`dipo run ${candidate.story}\` tries again.`,
+          },
+        });
+      }
+      return entries;
+    });
+  }
+
+  /**
+   * After the answer, for a story the base as read said fails its pickup check (its gate, or a
+   * contract over `prompt.contractMax`): fetch and index first, and move it to Refined only when it
+   * still fails on the fresh base; when it passes there, or cannot be checked, a notice says so.
+   */
+  async #refineOnFreshBase(
+    ctx: AsyncCommandContext,
+    candidate: Candidate,
+    config: OfficeConfig,
+  ): Promise<void> {
+    const office = ctx.office.officeId;
+    const notice = (text: string) =>
+      ctx.commit((): NewEntry[] => [
+        {
+          type: "engine.notice",
+          key: candidate.key,
+          delta: { level: "warn", code: RUN_NOTICES.checkedAgain, text },
         },
-      },
-    ]);
+      ]);
+    const fetched = await this.#freshBase(office);
+    if (fetched !== null) {
+      notice(
+        `${candidate.story} was not started: it failed its pickup check on the base as last read, and ${fetched.replace(/\.$/, "")}, so it was not checked again and stays Ready.`,
+      );
+      return;
+    }
+    const read = await this.#deps.base.read(office, [candidate.story]);
+    const checked = this.#precheck(ctx.office, {
+      candidate,
+      status: read.statuses.get(candidate.story),
+      view: read.views.find((view) => view.id === candidate.story),
+      unparsed: read.unparsed.includes(candidate.story),
+      checkout: read.checkout,
+      full: null,
+      // The configuration in force now: the fresh base may have changed it.
+      config: this.#deps.offices.config(office) ?? config,
+    });
+    if (typeof checked === "object" && "tooLarge" in checked) {
+      await this.#toRefined(ctx, candidate, [{ message: checked.tooLarge }]);
+      return;
+    }
+    // Not Ready any more, or claimed meanwhile: nothing to move.
+    if (typeof checked === "string" && checked !== "gate") return;
+    const reason = await this.#gateOutsideClaim(ctx, candidate);
+    if (reason === "pickupCheckFailed") return;
+    notice(
+      `${candidate.story} was not started: it failed its pickup check on the base as last read, but passes it on the fresh base, so it stays Ready; \`dipo run ${candidate.story}\` starts it.`,
+    );
   }
 
   /**
@@ -1016,6 +1190,8 @@ export class WorkRun {
     };
     const at = ctx.clock.now();
     ctx.commit((): NewEntry[] => {
+      // The run row replaces the decided start (DIPO-456).
+      deleteRunStart(handle, runId);
       recordConfigSnapshot(handle, c.configHash, c.config, at);
       insertRun(handle, {
         runId,
@@ -1347,8 +1523,14 @@ export class WorkRun {
         });
         // The office's first run decides from a base already read.
         registry.registerLoadStep(RUN_BASE_STEP, async (ctx) => {
+          // No start survives a daemon restart; reconcile sees to a claim it left.
+          ctx.office.immediate(() => clearRunStarts(ctx.office));
           await this.refreshBase(ctx.officeId);
           return { ok: true };
+        });
+        // The gates a snapshot could not evaluate without a valid configuration.
+        registry.registerConfigReload(RUN_BASE_STEP, (ctx) => {
+          void this.refreshBase(ctx.officeId);
         });
         // A story merged to the base since the last poll: the executor waits for the refresh of
         // the stories before it resolves the names, and the base the run decides from follows it.

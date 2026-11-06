@@ -5,7 +5,8 @@
 // and the story's active run.
 //
 // Column (one of the eight 0009 columns): a Ready story whose dependency is not Done is `waiting`
-// with `waitingOn`; a Parked story is `desk`, whatever its reason; every other
+// with `waitingOn`; a Ready story someone works on (a start `work.run` decided, before its claim
+// commit says In Progress, DIPO-456) is `running`; a Parked story is `desk`, whatever its reason; every other
 // lifecycle maps one to one. A removed story is in no queue column: its view says `removed`, an
 // open-enum value clients show generically, and they drop the story.
 
@@ -26,10 +27,11 @@ import type { OfficeHandle } from "../db/office";
 import { gateText } from "../gate/rules";
 import type { RuleResult } from "../gate-decisions";
 import { activeRuns } from "../records/run-records";
+import { runStarts } from "../records/run-starts";
 import { latestStoryPr } from "../records/story-prs";
 import { isProvisionalId } from "../records/story-keys";
 
-import { workRefOf } from "./work";
+import { startRefOf, workRefOf } from "./work";
 
 /** The column of each lifecycle when no other fact decides it. */
 export const LIFECYCLE_COLUMNS: Readonly<Record<Lifecycle, QueueColumn>> = {
@@ -82,7 +84,10 @@ export interface StoryFacts {
 }
 
 /** The column a story shows in (0009). */
-export function deriveColumn(facts: Pick<StoryFacts, "lifecycle" | "waitingOn">): QueueColumn {
+export function deriveColumn(
+  facts: Pick<StoryFacts, "lifecycle" | "waitingOn" | "work">,
+): QueueColumn {
+  if (facts.lifecycle === "Ready" && facts.work !== undefined) return "running";
   if (facts.lifecycle === "Ready" && (facts.waitingOn?.length ?? 0) > 0) return "waiting";
   return columnOf(facts.lifecycle);
 }
@@ -206,6 +211,10 @@ export function workByKey(office: OfficeHandle): Map<string, WorkRef> {
     if (run.key === null) continue;
     const ref = workRefOf(office, run.runId);
     if (ref !== null) byKey.set(run.key, ref);
+  }
+  // A decided start, until its run row is in (DIPO-456).
+  for (const start of runStarts(office)) {
+    if (!byKey.has(start.key)) byKey.set(start.key, startRefOf(start));
   }
   return byKey;
 }

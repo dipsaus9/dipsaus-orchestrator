@@ -74,28 +74,29 @@ describe("queue view", () => {
 });
 
 describe("u runs stories", () => {
-  it("shows the decision at once: an answer with no cursor is done, and the start shows through the stream after it (DIPO-456)", async () => {
+  it("shows the decision at once and the story in setup from it: the answer's cursor is the decision's own entry (DIPO-456)", async () => {
     const { ui, session } = await openQueue();
-    // work.run answers at its decision, which writes nothing: no cursor to wait for.
+    // work.run answers at its decision; its one change moves the story out of Ready.
     session.runReply = () => ({
       ok: true,
       result: {
         started: [{ story: "DIPO-30", key: KEY_30, run: "run_01J9ZK5Q8W3V4X6Y7Z8A9B0R30" }],
-        skipped: [{ story: "DIPO-32", key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C32", reason: "capacity" }],
+        skipped: [{ story: "DIPO-32", key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C32", reason: "starting" }],
       },
-      changed: false,
+      changed: true,
+      cursor: { stream: STREAM, seq: 9 },
     });
     await ui.press("j");
     await ui.waitFor("> READY (2)");
     await ui.press("u");
+    await ui.waitFor("waiting for the office stream");
+    const starting = { ...golden(KEY_30), column: "running" } as StoryView;
+    session.active(STREAM)?.options.onEvent(storyEvent(9, starting, "Ready"));
     const done = await ui.waitFor("run DIPO-30: done");
     expect(done).toContain("started DIPO-30");
+    expect(done).toContain("skipped DIPO-32: already starting: its claim and box are under way");
+    expect(done).toContain("RUNNING (4)");
     expect(done).not.toContain("wait for its reply");
-    expect(done).not.toContain("waiting for the office stream");
-    // The claim after the answer moves the story on the stream.
-    const running = { ...golden(KEY_30), lifecycle: "In Progress", column: "running" } as StoryView;
-    session.active(STREAM)?.options.onEvent(storyEvent(9, running, "Ready"));
-    await ui.waitFor("RUNNING (4)");
     // A second u is sent at once: nothing waits for the first start's setup.
     await ui.press("u");
     expect(ui.frame()).not.toContain("wait for its reply");
