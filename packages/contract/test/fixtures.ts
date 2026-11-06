@@ -356,6 +356,19 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
     args: { proposal: 2 },
     result: { run: ids.run, proposal: 2, state: "declined" },
   },
+  "planning.ready": {
+    args: { stories: ["DIPO-31", "DIPO-32"] },
+    result: {
+      run: ids.run,
+      queued: ["DIPO-31"],
+      refused: [{ story: "DIPO-32", messages: ["the story has no acceptance criteria"] }],
+      flush: {
+        state: "opened",
+        branch: "dipo/backlog-20261106T091000",
+        pr: "https://github.com/o/r/pull/8",
+      },
+    },
+  },
 };
 
 const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {

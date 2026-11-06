@@ -52,6 +52,8 @@ export const FILE_KIND = "file";
 export const REVISE_KIND = "revise";
 /** A draft a triage session refined into a Refined story with a new id (DIPO-454). */
 export const REFINE_KIND = "refine";
+/** Sets a Refined story Ready after its Ready gate decision passed (DIPO-451). */
+export const READY_KIND = "ready";
 
 /** The target state of an edit: status, field-block keys and labels. */
 export const EditTarget = z
@@ -183,6 +185,11 @@ export interface PlanningLane {
   drop(story: PlanningStory, kind: StoryKind): Promise<PlannedChange>;
   /** Moves the story to Refined with the park removed, never over Done. Reuses an open discard. */
   discard(story: PlanningStory): Promise<PlannedChange>;
+  /**
+   * Sets a Refined story Ready, applied only while it is Refined (DIPO-451); the caller stored the
+   * passing gate decision first. Reuses an open one.
+   */
+  setReady(story: PlanningStory): Promise<PlannedChange>;
   /** Moves a Ready story back to Refined (a failed pickup check). */
   toRefined(story: PlanningStory): Promise<PlannedChange>;
   /** Files an accepted idea as a draft; `subject` names it in the commit. */
@@ -214,7 +221,7 @@ export interface PlanningLane {
   flush(change?: PlannedChange): Promise<LaneFlush | null>;
 
   /** True while a drop (or a discard) of the story `key` is journaled and not merged. */
-  isOpen(key: StoryKey, kind: typeof DROP_KIND | typeof DISCARD_KIND): boolean;
+  isOpen(key: StoryKey, kind: typeof DROP_KIND | typeof DISCARD_KIND | typeof REVISE_KIND): boolean;
   /** The stories with a drop journaled and not merged. */
   dropping(): ReadonlySet<StoryKey>;
   /**

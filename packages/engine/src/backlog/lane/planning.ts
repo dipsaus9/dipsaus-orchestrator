@@ -17,6 +17,7 @@ import {
   HOLD_KIND,
   OPEN_STATES,
   PROPOSE_KIND,
+  READY_KIND,
   REFINE_KIND,
   RESUME_KIND,
   REVISE_KIND,
@@ -64,6 +65,19 @@ export function discardOp(key: StoryKey, story: string): LaneOp & { readonly key
     subject: story,
     target: { from: DISCARDABLE_STATUSES, status: "Refined", unset: ["park"] },
     releasesClaim: true,
+  };
+}
+
+/**
+ * The operation that sets a story Ready (DIPO-451): only while it is Refined. The caller stored
+ * the passing gate decision first.
+ */
+export function readyOp(key: StoryKey, story: string): LaneOp & { readonly key: StoryKey } {
+  return {
+    kind: READY_KIND,
+    key,
+    subject: story,
+    target: { from: [REFINED_STATUS], status: READY_STATUS },
   };
 }
 
@@ -184,6 +198,7 @@ export function planningLane(lane: OfficeLane): PlanningLane {
     drop: ({ key, story }, kind) =>
       once({ kind: DROP_KIND, key, subject: story, target: { kind }, releasesClaim: true }),
     discard: ({ key, story }) => once(discardOp(key, story)),
+    setReady: ({ key, story }) => once(readyOp(key, story)),
     toRefined: ({ key, story }) =>
       lane.journal({
         kind: EDIT_KIND,

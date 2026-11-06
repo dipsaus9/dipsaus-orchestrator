@@ -42,6 +42,7 @@ export {
   EditTarget,
   editKind,
   HOLD_KIND,
+  READY_KIND,
   RESUME_KIND,
 } from "./ops";
 export type { ApplyContext, ApplyOutcome, LaneOpKind } from "./ops";

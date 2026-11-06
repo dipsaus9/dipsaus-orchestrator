@@ -46,7 +46,7 @@ Drafts use Backlog.md's draft feature: an idea has a temporary `DRAFT-n` id unti
 |---|---|---|---|
 | (none) | Draft | A new idea, as a Backlog.md draft | Maintainer, with AI |
 | Draft | Refined | Promotion at refine: a real id and a frozen branch (M3; until then the maintainer creates stories as Refined) | Maintainer |
-| Refined | Ready | The Ready gate passes (section 3). Until the M3 `ready` command, the maintainer sets the status in a backlog PR, and CI runs the gate on every story that PR sets Ready, on the light path for backlog-only PRs (0016) | Maintainer, decided by code |
+| Refined | Ready | The Ready gate passes (section 3). At the end of a planning session (0022) the maintainer confirms which of its stories go Ready: dipo evaluates the gate against each story as the base branch holds it (so its filing PR merged), stores a passing decision, and sets the stories that pass Ready in a second backlog PR it opens, never the PR that filed them; a story that fails stays Refined and the planning view shows the gate's messages. Otherwise the maintainer sets the status in a backlog PR. CI runs the gate on every story a backlog PR sets Ready, on the light path for backlog-only PRs (0016) | Maintainer, decided by code |
 | Ready | Refined | A gated field changed, or the pickup check failed | Engine |
 | Ready | In Progress | `work.run` picks it: the pickup check passes, every dependency is Done | Engine |
 | In Progress | In Review | The done report passed and the last part is pushed (0002) | Engine |
@@ -117,6 +117,7 @@ Each failure prints `ready <ID> failed <rule>: <message>`. Rule numbers are stab
 
 ## Replaced
 
+- The Refined to Ready row's wait for an M3 `ready` command, with the maintainer setting the status in a backlog PR by hand (2026-10-24). Replaced by the planning session's final confirm (2026-11-06).
 - R27, which failed criteria that named a step the worker cannot take, matched by a phrase list (2026-10-18). Removed (2026-10-24): it is a judgment for refine and the reviewer, and a phrase list is a blunt way to make it.
 - R28, which failed stories labelled `dropped` or `on-hold` (2026-10-20). Removed (2026-10-24): a set-aside story is Parked `by-maintainer`, and a dropped story is Removed (0020). There are no such labels.
 - R29 as a hard rule (2026-10-20). Made a warning (2026-10-22), because references are a forecast.

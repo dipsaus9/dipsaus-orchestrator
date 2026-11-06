@@ -669,6 +669,24 @@ export const PlanningProposalView = z.object({
 });
 export type PlanningProposalView = z.infer<typeof PlanningProposalView>;
 
+// How far setting one story of a planning session Ready got (DIPO-451): `refused` when the gate
+// failed it or it cannot be set yet (its `messages` say why) and it stays as it was, `setting`
+// while the lane change is journaled and not yet applied, `set` once the lane applied it, or
+// `failed` when the lane closed it with the reason in `detail`.
+export const KNOWN_READY_STATES = ["refused", "setting", "set", "failed"] as const;
+export const PlanningReadyState = openEnum(KNOWN_READY_STATES);
+export type PlanningReadyState = z.infer<typeof PlanningReadyState>;
+
+export const PlanningReadyView = z.object({
+  story: z.string(),
+  state: PlanningReadyState,
+  // The gate's messages for a refused story.
+  messages: z.array(z.string()).optional(),
+  detail: z.string().optional(),
+  at: Timestamp,
+});
+export type PlanningReadyView = z.infer<typeof PlanningReadyView>;
+
 // A proposal block the engine refused, with its problems, as the message to the session listed them.
 export const PlanningRefusal = z.object({ at: Timestamp, problems: z.array(z.string()) });
 export type PlanningRefusal = z.infer<typeof PlanningRefusal>;
@@ -697,6 +715,8 @@ export const PlanningView = z.object({
   continuedAt: Timestamp.optional(),
   proposals: z.array(PlanningProposalView).optional(),
   refusals: z.array(PlanningRefusal).optional(),
+  // The stories the maintainer chose to go Ready, and how far each got (DIPO-451).
+  ready: z.array(PlanningReadyView).optional(),
 });
 export type PlanningView = z.infer<typeof PlanningView>;
 
