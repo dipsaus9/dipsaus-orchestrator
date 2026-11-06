@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { type OfficeId, type RunId, StoryId } from "@dipsaus-orchestrator/contract";
 
+import { runningStoryCount, sessionRunCount } from "../../src/overview";
 import { insertPark } from "../run/park-fixture";
 import { createRunOutcomes, type RunEnder, RunControl, type UnparkWriter } from "../../src/run";
 import {
@@ -91,6 +92,20 @@ describe("counting (0002)", () => {
       "the office runs at most 1 story at once (caps.parallelRuns in .dipo/office.yaml); running: DIPO-1",
     );
     expect(taken(pickup, 2)).toBeNull();
+  });
+
+  it("counts the stories holding a slot for the summary, in review included, and sessions apart (DIPO-446)", () => {
+    for (const story of ["DIPO-1", "DIPO-2"]) {
+      const s = storyRun(w, { story });
+      addAgent(w, s.run, "developer", true);
+    }
+    // A run open at In Review holds its slot only with the review loop's cap, as a story run starts with it.
+    const reviewing = storyRun(w, { story: "DIPO-3", reviewRoundCap: 3 });
+    addAgent(w, reviewing.run, "developer", false);
+    write(() => stopAtInReview(w.office, reviewing.run, now()));
+    sessionRun(w);
+    expect(runningStoryCount(w.office)).toBe(3);
+    expect(sessionRunCount(w.office)).toBe(1);
   });
 
   it("holds three worker places and three reviewer places at limit 3; a fourth pickup waits, naming the limit", () => {

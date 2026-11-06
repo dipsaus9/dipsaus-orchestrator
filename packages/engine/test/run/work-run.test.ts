@@ -483,7 +483,6 @@ describe("work.run picks and claims one Ready story", () => {
         criteriaTotal: 2,
         loop: 0,
         loopCap: OFFICE_DEFAULTS.tiers.S.loops,
-        verify: "none",
         reviewRound: 0,
       },
     });

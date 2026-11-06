@@ -3,7 +3,7 @@
 // one the TUI renders (DIPO-320): the store reads `office.snapshot`, follows the office stream
 // after its cursor, re-reads after a history gap and subscribes again after a stream the daemon
 // ended while it may retry. Watch prints the state of each running story from the store (phase,
-// health, loop, verify, criteria, budget share, usage), then one readable line per event the store
+// health, loop, criteria, budget share, usage), then one readable line per event the store
 // applied: run start, phases, worker output, usage and turns, health changes and the watchdog
 // facts behind them, notices, parks and story moves. A run's end is the `run.ended` event (0005),
 // which the engine writes at every end, a session run's included, so watch needs no idle check.
@@ -100,7 +100,7 @@ export function workLines(view: WorkView): string[] {
   const { work, progress } = view;
   return [
     `  run ${work.run} · ${work.role} · tier ${work.tier} · model ${work.model} · started ${clockTime(view.startedAt)}`,
-    `  phase ${view.phase} · health ${healthLabel(view.health)} · loop ${progress.loop}/${progress.loopCap} · verify ${progress.verify} · criteria ${progress.criteriaMet}/${progress.criteriaTotal} · budget ${percent(view.usage.budgetShare)} of ${count(view.usage.budget.limit)} tokens`,
+    `  phase ${view.phase} · health ${healthLabel(view.health)} · loop ${progress.loop}/${progress.loopCap} · criteria ${progress.criteriaMet}/${progress.criteriaTotal} · budget ${percent(view.usage.budgetShare)} of ${count(view.usage.budget.limit)} tokens`,
     `  ${usageLine(view.usage)}`,
     ...(view.lastOutputAt === undefined ? [] : [`  last output ${clockTime(view.lastOutputAt)}`]),
   ];
@@ -261,15 +261,15 @@ class Watch {
     const watched =
       target === null ? state.stories : state.stories.filter((view) => view.key === target.key);
     const running = state.work.filter((view) => this.#watches(view.work.key));
+    // The office's count is the engine's summary, the same one `dipo daemon status` sums (DIPO-446).
+    const summary = state.offices.find((entry) => entry.office === this.#office)?.summary;
+    const sessions = summary?.sessions ?? 0;
     this.#line(
       target === null
-        ? `dipo watch: office ${this.#office} · ${running.length} running · Ctrl-C to stop`
+        ? `dipo watch: office ${this.#office} · ${summary?.running ?? 0} running${sessions === 0 ? "" : ` · ${sessions} scan ${sessions === 1 ? "session" : "sessions"}`} · Ctrl-C to stop`
         : `dipo watch: ${target.id} in office ${this.#office} · Ctrl-C to stop`,
     );
-    const usageText = usageParts(
-      state.offices.find((entry) => entry.office === this.#office)?.summary,
-      this.#deps.clock.now(),
-    );
+    const usageText = usageParts(summary, this.#deps.clock.now());
     if (usageText.length > 0) this.#line(`  usage ${usageText.join(" · ")}`);
     for (const view of running) {
       const story = watched.find((candidate) => candidate.key === view.work.key);
@@ -416,7 +416,7 @@ class Watch {
           event,
           work.story,
           "phase",
-          `${phase} · loop ${progress.loop}/${progress.loopCap} · verify ${progress.verify} · criteria ${progress.criteriaMet}/${progress.criteriaTotal}`,
+          `${phase} · loop ${progress.loop}/${progress.loopCap} · criteria ${progress.criteriaMet}/${progress.criteriaTotal}`,
         );
         this.#view(event, work);
         break;
@@ -429,7 +429,7 @@ class Watch {
           event,
           work.story,
           "prog",
-          `loop ${progress.loop}/${progress.loopCap} · verify ${progress.verify} · criteria ${progress.criteriaMet}/${progress.criteriaTotal} · review round ${progress.reviewRound}`,
+          `loop ${progress.loop}/${progress.loopCap} · criteria ${progress.criteriaMet}/${progress.criteriaTotal} · review round ${progress.reviewRound}`,
         );
         this.#view(event, work);
         break;

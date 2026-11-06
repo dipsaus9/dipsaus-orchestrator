@@ -146,8 +146,6 @@ function progressOf(office: OfficeHandle, run: StoredRun): Progress {
     criteriaTotal: total,
     loop: steps.filter((step) => step.kind === "loop").length,
     loopCap: run.loopCap,
-    // dipo stores no verify result of its own (DIPO-342): the box worker runs verify, CI checks.
-    verify: "none",
     reviewRound: steps.filter((step) => step.kind === "review").length,
     ...review,
   };

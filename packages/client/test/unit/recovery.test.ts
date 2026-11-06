@@ -108,7 +108,7 @@ function status(state: DaemonState, reason: string | undefined) {
     uptimeMs: 1_000,
     socket: "/tmp/dipo.sock",
     loadedOffices: [],
-    activeRuns: 0,
+    runningStories: 0,
     keepAwake: { held: false },
     upgradePending: false,
     tools: {},

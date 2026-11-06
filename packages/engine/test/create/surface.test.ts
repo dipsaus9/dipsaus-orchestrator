@@ -145,7 +145,7 @@ describe("daemon.* operations", () => {
           uptimeMs: 1234,
           socket: f.deps.daemon.socket,
           loadedOffices: [],
-          activeRuns: 0,
+          runningStories: 0,
           keepAwake: { held: false },
           upgradePending: false,
         });
@@ -367,7 +367,8 @@ describe("the software stream", () => {
             { office },
           ),
         );
-        expect(f.engine.officeSummary(office)).toMatchObject({ office, running: 1 });
+        // A session run holds no run slot: it is counted apart from the running stories (DIPO-446).
+        expect(f.engine.officeSummary(office)).toMatchObject({ office, running: 0, sessions: 1 });
       }),
     TIMEOUT_MS,
   );

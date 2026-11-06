@@ -71,7 +71,6 @@ const progress = {
   criteriaTotal: 2,
   loop: 0,
   loopCap: 3,
-  verify: "none",
   reviewRound: 0,
 };
 function view(health: string) {
@@ -98,6 +97,8 @@ function fake(options: {
   readonly summary?: Record<string, unknown>;
 }) {
   const shown = { ...story, title: options.title ?? story.title };
+  // The office summary the engine sends in `engine.hello` and the software stream (DIPO-446).
+  const summaryOffice = { office: OFFICE, running: options.running ? 1 : 0, ...options.summary };
   const out: string[] = [];
   const err: string[] = [];
   const reads: string[] = [];
@@ -136,7 +137,7 @@ function fake(options: {
           result: {
             engine: "0.0.0",
             daemon: "running",
-            offices: [],
+            offices: [summaryOffice],
             cursor: { stream: "software", seq: 1 },
           },
         };
@@ -151,9 +152,7 @@ function fake(options: {
       return { stream, cursor: undefined, unsubscribe: () => undefined };
     }) as unknown as DaemonSession["subscribe"],
     close: () => undefined,
-    hello: (options.summary === undefined
-      ? null
-      : { offices: [{ office: OFFICE, ...options.summary }] }) as never,
+    hello: { offices: [summaryOffice] } as never,
   };
   const deps: CliDeps = {
     writeLine: (line) => out.push(line),
@@ -252,7 +251,7 @@ describe("dipo watch", () => {
       `dipo watch: TASK-1 in office ${OFFICE} · Ctrl-C to stop`,
       'TASK-1 "Greet the user" · In Progress (running)',
       `  run ${RUN} · developer · tier S · model haiku · started ${T}`,
-      "  phase build · health busy > · loop 0/3 · verify none · criteria 0/2 · budget 0.5% of 400,000 tokens",
+      "  phase build · health busy > · loop 0/3 · criteria 0/2 · budget 0.5% of 400,000 tokens",
       "  usage 2,000 of 400,000 tokens (0.5% of budget) · in 1,200 out 300 cache write 500 cache read 9,000 · 2 turns",
       "--",
     ]);
@@ -339,6 +338,18 @@ describe("dipo watch", () => {
     expect(await done).toBe(1);
   });
 
+  it("counts the office's running stories in the header and shows scan sessions apart (DIPO-446)", async () => {
+    // Two developers and one reviewer hold three slots; the header says so, as `daemon status` does.
+    const ctx = fake({ running: true, summary: { running: 3, sessions: 1 } });
+    const done = main(["watch"], ctx.deps);
+    await until(() => ctx.subscriptions.length === 1);
+    expect(ctx.out[0]).toBe(
+      `dipo watch: office ${OFFICE} · 3 running · 1 scan session · Ctrl-C to stop`,
+    );
+    ctx.end({ code: "office.unknown", message: "gone", retryable: false });
+    expect(await done).toBe(1);
+  });
+
   it("shows today's and this month's tokens of the limit with UTC in the header (DIPO-311)", async () => {
     const ctx = fake({
       running: false,
@@ -371,7 +382,7 @@ describe("dipo watch", () => {
     expect(ctx.out).toEqual([
       `${T} TASK-1 run    started ${RUN} · developer · tier S · model haiku`,
       `${T} TASK-1 health busy > (the worker is producing output)`,
-      `${T} TASK-1 phase  setup · loop 0/3 · verify none · criteria 0/2`,
+      `${T} TASK-1 phase  setup · loop 0/3 · criteria 0/2`,
     ]);
     ctx.out.length = 0;
     ctx.end({ code: "stream.resetRequired", message: "gap", retryable: false });
@@ -390,14 +401,14 @@ describe("dipo watch", () => {
     expect(ctx.software).toHaveLength(1);
     expect(ctx.subscriptions).toHaveLength(1);
     expect(ctx.out).toContain(
-      `  phase build · health ${healthLabel("busy")} · loop 0/3 · verify none · criteria 0/2 · budget ${percent(0.005)} of 400,000 tokens`,
+      `  phase build · health ${healthLabel("busy")} · loop 0/3 · criteria 0/2 · budget ${percent(0.005)} of 400,000 tokens`,
     );
     ctx.out.length = 0;
     // The health comes from the store's view of the run: an event without a view changes nothing.
     ctx.emit("work.phase", { work, phase: "verify", progress, view: view("looping") });
     ctx.emit("work.output", { work, source: "worker", from: 0, to: 3, text: "ok\n" });
     expect(ctx.out).toEqual([
-      `${T} TASK-1 phase  verify · loop 0/3 · verify none · criteria 0/2`,
+      `${T} TASK-1 phase  verify · loop 0/3 · criteria 0/2`,
       `${T} TASK-1 health ${healthLabel("looping")} (${healthMeaning("looping")})`,
       `${T} TASK-1 out    ok`,
     ]);

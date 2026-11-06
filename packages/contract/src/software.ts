@@ -48,7 +48,9 @@ export const OfficeSummary = z.object({
   office: OfficeId,
   name: z.string(),
   path: z.string(),
-  running: Count,
+  running: Count, // the stories holding a run slot (DIPO-446)
+  // (DIPO-446): the session runs (scan sessions) running, which hold no run slot.
+  sessions: Count.optional(),
   parked: Count, // includes the stories parked by the maintainer
   waitingOnMaintainer: Count, // open gates, questions, tests and parked stories
   // (DIPO-81): the stories in the `ready` column, engine-derived, so the office
@@ -254,7 +256,10 @@ export const daemonStatus = defineRead({
     socket: z.string(),
     webUrl: z.string().optional(),
     loadedOffices: z.array(OfficeId),
-    activeRuns: Count,
+    // (DIPO-446): the stories holding a run slot, the runs open at In Review included.
+    runningStories: Count,
+    // (DIPO-446): the scan sessions running, which hold no run slot.
+    sessions: Count.optional(),
     keepAwake: z.object({ held: z.boolean(), reason: z.string().optional() }),
     upgradePending: z.boolean(),
     tools: ToolPaths,

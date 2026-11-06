@@ -108,7 +108,6 @@ function work(health: string, phase = "build"): WorkView {
       criteriaTotal: 3,
       loop: 1,
       loopCap: 3,
-      verify: "none",
       reviewRound: 0,
     },
     usage: {

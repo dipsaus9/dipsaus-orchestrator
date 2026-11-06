@@ -126,7 +126,7 @@ describe("office summary", () => {
         task("TASK-1", { status: "Parked" }),
         task("TASK-2", { status: "In Progress" }),
       ]);
-      // Active runs (DIPO-52): runs that have not ended; session runs need no claim.
+      // Session runs hold no run slot: they count as `sessions`, not as running (DIPO-446).
       office.immediate(() => {
         for (const [run, ended] of [
           ["run_1", null],
@@ -149,14 +149,15 @@ describe("office summary", () => {
         office: office.officeId,
         name: "demo",
         path: "/repos/demo",
-        running: 1,
+        running: 0,
+        sessions: 1,
         parked: 1,
         waitingOnMaintainer: 1,
         ready: 0,
       });
     }));
 
-  it("counts an ended run as active while a worker host of it is still open (DIPO-411)", () =>
+  it("counts no running story for an ended run while a worker host of it is still open (DIPO-446)", () =>
     withOffice((_t, office) => {
       const host = (run: string, agent: string, pending: 0 | 1) =>
         office.run(
@@ -171,7 +172,7 @@ describe("office summary", () => {
              loop_cap, config_hash, started_at, ended_at)
            values ($office_id, 'run_2', 'session', 'developer', 'haiku', 'tokens', 1, 1, 'h', 0, 5)`,
         );
-        // Two open hosts of one parked run count it once; a pending row is no live host.
+        // An ended run holds no run slot, so its open hosts count nothing (keep-awake still does).
         host("run_2", "agent-1", 0);
         host("run_2", "agent-2", 0);
         host("run_3", "agent-3", 1);
@@ -179,8 +180,7 @@ describe("office summary", () => {
       const running = () =>
         deriveOfficeSummary({ office: office.officeId, name: "demo", path: "/repos/demo" }, office)
           .running;
-      expect(running()).toBe(1);
-      // Its hosts' exits are in: the run is not active any more.
+      expect(running()).toBe(0);
       office.immediate(() =>
         office.run("update worker_hosts set ended_at = 6 where office_id = $office_id"),
       );

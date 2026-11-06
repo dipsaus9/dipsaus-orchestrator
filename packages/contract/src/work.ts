@@ -138,15 +138,11 @@ export const WorkRef = z.object({
 });
 export type WorkRef = z.infer<typeof WorkRef>;
 
-export const VerifyState = z.enum(["none", "passing", "failing"]);
-export type VerifyState = z.infer<typeof VerifyState>;
-
 export const Progress = z.object({
   criteriaMet: Count,
   criteriaTotal: Count,
   loop: Count,
   loopCap: Count,
-  verify: VerifyState,
   reviewRound: Count,
   // (DIPO-140, 0002): the review rounds the story may run and how many
   // of its rounds failed, so a client shows "round 2, 1 of 3 failed" without computing it.

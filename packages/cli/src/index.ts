@@ -216,7 +216,7 @@ Usage:
                     offered again until its task file changes or you start it
   dipo watch [<id>] [--office <id>]
                     follow the office, or one story, in plain text until Ctrl-C:
-                    each running story's phase, health, loop, verify, criteria
+                    each running story's phase, health, loop, criteria
                     and budget share, then one line per event as it happens
                     (run start and end, phases, worker output, usage and turns,
                     health changes, notices and parks)

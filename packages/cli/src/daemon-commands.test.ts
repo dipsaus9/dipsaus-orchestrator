@@ -172,7 +172,7 @@ describe("dipo daemon status build commit (DIPO-198)", () => {
     uptimeMs: 5000,
     socket: "/run/dipo/dipo.sock",
     loadedOffices: ["off_01J9ZK5Q8W3V4X6Y7Z00000001"],
-    activeRuns: 0,
+    runningStories: 0,
     keepAwake: { held: false },
     upgradePending: false,
     tools: {},
@@ -193,14 +193,22 @@ describe("dipo daemon status build commit (DIPO-198)", () => {
     expect(ctx.out.join("\n")).not.toContain("current:");
   });
 
-  it("prints the active runs summed over the loaded offices (DIPO-125)", async () => {
+  it("prints the running stories summed over the loaded offices (DIPO-125, DIPO-446)", async () => {
     const ctx = statusCtx({
       ...status,
       loadedOffices: ["off_01J9ZK5Q8W3V4X6Y7Z00000001", "off_01J9ZK5Q8W3V4X6Y7Z00000002"],
-      activeRuns: 3,
+      runningStories: 3,
     });
     expect(await main(["daemon", "status"], ctx.deps)).toBe(0);
-    expect(ctx.out.join("\n")).toContain("  offices:    2 loaded, 3 active runs");
+    expect(ctx.out.join("\n")).toContain("  offices:    2 loaded, 3 running stories");
+    expect(ctx.out.join("\n")).not.toContain("sessions:");
+  });
+
+  it("shows the scan sessions apart from the running stories (DIPO-446)", async () => {
+    const ctx = statusCtx({ ...status, runningStories: 2, sessions: 1 });
+    expect(await main(["daemon", "status"], ctx.deps)).toBe(0);
+    expect(ctx.out.join("\n")).toContain("  offices:    1 loaded, 2 running stories");
+    expect(ctx.out.join("\n")).toContain("  sessions:   1 scan session running (hold no run slot)");
   });
 
   it("prints neither line when run from source", async () => {

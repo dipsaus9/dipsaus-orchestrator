@@ -73,7 +73,7 @@ function status(): DaemonStatusResult {
     uptimeMs: 1,
     socket: "/run/dipo.sock",
     loadedOffices: [],
-    activeRuns: 0,
+    runningStories: 0,
     keepAwake: { held: false },
     upgradePending: false,
     tools: {},

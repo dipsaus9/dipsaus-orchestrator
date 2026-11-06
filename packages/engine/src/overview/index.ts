@@ -3,7 +3,6 @@
 // reads (`office.snapshot`, `story.detail`, `work.outputRange`).
 
 export {
-  activeRunCount,
   columnCounts,
   deriveOfficeSummary,
   officeSummaries,
@@ -11,6 +10,8 @@ export {
   officeSummaryOfSource,
   officeSummarySource,
   openGateViews,
+  runningStoryCount,
+  sessionRunCount,
   summarySettings,
 } from "./summary";
 export type { OfficeIdentity, SummarySettings, SummarySettingsOf } from "./summary";

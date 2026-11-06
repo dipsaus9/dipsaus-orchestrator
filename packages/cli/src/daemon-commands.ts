@@ -183,8 +183,15 @@ export function formatRunning(status: DaemonStatusResult): string[] {
     `  socket:     ${status.socket}`,
   ];
   if (status.webUrl !== undefined) lines.push(`  web:        ${status.webUrl}`);
+  // Scan sessions hold no run slot, so they are counted apart from the running stories (DIPO-446).
+  const sessions = status.sessions ?? 0;
   lines.push(
-    `  offices:    ${status.loadedOffices.length} loaded, ${status.activeRuns} active runs`,
+    `  offices:    ${status.loadedOffices.length} loaded, ${status.runningStories} running ${status.runningStories === 1 ? "story" : "stories"}`,
+    ...(sessions === 0
+      ? []
+      : [
+          `  sessions:   ${sessions} scan ${sessions === 1 ? "session" : "sessions"} running (hold no run slot)`,
+        ]),
     `  keep-awake: ${keepAwake}`,
   );
   if (status.buildCommit !== undefined) lines.push(`  commit:     ${status.buildCommit}`);

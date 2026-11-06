@@ -197,10 +197,6 @@
           "minimum": 0,
           "maximum": 9007199254740991
         },
-        "verify": {
-          "type": "string",
-          "enum": ["none", "passing", "failing"]
-        },
         "reviewRound": {
           "type": "integer",
           "minimum": 0,
@@ -217,7 +213,7 @@
           "maximum": 9007199254740991
         }
       },
-      "required": ["criteriaMet", "criteriaTotal", "loop", "loopCap", "verify", "reviewRound"]
+      "required": ["criteriaMet", "criteriaTotal", "loop", "loopCap", "reviewRound"]
     },
     "UsageTotals": {
       "type": "object",
@@ -674,10 +670,6 @@
               "minimum": 0,
               "maximum": 9007199254740991
             },
-            "verify": {
-              "type": "string",
-              "enum": ["none", "passing", "failing"]
-            },
             "reviewRound": {
               "type": "integer",
               "minimum": 0,
@@ -694,7 +686,7 @@
               "maximum": 9007199254740991
             }
           },
-          "required": ["criteriaMet", "criteriaTotal", "loop", "loopCap", "verify", "reviewRound"]
+          "required": ["criteriaMet", "criteriaTotal", "loop", "loopCap", "reviewRound"]
         },
         "usage": {
           "type": "object",
@@ -1350,10 +1342,6 @@
                     "minimum": 0,
                     "maximum": 9007199254740991
                   },
-                  "verify": {
-                    "type": "string",
-                    "enum": ["none", "passing", "failing"]
-                  },
                   "reviewRound": {
                     "type": "integer",
                     "minimum": 0,
@@ -1370,14 +1358,7 @@
                     "maximum": 9007199254740991
                   }
                 },
-                "required": [
-                  "criteriaMet",
-                  "criteriaTotal",
-                  "loop",
-                  "loopCap",
-                  "verify",
-                  "reviewRound"
-                ]
+                "required": ["criteriaMet", "criteriaTotal", "loop", "loopCap", "reviewRound"]
               },
               "usage": {
                 "type": "object",

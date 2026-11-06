@@ -74,7 +74,6 @@ const progress = (n: number) => ({
       criteriaTotal: 7,
       loop: 1,
       loopCap: 5,
-      verify: "none",
       reviewRound: 0,
     },
   },

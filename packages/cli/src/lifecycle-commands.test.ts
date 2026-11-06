@@ -31,7 +31,7 @@ const STATUS: DaemonStatusResult = {
   uptimeMs: 3_725_000,
   socket: "/run/dipo/dipo.sock",
   loadedOffices: [],
-  activeRuns: 0,
+  runningStories: 0,
   keepAwake: { held: false },
   upgradePending: false,
   tools: {
@@ -120,7 +120,7 @@ describe("dipo daemon status", () => {
       "  version:    0.0.0-dev",
       "  uptime:     1h 2m 5s",
       "  socket:     /run/dipo/dipo.sock",
-      "  offices:    0 loaded, 0 active runs",
+      "  offices:    0 loaded, 0 running stories",
       "  keep-awake: not held",
       "  tools:",
       "    workerCli /opt/bin/claude",
