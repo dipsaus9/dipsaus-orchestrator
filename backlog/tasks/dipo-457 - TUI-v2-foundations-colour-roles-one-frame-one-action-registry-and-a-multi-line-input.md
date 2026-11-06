@@ -3,10 +3,10 @@ id: DIPO-457
 title: >-
   TUI v2 foundations: colour roles, one frame, one action registry and a
   multi-line input
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-06 14:11'
-updated_date: '2026-11-06 14:55'
+updated_date: '2026-11-06 15:40'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -24,6 +24,37 @@ references:
   - docs/design/tui-v2/screens/17-themes.txt
   - docs/design/tui-v2/designs/dipo-ux-spec.html
   - packages/tui/src/planning.tsx
+modified_files:
+  - packages/cli/src/tui-command.ts
+  - packages/tui/src/app.test.tsx
+  - packages/tui/src/colour.test.ts
+  - packages/tui/src/colour.tsx
+  - packages/tui/src/composer.test.tsx
+  - packages/tui/src/composer.tsx
+  - packages/tui/src/desk.test.tsx
+  - packages/tui/src/desk.tsx
+  - packages/tui/src/detail.test.tsx
+  - packages/tui/src/detail.tsx
+  - packages/tui/src/footer.test.ts
+  - packages/tui/src/footer.ts
+  - packages/tui/src/frame.tsx
+  - packages/tui/src/home.tsx
+  - packages/tui/src/index.ts
+  - packages/tui/src/keys.ts
+  - packages/tui/src/live.test.tsx
+  - packages/tui/src/options.ts
+  - packages/tui/src/overview.test.tsx
+  - packages/tui/src/overview.tsx
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/queue.test.tsx
+  - packages/tui/src/queue.tsx
+  - packages/tui/src/run.tsx
+  - packages/tui/src/screen.tsx
+  - packages/tui/src/settings.tsx
+  - packages/tui/src/theme.test.ts
+  - packages/tui/src/theme.ts
+  - packages/tui/src/views.tsx
 priority: medium
 type: feature
 ordinal: 430000
@@ -66,3 +97,18 @@ test_plan:
 - [ ] #7 The four theme mocks of screens/17-themes.txt match the HTML preview's S10 in truecolor light, 16 colours light and dark, and NO_COLOR. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
 - [x] #8 The planning view uses the Composer; its own input code is gone
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-06 15:40 UTC
+- Criteria met: 7 of 8 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 1
+- Budget used: 228,702 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->
