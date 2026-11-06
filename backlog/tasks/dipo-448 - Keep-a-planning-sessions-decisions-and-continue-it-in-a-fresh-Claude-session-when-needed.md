@@ -3,10 +3,10 @@ id: DIPO-448
 title: >-
   Keep a planning session's decisions and continue it in a fresh Claude session
   when needed
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 12:55'
+updated_date: '2026-11-06 13:08'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -19,6 +19,28 @@ references:
   - packages/engine/src/records/usage.ts
   - packages/contract/src/office.ts
   - docs/decisions/0007-state-database.md
+modified_files:
+  - docs/decisions/0007-state-database.md
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/src/work.test.ts
+  - packages/contract/src/work.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/db/migrations/0003-planning-records.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/prompts/task/planning.md
+  - packages/engine/src/prompts/templates.ts
+  - packages/engine/src/records/planning-record.ts
+  - packages/engine/src/records/usage.ts
+  - packages/engine/src/retention/policy.ts
+  - packages/engine/src/retention/run.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/test/db/migrations.test.ts
+  - packages/engine/test/prompts/task.test.ts
+  - packages/engine/test/run/planning-record.test.ts
+  - packages/engine/test/run/planning-session.test.ts
+  - packages/engine/test/run/planning-world.ts
 priority: high
 type: feature
 ordinal: 421000
@@ -54,3 +76,18 @@ test_plan:
 - [x] #3 A session that continues after its Claude session ended, after an idle end or a daemon restart, continues in a fresh Claude session built from the record
 - [x] #4 An event says the session continued in a fresh Claude session, and ADR 0007 lists the record
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-06 13:08 UTC
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 1
+- Budget used: 215,965 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->
