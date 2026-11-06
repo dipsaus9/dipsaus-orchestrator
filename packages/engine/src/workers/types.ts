@@ -17,19 +17,13 @@ export type WorkerKind = OpenEnum<(typeof KNOWN_WORKER_KINDS)[number]>;
  * `audit` session (DIPO-452) answers once, in structured output the engine checks as a
  * `session`'s, and has the planning session's tools.
  */
-<<<<<<< a315ae40412a50f88422a2d1252c1936f3d7d725
-export type ReportKind = "implement" | "review" | "session" | "planning";
+export type ReportKind = "implement" | "review" | "session" | "planning" | "audit";
 /**
  * The kinds whose schema the worker port carries (`WorkerPort.reportSchema`). For `planning` it is
  * the schema of a proposal block the session writes in its text answers (DIPO-450), which its first
  * message gives it; its turns still end in no report.
  */
-export type SchemaKind = Exclude<ReportKind, "session">;
-=======
-export type ReportKind = "implement" | "review" | "session" | "planning" | "audit";
-/** The kinds whose report schema the worker port carries (`WorkerPort.reportSchema`). */
-export type SchemaKind = Exclude<ReportKind, "session" | "planning" | "audit">;
->>>>>>> c1e3809cae86f370901a442e5048a9dee26663d6
+export type SchemaKind = Exclude<ReportKind, "session" | "audit">;
 
 /** The start of the output line a web call shows as: `[web] <tool> <query or URL>`. */
 export const WEB_LINE_PREFIX = "[web] ";

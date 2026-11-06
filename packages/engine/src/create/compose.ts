@@ -733,12 +733,9 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
       tmpRoot: ports.tmpRoot,
       ...given("boxes", ports.planningBoxes),
       ...given("desk", ports.planningDesk),
-<<<<<<< a315ae40412a50f88422a2d1252c1936f3d7d725
       ...given("lane", ports.planningLane),
-=======
       // An aside the session sends is audited when it arrives (DIPO-452).
       onIdea: (office) => audits.poke(office),
->>>>>>> c1e3809cae86f370901a442e5048a9dee26663d6
       ...given("tempOwner", ports.tempOwner),
       ...given("onChanged", ports.onChanged),
       ...given("warn", ports.warn),

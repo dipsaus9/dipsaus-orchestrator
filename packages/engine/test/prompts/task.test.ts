@@ -233,12 +233,9 @@ describe("tags inside slot text", () => {
       "desk",
       "recent_runs",
       "copy",
-<<<<<<< a315ae40412a50f88422a2d1252c1936f3d7d725
       "proposal_schema",
-=======
       "ideas",
       "idea",
->>>>>>> c1e3809cae86f370901a442e5048a9dee26663d6
     ]);
     for (const name of REVIEW_SECTION_ORDER) expect(PROMPT_TAGS).toContain(name);
   });

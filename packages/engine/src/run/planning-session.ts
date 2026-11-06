@@ -25,7 +25,9 @@
 //   deleted then, and `planning.ended` and `run.ended` follow. At daemon stop every open session
 //   gets the stop and ends `daemon-stopped`; at daemon start a planning run a stopped daemon left
 //   open is ended (`recover`).
-<<<<<<< a315ae40412a50f88422a2d1252c1936f3d7d725
+// - An aside (DIPO-452): an idea the session noticed outside its goal, sent as a `dipo-aside` block
+//   in its answer. Each valid block is held as an idea and audited when it arrives (`onIdea`); an
+//   invalid one is refused with an `engine.notice` that says why (`asides.ts`).
 //
 // Proposals (DIPO-450, 0022): the first message gives the session the proposal schema, and at
 // each turn end the answer's proposal blocks are read (`planning-proposals.ts`). A valid one joins
@@ -45,11 +47,6 @@
 //
 // What the maintainer decided reaches the session with their next message, as `[dipo]` lines
 // before it, so it never proposes a filed or declined story again.
-=======
-// - An aside (DIPO-452): an idea the session noticed outside its goal, sent as a `dipo-aside` block
-//   in its answer. Each valid block is held as an idea and audited when it arrives (`onIdea`); an
-//   invalid one is refused with an `engine.notice` that says why (`asides.ts`).
->>>>>>> c1e3809cae86f370901a442e5048a9dee26663d6
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -1077,11 +1074,10 @@ export class PlanningSessions {
                 detail: event.reason,
               });
             }
-<<<<<<< a315ae40412a50f88422a2d1252c1936f3d7d725
-            if (event.t === "output") open.answer.push(event.text);
-=======
-            if (event.t === "output") this.#asides(open, event.text);
->>>>>>> c1e3809cae86f370901a442e5048a9dee26663d6
+            if (event.t === "output") {
+              open.answer.push(event.text);
+              this.#asides(open, event.text);
+            }
             if (event.t === "turn") this.#turnEnded(open);
           }
         },

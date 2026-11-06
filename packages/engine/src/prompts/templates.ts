@@ -201,14 +201,11 @@ export const PROMPT_TAGS: readonly string[] = [
   "desk",
   "recent_runs",
   "copy",
-<<<<<<< a315ae40412a50f88422a2d1252c1936f3d7d725
   // DIPO-450: the proposal schema of a planning session's first message.
   "proposal_schema",
-=======
   // An idea's audit (DIPO-452): an idea's text cannot close its idea or the list.
   "ideas",
   "idea",
->>>>>>> c1e3809cae86f370901a442e5048a9dee26663d6
 ];
 
 // Whitespace around the slash is allowed, so `</ criteria>` and `< /criteria>` are caught too.

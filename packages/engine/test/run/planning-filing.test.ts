@@ -82,6 +82,7 @@ function fileOf(dir: string, id: string): string {
 }
 
 describe("filing a planning session's confirmed proposals through the lane (DIPO-450)", () => {
+  // Real git and the Backlog CLI: a few seconds alone, more in a loaded shard.
   it("files a story Refined to the standard, edits, splits and declines, and records the ids", async () => {
     await withBareRemote(
       async (repo) => {
@@ -249,7 +250,7 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
       },
       { fixture: BACKLOG_FIXTURE },
     );
-  });
+  }, 30_000);
 
   it("refuses a duplicate title, an unknown dependency and an edit of a task that is not Refined, Ready or Parked", async () => {
     await withBareRemote(
@@ -294,5 +295,5 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
       },
       { fixture: BACKLOG_FIXTURE },
     );
-  });
+  }, 30_000);
 });

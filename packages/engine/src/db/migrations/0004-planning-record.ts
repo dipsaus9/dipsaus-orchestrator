@@ -1,4 +1,4 @@
-// Migration 3: the record of a planning session (DIPO-450, 0022). One row per story a confirmed
+// Migration 4: the record of a planning session (DIPO-450, 0022). One row per story a confirmed
 // proposal filed (`filed`) or edited (`edited`), keyed by the session's run, the proposal's number
 // and the kind, so a filing the lane applies again (a rebuild that gave the story a new id) updates
 // its row. The kind has no check: DIPO-448 adds the session's decisions and open questions here.
@@ -6,7 +6,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const planningRecord: SqlMigration = {
-  version: 3,
+  version: 4,
   name: "planning record",
   sql: `
 create table planning_record (
