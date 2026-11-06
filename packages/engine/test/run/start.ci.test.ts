@@ -116,7 +116,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const phases = events(r)
             .filter((e) => e.type === "work.assigned" || e.type === "work.phase")
             .map((e) => (e.type === "work.phase" ? `phase ${String(e.delta["phase"])}` : e.type));
-          expect(phases).toEqual(["work.assigned", "phase setup", "phase build"]);
+          // The decision shows the start in setup (DIPO-456), then the run row's own entries.
+          expect(phases).toEqual(["phase setup", "work.assigned", "phase setup", "phase build"]);
           const usage = r.office.get<{ n: number; input: number }>(
             "select count(*) as n, sum(input) as input from usage_totals where office_id = $office_id",
           );
