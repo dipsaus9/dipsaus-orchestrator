@@ -3,10 +3,10 @@ id: DIPO-444
 title: >-
   Say refused in daemon status, remove code for older dipo versions, explain the
   Claude minimum
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-04 12:24'
-updated_date: '2026-11-04 15:57'
+updated_date: '2026-11-06 09:05'
 labels:
   - 'tier:S'
 milestone: m-2
