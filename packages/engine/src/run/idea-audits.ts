@@ -259,11 +259,20 @@ export class IdeaAudits {
       this.#again.set(office, retry || (this.#again.get(office) ?? false));
       return;
     }
-    const running = this.#loop(office, retry).finally(() => this.#running.delete(office));
+    const running = this.#loop(office, retry).finally(() => {
+      this.#running.delete(office);
+      // A trigger that came after the loop's last look runs now.
+      const again = this.#again.get(office);
+      if (again === undefined) return;
+      this.#again.delete(office);
+      this.#trigger(office, again);
+    });
     this.#running.set(office, running);
   }
 
   async #loop(office: OfficeId, retry: boolean): Promise<void> {
+    // After the caller's call stack: a change may be told from inside another write.
+    await Promise.resolve();
     let force = retry;
     // An idea is taken once per loop: each round decides its batch or counts a missed attempt.
     const tried = new Set<string>();

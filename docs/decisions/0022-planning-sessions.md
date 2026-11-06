@@ -24,7 +24,7 @@ Claude proposes in a structured block the engine validates; the maintainer confi
 - **A new story** is filed `Refined` to the story standard (0012), with a proposed tier and one line of why.
 - **An edit** to an existing story (wording, criteria, references, a split, a resolved unknown) is applied as confirmed.
 - **Ready.** At the end the maintainer confirms which stories go `Ready`; dipo checks the gate (0012) and sets them Ready in a second backlog PR, never in the PR that filed them.
-- **An aside**, an idea that comes up but is not for now, goes to the audit (section 3).
+- **An aside**, an idea that comes up but is not for now, goes to the audit (section 3). The session sends it as an aside block in its answer, a fenced `dipo-aside` block whose schema is in the contract; the engine validates it, holds a valid one as an idea, and refuses an invalid one with a notice that says why.
 
 ## 3. Ideas are audited before they reach the maintainer
 
@@ -32,7 +32,7 @@ An idea is a worker's proposal (0020), a reviewer's advisory finding (0002), the
 
 - **When.** The ideas of a run are audited together when that run ends, merged or parked, so the audit sees the finished change and never competes with the worker. An idea without a run is audited when it arrives.
 - **Code first.** Code rejects what it can know, with the reason: an idea equal to one already held, or whose title is that of an open or Done story.
-- **Then the audit session.** A short Claude session in a box set up like the planning session's (section 1) judges each remaining idea against the office's code and backlog. An idea passes only when no open or Done story already covers it, the problem it names is real in the code (with file and line as evidence), and it serves a milestone goal or is tech debt. Its size is never a reason to reject it. The model is an office setting, Sonnet by default.
+- **Then the audit session.** A short Claude session in a box set up like the planning session's (section 1) judges each remaining idea against the office's code and backlog. An idea passes only when no open or Done story already covers it, the problem it names is real in the code (with file and line as evidence), and it serves a milestone goal or is tech debt. Its size is never a reason to reject it. The model is an office setting, `audit.model`, Sonnet by default and not written into the office file. The audit is a session kind of its own with exactly the planning session's tools: it holds no run slot, is not the office's planning session, quotes each idea's text as data, and ends after its one answer, which the engine validates. An idea whose audit fails, is cut off or is refused by schema stays held and is audited again at the next trigger; it is never dropped. `dipo ideas` lists the held, passed and rejected ideas.
 - **A passing idea** reaches the desk as a proposed user story, shown in full: what was found, with its evidence and source story; the Story line; what is proposed; why; and the milestone it serves, or tech debt. When the maintainer accepts it, dipo files a Backlog draft with its origin, with no real id and no branch, so it can never run; a tech-debt draft has no milestone and the label `tech-debt`. Dismissing it closes it.
 - **A rejected idea** never reaches the desk. dipo keeps it with the audit's reason; the retro view shows how many were rejected and why, and each stays findable.
 
