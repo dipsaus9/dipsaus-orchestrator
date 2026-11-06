@@ -61,7 +61,8 @@ export type ParkReason = z.infer<typeof ParkReason>;
 // Why `work.run` did not start a story (0005). `notRunnable` covers states run never
 // picks; `capacity` means the office runs as many stories as `caps.parallelRuns` allows, or a run
 // without named stories started its one story. The office's starts paused
-// (0020) refuses the whole `work.run` instead of skipping a story.
+// (0020) refuses the whole `work.run` instead of skipping a story. `starting` means an earlier
+// `work.run` already decided to start the story and its claim and box are under way (DIPO-456).
 export const KNOWN_SKIP_REASONS = [
   "parked",
   "notReady",
@@ -70,6 +71,7 @@ export const KNOWN_SKIP_REASONS = [
   "collision",
   "capacity",
   "pickupCheckFailed",
+  "starting",
 ] as const;
 export const SkipReason = openEnum(KNOWN_SKIP_REASONS);
 export type SkipReason = z.infer<typeof SkipReason>;
@@ -390,14 +392,17 @@ export const KNOWN_PLANNING_STATES = ["starting", "working", "waiting", "ended"]
 export const PlanningState = openEnum(KNOWN_PLANNING_STATES);
 export type PlanningState = z.infer<typeof PlanningState>;
 
-// Why a planning session ended: the maintainer ended it, it waited for a message longer than
-// `planning.idleHours`, its worker exited, its start failed, or the daemon stopped.
+// Why a planning session's model session ended: the maintainer ended the planning session, it
+// waited for a message longer than `planning.idleHours`, its worker exited, its start failed, the
+// daemon stopped, or its context neared full (DIPO-448). Every reason but `maintainer` and a
+// failed first start leaves the planning session open to continue in a fresh model session.
 export const KNOWN_PLANNING_END_REASONS = [
   "maintainer",
   "idle",
   "exited",
   "start-failed",
   "daemon-stopped",
+  "context-full",
 ] as const;
 export const PlanningEndReason = openEnum(KNOWN_PLANNING_END_REASONS);
 export type PlanningEndReason = z.infer<typeof PlanningEndReason>;

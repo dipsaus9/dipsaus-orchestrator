@@ -53,7 +53,7 @@ Run detail and dipo's own state, grouped by subject. The groups below hold the m
 | Cache | `backlog_mirror`: what the engine last read from Backlog.md, keyed by content hash. Never a source of truth |
 | Change log | The outbox of section 5 |
 | Requests | Stored replies of office commands (0005), kept one day |
-| Runs | Runs, agents, steps, intents, the caps snapshot and grants (0020), and one outcome row per ended run with what retro needs |
+| Runs | Runs, agents, steps, intents, the caps snapshot and grants (0020), decided starts until their run row (0005), and one outcome row per ended run with what retro needs |
 | Process | Worker hosts and their processed offsets (0005) |
 | Usage | Usage per message (deduplicated by message id), totals per run, agent and model, including the cost the CLI reported (0008), and a daily rollup |
 | Review and merge | Gates and their decisions, reviewer verdicts keyed on the code tree, story PRs, feedback items with their signatures, and the maintainer's tests (`acceptance_tests`) with their result per head (0002) |
@@ -65,6 +65,7 @@ Run detail and dipo's own state, grouped by subject. The groups below hold the m
 | Config | Snapshots of the effective office configuration, keyed by hash (0017) |
 | Proposals | Worker proposals for the desk (0020) |
 | Ideas | Every incoming idea (0022): a worker's proposal, a reviewer's advisory finding, a planning session's aside or a quick idea, with its origin, source story and run, and its audit: held, passed with its proposed user story, or rejected with its reason and by whom (code or the audit). A held idea counts the audits that missed it and is never dropped |
+| Planning record | `planning_records`: per planning session, in order, its goal, each confirmed choice, each filed or edited story, each open question, and when each model session of it started and ended. A fresh model session's first message is built from it (0022). Kept until none of its entries is newer than the retention period |
 
 The database stores facts. Display status, columns, health and budget shares are derived by engine code when it reads, and go out in change-log entries and snapshots (0005).
 

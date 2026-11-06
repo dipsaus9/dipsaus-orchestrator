@@ -18,7 +18,7 @@ import { runIntents } from "../../src/records";
 import { openPark } from "../../src/run/park";
 import { resultOf } from "../office/helpers";
 import { loadRecording } from "../workers/replay";
-import { BRANCH, type Running, withRunOffice } from "./run-office";
+import { BRANCH, type Running, runWork, withRunOffice } from "./run-office";
 import { backlogLayout } from "../story-store/backlog";
 
 let count = 0;
@@ -28,10 +28,12 @@ function requestId(): RequestId {
 }
 
 function command(r: Running, name: string, args: Record<string, unknown>): Promise<CommandReply> {
-  return executeCommand(
-    { ...r.s.deps, ids: createSystemIds(r.s.clock) },
-    { requestId: requestId(), name, args, origin: "cli", confirmed: true, office: r.officeId },
-  );
+  const send = () =>
+    executeCommand(
+      { ...r.s.deps, ids: createSystemIds(r.s.clock) },
+      { requestId: requestId(), name, args, origin: "cli", confirmed: true, office: r.officeId },
+    );
+  return name === "work.run" ? runWork(r, send) : send();
 }
 
 async function startRun(r: Running): Promise<string> {

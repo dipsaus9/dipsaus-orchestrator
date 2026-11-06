@@ -132,8 +132,13 @@ export interface PlanningWorldOptions {
   readonly office?: OfficeHandle;
   /** The office's planning lane (DIPO-450); none by default. */
   readonly lane?: PlanningSessionsDeps["lane"];
+<<<<<<< 48e9903876706a7b1225edf759f7c87a05444f21
   /** The office's Ready gate (DIPO-451); none by default. */
   readonly gate?: PlanningSessionsDeps["gate"];
+=======
+  /** The context size at which the session continues in a fresh model session (DIPO-448). */
+  readonly contextTokens?: number;
+>>>>>>> eb09d8c7ca6da60143d268e990457c5851f0c373
 }
 
 /** The session's box as `BoxWorkers.planning` returns it. */
@@ -280,6 +285,7 @@ export function planningWorld(
     ...(options.gate === undefined ? {} : { gate: options.gate }),
     onIdea: (id) => w.ideas.push(id),
     baseCommit: async () => BASE_COMMIT,
+    ...(options.contextTokens === undefined ? {} : { contextTokens: options.contextTokens }),
     runtimeDir: join(dir, "runtime"),
     tmpRoot: join(dir, "tmp"),
   });

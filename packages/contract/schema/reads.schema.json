@@ -1239,7 +1239,14 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": ["maintainer", "idle", "exited", "start-failed", "daemon-stopped"]
+                  "enum": [
+                    "maintainer",
+                    "idle",
+                    "exited",
+                    "start-failed",
+                    "daemon-stopped",
+                    "context-full"
+                  ]
                 },
                 {
                   "type": "string"
@@ -3288,7 +3295,8 @@
                       "dependency",
                       "collision",
                       "capacity",
-                      "pickupCheckFailed"
+                      "pickupCheckFailed",
+                      "starting"
                     ]
                   },
                   {

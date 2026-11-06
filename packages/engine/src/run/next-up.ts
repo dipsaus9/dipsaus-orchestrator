@@ -9,14 +9,15 @@
 //   is not declined, and its newest story PR is not recorded merged: the PR poll, or the Done poll
 //   when the host answered it, records the merge before the Done poll releases the claim, and the
 //   base says Done only after its next fetch.
-// - Free slots. `Places.freeSlots`, less the confirms whose story has no claim yet.
+// - Free slots. `Places.freeSlots`, which counts the slot each confirmed start holds from its
+//   confirm (DIPO-456).
 // - Shared files. Each offer lists the files its references share, by the prefix rule
 //   (`overlappingPaths`), with the references and the changed files (`storyChangedFiles`) of every
 //   story with a live claim, or says it shares none. The maintainer decides; nothing checks overlap
 //   while stories run.
 // - Confirm. `nextUp.confirm` starts the offered story through `work.run` with the story named, the
-//   same start as `dipo run <id>`. Each confirm is its own command: it never waits for another
-//   story's box preparation.
+//   same start as `dipo run <id>`, and answers as `work.run` does, at its decision (DIPO-456): it
+//   never waits for a claim, a box or an install, its own or another story's.
 // - Decline. `nextUp.decline` keeps the story's hash in `next_up_declines` and offers the next story
 //   at once. A declined story is offered again once its task file changes (its hash differs) or a
 //   run of it started after the decline.
@@ -25,8 +26,9 @@
 //   mirrored from the base, the declines, the planning holds, the stories whose story PR merged,
 //   and the running branches' tips, read
 //   with one `git for-each-ref` at most every 30 seconds) decides whether the base is read again.
-//   A confirm or decline that comes in while the base is read wins over that read, and a confirm
-//   whose start fails offers the story again. A newly offered story puts an `engine.notice`
+//   A confirm or decline that comes in while the base is read wins over that read: a story whose
+//   start `work.run` decided is not offered until that start ended, and one whose start failed is
+//   offered again. A newly offered story puts an `engine.notice`
 //   on the office stream, so the TUI reads its desk again; the desk notification posts it once.
 
 import { createHash } from "node:crypto";
@@ -46,7 +48,12 @@ import type { z } from "zod";
 import { baseRefOf, overlappingPaths, storyChangedFiles } from "../box/collisions";
 import { appendEntries } from "../changelog/log";
 import { CommandError } from "../commands/errors";
-import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
+import type {
+  AsyncCommandContext,
+  CommandContext,
+  CommandOutcome,
+  FeatureModule,
+} from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
 import { findRun } from "../records/run-records";
@@ -110,8 +117,13 @@ export interface NextUpDeps {
   readonly startsPaused?: (office: OfficeId) => unknown;
   /** False while the daemon schedules no work; true by default. */
   readonly scheduling?: () => boolean;
-  /** Starts the story through `work.run` with it named. */
-  readonly start: (ctx: AsyncCommandContext, key: StoryKey) => Promise<CommandOutcome<RunResult>>;
+  /** Starts the story through `work.run` with it named; answers at the decision (DIPO-456). */
+  readonly start: (ctx: CommandContext, key: StoryKey) => CommandOutcome<RunResult>;
+  /**
+   * The keys of the stories whose start `work.run` decided and that have not ended
+   * (`WorkRun.starting`): they are not offered meanwhile. None without it.
+   */
+  readonly starting?: (office: OfficeId) => readonly string[];
   /** The changed files of each running story, by run; none without it. */
   readonly changedFiles?: (
     office: OfficeId,
@@ -134,8 +146,6 @@ interface OfficeOffers {
   signature: string | null;
   running: Promise<void> | null;
   again: boolean;
-  /** The keys of the stories a confirm is starting. */
-  readonly confirming: Set<string>;
   /** The running branches' tips as last read, the runs they were read for, and when. */
   tips: { readonly runs: string; readonly tips: string; readonly at: number } | null;
 }
@@ -309,25 +319,22 @@ export class NextUp {
     for (const officeId of this.#offices.keys()) void this.refresh(officeId);
   }
 
-  /** `nextUp.confirm`: starts the offered story through `work.run`. */
-  async confirm(
-    ctx: AsyncCommandContext,
+  /**
+   * `nextUp.confirm`: starts the offered story through `work.run` and answers with its decision;
+   * the claim and the box follow after the answer (DIPO-456).
+   */
+  confirm(
+    ctx: CommandContext,
     args: z.output<typeof nextUpConfirm.args>,
-  ): Promise<CommandOutcome<RunResult>> {
+  ): CommandOutcome<RunResult> {
     const officeId = ctx.office.officeId;
     const state = this.#state(officeId);
     const offer = this.#offered(ctx, args.story);
-    state.confirming.add(offer.key);
-    this.#publish(
-      officeId,
-      state,
-      state.offers.filter((other) => other.key !== offer.key),
-    );
     try {
-      return await this.#deps.start(ctx, offer.key);
+      return this.#deps.start(ctx, offer.key);
     } finally {
-      state.confirming.delete(offer.key);
-      // Worked out again from the base: a start that failed offers the story again.
+      // Worked out again from the base after this command: a story `work.run` skipped, or whose
+      // start fails later, is offered again.
       state.signature = null;
       void this.refresh(officeId);
     }
@@ -364,7 +371,8 @@ export class NextUp {
     return {
       name: "run",
       register: (registry) => {
-        registry.addAsyncOfficeCommand({
+        // Not a waiting command: it answers at `work.run`'s decision (DIPO-456).
+        registry.addOfficeCommand({
           definition: nextUpConfirm,
           handle: (ctx, args) => this.confirm(ctx, args),
         });
@@ -381,7 +389,7 @@ export class NextUp {
   }
 
   /** The offer of the story `ref` resolves to; `nextUp.notOffered` without one. */
-  #offered(ctx: AsyncCommandContext, ref: string): NextUpOffer {
+  #offered(ctx: CommandContext | AsyncCommandContext, ref: string): NextUpOffer {
     const story = ctx.stories.get(ref);
     const offer = this.offers(ctx.office.officeId).find((other) => other.key === story?.key);
     if (offer !== undefined) return offer;
@@ -401,7 +409,6 @@ export class NextUp {
         signature: null,
         running: null,
         again: false,
-        confirming: new Set(),
         tips: null,
       };
       this.#offices.set(officeId, state);
@@ -409,21 +416,25 @@ export class NextUp {
     return state;
   }
 
-  /** How many slots the offers may fill now: 0 while no new run may start. */
-  #slots(officeId: OfficeId, office: OfficeHandle, state: OfficeOffers): number {
+  /**
+   * How many slots the offers may fill now: 0 while no new run may start. A confirmed start holds
+   * its slot in the places from its decision (DIPO-456).
+   */
+  #slots(officeId: OfficeId): number {
     const deps = this.#deps;
     if (deps.scheduling?.() === false) return 0;
     if (deps.offices.configBlocksRuns(officeId).length > 0) return 0;
     if ((deps.startsPaused?.(officeId) ?? null) !== null) return 0;
-    // A confirm holds its slot from the confirm; from its claim on, the places count it.
-    const confirming = [...state.confirming].filter(
-      (key) => liveClaimOf(office, StoryKey.parse(key)) === null,
-    ).length;
-    return Math.max(0, deps.freeSlots(officeId) - confirming);
+    return Math.max(0, deps.freeSlots(officeId));
+  }
+
+  /** The keys of the stories whose start `work.run` decided and that have not ended. */
+  #starting(officeId: OfficeId): ReadonlySet<string> {
+    return new Set(this.#deps.starting?.(officeId) ?? []);
   }
 
   /** What decides whether the offers can have changed, besides the base's own content. */
-  #signature(office: OfficeHandle, free: number, state: OfficeOffers, tips: string): string {
+  #signature(office: OfficeHandle, free: number, tips: string): string {
     const mirror = office.get<{ digest: string | null }>(
       `select group_concat(key || ':' || status || ':' || content_hash, ',') as digest
          from (select key, status, content_hash from backlog_mirror
@@ -446,7 +457,7 @@ export class NextUp {
     return JSON.stringify([
       free,
       claims,
-      [...state.confirming].toSorted(),
+      [...this.#starting(office.officeId)].toSorted(),
       mirror?.digest ?? "",
       declines?.digest ?? "",
       held,
@@ -461,25 +472,26 @@ export class NextUp {
       this.#offices.delete(officeId);
       return;
     }
-    const free = this.#slots(officeId, office, state);
+    const free = this.#slots(officeId);
     if (free === 0) {
       state.signature = null;
       this.#publish(officeId, state, []);
       return;
     }
     const tips = await this.#tips(officeId, office, state);
-    const signature = this.#signature(office, free, state, tips);
+    const signature = this.#signature(office, free, tips);
     if (signature === state.signature) return;
     const offers = await this.#offersFor(officeId, office, state, free);
     state.signature = signature;
     // A confirm or decline that came in while the base or git was read wins over this read.
-    const now = this.#slots(officeId, office, state);
+    const now = this.#slots(officeId);
     const merged = new Set(mergedStoryKeys(office));
+    const starting = this.#starting(officeId);
     this.#publish(
       officeId,
       state,
       offers
-        .filter((offer) => !state.confirming.has(offer.key))
+        .filter((offer) => !starting.has(offer.key))
         .filter((offer) => liveClaimOf(office, offer.key) === null)
         .filter((offer) => !merged.has(offer.key))
         .filter((offer) => !declined(office, offer.key, offer.hash))
@@ -515,12 +527,13 @@ export class NextUp {
   ): Promise<NextUpOffer[]> {
     const read = await this.#deps.base.read(officeId, null);
     const merged = new Set(mergedStoryKeys(office));
+    const starting = this.#starting(officeId);
     const startable = read.views.filter((view) => {
       const status = read.statuses.get(view.id);
       if (status === undefined || statusSkip(status) !== null) return false;
       if (openDependencies(view).length > 0) return false;
       const resolved = resolveStoryRef(office, view.id);
-      if (!resolved.ok || state.confirming.has(resolved.key)) return false;
+      if (!resolved.ok || starting.has(resolved.key)) return false;
       if (liveClaimOf(office, resolved.key) !== null || merged.has(resolved.key)) return false;
       if (this.#deps.base.planningHold(office, resolved.key) !== null) return false;
       return !declined(office, resolved.key, storyHash(view));

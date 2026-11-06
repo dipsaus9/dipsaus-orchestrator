@@ -18,7 +18,7 @@ import { createSystemIds } from "../../src/platform/ids";
 import { PLAN_LIMIT_RESUME_AFTER_MS, type StartsPaused } from "../../src/run";
 import { findRun } from "../../src/records";
 import { resultOf } from "../office/helpers";
-import { type Running, withRunOffice } from "./run-office";
+import { type Running, runWork, withRunOffice } from "./run-office";
 
 let count = 0;
 function requestId(): RequestId {
@@ -27,10 +27,12 @@ function requestId(): RequestId {
 }
 
 function command(r: Running, name: string, args: Record<string, unknown>): Promise<CommandReply> {
-  return executeCommand(
-    { ...r.s.deps, ids: createSystemIds(r.s.clock) },
-    { requestId: requestId(), name, args, origin: "cli", confirmed: true, office: r.officeId },
-  );
+  const send = () =>
+    executeCommand(
+      { ...r.s.deps, ids: createSystemIds(r.s.clock) },
+      { requestId: requestId(), name, args, origin: "cli", confirmed: true, office: r.officeId },
+    );
+  return name === "work.run" ? runWork(r, send) : send();
 }
 
 if (process.env["DIPO_TEST_CI"] === "1") {

@@ -31,13 +31,12 @@ import { cleanedOutput, type DaemonSession, engineFailure, usage } from "./daemo
 import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
 
 /**
- * How long `dipo run` waits for its claim: a fetch, a story index pass, the run profile, the Ready
- * gate and the claim with its push; each step that waits on something outside dipo is killed after
- * a minute. A claim took 5.5 minutes on a Mac (DIPO-325), so this is ten.
+ * How long `dipo run` waits for the answer of `work.run`. It answers at its decision, before the
+ * claim, the push and the box (DIPO-456), so this only bounds a daemon slow to answer at all.
  */
 export const RUN_TIMEOUT_MS = 600_000;
 
-/** The outer deadline of `dipo run`: the claim's limit, then the subscription and explain wait. */
+/** The outer deadline of `dipo run`: the answer's limit, then the subscription and explain wait. */
 const RUN_DEADLINE_MS = RUN_TIMEOUT_MS + 60_000;
 
 /** What each skip reason means, for people (0005). */
@@ -51,6 +50,8 @@ export const REASONS: Readonly<Record<string, string>> = {
   capacity: "no run slot is free (caps.parallelRuns in .dipo/office.yaml)",
   pickupCheckFailed:
     "it failed its pickup check (it goes back to Refined) or its setup, launch checks or worker start (it stays Ready)",
+  starting:
+    "already starting: an earlier run decided to start it, and its claim and box are under way",
 };
 
 /** Skips whose reason the engine explains on the office stream (a notice or the gate output). */
@@ -316,10 +317,10 @@ export async function runCommand(
           deps.clock,
           RUN_TIMEOUT_MS,
         );
-        // Still claiming at the limit: the run may yet start, so it is followed, not reported as failed.
+        // No answer at the limit: the run may yet start, so it is followed, not reported as failed.
         if (outcome === null) {
           deps.writeError(
-            `dipo: the claim is still going after ${RUN_TIMEOUT_MS / 1000} s; it may still start a story. Follow it with \`dipo watch\` or \`dipo daemon status\`.`,
+            `dipo: work.run has not answered after ${RUN_TIMEOUT_MS / 1000} s; it may still start a story. Follow it with \`dipo watch\` or \`dipo daemon status\`.`,
           );
           return 1;
         }

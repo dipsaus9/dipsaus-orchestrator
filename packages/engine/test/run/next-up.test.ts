@@ -1,5 +1,6 @@
 // Next up (DIPO-440, 0010), fast and local: a migrated state database, a fake base read and a fake
-// start in place of `work.run`, through the one executor. One NEXT UP item per free run slot in
+// start in place of `work.run` (which answers at its decision and claims after it, DIPO-456),
+// through the one executor. One NEXT UP item per free run slot in
 // next-up order (earliest open milestone, then priority, ordinal and id; no milestone last; a
 // dependency not Done never offered); confirm starts the story and nothing else does; decline
 // removes the item, offers the next story at once and keeps the story out until its task file
@@ -88,8 +89,12 @@ interface World {
   readonly nextUp: NextUp;
   readonly deps: ExecutorDeps;
   limit: number;
-  /** Holds a start open when set, until the promise resolves. */
+  /** Holds a start's claim open when set, until the promise resolves. */
   hold: Map<string, Promise<void>>;
+  /** The keys of the stories whose start the fake decided and that have not claimed yet. */
+  readonly starting: Set<string>;
+  /** The fake starts after their answer, for `settled`. */
+  readonly starts: Promise<void>[];
   notified: number;
 }
 
@@ -113,15 +118,27 @@ beforeEach(async () => {
       read: async () => read(),
       planningHold: (handle, key) => backlogLayout.planningHold(handle, key),
     },
-    freeSlots: () => freeSlots(office, { limit: w.limit }),
-    start: async (ctx, key) => {
+    // A decided start holds its slot until its claim, as the places count it.
+    freeSlots: () => freeSlots(office, { limit: w.limit, starting: [...w.starting] }),
+    start: (ctx, key) => {
       const id = ctx.stories.get(key)?.story ?? key;
       w.started.push(id);
       if (w.startFails) throw new Error("the box could not be prepared");
-      await w.hold.get(id);
-      const run = claim(id);
+      const run = RunId.parse(w.t.ids.next("run"));
+      w.starting.add(key);
+      // The claim after the answer, outside the command's transaction.
+      w.starts.push(
+        (async () => {
+          await Promise.resolve();
+          await w.hold.get(id);
+          claim(id, [], run);
+          w.starting.delete(key);
+          void w.nextUp.refresh(office.officeId);
+        })(),
+      );
       return { result: { started: [{ story: id, key, run }], skipped: [] } };
     },
+    starting: () => [...w.starting],
     changedFiles: async () => {
       w.changedReads += 1;
       await w.changedGate;
@@ -155,6 +172,8 @@ beforeEach(async () => {
     },
     limit: 1,
     hold: new Map(),
+    starting: new Set(),
+    starts: [],
     notified: 0,
   };
 });
@@ -175,9 +194,12 @@ function story(id: string, overrides: Partial<PlainTask> = {}): StoryKey {
 }
 
 /** A claimed run of `id`, holding a slot, as `work.run` records it. */
-function claim(id: string, scope: readonly string[] = []): RunId {
+function claim(
+  id: string,
+  scope: readonly string[] = [],
+  run: RunId = RunId.parse(w.t.ids.next("run")),
+): RunId {
   const key = w.keys.get(id) as StoryKey;
-  const run = RunId.parse(w.t.ids.next("run"));
   w.office.immediate(() => {
     insertRun(w.office, {
       runId: run,
@@ -213,6 +235,14 @@ function claim(id: string, scope: readonly string[] = []): RunId {
     });
   });
   return run;
+}
+
+/** The office's claim rows. */
+function countClaims(): number {
+  return (
+    w.office.get<{ n: number }>("select count(*) as n from claims where office_id = $office_id")
+      ?.n ?? 0
+  );
 }
 
 /** The story PR of the run `run` of `id`, as the PR poll records it. */
@@ -438,19 +468,53 @@ describe("confirm and decline", () => {
     expect(await refresh()).toEqual([]);
   });
 
-  it("confirms of two items start side by side: one never waits for the other's start", async () => {
+  it("confirms of two items start side by side: each answers at its decision, before any claim (DIPO-456)", async () => {
     story("DIPO-1", { milestone: "m-1" });
     story("DIPO-2", { milestone: "m-1" });
     w.limit = 2;
     expect(await refresh()).toEqual(["DIPO-1", "DIPO-2"]);
     const slow = Promise.withResolvers<void>();
     w.hold.set("DIPO-1", slow.promise);
-    const first = command("nextUp.confirm", { story: "DIPO-1" });
+    w.hold.set("DIPO-2", slow.promise);
+    const first = await command("nextUp.confirm", { story: "DIPO-1" });
     const second = await command("nextUp.confirm", { story: "DIPO-2" });
+    expect(resultOf<{ started: unknown[] }>(first).started).toHaveLength(1);
     expect(resultOf<{ started: unknown[] }>(second).started).toHaveLength(1);
     expect(w.started).toEqual(["DIPO-1", "DIPO-2"]);
+    // Neither has claimed yet, and neither is offered again while its start runs.
+    expect(countClaims()).toBe(0);
+    expect(await refresh()).toEqual([]);
     slow.resolve();
-    expect(resultOf<{ started: unknown[] }>(await first).started).toHaveLength(1);
+    await Promise.all(w.starts);
+    expect(countClaims()).toBe(2);
+    expect(await refresh()).toEqual([]);
+  });
+
+  it("holds the slot of a confirmed start from its answer: nothing else is offered while it runs", async () => {
+    story("DIPO-1", { milestone: "m-1" });
+    expect(await refresh()).toEqual(["DIPO-1"]);
+    const slow = Promise.withResolvers<void>();
+    w.hold.set("DIPO-1", slow.promise);
+    expect(
+      resultOf<{ started: unknown[] }>(await command("nextUp.confirm", { story: "DIPO-1" }))
+        .started,
+    ).toHaveLength(1);
+    // The one slot is held by the start still under way: nothing else is offered.
+    story("DIPO-2", { milestone: "m-1" });
+    expect(await refresh()).toEqual([]);
+    slow.resolve();
+    await Promise.all(w.starts);
+  });
+
+  it("is registered as a command that answers at once; decline still waits for its offers", () => {
+    expect(w.deps.registry.command("nextUp.confirm")).toMatchObject({
+      level: "office",
+      waits: false,
+    });
+    expect(w.deps.registry.command("nextUp.decline")).toMatchObject({
+      level: "office",
+      waits: true,
+    });
   });
 
   it("decline removes the item and offers the next story at once; the story comes back only after its task file changed", async () => {
