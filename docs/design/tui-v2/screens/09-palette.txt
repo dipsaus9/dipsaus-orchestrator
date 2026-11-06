@@ -1,0 +1,25 @@
+=== S5 Command palette over the Floor (body behind in shade) · ux-spec mock 15 · 112 cols × 22 rows ===
+[shade]dipo / dipsaus-orchestrator                                                       ● daemon live    10:42[/]
+[shade]1 Desk 3    2 Floor 2    3 Queue 0·6    4 Retro[/]
+[shade]──────────────────────[/][acc]┌──────────────────────────────────────────────────────────────────┐[/][shade]──────────────────────[/]
+[shade]RUNNING[/]               [acc]│[/]  [acc]: [/][hi]pa[/][acc]▍[/]                                                           [acc]│[/]
+[shade] ● DIPO-447  Run a pla[/][acc]│[/]  ──────────────────────────────────────────────────────────────  [acc]│[/][shade]                 36m[/]
+[shade]             setup ━━ [/][acc]│[/]  [dim]ON DIPO-447[/]                                                     [acc]│[/][shade]      loop 1 of 8[/]
+[shade] [/]                     [acc]│[/]  [sel][acc]▌[/] [hi]__Pa__rk run[/]                                                  [acc]p [/][/]  [acc]│[/]
+[shade]IN REVIEW[/]             [acc]│[/]    Ex__pa__nd stream to full screen                              [dim]z [/]  [acc]│[/]
+[shade] ○ DIPO-446  Planning [/][acc]│[/]    [faint]Start again[/]                                      [dim]not parked [/]  [acc]│[/][shade]                  4m[/]
+                      [acc]│[/]  [dim]SETTINGS[/]                                                        [acc]│[/]
+                      [acc]│[/]    __P__riv__a__cy: what dipo stores                                 [dim]  [/]  [acc]│[/]
+                      [acc]│[/]    __Pa__rallel slots: 3                                         [dim]  [/]  [acc]│[/]
+                      [acc]│[/]  [dim]GO TO[/]                                                           [acc]│[/]
+                      [acc]│[/]    O__p__en offices…                                             [acc]O [/]  [acc]│[/]
+                      [acc]│[/]  ──────────────────────────────────────────────────────────────  [acc]│[/]
+                      [acc]│[/]  [dim][acc]⏎[/] run   [acc]↑↓[/] choose   [acc]esc[/] close[/]                                   [acc]│[/]
+                      [acc]└──────────────────────────────────────────────────────────────────┘[/]
+
+
+
+
+
+--- notes ---
+__x__ marks the fuzzy-match underline (acc). With an empty query the palette lists recent commands.

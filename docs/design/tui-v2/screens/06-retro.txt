@@ -1,0 +1,31 @@
+=== S2c Retro: how to prepare work better (30d) · ux-spec mock 10 · 112 cols × 30 rows ===
+[acc]**dipo**[/][dim] / [/]dipsaus-orchestrator                                               [ok]●[/] daemon live[dim]    $22.80 today    13:22[/]
+[dim]1 Desk [acc]6[/][/]    [dim]2 Floor 2[/]    [dim]3 Queue 1·4[/]    [hi]__4 Retro__[/]                                                     [dim]7d[/]  [hi]__30d__[/]  [dim]all[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[hi]**38**[/][dim] merged[/]   [hi]**$214**[/][dim] spent · $5.63 per story[/]   [hi]**4h 10m**[/][dim] median Ready → merged[/]
+
+[hi]**BY TIER**[/]                                                  [faint]│[/]   [hi]**WHERE STORIES CAME FROM**[/]
+[dim]      stories  cost/st  rounds  loops  Ready→merged[/]      [faint]│[/]   planned             [acc]━━━━━━━━━━━━━━━[/] 21
+[acc]S[/]        14    $1.90     0.4    1.1        1h 05m        [faint]│[/]   worker proposal     [acc]━━━━━━━[/] 9
+[acc]M[/]        19    $5.80     1.2    2.3        4h 40m        [faint]│[/]   reviewer advisory   [acc]━━━━[/] 5
+[sel][acc]L[/]         5   $15.70     [err]2.8[/]    [err]5.0[/]       [err]11h 20m[/]     [/]   [faint]│[/]   quick idea          [acc]━━[/] 2
+                                                         [faint]│[/]   [dim]unknown (before 452)[/][faint]━[/] [dim]1[/]
+[hi]**WHY STORIES PARKED**[/]                                       [faint]│[/]
+budget-exceeded  [acc]━━━━━━━━━━━━[/] 6                          [faint]│[/]
+ambiguous-spec   [acc]━━━━━━━━[/] 4                              [faint]│[/]
+verify-failing   [acc]━━━━━━[/] 3                                [faint]│[/]
+review-blocked   [acc]━━[/] 1                                    [faint]│[/]
+[dim]4 other reasons[/]  [faint]━━[/] [dim]1[/]                                    [faint]│[/]
+                                                         [faint]│[/]
+                                                         [faint]│[/]
+                                                         [faint]│[/]
+                                                         [faint]│[/]
+                                                         [faint]│[/]
+                                                         [faint]│[/]
+                                                         [faint]│[/]
+                                                         [faint]│[/]
+                                                         [faint]│[/]
+                                                         [faint]│[/]
+                                                         [faint]│[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[acc]←→[/] period   [acc]tab[/] tier · type   [acc]⏎[/] stories behind a row   [acc]P[/] discuss in a plan                   [dim][acc]:[/] commands   [acc]?[/] keys[/]

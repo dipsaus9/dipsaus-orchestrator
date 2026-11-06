@@ -1,0 +1,87 @@
+=== S6 Empty Desk · ux-spec mock 16 · 112 cols × 8 rows ===
+[dim]1 Desk 0    2 Floor 2    3 Queue 0·6    4 Retro[/]
+
+
+    [ok]✓[/] [hi]Nothing needs you.[/]
+
+      The team is on it: 1 running, 1 in review.
+
+      [acc]2[/] watch the floor
+=== S6 Daemon stopped · ux-spec mock 17 · 112 cols × 9 rows ===
+[acc]dipo[/][dim] / [/]dipsaus-orchestrator                                                                     [err]✗ daemon stopped[/]
+
+
+    [err]✗[/] [hi]The office manager isn't running.[/]
+
+      No work is lost. Boxes pause until it's back.
+[dim]      Last seen 10:12 · exit 1 · port 4319 in use[/]
+
+      [acc]r[/] restart daemon    [acc]l[/] open its log
+=== S8 Offline, view frozen (body in shade) · ux-spec mock 25 · 112 cols × 13 rows ===
+[acc]dipo[/][dim] / [/]dipsaus-orchestrator                                                  [err]✗ offline since 13:40 · view frozen[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[shade]NEEDS YOU                                  6[/]
+[shade]  ! plan limit reached                   1h[/]
+[shade]  ? DIPO-450 keep the ordinal?           12m[/]
+[shade]  ○ DIPO-446 Planning tools…              8m[/]
+
+  [err]✗[/] [hi]Lost the daemon. Reconnecting every 2 s…[/]
+[dim]    What you see is from 13:40. Actions are off.[/]
+[dim]    The daemon keeps working if it’s still up.[/]
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[dim]↑↓ move   ⏎ read   [acc]q q[/] quit   [err]actions off while offline[/][/]
+=== S8 Recovering: database unavailable · ux-spec mock 26 · 112 cols × 12 rows ===
+[acc]dipo[/][dim] / [/]dipsaus-orchestrator                                                                  [acc]◌ daemon recovering[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  [acc]![/] [hi]Database unavailable[/]
+
+[dim]    reason  [/]migration 0004 failed: disk full
+[dim]    backup  [/]dipo.db.2026-11-06T09-12.bak
+
+[dim]    Stories and code are safe: they live in git.[/]
+[dim]    Only run history is at stake.[/]
+
+    [acc]l[/] open daemon log   [acc]c[/] copy the restore command
+[dim]    $ dipo daemon logs[/]
+=== S7 Pending action, then the result in place · ux-spec mock 22 · 112 cols × 11 rows ===
+[dim]PROPOSAL[/]
+[sel][acc]▌[/] [dim]◌[/] [dim]CLI verbs for planning[/]                                                                            [dim]accepting…[/][/]
+
+[dim]then, when the stream passes the reply cursor:[/]
+  [ok]✓[/] accepted · draft-31 in backlog PR #612
+
+[dim]or, when it fails:[/]
+  [err]✗[/] accept failed: lane.waiting · no remote
+    [dim]push access to origin failed · [/][acc]^R[/][dim] retry[/]
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[dim]footer: ^R retry · ↑↓ move · y accept · n dismiss[/]
+=== S7 Discard (D): red border, typed id · ux-spec mock 23 · 112 cols × 15 rows ===
+[err]┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐[/]
+[err]│[/]  [err]✗ [/][hi]**Discard DIPO-447?**[/]                                                                                         [err]│[/]
+[err]│[/]                                                                                                              [err]│[/]
+[err]│[/]  This ends the run, deletes the branch and                                                                   [err]│[/]
+[err]│[/]  returns the story to Refined. It can’t be undone.                                                           [err]│[/]
+[err]│[/]                                                                                                              [err]│[/]
+[err]│[/]  [dim]Lost: 3 commits not on main[/]                                                                                 [err]│[/]
+[err]│[/]  [dim]  a1f9e20 [/]Read-only planning box                                                                            [err]│[/]
+[err]│[/]  [dim]  7c03b5d [/]Turn-by-turn session protocol                                                                     [err]│[/]
+[err]│[/]  [dim]  e88d412 [/]Bypass tests for the planner role                                                                 [err]│[/]
+[err]│[/]                                                                                                              [err]│[/]
+[err]│[/]  [dim]note  [/]Wrong approach, replan as two stories                                                                 [err]│[/]
+[err]│[/]  [dim]type  [/][hi]DIPO-44[/][acc]▍[/][dim]   to confirm[/]                                                                                 [err]│[/]
+[err]└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘[/]
+[dim][acc]⏎[/] discard (when the id matches)   [acc]esc[/] keep it[/]
+=== S7 Drop (X): acc border, red once the branch box is ticked · ux-spec mock 24 · 112 cols × 12 rows ===
+[acc]┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐[/]
+[acc]│[/]  [acc]! [/][hi]**Drop DIPO-288 from the backlog?**[/]                                                                           [acc]│[/]
+[acc]│[/]                                                                                                              [acc]│[/]
+[acc]│[/]  Archives the story and releases its claim.                                                                  [acc]│[/]
+[acc]│[/]                                                                                                              [acc]│[/]
+[acc]│[/]  [acc][ ][/] also delete its branch [dim](space)[/]                                                                          [acc]│[/]
+[acc]│[/]  [dim]    keeps 1 commit if left unticked[/]                                                                         [acc]│[/]
+[acc]│[/]                                                                                                              [acc]│[/]
+[acc]└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘[/]
+[dim][acc]y[/] drop   [acc]space[/] toggle branch   [acc]esc[/] keep it[/]
+
+[dim]Ticking the box turns the border red and asks for the id, like discard.[/]

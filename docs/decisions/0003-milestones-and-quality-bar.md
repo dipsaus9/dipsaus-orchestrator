@@ -15,7 +15,7 @@ This is a long-lived project, not a proof of concept.
 
 The project grew to about 137k source lines in 15 days, with up to 40 amendments per ADR. These rules keep that from happening again.
 
-1. **Build at the milestone, not before.** Code for a later milestone, or infrastructure no current flow uses, is not built. Ideas for later go into the milestone list below, not into the code.
+1. **Build at the milestone, not before.** Code for a milestone that has not started, or infrastructure no current flow uses, is not built. Ideas for later go into the milestone list below, not into the code.
 2. **Delete before adding.** A story that fixes a gap names the mechanism it replaces and removes it. A story that only adds a mechanism beside an existing one for the same goal fails review.
 3. **One mechanism per goal** (0001). Before a new state, vocabulary, table, config key or command is added, the story shows that no existing one serves the goal.
 4. **ADRs describe what runs.** A changed decision rewrites the ADR body in the PR that makes the change, and the maintainer approves the wording there (0002). The ADR keeps a short "Replaced" list, one line per earlier decision and why it went. There is no amendment log; git keeps the history.
@@ -30,6 +30,7 @@ The project grew to about 137k source lines in 15 days, with up to 40 amendments
 - **M3, rituals.** A planning session in the TUI: the maintainer talks with Claude in a read-only box, which plans new work, refines stories and triages drafts, and dipo's code files what the maintainer confirms, with a proposed tier per story (0022). Every incoming idea becomes a draft. A retro view shows park reasons, rounds, cost and time, and where stories came from.
 - **M4, roster.** Roles as stored definitions, hiring, a role chosen per story, non-code roles, and the skills and plugins each role brings to its sessions.
 - **M5, conversation.** A conversation layer that maps the maintainer's words to commands, with confirmation.
+- **M6, TUI v2.** The TUI restyled to the maintainer's design in `docs/design/tui-v2/`: colour roles, one frame, one action registry, quieter main screens, the Desk with a preview, one pipeline line per story, the run stream as a table, the story reader, a command palette, the Plan view and the Retro room. It runs alongside M3 to M5: next up offers its stories after those of earlier milestones (0010), and the maintainer may start one at any time.
 
 Until M3, stories are written by hand through the Backlog CLI to the 0012 standard. Until M4 there is one developer role plus the reviewer.
 
@@ -45,7 +46,7 @@ Until M3, stories are written by hand through the Backlog CLI to the 0012 standa
 
 ## Current state
 
-M0, M1 and M2 are done. M3 is next. How this repository is built is in 0002.
+M0, M1 and M2 are done. M3 is next, and M6 runs alongside it. How this repository is built is in 0002.
 
 ## Rationale
 
