@@ -356,7 +356,8 @@
                       "dependency",
                       "collision",
                       "capacity",
-                      "pickupCheckFailed"
+                      "pickupCheckFailed",
+                      "starting"
                     ]
                   },
                   {
@@ -962,7 +963,8 @@
                       "dependency",
                       "collision",
                       "capacity",
-                      "pickupCheckFailed"
+                      "pickupCheckFailed",
+                      "starting"
                     ]
                   },
                   {

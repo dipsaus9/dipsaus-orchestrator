@@ -26,11 +26,11 @@
 // - `Places.drain` starts the waiting sessions in start order while slots are free, each through
 //   the starter of its kind after claiming its place in one transaction (`claimPlace`). It runs
 //   after each worker exit decision, at office load, and every minute while anything waits.
-// - Pickups that are starting (DIPO-314). `work.run`'s serialized step ends once its claim row is
-//   committed, so its box preparation, install and launch run outside it; from that commit until
-//   its run row is in, the pickup holds a slot here (`reservePickup`, in memory), so no drain,
-//   resume or other pickup takes it meanwhile. Its release drains the office, so what waited
-//   starts when the pickup did not.
+// - Pickups that are starting (DIPO-314, DIPO-456). `work.run` decides its starts in one
+//   synchronous command and answers; from that decision until its run row is in, each start holds
+//   a slot here (`reservePickup`, in memory), so no drain, resume or other pickup takes it while its
+//   claim, box preparation, install and launch run. Its release drains the office, so what waited
+//   starts when the pickup did not. A drain checks the slot again right before it takes a place.
 
 import type { Clock, OfficeId, RunId, TimerHandle, WorkRef } from "@dipsaus-orchestrator/contract";
 
@@ -444,8 +444,9 @@ export class Places {
 
   /**
    * Runs `fn` once every drain and every earlier serialized step of the office finished, and before
-   * any later one starts (DIPO-208). A step that decides on or takes a worker place runs here, so a
-   * queued start and a new pickup cannot both take it. A step must never await `drain` or
+   * any later one starts (DIPO-208). A step that decides on or takes a worker place runs here, so
+   * two queued starts cannot both take it; a new pickup decides synchronously and holds its slot
+   * through `reservePickup` (DIPO-456). A step must never await `drain` or
    * `serialized` of the same office: it would wait on itself. Fire a drain with `void` instead.
    */
   serialized<T>(officeId: OfficeId, fn: () => Promise<T>): Promise<T> {
@@ -526,6 +527,8 @@ export class Places {
       if (await this.#parkedForCaps(office, run, first)) continue;
       // The office's starts paused: the session keeps waiting (0020).
       if (this.#deps.startsPaused?.(officeId) != null) break;
+      // A pickup decided while the caps were checked may hold the slot now (DIPO-456).
+      if (this.#slotTaken(officeId, office, first) !== null) continue;
       const claimedAt = this.#deps.clock.now();
       office.immediate(() => claimPlace(office, run.runId, claimedAt));
       let ok = false;

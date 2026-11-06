@@ -300,9 +300,12 @@ function discardOf(core: Core, story: StoryServices, runs: EngineRuns): StoryDis
 }
 
 /**
- * `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the story
- * index, the run profile, office init's statuses check, the claims, the Ready gate and the
- * planning lane; a run slot is decided and taken in the places' serialized steps (DIPO-208).
+ * `work.run` (DIPO-48, DIPO-456): decides at once from the base as last read and answers, then
+ * claims each started story and records its run, through the story index, the run profile, office
+ * init's statuses check, the claims, the Ready gate and the planning lane; a decided start holds
+ * its slot in the places. The base it decides from is read again after every change of an office
+ * whose story index read a new base commit, and the start after the answer counts as the daemon's
+ * pending work.
  */
 function workRunOf(
   core: Core,
@@ -310,10 +313,17 @@ function workRunOf(
   runs: EngineRuns,
   runProfiles: RunProfiles,
 ): WorkRun {
-  return new WorkRun({
+  const logger = core.logger.child({ component: "work-run" });
+  const index = story.storyIndex;
+  const workRun = new WorkRun({
     offices: core.offices,
     base: story.runBase,
-    stories: story.storyIndex,
+    stories: {
+      indexStories: (office) => index.indexStories(office),
+      refreshStory: (office, key) => index.refreshStory(office, key),
+      baseSha: (office) => index.lastPass(office)?.sha ?? null,
+      refresh: (office) => index.refresh(office),
+    },
     profiles: runProfiles,
     statuses: (office) => story.officeInit.officeStatusesReady(office),
     startsPaused: (office) => runs.startsPaused.state(office),
@@ -322,7 +332,12 @@ function workRunOf(
     lane: (office) => story.lane.planning(office),
     launcher: runs.launcher,
     places: runs.places,
+    onChanged: core.onChanged,
+    beginWork: () => core.lifecycle.beginWork(),
+    warn: (message, fields) => logger.warn(message, fields),
   });
+  core.changes.listen((office) => workRun.baseChanged(office));
+  return workRun;
 }
 
 /**
@@ -339,6 +354,7 @@ function nextUpOf(core: Core, story: StoryServices, runs: EngineRuns, workRun: W
     startsPaused: (office) => runs.startsPaused.state(office),
     scheduling: () => core.lifecycle.state === "running",
     start: (ctx, key) => workRun.run(ctx, { stories: [key] }),
+    starting: (office) => workRun.starting(office),
     changedFiles: gitChangedFiles({ git: core.gitOf, stories: core.stories }),
     branchTips: gitBranchTips(core.gitOf),
     onChanged: core.onChanged,

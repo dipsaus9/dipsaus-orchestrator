@@ -105,7 +105,7 @@ export interface RequestOptions {
   /**
    * How long the request may wait for its reply once sent. Past it the connection is taken as
    * hung: the client closes it, reconnects and sends the request again with its `requestId`
-   * (DIPO-52). None by default, since a command such as `work.run` may wait minutes.
+   * (DIPO-52). None by default, since a waiting command such as `story.park` may take minutes.
    */
   readonly deadlineMs?: number;
 }

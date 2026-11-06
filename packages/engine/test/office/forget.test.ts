@@ -14,6 +14,7 @@ import type { FeatureModule } from "../../src/commands/registry";
 import { WorkRun, type WorkRunDeps } from "../../src/run";
 import { insertRun } from "../../src/records";
 import { insertClaim } from "../../src/worktree/records";
+import { deleteRunStart, insertRunStart } from "../../src/records/run-starts";
 import {
   BACKLOG_FIXTURE,
   errorOf,
@@ -209,6 +210,41 @@ describe("office.forget and runs (DIPO-48)", () => {
             "update claims set released_at = 1, release_reason = 'done' where office_id = $office_id",
           ),
         );
+        resultOf(await send(s, "office.forget", { office }));
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
+  it("fails with office.busy while a start work.run decided has no run row yet (DIPO-456)", async () => {
+    await withTempRepo(
+      async (repo) => {
+        const s = await officeSetup(repo.root, {
+          features: [new WorkRun({} as WorkRunDeps).feature],
+        });
+        const office = await openOffice(s, repo.dir);
+        // Loaded first: the load clears the starts a restart cut short.
+        const loaded = await s.manager.load(office);
+        expect(loaded.ok).toBe(true);
+        const handle = s.state.office(office);
+        const runId = RunId.parse(s.ids.next("run"));
+        handle.immediate(() =>
+          insertRunStart(handle, {
+            runId,
+            key: StoryKey.parse(s.ids.next("sto")),
+            story: "TASK-1",
+            agent: s.ids.next("agt"),
+            tier: "S",
+            model: "haiku",
+            loopCap: 3,
+            startedAt: 0,
+          }),
+        );
+        const reply = await send(s, "office.forget", { office });
+        expect(errorOf(reply)).toBe("office.busy");
+        expect(!reply.ok && reply.error.details).toEqual({ office, check: "runs" });
+        // Its end, or its run row, ends the activity.
+        handle.immediate(() => deleteRunStart(handle, runId));
         resultOf(await send(s, "office.forget", { office }));
       },
       { fixture: BACKLOG_FIXTURE },

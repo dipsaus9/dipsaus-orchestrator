@@ -82,7 +82,7 @@ describe("open enums", () => {
   const cases = [
     { name: "Tier", schema: Tier, known: KNOWN_TIERS, size: 3 },
     { name: "ParkReason", schema: ParkReason, known: KNOWN_PARK_REASONS, size: 8 },
-    { name: "SkipReason", schema: SkipReason, known: KNOWN_SKIP_REASONS, size: 7 },
+    { name: "SkipReason", schema: SkipReason, known: KNOWN_SKIP_REASONS, size: 8 },
     { name: "Phase", schema: Phase, known: KNOWN_PHASES, size: 5 },
     { name: "WatchdogSignal", schema: WatchdogSignal, known: KNOWN_WATCHDOG_SIGNALS, size: 3 },
     { name: "Health", schema: Health, known: KNOWN_HEALTH, size: 5 },

@@ -61,7 +61,8 @@ export type ParkReason = z.infer<typeof ParkReason>;
 // Why `work.run` did not start a story (0005). `notRunnable` covers states run never
 // picks; `capacity` means the office runs as many stories as `caps.parallelRuns` allows, or a run
 // without named stories started its one story. The office's starts paused
-// (0020) refuses the whole `work.run` instead of skipping a story.
+// (0020) refuses the whole `work.run` instead of skipping a story. `starting` means an earlier
+// `work.run` already decided to start the story and its claim and box are under way (DIPO-456).
 export const KNOWN_SKIP_REASONS = [
   "parked",
   "notReady",
@@ -70,6 +71,7 @@ export const KNOWN_SKIP_REASONS = [
   "collision",
   "capacity",
   "pickupCheckFailed",
+  "starting",
 ] as const;
 export const SkipReason = openEnum(KNOWN_SKIP_REASONS);
 export type SkipReason = z.infer<typeof SkipReason>;

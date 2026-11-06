@@ -32,6 +32,7 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   backlog_mirror: kept("overwritten in place"),
   planning_records: aged("no entry of its session since retention.days ago"),
   next_up_declines: kept("one row per story, replaced at its next decline"),
+  run_starts: kept("removed with its run row or its start's end, and at office load"),
   worker_notes: kept("removed when the claim ends"),
   prompt_parts: aged("recorded more than retention.days ago, once no agent of the run is running"),
   prompt_texts: aged("recorded more than retention.days ago"),

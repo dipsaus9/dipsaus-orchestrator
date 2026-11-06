@@ -11,7 +11,13 @@
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Clock, IdPrefix, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
+import type {
+  Clock,
+  CommandReply,
+  IdPrefix,
+  OfficeId,
+  RunId,
+} from "@dipsaus-orchestrator/contract";
 import {
   fakeSpawn,
   ManualClock,
@@ -86,6 +92,20 @@ import { backlogStoryStore } from "../../src/backlog/store";
 import { backlogLayout } from "../story-store/backlog";
 
 export const CLAUDE = "/opt/claude/bin/claude";
+
+/**
+ * Sends `work.run` through `execute` on the base as read, and waits for the starts it decided: it
+ * answers at its decision, and the claim and the launch run after (DIPO-456).
+ */
+export async function runWork(
+  r: Pick<Running, "workRun" | "officeId">,
+  execute: () => Promise<CommandReply>,
+): Promise<CommandReply> {
+  await r.workRun.refreshBase(r.officeId);
+  const reply = await execute();
+  await r.workRun.settled();
+  return reply;
+}
 export const BRANCH = "TASK-1/add-the-csv-export-command";
 
 /** The body dipo gives a part commit, so the run's parts are counted (`box/parts.ts`). */
@@ -110,6 +130,8 @@ const ctxOf = (paths: RunLaunchPaths) =>
 
 export interface Running {
   readonly repo: TempRepoWithRemote;
+  /** `work.run`, for its base pass and the starts after its answer (DIPO-456). */
+  readonly workRun: WorkRun;
   readonly s: OfficeSetup;
   readonly officeId: OfficeId;
   readonly office: OfficeHandle;
@@ -611,6 +633,7 @@ export async function withRunOffice(
         if (!access.ok) throw new Error(`${access.error.code}: ${access.error.message}`);
         await fn({
           repo,
+          workRun,
           s,
           officeId,
           office: access.office,
