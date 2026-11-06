@@ -3,10 +3,10 @@ id: DIPO-457
 title: >-
   TUI v2 foundations: colour roles, one frame, one action registry and a
   multi-line input
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-11-06 14:11'
-updated_date: '2026-11-06 15:47'
+updated_date: '2026-11-06 16:15'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -71,7 +71,10 @@ Design: docs/design/tui-v2/ (spec.md, screens/, keymap.json, roles.json, migrati
 
 ```dipo
 branch: "DIPO-457/tui-v2-foundations"
-unknowns: []
+unknowns:
+  - q: "Please merge current main (with DIPO-456's queue test) into my box so I can see and fix the failing test. Or paste that test's body and the CI frame it printed."
+    status: "resolved"
+    answer: "The failing test is DIPO-456's in packages/tui/src/queue.test.tsx: 'u runs stories > shows the decision at once and the story in setup from it: the answer's cursor is the decision's own entry (DIPO-456)'. It waits for a frame containing \"> READY (2)\" (the old focus marker and heading), which your Frame and focus-bar change no longer draws. Merge origin/main into the branch (the PR also conflicts with main now), keep DIPO-456's test and its intent (the answer's cursor is the decision's own entry, the story shows in setup), and update only its frame expectations to the new rendering (the ▌ focus bar and the new Queue heading). Run DIPO_TEST_CI=1 bun run verify before you push."
 test_plan:
   entries:
     - kind: "automated"
@@ -83,10 +86,6 @@ test_plan:
     - kind: "manual"
       check: "Open the TUI in a dark and a light terminal, once with NO_COLOR=1, next to designs/dipo-ux-spec.html S10 (Tweaks: dark/light, truecolor/ansi16)"
       expect: "Each terminal matches the HTML preview side by side: same roles, the focus row on sel, and under NO_COLOR only ▌ marks it"
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "Please merge current main (with DIPO-456's queue test) into my box so I can see and fix the failing test. Or paste that test's body and the CI frame it printed."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -113,6 +112,8 @@ Parked 2026-11-06 15:47 UTC: ambiguous-spec
 - Review rounds: 2, failed 1 of 3
 - Budget used: 254,313 of 800,000 tokens; 94 of 200 turns; 18 of 90 minutes
 - Last good commit: 15233fc3268030953ab7fafc8ab510fa78c17a48
+
+Resumed 2026-11-06 16:15 UTC; grants: none; note: The failing test is DIPO-456's in packages/tui/src/queue.test.tsx: 'u runs stories > shows the decision at once and the story in setup from it: the answer's cursor is the decision's own entry (DIPO-4…
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
