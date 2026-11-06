@@ -3,10 +3,10 @@ id: DIPO-447
 title: >-
   Run a planning session with Claude in a read-only box that I talk to turn by
   turn
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 09:53'
+updated_date: '2026-11-06 12:04'
 labels:
   - 'tier:L'
 milestone: m-3
@@ -26,6 +26,56 @@ references:
   - packages/contract/src/office.ts
   - docs/decisions/0008-worker-adapter.md
   - docs/decisions/0002-review-and-testing.md
+modified_files:
+  - docs/decisions/0002-review-and-testing.md
+  - docs/decisions/0008-worker-adapter.md
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/src/errors.ts
+  - packages/contract/src/index.test.ts
+  - packages/contract/src/office.ts
+  - packages/contract/src/work.test.ts
+  - packages/contract/src/work.ts
+  - packages/contract/test/fixtures.ts
+  - packages/daemon/test/integration/foreground.ci.test.ts
+  - packages/daemon/test/integration/step-order.test.ts
+  - packages/daemon/test/integration/uncaught-error.ci.test.ts
+  - packages/engine/schema/office.schema.json
+  - packages/engine/src/box/model-proxy.ts
+  - packages/engine/src/box/review-box.ts
+  - packages/engine/src/box/workers.ts
+  - packages/engine/src/config/schema.ts
+  - packages/engine/src/create/commands.ts
+  - packages/engine/src/create/compose.ts
+  - packages/engine/src/create/create-engine.ts
+  - packages/engine/src/create/runs.ts
+  - packages/engine/src/create/steps.ts
+  - packages/engine/src/ingest/ingestor.ts
+  - packages/engine/src/ingest/pending.ts
+  - packages/engine/src/prompts/contract/planning-box.md
+  - packages/engine/src/prompts/roles/planner.md
+  - packages/engine/src/prompts/task/planning.md
+  - packages/engine/src/prompts/templates.ts
+  - packages/engine/src/records/caps.ts
+  - packages/engine/src/records/proxied-usage.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/run/watchdog.ts
+  - packages/engine/src/workers/claude-cli/adapter.ts
+  - packages/engine/src/workers/claude-cli/box-plan.ts
+  - packages/engine/src/workers/claude-cli/interpret.ts
+  - packages/engine/src/workers/claude-cli/plan.ts
+  - packages/engine/src/workers/claude-cli/result.ts
+  - packages/engine/src/workers/claude-cli/tools.ts
+  - packages/engine/src/workers/types.ts
+  - packages/engine/test/box/workers.test.ts
+  - packages/engine/test/config/load.test.ts
+  - packages/engine/test/config/schema.test.ts
+  - packages/engine/test/prompts/task.test.ts
+  - packages/engine/test/run/planning-session.ci.test.ts
+  - packages/engine/test/run/planning-session.test.ts
+  - packages/engine/test/run/planning-world.ts
+  - packages/engine/test/run/reattach.test.ts
+  - packages/engine/test/workers/planning-tools.test.ts
 priority: high
 type: feature
 ordinal: 420000
@@ -71,3 +121,18 @@ test_plan:
 - [x] #9 A fail-closed test against the real path: the real adapter refuses a planning plan that asks for a writing tool, and an unknown session kind gets no tools
 - [x] #10 ADRs 0008 and 0002 name the planning session where they list session kinds, boxes, the model proxy and slots
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-06 12:04 UTC
+- Criteria met: 10 of 10 (as the worker reported them)
+- Loops: 1; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 624,000 of 2,000,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 1 fetches
+- Proposals filed: 4
+<!-- SECTION:FINAL_SUMMARY:END -->
