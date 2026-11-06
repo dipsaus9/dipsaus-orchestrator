@@ -3,15 +3,16 @@ id: DIPO-453
 title: >-
   Show a retro view in the TUI with parks, rounds, cost, time and where stories
   came from
-status: Ready
+status: Refined
 assignee: []
 created_date: '2026-11-05 20:52'
-updated_date: '2026-11-06 07:15'
+updated_date: '2026-11-06 09:37'
 labels:
   - 'tier:M'
 milestone: m-3
 dependencies:
   - DIPO-452
+  - DIPO-454
   - DIPO-443
 references:
   - packages/engine/src/db/migrations/
@@ -59,4 +60,5 @@ test_plan:
 - [ ] #2 A retro view in the TUI shows, per tier and type, park reasons with counts, fix rounds and loops, cost and time from Ready to merged
 - [ ] #3 The view shows where stories came from (planned, worker proposal, reviewer advisory, quick idea, session aside, unknown) and the share of rework by the 14-day file rule
 - [ ] #4 Every number is computed by code from the database with no model call, and a planning session gets them as text
+- [ ] #5 The view shows how many ideas the audit rejected, grouped by reason, and how many proposed stories the maintainer dismissed
 <!-- AC:END -->
