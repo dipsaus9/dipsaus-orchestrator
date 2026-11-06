@@ -1,10 +1,10 @@
 ---
 id: DIPO-451
 title: Set the stories of a planning session Ready on one final confirm
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 14:48'
+updated_date: '2026-11-06 14:56'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -48,9 +48,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 At the end of a session the maintainer chooses which of its stories go Ready, through a command the planning view sends
-- [ ] #2 dipo evaluates the gate against each chosen story's filed content and stores a passing gate decision for it
-- [ ] #3 Stories that pass are set Ready in a second backlog PR that dipo opens, never in the PR that filed them
-- [ ] #4 A story that fails the gate stays Refined, and the view shows the gate's messages
-- [ ] #5 ADR 0012 describes setting Ready from a planning session, with one Replaced line
+- [x] #1 At the end of a session the maintainer chooses which of its stories go Ready, through a command the planning view sends
+- [x] #2 dipo evaluates the gate against each chosen story's filed content and stores a passing gate decision for it
+- [x] #3 Stories that pass are set Ready in a second backlog PR that dipo opens, never in the PR that filed them
+- [x] #4 A story that fails the gate stays Refined, and the view shows the gate's messages
+- [x] #5 ADR 0012 describes setting Ready from a planning session, with one Replaced line
 <!-- AC:END -->
