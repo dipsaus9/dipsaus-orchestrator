@@ -46,6 +46,7 @@ import {
   type PlanningEndReason,
   type PlanningKind,
   planningContinue,
+  planningRecord,
   planningEnd,
   planningMessage,
   planningStart,
@@ -101,6 +102,8 @@ import { Watchdog, type WatchdogTimeouts } from "./watchdog";
 type StartArgs = z.output<typeof planningStart.args>;
 type StartResult = z.input<typeof planningStart.result>;
 type MessageArgs = z.output<typeof planningMessage.args>;
+type RecordArgs = z.output<typeof planningRecord.args>;
+type RecordResult = z.input<typeof planningRecord.result>;
 type MessageResult = z.input<typeof planningMessage.result>;
 type EndResult = z.input<typeof planningEnd.result>;
 
@@ -318,6 +321,10 @@ export class PlanningSessions {
           handle: (ctx, args) => this.message(ctx, args),
         });
         registry.addAsyncOfficeCommand({
+          definition: planningRecord,
+          handle: (ctx, args) => Promise.resolve(this.recordCommand(ctx, args)),
+        });
+        registry.addAsyncOfficeCommand({
           definition: planningEnd,
           handle: (ctx) => this.end(ctx),
         });
@@ -390,6 +397,18 @@ export class PlanningSessions {
     if (open === undefined) throw notOpen("none was started");
     const at = this.#deps.clock.now();
     open.handle.immediate(() => addPlanningEntry(open.handle, open.session, { ...entry, at }));
+  }
+
+  /** `planning.record`: the maintainer's confirmation, stored by `record`. */
+  recordCommand(ctx: AsyncCommandContext, args: RecordArgs): CommandOutcome<RecordResult> {
+    const office = ctx.office.officeId as OfficeId;
+    this.record(office, {
+      kind: args.kind,
+      ...("subject" in args ? { subject: args.subject } : {}),
+      text: args.text,
+    });
+    const run = this.#open.get(office)?.run;
+    return { result: { run: RunId.parse(run), recorded: true }, changed: true };
   }
 
   #refuseWhenOpen(office: OfficeId): void {

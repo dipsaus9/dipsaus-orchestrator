@@ -296,6 +296,10 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
     args: {},
     result: { run: ids.run, view: { ...planningView, state: "working", turns: 0 } },
   },
+  "planning.record": {
+    args: { kind: "choice", subject: "Which tier?", text: "M" },
+    result: { run: ids.run, recorded: true },
+  },
   "planning.end": { args: {}, result: { run: ids.run, ended: "maintainer" } },
 };
 

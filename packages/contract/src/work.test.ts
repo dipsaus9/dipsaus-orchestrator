@@ -247,6 +247,7 @@ describe("office commands and reads", () => {
         "planning.start",
         "planning.continue",
         "planning.message",
+        "planning.record",
         "planning.end",
       ].toSorted(),
     );

@@ -417,6 +417,27 @@ export const planningMessage = defineCommand({
   irreversible: false,
 });
 
+// The maintainer confirms a decision of the open planning session, and code stores it in the
+// session's record (DIPO-448, 0007): a `choice` (`subject` the question, `text` the answer), a
+// `story` filed or edited (`subject` the story id, `text` `filed` or `edited`) or an open
+// `question` (`text`). `planning.notOpen` without a session.
+export const planningRecord = defineCommand({
+  name: "planning.record",
+  level: "office",
+  args: z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("choice"),
+      subject: z.string().trim().min(1),
+      text: z.string().trim().min(1),
+    }),
+    z.object({ kind: z.literal("story"), subject: StoryId, text: z.enum(["filed", "edited"]) }),
+    z.object({ kind: z.literal("question"), text: z.string().trim().min(1) }),
+  ]),
+  result: z.object({ run: RunId, recorded: z.literal(true) }),
+  confirm: false,
+  irreversible: false,
+});
+
 // Ends the open planning session: its worker stops and its box goes (`planning.notOpen` without
 // one). A session that waits for a message longer than `planning.idleHours` ends by itself.
 export const planningEnd = defineCommand({
@@ -1091,6 +1112,7 @@ export const officeCommands = [
   planningStart,
   planningMessage,
   planningContinue,
+  planningRecord,
   planningEnd,
 ] as const;
 

@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { RunId } from "@dipsaus-orchestrator/contract";
+import { RunId, StoryId } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { CommandError } from "../../src/commands/errors";
@@ -47,10 +47,12 @@ async function started(w: PlanningWorld) {
 
 /** Fills the record with one of each entry the maintainer's confirmations write. */
 function fill(w: PlanningWorld) {
-  w.sessions.record(officeOf(w), { kind: "choice", subject: "Which tier?", text: "M" });
-  w.sessions.record(officeOf(w), { kind: "story", subject: "DIPO-501", text: "filed" });
-  w.sessions.record(officeOf(w), { kind: "question", text: "Who owns the retro table?" });
-  w.sessions.record(officeOf(w), { kind: "story", subject: "DIPO-501", text: "edited" });
+  const send = (args: Parameters<PlanningWorld["sessions"]["recordCommand"]>[1]) =>
+    w.sessions.recordCommand(commandContext(w), args);
+  send({ kind: "choice", subject: "Which tier?", text: "M" });
+  send({ kind: "story", subject: StoryId.parse("DIPO-501"), text: "filed" });
+  send({ kind: "question", text: "Who owns the retro table?" });
+  send({ kind: "story", subject: StoryId.parse("DIPO-501"), text: "edited" });
 }
 
 const planningEvents = (w: PlanningWorld, type: string) =>
@@ -233,7 +235,7 @@ describe("the record of a planning session (DIPO-448)", () => {
       ]);
     }));
 
-  it("does not continue a session the maintainer ended, or one whose first start failed", () =>
+  it("does not continue a session the maintainer ended", () =>
     withWorld(async (w) => {
       const { run } = await started(w);
       await w.sessions.end(commandContext(w));
@@ -246,7 +248,6 @@ describe("the record of a planning session (DIPO-448)", () => {
         kind: "ended",
         text: "maintainer",
       });
-      // The same session may not continue while another is open.
     }));
 
   it("refuses to continue while a session is open", () =>

@@ -1452,6 +1452,74 @@
       },
       "required": ["run", "view"]
     },
+    "planning.record.args": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "choice"
+            },
+            "subject": {
+              "type": "string",
+              "minLength": 1
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["kind", "subject", "text"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "story"
+            },
+            "subject": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            },
+            "text": {
+              "type": "string",
+              "enum": ["filed", "edited"]
+            }
+          },
+          "required": ["kind", "subject", "text"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "question"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["kind", "text"]
+        }
+      ]
+    },
+    "planning.record.result": {
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "string",
+          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "recorded": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": ["run", "recorded"]
+    },
     "planning.end.args": {
       "type": "object",
       "properties": {}
