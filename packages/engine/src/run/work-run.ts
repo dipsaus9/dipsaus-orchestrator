@@ -503,9 +503,10 @@ export class WorkRun {
   /** One base pass: the statuses check, the Ready stories on `_base` and their pickup gate. */
   async #readBase(office: OfficeId): Promise<void> {
     const deps = this.#deps;
-    const sha = deps.stories.baseSha?.(office) ?? null;
+    let sha: string | null = null;
     let snapshot: BaseSnapshot;
     try {
+      sha = deps.stories.baseSha?.(office) ?? null;
       const statuses = await deps.statuses(office);
       const read = await deps.base.read(office, null);
       const gates = new Map<string, GateResult>();
@@ -1023,6 +1024,29 @@ export class WorkRun {
    * and why. After its run row is in, only the notice.
    */
   #ended(ctx: AsyncCommandContext, candidate: Candidate, runId: RunId, why: string | null): void {
+    try {
+      this.#endedCommit(ctx, candidate, runId, why);
+    } catch (error) {
+      // The row stays until the next office load clears it; say so.
+      this.#deps.warn?.(
+        "ending a decided start failed; its starting row stays until the office loads again",
+        {
+          office: ctx.office.officeId,
+          run: runId,
+          story: candidate.story,
+          reason: messageOf(error),
+        },
+      );
+      throw error;
+    }
+  }
+
+  #endedCommit(
+    ctx: AsyncCommandContext,
+    candidate: Candidate,
+    runId: RunId,
+    why: string | null,
+  ): void {
     ctx.commit((): NewEntry[] => {
       const entries: NewEntry[] = [];
       if (deleteRunStart(ctx.office, runId)) {
@@ -1542,7 +1566,11 @@ export class WorkRun {
           definition: workPreview,
           handle: (ctx, args) => this.preview(ctx, args),
         });
-        registry.registerActiveWorkCheck(RUNS_CHECK, hasActiveRun);
+        // A start decided and not yet a run is active work too (DIPO-456).
+        registry.registerActiveWorkCheck(
+          RUNS_CHECK,
+          (office) => hasActiveRun(office) || runStarts(office).length > 0,
+        );
       },
     };
   }
