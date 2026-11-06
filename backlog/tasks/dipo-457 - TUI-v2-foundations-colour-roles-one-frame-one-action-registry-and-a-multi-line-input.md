@@ -3,10 +3,10 @@ id: DIPO-457
 title: >-
   TUI v2 foundations: colour roles, one frame, one action registry and a
   multi-line input
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-11-06 14:11'
-updated_date: '2026-11-06 16:19'
+updated_date: '2026-11-06 17:33'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -78,6 +78,9 @@ unknowns:
   - q: "This box has no origin remote and no DIPO-456 test, so I cannot merge main. Please bring the merged branch (story branch plus main, with DIPO-456's queue test) into my box, or paste that test's body and the CI frame it printed. Then I will update only its frame expectations to the ▌ focus bar and the new Queue heading, and run DIPO_TEST_CI=1 bun run verify."
     status: "resolved"
     answer: "dipo cannot give the box a remote; here is what you asked for. CI frame: 'error: no frame contains \"> READY (2)\"' in packages/tui/src/queue.test.tsx. Add this test from main (DIPO-456) to that file, with its intent kept (the answer's cursor is the decision's own entry, the story shows in setup and RUNNING, no 'wait for its reply'), and change only its frame expectations to your rendering (the ▌ focus bar and the new Queue heading). It may need the fake office's 'starting' skip reason and run_starts setup that exist on main; if the test cannot run on your base, leave a note in the done report and dipo's conflict round will merge main. The test on main:\n  it(\"shows the decision at once and the story in setup from it: the answer's cursor is the decision's own entry (DIPO-456)\", async () => {\n    const { ui, session } = await openQueue();\n    // work.run answers at its decision; its one change moves the story out of Ready.\n    session.runReply = () => ({\n      ok: true,\n      result: {\n        started: [{ story: \"DIPO-30\", key: KEY_30, run: \"run_01J9ZK5Q8W3V4X6Y7Z8A9B0R30\" }],\n        skipped: [{ story: \"DIPO-32\", key: \"sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C32\", reason: \"starting\" }],\n      },\n      changed: true,\n      cursor: { stream: STREAM, seq: 9 },\n    });\n    await ui.press(\"j\");\n    await ui.waitFor(\"> READY (2)\");\n    await ui.press(\"u\");\n    await ui.waitFor(\"waiting for the office stream\");\n    const starting = { ...golden(KEY_30), column: \"running\" } as StoryView;\n    session.active(STREAM)?.options.onEvent(storyEvent(9, starting, \"Ready\"));\n    const done = await ui.waitFor(\"run DIPO-30: done\");\n    expect(done).toContain(\"started DIPO-30\");\n    expect(done).toContain(\"skipped DIPO-32: already starting: its claim and box are under way\");\n    expect(done).toContain(\"RUNNING (4)\");\n    expect(done).not.toContain(\"wait for its reply\");\n    // A second u is sent at once: nothing waits for the first start's setup.\n    await ui.press(\"u\");\n    expect(ui.frame()).not.toContain(\"wait for its reply\");\n    expect(session.commands).toHaveLength(2);\n  });"
+  - q: "The DIPO-456 test body was cut off after \"session.ru\" in the answer, so I could not add it. Please send the full test, or let dipo's conflict round merge main to bring it in. Criterion 7 also has no test or hand check: what should prove that the four mocks of 17-themes.txt match the rendering?"
+    status: "resolved"
+    answer: "main is merged into your branch now (commit 73db2499), so DIPO-456's test is in packages/tui/src/queue.test.tsx in your box. Keep its intent; change only its frame expectations (\"> READY (2)\" etc.) to your new rendering. Criterion 7 (matches the HTML preview by eye) is the maintainer's hand test: mark it maintainer, no automated test needed. Run the full verify before you finish."
 test_plan:
   entries:
     - kind: "automated"
@@ -89,10 +92,6 @@ test_plan:
     - kind: "manual"
       check: "Open the TUI in a dark and a light terminal, once with NO_COLOR=1, next to designs/dipo-ux-spec.html S10 (Tweaks: dark/light, truecolor/ansi16)"
       expect: "Each terminal matches the HTML preview side by side: same roles, the focus row on sel, and under NO_COLOR only ▌ marks it"
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "The DIPO-456 test body was cut off after \"session.ru\" in the answer, so I could not add it. Please send the full test, or let dipo's conflict round merge main to bring it in. Criterion 7 also has no test or hand check: what should prove that the four mocks of 17-themes.txt match the rendering?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -141,6 +140,8 @@ Parked 2026-11-06 16:19 UTC: ambiguous-spec
 - Review rounds: 2, failed 1 of 3
 - Budget used: 306,101 of 800,000 tokens; 104 of 200 turns; 20 of 90 minutes
 - Last good commit: 73db24998f09cbaa21a75b5f49d293d459fae8f5
+
+Resumed 2026-11-06 17:33 UTC; grants: none; note: main is merged into your branch now (commit 73db2499), so DIPO-456's test is in packages/tui/src/queue.test.tsx in your box. Keep its intent; change only its frame expectations ("> READY (2)" etc.) t…
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
