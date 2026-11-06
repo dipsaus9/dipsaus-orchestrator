@@ -1,10 +1,10 @@
 ---
 id: DIPO-451
 title: Set the stories of a planning session Ready on one final confirm
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 15:45'
+updated_date: '2026-11-06 15:47'
 labels:
   - 'tier:M'
 milestone: m-3
