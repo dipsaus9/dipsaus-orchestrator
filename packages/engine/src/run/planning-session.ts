@@ -307,16 +307,14 @@ export interface PlanningSessionsDeps {
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
-<<<<<<< 48e9903876706a7b1225edf759f7c87a05444f21
 /** The part of the Ready gate a planning session uses. */
 export type PlanningGate = Pick<GateStore, "recordGateDecision">;
-=======
+
 /** The model session a fresh one continues, and why that one ended. */
 interface Continued {
   readonly previous: RunId;
   readonly reason: PlanningEndReason;
 }
->>>>>>> eb09d8c7ca6da60143d268e990457c5851f0c373
 
 /** One open planning session of this daemon. */
 interface Open {
@@ -682,13 +680,15 @@ export class PlanningSessions {
     }
     // Every story is checked first, so a wrong one changes nothing. A story whose filing PR has
     // not merged has an id but no key yet: it is listed in the record only.
-    const record = handle.deferred(() => planningRecord(handle, open.run));
+    const record = handle.deferred(() => readPlanningRecord(handle, open.session));
     const chosen: { story: string; key: StoryKey | null }[] = [];
     for (const ref of args.stories) {
       const found = handle.deferred(() => resolveStoryRef(handle, ref));
       const inSession = record.some((entry) => {
-        if (entry.story === ref) return true;
-        const other = handle.deferred(() => resolveStoryRef(handle, entry.story));
+        if (entry.kind !== "story" || entry.subject === null) return false;
+        const subject = entry.subject;
+        if (subject === ref) return true;
+        const other = handle.deferred(() => resolveStoryRef(handle, subject));
         return other.ok && found.ok && other.key === found.key;
       });
       if (!inSession) {
