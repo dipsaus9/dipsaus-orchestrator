@@ -87,7 +87,7 @@ describe("u runs stories", () => {
       cursor: { stream: STREAM, seq: 9 },
     });
     await ui.press("j");
-    await ui.waitFor("> READY (2)");
+    await ui.waitFor("▌ READY (2)");
     await ui.press("u");
     await ui.waitFor("waiting for the office stream");
     const starting = { ...golden(KEY_30), column: "running" } as StoryView;

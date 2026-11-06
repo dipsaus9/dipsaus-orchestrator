@@ -77,68 +77,11 @@ export interface Planning {
   readonly selected: number | null;
   /** The number of the proposal whose form the input holds, or null. */
   readonly editing: number | null;
-<<<<<<< 32f659e5da1e0341cf8e4ef3e8b4f74f9a4915e5
-  onKey(input: string, key: Key): void;
-}
-
-=======
   /** True while the input holds the list of stories to set Ready (DIPO-451). */
   readonly readying: boolean;
-  readonly hints: readonly Hint[];
   onKey(input: string, key: Key): void;
 }
 
-const QUIT = 100;
-
-function planningHints(
-  view: PlanningView | null,
-  confirmingEnd: boolean,
-  sending: boolean,
-  form: { readonly editing: number | null; readonly readying: boolean },
-): Hint[] {
-  const { editing, readying } = form;
-  if (confirmingEnd) {
-    return [
-      ["[y] end the session", QUIT],
-      ["[any other key] keep it", 50],
-    ];
-  }
-  if (readying) {
-    return [
-      ["[Ctrl-S] set the stories left Ready", QUIT],
-      ["[Esc] cancel", 85],
-      ...(sending ? ([["sending", 60]] as Hint[]) : []),
-    ];
-  }
-  if (editing !== null) {
-    return [
-      [`[Ctrl-S] save proposal ${editing}`, QUIT],
-      ["[Enter] new line", 90],
-      ["[Esc] cancel the edit", 85],
-      ...(sending ? ([["sending", 60]] as Hint[]) : []),
-    ];
-  }
-  const hints: Hint[] = [
-    [view === null ? "[Ctrl-S] start" : "[Ctrl-S] send", QUIT],
-    ["[Enter] new line", 90],
-  ];
-  if (view === null) hints.push(["[Tab] kind", 80]);
-  else hints.push(["[Ctrl-E] end session", 70]);
-  if ((view?.proposals?.length ?? 0) > 0) {
-    hints.push(
-      ["[Ctrl-Y] confirm", 78],
-      ["[Ctrl-R] edit", 76],
-      ["[Ctrl-G] set Ready", 75],
-      ["[Ctrl-D] decline", 74],
-      ["[Up/Down] proposal", 72],
-    );
-  }
-  if (sending) hints.push(["sending", 60]);
-  hints.push(["[Esc] back", 85]);
-  return hints;
-}
-
->>>>>>> f6a6de3f204aef137bfc56f479ffed3f79cd7ed3
 /** The proposals a decision applies to: open ones, and those the lane could not file. */
 const decidable = (proposal: PlanningProposalView) =>
   proposal.state === "open" || proposal.state === "failed";
@@ -562,11 +505,7 @@ export function usePlanning(args: PlanningArgs): Planning {
     confirmingEnd,
     selected: proposals.selected,
     editing: proposals.editing,
-<<<<<<< 32f659e5da1e0341cf8e4ef3e8b4f74f9a4915e5
-=======
     readying: proposals.readying,
-    hints: planningHints(view, confirmingEnd, sending !== null, proposals),
->>>>>>> f6a6de3f204aef137bfc56f479ffed3f79cd7ed3
     onKey,
   };
 }
@@ -716,16 +655,8 @@ export function PlanningMode(props: PlanningModeProps) {
           "goal (what do you want to plan?):",
         ]
       : [...headLines(view, columns, display), ...refusalLines(view, columns, display)];
-<<<<<<< 32f659e5da1e0341cf8e4ef3e8b4f74f9a4915e5
-  const inputRows = planning.editing === null ? COMPOSER_ROWS : FORM_ROWS;
+  const inputRows = planning.editing === null && !planning.readying ? COMPOSER_ROWS : FORM_ROWS;
   const input = composerRows(planning.draft, columns, inputRows);
-=======
-  const input = inputRows(
-    planning.draft,
-    columns,
-    planning.editing === null && !planning.readying ? INPUT_ROWS : FORM_ROWS,
-  );
->>>>>>> f6a6de3f204aef137bfc56f479ffed3f79cd7ed3
   const confirm = planning.confirmingEnd ? ["End the planning session? [y/N]"] : [];
   // The proposals (DIPO-450) sit between the answers and the input; an edit says which it is.
   const proposals = [
