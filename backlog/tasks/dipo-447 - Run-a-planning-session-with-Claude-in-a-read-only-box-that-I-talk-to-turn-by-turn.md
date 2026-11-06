@@ -3,10 +3,10 @@ id: DIPO-447
 title: >-
   Run a planning session with Claude in a read-only box that I talk to turn by
   turn
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 09:04'
+updated_date: '2026-11-06 09:39'
 labels:
   - 'tier:L'
 milestone: m-3
@@ -60,14 +60,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A planning session starts with a kind (plan, refine or triage) and a goal through a command, and runs Claude in a box set up like the reviewer's: a read-only copy of the base branch's tree with the backlog, no mounts, the box firewall and web proxy, and only reading, search and web tools
-- [ ] #2 The planning model is an office setting with default Opus, the model proxy counts the session's usage with no run cap, and the spend is reported live
-- [ ] #3 An office has at most one open planning session, and it holds no run slot
-- [ ] #4 Each maintainer message, sent by a command, reaches the open session as the next turn, and each answer is streamed as events a client can read, though the session has no story
-- [ ] #5 The session's first message gives it, as text, the open drafts, the desk and recent runs
-- [ ] #6 Waiting for the maintainer never trips the watchdog's quiet or stuck timers or a minute cap; an end command ends the session, and a session idle for a day ends by itself
-- [ ] #7 The old barrier still catches what it caught: the review and session tool sets and the reviewer's box are unchanged, with tests
-- [ ] #8 Bypass forms are tested: Bash, Edit or Write asked for through tool-name case or an alias, an extra MCP server, and allowed-tools text injected through the goal
-- [ ] #9 A fail-closed test against the real path: the real adapter refuses a planning plan that asks for a writing tool, and an unknown session kind gets no tools
-- [ ] #10 ADRs 0008 and 0002 name the planning session where they list session kinds, boxes, the model proxy and slots
+- [x] #1 A planning session starts with a kind (plan, refine or triage) and a goal through a command, and runs Claude in a box set up like the reviewer's: a read-only copy of the base branch's tree with the backlog, no mounts, the box firewall and web proxy, and only reading, search and web tools
+- [x] #2 The planning model is an office setting with default Opus, the model proxy counts the session's usage with no run cap, and the spend is reported live
+- [x] #3 An office has at most one open planning session, and it holds no run slot
+- [x] #4 Each maintainer message, sent by a command, reaches the open session as the next turn, and each answer is streamed as events a client can read, though the session has no story
+- [x] #5 The session's first message gives it, as text, the open drafts, the desk and recent runs
+- [x] #6 Waiting for the maintainer never trips the watchdog's quiet or stuck timers or a minute cap; an end command ends the session, and a session idle for a day ends by itself
+- [x] #7 The old barrier still catches what it caught: the review and session tool sets and the reviewer's box are unchanged, with tests
+- [x] #8 Bypass forms are tested: Bash, Edit or Write asked for through tool-name case or an alias, an extra MCP server, and allowed-tools text injected through the goal
+- [x] #9 A fail-closed test against the real path: the real adapter refuses a planning plan that asks for a writing tool, and an unknown session kind gets no tools
+- [x] #10 ADRs 0008 and 0002 name the planning session where they list session kinds, boxes, the model proxy and slots
 <!-- AC:END -->
