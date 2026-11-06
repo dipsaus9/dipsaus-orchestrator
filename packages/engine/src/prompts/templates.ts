@@ -190,6 +190,8 @@ export const PROMPT_TAGS: readonly string[] = [
   "desk",
   "recent_runs",
   "copy",
+  // DIPO-450: the proposal schema of a planning session's first message.
+  "proposal_schema",
 ];
 
 // Whitespace around the slash is allowed, so `</ criteria>` and `< /criteria>` are caught too.

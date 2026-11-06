@@ -1,8 +1,9 @@
 // The planning lane of one office as the StoryStore seam offers it (0010, `PlanningLane`): each
 // change the engine asks for becomes a journaled operation of its kind with its target state, and
 // the reads answer from the journal. `story.park` and `story.drop` (DIPO-160), `work.resume` of a
-// hold, `work.discard` (DIPO-161), the pickup check's move to Refined (DIPO-48) and an accepted
-// proposal (DIPO-166) reach the lane only through it.
+// hold, `work.discard` (DIPO-161), the pickup check's move to Refined (DIPO-48), an accepted
+// proposal (DIPO-166) and the stories a planning session files and edits (DIPO-450) reach the lane
+// only through it.
 
 import type { LaneFlush, StoryKey } from "@dipsaus-orchestrator/contract";
 
@@ -12,11 +13,14 @@ import {
   DISCARD_KIND,
   DROP_KIND,
   EDIT_KIND,
+  FILE_KIND,
   HOLD_KIND,
   OPEN_STATES,
   PROPOSE_KIND,
   RESUME_KIND,
+  REVISE_KIND,
   type PlannedChange,
+  type PlannedOutcome,
   type PlanningLane,
 } from "../../story-store/planning";
 
@@ -28,7 +32,7 @@ import {
   type LaneOp,
   updateEntry,
 } from "./journal";
-import { type FlushReport, LaneFlushError, type OfficeLane } from "./lane";
+import { ALREADY_ON_BRANCH, type FlushReport, LaneFlushError, type OfficeLane } from "./lane";
 import { proposeTarget } from "./propose";
 
 /** The Backlog.md statuses a hold applies from; `To Do` is what office init migrates to Refined. */
@@ -43,6 +47,9 @@ export const DISCARDABLE_STATUSES = [
   "Refined",
   "To Do",
 ];
+
+/** The subject of a filing's commit, `backlog: file a new story` (DIPO-450). */
+export const NEW_STORY = "a new story";
 
 /** The status a failed pickup check moves a story from, and to. */
 const READY_STATUS = "Ready";
@@ -131,6 +138,20 @@ function flushOf(
   return { state: before.has(branch) ? "updated" : "opened", branch, pr };
 }
 
+/** How far a journaled change got, as `PlanningLane.outcomeOf` says it (DIPO-450). */
+function outcomeOfEntry(entry: JournalEntry): PlannedOutcome {
+  const { state, notice } = entry;
+  if (state === "pending" || state === "applied") return { outcome: "waiting", notice };
+  if (state === "committed" || state === "pushed" || state === "merged") {
+    return { outcome: "applied", notice };
+  }
+  // Dropped because the open branch holds its target state already: what it asks for holds.
+  if (state === "dropped" && notice?.startsWith(ALREADY_ON_BRANCH) === true) {
+    return { outcome: "applied", notice };
+  }
+  return { outcome: "closed", notice };
+}
+
 /** The office's `PlanningLane` on its `OfficeLane`. */
 export function planningLane(lane: OfficeLane): PlanningLane {
   const open = (key: StoryKey, kind: string): JournalEntry | undefined =>
@@ -175,6 +196,14 @@ export function planningLane(lane: OfficeLane): PlanningLane {
         subject,
         target: proposeTarget(draft),
       }),
+    // A new story has no id until the lane created it, so its commit names it as a new story.
+    fileStory: (target) => lane.journal({ kind: FILE_KIND, subject: NEW_STORY, target }),
+    reviseStory: ({ key, story }, target) =>
+      lane.journal({ kind: REVISE_KIND, key, subject: story, target }),
+    outcomeOf(change) {
+      const entry = findEntry(lane.office, change.opId);
+      return entry === null ? undefined : outcomeOfEntry(entry);
+    },
     failedHold(key) {
       const failed = failedHold(lane.office, key);
       if (failed === null) return undefined;

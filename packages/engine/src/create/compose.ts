@@ -129,6 +129,8 @@ export interface RunPorts {
   readonly planningBoxes?: Pick<BoxWorkers, "planning" | "endPlanning">;
   /** The office's desk, for a planning session's first message (DIPO-447). */
   readonly planningDesk?: PlanningSessionsDeps["desk"];
+  /** The office's planning lane, which files what the maintainer confirms (DIPO-450). */
+  readonly planningLane?: PlanningSessionsDeps["lane"];
   /**
    * Copies into a run's box the merges dipo committed on its branch outside the box, before its
    * next developer session (DIPO-324); a failure parks the story instead of starting the worker.
@@ -700,6 +702,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
       tmpRoot: ports.tmpRoot,
       ...given("boxes", ports.planningBoxes),
       ...given("desk", ports.planningDesk),
+      ...given("lane", ports.planningLane),
       ...given("tempOwner", ports.tempOwner),
       ...given("onChanged", ports.onChanged),
       ...given("warn", ports.warn),

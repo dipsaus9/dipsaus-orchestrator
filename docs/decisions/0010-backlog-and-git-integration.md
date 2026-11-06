@@ -30,7 +30,7 @@ Every backlog change is a commit in a pull request, so it reaches a protected ba
 
 Each edit runs the CLI in a fresh folder of dipo's own. The folder holds only the Backlog configuration from the base and the story's task file as committed at the branch tip, both read from git objects. dipo then commits the changed task file alone with `commit-tree`, as `<ID>: status <state>`, and pushes. These commits change no code and need no verify. A story branch may change no other `backlog/` file. Because the base shows a story's lifecycle only when its PR merges, `Done` and "merged" happen together.
 
-**The planning lane.** Changes that belong to no story PR go on an engine branch `dipo/backlog-<UTC time>`: office init, park and resume of a story that has no run, drop, accepted proposals, and later the M3 rituals.
+**The planning lane.** Changes that belong to no story PR go on an engine branch `dipo/backlog-<UTC time>`: office init, park and resume of a story that has no run, drop, accepted proposals, the stories a planning session files and edits (0022), and the other M3 rituals.
 
 - **Journaled.** Each operation is a target-state entry in the database journal: `pending`, `applied`, `committed`, `pushed`, `merged`, `dropped`, `withdrawn`, or `failed`. It is applied through the CLI in the `_backlog` worktree and committed as `backlog: <op> <ID>`. When the CLI exits with a code other than 0 on an operation, or what it wrote does not read back, that operation is closed as `failed` with a notice, and the operations after it go on. A killed, timed-out or unstarted CLI, a refused file or a git error still fails the whole flush, and its operations stay journaled.
 - **One PR per office.** dipo pushes the branch and opens or updates one backlog-only PR. Later operations append to it until it merges, so many stories can change in one bulk PR.
@@ -44,6 +44,9 @@ Each edit runs the CLI in a fresh folder of dipo's own. The folder holds only th
 - **Merged by GitHub.** When the check passes, dipo runs `gh pr merge --auto --squash`, as for story PRs (0002). When the maintainer merges by hand, the check runs again afterwards, and on a failure `work.run` skips the affected stories, with a notice, until a new backlog PR fixes them.
 - **A pending operation wins over pickup.** `work.run` skips any story with an unmerged journaled operation. A park on a Ready story takes effect the moment it is journaled. A park whose operation `failed` still holds its story from pickup until the maintainer sends the park again and it is written, drops or discards the story, or dismisses the park with `dipo resume`, whatever the story's status; retention keeps it while it holds.
 - **Rebuild, never force.** When the base moves under the open branch and the changes conflict, dipo resets `_backlog` to the base and applies the unmerged operations again. An operation that no longer applies is dropped with a notice. A rebuilt branch gets a new name and its old PR is closed.
+- **Filing and editing stories.** What the maintainer confirms in a planning session (0022) reaches the lane as two operations, each a target state read back after it is applied.
+  - `file` creates a story Refined to the story standard (0012): `task create` with the title, the description (the `Story:` line and the context below it), the status `Refined`, the type, the milestone, the label `tier:<t>`, the criteria, the references and the dependencies, then the field block with the branch `<ID>/<slug>` frozen from the id the CLI gave, an empty `unknowns` list and the test plan. Its commit is `backlog: file a new story`. Applied again, it finds the task with its title whose description starts with its Story line and creates none. The id goes into the planning session's record (0007) once the lane created the story; a rebuild that gives the story another id replaces it there.
+  - `revise` changes an existing task while it is Refined, Ready or Parked, as `backlog: revise <ID>`: its title, its Story line and context with the field block kept byte for byte, its criteria (`--clear-ac`, then one `--ac` each, since 1.53 takes neither with the other) and its references (`--ref` for each, which 1.53 reads as the whole list), each only when it differs. A story in another status, or gone, no longer applies. A split is one `file` and one `revise`.
 
 **Pickup reads the base.** `work.run` reads stories from `_base`, a detached worktree moved to `origin/<base>` after every fetch, and picks only stories that are `Ready` there.
 
@@ -56,13 +59,13 @@ Each edit runs the CLI in a fresh folder of dipo's own. The folder holds only th
 The engine reads and writes stories only through one interface, `StoryStore`:
 
 - **reads:** list the stories of a base or a branch, and read one story with its fields;
-- **writes:** set the status, tick criteria, write the park reason and notes, write the final summary, add a resolved unknown, and file a draft.
+- **writes:** set the status, tick criteria, write the park reason and notes, write the final summary, add a resolved unknown, file a draft, create a Refined story, and change a story's title, Story line and context, criteria and references.
 
 The Backlog.md implementation is this ADR: the CLI, the task-file commits of the story lane and the backlog PRs of the planning lane. Every other part of the engine only knows the interface. Another tracker, such as Jira, would be another implementation of it; that is Later (0003), and it would also change where story facts live (0001).
 
 ## 3. Stories in the task file
 
-- **Labels** carry enumerations, because the CLI filters on them: tier `tier:S|M|L`, role `role:<name>`, the flag `test-before-merge`, and `slice:<name>`. These names are reserved, and dipo changes labels only with `--add-label` and `--remove-label`.
+- **Labels** carry enumerations, because the CLI filters on them: tier `tier:S|M|L`, role `role:<name>`, the flag `test-before-merge`, and `slice:<name>`. These names are reserved. dipo sets labels with `--labels` only when it creates a story, and changes them only with `--add-label` and `--remove-label`.
 - **The field block** carries structured data: one fenced block with the info string `dipo`, last in the description.
 
   | Key | Holds |
@@ -149,3 +152,4 @@ There are no git hooks, no changes to existing ignore files or `info/exclude`, a
 - Draft promotion with a journaled snapshot (2026-10-10). It moved to M3 and is designed when it is built (0003).
 - An optional component map for collision checks (2026-10-10). It is M2 work and is designed then (0003).
 - `amend` releasing a claim with its task file restored to the merge base. That is M3 work (0003).
+- A StoryStore that could not create a story or change its wording, so the maintainer created and reworded every story by hand (2026-10-24). Replaced by the planning lane's `file` and `revise` operations for what the maintainer confirms in a planning session (0022, 2026-11-06).

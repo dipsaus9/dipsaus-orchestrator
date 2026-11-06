@@ -6,7 +6,13 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { type DeskItem, OfficeId, RequestId, type RunId } from "@dipsaus-orchestrator/contract";
+import {
+  type DeskItem,
+  OfficeId,
+  type PlanningProposal,
+  RequestId,
+  type RunId,
+} from "@dipsaus-orchestrator/contract";
 
 import { REVIEW_SESSION_DIR } from "../../src/box/review-box";
 import type { BoxSession } from "../../src/box/workers";
@@ -15,7 +21,7 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import type { OfficeGit } from "../../src/git/office";
 import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
-import { PlanningSessions } from "../../src/run/planning-session";
+import { PlanningSessions, type PlanningSessionsDeps } from "../../src/run/planning-session";
 import { AdapterPauses } from "../../src/run/starts-paused";
 import { proxiedUsageLedger } from "../../src/records/proxied-usage";
 import { type LaunchedHost, recordWorkerHost } from "../../src/records/worker-hosts";
@@ -51,7 +57,7 @@ export const initLine = line({
 export const answerTokens = (n: number) => ({ input: 1_000 * n, output: 100 * n });
 
 /** One answer of the session: its text and the turn's result. */
-export function answerLines(n: number): string {
+export function answerLines(n: number, text = `Answer ${n}.`): string {
   const { input, output } = answerTokens(n);
   return (
     line({
@@ -61,7 +67,7 @@ export function answerLines(n: number): string {
         id: `msg-${n}`,
         type: "message",
         role: "assistant",
-        content: [{ type: "text", text: `Answer ${n}.` }],
+        content: [{ type: "text", text }],
         usage: {
           input_tokens: input,
           cache_creation_input_tokens: 0,
@@ -114,6 +120,16 @@ export interface PlanningWorld {
   holdAnswers: boolean;
   /** Gives the answer to the last message it held back. */
   release(): void;
+  /** The text of answer `n` (from 1); `Answer n.` unless a test sets it (DIPO-450). */
+  answerText: (n: number) => string;
+}
+
+/** What a test may give the world instead of its defaults. */
+export interface PlanningWorldOptions {
+  /** The office the session runs in; a new one by default. */
+  readonly office?: OfficeHandle;
+  /** The office's planning lane (DIPO-450); none by default. */
+  readonly lane?: PlanningSessionsDeps["lane"];
 }
 
 /** The session's box as `BoxWorkers.planning` returns it. */
@@ -129,8 +145,12 @@ function planningBox(): BoxSession {
   };
 }
 
-export function planningWorld(t: TestState, dir: string): PlanningWorld {
-  const office = addOffice(t);
+export function planningWorld(
+  t: TestState,
+  dir: string,
+  options: PlanningWorldOptions = {},
+): PlanningWorld {
+  const office = options.office ?? addOffice(t);
   const officeId = OfficeId.parse(office.officeId);
   const home = join(dir, "home");
   const git = {
@@ -149,6 +169,7 @@ export function planningWorld(t: TestState, dir: string): PlanningWorld {
     eventFile: "",
     startLines: "",
     holdAnswers: false,
+    answerText: (n: number) => `Answer ${n}.`,
   } as unknown as PlanningWorld;
   let held: (() => void) | null = null;
   w.release = () => {
@@ -185,7 +206,7 @@ export function planningWorld(t: TestState, dir: string): PlanningWorld {
       cacheCreate1h: 0,
       cacheRead: 0,
     });
-    return answerLines(w.answers);
+    return answerLines(w.answers, w.answerText(w.answers));
   };
   (w as { sessions: PlanningSessions }).sessions = new PlanningSessions({
     clock: t.clock,
@@ -250,6 +271,7 @@ export function planningWorld(t: TestState, dir: string): PlanningWorld {
       },
     },
     desk: () => w.desk,
+    ...(options.lane === undefined ? {} : { lane: options.lane }),
     baseCommit: async () => BASE_COMMIT,
     runtimeDir: join(dir, "runtime"),
     tmpRoot: join(dir, "tmp"),
@@ -295,3 +317,36 @@ export function planningRun(office: OfficeHandle, run: RunId | string) {
     { run },
   );
 }
+
+/** A new story a planning session proposes (DIPO-450). */
+export const STORY_PROPOSAL = {
+  kind: "story",
+  title: "Export the stories as CSV",
+  type: "feature",
+  milestone: "m-3",
+  tier: "M",
+  storyLine:
+    "As maintainer I want to export the stories as a CSV file so that I can share the backlog with people outside dipo.",
+  context: "The export reads the base, as the queue does.",
+  criteria: ["The export writes one CSV row per active story", "A Done story is left out of it"],
+  references: ["packages/cli/src/export-command.ts", "docs/export.md"],
+  testPlan: {
+    entries: [
+      { kind: "automated", check: "(unit) one CSV row per active story" },
+      {
+        kind: "manual",
+        check: "Export the scratch repository's stories",
+        expect: "One row per story opens in a spreadsheet",
+      },
+    ],
+  },
+  why: "The maintainer shares the backlog every week by hand.",
+} as const satisfies PlanningProposal;
+
+/** An answer that holds `values` as proposal blocks. */
+export const blocksOf = (...values: unknown[]): string =>
+  [
+    "Here is what I propose.",
+    ...values.map((value) => `\`\`\`dipo-proposal\n${JSON.stringify(value, null, 2)}\n\`\`\``),
+    "Confirm, edit or decline each.",
+  ].join("\n\n");

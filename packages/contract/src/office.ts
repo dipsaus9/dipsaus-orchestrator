@@ -32,6 +32,8 @@ import {
   Phase,
   PLANNING_KINDS,
   PlanningEndReason,
+  PlanningProposal,
+  PlanningProposalState,
   PlanningView,
   Progress,
   QuestionView,
@@ -411,6 +413,54 @@ export const planningEnd = defineCommand({
   level: "office",
   args: z.object({}),
   result: z.object({ run: RunId, ended: PlanningEndReason }),
+  confirm: false,
+  irreversible: false,
+});
+
+// The maintainer's decisions on the open planning session's proposals (DIPO-450, 0022), each
+// named by its number `n` in the session. Nothing is filed without a confirm.
+//
+// `planning.confirm` files the proposal through the planning lane (0010): a new story is created
+// Refined to the story standard, an edit changes the existing task, a split does both. The
+// filed and edited ids go into the session's record, and `stories` names those the lane has applied
+// so far; `flush` says what the lane's flush did. Confirming a filed proposal changes nothing.
+// Errors: `planning.notOpen`, `planning.proposalUnknown`, `planning.proposalClosed` (declined),
+// `planning.storyUnknown` (an edit of a task the office does not have, or of one that is not
+// Refined, Ready or Parked), `planning.duplicate` (a new story whose title an active story has)
+// and `planning.notFiled` (the lane refused it, for example a story with a live claim).
+export const planningConfirm = defineCommand({
+  name: "planning.confirm",
+  level: "office",
+  args: z.object({ proposal: z.int().positive() }),
+  result: z.object({
+    run: RunId,
+    proposal: z.int().positive(),
+    state: PlanningProposalState,
+    stories: z.array(z.string()),
+    flush: LaneFlush.optional(),
+  }),
+  confirm: false,
+  irreversible: false,
+});
+
+// Replaces an open proposal with the maintainer's version of it, of the same kind; the engine
+// validates it as it validates the session's. Errors as `planning.confirm`, and `planning.kindChanged`.
+export const planningEdit = defineCommand({
+  name: "planning.edit",
+  level: "office",
+  args: z.object({ proposal: z.int().positive(), edited: PlanningProposal }),
+  result: z.object({ run: RunId, proposal: z.int().positive() }),
+  confirm: false,
+  irreversible: false,
+});
+
+// Declines an open proposal: nothing is filed. Declining a declined one changes nothing; a filed
+// one answers `planning.proposalClosed`.
+export const planningDecline = defineCommand({
+  name: "planning.decline",
+  level: "office",
+  args: z.object({ proposal: z.int().positive() }),
+  result: z.object({ run: RunId, proposal: z.int().positive(), state: z.literal("declined") }),
   confirm: false,
   irreversible: false,
 });
@@ -1065,6 +1115,9 @@ export const officeCommands = [
   planningStart,
   planningMessage,
   planningEnd,
+  planningConfirm,
+  planningEdit,
+  planningDecline,
 ] as const;
 
 export const officeReads = [

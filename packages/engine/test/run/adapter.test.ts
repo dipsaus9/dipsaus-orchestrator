@@ -93,6 +93,7 @@ describe("the worker port seam (DIPO-113)", () => {
     const reportSchema = {
       implement: { type: "object", title: "another adapter's report" },
       review: { type: "object", title: "another adapter's review report" },
+      planning: { type: "object", title: "another adapter's proposal block" },
     };
     const built = runWorkerSpec(
       { reportSchema },

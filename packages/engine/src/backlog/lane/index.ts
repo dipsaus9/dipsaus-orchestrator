@@ -13,6 +13,7 @@ export {
 } from "./journal";
 export type { JournalEntry, JournalState, LaneOp, PendingLaneOp } from "./journal";
 export {
+  ALREADY_ON_BRANCH,
   LANE_BRANCH_PREFIX,
   LANE_NOTICES,
   LANE_REPLAY_STEP,
@@ -44,7 +45,22 @@ export {
   RESUME_KIND,
 } from "./ops";
 export type { ApplyContext, ApplyOutcome, LaneOpKind } from "./ops";
-export { DISCARDABLE_STATUSES, discardOp, PARKABLE_STATUSES, planningLane } from "./planning";
+export {
+  DISCARDABLE_STATUSES,
+  discardOp,
+  NEW_STORY,
+  PARKABLE_STATUSES,
+  planningLane,
+} from "./planning";
+export {
+  FILE_KIND,
+  fileKind,
+  filedStory,
+  REVISE_KIND,
+  reviseKind,
+  revisedDescription,
+  storyDescription,
+} from "./stories";
 export {
   filedDraft,
   markedDrafts,

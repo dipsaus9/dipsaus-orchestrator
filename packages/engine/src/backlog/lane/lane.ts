@@ -116,6 +116,12 @@ export const LANE_NOTICES = {
  */
 export const LANE_STUCK_MS = 30 * 60_000;
 
+/**
+ * The start of the notice of an operation dropped because its target state is on the open branch
+ * already: dropped, but what it asks for holds (DIPO-450).
+ */
+export const ALREADY_ON_BRANCH = "its target state is already on the open branch";
+
 /** Why the lane's last flush left operations unapplied or unpushed (DIPO-401); null after a clean one. */
 export interface LaneStall {
   readonly reason: string;
@@ -782,7 +788,7 @@ export class OfficeLane {
           this.#write(() => this.#update(entry.opId, { state: "merged", branch: null }));
           merged.push(entry.opId);
         } else {
-          this.#drop(entry, `its target state is already on the open branch ${branch}`, "info");
+          this.#drop(entry, `${ALREADY_ON_BRANCH} ${branch}`, "info");
           dropped.push(entry.opId);
         }
         continue;

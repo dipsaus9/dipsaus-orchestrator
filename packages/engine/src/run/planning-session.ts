@@ -25,6 +25,25 @@
 //   deleted then, and `planning.ended` and `run.ended` follow. At daemon stop every open session
 //   gets the stop and ends `daemon-stopped`; at daemon start a planning run a stopped daemon left
 //   open is ended (`recover`).
+//
+// Proposals (DIPO-450, 0022): the first message gives the session the proposal schema, and at
+// each turn end the answer's proposal blocks are read (`planning-proposals.ts`). A valid one joins
+// the planning view as an open proposal with its number, tier and why; an invalid one is refused,
+// shown in the view, and its problems go to the session at once as its next message, at most
+// `AUTO_REFUSALS_MAX` answers in a row, after which they wait for the maintainer's next message.
+// The maintainer decides each proposal with a command:
+//
+// - `planning.confirm` journals it in the office's planning lane (0010): a new story as a `file`
+//   change, an edit as a `revise` change, a split as both, then flushes the lane, which opens or
+//   updates dipo's backlog PR. Each filed or edited story's id goes into the session's record once
+//   the lane applied its change (`planning_record`). A new story whose title an active story or
+//   another confirmed proposal has, a dependency the office does not know, or an edit of a task
+//   that is not Refined, Ready or Parked is refused before anything is journaled.
+// - `planning.edit` replaces an open proposal with the maintainer's version, checked the same way.
+// - `planning.decline` closes it; nothing is filed.
+//
+// What the maintainer decided reaches the session with their next message, as `[dipo]` lines
+// before it, so it never proposes a filed or declined story again.
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -37,8 +56,14 @@ import {
   type OfficeId,
   type PlanningEndReason,
   type PlanningKind,
+  PLANNING_PROPOSAL_FENCE,
+  planningConfirm,
+  planningDecline,
+  planningEdit,
   planningEnd,
   planningMessage,
+  type PlanningProposal,
+  type PlanningProposalView,
   planningStart,
   type PlanningState,
   type PlanningView,
@@ -70,11 +95,26 @@ import { currentProfileId, endRun, insertRun, recordConfigSnapshot } from "../re
 import { activeSignals } from "../records/signals";
 import { readUsage } from "../records/usage";
 import type { LaunchedHost } from "../records/worker-hosts";
-import { activeStoryViews } from "../views/story";
+import { planningRecord } from "../records/planning-record";
+import { isProvisionalId, resolveStoryRef, type StoryIdentity } from "../records/story-keys";
+import { PlanningRefusedError } from "../story-store/errors";
+import type { PlannedChange, PlanningLane } from "../story-store/planning";
+import { activeStoryViews, storyView } from "../views/story";
 import type { RunLaunchPaths, WorkerPort } from "../workers/port";
 import { PlanError, type HostOp, type WorkerEvent, type WorkerSpec } from "../workers/types";
 
 import type { RunSteering } from "./control-types";
+import {
+  AUTO_REFUSALS_MAX,
+  checkProposal,
+  editFieldsOf,
+  fileTargetOf,
+  PLANNING_REFUSALS_SHOWN,
+  readProposals,
+  refusalMessage,
+  reviseTargetOf,
+  storyFieldsOf,
+} from "./planning-proposals";
 import { claimHost, connectWhenBound } from "./hosts";
 import { type HostStarter, runLaunchPaths } from "./launch";
 import { sessionUuid } from "./prompts";
@@ -86,6 +126,12 @@ type StartResult = z.input<typeof planningStart.result>;
 type MessageArgs = z.output<typeof planningMessage.args>;
 type MessageResult = z.input<typeof planningMessage.result>;
 type EndResult = z.input<typeof planningEnd.result>;
+type ConfirmArgs = z.output<typeof planningConfirm.args>;
+type ConfirmResult = z.input<typeof planningConfirm.result>;
+type EditArgs = z.output<typeof planningEdit.args>;
+type EditResult = z.input<typeof planningEdit.result>;
+type DeclineArgs = z.output<typeof planningDecline.args>;
+type DeclineResult = z.input<typeof planningDecline.result>;
 
 /** The session's system file in its run directory. */
 export const PLANNING_SYSTEM_FILE = "system-planning.md";
@@ -121,6 +167,8 @@ export interface PlanningFacts {
   readonly runs: readonly RecentRun[];
   /** The base branch's commit the read-only copy holds. */
   readonly commit: string;
+  /** The JSON Schema of a proposal block (DIPO-450), as the worker port hands it out. */
+  readonly proposalSchema: Readonly<Record<string, unknown>>;
 }
 
 const listOr = (lines: readonly string[], none: string): string =>
@@ -153,6 +201,8 @@ export function planningFirstMessage(facts: PlanningFacts): string {
     ),
     commit: rendered(facts.commit),
     dir: rendered(REVIEW_CODE_DIR),
+    fence: rendered(PLANNING_PROPOSAL_FENCE),
+    schema: rendered(JSON.stringify(facts.proposalSchema)),
   });
 }
 
@@ -205,6 +255,8 @@ export interface PlanningSessionsDeps {
   /** dipo's temp root: the run temp directories. */
   readonly tmpRoot: string;
   readonly tempOwner?: () => string | undefined;
+  /** The office's planning lane (0010), which files the proposals the maintainer confirms. */
+  readonly lane?: (office: OfficeId) => PlanningLane | undefined;
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
@@ -228,6 +280,26 @@ interface Open {
   grace: ReturnType<Clock["setTimeout"]> | null;
   ingestor: Ingestor | null;
   settled: boolean;
+  /** The texts of the answer in progress, read for proposal blocks at its turn end (DIPO-450). */
+  answer: string[];
+  proposals: OpenProposal[];
+  /** The refused proposal blocks, newest last. */
+  refusals: { readonly at: number; readonly problems: readonly string[] }[];
+  /** How many answers in a row dipo refused by itself (`AUTO_REFUSALS_MAX`). */
+  autoRefusals: number;
+  /** The `[dipo]` lines the next maintainer message carries before it. */
+  notes: string[];
+}
+
+/** A proposal of an open session (DIPO-450). */
+interface OpenProposal {
+  readonly n: number;
+  proposal: PlanningProposal;
+  /** `confirmed` once its lane changes are journaled; the lane says how far they got. */
+  state: "open" | "confirmed" | "declined";
+  edited: boolean;
+  changes: readonly PlannedChange[];
+  readonly at: number;
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -245,6 +317,25 @@ const iso = (ms: number) => new Date(ms).toISOString();
 
 function notOpen(why: string): CommandError {
   return new CommandError("planning.notOpen", `There is no open planning session: ${why}.`);
+}
+
+function proposalClosed(item: { readonly n: number }, why: string): CommandError {
+  return new CommandError("planning.proposalClosed", `Proposal ${item.n} is closed: ${why}.`, {
+    proposal: item.n,
+  });
+}
+
+/** The lifecycles a confirmed edit applies from (0012). */
+const REVISABLE_LIFECYCLES: readonly string[] = ["Refined", "Ready", "Parked"];
+
+/** A title as two titles compare: trimmed, NFC, one space, lower case. */
+const titleKey = (title: string): string =>
+  title.normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase();
+
+/** The title of the new story a proposal files, or null for an edit. */
+function newStoryTitle(proposal: PlanningProposal): string | null {
+  if (proposal.kind === "story") return proposal.title;
+  return proposal.kind === "split" ? proposal.story.title : null;
 }
 
 /** The planning sessions of every office: at most one open per office. */
@@ -286,6 +377,18 @@ export class PlanningSessions {
         registry.addAsyncOfficeCommand({
           definition: planningEnd,
           handle: (ctx) => this.end(ctx),
+        });
+        registry.addAsyncOfficeCommand({
+          definition: planningConfirm,
+          handle: (ctx, args) => this.confirm(ctx, args),
+        });
+        registry.addAsyncOfficeCommand({
+          definition: planningEdit,
+          handle: (ctx, args) => this.edit(ctx, args),
+        });
+        registry.addAsyncOfficeCommand({
+          definition: planningDecline,
+          handle: (ctx, args) => this.decline(ctx, args),
         });
       },
     };
@@ -330,16 +433,323 @@ export class PlanningSessions {
     if (open === undefined) throw notOpen("start one with planning.start");
     if (open.ending !== null || open.settled) throw notOpen(`${open.run} is ending`);
     // The maintainer's text is the next user message: read after the answer in progress, if any.
-    const sent = await this.#send(
-      open,
-      this.#deps.worker.encode({ kind: "answer", text: args.text }),
-    );
-    if (!sent) throw notOpen(`${open.run} could not be reached`);
+    // What the maintainer decided since their last message goes first, as `[dipo]` lines.
+    const notes = open.notes;
+    if (!(await this.#sendText(open, [...notes, args.text].join("\n\n")))) {
+      throw notOpen(`${open.run} could not be reached`);
+    }
+    open.notes = open.notes.slice(notes.length);
+    open.autoRefusals = 0;
+    return { result: { run: open.run, delivered: "next-turn" }, changed: true };
+  }
+
+  /** Sends `text` to the session as its next user message; false when it did not reach it. */
+  async #sendText(open: Open, text: string): Promise<boolean> {
+    const sent = await this.#send(open, this.#deps.worker.encode({ kind: "answer", text }));
+    if (!sent) return false;
     this.#clearIdle(open);
     this.#watchdog.working(open.run);
     open.state = "working";
     this.#append(open, () => [this.#updated(open)]);
-    return { result: { run: open.run, delivered: "next-turn" }, changed: true };
+    return true;
+  }
+
+  // ---- proposals (DIPO-450) --------------------------------------------------------------------
+
+  /** `planning.confirm`: files the proposal through the planning lane (see the file comment). */
+  async confirm(
+    ctx: AsyncCommandContext,
+    args: ConfirmArgs,
+  ): Promise<CommandOutcome<ConfirmResult>> {
+    const { open, item } = this.#proposalOf(ctx, args.proposal);
+    if (item.state === "declined") throw proposalClosed(item, "it was declined");
+    const before = this.#proposalView(open, item);
+    if (item.state === "confirmed" && before.state !== "failed") {
+      return {
+        result: {
+          run: open.run,
+          proposal: item.n,
+          state: before.state,
+          stories: before.stories ?? [],
+        },
+        changed: false,
+      };
+    }
+    const lane = this.#deps.lane?.(open.office);
+    if (lane === undefined) {
+      throw new CommandError(
+        "planning.notFiled",
+        "This office has no backlog lane yet, so nothing can be filed; try again once it loaded.",
+        { proposal: item.n },
+      );
+    }
+    let changes: PlannedChange[];
+    try {
+      changes = await this.#journal(open, item, lane);
+    } catch (error) {
+      if (!(error instanceof PlanningRefusedError)) throw error;
+      throw new CommandError("planning.notFiled", error.message, { proposal: item.n });
+    }
+    item.state = "confirmed";
+    item.changes = changes;
+    this.#append(open, () => [this.#updated(open)]);
+    const last = changes.at(-1);
+    const flush = last === undefined ? null : await lane.flush(last);
+    const view = this.#proposalView(open, item);
+    const stories = view.stories ?? [];
+    open.notes.push(
+      view.state === "failed"
+        ? `[dipo] The maintainer confirmed proposal ${item.n}, but it could not be filed: ${view.detail ?? "the backlog lane closed it"}.`
+        : `[dipo] The maintainer confirmed proposal ${item.n}${stories.length === 0 ? "; dipo files it in its backlog PR" : `: ${stories.join(" and ")} in dipo's backlog PR`}. Do not propose it again.`,
+    );
+    this.#append(open, () => [this.#updated(open)]);
+    return {
+      result: {
+        run: open.run,
+        proposal: item.n,
+        state: view.state,
+        stories,
+        ...(flush === null ? {} : { flush }),
+      },
+      changed: true,
+    };
+  }
+
+  /** `planning.edit`: the maintainer's version replaces an open proposal of the same kind. */
+  async edit(ctx: AsyncCommandContext, args: EditArgs): Promise<CommandOutcome<EditResult>> {
+    const { open, item } = this.#proposalOf(ctx, args.proposal);
+    if (item.state === "declined") throw proposalClosed(item, "it was declined");
+    if (item.state === "confirmed" && this.#proposalView(open, item).state !== "failed") {
+      throw proposalClosed(item, "it was confirmed");
+    }
+    if (args.edited.kind !== item.proposal.kind) {
+      throw new CommandError(
+        "planning.kindChanged",
+        `Proposal ${item.n} is a ${item.proposal.kind}; an edit keeps its kind, so propose a ${args.edited.kind} anew.`,
+        { proposal: item.n },
+      );
+    }
+    const checked = checkProposal(args.edited);
+    if (!checked.ok) {
+      throw new CommandError(
+        "planning.invalid",
+        `The edited proposal ${item.n} is not valid: ${checked.problems.join("; ")}.`,
+        { proposal: item.n, problems: [...checked.problems] },
+      );
+    }
+    item.proposal = checked.proposal;
+    item.edited = true;
+    item.state = "open";
+    item.changes = [];
+    open.notes.push(
+      `[dipo] The maintainer edited proposal ${item.n}; it now reads: ${JSON.stringify(checked.proposal)}`,
+    );
+    this.#append(open, () => [this.#updated(open)]);
+    return { result: { run: open.run, proposal: item.n }, changed: true };
+  }
+
+  /** `planning.decline`: nothing is filed for the proposal. */
+  async decline(
+    ctx: AsyncCommandContext,
+    args: DeclineArgs,
+  ): Promise<CommandOutcome<DeclineResult>> {
+    const { open, item } = this.#proposalOf(ctx, args.proposal);
+    const result: DeclineResult = { run: open.run, proposal: item.n, state: "declined" };
+    if (item.state === "declined") return { result, changed: false };
+    if (item.state === "confirmed" && this.#proposalView(open, item).state !== "failed") {
+      throw proposalClosed(item, "it was confirmed and is filed through the backlog lane");
+    }
+    item.state = "declined";
+    item.changes = [];
+    open.notes.push(
+      `[dipo] The maintainer declined proposal ${item.n}; nothing was filed for it. Do not propose it again unless they ask.`,
+    );
+    this.#append(open, () => [this.#updated(open)]);
+    return { result, changed: true };
+  }
+
+  /** The open session of `ctx`'s office and its proposal `n`; throws the command errors. */
+  #proposalOf(ctx: AsyncCommandContext, n: number): { open: Open; item: OpenProposal } {
+    const open = this.#open.get(ctx.office.officeId as OfficeId);
+    if (open === undefined) throw notOpen("start one with planning.start");
+    if (open.ending !== null || open.settled) throw notOpen(`${open.run} is ending`);
+    const item = open.proposals.find((candidate) => candidate.n === n);
+    if (item === undefined) {
+      throw new CommandError(
+        "planning.proposalUnknown",
+        `The planning session ${open.run} has no proposal ${n}.`,
+        { proposal: n },
+      );
+    }
+    return { open, item };
+  }
+
+  /**
+   * Journals the lane changes of `item` after the checks code can make: a new story's title and
+   * dependencies, an edited task's id and status. A split files the new story first and withdraws
+   * it when the edit cannot be journaled.
+   */
+  async #journal(open: Open, item: OpenProposal, lane: PlanningLane): Promise<PlannedChange[]> {
+    const { handle, run } = open;
+    const proposal = item.proposal;
+    switch (proposal.kind) {
+      case "story": {
+        const story = storyFieldsOf(proposal);
+        this.#checkNewStory(open, item, story.title, story.dependencies ?? []);
+        return [await lane.fileStory(fileTargetOf(run, item.n, story))];
+      }
+      case "edit": {
+        const identity = this.#revisable(handle, proposal.id);
+        const change = await lane.reviseStory(
+          identity,
+          reviseTargetOf(run, item.n, editFieldsOf(proposal)),
+        );
+        return [change];
+      }
+      case "split": {
+        const identity = this.#revisable(handle, proposal.id);
+        this.#checkNewStory(open, item, proposal.story.title, proposal.story.dependencies ?? []);
+        const filed = await lane.fileStory(fileTargetOf(run, item.n, proposal.story));
+        let revised: PlannedChange;
+        try {
+          revised = await lane.reviseStory(identity, reviseTargetOf(run, item.n, proposal.edit));
+        } catch (error) {
+          lane.withdraw(filed);
+          throw error;
+        }
+        return [filed, revised];
+      }
+    }
+  }
+
+  /** Refuses a new story whose title is taken or whose dependency the office does not know. */
+  #checkNewStory(
+    open: Open,
+    item: OpenProposal,
+    title: string,
+    dependencies: readonly string[],
+  ): void {
+    const { handle } = open;
+    const wanted = titleKey(title);
+    const taken = handle
+      .deferred(() => activeStoryViews(handle))
+      .find((view) => titleKey(view.title) === wanted);
+    const twin = open.proposals.find(
+      (other) =>
+        other !== item &&
+        other.state === "confirmed" &&
+        this.#proposalView(open, other).state !== "failed" &&
+        newStoryTitle(other.proposal) !== null &&
+        titleKey(newStoryTitle(other.proposal) ?? "") === wanted,
+    );
+    if (taken !== undefined || twin !== undefined) {
+      throw new CommandError(
+        "planning.duplicate",
+        taken !== undefined
+          ? `${taken.story} already has the title "${title}"; edit the proposal to give the new story its own title.`
+          : `Proposal ${twin?.n ?? ""} files a story titled "${title}" already.`,
+        { proposal: item.n },
+      );
+    }
+    for (const dependency of dependencies) {
+      const found = handle.deferred(() => resolveStoryRef(handle, dependency));
+      if (!found.ok) {
+        throw new CommandError(
+          "planning.storyUnknown",
+          `Proposal ${item.n} depends on ${dependency}, which this office does not have.`,
+          { proposal: item.n, story: dependency },
+        );
+      }
+    }
+  }
+
+  /** The task an edit changes: one the office knows, Refined, Ready or Parked. */
+  #revisable(handle: OfficeHandle, id: string): StoryIdentity {
+    const found = handle.deferred(() => resolveStoryRef(handle, id));
+    const view = found.ok ? handle.deferred(() => storyView(handle, found.key)) : null;
+    if (!found.ok || view === null || isProvisionalId(found.story)) {
+      throw new CommandError("planning.storyUnknown", `This office has no task ${id} to edit.`, {
+        story: id,
+      });
+    }
+    if (!REVISABLE_LIFECYCLES.includes(view.lifecycle)) {
+      throw new CommandError(
+        "planning.storyUnknown",
+        `${found.story} is ${view.lifecycle}; only a Refined, Ready or Parked story is edited in a planning session.`,
+        { story: found.story },
+      );
+    }
+    return { key: found.key, story: found.story };
+  }
+
+  /** Reads the proposal blocks of the answer that ended; refuses the invalid ones (DIPO-450). */
+  #readAnswer(open: Open): void {
+    const text = open.answer.join("\n");
+    open.answer = [];
+    if (text === "") return;
+    const at = this.#deps.clock.now();
+    const refused: (readonly string[])[] = [];
+    for (const read of readProposals(text)) {
+      if (read.ok) {
+        open.proposals.push({
+          n: open.proposals.length + 1,
+          proposal: read.proposal,
+          state: "open",
+          edited: false,
+          changes: [],
+          at,
+        });
+      } else {
+        refused.push(read.problems);
+        open.refusals.push({ at, problems: read.problems });
+      }
+    }
+    open.refusals = open.refusals.slice(-PLANNING_REFUSALS_SHOWN);
+    if (refused.length === 0) return;
+    const message = refusalMessage(refused);
+    // Sent at once while the session refused fewer answers in a row than the cap, so it never loops.
+    if (open.autoRefusals < AUTO_REFUSALS_MAX && open.ending === null) {
+      open.autoRefusals += 1;
+      void this.#sendText(open, message).then((sent) => {
+        if (!sent) open.notes.push(message);
+      });
+    } else {
+      open.notes.push(message);
+    }
+  }
+
+  /** The view of one proposal: its state from the lane, its stories from the session's record. */
+  #proposalView(open: Open, item: OpenProposal): PlanningProposalView {
+    const { handle } = open;
+    let state: PlanningProposalView["state"] = item.state;
+    let detail: string | undefined;
+    if (item.state === "confirmed") {
+      const lane = this.#deps.lane?.(open.office);
+      const outcomes = item.changes.map((change) => lane?.outcomeOf(change));
+      const closed = outcomes.find((outcome) => outcome?.outcome === "closed");
+      if (closed !== undefined) {
+        state = "failed";
+        detail = closed.notice ?? "the backlog lane closed it";
+      } else {
+        // A change the journal no longer has was applied and pruned.
+        state = outcomes.every((outcome) => outcome === undefined || outcome.outcome === "applied")
+          ? "filed"
+          : "filing";
+      }
+    }
+    const stories = handle
+      .deferred(() => planningRecord(handle, open.run))
+      .filter((entry) => entry.proposal === item.n)
+      .map((entry) => entry.story);
+    return {
+      n: item.n,
+      proposal: item.proposal,
+      state,
+      ...(item.edited ? { edited: true } : {}),
+      ...(stories.length === 0 || state === "open" || state === "declined" ? {} : { stories }),
+      ...(detail === undefined ? {} : { detail }),
+      at: iso(item.at),
+    };
   }
 
   async end(ctx: AsyncCommandContext): Promise<CommandOutcome<EndResult>> {
@@ -429,6 +839,11 @@ export class PlanningSessions {
       grace: null,
       ingestor: null,
       settled: false,
+      answer: [],
+      proposals: [],
+      refusals: [],
+      autoRefusals: 0,
+      notes: [],
     };
     const hash = configHash(config);
     handle.immediate(() => {
@@ -497,6 +912,7 @@ export class PlanningSessions {
         desk: deps.desk?.(handle, now) ?? [],
         runs: recentStoryRuns(handle),
         commit,
+        proposalSchema: deps.worker.reportSchema.planning,
       })),
     );
     const systemFile = renderSystemFile("planning-box", "planner");
@@ -652,6 +1068,7 @@ export class PlanningSessions {
                 detail: event.reason,
               });
             }
+            if (event.t === "output") open.answer.push(event.text);
             if (event.t === "turn") this.#turnEnded(open);
           }
         },
@@ -686,6 +1103,7 @@ export class PlanningSessions {
     if (open.settled) return;
     open.turns += 1;
     if (open.ending !== null) return;
+    this.#readAnswer(open);
     open.state = "waiting";
     this.#watchdog.waiting(open.run);
     this.#clearIdle(open);
@@ -889,6 +1307,17 @@ export class PlanningSessions {
       ...(open.ending?.detail === undefined || open.state !== "ended"
         ? {}
         : { detail: open.ending.detail }),
+      ...(open.proposals.length === 0
+        ? {}
+        : { proposals: open.proposals.map((item) => this.#proposalView(open, item)) }),
+      ...(open.refusals.length === 0
+        ? {}
+        : {
+            refusals: open.refusals.map((refusal) => ({
+              at: iso(refusal.at),
+              problems: [...refusal.problems],
+            })),
+          }),
     };
   }
 }

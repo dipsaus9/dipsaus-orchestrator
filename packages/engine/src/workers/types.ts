@@ -16,8 +16,12 @@ export type WorkerKind = OpenEnum<(typeof KNOWN_WORKER_KINDS)[number]>;
  * (DIPO-447) is the maintainer's: each of its turns ends in plain text, never in a report.
  */
 export type ReportKind = "implement" | "review" | "session" | "planning";
-/** The kinds whose report schema the worker port carries (`WorkerPort.reportSchema`). */
-export type SchemaKind = Exclude<ReportKind, "session" | "planning">;
+/**
+ * The kinds whose schema the worker port carries (`WorkerPort.reportSchema`). For `planning` it is
+ * the schema of a proposal block the session writes in its text answers (DIPO-450), which its first
+ * message gives it; its turns still end in no report.
+ */
+export type SchemaKind = Exclude<ReportKind, "session">;
 
 /** The start of the output line a web call shows as: `[web] <tool> <query or URL>`. */
 export const WEB_LINE_PREFIX = "[web] ";
