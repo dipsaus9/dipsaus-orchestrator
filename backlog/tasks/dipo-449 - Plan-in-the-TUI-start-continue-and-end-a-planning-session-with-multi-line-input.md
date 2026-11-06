@@ -3,10 +3,10 @@ id: DIPO-449
 title: >-
   Plan in the TUI: start, continue and end a planning session with multi-line
   input
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 12:57'
+updated_date: '2026-11-06 12:58'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -19,6 +19,30 @@ references:
   - packages/tui/src/actions.ts
   - packages/client/src/store/office-store.ts
   - docs/decisions/0009-tui.md
+modified_files:
+  - packages/client/src/index.ts
+  - packages/client/src/store/index.ts
+  - packages/client/src/store/office-store.ts
+  - packages/client/test/unit/office-store.test.ts
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/src/work.ts
+  - packages/engine/src/create/steps.ts
+  - packages/engine/src/features.ts
+  - packages/engine/src/overview/feature.ts
+  - packages/tui/src/app.tsx
+  - packages/tui/src/footer.ts
+  - packages/tui/src/mode.test.ts
+  - packages/tui/src/mode.ts
+  - packages/tui/src/modes.tsx
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/screen.tsx
+  - packages/tui/test/support/harness.ts
+  - packages/tui/test/support/setup.tsx
 priority: high
 type: feature
 ordinal: 422000
@@ -58,3 +82,18 @@ test_plan:
 - [x] #4 Opening the TUI shows the office's open planning session, and the view says when the session continued in a fresh Claude session
 - [x] #5 The view is its own part of the TUI, and the other views and keys are unchanged
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-06 12:58 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 185,806 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
