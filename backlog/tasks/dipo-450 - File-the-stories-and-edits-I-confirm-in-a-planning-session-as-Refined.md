@@ -1,10 +1,10 @@
 ---
 id: DIPO-450
 title: File the stories and edits I confirm in a planning session as Refined
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 13:31'
+updated_date: '2026-11-06 14:05'
 labels:
   - 'tier:L'
 milestone: m-3
@@ -55,9 +55,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Claude's proposals use a schema in the contract that the engine validates, and an invalid proposal is refused with a message
-- [ ] #2 A proposal is shown in the planning view with its proposed tier and one line of why, and confirm, edit and decline reach the engine as commands
-- [ ] #3 A confirmed story is filed Refined to the story standard through the planning lane, and its id is stored in the session's record
-- [ ] #4 A confirmed edit changes an existing story's title, description, criteria or references through the planning lane, and a confirmed split files the new story and edits the old one
-- [ ] #5 ADR 0010 describes creating and editing stories through the lane, with one Replaced line
+- [x] #1 Claude's proposals use a schema in the contract that the engine validates, and an invalid proposal is refused with a message
+- [x] #2 A proposal is shown in the planning view with its proposed tier and one line of why, and confirm, edit and decline reach the engine as commands
+- [x] #3 A confirmed story is filed Refined to the story standard through the planning lane, and its id is stored in the session's record
+- [x] #4 A confirmed edit changes an existing story's title, description, criteria or references through the planning lane, and a confirmed split files the new story and edits the old one
+- [x] #5 ADR 0010 describes creating and editing stories through the lane, with one Replaced line
 <!-- AC:END -->
