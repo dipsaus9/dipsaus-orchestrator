@@ -1,10 +1,10 @@
 ---
 id: DIPO-456
 title: Tell me at once whether a story starts and why when I start a run
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-11-06 09:49'
-updated_date: '2026-11-06 13:13'
+updated_date: '2026-11-06 13:32'
 labels:
   - 'tier:S'
 milestone: m-3
@@ -48,10 +48,6 @@ test_plan:
     - kind: "manual"
       check: "On the scratch repository with a Haiku office, press u on a Ready story in the TUI queue"
       expect: "the footer says the story starts, or why not, within about 2 seconds, and the overview shows it in setup"
-park:
-  reason: "budget-exceeded"
-  from: "In Progress"
-  note: "turn cap (--max-turns) after 91 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -75,4 +71,6 @@ Parked 2026-11-06 13:13 UTC: budget-exceeded
 - Review rounds: 0, failed 0 of 3
 - Budget used: 230,767 of 300,000 tokens; 91 of 90 turns; 11 of 45 minutes
 - Last good commit: 1da83cfd5299c780cc0590c74f941fb9913b3f0b
+
+Resumed 2026-11-06 13:32 UTC; grants: budget +150,000 tokens, +45 turns, +23 minutes; note: Last attempt used all 91 turns without a commit. Keep it small and commit early: (1) in packages/engine/src/run/work-run.ts split the decision (which stories start or are skipped, and why) from the s…
 <!-- SECTION:NOTES:END -->
