@@ -389,6 +389,35 @@
       "additionalProperties": false,
       "description": "The fallback session that proposes the run profile capabilities code could not resolve, started only by dipo office infer (0013). It runs on the Mac with every tool off, one turn plus one schema retry."
     },
+    "planning": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The model of the planning session."
+        },
+        "effort": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The effort of the planning session."
+        },
+        "maxTurns": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Model turns one answer of the planning session may take before Claude Code stops it."
+        },
+        "idleHours": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Hours a planning session waits for the maintainer's next message before it ends by itself."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The planning session the maintainer talks to turn by turn (plan, refine or triage): it runs Claude in a read-only box with a copy of the base branch and the backlog, holds no run slot and has no run cap; it ends when the maintainer ends it or after idleHours without a message."
+    },
     "story": {
       "type": "object",
       "properties": {

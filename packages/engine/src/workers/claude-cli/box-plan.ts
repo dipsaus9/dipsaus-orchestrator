@@ -19,8 +19,16 @@
 // working directory beside the copy and the copy added as a directory (`--add-dir`), and only the
 // box user's settings (`--setting-sources user`): no settings, hooks or MCP servers of the copy
 // load.
+//
+// A planning session (DIPO-447) runs as a reviewer does, in a read-only box of its own
+// (`BoxWorkers.planning`) with a copy of the base branch and the backlog, with only the planning
+// tools and no structured-output schema: the maintainer talks to it turn by turn and it answers in
+// text. The plan of either read-only kind is checked once it is built (`checkReadOnlyArgv`): one
+// `--tools` with only the kind's own tools, no other flag that names tools, permissions, settings,
+// plugins or MCP servers, and `--strict-mcp-config`. Text the maintainer writes (the goal, each
+// message) reaches the session only on stdin, never on argv.
 
-import { allowedTools } from "./tools";
+import { allowedTools, checkReadOnlyTools, isReadOnlyKind } from "./tools";
 import { BOX_NPM_PREFIX } from "../../box/firewall";
 import { REVIEW_CODE_DIR } from "../../box/review-box";
 import type { BoxSession } from "../../box/workers";
@@ -71,34 +79,85 @@ export function boxClaudeArgv(spec: WorkerSpec, session: BoxSession): [string, .
     "bypassPermissions",
     "--tools",
     allowedTools(spec).join(","),
-    // A reviewer loads nothing of the copy it reviews: only the box user's settings, and the copy
-    // as a directory its read tools reach, never its working directory.
-    ...(spec.kind === "review" ? ["--setting-sources", "user", "--add-dir", REVIEW_CODE_DIR] : []),
+    // A reviewer or planner loads nothing of the copy it reads: only the box user's settings, and
+    // the copy as a directory its read tools reach, never its working directory.
+    ...(isReadOnlyKind(spec.kind)
+      ? ["--setting-sources", "user", "--add-dir", REVIEW_CODE_DIR]
+      : []),
     "--strict-mcp-config",
     "--append-system-prompt-file",
     session.systemFile,
     "--exclude-dynamic-system-prompt-sections",
     DISABLE_SLASH_COMMANDS,
-    "--json-schema",
-    JSON.stringify(spec.reportSchema),
+    // A planning session answers the maintainer in text: its turns end in no report.
+    ...(spec.kind === "planning" ? [] : ["--json-schema", JSON.stringify(spec.reportSchema)]),
   ];
 }
 
 /**
- * Pure: the launch plan of a developer session in `session`'s box, or of a reviewer session in its
- * reviewer box. `runDir` is the host's working directory on the Mac (the run directory); nothing
- * of it reaches the box.
+ * Flags a read-only session's plan never holds (DIPO-447): each would add tools, permissions,
+ * settings, plugins, agents or MCP servers to the kind's own. Compared without case, alone or as
+ * `--flag=value`.
+ */
+export const READ_ONLY_REFUSED_FLAGS: readonly string[] = [
+  "--allowedtools",
+  "--allowed-tools",
+  "--disallowedtools",
+  "--disallowed-tools",
+  "--mcp-config",
+  "--settings",
+  "--plugin-dir",
+  "--agents",
+  "--permission-prompt-tool",
+  "--dangerously-skip-permissions",
+  "--allow-dangerously-skip-permissions",
+];
+
+/**
+ * Throws a `PlanError` unless the argv of a read-only session (`review`, `planning`) holds exactly
+ * one `--tools` with only the kind's own tools, none of `READ_ONLY_REFUSED_FLAGS` and
+ * `--strict-mcp-config`.
+ */
+export function checkReadOnlyArgv(kind: string, argv: readonly string[]): void {
+  const flags = argv.map((arg) => arg.toLowerCase().split("=", 1)[0] ?? "");
+  const refused = flags.filter((flag) => READ_ONLY_REFUSED_FLAGS.includes(flag));
+  if (refused.length > 0) {
+    throw new PlanError(`a ${kind} session's plan may not pass ${refused.join(", ")}`);
+  }
+  const tools = flags.flatMap((flag, index) => (flag === "--tools" ? [index] : []));
+  const at = tools[0];
+  if (tools.length !== 1 || at === undefined || argv[at] !== "--tools") {
+    throw new PlanError(`a ${kind} session's plan passes exactly one --tools with its own tools`);
+  }
+  const listed = argv[at + 1] ?? "";
+  checkReadOnlyTools(
+    kind,
+    listed.split(",").filter((tool) => tool !== ""),
+  );
+  if (!flags.includes("--strict-mcp-config")) {
+    throw new PlanError(
+      `a ${kind} session's plan passes --strict-mcp-config: it loads no MCP server`,
+    );
+  }
+}
+
+/**
+ * Pure: the launch plan of a developer session in `session`'s box, or of a reviewer or planning
+ * session in its read-only box. `runDir` is the host's working directory on the Mac (the run
+ * directory); nothing of it reaches the box.
  */
 export function planInBox(spec: WorkerSpec, session: BoxSession, runDir: string): LaunchPlan {
   checkSpec(spec);
-  if (spec.kind !== "implement" && spec.kind !== "review") {
+  if (spec.kind !== "implement" && spec.kind !== "review" && spec.kind !== "planning") {
     throw new PlanError(
-      `only a developer or reviewer session runs in a box, not a ${spec.kind} session`,
+      `only a developer, reviewer or planning session runs in a box, not a ${spec.kind} session`,
     );
   }
   if (!runDir.startsWith("/")) throw new PlanError(`runDir must be an absolute path: ${runDir}`);
   const env = { ...session.env, ...BOX_CLAUDE_ENV };
-  const client = session.exec(boxClaudeArgv(spec, session), env);
+  const argv = boxClaudeArgv(spec, session);
+  if (isReadOnlyKind(spec.kind)) checkReadOnlyArgv(spec.kind, argv);
+  const client = session.exec(argv, env);
   return {
     argv: client.argv,
     env: { ...client.env },

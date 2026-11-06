@@ -6,8 +6,8 @@
 // A developer session runs only in its run's box (DIPO-240, 0008): `prepare` plans it there with
 // `planInBox`, and refuses one whose run has no box as a plan (`PlanError`). A reviewer session
 // runs only in the read-only box its caller made for it (`BoxWorkers.review`, 0002), handed to
-// `prepare` as its place. A `session` runs on the Mac with its plan and launch checks (`plan.ts`,
-// `launch-checks.ts`).
+// `prepare` as its place, and so does a planning session (`BoxWorkers.planning`, DIPO-447). A
+// `session` runs on the Mac with its plan and launch checks (`plan.ts`, `launch-checks.ts`).
 
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
@@ -36,6 +36,7 @@ import {
   DEVELOPER_ON_MAC_REFUSED,
   ENV_ALLOWLIST,
   plan,
+  PLANNER_ON_MAC_REFUSED,
   REVIEWER_ON_MAC_REFUSED,
   type ClaudeLaunchContext,
 } from "./plan";
@@ -262,9 +263,14 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
       }),
     previewBox: (spec, paths) => scrubbed(planInBox(spec, previewSession(), paths.runDir)),
     prepare: async (spec, paths, _config, _checkSession, place) => {
-      // A reviewer session goes into the read-only box made for it, never onto the Mac (0002).
-      if (spec.kind === "review") {
-        if (place === undefined) throw new PlanError(REVIEWER_ON_MAC_REFUSED);
+      // A reviewer or planning session goes into the read-only box made for it, never onto the
+      // Mac (0002, DIPO-447).
+      if (spec.kind === "review" || spec.kind === "planning") {
+        if (place === undefined) {
+          throw new PlanError(
+            spec.kind === "review" ? REVIEWER_ON_MAC_REFUSED : PLANNER_ON_MAC_REFUSED,
+          );
+        }
         const gate = await deps.holds.gateLaunch(CLAUDE_CLI_ADAPTER_ID, async () => ({ ok: true }));
         if (!gate.ok) return gate;
         return { ok: true, plan: scrubbed(planInBox(spec, place, paths.runDir)) };
@@ -296,6 +302,10 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
         // structured output (DIPO-310). A reviewer runs only in its reviewer box, with the
         // placeholder key, whatever its run's directory holds (0002).
         ...(spec.kind === "review" ? { reportKind: "review" as const, placeholderKey: true } : {}),
+        // A planning session answers in text and runs only in its own read-only box (DIPO-447).
+        ...(spec.kind === "planning"
+          ? { reportKind: "planning" as const, placeholderKey: true }
+          : {}),
         ...(spec.kind === "session" ? { reportKind: "session" as const } : {}),
       }) as unknown as ParseState,
     encode,

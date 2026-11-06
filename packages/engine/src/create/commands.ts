@@ -2,7 +2,7 @@
 // `createEngine` builds them: the runs, `work.discard`, the proposals, reconcile, the run profile,
 // the story tests, `work.run`, the Done poll and teardown, the auto-merge and the merge gates.
 
-import type { OfficeId } from "@dipsaus-orchestrator/contract";
+import { type OfficeId, officeDesk, RequestId } from "@dipsaus-orchestrator/contract";
 
 import { BacklogMerges } from "../backlog/pr/merge";
 import { writeCloseOutSummary } from "../merge/close-out";
@@ -13,6 +13,7 @@ import { gitStoryMergeOps } from "../merge/story-git";
 import { Reconciler } from "../reconcile/feature";
 import { gitParkWriter, gitUnparkWriter } from "../run/park";
 import { ProposalCommands } from "../run/proposals";
+import { createUlid } from "../platform/ids";
 import { signalProcess } from "../platform/process";
 import { planLimitPause } from "../run/starts-paused";
 import { openTestIdsOfRegistered } from "../run/test-records";
@@ -48,6 +49,7 @@ export interface CommandServices {
  */
 function runsOf(core: Core, story: StoryServices, partners: EnginePartners): EngineRuns {
   const { deps, offices } = core;
+  const nextRequestId = createUlid(deps.clock);
   return buildRuns({
     tools: deps.tools,
     probe: deps.probe,
@@ -83,6 +85,23 @@ function runsOf(core: Core, story: StoryServices, partners: EnginePartners): Eng
     // The office's starts paused lifts, and its parks resume, only while the engine schedules
     // work (0020).
     scheduling: () => core.lifecycle.state === "running",
+    // A planning session's first message holds the office's desk (DIPO-447), read through the
+    // engine's own `office.desk`.
+    planningDesk: (office) => {
+      const read = core.registry.read(officeDesk.name);
+      if (read === undefined || read.waits) return [];
+      const items = read.handle(
+        {
+          clock: deps.clock,
+          requestId: RequestId.parse(nextRequestId()),
+          office,
+          stories: new Map(),
+          registry: core.registry,
+        },
+        { office: office.officeId },
+      );
+      return officeDesk.result.parse(items);
+    },
   });
 }
 

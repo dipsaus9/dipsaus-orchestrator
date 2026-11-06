@@ -6,17 +6,18 @@
 import type { OpenEnum, ParkReason } from "@dipsaus-orchestrator/contract";
 
 /** Run kinds an adapter may know (0008). */
-export const KNOWN_WORKER_KINDS = ["implement", "review", "session"] as const;
+export const KNOWN_WORKER_KINDS = ["implement", "review", "session", "planning"] as const;
 /** An open string: a later kind needs no contract change; an adapter refuses kinds it cannot plan. */
 export type WorkerKind = OpenEnum<(typeof KNOWN_WORKER_KINDS)[number]>;
 /**
  * The kinds whose turn ends in a structured report (0008, DIPO-131), and
  * `session` (DIPO-310): a model session outside a story run, whose structured output the engine
- * checks against the schema its spec carries (the scan fallback's answer).
+ * checks against the schema its spec carries (the scan fallback's answer). A `planning` session
+ * (DIPO-447) is the maintainer's: each of its turns ends in plain text, never in a report.
  */
-export type ReportKind = "implement" | "review" | "session";
+export type ReportKind = "implement" | "review" | "session" | "planning";
 /** The kinds whose report schema the worker port carries (`WorkerPort.reportSchema`). */
-export type SchemaKind = Exclude<ReportKind, "session">;
+export type SchemaKind = Exclude<ReportKind, "session" | "planning">;
 
 /** The start of the output line a web call shows as: `[web] <tool> <query or URL>`. */
 export const WEB_LINE_PREFIX = "[web] ";
@@ -41,7 +42,8 @@ export interface WorkerSpec {
   /**
    * Absolute working directory on the Mac: the story worktree for `implement` and `review`, whose
    * sessions run in a box (0008); for `session` an empty folder dipo made, with nothing of any
-   * repository in it (DIPO-310).
+   * repository in it (DIPO-310); for `planning` the run directory, since its session runs in a
+   * read-only box of its own (DIPO-447).
    */
   readonly workdir: string;
   readonly model: string;
@@ -53,13 +55,17 @@ export interface WorkerSpec {
   readonly taskMessage: string;
   /**
    * Whether the developer may search and fetch the web (0020); false for every other
-   * kind, which the adapter refuses otherwise. The reviewer's web tools come with its kind. The
-   * adapter names the tools of each kind; the engine names none (DIPO-318).
+   * kind, which the adapter refuses otherwise. The reviewer's and the planner's web tools come with
+   * their kind. The adapter names the tools of each kind; the engine names none (DIPO-318), and a
+   * spec that tries to (`TOOL_REQUEST_KEYS`) is refused.
    */
   readonly web: boolean;
   /** Engine-made session id: every session is a new one (0008). */
   readonly session: { readonly id: string };
-  /** The schema the worker's report must follow (`WorkerReport`, or `ReviewReport` for `review`). */
+  /**
+   * The schema the worker's report must follow (`WorkerReport`, or `ReviewReport` for `review`). A
+   * `planning` session answers in plain text, so its plan passes no schema (DIPO-447).
+   */
   readonly reportSchema: JsonSchema;
 }
 

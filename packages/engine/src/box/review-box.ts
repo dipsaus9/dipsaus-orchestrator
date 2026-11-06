@@ -14,6 +14,10 @@
 //   chmod it. `REVIEW_ROOT` holds the code (`REVIEW_CODE_DIR`) and the session's empty working
 //   directory (`REVIEW_SESSION_DIR`), so Claude Code finds no settings, hooks or CLAUDE.md of the
 //   commit in its working directory or above it.
+//
+// A planning session's box (DIPO-447, `BoxWorkers.planning`) is made the same way, under its own
+// name (`planningBoxName`), with a copy of the base branch's tip, which holds the backlog: the
+// same staging, the same read-only copy at the same paths.
 
 import { chmod, lstat, mkdir, readdir, rm, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -35,9 +39,17 @@ const COMMIT_ID = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 /** Git's modes of a regular file; links (120000) and submodules (160000) have no file in the copy. */
 const FILE_MODES: ReadonlySet<string> = new Set(["100644", "100755"]);
 
+/** The run id prefix of a planning session's box: `planning-<agent id>` (DIPO-447). */
+export const PLANNING_BOX_RUN_PREFIX = "planning-";
+
 /** The box name of the review session of `agent`. */
 export function reviewBoxName(agent: string): string {
   return boxName(`${REVIEW_BOX_RUN_PREFIX}${agent}`);
+}
+
+/** The box name of the planning session of `agent` (DIPO-447). */
+export function planningBoxName(agent: string): string {
+  return boxName(`${PLANNING_BOX_RUN_PREFIX}${agent}`);
 }
 
 /** The copy of the head does not hold exactly the commit's files: its review cannot start. */

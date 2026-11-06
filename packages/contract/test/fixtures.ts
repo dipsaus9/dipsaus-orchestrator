@@ -75,6 +75,20 @@ export const usage = {
   budgetShare: 0.78,
 };
 
+// The maintainer's planning session (DIPO-447), waiting for the next message.
+export const planningView = {
+  run: ids.run,
+  agent: ids.agent,
+  kind: "refine",
+  goal: "Sharpen the criteria of the M3 drafts",
+  model: "opus",
+  state: "waiting",
+  turns: 2,
+  usage: { ...agentTotals, turns: 2 },
+  startedAt: "2026-11-06T09:00:00.000Z",
+  lastOutputAt: "2026-11-06T09:04:00.000Z",
+};
+
 export const storyView = {
   key: ids.storyKey,
   story: "DIPO-21",
@@ -271,6 +285,15 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
     args: { test: ids.test, result: "fail", note: "Esc does not go back." },
     result: { test: ids.test, result: "fail" },
   },
+  "planning.start": {
+    args: { kind: "refine", goal: "Sharpen the criteria of the M3 drafts" },
+    result: { run: ids.run, view: { ...planningView, state: "working", turns: 0 } },
+  },
+  "planning.message": {
+    args: { text: "Split the second draft in two." },
+    result: { run: ids.run, delivered: "next-turn" },
+  },
+  "planning.end": { args: {}, result: { run: ids.run, ended: "maintainer" } },
 };
 
 const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
@@ -554,6 +577,25 @@ const officeEventFixtures: Record<string, unknown> = {
     note: "Esc does not go back.",
   },
   "test.ended": { test: ids.test, story: "DIPO-15", key: ids.storyKey, reason: "new-head" },
+  "planning.started": { run: ids.run, view: { ...planningView, state: "starting", turns: 0 } },
+  "planning.output": {
+    run: ids.run,
+    from: 120,
+    to: 168,
+    text: "The second draft holds two stories: one for the\n",
+    view: planningView,
+  },
+  "planning.updated": { run: ids.run, view: planningView },
+  "planning.ended": {
+    run: ids.run,
+    reason: "maintainer",
+    view: {
+      ...planningView,
+      state: "ended",
+      ended: "maintainer",
+      endedAt: "2026-11-06T10:00:00.000Z",
+    },
+  },
 };
 
 // `dipo` field blocks (0010).

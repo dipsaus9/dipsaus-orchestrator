@@ -228,6 +228,11 @@ describe("tags inside slot text", () => {
       "scan_request",
       "scan_evidence",
       "scan_file",
+      "planning",
+      "drafts",
+      "desk",
+      "recent_runs",
+      "copy",
     ]);
     for (const name of REVIEW_SECTION_ORDER) expect(PROMPT_TAGS).toContain(name);
   });

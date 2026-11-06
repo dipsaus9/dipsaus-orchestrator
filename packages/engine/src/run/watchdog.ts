@@ -4,10 +4,14 @@
 // `stuck`), on the injected clock. Any line (ingestion calls `lineSeen`) starts both waits again;
 // the ingestion pass that read the line clears the fact in its own transaction. Health is derived
 // from the facts in effect, so it changes only through events (`views/work.ts`).
+//
+// A run that waits for the maintainer (the planning session between turns, DIPO-447) is not quiet
+// or stuck: `waiting` stops both waits, and no line starts them again until `working` says its next
+// turn began. A run with no story writes its facts too, and its events come from `storyless`.
 
 import type { Clock, OfficeId, RunId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
-import { appendEntries } from "../changelog/log";
+import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { withWorkViews, workRefOf } from "../views/work";
 
@@ -28,6 +32,11 @@ export interface WatchdogOptions {
   readonly timeouts: (office: OfficeId) => WatchdogTimeouts | undefined;
   /** Entries were appended for `office`; the daemon sends them to subscribers. */
   readonly onAppended?: (office: OfficeId) => void;
+  /**
+   * The entries of a fact the watchdog wrote for a run with no story (a planning session,
+   * DIPO-447), inside its transaction; without it such a run is watched for nothing.
+   */
+  readonly storyless?: (office: OfficeHandle, run: RunId) => readonly NewEntry[];
 }
 
 /** The 0009 defaults: quiet after 3 minutes, stuck after 20. */
@@ -41,6 +50,8 @@ interface Watched {
   readonly run: RunId;
   quiet: TimerHandle | null;
   stall: TimerHandle | null;
+  /** True while the run waits for the maintainer: no wait runs, and a line starts none. */
+  waiting: boolean;
 }
 
 export class Watchdog {
@@ -59,7 +70,7 @@ export class Watchdog {
   /** Starts watching a run whose worker just started: both waits begin now. */
   track(office: OfficeHandle, run: RunId): void {
     if (this.#runs.has(run)) return;
-    const watched: Watched = { office, run, quiet: null, stall: null };
+    const watched: Watched = { office, run, quiet: null, stall: null, waiting: false };
     this.#runs.set(run, watched);
     this.#arm(watched);
   }
@@ -67,7 +78,27 @@ export class Watchdog {
   /** A line of the run arrived: both waits begin again. Unknown runs are ignored. */
   lineSeen(run: string): void {
     const watched = this.#runs.get(run);
+    if (watched === undefined || watched.waiting) return;
+    this.#clear(watched);
+    this.#arm(watched);
+  }
+
+  /**
+   * The run waits for the maintainer (DIPO-447): both waits stop, and a line starts them again only
+   * after `working`. Unknown runs are ignored.
+   */
+  waiting(run: string): void {
+    const watched = this.#runs.get(run);
     if (watched === undefined) return;
+    this.#clear(watched);
+    watched.waiting = true;
+  }
+
+  /** The run works again, its next turn sent: both waits begin now. Unknown runs are ignored. */
+  working(run: string): void {
+    const watched = this.#runs.get(run);
+    if (watched === undefined) return;
+    watched.waiting = false;
     this.#clear(watched);
     this.#arm(watched);
   }
@@ -118,11 +149,17 @@ export class Watchdog {
       const stored = findRun(office, run);
       if (stored === null || stored.endedAt !== null) return "ended";
       const work = workRefOf(office, run);
-      if (work === null) return "none";
+      const storyless = this.#options.storyless;
+      if (work === null && (storyless === undefined || stored.story !== null)) return "none";
       const fact: StoredSignal | null = stuck
         ? markStuck(office, run, at)
         : raiseSignal(office, run, "no-output", at);
       if (fact === null) return "none";
+      if (work === null) {
+        const entries = storyless?.(office, run) ?? [];
+        appendEntries(office, entries, { at });
+        return entries.length > 0 ? "written" : "none";
+      }
       appendEntries(
         office,
         withWorkViews(office, [

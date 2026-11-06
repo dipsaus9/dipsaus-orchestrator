@@ -13,6 +13,7 @@ import { helloFeature } from "../reads/hello";
 import { REATTACH_STEP } from "../run/reattach";
 import { FIX_ROUNDS_RECOVERY_STEP } from "../run/fix-rounds";
 import { TEST_RECOVERY_STEP } from "../run/tests";
+import { PLANNING_RECOVERY_STEP } from "../run/planning-session";
 import { RUN_TEMP_SWEEP_STEP } from "../run/temp-dirs";
 import { RECONCILE_STEP } from "../reconcile/feature";
 import { activeRunCount } from "../overview/summary";
@@ -126,6 +127,8 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
     story.planning.feature,
     commands.mergeGates.feature,
     commands.storyTests.feature,
+    // The maintainer's planning session (DIPO-447).
+    runs.planning.feature,
     commands.discard.feature,
     commands.proposals.feature,
     runs.control.feature,
@@ -275,6 +278,14 @@ export function recoveryList(core: Core, services: Services): RecoverySteps {
     // Open tests (DIPO-309): each whose test box still runs gets its forwarder again; the others
     // close, and every test box no open test names is deleted.
     { name: TEST_RECOVERY_STEP, run: async () => storyTests.recover() },
+    // A planning run a stopped daemon left open ends: its session ended with that daemon (DIPO-447).
+    {
+      name: PLANNING_RECOVERY_STEP,
+      run: async (context: Parameters<RecoveryStep["run"]>[0]) => {
+        const ended = runs.planning.recover();
+        if (ended > 0) context.logger.info("ended planning runs a stopped daemon left", { ended });
+      },
+    },
     // Fix rounds (DIPO-148): a round delivered just before the stop is marked so, and a reviewed
     // head whose CI will not tell again gets its round decided.
     {
