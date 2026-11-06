@@ -87,6 +87,8 @@ function runsOf(core: Core, story: StoryServices, partners: EnginePartners): Eng
     scheduling: () => core.lifecycle.state === "running",
     // A planning session files the proposals the maintainer confirms through the lane (DIPO-450).
     planningLane: (office) => story.lane.planning(office),
+    // ... and sets them Ready after the Ready gate passed (DIPO-451).
+    planningGate: () => story.gates,
     // A planning session's first message holds the office's desk (DIPO-447), read through the
     // engine's own `office.desk`.
     planningDesk: (office) => {

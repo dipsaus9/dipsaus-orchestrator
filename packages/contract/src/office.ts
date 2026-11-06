@@ -500,6 +500,28 @@ export const planningDecline = defineCommand({
   irreversible: false,
 });
 
+// The final confirm of a planning session (DIPO-451, 0012): the maintainer names the stories of the
+// open session that go Ready. For each, dipo evaluates the Ready gate against the story as the
+// base branch holds it (its filing PR merged) and stores the decision. A story that passes is set
+// Ready through the planning lane, in a backlog PR of its own, never the one that filed it; one
+// that fails stays as it is and is listed in `refused` with the gate's messages. `flush` says what
+// the lane's flush did. Setting a story again that is set already changes nothing.
+// Errors: `planning.notOpen`, `planning.storyUnknown` (a story the session neither filed nor
+// edited) and `planning.notFiled` (the office has no backlog lane yet).
+export const planningReady = defineCommand({
+  name: "planning.ready",
+  level: "office",
+  args: z.object({ stories: z.array(z.string().min(1)).min(1) }),
+  result: z.object({
+    run: RunId,
+    queued: z.array(z.string()),
+    refused: z.array(z.object({ story: z.string(), messages: z.array(z.string()) })),
+    flush: LaneFlush.optional(),
+  }),
+  confirm: false,
+  irreversible: false,
+});
+
 // Reads
 
 const OfficeArgs = z.object({ office: OfficeId });
@@ -1178,6 +1200,7 @@ export const officeCommands = [
   planningConfirm,
   planningEdit,
   planningDecline,
+  planningReady,
 ] as const;
 
 export const officeReads = [

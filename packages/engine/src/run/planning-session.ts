@@ -53,6 +53,12 @@
 // - `planning.edit` replaces an open proposal with the maintainer's version, checked the same way.
 // - `planning.decline` closes it; nothing is filed.
 //
+// - `planning.ready` (DIPO-451) is the final confirm: for each story of the session the maintainer
+//   chooses, the Ready gate is evaluated against the story as the base branch holds it (so its
+//   filing PR merged) and the decision stored; a story that passes is set Ready by a `ready` lane
+//   change, in a backlog PR of its own; one that fails, or has an edit still waiting, stays as it
+//   is and the planning view lists the gate's messages (`PlanningView.ready`).
+//
 // What the maintainer decided reaches the session with their next message, as `[dipo]` lines
 // before it, so it never proposes a filed or declined story again.
 
@@ -72,15 +78,18 @@ import {
   PLANNING_PROPOSAL_FENCE,
   planningConfirm,
   planningDecline,
+  planningReady,
   planningEdit,
   planningEnd,
   planningMessage,
   type PlanningProposal,
   type PlanningProposalView,
+  type PlanningReadyView,
   planningStart,
   type PlanningState,
   type PlanningView,
   RunId,
+  type StoryKey,
   type UsageTotals,
 } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
@@ -118,7 +127,8 @@ import { contextNearFull, readUsage } from "../records/usage";
 import type { LaunchedHost } from "../records/worker-hosts";
 import { isProvisionalId, resolveStoryRef, type StoryIdentity } from "../records/story-keys";
 import { PlanningRefusedError } from "../story-store/errors";
-import type { PlannedChange, PlanningLane } from "../story-store/planning";
+import type { GateStore } from "../gate-decisions";
+import { type PlannedChange, type PlanningLane, REVISE_KIND } from "../story-store/planning";
 import { activeStoryViews, storyView } from "../views/story";
 import type { RunLaunchPaths, WorkerPort } from "../workers/port";
 import { PlanError, type HostOp, type WorkerEvent, type WorkerSpec } from "../workers/types";
@@ -155,6 +165,8 @@ type EditArgs = z.output<typeof planningEdit.args>;
 type EditResult = z.input<typeof planningEdit.result>;
 type DeclineArgs = z.output<typeof planningDecline.args>;
 type DeclineResult = z.input<typeof planningDecline.result>;
+type ReadyArgs = z.output<typeof planningReady.args>;
+type ReadyResult = z.input<typeof planningReady.result>;
 
 /** The session's system file in its run directory. */
 export const PLANNING_SYSTEM_FILE = "system-planning.md";
@@ -287,11 +299,16 @@ export interface PlanningSessionsDeps {
   readonly tempOwner?: () => string | undefined;
   /** The office's planning lane (0010), which files the proposals the maintainer confirms. */
   readonly lane?: (office: OfficeId) => PlanningLane | undefined;
+  /** The office's Ready gate, which the final confirm evaluates and stores (DIPO-451). */
+  readonly gate?: (office: OfficeId) => PlanningGate | undefined;
   readonly onChanged?: (office: OfficeId) => void;
   /** The session held an idea from an aside block (DIPO-452): the audit takes it now. */
   readonly onIdea?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
+
+/** The part of the Ready gate a planning session uses. */
+export type PlanningGate = Pick<GateStore, "recordGateDecision">;
 
 /** The model session a fresh one continues, and why that one ended. */
 interface Continued {
@@ -325,12 +342,22 @@ interface Open {
   /** The texts of the answer in progress, read for proposal blocks at its turn end (DIPO-450). */
   answer: string[];
   proposals: OpenProposal[];
+  /** The stories chosen to go Ready, by story id (DIPO-451). */
+  ready: Map<string, OpenReady>;
   /** The refused proposal blocks, newest last. */
   refusals: { readonly at: number; readonly problems: readonly string[] }[];
   /** How many answers in a row dipo refused by itself (`AUTO_REFUSALS_MAX`). */
   autoRefusals: number;
   /** The `[dipo]` lines the next maintainer message carries before it. */
   notes: string[];
+}
+
+/** A story the maintainer chose to go Ready (DIPO-451); no `changes` when it was refused. */
+interface OpenReady {
+  readonly story: string;
+  readonly changes: readonly PlannedChange[];
+  readonly messages: readonly string[];
+  readonly at: number;
 }
 
 /** A proposal of an open session (DIPO-450). */
@@ -439,6 +466,10 @@ export class PlanningSessions {
         registry.addAsyncOfficeCommand({
           definition: planningDecline,
           handle: (ctx, args) => this.decline(ctx, args),
+        });
+        registry.addAsyncOfficeCommand({
+          definition: planningReady,
+          handle: (ctx, args) => this.ready(ctx, args),
         });
       },
     };
@@ -625,6 +656,162 @@ export class PlanningSessions {
       },
       changed: true,
     };
+  }
+
+  // ---- the final confirm (DIPO-451) -------------------------------------------------------------
+
+  /**
+   * `planning.ready`: for each chosen story of the session, evaluates the Ready gate against the
+   * story as the base branch holds it and stores the decision; a story that passes is set Ready
+   * through the planning lane, a story that fails stays as it is with the gate's messages.
+   */
+  async ready(ctx: AsyncCommandContext, args: ReadyArgs): Promise<CommandOutcome<ReadyResult>> {
+    const open = this.#open.get(ctx.office.officeId as OfficeId);
+    if (open === undefined) throw notOpen("start one with planning.start");
+    if (open.ending !== null || open.settled) throw notOpen(`${open.run} is ending`);
+    const { handle } = open;
+    const lane = this.#deps.lane?.(open.office);
+    const gate = this.#deps.gate?.(open.office);
+    if (lane === undefined || gate === undefined) {
+      throw new CommandError(
+        "planning.notFiled",
+        "This office has no backlog lane yet, so nothing can be set Ready; try again once it loaded.",
+      );
+    }
+    // Every story is checked first, so a wrong one changes nothing. A story whose filing PR has
+    // not merged has an id but no key yet: it is listed in the record only.
+    const record = handle.deferred(() => readPlanningRecord(handle, open.session));
+    const chosen: { story: string; key: StoryKey | null }[] = [];
+    for (const ref of args.stories) {
+      const found = handle.deferred(() => resolveStoryRef(handle, ref));
+      const inSession = record.some((entry) => {
+        if (entry.kind !== "story" || entry.subject === null) return false;
+        const subject = entry.subject;
+        if (subject === ref) return true;
+        const other = handle.deferred(() => resolveStoryRef(handle, subject));
+        return other.ok && found.ok && other.key === found.key;
+      });
+      if (!inSession) {
+        throw new CommandError(
+          "planning.storyUnknown",
+          `${ref} is not a story this planning session filed or edited.`,
+          { story: ref },
+        );
+      }
+      const identity = { story: found.ok ? found.story : ref, key: found.ok ? found.key : null };
+      if (!chosen.some((other) => other.story === identity.story)) chosen.push(identity);
+    }
+    const queued: string[] = [];
+    const refused: ReadyResult["refused"] = [];
+    let last: PlannedChange | undefined;
+    for (const identity of chosen) {
+      const before = open.ready.get(identity.story);
+      if (
+        before !== undefined &&
+        before.changes.length > 0 &&
+        this.#readyState(open, before) !== "failed"
+      ) {
+        queued.push(identity.story);
+        continue;
+      }
+      const outcome = await this.#readyOne(open, identity, lane, gate);
+      if (outcome.change === undefined) {
+        refused.push({ story: identity.story, messages: outcome.messages });
+      } else {
+        queued.push(identity.story);
+        last = outcome.change;
+      }
+    }
+    this.#append(open, () => [this.#updated(open)]);
+    const flush = last === undefined ? null : await lane.flush(last);
+    this.#append(open, () => [this.#updated(open)]);
+    return {
+      result: {
+        run: open.run,
+        queued,
+        refused,
+        ...(flush === null ? {} : { flush }),
+      },
+      changed: true,
+    };
+  }
+
+  /** The gate for one chosen story and, when it passes, the lane change that sets it Ready. */
+  async #readyOne(
+    open: Open,
+    identity: { readonly story: string; readonly key: StoryKey | null },
+    lane: PlanningLane,
+    gate: PlanningGate,
+  ): Promise<{ change?: PlannedChange; messages: string[] }> {
+    const at = this.#deps.clock.now();
+    const refuse = (messages: string[]) => {
+      open.ready.set(identity.story, { story: identity.story, changes: [], messages, at });
+      return { messages };
+    };
+    const { key } = identity;
+    const notFiledYet = `${identity.story} is not on the base branch yet; set it Ready once the backlog PR that filed it has merged`;
+    if (key === null) {
+      return refuse([notFiledYet]);
+    }
+    if (lane.isOpen(key, REVISE_KIND)) {
+      return refuse([
+        "an edit of it still waits for its backlog PR to merge; set it Ready after that",
+      ]);
+    }
+    let decision;
+    try {
+      decision = await gate.recordGateDecision(open.office, key, "ready");
+    } catch (error) {
+      if (!(error instanceof CommandError) || error.error.code !== "story.unknown") throw error;
+      return refuse([notFiledYet]);
+    }
+    if (!decision.result.passed) {
+      return refuse(
+        decision.result.failures.map((failure) => `${failure.rule}: ${failure.message}`),
+      );
+    }
+    try {
+      const change = await lane.setReady({ key, story: identity.story });
+      open.ready.set(identity.story, {
+        story: identity.story,
+        changes: [change],
+        messages: [],
+        at,
+      });
+      return { change, messages: [] };
+    } catch (error) {
+      if (!(error instanceof PlanningRefusedError)) throw error;
+      return refuse([error.message]);
+    }
+  }
+
+  /** How far setting one story Ready got, from the lane. */
+  #readyState(open: Open, item: OpenReady): PlanningReadyView["state"] {
+    if (item.changes.length === 0) return "refused";
+    const lane = this.#deps.lane?.(open.office);
+    const outcomes = item.changes.map((change) => lane?.outcomeOf(change));
+    if (outcomes.some((outcome) => outcome?.outcome === "closed")) return "failed";
+    // A change the journal no longer has was applied and pruned.
+    return outcomes.every((outcome) => outcome === undefined || outcome.outcome === "applied")
+      ? "set"
+      : "setting";
+  }
+
+  #readyViews(open: Open): PlanningReadyView[] {
+    const lane = this.#deps.lane?.(open.office);
+    return [...open.ready.values()].map((item) => {
+      const state = this.#readyState(open, item);
+      const closed = item.changes
+        .map((change) => lane?.outcomeOf(change))
+        .find((outcome) => outcome?.outcome === "closed");
+      return {
+        story: item.story,
+        state,
+        ...(item.messages.length === 0 ? {} : { messages: [...item.messages] }),
+        ...(state === "failed" ? { detail: closed?.notice ?? "the backlog lane closed it" } : {}),
+        at: iso(item.at),
+      };
+    });
   }
 
   /** `planning.edit`: the maintainer's version replaces an open proposal of the same kind. */
@@ -976,6 +1163,7 @@ export class PlanningSessions {
       settled: false,
       answer: [],
       proposals: [],
+      ready: new Map(),
       refusals: [],
       autoRefusals: 0,
       notes: [],
@@ -1572,6 +1760,7 @@ export class PlanningSessions {
               problems: [...refusal.problems],
             })),
           }),
+      ...(open.ready.size === 0 ? {} : { ready: this.#readyViews(open) }),
     };
   }
 }
