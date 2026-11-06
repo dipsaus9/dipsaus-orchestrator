@@ -17,6 +17,7 @@ import {
   HOLD_KIND,
   OPEN_STATES,
   PROPOSE_KIND,
+  REFINE_KIND,
   RESUME_KIND,
   REVISE_KIND,
   type PlannedChange,
@@ -200,6 +201,8 @@ export function planningLane(lane: OfficeLane): PlanningLane {
     fileStory: (target) => lane.journal({ kind: FILE_KIND, subject: NEW_STORY, target }),
     reviseStory: ({ key, story }, target) =>
       lane.journal({ kind: REVISE_KIND, key, subject: story, target }),
+    refineDraft: ({ key, story }, target) =>
+      lane.journal({ kind: REFINE_KIND, key, subject: story, target }),
     outcomeOf(change) {
       const entry = findEntry(lane.office, change.opId);
       return entry === null ? undefined : outcomeOfEntry(entry);

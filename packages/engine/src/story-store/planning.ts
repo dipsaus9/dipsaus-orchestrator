@@ -50,6 +50,8 @@ export const PROPOSE_KIND = "propose";
 export const FILE_KIND = "file";
 /** An edit of a story's wording, criteria or references a planning session confirmed (DIPO-450). */
 export const REVISE_KIND = "revise";
+/** A draft a triage session refined into a Refined story with a new id (DIPO-454). */
+export const REFINE_KIND = "refine";
 
 /** The target state of an edit: status, field-block keys and labels. */
 export const EditTarget = z
@@ -97,6 +99,15 @@ export const FileTarget = z
   })
   .strict();
 export type FileTarget = z.infer<typeof FileTarget>;
+
+/**
+ * The target state of a refinement (DIPO-454): the draft `draftTitle` names is promoted to a task
+ * (Backlog.md's `draft promote`, which gives it a new id), and that task then reads as a filing's
+ * target asks: Refined to the story standard (0012), with a branch named for its new id. Applied
+ * again it finds the task by its title and Story line, as a filing does.
+ */
+export const RefineTarget = FileTarget.extend({ draftTitle: z.string().min(1) }).strict();
+export type RefineTarget = z.infer<typeof RefineTarget>;
 
 /**
  * The target state of a revision (DIPO-450): each field given replaces the story's, while its
@@ -180,6 +191,8 @@ export interface PlanningLane {
   fileStory(target: FileTarget): Promise<PlannedChange>;
   /** Changes a story's wording, criteria or references as a planning session confirmed. */
   reviseStory(story: PlanningStory, target: ReviseTarget): Promise<PlannedChange>;
+  /** Refines a draft into a Refined story with a new id, as a triage session confirmed (DIPO-454). */
+  refineDraft(draft: PlanningStory, target: RefineTarget): Promise<PlannedChange>;
   /**
    * How far the journaled `change` got (DIPO-450): `waiting` to be applied, `applied` (committed,
    * pushed or merged, or on the open branch already), or `closed` with the notice that says why;

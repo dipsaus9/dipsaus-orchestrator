@@ -505,6 +505,10 @@ function proposalSummary(proposal: PlanningProposalView["proposal"]): string {
       return `edit ${proposal.id}${proposal.title === undefined ? "" : `: ${proposal.title}`}`;
     case "split":
       return `split ${proposal.id} + story [${proposal.story.tier}] ${proposal.story.title}`;
+    case "refine":
+      return `refine ${proposal.draft} into story [${proposal.tier}] ${proposal.title}`;
+    case "drop":
+      return `drop ${proposal.draft}`;
     default:
       return String((proposal as { kind?: unknown }).kind ?? "proposal");
   }

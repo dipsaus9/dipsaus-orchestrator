@@ -7,7 +7,8 @@
 // go back to the session as one message (`refusalMessage`).
 //
 // A confirmed proposal becomes planning-lane targets (0010): a new story a `file` target, an edit a
-// `revise` target, and a split one of each.
+// `revise` target, a split one of each, a refined draft a `refine` target and a dropped draft a
+// `drop` of the draft (DIPO-454).
 
 import {
   cleanText,
@@ -19,7 +20,12 @@ import {
 
 import { cleanDoorStrings, doorKeysClean } from "../box/door";
 import { checkStoryLine } from "../gate/rules";
-import { type FileTarget, type ReviseTarget, storyDescription } from "../story-store/planning";
+import {
+  type FileTarget,
+  type RefineTarget,
+  type ReviseTarget,
+  storyDescription,
+} from "../story-store/planning";
 
 /** The largest proposal block, in characters of JSON, before it is parsed. */
 export const PROPOSAL_BLOCK_MAX_CHARS = 32_000;
@@ -86,6 +92,10 @@ export function proposalProblems(proposal: PlanningProposal): string[] {
           "story.storyLine",
         ),
       ];
+    case "refine":
+      return lineProblems(proposal.storyLine, proposal.type === "spike", "storyLine");
+    case "drop":
+      return [];
   }
 }
 
@@ -209,4 +219,22 @@ export function storyFieldsOf(
 ): PlanningStoryFields {
   const { kind: _kind, why: _why, ...fields } = proposal;
   return fields;
+}
+
+/** The fields of a refine proposal, without its kind, draft and why (DIPO-454). */
+export function refineFieldsOf(
+  proposal: Extract<PlanningProposal, { kind: "refine" }>,
+): PlanningStoryFields {
+  const { kind: _kind, draft: _draft, why: _why, ...fields } = proposal;
+  return fields;
+}
+
+/** Pure: the `refine` target of a confirmed refinement of the draft titled `draftTitle`. */
+export function refineTargetOf(
+  run: string,
+  proposal: number,
+  story: PlanningStoryFields,
+  draftTitle: string,
+): RefineTarget {
+  return { ...fileTargetOf(run, proposal, story), draftTitle };
 }

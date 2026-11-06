@@ -32,7 +32,7 @@ import {
 } from "./ops";
 import { planningLane } from "./planning";
 import { proposeKind } from "./propose";
-import { fileKind, reviseKind } from "./stories";
+import { fileKind, refineKind, reviseKind } from "./stories";
 
 export class BacklogLane {
   readonly #deps: BacklogLaneDeps;
@@ -53,6 +53,8 @@ export class BacklogLane {
     // The stories a planning session files and edits (0022, DIPO-450).
     this.register(fileKind);
     this.register(reviseKind);
+    // A draft a triage session refines into a story (0022, DIPO-454).
+    this.register(refineKind);
     for (const kind of deps.kinds ?? []) this.register(kind);
   }
 

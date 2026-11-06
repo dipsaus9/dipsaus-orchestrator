@@ -3,7 +3,8 @@
 // context as `context:` followed by lines indented two spaces; the test plan as
 // `- automated: <check>` and `- manual: <check> => <expected>` lines, or `testPlan: not applicable:
 // <reason>`. A split's fields carry the prefix `edit.` or `story.`. Lines starting with `#` are
-// notes. The kind and the edited story's id are kept from the proposal, never edited. The engine
+// notes. The kind and the edited story's id (or the refined or dropped draft's) are kept from the
+// proposal, never edited. The engine
 // checks the result as it checks the session's (`planning.edit`), so the form checks only its own
 // syntax.
 
@@ -49,10 +50,27 @@ function fieldLines(fields: Fields, prefix: string): string[] {
   return lines;
 }
 
+/** The proposal's own subject, kept from the form: the task an edit or split names, the draft a refine or drop names (DIPO-454). */
+function subjectOf(
+  proposal: PlanningProposal,
+): { readonly key: "id" | "draft"; readonly value: string } | null {
+  switch (proposal.kind) {
+    case "edit":
+    case "split":
+      return { key: "id", value: proposal.id };
+    case "refine":
+    case "drop":
+      return { key: "draft", value: proposal.draft };
+    default:
+      return null;
+  }
+}
+
 /** Pure: `proposal` as the form the maintainer edits. */
 export function proposalForm(proposal: PlanningProposal): string {
+  const subject = subjectOf(proposal);
   const head = [
-    `# ${proposal.kind}${proposal.kind === "story" ? "" : ` ${proposal.id}`}: edit the fields, then Ctrl-S`,
+    `# ${proposal.kind}${subject === null ? "" : ` ${subject.value}`}: edit the fields, then Ctrl-S`,
   ];
   if (proposal.kind === "split") {
     const { kind: _kind, id: _id, edit, story, ...rest } = proposal;
@@ -66,6 +84,7 @@ export function proposalForm(proposal: PlanningProposal): string {
   const { kind: _kind, ...rest } = proposal;
   const fields: Record<string, unknown> = { ...rest };
   delete fields.id;
+  delete fields.draft;
   return [...head, ...fieldLines(fields, "")].join("\n");
 }
 
@@ -167,10 +186,11 @@ export function readProposalForm(
   const read = readFields(text);
   if (typeof read === "string") return { ok: false, error: read };
   const result: Record<string, unknown> = { kind: original.kind };
-  if (original.kind !== "story") result.id = original.id;
+  const subject = subjectOf(original);
+  if (subject !== null) result[subject.key] = subject.value;
   for (const [key, field] of read) {
-    // The kind and the id are the proposal's own.
-    if (key === "kind" || key === "id") continue;
+    // The kind, the id and the draft are the proposal's own.
+    if (key === "kind" || key === "id" || key === "draft") continue;
     const name = key.split(".").at(-1) ?? "";
     const value = valueOf(name, field);
     if (typeof value === "string") return { ok: false, error: value };

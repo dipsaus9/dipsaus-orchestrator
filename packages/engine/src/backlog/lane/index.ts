@@ -56,6 +56,8 @@ export {
   FILE_KIND,
   fileKind,
   filedStory,
+  REFINE_KIND,
+  refineKind,
   REVISE_KIND,
   reviseKind,
   revisedDescription,

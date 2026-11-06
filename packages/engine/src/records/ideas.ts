@@ -385,3 +385,42 @@ export function answerIdea(
     ).changes > 0
   );
 }
+
+/** Where an accepted idea's draft came from, as a triage session lists it (DIPO-454). */
+export interface DraftOrigin {
+  readonly origin: IdeaOrigin;
+  /** The idea's title; Backlog.md reuses draft ids, so the title tells the draft apart. */
+  readonly title: string;
+  /** The idea's source story, when the office knows it. */
+  readonly story: string | null;
+}
+
+/** The origin of each draft an accepted idea was filed as, by upper-case draft id; the newest wins. */
+export function draftOrigins(office: OfficeHandle): Map<string, DraftOrigin> {
+  const rows = office.all<{
+    draft_id: string;
+    origin: string;
+    title: string;
+    story_id: string | null;
+    proposal: string | null;
+  }>(
+    `select i.draft_id, i.origin, i.title, s.story_id, i.proposal
+       from ideas i
+       left join stories s on s.office_id = i.office_id and s.key = i.story_key
+      where i.office_id = $office_id and i.answer = 'accepted' and i.draft_id is not null
+      order by i.answered_at, i.idea_id`,
+  );
+  const origins = new Map<string, DraftOrigin>();
+  for (const row of rows) {
+    const source =
+      row.proposal === null
+        ? null
+        : ((JSON.parse(row.proposal) as ProposedStory).sourceStory ?? null);
+    origins.set(row.draft_id.toUpperCase(), {
+      origin: row.origin,
+      title: row.title,
+      story: source ?? row.story_id,
+    });
+  }
+  return origins;
+}

@@ -152,7 +152,9 @@ describe("the record of a planning session (DIPO-448)", () => {
       expect(text).toContain("goal: Plan the retro stories");
       expect(text).toContain(`<record>\n${EXPECTED_RECORD}\n</record>`);
       // The facts of the first message stay.
-      expect(text).toContain("<drafts>\n- DRAFT-1: Retro numbers\n</drafts>");
+      expect(text).toContain(
+        "<drafts>\n- DRAFT-1: Retro numbers (origin: not recorded; filed by hand or before dipo kept it)\n</drafts>",
+      );
       const continued = planningEvents(w, "planning.continued");
       expect(continued.map((entry) => entry.delta)).toMatchObject([
         { run: fresh?.run, previous: run, reason: "context-full" },
