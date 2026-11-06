@@ -3,10 +3,10 @@ id: DIPO-446
 title: >-
   Count every running story in status and watch and remove the verify field that
   is always none
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-05 12:06'
-updated_date: '2026-11-06 09:11'
+updated_date: '2026-11-06 09:18'
 labels:
   - 'tier:S'
 milestone: m-2
@@ -53,8 +53,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 dipo daemon status counts the stories that hold a run slot, in review included, the same set the run slots use
-- [ ] #2 The dipo watch header counts the same stories as dipo daemon status
-- [ ] #3 A scan session, which holds no run slot, is shown apart from the running-stories count when one runs
-- [ ] #4 The verify field that is always none is removed from the work view, its contract and the watch lines
+- [x] #1 dipo daemon status counts the stories that hold a run slot, in review included, the same set the run slots use
+- [x] #2 The dipo watch header counts the same stories as dipo daemon status
+- [x] #3 A scan session, which holds no run slot, is shown apart from the running-stories count when one runs
+- [x] #4 The verify field that is always none is removed from the work view, its contract and the watch lines
 <!-- AC:END -->
