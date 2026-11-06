@@ -75,6 +75,21 @@ export const usage = {
 };
 
 // The maintainer's planning session (DIPO-447), waiting for the next message.
+// A new story a planning session proposes (DIPO-450).
+export const planningStoryProposal = {
+  kind: "story",
+  title: "Export the stories as CSV",
+  type: "feature",
+  milestone: "m-3",
+  tier: "M",
+  storyLine:
+    "As maintainer I want to export the stories as CSV so that I can share the backlog with people outside dipo.",
+  criteria: ["dipo export writes one CSV row per story"],
+  references: ["packages/cli/src/export-command.ts"],
+  testPlan: { entries: [{ kind: "automated", check: "(unit) one CSV row per story" }] },
+  why: "The maintainer asked for it in this session.",
+};
+
 export const planningView = {
   run: ids.run,
   agent: ids.agent,
@@ -86,6 +101,16 @@ export const planningView = {
   usage: { ...agentTotals, turns: 2 },
   startedAt: "2026-11-06T09:00:00.000Z",
   lastOutputAt: "2026-11-06T09:04:00.000Z",
+  proposals: [
+    {
+      n: 1,
+      proposal: planningStoryProposal,
+      state: "filed",
+      stories: ["DIPO-31"],
+      at: "2026-11-06T09:04:00.000Z",
+    },
+  ],
+  refusals: [{ at: "2026-11-06T09:02:00.000Z", problems: ["tier: expected one of S, M or L"] }],
 };
 
 export const storyView = {
@@ -293,6 +318,28 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
     result: { run: ids.run, delivered: "next-turn" },
   },
   "planning.end": { args: {}, result: { run: ids.run, ended: "maintainer" } },
+  "planning.confirm": {
+    args: { proposal: 1 },
+    result: {
+      run: ids.run,
+      proposal: 1,
+      state: "filed",
+      stories: ["DIPO-31"],
+      flush: {
+        state: "opened",
+        branch: "dipo/backlog-20261106T090500",
+        pr: "https://github.com/o/r/pull/7",
+      },
+    },
+  },
+  "planning.edit": {
+    args: { proposal: 1, edited: { ...planningStoryProposal, tier: "S" } },
+    result: { run: ids.run, proposal: 1 },
+  },
+  "planning.decline": {
+    args: { proposal: 2 },
+    result: { run: ids.run, proposal: 2, state: "declined" },
+  },
 };
 
 const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
