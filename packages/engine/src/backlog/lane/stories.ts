@@ -22,7 +22,7 @@
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 
-import { recordPlanningEntry } from "../../records/planning-record";
+import { recordStoryEntry } from "../../records/planning-record";
 import { BLOCK_OPEN, FieldBlockError, locateBlock } from "../../story-store/fields/block";
 import {
   FILE_KIND,
@@ -205,8 +205,7 @@ export const fileKind: LaneOpKind = {
     if (office !== undefined) {
       const story = id;
       office.immediate(() =>
-        recordPlanningEntry(office, {
-          run: target.run,
+        recordStoryEntry(office, target.run, {
           proposal: target.proposal,
           kind: "filed",
           story,
@@ -321,8 +320,7 @@ export const reviseKind: LaneOpKind = {
     const office = ctx.office;
     if (office !== undefined) {
       office.immediate(() =>
-        recordPlanningEntry(office, {
-          run: target.run,
+        recordStoryEntry(office, target.run, {
           proposal: target.proposal,
           kind: "edited",
           story: ctx.story,
