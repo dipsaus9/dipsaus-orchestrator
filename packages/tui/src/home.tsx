@@ -85,6 +85,7 @@ function deskTarget(item: DeskItem, cli: string, id: ActionId): ActionTarget {
     ...(item.question === undefined ? {} : { question: String(item.question) }),
     ...(item.gate === undefined ? {} : { gate: String(item.gate) }),
     ...(item.proposal === undefined ? {} : { proposal: item.proposal.id }),
+    ...(item.idea === undefined ? {} : { idea: item.idea.id }),
     cli,
     ...(id === "answer" ? { text: item.detail } : {}),
   };
@@ -290,8 +291,17 @@ export function useHome(args: HomeArgs) {
       act(id, { story: String(live.work.story) });
     }
   };
-  /** Enter on a desk row: the story with its park record and review verdicts. */
+  /**
+   * Enter on a desk row: the story with its park record and review verdicts; a proposed story's
+   * card is the desk item itself, its proposed user story in full (DIPO-454).
+   */
   const openCard = (item: DeskItem) => {
+    if (item.idea !== undefined) {
+      setMessage(null);
+      setDeskSelection({ id: deskRowId(item), key: item.key ?? null, index: deskIndex });
+      setCard({ item, outcome: null, top: 0 });
+      return;
+    }
     if (item.key === undefined || state.office === null) {
       setMessage("this row names no story; what it needs is on the row");
       return;
@@ -598,6 +608,9 @@ export function useHome(args: HomeArgs) {
       selectDesk(deskIndex - 1);
     } else if (key.return && deskItem !== null) {
       openCard(deskItem);
+    } else if (input === "i") {
+      // The maintainer's quick idea goes to the audit (0022, DIPO-454), whatever row is selected.
+      act("idea", {});
     } else if (deskItem !== null) {
       const bound = rowKeys(deskItem).bound.find((entry) => entry.binding.key === input);
       if (bound === undefined) return;
@@ -661,9 +674,10 @@ export function useHome(args: HomeArgs) {
         rowHintList.push([entry.hint, 25]);
       }
     }
-  } else if (view === "desk" && card === null && deskItem !== null) {
-    const hints = rowHints(deskItem);
+  } else if (view === "desk" && card === null) {
+    const hints = deskItem === null ? "" : rowHints(deskItem);
     if (hints !== "") rowHintList.push([hints, 85]);
+    for (const entry of viewKeys("desk")) rowHintList.push([entry.hint, 30]);
   }
 
   const footerView: View | "detail" | "ended" | "card" =

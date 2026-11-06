@@ -186,9 +186,8 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
   await batches("run_signals", (limit) => deleteRetiredSignals(office, cutoff, limit));
   await rows("acceptance_tests", `ended_at is not null and ${endedRun("acceptance_tests")}`);
   await batches("runs", (limit) => deleteRetiredRuns(office, cutoff, limit));
-  // What the maintainer decided; an open note, proposal or park is kept.
+  // What the maintainer decided; an open note or park is kept.
   await rows("decision_notes", "state <> 'open' and updated_at < $cutoff");
-  await rows("proposals", "state <> 'open' and updated_at < $cutoff");
   await batches("parks", (limit) => deleteParksResolvedBefore(office, cutoff, limit));
   // Leftovers of a story Done elsewhere stay until `dipo discard` cleared them (DIPO-161).
   await rows("done_elsewhere", "cleared_at < $cutoff");

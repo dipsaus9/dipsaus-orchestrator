@@ -35,7 +35,7 @@ import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
 import { PROFILE_SUBCOMMANDS } from "./profile-commands";
 import { nextCommand } from "./next-command";
-import { proposeCommand } from "./propose-command";
+import { ideaCommand, noteCommand } from "./idea-command";
 import { runCommand } from "./run-command";
 import { steerCommand } from "./intervene-commands";
 import { resumeCommand } from "./resume-command";
@@ -201,7 +201,7 @@ Usage:
   dipo desk [--office <id>] [--json]
                     list what waits on you, in the order to handle it: questions
                     a worker waits on, merges, parked stories, hand actions,
-                    proposals, the stories you hold and the stories next up for
+                    proposed stories and decision notes, the stories you hold and the stories next up for
                     a free run slot, each with the command to type; --json
                     prints the engine's list as it is
   dipo ideas [--state held|passed|rejected] [--office <id>] [--json]
@@ -209,12 +209,19 @@ Usage:
                     each held one with what it waits for, each passed one with
                     its proposed user story, and each rejected one with its
                     reason; it never starts the daemon
-  dipo propose accept|dismiss <proposal> [--office <id>]
-                    decide a worker's follow-up, spike or tool proposal from
-                    dipo desk: accept files it as a Backlog draft through the
-                    backlog PR, the worker's words marked as theirs, and says
-                    which PR took it or why it waits; dismiss closes it and
-                    files nothing
+  dipo idea "<text>" [--story <id>] [--office <id>]
+                    hand a quick idea to dipo's audit: its first line is its
+                    title; --story names the story it is about; if it passes,
+                    it reaches your desk as a proposed story
+  dipo idea accept|dismiss <idea> [--office <id>]
+                    decide a proposed story from dipo desk: accept files it as
+                    a Backlog draft with its origin through the backlog PR (a
+                    tech-debt one with no milestone and the label tech-debt)
+                    and says which PR took it or why it waits; dismiss closes
+                    it, files nothing and keeps it as dismissed by you
+  dipo note dismiss <note> [--office <id>]
+                    close a worker's decision note from dipo desk; dipo never
+                    writes decision records, so add it by hand if you agree
   dipo next confirm|decline <id> [--office <id>]
                     decide a story dipo desk offers as next up for a free run
                     slot: confirm starts it as dipo run <id> does; decline
@@ -465,9 +472,13 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return ideasCommand(args.slice(1), { ...deps, version });
   }
-  if (args[0] === "propose") {
+  if (args[0] === "idea") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
-    return proposeCommand(args.slice(1), { ...deps, version });
+    return ideaCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "note") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return noteCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "next") {
     const { version } = versionInfo(deps.stamp, deps.runtime);

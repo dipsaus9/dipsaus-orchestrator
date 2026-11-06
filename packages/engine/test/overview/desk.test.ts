@@ -25,7 +25,8 @@ import { buildRegistry } from "../../src/commands/registry";
 import type { OfficeHandle } from "../../src/db/office";
 import { insertWorkerQuestion } from "../../src/run-state/questions";
 import { executeRead } from "../../src/reads/execute";
-import { storeDecisionNotes, storeProposals } from "../../src/run/report-data";
+import { holdIdea, passIdea } from "../../src/records/ideas";
+import { storeDecisionNotes } from "../../src/run/report-data";
 import { insertTest } from "../../src/run/test-records";
 import { StoryDiscard } from "../../src/run/discard";
 import {
@@ -42,6 +43,33 @@ import { pass, task } from "../stories/helpers";
 import { insertPark as insertParkRow } from "../run/park-fixture";
 import { keyOf, startRun } from "../views/helpers";
 import { backlogLayout } from "../story-store/backlog";
+
+const STORY_LINE =
+  "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.";
+
+/** An idea of `run` held at `at` and passed by the audit at `at + 1`, inside the caller's transaction. */
+function passedIdea(
+  office: OfficeHandle,
+  key: StoryKey,
+  run: RunId,
+  title: string,
+  at: number,
+): void {
+  const id = holdIdea(office, { origin: "proposal", key, runId: run, title, text: "t", at });
+  if (id === null) throw new Error("not held");
+  passIdea(office, id, {
+    proposal: {
+      found: "f",
+      evidence: [{ file: "src/a.ts", line: 1 }],
+      storyLine: STORY_LINE,
+      proposed: "p",
+      why: "w",
+      serves: "m-3",
+    },
+    auditRun: "run_audit",
+    at: at + 1,
+  });
+}
 
 const HOUR = 3_600_000;
 const all = () => true;
@@ -215,38 +243,12 @@ describe("the desk order (0020)", () => {
             base + 6 * HOUR,
           );
         });
-        // Group 5: a follow-up, a spike and a decision note, oldest first by row; spike leads.
+        // Group 6: two proposed stories, oldest first, then a decision note, older still.
         const run = RunId.parse("run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1E");
         const key11 = keyOf(office, "DIPO-11");
         office.immediate(() => {
-          storeProposals(office, {
-            key: key11,
-            runId: run,
-            proposals: [
-              {
-                kind: "follow-up",
-                title: "Split RunOutcomes",
-                story:
-                  "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
-                why: "w",
-              },
-            ],
-            at: base,
-          });
-          storeProposals(office, {
-            key: key11,
-            runId: run,
-            proposals: [
-              {
-                kind: "spike",
-                title: "Choose a queue",
-                story:
-                  "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
-                why: "w",
-              },
-            ],
-            at: base + HOUR,
-          });
+          passedIdea(office, key11, run, "Split RunOutcomes", base + HOUR);
+          passedIdea(office, key11, run, "Choose a queue", base);
           storeDecisionNotes(office, {
             key: key11,
             runId: run,
@@ -283,9 +285,9 @@ describe("the desk order (0020)", () => {
           "PARKED BY YOU DIPO-9",
           "LEFTOVERS DIPO-10",
           "BACKLOG PR -",
-          "PROPOSAL DIPO-11",
-          "PROPOSAL DIPO-11",
-          "PROPOSAL DIPO-11",
+          "PROPOSED STORY DIPO-11",
+          "PROPOSED STORY DIPO-11",
+          "DECISION NOTE DIPO-11",
         ]);
         const byStory = (story: string, kind = "PARKED") =>
           items.find((item) => item.story === story && item.kind === kind);
@@ -335,8 +337,8 @@ describe("the desk order (0020)", () => {
           hand: expect.stringContaining("by hand on GitHub"),
         });
         expect(
-          items.filter((item) => item.kind === "PROPOSAL").map((item) => item.proposal?.kind),
-        ).toEqual(["spike", "follow-up", "decision-note"]);
+          items.filter((item) => item.kind === "PROPOSED STORY").map((item) => item.idea?.title),
+        ).toEqual(["Choose a queue", "Split RunOutcomes"]);
         expect(byStory("DIPO-9", "PARKED BY YOU")).toMatchObject({
           reason: "by-maintainer",
           detail: "after M2",
@@ -660,41 +662,28 @@ describe("the office.desk read", () => {
             ],
             at,
           });
-          storeProposals(office, {
-            key,
-            runId: run,
-            proposals: [
-              {
-                kind: "follow-up",
-                title: "Split it",
-                story:
-                  "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
-                why: "size",
-              },
-            ],
-            at: at + 1,
-          });
+          passedIdea(office, key, run, "Split it", at + 1);
         });
         const items = await readDesk(t, office);
         expect(items).toEqual([
           {
-            kind: "PROPOSAL",
+            kind: "PROPOSED STORY",
             story: StoryId.parse("DIPO-9"),
-            key,
-            proposal: {
+            idea: {
               id: expect.stringMatching(/^[0-9a-f]{64}$/),
-              kind: "follow-up",
+              origin: "proposal",
               title: "Split it",
               run,
+              story: expect.objectContaining({ storyLine: STORY_LINE, serves: "m-3" }),
             },
-            detail: `follow-up "Split it" · Story: As maintainer I want the run outcomes split into two modules so that each module stays small enough to read. Why: size · from ${run}`,
-            since: new Date(at + 1).toISOString(),
+            detail: `"Split it" · milestone m-3 · from a worker's proposal`,
+            since: new Date(at + 2).toISOString(),
             blocks: [],
-            // proposal.accept and proposal.dismiss are not registered in this engine yet.
+            // idea.accept and idea.dismiss are not registered in this engine.
             actions: [],
           },
           {
-            kind: "PROPOSAL",
+            kind: "DECISION NOTE",
             story: StoryId.parse("DIPO-9"),
             key,
             proposal: {

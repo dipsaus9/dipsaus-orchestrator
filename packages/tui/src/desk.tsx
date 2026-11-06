@@ -47,8 +47,9 @@ export const DESK_EVENTS: ReadonlySet<string> = new Set([
   "test.started",
   "test.recorded",
   "test.ended",
-  "proposal.filed",
   "proposal.closed",
+  "idea.passed",
+  "idea.answered",
   "story.pr",
   "work.phase",
 ]);
@@ -162,6 +163,7 @@ export function deskRowId(item: DeskItem): string {
     item.question ?? "",
     item.gate ?? "",
     item.proposal?.id ?? "",
+    item.idea?.id ?? "",
     item.pr?.number ?? "",
   ].join(":");
 }

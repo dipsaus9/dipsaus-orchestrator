@@ -729,20 +729,20 @@
       },
       "required": ["gate", "decision"]
     },
-    "proposal.accept.args": {
+    "idea.accept.args": {
       "type": "object",
       "properties": {
-        "proposal": {
+        "idea": {
           "type": "string",
           "pattern": "^[0-9a-f]{8,64}$"
         }
       },
-      "required": ["proposal"]
+      "required": ["idea"]
     },
-    "proposal.accept.result": {
+    "idea.accept.result": {
       "type": "object",
       "properties": {
-        "proposal": {
+        "idea": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
         },
@@ -871,22 +871,22 @@
           ]
         }
       },
-      "required": ["proposal", "state"]
+      "required": ["idea", "state"]
     },
-    "proposal.dismiss.args": {
+    "idea.dismiss.args": {
       "type": "object",
       "properties": {
-        "proposal": {
+        "idea": {
           "type": "string",
           "pattern": "^[0-9a-f]{8,64}$"
         }
       },
-      "required": ["proposal"]
+      "required": ["idea"]
     },
-    "proposal.dismiss.result": {
+    "idea.dismiss.result": {
       "type": "object",
       "properties": {
-        "proposal": {
+        "idea": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
         },
@@ -895,7 +895,67 @@
           "const": "dismissed"
         }
       },
-      "required": ["proposal", "state"]
+      "required": ["idea", "state"]
+    },
+    "idea.add.args": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "story": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            }
+          ]
+        }
+      },
+      "required": ["text"]
+    },
+    "idea.add.result": {
+      "type": "object",
+      "properties": {
+        "idea": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "held": {
+          "type": "boolean"
+        }
+      },
+      "required": ["idea", "held"]
+    },
+    "note.dismiss.args": {
+      "type": "object",
+      "properties": {
+        "note": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8,64}$"
+        }
+      },
+      "required": ["note"]
+    },
+    "note.dismiss.result": {
+      "type": "object",
+      "properties": {
+        "note": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "state": {
+          "type": "string",
+          "const": "dismissed"
+        }
+      },
+      "required": ["note", "state"]
     },
     "nextUp.confirm.args": {
       "type": "object",

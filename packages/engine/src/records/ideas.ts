@@ -10,6 +10,9 @@
 // - The audit's outcome is written here: passed with its proposed user story, rejected with its
 //   reason, or still held after a failed, cut-off or refused audit (`auditMissed`), counted in
 //   `attempts`. A held idea is never dropped; a rejected one is kept with its reason.
+// - A passed idea waits on the desk (`openPassedIdeas`) until the maintainer answers it
+//   (`answerIdea`, DIPO-454): `accepted`, with the draft the lane filed, or `dismissed`, kept for
+//   retro.
 //
 // Every text of an idea came from a worker, a reviewer, a session or the maintainer: it is
 // cleaned and capped at the door and kept as data.
@@ -17,6 +20,7 @@
 import {
   cleanText,
   IDEA_CAPS,
+  type IdeaAnswer,
   type IdeaDecidedBy,
   type IdeaOrigin,
   type IdeaState,
@@ -70,6 +74,14 @@ export function ideaText(text: string): string {
   return capped(cleanText(text).trim(), IDEA_CAPS.text);
 }
 
+/** The id `idea` is held by, or null when its title or text is empty once cleaned. */
+export function newIdeaId(idea: NewIdea): string | null {
+  const title = ideaTitle(idea.title);
+  const text = ideaText(idea.text);
+  if (title === "" || text === "") return null;
+  return ideaIdOf(idea.origin, idea.runId ?? idea.key ?? "", title, text);
+}
+
 /**
  * Holds one idea, state `held`; the same idea from the same source is held once. Returns its id
  * when this call held it, else null. Inside the caller's transaction.
@@ -77,9 +89,8 @@ export function ideaText(text: string): string {
 export function holdIdea(office: OfficeHandle, idea: NewIdea): string | null {
   const title = ideaTitle(idea.title);
   const text = ideaText(idea.text);
-  if (title === "" || text === "") return null;
-  const source = idea.runId ?? idea.key ?? "";
-  const id = ideaIdOf(idea.origin, source, title, text);
+  const id = newIdeaId(idea);
+  if (id === null) return null;
   const changes = office.run(
     `insert into ideas (office_id, idea_id, origin, story_key, run_id, title, body, created_at,
        updated_at)
@@ -284,37 +295,93 @@ interface ViewRow extends HeldRow {
   proposal: string | null;
   last_problem: string | null;
   decided_at: number | null;
+  answer: IdeaAnswer | null;
+  answered_at: number | null;
+  draft_id: string | null;
 }
 
+const VIEW_SELECT = `
+  select i.idea_id, i.origin, i.story_key, s.story_id, i.run_id, i.title, i.body, i.attempts,
+         i.created_at, i.state, i.decided_by, i.reason, i.proposal, i.last_problem,
+         i.decided_at, i.answer, i.answered_at, i.draft_id
+    from ideas i
+    left join stories s on s.office_id = i.office_id and s.key = i.story_key`;
+
 const iso = (ms: number) => new Date(ms).toISOString();
+
+function viewOf(row: ViewRow): IdeaView {
+  return {
+    id: row.idea_id,
+    origin: row.origin,
+    ...(row.story_id === null ? {} : { story: StoryId.parse(row.story_id) }),
+    ...(row.run_id === null ? {} : { run: RunId.parse(row.run_id) }),
+    title: row.title,
+    text: row.body,
+    state: row.state,
+    ...(row.decided_by === null ? {} : { decidedBy: row.decided_by }),
+    ...(row.reason === null ? {} : { reason: row.reason }),
+    ...(row.proposal === null ? {} : { proposal: JSON.parse(row.proposal) as ProposedStory }),
+    attempts: row.attempts,
+    ...(row.last_problem === null ? {} : { lastProblem: row.last_problem }),
+    createdAt: iso(row.created_at),
+    ...(row.decided_at === null ? {} : { decidedAt: iso(row.decided_at) }),
+    ...(row.answer === null ? {} : { answer: row.answer }),
+    ...(row.answered_at === null ? {} : { answeredAt: iso(row.answered_at) }),
+    ...(row.draft_id === null ? {} : { draft: row.draft_id }),
+  };
+}
 
 /** The office's ideas as `office.ideas` lists them, oldest first; only `state` when given. */
 export function ideaViews(office: OfficeHandle, state?: IdeaState): IdeaView[] {
   return office
     .all<ViewRow>(
-      `select i.idea_id, i.origin, i.story_key, s.story_id, i.run_id, i.title, i.body, i.attempts,
-              i.created_at, i.state, i.decided_by, i.reason, i.proposal, i.last_problem,
-              i.decided_at
-         from ideas i
-         left join stories s on s.office_id = i.office_id and s.key = i.story_key
+      `${VIEW_SELECT}
         where i.office_id = $office_id and ($state is null or i.state = $state)
         order by i.created_at, i.idea_id`,
       { state: state ?? null },
     )
-    .map((row) => ({
-      id: row.idea_id,
-      origin: row.origin,
-      ...(row.story_id === null ? {} : { story: StoryId.parse(row.story_id) }),
-      ...(row.run_id === null ? {} : { run: RunId.parse(row.run_id) }),
-      title: row.title,
-      text: row.body,
-      state: row.state,
-      ...(row.decided_by === null ? {} : { decidedBy: row.decided_by }),
-      ...(row.reason === null ? {} : { reason: row.reason }),
-      ...(row.proposal === null ? {} : { proposal: JSON.parse(row.proposal) as ProposedStory }),
-      attempts: row.attempts,
-      ...(row.last_problem === null ? {} : { lastProblem: row.last_problem }),
-      createdAt: iso(row.created_at),
-      ...(row.decided_at === null ? {} : { decidedAt: iso(row.decided_at) }),
-    }));
+    .map(viewOf);
+}
+
+/** The ideas that passed and wait on the desk for the maintainer's answer, oldest first. */
+export function openPassedIdeas(office: OfficeHandle): IdeaView[] {
+  return office
+    .all<ViewRow>(
+      `${VIEW_SELECT}
+        where i.office_id = $office_id and i.state = 'passed' and i.answer is null
+        order by i.decided_at, i.idea_id`,
+    )
+    .map(viewOf);
+}
+
+/** The ideas whose id starts with `ref` (a hex prefix), at most two. */
+export function ideasByPrefix(office: OfficeHandle, ref: string): IdeaView[] {
+  return office
+    .all<ViewRow>(
+      `${VIEW_SELECT}
+        where i.office_id = $office_id and substr(i.idea_id, 1, length($ref)) = $ref
+        order by i.idea_id
+        limit 2`,
+      { ref: ref.toLowerCase() },
+    )
+    .map(viewOf);
+}
+
+/**
+ * The maintainer's answer to a passed idea not answered yet; false when it is not passed or was
+ * answered already. Inside the caller's transaction.
+ */
+export function answerIdea(
+  office: OfficeHandle,
+  id: string,
+  answer: IdeaAnswer,
+  at: number,
+): boolean {
+  return (
+    office.run(
+      `update ideas set answer = $answer, answered_at = $at, updated_at = $at
+        where office_id = $office_id and idea_id = $id and state = 'passed' and answer is null`,
+      { id, answer, at },
+    ).changes > 0
+  );
 }

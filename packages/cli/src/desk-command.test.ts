@@ -214,6 +214,47 @@ describe("formatDesk", () => {
     ]);
   });
 
+  it("prints a proposed story's card in full under its command line (DIPO-454)", () => {
+    const found = `The poll retries at once. ${"Again and again. ".repeat(30)}The end.`;
+    const item = DeskItem.parse({
+      kind: "PROPOSED STORY",
+      story: "DIPO-140",
+      idea: {
+        id: "3f".repeat(32),
+        origin: "proposal",
+        title: "Cap the PR poll retry",
+        story: {
+          found,
+          evidence: [{ file: "src/poll.ts", line: 42, quote: "retry();" }],
+          sourceStory: "DIPO-140",
+          storyLine: "As maintainer I want the poll capped so that a dead host is not hammered.",
+          proposed: "Back off and cap it.",
+          why: "One request a second.",
+          serves: "tech-debt",
+        },
+      },
+      detail: '"Cap the PR poll retry" · tech debt · from a worker\'s proposal',
+      since: ago(5),
+      blocks: [],
+      actions: [
+        { command: "idea.accept", cli: "dipo idea accept 3f3f" },
+        { command: "idea.dismiss", cli: "dipo idea dismiss 3f3f" },
+      ],
+    });
+    expect(formatDesk("demo", [item], NOW)).toEqual([
+      "demo · desk 1 · parked by you 0",
+      'PROPOSED STORY DIPO-140  "Cap the PR poll retry" · tech debt · from a worker\'s proposal  5m',
+      "               dipo idea accept 3f3f | dipo idea dismiss 3f3f",
+      `                 Found: ${found}`,
+      '                 Evidence: src/poll.ts:42 "retry();"',
+      "                 Source story: DIPO-140",
+      "                 Story: As maintainer I want the poll capped so that a dead host is not hammered.",
+      "                 Proposed: Back off and cap it.",
+      "                 Why: One request a second.",
+      "                 Serves: tech debt",
+    ]);
+  });
+
   it("shows the age in minutes, hours, then days", () => {
     expect(age(NOW - 59 * MINUTE, NOW)).toBe("59m");
     expect(age(NOW - 60 * MINUTE, NOW)).toBe("1h");

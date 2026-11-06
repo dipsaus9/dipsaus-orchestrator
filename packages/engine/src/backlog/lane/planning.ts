@@ -2,7 +2,7 @@
 // change the engine asks for becomes a journaled operation of its kind with its target state, and
 // the reads answer from the journal. `story.park` and `story.drop` (DIPO-160), `work.resume` of a
 // hold, `work.discard` (DIPO-161), the pickup check's move to Refined (DIPO-48), an accepted
-// proposal (DIPO-166) and the stories a planning session files and edits (DIPO-450) reach the lane
+// idea (DIPO-166, DIPO-454) and the stories a planning session files and edits (DIPO-450) reach the lane
 // only through it.
 
 import type { LaneFlush, StoryKey } from "@dipsaus-orchestrator/contract";
@@ -235,12 +235,12 @@ export function planningLane(lane: OfficeLane): PlanningLane {
           .filter((entry) => entry.kind === DROP_KIND && OPEN_STATES.includes(entry.state))
           .flatMap((entry) => (entry.key === null ? [] : [entry.key])),
       ),
-    draftOf(proposal) {
+    draftOf(idea) {
       const entry = allEntries(lane.office).find(
         (candidate) =>
           candidate.kind === PROPOSE_KIND &&
           (OPEN_STATES.includes(candidate.state) || candidate.state === "merged") &&
-          (candidate.target as { proposal?: unknown } | null)?.proposal === proposal,
+          (candidate.target as { idea?: unknown } | null)?.idea === idea,
       );
       return entry === undefined
         ? undefined

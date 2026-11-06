@@ -48,7 +48,7 @@ export class BacklogLane {
     this.register(dropKind);
     // Discard (0020, DIPO-161).
     this.register(editKind(DISCARD_KIND));
-    // An accepted worker proposal filed as a Backlog draft (0020, DIPO-166).
+    // An idea the maintainer accepted from the desk, filed as a Backlog draft (0020, DIPO-454).
     this.register(proposeKind);
     // The stories a planning session files and edits (0022, DIPO-450).
     this.register(fileKind);

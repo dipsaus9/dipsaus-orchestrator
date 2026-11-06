@@ -44,7 +44,7 @@ export const RESUME_KIND = "resume";
 export const DROP_KIND = "drop";
 /** `work.discard` (DIPO-161): an edit back to Refined with the park removed. */
 export const DISCARD_KIND = "discard";
-/** An accepted worker proposal filed as a draft (DIPO-166). */
+/** An idea the maintainer accepted from the desk, filed as a draft (DIPO-166, DIPO-454). */
 export const PROPOSE_KIND = "propose";
 /** A new story a planning session's confirmed proposal files Refined (DIPO-450). */
 export const FILE_KIND = "file";
@@ -135,13 +135,17 @@ export interface PlanningStory {
   readonly story: string;
 }
 
-/** The draft an accepted worker proposal becomes (0020, DIPO-166). */
+/** The draft an accepted idea becomes (0020, 0022, DIPO-454). */
 export interface ProposedDraft {
-  /** The proposal's id; the store finds a draft it filed for it again by it. */
-  readonly proposal: string;
+  /** The idea's id; the store finds a draft it filed for it again by it. */
+  readonly idea: string;
   readonly title: string;
   readonly description: string;
   readonly references: readonly string[];
+  /** The milestone it serves; none for tech debt. */
+  readonly milestone?: string;
+  /** `tech-debt` for tech debt, else none. */
+  readonly labels: readonly string[];
 }
 
 /**
@@ -170,7 +174,7 @@ export interface PlanningLane {
   discard(story: PlanningStory): Promise<PlannedChange>;
   /** Moves a Ready story back to Refined (a failed pickup check). */
   toRefined(story: PlanningStory): Promise<PlannedChange>;
-  /** Files an accepted proposal as a draft; `subject` names it in the commit. */
+  /** Files an accepted idea as a draft; `subject` names it in the commit. */
   fileDraft(subject: string, draft: ProposedDraft): Promise<PlannedChange>;
   /** Files a new story a planning session confirmed (DIPO-450). */
   fileStory(target: FileTarget): Promise<PlannedChange>;
@@ -201,10 +205,10 @@ export interface PlanningLane {
   /** The stories with a drop journaled and not merged. */
   dropping(): ReadonlySet<StoryKey>;
   /**
-   * The change that files the draft of `proposal`, while it is journaled or once it merged, with
+   * The change that files the draft of `idea`, while it is journaled or once it merged, with
    * whether it is still open; undefined when there is none.
    */
-  draftOf(proposal: string): (PlannedChange & { readonly open: boolean }) | undefined;
+  draftOf(idea: string): (PlannedChange & { readonly open: boolean }) | undefined;
 }
 
 /** How far a journaled change got, as `PlanningLane.outcomeOf` says it. */
