@@ -39,6 +39,13 @@ function planningView(extra: Partial<PlanningView> = {}): PlanningView {
   } as PlanningView;
 }
 
+/** A filed story proposal of the planning view (DIPO-451). */
+const filed = (n: number, title: string, story: string) => ({
+  ...proposal(n, title, "M"),
+  state: "filed",
+  stories: [story],
+});
+
 /** An open story proposal of the planning view (DIPO-450). */
 const proposal = (n: number, title: string, tier: "S" | "M") => ({
   n,
@@ -266,6 +273,74 @@ describe("the planning view", () => {
     });
     await ui.waitFor("proposal 1 edited");
     expect(session.commands.some((c) => c.name === "planning.message")).toBe(false);
+  });
+
+  it("sets the stories left in the Ready form Ready and lists what the gate refused (DIPO-451)", async () => {
+    const snapshots = new Map([
+      [
+        OFFICES.dipsaus,
+        {
+          ...golden(),
+          planning: planningView({
+            proposals: [filed(1, "Export as CSV", "DIPO-31"), filed(2, "Export as XML", "DIPO-32")],
+          } as Partial<PlanningView>),
+        },
+      ],
+    ]);
+    const { ui, session } = await open({ columns: 140, rows: 40, snapshots });
+    await ui.press("5");
+    await ui.waitFor("#2 story [M] Export as XML");
+    await ui.press("ctrl-g");
+    const form = await ui.waitFor("setting stories Ready:");
+    expect(form).toContain("DIPO-31 story [M] Export as CSV");
+    expect(form).toContain("DIPO-32 story [M] Export as XML");
+    // Drop the second story's line: only DIPO-31 is chosen.
+    const line = "DIPO-32 story [M] Export as XML";
+    for (let i = 0; i < line.length + 1; i++) await ui.press("backspace");
+    session.commandReply = (name) =>
+      name === "planning.ready"
+        ? {
+            ok: true,
+            result: { run: RUN, queued: ["DIPO-31"], refused: [] },
+            changed: true,
+          }
+        : undefined;
+    await ui.press("ctrl-s");
+    for (let i = 0; i < 100 && !session.commands.some((c) => c.name === "planning.ready"); i++) {
+      await Bun.sleep(5);
+    }
+    expect(session.commands.find((c) => c.name === "planning.ready")?.args).toEqual({
+      stories: ["DIPO-31"],
+    });
+    await ui.waitFor("DIPO-31 set Ready");
+    expect(session.commands.some((c) => c.name === "planning.message")).toBe(false);
+  });
+
+  it("shows the gate's messages for a story that stays Refined (DIPO-451)", async () => {
+    const snapshots = new Map([
+      [
+        OFFICES.dipsaus,
+        {
+          ...golden(),
+          planning: planningView({
+            ready: [
+              {
+                story: "DIPO-32",
+                state: "refused",
+                messages: ["R08: no acceptance criteria"],
+                at: "2026-10-14T10:06:00.000Z",
+              },
+              { story: "DIPO-31", state: "set", at: "2026-10-14T10:06:00.000Z" },
+            ],
+          } as Partial<PlanningView>),
+        },
+      ],
+    ]);
+    const { ui } = await open({ columns: 140, rows: 34, snapshots });
+    await ui.press("5");
+    const frame = await ui.waitFor("ready DIPO-32: refused");
+    expect(frame).toContain("stays as it is: R08: no acceptance criteria");
+    expect(frame).toContain("ready DIPO-31: set");
   });
 
   it("leaves the other views and keys as they were: Esc returns to the overview", async () => {

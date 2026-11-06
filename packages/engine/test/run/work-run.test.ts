@@ -26,7 +26,6 @@ import type { PlainTask } from "../../src/story-store/story";
 import { cursorAt } from "../../src/changelog/log";
 import { replay } from "../../src/changelog/replay";
 import { executeCommand, type ExecutorDeps } from "../../src/commands/execute";
-import { CRASH, crashAfterHandler } from "../commands/crash";
 import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry, type Registry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
@@ -69,6 +68,9 @@ import { encode } from "../../src/workers/claude-cli/encode";
 import type { ClaimOutcome, ClaimRequest } from "../../src/worktree/claim";
 import { insertClaim } from "../../src/worktree/records";
 import { runBacklog } from "../../src/backlog/runner";
+import { DaemonLifecycle } from "../../src/create/lifecycle";
+import { activeStoryViews } from "../../src/views/story";
+import { activeWorkViews } from "../../src/views/work";
 import { CALL_DEADLINE_MS, KILL_GRACE_MS } from "../../src/platform/deadline";
 import { hangingSpawn } from "../platform/hanging";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
@@ -118,6 +120,7 @@ const failedR15 = (id: string): GateResult => ({
 
 interface World {
   readonly t: TestState;
+  workRun: WorkRun;
   readonly office: OfficeHandle;
   readonly officeId: OfficeId;
   registry: Registry;
@@ -155,6 +158,10 @@ interface World {
   setupFails: boolean;
   /** Runs as the index pass when set (DIPO-314); the pass does nothing otherwise. */
   indexStories: (() => Promise<unknown>) | null;
+  /** The daemon's lifecycle, whose pending work a drain waits for (DIPO-456). */
+  readonly lifecycle: DaemonLifecycle;
+  /** How many fetches ran. */
+  fetches: number;
 }
 
 /** The git session the fake claim hands its recheck, so a test can see the gate got it (DIPO-201). */
@@ -190,6 +197,7 @@ beforeEach(async () => {
     t,
     office,
     officeId,
+    workRun: undefined as unknown as WorkRun,
     registry: undefined as unknown as Registry,
     deps: undefined as unknown as ExecutorDeps,
     tasks,
@@ -218,7 +226,11 @@ beforeEach(async () => {
     setupGate: null,
     setupFails: false,
     indexStories: null,
+    lifecycle: new DaemonLifecycle(),
+    fetches: 0,
   };
+  w.lifecycle.transition("recovering", "test");
+  w.lifecycle.transition("running", "test");
   const read = (ids: readonly string[] | null): BaseRead => ({
     statuses: new Map(tasks.map((x) => [x.id, x.status])),
     views: tasks.filter((x) => (ids === null ? x.status === "Ready" : ids.includes(x.id))),
@@ -241,6 +253,7 @@ beforeEach(async () => {
     },
     base: {
       fetch: async () => {
+        w.fetches += 1;
         if (w.fetchError !== null) throw w.fetchError;
         w.fetched?.();
       },
@@ -310,7 +323,9 @@ beforeEach(async () => {
         );
         return { passed: result.passed, result };
       },
+      checkGate: async (_office, id, mode) => w.gate(keys.get(id) as StoryKey, mode),
     },
+    beginWork: () => w.lifecycle.beginWork(),
     lane: () =>
       planningLane({
         journal: async (op: LaneOp): Promise<JournalEntry> => {
@@ -324,7 +339,8 @@ beforeEach(async () => {
         clock: t.clock,
       } as unknown as OfficeLane),
   };
-  w.registry = buildRegistry([new WorkRun(runDeps).feature]);
+  w.workRun = new WorkRun(runDeps);
+  w.registry = buildRegistry([w.workRun.feature]);
   w.deps = {
     registry: w.registry,
     offices: stateOfficeDirectory(t.state),
@@ -352,14 +368,44 @@ function story(id: string, status: string, overrides: Partial<PlainTask> = {}): 
 }
 
 let requests = 0;
-function run(
+/**
+ * Sends `work.run` with the base read first, as the background pass keeps it, and waits for the
+ * starts it decided to end (DIPO-456).
+ */
+async function run(
   args: Record<string, unknown> = {},
-  retry?: { readonly id: string; readonly crash: boolean },
+  retry?: { readonly id: string },
+): Promise<CommandReply> {
+  await world.workRun.refreshBase(world.officeId);
+  const reply = await send(args, retry);
+  await world.workRun.settled();
+  return reply;
+}
+
+/** Sends `work.run` with the base read first, and returns its answer without waiting for its starts. */
+async function decide(args: Record<string, unknown> = {}): Promise<CommandReply> {
+  await world.workRun.refreshBase(world.officeId);
+  return send(args);
+}
+
+/** The texts of the office's `run.startAborted` notices (DIPO-456). */
+function aborted(): string[] {
+  return world.office
+    .all<{ text: string }>(
+      `select json_extract(delta, '$.text') as text from change_log
+        where office_id = $office_id and type = 'engine.notice'
+          and json_extract(delta, '$.code') = 'run.startAborted' order by seq`,
+    )
+    .map((row) => row.text);
+}
+
+/** Sends `work.run` and returns its answer, without waiting for the starts after it. */
+function send(
+  args: Record<string, unknown> = {},
+  retry?: { readonly id: string },
 ): Promise<CommandReply> {
   requests += 1;
-  // A crash after the handler's commits and before the requests row (DIPO-168 in DIPO-155).
-  const deps = retry?.crash === true ? crashAfterHandler(world.deps, "work.run") : world.deps;
-  return executeCommand(deps, {
+  return executeCommand(world.deps, {
     requestId: RequestId.parse(
       retry?.id ?? `01J9ZK5Q8W3V4X6Y7Z${requests.toString().padStart(8, "0")}`,
     ),
@@ -426,9 +472,18 @@ describe("work.run picks and claims one Ready story", () => {
         detail: [ONE_STORY],
       },
     ]);
+    // The decision shows the start in setup and the story out of Ready (DIPO-456): its reply's
+    // cursor is that story.state. The start after it wrote work.assigned, the setup marker's
+    // work.output (DIPO-83) and work.phase setup of the run row.
     expect(reply.ok && reply.changed).toBe(true);
-    // work.assigned, the setup marker's work.output (DIPO-83) and work.phase setup.
-    expect(reply.ok && reply.cursor?.seq).toBe(3);
+    expect(reply.ok && reply.cursor?.seq).toBe(2);
+    expect(entries().map((entry) => entry.type)).toEqual([
+      "work.phase",
+      "story.state",
+      "work.assigned",
+      "work.output",
+      "work.phase",
+    ]);
 
     // The claim got the frozen branch and ran the pickup re-check inside its queue item.
     expect(world.claims.map((c) => [c.story, c.branch])).toEqual([["TASK-3", "TASK-3/a-story"]]);
@@ -460,7 +515,8 @@ describe("work.run picks and claims one Ready story", () => {
     // The story's criteria the worker reports are counted against (DIPO-85).
     expect(runCriteriaMet(world.office, runId, null)).toEqual({ met: 1, known: 2 });
 
-    const log = entries();
+    // After the decision's work.phase and story.state (DIPO-456), the run row's entries.
+    const log = entries().slice(2);
     expect(log.map((e) => e.type)).toEqual(["work.assigned", "work.output", "work.phase"]);
     const work = (log[0]?.delta as { work: Record<string, unknown> } | undefined)?.work;
     expect(work).toMatchObject({
@@ -571,16 +627,14 @@ describe("work.run picks and claims one Ready story", () => {
     expect(resultOf(await run()).started.map((s) => s.story)).toEqual(["TASK-1"]);
   });
 
-  it("claims once when a crash before the requests row makes the retry run the handler again (DIPO-168)", async () => {
+  it("answers a retry with the same request id with the stored answer and claims once (DIPO-168, DIPO-456)", async () => {
     story("TASK-1", "Ready");
     const id = "01J9ZK5Q8W3V4X6Y7Z90000003";
-    const crashed = await run({}, { id, crash: true });
-    expect(crashed.ok ? null : crashed.error.message).toContain(CRASH);
-    expect(world.claims).toHaveLength(1);
-    // The retry sees the live claim and the active run: it skips the story, claims nothing.
-    const retried = resultOf(await run({}, { id, crash: false }));
-    expect(retried.started).toEqual([]);
-    expect(retried.skipped.map((s) => [s.story, s.reason])).toEqual([["TASK-1", "notRunnable"]]);
+    const first = resultOf(await run({}, { id }));
+    expect(first.started.map((s) => s.story)).toEqual(["TASK-1"]);
+    // The decision and its requests row are one transaction: the retry gets the same answer.
+    const retried = resultOf(await run({}, { id }));
+    expect(retried).toEqual(first);
     expect(world.claims).toHaveLength(1);
     expect(entries().filter((entry) => entry.type === "work.assigned")).toHaveLength(1);
   });
@@ -771,14 +825,6 @@ describe("work.run refusals", () => {
       "New runs are refused: the office's starts are paused (claude-cli: probe: claude is not logged in.).",
     );
     world.holds.lift("claude-cli");
-
-    world.fetchError = new GitError("git.fetchFailed", "Fetching origin failed (offline).", true);
-    expect(await codeOf()).toMatchObject({
-      code: "git.fetchFailed",
-      retryable: true,
-      message: "Fetching origin failed (offline).",
-    });
-    world.fetchError = null;
 
     world.statuses =
       "The office's base branch has no Backlog.md status `Parked`, so dipo runs no story yet: run `dipo office init` and let its backlog PR merge.";
@@ -972,14 +1018,14 @@ async function pickupInSetup(args: Record<string, unknown> = {}) {
   return { pickup, open: () => opened.resolve() };
 }
 
-describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => {
+describe("a decided start holds its slot until its run row (DIPO-314, DIPO-456)", () => {
   // One slot, so a pickup and a resume compete for it.
   beforeEach(() => limitTo(1));
 
-  it("lets the office's other serialized steps run while the box is prepared", async () => {
+  it("lets the office's serialized steps run while the box is prepared", async () => {
     story("TASK-1", "Ready");
     const { pickup, open } = await pickupInSetup();
-    // The step does not wait for the whole start, box and install included.
+    // No step waits for the start, box and install included.
     expect(await world.places.serialized(world.officeId, async () => "ran")).toBe("ran");
     open();
     expect(resultOf(await pickup).started.map((s) => s.story)).toEqual(["TASK-1"]);
@@ -1029,7 +1075,11 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
     expect(await world.places.drain(world.officeId)).toBe(0);
     world.setupFails = true;
     open();
-    expect(resultOf(await pickup).skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
+    // The answer said it starts; the failure after it is a notice (DIPO-456).
+    expect(resultOf(await pickup).started.map((s) => s.story)).toEqual(["TASK-1"]);
+    expect(aborted()).toEqual([
+      "TASK-1 did not start after all: it failed its pickup check on the base and goes back to Refined. It stays as it is on the base; `dipo run TASK-1` tries again.",
+    ]);
     expect(world.places.pickupsStarting(world.officeId)).toEqual([]);
     // The release drained the office: the resume took the place.
     await world.places.idle();
@@ -1044,7 +1094,7 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
     world.setupGate = null;
     // A second work.run of the office goes on beside the first, whose claim row and slot hold:
     // the same story's live claim stops it, and another story finds the one slot taken.
-    const result = resultOf(await run({ stories: ["TASK-1", "TASK-2"] }));
+    const result = resultOf(await decide({ stories: ["TASK-1", "TASK-2"] }));
     expect(result.started).toEqual([]);
     expect(result.skipped.map((s) => [s.story, s.reason, s.detail])).toEqual([
       ["TASK-1", "notRunnable", undefined],
@@ -1056,7 +1106,7 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
     world.places.close();
   });
 
-  it("ends work.run with backlog.unreadable when its index pass's CLI call never ends", async () => {
+  it("ends a start whose index pass's CLI call never ends with a notice and frees its slot", async () => {
     story("TASK-1", "Ready");
     const hang = hangingSpawn();
     world.indexStories = () =>
@@ -1064,12 +1114,16 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
     const reply = run();
     await waitUntil(() => hang.children.length > 0);
     world.t.clock.advance(CALL_DEADLINE_MS + KILL_GRACE_MS);
-    const done = await reply;
-    expect(done.ok).toBe(false);
-    expect(!done.ok && done.error.code).toBe("backlog.unreadable");
-    expect(!done.ok && done.error.message).toContain("did not finish within its deadline of 60 s");
+    expect(resultOf(await reply).started.map((s) => s.story)).toEqual(["TASK-1"]);
+    const notices = aborted();
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toStartWith(
+      "TASK-1 did not start after all: dipo could not index the office's stories:",
+    );
+    expect(notices[0]).toContain("did not finish within its deadline of 60 s");
     expect(hang.children[0]?.groupSignals).toEqual(["SIGTERM", "SIGKILL"]);
     expect(world.claims).toEqual([]);
+    expect(world.places.pickupsStarting(world.officeId)).toEqual([]);
     world.places.close();
   });
 
@@ -1137,7 +1191,7 @@ describe("several stories at once, up to caps.parallelRuns (0002)", () => {
     story("TASK-2", "Ready");
     const { pickup, open } = await pickupInSetup({ stories: ["TASK-1"] });
     world.setupGate = null;
-    const second = resultOf(await run({ stories: ["TASK-2"] }));
+    const second = resultOf(await decide({ stories: ["TASK-2"] }));
     expect(second.started.map((s) => s.story)).toEqual(["TASK-2"]);
     open();
     expect(resultOf(await pickup).started.map((s) => s.story)).toEqual(["TASK-1"]);
@@ -1353,5 +1407,362 @@ describe("a park resume and a pickup never take the worker place together (DIPO-
 
     expect(sessions.count).toBe(1);
     expect(waitingStarts(world.office)).toEqual([]);
+  });
+});
+
+describe("work.run answers at its decision (DIPO-456)", () => {
+  it("answers with started and skipped stories and their reasons while the claim, push and box are still under way, and the run then shows phase setup", async () => {
+    limitTo(2);
+    story("TASK-1", "Ready");
+    story("TASK-2", "Ready", {
+      dependencies: [{ id: "TASK-9", state: "resolved", status: "In Progress" }],
+    });
+    story("TASK-3", "Refined");
+    const entered = Promise.withResolvers<void>();
+    const opened = Promise.withResolvers<void>();
+    world.claimGate = { entered: () => entered.resolve(), open: opened.promise };
+    const reply = await decide({ stories: ["TASK-1", "TASK-2", "TASK-3"] });
+    const result = resultOf(reply);
+    expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
+    expect(result.skipped.map((s) => [s.story, s.reason])).toEqual([
+      ["TASK-2", "dependency"],
+      ["TASK-3", "notReady"],
+    ]);
+    // The started story holds its slot from the answer; its claim runs after it.
+    expect(world.places.pickupsStarting(world.officeId)).toEqual(["TASK-1"]);
+    await entered.promise;
+    expect(countRows(world.office, "runs")).toBe(0);
+    // Shown in setup from the decision, before any run row.
+    expect(
+      entries()
+        .filter((entry) => entry.type === "work.phase")
+        .map((entry) => (entry.delta as { phase: string }).phase),
+    ).toEqual(["setup"]);
+    opened.resolve();
+    await world.workRun.settled();
+    const runId = RunId.parse(result.started[0]?.run);
+    expect(findRun(world.office, runId)).toMatchObject({ story: "TASK-1", endedAt: null });
+    expect(
+      entries()
+        .filter((entry) => entry.type === "work.phase")
+        .map((entry) => (entry.delta as { phase: string }).phase),
+    ).toEqual(["setup", "setup"]);
+    expect(world.places.pickupsStarting(world.officeId)).toEqual([]);
+    world.places.close();
+  });
+
+  it("does not claim a story the fresh base no longer lets start, and names it and why in a notice", async () => {
+    limitTo(2);
+    story("TASK-1", "Ready");
+    story("TASK-2", "Ready");
+    // The base as last read says both are Ready; the fetch before the claim brings TASK-1 Done
+    // (merged elsewhere) and a dependency of TASK-2 that is not Done.
+    world.fetched = () => {
+      world.tasks.splice(
+        0,
+        2,
+        task("TASK-1", "Done"),
+        task("TASK-2", "Ready", {
+          dependencies: [{ id: "TASK-9", state: "resolved", status: "In Progress" }],
+        }),
+      );
+    };
+    const result = resultOf(await run({ stories: ["TASK-1", "TASK-2"] }));
+    expect(result.started.map((s) => s.story)).toEqual(["TASK-1", "TASK-2"]);
+    expect(world.claims).toEqual([]);
+    expect(countRows(world.office, "runs")).toBe(0);
+    expect(aborted().toSorted()).toEqual([
+      "TASK-1 did not start after all: it can no longer start (not on the base, Done or merged, claimed, or a backlog change for it is pending). It stays as it is on the base; `dipo run TASK-1` tries again.",
+      "TASK-2 did not start after all: a dependency is no longer Done on the base. It stays as it is on the base; `dipo run TASK-2` tries again.",
+    ]);
+    // Their slots are free again.
+    expect(world.places.pickupsStarting(world.officeId)).toEqual([]);
+    world.places.close();
+  });
+
+  it("does not claim a started story when the fetch before its claim fails, and says so", async () => {
+    story("TASK-1", "Ready");
+    world.fetchError = new GitError("git.fetchFailed", "Fetching origin failed (offline).", true);
+    const result = resultOf(await run());
+    expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
+    expect(world.claims).toEqual([]);
+    expect(aborted()).toEqual([
+      "TASK-1 did not start after all: the fetch of the base failed: Fetching origin failed (offline). It stays as it is on the base; `dipo run TASK-1` tries again.",
+    ]);
+  });
+
+  it("answers a full office's capacity skip without a fetch, named or not", async () => {
+    limitTo(1);
+    story("TASK-1", "Ready");
+    story("TASK-2", "Ready");
+    let fetches = 0;
+    world.fetched = () => {
+      fetches += 1;
+    };
+    expect(resultOf(await run({ stories: ["TASK-1"] })).started).toHaveLength(1);
+    // The start fetched once, before its claim.
+    expect(fetches).toBe(1);
+    const named = resultOf(await run({ stories: ["TASK-2"] }));
+    expect(named.skipped).toEqual([
+      {
+        story: "TASK-2",
+        key: world.keys.get("TASK-2") as string,
+        reason: "capacity",
+        detail: [fullText(1, "TASK-1")],
+      },
+    ]);
+    const next = resultOf(await run());
+    expect(next.skipped.map((s) => [s.story, s.reason])).toEqual([
+      ["TASK-1", "notRunnable"],
+      ["TASK-2", "capacity"],
+    ]);
+    expect(fetches).toBe(1);
+    world.places.close();
+  });
+
+  it("refuses while the base it decides from has not been read yet, and reads it", async () => {
+    story("TASK-1", "Ready");
+    const refusal = await send();
+    expect(!refusal.ok && refusal.error).toMatchObject({
+      code: "run.refused",
+      details: { check: "base" },
+    });
+    await world.workRun.settled();
+    expect(resultOf(await send()).started.map((s) => s.story)).toEqual(["TASK-1"]);
+    await world.workRun.settled();
+  });
+
+  it("is registered as a command that answers at once, not a waiting one", () => {
+    expect(world.registry.command("work.run")).toMatchObject({ level: "office", waits: false });
+  });
+});
+
+/** The story index's mirror of the base as the world holds it, so story views read a lifecycle. */
+function mirror(): void {
+  const w = world;
+  w.office.immediate(() => {
+    w.office.run("delete from backlog_mirror where office_id = $office_id");
+    for (const x of w.tasks) {
+      w.office.run(
+        `insert into backlog_mirror (office_id, key, content_hash, kind, status, title, labels,
+           read_at, source)
+         values ($office_id, $key, 'h', 'task', $status, $title, '[]', $at, 'base')`,
+        {
+          key: w.keys.get(x.id) as string,
+          status: x.status,
+          title: x.title,
+          at: w.t.clock.now(),
+        },
+      );
+    }
+  });
+}
+
+/** The notices of the office with `code`, in order. */
+function noticesOf(code: string): string[] {
+  return world.office
+    .all<{ text: string }>(
+      `select json_extract(delta, '$.text') as text from change_log
+        where office_id = $office_id and type = 'engine.notice'
+          and json_extract(delta, '$.code') = $code order by seq`,
+      { code },
+    )
+    .map((row) => row.text);
+}
+
+/** Holds the claim open: `entered` resolves as it starts, `open` lets it go on. */
+function holdClaim(): { entered: Promise<void>; open: () => void } {
+  const entered = Promise.withResolvers<void>();
+  const opened = Promise.withResolvers<void>();
+  world.claimGate = { entered: () => entered.resolve(), open: opened.promise };
+  return { entered: entered.promise, open: () => opened.resolve() };
+}
+
+describe("a decided start shows from its decision (DIPO-456)", () => {
+  it("shows the story in setup in the overview and out of Ready in the queue until its run row replaces it", async () => {
+    story("TASK-1", "Ready");
+    mirror();
+    const held = holdClaim();
+    const result = resultOf(await decide({ stories: ["TASK-1"] }));
+    const runId = result.started[0]?.run as string;
+    await held.entered;
+    expect(countRows(world.office, "runs")).toBe(0);
+    // The overview's work: the start in setup, under its run id.
+    expect(activeWorkViews(world.office).map((view) => [view.work.run, view.phase])).toEqual([
+      [runId, "setup"],
+    ]);
+    // The queue: no longer Ready, but running, naming who will work on it.
+    const view = activeStoryViews(world.office).find((one) => one.story === "TASK-1");
+    expect(view).toMatchObject({ lifecycle: "Ready", column: "running", work: { run: runId } });
+    // The stream said so at the decision: the reply's cursor covers both entries.
+    const decided = entries().slice(0, 2);
+    expect(decided.map((entry) => entry.type)).toEqual(["work.phase", "story.state"]);
+    expect(decided[1]?.view).toMatchObject({ column: "running", work: { run: runId } });
+    held.open();
+    await world.workRun.settled();
+    // The run row replaced the start: one work view, the run's own.
+    expect(countRows(world.office, "run_starts")).toBe(0);
+    expect(activeWorkViews(world.office).map((one) => String(one.work.run))).toEqual([runId]);
+    world.places.close();
+  });
+
+  it("answers a second run of a story that is starting with starting, not a bare notRunnable", async () => {
+    limitTo(2);
+    story("TASK-1", "Ready");
+    const held = holdClaim();
+    expect(resultOf(await decide({ stories: ["TASK-1"] })).started).toHaveLength(1);
+    await held.entered;
+    const again = resultOf(await decide({ stories: ["TASK-1"] }));
+    expect(again.started).toEqual([]);
+    expect(again.skipped.map((one) => [one.story, one.reason])).toEqual([["TASK-1", "starting"]]);
+    held.open();
+    await world.workRun.settled();
+    world.places.close();
+  });
+
+  it("clears the start with its notice when it does not start: Ready again in the queue, nothing in setup", async () => {
+    story("TASK-1", "Ready");
+    mirror();
+    world.fetchError = new GitError("git.fetchFailed", "Fetching origin failed (offline).", true);
+    const result = resultOf(await run({ stories: ["TASK-1"] }));
+    expect(result.started).toHaveLength(1);
+    expect(countRows(world.office, "run_starts")).toBe(0);
+    expect(activeWorkViews(world.office)).toEqual([]);
+    expect(activeStoryViews(world.office).find((one) => one.story === "TASK-1")).toMatchObject({
+      column: "ready",
+    });
+    // The stream: a story.state with the view that names no run, then the notice.
+    const log = entries();
+    expect(log.slice(-2).map((entry) => entry.type)).toEqual(["story.state", "engine.notice"]);
+    expect(log.at(-2)?.view).not.toHaveProperty("work");
+    expect(aborted()).toHaveLength(1);
+  });
+
+  it("clears every start a daemon restart cut short when the office loads", async () => {
+    story("TASK-1", "Ready");
+    const held = holdClaim();
+    await decide({ stories: ["TASK-1"] });
+    await held.entered;
+    expect(countRows(world.office, "run_starts")).toBe(1);
+    const step = world.registry.loadSteps().find((one) => one.name === "run/base");
+    await step?.run({ officeId: world.officeId, office: world.office } as never);
+    expect(countRows(world.office, "run_starts")).toBe(0);
+    held.open();
+    await world.workRun.settled();
+    world.places.close();
+  });
+});
+
+describe("a pickup check failed on the base as read is checked again on the fresh base (DIPO-456)", () => {
+  it("moves the story to Refined only after the fetch, when it still fails there", async () => {
+    const key = story("TASK-1", "Ready");
+    world.gate = () => failedR15("TASK-1");
+    let fetchesAtMove = -1;
+    world.lane.journaled.push = (...ops) => {
+      fetchesAtMove = world.fetches;
+      return Array.prototype.push.apply(world.lane.journaled, ops);
+    };
+    const result = resultOf(await run());
+    expect(result.skipped).toEqual([{ story: "TASK-1", key, reason: "pickupCheckFailed" }]);
+    // The move to Refined came after the fetch of the fresh base.
+    expect(fetchesAtMove).toBe(1);
+    expect(world.lane.journaled).toHaveLength(1);
+  });
+
+  it("keeps the story Ready with a notice when it passes on the fresh base", async () => {
+    const key = story("TASK-1", "Ready");
+    world.gate = () => failedR15("TASK-1");
+    world.fetched = () => {
+      world.gate = (_key, mode) => passed(mode);
+    };
+    const result = resultOf(await run());
+    expect(result.skipped).toEqual([{ story: "TASK-1", key, reason: "pickupCheckFailed" }]);
+    expect(world.lane.journaled).toEqual([]);
+    expect(noticesOf("run.checkedAgain")).toEqual([
+      "TASK-1 was not started: it failed its pickup check on the base as last read, but passes it on the fresh base, so it stays Ready; `dipo run TASK-1` starts it.",
+    ]);
+  });
+
+  it("moves nothing and says why when the fetch fails", async () => {
+    story("TASK-1", "Ready");
+    world.gate = () => failedR15("TASK-1");
+    world.fetchError = new GitError("git.fetchFailed", "Fetching origin failed (offline).", true);
+    resultOf(await run());
+    expect(world.lane.journaled).toEqual([]);
+    expect(noticesOf("run.checkedAgain")).toEqual([
+      "TASK-1 was not started: it failed its pickup check on the base as last read, and the fetch of the base failed: Fetching origin failed (offline), so it was not checked again and stays Ready.",
+    ]);
+  });
+
+  it("checks a contract over prompt.contractMax again on the fresh base before it moves the story", async () => {
+    story("TASK-1", "Ready");
+    world.config = { ...OFFICE_DEFAULTS, prompt: { ...OFFICE_DEFAULTS.prompt, contractMax: 10 } };
+    // The fresh base holds a story that fits once the limit is the default again.
+    world.fetched = () => {
+      world.config = OFFICE_DEFAULTS;
+    };
+    resultOf(await run());
+    expect(world.fetches).toBe(1);
+    expect(world.lane.journaled).toEqual([]);
+    expect(noticesOf("run.checkedAgain")).toHaveLength(1);
+  });
+});
+
+describe("a start after the answer and the daemon's drain (DIPO-456)", () => {
+  it("counts a start in flight as pending work, so a drain waits for it", async () => {
+    story("TASK-1", "Ready");
+    const held = holdClaim();
+    await decide({ stories: ["TASK-1"] });
+    await held.entered;
+    expect(world.lifecycle.inFlight).toBe(1);
+    let idle = false;
+    void world.lifecycle.idle().then(() => {
+      idle = true;
+    });
+    await Promise.resolve();
+    expect(idle).toBe(false);
+    held.open();
+    await world.workRun.settled();
+    await Promise.resolve();
+    expect(idle).toBe(true);
+    expect(world.lifecycle.inFlight).toBe(0);
+    world.places.close();
+  });
+
+  it("starts nothing while the daemon drains: the slot and the start go, with a notice", async () => {
+    story("TASK-1", "Ready");
+    await world.workRun.refreshBase(world.officeId);
+    world.lifecycle.transition("draining", "test");
+    const result = resultOf(await send({ stories: ["TASK-1"] }));
+    await world.workRun.settled();
+    expect(result.started).toHaveLength(1);
+    expect(world.claims).toEqual([]);
+    expect(world.fetches).toBe(0);
+    expect(countRows(world.office, "run_starts")).toBe(0);
+    expect(world.places.pickupsStarting(world.officeId)).toEqual([]);
+    expect(aborted()).toEqual([
+      "TASK-1 did not start after all: the daemon is draining, so it starts nothing new. It stays as it is on the base; `dipo run TASK-1` tries again.",
+    ]);
+    world.places.close();
+  });
+});
+
+describe("the base a run decides from (DIPO-456)", () => {
+  it("does not read the base again at every change while a gate could not be evaluated", async () => {
+    story("TASK-1", "Ready");
+    world.configErrors = [{ message: "tiers.S.loops must be an integer" }];
+    let reads = 0;
+    await world.workRun.refreshBase(world.officeId);
+    const counting = world.gate;
+    world.gate = (key, mode) => {
+      reads += 1;
+      return counting(key, mode);
+    };
+    // The snapshot holds no gate while the configuration blocks runs; a change reads nothing.
+    world.workRun.baseChanged(world.officeId);
+    world.workRun.baseChanged(world.officeId);
+    await world.workRun.settled();
+    expect(reads).toBe(0);
+    world.configErrors = [];
   });
 });

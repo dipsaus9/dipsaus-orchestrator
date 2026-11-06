@@ -5,7 +5,8 @@ import type { Migration } from "./migrations";
 import { base } from "./migrations/0001-base";
 import { nextUpDeclines } from "./migrations/0002-next-up-declines";
 import { ideas } from "./migrations/0003-ideas";
-import { planningRecord } from "./migrations/0004-planning-record";
+import { planningRecords } from "./migrations/0004-planning-records";
+import { runStarts } from "./migrations/0005-run-starts";
 
 /**
  * Software-wide tables (0007). Every other table is office-scoped and has `office_id` as the first
@@ -13,4 +14,10 @@ import { planningRecord } from "./migrations/0004-planning-record";
  */
 export const SOFTWARE_TABLES: ReadonlySet<string> = new Set(["offices", "schema_migrations"]);
 
-export const MIGRATIONS: readonly Migration[] = [base, nextUpDeclines, ideas, planningRecord];
+export const MIGRATIONS: readonly Migration[] = [
+  base,
+  nextUpDeclines,
+  ideas,
+  planningRecords,
+  runStarts,
+];

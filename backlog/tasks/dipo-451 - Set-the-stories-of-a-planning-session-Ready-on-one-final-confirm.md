@@ -1,10 +1,10 @@
 ---
 id: DIPO-451
 title: Set the stories of a planning session Ready on one final confirm
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 07:15'
+updated_date: '2026-11-06 16:02'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -17,6 +17,30 @@ references:
   - packages/contract/src/office.ts
   - packages/tui/src/
   - docs/decisions/0012-story-standard.md
+modified_files:
+  - docs/decisions/0012-story-standard.md
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/src/work.test.ts
+  - packages/contract/src/work.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/backlog/lane/feature.ts
+  - packages/engine/src/backlog/lane/index.ts
+  - packages/engine/src/backlog/lane/ops.ts
+  - packages/engine/src/backlog/lane/planning.ts
+  - packages/engine/src/create/commands.ts
+  - packages/engine/src/create/compose.ts
+  - packages/engine/src/create/runs.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/story-store/planning.ts
+  - packages/engine/test/run/planning-ready.test.ts
+  - packages/engine/test/run/planning-world.ts
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/test/support/harness.ts
 priority: high
 type: feature
 ordinal: 424000
@@ -48,9 +72,24 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 At the end of a session the maintainer chooses which of its stories go Ready, through a command the planning view sends
-- [ ] #2 dipo evaluates the gate against each chosen story's filed content and stores a passing gate decision for it
-- [ ] #3 Stories that pass are set Ready in a second backlog PR that dipo opens, never in the PR that filed them
-- [ ] #4 A story that fails the gate stays Refined, and the view shows the gate's messages
-- [ ] #5 ADR 0012 describes setting Ready from a planning session, with one Replaced line
+- [x] #1 At the end of a session the maintainer chooses which of its stories go Ready, through a command the planning view sends
+- [x] #2 dipo evaluates the gate against each chosen story's filed content and stores a passing gate decision for it
+- [x] #3 Stories that pass are set Ready in a second backlog PR that dipo opens, never in the PR that filed them
+- [x] #4 A story that fails the gate stays Refined, and the view shows the gate's messages
+- [x] #5 ADR 0012 describes setting Ready from a planning session, with one Replaced line
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-06 16:02 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 220,786 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

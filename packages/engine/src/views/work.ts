@@ -4,7 +4,8 @@
 // mirror's acceptance criteria, with the run's own criteria facts from its worker reports, DIPO-85)
 // whenever it is needed, and written as the `view` of each work change-log entry; never stored as
 // truth. A run reopened for a round shows its newest agent, a reviewer with its own role, and a
-// run waiting for its place is not lost (DIPO-142). A run that ended (done, parked or dropped, the
+// run waiting for its place is not lost (DIPO-142). A start `work.run` decided shows as a run in
+// `setup` from its decision until its run row is in (`run_starts`, DIPO-456). A run that ended (done, parked or dropped, the
 // end `run.ended` sends) has no view until a resume reopens it, so the work entries written after
 // its end, such as its `ended` marker, carry none and an open client shows what a fresh snapshot
 // shows (DIPO-421). A run open at In Review has ended no run and keeps its view.
@@ -37,6 +38,7 @@ import {
   type StoredRun,
 } from "../records/run-records";
 import { activeSignals } from "../records/signals";
+import { type RunStart, runStartOfRun, runStarts } from "../records/run-starts";
 
 /** The phase a run is in before any phase step is recorded. */
 const FIRST_PHASE: Phase = "setup";
@@ -96,11 +98,63 @@ function refOf(run: StoredRun, agent: AgentRow): WorkRef | null {
   };
 }
 
-/** Who works on the story run `runId`; null for a session run or a run with no agent yet. */
+/** Who will work on a decided start (DIPO-456). */
+export function startRefOf(start: RunStart): WorkRef {
+  return {
+    story: StoryId.parse(start.story),
+    key: StoryKey.parse(start.key),
+    run: RunId.parse(start.runId),
+    agent: AgentId.parse(start.agent),
+    role: RoleId.parse("developer"),
+    tier: start.tier,
+    model: start.model,
+  };
+}
+
+/**
+ * Who works on the story run `runId`, or will on its decided start; null for a session run or a
+ * run with no agent yet.
+ */
 export function workRefOf(office: OfficeHandle, runId: RunId): WorkRef | null {
   const run = findRun(office, runId);
-  const agent = run === null ? null : latestAgent(office, runId);
-  return run === null || agent === null ? null : refOf(run, agent);
+  if (run === null) {
+    const start = runStartOfRun(office, runId);
+    return start === null ? null : startRefOf(start);
+  }
+  const agent = latestAgent(office, runId);
+  return agent === null ? null : refOf(run, agent);
+}
+
+/**
+ * The view of a decided start (DIPO-456): phase `setup`, the story's criteria as the mirror
+ * holds them, no loop, no usage yet.
+ */
+export function startView(office: OfficeHandle, start: RunStart): WorkView {
+  const criteria = office.get<{ met: number | null; total: number | null }>(
+    `select criteria_met as met, criteria_total as total from backlog_mirror
+      where office_id = $office_id and key = $key`,
+    { key: start.key },
+  );
+  return {
+    work: startRefOf(start),
+    phase: FIRST_PHASE,
+    progress: {
+      criteriaMet: criteria?.met ?? 0,
+      criteriaTotal: criteria?.total ?? 0,
+      loop: 0,
+      loopCap: start.loopCap,
+      reviewRound: 0,
+    },
+    usage: readUsage(office, {
+      run: start.runId,
+      agent: start.agent,
+      role: "developer",
+      tier: start.tier,
+      budgetLimit: 0,
+    }),
+    health: "busy",
+    startedAt: iso(start.startedAt),
+  };
 }
 
 function iso(ms: number): string {
@@ -221,15 +275,18 @@ function viewOf(office: OfficeHandle, run: StoredRun): WorkView | null {
  */
 export function workView(office: OfficeHandle, runId: RunId): WorkView | null {
   const run = findRun(office, runId);
-  return run === null ? null : viewOf(office, run);
+  if (run !== null) return viewOf(office, run);
+  const start = runStartOfRun(office, runId);
+  return start === null ? null : startView(office, start);
 }
 
-/** The views of the office's active story runs, oldest first. */
+/** The views of the office's active story runs, oldest first, then its decided starts. */
 export function activeWorkViews(office: OfficeHandle): WorkView[] {
-  return activeRuns(office).flatMap((run) => {
+  const runs = activeRuns(office).flatMap((run) => {
     const view = viewOf(office, run);
     return view === null ? [] : [view];
   });
+  return [...runs, ...runStarts(office).map((start) => startView(office, start))];
 }
 
 /** Change-log types that carry the run's `WorkView` (contract minor 1, DIPO-52). */

@@ -50,6 +50,7 @@ import {
 
 interface Running {
   readonly repo: TempRepoWithRemote;
+  readonly workRun: WorkRun;
   readonly s: OfficeSetup;
   readonly officeId: OfficeId;
   readonly office: OfficeHandle;
@@ -158,7 +159,7 @@ async function withRunOffice(
         );
         const access = await s.manager.load(officeId);
         if (!access.ok) throw new Error(`${access.error.code}: ${access.error.message}`);
-        await fn({ repo, s, officeId, office: access.office });
+        await fn({ repo, workRun, s, officeId, office: access.office });
       } finally {
         index.stop();
         s.state.close();
@@ -169,9 +170,12 @@ async function withRunOffice(
 }
 
 let count = 0;
-function workRunCommand(r: Running, stories?: string[]): Promise<CommandReply> {
+/** Sends `work.run` and waits for the starts it decided after its answer (DIPO-456). */
+async function workRunCommand(r: Running, stories?: string[]): Promise<CommandReply> {
   count += 1;
-  return executeCommand(r.s.deps, {
+  // The base as the background pass keeps it, read again now that the office loaded.
+  await r.workRun.refreshBase(r.officeId);
+  const reply = await executeCommand(r.s.deps, {
     requestId: RequestId.parse(`01J9ZK5Q8W3V4X6Y7Z${(90_000 + count).toString().padStart(8, "0")}`),
     name: "work.run",
     args: { from: r.repo.dir, ...(stories === undefined ? {} : { stories }) },
@@ -179,6 +183,8 @@ function workRunCommand(r: Running, stories?: string[]): Promise<CommandReply> {
     confirmed: false,
     office: r.officeId,
   });
+  await r.workRun.settled();
+  return reply;
 }
 
 function types(r: Running): { type: string; delta: unknown }[] {

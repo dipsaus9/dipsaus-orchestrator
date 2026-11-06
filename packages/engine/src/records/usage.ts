@@ -715,3 +715,14 @@ export function finalizeRunAgents(office: OfficeHandle, run: string, at: number)
   );
   for (const { agent_id: agent } of agents) finalizeAgentUsage(office, run, agent, at);
 }
+
+/**
+ * True when the agent's context nears full (DIPO-448): its session compacted, or the tokens it
+ * counted, input plus output plus cache creation, reach `limit`. The counted tokens are the new
+ * content its context took in, so they stand in for the context's size.
+ */
+export function contextNearFull(office: OfficeHandle, scope: UsageScope, limit: number): boolean {
+  if (readCompactions(office, scope).agent.count > 0) return true;
+  const { agent } = readUsage(office, scope);
+  return agent.inputTokens + agent.outputTokens + agent.cacheCreateTokens >= limit;
+}

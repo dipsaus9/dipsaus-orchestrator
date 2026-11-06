@@ -396,6 +396,19 @@ export const planningStart = defineCommand({
   irreversible: false,
 });
 
+// Continues the newest planning session whose model session ended and that the maintainer did not
+// end, after an idle end or a daemon restart, in a fresh model session whose first message code
+// builds from the session's record (DIPO-448, 0007). `planning.open` while a session is open;
+// `planning.notContinuable` when there is none to continue.
+export const planningContinue = defineCommand({
+  name: "planning.continue",
+  level: "office",
+  args: z.object({}),
+  result: z.object({ run: RunId, view: PlanningView }),
+  confirm: false,
+  irreversible: false,
+});
+
 // One maintainer message to the open planning session: its next turn, read once the answer it
 // works on is done (`planning.notOpen` without one).
 export const planningMessage = defineCommand({
@@ -403,6 +416,27 @@ export const planningMessage = defineCommand({
   level: "office",
   args: z.object({ text: z.string().trim().min(1) }),
   result: z.object({ run: RunId, delivered: z.literal("next-turn") }),
+  confirm: false,
+  irreversible: false,
+});
+
+// The maintainer confirms a decision of the open planning session, and code stores it in the
+// session's record (DIPO-448, 0007): a `choice` (`subject` the question, `text` the answer), a
+// `story` filed or edited (`subject` the story id, `text` `filed` or `edited`) or an open
+// `question` (`text`). `planning.notOpen` without a session.
+export const planningRecord = defineCommand({
+  name: "planning.record",
+  level: "office",
+  args: z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("choice"),
+      subject: z.string().trim().min(1),
+      text: z.string().trim().min(1),
+    }),
+    z.object({ kind: z.literal("story"), subject: StoryId, text: z.enum(["filed", "edited"]) }),
+    z.object({ kind: z.literal("question"), text: z.string().trim().min(1) }),
+  ]),
+  result: z.object({ run: RunId, recorded: z.literal(true) }),
   confirm: false,
   irreversible: false,
 });
@@ -462,6 +496,28 @@ export const planningDecline = defineCommand({
   level: "office",
   args: z.object({ proposal: z.int().positive() }),
   result: z.object({ run: RunId, proposal: z.int().positive(), state: z.literal("declined") }),
+  confirm: false,
+  irreversible: false,
+});
+
+// The final confirm of a planning session (DIPO-451, 0012): the maintainer names the stories of the
+// open session that go Ready. For each, dipo evaluates the Ready gate against the story as the
+// base branch holds it (its filing PR merged) and stores the decision. A story that passes is set
+// Ready through the planning lane, in a backlog PR of its own, never the one that filed it; one
+// that fails stays as it is and is listed in `refused` with the gate's messages. `flush` says what
+// the lane's flush did. Setting a story again that is set already changes nothing.
+// Errors: `planning.notOpen`, `planning.storyUnknown` (a story the session neither filed nor
+// edited) and `planning.notFiled` (the office has no backlog lane yet).
+export const planningReady = defineCommand({
+  name: "planning.ready",
+  level: "office",
+  args: z.object({ stories: z.array(z.string().min(1)).min(1) }),
+  result: z.object({
+    run: RunId,
+    queued: z.array(z.string()),
+    refused: z.array(z.object({ story: z.string(), messages: z.array(z.string()) })),
+    flush: LaneFlush.optional(),
+  }),
   confirm: false,
   irreversible: false,
 });
@@ -951,6 +1007,21 @@ export const planningUpdated = defineEvent({
   data: z.object({ run: RunId, view: PlanningView }),
 });
 
+// A planning session continued in a fresh model session (DIPO-448): `run` is the fresh one,
+// `previous` the model session that ended, and `reason` why it ended (a full context, an idle
+// end, a daemon stop). Follows the `planning.started` of the fresh session.
+export const planningContinued = defineEvent({
+  type: "planning.continued",
+  stream: "office",
+  derived: false,
+  data: z.object({
+    run: RunId,
+    previous: RunId,
+    reason: PlanningEndReason,
+    view: PlanningView,
+  }),
+});
+
 export const planningEnded = defineEvent({
   type: "planning.ended",
   stream: "office",
@@ -1123,10 +1194,13 @@ export const officeCommands = [
   testRecord,
   planningStart,
   planningMessage,
+  planningContinue,
+  planningRecord,
   planningEnd,
   planningConfirm,
   planningEdit,
   planningDecline,
+  planningReady,
 ] as const;
 
 export const officeReads = [
@@ -1167,5 +1241,6 @@ export const officeEvents = [
   planningStarted,
   planningOutput,
   planningUpdated,
+  planningContinued,
   planningEnded,
 ] as const;

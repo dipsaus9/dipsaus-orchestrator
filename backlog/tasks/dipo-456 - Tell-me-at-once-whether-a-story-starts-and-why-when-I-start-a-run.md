@@ -1,10 +1,10 @@
 ---
 id: DIPO-456
 title: Tell me at once whether a story starts and why when I start a run
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-06 09:49'
-updated_date: '2026-11-06 12:52'
+updated_date: '2026-11-06 14:35'
 labels:
   - 'tier:S'
 milestone: m-3
@@ -53,9 +53,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 work.run answers as soon as dipo has decided, with each story started or skipped and its reason
-- [ ] #2 The claim, push, box start and install go on after the answer, shown as the run's setup phase, and a failure after the answer parks the story or posts a notice
-- [ ] #3 A refusal that needs no fetch, such as a full office, answers without one
-- [ ] #4 Next-up confirm answers the same way
-- [ ] #5 work.run and next-up confirm are not registered as waiting office commands and no client waits for setup to finish, while the shared waiting registration stays for its other commands
+- [x] #1 work.run answers as soon as dipo has decided, with each story started or skipped and its reason
+- [x] #2 The claim, push, box start and install go on after the answer, shown as the run's setup phase, and a failure after the answer parks the story or posts a notice
+- [x] #3 A refusal that needs no fetch, such as a full office, answers without one
+- [x] #4 Next-up confirm answers the same way
+- [x] #5 work.run and next-up confirm are not registered as waiting office commands and no client waits for setup to finish, while the shared waiting registration stays for its other commands
 <!-- AC:END -->
