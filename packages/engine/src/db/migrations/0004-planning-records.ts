@@ -1,4 +1,4 @@
-// Migration 3: the record of a planning session (0007, DIPO-448). One row per entry, in order per
+// Migration 4: the record of a planning session (0007, DIPO-448). One row per entry, in order per
 // session: the goal, each confirmed choice (question and answer), each filed or edited story, each
 // open question, and when a model session of the planning session started and ended. A fresh
 // model session's first message is built from these rows.
@@ -6,7 +6,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const planningRecords: SqlMigration = {
-  version: 3,
+  version: 4,
   name: "planning records",
   sql: `
 create table planning_records (
