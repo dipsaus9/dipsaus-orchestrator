@@ -7,7 +7,7 @@ This folder is the design for the next dipo TUI. It was made from the TUI on `ma
 2. `screens/`: each screen as a plain-text terminal mock at 112 columns. Role markup is `[role]text[/]`; see `roles.json`.
 3. `keymap.json`: the action registry the footer, `?` overlay and palette all read from.
 4. `migration.md`: seven steps from today's TUI to v2. Do them in order.
-5. The same seven steps are Backlog.md stories on milestone M6 (`m-6`).
+5. The seven steps are filed as M6 (`m-6`) stories in a backlog PR.
 
 ## Rules for whoever builds this
 - The TUI renders what the engine computes. Never derive health, phase, desk order or skip reasons in the TUI.

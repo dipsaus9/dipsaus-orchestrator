@@ -1,6 +1,6 @@
 # Migration: today's TUI → v2
 
-Each step is a story dipo can run on its own (see `backlog/`). Dependency: DIPO-443 (one part per mode), which is done.
+Each step is a story dipo can run on its own (filed as M6 stories). Dependency: DIPO-443 (one part per mode), which is done.
 
 | # | Step | Tier | Needs | Files |
 |---|---|---|---|---|
