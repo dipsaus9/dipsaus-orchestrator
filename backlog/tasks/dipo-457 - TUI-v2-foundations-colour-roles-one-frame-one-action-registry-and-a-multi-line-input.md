@@ -3,10 +3,10 @@ id: DIPO-457
 title: >-
   TUI v2 foundations: colour roles, one frame, one action registry and a
   multi-line input
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-06 14:11'
-updated_date: '2026-11-06 14:32'
+updated_date: '2026-11-06 14:41'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -57,12 +57,12 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Colored takes a role from the ten roles in roles.json (bg, fg, hi, dim, faint, acc, ok, err, sel, shade) and maps each to its ANSI slot and per-theme values; hi is a brighter colour and bold appears only where a screen marks it; dim and faint stay distinct; NO_COLOR makes sel equal bg so only ▌ marks the focused row, and NO_COLOR and --ascii still read fully
-- [ ] #2 One Frame component draws header, rooms, body, ticker and keys for every home view
-- [ ] #3 The key table carries label, when and priority, and the footer hints come from it with no per-view hint lists
-- [ ] #4 A Composer multi-line input exists where Enter adds a line, ctrl-s sends and Esc cancels
-- [ ] #5 Existing TUI tests pass unchanged apart from colour assertions
-- [ ] #6 Below 60 columns or below 16 rows the TUI shows "Widen the terminal to at least 60 columns" instead of the layout
+- [x] #1 Colored takes a role from the ten roles in roles.json (bg, fg, hi, dim, faint, acc, ok, err, sel, shade) and maps each to its ANSI slot and per-theme values; hi is a brighter colour and bold appears only where a screen marks it; dim and faint stay distinct; NO_COLOR makes sel equal bg so only ▌ marks the focused row, and NO_COLOR and --ascii still read fully
+- [x] #2 One Frame component draws header, rooms, body, ticker and keys for every home view
+- [x] #3 The key table carries label, when and priority, and the footer hints come from it with no per-view hint lists
+- [x] #4 A Composer multi-line input exists where Enter adds a line, ctrl-s sends and Esc cancels
+- [x] #5 Existing TUI tests pass unchanged apart from colour assertions
+- [x] #6 Below 60 columns or below 16 rows the TUI shows "Widen the terminal to at least 60 columns" instead of the layout
 - [ ] #7 The four theme mocks of screens/17-themes.txt match the HTML preview's S10 in truecolor light, 16 colours light and dark, and NO_COLOR. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
-- [ ] #8 The planning view uses the Composer; its own input code is gone
+- [x] #8 The planning view uses the Composer; its own input code is gone
 <!-- AC:END -->
