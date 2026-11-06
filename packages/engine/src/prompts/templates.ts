@@ -197,6 +197,7 @@ export const PROMPT_TAGS: readonly string[] = [
   "scan_file",
   // The planning session's first message (DIPO-447): backlog and desk text cannot close these.
   "planning",
+  "record",
   "drafts",
   "desk",
   "recent_runs",

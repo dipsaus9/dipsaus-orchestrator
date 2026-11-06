@@ -30,6 +30,7 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   stories: kept("kept: story identity"),
   story_aliases: kept("kept: story identity"),
   backlog_mirror: kept("overwritten in place"),
+  planning_records: aged("no entry of its session since retention.days ago"),
   next_up_declines: kept("one row per story, replaced at its next decline"),
   run_starts: kept("removed with its run row or its start's end, and at office load"),
   worker_notes: kept("removed when the claim ends"),
@@ -75,8 +76,6 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   parks: aged("resolved more than retention.days ago; an open park is kept"),
   done_elsewhere: aged("cleared more than retention.days ago; leftovers not cleared are kept"),
   run_summaries: aged("with its run, ended more than retention.days ago"),
-  // DIPO-450: the stories a planning session filed or edited.
-  planning_record: aged("with its run, ended more than retention.days ago"),
   done_reports: aged("with its run, ended more than retention.days ago"),
   report_sendbacks: aged("with its run, ended more than retention.days ago"),
   decision_notes: aged("decided more than retention.days ago; an open note is kept"),

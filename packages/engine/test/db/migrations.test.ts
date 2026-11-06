@@ -400,7 +400,7 @@ describe("the base schema", () => {
           "once_notices",
           "output_chunks",
           "parks",
-          "planning_record",
+          "planning_records",
           "prompt_parts",
           "prompt_texts",
           "proposals",

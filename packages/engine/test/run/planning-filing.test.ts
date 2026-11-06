@@ -27,7 +27,7 @@ import { backlogStoryStore } from "../../src/backlog/store";
 import { CommandError } from "../../src/commands/errors";
 import { evaluateGate } from "../../src/gate";
 import { readGateInput } from "../../src/gate-decisions";
-import { planningRecord } from "../../src/records/planning-record";
+import { readPlanningRecord } from "../../src/records/planning-record";
 import { DEFAULT_CONFIG } from "../gate/fixtures";
 import {
   BACKLOG_FIXTURE,
@@ -200,7 +200,9 @@ describe("filing a planning session's confirmed proposals through the lane (DIPO
 
         // The session's record holds every filed and edited id.
         expect(
-          planningRecord(s.office, run).map((entry) => [entry.proposal, entry.kind, entry.story]),
+          readPlanningRecord(s.office, run)
+            .filter((entry) => entry.kind === "story")
+            .map((entry) => [entry.proposal, entry.text, entry.subject]),
         ).toEqual([
           [1, "filed", "TASK-4"],
           [2, "edited", "TASK-2"],

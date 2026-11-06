@@ -5,7 +5,7 @@ import type { Migration } from "./migrations";
 import { base } from "./migrations/0001-base";
 import { nextUpDeclines } from "./migrations/0002-next-up-declines";
 import { ideas } from "./migrations/0003-ideas";
-import { planningRecord } from "./migrations/0004-planning-record";
+import { planningRecords } from "./migrations/0004-planning-records";
 import { runStarts } from "./migrations/0005-run-starts";
 
 /**
@@ -18,6 +18,6 @@ export const MIGRATIONS: readonly Migration[] = [
   base,
   nextUpDeclines,
   ideas,
-  planningRecord,
+  planningRecords,
   runStarts,
 ];
