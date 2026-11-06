@@ -51,7 +51,6 @@ function rowFor(pid: number, startTimeMs: number, startedAt = startTimeMs): Work
     endedAt: null,
     startedAt,
     pending: false,
-    signalStop: true,
   };
 }
 

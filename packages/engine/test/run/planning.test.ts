@@ -849,7 +849,6 @@ describe("story.drop", () => {
         "update runs set ended_at = 1, end_kind = 'parked' where office_id = $office_id and run_id = $run",
         { run: runId },
       );
-      office.run("update worker_hosts set signal_stop = 1 where office_id = $office_id");
     });
     w.hooks.alive.push(4242);
     w.hooks.argv = ["/usr/local/bin/dipo", "daemon", "worker-host", runId];

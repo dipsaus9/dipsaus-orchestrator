@@ -21,10 +21,4 @@ describe("the hand-off state, as data", () => {
       failed: 0,
     });
   });
-
-  it("reads the steps an older dipo wrote, the feedback turn of markers left included", () => {
-    expect(
-      handOffStateOf(["start 1 abc", "feedback 1", "failed 1 markers", "start 2 abc"]),
-    ).toEqual({ current: 2, open: true, failed: 1 });
-  });
 });

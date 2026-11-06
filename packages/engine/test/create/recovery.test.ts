@@ -158,8 +158,6 @@ describe("newestBackup", () => {
       expect(newestBackup(dir)).toBeNull();
       const older = backupFile(dir, "pre-v28-20261014T080000.db", 27, 1_000_000);
       expect(newestBackup(dir)).toBe(older);
-      // A daily copy of an earlier dipo is no backup any more (0007).
-      backupFile(dir, "dipo-20261016.db", 29, 2_500_000);
       const pre = backupFile(dir, "pre-v30-20261015T080000.db", 29, 2_000_000);
       expect(newestBackup(dir)).toBe(pre);
       // A copy of a database that was still empty restores nothing; other files are no backups.

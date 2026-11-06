@@ -188,7 +188,7 @@ export interface HostRecordExtras {
 /**
  * Records a started host in `worker_hosts`, in its own write transaction. A pending row of the same
  * host (`recordPendingHost`) becomes the recorded host, keeping its `started_at`. Every host this
- * binary starts stops its worker on SIGTERM (`signal_stop`, DIPO-93).
+ * binary starts stops its worker on SIGTERM (DIPO-93).
  */
 export function recordWorkerHost(
   office: OfficeHandle,
@@ -199,14 +199,14 @@ export function recordWorkerHost(
   office.immediate(() => {
     office.run(
       `insert into worker_hosts (office_id, run_id, agent_id, pid, start_time_ms, socket_path,
-         protocol_version, run_dir, event_file, processed_offset, started_at, signal_stop)
+         protocol_version, run_dir, event_file, processed_offset, started_at)
        values ($office_id, $run, $agent, $pid, $start, $socket, $protocol, $dir, $events,
-         $offset, $now, 1)
+         $offset, $now)
        on conflict (office_id, run_id, agent_id) do update set pid = excluded.pid,
          start_time_ms = excluded.start_time_ms, socket_path = excluded.socket_path,
          protocol_version = excluded.protocol_version, run_dir = excluded.run_dir,
          event_file = excluded.event_file, processed_offset = excluded.processed_offset,
-         signal_stop = 1, pending = 0`,
+         pending = 0`,
       {
         run: host.runId,
         agent: host.agentId,
@@ -240,9 +240,9 @@ export function recordPendingHost(
   office.immediate(() =>
     office.run(
       `insert into worker_hosts (office_id, run_id, agent_id, pid, start_time_ms, socket_path,
-         protocol_version, run_dir, event_file, processed_offset, started_at, signal_stop, pending)
+         protocol_version, run_dir, event_file, processed_offset, started_at, pending)
        values ($office_id, $run, $agent, 0, 0, $socket, $protocol, $dir, $events, $offset, $now,
-         1, 1)`,
+         1)`,
       {
         run: host.runId,
         agent: host.agentId,
@@ -313,8 +313,6 @@ export interface WorkerHostRow extends ProcessIdentity {
   readonly startedAt: number;
   /** Written before its spawn; PID and start time are 0 until it is recorded (DIPO-93). */
   readonly pending: boolean;
-  /** The host stops its worker on SIGTERM; false for a host an older binary started (DIPO-93). */
-  readonly signalStop: boolean;
 }
 
 interface RawRow {
@@ -334,7 +332,6 @@ interface RawRow {
   ended_at: number | null;
   started_at: number;
   pending: number;
-  signal_stop: number;
 }
 
 /** The hosts of a run, oldest first. */
@@ -361,7 +358,6 @@ export function workerHostsOf(office: OfficeHandle, runId: string): WorkerHostRo
       endedAt: row.ended_at,
       startedAt: row.started_at,
       pending: row.pending === 1,
-      signalStop: row.signal_stop === 1,
     }));
 }
 
@@ -498,8 +494,7 @@ const no = (reason: string): SignalCheck => ({ ok: false, reason });
 
 /**
  * The checks before the engine signals a host whose socket did not answer after a restart (0005):
- * the row is recorded (not pending) and not ended, the host stops its worker on SIGTERM
- * (`signal_stop`), no `exit.json` past the processed offset says it exited, and the PID is
+ * the row is recorded (not pending) and not ended, no `exit.json` past the processed offset says it exited, and the PID is
  * alive with the recorded start time, did not start before its row was written, and runs
  * `dipo daemon worker-host <run>` (`isWorkerHostArgv`). Any doubt refuses: an unverified PID is
  * never signalled.
@@ -510,9 +505,6 @@ export async function verifyHostForSignal(
 ): Promise<SignalCheck> {
   if (host.pending) return no("its row is still pending, so its PID is not known");
   if (host.endedAt !== null) return no("it has ended");
-  if (!host.signalStop) {
-    return no("it was started by an older dipo that does not stop its worker on SIGTERM");
-  }
   if (host.pid <= 1 || host.startTimeMs <= 0) return no("its PID or start time is not recorded");
   if (exitFileOf(host) !== null) return no("its exit.json says it has exited");
   const info = await probe(host.pid);

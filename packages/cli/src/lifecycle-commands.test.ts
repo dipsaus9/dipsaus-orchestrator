@@ -132,6 +132,30 @@ describe("dipo daemon status", () => {
     expect(ctx.err).toEqual([]);
   });
 
+  it("prints refused with the reason and the fix for every database the daemon cannot use, and keeps the state recovering (0005)", async () => {
+    const causes = [
+      ["beforeSquash", "written by an earlier dipo; move it away, then start the daemon again"],
+      ["tooNew", "newer than this dipo supports; upgrade dipo, then run `dipo daemon restart`"],
+      ["damaged", "damaged; stop the daemon and move the file away"],
+    ] as const;
+    for (const [reason, fix] of causes) {
+      const stateReason = `The state database /h/dipo.db is unusable: ${fix}.`;
+      const status = {
+        ...STATUS,
+        state: "recovering" as const,
+        stateReason,
+        databaseUnavailable: { reason },
+      };
+      const text = fake({ inspect: { kind: "running", record: RECORD, status } });
+      expect(await main(["daemon", "status"], text.deps)).toBe(0);
+      expect(text.out[1]).toBe(`  state:      refused (${stateReason})`);
+
+      const json = fake({ inspect: { kind: "running", record: RECORD, status } });
+      expect(await main(["daemon", "status", "--json"], json.deps)).toBe(0);
+      expect(JSON.parse(json.out[0] ?? "{}").daemon.state).toBe("recovering");
+    }
+  });
+
   it("shows upgrade pending and the restart hint for another daemon version", async () => {
     const status = { ...STATUS, version: "0.1.0", upgradePending: true };
     const ctx = fake({ inspect: { kind: "running", record: RECORD, status } });

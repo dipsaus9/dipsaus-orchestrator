@@ -19,12 +19,7 @@ import {
   type SqliteConnection,
   type SqlRunner,
 } from "../platform/sqlite";
-import {
-  backupsDirectory,
-  preMigrationBackups,
-  prunePreMigrationBackups,
-  removeDailyBackups,
-} from "./backup-files";
+import { backupsDirectory, preMigrationBackups, prunePreMigrationBackups } from "./backup-files";
 
 /** What a TypeScript step may use: statements and multi-statement SQL, inside its transaction. */
 export interface MigrationContext extends SqlRunner {
@@ -338,15 +333,6 @@ function verifySchema(db: SqliteConnection, options: MigrateOptions, backup: str
 }
 
 /**
- * Deletes the daily copies an earlier dipo wrote, once this dipo opened the database: a refused or
- * failed open leaves them for the maintainer (0007).
- */
-function removeOldDailyBackups(db: SqliteConnection, logger: DbLogger): void {
-  const removed = removeDailyBackups(join(dirname(db.path), BACKUPS_DIR));
-  if (removed.length > 0) logger.info("removed daily backups", { removed });
-}
-
-/**
  * Refuses `<stateDir>/dipo.db` when an earlier dipo wrote it before the squash
  * (`DatabaseBeforeSquashError`), before `openSqlite` touches it: the look goes through an immutable
  * read-only open, so a refused file gets no new `-wal` or `-shm` next to it. A missing, empty or
@@ -404,7 +390,6 @@ export async function migrate(
   verifyApplied(migrations, applied, from);
   if (from === head) {
     verifySchema(db, options, null);
-    removeOldDailyBackups(db, logger);
     return { from, to: head, backup: null };
   }
 
@@ -427,6 +412,5 @@ export async function migrate(
     logger.info("applied migration", { version: step.version, name: step.name });
   }
   verifySchema(db, options, backup);
-  removeOldDailyBackups(db, logger);
   return { from, to: head, backup };
 }
