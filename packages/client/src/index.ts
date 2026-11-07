@@ -49,7 +49,5 @@ export { healthLabel, healthMeaning } from "./health-text";
 export { markerRule } from "./marker-text";
 export { byteLength, outputPieces, textFrom } from "./output-range";
 export type { OutputRange } from "./output-range";
-export { ideaCardLines, ideaCardParts } from "./idea-card";
-export type { IdeaCardPart } from "./idea-card";
 export { storyRef } from "./story-ref";
 export { percent, resetText, usageParts, usageTokens, usageWindowText } from "./usage-text";

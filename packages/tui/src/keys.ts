@@ -4,20 +4,12 @@
 // offers `a` answer.
 //
 // On a desk row a key is offered only when the row's `actions` lists its command; a view's row
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-// binding wins over a global key (`n` rejects a merge and dismisses an idea or a decision note, `y`
-// approves a merge and accepts an idea). `i` hands a quick idea to the audit from any view (DIPO-454).
-// An action no entry binds on its row, or whose key an earlier action of the row took, shows its
-// `cli` line in the footer. An answer is always a text (0020). Client and daemon are one binary
-// (0005), so every command in the table exists.
-=======
 // binding wins over a global key (`n` rejects a merge and dismisses a proposed story or a decision
 // note, `y` approves a merge and accepts a proposed story). An action no entry binds on its row, or
 // whose key an earlier action of the row took, shows its `cli` line in the footer. An answer is
 // always a text (0020). The desk's `i` hands the maintainer's quick idea to the audit (0022,
 // DIPO-454) on any row. Client and daemon are one binary (0005), so every command in the table
 // exists.
->>>>>>> de146a854c2be9713e40505688960f87444be951
 
 import type { DeskAction, DeskItem } from "@dipsaus-orchestrator/contract";
 
@@ -95,22 +87,12 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     hint: "[n] dismiss",
     views: ["desk"],
   },
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-  // The maintainer's quick idea (DIPO-454): a key of every view, handed to the audit.
-  {
-    id: "idea",
-    command: "idea.quick",
-    key: "i",
-    hint: "[i]dea",
-    views: ["desk", "overview"],
-=======
   {
     id: "idea",
     command: "idea.add",
     key: "i",
     hint: "[i]dea",
     views: ["desk"],
->>>>>>> de146a854c2be9713e40505688960f87444be951
   },
   {
     id: "resume",

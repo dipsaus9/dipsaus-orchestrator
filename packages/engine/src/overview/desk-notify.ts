@@ -28,12 +28,8 @@ export function deskItemKey(item: DeskItem): string {
     item.question ?? null,
     item.gate ?? null,
     item.reason ?? null,
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-    item.idea?.id ?? item.note?.id ?? null,
-=======
     item.note?.id ?? null,
     item.idea?.id ?? null,
->>>>>>> de146a854c2be9713e40505688960f87444be951
   ]);
 }
 

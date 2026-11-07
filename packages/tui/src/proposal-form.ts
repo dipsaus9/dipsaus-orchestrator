@@ -3,16 +3,10 @@
 // context as `context:` followed by lines indented two spaces; the test plan as
 // `- automated: <check>` and `- manual: <check> => <expected>` lines, or `testPlan: not applicable:
 // <reason>`. A split's fields carry the prefix `edit.` or `story.`. Lines starting with `#` are
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-// notes. The kind and the edited story's id, or a triage proposal's draft, are kept from the
-// proposal, never edited. The engine checks the result as it checks the session's
-// (`planning.edit`), so the form checks only its own syntax.
-=======
 // notes. The kind and the edited story's id (or the refined or dropped draft's) are kept from the
 // proposal, never edited. The engine
 // checks the result as it checks the session's (`planning.edit`), so the form checks only its own
 // syntax.
->>>>>>> de146a854c2be9713e40505688960f87444be951
 
 import type { PlanningProposal, PlanningTestPlan } from "@dipsaus-orchestrator/contract";
 
@@ -56,21 +50,6 @@ function fieldLines(fields: Fields, prefix: string): string[] {
   return lines;
 }
 
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-/** The story or draft a proposal is about, which the form keeps: an edit's or split's id, a triage proposal's draft. */
-function ownOf(
-  proposal: PlanningProposal,
-): { readonly field: "id" | "draft"; readonly value: string } | null {
-  switch (proposal.kind) {
-    case "story":
-      return null;
-    case "edit":
-    case "split":
-      return { field: "id", value: proposal.id };
-    case "refine":
-    case "drop":
-      return { field: "draft", value: proposal.draft };
-=======
 /** The proposal's own subject, kept from the form: the task an edit or split names, the draft a refine or drop names (DIPO-454). */
 function subjectOf(
   proposal: PlanningProposal,
@@ -84,21 +63,14 @@ function subjectOf(
       return { key: "draft", value: proposal.draft };
     default:
       return null;
->>>>>>> de146a854c2be9713e40505688960f87444be951
   }
 }
 
 /** Pure: `proposal` as the form the maintainer edits. */
 export function proposalForm(proposal: PlanningProposal): string {
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-  const own = ownOf(proposal);
-  const head = [
-    `# ${proposal.kind}${own === null ? "" : ` ${own.value}`}: edit the fields, then Ctrl-S`,
-=======
   const subject = subjectOf(proposal);
   const head = [
     `# ${proposal.kind}${subject === null ? "" : ` ${subject.value}`}: edit the fields, then Ctrl-S`,
->>>>>>> de146a854c2be9713e40505688960f87444be951
   ];
   if (proposal.kind === "split") {
     const { kind: _kind, id: _id, edit, story, ...rest } = proposal;
@@ -111,12 +83,8 @@ export function proposalForm(proposal: PlanningProposal): string {
   }
   const { kind: _kind, ...rest } = proposal;
   const fields: Record<string, unknown> = { ...rest };
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-  if (own !== null) delete fields[own.field];
-=======
   delete fields.id;
   delete fields.draft;
->>>>>>> de146a854c2be9713e40505688960f87444be951
   return [...head, ...fieldLines(fields, "")].join("\n");
 }
 
@@ -218,13 +186,8 @@ export function readProposalForm(
   const read = readFields(text);
   if (typeof read === "string") return { ok: false, error: read };
   const result: Record<string, unknown> = { kind: original.kind };
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-  const own = ownOf(original);
-  if (own !== null) result[own.field] = own.value;
-=======
   const subject = subjectOf(original);
   if (subject !== null) result[subject.key] = subject.value;
->>>>>>> de146a854c2be9713e40505688960f87444be951
   for (const [key, field] of read) {
     // The kind, the id and the draft are the proposal's own.
     if (key === "kind" || key === "id" || key === "draft") continue;

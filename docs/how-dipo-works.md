@@ -43,11 +43,7 @@ A story that cannot go on is **Parked** with one of eight reasons, keeps its bra
 
 A problem that is not one story's, such as the subscription's plan limit or a broken login, pauses new starts for the whole office ("starts paused"). It lifts by itself when the cause clears, or with `dipo daemon resume-starts`; a pause for the box token lifts only with a new `dipo login box`. A session that hits the plan limit parks `worker-failed` and resumes by itself once the pause lifts (0020).
 
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-Your desk is one ordered list of everything that waits on you: starts paused, open questions, merge gates, parked stories, things only you can do by hand, the proposed user stories of ideas that passed dipo's audit (each with its card in full, to accept as a Backlog draft or dismiss) and the workers' decision notes, and the stories next up for a free run slot. Each item comes with the exact command to type. A quick idea of your own goes to the same audit with `dipo idea "<text>"` or key `i` in the TUI. You see it with `dipo desk`, or with key `3` in the TUI, and the Mac posts a notification when a new item arrives (0009, 0020). To give up on a story, `dipo discard` throws its work away and sends it back to Refined. `dipo drop` removes it from the backlog.
-=======
 Your desk is one ordered list of everything that waits on you: starts paused, open questions, merge gates, parked stories, things only you can do by hand, proposed stories (ideas that passed dipo's audit, each shown in full, which you accept as a draft with `dipo idea accept` or dismiss) and decision notes, and the stories next up for a free run slot. `dipo idea "<text>"`, or `i` on the desk, hands your own quick idea to the audit; a planning session of kind triage goes through the drafts with you and refines each into a story or drops it. Each item comes with the exact command to type. You see it with `dipo desk`, or with key `3` in the TUI, and the Mac posts a notification when a new item arrives (0009, 0020). To give up on a story, `dipo discard` throws its work away and sends it back to Refined. `dipo drop` removes it from the backlog.
->>>>>>> de146a854c2be9713e40505688960f87444be951
 
 ## The parts of the app
 

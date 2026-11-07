@@ -50,18 +50,9 @@
 //   `drop` of the draft (DIPO-454, triage), then flushes the lane, which opens or updates dipo's
 //   backlog PR. Each filed or edited story's id goes into the session's record once
 //   the lane applied its change (`planning_record`). A new story whose title an active story or
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-//   another confirmed proposal has, a dependency the office does not know, or an edit of a task
-//   that is not Refined, Ready or Parked is refused before anything is journaled. In triage
-//   (DIPO-454), whose first message lists the open drafts with their origin (`draftOrigin`), a
-//   draft refined is a `refine` change (promoted, then Refined to the standard with a branch named
-//   for its new id) and a draft dropped is the lane's drop (archived); a proposal naming no open
-//   draft is refused.
-=======
 //   another confirmed proposal has, a dependency the office does not know, an edit of a task that
 //   is not Refined, Ready or Parked, or a refine or drop of anything but an open draft is refused
 //   before anything is journaled.
->>>>>>> de146a854c2be9713e40505688960f87444be951
 // - `planning.edit` replaces an open proposal with the maintainer's version, checked the same way.
 // - `planning.decline` closes it; nothing is filed.
 //
@@ -138,11 +129,7 @@ import { currentProfileId, endRun, insertRun, recordConfigSnapshot } from "../re
 import { activeSignals } from "../records/signals";
 import { contextNearFull, readUsage } from "../records/usage";
 import type { LaunchedHost } from "../records/worker-hosts";
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-import { ideaOfDraft } from "../records/ideas";
-=======
 import { draftOrigins } from "../records/ideas";
->>>>>>> de146a854c2be9713e40505688960f87444be951
 import { isProvisionalId, resolveStoryRef, type StoryIdentity } from "../records/story-keys";
 import { PlanningRefusedError } from "../story-store/errors";
 import type { GateStore } from "../gate-decisions";
@@ -163,12 +150,10 @@ import {
   refineFieldsOf,
   refineTargetOf,
   refusalMessage,
-  refineTargetOf,
   reviseTargetOf,
   storyFieldsOf,
 } from "./planning-proposals";
 import { claimHost, connectWhenBound } from "./hosts";
-import { ideaDraftTitle, ideaOriginLine } from "./proposals";
 import { type HostStarter, runLaunchPaths } from "./launch";
 import { sessionUuid } from "./prompts";
 import { prepareRunTempDirs } from "./temp-dirs";
@@ -231,16 +216,7 @@ export interface PlanningFacts {
   readonly goal: string;
   /** The session's record as text (`planningRecordText`). */
   readonly record: string;
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-  /** The open drafts, each with its origin in words (DIPO-454). */
-  readonly drafts: readonly {
-    readonly story: string;
-    readonly title: string;
-    readonly origin: string;
-  }[];
-=======
   readonly drafts: readonly PlanningDraft[];
->>>>>>> de146a854c2be9713e40505688960f87444be951
   readonly desk: readonly Pick<DeskItem, "kind" | "story" | "detail">[];
   readonly runs: readonly RecentRun[];
   /** The base branch's commit the read-only copy holds. */
@@ -286,19 +262,6 @@ export function planningFirstMessage(facts: PlanningFacts): string {
 }
 
 /**
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
- * The origin of an open draft in words (DIPO-454): the idea the maintainer accepted from the desk,
- * with its source story, when the draft is the one its accept filed (its recorded draft id and its
- * title); otherwise a draft filed by hand or before dipo kept its origin.
- */
-export function draftOrigin(
-  office: OfficeHandle,
-  draft: { readonly story: string; readonly title: string },
-): string {
-  const idea = ideaOfDraft(office, draft.story);
-  if (idea !== null && ideaDraftTitle(idea) === draft.title.trim()) return ideaOriginLine(idea);
-  return "filed without an idea of dipo's";
-=======
  * The open drafts of `office`, each with its origin (DIPO-454): the idea the maintainer accepted it
  * from, with that idea's source story, when the office recorded one under its id and title.
  */
@@ -314,7 +277,6 @@ export function planningDrafts(office: OfficeHandle): PlanningDraft[] {
           : `${ideaOriginWords(origin.origin)}, source story ${origin.story ?? "none"}`;
       return { story: view.story, title: view.title, origin: from };
     });
->>>>>>> de146a854c2be9713e40505688960f87444be951
 }
 
 /** The latest story runs of `office`, newest first, with their spend. */
@@ -990,15 +952,6 @@ export class PlanningSessions {
         return [filed, revised];
       }
       case "refine": {
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-        const draft = this.#draft(handle, item, proposal.draft);
-        this.#checkNewStory(open, item, proposal.title, proposal.dependencies ?? [], draft.key);
-        return [await lane.refineDraft(draft, refineTargetOf(run, item.n, proposal, draft.title))];
-      }
-      case "drop": {
-        const draft = this.#draft(handle, item, proposal.draft);
-        return [await lane.drop(draft, "draft")];
-=======
         const draft = this.#openDraft(handle, proposal.draft);
         const story = refineFieldsOf(proposal);
         this.#checkNewStory(open, item, story.title, story.dependencies ?? [], draft.key);
@@ -1012,16 +965,10 @@ export class PlanningSessions {
       case "drop": {
         const draft = this.#openDraft(handle, proposal.draft);
         return [await lane.drop({ key: draft.key, story: draft.story }, "draft")];
->>>>>>> de146a854c2be9713e40505688960f87444be951
       }
     }
   }
 
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-  /**
-   * Refuses a new story whose title is taken or whose dependency the office does not know; `own` is
-   * the key of a draft the story is refined from, whose own title never counts.
-=======
   /** The open draft a refine or drop names, with its title (DIPO-454). */
   #openDraft(handle: OfficeHandle, id: string): StoryIdentity & { readonly title: string } {
     const found = handle.deferred(() => resolveStoryRef(handle, id.toUpperCase()));
@@ -1039,28 +986,19 @@ export class PlanningSessions {
   /**
    * Refuses a new story whose title is taken or whose dependency the office does not know. A
    * refined draft (`self`) may keep its own title.
->>>>>>> de146a854c2be9713e40505688960f87444be951
    */
   #checkNewStory(
     open: Open,
     item: OpenProposal,
     title: string,
     dependencies: readonly string[],
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-    own?: StoryKey,
-=======
     self?: StoryKey,
->>>>>>> de146a854c2be9713e40505688960f87444be951
   ): void {
     const { handle } = open;
     const wanted = titleKey(title);
     const taken = handle
       .deferred(() => activeStoryViews(handle))
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-      .find((view) => view.key !== own && titleKey(view.title) === wanted);
-=======
       .find((view) => view.key !== self && titleKey(view.title) === wanted);
->>>>>>> de146a854c2be9713e40505688960f87444be951
     const twin = open.proposals.find(
       (other) =>
         other !== item &&
@@ -1088,24 +1026,6 @@ export class PlanningSessions {
         );
       }
     }
-  }
-
-  /** The open draft a triage proposal names, with its title (DIPO-454). */
-  #draft(
-    handle: OfficeHandle,
-    item: OpenProposal,
-    id: string,
-  ): StoryIdentity & { readonly title: string } {
-    const found = handle.deferred(() => resolveStoryRef(handle, id.toUpperCase()));
-    const view = found.ok ? handle.deferred(() => storyView(handle, found.key)) : null;
-    if (!found.ok || view === null || view.lifecycle !== "Draft") {
-      throw new CommandError(
-        "planning.storyUnknown",
-        `Proposal ${item.n} names ${id}, which is not an open draft of this office.`,
-        { proposal: item.n, story: id },
-      );
-    }
-    return { key: found.key, story: found.story, title: view.title };
   }
 
   /** The task an edit changes: one the office knows, Refined, Ready or Parked. */
@@ -1418,17 +1338,7 @@ export class PlanningSessions {
         kind: open.kind,
         goal: open.goal,
         record: planningRecordText(readPlanningRecord(handle, open.session)),
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-        drafts: activeStoryViews(handle)
-          .filter((view) => view.lifecycle === "Draft")
-          .map((view) => ({
-            story: view.story,
-            title: view.title,
-            origin: draftOrigin(handle, view),
-          })),
-=======
         drafts: planningDrafts(handle),
->>>>>>> de146a854c2be9713e40505688960f87444be951
         desk: deps.desk?.(handle, now) ?? [],
         runs: recentStoryRuns(handle),
         commit,

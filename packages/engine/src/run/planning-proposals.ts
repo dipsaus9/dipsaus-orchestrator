@@ -7,13 +7,8 @@
 // go back to the session as one message (`refusalMessage`).
 //
 // A confirmed proposal becomes planning-lane targets (0010): a new story a `file` target, an edit a
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-// `revise` target, a split one of each, and a draft refined in triage a `refine` target (DIPO-454);
-// a draft dropped in triage is the lane's drop.
-=======
 // `revise` target, a split one of each, a refined draft a `refine` target and a dropped draft a
 // `drop` of the draft (DIPO-454).
->>>>>>> de146a854c2be9713e40505688960f87444be951
 
 import {
   cleanText,
@@ -226,16 +221,6 @@ export function storyFieldsOf(
   return fields;
 }
 
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-/** Pure: the `refine` target of a confirmed draft refinement (DIPO-454). */
-export function refineTargetOf(
-  run: string,
-  proposal: number,
-  refine: Extract<PlanningProposal, { kind: "refine" }>,
-  draftTitle: string,
-): RefineTarget {
-  const { kind: _kind, draft: _draft, why: _why, ...story } = refine;
-=======
 /** The fields of a refine proposal, without its kind, draft and why (DIPO-454). */
 export function refineFieldsOf(
   proposal: Extract<PlanningProposal, { kind: "refine" }>,
@@ -251,6 +236,5 @@ export function refineTargetOf(
   story: PlanningStoryFields,
   draftTitle: string,
 ): RefineTarget {
->>>>>>> de146a854c2be9713e40505688960f87444be951
   return { ...fileTargetOf(run, proposal, story), draftTitle };
 }

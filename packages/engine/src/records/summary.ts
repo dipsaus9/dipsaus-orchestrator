@@ -288,11 +288,7 @@ export function finalSummaryFacts(
       where office_id = $office_id and key = $key and kind = 'story'`,
     { key },
   );
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-  // Every worker proposal is held as an idea of its story (DIPO-452, DIPO-454).
-=======
   // A worker's proposals are held as ideas of its story (DIPO-452, DIPO-454).
->>>>>>> de146a854c2be9713e40505688960f87444be951
   const proposals = hasTable(office, "ideas")
     ? (office.get<{ n: number }>(
         `select count(*) as n from ideas

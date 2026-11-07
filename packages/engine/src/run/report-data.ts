@@ -15,12 +15,7 @@
 //   a cap), is dropped with a notice that carries the proposal's words
 //   (`droppedProposalNotices`). The rest of the report goes on: a proposal never parks a story.
 // - Storage: every done report's test-plan entries and deviations (`done_reports`), the proposals
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-//   of every report held as ideas of the run (`ideas`, DIPO-452, audited before any reaches the desk) and the
-//   send-once marks (`report_sendbacks`). Storing changes nothing about the story's status, the
-=======
 //   of every report held as ideas of the run (`ideas`, DIPO-452, DIPO-454) and the send-once marks (`report_sendbacks`). Storing changes nothing about the story's status, the
->>>>>>> de146a854c2be9713e40505688960f87444be951
 //   run's end or the commit.
 
 import { createHash } from "node:crypto";
@@ -345,16 +340,10 @@ function oneLine(text: string, max: number): string {
 }
 
 /**
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
- * Holds a report's proposals as ideas of the run (DIPO-452), audited once the run is merged or
- * parked; only an idea that passes reaches the maintainer's desk (DIPO-454). The same proposal of
- * the same run is held once. Returns how many were held. Inside the caller's transaction.
-=======
  * Holds a report's proposals as ideas of its run (0022, DIPO-452), audited once the run is merged
  * or parked; the same proposal of the same run is held once. A proposal reaches the desk only once
  * its audit passed, as a proposed user story (DIPO-454). Returns how many were held. Inside the
  * caller's transaction.
->>>>>>> de146a854c2be9713e40505688960f87444be951
  */
 export function storeProposals(
   office: OfficeHandle,

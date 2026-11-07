@@ -50,11 +50,7 @@ export const PROPOSE_KIND = "propose";
 export const FILE_KIND = "file";
 /** An edit of a story's wording, criteria or references a planning session confirmed (DIPO-450). */
 export const REVISE_KIND = "revise";
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-/** A draft a triage session refined into a story (DIPO-454). */
-=======
 /** A draft a triage session refined into a Refined story with a new id (DIPO-454). */
->>>>>>> de146a854c2be9713e40505688960f87444be951
 export const REFINE_KIND = "refine";
 /** Sets a Refined story Ready after its Ready gate decision passed (DIPO-451). */
 export const READY_KIND = "ready";
@@ -107,15 +103,6 @@ export const FileTarget = z
 export type FileTarget = z.infer<typeof FileTarget>;
 
 /**
- * The target state of a refinement (DIPO-454): the draft `draftTitle` names is promoted to a task
- * (Backlog.md's `draft promote`, which gives it a new id), and that task then reads as a filing's
- * target asks: Refined to the story standard (0012), with a branch named for its new id. Applied
- * again it finds the task by its title and Story line, as a filing does.
- */
-export const RefineTarget = FileTarget.extend({ draftTitle: z.string().min(1) }).strict();
-export type RefineTarget = z.infer<typeof RefineTarget>;
-
-/**
  * The target state of a revision (DIPO-450): each field given replaces the story's, while its
  * status is one of `from`. `storyLine` replaces the `Story:` line and `context` the text between it
  * and the field block; `criteria` and `references` are whole lists.
@@ -161,20 +148,6 @@ export interface PlanningStory {
   readonly story: string;
 }
 
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-/**
- * The draft an accepted idea becomes (0022, DIPO-454): a draft of a milestone has that milestone;
- * a tech-debt draft has none and the label `tech-debt`.
- */
-export interface ProposedDraft {
-  /** The idea's id; the store finds a draft it filed for it again by it. */
-  readonly proposal: string;
-  readonly title: string;
-  readonly description: string;
-  readonly references: readonly string[];
-  readonly milestone?: string;
-  readonly labels?: readonly string[];
-=======
 /** The draft an accepted idea becomes (0020, 0022, DIPO-454). */
 export interface ProposedDraft {
   /** The idea's id; the store finds a draft it filed for it again by it. */
@@ -186,7 +159,6 @@ export interface ProposedDraft {
   readonly milestone?: string;
   /** `tech-debt` for tech debt, else none. */
   readonly labels: readonly string[];
->>>>>>> de146a854c2be9713e40505688960f87444be951
 }
 
 /**

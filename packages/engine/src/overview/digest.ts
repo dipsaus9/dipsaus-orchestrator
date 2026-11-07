@@ -75,20 +75,12 @@ function factOf(type: string, delta: Delta): { count: DigestCount; line: string 
       return { count: "merges", line: `${story} waits for your merge` };
     }
     case "idea.passed": {
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-      // An idea that passed its audit waits on the desk as a proposed user story (DIPO-454).
-=======
       // An idea that passed the audit waits on the desk as a proposed user story (DIPO-454).
->>>>>>> de146a854c2be9713e40505688960f87444be951
       const from = text(delta["story"]);
       const title = deskLine(text(delta["title"]) ?? "");
       return {
         count: "proposals",
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-        line: `proposed story ${JSON.stringify(title)}${from === null ? "" : ` from ${from}`} waits on your desk`,
-=======
         line: `proposed story${from === null ? "" : ` from ${from}`}: ${JSON.stringify(title)}`,
->>>>>>> de146a854c2be9713e40505688960f87444be951
       };
     }
     default:

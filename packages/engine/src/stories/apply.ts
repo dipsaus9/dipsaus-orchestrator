@@ -3,15 +3,9 @@
 //
 // Identity (0005, 0007): a story whose id is a current id keeps its key. A key whose id vanished
 // is closed as `Removed` with an `engine.notice`, and an id no key has gets a new key: a new id
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-// is a new story. Nothing is matched by branch, date or title. The one rename is a draft a triage
-// session promoted (DIPO-454): the lane recorded its new id, so its key takes that id
-// (`story.renumbered`) once a pass reads the draft gone and the task there.
-=======
 // is a new story. Nothing is matched by branch, date or title. The one exception is a draft dipo
 // promoted itself (a triage refine, DIPO-454): its key holds the new id as `promoted_to`, so when
 // its draft id vanished and that id appears, the key is renumbered to it (`story.renumbered`).
->>>>>>> de146a854c2be9713e40505688960f87444be951
 
 import {
   type IdSource,
@@ -23,11 +17,7 @@ import {
 
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-import { addStory, promotionOf, removeStory, renumberStory } from "../records/story-keys";
-=======
 import { addStory, removeStory, renumberStory } from "../records/story-keys";
->>>>>>> de146a854c2be9713e40505688960f87444be951
 import { isUnknownStatus, storyView, workByKey } from "../views/story";
 
 import type { BacklogStory } from "./read";
@@ -161,24 +151,6 @@ export function applyIndex(
   }
   const entries: NewEntry[] = [];
 
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-  // A draft a triage session promoted (DIPO-454): its story takes the new id, renumbered, never
-  // closed and added again.
-  for (const k of known) {
-    if (matched.has(k.key) || !k.provisional) continue;
-    const promotion = promotionOf(office, k.key, k.story);
-    if (promotion === null) continue;
-    const index = unmatched.findIndex((candidate) => candidate.story === promotion.story);
-    const story = unmatched[index];
-    if (story === undefined) continue;
-    unmatched.splice(index, 1);
-    renumberStory(office, k.key, promotion.story, at);
-    matched.set(k.key, story);
-    entries.push({
-      type: "story.renumbered",
-      key: k.key,
-      delta: { key: k.key, from: k.story, to: promotion.story, detectedBy: "engine" },
-=======
   // 2. A draft dipo promoted (DIPO-454) whose draft id vanished and whose new id appeared keeps its
   //    key under the new id.
   for (const k of known) {
@@ -199,16 +171,11 @@ export function applyIndex(
       type: "story.renumbered",
       key: k.key,
       delta: { key: k.key, from, to, detectedBy: "engine" },
->>>>>>> de146a854c2be9713e40505688960f87444be951
     });
   }
   const vanished = known.filter((k) => !matched.has(k.key));
 
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-  // 2. Vanished keys are closed as Removed.
-=======
   // 3. Vanished keys are closed as Removed.
->>>>>>> de146a854c2be9713e40505688960f87444be951
   for (const k of vanished) {
     removeStory(office, k.key, at);
     const view = storyView(office, k.key, work);

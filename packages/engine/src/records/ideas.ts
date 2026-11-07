@@ -10,15 +10,9 @@
 // - The audit's outcome is written here: passed with its proposed user story, rejected with its
 //   reason, or still held after a failed, cut-off or refused audit (`auditMissed`), counted in
 //   `attempts`. A held idea is never dropped; a rejected one is kept with its reason.
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-// - A passed idea waits on the maintainer's desk (`deskIdeas`, DIPO-454) until the maintainer
-//   decides it (`decideIdea`): accepted, with the Backlog draft the lane filed for it
-//   (`recordIdeaDraft`), or dismissed, kept as dismissed by the maintainer for retro.
-=======
 // - A passed idea waits on the desk (`openPassedIdeas`) until the maintainer answers it
 //   (`answerIdea`, DIPO-454): `accepted`, with the draft the lane filed, or `dismissed`, kept for
 //   retro.
->>>>>>> de146a854c2be9713e40505688960f87444be951
 //
 // Every text of an idea came from a worker, a reviewer, a session or the maintainer: it is
 // cleaned and capped at the door and kept as data.
@@ -28,7 +22,6 @@ import {
   IDEA_CAPS,
   type IdeaAnswer,
   type IdeaDecidedBy,
-  type IdeaDecision,
   type IdeaOrigin,
   type IdeaState,
   type IdeaView,
@@ -81,11 +74,7 @@ export function ideaText(text: string): string {
   return capped(cleanText(text).trim(), IDEA_CAPS.text);
 }
 
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-/** The id `idea` is held by: of its origin, source, title and text as held; null when one is empty. */
-=======
 /** The id `idea` is held by, or null when its title or text is empty once cleaned. */
->>>>>>> de146a854c2be9713e40505688960f87444be951
 export function newIdeaId(idea: NewIdea): string | null {
   const title = ideaTitle(idea.title);
   const text = ideaText(idea.text);
@@ -93,18 +82,6 @@ export function newIdeaId(idea: NewIdea): string | null {
   return ideaIdOf(idea.origin, idea.runId ?? idea.key ?? "", title, text);
 }
 
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-/**
- * The maintainer's quick idea (DIPO-454): its title is the first line of the text that holds more
- * than spaces, and its text is the whole text.
- */
-export function quickIdea(text: string, key: StoryKey | null, at: number): NewIdea {
-  const title = text.split(/\r?\n/).find((line) => line.trim() !== "") ?? "";
-  return { origin: "quick", key, runId: null, title, text, at };
-}
-
-=======
->>>>>>> de146a854c2be9713e40505688960f87444be951
 /**
  * Holds one idea, state `held`; the same idea from the same source is held once. Returns its id
  * when this call held it, else null. Inside the caller's transaction.
@@ -318,15 +295,9 @@ interface ViewRow extends HeldRow {
   proposal: string | null;
   last_problem: string | null;
   decided_at: number | null;
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-  decision: IdeaDecision | null;
-  draft_id: string | null;
-  decision_at: number | null;
-=======
   answer: IdeaAnswer | null;
   answered_at: number | null;
   draft_id: string | null;
->>>>>>> de146a854c2be9713e40505688960f87444be951
 }
 
 const VIEW_SELECT = `
@@ -364,40 +335,11 @@ function viewOf(row: ViewRow): IdeaView {
 export function ideaViews(office: OfficeHandle, state?: IdeaState): IdeaView[] {
   return office
     .all<ViewRow>(
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-      `select i.idea_id, i.origin, i.story_key, s.story_id, i.run_id, i.title, i.body, i.attempts,
-              i.created_at, i.state, i.decided_by, i.reason, i.proposal, i.last_problem,
-              i.decided_at, i.decision, i.draft_id, i.decision_at
-         from ideas i
-         left join stories s on s.office_id = i.office_id and s.key = i.story_key
-=======
       `${VIEW_SELECT}
->>>>>>> de146a854c2be9713e40505688960f87444be951
         where i.office_id = $office_id and ($state is null or i.state = $state)
         order by i.created_at, i.idea_id`,
       { state: state ?? null },
     )
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-    .map((row) => ({
-      id: row.idea_id,
-      origin: row.origin,
-      ...(row.story_id === null ? {} : { story: StoryId.parse(row.story_id) }),
-      ...(row.run_id === null ? {} : { run: RunId.parse(row.run_id) }),
-      title: row.title,
-      text: row.body,
-      state: row.state,
-      ...(row.decided_by === null ? {} : { decidedBy: row.decided_by }),
-      ...(row.reason === null ? {} : { reason: row.reason }),
-      ...(row.proposal === null ? {} : { proposal: JSON.parse(row.proposal) as ProposedStory }),
-      attempts: row.attempts,
-      ...(row.last_problem === null ? {} : { lastProblem: row.last_problem }),
-      createdAt: iso(row.created_at),
-      ...(row.decision === null ? {} : { decision: row.decision }),
-      ...(row.draft_id === null ? {} : { draft: row.draft_id }),
-      ...(row.decided_at === null ? {} : { decidedAt: iso(row.decided_at) }),
-      ...(row.decision_at === null ? {} : { decisionAt: iso(row.decision_at) }),
-    }));
-=======
     .map(viewOf);
 }
 
@@ -481,137 +423,4 @@ export function draftOrigins(office: OfficeHandle): Map<string, DraftOrigin> {
     });
   }
   return origins;
->>>>>>> de146a854c2be9713e40505688960f87444be951
-}
-
-/** A stored idea, as the maintainer's commands read it (DIPO-454). */
-export interface StoredIdea {
-  readonly id: string;
-  readonly origin: IdeaOrigin;
-  readonly key: StoryKey | null;
-  /** The source story's id, when the office still knows it. */
-  readonly story: StoryId | null;
-  readonly run: string | null;
-  readonly title: string;
-  readonly state: IdeaState;
-  readonly proposal: ProposedStory | null;
-  readonly decision: IdeaDecision | null;
-  readonly draft: string | null;
-  /** When it passed its audit, and so began to wait on the desk; null while it did not. */
-  readonly decidedAt: number | null;
-}
-
-interface StoredRow {
-  idea_id: string;
-  origin: string;
-  story_key: string | null;
-  story_id: string | null;
-  run_id: string | null;
-  title: string;
-  state: IdeaState;
-  proposal: string | null;
-  decision: IdeaDecision | null;
-  draft_id: string | null;
-  decided_at: number | null;
-}
-
-const STORED_SELECT = `
-  select i.idea_id, i.origin, i.story_key, s.story_id, i.run_id, i.title, i.state, i.proposal,
-         i.decision, i.draft_id, i.decided_at
-    from ideas i
-    left join stories s on s.office_id = i.office_id and s.key = i.story_key`;
-
-function storedOf(row: StoredRow): StoredIdea {
-  return {
-    id: row.idea_id,
-    origin: row.origin,
-    key: row.story_key as StoryKey | null,
-    story: row.story_id === null ? null : StoryId.parse(row.story_id),
-    run: row.run_id,
-    title: row.title,
-    state: row.state,
-    proposal: row.proposal === null ? null : (JSON.parse(row.proposal) as ProposedStory),
-    decision: row.decision,
-    draft: row.draft_id,
-    decidedAt: row.decided_at,
-  };
-}
-
-/** The ideas whose id starts with `prefix` (lower-case hex), at most two. */
-export function ideasByPrefix(office: OfficeHandle, prefix: string): StoredIdea[] {
-  return office
-    .all<StoredRow>(
-      `${STORED_SELECT}
-       where i.office_id = $office_id and substr(i.idea_id, 1, length($ref)) = $ref
-       order by i.idea_id
-       limit 2`,
-      { ref: prefix },
-    )
-    .map(storedOf);
-}
-
-/**
- * The ideas that wait on the maintainer's desk (DIPO-454): passed, with no decision yet, in the
- * order they passed.
- */
-export function deskIdeas(office: OfficeHandle): StoredIdea[] {
-  return office
-    .all<StoredRow>(
-      `${STORED_SELECT}
-       where i.office_id = $office_id and i.state = 'passed' and i.decision is null
-       order by i.decided_at, i.idea_id`,
-    )
-    .map(storedOf);
-}
-
-/**
- * The maintainer's decision on a passed idea that has none: accepted or dismissed. False when it
- * was not open. Inside the caller's transaction.
- */
-export function decideIdea(
-  office: OfficeHandle,
-  id: string,
-  decision: IdeaDecision,
-  at: number,
-): boolean {
-  return (
-    office.run(
-      `update ideas set decision = $decision, decision_at = $at, updated_at = $at
-        where office_id = $office_id and idea_id = $id and state = 'passed' and decision is null`,
-      { id, decision, at },
-    ).changes > 0
-  );
-}
-
-/** Records the Backlog draft the lane filed for an accepted idea. */
-export function recordIdeaDraft(office: OfficeHandle, id: string, draft: string): void {
-  office.run(
-    `update ideas set draft_id = $draft
-      where office_id = $office_id and idea_id = $id and draft_id is not $draft`,
-    { id, draft },
-  );
-}
-
-/** The accepted idea whose draft is `draft` now, by its recorded draft id; null for none. */
-export function ideaOfDraft(office: OfficeHandle, draft: string): StoredIdea | null {
-  const row = office.get<StoredRow>(
-    `${STORED_SELECT}
-     where i.office_id = $office_id and i.decision = 'accepted' and upper(i.draft_id) = upper($draft)
-     order by i.decision_at desc, i.idea_id
-     limit 1`,
-    { draft },
-  );
-  return row === null ? null : storedOf(row);
-}
-
-const ORIGIN_WORDS: Readonly<Record<string, string>> = {
-  proposal: "a worker's proposal",
-  finding: "a reviewer's finding",
-  aside: "a planning session's aside",
-  quick: "the maintainer's quick idea",
-};
-
-/** An idea's origin in words, such as "a worker's proposal". */
-export function ideaOriginWords(origin: IdeaOrigin): string {
-  return ORIGIN_WORDS[origin] ?? `an idea of origin ${origin}`;
 }

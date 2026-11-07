@@ -381,13 +381,8 @@ export type TestEndReason = z.infer<typeof TestEndReason>;
 
 // The maintainer's planning session (DIPO-447, 0008): one per office, started with a kind and a
 // goal, talked to turn by turn. It has no story, so its events carry the planning view, never a
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-// `WorkRef`. `plan` writes new stories, `refine` works on drafts, `triage` goes through the drafts
-// with their origin, refining each into a story or dropping it (DIPO-454).
-=======
 // `WorkRef`. `plan` writes new stories, `refine` works on drafts, `triage` goes through the drafts with
 // their origin and refines each into a story or drops it (DIPO-454).
->>>>>>> de146a854c2be9713e40505688960f87444be951
 export const PLANNING_KINDS = ["plan", "refine", "triage"] as const;
 export const PlanningKind = openEnum(PLANNING_KINDS);
 export type PlanningKind = z.infer<typeof PlanningKind>;
@@ -418,17 +413,10 @@ export type PlanningEndReason = z.infer<typeof PlanningEndReason>;
 // engine validates it against `PlanningProposal` and refuses an invalid one with a message to
 // the session that lists its problems. `story` is a new story, filed Refined to the story standard
 // (0012); `edit` changes an existing task's title, Story line, context, criteria or references;
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-// `split` files a new story and edits the existing one. In triage (DIPO-454), `refine` turns a draft
-// into a story Refined to the story standard, with a branch named for its new id, and `drop`
-// archives a draft. Every text is one line unless it is the context below the Story line;
-// `storyLine` is the Story line without its `Story:` prefix.
-=======
 // `split` files a new story and edits the existing one; `refine` turns a draft into a Refined story
 // to the story standard, with its new id and a branch named for it, and `drop` archives a draft
 // (DIPO-454, triage). Every text is one line unless it is the
 // context below the Story line; `storyLine` is the Story line without its `Story:` prefix.
->>>>>>> de146a854c2be9713e40505688960f87444be951
 export const PLANNING_PROPOSAL_FENCE = "dipo-proposal";
 
 export const PLANNING_PROPOSAL_CAPS = {
@@ -517,11 +505,7 @@ const ProposalTaskId = z
   .regex(/^[A-Za-z][A-Za-z0-9]*-[0-9]+$/, "must be a task id such as DIPO-12")
   .refine((id) => !/^DRAFT-/i.test(id), "must name a task, not a draft");
 
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-// A draft id such as `DRAFT-3`, which a triage proposal refines or drops (DIPO-454).
-=======
 // A draft's id such as `DRAFT-3` (DIPO-454).
->>>>>>> de146a854c2be9713e40505688960f87444be951
 const ProposalDraftId = z.string().regex(/^DRAFT-[0-9]+$/i, "must be a draft id such as DRAFT-3");
 
 export const PlanningTestPlanEntry = z.strictObject({
@@ -651,22 +635,14 @@ export const PlanningProposal = z.discriminatedUnion("kind", [
   z
     .strictObject({
       kind: z.literal("refine"),
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-      draft: ProposalDraftId.describe("the draft that becomes the story"),
-=======
       draft: ProposalDraftId.describe("the draft refined into this story"),
->>>>>>> de146a854c2be9713e40505688960f87444be951
       ...storyShape,
       why: Why,
     })
     .superRefine(storyChecks),
   z.strictObject({
     kind: z.literal("drop"),
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-    draft: ProposalDraftId.describe("the draft that is archived"),
-=======
     draft: ProposalDraftId.describe("the draft that is dropped"),
->>>>>>> de146a854c2be9713e40505688960f87444be951
     why: Why,
   }),
 ]);

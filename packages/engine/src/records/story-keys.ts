@@ -175,35 +175,3 @@ export function removeStory(office: OfficeHandle, key: StoryKey, at: number): vo
     { key, at },
   );
 }
-
-/** A draft a triage session promoted (DIPO-454): its story's key, the draft id and the new id. */
-export interface Promotion {
-  readonly key: StoryKey;
-  readonly draft: StoryId;
-  readonly story: StoryId;
-}
-
-/**
- * Records that the lane promoted the draft `draft` of the story `key` to the task `story`, so the
- * story index renumbers the story once it reads the promotion, instead of closing it and adding a
- * new one. A later promotion of the same story replaces it. Inside the caller's transaction.
- */
-export function recordPromotion(office: OfficeHandle, promotion: Promotion, at: number): void {
-  office.run(
-    `insert into draft_promotions (office_id, key, draft_id, story_id, promoted_at)
-     values ($office_id, $key, $draft, $story, $at)
-     on conflict (office_id, key) do update set draft_id = excluded.draft_id,
-       story_id = excluded.story_id, promoted_at = excluded.promoted_at`,
-    { key: promotion.key, draft: promotion.draft, story: promotion.story, at },
-  );
-}
-
-/** The promotion recorded for the story `key` while its id is the draft id `draft`; else null. */
-export function promotionOf(office: OfficeHandle, key: StoryKey, draft: StoryId): Promotion | null {
-  const row = office.get<{ story_id: string }>(
-    `select story_id from draft_promotions
-      where office_id = $office_id and key = $key and upper(draft_id) = upper($draft)`,
-    { key, draft },
-  );
-  return row === null ? null : { key, draft, story: StoryId.parse(row.story_id) };
-}

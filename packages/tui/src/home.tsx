@@ -84,13 +84,8 @@ function deskTarget(item: DeskItem, cli: string, id: ActionId): ActionTarget {
     ...(item.story === undefined ? {} : { story: String(item.story) }),
     ...(item.question === undefined ? {} : { question: String(item.question) }),
     ...(item.gate === undefined ? {} : { gate: String(item.gate) }),
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-    ...(item.idea === undefined ? {} : { idea: item.idea.id }),
-    ...(item.note === undefined ? {} : { note: item.note.id }),
-=======
     ...(item.note === undefined ? {} : { note: item.note.id }),
     ...(item.idea === undefined ? {} : { idea: item.idea.id }),
->>>>>>> de146a854c2be9713e40505688960f87444be951
     cli,
     ...(id === "answer" ? { text: item.detail } : {}),
   };

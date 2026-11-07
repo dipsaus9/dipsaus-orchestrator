@@ -2,13 +2,8 @@
 // change the engine asks for becomes a journaled operation of its kind with its target state, and
 // the reads answer from the journal. `story.park` and `story.drop` (DIPO-160), `work.resume` of a
 // hold, `work.discard` (DIPO-161), the pickup check's move to Refined (DIPO-48), an accepted
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-// idea (DIPO-166, DIPO-454) and the stories a planning session files, edits and refines from drafts
-// (DIPO-450, DIPO-454) reach the lane only through it.
-=======
 // idea (DIPO-166, DIPO-454) and the stories a planning session files and edits (DIPO-450) reach the lane
 // only through it.
->>>>>>> de146a854c2be9713e40505688960f87444be951
 
 import type { LaneFlush, StoryKey } from "@dipsaus-orchestrator/contract";
 
@@ -25,7 +20,6 @@ import {
   READY_KIND,
   REFINE_KIND,
   RESUME_KIND,
-  REFINE_KIND,
   REVISE_KIND,
   type PlannedChange,
   type PlannedOutcome,

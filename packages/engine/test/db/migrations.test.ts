@@ -389,7 +389,6 @@ describe("the base schema", () => {
           "decision_notes",
           "done_elsewhere",
           "done_reports",
-          "draft_promotions",
           "feedback_items",
           "gate_decisions",
           "gates",

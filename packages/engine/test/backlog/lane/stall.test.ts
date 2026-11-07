@@ -8,7 +8,7 @@
 // - an operation the CLI fails on is closed as `failed` with a notice, and the others go on;
 // - every flush that holds, fails or waits logs its reason, and a lane with an operation unapplied
 //   for 30 minutes of the engine clock is on the desk until a flush applies it;
-// - the planning lane's `flush(change)` says what happened to the change, as `proposal.accept`
+// - the planning lane's `flush(change)` says what happened to the change, as `idea.accept`
 //   reports it.
 
 import { describe, expect, it } from "bun:test";
@@ -68,7 +68,7 @@ function memoryLog(): { lines: Line[]; logger: NonNullable<OfficeLaneOptions["lo
   };
 }
 
-/** The setup's lane with the kinds `proposal.accept`, `work.discard` and `story.park` journal, and `extra`. */
+/** The setup's lane with the kinds `idea.accept`, `work.discard` and `story.park` journal, and `extra`. */
 function laneOf(s: LaneSetup, extra: Partial<OfficeLaneOptions> = {}): OfficeLane {
   s.kinds.set(PROPOSE_KIND, proposeKind);
   s.kinds.set(DISCARD_KIND, editKind(DISCARD_KIND));

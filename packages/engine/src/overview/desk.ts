@@ -26,15 +26,10 @@
 //    and parks whose write to Backlog.md failed), and the run profile's rows
 //    (DIPO-310): each pending proposal of the scan fallback and each stale confirmation, an office
 //    item with no story, offering its `dipo office confirm` lines (no TUI keys yet);
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-// 6. ideas that passed their audit (DIPO-454, `proposals.ts`), each an IDEA item with its card,
-//    the proposed user story in full, offering `dipo idea accept` and `dipo idea dismiss`; then the
-//    open decision notes of worker reports, each a DECISION NOTE item offering `dipo note dismiss`;
-=======
 // 6. the ideas that passed the audit (0022, DIPO-454), spikes before follow-ups, each a PROPOSED
-//    STORY whose `idea` holds the proposed user story in full for its card, offering `dipo idea accept` and `dipo idea dismiss`;
+//    STORY whose `idea` holds the proposed user story in full for its card, offering
+//    `dipo idea accept` and `dipo idea dismiss`;
 //    then the decision notes of worker reports (DIPO-404), each offering `dipo note dismiss`;
->>>>>>> de146a854c2be9713e40505688960f87444be951
 // 7. next up (0010, `run/next-up.ts`): one Ready story per free run slot, in next-up order, with
 //    one line of why and the files its references share with running stories, offering
 //    `dipo next confirm <ID>` and `dipo next decline <ID>`.
@@ -57,26 +52,20 @@ import {
   type DeskIdea,
   type DeskItem,
   GateId,
-  type IdeaCard,
   officeDesk,
   QuestionId,
   RunId,
   StoryId,
   StoryKey,
   type StoryPr,
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-  TECH_DEBT,
-=======
   ideaOriginWords,
   servesWords,
->>>>>>> de146a854c2be9713e40505688960f87444be951
 } from "@dipsaus-orchestrator/contract";
 
 import { cleanDoorText } from "../box/door";
 import type { FeatureRegistry, ReadContext, Registry } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import { openParkQuestions, openQuestions, type StoredQuestion } from "../run-state/questions";
-import { ideaOriginWords } from "../records/ideas";
 import { heldParks, openPark, type ParkStore } from "../records/park-state";
 import { openTestOf } from "../run/test-records";
 import { parkResumeNeed, SUGGESTED_SHARE } from "../records/resume-policy";
@@ -86,12 +75,8 @@ import { findStoryPr, latestStoryPr } from "../records/story-prs";
 import { doneElsewhereDeskItems } from "../worktree/done-elsewhere";
 import { lifecycleOf } from "../views/story";
 
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-import { ideaItems, openDecisionNotes } from "./proposals";
-=======
 import { openNotes } from "../records/decision-notes";
 import { openPassedIdeas } from "../records/ideas";
->>>>>>> de146a854c2be9713e40505688960f87444be951
 
 /** An item another module puts on the desk's hand-action group, such as LEFTOVERS. */
 export interface HandDeskItem {
@@ -298,25 +283,6 @@ const PARK_RANK: Readonly<Record<string, number>> = {
 };
 const OTHER_PARK_RANK = 7;
 
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-/** The kind of an idea that passed its audit, with its card (DIPO-454). */
-export const IDEA_KIND = "IDEA";
-/** The kind of a worker's decision note (DIPO-404). */
-export const NOTE_KIND = "DECISION NOTE";
-/** The characters of an idea's or a note's id the command lines of the desk give. */
-export const DESK_ID_CHARS = 12;
-
-/** What an idea serves, as its desk line says it: a milestone, or tech debt. */
-export function servesText(serves: string): string {
-  return serves === TECH_DEBT ? "tech debt" : `serves ${deskText(serves)}`;
-}
-
-/** Where an idea came from, as its desk line says it: its origin and source story. */
-export function originText(card: Pick<IdeaCard, "origin" | "sourceStory">): string {
-  const what = ideaOriginWords(card.origin);
-  return card.sourceStory === undefined ? what : `${what} of ${card.sourceStory}`;
-}
-=======
 /**
  * Group 6's order (0020): the proposed stories, spikes before follow-ups, then the decision notes.
  * A proposed spike is one whose Story line is a spike's (0012: "We need to decide").
@@ -330,7 +296,6 @@ const isSpikeLine = (line: string): boolean => line.trimStart().startsWith("We n
 export const PROPOSED_STORY_KIND = "PROPOSED STORY";
 /** The kind of a worker's decision note (DIPO-404). */
 export const DECISION_NOTE_KIND = "DECISION NOTE";
->>>>>>> de146a854c2be9713e40505688960f87444be951
 
 interface Ranked {
   readonly group: number;
@@ -384,6 +349,11 @@ function cut(text: string, max: number): string {
 
 function iso(ms: number): string {
   return new Date(ms).toISOString();
+}
+
+/** A shell word for a command line: kept bare when safe, else in double quotes. */
+function word(text: string): string {
+  return /^[A-Za-z0-9_./:%+-]+$/.test(text) ? text : JSON.stringify(text);
 }
 
 /** The current id of the story `key`, or null when the office does not know it. */
@@ -502,13 +472,10 @@ class DeskBuilder {
       ...item,
       detail: deskLine(item.detail),
       ...(item.hand === undefined ? {} : { hand: deskLine(item.hand) }),
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-=======
       ...(item.note === undefined
         ? {}
         : { note: { ...item.note, title: deskText(item.note.title) } }),
       ...(item.idea === undefined ? {} : { idea: cleanIdea(item.idea) }),
->>>>>>> de146a854c2be9713e40505688960f87444be951
     };
     this.#items.push({ group, rank, sinceMs, item: clean });
   }
@@ -787,51 +754,6 @@ class DeskBuilder {
   }
 
   /**
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-   * Group 6: the ideas that passed their audit, each with its card in full (DIPO-454), then the
-   * open decision notes of worker reports.
-   */
-  proposals(): void {
-    for (const item of ideaItems(this.#office)) {
-      const { card } = item;
-      const story = card.sourceStory ?? null;
-      const key = item.storyKey === null ? null : StoryKey.safeParse(item.storyKey);
-      const id = card.id.slice(0, DESK_ID_CHARS);
-      this.#add(GROUP.proposal, 0, item.since, {
-        kind: IDEA_KIND,
-        ...(story === null ? {} : { story }),
-        ...(key?.success === true ? { key: key.data } : {}),
-        idea: card,
-        detail: `${JSON.stringify(deskText(card.title))} · ${servesText(card.serves)} · ${originText(card)}`,
-        since: iso(item.since),
-        blocks: this.#blocks(story),
-        actions: [
-          ...this.#action("idea.accept", `dipo idea accept ${id}`),
-          ...this.#action("idea.dismiss", `dipo idea dismiss ${id}`),
-        ],
-      });
-    }
-    for (const note of openDecisionNotes(this.#office)) {
-      const story =
-        note.story === null ? storyIdOf(this.#office, note.storyKey) : StoryId.parse(note.story);
-      this.#add(GROUP.proposal, 1, note.createdAt, {
-        kind: NOTE_KIND,
-        ...(story === null ? {} : { story, key: StoryKey.parse(note.storyKey) }),
-        note: {
-          id: note.id,
-          file: note.file,
-          section: note.section,
-          text: note.text,
-          run: RunId.parse(note.run),
-        },
-        detail: `${deskText(note.file)}, section ${JSON.stringify(deskText(note.section))}: ${deskText(note.text)}`,
-        since: iso(note.createdAt),
-        blocks: this.#blocks(story),
-        actions: this.#action(
-          "note.dismiss",
-          `dipo note dismiss ${note.id.slice(0, DESK_ID_CHARS)}`,
-        ),
-=======
    * Group 6: the ideas that passed the audit, each one PROPOSED STORY item whose card holds its
    * proposed user story in full (0022, DIPO-454), and the open decision notes of worker reports
    * (DIPO-404), each with its own dismiss.
@@ -878,7 +800,6 @@ class DeskBuilder {
         since: iso(note.createdAt),
         blocks: this.#blocks(story),
         actions: this.#action("note.dismiss", `dipo note dismiss ${word(note.hash)}`),
->>>>>>> de146a854c2be9713e40505688960f87444be951
         hand: "dipo never writes decision records: add the note by hand if you agree",
       });
     }

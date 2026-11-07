@@ -605,11 +605,7 @@ export class RunControl implements RunEnder {
           at: this.#deps.clock.now(),
         }),
       );
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-      // A held idea waits for the run's end, when its audit takes it.
-=======
       // Each held proposal waits for the audit at its run's end (DIPO-452).
->>>>>>> de146a854c2be9713e40505688960f87444be951
       if (held > 0) this.#deps.onChanged?.(tracked.office);
     } catch (error) {
       this.#deps.warn?.("storing a report's proposals failed", {

@@ -2,25 +2,16 @@
 // from `--office` or the current directory and prints what waits on the maintainer in plain text: a
 // count line, then one line per item in the engine's order with an indented line holding the
 // command to type, and the stories the maintainer parked listed apart at the end, "Parked by you".
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-// An IDEA item also prints its card, the proposed user story in full, between the two (DIPO-454).
-=======
 // A proposed story (DIPO-454) also prints its card in full under its command line: what was found
 // with its evidence and source story, the Story line, what is proposed, why and what it serves.
->>>>>>> de146a854c2be9713e40505688960f87444be951
 // `--json` prints the read's result. An empty desk prints `Nothing waits on you.`. The order, the
 // details and the command lines all come from the engine; this file only lays them out. Read only:
 // it never starts the daemon, and never offers to open a folder that is not an office.
 
 import { basename } from "node:path";
 
-<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
-import { ideaCardLines, usageParts } from "@dipsaus-orchestrator/client";
-import { type DeskItem, officeDesk } from "@dipsaus-orchestrator/contract";
-=======
 import { usageParts } from "@dipsaus-orchestrator/client";
 import { type DeskItem, officeDesk, proposedStoryLines } from "@dipsaus-orchestrator/contract";
->>>>>>> de146a854c2be9713e40505688960f87444be951
 
 import { engineFailure, usage } from "./daemon-commands";
 import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
@@ -76,11 +67,6 @@ export function formatDesk(
     const story = (item.story ?? "").padEnd(storyWidth);
     const reason = item.reason === undefined ? "" : `${item.reason} · `;
     lines.push(`${item.kind.padEnd(kindWidth)} ${story}  ${reason}${item.detail}  ${since}`);
-    // An idea that passed its audit shows its proposed user story in full (DIPO-454).
-    if (item.idea !== undefined) {
-      for (const line of ideaCardLines(item.idea))
-        lines.push(`${" ".repeat(kindWidth + 1)}${line}`);
-    }
     lines.push(`${" ".repeat(kindWidth + 1)}${commandLine(item)}`);
     if (item.idea !== undefined) {
       for (const line of proposedStoryLines(item.idea.story)) {
