@@ -1,10 +1,10 @@
 ---
 id: DIPO-458
 title: 'TUI v2: quiet the main screens and remap the keys'
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-07 11:49'
+updated_date: '2026-11-07 12:07'
 labels:
   - 'tier:S'
 milestone: m-6
@@ -57,6 +57,10 @@ test_plan:
       check: "(unit) q quits only when pressed twice within 2 s"
     - kind: "automated"
       check: "(unit) OfficeSummary carries last activity and Offices prints idle N days"
+park:
+  reason: "budget-exceeded"
+  from: "In Progress"
+  note: "turn cap (--max-turns) after 91 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -72,3 +76,16 @@ test_plan:
 - [ ] #8 OfficeSummary carries each office's last activity (engine addition), and Offices shows idle N days from it
 - [ ] #9 Header, footer and Offices show the colour roles as the HTML preview's S10 shows them in truecolor and 16 colours, dark and light, and under NO_COLOR (the S10 look check moved here from DIPO-457)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-07 12:07 UTC: budget-exceeded
+- Detail: turn cap (--max-turns) after 91 turns
+- Run: run_01M6TXE1604HNH558TW1RGCNGS
+- Criteria met: 0 of 9 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 292,071 of 300,000 tokens; 91 of 90 turns; 18 of 45 minutes
+- Last good commit: 635d89c4a0280d20c876576eddb7db0ec8accb8e
+<!-- SECTION:NOTES:END -->
