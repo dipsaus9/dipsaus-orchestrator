@@ -4,7 +4,7 @@ title: 'TUI v2: quiet the main screens and remap the keys'
 status: Ready
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-06 14:24'
+updated_date: '2026-11-07 11:10'
 labels:
   - 'tier:S'
 milestone: m-6
@@ -48,6 +48,9 @@ test_plan:
     - kind: "manual"
       check: "Open the TUI next to designs/dipo-ux-spec.html, compare the header and footer of each room, open Offices with O, then stop the daemon"
       expect: "Header, footer, Offices (S2e) and the daemon stopped and offline states (S6, S8) match the HTML preview side by side"
+    - kind: "manual"
+      check: "Open the TUI in a dark and a light terminal, each with and without DIPO_TUI_THEME=classical, and once with NO_COLOR=1, next to designs/dipo-ux-spec.html S10 (Tweaks: dark/light, truecolor/ansi16)"
+      expect: "Header, footer and Offices show the roles as S10 shows them in each theme; under NO_COLOR only ▌ marks the focus row (moved here from DIPO-457, maintainer 2026-11-07)"
     - kind: "automated"
       check: "(unit) office.summary carries spend today and the header prints it"
     - kind: "automated"
@@ -67,4 +70,5 @@ test_plan:
 - [ ] #6 The header, footer, Offices and daemon state screens match the HTML preview. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
 - [ ] #7 office.summary carries today's spend (engine addition), and the header reads it from there
 - [ ] #8 OfficeSummary carries each office's last activity (engine addition), and Offices shows idle N days from it
+- [ ] #9 Header, footer and Offices show the colour roles as the HTML preview's S10 shows them in truecolor and 16 colours, dark and light, and under NO_COLOR (the S10 look check moved here from DIPO-457)
 <!-- AC:END -->
