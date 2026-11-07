@@ -83,6 +83,8 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   // dismissed one stays findable with its reason for retro (0022, DIPO-454).
   ideas: kept("kept: every idea with its audit, for retro"),
   questions: aged("with its run, ended more than retention.days ago"),
+  // DIPO-453: the files a story changed, for the rework share of retro.
+  story_files: kept("kept: the files a story changed, for the rework share of retro"),
   run_outcomes: kept("kept: the outcome row of every ended run, for retro"),
   starts_paused: kept("one row per office and reason, deleted when that pause lifts"),
   config_snapshots: aged(

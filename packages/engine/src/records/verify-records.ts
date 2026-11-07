@@ -2,7 +2,7 @@
 // any more (DIPO-342: the box worker runs verify and CI checks), so a summary's `verify` is null.
 // Writers run inside the caller's `office.immediate`.
 
-import type { RunId } from "@dipsaus-orchestrator/contract";
+import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
 import type { WorkerReport } from "../workers/types";
@@ -90,4 +90,21 @@ export function runSummary(office: OfficeHandle, runId: RunId): RunSummary | nul
         outputTail: row.output_tail,
         builtAt: row.built_at,
       };
+}
+
+/**
+ * Keeps the files a story's branch changed (DIPO-453, 0007), for the rework share of retro. Rounds
+ * add to the set; a path is kept once. Runs inside the caller's transaction.
+ */
+export function recordStoryFiles(
+  office: OfficeHandle,
+  key: StoryKey,
+  paths: readonly string[],
+): void {
+  for (const path of paths) {
+    office.run(
+      `insert or ignore into story_files (office_id, key, path) values ($office_id, $key, $path)`,
+      { key, path },
+    );
+  }
 }
