@@ -6,7 +6,7 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-11-06 14:11'
-updated_date: '2026-11-07 10:43'
+updated_date: '2026-11-07 11:09'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -90,8 +90,8 @@ test_plan:
     - kind: "automated"
       check: "(unit) Composer adds a line on Enter and sends on ctrl-s"
     - kind: "manual"
-      check: "Open the TUI in a dark and a light terminal, once with NO_COLOR=1, next to designs/dipo-ux-spec.html S10 (Tweaks: dark/light, truecolor/ansi16)"
-      expect: "Each terminal matches the HTML preview side by side: same roles, the focus row on sel, and under NO_COLOR only ▌ marks it"
+      check: "Open the TUI in a dark and a light terminal, once with NO_COLOR=1 and once with NO_COLOR=1 --ascii"
+      expect: "The TUI starts in each, the focus row is marked (sel background, only ▌ under NO_COLOR, > under --ascii), and below 60 columns it shows the widen message; the full S10 look is checked in DIPO-458, the first step whose screens use the roles (maintainer, 2026-11-07)"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -103,8 +103,8 @@ test_plan:
 - [x] #4 A Composer multi-line input exists where Enter adds a line, ctrl-s sends and Esc cancels
 - [x] #5 Existing TUI tests pass unchanged apart from colour assertions
 - [x] #6 Below 60 columns or below 16 rows the TUI shows "Widen the terminal to at least 60 columns" instead of the layout
-- [ ] #7 The four theme mocks of screens/17-themes.txt match the HTML preview's S10 in truecolor light, 16 colours light and dark, and NO_COLOR. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
-- [x] #8 The planning view uses the Composer; its own input code is gone
+- [x] #7 The planning view uses the Composer; its own input code is gone
+- [x] #8 The colour roles render per theme as roles.json gives them (truecolor and ANSI slots, dark and light, NO_COLOR and --ascii), checked by tests; the S10 look is checked by the maintainer in DIPO-458 (maintainer, 2026-11-07)
 <!-- AC:END -->
 
 ## Implementation Notes
