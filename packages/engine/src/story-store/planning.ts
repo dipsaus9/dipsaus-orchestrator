@@ -44,13 +44,17 @@ export const RESUME_KIND = "resume";
 export const DROP_KIND = "drop";
 /** `work.discard` (DIPO-161): an edit back to Refined with the park removed. */
 export const DISCARD_KIND = "discard";
-/** An accepted worker proposal filed as a draft (DIPO-166). */
+/** An idea the maintainer accepted from the desk, filed as a draft (DIPO-166, DIPO-454). */
 export const PROPOSE_KIND = "propose";
 /** A new story a planning session's confirmed proposal files Refined (DIPO-450). */
 export const FILE_KIND = "file";
 /** An edit of a story's wording, criteria or references a planning session confirmed (DIPO-450). */
 export const REVISE_KIND = "revise";
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 /** A draft a triage session refined into a story (DIPO-454). */
+=======
+/** A draft a triage session refined into a Refined story with a new id (DIPO-454). */
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 export const REFINE_KIND = "refine";
 /** Sets a Refined story Ready after its Ready gate decision passed (DIPO-451). */
 export const READY_KIND = "ready";
@@ -103,6 +107,15 @@ export const FileTarget = z
 export type FileTarget = z.infer<typeof FileTarget>;
 
 /**
+ * The target state of a refinement (DIPO-454): the draft `draftTitle` names is promoted to a task
+ * (Backlog.md's `draft promote`, which gives it a new id), and that task then reads as a filing's
+ * target asks: Refined to the story standard (0012), with a branch named for its new id. Applied
+ * again it finds the task by its title and Story line, as a filing does.
+ */
+export const RefineTarget = FileTarget.extend({ draftTitle: z.string().min(1) }).strict();
+export type RefineTarget = z.infer<typeof RefineTarget>;
+
+/**
  * The target state of a revision (DIPO-450): each field given replaces the story's, while its
  * status is one of `from`. `storyLine` replaces the `Story:` line and `context` the text between it
  * and the field block; `criteria` and `references` are whole lists.
@@ -148,6 +161,7 @@ export interface PlanningStory {
   readonly story: string;
 }
 
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 /**
  * The draft an accepted idea becomes (0022, DIPO-454): a draft of a milestone has that milestone;
  * a tech-debt draft has none and the label `tech-debt`.
@@ -160,6 +174,19 @@ export interface ProposedDraft {
   readonly references: readonly string[];
   readonly milestone?: string;
   readonly labels?: readonly string[];
+=======
+/** The draft an accepted idea becomes (0020, 0022, DIPO-454). */
+export interface ProposedDraft {
+  /** The idea's id; the store finds a draft it filed for it again by it. */
+  readonly idea: string;
+  readonly title: string;
+  readonly description: string;
+  readonly references: readonly string[];
+  /** The milestone it serves; none for tech debt. */
+  readonly milestone?: string;
+  /** `tech-debt` for tech debt, else none. */
+  readonly labels: readonly string[];
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 }
 
 /**
@@ -193,12 +220,14 @@ export interface PlanningLane {
   setReady(story: PlanningStory): Promise<PlannedChange>;
   /** Moves a Ready story back to Refined (a failed pickup check). */
   toRefined(story: PlanningStory): Promise<PlannedChange>;
-  /** Files an accepted proposal as a draft; `subject` names it in the commit. */
+  /** Files an accepted idea as a draft; `subject` names it in the commit. */
   fileDraft(subject: string, draft: ProposedDraft): Promise<PlannedChange>;
   /** Files a new story a planning session confirmed (DIPO-450). */
   fileStory(target: FileTarget): Promise<PlannedChange>;
   /** Changes a story's wording, criteria or references as a planning session confirmed. */
   reviseStory(story: PlanningStory, target: ReviseTarget): Promise<PlannedChange>;
+  /** Refines a draft into a Refined story with a new id, as a triage session confirmed (DIPO-454). */
+  refineDraft(draft: PlanningStory, target: RefineTarget): Promise<PlannedChange>;
   /**
    * Refines a draft a triage session confirmed (DIPO-454): Backlog's draft promote, then the
    * story Refined to the standard with a branch named for its new id.
@@ -229,10 +258,10 @@ export interface PlanningLane {
   /** The stories with a drop journaled and not merged. */
   dropping(): ReadonlySet<StoryKey>;
   /**
-   * The change that files the draft of `proposal`, while it is journaled or once it merged, with
+   * The change that files the draft of `idea`, while it is journaled or once it merged, with
    * whether it is still open; undefined when there is none.
    */
-  draftOf(proposal: string): (PlannedChange & { readonly open: boolean }) | undefined;
+  draftOf(idea: string): (PlannedChange & { readonly open: boolean }) | undefined;
 }
 
 /** How far a journaled change got, as `PlanningLane.outcomeOf` says it. */

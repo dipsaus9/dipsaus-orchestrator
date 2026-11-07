@@ -59,6 +59,10 @@ export {
   refineKind,
   filedStory,
   REFINE_KIND,
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
+=======
+  refineKind,
+>>>>>>> de146a854c2be9713e40505688960f87444be951
   REVISE_KIND,
   reviseKind,
   revisedDescription,
@@ -67,7 +71,7 @@ export {
 export {
   filedDraft,
   markedDrafts,
-  PROPOSAL_MARKER,
+  IDEA_MARKER,
   PROPOSE_KIND,
   ProposeTarget,
   proposeKind,

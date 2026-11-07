@@ -897,7 +897,11 @@
       },
       "required": ["idea", "state"]
     },
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
     "idea.quick.args": {
+=======
+    "idea.add.args": {
+>>>>>>> de146a854c2be9713e40505688960f87444be951
       "type": "object",
       "properties": {
         "text": {
@@ -920,7 +924,11 @@
       },
       "required": ["text"]
     },
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
     "idea.quick.result": {
+=======
+    "idea.add.result": {
+>>>>>>> de146a854c2be9713e40505688960f87444be951
       "type": "object",
       "properties": {
         "idea": {
@@ -1831,7 +1839,11 @@
                           "draft": {
                             "type": "string",
                             "pattern": "^DRAFT-[0-9]+$",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                             "description": "the draft that becomes the story"
+=======
+                            "description": "the draft refined into this story"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
                           },
                           "title": {
                             "type": "string",
@@ -2004,7 +2016,11 @@
                           "draft": {
                             "type": "string",
                             "pattern": "^DRAFT-[0-9]+$",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                             "description": "the draft that is archived"
+=======
+                            "description": "the draft that is dropped"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
                           },
                           "why": {
                             "type": "string",
@@ -2789,7 +2805,11 @@
                           "draft": {
                             "type": "string",
                             "pattern": "^DRAFT-[0-9]+$",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                             "description": "the draft that becomes the story"
+=======
+                            "description": "the draft refined into this story"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
                           },
                           "title": {
                             "type": "string",
@@ -2962,7 +2982,11 @@
                           "draft": {
                             "type": "string",
                             "pattern": "^DRAFT-[0-9]+$",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                             "description": "the draft that is archived"
+=======
+                            "description": "the draft that is dropped"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
                           },
                           "why": {
                             "type": "string",
@@ -3811,7 +3835,11 @@
                 "draft": {
                   "type": "string",
                   "pattern": "^DRAFT-[0-9]+$",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                   "description": "the draft that becomes the story"
+=======
+                  "description": "the draft refined into this story"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
                 },
                 "title": {
                   "type": "string",
@@ -3976,7 +4004,11 @@
                 "draft": {
                   "type": "string",
                   "pattern": "^DRAFT-[0-9]+$",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                   "description": "the draft that is archived"
+=======
+                  "description": "the draft that is dropped"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
                 },
                 "why": {
                   "type": "string",

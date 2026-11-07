@@ -51,11 +51,15 @@ export class BacklogLane {
     this.register(editKind(DISCARD_KIND));
     // A planning session sets its stories Ready after the gate passed (0012, DIPO-451).
     this.register(editKind(READY_KIND));
-    // An accepted worker proposal filed as a Backlog draft (0020, DIPO-166).
+    // An idea the maintainer accepted from the desk, filed as a Backlog draft (0020, DIPO-454).
     this.register(proposeKind);
     // The stories a planning session files and edits (0022, DIPO-450).
     this.register(fileKind);
     this.register(reviseKind);
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
+=======
+    // A draft a triage session refines into a story (0022, DIPO-454).
+>>>>>>> de146a854c2be9713e40505688960f87444be951
     this.register(refineKind);
     for (const kind of deps.kinds ?? []) this.register(kind);
   }

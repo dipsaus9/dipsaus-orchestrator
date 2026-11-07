@@ -53,9 +53,26 @@ const EDIT: PlanningProposal = {
   why: "Two names confuse.",
 };
 
+// A triage session's refine and drop of a draft (DIPO-454).
+const { kind: _kind, why: _why, ...storyFields } = STORY;
+const REFINE: PlanningProposal = {
+  kind: "refine",
+  draft: "DRAFT-3",
+  ...storyFields,
+  why: "The draft is ready.",
+};
+const DROP: PlanningProposal = { kind: "drop", draft: "DRAFT-4", why: "Covered by DIPO-30." };
+
 describe("the proposal form (DIPO-450)", () => {
+  it("keeps a refine's and a drop's draft, which the form never edits (DIPO-454)", () => {
+    expect(proposalForm(DROP).split("\n")[0]).toBe("# drop DRAFT-4: edit the fields, then Ctrl-S");
+    expect(proposalForm(REFINE)).not.toContain("draft:");
+    const read = readProposalForm(REFINE, `draft: DRAFT-9\n${proposalForm(REFINE)}`);
+    expect(read).toEqual({ ok: true, proposal: REFINE });
+  });
+
   it("reads back each kind of proposal as it was written", () => {
-    for (const proposal of [STORY, SPLIT, EDIT]) {
+    for (const proposal of [STORY, SPLIT, EDIT, REFINE, DROP]) {
       const read = readProposalForm(proposal, proposalForm(proposal));
       expect(read).toEqual({ ok: true, proposal });
       expect(Schema.safeParse(read.ok ? read.proposal : null).success).toBe(true);

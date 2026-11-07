@@ -19,8 +19,22 @@
 // - `refine` turns a draft a triage session refined into a story Refined to the standard: Backlog's
 //   `draft promote`, then what `file` writes, with a branch named for its new id (`refineKind`).
 //
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 // Labels are set only at `task create`, and a refined draft gets its tier label added; a revision
 // never changes them (0010).
+=======
+// - `refine` (DIPO-454) turns a draft a triage session confirmed into a story: `draft promote`, which
+//   gives it a new task id, then `task edit` with the filing's title, description, Refined status,
+//   type, milestone, tier label, criteria, the draft's references with the refinement's added,
+//   dependencies, and the field block with
+//   the branch `<new ID>/<slug>`. The draft's own labels (`tech-debt`) stay. The target state is
+//   a filing's: applied again it finds the task by its title and Story line and only fills in what
+//   is missing. The new id goes into the session's record and on the draft's story key as
+//   `promoted_to`, so the index renumbers the story to it (`story.renumbered`) once the backlog PR
+//   merged, and the story keeps its key.
+//
+// Labels are set only at `task create` or a refinement; a revision never changes them (0010).
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
@@ -340,6 +354,7 @@ export const reviseKind: LaneOpKind = {
   },
 };
 
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 /**
  * The `task edit` calls that make the promoted task `view` read as `target` asks of a filing:
  * Refined, its type, milestone and tier label, its criteria, references and dependencies, each only
@@ -370,10 +385,75 @@ function refinementCalls(view: PlainTask, target: RefineTarget): string[][] {
         ? ["--clear-deps"]
         : target.dependencies.flatMap((dep) => ["--dep", dep]),
     );
+=======
+/** The ids of the active tasks under `cwd`. */
+async function taskIds(ctx: { readonly cli: BacklogCli; readonly cwd: string }): Promise<string[]> {
+  return (await listAll(ctx.cli, ctx.cwd, "task")).entries.map((entry) => entry.id);
+}
+
+/**
+ * Promotes the draft `ctx.story` to a task and returns the task's new id, the one task id the
+ * promote added; null when the draft is gone or holds another title (it no longer applies).
+ */
+async function promoteDraft(ctx: ApplyContext, draftTitle: string): Promise<string | null> {
+  let draft: PlainTask;
+  try {
+    draft = await viewStory({ cli: ctx.cli, cwd: ctx.cwd, id: ctx.story, kind: "draft" });
+  } catch (error) {
+    if (isNotFound(error)) return null;
+    throw error;
+  }
+  // Backlog.md reuses draft ids: another draft under the same id is not the one confirmed.
+  if (draft.title.normalize("NFC").trim() !== draftTitle.normalize("NFC").trim()) return null;
+  const before = new Set(await taskIds(ctx));
+  mkdirSync(join(ctx.cwd, "backlog", "tasks"), { recursive: true });
+  await runBacklog(ctx.cli, ctx.cwd, ["draft", "promote", ctx.story]);
+  const added = (await taskIds(ctx)).filter((id) => !before.has(id));
+  if (added.length !== 1 || added[0] === undefined) {
+    throw new FieldWriteError(
+      ctx.story,
+      `\`draft promote\` added ${added.length} tasks, not one: ${added.join(", ") || "none"}`,
+    );
+  }
+  return added[0];
+}
+
+/** The `task edit` calls that make the promoted task `id` read as `target` asks. */
+function refineCalls(view: PlainTask, target: RefineTarget): string[][] {
+  const calls: string[][] = [
+    [
+      "--title",
+      target.title,
+      "--description",
+      target.description,
+      "--status",
+      "Refined",
+      "--type",
+      target.type,
+      "--milestone",
+      target.milestone,
+      "--add-label",
+      `tier:${target.tier}`,
+    ],
+  ];
+  if (!sameList(criteriaOf(view), target.criteria)) {
+    // 1.53 takes `--clear-ac` only on its own.
+    if (view.acceptanceCriteria.length > 0) calls.push(["--clear-ac"]);
+    calls.push(target.criteria.flatMap((text) => ["--ac", text]));
+  }
+  // `--ref` replaces the whole list: the draft's own references stay, the refinement's join them.
+  const references = [...new Set([...view.references, ...target.references])];
+  if (!sameSet(view.references, references)) {
+    calls.push(references.flatMap((path) => ["--ref", path]));
+  }
+  if (target.dependencies.length > 0) {
+    calls.push(target.dependencies.flatMap((dep) => ["--dep", dep]));
+>>>>>>> de146a854c2be9713e40505688960f87444be951
   }
   return calls;
 }
 
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 /**
  * The `refine` kind (DIPO-454): a draft a triage session refined becomes a story Refined to the
  * story standard. Its title and description (the Story line and context) are written on the draft,
@@ -386,6 +466,29 @@ function refinementCalls(view: PlainTask, target: RefineTarget): string[][] {
  * story index renumbers the story (`story.renumbered`), and the new id goes into the session's
  * record.
  */
+=======
+/** Records the refined story: its id in the session's record and as the draft key's new id. */
+function recordRefined(ctx: ApplyContext, target: RefineTarget, id: string): void {
+  const office = ctx.office;
+  if (office === undefined) return;
+  office.immediate(() => {
+    recordStoryEntry(office, target.run, {
+      proposal: target.proposal,
+      kind: "filed",
+      story: id,
+      at: ctx.entry.updatedAt,
+    });
+    if (ctx.entry.key !== null) {
+      office.run(
+        `update stories set promoted_to = $id
+          where office_id = $office_id and key = $key and promoted_to is not $id`,
+        { key: ctx.entry.key, id },
+      );
+    }
+  });
+}
+
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 export const refineKind: LaneOpKind = {
   kind: REFINE_KIND,
   async apply(ctx, raw) {
@@ -393,12 +496,17 @@ export const refineKind: LaneOpKind = {
     if (!parsed.success) {
       return {
         applies: false,
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
         reason: `the target is not a valid draft to refine: ${parsed.error.message}`,
+=======
+        reason: `the target is not a valid refinement: ${parsed.error.message}`,
+>>>>>>> de146a854c2be9713e40505688960f87444be951
       };
     }
     const target = parsed.data;
     let id = await filedStory(ctx, target);
     if (id === null) {
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
       const draft = { cli: ctx.cli, cwd: ctx.cwd, id: ctx.story, kind: "draft" as const };
       let view: PlainTask;
       try {
@@ -459,6 +567,23 @@ export const refineKind: LaneOpKind = {
         });
       });
     }
+=======
+      id = await promoteDraft(ctx, target.draftTitle);
+      if (id === null) {
+        return {
+          applies: false,
+          reason: `${ctx.story} is no longer the draft "${target.draftTitle}"`,
+        };
+      }
+      const view = await viewStory({ cli: ctx.cli, cwd: ctx.cwd, id }, false);
+      for (const args of refineCalls(view, target)) {
+        await runBacklog(ctx.cli, ctx.cwd, ["task", "edit", id, ...args]);
+      }
+    }
+    await fillFields(ctx, id, target);
+    await checkFiled(ctx, id, target);
+    recordRefined(ctx, target, id);
+>>>>>>> de146a854c2be9713e40505688960f87444be951
     return { applies: true };
   },
 };

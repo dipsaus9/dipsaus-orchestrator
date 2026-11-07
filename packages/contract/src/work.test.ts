@@ -240,7 +240,11 @@ describe("office commands and reads", () => {
         "gate.reject",
         "idea.accept",
         "idea.dismiss",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
         "idea.quick",
+=======
+        "idea.add",
+>>>>>>> de146a854c2be9713e40505688960f87444be951
         "note.dismiss",
         "nextUp.confirm",
         "nextUp.decline",

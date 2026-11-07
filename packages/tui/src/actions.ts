@@ -80,9 +80,16 @@ export interface ActionTarget {
   readonly story?: string;
   readonly question?: string;
   readonly gate?: string;
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
   /** The idea a desk row decides, and the decision note it dismisses (DIPO-454). */
   readonly idea?: string;
   readonly note?: string;
+=======
+  /** The decision note a dismiss is about (DIPO-404). */
+  readonly note?: string;
+  /** The proposed story an accept or dismiss is about (DIPO-454). */
+  readonly idea?: string;
+>>>>>>> de146a854c2be9713e40505688960f87444be951
   /** The command line the engine built for the action, when a desk row offered it. */
   readonly cli?: string;
   /** What the prompt names: the question's text or the permission. */
@@ -154,7 +161,11 @@ const VERBS: Readonly<Record<ActionId, string>> = {
   accept: "accept",
   dismiss: "dismiss",
   dismissNote: "dismiss",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
   idea: "idea",
+=======
+  idea: "hand to the audit",
+>>>>>>> de146a854c2be9713e40505688960f87444be951
   steer: "steer",
   pass: "pass",
   fail: "fail",
@@ -261,7 +272,11 @@ function inputStepsOf(id: ActionId, target: ActionTarget, story: string): Step[]
     case "fail":
       return [{ kind: "text", field: "note", label: "fail note" }];
     case "idea":
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
       return [{ kind: "text", field: "text", label: "quick idea for the audit" }];
+=======
+      return [{ kind: "text", field: "text", label: "idea (its first words are its title)" }];
+>>>>>>> de146a854c2be9713e40505688960f87444be951
     default:
       return [];
   }
@@ -277,11 +292,19 @@ export function startFlow(
   const budget = id === "resume" ? budgetOf(target.cli) : undefined;
   const subject =
     id === "accept" || id === "dismiss"
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
       ? "idea"
       : id === "dismissNote"
         ? "decision note"
         : id === "idea"
           ? ""
+=======
+      ? "proposed story"
+      : id === "dismissNote"
+        ? "decision note"
+        : id === "idea"
+          ? "a quick idea"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
           : (target.story ?? "");
   return {
     id,

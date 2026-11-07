@@ -36,7 +36,7 @@ An idea is a worker's proposal (0020), a reviewer's advisory finding (0002), the
 - **A passing idea** reaches the desk as a proposed user story, shown in full: what was found, with its evidence and source story; the Story line; what is proposed; why; and the milestone it serves, or tech debt. When the maintainer accepts it, dipo files a Backlog draft with its origin, with no real id and no branch, so it can never run; a tech-debt draft has no milestone and the label `tech-debt`. Dismissing it closes it.
 - **A rejected idea** never reaches the desk. dipo keeps it with the audit's reason; the retro view shows how many were rejected and why, and each stays findable.
 
-A triage session goes through the drafts with the maintainer, who refines each into a story or drops it. A worker's decision note is not an idea and stays on the desk.
+A triage session goes through the drafts with the maintainer, each listed with its origin, and the maintainer refines each into a story or drops it. A confirmed refine promotes the draft through the planning lane into a Refined story to the story standard (0012), with a new id and a branch named for it; dipo keeps the story's key and says `story.renumbered`. A confirmed drop archives the draft. A worker's decision note is not an idea and stays on the desk (0020).
 
 ## 4. Retro
 

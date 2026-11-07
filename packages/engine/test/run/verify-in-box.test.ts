@@ -1774,10 +1774,18 @@ async function playEvents(list: readonly WorkerEvent[]): Promise<void> {
   await w.control.idle();
 }
 
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 // Every proposal of a report is held as an idea of the run (DIPO-452, DIPO-454).
 function proposals(): { origin: string; title: string; story_key: string; run_id: string }[] {
   return w.f.office.all(
     "select origin, title, story_key, run_id from ideas where office_id = $office_id order by title",
+=======
+/** The proposals of the run's reports, held as ideas of the run (DIPO-452, DIPO-454). */
+function proposals(): { title: string; story_key: string; run_id: string }[] {
+  return w.f.office.all(
+    `select title, story_key, run_id from ideas
+      where office_id = $office_id and origin = 'proposal' order by title`,
+>>>>>>> de146a854c2be9713e40505688960f87444be951
   );
 }
 
@@ -1827,8 +1835,13 @@ describe("a box run's report data at done (DIPO-186)", () => {
     expect(openAtInReview(findRun(w.f.office, w.f.run)!)).toBe(true);
     expect(events("story.state").map((e) => e["to"])).toEqual(["In Review"]);
     expect(proposals()).toEqual([
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
       { origin: "proposal", title: "Greet in Dutch", story_key: w.work.key, run_id: w.f.run },
       { origin: "proposal", title: "jq", story_key: w.work.key, run_id: w.f.run },
+=======
+      { title: "Greet in Dutch", story_key: w.work.key, run_id: w.f.run },
+      { title: "jq", story_key: w.work.key, run_id: w.f.run },
+>>>>>>> de146a854c2be9713e40505688960f87444be951
     ]);
   });
 
@@ -1848,7 +1861,11 @@ describe("a box run's report data at done (DIPO-186)", () => {
     ]);
     expect(w.calls).toEqual([]);
     expect(proposals()).toEqual([
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
       { origin: "proposal", title: "Greet in Dutch", story_key: w.work.key, run_id: w.f.run },
+=======
+      { title: "Greet in Dutch", story_key: w.work.key, run_id: w.f.run },
+>>>>>>> de146a854c2be9713e40505688960f87444be951
     ]);
   });
 });

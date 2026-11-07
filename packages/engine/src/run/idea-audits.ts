@@ -25,6 +25,7 @@
 import {
   AuditAnswer,
   type AuditVerdict,
+  ideaAdd,
   type IdeaState,
   type OfficeId,
   ideaQuick,
@@ -34,7 +35,12 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { REVIEW_CODE_DIR } from "../box/review-box";
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 import { appendEntries, type NewEntry } from "../changelog/log";
+=======
+import { appendEntries } from "../changelog/log";
+import { CommandError } from "../commands/errors";
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 import type { FeatureModule } from "../commands/registry";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
@@ -47,7 +53,12 @@ import {
   dueIdeas,
   type HeldIdea,
   holdIdea,
+  ideaTitle,
   ideaViews,
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
+=======
+  type NewIdea,
+>>>>>>> de146a854c2be9713e40505688960f87444be951
   newIdeaId,
   passIdea,
   quickIdea,
@@ -96,6 +107,11 @@ export interface IdeaAuditsDeps {
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** Pure: a quick idea's title, its first line that holds text. */
+export function quickTitle(text: string): string {
+  return ideaTitle(text.split(/\r?\n/).find((line) => line.trim() !== "") ?? text);
+}
 
 /** The id an idea's tag gives the session: its first `AUDIT_ID_CHARS` characters. */
 export const auditRef = (idea: Pick<HeldIdea, "id">) => idea.id.slice(0, AUDIT_ID_CHARS);
@@ -201,7 +217,15 @@ export class IdeaAudits {
     this.#deps = deps;
   }
 
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
   /** `office.ideas`, and `idea.quick`: the maintainer's quick idea (DIPO-454). */
+=======
+  /**
+   * `office.ideas`: the held, passed and rejected ideas of the office; `idea.add`: the
+   * maintainer's quick idea (`dipo idea`, the TUI's idea key), held with the story it is about if
+   * any and audited at once, since it has no run.
+   */
+>>>>>>> de146a854c2be9713e40505688960f87444be951
   get feature(): FeatureModule {
     return {
       name: "run",
@@ -214,6 +238,7 @@ export class IdeaAudits {
           },
         });
         registry.addOfficeCommand({
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
           definition: ideaQuick,
           handle: (ctx, args) => {
             const key =
@@ -223,6 +248,26 @@ export class IdeaAudits {
             if (id === null) throw new Error("idea.quick holds a text with a line");
             const held = holdIdea(ctx.office, idea) !== null;
             // Audited at once, after this command's transaction.
+=======
+          definition: ideaAdd,
+          handle: (ctx, args) => {
+            const quick: NewIdea = {
+              origin: "quick",
+              key: (args.story as StoryKey | undefined) ?? null,
+              runId: null,
+              title: quickTitle(args.text),
+              text: args.text,
+              at: ctx.now,
+            };
+            const id = newIdeaId(quick);
+            if (id === null) {
+              throw new CommandError(
+                "idea.empty",
+                "The idea has no text once cleaned; write what it is.",
+              );
+            }
+            const held = holdIdea(ctx.office, quick) !== null;
+>>>>>>> de146a854c2be9713e40505688960f87444be951
             if (held) this.poke(ctx.office.officeId as OfficeId);
             return { result: { idea: id, held }, changed: held };
           },
@@ -242,6 +287,7 @@ export class IdeaAudits {
     for (const office of offices) this.#trigger(office, true);
   }
 
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
   /**
    * Holds an idea of the maintainer's with its title (`idea.quick` holds one from its text), with
    * the story it is about if any, and audits it at once. Returns its id, or null when the same idea
@@ -268,6 +314,8 @@ export class IdeaAudits {
     return id;
   }
 
+=======
+>>>>>>> de146a854c2be9713e40505688960f87444be951
   /** Resolves once no audit runs (tests and daemon stop). */
   async idle(): Promise<void> {
     while (this.#running.size > 0) await Promise.all(this.#running.values());
@@ -387,12 +435,34 @@ export class IdeaAudits {
   ): void {
     const at = this.#deps.clock.now();
     handle.immediate(() => {
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
       const passed: NewEntry[] = [];
       for (const [id, proposal] of decisions.passed) {
         const idea = ideas.find((candidate) => candidate.id === id);
         if (!passIdea(handle, id, { proposal, auditRun: run, at }) || idea === undefined) continue;
         passed.push(passedEntry(idea));
       }
+=======
+      // Each passed idea reaches the desk as a proposed user story (DIPO-454): `idea.passed` says so.
+      const passed = new Map(ideas.map((idea) => [idea.id, idea]));
+      const entries = [];
+      for (const [id, proposal] of decisions.passed) {
+        if (!passIdea(handle, id, { proposal, auditRun: run, at })) continue;
+        const idea = passed.get(id);
+        if (idea === undefined) continue;
+        entries.push({
+          type: "idea.passed",
+          ...(idea.key === null ? {} : { key: idea.key }),
+          delta: {
+            idea: id,
+            origin: idea.origin,
+            ...(idea.story === null ? {} : { story: idea.story }),
+            title: idea.title,
+          },
+        });
+      }
+      appendEntries(handle, entries, { at });
+>>>>>>> de146a854c2be9713e40505688960f87444be951
       for (const [id, reason] of decisions.rejected) {
         rejectIdea(handle, id, { by: "audit", reason, auditRun: run, at });
       }

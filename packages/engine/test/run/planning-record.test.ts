@@ -153,7 +153,11 @@ describe("the record of a planning session (DIPO-448)", () => {
       expect(text).toContain(`<record>\n${EXPECTED_RECORD}\n</record>`);
       // The facts of the first message stay.
       expect(text).toContain(
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
         "<drafts>\n- DRAFT-1: Retro numbers (origin: filed without an idea of dipo's)\n</drafts>",
+=======
+        "<drafts>\n- DRAFT-1: Retro numbers (origin: not recorded; filed by hand or before dipo kept it)\n</drafts>",
+>>>>>>> de146a854c2be9713e40505688960f87444be951
       );
       const continued = planningEvents(w, "planning.continued");
       expect(continued.map((entry) => entry.delta)).toMatchObject([

@@ -29,7 +29,7 @@ Ten, each added by the step that first shows it:
 4. **Since you last looked** (step 3): a summary in the office read for the Since band ("Since 09:41 · 1 merged · 2 new proposals · $4.10 spent").
 5. **Optional `consequence: string` on `DeskAction`** (step 3): one code-built line saying what the action will do ("Accepting files it as a Backlog draft…"). Until then, the TUI keeps a small map from command to sentence.
 6. **MERGE check and change stats** (step 3): the required-check count and state, and the change stats (files, +/−), from gh/git on the story PR read.
-7. **PROPOSAL preview fields** (step 3): the story text, Why, Blocks, Size (tier) and "Raised … by <role> (<model>)", produced by the M3 idea audit (DIPO-452, {{M3-454}}); step 3 depends on both.
+7. **PROPOSED STORY preview fields** (step 3): the story text, Why, Blocks, Size (tier) and "Raised … by <role> (<model>)", produced by the M3 idea audit (DIPO-452, {{M3-454}}); step 3 depends on both.
 8. **Dependency chain** (step 4): the engine computes the chain from the dependency graph and sends it, for the Floor's UP NEXT sentence, the Queue's CHAIN picture and its "everything below N waits on the park" line, and the waiting state behind a bare `needs N`.
 9. **Gate rule count** (step 4): `story.gate` returns the number of rules, for the Queue's `Gate ✓ N rules`.
 10. **Diff read** (step 6): a diff read for the story's branch, for the reader's Diff tab.

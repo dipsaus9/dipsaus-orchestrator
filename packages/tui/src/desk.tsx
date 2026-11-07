@@ -48,9 +48,15 @@ export const DESK_EVENTS: ReadonlySet<string> = new Set([
   "test.started",
   "test.recorded",
   "test.ended",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
   "idea.passed",
   "idea.closed",
   "note.closed",
+=======
+  "note.closed",
+  "idea.passed",
+  "idea.answered",
+>>>>>>> de146a854c2be9713e40505688960f87444be951
   "story.pr",
   "work.phase",
 ]);
@@ -163,7 +169,12 @@ export function deskRowId(item: DeskItem): string {
     item.key ?? "",
     item.question ?? "",
     item.gate ?? "",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
     item.idea?.id ?? item.note?.id ?? "",
+=======
+    item.note?.id ?? "",
+    item.idea?.id ?? "",
+>>>>>>> de146a854c2be9713e40505688960f87444be951
     item.pr?.number ?? "",
   ].join(":");
 }

@@ -20,6 +20,10 @@ import type { OfficeHandle } from "../../src/db/office";
 import { holdIdea } from "../../src/records/ideas";
 import { insertWorkerQuestion } from "../../src/run-state/questions";
 import { executeRead } from "../../src/reads/execute";
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
+=======
+import { holdIdea, passIdea } from "../../src/records/ideas";
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 import { storeDecisionNotes } from "../../src/run/report-data";
 import { insertTest } from "../../src/run/test-records";
 import { StoryDiscard } from "../../src/run/discard";
@@ -38,6 +42,34 @@ import { passedIdea, proposedStory } from "../run/idea-fixture";
 import { insertPark as insertParkRow } from "../run/park-fixture";
 import { keyOf, startRun } from "../views/helpers";
 import { backlogLayout } from "../story-store/backlog";
+
+const STORY_LINE =
+  "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.";
+
+/** An idea of `run` held at `at` and passed by the audit at `at + 1`, inside the caller's transaction. */
+function passedIdea(
+  office: OfficeHandle,
+  key: StoryKey,
+  run: RunId,
+  title: string,
+  at: number,
+  storyLine = STORY_LINE,
+): void {
+  const id = holdIdea(office, { origin: "proposal", key, runId: run, title, text: "t", at });
+  if (id === null) throw new Error("not held");
+  passIdea(office, id, {
+    proposal: {
+      found: "f",
+      evidence: [{ file: "src/a.ts", line: 1 }],
+      storyLine,
+      proposed: "p",
+      why: "w",
+      serves: "m-3",
+    },
+    auditRun: "run_audit",
+    at: at + 1,
+  });
+}
 
 const HOUR = 3_600_000;
 const all = () => true;
@@ -211,7 +243,12 @@ describe("the desk order (0020)", () => {
             base + 6 * HOUR,
           );
         });
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
         // Group 6: two ideas that passed their audit, in the order they passed, then a decision note.
+=======
+        // Group 6: a proposed spike first though it is newest, then a follow-up, then a decision
+        // note, older still.
+>>>>>>> de146a854c2be9713e40505688960f87444be951
         const run = RunId.parse("run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1E");
         const key11 = keyOf(office, "DIPO-11");
         passedIdea(office, {
@@ -229,6 +266,18 @@ describe("the desk order (0020)", () => {
           at: base + HOUR,
         });
         office.immediate(() => {
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
+=======
+          passedIdea(office, key11, run, "Split RunOutcomes", base + HOUR);
+          passedIdea(
+            office,
+            key11,
+            run,
+            "Choose a queue",
+            base + 2 * HOUR,
+            "We need to decide which queue design the office uses so that the next stories build on one design.",
+          );
+>>>>>>> de146a854c2be9713e40505688960f87444be951
           storeDecisionNotes(office, {
             key: key11,
             runId: run,
@@ -265,8 +314,13 @@ describe("the desk order (0020)", () => {
           "PARKED BY YOU DIPO-9",
           "LEFTOVERS DIPO-10",
           "BACKLOG PR -",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
           "IDEA DIPO-11",
           "IDEA DIPO-11",
+=======
+          "PROPOSED STORY DIPO-11",
+          "PROPOSED STORY DIPO-11",
+>>>>>>> de146a854c2be9713e40505688960f87444be951
           "DECISION NOTE DIPO-11",
         ]);
         const byStory = (story: string, kind = "PARKED") =>
@@ -317,8 +371,13 @@ describe("the desk order (0020)", () => {
           hand: expect.stringContaining("by hand on GitHub"),
         });
         expect(
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
           items.filter((item) => item.kind === "IDEA").map((item) => item.idea?.title),
         ).toEqual(["Split RunOutcomes", "Choose a queue"]);
+=======
+          items.filter((item) => item.kind === "PROPOSED STORY").map((item) => item.idea?.title),
+        ).toEqual(["Choose a queue", "Split RunOutcomes"]);
+>>>>>>> de146a854c2be9713e40505688960f87444be951
         expect(byStory("DIPO-9", "PARKED BY YOU")).toMatchObject({
           reason: "by-maintainer",
           detail: "after M2",
@@ -714,11 +773,16 @@ describe("the office.desk read", () => {
             ],
             at,
           });
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
+=======
+          passedIdea(office, key, run, "Split it", at + 1);
+>>>>>>> de146a854c2be9713e40505688960f87444be951
         });
         const items = desk(office, all, ALL_SOURCES);
         const id = items[0]?.note?.id ?? "";
         expect(items).toEqual([
           {
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
             kind: "DECISION NOTE",
             story: StoryId.parse("DIPO-9"),
             key,
@@ -727,6 +791,30 @@ describe("the office.desk read", () => {
               file: "docs/decisions/0019-review-loop.md",
               section: "4. The reviewer session",
               text: "The reviewer also reads the worker's deviations.",
+=======
+            kind: "PROPOSED STORY",
+            story: StoryId.parse("DIPO-9"),
+            idea: {
+              id: expect.stringMatching(/^[0-9a-f]{64}$/),
+              origin: "proposal",
+              title: "Split it",
+              run,
+              story: expect.objectContaining({ storyLine: STORY_LINE, serves: "m-3" }),
+            },
+            detail: `"Split it" · milestone m-3 · from a worker's proposal`,
+            since: new Date(at + 2).toISOString(),
+            blocks: [],
+            // idea.accept and idea.dismiss are not registered in this engine.
+            actions: [],
+          },
+          {
+            kind: "DECISION NOTE",
+            story: StoryId.parse("DIPO-9"),
+            key,
+            note: {
+              id: expect.stringMatching(/^[0-9a-f]{64}$/),
+              title: "Decision note for docs/decisions/0019-review-loop.md",
+>>>>>>> de146a854c2be9713e40505688960f87444be951
               run,
             },
             detail:

@@ -2,8 +2,8 @@
 // audit worker: no model and no box.
 //
 // - A worker's proposal, a reviewer's advisory finding, a planning session's aside and a quick idea
-//   are each held as one idea with its origin and source story; the proposal also still goes to
-//   the desk.
+//   are each held as one idea with its origin and source story; the proposal no longer goes to the
+//   desk by itself (DIPO-454). `idea.add` holds the maintainer's quick idea and audits it at once.
 // - A run's ideas are audited once, after the run is merged or parked, never while it runs; an idea
 //   without a run is audited when it arrives.
 // - Code rejects a duplicate and the title of an open or Done story, with no model call.
@@ -18,6 +18,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   type IdeaView,
+  RequestId,
   type ReviewFinding,
   type RunId,
   RunId as RunIdSchema,
@@ -25,9 +26,17 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { executeCommand } from "../../src/commands/execute";
+import { stateOfficeDirectory } from "../../src/commands/offices";
+import { buildRegistry } from "../../src/commands/registry";
+import { MemoryRequestTable } from "../../src/commands/requests";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 import { deskIdeas, ideaViews } from "../../src/records/ideas";
+=======
+import { holdIdea, ideaViews } from "../../src/records/ideas";
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 import { endRun, insertRun } from "../../src/records/run-records";
 import { recordReviewVerdict } from "../../src/review/store";
 import type { JudgedReview } from "../../src/review/verdict";
@@ -41,8 +50,10 @@ import {
   type AuditSessionResult,
   IdeaAudits,
 } from "../../src/run/idea-audits";
+import { hasTable } from "../../src/records/open-feedback";
 import { storeProposals } from "../../src/run/report-data";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
+import { viewsFeature } from "../overview/views-feature";
 import { keyOf, pass, task } from "../stories/helpers";
 
 const STORY_LINE =
@@ -70,6 +81,27 @@ function passOf(idea: { id: string }, overrides: Record<string, unknown> = {}) {
     serves: "m-3",
     ...overrides,
   };
+}
+
+/** The maintainer's quick idea held as `idea.add` holds it, then the audit poked. */
+function holdQuick(
+  audits: IdeaAudits,
+  office: OfficeHandle,
+  clock: { now(): number },
+  idea: { readonly title: string; readonly text: string; readonly key?: StoryKey },
+): string | null {
+  const id = office.immediate(() =>
+    holdIdea(office, {
+      origin: "quick",
+      key: idea.key ?? null,
+      runId: null,
+      title: idea.title,
+      text: idea.text,
+      at: clock.now(),
+    }),
+  );
+  if (id !== null) audits.poke(office.officeId as never);
+  return id;
 }
 
 const answered = (answer: unknown): AuditSessionResult => ({
@@ -211,7 +243,7 @@ describe("every incoming idea is held with its origin and source story (DIPO-452
         holdAsides(w.office, { run: planning, text: aside, at: w.t.clock.now() }),
       );
       w.t.clock.advance(1_000);
-      w.audits.holdQuick(w.office.officeId as never, {
+      holdQuick(w.audits, w.office, w.t.clock, {
         title: "Show the spend per tier",
         text: "The TUI shows no spend per tier.",
         key: story.key,
@@ -234,11 +266,16 @@ describe("every incoming idea is held with its origin and source story (DIPO-452
       expect(countRows(w.office, "backlog_journal")).toBe(0);
     }));
 
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
   it("no longer writes a worker's proposal to the desk: it is held as an idea only (DIPO-454)", () =>
+=======
+  it("holds a worker's proposal as an idea only: nothing of it is written to the desk (DIPO-454)", () =>
+>>>>>>> de146a854c2be9713e40505688960f87444be951
     withWorld(async (w) => {
       const story = storyRun(w, "DIPO-12");
       propose(w, story, "Cap the PR poll retry");
       expect(byTitle(w, "Cap the PR poll retry")?.state).toBe("held");
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
       // No desk row of its own and no `proposal.filed`: it reaches the desk only once it passes.
       expect(deskIdeas(w.office)).toEqual([]);
       expect(
@@ -246,6 +283,14 @@ describe("every incoming idea is held with its origin and source story (DIPO-452
           "select count(*) as n from change_log where office_id = $office_id and type like 'proposal.%'",
         ),
       ).toEqual({ n: 0 });
+=======
+      expect(hasTable(w.office, "proposals")).toBe(false);
+      expect(
+        w.office.all<{ type: string }>(
+          "select type from change_log where office_id = $office_id and type = 'proposal.filed'",
+        ),
+      ).toEqual([]);
+>>>>>>> de146a854c2be9713e40505688960f87444be951
     }));
 
   it("holds the same idea of the same source once", () =>
@@ -292,7 +337,7 @@ describe("when ideas are audited (DIPO-452)", () => {
 
   it("audits an idea without a run when it arrives", () =>
     withWorld(async (w) => {
-      w.audits.holdQuick(w.office.officeId as never, {
+      holdQuick(w.audits, w.office, w.t.clock, {
         title: "Show the spend per tier",
         text: "The TUI shows no spend per tier.",
       });
@@ -319,7 +364,7 @@ describe("when ideas are audited (DIPO-452)", () => {
             },
           }),
         });
-        audits.holdQuick(office.officeId as never, { title: "An idea", text: "Its text." });
+        holdQuick(audits, office, t.clock, { title: "An idea", text: "Its text." });
         await audits.idle();
         expect(calls).toBe(0);
         active = true;
@@ -369,11 +414,11 @@ describe("code decides first, with no model call (DIPO-452)", () => {
         task("DIPO-20", { title: "Cap the PR poll retry", status: "Done" }),
         task("DIPO-21", { title: "Back off the fetch", status: "Ready" }),
       ]);
-      w.audits.holdQuick(w.office.officeId as never, {
+      holdQuick(w.audits, w.office, w.t.clock, {
         title: "cap the pr poll retry",
         text: "Again.",
       });
-      w.audits.holdQuick(w.office.officeId as never, { title: "Back off the fetch", text: "Now." });
+      holdQuick(w.audits, w.office, w.t.clock, { title: "Back off the fetch", text: "Now." });
       await w.audits.idle();
       expect(w.requests).toHaveLength(0);
       expect(ideas(w).map((idea) => [idea.state, idea.decidedBy, idea.reason])).toEqual([
@@ -435,7 +480,7 @@ describe("the audit's answer (DIPO-452)", () => {
             reason: "DIPO-30 covers it: its criterion 2 caps the retry.",
           })),
         });
-      w.audits.holdQuick(w.office.officeId as never, { title: "An idea", text: "Its text." });
+      holdQuick(w.audits, w.office, w.t.clock, { title: "An idea", text: "Its text." });
       await w.audits.idle();
       expect(ideas(w).map((idea) => [idea.state, idea.decidedBy, idea.reason])).toEqual([
         ["rejected", "audit", "DIPO-30 covers it: its criterion 2 caps the retry."],
@@ -461,7 +506,7 @@ describe("the audit's answer (DIPO-452)", () => {
                 }
               : bad,
           );
-        w.audits.holdQuick(w.office.officeId as never, {
+        holdQuick(w.audits, w.office, w.t.clock, {
           title: `An idea ${JSON.stringify(bad)}`,
           text: "Its text.",
         });
@@ -485,7 +530,7 @@ describe("the audit's answer (DIPO-452)", () => {
         const title = `An idea ${Object.keys(overrides).join()}`;
         w.answer = (request) =>
           answered({ ideas: request.ideas.map((idea) => passOf(idea, overrides)) });
-        w.audits.holdQuick(w.office.officeId as never, { title, text: "Its text." });
+        holdQuick(w.audits, w.office, w.t.clock, { title, text: "Its text." });
         await w.audits.idle();
         seen.push(byTitle(w, title));
       }
@@ -552,7 +597,7 @@ describe("an idea whose audit did not decide it is audited again (DIPO-452)", ()
   it("keeps an idea held after a failed audit, and audits it again at the next trigger only", () =>
     withWorld(async (w) => {
       w.answer = () => ({ kind: "failed", runId: null, reason: "dipo stopped it: its time cap" });
-      w.audits.holdQuick(w.office.officeId as never, { title: "First", text: "Its text." });
+      holdQuick(w.audits, w.office, w.t.clock, { title: "First", text: "Its text." });
       await w.audits.idle();
       expect(byTitle(w, "First")).toMatchObject({ state: "held", attempts: 1 });
       expect(byTitle(w, "First")?.lastProblem).toContain("dipo stopped it");
@@ -561,7 +606,7 @@ describe("an idea whose audit did not decide it is audited again (DIPO-452)", ()
       expect(w.requests).toHaveLength(1);
       // The next idea that arrives is: both go to the next audit.
       w.answer = (request) => answered({ ideas: request.ideas.map((idea) => passOf(idea)) });
-      w.audits.holdQuick(w.office.officeId as never, { title: "Second", text: "Its text." });
+      holdQuick(w.audits, w.office, w.t.clock, { title: "Second", text: "Its text." });
       await w.audits.idle();
       expect(w.requests).toHaveLength(2);
       expect(w.requests[1]?.ideas.map((idea) => idea.title)).toEqual(["First", "Second"]);
@@ -623,7 +668,7 @@ describe("an idea whose audit did not decide it is audited again (DIPO-452)", ()
   it("audits again an idea whose answer was refused by schema, at the daemon's start", () =>
     withWorld(async (w) => {
       w.answer = () => answered({ ideas: "none" });
-      w.audits.holdQuick(w.office.officeId as never, { title: "First", text: "Its text." });
+      holdQuick(w.audits, w.office, w.t.clock, { title: "First", text: "Its text." });
       await w.audits.idle();
       expect(byTitle(w, "First")?.state).toBe("held");
       w.answer = (request) => answered({ ideas: request.ideas.map((idea) => passOf(idea)) });
@@ -691,5 +736,67 @@ describe("a planning session's aside block (DIPO-452)", () => {
       expect(ideas(w).map((idea) => [idea.origin, idea.title])).toEqual([
         ["aside", "Rename the desk"],
       ]);
+    }));
+});
+
+/** Sends `idea.add` through a registry with the audits' feature. */
+async function add(w: World, args: unknown, n: number) {
+  return await executeCommand(
+    {
+      registry: buildRegistry([viewsFeature, w.audits.feature]),
+      offices: stateOfficeDirectory(w.t.state),
+      clock: w.t.clock,
+      ids: w.t.ids,
+      softwareRequests: new MemoryRequestTable(w.t.clock),
+    },
+    {
+      requestId: RequestId.parse(`01J9ZK5Q8W3V4X6Y7Z${String(n).padStart(8, "0")}`),
+      name: "idea.add",
+      args,
+      origin: "cli",
+      office: w.office.officeId,
+      confirmed: false,
+    },
+  );
+}
+
+describe("idea.add: the maintainer's quick idea (DIPO-454)", () => {
+  it("holds the text as a quick idea, its first line the title, with its story, and audits it at once", () =>
+    withWorld(async (w) => {
+      pass(w.t, w.office, [task("DIPO-12")]);
+      const text = "Show the spend per tier\n\nThe TUI shows no spend per tier.";
+      const reply = await add(w, { text, story: "DIPO-12" }, 1);
+      expect(reply).toMatchObject({ ok: true, result: { held: true } });
+      const id = reply.ok ? (reply.result as { idea: string }).idea : "";
+      await w.audits.idle();
+      expect(w.requests).toHaveLength(1);
+      const held = byTitle(w, "Show the spend per tier");
+      expect(held).toMatchObject({ id, origin: "quick", story: "DIPO-12", text, state: "passed" });
+      expect(held?.run).toBeUndefined();
+    }));
+
+  it("holds the same idea once, and refuses an unknown story and a text with nothing in it", () =>
+    withWorld(async (w) => {
+      const first = await add(w, { text: "Cap the retries" }, 1);
+      const again = await add(w, { text: "Cap the retries" }, 2);
+      expect(first).toMatchObject({ ok: true, result: { held: true } });
+      expect(again).toMatchObject({ ok: true, changed: false, result: { held: false } });
+      const idOf = (reply: typeof first) =>
+        reply.ok ? (reply.result as { idea: string }).idea : "";
+      expect(idOf(again)).toBe(idOf(first));
+      expect(await add(w, { text: "x", story: "DIPO-99" }, 3)).toMatchObject({
+        ok: false,
+        error: { code: "story.unknown" },
+      });
+      expect(await add(w, { text: "\u001b[31m\u0007" }, 4)).toMatchObject({
+        ok: false,
+        error: { code: "idea.empty" },
+      });
+      expect(await add(w, { text: "   " }, 5)).toMatchObject({
+        ok: false,
+        error: { code: "args.invalid" },
+      });
+      await w.audits.idle();
+      expect(ideas(w)).toHaveLength(1);
     }));
 });

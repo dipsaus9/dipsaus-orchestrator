@@ -27,8 +27,11 @@ export {
 export type { DeskGate, DeskSources, HandDeskItem, Implemented } from "./desk";
 export { digest, DIGEST_COUNTS, DIGEST_LINES_MAX, registerDigest } from "./digest";
 export type { DigestCount } from "./digest";
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 export { ideaCard, ideaItems, openDecisionNotes } from "./proposals";
 export type { IdeaItem, NoteItem } from "./proposals";
+=======
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 export {
   detail,
   OUTPUT_RANGE_MAX_BYTES,

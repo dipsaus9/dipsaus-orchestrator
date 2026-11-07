@@ -298,6 +298,7 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
     result: { gate: ids.gate, decision: "rejected" },
   },
   "idea.accept": {
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
     args: { idea: ids.idea.slice(0, 12) },
     result: { idea: ids.idea, state: "accepted", draft: "DRAFT-4" },
   },
@@ -312,6 +313,22 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
   "note.dismiss": {
     args: { note: ids.note.slice(0, 8) },
     result: { note: ids.note, state: "dismissed" },
+=======
+    args: { idea: ids.proposal.slice(0, 12) },
+    result: { idea: ids.proposal, state: "accepted", draft: "DRAFT-4" },
+  },
+  "idea.dismiss": {
+    args: { idea: ids.proposal },
+    result: { idea: ids.proposal, state: "dismissed" },
+  },
+  "idea.add": {
+    args: { text: "Show the spend per tier", story: "DIPO-21" },
+    result: { idea: ids.proposal, held: true },
+  },
+  "note.dismiss": {
+    args: { note: ids.proposal.slice(0, 12) },
+    result: { note: ids.proposal, state: "dismissed" },
+>>>>>>> de146a854c2be9713e40505688960f87444be951
   },
   "nextUp.confirm": {
     args: { story: "DIPO-15" },
@@ -740,8 +757,15 @@ const officeEventFixtures: Record<string, unknown> = {
     story: "DIPO-122",
     title: "Split RunOutcomes",
   },
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
   "idea.closed": { idea: ids.idea, key: ids.storyKey, state: "accepted" },
   "note.closed": { note: ids.note, key: ids.storyKey, state: "dismissed" },
+=======
+  "proposal.closed": { proposal: ids.proposal, key: ids.storyKey, state: "accepted" },
+  "idea.passed": { idea: ids.proposal, origin: "proposal", story: "DIPO-21", title: "Split it" },
+  "idea.answered": { idea: ids.proposal, state: "dismissed" },
+  "note.closed": { note: ids.proposal, key: ids.storyKey, state: "dismissed" },
+>>>>>>> de146a854c2be9713e40505688960f87444be951
   "test.started": testView,
   "test.recorded": {
     test: ids.test,

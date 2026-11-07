@@ -1,3 +1,4 @@
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 // The lane-b kind `propose` (DIPO-166, DIPO-454; 0020, 0022): an idea the maintainer accepted from
 // the desk becomes a Backlog draft (`backlog draft create`, with its labels, then `draft edit` for
 // its milestone and references), committed as `backlog: propose <source>`. A draft of a milestone
@@ -13,6 +14,21 @@
 // this kind only checks the target's shape and writes it. The draft id the CLI gave is recorded on
 // the idea's row; Backlog.md reuses draft ids, so the marker and title, not the id, find the draft.
 // A target with no milestone or labels (a worker proposal's) still applies: its marker is the same.
+=======
+// The lane-b kind `propose` (DIPO-166, DIPO-454; 0020): an idea the maintainer accepted from the
+// desk becomes a Backlog draft (`backlog draft create` with its labels, then `draft edit` for its
+// references and milestone), committed as `backlog: propose <source story>`. The target state is
+// "a draft with the target's title whose description holds the idea's marker line exists": applied
+// again (a replay, a rebuild on a newer base) it finds the draft it made and creates none. The
+// marker alone never decides: a worker can compute an idea's id and write its marker line into a
+// file its story changes, so only a draft (not a task) with the same title counts. Backlog.md
+// 1.53's `draft create` takes no references or milestone, so they follow in a `draft edit`, and
+// everything is read back. A tech-debt draft has no milestone and the label `tech-debt` (0022).
+//
+// The draft's text is built by `run/idea-answers.ts` from the audit's words, cleaned and capped;
+// this kind only checks the target's shape and writes it. The draft id the CLI gave is recorded on
+// the idea's row; Backlog.md reuses draft ids, so the marker and title, not the id, find the draft.
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -30,6 +46,7 @@ import type { LaneOpKind } from "./ops";
 /** The kind of `idea.accept`; the commit's verb. */
 export { PROPOSE_KIND };
 
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 /** The line a filed draft's description carries, followed by the idea's id. */
 export const PROPOSAL_MARKER = "dipo proposal: ";
 
@@ -37,14 +54,24 @@ export const PROPOSAL_MARKER = "dipo proposal: ";
  * The target state of a `propose`: the draft's title, description, references, milestone and
  * labels. `proposal` is the id of the idea it files.
  */
+=======
+/** The line a filed draft's description carries, followed by the idea id. */
+export const IDEA_MARKER = "dipo idea: ";
+
+/** The target state of a `propose`: the draft's title, description, references, milestone and labels. */
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 export const ProposeTarget = z
   .object({
-    proposal: z.string().regex(/^[0-9a-f]{64}$/),
+    idea: z.string().regex(/^[0-9a-f]{64}$/),
     title: z.string().min(1),
     description: z.string().min(1),
     references: z.array(z.string().min(1)),
     milestone: z.string().min(1).optional(),
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
     labels: z.array(z.string().min(1)).optional(),
+=======
+    labels: z.array(z.string().regex(/^[A-Za-z0-9:_.-]+$/)),
+>>>>>>> de146a854c2be9713e40505688960f87444be951
   })
   .strict();
 export type ProposeTarget = z.infer<typeof ProposeTarget>;
@@ -55,14 +82,18 @@ export type ProposeTarget = z.infer<typeof ProposeTarget>;
  */
 export function proposeTarget(draft: ProposedDraft): ProposeTarget {
   return {
-    proposal: draft.proposal,
+    idea: draft.idea,
     title: draft.title,
-    description: `${draft.description}\n${PROPOSAL_MARKER}${draft.proposal}`,
+    description: `${draft.description}\n${IDEA_MARKER}${draft.idea}`,
     references: [...draft.references],
     ...(draft.milestone === undefined ? {} : { milestone: draft.milestone }),
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
     ...(draft.labels === undefined || draft.labels.length === 0
       ? {}
       : { labels: [...draft.labels] }),
+=======
+    labels: [...draft.labels],
+>>>>>>> de146a854c2be9713e40505688960f87444be951
   };
 }
 
@@ -70,11 +101,11 @@ export function proposeTarget(draft: ProposedDraft): ProposeTarget {
 const DRAFTS = "backlog/drafts";
 
 /**
- * The ids of the drafts under `cwd` whose description holds the marker line of `proposal`, in file
+ * The ids of the drafts under `cwd` whose description holds the marker line of `idea`, in file
  * order. Reads the files, since the CLI has no search by text.
  */
-export function markedDrafts(cwd: string, proposal: string): string[] {
-  const line = new RegExp(`^${PROPOSAL_MARKER}${proposal}\\s*$`, "m");
+export function markedDrafts(cwd: string, idea: string): string[] {
+  const line = new RegExp(`^${IDEA_MARKER}${idea}\\s*$`, "m");
   let names: string[];
   try {
     names = readdirSync(join(cwd, DRAFTS)).filter((name) => name.endsWith(".md"));
@@ -97,10 +128,10 @@ export function markedDrafts(cwd: string, proposal: string): string[] {
  */
 export async function filedDraft(
   ctx: { readonly cli: BacklogCli; readonly cwd: string },
-  target: Pick<ProposeTarget, "proposal" | "title">,
+  target: Pick<ProposeTarget, "idea" | "title">,
 ): Promise<string | null> {
   const title = target.title.normalize("NFC").trim();
-  for (const id of markedDrafts(ctx.cwd, target.proposal)) {
+  for (const id of markedDrafts(ctx.cwd, target.idea)) {
     const view = await viewStory({ cli: ctx.cli, cwd: ctx.cwd, id, kind: "draft" });
     if (view.title.trim() === title) return id;
   }
@@ -109,6 +140,7 @@ export async function filedDraft(
 
 /** Records the draft id the lane created for an accepted idea. */
 export function recordDraftId(office: OfficeHandle, idea: string, draft: string): void {
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
   office.immediate(() => recordIdeaDraft(office, idea, draft));
 }
 
@@ -129,6 +161,15 @@ function missingOf(
     missing.push(`the milestone ${target.milestone}`);
   }
   return missing;
+=======
+  office.immediate(() =>
+    office.run(
+      `update ideas set draft_id = $draft
+        where office_id = $office_id and idea_id = $idea and draft_id is not $draft`,
+      { idea, draft },
+    ),
+  );
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 }
 
 export const proposeKind: LaneOpKind = {
@@ -138,14 +179,14 @@ export const proposeKind: LaneOpKind = {
     if (!parsed.success) {
       return {
         applies: false,
-        reason: `the target is not a valid proposal draft: ${parsed.error.message}`,
+        reason: `the target is not a valid idea draft: ${parsed.error.message}`,
       };
     }
     const target = parsed.data;
     const found = await filedDraft(ctx, target);
     if (found !== null) {
       // Filed already, here or on the base: the target state holds.
-      if (ctx.office !== undefined) recordDraftId(ctx.office, target.proposal, found);
+      if (ctx.office !== undefined) recordDraftId(ctx.office, target.idea, found);
       return { applies: true };
     }
     // Backlog.md 1.53's `draft create` fails (ENOENT) without its drafts folder, which git does
@@ -158,7 +199,11 @@ export const proposeKind: LaneOpKind = {
       target.title,
       "--description",
       target.description,
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
       ...(labels.length === 0 ? [] : ["--labels", labels.join(",")]),
+=======
+      ...(target.labels.length === 0 ? [] : ["--labels", target.labels.join(",")]),
+>>>>>>> de146a854c2be9713e40505688960f87444be951
     ]);
     const draft = await filedDraft(ctx, target);
     if (draft === null) {
@@ -167,6 +212,7 @@ export const proposeKind: LaneOpKind = {
         `no draft with the idea's marker and title is there after \`draft create\``,
       );
     }
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
     const edits = [
       ...(target.milestone === undefined ? [] : ["--milestone", target.milestone]),
       ...target.references.flatMap((path) => ["--ref", path]),
@@ -178,9 +224,28 @@ export const proposeKind: LaneOpKind = {
       throw new FieldWriteError(
         draft,
         `the draft read back lacks ${missing.join(", ")} after \`draft edit\``,
+=======
+    const edit = [
+      ...target.references.flatMap((path) => ["--ref", path]),
+      ...(target.milestone === undefined ? [] : ["--milestone", target.milestone]),
+    ];
+    if (edit.length > 0) await runBacklog(ctx.cli, ctx.cwd, ["draft", "edit", draft, ...edit]);
+    const view = await viewStory({ cli: ctx.cli, cwd: ctx.cwd, id: draft, kind: "draft" });
+    const problems: string[] = [];
+    const missing = target.references.filter((path) => !view.references.includes(path));
+    if (missing.length > 0) problems.push(`the references lack ${missing.join(", ")}`);
+    const labels = target.labels.filter((label) => !view.labels.includes(label));
+    if (labels.length > 0) problems.push(`the labels lack ${labels.join(", ")}`);
+    if ((view.milestone ?? undefined) !== target.milestone) {
+      problems.push(
+        `the milestone is ${view.milestone ?? "none"}, not ${target.milestone ?? "none"}`,
+>>>>>>> de146a854c2be9713e40505688960f87444be951
       );
     }
-    if (ctx.office !== undefined) recordDraftId(ctx.office, target.proposal, draft);
+    if (problems.length > 0) {
+      throw new FieldWriteError(draft, `the draft reads back wrong: ${problems.join("; ")}`);
+    }
+    if (ctx.office !== undefined) recordDraftId(ctx.office, target.idea, draft);
     return { applies: true };
   },
 };

@@ -120,14 +120,26 @@ export const ProposedStory = z.object({
 });
 export type ProposedStory = z.infer<typeof ProposedStory>;
 
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 // An idea's id: a hash of 64 lower-case hex characters. A command may name it by a unique prefix
 // of at least 8 of them.
+=======
+// The maintainer's answer to a passed idea on the desk (0020, DIPO-454): `accepted` filed it as a
+// Backlog draft, `dismissed` closed it. A dismissed idea is kept, for retro.
+export const IDEA_ANSWERS = ["accepted", "dismissed"] as const;
+export const IdeaAnswer = z.enum(IDEA_ANSWERS);
+export type IdeaAnswer = z.infer<typeof IdeaAnswer>;
+
+// An idea's stored id: a hash of 64 lower-case hex characters. A command may name it by a unique
+// prefix of at least 8 of them.
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 export const IdeaId = z.string().regex(/^[0-9a-f]{64}$/, "expected an idea id");
 export type IdeaId = z.infer<typeof IdeaId>;
 export const IdeaRef = z
   .string()
   .regex(/^[0-9a-f]{8,64}$/, "expected an idea id, or at least its first 8 characters");
 
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 // The maintainer's decision on an idea that passed (DIPO-454): `accepted`, filed as a Backlog
 // draft, or `dismissed`, closed and kept. A passed idea without one waits on the desk.
 export const IDEA_DECISIONS = ["accepted", "dismissed"] as const;
@@ -147,6 +159,14 @@ export type IdeaCard = z.infer<typeof IdeaCard>;
 // One idea as `office.ideas` lists it. `attempts` counts the audits that failed, were cut off or
 // were refused by schema; such an idea stays held and is audited again at the next trigger.
 // `decision` is the maintainer's on a passed idea, and `draft` the Backlog draft an accept filed.
+=======
+/** The longest quick idea the maintainer hands to the audit, in characters. */
+export const QUICK_IDEA_MAX = IDEA_CAPS.text;
+
+// One idea as `office.ideas` lists it. `attempts` counts the audits that failed, were cut off or
+// were refused by schema; such an idea stays held and is audited again at the next trigger. A
+// passed idea waits on the desk until the maintainer answers it (`answer`).
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 export const IdeaView = z.object({
   id: z.string(),
   origin: IdeaOrigin,
@@ -164,6 +184,51 @@ export const IdeaView = z.object({
   draft: z.string().optional(),
   createdAt: Timestamp,
   decidedAt: Timestamp.optional(),
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
   decisionAt: Timestamp.optional(),
+=======
+  // The maintainer's answer to a passed idea, when it was given, and the draft an accept filed.
+  answer: IdeaAnswer.optional(),
+  answeredAt: Timestamp.optional(),
+  draft: z.string().optional(),
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 });
 export type IdeaView = z.infer<typeof IdeaView>;
+
+/** What an idea's origin says on its card and its draft (0022). */
+export const IDEA_ORIGIN_WORDS: Readonly<Record<IdeaOrigin, string>> = {
+  proposal: "a worker's proposal",
+  finding: "a reviewer's advisory finding",
+  aside: "a planning session's aside",
+  quick: "the maintainer's quick idea",
+};
+
+/** Pure: what an idea's origin says, for an origin this contract may not know yet. */
+export function ideaOriginWords(origin: string): string {
+  return (IDEA_ORIGIN_WORDS as Readonly<Record<string, string>>)[origin] ?? `an idea (${origin})`;
+}
+
+/** Pure: what a proposed user story serves, in words: the milestone, or tech debt. */
+export function servesWords(serves: string): string {
+  return serves === TECH_DEBT ? "tech debt" : `milestone ${serves}`;
+}
+
+/**
+ * Pure: the card of a proposed user story (0020, DIPO-454), one labelled line per part, in full:
+ * what was found, each piece of evidence, the source story, the Story line, what is proposed, why
+ * and what it serves. The desk's clients lay it out; nothing in it is cut.
+ */
+export function proposedStoryLines(story: ProposedStory): string[] {
+  const lines = [`Found: ${story.found}`];
+  for (const evidence of story.evidence) {
+    lines.push(
+      `Evidence: ${evidence.file}:${evidence.line}${evidence.quote === undefined ? "" : ` ${JSON.stringify(evidence.quote)}`}`,
+    );
+  }
+  lines.push(`Source story: ${story.sourceStory ?? "none"}`);
+  lines.push(`Story: ${story.storyLine}`);
+  lines.push(`Proposed: ${story.proposed}`);
+  lines.push(`Why: ${story.why}`);
+  lines.push(`Serves: ${servesWords(story.serves)}`);
+  return lines;
+}

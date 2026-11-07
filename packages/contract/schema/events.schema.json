@@ -3057,6 +3057,58 @@
       },
       "required": ["note", "key", "state"]
     },
+    "note.closed.data": {
+      "type": "object",
+      "properties": {
+        "note": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "state": {
+          "type": "string",
+          "const": "dismissed"
+        }
+      },
+      "required": ["note", "key", "state"]
+    },
+    "idea.passed.data": {
+      "type": "object",
+      "properties": {
+        "idea": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "story": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": ["idea", "origin", "title"]
+    },
+    "idea.answered.data": {
+      "type": "object",
+      "properties": {
+        "idea": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "state": {
+          "type": "string",
+          "enum": ["accepted", "dismissed"]
+        }
+      },
+      "required": ["idea", "state"]
+    },
     "test.started.data": {
       "type": "object",
       "properties": {
@@ -3817,7 +3869,11 @@
                           "draft": {
                             "type": "string",
                             "pattern": "^DRAFT-[0-9]+$",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                             "description": "the draft that becomes the story"
+=======
+                            "description": "the draft refined into this story"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
                           },
                           "title": {
                             "type": "string",
@@ -3990,7 +4046,11 @@
                           "draft": {
                             "type": "string",
                             "pattern": "^DRAFT-[0-9]+$",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                             "description": "the draft that is archived"
+=======
+                            "description": "the draft that is dropped"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
                           },
                           "why": {
                             "type": "string",
@@ -4760,7 +4820,11 @@
                           "draft": {
                             "type": "string",
                             "pattern": "^DRAFT-[0-9]+$",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                             "description": "the draft that becomes the story"
+=======
+                            "description": "the draft refined into this story"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
                           },
                           "title": {
                             "type": "string",
@@ -4933,7 +4997,11 @@
                           "draft": {
                             "type": "string",
                             "pattern": "^DRAFT-[0-9]+$",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                             "description": "the draft that is archived"
+=======
+                            "description": "the draft that is dropped"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
                           },
                           "why": {
                             "type": "string",
@@ -5690,7 +5758,11 @@
                           "draft": {
                             "type": "string",
                             "pattern": "^DRAFT-[0-9]+$",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                             "description": "the draft that becomes the story"
+=======
+                            "description": "the draft refined into this story"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
                           },
                           "title": {
                             "type": "string",
@@ -5863,7 +5935,11 @@
                           "draft": {
                             "type": "string",
                             "pattern": "^DRAFT-[0-9]+$",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                             "description": "the draft that is archived"
+=======
+                            "description": "the draft that is dropped"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
                           },
                           "why": {
                             "type": "string",
@@ -6642,7 +6718,11 @@
                           "draft": {
                             "type": "string",
                             "pattern": "^DRAFT-[0-9]+$",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                             "description": "the draft that becomes the story"
+=======
+                            "description": "the draft refined into this story"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
                           },
                           "title": {
                             "type": "string",
@@ -6815,7 +6895,11 @@
                           "draft": {
                             "type": "string",
                             "pattern": "^DRAFT-[0-9]+$",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                             "description": "the draft that is archived"
+=======
+                            "description": "the draft that is dropped"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
                           },
                           "why": {
                             "type": "string",
@@ -7590,7 +7674,11 @@
                           "draft": {
                             "type": "string",
                             "pattern": "^DRAFT-[0-9]+$",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                             "description": "the draft that becomes the story"
+=======
+                            "description": "the draft refined into this story"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
                           },
                           "title": {
                             "type": "string",
@@ -7763,7 +7851,11 @@
                           "draft": {
                             "type": "string",
                             "pattern": "^DRAFT-[0-9]+$",
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                             "description": "the draft that is archived"
+=======
+                            "description": "the draft that is dropped"
+>>>>>>> de146a854c2be9713e40505688960f87444be951
                           },
                           "why": {
                             "type": "string",

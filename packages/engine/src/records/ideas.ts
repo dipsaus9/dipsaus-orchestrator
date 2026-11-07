@@ -10,9 +10,15 @@
 // - The audit's outcome is written here: passed with its proposed user story, rejected with its
 //   reason, or still held after a failed, cut-off or refused audit (`auditMissed`), counted in
 //   `attempts`. A held idea is never dropped; a rejected one is kept with its reason.
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 // - A passed idea waits on the maintainer's desk (`deskIdeas`, DIPO-454) until the maintainer
 //   decides it (`decideIdea`): accepted, with the Backlog draft the lane filed for it
 //   (`recordIdeaDraft`), or dismissed, kept as dismissed by the maintainer for retro.
+=======
+// - A passed idea waits on the desk (`openPassedIdeas`) until the maintainer answers it
+//   (`answerIdea`, DIPO-454): `accepted`, with the draft the lane filed, or `dismissed`, kept for
+//   retro.
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 //
 // Every text of an idea came from a worker, a reviewer, a session or the maintainer: it is
 // cleaned and capped at the door and kept as data.
@@ -20,6 +26,7 @@
 import {
   cleanText,
   IDEA_CAPS,
+  type IdeaAnswer,
   type IdeaDecidedBy,
   type IdeaDecision,
   type IdeaOrigin,
@@ -74,7 +81,11 @@ export function ideaText(text: string): string {
   return capped(cleanText(text).trim(), IDEA_CAPS.text);
 }
 
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 /** The id `idea` is held by: of its origin, source, title and text as held; null when one is empty. */
+=======
+/** The id `idea` is held by, or null when its title or text is empty once cleaned. */
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 export function newIdeaId(idea: NewIdea): string | null {
   const title = ideaTitle(idea.title);
   const text = ideaText(idea.text);
@@ -82,6 +93,7 @@ export function newIdeaId(idea: NewIdea): string | null {
   return ideaIdOf(idea.origin, idea.runId ?? idea.key ?? "", title, text);
 }
 
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 /**
  * The maintainer's quick idea (DIPO-454): its title is the first line of the text that holds more
  * than spaces, and its text is the whole text.
@@ -91,6 +103,8 @@ export function quickIdea(text: string, key: StoryKey | null, at: number): NewId
   return { origin: "quick", key, runId: null, title, text, at };
 }
 
+=======
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 /**
  * Holds one idea, state `held`; the same idea from the same source is held once. Returns its id
  * when this call held it, else null. Inside the caller's transaction.
@@ -304,26 +318,66 @@ interface ViewRow extends HeldRow {
   proposal: string | null;
   last_problem: string | null;
   decided_at: number | null;
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
   decision: IdeaDecision | null;
   draft_id: string | null;
   decision_at: number | null;
+=======
+  answer: IdeaAnswer | null;
+  answered_at: number | null;
+  draft_id: string | null;
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 }
 
+const VIEW_SELECT = `
+  select i.idea_id, i.origin, i.story_key, s.story_id, i.run_id, i.title, i.body, i.attempts,
+         i.created_at, i.state, i.decided_by, i.reason, i.proposal, i.last_problem,
+         i.decided_at, i.answer, i.answered_at, i.draft_id
+    from ideas i
+    left join stories s on s.office_id = i.office_id and s.key = i.story_key`;
+
 const iso = (ms: number) => new Date(ms).toISOString();
+
+function viewOf(row: ViewRow): IdeaView {
+  return {
+    id: row.idea_id,
+    origin: row.origin,
+    ...(row.story_id === null ? {} : { story: StoryId.parse(row.story_id) }),
+    ...(row.run_id === null ? {} : { run: RunId.parse(row.run_id) }),
+    title: row.title,
+    text: row.body,
+    state: row.state,
+    ...(row.decided_by === null ? {} : { decidedBy: row.decided_by }),
+    ...(row.reason === null ? {} : { reason: row.reason }),
+    ...(row.proposal === null ? {} : { proposal: JSON.parse(row.proposal) as ProposedStory }),
+    attempts: row.attempts,
+    ...(row.last_problem === null ? {} : { lastProblem: row.last_problem }),
+    createdAt: iso(row.created_at),
+    ...(row.decided_at === null ? {} : { decidedAt: iso(row.decided_at) }),
+    ...(row.answer === null ? {} : { answer: row.answer }),
+    ...(row.answered_at === null ? {} : { answeredAt: iso(row.answered_at) }),
+    ...(row.draft_id === null ? {} : { draft: row.draft_id }),
+  };
+}
 
 /** The office's ideas as `office.ideas` lists them, oldest first; only `state` when given. */
 export function ideaViews(office: OfficeHandle, state?: IdeaState): IdeaView[] {
   return office
     .all<ViewRow>(
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
       `select i.idea_id, i.origin, i.story_key, s.story_id, i.run_id, i.title, i.body, i.attempts,
               i.created_at, i.state, i.decided_by, i.reason, i.proposal, i.last_problem,
               i.decided_at, i.decision, i.draft_id, i.decision_at
          from ideas i
          left join stories s on s.office_id = i.office_id and s.key = i.story_key
+=======
+      `${VIEW_SELECT}
+>>>>>>> de146a854c2be9713e40505688960f87444be951
         where i.office_id = $office_id and ($state is null or i.state = $state)
         order by i.created_at, i.idea_id`,
       { state: state ?? null },
     )
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
     .map((row) => ({
       id: row.idea_id,
       origin: row.origin,
@@ -343,6 +397,91 @@ export function ideaViews(office: OfficeHandle, state?: IdeaState): IdeaView[] {
       ...(row.decided_at === null ? {} : { decidedAt: iso(row.decided_at) }),
       ...(row.decision_at === null ? {} : { decisionAt: iso(row.decision_at) }),
     }));
+=======
+    .map(viewOf);
+}
+
+/** The ideas that passed and wait on the desk for the maintainer's answer, oldest first. */
+export function openPassedIdeas(office: OfficeHandle): IdeaView[] {
+  return office
+    .all<ViewRow>(
+      `${VIEW_SELECT}
+        where i.office_id = $office_id and i.state = 'passed' and i.answer is null
+        order by i.decided_at, i.idea_id`,
+    )
+    .map(viewOf);
+}
+
+/** The ideas whose id starts with `ref` (a hex prefix), at most two. */
+export function ideasByPrefix(office: OfficeHandle, ref: string): IdeaView[] {
+  return office
+    .all<ViewRow>(
+      `${VIEW_SELECT}
+        where i.office_id = $office_id and substr(i.idea_id, 1, length($ref)) = $ref
+        order by i.idea_id
+        limit 2`,
+      { ref: ref.toLowerCase() },
+    )
+    .map(viewOf);
+}
+
+/**
+ * The maintainer's answer to a passed idea not answered yet; false when it is not passed or was
+ * answered already. Inside the caller's transaction.
+ */
+export function answerIdea(
+  office: OfficeHandle,
+  id: string,
+  answer: IdeaAnswer,
+  at: number,
+): boolean {
+  return (
+    office.run(
+      `update ideas set answer = $answer, answered_at = $at, updated_at = $at
+        where office_id = $office_id and idea_id = $id and state = 'passed' and answer is null`,
+      { id, answer, at },
+    ).changes > 0
+  );
+}
+
+/** Where an accepted idea's draft came from, as a triage session lists it (DIPO-454). */
+export interface DraftOrigin {
+  readonly origin: IdeaOrigin;
+  /** The idea's title; Backlog.md reuses draft ids, so the title tells the draft apart. */
+  readonly title: string;
+  /** The idea's source story, when the office knows it. */
+  readonly story: string | null;
+}
+
+/** The origin of each draft an accepted idea was filed as, by upper-case draft id; the newest wins. */
+export function draftOrigins(office: OfficeHandle): Map<string, DraftOrigin> {
+  const rows = office.all<{
+    draft_id: string;
+    origin: string;
+    title: string;
+    story_id: string | null;
+    proposal: string | null;
+  }>(
+    `select i.draft_id, i.origin, i.title, s.story_id, i.proposal
+       from ideas i
+       left join stories s on s.office_id = i.office_id and s.key = i.story_key
+      where i.office_id = $office_id and i.answer = 'accepted' and i.draft_id is not null
+      order by i.answered_at, i.idea_id`,
+  );
+  const origins = new Map<string, DraftOrigin>();
+  for (const row of rows) {
+    const source =
+      row.proposal === null
+        ? null
+        : ((JSON.parse(row.proposal) as ProposedStory).sourceStory ?? null);
+    origins.set(row.draft_id.toUpperCase(), {
+      origin: row.origin,
+      title: row.title,
+      story: source ?? row.story_id,
+    });
+  }
+  return origins;
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 }
 
 /** A stored idea, as the maintainer's commands read it (DIPO-454). */

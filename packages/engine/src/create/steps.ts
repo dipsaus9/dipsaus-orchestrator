@@ -136,10 +136,10 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
     commands.storyTests.feature,
     // The maintainer's planning session (DIPO-447).
     runs.planning.feature,
-    // `office.ideas`: the held, passed and rejected ideas (DIPO-452).
+    // `office.ideas` and `idea.add`: the held, passed and rejected ideas (DIPO-452, DIPO-454).
     runs.audits.feature,
     commands.discard.feature,
-    commands.proposals.feature,
+    commands.ideaAnswers.feature,
     runs.control.feature,
     runs.outcomes.feature,
     runs.answers.feature,

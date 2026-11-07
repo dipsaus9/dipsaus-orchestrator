@@ -63,8 +63,13 @@ Run detail and dipo's own state, grouped by subject. The groups below hold the m
 | Run profile | Scans, profiles, capabilities, confirmations and proposals (0013) |
 | Prompts | Prompt part sizes and, when stored, prompt texts, plus worker notes for the handoff (0014) |
 | Config | Snapshots of the effective office configuration, keyed by hash (0017) |
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
 | Ideas | Every incoming idea (0022): a worker's proposal, a reviewer's advisory finding, a planning session's aside or a quick idea, with its origin, source story and run, and its audit: held, passed with its proposed user story, or rejected with its reason and by whom (code or the audit). A held idea counts the audits that missed it and is never dropped. A passed idea waits on the desk until the maintainer accepts it, with the draft that filed it, or dismisses it; both are kept |
 | Planning record | `planning_records`: per planning session, in order, its goal, each confirmed choice, each filed, edited or refined story, each open question, and when each model session of it started and ended. A fresh model session's first message is built from it (0022). Kept until none of its entries is newer than the retention period |
+=======
+| Ideas | Every incoming idea (0022): a worker's proposal, a reviewer's advisory finding, a planning session's aside or a quick idea, with its origin, source story and run, and its audit: held, passed with its proposed user story, or rejected with its reason and by whom (code or the audit). A held idea counts the audits that missed it and is never dropped. A passed idea holds the maintainer's answer (accepted, with the draft it was filed as, or dismissed, kept for retro) (0020) |
+| Planning record | `planning_records`: per planning session, in order, its goal, each confirmed choice, each filed or edited story, each open question, and when each model session of it started and ended. A fresh model session's first message is built from it (0022). Kept until none of its entries is newer than the retention period |
+>>>>>>> de146a854c2be9713e40505688960f87444be951
 
 The database stores facts. Display status, columns, health and budget shares are derived by engine code when it reads, and go out in change-log entries and snapshots (0005).
 

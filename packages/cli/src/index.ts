@@ -201,16 +201,23 @@ Usage:
   dipo desk [--office <id>] [--json]
                     list what waits on you, in the order to handle it: questions
                     a worker waits on, merges, parked stories, hand actions,
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                     proposed user stories and decision notes, the stories you
                     hold and the stories next up for a free run slot, each
                     with the command to type; --json prints the engine's list
                     as it is
+=======
+                    proposed stories and decision notes, the stories you hold and the stories next up for
+                    a free run slot, each with the command to type; --json
+                    prints the engine's list as it is
+>>>>>>> de146a854c2be9713e40505688960f87444be951
   dipo ideas [--state held|passed|rejected] [--office <id>] [--json]
                     list the incoming ideas dipo audits before they reach you:
                     each held one with what it waits for, each passed one with
                     its proposed user story, and each rejected one with its
                     reason; it never starts the daemon
   dipo idea "<text>" [--story <id>] [--office <id>]
+<<<<<<< ea4b37b498a7f22c701c89e050eac2feef0d4387
                     hand a quick idea to the audit: dipo holds it, audits it
                     at once, and only if it passes does it reach dipo desk as a
                     proposed user story; its first line is its title, and
@@ -221,6 +228,17 @@ Usage:
                     the backlog PR, a tech-debt one with the label tech-debt and
                     no milestone, and says which PR took it or why it waits;
                     dismiss closes it, kept as dismissed by you
+=======
+                    hand a quick idea to dipo's audit: its first line is its
+                    title; --story names the story it is about; if it passes,
+                    it reaches your desk as a proposed story
+  dipo idea accept|dismiss <idea> [--office <id>]
+                    decide a proposed story from dipo desk: accept files it as
+                    a Backlog draft with its origin through the backlog PR (a
+                    tech-debt one with no milestone and the label tech-debt)
+                    and says which PR took it or why it waits; dismiss closes
+                    it, files nothing and keeps it as dismissed by you
+>>>>>>> de146a854c2be9713e40505688960f87444be951
   dipo note dismiss <note> [--office <id>]
                     close a worker's decision note from dipo desk; dipo never
                     writes decision records, so add it by hand if you agree
