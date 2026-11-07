@@ -111,6 +111,23 @@ export const planningView = {
     },
   ],
   refusals: [{ at: "2026-11-06T09:02:00.000Z", problems: ["tier: expected one of S, M or L"] }],
+  questions: [
+    {
+      n: 1,
+      questions: [
+        {
+          header: "Scope",
+          question: "Should the export cover archived stories?",
+          purpose: "It decides whether the CSV needs a status column.",
+          options: [
+            { label: "No", description: "Only active stories.", recommended: true },
+            { label: "Yes", description: "Archived stories too." },
+          ],
+        },
+      ],
+      at: "2026-11-06T09:04:00.000Z",
+    },
+  ],
 };
 
 export const storyView = {
@@ -332,6 +349,10 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
   "planning.record": {
     args: { kind: "choice", subject: "Which tier?", text: "M" },
     result: { run: ids.run, recorded: true },
+  },
+  "planning.answer": {
+    args: { block: 1, answers: [{ option: 0 }, { free: "Only the daemon." }] },
+    result: { run: ids.run, block: 1, delivered: "next-turn" },
   },
   "planning.end": { args: {}, result: { run: ids.run, ended: "maintainer" } },
   "planning.confirm": {
@@ -593,6 +614,34 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
         taskMessage: "<story>\nDIPO-21 Add retry\n</story>\n",
       },
       problem: null,
+    },
+  },
+  "office.retro": {
+    args: { office: ids.office },
+    result: {
+      office: ids.office,
+      groups: [
+        {
+          tier: "M",
+          type: "feature",
+          stories: 5,
+          merged: 4,
+          parks: { "verify-failing": 2 },
+          loops: 4,
+          reviewRounds: 3,
+          reviewRoundsFailed: 1,
+          ciAttempts: 1,
+          conflictHandoffs: 0,
+          costMicros: 12_300_000,
+          timed: 4,
+          readyToMergedMinutes: 306,
+        },
+      ],
+      origins: { planned: 5, proposal: 2, unknown: 12 },
+      rework: { merged: 9, rework: 2 },
+      rejected: [{ by: "code", reason: "it is the same as an idea held already", count: 2 }],
+      dismissed: 2,
+      lines: ["Tier M, type feature: 5 stories, 4 merged"],
     },
   },
   "office.digest": {

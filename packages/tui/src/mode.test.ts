@@ -83,3 +83,11 @@ describe("modeReducer", () => {
     expect(inSwitcherMode({ kind: "confirm-privacy", key: "k", value: true })).toBe(false);
   });
 });
+
+describe("the retro mode (DIPO-453)", () => {
+  it("opens from home only and goes back to home", () => {
+    expect(modeReducer(HOME, { type: "retro" })).toEqual({ kind: "retro" });
+    expect(modeReducer(SWITCHER, { type: "retro" })).toBe(SWITCHER);
+    expect(modeReducer({ kind: "retro" }, { type: "home" })).toEqual(HOME);
+  });
+});

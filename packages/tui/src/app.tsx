@@ -5,14 +5,14 @@
 // privacy settings and the agent detail, is `home.tsx`; the hints are `footer.ts`.
 //
 // Global keys: `1` overview, `2` queue, `3` Your desk, `4` the test checklist, `o` offices, `q`
-// twice within 2 s quits, Ctrl+C quits. `5` opens the planning view (`planning.tsx`, DIPO-449). Action keys are off while offline. Each view's keys are
+// twice within 2 s quits, Ctrl+C quits. `5` opens the planning view (`planning.tsx`, DIPO-449), `6` the retro view (`retro.tsx`, DIPO-453). Action keys are off while offline. Each view's keys are
 // in the header of its file (`home.tsx` holds the handlers; the key table is `keys.ts`).
 //
 // An action is done only when the office stream passes its reply cursor (read-your-writes). An
 // error shows in the footer; a retryable one offers Ctrl-R, which sends the same request again
 // with the same request id. The store's state is taken at most 10 times per second.
 
-import type { OfficeStore } from "@dipsaus-orchestrator/client";
+import type { OfficeStore, OfficeStoreState } from "@dipsaus-orchestrator/client";
 import {
   type Clock,
   type Cursor,
@@ -45,6 +45,7 @@ import { type ReadDigest } from "./digest";
 import type { ActionId } from "./keys";
 import { initialMode, modeReducer } from "./mode";
 import { usePlanning } from "./planning";
+import { type ReadRetro, useRetro } from "./retro";
 import {
   type ModeKeys,
   onConfirmPrivacyKey,
@@ -124,6 +125,8 @@ export interface TuiActions {
   readDesk: ReadDesk;
   /** `office.digest` from the time this TUI last saw the office (`digest.ts`). */
   readDigest: ReadDigest;
+  /** `office.retro` (DIPO-453). */
+  readRetro: ReadRetro;
   /** A fresh request id for a new action; a retry reuses the old one. */
   newRequestId(): RequestId;
 }
@@ -141,14 +144,15 @@ export interface AppProps {
   readonly outputTailBytes?: number;
 }
 
-export function App(props: AppProps) {
-  const { store, clock, display, actions } = props;
-  const state = useBatchedState(store, clock);
-  const [mode, dispatch] = useReducer(modeReducer, props.startInSwitcher === true, initialMode);
-  const [message, setMessage] = useState<string | null>(null);
-  const onQuitKey = useQuitKey(clock, props.onQuit, setMessage);
+/** The action prompts of the office, with the two helpers the views start actions with. */
+function useAppActions(
+  store: OfficeStore,
+  actions: TuiActions,
+  state: OfficeStoreState,
+  ellipsis: string,
+  setMessage: (message: string | null) => void,
+) {
   const offline = isOffline(state);
-  const { ellipsis } = glyphs(display.ascii);
   const acts = useActions({
     store,
     sendCommand: actions.sendCommand,
@@ -170,6 +174,18 @@ export function App(props: AppProps) {
     if (offline) setMessage("offline: actions are disabled");
     return offline;
   };
+  return { acts, act, refusedOffline };
+}
+
+export function App(props: AppProps) {
+  const { store, clock, display, actions } = props;
+  const state = useBatchedState(store, clock);
+  const [mode, dispatch] = useReducer(modeReducer, props.startInSwitcher === true, initialMode);
+  const [message, setMessage] = useState<string | null>(null);
+  const goHome = () => dispatch({ type: "home" });
+  const onQuitKey = useQuitKey(clock, props.onQuit, setMessage);
+  const { ellipsis } = glyphs(display.ascii);
+  const { acts, act, refusedOffline } = useAppActions(store, actions, state, ellipsis, setMessage);
   const home = useHome({
     store,
     clock,
@@ -190,8 +206,9 @@ export function App(props: AppProps) {
     state,
     setMessage,
     refusedOffline,
-    leave: () => dispatch({ type: "home" }),
+    leave: goHome,
   });
+  const retro = useRetro({ store, actions, state, active: mode.kind === "retro", leave: goHome });
   const modeKeys: ModeKeys = {
     store,
     actions,
@@ -219,8 +236,10 @@ export function App(props: AppProps) {
     else if (mode.kind === "confirm-privacy") onConfirmPrivacyKey(mode, input, modeKeys);
     else if (mode.kind === "planning") planning.onKey(input, key);
     else if (onQuitKey(input)) return;
+    else if (mode.kind === "retro") retro.onKey(input, key);
     else if (mode.kind === "switcher") onSwitcherKey(mode, input, key, modeKeys);
     else if (input === "5") dispatch({ type: "planning" });
+    else if (input === "6") dispatch({ type: "retro" });
     else home.onKey(input, key);
   };
 
@@ -235,6 +254,7 @@ export function App(props: AppProps) {
       home={home}
       acts={acts}
       planning={planning}
+      retro={retro}
       message={message}
       {...(props.outputTailBytes === undefined ? {} : { outputTailBytes: props.outputTailBytes })}
     />

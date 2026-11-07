@@ -2071,6 +2071,86 @@
                 "required": ["at", "problems"]
               }
             },
+            "questions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "n": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "questions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "header": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 30,
+                          "pattern": "^[^\\r\\n]*$",
+                          "description": "a short header"
+                        },
+                        "question": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 300,
+                          "pattern": "^[^\\r\\n]*$",
+                          "description": "the question, standing on its own"
+                        },
+                        "purpose": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 500,
+                          "pattern": "^[^\\r\\n]*$",
+                          "description": "why the question is asked"
+                        },
+                        "options": {
+                          "minItems": 2,
+                          "maxItems": 4,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80,
+                                "pattern": "^[^\\r\\n]*$",
+                                "description": "the short choice"
+                              },
+                              "description": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500,
+                                "pattern": "^[^\\r\\n]*$",
+                                "description": "what choosing it means"
+                              },
+                              "recommended": {
+                                "description": "true on the recommended option, which goes first",
+                                "type": "boolean"
+                              }
+                            },
+                            "required": ["label", "description"],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": ["header", "question", "purpose", "options"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": ["n", "questions", "at"]
+              }
+            },
             "ready": {
               "type": "array",
               "items": {
@@ -3029,6 +3109,86 @@
                 "required": ["at", "problems"]
               }
             },
+            "questions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "n": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "questions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "header": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 30,
+                          "pattern": "^[^\\r\\n]*$",
+                          "description": "a short header"
+                        },
+                        "question": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 300,
+                          "pattern": "^[^\\r\\n]*$",
+                          "description": "the question, standing on its own"
+                        },
+                        "purpose": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 500,
+                          "pattern": "^[^\\r\\n]*$",
+                          "description": "why the question is asked"
+                        },
+                        "options": {
+                          "minItems": 2,
+                          "maxItems": 4,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80,
+                                "pattern": "^[^\\r\\n]*$",
+                                "description": "the short choice"
+                              },
+                              "description": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500,
+                                "pattern": "^[^\\r\\n]*$",
+                                "description": "what choosing it means"
+                              },
+                              "recommended": {
+                                "description": "true on the recommended option, which goes first",
+                                "type": "boolean"
+                              }
+                            },
+                            "required": ["label", "description"],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": ["header", "question", "purpose", "options"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": ["n", "questions", "at"]
+              }
+            },
             "ready": {
               "type": "array",
               "items": {
@@ -3139,6 +3299,69 @@
         }
       },
       "required": ["run", "recorded"]
+    },
+    "planning.answer.args": {
+      "type": "object",
+      "properties": {
+        "block": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "answers": {
+          "minItems": 1,
+          "maxItems": 4,
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "option": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3
+                  }
+                },
+                "required": ["option"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "free": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  }
+                },
+                "required": ["free"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "required": ["block", "answers"]
+    },
+    "planning.answer.result": {
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "string",
+          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "block": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "delivered": {
+          "type": "string",
+          "const": "next-turn"
+        }
+      },
+      "required": ["run", "block", "delivered"]
     },
     "planning.end.args": {
       "type": "object",

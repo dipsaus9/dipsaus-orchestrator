@@ -18,6 +18,7 @@ const ctx: FooterContext = {
     editing: null,
     proposals: false,
     readying: false,
+    dialog: null,
   },
 };
 
@@ -98,6 +99,32 @@ describe("the footer registry", () => {
     expect(
       texts("planning", { ...ctx, planning: { ...session, readying: true, sending: true } }),
     ).toEqual(["[Ctrl-S] set the stories left Ready", "[Esc] cancel", "sending"]);
+  });
+
+  it("gives the question dialog its keys over the input's, with sending (DIPO-455)", () => {
+    const session = { ...ctx.planning, session: true, proposals: true };
+    const choosing = { ...session, dialog: { typing: false, complete: false } };
+    expect(texts("planning", { ...ctx, planning: choosing })).toEqual([
+      "[Ctrl-S] send (when all answered)",
+      "[Enter] pick",
+      "[Up/Down] option",
+      "[Left/Right] question",
+      "[Ctrl-N] write a message instead",
+    ]);
+    const complete = { ...session, sending: true, dialog: { typing: false, complete: true } };
+    expect(texts("planning", { ...ctx, planning: complete })).toContain(
+      "[Ctrl-S] send the answers",
+    );
+    expect(texts("planning", { ...ctx, planning: complete }).at(-1)).toBe("sending");
+    const typing = { ...session, dialog: { typing: true, complete: false } };
+    expect(texts("planning", { ...ctx, planning: typing })).toEqual([
+      "[Enter] take the answer",
+      "[Esc] back to the options",
+    ]);
+  });
+
+  it("gives the retro view scroll, back and quit (DIPO-453)", () => {
+    expect(texts("retro")).toEqual(["[j/k] scroll", "[Esc] back", "[q] quit"]);
   });
 
   it("fits the width by dropping the lowest priority and keeps quit", () => {

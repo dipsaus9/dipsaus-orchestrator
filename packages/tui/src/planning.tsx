@@ -32,6 +32,7 @@ import {
 import {
   PLANNING_KINDS,
   type PlanningProposalView,
+  type PlanningQuestionBlock,
   type PlanningReadyView,
   type PlanningView,
   type RunId,
@@ -45,6 +46,13 @@ import { truncate } from "./format";
 import type { Display } from "./options";
 import { splitLines, wrapLines } from "./output";
 import { proposalForm, readProposalForm } from "./proposal-form";
+import {
+  dialogAnswers,
+  dialogKey,
+  dialogLines,
+  type DialogState,
+  freshDialog,
+} from "./question-dialog";
 import { clockTime, glyphs } from "./views";
 
 const encoder = new TextEncoder();
@@ -79,6 +87,8 @@ export interface Planning {
   readonly editing: number | null;
   /** True while the input holds the list of stories to set Ready (DIPO-451). */
   readonly readying: boolean;
+  /** The block of questions the maintainer answers now, and the dialog's state (DIPO-455). */
+  readonly dialog: { readonly block: PlanningQuestionBlock; readonly state: DialogState } | null;
   onKey(input: string, key: Key): void;
 }
 
@@ -103,7 +113,7 @@ function continues(have: number, from: number, to: number): boolean {
   return from <= have && to > have;
 }
 
-type Sending = "start" | "message" | "end" | "proposal";
+type Sending = "start" | "message" | "end" | "proposal" | "answer";
 
 /** Sends one command; an error stays in the footer and the draft stays. */
 function sendCommand(
@@ -412,6 +422,62 @@ function useProposals(args: PlanningArgs, input: ProposalInput): ProposalKeys {
   return { selected, editing, readying, onKey, saveEdit, saveReady };
 }
 
+/**
+ * The dialog of the oldest unanswered question block (DIPO-455): its state is the maintainer's
+ * choices so far, kept until the block is answered or left with Ctrl-N. Its keys come before the
+ * input's; a key the dialog does not own goes on to the rest of the view.
+ */
+function useQuestions(
+  args: PlanningArgs,
+  send: Send,
+  sending: boolean,
+  forms: { readonly editing: number | null; readonly readying: boolean },
+): { dialog: Planning["dialog"]; onKey(input: string, key: Key): boolean } {
+  const blocks = args.state.planning?.questions ?? [];
+  const [left, setLeft] = useState<number[]>([]);
+  const block = blocks.find((candidate) => !left.includes(candidate.n)) ?? null;
+  const [state, setState] = useState<DialogState | null>(null);
+  const number = block?.n ?? null;
+
+  // A new block starts a new dialog.
+  useEffect(() => {
+    setState(block === null ? null : freshDialog(block));
+  }, [number]);
+
+  const open = block !== null && state !== null && forms.editing === null && !forms.readying;
+  const onKey = (input: string, key: Key): boolean => {
+    if (!open) return false;
+    const step = dialogKey(block, state, input, key);
+    if (step === null) return false;
+    setState(step.state);
+    if (step.message !== undefined) args.setMessage(step.message);
+    if (step.action === "dismiss") {
+      setLeft((numbers) => [...numbers, block.n]);
+      args.setMessage("the questions stay unanswered; write a message instead");
+    } else if (step.action === "send" && !sending && !args.refusedOffline()) {
+      send(
+        "answer",
+        "planning.answer",
+        { block: block.n, answers: dialogAnswers(step.state) },
+        () => args.setMessage("answers sent"),
+      );
+    }
+    return true;
+  };
+  return { dialog: open ? { block, state } : null, onKey };
+}
+
+/** A new office or session closes a question about ending the old one; another office has its own draft. */
+function useResets(
+  run: string | null,
+  office: string | null,
+  setConfirmingEnd: (confirming: boolean) => void,
+  setDraft: (draft: string) => void,
+): void {
+  useEffect(() => setConfirmingEnd(false), [run, office]);
+  useEffect(() => setDraft(""), [office]);
+}
+
 /** The planning view's state; always mounted, so an open draft survives a visit to another mode. */
 export function usePlanning(args: PlanningArgs): Planning {
   const { state } = args;
@@ -424,21 +490,14 @@ export function usePlanning(args: PlanningArgs): Planning {
   const [confirmingEnd, setConfirmingEnd] = useState(false);
   const { transcript, local } = useTranscript(args);
 
-  // A new office or session closes a question about ending the old one.
-  useEffect(() => {
-    setConfirmingEnd(false);
-  }, [run, office]);
-
-  // Another office has its own draft.
-  useEffect(() => {
-    setDraft("");
-  }, [office]);
+  useResets(run, office, setConfirmingEnd, setDraft);
 
   const kind = PLANNING_KINDS[kindIndex] ?? PLANNING_KINDS[0];
 
   const send: Send = (which, command, commandArgs, done) =>
     sendCommand(args, setSending, which, { command, args: commandArgs }, done);
   const proposals = useProposals(args, { draft, setDraft, send, sending: sending !== null });
+  const questions = useQuestions(args, send, sending !== null, proposals);
 
   const submit = () => {
     const text = draft.trim();
@@ -478,6 +537,7 @@ export function usePlanning(args: PlanningArgs): Planning {
       send("end", "planning.end", {}, () => args.setMessage("planning session ended"));
       return;
     }
+    if (questions.onKey(input, key)) return;
     if (proposals.onKey(input, key)) return;
     if (key.ctrl && input === "e") {
       if (view !== null && sending === null) setConfirmingEnd(true);
@@ -506,6 +566,7 @@ export function usePlanning(args: PlanningArgs): Planning {
     selected: proposals.selected,
     editing: proposals.editing,
     readying: proposals.readying,
+    dialog: questions.dialog,
     onKey,
   };
 }
@@ -660,7 +721,10 @@ export function PlanningMode(props: PlanningModeProps) {
         ]
       : [...headLines(view, columns, display), ...refusalLines(view, columns, display)];
   const inputRows = planning.editing === null && !planning.readying ? COMPOSER_ROWS : FORM_ROWS;
-  const input = composerRows(planning.draft, columns, inputRows);
+  const input =
+    planning.dialog === null
+      ? composerRows(planning.draft, columns, inputRows)
+      : dialogLines(planning.dialog.block, planning.dialog.state, columns, display);
   const confirm = planning.confirmingEnd ? ["End the planning session? [y/N]"] : [];
   // The proposals (DIPO-450) sit between the answers and the input; an edit says which it is.
   const proposals = [
@@ -698,7 +762,11 @@ export function PlanningMode(props: PlanningModeProps) {
       {proposals.map((line, i) => (
         <Text key={`proposal:${i}`} wrap="truncate-end">{` ${line}`}</Text>
       ))}
-      <Composer draft={planning.draft} columns={columns} rows={inputRows} />
+      {planning.dialog === null ? (
+        <Composer draft={planning.draft} columns={columns} rows={inputRows} />
+      ) : (
+        input.map((line, i) => <Text key={`dialog:${i}`} wrap="truncate-end">{` ${line}`}</Text>)
+      )}
       {confirm.map((line) => (
         <Text key="confirm">{` ${line}`}</Text>
       ))}

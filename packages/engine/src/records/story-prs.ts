@@ -199,6 +199,15 @@ export function setStoryPrState(
       where office_id = $office_id and run_id = $run`,
     { run: runId, state: change.state, closed: change.closedAt },
   );
+  // The merge time is kept on the story, for retro (DIPO-453); the PR row ages out.
+  if (change.state === "merged" && change.closedAt !== null) {
+    office.run(
+      `update stories set merged_at = coalesce(merged_at, $at)
+        where office_id = $office_id and key = (select key from story_prs
+          where office_id = $office_id and run_id = $run)`,
+      { run: runId, at: change.closedAt },
+    );
+  }
 }
 
 /** The PRs that were open when the engine last looked, oldest first. */

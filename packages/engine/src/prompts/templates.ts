@@ -35,6 +35,7 @@ import instructions from "./task/instructions.md" with { type: "text" };
 import safeChainRefusals from "./task/safe-chain-refusals.md" with { type: "text" };
 import previousFindings from "./task/previous-findings.md" with { type: "text" };
 import planning from "./task/planning.md" with { type: "text" };
+import planningPreferences from "./task/planning-preferences.md" with { type: "text" };
 import reviewCommit from "./task/review-commit.md" with { type: "text" };
 import reviewScope from "./task/review-scope.md" with { type: "text" };
 import reviewTestPlan from "./task/review-test-plan.md" with { type: "text" };
@@ -111,6 +112,8 @@ export const TASK_TEMPLATES = {
   scan,
   // The first message of a planning session (DIPO-447).
   planning,
+  // The office's planning file, a section of that first message (DIPO-455).
+  planningPreferences,
   // The first message of an idea's audit session, and each idea in it (DIPO-452).
   audit,
   auditIdea,
@@ -197,6 +200,7 @@ export const PROMPT_TAGS: readonly string[] = [
   "scan_file",
   // The planning session's first message (DIPO-447): backlog and desk text cannot close these.
   "planning",
+  "preferences",
   "record",
   "drafts",
   "desk",
@@ -204,6 +208,7 @@ export const PROMPT_TAGS: readonly string[] = [
   "copy",
   // DIPO-450: the proposal schema of a planning session's first message.
   "proposal_schema",
+  "question_schema",
   // An idea's audit (DIPO-452): an idea's text cannot close its idea or the list.
   "ideas",
   "idea",

@@ -703,6 +703,12 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, ending: RunEnd): vo
       where office_id = $office_id and run_id = $run`,
     { run: runId },
   ) ?? { searches: 0, fetches: 0 };
+  // What the run cost, every agent's included (the reviewer's too): null while no cost was reported.
+  const cost =
+    office.get<{ micros: number | null }>(
+      `select sum(cost_micros) as micros from usage_totals where office_id = $office_id and run_id = $run`,
+      { run: runId },
+    )?.micros ?? null;
   const criteria =
     run.key === null
       ? null
@@ -715,10 +721,10 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, ending: RunEnd): vo
     `insert into run_outcomes (office_id, run_id, story_id, tier, role, model, outcome,
        park_reasons, loops, review_rounds, verify_failures, budget_tokens, minutes,
        criteria_count, scope_size, ended_at, final, review_rounds_failed, ci_attempts,
-       conflict_handoffs, override, web_searches, web_fetches)
+       conflict_handoffs, override, web_searches, web_fetches, story_key, cost_micros)
      values ($office_id, $run, $story, $tier, $role, $model, $outcome, $parks, $loops, $reviews,
        $failures, $budget, $minutes, $criteria, $scope, $at, $final, $failed, $ci,
-       $conflicts, $override, $searches, $fetches)
+       $conflicts, $override, $searches, $fetches, $key, $cost)
      on conflict (office_id, run_id) do update set story_id = excluded.story_id,
        tier = excluded.tier, role = excluded.role, model = excluded.model,
        outcome = excluded.outcome, park_reasons = excluded.park_reasons, loops = excluded.loops,
@@ -728,11 +734,14 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, ending: RunEnd): vo
        ended_at = excluded.ended_at, final = excluded.final,
        review_rounds_failed = excluded.review_rounds_failed, ci_attempts = excluded.ci_attempts,
        conflict_handoffs = excluded.conflict_handoffs, override = excluded.override,
-       web_searches = excluded.web_searches, web_fetches = excluded.web_fetches
+       web_searches = excluded.web_searches, web_fetches = excluded.web_fetches,
+       story_key = excluded.story_key, cost_micros = excluded.cost_micros
      where run_outcomes.final = 0`,
     {
       run: runId,
       story: run.story,
+      key: run.key,
+      cost,
       tier: run.tier,
       role: run.role,
       model: run.model,
@@ -785,6 +794,9 @@ export interface RunOutcome {
   /** The run's web searches and fetches (DIPO-164). */
   readonly webSearches: number;
   readonly webFetches: number;
+  /** The story's key and the run's cost in micro-USD (DIPO-453); null when unknown. */
+  readonly storyKey: string | null;
+  readonly costMicros: number | null;
 }
 
 export function runOutcome(office: OfficeHandle, runId: RunId): RunOutcome | null {
@@ -811,6 +823,8 @@ export function runOutcome(office: OfficeHandle, runId: RunId): RunOutcome | nul
     override: number;
     web_searches: number;
     web_fetches: number;
+    story_key: string | null;
+    cost_micros: number | null;
   }>(`select * from run_outcomes where office_id = $office_id and run_id = $run`, { run: runId });
   return row === null
     ? null
@@ -837,6 +851,8 @@ export function runOutcome(office: OfficeHandle, runId: RunId): RunOutcome | nul
         override: row.override === 1,
         webSearches: row.web_searches,
         webFetches: row.web_fetches,
+        storyKey: row.story_key,
+        costMicros: row.cost_micros,
       };
 }
 

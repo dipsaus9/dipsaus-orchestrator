@@ -288,6 +288,7 @@ export type FooterView =
   | "privacy"
   | "switcher"
   | "planning"
+  | "retro"
   | "overview"
   | "desk"
   | "queue"
@@ -316,6 +317,11 @@ export interface FooterContext {
     readonly proposals: boolean;
     /** The input holds the list of stories to set Ready (DIPO-451). */
     readonly readying: boolean;
+    /**
+     * The question dialog is open (DIPO-455): whether a free answer is being typed and whether
+     * every question has an answer; null without a dialog.
+     */
+    readonly dialog: { readonly typing: boolean; readonly complete: boolean } | null;
   };
 }
 
@@ -337,12 +343,18 @@ export interface FooterKey {
 const HOME_VIEWS: readonly FooterView[] = ["overview", "desk", "queue", "settings", "checklist"];
 const NEVER = 100;
 const asking = (ctx: FooterContext) => ctx.planning.confirmingEnd;
+/** The question dialog has the keys (DIPO-455); the input's keys wait under it. */
+const inDialog = (ctx: FooterContext) =>
+  !ctx.planning.confirmingEnd && ctx.planning.dialog !== null;
+const typingAnswer = (ctx: FooterContext) => inDialog(ctx) && ctx.planning.dialog?.typing === true;
+const choosing = (ctx: FooterContext) => inDialog(ctx) && ctx.planning.dialog?.typing === false;
+const inInput = (ctx: FooterContext) => !ctx.planning.confirmingEnd && ctx.planning.dialog === null;
 const free = (ctx: FooterContext) =>
-  !ctx.planning.confirmingEnd && ctx.planning.editing === null && !ctx.planning.readying;
+  inInput(ctx) && ctx.planning.editing === null && !ctx.planning.readying;
 const editing = (ctx: FooterContext) => !ctx.planning.confirmingEnd;
-const readying = (ctx: FooterContext) => !ctx.planning.confirmingEnd && ctx.planning.readying;
+const readying = (ctx: FooterContext) => inInput(ctx) && ctx.planning.readying;
 const saving = (ctx: FooterContext) =>
-  !ctx.planning.confirmingEnd && ctx.planning.editing !== null && !ctx.planning.readying;
+  inInput(ctx) && ctx.planning.editing !== null && !ctx.planning.readying;
 const proposing = (ctx: FooterContext) => free(ctx) && ctx.planning.proposals;
 
 /** A footer key for an action of the key table, so the action's key is defined once. */
@@ -436,7 +448,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     label: "new line",
     hint: "[Enter] new line",
     views: ["planning"],
-    when: (ctx) => editing(ctx) && !ctx.planning.readying,
+    when: (ctx) => inInput(ctx) && !ctx.planning.readying,
     priority: 90,
   },
   {
@@ -521,6 +533,72 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     priority: 85,
   },
   {
+    id: "dialogTake",
+    key: "Enter",
+    label: "take the answer",
+    hint: "[Enter] take the answer",
+    views: ["planning"],
+    when: typingAnswer,
+    priority: NEVER,
+  },
+  {
+    id: "dialogOptions",
+    key: "Esc",
+    label: "back to the options",
+    hint: "[Esc] back to the options",
+    views: ["planning"],
+    when: typingAnswer,
+    priority: 85,
+  },
+  {
+    id: "dialogSend",
+    key: "Ctrl-S",
+    label: "send the answers",
+    hint: (ctx) =>
+      ctx.planning.dialog?.complete === true
+        ? "[Ctrl-S] send the answers"
+        : "[Ctrl-S] send (when all answered)",
+    views: ["planning"],
+    when: choosing,
+    priority: NEVER,
+  },
+  {
+    id: "dialogPick",
+    key: "Enter",
+    label: "pick",
+    hint: "[Enter] pick",
+    views: ["planning"],
+    when: choosing,
+    priority: 90,
+  },
+  {
+    id: "dialogOption",
+    key: "Up/Down",
+    label: "option",
+    hint: "[Up/Down] option",
+    views: ["planning"],
+    when: choosing,
+    priority: 80,
+  },
+  {
+    id: "dialogQuestion",
+    key: "Left/Right",
+    label: "question",
+    hint: "[Left/Right] question",
+    views: ["planning"],
+    when: choosing,
+    priority: 78,
+  },
+  {
+    id: "dialogLeave",
+    key: "Ctrl-N",
+    label: "write a message instead",
+    hint: "[Ctrl-N] write a message instead",
+    views: ["planning"],
+    when: choosing,
+    priority: 70,
+  },
+  {
     id: "planningSending",
     key: "",
     label: "sending",
@@ -538,7 +616,22 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     when: free,
     priority: 85,
   },
-
+  {
+    id: "retroScroll",
+    key: "j/k",
+    label: "scroll",
+    hint: "[j/k] scroll",
+    views: ["retro"],
+    priority: 30,
+  },
+  {
+    id: "retroBack",
+    key: "Esc",
+    label: "back",
+    hint: "[Esc] back",
+    views: ["retro"],
+    priority: 90,
+  },
   {
     id: "switcherOpen",
     key: "Enter",
@@ -800,7 +893,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     key: "q",
     label: "quit",
     hint: (ctx) => `[q] quit${ctx.offline ? " (offline: actions disabled)" : ""}`,
-    views: ["switcher", "card", "detail", ...HOME_VIEWS],
+    views: ["switcher", "card", "detail", "retro", ...HOME_VIEWS],
     priority: NEVER,
   },
 ];

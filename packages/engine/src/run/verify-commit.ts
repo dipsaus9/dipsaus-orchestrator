@@ -131,7 +131,7 @@ import {
 } from "./report-data";
 import { stopAtInReview } from "../run-state/rounds";
 import type { StoryGit } from "./story-git";
-import { storeRunSummary } from "../records/verify-records";
+import { recordStoryFiles, storeRunSummary } from "../records/verify-records";
 
 /**
  * The park detail when the story branch moved off the last part's commit after a box run claimed
@@ -864,6 +864,8 @@ export class VerifyCommit implements RunFinisher {
       const office = ctx.office;
       const at = this.#deps.clock.now();
       storeRunSummary(office, run.runId, { report: input.report, diffstat, at });
+      // The files the story changed, for the rework share of retro (DIPO-453).
+      recordStoryFiles(office, run.key as StoryKey, committed);
       // The In Review push on the remote, at the run's end, or no remote to push to (DIPO-315): the
       // review starts only then, and the PR poll pushes again a run without either.
       recordBranchPush(office, run.branch as string, push, at);

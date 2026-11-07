@@ -12,6 +12,8 @@ import { type Home, HomeMode } from "./home";
 import { inSwitcherMode, type Mode } from "./mode";
 import { ModeScreen, promptHeight } from "./modes";
 import { type Planning, PlanningMode } from "./planning";
+import { dialogComplete } from "./question-dialog";
+import { type Retro, RetroMode } from "./retro";
 import type { Display } from "./options";
 import { Banners, bannerLines, Header, isOffline } from "./views";
 
@@ -23,13 +25,14 @@ export interface ScreenProps {
   readonly home: Home;
   readonly acts: ReturnType<typeof useActions>;
   readonly planning: Planning;
+  readonly retro: Retro;
   /** The footer's message of the moment, such as "press q again to quit". */
   readonly message: string | null;
   readonly outputTailBytes?: number;
 }
 
 export function Screen(props: ScreenProps) {
-  const { mode, state, clock, display, home, acts, planning } = props;
+  const { mode, state, clock, display, home, acts, planning, retro } = props;
   const { columns, rows } = useWindowSize();
   const offline = isOffline(state);
   const inSwitcher = inSwitcherMode(mode);
@@ -48,10 +51,17 @@ export function Screen(props: ScreenProps) {
       editing: planning.editing,
       proposals: (planning.view?.proposals?.length ?? 0) > 0,
       readying: planning.readying,
+      dialog:
+        planning.dialog === null
+          ? null
+          : {
+              typing: planning.dialog.state.typing !== null,
+              complete: dialogComplete(planning.dialog.state),
+            },
     },
   });
   const panel =
-    inSwitcher || mode.kind === "planning"
+    inSwitcher || mode.kind === "planning" || mode.kind === "retro"
       ? []
       : [...home.panelLines(columns), ...acts.promptLines()];
   // Header, banners, footer keys and message, and the run lines stay on screen; the view gets
@@ -86,6 +96,7 @@ export function Screen(props: ScreenProps) {
         planning={
           <PlanningMode planning={planning} display={display} columns={columns} height={height} />
         }
+        retro={<RetroMode retro={retro} height={height} />}
         home={
           <HomeMode
             home={home}
