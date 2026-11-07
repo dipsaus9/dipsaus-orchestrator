@@ -3,10 +3,10 @@ id: DIPO-453
 title: >-
   Show a retro view in the TUI with parks, rounds, cost, time and where stories
   came from
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-05 20:52'
-updated_date: '2026-11-06 12:52'
+updated_date: '2026-11-07 10:49'
 labels:
   - 'tier:M'
 milestone: m-3
