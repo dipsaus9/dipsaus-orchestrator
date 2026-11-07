@@ -3,10 +3,10 @@ id: DIPO-454
 title: >-
   Review audited ideas on my desk as proposed user stories and refine accepted
   drafts in a session
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-06 09:37'
-updated_date: '2026-11-07 10:32'
+updated_date: '2026-11-07 10:46'
 labels:
   - 'tier:L'
 milestone: m-3
