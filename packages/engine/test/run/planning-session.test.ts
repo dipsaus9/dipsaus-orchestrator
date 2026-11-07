@@ -203,6 +203,7 @@ describe("a planning session (DIPO-447)", () => {
       drafts: [],
       desk: [],
       runs: [],
+      retro: "",
       commit: BASE_COMMIT,
       proposalSchema: { type: "object" },
     });

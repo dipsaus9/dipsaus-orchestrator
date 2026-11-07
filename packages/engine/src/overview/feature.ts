@@ -39,6 +39,7 @@ import { activeWorkViews, workView } from "../views/work";
 
 import { DESK_SOURCES, type DeskSources, registerDesk } from "./desk";
 import { registerDigest } from "./digest";
+import { registerRetro } from "./retro";
 import { openGateViews } from "./summary";
 
 /** `work.outputRange` returns at most this many bytes; the client asks again from `to`. */
@@ -328,6 +329,8 @@ export function viewsFeatureWith(
       registerDesk(registry, sources);
       // `office.digest` (DIPO-308): what happened since the maintainer last left the office.
       registerDigest(registry);
+      // `office.retro` (DIPO-453): the numbers for the retro view, counted by code.
+      registerRetro(registry);
     },
   };
 }

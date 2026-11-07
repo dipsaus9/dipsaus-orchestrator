@@ -291,10 +291,10 @@ function recordOrigin(
     origin = "planned";
   }
   if (origin === null) return;
-  office.run(
-    "update stories set origin = $origin where office_id = $office_id and key = $key",
-    { key, origin },
-  );
+  office.run("update stories set origin = $origin where office_id = $office_id and key = $key", {
+    key,
+    origin,
+  });
 }
 
 /**
@@ -367,7 +367,12 @@ export function writeMirror(
     `update stories set story_type = coalesce($type, story_type),
        ready_at = case when $ready = 1 then coalesce(ready_at, $at) else ready_at end
       where office_id = $office_id and key = $key`,
-    { key, type: story.storyType ?? null, ready: story.kind === "task" && story.status === READY_STATUS ? 1 : 0, at },
+    {
+      key,
+      type: story.storyType ?? null,
+      ready: story.kind === "task" && story.status === READY_STATUS ? 1 : 0,
+      at,
+    },
   );
 }
 

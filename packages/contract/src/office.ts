@@ -938,6 +938,58 @@ export const officeIdeas = defineRead({
   result: z.array(IdeaView),
 });
 
+// What retro counts per tier and type (0022, DIPO-453): park reasons with counts, the rounds and
+// loops, what the runs cost and how long a story took from Ready to merged. The engine computes
+// every number from its database with no model call.
+export const RetroGroup = z.object({
+  tier: z.string(), // `none` for a story without a tier
+  type: z.string(), // `unknown` for a story whose type was not kept
+  stories: Count,
+  merged: Count,
+  parks: z.record(z.string(), Count),
+  loops: Count,
+  reviewRounds: Count,
+  reviewRoundsFailed: Count,
+  ciAttempts: Count,
+  conflictHandoffs: Count,
+  costMicros: Count.nullable(), // null when no run of the group reported a cost
+  timed: Count, // merged stories whose Ready time was kept
+  readyToMergedMinutes: z.number().nonnegative().nullable(), // their average
+});
+export type RetroGroup = z.infer<typeof RetroGroup>;
+
+// Where the stories came from, by origin (planned, proposal, finding, quick, aside, unknown).
+export const RetroOrigins = z.record(z.string(), Count);
+
+export const RetroRework = z.object({
+  merged: Count, // merged stories with their changed files kept
+  rework: Count, // of them, those that changed mostly files another story changed in the 14 days before
+});
+export type RetroRework = z.infer<typeof RetroRework>;
+
+export const RetroRejection = z.object({
+  by: z.enum(["code", "audit"]),
+  reason: z.string(),
+  count: Count,
+});
+export type RetroRejection = z.infer<typeof RetroRejection>;
+
+// The retro view's numbers and, built by code from them, its lines (also the text a planning
+// session gets) [`retro`].
+export const officeRetro = defineRead({
+  name: "office.retro",
+  args: OfficeArgs,
+  result: z.object({
+    office: OfficeId,
+    groups: z.array(RetroGroup),
+    origins: RetroOrigins,
+    rework: RetroRework,
+    rejected: z.array(RetroRejection),
+    dismissed: Count,
+    lines: z.array(z.string()),
+  }),
+});
+
 // Events (office stream, 0005)
 
 // `detail` holds gate failure messages, for example a failed pickup re-check.
@@ -1304,6 +1356,7 @@ export const officeReads = [
   workPrompt,
   officeDesk,
   officeIdeas,
+  officeRetro,
 ] as const;
 
 export const officeEvents = [
