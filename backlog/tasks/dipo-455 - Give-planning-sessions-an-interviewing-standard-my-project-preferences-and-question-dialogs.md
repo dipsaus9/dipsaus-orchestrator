@@ -3,10 +3,10 @@ id: DIPO-455
 title: >-
   Give planning sessions an interviewing standard, my project preferences and
   question dialogs
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-06 09:37'
-updated_date: '2026-11-07 10:57'
+updated_date: '2026-11-07 10:58'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -19,6 +19,32 @@ references:
   - packages/contract/src/
   - packages/tui/src/
   - docs/decisions/0022-planning-sessions.md
+modified_files:
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/src/work.test.ts
+  - packages/contract/src/work.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/prompts/contract/planning-box.md
+  - packages/engine/src/prompts/roles/planner.md
+  - packages/engine/src/prompts/task/planning-preferences.md
+  - packages/engine/src/prompts/task/planning.md
+  - packages/engine/src/prompts/templates.ts
+  - packages/engine/src/run/planning-proposals.ts
+  - packages/engine/src/run/planning-questions.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/test/prompts/task.test.ts
+  - packages/engine/test/run/planning-questions.test.ts
+  - packages/engine/test/run/planning-session.test.ts
+  - packages/engine/test/run/planning-triage.test.ts
+  - packages/engine/test/run/planning-world.ts
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/question-dialog.ts
+  - scripts/test-timings.json
 priority: medium
 type: feature
 ordinal: 428000
@@ -62,3 +88,18 @@ test_plan:
 - [x] #5 The TUI shows a question block as a dialog answered with keys, including a free answer, and sends the answers as one message that enters the decision record
 - [x] #6 ADR 0022 still describes what runs
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-07 10:58 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 215,402 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
