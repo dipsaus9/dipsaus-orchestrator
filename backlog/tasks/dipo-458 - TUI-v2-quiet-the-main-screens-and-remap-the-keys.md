@@ -4,7 +4,7 @@ title: 'TUI v2: quiet the main screens and remap the keys'
 status: Ready
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-07 11:10'
+updated_date: '2026-11-07 11:12'
 labels:
   - 'tier:S'
 milestone: m-6
@@ -49,7 +49,7 @@ test_plan:
       check: "Open the TUI next to designs/dipo-ux-spec.html, compare the header and footer of each room, open Offices with O, then stop the daemon"
       expect: "Header, footer, Offices (S2e) and the daemon stopped and offline states (S6, S8) match the HTML preview side by side"
     - kind: "manual"
-      check: "Open the TUI in a dark and a light terminal, each with and without DIPO_TUI_THEME=classical, and once with NO_COLOR=1, next to designs/dipo-ux-spec.html S10 (Tweaks: dark/light, truecolor/ansi16)"
+      check: "Open the TUI in a dark and a light terminal, each with and without DIPO_TUI_THEME=classical (the opt-in truecolor switch DIPO-457 adds), and once with NO_COLOR=1, next to designs/dipo-ux-spec.html S10 (Tweaks: dark/light, truecolor/ansi16)"
       expect: "Header, footer and Offices show the roles as S10 shows them in each theme; under NO_COLOR only ▌ marks the focus row (moved here from DIPO-457, maintainer 2026-11-07)"
     - kind: "automated"
       check: "(unit) office.summary carries spend today and the header prints it"
