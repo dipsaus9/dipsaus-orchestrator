@@ -173,7 +173,7 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
       },
       runStories: async (request) => {
         try {
-          // No deadline: `work.run` waits for a fetch, the gate and the claim (as `dipo run`).
+          // No deadline: `work.run` answers at its decision (DIPO-456), once its office loaded.
           return await connected.command(
             workRun,
             request.stories === undefined ? {} : { stories: [...request.stories] },

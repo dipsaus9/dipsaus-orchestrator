@@ -28,6 +28,14 @@
 // - An aside (DIPO-452): an idea the session noticed outside its goal, sent as a `dipo-aside` block
 //   in its answer. Each valid block is held as an idea and audited when it arrives (`onIdea`); an
 //   invalid one is refused with an `engine.notice` that says why (`asides.ts`).
+// - The record (DIPO-448, 0007): `planning_records` keeps the session's goal, each confirmed choice,
+//   each filed or edited story and each open question (`record`), and when each model session
+//   started and ended. A planning session is named by the run of its first model session. When a
+//   turn ends and the context nears full (`contextNearFull`), dipo ends that model session
+//   (`context-full`) and starts a fresh one, with a new run, whose first message code builds from
+//   the record and the facts of the first message; `planning.continued` says so. A session whose
+//   model session ended by idle, a daemon stop or its exit continues the same way on
+//   `planning.continue`, unless the maintainer ended it.
 //
 // Proposals (DIPO-450, 0022): the first message gives the session the proposal schema, and at
 // each turn end the answer's proposal blocks are read (`planning-proposals.ts`). A valid one joins
@@ -49,6 +57,12 @@
 // - `planning.edit` replaces an open proposal with the maintainer's version, checked the same way.
 // - `planning.decline` closes it; nothing is filed.
 //
+// - `planning.ready` (DIPO-451) is the final confirm: for each story of the session the maintainer
+//   chooses, the Ready gate is evaluated against the story as the base branch holds it (so its
+//   filing PR merged) and the decision stored; a story that passes is set Ready by a `ready` lane
+//   change, in a backlog PR of its own; one that fails, or has an edit still waiting, stays as it
+//   is and the planning view lists the gate's messages (`PlanningView.ready`).
+//
 // What the maintainer decided reaches the session with their next message, as `[dipo]` lines
 // before it, so it never proposes a filed or declined story again.
 
@@ -63,14 +77,18 @@ import {
   type OfficeId,
   type PlanningEndReason,
   type PlanningKind,
+  planningContinue,
+  planningRecord,
   PLANNING_PROPOSAL_FENCE,
   planningConfirm,
   planningDecline,
+  planningReady,
   planningEdit,
   planningEnd,
   planningMessage,
   type PlanningProposal,
   type PlanningProposalView,
+  type PlanningReadyView,
   planningStart,
   type PlanningState,
   type PlanningView,
@@ -97,17 +115,29 @@ import { promptParts, recordPromptParts, recordPromptTexts } from "../prompts/pa
 import { renderSystemFile } from "../prompts/system";
 import { rendered, renderTemplate, TASK_TEMPLATES } from "../prompts/templates";
 import { recordAgent } from "../records/agents";
+import {
+  addPlanningEntry,
+  continuableSession,
+  type NewPlanningEntry,
+  planningRecordText,
+  planningSessionOfRun,
+  readPlanningRecord,
+} from "../records/planning-record";
 import { PLANNER_ROLE } from "../records/caps";
 import type { RunEnd } from "../records/lifecycle";
 import { currentProfileId, endRun, insertRun, recordConfigSnapshot } from "../records/run-records";
 import { activeSignals } from "../records/signals";
-import { readUsage } from "../records/usage";
+import { contextNearFull, readUsage } from "../records/usage";
 import type { LaunchedHost } from "../records/worker-hosts";
+<<<<<<< 10d2521c06c73c873b91abd674a36f1027f386fa
 import { ideaOfDraft } from "../records/ideas";
 import { planningRecord } from "../records/planning-record";
+=======
+>>>>>>> f6a6de3f204aef137bfc56f479ffed3f79cd7ed3
 import { isProvisionalId, resolveStoryRef, type StoryIdentity } from "../records/story-keys";
 import { PlanningRefusedError } from "../story-store/errors";
-import type { PlannedChange, PlanningLane } from "../story-store/planning";
+import type { GateStore } from "../gate-decisions";
+import { type PlannedChange, type PlanningLane, REVISE_KIND } from "../story-store/planning";
 import { activeStoryViews, storyView } from "../views/story";
 import type { RunLaunchPaths, WorkerPort } from "../workers/port";
 import { PlanError, type HostOp, type WorkerEvent, type WorkerSpec } from "../workers/types";
@@ -136,6 +166,8 @@ import { Watchdog, type WatchdogTimeouts } from "./watchdog";
 type StartArgs = z.output<typeof planningStart.args>;
 type StartResult = z.input<typeof planningStart.result>;
 type MessageArgs = z.output<typeof planningMessage.args>;
+type RecordArgs = z.output<typeof planningRecord.args>;
+type RecordResult = z.input<typeof planningRecord.result>;
 type MessageResult = z.input<typeof planningMessage.result>;
 type EndResult = z.input<typeof planningEnd.result>;
 type ConfirmArgs = z.output<typeof planningConfirm.args>;
@@ -144,6 +176,8 @@ type EditArgs = z.output<typeof planningEdit.args>;
 type EditResult = z.input<typeof planningEdit.result>;
 type DeclineArgs = z.output<typeof planningDecline.args>;
 type DeclineResult = z.input<typeof planningDecline.result>;
+type ReadyArgs = z.output<typeof planningReady.args>;
+type ReadyResult = z.input<typeof planningReady.result>;
 
 /** The session's system file in its run directory. */
 export const PLANNING_SYSTEM_FILE = "system-planning.md";
@@ -156,6 +190,8 @@ export const PLANNING_SIGKILL_AFTER_MS = 30_000;
 export const PLANNING_RECOVERY_STEP = "planning-recover";
 /** The most story runs the first message lists. */
 export const PLANNING_RECENT_RUNS = 10;
+/** The counted tokens of a model session from which its context counts as nearly full. */
+export const PLANNING_CONTEXT_TOKENS = 150_000;
 
 const HOUR_MS = 60 * 60_000;
 
@@ -174,12 +210,18 @@ export interface RecentRun {
 export interface PlanningFacts {
   readonly kind: PlanningKind;
   readonly goal: string;
+<<<<<<< 10d2521c06c73c873b91abd674a36f1027f386fa
   /** The open drafts, each with its origin in words (DIPO-454). */
   readonly drafts: readonly {
     readonly story: string;
     readonly title: string;
     readonly origin: string;
   }[];
+=======
+  /** The session's record as text (`planningRecordText`). */
+  readonly record: string;
+  readonly drafts: readonly { readonly story: string; readonly title: string }[];
+>>>>>>> f6a6de3f204aef137bfc56f479ffed3f79cd7ed3
   readonly desk: readonly Pick<DeskItem, "kind" | "story" | "detail">[];
   readonly runs: readonly RecentRun[];
   /** The base branch's commit the read-only copy holds. */
@@ -198,6 +240,7 @@ export function planningFirstMessage(facts: PlanningFacts): string {
   return renderTemplate(TASK_TEMPLATES.planning, {
     kind: facts.kind,
     goal: facts.goal,
+    record: facts.record,
     drafts: listOr(
       facts.drafts.map((draft) => `- ${draft.story}: ${draft.title} (origin: ${draft.origin})`),
       "No open drafts.",
@@ -282,16 +325,29 @@ export interface PlanningSessionsDeps {
   readonly desk?: (office: OfficeHandle, now: number) => readonly DeskItem[];
   /** The base branch's tip the copy holds; `baseCommit` by default. */
   readonly baseCommit?: (git: OfficeGit) => Promise<string>;
+  /** The counted tokens from which a model session's context nears full; `PLANNING_CONTEXT_TOKENS`. */
+  readonly contextTokens?: number;
   readonly runtimeDir: string;
   /** dipo's temp root: the run temp directories. */
   readonly tmpRoot: string;
   readonly tempOwner?: () => string | undefined;
   /** The office's planning lane (0010), which files the proposals the maintainer confirms. */
   readonly lane?: (office: OfficeId) => PlanningLane | undefined;
+  /** The office's Ready gate, which the final confirm evaluates and stores (DIPO-451). */
+  readonly gate?: (office: OfficeId) => PlanningGate | undefined;
   readonly onChanged?: (office: OfficeId) => void;
   /** The session held an idea from an aside block (DIPO-452): the audit takes it now. */
   readonly onIdea?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+}
+
+/** The part of the Ready gate a planning session uses. */
+export type PlanningGate = Pick<GateStore, "recordGateDecision">;
+
+/** The model session a fresh one continues, and why that one ended. */
+interface Continued {
+  readonly previous: RunId;
+  readonly reason: PlanningEndReason;
 }
 
 /** One open planning session of this daemon. */
@@ -299,6 +355,10 @@ interface Open {
   readonly office: OfficeId;
   readonly handle: OfficeHandle;
   readonly run: RunId;
+  /** The planning session: the run of its first model session. */
+  readonly session: RunId;
+  /** Set for a fresh model session that continues a planning session. */
+  readonly continued: Continued | null;
   readonly agent: AgentId;
   readonly kind: PlanningKind;
   readonly goal: string;
@@ -316,12 +376,22 @@ interface Open {
   /** The texts of the answer in progress, read for proposal blocks at its turn end (DIPO-450). */
   answer: string[];
   proposals: OpenProposal[];
+  /** The stories chosen to go Ready, by story id (DIPO-451). */
+  ready: Map<string, OpenReady>;
   /** The refused proposal blocks, newest last. */
   refusals: { readonly at: number; readonly problems: readonly string[] }[];
   /** How many answers in a row dipo refused by itself (`AUTO_REFUSALS_MAX`). */
   autoRefusals: number;
   /** The `[dipo]` lines the next maintainer message carries before it. */
   notes: string[];
+}
+
+/** A story the maintainer chose to go Ready (DIPO-451); no `changes` when it was refused. */
+interface OpenReady {
+  readonly story: string;
+  readonly changes: readonly PlannedChange[];
+  readonly messages: readonly string[];
+  readonly at: number;
 }
 
 /** A proposal of an open session (DIPO-450). */
@@ -408,8 +478,16 @@ export class PlanningSessions {
           handle: (ctx, args) => this.message(ctx, args),
         });
         registry.addAsyncOfficeCommand({
+          definition: planningRecord,
+          handle: (ctx, args) => Promise.resolve(this.recordCommand(ctx, args)),
+        });
+        registry.addAsyncOfficeCommand({
           definition: planningEnd,
           handle: (ctx) => this.end(ctx),
+        });
+        registry.addAsyncOfficeCommand({
+          definition: planningContinue,
+          handle: (ctx) => this.continue(ctx),
         });
         registry.addAsyncOfficeCommand({
           definition: planningConfirm,
@@ -422,6 +500,10 @@ export class PlanningSessions {
         registry.addAsyncOfficeCommand({
           definition: planningDecline,
           handle: (ctx, args) => this.decline(ctx, args),
+        });
+        registry.addAsyncOfficeCommand({
+          definition: planningReady,
+          handle: (ctx, args) => this.ready(ctx, args),
         });
       },
     };
@@ -440,6 +522,69 @@ export class PlanningSessions {
 
   async start(ctx: AsyncCommandContext, args: StartArgs): Promise<CommandOutcome<StartResult>> {
     const office = ctx.office.officeId as OfficeId;
+    this.#refuseWhenOpen(office);
+    this.#starting.add(office);
+    try {
+      const view = await this.#begin(ctx.office, office, {
+        ...args,
+        session: null,
+        continued: null,
+      });
+      return { result: { run: view.run, view }, changed: true };
+    } finally {
+      this.#starting.delete(office);
+    }
+  }
+
+  /** `planning.continue`: see the file comment. */
+  async continue(ctx: AsyncCommandContext): Promise<CommandOutcome<StartResult>> {
+    const office = ctx.office.officeId as OfficeId;
+    this.#refuseWhenOpen(office);
+    const found = ctx.office.deferred(() => continuableSession(ctx.office));
+    if (found === null) {
+      throw new CommandError(
+        "planning.notContinuable",
+        "No planning session can continue: start one with planning.start. A session the maintainer ended does not continue.",
+      );
+    }
+    this.#starting.add(office);
+    try {
+      const view = await this.#begin(ctx.office, office, {
+        kind: found.kind,
+        goal: found.goal,
+        session: RunId.parse(found.session),
+        continued: { previous: RunId.parse(found.previous), reason: found.reason },
+      });
+      return { result: { run: view.run, view }, changed: true };
+    } finally {
+      this.#starting.delete(office);
+    }
+  }
+
+  /**
+   * Adds an entry to the record of the open planning session of `office`: a confirmed choice, a
+   * filed or edited story, or an open question. Written by code when the maintainer confirms.
+   */
+  record(office: OfficeId, entry: Omit<NewPlanningEntry, "at">): void {
+    const open = this.#open.get(office);
+    if (open === undefined) throw notOpen("none was started");
+    const at = this.#deps.clock.now();
+    open.handle.immediate(() => addPlanningEntry(open.handle, open.session, { ...entry, at }));
+  }
+
+  /** `planning.record`: the maintainer's confirmation, stored by `record`. */
+  recordCommand(ctx: AsyncCommandContext, args: RecordArgs): CommandOutcome<RecordResult> {
+    const office = ctx.office.officeId as OfficeId;
+    this.record(office, {
+      kind: args.kind,
+      ...("subject" in args ? { subject: args.subject } : {}),
+      text: args.text,
+    });
+    const run = this.#open.get(office)?.run;
+    return { result: { run: RunId.parse(run), recorded: true }, changed: true };
+  }
+
+  #refuseWhenOpen(office: OfficeId): void {
     const open = this.#open.get(office);
     if (open !== undefined || this.#starting.has(office)) {
       throw new CommandError(
@@ -447,13 +592,6 @@ export class PlanningSessions {
         `The office has an open planning session${open === undefined ? "" : ` (${open.run})`}: end it with planning.end first.`,
         open === undefined ? {} : { run: open.run },
       );
-    }
-    this.#starting.add(office);
-    try {
-      const view = await this.#start(ctx.office, office, args);
-      return { result: { run: view.run, view }, changed: true };
-    } finally {
-      this.#starting.delete(office);
     }
   }
 
@@ -463,7 +601,13 @@ export class PlanningSessions {
   ): Promise<CommandOutcome<MessageResult>> {
     const office = ctx.office.officeId as OfficeId;
     const open = this.#open.get(office);
-    if (open === undefined) throw notOpen("start one with planning.start");
+    if (open === undefined) {
+      throw notOpen(
+        this.#starting.has(office)
+          ? "it is continuing in a fresh model session; send the message again in a moment"
+          : "start one with planning.start",
+      );
+    }
     if (open.ending !== null || open.settled) throw notOpen(`${open.run} is ending`);
     // The maintainer's text is the next user message: read after the answer in progress, if any.
     // What the maintainer decided since their last message goes first, as `[dipo]` lines.
@@ -546,6 +690,162 @@ export class PlanningSessions {
       },
       changed: true,
     };
+  }
+
+  // ---- the final confirm (DIPO-451) -------------------------------------------------------------
+
+  /**
+   * `planning.ready`: for each chosen story of the session, evaluates the Ready gate against the
+   * story as the base branch holds it and stores the decision; a story that passes is set Ready
+   * through the planning lane, a story that fails stays as it is with the gate's messages.
+   */
+  async ready(ctx: AsyncCommandContext, args: ReadyArgs): Promise<CommandOutcome<ReadyResult>> {
+    const open = this.#open.get(ctx.office.officeId as OfficeId);
+    if (open === undefined) throw notOpen("start one with planning.start");
+    if (open.ending !== null || open.settled) throw notOpen(`${open.run} is ending`);
+    const { handle } = open;
+    const lane = this.#deps.lane?.(open.office);
+    const gate = this.#deps.gate?.(open.office);
+    if (lane === undefined || gate === undefined) {
+      throw new CommandError(
+        "planning.notFiled",
+        "This office has no backlog lane yet, so nothing can be set Ready; try again once it loaded.",
+      );
+    }
+    // Every story is checked first, so a wrong one changes nothing. A story whose filing PR has
+    // not merged has an id but no key yet: it is listed in the record only.
+    const record = handle.deferred(() => readPlanningRecord(handle, open.session));
+    const chosen: { story: string; key: StoryKey | null }[] = [];
+    for (const ref of args.stories) {
+      const found = handle.deferred(() => resolveStoryRef(handle, ref));
+      const inSession = record.some((entry) => {
+        if (entry.kind !== "story" || entry.subject === null) return false;
+        const subject = entry.subject;
+        if (subject === ref) return true;
+        const other = handle.deferred(() => resolveStoryRef(handle, subject));
+        return other.ok && found.ok && other.key === found.key;
+      });
+      if (!inSession) {
+        throw new CommandError(
+          "planning.storyUnknown",
+          `${ref} is not a story this planning session filed or edited.`,
+          { story: ref },
+        );
+      }
+      const identity = { story: found.ok ? found.story : ref, key: found.ok ? found.key : null };
+      if (!chosen.some((other) => other.story === identity.story)) chosen.push(identity);
+    }
+    const queued: string[] = [];
+    const refused: ReadyResult["refused"] = [];
+    let last: PlannedChange | undefined;
+    for (const identity of chosen) {
+      const before = open.ready.get(identity.story);
+      if (
+        before !== undefined &&
+        before.changes.length > 0 &&
+        this.#readyState(open, before) !== "failed"
+      ) {
+        queued.push(identity.story);
+        continue;
+      }
+      const outcome = await this.#readyOne(open, identity, lane, gate);
+      if (outcome.change === undefined) {
+        refused.push({ story: identity.story, messages: outcome.messages });
+      } else {
+        queued.push(identity.story);
+        last = outcome.change;
+      }
+    }
+    this.#append(open, () => [this.#updated(open)]);
+    const flush = last === undefined ? null : await lane.flush(last);
+    this.#append(open, () => [this.#updated(open)]);
+    return {
+      result: {
+        run: open.run,
+        queued,
+        refused,
+        ...(flush === null ? {} : { flush }),
+      },
+      changed: true,
+    };
+  }
+
+  /** The gate for one chosen story and, when it passes, the lane change that sets it Ready. */
+  async #readyOne(
+    open: Open,
+    identity: { readonly story: string; readonly key: StoryKey | null },
+    lane: PlanningLane,
+    gate: PlanningGate,
+  ): Promise<{ change?: PlannedChange; messages: string[] }> {
+    const at = this.#deps.clock.now();
+    const refuse = (messages: string[]) => {
+      open.ready.set(identity.story, { story: identity.story, changes: [], messages, at });
+      return { messages };
+    };
+    const { key } = identity;
+    const notFiledYet = `${identity.story} is not on the base branch yet; set it Ready once the backlog PR that filed it has merged`;
+    if (key === null) {
+      return refuse([notFiledYet]);
+    }
+    if (lane.isOpen(key, REVISE_KIND)) {
+      return refuse([
+        "an edit of it still waits for its backlog PR to merge; set it Ready after that",
+      ]);
+    }
+    let decision;
+    try {
+      decision = await gate.recordGateDecision(open.office, key, "ready");
+    } catch (error) {
+      if (!(error instanceof CommandError) || error.error.code !== "story.unknown") throw error;
+      return refuse([notFiledYet]);
+    }
+    if (!decision.result.passed) {
+      return refuse(
+        decision.result.failures.map((failure) => `${failure.rule}: ${failure.message}`),
+      );
+    }
+    try {
+      const change = await lane.setReady({ key, story: identity.story });
+      open.ready.set(identity.story, {
+        story: identity.story,
+        changes: [change],
+        messages: [],
+        at,
+      });
+      return { change, messages: [] };
+    } catch (error) {
+      if (!(error instanceof PlanningRefusedError)) throw error;
+      return refuse([error.message]);
+    }
+  }
+
+  /** How far setting one story Ready got, from the lane. */
+  #readyState(open: Open, item: OpenReady): PlanningReadyView["state"] {
+    if (item.changes.length === 0) return "refused";
+    const lane = this.#deps.lane?.(open.office);
+    const outcomes = item.changes.map((change) => lane?.outcomeOf(change));
+    if (outcomes.some((outcome) => outcome?.outcome === "closed")) return "failed";
+    // A change the journal no longer has was applied and pruned.
+    return outcomes.every((outcome) => outcome === undefined || outcome.outcome === "applied")
+      ? "set"
+      : "setting";
+  }
+
+  #readyViews(open: Open): PlanningReadyView[] {
+    const lane = this.#deps.lane?.(open.office);
+    return [...open.ready.values()].map((item) => {
+      const state = this.#readyState(open, item);
+      const closed = item.changes
+        .map((change) => lane?.outcomeOf(change))
+        .find((outcome) => outcome?.outcome === "closed");
+      return {
+        story: item.story,
+        state,
+        ...(item.messages.length === 0 ? {} : { messages: [...item.messages] }),
+        ...(state === "failed" ? { detail: closed?.notice ?? "the backlog lane closed it" } : {}),
+        at: iso(item.at),
+      };
+    });
   }
 
   /** `planning.edit`: the maintainer's version replaces an open proposal of the same kind. */
@@ -802,9 +1102,9 @@ export class PlanningSessions {
       }
     }
     const stories = handle
-      .deferred(() => planningRecord(handle, open.run))
-      .filter((entry) => entry.proposal === item.n)
-      .map((entry) => entry.story);
+      .deferred(() => readPlanningRecord(handle, open.session))
+      .filter((entry) => entry.kind === "story" && entry.proposal === item.n)
+      .map((entry) => entry.subject ?? "");
     return {
       n: item.n,
       proposal: item.proposal,
@@ -858,7 +1158,18 @@ export class PlanningSessions {
         )
         .filter((row) => !followed.has(row.run_id));
       for (const row of left) {
-        handle.immediate(() => endRun(handle, RunId.parse(row.run_id), at, "dropped"));
+        handle.immediate(() => {
+          endRun(handle, RunId.parse(row.run_id), at, "dropped");
+          const session = planningSessionOfRun(handle, row.run_id);
+          if (session !== null) {
+            addPlanningEntry(handle, session, {
+              kind: "ended",
+              run: row.run_id,
+              text: "daemon-stopped",
+              at,
+            });
+          }
+        });
         ended += 1;
       }
       if (left.length > 0) this.#deps.onChanged?.(office);
@@ -868,7 +1179,17 @@ export class PlanningSessions {
 
   // ---- start ---------------------------------------------------------------------------------
 
-  async #start(handle: OfficeHandle, office: OfficeId, args: StartArgs): Promise<PlanningView> {
+  async #begin(
+    handle: OfficeHandle,
+    office: OfficeId,
+    args: {
+      readonly kind: PlanningKind;
+      readonly goal: string;
+      /** The planning session this model session continues; null for a new one. */
+      readonly session: RunId | null;
+      readonly continued: Continued | null;
+    },
+  ): Promise<PlanningView> {
     const deps = this.#deps;
     const boxes = deps.boxes;
     const config = deps.offices.config(office);
@@ -890,6 +1211,8 @@ export class PlanningSessions {
       office,
       handle,
       run,
+      session: args.session ?? run,
+      continued: args.continued,
       agent,
       kind: args.kind,
       goal: args.goal,
@@ -905,10 +1228,34 @@ export class PlanningSessions {
       settled: false,
       answer: [],
       proposals: [],
+      ready: new Map(),
       refusals: [],
       autoRefusals: 0,
       notes: [],
     };
+    this.#recordStart(open, config);
+    this.#open.set(office, open);
+    this.#announceStart(open);
+    try {
+      await this.#launch(open, config, git, boxes);
+    } catch (error) {
+      const detail = error instanceof CommandError ? error.message : messageOf(error);
+      open.ending = { reason: "start-failed", detail };
+      await this.#finish(open, null);
+      if (error instanceof CommandError) throw error;
+      throw new CommandError(
+        "planning.startFailed",
+        `The planning session did not start: ${detail}`,
+        { run },
+      );
+    }
+    return handle.deferred(() => this.#viewOf(open));
+  }
+
+  /** The run's row and the record's entries, in one transaction. */
+  #recordStart(open: Open, config: OfficeConfig): void {
+    const { handle, run, startedAt } = open;
+    const settings = config.planning;
     const hash = configHash(config);
     handle.immediate(() => {
       recordConfigSnapshot(handle, hash, config, startedAt);
@@ -934,25 +1281,44 @@ export class PlanningSessions {
         runProfileId: currentProfileId(handle),
         startedAt,
       });
+      if (open.session === run) {
+        addPlanningEntry(handle, run, {
+          kind: "goal",
+          subject: open.kind,
+          text: open.goal,
+          at: startedAt,
+        });
+      }
+      addPlanningEntry(handle, open.session, {
+        kind: "started",
+        run,
+        subject: open.continued?.reason ?? "start",
+        text: "",
+        at: startedAt,
+      });
     });
-    this.#open.set(office, open);
+  }
+
+  /** `planning.started`, and `planning.continued` for a fresh model session of a session. */
+  #announceStart(open: Open): void {
+    const { run, continued } = open;
     this.#append(open, () => [
       { type: "planning.started", run, delta: { run, view: this.#viewOf(open) } },
+      ...(continued === null
+        ? []
+        : [
+            {
+              type: "planning.continued",
+              run,
+              delta: {
+                run,
+                previous: continued.previous,
+                reason: continued.reason,
+                view: this.#viewOf(open),
+              },
+            },
+          ]),
     ]);
-    try {
-      await this.#launch(open, config, git, boxes);
-    } catch (error) {
-      const detail = error instanceof CommandError ? error.message : messageOf(error);
-      open.ending = { reason: "start-failed", detail };
-      await this.#finish(open, null);
-      if (error instanceof CommandError) throw error;
-      throw new CommandError(
-        "planning.startFailed",
-        `The planning session did not start: ${detail}`,
-        { run },
-      );
-    }
-    return handle.deferred(() => this.#viewOf(open));
   }
 
   /** The session's spec and system file: its first message holds the facts code knows. */
@@ -970,6 +1336,7 @@ export class PlanningSessions {
       handle.deferred(() => ({
         kind: open.kind,
         goal: open.goal,
+        record: planningRecordText(readPlanningRecord(handle, open.session)),
         drafts: activeStoryViews(handle)
           .filter((view) => view.lifecycle === "Draft")
           .map((view) => ({
@@ -1199,6 +1566,19 @@ export class PlanningSessions {
     open.turns += 1;
     if (open.ending !== null) return;
     this.#readAnswer(open);
+    const near = open.handle.deferred(() =>
+      contextNearFull(
+        open.handle,
+        { run: open.run, agent: open.agent, role: PLANNER_ROLE, tier: "", budgetLimit: 0 },
+        this.#deps.contextTokens ?? PLANNING_CONTEXT_TOKENS,
+      ),
+    );
+    if (near) {
+      // The context nears full: this model session ends and a fresh one continues from the record.
+      open.state = "waiting";
+      void this.#stop(open, { reason: "context-full" });
+      return;
+    }
     open.state = "waiting";
     this.#watchdog.waiting(open.run);
     this.#clearIdle(open);
@@ -1282,9 +1662,37 @@ export class PlanningSessions {
     open.state = "ended";
     const done =
       ending.reason === "maintainer" ||
+      ending.reason === "context-full" ||
       ending.reason === "idle" ||
       (ending.reason === "exited" && clean);
-    const runEnd: RunEnd = done ? "done" : "dropped";
+    this.#endRecords(open, ending.reason, done ? "done" : "dropped");
+    await this.#release(open, ending.reason);
+  }
+
+  /**
+   * Frees the office's open slot and deletes the box. A full context continues in a fresh model
+   * session, and the office stays taken meanwhile.
+   */
+  async #release(open: Open, reason: PlanningEndReason): Promise<void> {
+    const continuing = reason === "context-full";
+    if (continuing) this.#starting.add(open.office);
+    if (this.#open.get(open.office) === open) this.#open.delete(open.office);
+    this.#deps.onChanged?.(open.office);
+    try {
+      await this.#deps.boxes?.endPlanning(open.agent);
+      if (continuing) await this.#continueFresh(open, reason);
+    } catch (error) {
+      this.#deps.warn?.("continuing a planning session failed", {
+        run: open.run,
+        reason: messageOf(error),
+      });
+    } finally {
+      if (continuing) this.#starting.delete(open.office);
+    }
+  }
+
+  /** Ends the run, and appends `planning.ended` and the record's end entry, in one transaction. */
+  #endRecords(open: Open, reason: PlanningEndReason, runEnd: RunEnd): void {
     const at = this.#deps.clock.now();
     const { handle } = open;
     try {
@@ -1296,11 +1704,12 @@ export class PlanningSessions {
             {
               type: "planning.ended",
               run: open.run,
-              delta: { run: open.run, reason: ending.reason, view: this.#viewOf(open, at) },
+              delta: { run: open.run, reason, view: this.#viewOf(open, at) },
             },
           ],
           { at },
         );
+        addPlanningEntry(handle, open.session, { kind: "ended", run: open.run, text: reason, at });
       });
     } catch (error) {
       this.#deps.warn?.("ending a planning run failed", {
@@ -1308,9 +1717,16 @@ export class PlanningSessions {
         reason: messageOf(error),
       });
     }
-    if (this.#open.get(open.office) === open) this.#open.delete(open.office);
-    this.#deps.onChanged?.(open.office);
-    await this.#deps.boxes?.endPlanning(open.agent);
+  }
+
+  /** Starts the fresh model session that continues the planning session of `open`. */
+  async #continueFresh(open: Open, reason: PlanningEndReason): Promise<void> {
+    await this.#begin(open.handle, open.office, {
+      kind: open.kind,
+      goal: open.goal,
+      session: open.session,
+      continued: { previous: open.run, reason },
+    });
   }
 
   #clearIdle(open: Open): void {
@@ -1413,6 +1829,7 @@ export class PlanningSessions {
               problems: [...refusal.problems],
             })),
           }),
+      ...(open.ready.size === 0 ? {} : { ready: this.#readyViews(open) }),
     };
   }
 }

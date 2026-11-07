@@ -21,6 +21,7 @@ const LOAD_STEPS = [
   "prState.poll",
   "office.statuses",
   "scan.profile",
+  "run/base",
   "run-outcomes/redispatch",
   "expire open questions",
   "starts-paused/recover",

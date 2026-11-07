@@ -28,6 +28,7 @@ import {
   editKind,
   HOLD_KIND,
   type LaneOpKind,
+  READY_KIND,
   RESUME_KIND,
 } from "./ops";
 import { planningLane } from "./planning";
@@ -48,6 +49,8 @@ export class BacklogLane {
     this.register(dropKind);
     // Discard (0020, DIPO-161).
     this.register(editKind(DISCARD_KIND));
+    // A planning session sets its stories Ready after the gate passed (0012, DIPO-451).
+    this.register(editKind(READY_KIND));
     // An accepted worker proposal filed as a Backlog draft (0020, DIPO-166).
     this.register(proposeKind);
     // The stories a planning session files and edits (0022, DIPO-450).

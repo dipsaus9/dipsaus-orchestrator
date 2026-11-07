@@ -26,7 +26,7 @@ import type { LaunchCheckOutcome } from "../../src/run/starts-paused";
 import { countRows } from "../commands/helpers";
 import { CLI } from "../gate/gated-office";
 import { resultOf } from "../office/helpers";
-import { BRANCH, CLAUDE, type Running, withRunOffice } from "./run-office";
+import { BRANCH, CLAUDE, type Running, runWork, withRunOffice } from "./run-office";
 
 let count = 0;
 function requestId(): RequestId {
@@ -36,16 +36,18 @@ function requestId(): RequestId {
 
 function workRunCommand(r: Running): Promise<CommandReply> {
   // Run ids are ULIDs, as the worker host requires.
-  return executeCommand(
-    { ...r.s.deps, ids: createSystemIds(r.s.clock) },
-    {
-      requestId: requestId(),
-      name: "work.run",
-      args: { from: r.repo.dir },
-      origin: "cli",
-      confirmed: false,
-      office: r.officeId,
-    },
+  return runWork(r, () =>
+    executeCommand(
+      { ...r.s.deps, ids: createSystemIds(r.s.clock) },
+      {
+        requestId: requestId(),
+        name: "work.run",
+        args: { from: r.repo.dir },
+        origin: "cli",
+        confirmed: false,
+        office: r.officeId,
+      },
+    ),
   );
 }
 
@@ -114,7 +116,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const phases = events(r)
             .filter((e) => e.type === "work.assigned" || e.type === "work.phase")
             .map((e) => (e.type === "work.phase" ? `phase ${String(e.delta["phase"])}` : e.type));
-          expect(phases).toEqual(["work.assigned", "phase setup", "phase build"]);
+          // The decision shows the start in setup (DIPO-456), then the run row's own entries.
+          expect(phases).toEqual(["phase setup", "work.assigned", "phase setup", "phase build"]);
           const usage = r.office.get<{ n: number; input: number }>(
             "select count(*) as n, sum(input) as input from usage_totals where office_id = $office_id",
           );
@@ -137,11 +140,14 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           },
           async (r) => {
             const before = await gitState(r);
-            const result = resultOf<{ started: unknown[]; skipped: { reason: string }[] }>(
-              await workRunCommand(r),
-            );
-            expect(result.started).toEqual([]);
-            expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
+            const result = resultOf<{
+              started: { story: string }[];
+              skipped: { reason: string }[];
+            }>(await workRunCommand(r));
+            // The answer said it starts (DIPO-456); the refused launch check after it rolled the
+            // claim back.
+            expect(result.started.map((s) => s.story)).toEqual(["TASK-1"]);
+            expect(result.skipped).toEqual([]);
             expect(await gitState(r)).toBe(before);
             expect(r.hosts).toEqual([]);
             expect(r.holds.adapterPaused("claude-cli")?.check).toBe("self-test");

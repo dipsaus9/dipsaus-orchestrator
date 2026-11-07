@@ -75,7 +75,6 @@ const RUN_DETAIL = [
   "run_summaries",
   "done_reports",
   "report_sendbacks",
-  "planning_record",
 ] as const;
 
 const PROFILE_CHILDREN = ["run_capabilities", "run_env_files", "run_extra_scripts"] as const;
@@ -196,6 +195,12 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
     "config_snapshots",
     `first_seen < $cutoff and not exists (select 1 from runs r where r.office_id = $office_id
        and r.config_hash = config_snapshots.config_hash)`,
+  );
+  // A planning session's record, once none of its entries is newer than the cutoff (DIPO-448).
+  await rows(
+    "planning_records",
+    `not exists (select 1 from planning_records n where n.office_id = $office_id
+       and n.session_id = planning_records.session_id and n.at >= $cutoff)`,
   );
   // Released claims; a live claim has no release time.
   await rows("claims", "released_at < $cutoff");

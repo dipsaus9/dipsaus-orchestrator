@@ -12,9 +12,12 @@ import { join } from "node:path";
 import { type CommandReply, type OfficeId } from "@dipsaus-orchestrator/contract";
 import { withTempRepo } from "@dipsaus-orchestrator/testkit";
 
+import { buildCommandServices } from "../../src/create/commands";
 import { buildCore } from "../../src/create/core";
 import { createEngine } from "../../src/create/create-engine";
-import { enginePartners } from "../../src/create/partners";
+import { buildOfficeServices } from "../../src/create/office-services";
+import { connectEngine, enginePartners } from "../../src/create/partners";
+import { featureList } from "../../src/create/steps";
 import { buildStoryServices } from "../../src/create/stories";
 import { PartnerNotConnectedError } from "../../src/wiring/partner";
 import { BACKLOG_FIXTURE, fakeDeps, requestId } from "./engine-fixture";
@@ -96,6 +99,54 @@ describe("createEngine", () => {
       } finally {
         await engine.stop();
         engine.closeDatabase();
+      }
+    }));
+
+  it("registers work.run and nextUp.confirm as answering at their decision, and the other slow commands as waiting (0005, DIPO-456)", () =>
+    withTempRepo(async (repo) => {
+      const { deps } = fakeDeps(repo.root, join(repo.root, "home"));
+      const core = buildCore(deps);
+      const partners = enginePartners();
+      const story = buildStoryServices(core, partners);
+      const commands = buildCommandServices(core, story, partners);
+      const office = buildOfficeServices(core);
+      connectEngine(partners, {
+        runs: commands.runs,
+        autoMerge: commands.autoMerge,
+        lane: story.lane,
+        storyIndex: story.storyIndex,
+      });
+      for (const feature of featureList(core, { story, commands, office })) {
+        core.registry.load(feature);
+      }
+      const waits = (name: string) => {
+        const command = core.registry.command(name);
+        if (command === undefined || command.level !== "office") throw new Error(name);
+        return command.waits;
+      };
+      // Neither waits for a fetch, a claim, a box or an install: the start runs after the answer.
+      expect(waits("work.run")).toBe(false);
+      expect(waits("nextUp.confirm")).toBe(false);
+      // The shared waiting registration stays for the commands whose work is their answer.
+      for (const name of [
+        "work.answer",
+        "work.resume",
+        "work.steer",
+        "work.discard",
+        "story.park",
+        "story.drop",
+        "gate.approve",
+        "gate.reject",
+        "test.start",
+        "test.record",
+        "proposal.accept",
+        "proposal.dismiss",
+        "nextUp.decline",
+        "planning.start",
+        "planning.message",
+        "planning.end",
+      ]) {
+        expect([name, waits(name)]).toEqual([name, true]);
       }
     }));
 

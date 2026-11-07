@@ -3,10 +3,10 @@ id: DIPO-448
 title: >-
   Keep a planning session's decisions and continue it in a fresh Claude session
   when needed
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-05 20:51'
-updated_date: '2026-11-06 07:15'
+updated_date: '2026-11-06 14:53'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -19,6 +19,33 @@ references:
   - packages/engine/src/records/usage.ts
   - packages/contract/src/office.ts
   - docs/decisions/0007-state-database.md
+modified_files:
+  - docs/decisions/0007-state-database.md
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/src/work.test.ts
+  - packages/contract/src/work.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/backlog/lane/stories.ts
+  - packages/engine/src/db/migrations/0004-planning-record.ts
+  - packages/engine/src/db/migrations/0004-planning-records.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/prompts/task/planning.md
+  - packages/engine/src/prompts/templates.ts
+  - packages/engine/src/records/planning-record.ts
+  - packages/engine/src/records/usage.ts
+  - packages/engine/src/retention/policy.ts
+  - packages/engine/src/retention/run.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/test/db/migrations.test.ts
+  - packages/engine/test/prompts/task.test.ts
+  - packages/engine/test/run/planning-filing.test.ts
+  - packages/engine/test/run/planning-record.test.ts
+  - packages/engine/test/run/planning-session.test.ts
+  - packages/engine/test/run/planning-world.ts
 priority: high
 type: feature
 ordinal: 421000
@@ -49,8 +76,40 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 dipo stores a record per planning session in its database: each confirmed choice, filed or edited story and open question, in order
-- [ ] #2 When the context nears full, dipo ends the Claude session and starts a fresh one whose first message code builds from the record
-- [ ] #3 A session that continues after its Claude session ended, after an idle end or a daemon restart, continues in a fresh Claude session built from the record
-- [ ] #4 An event says the session continued in a fresh Claude session, and ADR 0007 lists the record
+- [x] #1 dipo stores a record per planning session in its database: each confirmed choice, filed or edited story and open question, in order
+- [x] #2 When the context nears full, dipo ends the Claude session and starts a fresh one whose first message code builds from the record
+- [x] #3 A session that continues after its Claude session ended, after an idle end or a daemon restart, continues in a fresh Claude session built from the record
+- [x] #4 An event says the session continued in a fresh Claude session, and ADR 0007 lists the record
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-06 13:21 UTC: verify-failing
+- Detail: required checks were red on 2 pushed heads (the CI cap is 2). Required check ci-ok failed on the pushed head.
+- Run: run_01M6RDZS9GM3QCAP758JP8JEDV
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 0 of 5; CI attempts: 2 of 2
+- Review rounds: 2, failed 1 of 3
+- Budget used: 243,285 of 800,000 tokens; 70 of 200 turns; 18 of 90 minutes
+- Last good commit: 1040a29b74d566591eed67b43ab9a573c829bfbc
+
+Resumed 2026-11-06 13:30 UTC; grants: +1 CI attempt; note: CI fails only on the contract JSON Schema export (verify shard 3: commands, reads and work schema 'equals a fresh export'). main moved on (DIPO-449 merged): merge origin/main into the branch, run bun…
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-06 14:53 UTC
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 1; CI attempts: 7 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 4, failed 1
+- Budget used: 479,839 of 800,000 tokens
+- Runs: 1; resumes: 1
+- Parks: 1
+  - 2026-11-06 13:21 UTC verify-failing: required checks were red on 2 pushed heads (the CI cap is 2). Required check ci-ok failed on the pushed head.
+- Grants: 1
+  - 2026-11-06 13:31 UTC +1 CI attempt
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -61,7 +61,8 @@ export type ParkReason = z.infer<typeof ParkReason>;
 // Why `work.run` did not start a story (0005). `notRunnable` covers states run never
 // picks; `capacity` means the office runs as many stories as `caps.parallelRuns` allows, or a run
 // without named stories started its one story. The office's starts paused
-// (0020) refuses the whole `work.run` instead of skipping a story.
+// (0020) refuses the whole `work.run` instead of skipping a story. `starting` means an earlier
+// `work.run` already decided to start the story and its claim and box are under way (DIPO-456).
 export const KNOWN_SKIP_REASONS = [
   "parked",
   "notReady",
@@ -70,6 +71,7 @@ export const KNOWN_SKIP_REASONS = [
   "collision",
   "capacity",
   "pickupCheckFailed",
+  "starting",
 ] as const;
 export const SkipReason = openEnum(KNOWN_SKIP_REASONS);
 export type SkipReason = z.infer<typeof SkipReason>;
@@ -391,14 +393,17 @@ export const KNOWN_PLANNING_STATES = ["starting", "working", "waiting", "ended"]
 export const PlanningState = openEnum(KNOWN_PLANNING_STATES);
 export type PlanningState = z.infer<typeof PlanningState>;
 
-// Why a planning session ended: the maintainer ended it, it waited for a message longer than
-// `planning.idleHours`, its worker exited, its start failed, or the daemon stopped.
+// Why a planning session's model session ended: the maintainer ended the planning session, it
+// waited for a message longer than `planning.idleHours`, its worker exited, its start failed, the
+// daemon stopped, or its context neared full (DIPO-448). Every reason but `maintainer` and a
+// failed first start leaves the planning session open to continue in a fresh model session.
 export const KNOWN_PLANNING_END_REASONS = [
   "maintainer",
   "idle",
   "exited",
   "start-failed",
   "daemon-stopped",
+  "context-full",
 ] as const;
 export const PlanningEndReason = openEnum(KNOWN_PLANNING_END_REASONS);
 export type PlanningEndReason = z.infer<typeof PlanningEndReason>;
@@ -664,6 +669,24 @@ export const PlanningProposalView = z.object({
 });
 export type PlanningProposalView = z.infer<typeof PlanningProposalView>;
 
+// How far setting one story of a planning session Ready got (DIPO-451): `refused` when the gate
+// failed it or it cannot be set yet (its `messages` say why) and it stays as it was, `setting`
+// while the lane change is journaled and not yet applied, `set` once the lane applied it, or
+// `failed` when the lane closed it with the reason in `detail`.
+export const KNOWN_READY_STATES = ["refused", "setting", "set", "failed"] as const;
+export const PlanningReadyState = openEnum(KNOWN_READY_STATES);
+export type PlanningReadyState = z.infer<typeof PlanningReadyState>;
+
+export const PlanningReadyView = z.object({
+  story: z.string(),
+  state: PlanningReadyState,
+  // The gate's messages for a refused story.
+  messages: z.array(z.string()).optional(),
+  detail: z.string().optional(),
+  at: Timestamp,
+});
+export type PlanningReadyView = z.infer<typeof PlanningReadyView>;
+
 // A proposal block the engine refused, with its problems, as the message to the session listed them.
 export const PlanningRefusal = z.object({ at: Timestamp, problems: z.array(z.string()) });
 export type PlanningRefusal = z.infer<typeof PlanningRefusal>;
@@ -692,6 +715,8 @@ export const PlanningView = z.object({
   continuedAt: Timestamp.optional(),
   proposals: z.array(PlanningProposalView).optional(),
   refusals: z.array(PlanningRefusal).optional(),
+  // The stories the maintainer chose to go Ready, and how far each got (DIPO-451).
+  ready: z.array(PlanningReadyView).optional(),
 });
 export type PlanningView = z.infer<typeof PlanningView>;
 
