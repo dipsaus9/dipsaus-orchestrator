@@ -1,6 +1,6 @@
 // Migration 3 (DIPO-452): the worker proposals still open on the desk when ideas land are held as
-// ideas of their run and story, and audited once; a dismissed or accepted proposal is not, and
-// every proposal stays on the desk as it was.
+// ideas of their run and story, and audited once; a dismissed or accepted proposal is not.
+// Migration 6 (DIPO-454) then drops the proposals table: a proposal is an idea only.
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
@@ -12,9 +12,10 @@ import { OFFICE_DEFAULTS } from "../../src/config";
 import { openStateDatabase } from "../../src/db/database";
 import { ideaIdOf, proposalIdeaText } from "../../src/db/idea-ids";
 import { MIGRATIONS } from "../../src/db/schema";
-import { ideaViews } from "../../src/records/ideas";
+import { ideaViews, openPassedIdeas } from "../../src/records/ideas";
 import { auditRef, type AuditSessionRequest, IdeaAudits } from "../../src/run/idea-audits";
-import { proposalHash, storeProposals } from "../../src/run/report-data";
+import { hasTable } from "../../src/records/open-feedback";
+import { storeProposals } from "../../src/run/report-data";
 import { localMounts, memoryLogger } from "./helpers";
 
 const OFFICE = OfficeId.parse("off_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D");
@@ -34,7 +35,7 @@ function options(dir: string, migrations: typeof MIGRATIONS, clock: ManualClock)
   };
 }
 
-const H1 = proposalHash({ title: "Cap the PR poll retry", paths: ["src/poll.ts"] });
+const H1 = "h1";
 
 const proposalRow = (hash: string, title: string, state: string) => ({
   hash,
@@ -46,7 +47,7 @@ const proposalRow = (hash: string, title: string, state: string) => ({
 });
 
 describe("the open worker proposals at the upgrade (DIPO-452)", () => {
-  it("are held as ideas and audited once, and stay on the desk", () =>
+  it("are held as ideas and audited once, and the proposals table goes", () =>
     withTempDir(async (dir) => {
       const clock = new ManualClock();
       const before = await openStateDatabase(options(dir, MIGRATIONS.slice(0, 2), clock));
@@ -92,15 +93,7 @@ describe("the open worker proposals at the upgrade (DIPO-452)", () => {
             createdAt: new Date(5).toISOString(),
           },
         ]);
-        expect(
-          office.all<{ hash: string; state: string }>(
-            "select hash, state from proposals where office_id = $office_id order by hash",
-          ),
-        ).toEqual([
-          { hash: H1, state: "open" },
-          { hash: "h2", state: "dismissed" },
-          { hash: "h3", state: "accepted" },
-        ]);
+        expect(hasTable(office, "proposals")).toBe(false);
         // The worker's same proposal stored again by the live path is the same idea.
         office.immediate(() =>
           storeProposals(office, {
@@ -153,6 +146,74 @@ describe("the open worker proposals at the upgrade (DIPO-452)", () => {
         expect(ideaViews(office).map((idea) => [idea.state, idea.reason])).toEqual([
           ["rejected", "DIPO-30 covers it."],
         ]);
+      } finally {
+        state.close();
+      }
+    }));
+});
+
+/** Inserts a proposals row of the office, as a dipo before migration 6 did. */
+const insertProposal = (
+  db: Awaited<ReturnType<typeof openStateDatabase>>["connection"],
+  row: ReturnType<typeof proposalRow>,
+) =>
+  db.run(
+    `insert into proposals (office_id, hash, story_key, run_id, kind, title, story_line,
+       why, paths, state, created_at, updated_at)
+     values ($office, $hash, $key, $run, 'follow-up', $title, $story_line, $why, $paths,
+       $state, 5, 5)`,
+    { office: OFFICE, key: KEY, run: RUN, ...row },
+  );
+
+describe("the answered worker proposals at migration 6 (DIPO-454)", () => {
+  it("keep the maintainer's answer on their idea, so neither comes back on the desk", () =>
+    withTempDir(async (dir) => {
+      const clock = new ManualClock();
+      // Version 2: two open proposals, which migration 3 holds as ideas.
+      const v2 = await openStateDatabase(options(dir, MIGRATIONS.slice(0, 2), clock));
+      try {
+        const db = v2.connection;
+        db.immediate(() => {
+          db.run(
+            `insert into offices (office_id, path, display_name, added_at, next_seq)
+             values ($office, '/repos/demo', 'demo', 0, 1)`,
+            { office: OFFICE },
+          );
+          insertProposal(db, proposalRow("h1", "Cap the PR poll retry", "open"));
+          insertProposal(db, proposalRow("h2", "Back off the fetch", "open"));
+        });
+      } finally {
+        v2.close();
+      }
+      // Version 5: the ideas pass the audit, and the maintainer answers the proposals on the old
+      // desk: one accepted as DRAFT-4, one dismissed.
+      const v5 = await openStateDatabase(options(dir, MIGRATIONS.slice(0, 5), clock));
+      try {
+        const db = v5.connection;
+        db.immediate(() => {
+          db.run(
+            `update ideas set state = 'passed', decided_by = 'audit', proposal = '{}', decided_at = 6`,
+          );
+          db.run(
+            "update proposals set state = 'accepted', draft_id = 'DRAFT-4', updated_at = 7 where hash = 'h1'",
+          );
+          db.run("update proposals set state = 'dismissed', updated_at = 8 where hash = 'h2'");
+        });
+      } finally {
+        v5.close();
+      }
+
+      const state = await openStateDatabase(options(dir, MIGRATIONS, clock));
+      try {
+        const office = state.office(OFFICE);
+        expect(
+          ideaViews(office).map((idea) => [idea.title, idea.answer, idea.answeredAt, idea.draft]),
+        ).toEqual([
+          ["Cap the PR poll retry", "accepted", new Date(7).toISOString(), "DRAFT-4"],
+          ["Back off the fetch", "dismissed", new Date(8).toISOString(), undefined],
+        ]);
+        expect(openPassedIdeas(office)).toEqual([]);
+        expect(hasTable(office, "proposals")).toBe(false);
       } finally {
         state.close();
       }

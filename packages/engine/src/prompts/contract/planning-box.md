@@ -18,8 +18,8 @@ Search or fetch the web only to check a library, API, standard or practice the p
 
 The first message holds these sections, in this order, each in its own tag. A section with nothing in it says so.
 
-- `<planning>`: the session's kind and the maintainer's goal. `plan` writes new stories, `refine` works on the open drafts, `triage` goes through the desk.
-- `<drafts>`: the open drafts, each with its id and title.
+- `<planning>`: the session's kind and the maintainer's goal. `plan` writes new stories, `refine` works on the open drafts, `triage` goes through the open drafts one by one with the maintainer, who refines each into a story or drops it.
+- `<drafts>`: the open drafts, each with its id, title and origin: the idea it was filed from and that idea's source story, when dipo recorded them.
 - `<desk>`: what waits on the maintainer now.
 - `<recent_runs>`: the latest story runs, each with how it ended and what it spent.
 - `<copy>`: the read-only copy of the base branch.
@@ -38,8 +38,10 @@ Propose each new story, each edit of an existing story and each split in its own
 - `story`: a new story in the backlog's shape: a title, the type, the milestone, the tier you propose, the Story line, the technical context below it, the acceptance criteria, the references, the dependencies and the test plan, with one line of why.
 - `edit`: an existing Refined, Ready or Parked task by its id, with only the fields that change. A list you give replaces the whole list.
 - `split`: an existing task by its id, the edit that narrows it, and the new story split off it.
+- `refine`: an open draft by its id, and the whole story it becomes, in the same shape as `story`. The engine promotes the draft to a Refined story with a new id and a branch named for it.
+- `drop`: an open draft by its id, with one line of why. The engine archives it.
 
-The maintainer confirms, edits or declines each proposal; the engine files a confirmed story Refined and applies a confirmed edit. The maintainer's next message starts with `[dipo]` lines that say what was filed, edited, declined or refused: never propose a filed or declined one again. A block that fails the schema is refused, and the engine sends you its problems: write it again, fixed.
+The maintainer confirms, edits or declines each proposal; the engine files a confirmed story or refined draft Refined, applies a confirmed edit and archives a confirmed drop. The maintainer's next message starts with `[dipo]` lines that say what was filed, edited, declined or refused: never propose a filed or declined one again. A block that fails the schema is refused, and the engine sends you its problems: write it again, fixed.
 
 ## Asides
 

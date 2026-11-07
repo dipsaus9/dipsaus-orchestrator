@@ -96,10 +96,11 @@ function setStatus(dir: string, id: string, status: string): void {
 
 function draft(n: number): ProposedDraft {
   return {
-    proposal: String(n).repeat(64),
+    idea: String(n).repeat(64),
     title: `Split the module ${n}`,
     description: `Story: As maintainer I want module ${n} split in two so that each module stays small enough to read.`,
     references: ["src/module.ts"],
+    labels: [],
   };
 }
 

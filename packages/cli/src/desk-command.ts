@@ -2,6 +2,8 @@
 // from `--office` or the current directory and prints what waits on the maintainer in plain text: a
 // count line, then one line per item in the engine's order with an indented line holding the
 // command to type, and the stories the maintainer parked listed apart at the end, "Parked by you".
+// A proposed story (DIPO-454) also prints its card in full under its command line: what was found
+// with its evidence and source story, the Story line, what is proposed, why and what it serves.
 // `--json` prints the read's result. An empty desk prints `Nothing waits on you.`. The order, the
 // details and the command lines all come from the engine; this file only lays them out. Read only:
 // it never starts the daemon, and never offers to open a folder that is not an office.
@@ -9,7 +11,7 @@
 import { basename } from "node:path";
 
 import { usageParts } from "@dipsaus-orchestrator/client";
-import { type DeskItem, officeDesk } from "@dipsaus-orchestrator/contract";
+import { type DeskItem, officeDesk, proposedStoryLines } from "@dipsaus-orchestrator/contract";
 
 import { engineFailure, usage } from "./daemon-commands";
 import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
@@ -66,6 +68,11 @@ export function formatDesk(
     const reason = item.reason === undefined ? "" : `${item.reason} · `;
     lines.push(`${item.kind.padEnd(kindWidth)} ${story}  ${reason}${item.detail}  ${since}`);
     lines.push(`${" ".repeat(kindWidth + 1)}${commandLine(item)}`);
+    if (item.idea !== undefined) {
+      for (const line of proposedStoryLines(item.idea.story)) {
+        lines.push(`${" ".repeat(kindWidth + 3)}${line}`);
+      }
+    }
   }
   // The stories parked by the maintainer, listed apart at the end (0020).
   byYou.forEach((item, at) => {

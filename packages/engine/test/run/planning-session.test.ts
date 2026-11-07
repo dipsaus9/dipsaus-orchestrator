@@ -182,7 +182,9 @@ describe("a planning session (DIPO-447)", () => {
       const first = JSON.parse(w.plans[0]?.stdin[0] ?? "{}") as { message: { content: string } };
       const text = first.message.content;
       expect(text).toContain("<planning>\nkind: refine\ngoal: Split the M3 drafts\n</planning>");
-      expect(text).toContain("<drafts>\n- DRAFT-1: Retro numbers\n</drafts>");
+      expect(text).toContain(
+        "<drafts>\n- DRAFT-1: Retro numbers (origin: not recorded; filed by hand or before dipo kept it)\n</drafts>",
+      );
       expect(text).not.toContain("DIPO-12: A refined story");
       expect(text).toContain("<desk>\n- gate DIPO-9: merge waits for the maintainer\n</desk>");
       expect(text).toContain(

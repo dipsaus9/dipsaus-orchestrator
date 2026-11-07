@@ -381,7 +381,8 @@ export type TestEndReason = z.infer<typeof TestEndReason>;
 
 // The maintainer's planning session (DIPO-447, 0008): one per office, started with a kind and a
 // goal, talked to turn by turn. It has no story, so its events carry the planning view, never a
-// `WorkRef`. `plan` writes new stories, `refine` works on drafts, `triage` goes through the desk.
+// `WorkRef`. `plan` writes new stories, `refine` works on drafts, `triage` goes through the drafts with
+// their origin and refines each into a story or drops it (DIPO-454).
 export const PLANNING_KINDS = ["plan", "refine", "triage"] as const;
 export const PlanningKind = openEnum(PLANNING_KINDS);
 export type PlanningKind = z.infer<typeof PlanningKind>;
@@ -412,7 +413,9 @@ export type PlanningEndReason = z.infer<typeof PlanningEndReason>;
 // engine validates it against `PlanningProposal` and refuses an invalid one with a message to
 // the session that lists its problems. `story` is a new story, filed Refined to the story standard
 // (0012); `edit` changes an existing task's title, Story line, context, criteria or references;
-// `split` files a new story and edits the existing one. Every text is one line unless it is the
+// `split` files a new story and edits the existing one; `refine` turns a draft into a Refined story
+// to the story standard, with its new id and a branch named for it, and `drop` archives a draft
+// (DIPO-454, triage). Every text is one line unless it is the
 // context below the Story line; `storyLine` is the Story line without its `Story:` prefix.
 export const PLANNING_PROPOSAL_FENCE = "dipo-proposal";
 
@@ -501,6 +504,9 @@ const ProposalTaskId = z
   .string()
   .regex(/^[A-Za-z][A-Za-z0-9]*-[0-9]+$/, "must be a task id such as DIPO-12")
   .refine((id) => !/^DRAFT-/i.test(id), "must name a task, not a draft");
+
+// A draft's id such as `DRAFT-3` (DIPO-454).
+const ProposalDraftId = z.string().regex(/^DRAFT-[0-9]+$/i, "must be a draft id such as DRAFT-3");
 
 export const PlanningTestPlanEntry = z.strictObject({
   kind: z.enum(["automated", "manual"]),
@@ -624,6 +630,19 @@ export const PlanningProposal = z.discriminatedUnion("kind", [
     id: ProposalTaskId.describe("the task that is split"),
     edit: PlanningEditFields.describe("the changes to the task that is split"),
     story: PlanningStoryFields.describe("the new story split off it"),
+    why: Why,
+  }),
+  z
+    .strictObject({
+      kind: z.literal("refine"),
+      draft: ProposalDraftId.describe("the draft refined into this story"),
+      ...storyShape,
+      why: Why,
+    })
+    .superRefine(storyChecks),
+  z.strictObject({
+    kind: z.literal("drop"),
+    draft: ProposalDraftId.describe("the draft that is dropped"),
     why: Why,
   }),
 ]);

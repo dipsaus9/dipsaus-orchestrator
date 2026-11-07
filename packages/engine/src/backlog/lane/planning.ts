@@ -2,7 +2,7 @@
 // change the engine asks for becomes a journaled operation of its kind with its target state, and
 // the reads answer from the journal. `story.park` and `story.drop` (DIPO-160), `work.resume` of a
 // hold, `work.discard` (DIPO-161), the pickup check's move to Refined (DIPO-48), an accepted
-// proposal (DIPO-166) and the stories a planning session files and edits (DIPO-450) reach the lane
+// idea (DIPO-166, DIPO-454) and the stories a planning session files and edits (DIPO-450) reach the lane
 // only through it.
 
 import type { LaneFlush, StoryKey } from "@dipsaus-orchestrator/contract";
@@ -18,6 +18,7 @@ import {
   OPEN_STATES,
   PROPOSE_KIND,
   READY_KIND,
+  REFINE_KIND,
   RESUME_KIND,
   REVISE_KIND,
   type PlannedChange,
@@ -215,6 +216,8 @@ export function planningLane(lane: OfficeLane): PlanningLane {
     fileStory: (target) => lane.journal({ kind: FILE_KIND, subject: NEW_STORY, target }),
     reviseStory: ({ key, story }, target) =>
       lane.journal({ kind: REVISE_KIND, key, subject: story, target }),
+    refineDraft: ({ key, story }, target) =>
+      lane.journal({ kind: REFINE_KIND, key, subject: story, target }),
     outcomeOf(change) {
       const entry = findEntry(lane.office, change.opId);
       return entry === null ? undefined : outcomeOfEntry(entry);
@@ -250,12 +253,12 @@ export function planningLane(lane: OfficeLane): PlanningLane {
           .filter((entry) => entry.kind === DROP_KIND && OPEN_STATES.includes(entry.state))
           .flatMap((entry) => (entry.key === null ? [] : [entry.key])),
       ),
-    draftOf(proposal) {
+    draftOf(idea) {
       const entry = allEntries(lane.office).find(
         (candidate) =>
           candidate.kind === PROPOSE_KIND &&
           (OPEN_STATES.includes(candidate.state) || candidate.state === "merged") &&
-          (candidate.target as { proposal?: unknown } | null)?.proposal === proposal,
+          (candidate.target as { idea?: unknown } | null)?.idea === idea,
       );
       return entry === undefined
         ? undefined

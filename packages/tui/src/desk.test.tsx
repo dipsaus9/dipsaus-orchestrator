@@ -119,18 +119,49 @@ const backlogPr = DeskItem.parse({
   hand: "fix the branch backlog/add of PR #9 by hand on GitHub (https://github.com/o/r/pull/9)",
 });
 
+// A proposed story (DIPO-454): its card holds the proposed user story in full.
+const FOUND = `RunOutcomes holds the end of a run and its retro rows in one class. ${"It keeps growing past what one reader holds. ".repeat(4)}The end of the finding.`;
 const proposal = DeskItem.parse({
-  kind: "PROPOSAL",
+  kind: "PROPOSED STORY",
   story: "DIPO-21",
-  key: KEY_21,
-  proposal: { id: PROPOSAL, kind: "follow-up", title: "Split RunOutcomes", run: RUN_21 },
-  detail: `follow-up "Split RunOutcomes" · the file is long · from ${RUN_21}`,
+  idea: {
+    id: PROPOSAL,
+    origin: "proposal",
+    title: "Split RunOutcomes",
+    run: RUN_21,
+    story: {
+      found: FOUND,
+      evidence: [
+        { file: "packages/engine/src/run/outcomes.ts", line: 12, quote: "class RunOutcomes" },
+      ],
+      sourceStory: "DIPO-21",
+      storyLine:
+        "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
+      proposed: "Split it into an end module and a retro module.",
+      why: "It grew.",
+      serves: "m-3",
+    },
+  },
+  detail: `"Split RunOutcomes" · milestone m-3 · from a worker's proposal`,
   since: ago(180),
   blocks: [],
   actions: [
-    { command: "proposal.accept", cli: `dipo propose accept ${PROPOSAL}` },
-    { command: "proposal.dismiss", cli: `dipo propose dismiss ${PROPOSAL}` },
+    { command: "idea.accept", cli: `dipo idea accept ${PROPOSAL}` },
+    { command: "idea.dismiss", cli: `dipo idea dismiss ${PROPOSAL}` },
   ],
+});
+
+const NOTE = "cd".repeat(32);
+const note = DeskItem.parse({
+  kind: "DECISION NOTE",
+  story: "DIPO-31",
+  key: KEY_21,
+  note: { id: NOTE, title: "Decision note for docs/x.md", run: RUN_21 },
+  detail: 'decision note · docs/x.md, section "4": Note.',
+  since: ago(200),
+  blocks: [],
+  actions: [{ command: "note.dismiss", cli: `dipo note dismiss ${NOTE}` }],
+  hand: "dipo never writes decision records: add the note by hand if you agree",
 });
 
 const byYou = DeskItem.parse({
@@ -255,7 +286,7 @@ describe("key 3 shows Your desk", () => {
     const start = shown.indexOf(" Your desk (7)");
     expect(start).toBeGreaterThan(0);
     const rows = shown.slice(start + 1).filter((line) => /^ [▌ ] [A-Z]/.test(line));
-    const kinds = ["PARKED BY YOU", "BACKLOG PR", "QUESTION", "PROPOSAL", "PARKED", "MERGE"];
+    const kinds = ["PARKED BY YOU", "BACKLOG PR", "QUESTION", "PROPOSED STORY", "PARKED", "MERGE"];
     expect(rows.map((row) => kinds.find((kind) => row.slice(3).startsWith(kind)))).toEqual([
       "QUESTION",
       "MERGE",
@@ -263,7 +294,7 @@ describe("key 3 shows Your desk", () => {
       "PARKED",
       "PARKED",
       "BACKLOG PR",
-      "PROPOSAL",
+      "PROPOSED STORY",
       "PARKED BY YOU",
     ]);
     // Kind, story, reason, detail, age and the row's keys.
@@ -312,7 +343,7 @@ describe("the desk stays current", () => {
     const office = session.active(STREAM)?.options;
     // Within the second after the read: three changes make one more read, at its end.
     office?.onEvent(event(8, "question.asked", { question: Q19 }));
-    office?.onEvent(event(9, "proposal.filed", { proposal: PROPOSAL }));
+    office?.onEvent(event(9, "idea.passed", { idea: PROPOSAL, origin: "proposal", title: "t" }));
     office?.onEvent(event(10, "gate.decided", { gate: GATE_12 }));
     await Bun.sleep(DESK_READ_INTERVAL_MS / 2);
     expect(deskReads(session)).toBe(1);
@@ -373,7 +404,7 @@ describe("the desk stays current", () => {
     await until(() => deskReads(session) === 2, "the desk read after the reset");
     const rows = () => lines(ui.frame()).filter((line) => /^ [▌ ] [A-Z]/.test(line));
     await until(
-      () => rows()[0]?.includes("PROPOSAL") === true,
+      () => rows()[0]?.includes("PROPOSED STORY") === true,
       `the desk read after the reset on screen:\n${ui.frame()}`,
     );
     const selected = rows().filter((line) => line.startsWith(" ▌ "));
@@ -384,17 +415,60 @@ describe("the desk stays current", () => {
 });
 
 describe("the key table on desk rows", () => {
-  it("accepts a PROPOSAL row with y and dismisses one with n", async () => {
+  it("accepts a PROPOSED STORY row with y and dismisses one with n (DIPO-454)", async () => {
     const { ui, session } = await openDesk();
     await selectRow(ui, "DIPO-21");
     expect(lines(ui.frame()).at(-1)).toContain("[y] accept [n] dismiss");
     await ui.press("y");
-    await until(() => session.commands.length === 1, "proposal.accept");
+    await until(() => session.commands.length === 1, "idea.accept");
     await ui.press("n");
-    await until(() => session.commands.length === 2, "proposal.dismiss");
+    await until(() => session.commands.length === 2, "idea.dismiss");
     expect(sent(session)).toEqual([
-      { name: "proposal.accept", args: { proposal: PROPOSAL } },
-      { name: "proposal.dismiss", args: { proposal: PROPOSAL } },
+      { name: "idea.accept", args: { idea: PROPOSAL } },
+      { name: "idea.dismiss", args: { idea: PROPOSAL } },
+    ]);
+  });
+
+  it("opens a PROPOSED STORY's card with Enter, its proposed user story in full", async () => {
+    const { ui, session } = await openDesk();
+    await selectRow(ui, "DIPO-21");
+    await ui.press("enter");
+    const frame = await ui.waitFor("proposed story");
+    // Wrapped, never cut: the end of the long finding and every part are on screen.
+    const text = lines(frame)
+      .map((line) => line.trim())
+      .join(" ");
+    expect(text).toContain("The end of the finding.");
+    expect(text).toContain('Evidence: packages/engine/src/run/outcomes.ts:12 "class RunOutcomes"');
+    expect(text).toContain("Source story: DIPO-21");
+    expect(text).toContain("Story: As maintainer I want the run outcomes split into two modules");
+    expect(text).toContain("Proposed: Split it into an end module and a retro module.");
+    expect(text).toContain("Why: It grew.");
+    expect(text).toContain("Serves: milestone m-3");
+    expect(text).toContain("from a worker's proposal");
+    // No story read: the card is the desk item.
+    expect(session.reads.filter((read) => read.name === "story.detail")).toEqual([]);
+  });
+
+  it("dismisses a DECISION NOTE row with n through note.dismiss", async () => {
+    const { ui, session } = await openDesk({ desk: [...DESK, note] });
+    await selectRow(ui, "DIPO-31");
+    await ui.press("n");
+    await until(() => session.commands.length === 1, "note.dismiss");
+    expect(sent(session)).toEqual([{ name: "note.dismiss", args: { note: NOTE } }]);
+  });
+
+  it("hands a quick idea to the audit with i on any row (criterion 5)", async () => {
+    const { ui, session } = await openDesk();
+    await selectRow(ui, "DIPO-26");
+    expect(lines(ui.frame()).at(-1)).toContain("[i]dea");
+    await ui.press("i");
+    await ui.waitFor("idea (its first words are its title): _");
+    await ui.press("Show the spend per tier");
+    await ui.press("enter");
+    await until(() => session.commands.length === 1, "idea.add");
+    expect(sent(session)).toEqual([
+      { name: "idea.add", args: { text: "Show the spend per tier" } },
     ]);
   });
 
@@ -778,26 +852,24 @@ describe("answers, closed prompts, read-your-writes and retry", () => {
   it("is done only once the office stream passes the reply cursor", async () => {
     const { ui, session } = await openDesk();
     session.commandReply = (name) =>
-      name === "proposal.accept"
+      name === "idea.accept"
         ? {
             ok: true,
-            result: { proposal: PROPOSAL, state: "accepted" },
+            result: { idea: PROPOSAL, state: "accepted" },
             changed: true,
             cursor: { stream: STREAM, seq: 20 },
           }
         : undefined;
     await selectRow(ui, "DIPO-21");
     await ui.press("y");
-    await ui.waitFor("accept proposal: answered, waiting for the office stream");
+    await ui.waitFor("accept proposed story: answered, waiting for the office stream");
     session.active(STREAM)?.options.onEvent(event(19, "work.progress", { work: { run: RUN_21 } }));
     await Bun.sleep(150);
-    expect(ui.frame()).toContain("accept proposal: answered, waiting for the office stream");
+    expect(ui.frame()).toContain("accept proposed story: answered, waiting for the office stream");
     session
       .active(STREAM)
-      ?.options.onEvent(
-        event(20, "proposal.closed", { proposal: PROPOSAL, key: KEY_21, state: "accepted" }),
-      );
-    await ui.waitFor("accept proposal: done");
+      ?.options.onEvent(event(20, "idea.answered", { idea: PROPOSAL, state: "accepted" }));
+    await ui.waitFor("accept proposed story: done");
   });
 
   it("offers Ctrl-R after a retryable error and sends the same request id again", async () => {

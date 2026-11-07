@@ -1,10 +1,10 @@
-=== S1 Desk: what needs you (Since band, SETUP, PROPOSALS, PROPOSAL preview, +2 elsewhere) · ux-spec mock 1 · 112 cols × 30 rows ===
+=== S1 Desk: what needs you (Since band, SETUP, PROPOSALS, PROPOSED STORY preview, +2 elsewhere) · ux-spec mock 1 · 112 cols × 30 rows ===
 [acc]**dipo**[/][dim] / [/]dipsaus-orchestrator[dim]   [/][acc]+2[/][dim] elsewhere · [/][acc]O[/]                            [ok]●[/] daemon live[dim]    $19.14 today    10:42[/]
 [hi]__1 Desk [acc]3[/]__[/]    [dim]2 Floor 2[/]    [dim]3 Queue 0·6[/]    [dim]4 Retro[/]
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [dim]Since 09:41 · [fg]1 merged[/] · 2 new proposals · $4.10 spent                                        any key to dismiss[/]
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-[hi]**NEEDS YOU**[/]                                  [acc]3  [/][faint]│[/]  [dim]PROPOSAL · follow-up to DIPO-447[/]
+[hi]**NEEDS YOU**[/]                                  [acc]3  [/][faint]│[/]  [dim]PROPOSED STORY · follow-up to DIPO-447[/]
                                               [faint]│[/]  [hi]**CLI verbs for the planning session**[/]
 [dim]SETUP[/]                                         [faint]│[/]
   [err]✗[/] dev profile unresolved                [dim]1h  [/][faint]│[/]  As maintainer I want [acc]dipo plan start[/], [acc]say[/] and [acc]end[/] so I can
@@ -21,7 +21,7 @@
                                               [faint]│[/]
                                               [faint]│[/]  [dim]Accepting files it as a Backlog draft. You refine it in a[/]
                                               [faint]│[/]  [dim]planning session.[/]
-                                              [faint]│[/]  [dim]$ dipo proposal accept 3f9a01c2[/]
+                                              [faint]│[/]  [dim]$ dipo idea accept 3f9a01c2[/]
                                               [faint]│[/]
                                               [faint]│[/]
                                               [faint]│[/]

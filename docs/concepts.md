@@ -45,8 +45,8 @@ Shared vocabulary, matching the ADRs in `docs/decisions/` (checked 2026-11-03). 
 | **Acceptance test** | The maintainer testing the behaviour of a story with `dipo test` (0002) |
 | **Cutover** | The point from which dipo delivered its own stories (DIPO-115, M0). The prune cutover gate (DIPO-351, passed 2026-10-29) is a separate, later event (0003) |
 | **State database** | The one local SQLite file with the run detail and dipo's own state of every office, keyed by office, outside every repository. Never the only copy of a story fact (0007) |
-| **Your desk** | Everything waiting on the maintainer, in one ordered list: starts paused, questions, merge gates, parked stories, hand actions, proposals (0020) |
-| **Proposal** | A follow-up, spike or tool a worker suggests. Nothing happens until the maintainer accepts it (0020) |
+| **Your desk** | Everything waiting on the maintainer, in one ordered list: starts paused, questions, merge gates, parked stories, hand actions, proposed stories and decision notes (0020) |
+| **Proposal** | A follow-up, spike or tool a worker suggests. It is held as an idea and audited (0022); only one that passes reaches the desk, as a proposed story the maintainer accepts as a draft or dismisses (0020) |
 | **Health** | The engine-derived state of a running session: `lost`, `looping`, `stuck`, `quiet`, `busy` (0009) |
 | **Evidence label** | How a value the engine sends is known: `checked` (engine measured it), `claimed` (worker, CLI or reviewer said so), `estimated` (computed by a rule), `none` (no fact). The TUI does not show it (0009) |
 | **ADR** | Architecture decision record in `docs/decisions/`. Describes what runs; each decision lives in one ADR, and a changed decision rewrites the body (0003) |

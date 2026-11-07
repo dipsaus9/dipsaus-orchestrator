@@ -301,24 +301,46 @@
       "id": "accept",
       "key": "y",
       "label": "accept",
-      "command": "proposal.accept",
+      "command": "idea.accept",
       "views": [
         "desk"
       ],
-      "when": "item.kind == PROPOSAL",
-      "consequence": "DeskAction.consequence (engine addition): Accepting files it as a Backlog draft. You refine it in a planning session.",
+      "when": "item.kind == PROPOSED STORY",
+      "consequence": "DeskAction.consequence (engine addition): Accepting files it as a Backlog draft. You refine it in a triage session.",
       "priority": 1
     },
     {
       "id": "dismiss",
       "key": "n",
       "label": "dismiss",
-      "command": "proposal.dismiss",
+      "command": "idea.dismiss",
       "views": [
         "desk"
       ],
-      "when": "item.kind == PROPOSAL",
+      "when": "item.kind == PROPOSED STORY",
       "priority": 1
+    },
+    {
+      "id": "dismissNote",
+      "key": "n",
+      "label": "dismiss",
+      "command": "note.dismiss",
+      "views": [
+        "desk"
+      ],
+      "when": "item.kind == DECISION NOTE",
+      "priority": 1
+    },
+    {
+      "id": "quickIdea",
+      "key": "i",
+      "label": "idea…",
+      "command": "idea.add",
+      "views": [
+        "desk"
+      ],
+      "when": "always: hands the maintainer's quick idea to the audit (0022)",
+      "priority": 5
     },
     {
       "id": "nextConfirm",

@@ -223,12 +223,41 @@ export interface EntryChange {
 }
 
 /** Moves an entry to a new state. Runs inside the caller's transaction. */
+/**
+ * The start of the notice of an operation dropped because its target state is on the open branch
+ * already: dropped, but what it asks for holds (DIPO-450).
+ */
+export const ALREADY_ON_BRANCH = "its target state is already on the open branch";
+
+/**
+ * True when `change` takes back what an applied operation wrote: it goes back to `pending` (its
+ * branch or backlog PR was given up and it is applied again on a new one), or it was dropped, failed
+ * or withdrawn, unless it was dropped because its target state is on the open branch already.
+ */
+function undoes(change: EntryChange): boolean {
+  if (change.state === "pending" || change.state === "failed" || change.state === "withdrawn") {
+    return true;
+  }
+  return change.state === "dropped" && change.notice?.startsWith(ALREADY_ON_BRANCH) !== true;
+}
+
 export function updateEntry(
   office: OfficeHandle,
   opId: number,
   change: EntryChange,
   now: number,
 ): void {
+  // A triage refine that is undone no longer promotes its draft (DIPO-454): the draft's key must
+  // not be renumbered to an id that may never reach the base. A refine applied again records it anew.
+  if (undoes(change)) {
+    office.run(
+      `update stories set promoted_to = null
+        where office_id = $office_id and promoted_to is not null
+          and key = (select key from backlog_journal
+                      where office_id = $office_id and op_id = $op and op_kind = 'refine')`,
+      { op: opId },
+    );
+  }
   const closed = !OPEN_STATES.includes(change.state);
   office.run(
     `update backlog_journal set

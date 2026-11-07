@@ -15,8 +15,7 @@
 //   a cap), is dropped with a notice that carries the proposal's words
 //   (`droppedProposalNotices`). The rest of the report goes on: a proposal never parks a story.
 // - Storage: every done report's test-plan entries and deviations (`done_reports`), the proposals
-//   of every report (`proposals`, deduplicated by a hash of the title and the paths) and the
-//   send-once marks (`report_sendbacks`). Storing changes nothing about the story's status, the
+//   of every report held as ideas of the run (`ideas`, DIPO-452, DIPO-454) and the send-once marks (`report_sendbacks`). Storing changes nothing about the story's status, the
 //   run's end or the commit.
 
 import { createHash } from "node:crypto";
@@ -28,7 +27,7 @@ import {
   type TestPlan,
 } from "@dipsaus-orchestrator/contract";
 
-import { appendEntries, type NewEntry } from "../changelog/log";
+import type { NewEntry } from "../changelog/log";
 import { proposalIdeaText } from "../db/idea-ids";
 import type { OfficeHandle } from "../db/office";
 import { checkStoryLine } from "../gate/rules";
@@ -340,23 +339,11 @@ function oneLine(text: string, max: number): string {
   return chars.length <= max ? chars.join("") : `${chars.slice(0, max - 1).join("")}…`;
 }
 
-/** The dedupe hash of a proposal: its title and its paths, sorted. */
-export function proposalHash(proposal: Pick<WorkerProposal, "title" | "paths">): string {
-  return hashOf([proposal.title.trim(), ...[...(proposal.paths ?? [])].toSorted()]);
-}
-
-/** The longest title a `proposal.filed` event carries, in characters (the report's own cap). */
-const FILED_TITLE_MAX = 120;
-
 /**
- * Stores a report's proposals for the maintainer, state open; a proposal with the same title and
- * paths as a stored one is not stored again. Each stored one appends a `proposal.filed` entry
- * (DIPO-166) in the caller's transaction, its title cleaned and on one line. Returns how many rows
- * were added.
- *
- * Each proposal is also held as an idea of the run (DIPO-452), audited once the run is merged or
- * parked; until the desk shows the audited ideas (DIPO-454) the proposal still goes to the desk
- * unchanged.
+ * Holds a report's proposals as ideas of its run (0022, DIPO-452), audited once the run is merged
+ * or parked; the same proposal of the same run is held once. A proposal reaches the desk only once
+ * its audit passed, as a proposed user story (DIPO-454). Returns how many were held. Inside the
+ * caller's transaction.
  */
 export function storeProposals(
   office: OfficeHandle,
@@ -367,14 +354,9 @@ export function storeProposals(
     readonly at: number;
   },
 ): number {
-  const story =
-    office.get<{ story_id: string }>(
-      "select story_id from stories where office_id = $office_id and key = $key",
-      { key: input.key },
-    )?.story_id ?? null;
-  const filed: NewEntry[] = [];
+  let held = 0;
   for (const proposal of input.proposals) {
-    holdIdea(office, {
+    const id = holdIdea(office, {
       origin: "proposal",
       key: input.key,
       runId: input.runId,
@@ -382,41 +364,9 @@ export function storeProposals(
       text: proposalIdeaText(proposal.story, proposal.why, proposal.paths ?? []),
       at: input.at,
     });
-    const hash = proposalHash(proposal);
-    const changes = office.run(
-      `insert into proposals (office_id, hash, story_key, run_id, kind, title, story_line, why,
-         paths, created_at, updated_at)
-       values ($office_id, $hash, $key, $run, $kind, $title, $story_line, $why, $paths, $at, $at)
-       on conflict (office_id, hash) do nothing`,
-      {
-        hash,
-        key: input.key,
-        run: input.runId,
-        kind: proposal.kind,
-        title: proposal.title,
-        story_line: proposal.story,
-        why: proposal.why,
-        paths: JSON.stringify(proposal.paths ?? []),
-        at: input.at,
-      },
-    ).changes;
-    if (changes === 0) continue;
-    filed.push({
-      type: "proposal.filed",
-      key: input.key,
-      run: input.runId,
-      delta: {
-        proposal: hash,
-        kind: proposal.kind,
-        key: input.key,
-        ...(story === null ? {} : { story }),
-        run: input.runId,
-        title: oneLine(proposal.title, FILED_TITLE_MAX),
-      },
-    });
+    if (id !== null) held += 1;
   }
-  appendEntries(office, filed, { at: input.at });
-  return filed.length;
+  return held;
 }
 
 /** The key of a stored decision note: its story, file, section and text. */

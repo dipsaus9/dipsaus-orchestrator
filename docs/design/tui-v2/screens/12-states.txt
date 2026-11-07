@@ -45,7 +45,7 @@
     [acc]l[/] open daemon log   [acc]c[/] copy the restore command
 [dim]    $ dipo daemon logs[/]
 === S7 Pending action, then the result in place · ux-spec mock 22 · 112 cols × 11 rows ===
-[dim]PROPOSAL[/]
+[dim]PROPOSED STORY[/]
 [sel][acc]▌[/] [dim]◌[/] [dim]CLI verbs for planning[/]                                                                            [dim]accepting…[/][/]
 
 [dim]then, when the stream passes the reply cursor:[/]

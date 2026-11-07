@@ -13,7 +13,7 @@ import {
   type IdeaState,
   type IdeaView,
   officeIdeas,
-  TECH_DEBT,
+  proposedStoryLines,
 } from "@dipsaus-orchestrator/contract";
 
 import { engineFailure, usage } from "./daemon-commands";
@@ -40,19 +40,23 @@ function heldLines(idea: IdeaView): string[] {
   ];
 }
 
-/** A passed idea's proposed user story, one part per line. */
+/** What the maintainer did with a passed idea: on the desk still, accepted as a draft, or dismissed. */
+function answerLine(idea: IdeaView): string {
+  switch (idea.answer) {
+    case "accepted":
+      return `Accepted by you${idea.draft === undefined ? "" : ` as ${idea.draft}`}.`;
+    case "dismissed":
+      return "Dismissed by you.";
+    default:
+      return "On your desk as a proposed story.";
+  }
+}
+
+/** A passed idea's proposed user story, one part per line, and the maintainer's answer. */
 function passedLines(idea: IdeaView): string[] {
   const proposal = idea.proposal;
   if (proposal === undefined) return [];
-  const evidence = proposal.evidence.map((place) => `${place.file}:${place.line}`).join(", ");
-  return [
-    `Found: ${proposal.found}${evidence === "" ? "" : ` (${evidence})`}`,
-    ...(proposal.sourceStory === undefined ? [] : [`Source story: ${proposal.sourceStory}`]),
-    `Story: ${proposal.storyLine}`,
-    `Proposed: ${proposal.proposed}`,
-    `Why: ${proposal.why}`,
-    `Serves: ${proposal.serves === TECH_DEBT ? "tech debt" : `milestone ${proposal.serves}`}`,
-  ];
+  return [...proposedStoryLines(proposal), answerLine(idea)];
 }
 
 /** The lines under an idea's head line. */

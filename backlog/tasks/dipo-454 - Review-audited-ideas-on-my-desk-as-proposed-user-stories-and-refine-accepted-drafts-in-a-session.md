@@ -3,10 +3,10 @@ id: DIPO-454
 title: >-
   Review audited ideas on my desk as proposed user stories and refine accepted
   drafts in a session
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-06 09:37'
-updated_date: '2026-11-06 12:52'
+updated_date: '2026-11-06 16:19'
 labels:
   - 'tier:L'
 milestone: m-3
@@ -61,11 +61,11 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each idea that passed the audit is one desk item, and its card shows in full what was found with its evidence and source story, the Story line, what is proposed, why, and the milestone it serves or tech debt
-- [ ] #2 Accept files a Backlog draft with its origin through the backlog lane, and a tech-debt draft has no milestone and the label tech-debt
-- [ ] #3 Dismiss closes the item and keeps it as dismissed by the maintainer
-- [ ] #4 The desk write of worker proposals, the old desk proposal items and proposal.accept are removed, and a worker's decision note still shows on the desk and is closed by its own dismiss
-- [ ] #5 The maintainer hands a quick idea to the audit with dipo idea and with a TUI key
-- [ ] #6 A triage session lists the drafts with their origin, and on confirm refines a draft through the lane into a Refined story that meets the story standard (0012), with a branch named for its new id, or drops it
-- [ ] #7 ADR 0020 describes the proposed-story desk item, with one Replaced line
+- [x] #1 Each idea that passed the audit is one desk item, and its card shows in full what was found with its evidence and source story, the Story line, what is proposed, why, and the milestone it serves or tech debt
+- [x] #2 Accept files a Backlog draft with its origin through the backlog lane, and a tech-debt draft has no milestone and the label tech-debt
+- [x] #3 Dismiss closes the item and keeps it as dismissed by the maintainer
+- [x] #4 The desk write of worker proposals, the old desk proposal items and proposal.accept are removed, and a worker's decision note still shows on the desk and is closed by its own dismiss
+- [x] #5 The maintainer hands a quick idea to the audit with dipo idea and with a TUI key
+- [x] #6 A triage session lists the drafts with their origin, and on confirm refines a draft through the lane into a Refined story that meets the story standard (0012), with a branch named for its new id, or drops it
+- [x] #7 ADR 0020 describes the proposed-story desk item, with one Replaced line
 <!-- AC:END -->
