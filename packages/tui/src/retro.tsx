@@ -2,7 +2,8 @@
 // cost and the time from Ready to merged per tier and type, where stories came from, the rework
 // share and what the audit and the maintainer turned away. The engine counts every number from its
 // database and builds the lines (`office.retro`); the TUI only reads them, scrolls them and draws
-// them. The view reads again after the events that change a number. Esc goes back to home.
+// them. The view reads again after the events that change a number. Esc goes back to home. Its footer
+// keys come from the key registry (`FOOTER_KEYS`, DIPO-457).
 
 import type { OfficeStore, OfficeStoreState } from "@dipsaus-orchestrator/client";
 import type { EngineError, OfficeId } from "@dipsaus-orchestrator/contract";
@@ -10,7 +11,6 @@ import { Box, type Key, Text, useWindowSize } from "ink";
 import { useEffect, useState } from "react";
 
 import type { TuiActions } from "./app";
-import type { Hint } from "./footer";
 
 export interface RetroResult {
   readonly lines: readonly string[];
@@ -38,7 +38,6 @@ export interface Retro {
   readonly error: EngineError | null;
   /** The first line shown. */
   readonly top: number;
-  readonly hints: readonly Hint[];
   /** Handles a key of the retro mode. */
   onKey(input: string, key: Key): void;
 }
@@ -92,11 +91,6 @@ export function useRetro(options: {
   return {
     ...state,
     top,
-    hints: [
-      ["[j/k] scroll", 30],
-      ["[Esc] back", 90],
-      ["[q] quit", 100],
-    ],
     onKey: (input, key) => {
       const last = Math.max(0, count - height);
       if (key.escape) leave();

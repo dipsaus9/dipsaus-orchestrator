@@ -41,14 +41,13 @@ import { Box, type Key, Text } from "ink";
 import { useEffect, useRef, useState } from "react";
 
 import type { TuiActions } from "./app";
-import type { Hint } from "./footer";
+import { COMPOSER_ROWS, Composer, composerKey, composerRows } from "./composer";
 import { truncate } from "./format";
 import type { Display } from "./options";
 import { splitLines, wrapLines } from "./output";
 import { proposalForm, readProposalForm } from "./proposal-form";
 import {
   dialogAnswers,
-  dialogHints,
   dialogKey,
   dialogLines,
   type DialogState,
@@ -59,34 +58,8 @@ import { clockTime, glyphs } from "./views";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/** The lines of the input the view shows; the rest scrolls up out of sight. */
-const INPUT_ROWS = 6;
 /** The lines of the input while it holds a proposal's form (DIPO-450). */
 const FORM_ROWS = 16;
-
-/** The text a key adds to the draft: a paste keeps its line breaks, control characters go. */
-function typed(input: string): string {
-  let text = "";
-  for (const char of input.replace(/\r\n?/g, "\n")) {
-    if (char === "\n" || char.charCodeAt(0) >= 32) {
-      if (char.charCodeAt(0) !== 127) text += char;
-    }
-  }
-  return text;
-}
-
-/**
- * The draft after `key`, or null when the key is not an edit. Enter adds a line; the send key
- * (Ctrl-S) is not an edit.
- */
-export function editDraft(draft: string, input: string, key: Key): string | null {
-  if (key.return) return `${draft}\n`;
-  if (key.backspace || key.delete) return draft.slice(0, -1);
-  if (key.ctrl || key.meta || key.escape || key.tab) return null;
-  if (key.upArrow || key.downArrow || key.leftArrow || key.rightArrow) return null;
-  const text = typed(input);
-  return text === "" ? null : draft + text;
-}
 
 /** What the planning view needs from the app around it. */
 export interface PlanningArgs {
@@ -116,65 +89,7 @@ export interface Planning {
   readonly readying: boolean;
   /** The block of questions the maintainer answers now, and the dialog's state (DIPO-455). */
   readonly dialog: { readonly block: PlanningQuestionBlock; readonly state: DialogState } | null;
-  readonly hints: readonly Hint[];
   onKey(input: string, key: Key): void;
-}
-
-const QUIT = 100;
-
-function planningHints(
-  view: PlanningView | null,
-  confirmingEnd: boolean,
-  sending: boolean,
-  form: {
-    readonly editing: number | null;
-    readonly readying: boolean;
-    readonly dialog: DialogState | null;
-  },
-): Hint[] {
-  const { editing, readying, dialog } = form;
-  if (confirmingEnd) {
-    return [
-      ["[y] end the session", QUIT],
-      ["[any other key] keep it", 50],
-    ];
-  }
-  if (dialog !== null) {
-    return [...dialogHints(dialog), ...(sending ? ([["sending", 60]] as Hint[]) : [])];
-  }
-  if (readying) {
-    return [
-      ["[Ctrl-S] set the stories left Ready", QUIT],
-      ["[Esc] cancel", 85],
-      ...(sending ? ([["sending", 60]] as Hint[]) : []),
-    ];
-  }
-  if (editing !== null) {
-    return [
-      [`[Ctrl-S] save proposal ${editing}`, QUIT],
-      ["[Enter] new line", 90],
-      ["[Esc] cancel the edit", 85],
-      ...(sending ? ([["sending", 60]] as Hint[]) : []),
-    ];
-  }
-  const hints: Hint[] = [
-    [view === null ? "[Ctrl-S] start" : "[Ctrl-S] send", QUIT],
-    ["[Enter] new line", 90],
-  ];
-  if (view === null) hints.push(["[Tab] kind", 80]);
-  else hints.push(["[Ctrl-E] end session", 70]);
-  if ((view?.proposals?.length ?? 0) > 0) {
-    hints.push(
-      ["[Ctrl-Y] confirm", 78],
-      ["[Ctrl-R] edit", 76],
-      ["[Ctrl-G] set Ready", 75],
-      ["[Ctrl-D] decline", 74],
-      ["[Up/Down] proposal", 72],
-    );
-  }
-  if (sending) hints.push(["sending", 60]);
-  hints.push(["[Esc] back", 85]);
-  return hints;
 }
 
 /** The proposals a decision applies to: open ones, and those the lane could not file. */
@@ -624,22 +539,21 @@ export function usePlanning(args: PlanningArgs): Planning {
     }
     if (questions.onKey(input, key)) return;
     if (proposals.onKey(input, key)) return;
-    if (key.escape) {
-      args.setMessage(null);
-      args.leave();
-      return;
-    }
-    if (key.ctrl) {
-      if (input === "s") submit();
-      else if (input === "e" && view !== null && sending === null) setConfirmingEnd(true);
+    if (key.ctrl && input === "e") {
+      if (view !== null && sending === null) setConfirmingEnd(true);
       return;
     }
     if (key.tab) {
       if (view === null) setKindIndex((index) => (index + 1) % PLANNING_KINDS.length);
       return;
     }
-    const next = editDraft(draft, input, key);
-    if (next !== null) setDraft(next);
+    const event = composerKey(draft, input, key);
+    if (event.kind === "cancel") {
+      // The session keeps running.
+      args.setMessage(null);
+      args.leave();
+    } else if (event.kind === "send") submit();
+    else if (event.kind === "edit") setDraft(event.draft);
   };
 
   return {
@@ -653,10 +567,6 @@ export function usePlanning(args: PlanningArgs): Planning {
     editing: proposals.editing,
     readying: proposals.readying,
     dialog: questions.dialog,
-    hints: planningHints(view, confirmingEnd, sending !== null, {
-      ...proposals,
-      dialog: questions.dialog?.state ?? null,
-    }),
     onKey,
   };
 }
@@ -741,7 +651,7 @@ export function proposalLines(
     `proposals ${dot} ${proposals.length} ${dot} ${proposals.filter((p) => p.state === "open").length} open`,
   ];
   for (const proposal of shown) {
-    const mark = proposal.n === selected ? (display.ascii ? ">" : "›") : " ";
+    const mark = proposal.n === selected ? glyphs(display.ascii).bar : " ";
     lines.push(
       truncate(
         `${mark} #${proposal.n} ${proposalSummary(proposal.proposal)} ${dot} ${proposalState(proposal)}`,
@@ -789,18 +699,6 @@ export function refusalLines(view: PlanningView, columns: number, display: Displ
   ];
 }
 
-/**
- * The input as rows: the last `rows` (`INPUT_ROWS`), a prompt on the first, the cursor on the last.
- */
-export function inputRows(draft: string, columns: number, rows = INPUT_ROWS): string[] {
-  const wrapped = wrapLines(
-    draft.split("\n").map((line, i) => `${i === 0 ? "> " : "  "}${line}`),
-    Math.max(10, columns - 2),
-  );
-  wrapped[wrapped.length - 1] = `${wrapped.at(-1) ?? "> "}_`;
-  return wrapped.slice(-rows);
-}
-
 export interface PlanningModeProps {
   readonly planning: Planning;
   readonly display: Display;
@@ -822,13 +720,10 @@ export function PlanningMode(props: PlanningModeProps) {
           "goal (what do you want to plan?):",
         ]
       : [...headLines(view, columns, display), ...refusalLines(view, columns, display)];
+  const inputRows = planning.editing === null && !planning.readying ? COMPOSER_ROWS : FORM_ROWS;
   const input =
     planning.dialog === null
-      ? inputRows(
-          planning.draft,
-          columns,
-          planning.editing === null && !planning.readying ? INPUT_ROWS : FORM_ROWS,
-        )
+      ? composerRows(planning.draft, columns, inputRows)
       : dialogLines(planning.dialog.block, planning.dialog.state, columns, display);
   const confirm = planning.confirmingEnd ? ["End the planning session? [y/N]"] : [];
   // The proposals (DIPO-450) sit between the answers and the input; an edit says which it is.
@@ -867,9 +762,11 @@ export function PlanningMode(props: PlanningModeProps) {
       {proposals.map((line, i) => (
         <Text key={`proposal:${i}`} wrap="truncate-end">{` ${line}`}</Text>
       ))}
-      {input.map((row, i) => (
-        <Text key={`input:${i}`} wrap="truncate-end">{` ${row}`}</Text>
-      ))}
+      {planning.dialog === null ? (
+        <Composer draft={planning.draft} columns={columns} rows={inputRows} />
+      ) : (
+        input.map((line, i) => <Text key={`dialog:${i}`} wrap="truncate-end">{` ${line}`}</Text>)
+      )}
       {confirm.map((line) => (
         <Text key="confirm">{` ${line}`}</Text>
       ))}

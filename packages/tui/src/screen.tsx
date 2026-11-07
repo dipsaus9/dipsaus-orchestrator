@@ -1,28 +1,21 @@
 // What the TUI draws (0009, DIPO-443): the header, the banners, the mode that shows and the footer,
-// or the short form on a narrow terminal.
+// all in the Frame, which says to widen the terminal instead when it is too small.
 
 import type { OfficeStoreState } from "@dipsaus-orchestrator/client";
 import type { Clock } from "@dipsaus-orchestrator/contract";
-import { Box, Text, useWindowSize } from "ink";
+import { useWindowSize } from "ink";
 
 import type { useActions } from "./actions";
 import { footerKeys } from "./footer";
+import { Frame } from "./frame";
 import { type Home, HomeMode } from "./home";
 import { inSwitcherMode, type Mode } from "./mode";
 import { ModeScreen, promptHeight } from "./modes";
 import { type Planning, PlanningMode } from "./planning";
+import { dialogComplete } from "./question-dialog";
 import { type Retro, RetroMode } from "./retro";
 import type { Display } from "./options";
-import {
-  Banners,
-  bannerLines,
-  Footer,
-  Header,
-  isOffline,
-  NARROW_COLUMNS,
-  NARROW_ROWS,
-  NarrowBody,
-} from "./views";
+import { Banners, bannerLines, Header, isOffline } from "./views";
 
 export interface ScreenProps {
   readonly mode: Mode;
@@ -46,40 +39,26 @@ export function Screen(props: ScreenProps) {
   const footerMessage =
     props.message ?? acts.statusLine() ?? home.refusal ?? home.failure ?? state.notice;
 
-  if (columns < NARROW_COLUMNS || rows < NARROW_ROWS) {
-    return (
-      <Box flexDirection="column">
-        {mode.kind === "planning" ? (
-          <PlanningMode planning={planning} display={display} columns={columns} height={rows - 1} />
-        ) : mode.kind === "retro" ? (
-          <RetroMode retro={retro} height={rows - 1} />
-        ) : (
-          <NarrowBody
-            state={state}
-            display={display}
-            switcher={
-              mode.kind === "switcher" || mode.kind === "path" ? { index: mode.index } : null
-            }
-          />
-        )}
-        {/* An open action prompt shows at every size, so what a key does is on screen. */}
-        {acts.promptLines().map((line, i) => (
-          <Text key={`prompt:${i}`} wrap="truncate-end">
-            {line}
-          </Text>
-        ))}
-        {footerMessage === null ? null : <Text wrap="truncate-end">{footerMessage}</Text>}
-      </Box>
-    );
-  }
-
   const keys = footerKeys(mode, home.footerView, state, offline, home.run, columns - 1, {
     prompt: acts.promptHints(),
     row: home.rowHintList,
     retry: acts.retryable,
     desk: home.deskItem !== null,
-    planning: planning.hints,
-    retro: retro.hints,
+    planning: {
+      session: planning.view !== null,
+      sending: planning.sending !== null,
+      confirmingEnd: planning.confirmingEnd,
+      editing: planning.editing,
+      proposals: (planning.view?.proposals?.length ?? 0) > 0,
+      readying: planning.readying,
+      dialog:
+        planning.dialog === null
+          ? null
+          : {
+              typing: planning.dialog.state.typing !== null,
+              complete: dialogComplete(planning.dialog.state),
+            },
+    },
   });
   const panel =
     inSwitcher || mode.kind === "planning" || mode.kind === "retro"
@@ -96,9 +75,17 @@ export function Screen(props: ScreenProps) {
     (footerMessage === null ? 0 : 1);
 
   return (
-    <Box flexDirection="column">
-      <Header state={state} display={display} />
-      <Banners state={state} display={display} />
+    <Frame
+      display={display}
+      header={
+        <>
+          <Header state={state} display={display} />
+          <Banners state={state} display={display} />
+        </>
+      }
+      ticker={footerMessage}
+      keys={keys}
+    >
       <ModeScreen
         mode={mode}
         state={state}
@@ -122,7 +109,6 @@ export function Screen(props: ScreenProps) {
           />
         }
       />
-      <Footer keys={keys} message={footerMessage} display={display} />
-    </Box>
+    </Frame>
   );
 }

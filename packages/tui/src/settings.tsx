@@ -8,7 +8,7 @@ import type { PrivacySetting } from "@dipsaus-orchestrator/contract";
 import { Box, Text } from "ink";
 
 import type { Display } from "./options";
-import { officeName } from "./views";
+import { glyphs, officeName } from "./views";
 import { Colored } from "./colour";
 
 /** What each setting stores and from when a change applies (0007, DIPO-136). */
@@ -80,14 +80,14 @@ export function Settings(props: {
       ) : null}
       {settings.map((setting, index) => {
         const words = SETTING_WORDS[setting.key];
-        const line = ` ${index === selected ? ">" : " "} ${settingName(setting.key).padEnd(20)} ${
+        const line = ` ${index === selected ? glyphs(display.ascii).bar : " "} ${settingName(setting.key).padEnd(20)} ${
           setting.value ? "on " : "off"
         }  ${`(${setting.source})`.padEnd(26)} ${words === undefined ? "" : `stores ${words.stores}`}`;
         return (
           <Colored
             key={setting.key}
             display={display}
-            color={index === selected ? "cyan" : undefined}
+            role={index === selected ? "sel" : undefined}
             wrap="truncate-end"
           >
             {line}

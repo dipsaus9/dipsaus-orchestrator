@@ -51,7 +51,7 @@ describe("queue view", () => {
     const { ui } = await openQueue();
     expect(lines(ui.frame())).toEqual([
       " dipsaus-orchestrator · daemon running · live",
-      " > next Ready story (the engine picks)",
+      " ▌ next Ready story (the engine picks)",
       "   READY (2)   DIPO-30 S  Add park reasons to digest",
       "               DIPO-32 M  Desk sort order",
       "   WAITING (1) DIPO-31 M  Cost view                        needs DIPO-21",
@@ -87,7 +87,7 @@ describe("u runs stories", () => {
       cursor: { stream: STREAM, seq: 9 },
     });
     await ui.press("j");
-    await ui.waitFor("> READY (2)");
+    await ui.waitFor("▌ READY (2)");
     await ui.press("u");
     await ui.waitFor("waiting for the office stream");
     const starting = { ...golden(KEY_30), column: "running" } as StoryView;
@@ -108,7 +108,7 @@ describe("u runs stories", () => {
     const reply = Promise.withResolvers<unknown>();
     session.runReply = () => reply.promise;
     await ui.press("j");
-    await ui.waitFor("> READY (2)");
+    await ui.waitFor("▌ READY (2)");
     await ui.press("u");
     await ui.waitFor("run DIPO-30: sending");
     expect(session.commands).toEqual([
@@ -138,7 +138,7 @@ describe("u runs stories", () => {
     await ui.waitFor("RUNNING (4)");
     expect(ui.frame()).toContain("waiting for the office stream");
     // The selection follows the story into its new section.
-    expect(ui.frame()).toMatch(/^ > +DIPO-30 S  Add park reasons/m);
+    expect(ui.frame()).toMatch(/^ ▌ +DIPO-30 S  Add park reasons/m);
     office?.options.onEvent(storyEvent(9, running, "Ready"));
     const done = await ui.waitFor("run DIPO-30: done");
     expect(done).toContain("started DIPO-30");
@@ -189,7 +189,7 @@ describe("u runs stories", () => {
     await ui.press("u");
     await ui.waitFor("wait for its reply");
     await ui.press("j");
-    await ui.waitFor("> READY (2)");
+    await ui.waitFor("▌ READY (2)");
     expect(ui.frame()).not.toContain("wait for its reply");
   });
 
@@ -228,7 +228,7 @@ describe("u runs stories", () => {
   it("sends the waiting story when it is selected", async () => {
     const { ui, session } = await openQueue();
     for (let i = 0; i < 3; i++) await ui.press("down");
-    await ui.waitFor("> WAITING (1)");
+    await ui.waitFor("▌ WAITING (1)");
     await ui.press("u");
     await ui.waitFor("run DIPO-31: done");
     expect(session.commands.map((command) => command.args)).toEqual([{ stories: [KEY_31] }]);

@@ -32,6 +32,7 @@ import { useState } from "react";
 import { App, type TuiActions } from "./app";
 import { QUIT_WINDOW_MS } from "./input";
 import { parseTuiArgs } from "./options";
+import { classicalEnv, detectTone } from "./theme";
 import { glyphs } from "./views";
 
 /** What the TUI needs from a connected client. `DipoClient` is one. */
@@ -57,6 +58,8 @@ export interface TuiDeps extends TuiStreams {
   /** Calls `handler` on the signal; returns a function that stops it. */
   readonly onSignal: (signal: "SIGTERM" | "SIGHUP", handler: () => void) => () => void;
   readonly clientInfo: { readonly name: string; readonly version: string };
+  /** Asks the terminal for its background colour (OSC 11); the theme falls back to `COLORFGBG`. */
+  readonly queryBackground?: () => Promise<string | null>;
 }
 
 /** The one line printed when stdin is not a terminal (0009). */
@@ -87,7 +90,16 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
     deps.writeError(NO_TTY_MESSAGE);
     return 1;
   }
-  const display = { color: options.color, ascii: options.ascii };
+  const tone = detectTone(
+    options.color && deps.queryBackground !== undefined ? await deps.queryBackground() : null,
+    deps.env,
+  );
+  const display = {
+    color: options.color,
+    ascii: options.ascii,
+    tone,
+    classical: classicalEnv(deps.env),
+  };
 
   const finished = Promise.withResolvers<number>();
   let done = false;

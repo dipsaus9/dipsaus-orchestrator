@@ -87,11 +87,11 @@ function storyLine(
   row: Extract<QueueRow, { kind: "story" }>,
   w: Widths,
   now: number,
-  ellipsis: string,
+  { ellipsis, bar }: { ellipsis: string; bar: string },
   selected: boolean,
 ): string {
   const { view } = row;
-  const head = ` ${selected ? ">" : " "} ${(row.label ?? "").padEnd(w.label)} ${String(view.story).padEnd(w.story)} ${(view.tier ?? "").padEnd(w.tier)}  ${truncate(view.title, w.title, ellipsis).padEnd(w.title)}`;
+  const head = ` ${selected ? bar : " "} ${(row.label ?? "").padEnd(w.label)} ${String(view.story).padEnd(w.story)} ${(view.tier ?? "").padEnd(w.tier)}  ${truncate(view.title, w.title, ellipsis).padEnd(w.title)}`;
   const note = rowNote(view, now);
   if (note === "") return truncate(head.trimEnd(), w.total, ellipsis);
   return truncate(
@@ -114,13 +114,13 @@ const StoryRow = memo(
       props.row,
       props.widths,
       props.now,
-      glyphs(props.display.ascii).ellipsis,
+      glyphs(props.display.ascii),
       props.selected,
     );
     return (
       <Colored
         display={props.display}
-        color={props.selected ? "cyan" : undefined}
+        role={props.selected ? "sel" : undefined}
         wrap="truncate-end"
       >
         {text}
@@ -163,12 +163,12 @@ export function Queue(props: {
       {rows.slice(start, end).map((row, offset) => {
         const index = start + offset;
         if (row.kind === "next") {
-          const text = ` ${index === selected ? ">" : " "} next Ready story (the engine picks)`;
+          const text = ` ${index === selected ? glyphs(props.display.ascii).bar : " "} next Ready story (the engine picks)`;
           return (
             <Colored
               key="next"
               display={display}
-              color={index === selected ? "cyan" : undefined}
+              role={index === selected ? "sel" : undefined}
               wrap="truncate-end"
             >
               {text}

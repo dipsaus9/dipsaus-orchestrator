@@ -9,7 +9,6 @@ import type { Event, PlanningView } from "@dipsaus-orchestrator/contract";
 
 import { goldenSnapshots, OFFICES } from "../test/support/fake-session";
 import { mount } from "../test/support/setup";
-import { editDraft } from "./planning";
 
 const mounted: { unmount(): Promise<void> }[] = [];
 const STREAM = `office:${OFFICES.dipsaus}`;
@@ -83,15 +82,6 @@ async function open(options: Parameters<typeof mount>[0] = { columns: 120, rows:
   await view.ui.waitFor("dipsaus-orchestrator");
   return view;
 }
-
-describe("editDraft", () => {
-  it("adds a line on Enter, erases on Backspace and keeps a paste's line breaks", () => {
-    expect(editDraft("a", "\r", { return: true } as never)).toBe("a\n");
-    expect(editDraft("ab", "", { backspace: true } as never)).toBe("a");
-    expect(editDraft("", "x\r\ny\rz", {} as never)).toBe("x\ny\nz");
-    expect(editDraft("a", "s", { ctrl: true } as never)).toBeNull();
-  });
-});
 
 describe("the planning view", () => {
   it("starts a session, sends a multi-line message, streams the answer with its spend and ends it", async () => {
@@ -237,7 +227,7 @@ describe("the planning view", () => {
     expect(frame).toContain("proposals · 2 · 2 open");
     expect(frame).toContain("#1 story [M] Export as CSV · open");
     expect(frame).toContain("why: Why Export as XML: the maintainer asked for it.");
-    expect(frame).toContain("› #2");
+    expect(frame).toContain("▌ #2");
     expect(frame).toContain("refused a proposal at");
     expect(frame).toContain("tier: Invalid option");
     expect(frame).toContain("[Ctrl-Y] confirm");
@@ -253,7 +243,7 @@ describe("the planning view", () => {
     await ui.press("ctrl-d");
     expect((await sent("planning.decline"))?.args).toEqual({ proposal: 2 });
     await ui.press("up");
-    await ui.waitFor("› #1");
+    await ui.waitFor("▌ #1");
     session.commandReply = (name) =>
       name === "planning.confirm"
         ? {
@@ -318,7 +308,7 @@ describe("the planning view", () => {
     const frame = await ui.waitFor("question 1 of 2");
     expect(frame).toContain("Should the export cover archived stories?");
     expect(frame).toContain("why I ask: It decides whether the CSV needs a status column.");
-    expect(frame).toContain("› 1. No (recommended) · Only active stories.");
+    expect(frame).toContain("▌ 1. No (recommended) · Only active stories.");
     expect(frame).toContain("3. Something else: write your own answer");
     expect(frame).toContain("[Ctrl-S] send (when all answered)");
 

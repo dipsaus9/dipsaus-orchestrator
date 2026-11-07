@@ -41,7 +41,7 @@ describe("office switcher", () => {
     expect(frame).toContain(
       [
         "   OFFICE                RUNNING  NEEDS YOU  READY  TODAY",
-        " > dipsaus-orchestrator  3        2          2" + " ".repeat(13) + "(open)",
+        " ▌ dipsaus-orchestrator  3        2          2" + " ".repeat(13) + "(open)",
         "   couchcade             0        0          1",
         "   slaydoku              1        1          0      84% !",
       ].join("\n"),
@@ -50,9 +50,9 @@ describe("office switcher", () => {
 
     await ui.press("down");
     await ui.press("down");
-    await ui.waitFor("> slaydoku");
+    await ui.waitFor("▌ slaydoku");
     await ui.press("up");
-    await ui.waitFor("> couchcade");
+    await ui.waitFor("▌ couchcade");
     await ui.press("down");
     await ui.press("enter");
     const opened = await ui.waitFor("slaydoku · daemon running");
@@ -78,6 +78,22 @@ describe("office switcher", () => {
     expect(store.state.stories.map((view) => String(view.story))).toEqual(["SLAY-9"]);
   });
 
+  it("marks the focused office only by the focus bar under NO_COLOR, and by > under --ascii", async () => {
+    for (const [display, bar] of [
+      [{ color: false, ascii: false }, "▌"],
+      [{ color: false, ascii: true }, ">"],
+    ] as const) {
+      const { ui } = await open({ display });
+      await ui.waitFor("daemon running");
+      await ui.press("o");
+      const frame = await ui.waitFor("slaydoku");
+      const rows = frame
+        .split("\n")
+        .filter((line) => /(dipsaus-orchestrator|couchcade|slaydoku) +\d/.test(line));
+      expect(rows.map((line) => line.slice(0, 3))).toEqual([` ${bar} `, "   ", "   "]);
+    }
+  });
+
   it("lines the columns up at 120 and spells out a day usage alert (DIPO-81)", async () => {
     const { ui } = await open({ columns: 120, rows: 30 });
     await ui.waitFor("· live");
@@ -86,7 +102,7 @@ describe("office switcher", () => {
     expect(frame).toContain(
       [
         "   OFFICE                RUNNING  NEEDS YOU  READY  TODAY",
-        " > dipsaus-orchestrator  3        2          2" + " ".repeat(28) + "(open)",
+        " ▌ dipsaus-orchestrator  3        2          2" + " ".repeat(28) + "(open)",
         "   couchcade             0        0          1",
         "   slaydoku              1        1          0      84%  ALERT day usage",
       ].join("\n"),
@@ -246,20 +262,19 @@ describe("quitting", () => {
 });
 
 describe("terminal size and display", () => {
-  it("shows one list with widen for detail below 60 columns", async () => {
+  it("asks to widen the terminal below 60 columns instead of the layout", async () => {
     const { ui } = await open({ columns: 59, rows: 30 });
-    const frame = await ui.waitFor("widen for detail");
-    expect(frame).toContain("DIPO-21 busy >");
-    expect(frame).toContain("desk 2");
+    const frame = await ui.waitFor("Widen the terminal to at least 60 columns");
     expect(frame).not.toContain("STORY");
+    expect(frame).not.toContain("DIPO-21");
   });
 
-  it("shows one list below 16 rows and the full view after a resize", async () => {
+  it("asks to widen below 16 rows and shows the full view after a resize", async () => {
     const { ui } = await open({ columns: 100, rows: 15 });
-    await ui.waitFor("widen for detail");
+    await ui.waitFor("Widen the terminal to at least 60 columns");
     ui.resize(100, 30);
     const frame = await ui.waitFor("RUNNING (3)");
-    expect(frame).not.toContain("widen for detail");
+    expect(frame).not.toContain("Widen the terminal");
   });
 
   it("--ascii writes only ASCII", async () => {

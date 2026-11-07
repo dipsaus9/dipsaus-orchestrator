@@ -116,7 +116,7 @@ describe("an open TUI after a daemon restart", () => {
     const { ui, session } = view;
     await ui.waitFor("· live");
     await ui.press("j");
-    await ui.waitFor(">DIPO-24");
+    await ui.waitFor("▌DIPO-24");
     await ui.press("enter");
     await ui.waitFor("following the tail");
     await restart(session, ui);
@@ -204,7 +204,7 @@ describe("an open TUI when a run ends (DIPO-421)", () => {
     const { ui, session } = view;
     await ui.waitFor("· live");
     await ui.press("j");
-    await ui.waitFor(">DIPO-24");
+    await ui.waitFor("▌DIPO-24");
     await ui.press("enter");
     await ui.waitFor("following the tail");
 

@@ -4,11 +4,13 @@
 // picks one; on the free row Enter opens a text the maintainer types, and Enter again takes it.
 // Left and Right go to the previous and next question, to change an answer. Ctrl-S sends the
 // answers once every question has one (`planning.answer`); Ctrl-N leaves the block unanswered to
-// write a plain message instead.
+// write a plain message instead. The free answer is edited by the Composer's `editDraft` (DIPO-457)
+// on one line: Enter takes it. The footer keys come from the key registry (`FOOTER_KEYS`).
 
 import type { PlanningQuestionBlock } from "@dipsaus-orchestrator/contract";
 import type { Key } from "ink";
 
+import { editDraft } from "./composer";
 import { truncate } from "./format";
 import type { Display } from "./options";
 import { glyphs } from "./views";
@@ -65,13 +67,6 @@ export function dialogAnswers(state: DialogState): DialogAnswer[] {
   return state.answers.flatMap((answer) => (answer === null ? [] : [answer]));
 }
 
-/** Text a key adds to a free answer: one line, no control characters. */
-function typedText(input: string): string {
-  return [...input]
-    .filter((char) => char.charCodeAt(0) >= 32 && char.charCodeAt(0) !== 127)
-    .join("");
-}
-
 /** Answers the question under the cursor and moves to the next one, if any. */
 function pick(block: PlanningQuestionBlock, state: DialogState, answer: DialogAnswer): DialogState {
   const answers = state.answers.map((old, i) => (i === state.index ? answer : old));
@@ -91,11 +86,10 @@ function typingKey(block: PlanningQuestionBlock, state: DialogState, input: stri
     }
     return { state: pick(block, state, { free: text }), action: null } as const;
   }
-  if (key.backspace || key.delete) {
-    return { state: { ...state, typing: typing.slice(0, -1) }, action: null } as const;
-  }
   if (key.ctrl || key.meta || key.tab) return null;
-  return { state: { ...state, typing: typing + typedText(input) }, action: null } as const;
+  // The Composer's editing on one line: a pasted line break becomes a space.
+  const next = editDraft(typing, input, key) ?? typing;
+  return { state: { ...state, typing: next.replace(/\n/g, " ") }, action: null } as const;
 }
 
 /** The keys that move over the rows and questions or pick a row. */
@@ -143,26 +137,6 @@ export function dialogKey(
   return rowKey(block, state, input, key);
 }
 
-/** The footer hints of the dialog. */
-export function dialogHints(state: DialogState): readonly (readonly [string, number])[] {
-  if (state.typing !== null) {
-    return [
-      ["[Enter] take the answer", 100],
-      ["[Esc] back to the options", 85],
-    ];
-  }
-  return [
-    [
-      dialogComplete(state) ? "[Ctrl-S] send the answers" : "[Ctrl-S] send (when all answered)",
-      100,
-    ],
-    ["[Enter] pick", 90],
-    ["[Up/Down] option", 80],
-    ["[Left/Right] question", 78],
-    ["[Ctrl-N] write a message instead", 70],
-  ];
-}
-
 /** The text of an answer, as the dialog shows it. */
 function answerWords(block: PlanningQuestionBlock, index: number, state: DialogState): string {
   const answer = state.answers[index];
@@ -183,10 +157,10 @@ export function dialogLines(
 ): string[] {
   const question = block.questions[state.index];
   if (question === undefined) return [];
-  const { dot, ellipsis } = glyphs(display.ascii);
+  const { dot, ellipsis, bar } = glyphs(display.ascii);
   const width = Math.max(10, columns - 4);
   const cut = (text: string) => truncate(text, width, ellipsis);
-  const mark = (on: boolean) => (on ? (display.ascii ? ">" : "›") : " ");
+  const mark = (on: boolean) => (on ? bar : " ");
   const lines = [
     cut(
       `question ${state.index + 1} of ${block.questions.length} ${dot} ${question.header} ${dot} ${state.answers.filter((a) => a !== null).length} answered`,
