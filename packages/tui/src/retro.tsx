@@ -4,9 +4,9 @@
 // database and builds the lines (`office.retro`); the TUI only reads them, scrolls them and draws
 // them. The view reads again after the events that change a number. Esc goes back to home.
 
-import type { OfficeStore } from "@dipsaus-orchestrator/client";
+import type { OfficeStore, OfficeStoreState } from "@dipsaus-orchestrator/client";
 import type { EngineError, OfficeId } from "@dipsaus-orchestrator/contract";
-import { Box, type Key, Text } from "ink";
+import { Box, type Key, Text, useWindowSize } from "ink";
 import { useEffect, useState } from "react";
 
 import type { TuiActions } from "./app";
@@ -40,19 +40,21 @@ export interface Retro {
   readonly top: number;
   readonly hints: readonly Hint[];
   /** Handles a key of the retro mode. */
-  onKey(input: string, key: Key, height: number): void;
+  onKey(input: string, key: Key): void;
 }
 
 /** The retro of the open office, read when the mode opens and after the events above. */
 export function useRetro(options: {
   readonly store: OfficeStore;
   readonly actions: TuiActions;
-  readonly office: OfficeId | null;
+  readonly state: OfficeStoreState;
   readonly active: boolean;
-  readonly snapshots: number;
   readonly leave: () => void;
 }): Retro {
-  const { store, actions, office, active, snapshots, leave } = options;
+  const { store, actions, state: current, active, leave } = options;
+  const { office, snapshots } = current;
+  const { rows } = useWindowSize();
+  const height = Math.max(1, rows - 6);
   const [state, setState] = useState<{
     lines: readonly string[] | null;
     error: EngineError | null;
@@ -95,7 +97,7 @@ export function useRetro(options: {
       ["[Esc] back", 90],
       ["[q] quit", 100],
     ],
-    onKey: (input, key, height) => {
+    onKey: (input, key) => {
       const last = Math.max(0, count - height);
       if (key.escape) leave();
       else if (key.downArrow || input === "j") setTop((value) => Math.min(last, value + 1));

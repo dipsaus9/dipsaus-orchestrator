@@ -99,7 +99,7 @@ import {
 import type { z } from "zod";
 
 import { baseCommit } from "../box/image";
-import { retro } from "../overview/retro";
+import { retro } from "../records/retro";
 import { REVIEW_CODE_DIR } from "../box/review-box";
 import type { BoxSession, BoxWorkers } from "../box/workers";
 import { appendEntries, type NewEntry } from "../changelog/log";

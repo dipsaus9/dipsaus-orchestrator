@@ -595,6 +595,34 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
       problem: null,
     },
   },
+  "office.retro": {
+    args: { office: ids.office },
+    result: {
+      office: ids.office,
+      groups: [
+        {
+          tier: "M",
+          type: "feature",
+          stories: 5,
+          merged: 4,
+          parks: { "verify-failing": 2 },
+          loops: 4,
+          reviewRounds: 3,
+          reviewRoundsFailed: 1,
+          ciAttempts: 1,
+          conflictHandoffs: 0,
+          costMicros: 12_300_000,
+          timed: 4,
+          readyToMergedMinutes: 306,
+        },
+      ],
+      origins: { planned: 5, proposal: 2, unknown: 12 },
+      rework: { merged: 9, rework: 2 },
+      rejected: [{ by: "code", reason: "it is the same as an idea held already", count: 2 }],
+      dismissed: 2,
+      lines: ["Tier M, type feature: 5 stories, 4 merged"],
+    },
+  },
   "office.digest": {
     args: { office: ids.office, since: "2026-10-11T18:00:00Z" },
     result: {

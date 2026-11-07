@@ -7,7 +7,7 @@ import { RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import type { OfficeHandle } from "../../src/db/office";
-import { retro, reworkShare } from "../../src/overview/retro";
+import { retro, reworkShare } from "../../src/records/retro";
 import { TABLE_RETENTION } from "../../src/retention/policy";
 import { endRun, runOutcome } from "../../src/records";
 import { setStoryPrState } from "../../src/records/story-prs";

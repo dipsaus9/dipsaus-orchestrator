@@ -12,7 +12,7 @@
 // error shows in the footer; a retryable one offers Ctrl-R, which sends the same request again
 // with the same request id. The store's state is taken at most 10 times per second.
 
-import type { OfficeStore } from "@dipsaus-orchestrator/client";
+import type { OfficeStore, OfficeStoreState } from "@dipsaus-orchestrator/client";
 import {
   type Clock,
   type Cursor,
@@ -25,7 +25,7 @@ import {
   type StoryView,
   type Verdict,
 } from "@dipsaus-orchestrator/contract";
-import { type Key, useWindowSize } from "ink";
+import type { Key } from "ink";
 import { useReducer, useState } from "react";
 
 import {
@@ -144,14 +144,15 @@ export interface AppProps {
   readonly outputTailBytes?: number;
 }
 
-export function App(props: AppProps) {
-  const { store, clock, display, actions } = props;
-  const state = useBatchedState(store, clock);
-  const [mode, dispatch] = useReducer(modeReducer, props.startInSwitcher === true, initialMode);
-  const [message, setMessage] = useState<string | null>(null);
-  const onQuitKey = useQuitKey(clock, props.onQuit, setMessage);
+/** The action prompts of the office, with the two helpers the views start actions with. */
+function useAppActions(
+  store: OfficeStore,
+  actions: TuiActions,
+  state: OfficeStoreState,
+  ellipsis: string,
+  setMessage: (message: string | null) => void,
+) {
   const offline = isOffline(state);
-  const { ellipsis } = glyphs(display.ascii);
   const acts = useActions({
     store,
     sendCommand: actions.sendCommand,
@@ -173,6 +174,18 @@ export function App(props: AppProps) {
     if (offline) setMessage("offline: actions are disabled");
     return offline;
   };
+  return { acts, act, refusedOffline };
+}
+
+export function App(props: AppProps) {
+  const { store, clock, display, actions } = props;
+  const state = useBatchedState(store, clock);
+  const [mode, dispatch] = useReducer(modeReducer, props.startInSwitcher === true, initialMode);
+  const [message, setMessage] = useState<string | null>(null);
+  const goHome = () => dispatch({ type: "home" });
+  const onQuitKey = useQuitKey(clock, props.onQuit, setMessage);
+  const { ellipsis } = glyphs(display.ascii);
+  const { acts, act, refusedOffline } = useAppActions(store, actions, state, ellipsis, setMessage);
   const home = useHome({
     store,
     clock,
@@ -193,17 +206,9 @@ export function App(props: AppProps) {
     state,
     setMessage,
     refusedOffline,
-    leave: () => dispatch({ type: "home" }),
+    leave: goHome,
   });
-  const retro = useRetro({
-    store,
-    actions,
-    office: state.office,
-    active: mode.kind === "retro",
-    snapshots: state.snapshots,
-    leave: () => dispatch({ type: "home" }),
-  });
-  const { rows: windowRows } = useWindowSize();
+  const retro = useRetro({ store, actions, state, active: mode.kind === "retro", leave: goHome });
   const modeKeys: ModeKeys = {
     store,
     actions,
@@ -231,7 +236,7 @@ export function App(props: AppProps) {
     else if (mode.kind === "confirm-privacy") onConfirmPrivacyKey(mode, input, modeKeys);
     else if (mode.kind === "planning") planning.onKey(input, key);
     else if (onQuitKey(input)) return;
-    else if (mode.kind === "retro") retro.onKey(input, key, Math.max(1, windowRows - 6));
+    else if (mode.kind === "retro") retro.onKey(input, key);
     else if (mode.kind === "switcher") onSwitcherKey(mode, input, key, modeKeys);
     else if (input === "5") dispatch({ type: "planning" });
     else if (input === "6") dispatch({ type: "retro" });
