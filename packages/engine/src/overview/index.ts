@@ -36,3 +36,4 @@ export {
   storedPrompt,
   storyVerdicts,
 } from "./feature";
+export { registerRetro } from "./retro";

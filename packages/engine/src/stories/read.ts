@@ -26,6 +26,8 @@ export interface BacklogStory {
   readonly tier?: string;
   /** The role when exactly one `role:<name>` label is set. */
   readonly role?: string;
+  /** The story type (feature, bug, ...) as the CLI printed it, when it has one (DIPO-453). */
+  readonly storyType?: string;
   /** The frozen branch from the field block (0012 F15), when the block parses and holds one. */
   readonly frozenBranch?: string;
   /** The store's hash of what it read, the same wherever the checkout lies. */
@@ -118,6 +120,7 @@ function derive(read: StoryRead): BacklogStory {
     labels: view.labels,
     ...(tier === undefined ? {} : { tier }),
     ...(role === undefined ? {} : { role }),
+    ...(view.type === undefined || view.type === "" ? {} : { storyType: view.type.toLowerCase() }),
     ...(frozenBranch === undefined ? {} : { frozenBranch }),
     contentHash: hash,
     waitingOn: openDependencies(view),

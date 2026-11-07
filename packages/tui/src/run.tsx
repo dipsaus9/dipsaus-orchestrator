@@ -16,6 +16,7 @@ import {
   findCommand,
   officeDesk,
   officeDigest,
+  officeRetro,
   type OfficeId,
   officeOpen,
   officeSetPrivacy,
@@ -294,6 +295,16 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
       readDigest: async (office, since) => {
         try {
           return await connected.read(officeDigest, { office, since });
+        } catch (error) {
+          return {
+            ok: false,
+            error: { code: "client.failed", message: errorText(error), retryable: false },
+          };
+        }
+      },
+      readRetro: async (office) => {
+        try {
+          return await connected.read(officeRetro, { office });
         } catch (error) {
           return {
             ok: false,

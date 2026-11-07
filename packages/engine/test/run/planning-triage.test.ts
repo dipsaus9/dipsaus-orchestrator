@@ -162,6 +162,7 @@ describe("a triage session (DIPO-454)", () => {
           drafts: planningDrafts(s.office),
           desk: [],
           runs: [],
+          retro: "",
           commit: "c",
           preferences: null,
           proposalSchema: {},

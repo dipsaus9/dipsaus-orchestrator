@@ -166,6 +166,8 @@ export interface ModeScreenProps extends ScreenProps {
   readonly home: ReactNode;
   /** What the planning view shows (DIPO-449). */
   readonly planning: ReactNode;
+  /** What the retro view shows (DIPO-453). */
+  readonly retro: ReactNode;
   /** Home's lines under its body; the switcher has none. */
   readonly panel: readonly string[];
 }
@@ -182,6 +184,8 @@ export function ModeScreen(props: ModeScreenProps) {
       return <ConfirmPrivacyMode mode={mode} home={props.home} panel={props.panel} />;
     case "planning":
       return props.planning;
+    case "retro":
+      return props.retro;
     case "home":
       return (
         <>

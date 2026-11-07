@@ -1,5 +1,5 @@
 // The TUI's mode and its reducer (DIPO-443): home, the office switcher, the typed repository path,
-// the privacy confirmation and the planning view (DIPO-449). A mode change is one action, so each one is a pure step that
+// the privacy confirmation, the planning view (DIPO-449) and the retro view (DIPO-453). A mode change is one action, so each one is a pure step that
 // `mode.test.ts` covers.
 
 export type Mode =
@@ -7,7 +7,8 @@ export type Mode =
   | { readonly kind: "switcher"; readonly index: number }
   | { readonly kind: "path"; readonly index: number; readonly text: string }
   | { readonly kind: "confirm-privacy"; readonly key: string; readonly value: boolean }
-  | { readonly kind: "planning" };
+  | { readonly kind: "planning" }
+  | { readonly kind: "retro" };
 
 export type ModeAction =
   /** Back to home: an office opened, Esc in the switcher, or a privacy answer. */
@@ -25,7 +26,9 @@ export type ModeAction =
   /** The privacy setting `key` is to become `value`, once the maintainer says yes. */
   | { readonly type: "confirm-privacy"; readonly key: string; readonly value: boolean }
   /** `5` on home: the planning view (DIPO-449). */
-  | { readonly type: "planning" };
+  | { readonly type: "planning" }
+  /** `6` on home: the retro view (DIPO-453). */
+  | { readonly type: "retro" };
 
 export function initialMode(startInSwitcher: boolean): Mode {
   return startInSwitcher ? { kind: "switcher", index: 0 } : { kind: "home" };
@@ -59,5 +62,7 @@ export function modeReducer(mode: Mode, action: ModeAction): Mode {
       return { kind: "confirm-privacy", key: action.key, value: action.value };
     case "planning":
       return mode.kind === "home" ? { kind: "planning" } : mode;
+    case "retro":
+      return mode.kind === "home" ? { kind: "retro" } : mode;
   }
 }

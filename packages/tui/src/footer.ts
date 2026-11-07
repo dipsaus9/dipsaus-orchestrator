@@ -38,6 +38,8 @@ export interface FooterExtras {
   readonly desk: boolean;
   /** The keys of the planning view (DIPO-449). */
   readonly planning: readonly Hint[];
+  /** The keys of the retro view (DIPO-453). */
+  readonly retro: readonly Hint[];
 }
 
 export function footerKeys(
@@ -63,6 +65,8 @@ export function footerKeys(
       );
     case "planning":
       return fitHints([...extras.planning], width);
+    case "retro":
+      return fitHints([...extras.retro], width);
     case "confirm-privacy":
       return fitHints(
         [

@@ -20,6 +20,10 @@ goal: {{goal}}
 {{runs}}
 </recent_runs>
 
+<retro>
+{{retro}}
+</retro>
+
 <copy>
 The base branch at {{commit}}, with the backlog, read-only at {{dir}}.
 </copy>

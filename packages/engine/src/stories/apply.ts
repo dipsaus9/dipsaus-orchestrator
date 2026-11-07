@@ -17,6 +17,8 @@ import {
 
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
+import { draftOrigins } from "../records/ideas";
+import { READY_STATUS } from "../records/select";
 import { addStory, removeStory, renumberStory } from "../records/story-keys";
 import { isUnknownStatus, storyView, workByKey } from "../views/story";
 
@@ -201,8 +203,10 @@ export function applyIndex(
     );
   }
 
-  // 5. New keys for new ids.
+  // 5. New keys for new ids, each with where it came from (DIPO-453).
   const added = new Set<StoryKey>();
+  let drafts: ReturnType<typeof draftOrigins> | null = null;
+  const origins = () => (drafts ??= draftOrigins(office));
   for (const story of unmatched) {
     const identity = addStory(
       office,
@@ -215,6 +219,7 @@ export function applyIndex(
     );
     matched.set(identity.key, story);
     added.add(identity.key);
+    recordOrigin(office, identity.key, story, origins());
   }
 
   // 6. The mirror, and a `story.state` for every story whose view changed.
@@ -253,6 +258,43 @@ export function applyIndex(
     },
     entries,
   };
+}
+
+/** The idea origins a story's origin column keeps; the column's check lists them. */
+const IDEA_ORIGINS_KEPT: ReadonlySet<string> = new Set(["proposal", "finding", "aside", "quick"]);
+
+const sameTitle = (a: string, b: string) =>
+  a.toLowerCase().replace(/\s+/g, " ").trim() === b.toLowerCase().replace(/\s+/g, " ").trim();
+
+/**
+ * Records where a story first seen came from (DIPO-453, 0022): the origin of the idea whose
+ * accepted draft it is (same id and title), `planned` when a planning session filed it, else
+ * nothing, which retro shows as unknown.
+ */
+function recordOrigin(
+  office: OfficeHandle,
+  key: StoryKey,
+  story: BacklogStory,
+  drafts: ReturnType<typeof draftOrigins>,
+): void {
+  const draft = drafts.get(story.story.toUpperCase());
+  let origin: string | null = null;
+  if (draft !== undefined && sameTitle(draft.title, story.title)) {
+    origin = IDEA_ORIGINS_KEPT.has(draft.origin) ? draft.origin : null;
+  } else if (
+    office.get(
+      `select 1 as found from planning_records
+        where office_id = $office_id and kind = 'story' and subject = $story and text = 'filed'`,
+      { story: story.story },
+    ) !== null
+  ) {
+    origin = "planned";
+  }
+  if (origin === null) return;
+  office.run("update stories set origin = $origin where office_id = $office_id and key = $key", {
+    key,
+    origin,
+  });
 }
 
 /**
@@ -318,6 +360,18 @@ export function writeMirror(
       criteria_total: story.criteria?.total ?? null,
       criteria_numbers:
         story.criteria?.numbers === undefined ? null : JSON.stringify(story.criteria.numbers),
+    },
+  );
+  // What retro needs (DIPO-453): the type, and the first time the story was read as Ready.
+  office.run(
+    `update stories set story_type = coalesce($type, story_type),
+       ready_at = case when $ready = 1 then coalesce(ready_at, $at) else ready_at end
+      where office_id = $office_id and key = $key`,
+    {
+      key,
+      type: story.storyType ?? null,
+      ready: story.kind === "task" && story.status === READY_STATUS ? 1 : 0,
+      at,
     },
   );
 }

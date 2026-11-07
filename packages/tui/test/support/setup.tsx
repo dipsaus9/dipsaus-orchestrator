@@ -15,6 +15,7 @@ import { App, type RunOutcome, type StoryOutcome, type TuiActions } from "../../
 import type { DeskOutcome } from "../../src/desk";
 import type { PromptOutcome } from "../../src/detail";
 import type { DigestOutcome } from "../../src/digest";
+import type { RetroOutcome } from "../../src/retro";
 import type { Display } from "../../src/options";
 import type { RangeOutcome } from "../../src/output";
 import { FakeSession } from "./fake-session";
@@ -140,6 +141,11 @@ export async function mount(options: MountOptions = {}) {
         { name: "office.digest" } as never,
         { office: opened, since } as never,
       )) as DigestOutcome,
+    readRetro: async (opened) =>
+      (await session.read(
+        { name: "office.retro" } as never,
+        { office: opened } as never,
+      )) as RetroOutcome,
     newRequestId: () => {
       requests += 1;
       return `01J9ZK5Q8W3V4X6Y7Z8A9B0R${String(requests).padStart(2, "0")}` as RequestId;

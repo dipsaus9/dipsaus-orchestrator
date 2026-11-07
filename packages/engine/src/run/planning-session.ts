@@ -102,6 +102,7 @@ import {
 import type { z } from "zod";
 
 import { baseCommit } from "../box/image";
+import { retro } from "../records/retro";
 import { REVIEW_CODE_DIR } from "../box/review-box";
 import type { BoxSession, BoxWorkers } from "../box/workers";
 import { appendEntries, type NewEntry } from "../changelog/log";
@@ -231,6 +232,8 @@ export interface PlanningFacts {
   readonly drafts: readonly PlanningDraft[];
   readonly desk: readonly Pick<DeskItem, "kind" | "story" | "detail">[];
   readonly runs: readonly RecentRun[];
+  /** The retro numbers as text (DIPO-453): counted by code, to explain and never to compute. */
+  readonly retro: string;
   /** The base branch's commit the read-only copy holds. */
   readonly commit: string;
   /** The JSON Schema of a proposal block (DIPO-450), as the worker port hands it out. */
@@ -273,6 +276,7 @@ export function planningFirstMessage(facts: PlanningFacts): string {
       ),
       "No story runs yet.",
     ),
+    retro: facts.retro,
     commit: rendered(facts.commit),
     dir: rendered(REVIEW_CODE_DIR),
     fence: rendered(PLANNING_PROPOSAL_FENCE),
@@ -1450,6 +1454,7 @@ export class PlanningSessions {
         drafts: planningDrafts(handle),
         desk: deps.desk?.(handle, now) ?? [],
         runs: recentStoryRuns(handle),
+        retro: retro(handle).lines.join("\n"),
         commit,
         proposalSchema: deps.worker.reportSchema.planning,
         preferences,
