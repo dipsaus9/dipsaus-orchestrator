@@ -17,6 +17,7 @@ const ctx: FooterContext = {
     confirmingEnd: false,
     editing: null,
     proposals: false,
+    readying: false,
   },
 };
 
@@ -75,6 +76,28 @@ describe("the footer registry", () => {
       "[Enter] new line",
       "[Esc] cancel the edit",
     ]);
+  });
+
+  it("offers Ctrl-G set Ready with proposals, and only the Ready keys while readying (DIPO-451)", () => {
+    const session = { ...ctx.planning, session: true, proposals: true };
+    expect(texts("planning", { ...ctx, planning: session })).toEqual([
+      "[Ctrl-S] send",
+      "[Enter] new line",
+      "[Ctrl-E] end session",
+      "[Ctrl-Y] confirm",
+      "[Ctrl-R] edit",
+      "[Ctrl-G] set Ready",
+      "[Ctrl-D] decline",
+      "[Up/Down] proposal",
+      "[Esc] back",
+    ]);
+    expect(texts("planning", { ...ctx, planning: { ...session, readying: true } })).toEqual([
+      "[Ctrl-S] set the stories left Ready",
+      "[Esc] cancel",
+    ]);
+    expect(
+      texts("planning", { ...ctx, planning: { ...session, readying: true, sending: true } }),
+    ).toEqual(["[Ctrl-S] set the stories left Ready", "[Esc] cancel", "sending"]);
   });
 
   it("fits the width by dropping the lowest priority and keeps quit", () => {

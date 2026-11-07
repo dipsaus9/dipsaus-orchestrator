@@ -314,6 +314,8 @@ export interface FooterContext {
     readonly editing: number | null;
     /** The session has proposals. */
     readonly proposals: boolean;
+    /** The input holds the list of stories to set Ready (DIPO-451). */
+    readonly readying: boolean;
   };
 }
 
@@ -335,10 +337,19 @@ export interface FooterKey {
 const HOME_VIEWS: readonly FooterView[] = ["overview", "desk", "queue", "settings", "checklist"];
 const NEVER = 100;
 const asking = (ctx: FooterContext) => ctx.planning.confirmingEnd;
-const free = (ctx: FooterContext) => !ctx.planning.confirmingEnd && ctx.planning.editing === null;
+const free = (ctx: FooterContext) =>
+  !ctx.planning.confirmingEnd && ctx.planning.editing === null && !ctx.planning.readying;
 const editing = (ctx: FooterContext) => !ctx.planning.confirmingEnd;
-const saving = (ctx: FooterContext) => !ctx.planning.confirmingEnd && ctx.planning.editing !== null;
+const readying = (ctx: FooterContext) => !ctx.planning.confirmingEnd && ctx.planning.readying;
+const saving = (ctx: FooterContext) =>
+  !ctx.planning.confirmingEnd && ctx.planning.editing !== null && !ctx.planning.readying;
 const proposing = (ctx: FooterContext) => free(ctx) && ctx.planning.proposals;
+
+/** A footer key for an action of the key table, so the action's key is defined once. */
+function fromTable(id: ActionId, footerId: string, views: readonly FooterView[]): FooterKey {
+  const { key, label, hint, priority } = binding(id);
+  return { id: footerId, key, label, hint, views, priority };
+}
 
 /** The footer's keys in the order they print. */
 export const FOOTER_KEYS: readonly FooterKey[] = [
@@ -411,12 +422,21 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     priority: NEVER,
   },
   {
+    id: "planningReadySave",
+    key: "Ctrl-S",
+    label: "set the stories left Ready",
+    hint: "[Ctrl-S] set the stories left Ready",
+    views: ["planning"],
+    when: readying,
+    priority: NEVER,
+  },
+  {
     id: "planningNewLine",
     key: "Enter",
     label: "new line",
     hint: "[Enter] new line",
     views: ["planning"],
-    when: editing,
+    when: (ctx) => editing(ctx) && !ctx.planning.readying,
     priority: 90,
   },
   {
@@ -456,6 +476,15 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     priority: 76,
   },
   {
+    id: "planningSetReady",
+    key: "Ctrl-G",
+    label: "set Ready",
+    hint: "[Ctrl-G] set Ready",
+    views: ["planning"],
+    when: proposing,
+    priority: 75,
+  },
+  {
     id: "planningDecline",
     key: "Ctrl-D",
     label: "decline",
@@ -480,6 +509,15 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     hint: "[Esc] cancel the edit",
     views: ["planning"],
     when: saving,
+    priority: 85,
+  },
+  {
+    id: "planningReadyCancel",
+    key: "Esc",
+    label: "cancel",
+    hint: "[Esc] cancel",
+    views: ["planning"],
+    when: readying,
     priority: 85,
   },
   {
@@ -661,22 +699,8 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     views: ["checklist"],
     priority: 70,
   },
-  {
-    id: "checklistPass",
-    key: "P",
-    label: "pass",
-    hint: "[P] pass",
-    views: ["checklist"],
-    priority: 75,
-  },
-  {
-    id: "checklistFail",
-    key: "F",
-    label: "fail",
-    hint: "[F] fail",
-    views: ["checklist"],
-    priority: 75,
-  },
+  fromTable("pass", "checklistPass", ["checklist"]),
+  fromTable("fail", "checklistFail", ["checklist"]),
   {
     id: "checklistStep",
     key: "j/k",

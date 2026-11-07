@@ -683,9 +683,14 @@ export function useHome(args: HomeArgs) {
       }
     }
   } else if (view === "desk" && card === null) {
-    const hints = deskItem === null ? "" : rowHints(deskItem);
-    if (hints !== "") rowHintList.push([hints, 85]);
-    for (const entry of viewKeys("desk")) rowHintList.push([entry.hint, 30]);
+    if (deskItem !== null) {
+      // The row's keys print as one hint, kept as long as the highest of them.
+      const bound = rowKeys(deskItem).bound;
+      const hints = rowHints(deskItem);
+      const priority = Math.max(0, ...bound.map((entry) => entry.binding.priority));
+      if (hints !== "") rowHintList.push([hints, priority]);
+    }
+    for (const entry of viewKeys("desk")) rowHintList.push([entry.hint, entry.priority]);
   }
 
   const footerView: View | "detail" | "ended" | "card" =
