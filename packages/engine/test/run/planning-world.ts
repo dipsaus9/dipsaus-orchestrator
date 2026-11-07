@@ -136,6 +136,8 @@ export interface PlanningWorldOptions {
   readonly gate?: PlanningSessionsDeps["gate"];
   /** The context size at which the session continues in a fresh model session (DIPO-448). */
   readonly contextTokens?: number;
+  /** The office's `.dipo/planning.md` at the base commit (DIPO-455); none by default. */
+  readonly planningFile?: string;
 }
 
 /** The session's box as `BoxWorkers.planning` returns it. */
@@ -282,6 +284,7 @@ export function planningWorld(
     ...(options.gate === undefined ? {} : { gate: options.gate }),
     onIdea: (id) => w.ideas.push(id),
     baseCommit: async () => BASE_COMMIT,
+    planningFile: async () => options.planningFile ?? null,
     ...(options.contextTokens === undefined ? {} : { contextTokens: options.contextTokens }),
     runtimeDir: join(dir, "runtime"),
     tmpRoot: join(dir, "tmp"),

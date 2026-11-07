@@ -204,6 +204,7 @@ describe("a planning session (DIPO-447)", () => {
       desk: [],
       runs: [],
       commit: BASE_COMMIT,
+      preferences: null,
       proposalSchema: { type: "object" },
     });
     expect(text).toContain("No open drafts.");

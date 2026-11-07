@@ -44,11 +44,16 @@ export type ProposalRead =
   | { readonly ok: true; readonly proposal: PlanningProposal }
   | { readonly ok: false; readonly problems: readonly string[] };
 
-const OPEN_LINE = new RegExp(`^\\s*\`\`\`${PLANNING_PROPOSAL_FENCE}\\s*$`);
 const CLOSE_LINE = /^\s*```\s*$/;
 
 /** Pure: the content of every proposal block in `text`, in order; an unclosed block is null. */
 export function proposalBlocks(text: string): (string | null)[] {
+  return fencedBlocks(text, PLANNING_PROPOSAL_FENCE);
+}
+
+/** Pure: the content of every block with the info string `fence` in `text`; unclosed is null. */
+export function fencedBlocks(text: string, fence: string): (string | null)[] {
+  const OPEN_LINE = new RegExp(`^\\s*\`\`\`${fence}\\s*$`);
   const blocks: (string | null)[] = [];
   let open: string[] | null = null;
   for (const line of text.replace(/\r\n?/g, "\n").split("\n")) {

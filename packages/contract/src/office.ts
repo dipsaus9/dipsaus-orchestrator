@@ -459,6 +459,31 @@ export const planningMessage = defineCommand({
   irreversible: false,
 });
 
+// The maintainer's answers to one block of questions of the open planning session (DIPO-455,
+// 0022), one per question: an option (its index) or a free text. The answers go to the session as
+// one message, and each is stored as a choice in the session's record (DIPO-448).
+// Errors: `planning.notOpen`, `planning.questionsUnknown` (no such block, or it was answered) and
+// `planning.answerInvalid` (a question unanswered, an option out of range).
+export const planningAnswer = defineCommand({
+  name: "planning.answer",
+  level: "office",
+  args: z.object({
+    block: z.int().positive(),
+    answers: z
+      .array(
+        z.union([
+          z.strictObject({ option: z.int().min(0).max(3) }),
+          z.strictObject({ free: z.string().trim().min(1).max(2_000) }),
+        ]),
+      )
+      .min(1)
+      .max(4),
+  }),
+  result: z.object({ run: RunId, block: z.int().positive(), delivered: z.literal("next-turn") }),
+  confirm: false,
+  irreversible: false,
+});
+
 // The maintainer confirms a decision of the open planning session, and code stores it in the
 // session's record (DIPO-448, 0007): a `choice` (`subject` the question, `text` the answer), a
 // `story` filed or edited (`subject` the story id, `text` `filed` or `edited`) or an open
@@ -1285,6 +1310,7 @@ export const officeCommands = [
   planningMessage,
   planningContinue,
   planningRecord,
+  planningAnswer,
   planningEnd,
   planningConfirm,
   planningEdit,

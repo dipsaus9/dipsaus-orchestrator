@@ -163,6 +163,7 @@ describe("a triage session (DIPO-454)", () => {
           desk: [],
           runs: [],
           commit: "c",
+          preferences: null,
           proposalSchema: {},
         });
         expect(first).toContain(
