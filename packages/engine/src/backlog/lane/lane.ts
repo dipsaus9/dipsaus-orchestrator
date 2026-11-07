@@ -77,6 +77,7 @@ import { FieldWriteError } from "../fields/write";
 import { BacklogCommandError, type BacklogCli, BacklogTimedOutError } from "../runner";
 
 import {
+  ALREADY_ON_BRANCH,
   type EntryChange,
   findEntry,
   insertEntry,
@@ -116,11 +117,7 @@ export const LANE_NOTICES = {
  */
 export const LANE_STUCK_MS = 30 * 60_000;
 
-/**
- * The start of the notice of an operation dropped because its target state is on the open branch
- * already: dropped, but what it asks for holds (DIPO-450).
- */
-export const ALREADY_ON_BRANCH = "its target state is already on the open branch";
+export { ALREADY_ON_BRANCH } from "./journal";
 
 /** Why the lane's last flush left operations unapplied or unpushed (DIPO-401); null after a clean one. */
 export interface LaneStall {

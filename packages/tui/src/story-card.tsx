@@ -2,19 +2,23 @@
 // story's header, its park record (reason, cause, detail and age, from the desk item the engine
 // built, else from the story's view) and every review verdict `story.detail` returns, oldest
 // round first: round, commit, verdict, the per-criterion results and the findings with their
-// evidence, any maintainer override and the PR comment's URL. Esc returns to the desk with the
+// evidence, any maintainer override and the PR comment's URL. A proposed story's card (DIPO-454) is
+// the desk item's proposed user story in full, its lines wrapped. Esc returns to the desk with the
 // same row selected.
 //
 // A quote the engine checked against the commit says `checked`; a finding whose evidence failed
 // that check says `unverified` (0002).
 
-import type {
-  DeskItem,
-  EngineError,
-  ReviewFinding,
-  ReviewVerdict,
-  StoryView,
-  Verdict,
+import {
+  type DeskIdea,
+  type DeskItem,
+  type EngineError,
+  type ReviewFinding,
+  type ReviewVerdict,
+  ideaOriginWords,
+  proposedStoryLines,
+  type StoryView,
+  type Verdict,
 } from "@dipsaus-orchestrator/contract";
 import { Box, Text } from "ink";
 
@@ -84,7 +88,47 @@ export function verdictLines(review: ReviewVerdict, decided: Verdict, dot: strin
   return lines;
 }
 
-/** The card's lines: header, park record, then the review rounds. */
+/**
+ * A proposed story's card (0022, DIPO-454): its title, where it came from, then its proposed user
+ * story in full, one part per line (`proposedStoryLines`).
+ */
+export function ideaCardLines(idea: DeskIdea, dot: string): string[] {
+  return [
+    `proposed story ${dot} ${idea.title}`,
+    `from ${ideaOriginWords(idea.origin)}${idea.run === undefined ? "" : ` ${dot} run ${idea.run}`}`,
+    ...proposedStoryLines(idea.story),
+  ];
+}
+
+/** Pure: `text` word-wrapped into lines of at most `width` characters; a longer word is split. */
+export function wrapLine(text: string, width: number): string[] {
+  const room = Math.max(1, width);
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(" ")) {
+    let rest = word;
+    while (Array.from(rest).length > room) {
+      if (line !== "") {
+        lines.push(line);
+        line = "";
+      }
+      const chars = Array.from(rest);
+      lines.push(chars.slice(0, room).join(""));
+      rest = chars.slice(room).join("");
+    }
+    const next = line === "" ? rest : `${line} ${rest}`;
+    if (Array.from(next).length > room) {
+      lines.push(line);
+      line = rest;
+    } else {
+      line = next;
+    }
+  }
+  if (line !== "" || lines.length === 0) lines.push(line);
+  return lines;
+}
+
+/** The card's lines: header, park record, then the review rounds; a proposed story's card. */
 export function cardLines(options: {
   readonly item: DeskItem;
   readonly outcome: CardOutcome | null;
@@ -93,6 +137,7 @@ export function cardLines(options: {
 }): string[] {
   const { item, outcome, now } = options;
   const { dot, ellipsis } = glyphs(options.display.ascii);
+  if (item.idea !== undefined) return ideaCardLines(item.idea, dot);
   const view = outcome?.ok === true ? outcome.view : null;
   const lines = [
     view === null
@@ -141,7 +186,11 @@ export function StoryCard(props: {
   readonly top: number;
 }) {
   const { ellipsis } = glyphs(props.display.ascii);
-  const lines = cardLines(props);
+  // A proposed story's card is shown in full: its lines wrap instead of being cut (DIPO-454).
+  const lines =
+    props.item.idea === undefined
+      ? cardLines(props)
+      : cardLines(props).flatMap((line) => wrapLine(line, props.columns - 1));
   const top = Math.max(0, Math.min(props.top, Math.max(0, lines.length - props.height)));
   return (
     <Box flexDirection="column">

@@ -9,7 +9,6 @@ import type { TestPlan } from "@dipsaus-orchestrator/contract";
 import {
   hasSection,
   noteMiss,
-  proposalHash,
   sectionHeadings,
   splitProposals,
   testPlanGaps,
@@ -106,16 +105,6 @@ describe("decision note sections", () => {
     expect(noteMiss(note, null)).toBe("file");
     expect(noteMiss(note, TEXT)).toBeNull();
     expect(noteMiss({ ...note, section: "Context" }, TEXT)).toBe("section");
-  });
-});
-
-describe("proposalHash", () => {
-  it("keys a proposal by its title and its paths in any order, not by its other fields", () => {
-    const a = proposalHash({ title: "Split", paths: ["b", "a"] });
-    expect(proposalHash({ title: " Split ", paths: ["a", "b"] })).toBe(a);
-    expect(proposalHash({ title: "Split", paths: ["a"] })).not.toBe(a);
-    expect(proposalHash({ title: "Split" })).toBe(proposalHash({ title: "Split", paths: [] }));
-    expect(proposalHash({ title: "Other", paths: ["a", "b"] })).not.toBe(a);
   });
 });
 

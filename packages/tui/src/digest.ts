@@ -29,7 +29,7 @@ const COUNT_WORDS: Readonly<Record<string, readonly [string, string]>> = {
   parkedByYou: ["parked by you", "parked by you"],
   questions: ["question", "questions"],
   merges: ["merge waits on you", "merges wait on you"],
-  proposals: ["proposal", "proposals"],
+  proposals: ["proposed story", "proposed stories"],
 };
 
 /** `since you left (09:12): 2 done · 1 parked`, or `… nothing changed`. */

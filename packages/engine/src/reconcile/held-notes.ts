@@ -3,7 +3,7 @@
 // base and closes the note when its exact text is under the section it names (`noteHeld`). A note
 // whose file, section or text does not match stays open. dipo never writes the record.
 
-import { dismissNote, openNotes } from "../run/proposals";
+import { dismissNote, openNotes } from "../records/decision-notes";
 import { noteHeld } from "../run/report-data";
 
 import type { ReconcileDeps, ReconcileFinding } from "./reconcile";

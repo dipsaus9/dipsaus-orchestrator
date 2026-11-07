@@ -1,7 +1,7 @@
 // "Since you left" (0009): `office.digest` counts what happened in an office after `since`, from
 // the stored change log, and gives one code-built line per fact in log order. The client keeps
 // `since` itself, so the engine does not depend on which clients connect (0001). Nothing here asks
-// a model; worker text (a proposal title) is cleaned as the desk cleans it, because a terminal
+// a model; worker text (an idea's title) is cleaned as the desk cleans it, because a terminal
 // shows the line.
 
 import { officeDigest } from "@dipsaus-orchestrator/contract";
@@ -31,7 +31,7 @@ const DIGEST_TYPES = [
   "story.parked",
   "question.asked",
   "gate.reached",
-  "proposal.filed",
+  "idea.passed",
 ] as const;
 
 type Delta = Record<string, unknown>;
@@ -74,11 +74,14 @@ function factOf(type: string, delta: Delta): { count: DigestCount; line: string 
       }
       return { count: "merges", line: `${story} waits for your merge` };
     }
-    case "proposal.filed": {
-      const who = text(delta["story"]) ?? "a story";
-      const kind = text(delta["kind"]) ?? "proposal";
+    case "idea.passed": {
+      // An idea that passed the audit waits on the desk as a proposed user story (DIPO-454).
+      const from = text(delta["story"]);
       const title = deskLine(text(delta["title"]) ?? "");
-      return { count: "proposals", line: `${who} proposed a ${kind}: ${JSON.stringify(title)}` };
+      return {
+        count: "proposals",
+        line: `proposed story${from === null ? "" : ` from ${from}`}: ${JSON.stringify(title)}`,
+      };
     }
     default:
       return null;

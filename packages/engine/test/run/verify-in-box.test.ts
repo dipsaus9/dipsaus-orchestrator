@@ -1774,9 +1774,11 @@ async function playEvents(list: readonly WorkerEvent[]): Promise<void> {
   await w.control.idle();
 }
 
-function proposals(): { kind: string; title: string; story_key: string; run_id: string }[] {
+/** The proposals of the run's reports, held as ideas of the run (DIPO-452, DIPO-454). */
+function proposals(): { title: string; story_key: string; run_id: string }[] {
   return w.f.office.all(
-    "select kind, title, story_key, run_id from proposals where office_id = $office_id order by title",
+    `select title, story_key, run_id from ideas
+      where office_id = $office_id and origin = 'proposal' order by title`,
   );
 }
 
@@ -1826,8 +1828,8 @@ describe("a box run's report data at done (DIPO-186)", () => {
     expect(openAtInReview(findRun(w.f.office, w.f.run)!)).toBe(true);
     expect(events("story.state").map((e) => e["to"])).toEqual(["In Review"]);
     expect(proposals()).toEqual([
-      { kind: "follow-up", title: "Greet in Dutch", story_key: w.work.key, run_id: w.f.run },
-      { kind: "tool", title: "jq", story_key: w.work.key, run_id: w.f.run },
+      { title: "Greet in Dutch", story_key: w.work.key, run_id: w.f.run },
+      { title: "jq", story_key: w.work.key, run_id: w.f.run },
     ]);
   });
 
@@ -1847,7 +1849,7 @@ describe("a box run's report data at done (DIPO-186)", () => {
     ]);
     expect(w.calls).toEqual([]);
     expect(proposals()).toEqual([
-      { kind: "follow-up", title: "Greet in Dutch", story_key: w.work.key, run_id: w.f.run },
+      { title: "Greet in Dutch", story_key: w.work.key, run_id: w.f.run },
     ]);
   });
 });

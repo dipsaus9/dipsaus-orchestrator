@@ -111,17 +111,40 @@ const EXAMPLE: DeskItem[] = officeDesk.result.parse([
     actions: [{ command: "work.discard", cli: 'dipo discard DIPO-98 --note "<why>"' }],
   },
   {
-    kind: "PROPOSAL",
+    kind: "PROPOSED STORY",
     story: "DIPO-122",
-    key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
-    proposal: { id: "prp1", kind: "follow-up", title: "Split RunOutcomes" },
-    detail: 'follow-up "Split RunOutcomes" · from run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1E',
+    idea: {
+      id: "3f".repeat(32),
+      origin: "proposal",
+      title: "Split RunOutcomes",
+      story: {
+        found: "RunOutcomes holds two jobs.",
+        evidence: [{ file: "src/run/outcomes.ts", line: 12 }],
+        sourceStory: "DIPO-122",
+        storyLine: "As maintainer I want RunOutcomes split so that each part stays readable.",
+        proposed: "Split it in two.",
+        why: "It grew.",
+        serves: "m-3",
+      },
+    },
+    detail: '"Split RunOutcomes" · milestone m-3 · from a worker\'s proposal',
     since: ago(2 * 24 * 60),
     blocks: [],
     actions: [
-      { command: "proposal.accept", cli: "dipo propose accept prp1" },
-      { command: "proposal.dismiss", cli: "dipo propose dismiss prp1" },
+      { command: "idea.accept", cli: "dipo idea accept 3f3f3f3f" },
+      { command: "idea.dismiss", cli: "dipo idea dismiss 3f3f3f3f" },
     ],
+  },
+  {
+    kind: "DECISION NOTE",
+    story: "DIPO-122",
+    key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+    note: { id: "cd".repeat(32), title: "Decision note for docs/decisions/0019.md" },
+    detail: 'decision note · docs/decisions/0019.md, section "4": Note.',
+    since: ago(2 * 24 * 60),
+    blocks: [],
+    actions: [{ command: "note.dismiss", cli: "dipo note dismiss cdcdcdcd" }],
+    hand: "dipo never writes decision records: add the note by hand if you agree",
   },
   {
     kind: "PARKED BY YOU",
@@ -137,19 +160,28 @@ const EXAMPLE: DeskItem[] = officeDesk.result.parse([
 
 /** A story the maintainer parked with no note, like the example's. */
 function byYou(story: string): DeskItem {
-  return DeskItem.parse({ ...EXAMPLE[4], story, detail: "" });
+  return DeskItem.parse({ ...EXAMPLE[5], story, detail: "" });
 }
 
 const EXAMPLE_LINES = [
-  "dipsaus-orchestrator · desk 4 · parked by you 1",
-  'QUESTION  DIPO-140  "Keep the old flag?"  6m',
-  '          dipo answer qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A "<answer>"',
-  "PARKED    DIPO-105  budget-exceeded · turn cap 61 of 60 · 7 files uncommitted  9h",
-  '          dipo resume DIPO-105 --budget +50% --note "<why>"',
-  "LEFTOVERS DIPO-98   Done on main (a1b2c3d) · branch has 3 commits not on main  1d",
-  '          dipo discard DIPO-98 --note "<why>"',
-  'PROPOSAL  DIPO-122  follow-up "Split RunOutcomes" · from run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1E  2d',
-  "          dipo propose accept prp1 | dipo propose dismiss prp1",
+  "dipsaus-orchestrator · desk 5 · parked by you 1",
+  'QUESTION       DIPO-140  "Keep the old flag?"  6m',
+  '               dipo answer qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A "<answer>"',
+  "PARKED         DIPO-105  budget-exceeded · turn cap 61 of 60 · 7 files uncommitted  9h",
+  '               dipo resume DIPO-105 --budget +50% --note "<why>"',
+  "LEFTOVERS      DIPO-98   Done on main (a1b2c3d) · branch has 3 commits not on main  1d",
+  '               dipo discard DIPO-98 --note "<why>"',
+  'PROPOSED STORY DIPO-122  "Split RunOutcomes" · milestone m-3 · from a worker\'s proposal  2d',
+  "               dipo idea accept 3f3f3f3f | dipo idea dismiss 3f3f3f3f",
+  "                 Found: RunOutcomes holds two jobs.",
+  "                 Evidence: src/run/outcomes.ts:12",
+  "                 Source story: DIPO-122",
+  "                 Story: As maintainer I want RunOutcomes split so that each part stays readable.",
+  "                 Proposed: Split it in two.",
+  "                 Why: It grew.",
+  "                 Serves: milestone m-3",
+  'DECISION NOTE  DIPO-122  decision note · docs/decisions/0019.md, section "4": Note.  2d',
+  "               dipo note dismiss cdcdcdcd | dipo never writes decision records: add the note by hand if you agree",
   'Parked by you (1)  DIPO-129 "after M2"   dipo resume DIPO-129',
 ];
 
@@ -164,7 +196,7 @@ describe("formatDesk", () => {
       "this month 3k tokens",
     ]);
     expect(lines[0]).toBe(
-      "demo · desk 4 · parked by you 1 · today 1.2M of 4.0M tokens (30%, resets 00:00 UTC) · this month 3k tokens",
+      "demo · desk 5 · parked by you 1 · today 1.2M of 4.0M tokens (30%, resets 00:00 UTC) · this month 3k tokens",
     );
     expect(lines.slice(1)).toEqual(EXAMPLE_LINES.slice(1));
   });
@@ -211,6 +243,47 @@ describe("formatDesk", () => {
       "STARTS PAUSED   no new session starts · plan limit until 2026-10-23T14:00:00.000Z  5m",
       "              dipo daemon resume-starts | It lifts by itself at 2026-10-23T14:02:00.000Z.",
       "Parked by you (1)  DIPO-1 dipo resume DIPO-129",
+    ]);
+  });
+
+  it("prints a proposed story's card in full under its command line (DIPO-454)", () => {
+    const found = `The poll retries at once. ${"Again and again. ".repeat(30)}The end.`;
+    const item = DeskItem.parse({
+      kind: "PROPOSED STORY",
+      story: "DIPO-140",
+      idea: {
+        id: "3f".repeat(32),
+        origin: "proposal",
+        title: "Cap the PR poll retry",
+        story: {
+          found,
+          evidence: [{ file: "src/poll.ts", line: 42, quote: "retry();" }],
+          sourceStory: "DIPO-140",
+          storyLine: "As maintainer I want the poll capped so that a dead host is not hammered.",
+          proposed: "Back off and cap it.",
+          why: "One request a second.",
+          serves: "tech-debt",
+        },
+      },
+      detail: '"Cap the PR poll retry" · tech debt · from a worker\'s proposal',
+      since: ago(5),
+      blocks: [],
+      actions: [
+        { command: "idea.accept", cli: "dipo idea accept 3f3f" },
+        { command: "idea.dismiss", cli: "dipo idea dismiss 3f3f" },
+      ],
+    });
+    expect(formatDesk("demo", [item], NOW)).toEqual([
+      "demo · desk 1 · parked by you 0",
+      'PROPOSED STORY DIPO-140  "Cap the PR poll retry" · tech debt · from a worker\'s proposal  5m',
+      "               dipo idea accept 3f3f | dipo idea dismiss 3f3f",
+      `                 Found: ${found}`,
+      '                 Evidence: src/poll.ts:42 "retry();"',
+      "                 Source story: DIPO-140",
+      "                 Story: As maintainer I want the poll capped so that a dead host is not hammered.",
+      "                 Proposed: Back off and cap it.",
+      "                 Why: One request a second.",
+      "                 Serves: tech debt",
     ]);
   });
 

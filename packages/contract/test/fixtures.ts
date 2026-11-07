@@ -278,13 +278,21 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
     args: { gate: ids.gate, note: "Split the migration." },
     result: { gate: ids.gate, decision: "rejected" },
   },
-  "proposal.accept": {
-    args: { proposal: ids.proposal.slice(0, 12) },
-    result: { proposal: ids.proposal, state: "accepted", draft: "DRAFT-4" },
+  "idea.accept": {
+    args: { idea: ids.proposal.slice(0, 12) },
+    result: { idea: ids.proposal, state: "accepted", draft: "DRAFT-4" },
   },
-  "proposal.dismiss": {
-    args: { proposal: ids.proposal },
-    result: { proposal: ids.proposal, state: "dismissed" },
+  "idea.dismiss": {
+    args: { idea: ids.proposal },
+    result: { idea: ids.proposal, state: "dismissed" },
+  },
+  "idea.add": {
+    args: { text: "Show the spend per tier", story: "DIPO-21" },
+    result: { idea: ids.proposal, held: true },
+  },
+  "note.dismiss": {
+    args: { note: ids.proposal.slice(0, 12) },
+    result: { note: ids.proposal, state: "dismissed" },
   },
   "nextUp.confirm": {
     args: { story: "DIPO-15" },
@@ -672,6 +680,9 @@ const officeEventFixtures: Record<string, unknown> = {
     title: "Split RunOutcomes",
   },
   "proposal.closed": { proposal: ids.proposal, key: ids.storyKey, state: "accepted" },
+  "idea.passed": { idea: ids.proposal, origin: "proposal", story: "DIPO-21", title: "Split it" },
+  "idea.answered": { idea: ids.proposal, state: "dismissed" },
+  "note.closed": { note: ids.proposal, key: ids.storyKey, state: "dismissed" },
   "test.started": testView,
   "test.recorded": {
     test: ids.test,

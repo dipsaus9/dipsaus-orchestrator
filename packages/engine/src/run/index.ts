@@ -260,19 +260,23 @@ export type { StoryPlanningDeps } from "./planning";
 // `work.discard` (DIPO-161): a story's work thrown away through the backlog lane.
 export { DISCARD_NOTICES, NOT_DISCARDABLE, PR_MERGED, StoryDiscard } from "./discard";
 export type { DiscardStop, StoryDiscardDeps } from "./discard";
-// `proposal.accept` and `proposal.dismiss` (DIPO-166): a worker's proposal filed as a Backlog draft
-// through the planning lane, or dismissed.
+// `idea.accept`, `idea.dismiss` and `note.dismiss` (DIPO-454): a passed idea filed as a Backlog
+// draft through the planning lane, or dismissed; a decision note dismissed.
 export {
   DRAFT_CAPS,
-  PROPOSAL_AMBIGUOUS,
-  PROPOSAL_NOT_OPEN,
-  PROPOSAL_UNKNOWN,
-  ProposalCommands,
-  proposalDraft,
-  resolveProposal,
-  workerWords,
-} from "./proposals";
-export type { ProposalCommandsDeps, StoredProposal } from "./proposals";
+  draftWords,
+  IDEA_AMBIGUOUS,
+  IDEA_NOT_OPEN,
+  IDEA_UNKNOWN,
+  IdeaAnswers,
+  ideaDraft,
+  NOTE_AMBIGUOUS,
+  NOTE_UNKNOWN,
+  resolveIdea,
+  resolveNote,
+  TECH_DEBT_LABEL,
+} from "./idea-answers";
+export type { IdeaAnswersDeps } from "./idea-answers";
 export type { HoldResumer } from "./work-resume";
 // Park resume and `work.resume` in one module (DIPO-138).
 export { createRunOutcomes, NOT_PARKED, Resumption, RUN_HOST_ALIVE } from "./resumption";

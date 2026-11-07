@@ -1747,6 +1747,202 @@
                         },
                         "required": ["kind", "id", "edit", "story", "why"],
                         "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "refine"
+                          },
+                          "draft": {
+                            "type": "string",
+                            "pattern": "^DRAFT-[0-9]+$",
+                            "description": "the draft refined into this story"
+                          },
+                          "title": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100,
+                            "allOf": [
+                              {
+                                "pattern": "^[^\\r\\n]*$"
+                              },
+                              {
+                                "pattern": "^[\\p{L}\\p{N}]"
+                              }
+                            ],
+                            "description": "a short name"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "feature",
+                              "bug",
+                              "enhancement",
+                              "task",
+                              "chore",
+                              "docs",
+                              "spike"
+                            ]
+                          },
+                          "milestone": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 40,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "the milestone it belongs to, as the backlog names it"
+                          },
+                          "tier": {
+                            "type": "string",
+                            "enum": ["S", "M", "L"],
+                            "description": "the proposed tier"
+                          },
+                          "storyLine": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "As <maintainer|worker|reviewer> I want <capability> so that <value>. For a spike: We need to decide <question> so that <value>. Plain words: no backticks, paths or code"
+                          },
+                          "context": {
+                            "description": "technical context below the Story line",
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 4000
+                          },
+                          "criteria": {
+                            "minItems": 1,
+                            "maxItems": 20,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 10,
+                              "maxLength": 500,
+                              "pattern": "^[^\\r\\n]*$"
+                            },
+                            "description": "done-when statements, one checkable fact each"
+                          },
+                          "references": {
+                            "minItems": 1,
+                            "maxItems": 30,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "maxLength": 200,
+                              "pattern": "^[A-Za-z0-9_.@+][A-Za-z0-9_./@+-]*$"
+                            },
+                            "description": "the files the story will probably touch"
+                          },
+                          "dependencies": {
+                            "description": "stories that must be Done first",
+                            "maxItems": 10,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+$"
+                            }
+                          },
+                          "testPlan": {
+                            "description": "every story but a spike has one; a spike none",
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "entries": {
+                                    "minItems": 1,
+                                    "maxItems": 20,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["automated", "manual"]
+                                        },
+                                        "check": {
+                                          "type": "string",
+                                          "minLength": 10,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$",
+                                          "description": "what the test or the step checks"
+                                        },
+                                        "expect": {
+                                          "description": "manual entries: the expected result",
+                                          "type": "string",
+                                          "minLength": 10,
+                                          "maxLength": 500,
+                                          "pattern": "^[^\\r\\n]*$"
+                                        }
+                                      },
+                                      "required": ["kind", "check"],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": ["entries"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "notApplicable": {
+                                    "type": "string",
+                                    "minLength": 10,
+                                    "maxLength": 500,
+                                    "pattern": "^[^\\r\\n]*$",
+                                    "description": "why no test applies"
+                                  }
+                                },
+                                "required": ["notApplicable"],
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          "why": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 300,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "one line of why"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "draft",
+                          "title",
+                          "type",
+                          "milestone",
+                          "tier",
+                          "storyLine",
+                          "criteria",
+                          "references",
+                          "why"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "drop"
+                          },
+                          "draft": {
+                            "type": "string",
+                            "pattern": "^DRAFT-[0-9]+$",
+                            "description": "the draft that is dropped"
+                          },
+                          "why": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 300,
+                            "pattern": "^[^\\r\\n]*$",
+                            "description": "one line of why"
+                          }
+                        },
+                        "required": ["kind", "draft", "why"],
+                        "additionalProperties": false
                       }
                     ]
                   },
@@ -3512,7 +3708,8 @@
                   "BACKLOG PR",
                   "PLANNING LANE",
                   "NOTICE",
-                  "PROPOSAL",
+                  "PROPOSED STORY",
+                  "DECISION NOTE",
                   "NEXT UP",
                   "PARKED BY YOU",
                   "PROFILE",
@@ -3566,13 +3763,10 @@
             },
             "required": ["number", "url", "state"]
           },
-          "proposal": {
+          "note": {
             "type": "object",
             "properties": {
               "id": {
-                "type": "string"
-              },
-              "kind": {
                 "type": "string"
               },
               "title": {
@@ -3583,7 +3777,79 @@
                 "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
               }
             },
-            "required": ["id", "kind", "title"]
+            "required": ["id", "title"]
+          },
+          "idea": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "run": {
+                "type": "string",
+                "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              },
+              "story": {
+                "type": "object",
+                "properties": {
+                  "found": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "file": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 300,
+                          "description": "the file, relative to the repository root"
+                        },
+                        "line": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991,
+                          "description": "the line number in that file"
+                        },
+                        "quote": {
+                          "description": "the line as it reads",
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 300
+                        }
+                      },
+                      "required": ["file", "line"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "sourceStory": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+                  },
+                  "storyLine": {
+                    "type": "string"
+                  },
+                  "proposed": {
+                    "type": "string"
+                  },
+                  "why": {
+                    "type": "string"
+                  },
+                  "serves": {
+                    "type": "string"
+                  }
+                },
+                "required": ["found", "evidence", "storyLine", "proposed", "why", "serves"]
+              }
+            },
+            "required": ["id", "origin", "title", "story"]
           },
           "reason": {
             "anyOf": [
@@ -3771,6 +4037,18 @@
             "type": "string",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "answer": {
+            "type": "string",
+            "enum": ["accepted", "dismissed"]
+          },
+          "answeredAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "draft": {
+            "type": "string"
           }
         },
         "required": ["id", "origin", "title", "text", "state", "attempts", "createdAt"]

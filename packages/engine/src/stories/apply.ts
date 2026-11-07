@@ -3,7 +3,9 @@
 //
 // Identity (0005, 0007): a story whose id is a current id keeps its key. A key whose id vanished
 // is closed as `Removed` with an `engine.notice`, and an id no key has gets a new key: a new id
-// is a new story. Nothing is matched by branch, date or title.
+// is a new story. Nothing is matched by branch, date or title. The one exception is a draft dipo
+// promoted itself (a triage refine, DIPO-454): its key holds the new id as `promoted_to`, so when
+// its draft id vanished and that id appears, the key is renumbered to it (`story.renumbered`).
 
 import {
   type IdSource,
@@ -15,7 +17,7 @@ import {
 
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import { addStory, removeStory } from "../records/story-keys";
+import { addStory, removeStory, renumberStory } from "../records/story-keys";
 import { isUnknownStatus, storyView, workByKey } from "../views/story";
 
 import type { BacklogStory } from "./read";
@@ -59,6 +61,7 @@ interface KnownRow {
   key: string;
   story_id: string;
   provisional: number;
+  promoted_to: string | null;
 }
 
 interface Known {
@@ -66,6 +69,8 @@ interface Known {
   readonly story: StoryId;
   /** A provisional draft id (`DRAFT-n`) when the key was last seen. */
   readonly provisional: boolean;
+  /** The task id dipo promoted this draft to (DIPO-454), until the index sees it. */
+  readonly promotedTo: string | null;
 }
 
 interface MirrorRow {
@@ -111,12 +116,13 @@ export function applyIndex(
   const { at } = options;
   const known: Known[] = office
     .all<KnownRow>(
-      "select key, story_id, provisional from stories where office_id = $office_id and removed_at is null order by story_id",
+      "select key, story_id, provisional, promoted_to from stories where office_id = $office_id and removed_at is null order by story_id",
     )
     .map((row) => ({
       key: StoryKey.parse(row.key),
       story: StoryId.parse(row.story_id),
       provisional: row.provisional === 1,
+      promotedTo: row.promoted_to,
     }));
   // Who works on which story does not change during a pass: derived once (DIPO-52).
   const work = workByKey(office);
@@ -143,10 +149,33 @@ export function applyIndex(
     if (k === undefined) unmatched.push(story);
     else matched.set(k.key, story);
   }
-  const vanished = known.filter((k) => !matched.has(k.key));
   const entries: NewEntry[] = [];
 
-  // 2. Vanished keys are closed as Removed.
+  // 2. A draft dipo promoted (DIPO-454) whose draft id vanished and whose new id appeared keeps its
+  //    key under the new id.
+  for (const k of known) {
+    if (k.promotedTo === null || matched.has(k.key)) continue;
+    const index = unmatched.findIndex((story) => story.story === k.promotedTo);
+    const promoted = unmatched[index];
+    if (promoted === undefined) continue;
+    unmatched.splice(index, 1);
+    const { from, to } = renumberStory(office, k.key, promoted.story, at);
+    office.run(
+      "update stories set promoted_to = null where office_id = $office_id and key = $key",
+      {
+        key: k.key,
+      },
+    );
+    matched.set(k.key, promoted);
+    entries.push({
+      type: "story.renumbered",
+      key: k.key,
+      delta: { key: k.key, from, to, detectedBy: "engine" },
+    });
+  }
+  const vanished = known.filter((k) => !matched.has(k.key));
+
+  // 3. Vanished keys are closed as Removed.
   for (const k of vanished) {
     removeStory(office, k.key, at);
     const view = storyView(office, k.key, work);
@@ -163,7 +192,7 @@ export function applyIndex(
     );
   }
 
-  // 3. The frozen branch of every known key, once the story has one.
+  // 4. The frozen branch of every known key, once the story has one.
   for (const [key, story] of matched) {
     office.run(
       `update stories set frozen_branch = coalesce(frozen_branch, $branch)
@@ -172,7 +201,7 @@ export function applyIndex(
     );
   }
 
-  // 4. New keys for new ids.
+  // 5. New keys for new ids.
   const added = new Set<StoryKey>();
   for (const story of unmatched) {
     const identity = addStory(
@@ -188,7 +217,7 @@ export function applyIndex(
     added.add(identity.key);
   }
 
-  // 5. The mirror, and a `story.state` for every story whose view changed.
+  // 6. The mirror, and a `story.state` for every story whose view changed.
   const changes: { view: StoryView; from: Lifecycle }[] = [];
   for (const [key, story] of matched) {
     if (!(options.keepMirror?.has(key) === true && statusBefore.has(key))) {
