@@ -129,11 +129,7 @@ import { currentProfileId, endRun, insertRun, recordConfigSnapshot } from "../re
 import { activeSignals } from "../records/signals";
 import { contextNearFull, readUsage } from "../records/usage";
 import type { LaunchedHost } from "../records/worker-hosts";
-<<<<<<< 10d2521c06c73c873b91abd674a36f1027f386fa
 import { ideaOfDraft } from "../records/ideas";
-import { planningRecord } from "../records/planning-record";
-=======
->>>>>>> f6a6de3f204aef137bfc56f479ffed3f79cd7ed3
 import { isProvisionalId, resolveStoryRef, type StoryIdentity } from "../records/story-keys";
 import { PlanningRefusedError } from "../story-store/errors";
 import type { GateStore } from "../gate-decisions";
@@ -210,18 +206,14 @@ export interface RecentRun {
 export interface PlanningFacts {
   readonly kind: PlanningKind;
   readonly goal: string;
-<<<<<<< 10d2521c06c73c873b91abd674a36f1027f386fa
+  /** The session's record as text (`planningRecordText`). */
+  readonly record: string;
   /** The open drafts, each with its origin in words (DIPO-454). */
   readonly drafts: readonly {
     readonly story: string;
     readonly title: string;
     readonly origin: string;
   }[];
-=======
-  /** The session's record as text (`planningRecordText`). */
-  readonly record: string;
-  readonly drafts: readonly { readonly story: string; readonly title: string }[];
->>>>>>> f6a6de3f204aef137bfc56f479ffed3f79cd7ed3
   readonly desk: readonly Pick<DeskItem, "kind" | "story" | "detail">[];
   readonly runs: readonly RecentRun[];
   /** The base branch's commit the read-only copy holds. */

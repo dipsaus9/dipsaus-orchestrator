@@ -50,13 +50,10 @@ export const PROPOSE_KIND = "propose";
 export const FILE_KIND = "file";
 /** An edit of a story's wording, criteria or references a planning session confirmed (DIPO-450). */
 export const REVISE_KIND = "revise";
-<<<<<<< 10d2521c06c73c873b91abd674a36f1027f386fa
 /** A draft a triage session refined into a story (DIPO-454). */
 export const REFINE_KIND = "refine";
-=======
 /** Sets a Refined story Ready after its Ready gate decision passed (DIPO-451). */
 export const READY_KIND = "ready";
->>>>>>> f6a6de3f204aef137bfc56f479ffed3f79cd7ed3
 
 /** The target state of an edit: status, field-block keys and labels. */
 export const EditTarget = z

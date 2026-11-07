@@ -25,14 +25,10 @@
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 
-<<<<<<< 10d2521c06c73c873b91abd674a36f1027f386fa
 import { StoryId } from "@dipsaus-orchestrator/contract";
 
-import { recordPlanningEntry } from "../../records/planning-record";
-import { isProvisionalId, recordPromotion } from "../../records/story-keys";
-=======
 import { recordStoryEntry } from "../../records/planning-record";
->>>>>>> f6a6de3f204aef137bfc56f479ffed3f79cd7ed3
+import { isProvisionalId, recordPromotion } from "../../records/story-keys";
 import { BLOCK_OPEN, FieldBlockError, locateBlock } from "../../story-store/fields/block";
 import {
   FILE_KIND,
@@ -455,11 +451,10 @@ export const refineKind: LaneOpKind = {
             ctx.entry.updatedAt,
           );
         }
-        recordPlanningEntry(office, {
-          run: target.run,
+        recordStoryEntry(office, target.run, {
           proposal: target.proposal,
-          kind: "refined",
           story,
+          kind: "refined",
           at: ctx.entry.updatedAt,
         });
       });

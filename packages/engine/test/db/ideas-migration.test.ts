@@ -77,7 +77,7 @@ describe("the open worker proposals at the upgrade (DIPO-452)", () => {
         before.close();
       }
 
-      const middle = await openStateDatabase(options(dir, MIGRATIONS.slice(0, 4), clock));
+      const middle = await openStateDatabase(options(dir, MIGRATIONS.slice(0, 5), clock));
       try {
         const office = middle.office(OFFICE);
         expect(

@@ -1,18 +1,6 @@
-<<<<<<< 10d2521c06c73c873b91abd674a36f1027f386fa
-// The record of a planning session (DIPO-450, 0022): the stories its confirmed proposals filed,
-// edited or refined from a draft (DIPO-454), by the session's run and the proposal's number. Code
-// writes it: an edit when the maintainer confirms it, a new or refined story when the planning lane
-// applied it and the story has its id.
-// A filing applied again on a newer base can get another id, so its row is replaced, not added.
-
-import type { OfficeHandle } from "../db/office";
-
-/** What a record entry says about its story. */
-export type PlanningRecordKind = "filed" | "edited" | "refined";
-=======
 // The record of a planning session (0007, DIPO-448): one `planning_records` row per entry, in
 // order, written by code. The goal, each confirmed choice (question and answer), each filed or
-// edited story and each open question are the maintainer's decisions; `started` and `ended` mark
+// edited story (or draft a triage session refined, DIPO-454) and each open question are the maintainer's decisions; `started` and `ended` mark
 // the model sessions the planning session ran in. A planning session is named by the run id of
 // its first model session. A fresh model session's first message is built from the record
 // (`planningRecordText`), so no decision lives only in a model context.
@@ -22,7 +10,6 @@ export type PlanningRecordKind = "filed" | "edited" | "refined";
 import type { OfficeHandle } from "../db/office";
 
 export type PlanningEntryKind = "goal" | "choice" | "story" | "question" | "started" | "ended";
->>>>>>> f6a6de3f204aef137bfc56f479ffed3f79cd7ed3
 
 /** One entry as stored. */
 export interface PlanningEntry {
@@ -37,7 +24,7 @@ export interface PlanningEntry {
   readonly subject: string | null;
   /** The number of the proposal a `story` entry came from. */
   readonly proposal: number | null;
-  /** `goal`: the goal; `choice`: the answer; `story`: `filed` or `edited`; `question`: the question; `ended`: the reason. */
+  /** `goal`: the goal; `choice`: the answer; `story`: `filed`, `edited` or `refined`; `question`: the question; `ended`: the reason. */
   readonly text: string;
   readonly at: number;
 }
@@ -194,7 +181,7 @@ export function planningRecordText(entries: readonly PlanningEntry[]): string {
 }
 
 /**
- * Records a story a confirmed proposal filed or edited (DIPO-450) in the record of the session the
+ * Records a story a confirmed proposal filed, edited (DIPO-450) or refined from a draft (DIPO-454) in the record of the session the
  * model session `run` belongs to. A story already recorded with the same kind is not added again.
  * Does nothing for a run no record names.
  */
@@ -204,7 +191,7 @@ export function recordStoryEntry(
   entry: {
     readonly proposal: number;
     readonly story: string;
-    readonly kind: "filed" | "edited";
+    readonly kind: "filed" | "edited" | "refined";
     readonly at: number;
   },
 ): void {

@@ -21,7 +21,7 @@ import { backlogStoryStore } from "../../src/backlog/store";
 import { evaluateGate } from "../../src/gate";
 import { readGateInput } from "../../src/gate-decisions";
 import { decideIdea, recordIdeaDraft } from "../../src/records/ideas";
-import { planningRecord } from "../../src/records/planning-record";
+import { readPlanningRecord } from "../../src/records/planning-record";
 import { resolveStoryRef } from "../../src/records/story-keys";
 import { DEFAULT_CONFIG } from "../gate/fixtures";
 import { BACKLOG_FIXTURE, inRemote, laneSetup, publish, subjects } from "../backlog/lane/helpers";
@@ -166,9 +166,11 @@ describe("a triage session refines and drops drafts through the lane (DIPO-454)"
           DEFAULT_CONFIG,
         );
         expect(evaluateGate(input, "ready").failures).toEqual([]);
-        expect(planningRecord(s.office, run).map((entry) => [entry.kind, entry.story])).toEqual([
-          ["refined", "TASK-4"],
-        ]);
+        expect(
+          readPlanningRecord(s.office, run)
+            .filter((entry) => entry.kind === "story")
+            .map((entry) => [entry.text, entry.subject]),
+        ).toEqual([["refined", "TASK-4"]]);
 
         // The confirmed drop archives DRAFT-2.
         const dropped = await w.sessions.confirm(ctx, { proposal: 2 });
