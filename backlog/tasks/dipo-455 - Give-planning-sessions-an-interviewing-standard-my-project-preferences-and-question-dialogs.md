@@ -3,10 +3,10 @@ id: DIPO-455
 title: >-
   Give planning sessions an interviewing standard, my project preferences and
   question dialogs
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-06 09:37'
-updated_date: '2026-11-07 10:49'
+updated_date: '2026-11-07 10:57'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -55,10 +55,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 dipo's planning prompt holds the interviewing standard: ask, never assume; each question with its purpose before its options and the recommended option, if any, first; explain further when an option is unclear; claims about the code backed by file and line; stories that lead with who, what and why; nothing outside the maintainer's goals
-- [ ] #2 The first message of the session and of each fresh Claude session holds the office's .dipo/planning.md when it exists
-- [ ] #3 Claude asks in a question block the engine validates: one to four questions, each with a header, its purpose, two to four options with a description each, at most one recommended, and room for a free answer
-- [ ] #4 An invalid question block is refused with a message to Claude listing its problems, the same handling as an invalid proposal
-- [ ] #5 The TUI shows a question block as a dialog answered with keys, including a free answer, and sends the answers as one message that enters the decision record
-- [ ] #6 ADR 0022 still describes what runs
+- [x] #1 dipo's planning prompt holds the interviewing standard: ask, never assume; each question with its purpose before its options and the recommended option, if any, first; explain further when an option is unclear; claims about the code backed by file and line; stories that lead with who, what and why; nothing outside the maintainer's goals
+- [x] #2 The first message of the session and of each fresh Claude session holds the office's .dipo/planning.md when it exists
+- [x] #3 Claude asks in a question block the engine validates: one to four questions, each with a header, its purpose, two to four options with a description each, at most one recommended, and room for a free answer
+- [x] #4 An invalid question block is refused with a message to Claude listing its problems, the same handling as an invalid proposal
+- [x] #5 The TUI shows a question block as a dialog answered with keys, including a free answer, and sends the answers as one message that enters the decision record
+- [x] #6 ADR 0022 still describes what runs
 <!-- AC:END -->
