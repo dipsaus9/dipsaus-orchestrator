@@ -250,6 +250,7 @@ describe("office commands and reads", () => {
         "planning.continue",
         "planning.message",
         "planning.record",
+        "planning.answer",
         "planning.end",
         "planning.confirm",
         "planning.edit",

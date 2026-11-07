@@ -285,6 +285,76 @@ describe("the planning view", () => {
     expect(session.commands.some((c) => c.name === "planning.message")).toBe(false);
   });
 
+  it("shows a question block as a dialog, picks options and a free answer with keys, and sends the answers as one command (DIPO-455)", async () => {
+    const block = {
+      n: 1,
+      at: "2026-10-14T10:04:00.000Z",
+      questions: [
+        {
+          header: "Scope",
+          question: "Should the export cover archived stories?",
+          purpose: "It decides whether the CSV needs a status column.",
+          options: [
+            { label: "No", description: "Only active stories.", recommended: true },
+            { label: "Yes", description: "Archived stories too." },
+          ],
+        },
+        {
+          header: "Format",
+          question: "Which separator does the CSV use?",
+          purpose: "Spreadsheets in some locales expect a semicolon.",
+          options: [
+            { label: "Comma", description: "The standard." },
+            { label: "Semicolon", description: "For locales with a decimal comma." },
+          ],
+        },
+      ],
+    };
+    const snapshots = new Map([
+      [OFFICES.dipsaus, { ...golden(), planning: planningView({ questions: [block] }) }],
+    ]);
+    const { ui, session } = await open({ columns: 140, rows: 34, snapshots });
+    await ui.press("5");
+    const frame = await ui.waitFor("question 1 of 2");
+    expect(frame).toContain("Should the export cover archived stories?");
+    expect(frame).toContain("why I ask: It decides whether the CSV needs a status column.");
+    expect(frame).toContain("› 1. No (recommended) · Only active stories.");
+    expect(frame).toContain("3. Something else: write your own answer");
+    expect(frame).toContain("[Ctrl-S] send (when all answered)");
+
+    // Sending before every question has an answer sends nothing.
+    await ui.press("ctrl-s");
+    await ui.waitFor("answer every question first");
+    expect(session.commands.some((c) => c.name === "planning.answer")).toBe(false);
+
+    // Enter takes the recommended option; the next question takes a free answer.
+    await ui.press("enter");
+    await ui.waitFor("question 2 of 2");
+    await ui.press("down");
+    await ui.press("down");
+    await ui.press("enter");
+    const typing = await ui.waitFor("your answer: _");
+    expect(typing).toContain("[Esc] back to the options");
+    await ui.press("A tab.");
+    await ui.press("enter");
+    const done = await ui.waitFor("1 No");
+    expect(done).toContain("2 free: A tab.");
+    expect(done).toContain("[Ctrl-S] send the answers");
+
+    session.commandReply = (name) =>
+      name === "planning.answer"
+        ? { ok: true, result: { run: RUN, block: 1, delivered: "next-turn" }, changed: true }
+        : undefined;
+    await ui.press("ctrl-s");
+    for (let i = 0; i < 100 && !session.commands.some((c) => c.name === "planning.answer"); i++) {
+      await Bun.sleep(5);
+    }
+    const sent = session.commands.filter((c) => c.name === "planning.answer");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.args).toEqual({ block: 1, answers: [{ option: 0 }, { free: "A tab." }] });
+    expect(session.commands.some((c) => c.name === "planning.message")).toBe(false);
+  });
+
   it("sets the stories left in the Ready form Ready and lists what the gate refused (DIPO-451)", async () => {
     const snapshots = new Map([
       [

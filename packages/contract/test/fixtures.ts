@@ -111,6 +111,23 @@ export const planningView = {
     },
   ],
   refusals: [{ at: "2026-11-06T09:02:00.000Z", problems: ["tier: expected one of S, M or L"] }],
+  questions: [
+    {
+      n: 1,
+      questions: [
+        {
+          header: "Scope",
+          question: "Should the export cover archived stories?",
+          purpose: "It decides whether the CSV needs a status column.",
+          options: [
+            { label: "No", description: "Only active stories.", recommended: true },
+            { label: "Yes", description: "Archived stories too." },
+          ],
+        },
+      ],
+      at: "2026-11-06T09:04:00.000Z",
+    },
+  ],
 };
 
 export const storyView = {
@@ -332,6 +349,10 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
   "planning.record": {
     args: { kind: "choice", subject: "Which tier?", text: "M" },
     result: { run: ids.run, recorded: true },
+  },
+  "planning.answer": {
+    args: { block: 1, answers: [{ option: 0 }, { free: "Only the daemon." }] },
+    result: { run: ids.run, block: 1, delivered: "next-turn" },
   },
   "planning.end": { args: {}, result: { run: ids.run, ended: "maintainer" } },
   "planning.confirm": {

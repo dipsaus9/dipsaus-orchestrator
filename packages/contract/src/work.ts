@@ -648,6 +648,63 @@ export const PlanningProposal = z.discriminatedUnion("kind", [
 ]);
 export type PlanningProposal = z.infer<typeof PlanningProposal>;
 
+// The questions a planning session asks the maintainer (DIPO-455, 0022). The session writes them in
+// its answer as one fenced block whose info string is `dipo-questions`, holding one JSON object; the
+// engine validates it against `PlanningQuestions` and refuses an invalid one with a message to the
+// session that lists its problems. The TUI shows a valid block as a dialog with a free answer beside
+// the options, so a free answer is no field of the block.
+export const PLANNING_QUESTIONS_FENCE = "dipo-questions";
+
+export const PLANNING_QUESTION_CAPS = {
+  questions: 4,
+  header: 30,
+  question: 300,
+  purpose: 500,
+  label: 80,
+  description: 500,
+} as const;
+
+const questionCaps = PLANNING_QUESTION_CAPS;
+
+export const PlanningQuestionOption = z.strictObject({
+  label: OneLine(1, questionCaps.label).describe("the short choice"),
+  description: OneLine(1, questionCaps.description).describe("what choosing it means"),
+  recommended: z.boolean().optional().describe("true on the recommended option, which goes first"),
+});
+export type PlanningQuestionOption = z.infer<typeof PlanningQuestionOption>;
+
+export const PlanningQuestion = z
+  .strictObject({
+    header: OneLine(1, questionCaps.header).describe("a short header"),
+    question: OneLine(1, questionCaps.question).describe("the question, standing on its own"),
+    purpose: OneLine(1, questionCaps.purpose).describe("why the question is asked"),
+    options: z.array(PlanningQuestionOption).min(2).max(4),
+  })
+  .superRefine((question, ctx) => {
+    if (question.options.filter((option) => option.recommended === true).length > 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["options"],
+        message: "at most one option is recommended",
+      });
+    }
+  });
+export type PlanningQuestion = z.infer<typeof PlanningQuestion>;
+
+export const PlanningQuestions = z.strictObject({
+  questions: z.array(PlanningQuestion).min(1).max(questionCaps.questions),
+});
+export type PlanningQuestions = z.infer<typeof PlanningQuestions>;
+
+// A block of questions waiting for the maintainer's answers, numbered in the session. It leaves the
+// view once `planning.answer` answered it.
+export const PlanningQuestionBlock = z.object({
+  n: z.int().positive(),
+  questions: z.array(PlanningQuestion),
+  at: Timestamp,
+});
+export type PlanningQuestionBlock = z.infer<typeof PlanningQuestionBlock>;
+
 // How far a proposal got: `open` until the maintainer confirms or declines it, `filing` while its
 // lane changes are journaled and not yet applied, `filed` once the lane applied them, `declined`,
 // or `failed` when the lane closed a change of it with the reason in `detail`.
@@ -715,6 +772,8 @@ export const PlanningView = z.object({
   continuedAt: Timestamp.optional(),
   proposals: z.array(PlanningProposalView).optional(),
   refusals: z.array(PlanningRefusal).optional(),
+  // The question blocks the maintainer has not answered yet (DIPO-455).
+  questions: z.array(PlanningQuestionBlock).optional(),
   // The stories the maintainer chose to go Ready, and how far each got (DIPO-451).
   ready: z.array(PlanningReadyView).optional(),
 });

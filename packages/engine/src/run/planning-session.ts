@@ -77,8 +77,11 @@ import {
   type OfficeId,
   type PlanningEndReason,
   type PlanningKind,
+  planningAnswer,
   planningContinue,
   planningRecord,
+  PLANNING_QUESTIONS_FENCE,
+  type PlanningQuestion,
   PLANNING_PROPOSAL_FENCE,
   planningConfirm,
   planningDecline,
@@ -139,6 +142,13 @@ import type { RunLaunchPaths, WorkerPort } from "../workers/port";
 import { PlanError, type HostOp, type WorkerEvent, type WorkerSpec } from "../workers/types";
 
 import { ASIDE_FENCE, holdAsides } from "./asides";
+import {
+  answersMessage,
+  PLANNING_QUESTIONS_JSON_SCHEMA,
+  questionsRefusalMessage,
+  readAnswers,
+  readQuestionBlocks,
+} from "./planning-questions";
 import type { RunSteering } from "./control-types";
 import {
   AUTO_REFUSALS_MAX,
@@ -162,6 +172,8 @@ import { Watchdog, type WatchdogTimeouts } from "./watchdog";
 type StartArgs = z.output<typeof planningStart.args>;
 type StartResult = z.input<typeof planningStart.result>;
 type MessageArgs = z.output<typeof planningMessage.args>;
+type AnswerArgs = z.output<typeof planningAnswer.args>;
+type AnswerResult = z.input<typeof planningAnswer.result>;
 type RecordArgs = z.output<typeof planningRecord.args>;
 type RecordResult = z.input<typeof planningRecord.result>;
 type MessageResult = z.input<typeof planningMessage.result>;
@@ -223,7 +235,14 @@ export interface PlanningFacts {
   readonly commit: string;
   /** The JSON Schema of a proposal block (DIPO-450), as the worker port hands it out. */
   readonly proposalSchema: Readonly<Record<string, unknown>>;
+  /** The office's `.dipo/planning.md` at the base commit; null when it has none (DIPO-455). */
+  readonly preferences: string | null;
 }
+
+/** The office file with the maintainer's standing planning preferences (DIPO-455). */
+export const PLANNING_PREFERENCES_FILE = ".dipo/planning.md";
+/** The most characters of the office planning file the first message holds. */
+export const PLANNING_PREFERENCES_MAX_CHARS = 20_000;
 
 const listOr = (lines: readonly string[], none: string): string =>
   lines.length === 0 ? none : lines.join("\n");
@@ -258,6 +277,16 @@ export function planningFirstMessage(facts: PlanningFacts): string {
     dir: rendered(REVIEW_CODE_DIR),
     fence: rendered(PLANNING_PROPOSAL_FENCE),
     schema: rendered(JSON.stringify(facts.proposalSchema)),
+    questions_fence: rendered(PLANNING_QUESTIONS_FENCE),
+    questions_schema: rendered(JSON.stringify(PLANNING_QUESTIONS_JSON_SCHEMA)),
+    preferences:
+      facts.preferences === null || facts.preferences.trim() === ""
+        ? ""
+        : rendered(
+            `${renderTemplate(TASK_TEMPLATES.planningPreferences, {
+              text: facts.preferences.trim().slice(0, PLANNING_PREFERENCES_MAX_CHARS),
+            })}\n`,
+          ),
   });
 }
 
@@ -322,6 +351,8 @@ export interface PlanningSessionsDeps {
   readonly steering: RunSteering;
   /** The desk of the office now (`office.desk`), for the first message; none without it. */
   readonly desk?: (office: OfficeHandle, now: number) => readonly DeskItem[];
+  /** The text of `.dipo/planning.md` at `commit`, or null; read through git by default. */
+  readonly planningFile?: (git: OfficeGit, commit: string) => Promise<string | null>;
   /** The base branch's tip the copy holds; `baseCommit` by default. */
   readonly baseCommit?: (git: OfficeGit) => Promise<string>;
   /** The counted tokens from which a model session's context nears full; `PLANNING_CONTEXT_TOKENS`. */
@@ -375,6 +406,8 @@ interface Open {
   /** The texts of the answer in progress, read for proposal blocks at its turn end (DIPO-450). */
   answer: string[];
   proposals: OpenProposal[];
+  /** The question blocks of the session, answered or not (DIPO-455). */
+  questions: OpenQuestions[];
   /** The stories chosen to go Ready, by story id (DIPO-451). */
   ready: Map<string, OpenReady>;
   /** The refused proposal blocks, newest last. */
@@ -390,6 +423,14 @@ interface OpenReady {
   readonly story: string;
   readonly changes: readonly PlannedChange[];
   readonly messages: readonly string[];
+  readonly at: number;
+}
+
+/** A block of questions of an open session (DIPO-455). */
+interface OpenQuestions {
+  readonly n: number;
+  readonly questions: readonly PlanningQuestion[];
+  answered: boolean;
   readonly at: number;
 }
 
@@ -475,6 +516,10 @@ export class PlanningSessions {
         registry.addAsyncOfficeCommand({
           definition: planningMessage,
           handle: (ctx, args) => this.message(ctx, args),
+        });
+        registry.addAsyncOfficeCommand({
+          definition: planningAnswer,
+          handle: (ctx, args) => this.answer(ctx, args),
         });
         registry.addAsyncOfficeCommand({
           definition: planningRecord,
@@ -607,16 +652,55 @@ export class PlanningSessions {
           : "start one with planning.start",
       );
     }
+    await this.#deliver(open, args.text);
+    return { result: { run: open.run, delivered: "next-turn" }, changed: true };
+  }
+
+  /**
+   * The maintainer's text is the next user message: read after the answer in progress, if any. What
+   * the maintainer decided since their last message goes first, as `[dipo]` lines.
+   */
+  async #deliver(open: Open, text: string): Promise<void> {
     if (open.ending !== null || open.settled) throw notOpen(`${open.run} is ending`);
-    // The maintainer's text is the next user message: read after the answer in progress, if any.
-    // What the maintainer decided since their last message goes first, as `[dipo]` lines.
     const notes = open.notes;
-    if (!(await this.#sendText(open, [...notes, args.text].join("\n\n")))) {
+    if (!(await this.#sendText(open, [...notes, text].join("\n\n")))) {
       throw notOpen(`${open.run} could not be reached`);
     }
     open.notes = open.notes.slice(notes.length);
     open.autoRefusals = 0;
-    return { result: { run: open.run, delivered: "next-turn" }, changed: true };
+  }
+
+  /** `planning.answer`: the answers to a block of questions go to the session as one message. */
+  async answer(ctx: AsyncCommandContext, args: AnswerArgs): Promise<CommandOutcome<AnswerResult>> {
+    const office = ctx.office.officeId as OfficeId;
+    const open = this.#open.get(office);
+    if (open === undefined) throw notOpen("start one with planning.start");
+    const block = open.questions.find((candidate) => candidate.n === args.block);
+    if (block === undefined || block.answered) {
+      throw new CommandError(
+        "planning.questionsUnknown",
+        `The planning session ${open.run} has no open question block ${args.block}.`,
+        { block: args.block },
+      );
+    }
+    const read = readAnswers(block.questions, args.answers);
+    if (!read.ok) {
+      throw new CommandError("planning.answerInvalid", `${read.problem}.`, { block: args.block });
+    }
+    await this.#deliver(open, answersMessage(block.questions, read.answers));
+    block.answered = true;
+    const at = this.#deps.clock.now();
+    open.handle.immediate(() => {
+      for (const [index, question] of block.questions.entries()) {
+        addPlanningEntry(open.handle, open.session, {
+          kind: "choice",
+          subject: question.question,
+          text: read.answers[index] ?? "",
+          at,
+        });
+      }
+    });
+    return { result: { run: open.run, block: block.n, delivered: "next-turn" }, changed: true };
   }
 
   /** Sends `text` to the session as its next user message; false when it did not reach it. */
@@ -1054,6 +1138,26 @@ export class PlanningSessions {
     if (text === "") return;
     const at = this.#deps.clock.now();
     const refused: (readonly string[])[] = [];
+    const refusedQuestions: (readonly string[])[] = [];
+    for (const read of readQuestionBlocks(text)) {
+      if (read.ok) {
+        const n = open.questions.length + 1;
+        open.questions.push({ n, questions: read.questions, answered: false, at });
+        // Each question is open in the record until a choice answers it (DIPO-448).
+        for (const question of read.questions) {
+          open.handle.immediate(() =>
+            addPlanningEntry(open.handle, open.session, {
+              kind: "question",
+              text: question.question,
+              at,
+            }),
+          );
+        }
+      } else {
+        refusedQuestions.push(read.problems);
+        open.refusals.push({ at, problems: read.problems });
+      }
+    }
     for (const read of readProposals(text)) {
       if (read.ok) {
         open.proposals.push({
@@ -1070,8 +1174,11 @@ export class PlanningSessions {
       }
     }
     open.refusals = open.refusals.slice(-PLANNING_REFUSALS_SHOWN);
-    if (refused.length === 0) return;
-    const message = refusalMessage(refused);
+    if (refused.length === 0 && refusedQuestions.length === 0) return;
+    const message = [
+      ...(refused.length === 0 ? [] : [refusalMessage(refused)]),
+      ...(refusedQuestions.length === 0 ? [] : [questionsRefusalMessage(refusedQuestions)]),
+    ].join("\n\n");
     // Sent at once while the session refused fewer answers in a row than the cap, so it never loops.
     if (open.autoRefusals < AUTO_REFUSALS_MAX && open.ending === null) {
       open.autoRefusals += 1;
@@ -1229,6 +1336,7 @@ export class PlanningSessions {
       settled: false,
       answer: [],
       proposals: [],
+      questions: [],
       ready: new Map(),
       refusals: [],
       autoRefusals: 0,
@@ -1328,6 +1436,7 @@ export class PlanningSessions {
     config: OfficeConfig,
     paths: RunLaunchPaths,
     commit: string,
+    preferences: string | null,
   ): { readonly spec: WorkerSpec; readonly systemFile: string } {
     const deps = this.#deps;
     const { handle, run, agent } = open;
@@ -1343,6 +1452,7 @@ export class PlanningSessions {
         runs: recentStoryRuns(handle),
         commit,
         proposalSchema: deps.worker.reportSchema.planning,
+        preferences,
       })),
     );
     const systemFile = renderSystemFile("planning-box", "planner");
@@ -1375,7 +1485,10 @@ export class PlanningSessions {
     const { handle, run, agent } = open;
     const paths = runLaunchPaths(git, deps, run);
     const commit = await (deps.baseCommit ?? defaultBaseCommit)(git);
-    const { spec, systemFile } = this.#spec(open, config, paths, commit);
+    const preferences = await (deps.planningFile ?? defaultPlanningFile)(git, commit).catch(
+      () => null,
+    );
+    const { spec, systemFile } = this.#spec(open, config, paths, commit, preferences);
     try {
       ensurePrivateDir(paths.runDir);
       prepareRunTempDirs(paths, run, deps.tempOwner?.());
@@ -1824,9 +1937,27 @@ export class PlanningSessions {
               problems: [...refusal.problems],
             })),
           }),
+      ...(open.questions.every((block) => block.answered)
+        ? {}
+        : {
+            questions: open.questions
+              .filter((block) => !block.answered)
+              .map((block) => ({ n: block.n, questions: [...block.questions], at: iso(block.at) })),
+          }),
       ...(open.ready.size === 0 ? {} : { ready: this.#readyViews(open) }),
     };
   }
+}
+
+/** The office planning file at `commit`; null when the commit has none. */
+async function defaultPlanningFile(git: OfficeGit, commit: string): Promise<string | null> {
+  return git.run(async (session) => {
+    const shown = await session.step(session.repository, [
+      "show",
+      `${commit}:${PLANNING_PREFERENCES_FILE}`,
+    ]);
+    return shown.code === 0 ? shown.stdout : null;
+  });
 }
 
 /** The tip of `<remote>/<base>`, the commit the planning copy holds. */
