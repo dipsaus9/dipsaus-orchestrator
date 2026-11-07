@@ -3,10 +3,10 @@ id: DIPO-453
 title: >-
   Show a retro view in the TUI with parks, rounds, cost, time and where stories
   came from
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-05 20:52'
-updated_date: '2026-11-07 10:59'
+updated_date: '2026-11-07 11:00'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -22,6 +22,42 @@ references:
   - packages/contract/src/office.ts
   - packages/tui/src/
   - docs/decisions/0007-state-database.md
+modified_files:
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/src/work.test.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/db/migrations/0007-retro.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/overview/feature.ts
+  - packages/engine/src/overview/index.ts
+  - packages/engine/src/overview/retro.ts
+  - packages/engine/src/prompts/task/planning.md
+  - packages/engine/src/records/retro.ts
+  - packages/engine/src/records/run-records.ts
+  - packages/engine/src/records/story-prs.ts
+  - packages/engine/src/records/verify-records.ts
+  - packages/engine/src/retention/policy.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/run/verify-commit.ts
+  - packages/engine/src/stories/apply.ts
+  - packages/engine/src/stories/read.ts
+  - packages/engine/test/db/migrations.test.ts
+  - packages/engine/test/records/retro.test.ts
+  - packages/engine/test/run/planning-session.test.ts
+  - packages/engine/test/run/planning-triage.test.ts
+  - packages/tui/src/app.tsx
+  - packages/tui/src/footer.ts
+  - packages/tui/src/mode.test.ts
+  - packages/tui/src/mode.ts
+  - packages/tui/src/modes.tsx
+  - packages/tui/src/retro.test.tsx
+  - packages/tui/src/retro.tsx
+  - packages/tui/src/run.tsx
+  - packages/tui/src/screen.tsx
+  - packages/tui/test/support/fake-session.ts
+  - packages/tui/test/support/setup.tsx
+  - scripts/test-timings.json
 priority: medium
 type: feature
 ordinal: 426000
@@ -62,3 +98,18 @@ test_plan:
 - [x] #4 Every number is computed by code from the database with no model call, and a planning session gets them as text
 - [x] #5 The view shows how many ideas the audit rejected, grouped by reason, and how many proposed stories the maintainer dismissed
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-07 11:00 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 220,835 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
