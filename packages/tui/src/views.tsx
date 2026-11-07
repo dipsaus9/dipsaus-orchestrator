@@ -172,13 +172,18 @@ export function switcherCells(entry: OfficeEntry, full: boolean): string[] {
   ];
 }
 
-/** The switcher's title line and one line per office, aligned under the titles. */
+/**
+ * The switcher's title line and one line per office, aligned under the titles. The focus bar marks
+ * the focused office (`>` under `--ascii`), so it still reads under NO_COLOR.
+ */
 export function switcherLines(
   offices: readonly OfficeEntry[],
   current: string | null,
   index: number,
   columns: number,
+  ascii: boolean,
 ): string[] {
+  const { bar } = glyphs(ascii);
   const rows = offices.map((entry) => switcherCells(entry, columns >= FULL_SWITCHER_COLUMNS));
   const widths = SWITCHER_TITLES.map((title, i) =>
     Math.max(title.length, ...rows.map((row) => row[i]?.length ?? 0)),
@@ -188,7 +193,7 @@ export function switcherLines(
       .map((cell, i) => (i === cells.length - 1 ? cell : cell.padEnd(widths[i] ?? 0)))
       .join("  ")
       .trimEnd();
-  const texts = rows.map((row, i) => ` ${i === index ? ">" : " "} ${line(row)}`);
+  const texts = rows.map((row, i) => ` ${i === index ? bar : " "} ${line(row)}`);
   // `(open)` lines up after the longest row when the line has room for it.
   const longest = Math.max(0, ...texts.map((text) => text.length));
   const openAt = longest + 8 <= columns ? longest : 0;
@@ -212,7 +217,13 @@ export function SwitcherBody(props: {
   columns: number;
 }) {
   const { state, display, index } = props;
-  const [title, ...rows] = switcherLines(state.offices, state.office, index, props.columns);
+  const [title, ...rows] = switcherLines(
+    state.offices,
+    state.office,
+    index,
+    props.columns,
+    display.ascii,
+  );
   return (
     <Box flexDirection="column">
       <Text>{` Offices ${glyphs(display.ascii).dot} ${isOffline(state) ? "offline" : `daemon ${state.daemon ?? "?"}`}  ${clockTime(props.now)}`}</Text>

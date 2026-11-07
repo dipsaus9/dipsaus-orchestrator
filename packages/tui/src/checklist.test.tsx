@@ -80,8 +80,9 @@ describe("the test checklist", () => {
     await ui.press("4");
     await ui.waitFor("Test of DIPO-19: dipo-test-19 at 9f8e7d6");
     expect(ui.frame()).toContain("open http://localhost:3000");
-    expect(ui.frame()).toContain("[ ] 1. open the login page -> the form shows");
-    expect(ui.frame()).toContain("[ ] 2. submit a wrong password");
+    // The focus bar marks the focused step.
+    expect(ui.frame()).toContain("▌ [ ] 1. open the login page -> the form shows");
+    expect(ui.frame()).toContain("  [ ] 2. submit a wrong password");
 
     // The first step ticked locally: no command is sent for it.
     await ui.press(" ");

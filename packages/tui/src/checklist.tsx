@@ -32,7 +32,7 @@ interface ChecklistProps {
 
 export function Checklist(props: ChecklistProps) {
   const { test, ticked, step, display, columns } = props;
-  const { ellipsis } = glyphs(display.ascii);
+  const { ellipsis, bar } = glyphs(display.ascii);
   if (test === null) return <Text wrap="truncate-end">{` ${props.empty}`}</Text>;
   return (
     <Box flexDirection="column">
@@ -45,7 +45,7 @@ export function Checklist(props: ChecklistProps) {
       {test.steps.map((manual, index) => {
         const mark = ticked.includes(index) ? "x" : " ";
         const expect = manual.expect === undefined ? "" : ` -> ${manual.expect}`;
-        const line = `${index === step ? ">" : " "} [${mark}] ${index + 1}. ${manual.check}${expect}`;
+        const line = `${index === step ? bar : " "} [${mark}] ${index + 1}. ${manual.check}${expect}`;
         return (
           <Text key={index} wrap="truncate-end">
             {` ${truncate(line, Math.max(0, columns - 2), ellipsis)}`}
