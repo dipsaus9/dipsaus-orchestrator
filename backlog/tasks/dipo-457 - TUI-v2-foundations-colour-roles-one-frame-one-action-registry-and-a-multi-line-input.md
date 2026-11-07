@@ -3,10 +3,10 @@ id: DIPO-457
 title: >-
   TUI v2 foundations: colour roles, one frame, one action registry and a
   multi-line input
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-11-06 14:11'
-updated_date: '2026-11-06 17:33'
+updated_date: '2026-11-07 10:43'
 labels:
   - 'tier:M'
 milestone: m-6
