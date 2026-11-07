@@ -7,7 +7,8 @@
 // go back to the session as one message (`refusalMessage`).
 //
 // A confirmed proposal becomes planning-lane targets (0010): a new story a `file` target, an edit a
-// `revise` target, and a split one of each.
+// `revise` target, a split one of each, and a draft refined in triage a `refine` target (DIPO-454);
+// a draft dropped in triage is the lane's drop.
 
 import {
   cleanText,
@@ -19,7 +20,12 @@ import {
 
 import { cleanDoorStrings, doorKeysClean } from "../box/door";
 import { checkStoryLine } from "../gate/rules";
-import { type FileTarget, type ReviseTarget, storyDescription } from "../story-store/planning";
+import {
+  type FileTarget,
+  type RefineTarget,
+  type ReviseTarget,
+  storyDescription,
+} from "../story-store/planning";
 
 /** The largest proposal block, in characters of JSON, before it is parsed. */
 export const PROPOSAL_BLOCK_MAX_CHARS = 32_000;
@@ -86,6 +92,10 @@ export function proposalProblems(proposal: PlanningProposal): string[] {
           "story.storyLine",
         ),
       ];
+    case "refine":
+      return lineProblems(proposal.storyLine, proposal.type === "spike", "storyLine");
+    case "drop":
+      return [];
   }
 }
 
@@ -209,4 +219,15 @@ export function storyFieldsOf(
 ): PlanningStoryFields {
   const { kind: _kind, why: _why, ...fields } = proposal;
   return fields;
+}
+
+/** Pure: the `refine` target of a confirmed draft refinement (DIPO-454). */
+export function refineTargetOf(
+  run: string,
+  proposal: number,
+  refine: Extract<PlanningProposal, { kind: "refine" }>,
+  draftTitle: string,
+): RefineTarget {
+  const { kind: _kind, draft: _draft, why: _why, ...story } = refine;
+  return { ...fileTargetOf(run, proposal, story), draftTitle };
 }

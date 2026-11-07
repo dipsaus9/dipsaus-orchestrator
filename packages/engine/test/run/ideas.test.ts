@@ -27,7 +27,7 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
-import { ideaViews } from "../../src/records/ideas";
+import { deskIdeas, ideaViews } from "../../src/records/ideas";
 import { endRun, insertRun } from "../../src/records/run-records";
 import { recordReviewVerdict } from "../../src/review/store";
 import type { JudgedReview } from "../../src/review/verdict";
@@ -234,16 +234,18 @@ describe("every incoming idea is held with its origin and source story (DIPO-452
       expect(countRows(w.office, "backlog_journal")).toBe(0);
     }));
 
-  it("still writes a worker's proposal to the desk unchanged, until DIPO-454 lands", () =>
+  it("no longer writes a worker's proposal to the desk: it is held as an idea only (DIPO-454)", () =>
     withWorld(async (w) => {
       const story = storyRun(w, "DIPO-12");
       propose(w, story, "Cap the PR poll retry");
-      expect(
-        w.office.all<{ title: string; state: string }>(
-          "select title, state from proposals where office_id = $office_id",
-        ),
-      ).toEqual([{ title: "Cap the PR poll retry", state: "open" }]);
       expect(byTitle(w, "Cap the PR poll retry")?.state).toBe("held");
+      // No desk row of its own and no `proposal.filed`: it reaches the desk only once it passes.
+      expect(deskIdeas(w.office)).toEqual([]);
+      expect(
+        w.office.get<{ n: number }>(
+          "select count(*) as n from change_log where office_id = $office_id and type like 'proposal.%'",
+        ),
+      ).toEqual({ n: 0 });
     }));
 
   it("holds the same idea of the same source once", () =>
@@ -404,6 +406,23 @@ describe("the audit's answer (DIPO-452)", () => {
         why: "A dead host gets one request per second.",
         serves: "m-3",
       });
+      // It waits on the desk now, told by `idea.passed` (DIPO-454).
+      expect(deskIdeas(w.office).map((item) => item.id)).toEqual([idea?.id ?? ""]);
+      expect(
+        w.office
+          .all<{ delta: string }>(
+            "select delta from change_log where office_id = $office_id and type = 'idea.passed'",
+          )
+          .map((row) => JSON.parse(row.delta) as unknown),
+      ).toEqual([
+        {
+          idea: idea?.id,
+          origin: "proposal",
+          key: expect.stringMatching(/^sto_/),
+          story: "DIPO-12",
+          title: "Cap the PR poll retry",
+        },
+      ]);
     }));
 
   it("keeps a reject with its reason", () =>

@@ -80,7 +80,9 @@ export interface ActionTarget {
   readonly story?: string;
   readonly question?: string;
   readonly gate?: string;
-  readonly proposal?: string;
+  /** The idea a desk row decides, and the decision note it dismisses (DIPO-454). */
+  readonly idea?: string;
+  readonly note?: string;
   /** The command line the engine built for the action, when a desk row offered it. */
   readonly cli?: string;
   /** What the prompt names: the question's text or the permission. */
@@ -151,6 +153,8 @@ const VERBS: Readonly<Record<ActionId, string>> = {
   test: "test",
   accept: "accept",
   dismiss: "dismiss",
+  dismissNote: "dismiss",
+  idea: "idea",
   steer: "steer",
   pass: "pass",
   fail: "fail",
@@ -256,6 +260,8 @@ function inputStepsOf(id: ActionId, target: ActionTarget, story: string): Step[]
       return [{ kind: "text", field: "text", label: "steer text" }];
     case "fail":
       return [{ kind: "text", field: "note", label: "fail note" }];
+    case "idea":
+      return [{ kind: "text", field: "text", label: "quick idea for the audit" }];
     default:
       return [];
   }
@@ -269,7 +275,14 @@ export function startFlow(
   lookup: DefinitionLookup = findCommand,
 ): Flow {
   const budget = id === "resume" ? budgetOf(target.cli) : undefined;
-  const subject = id === "accept" || id === "dismiss" ? "proposal" : (target.story ?? "");
+  const subject =
+    id === "accept" || id === "dismiss"
+      ? "idea"
+      : id === "dismissNote"
+        ? "decision note"
+        : id === "idea"
+          ? ""
+          : (target.story ?? "");
   return {
     id,
     office,
@@ -301,7 +314,13 @@ export function requestOf(flow: Flow, requestId: RequestId): CommandRequest {
       break;
     case "accept":
     case "dismiss":
-      args = { proposal: target.proposal };
+      args = { idea: target.idea };
+      break;
+    case "dismissNote":
+      args = { note: target.note };
+      break;
+    case "idea":
+      args = { text: values.text ?? "" };
       break;
     case "resume":
       args = {

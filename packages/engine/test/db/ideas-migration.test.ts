@@ -1,6 +1,7 @@
 // Migration 3 (DIPO-452): the worker proposals still open on the desk when ideas land are held as
 // ideas of their run and story, and audited once; a dismissed or accepted proposal is not, and
-// every proposal stays on the desk as it was.
+// every proposal stays as it was. Migration 5 (DIPO-454) then drops the proposals table: every
+// proposal is an idea, and the ideas stay.
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
@@ -14,7 +15,7 @@ import { ideaIdOf, proposalIdeaText } from "../../src/db/idea-ids";
 import { MIGRATIONS } from "../../src/db/schema";
 import { ideaViews } from "../../src/records/ideas";
 import { auditRef, type AuditSessionRequest, IdeaAudits } from "../../src/run/idea-audits";
-import { proposalHash, storeProposals } from "../../src/run/report-data";
+import { storeProposals } from "../../src/run/report-data";
 import { localMounts, memoryLogger } from "./helpers";
 
 const OFFICE = OfficeId.parse("off_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D");
@@ -34,7 +35,7 @@ function options(dir: string, migrations: typeof MIGRATIONS, clock: ManualClock)
   };
 }
 
-const H1 = proposalHash({ title: "Cap the PR poll retry", paths: ["src/poll.ts"] });
+const H1 = "3f".repeat(32);
 
 const proposalRow = (hash: string, title: string, state: string) => ({
   hash,
@@ -46,7 +47,7 @@ const proposalRow = (hash: string, title: string, state: string) => ({
 });
 
 describe("the open worker proposals at the upgrade (DIPO-452)", () => {
-  it("are held as ideas and audited once, and stay on the desk", () =>
+  it("are held as ideas and audited once, and their table goes at migration 5", () =>
     withTempDir(async (dir) => {
       const clock = new ManualClock();
       const before = await openStateDatabase(options(dir, MIGRATIONS.slice(0, 2), clock));
@@ -76,6 +77,22 @@ describe("the open worker proposals at the upgrade (DIPO-452)", () => {
         before.close();
       }
 
+      const middle = await openStateDatabase(options(dir, MIGRATIONS.slice(0, 4), clock));
+      try {
+        const office = middle.office(OFFICE);
+        expect(
+          office.all<{ hash: string; state: string }>(
+            "select hash, state from proposals where office_id = $office_id order by hash",
+          ),
+        ).toEqual([
+          { hash: H1, state: "open" },
+          { hash: "h2", state: "dismissed" },
+          { hash: "h3", state: "accepted" },
+        ]);
+      } finally {
+        middle.close();
+      }
+
       const state = await openStateDatabase(options(dir, MIGRATIONS, clock));
       try {
         const office = state.office(OFFICE);
@@ -92,15 +109,12 @@ describe("the open worker proposals at the upgrade (DIPO-452)", () => {
             createdAt: new Date(5).toISOString(),
           },
         ]);
+        // Migration 5 dropped the proposals' own table.
         expect(
-          office.all<{ hash: string; state: string }>(
-            "select hash, state from proposals where office_id = $office_id order by hash",
+          state.connection.get<{ n: number }>(
+            "select count(*) as n from sqlite_master where type = 'table' and name = 'proposals'",
           ),
-        ).toEqual([
-          { hash: H1, state: "open" },
-          { hash: "h2", state: "dismissed" },
-          { hash: "h3", state: "accepted" },
-        ]);
+        ).toEqual({ n: 0 });
         // The worker's same proposal stored again by the live path is the same idea.
         office.immediate(() =>
           storeProposals(office, {

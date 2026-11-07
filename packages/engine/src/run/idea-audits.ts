@@ -27,12 +27,14 @@ import {
   type AuditVerdict,
   type IdeaState,
   type OfficeId,
+  ideaQuick,
   officeIdeas,
   type ProposedStory,
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
 
 import { REVIEW_CODE_DIR } from "../box/review-box";
+import { appendEntries, type NewEntry } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
@@ -46,7 +48,9 @@ import {
   type HeldIdea,
   holdIdea,
   ideaViews,
+  newIdeaId,
   passIdea,
+  quickIdea,
   rejectIdea,
 } from "../records/ideas";
 
@@ -197,7 +201,7 @@ export class IdeaAudits {
     this.#deps = deps;
   }
 
-  /** `office.ideas`: the held, passed and rejected ideas of the office. */
+  /** `office.ideas`, and `idea.quick`: the maintainer's quick idea (DIPO-454). */
   get feature(): FeatureModule {
     return {
       name: "run",
@@ -207,6 +211,20 @@ export class IdeaAudits {
           handle: (ctx, args) => {
             if (ctx.office === undefined) throw new Error("office.ideas runs with its office");
             return ideaViews(ctx.office, args.state as IdeaState | undefined);
+          },
+        });
+        registry.addOfficeCommand({
+          definition: ideaQuick,
+          handle: (ctx, args) => {
+            const key =
+              args.story === undefined ? null : (ctx.stories.get(args.story)?.key ?? null);
+            const idea = quickIdea(args.text, key, ctx.now);
+            const id = newIdeaId(idea);
+            if (id === null) throw new Error("idea.quick holds a text with a line");
+            const held = holdIdea(ctx.office, idea) !== null;
+            // Audited at once, after this command's transaction.
+            if (held) this.poke(ctx.office.officeId as OfficeId);
+            return { result: { idea: id, held }, changed: held };
           },
         });
       },
@@ -225,8 +243,9 @@ export class IdeaAudits {
   }
 
   /**
-   * Holds the maintainer's quick idea (its command is DIPO-454's), with the story it is about if
-   * any, and audits it at once. Returns its id, or null when the same idea is held already.
+   * Holds an idea of the maintainer's with its title (`idea.quick` holds one from its text), with
+   * the story it is about if any, and audits it at once. Returns its id, or null when the same idea
+   * is held already.
    */
   holdQuick(
     office: OfficeId,
@@ -356,20 +375,32 @@ export class IdeaAudits {
       this.#missed(office, handle, ids, decisions, result.runId);
       return;
     }
-    this.#apply(office, handle, decisions, result.runId);
+    this.#apply(office, handle, ideas, decisions, result.runId);
   }
 
-  #apply(office: OfficeId, handle: OfficeHandle, decisions: AuditDecisions, run: string): void {
+  #apply(
+    office: OfficeId,
+    handle: OfficeHandle,
+    ideas: readonly HeldIdea[],
+    decisions: AuditDecisions,
+    run: string,
+  ): void {
     const at = this.#deps.clock.now();
     handle.immediate(() => {
-      for (const [id, proposal] of decisions.passed)
-        passIdea(handle, id, { proposal, auditRun: run, at });
+      const passed: NewEntry[] = [];
+      for (const [id, proposal] of decisions.passed) {
+        const idea = ideas.find((candidate) => candidate.id === id);
+        if (!passIdea(handle, id, { proposal, auditRun: run, at }) || idea === undefined) continue;
+        passed.push(passedEntry(idea));
+      }
       for (const [id, reason] of decisions.rejected) {
         rejectIdea(handle, id, { by: "audit", reason, auditRun: run, at });
       }
       for (const [id, problem] of decisions.missed) {
         auditMissed(handle, [id], { problem, auditRun: run, at });
       }
+      // Each passed idea now waits on the desk (DIPO-454).
+      appendEntries(handle, passed, { at });
     });
     this.#deps.onChanged?.(office);
   }
@@ -386,4 +417,19 @@ export class IdeaAudits {
     this.#deps.warn?.("an audit left ideas held", { office, ideas: ids.length, reason: problem });
     this.#deps.onChanged?.(office);
   }
+}
+
+/** Pure: the `idea.passed` entry of an idea that passed its audit (DIPO-454). */
+export function passedEntry(idea: HeldIdea): NewEntry {
+  return {
+    type: "idea.passed",
+    ...(idea.key === null ? {} : { key: idea.key }),
+    delta: {
+      idea: idea.id,
+      origin: idea.origin,
+      ...(idea.key === null ? {} : { key: idea.key }),
+      ...(idea.story === null ? {} : { story: idea.story }),
+      title: idea.title,
+    },
+  };
 }

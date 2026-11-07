@@ -111,16 +111,31 @@ const EXAMPLE: DeskItem[] = officeDesk.result.parse([
     actions: [{ command: "work.discard", cli: 'dipo discard DIPO-98 --note "<why>"' }],
   },
   {
-    kind: "PROPOSAL",
+    kind: "IDEA",
     story: "DIPO-122",
     key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
-    proposal: { id: "prp1", kind: "follow-up", title: "Split RunOutcomes" },
-    detail: 'follow-up "Split RunOutcomes" · from run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1E',
+    idea: {
+      id: "3f".repeat(32),
+      origin: "proposal",
+      title: "Split RunOutcomes",
+      run: "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1E",
+      found: "The run outcomes module has 900 lines.\nIt mixes two concerns.",
+      evidence: [
+        { file: "packages/engine/src/run/outcomes.ts", line: 1, quote: "// The outcomes" },
+      ],
+      sourceStory: "DIPO-122",
+      storyLine:
+        "As maintainer I want the run outcomes split into two modules so that each stays small enough to read",
+      proposed: "Split it in two.",
+      why: "Each half stays readable.",
+      serves: "m-3",
+    },
+    detail: '"Split RunOutcomes" · serves m-3 · a worker\'s proposal of DIPO-122',
     since: ago(2 * 24 * 60),
     blocks: [],
     actions: [
-      { command: "proposal.accept", cli: "dipo propose accept prp1" },
-      { command: "proposal.dismiss", cli: "dipo propose dismiss prp1" },
+      { command: "idea.accept", cli: "dipo idea accept 3f3f3f3f3f3f" },
+      { command: "idea.dismiss", cli: "dipo idea dismiss 3f3f3f3f3f3f" },
     ],
   },
   {
@@ -148,13 +163,21 @@ const EXAMPLE_LINES = [
   '          dipo resume DIPO-105 --budget +50% --note "<why>"',
   "LEFTOVERS DIPO-98   Done on main (a1b2c3d) · branch has 3 commits not on main  1d",
   '          dipo discard DIPO-98 --note "<why>"',
-  'PROPOSAL  DIPO-122  follow-up "Split RunOutcomes" · from run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1E  2d',
-  "          dipo propose accept prp1 | dipo propose dismiss prp1",
+  'IDEA      DIPO-122  "Split RunOutcomes" · serves m-3 · a worker\'s proposal of DIPO-122  2d',
+  "          Found:    The run outcomes module has 900 lines.",
+  "                    It mixes two concerns.",
+  '          Evidence: packages/engine/src/run/outcomes.ts:1 "// The outcomes"',
+  "          Source:   a worker's proposal of DIPO-122",
+  "          Story:    As maintainer I want the run outcomes split into two modules so that each stays small enough to read",
+  "          Proposed: Split it in two.",
+  "          Why:      Each half stays readable.",
+  "          Serves:   milestone m-3",
+  "          dipo idea accept 3f3f3f3f3f3f | dipo idea dismiss 3f3f3f3f3f3f",
   'Parked by you (1)  DIPO-129 "after M2"   dipo resume DIPO-129',
 ];
 
 describe("formatDesk", () => {
-  it("prints the 0020 example: a count line, each item with its command, parked by you apart", () => {
+  it("prints the 0020 example: a count line, each item with its command, an idea's card in full, parked by you apart", () => {
     expect(formatDesk("dipsaus-orchestrator", EXAMPLE, NOW)).toEqual(EXAMPLE_LINES);
   });
 

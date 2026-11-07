@@ -84,7 +84,8 @@ function deskTarget(item: DeskItem, cli: string, id: ActionId): ActionTarget {
     ...(item.story === undefined ? {} : { story: String(item.story) }),
     ...(item.question === undefined ? {} : { question: String(item.question) }),
     ...(item.gate === undefined ? {} : { gate: String(item.gate) }),
-    ...(item.proposal === undefined ? {} : { proposal: item.proposal.id }),
+    ...(item.idea === undefined ? {} : { idea: item.idea.id }),
+    ...(item.note === undefined ? {} : { note: item.note.id }),
     cli,
     ...(id === "answer" ? { text: item.detail } : {}),
   };
@@ -458,7 +459,10 @@ export function useHome(args: HomeArgs) {
     return false;
   };
 
-  /** The keys every view shares: switch views, open the switcher or a checklist, Esc. */
+  /**
+   * The keys every view shares: switch views, open the switcher or a checklist, hand a quick idea
+   * to the audit (`i`, DIPO-454), Esc.
+   */
   const onSharedViewKey = (input: string, key: Key): boolean => {
     if (input === "1") {
       setView("overview");
@@ -468,6 +472,9 @@ export function useHome(args: HomeArgs) {
       setMessage(null);
       setCard(null);
       setView("desk");
+    } else if (input === "i") {
+      // A quick idea goes to the audit, never straight to the desk (DIPO-454).
+      act("idea", {});
     } else if (input === "o") {
       setMessage(null);
       args.openSwitcher();

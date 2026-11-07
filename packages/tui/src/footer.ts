@@ -122,6 +122,8 @@ export function footerKeys(
       } else if (view === "desk") {
         if (extras.desk) hints.push(["[Enter] detail", 60], ["[j/k] move", 30]);
         hints.push(["[1] overview", 50], ["[2] queue", 45], ["[4] checklist", 35]);
+        // A quick idea for the audit (DIPO-454).
+        hints.push(["[i]dea", 20]);
       } else {
         if (boardEntries(state).length > 0) {
           hints.push(["[Enter] detail", 60], ["[j/k] move", 30]);

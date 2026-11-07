@@ -2,13 +2,14 @@
 // from `--office` or the current directory and prints what waits on the maintainer in plain text: a
 // count line, then one line per item in the engine's order with an indented line holding the
 // command to type, and the stories the maintainer parked listed apart at the end, "Parked by you".
+// An IDEA item also prints its card, the proposed user story in full, between the two (DIPO-454).
 // `--json` prints the read's result. An empty desk prints `Nothing waits on you.`. The order, the
 // details and the command lines all come from the engine; this file only lays them out. Read only:
 // it never starts the daemon, and never offers to open a folder that is not an office.
 
 import { basename } from "node:path";
 
-import { usageParts } from "@dipsaus-orchestrator/client";
+import { ideaCardLines, usageParts } from "@dipsaus-orchestrator/client";
 import { type DeskItem, officeDesk } from "@dipsaus-orchestrator/contract";
 
 import { engineFailure, usage } from "./daemon-commands";
@@ -65,6 +66,11 @@ export function formatDesk(
     const story = (item.story ?? "").padEnd(storyWidth);
     const reason = item.reason === undefined ? "" : `${item.reason} · `;
     lines.push(`${item.kind.padEnd(kindWidth)} ${story}  ${reason}${item.detail}  ${since}`);
+    // An idea that passed its audit shows its proposed user story in full (DIPO-454).
+    if (item.idea !== undefined) {
+      for (const line of ideaCardLines(item.idea))
+        lines.push(`${" ".repeat(kindWidth + 1)}${line}`);
+    }
     lines.push(`${" ".repeat(kindWidth + 1)}${commandLine(item)}`);
   }
   // The stories parked by the maintainer, listed apart at the end (0020).

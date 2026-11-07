@@ -1,7 +1,7 @@
 // The desk notification (DIPO-357): one macOS notification when an item is added to an office's
 // desk, naming the office, the story and the kind of wait. The daemon reads `office.desk` after a
 // change of the office and passes the items here; the notifier posts each item once. An item is
-// identified by what it is (its kind, story, key, question, gate, reason and proposal), not by its
+// identified by what it is (its kind, story, key, question, gate, reason, idea and note), not by its
 // detail or its time, which change on every read. An item that leaves the desk is forgotten, so it
 // posts again when it comes back (a story offered as next up again, a story parked again). The
 // first read of an office shows nothing: those items were on the desk before, and a restart must
@@ -28,7 +28,7 @@ export function deskItemKey(item: DeskItem): string {
     item.question ?? null,
     item.gate ?? null,
     item.reason ?? null,
-    item.proposal?.id ?? null,
+    item.idea?.id ?? item.note?.id ?? null,
   ]);
 }
 

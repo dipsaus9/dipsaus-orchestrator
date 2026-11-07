@@ -25,8 +25,8 @@
 //   question itself (`ParkRequest.question`, DIPO-159). A blocked report during an
 //   open conflict hand-off fails it (DIPO-149, `conflicts.ts`); the failure that reaches the run's
 //   conflict cap parks `conflict` instead.
-// - Report data (DIPO-186). The proposals of every report, done or blocked, are stored for the
-//   maintainer (`storeProposals`, deduplicated by title and paths); storing them changes nothing
+// - Report data (DIPO-186). The proposals of every report, done or blocked, are held as ideas of the
+//   run (`storeProposals`, DIPO-452), audited before any reaches the desk; holding them changes nothing
 //   about the story, the run or the commit. A proposal whose Story line fails 0012 R05 leaves the
 //   report first (`splitProposals`): a done report's go to the report gate, which sends them
 //   back once (`verify-commit.ts`); any other report's are dropped at once with a notice.
@@ -590,14 +590,14 @@ export class RunControl implements RunEnder {
   }
 
   /**
-   * Stores a report's proposals (DIPO-186); a failure is logged and decides nothing, since the
-   * proposals change nothing about the run.
+   * Holds a report's proposals as ideas (DIPO-186, DIPO-452); a failure is logged and decides
+   * nothing, since the proposals change nothing about the run.
    */
   #storeProposals(tracked: Tracked, report: WorkerReport): void {
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined) return;
     try {
-      const filed = office.immediate(() =>
+      const held = office.immediate(() =>
         storeProposals(office, {
           key: tracked.work.key,
           runId: tracked.runId,
@@ -605,8 +605,8 @@ export class RunControl implements RunEnder {
           at: this.#deps.clock.now(),
         }),
       );
-      // Each stored proposal appended its `proposal.filed` (DIPO-166).
-      if (filed > 0) this.#deps.onChanged?.(tracked.office);
+      // A held idea waits for the run's end, when its audit takes it.
+      if (held > 0) this.#deps.onChanged?.(tracked.office);
     } catch (error) {
       this.#deps.warn?.("storing a report's proposals failed", {
         run: tracked.runId,

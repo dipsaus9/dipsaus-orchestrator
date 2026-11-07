@@ -288,9 +288,11 @@ export function finalSummaryFacts(
       where office_id = $office_id and key = $key and kind = 'story'`,
     { key },
   );
-  const proposals = hasTable(office, "proposals")
+  // Every worker proposal is held as an idea of its story (DIPO-452, DIPO-454).
+  const proposals = hasTable(office, "ideas")
     ? (office.get<{ n: number }>(
-        `select count(*) as n from proposals where office_id = $office_id and story_key = $key`,
+        `select count(*) as n from ideas
+          where office_id = $office_id and story_key = $key and origin = 'proposal'`,
         { key },
       )?.n ?? 0)
     : null;

@@ -50,6 +50,8 @@ export const PROPOSE_KIND = "propose";
 export const FILE_KIND = "file";
 /** An edit of a story's wording, criteria or references a planning session confirmed (DIPO-450). */
 export const REVISE_KIND = "revise";
+/** A draft a triage session refined into a story (DIPO-454). */
+export const REFINE_KIND = "refine";
 
 /** The target state of an edit: status, field-block keys and labels. */
 export const EditTarget = z
@@ -116,6 +118,15 @@ export const ReviseTarget = z
   .strict();
 export type ReviseTarget = z.infer<typeof ReviseTarget>;
 
+/**
+ * The target state of a draft's refinement (DIPO-454): the draft `draftTitle` names is promoted
+ * to a task, which then reads as a filing's target asks (Refined to the standard, with a branch
+ * named for its new id). The draft's title guards against a reused draft id: a draft with another
+ * title is not the one the maintainer confirmed.
+ */
+export const RefineTarget = FileTarget.extend({ draftTitle: z.string().min(1) }).strict();
+export type RefineTarget = z.infer<typeof RefineTarget>;
+
 /** The target state of a drop: the story is archived. */
 export const DropTarget = z.object({ kind: z.enum(["task", "draft"]).optional() }).strict();
 export type DropTarget = z.infer<typeof DropTarget>;
@@ -135,13 +146,18 @@ export interface PlanningStory {
   readonly story: string;
 }
 
-/** The draft an accepted worker proposal becomes (0020, DIPO-166). */
+/**
+ * The draft an accepted idea becomes (0022, DIPO-454): a draft of a milestone has that milestone;
+ * a tech-debt draft has none and the label `tech-debt`.
+ */
 export interface ProposedDraft {
-  /** The proposal's id; the store finds a draft it filed for it again by it. */
+  /** The idea's id; the store finds a draft it filed for it again by it. */
   readonly proposal: string;
   readonly title: string;
   readonly description: string;
   readonly references: readonly string[];
+  readonly milestone?: string;
+  readonly labels?: readonly string[];
 }
 
 /**
@@ -176,6 +192,11 @@ export interface PlanningLane {
   fileStory(target: FileTarget): Promise<PlannedChange>;
   /** Changes a story's wording, criteria or references as a planning session confirmed. */
   reviseStory(story: PlanningStory, target: ReviseTarget): Promise<PlannedChange>;
+  /**
+   * Refines a draft a triage session confirmed (DIPO-454): Backlog's draft promote, then the
+   * story Refined to the standard with a branch named for its new id.
+   */
+  refineDraft(story: PlanningStory, target: RefineTarget): Promise<PlannedChange>;
   /**
    * How far the journaled `change` got (DIPO-450): `waiting` to be applied, `applied` (committed,
    * pushed or merged, or on the open branch already), or `closed` with the notice that says why;

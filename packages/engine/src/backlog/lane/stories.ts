@@ -1,6 +1,6 @@
-// The lane-b kinds `file` and `revise` (DIPO-450; 0010, 0022): what a planning session's
-// confirmed proposals change in the backlog. Both are target states, applied through the Backlog CLI
-// in the `_backlog` worktree and read back.
+// The lane-b kinds `file`, `revise` and `refine` (DIPO-450, DIPO-454; 0010, 0022): what a planning
+// session's confirmed proposals change in the backlog. Each is a target state, applied through the
+// Backlog CLI in the `_backlog` worktree and read back.
 //
 // - `file` creates a story Refined to the story standard (0012): `task create` with its title,
 //   description (the Story line and its context), type, milestone, tier label, criteria,
@@ -16,17 +16,25 @@
 //   with the other) and its references (`--ref` for each, which 1.53 reads as the whole list), each
 //   only when it differs. A story that is gone, or in another status, no longer applies. The story
 //   goes into the session's record once the revision applied.
+// - `refine` turns a draft a triage session refined into a story Refined to the standard: Backlog's
+//   `draft promote`, then what `file` writes, with a branch named for its new id (`refineKind`).
 //
-// Labels are set only at `task create`; a revision never changes them (0010).
+// Labels are set only at `task create`, and a refined draft gets its tier label added; a revision
+// never changes them (0010).
 
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 
+import { StoryId } from "@dipsaus-orchestrator/contract";
+
 import { recordPlanningEntry } from "../../records/planning-record";
+import { isProvisionalId, recordPromotion } from "../../records/story-keys";
 import { BLOCK_OPEN, FieldBlockError, locateBlock } from "../../story-store/fields/block";
 import {
   FILE_KIND,
   FileTarget,
+  REFINE_KIND,
+  RefineTarget,
   REVISE_KIND,
   ReviseTarget,
   storyDescription,
@@ -39,7 +47,7 @@ import { slug } from "../slug";
 
 import type { ApplyContext, LaneOpKind } from "./ops";
 
-export { FILE_KIND, REVISE_KIND };
+export { FILE_KIND, REFINE_KIND, REVISE_KIND };
 
 export { storyDescription };
 
@@ -329,6 +337,130 @@ export const reviseKind: LaneOpKind = {
           at: ctx.entry.updatedAt,
         }),
       );
+    }
+    return { applies: true };
+  },
+};
+
+/**
+ * The `task edit` calls that make the promoted task `view` read as `target` asks of a filing:
+ * Refined, its type, milestone and tier label, its criteria, references and dependencies, each only
+ * when it differs. The description was written on the draft before its promote.
+ */
+function refinementCalls(view: PlainTask, target: RefineTarget): string[][] {
+  const calls: string[][] = [];
+  const fields: string[] = [];
+  if (view.status !== "Refined") fields.push("--status", "Refined");
+  if (view.type !== target.type) fields.push("--type", target.type);
+  if (view.milestone !== target.milestone) fields.push("--milestone", target.milestone);
+  const tier = `tier:${target.tier}`;
+  if (!view.labels.includes(tier)) fields.push("--add-label", tier);
+  if (fields.length > 0) calls.push(fields);
+  const criteria = target.criteria.map((text) => text.trim());
+  if (!sameList(criteriaOf(view), criteria)) {
+    // 1.53 takes `--clear-ac` only on its own.
+    if (view.acceptanceCriteria.length > 0) calls.push(["--clear-ac"]);
+    calls.push(criteria.flatMap((text) => ["--ac", text]));
+  }
+  if (!sameSet(view.references, target.references)) {
+    calls.push(target.references.flatMap((path) => ["--ref", path]));
+  }
+  const deps = view.dependencies.map((dep) => dep.id.toUpperCase());
+  if (!sameSet(deps, target.dependencies)) {
+    calls.push(
+      target.dependencies.length === 0
+        ? ["--clear-deps"]
+        : target.dependencies.flatMap((dep) => ["--dep", dep]),
+    );
+  }
+  return calls;
+}
+
+/**
+ * The `refine` kind (DIPO-454): a draft a triage session refined becomes a story Refined to the
+ * story standard. Its title and description (the Story line and context) are written on the draft,
+ * Backlog's `draft promote` makes it a task with a new id, and the task then gets what a filing
+ * gets: status Refined, type, milestone, tier label, criteria, references, dependencies, and the
+ * field block with a branch named for its new id. The target state is "a task with the target's
+ * title whose description starts with its Story line exists": applied again it finds that task and
+ * only fills in what is missing. A draft that is gone, or whose title is not the one the
+ * maintainer confirmed (a reused draft id), no longer applies. The promotion is recorded so the
+ * story index renumbers the story (`story.renumbered`), and the new id goes into the session's
+ * record.
+ */
+export const refineKind: LaneOpKind = {
+  kind: REFINE_KIND,
+  async apply(ctx, raw) {
+    const parsed = RefineTarget.safeParse(raw);
+    if (!parsed.success) {
+      return {
+        applies: false,
+        reason: `the target is not a valid draft to refine: ${parsed.error.message}`,
+      };
+    }
+    const target = parsed.data;
+    let id = await filedStory(ctx, target);
+    if (id === null) {
+      const draft = { cli: ctx.cli, cwd: ctx.cwd, id: ctx.story, kind: "draft" as const };
+      let view: PlainTask;
+      try {
+        view = await viewStory(draft, false);
+      } catch (error) {
+        if (isNotFound(error)) return { applies: false, reason: `${ctx.story} is no draft now` };
+        throw error;
+      }
+      if (view.title.normalize("NFC").trim() !== target.draftTitle.normalize("NFC").trim()) {
+        return {
+          applies: false,
+          reason: `${ctx.story} is titled "${view.title}" now, not "${target.draftTitle}"`,
+        };
+      }
+      // Title and description first, so the task the promote makes is found by them.
+      await runBacklog(ctx.cli, ctx.cwd, [
+        "draft",
+        "edit",
+        ctx.story,
+        "--title",
+        target.title,
+        "--description",
+        target.description,
+      ]);
+      mkdirSync(join(ctx.cwd, "backlog", "tasks"), { recursive: true });
+      await runBacklog(ctx.cli, ctx.cwd, ["draft", "promote", ctx.story]);
+      id = await filedStory(ctx, target);
+      if (id === null) {
+        throw new FieldWriteError(
+          ctx.story,
+          "no task with the story's title and Story line is there after `draft promote`",
+        );
+      }
+    }
+    const task = { cli: ctx.cli, cwd: ctx.cwd, id };
+    for (const args of refinementCalls(await viewStory(task, false), target)) {
+      await runBacklog(ctx.cli, ctx.cwd, ["task", "edit", id, ...args]);
+    }
+    await fillFields(ctx, id, target);
+    await checkFiled(ctx, id, target);
+    const office = ctx.office;
+    const key = ctx.entry.key;
+    if (office !== undefined) {
+      const story = id;
+      office.immediate(() => {
+        if (key !== null && isProvisionalId(ctx.entry.subject)) {
+          recordPromotion(
+            office,
+            { key, draft: StoryId.parse(ctx.entry.subject), story: StoryId.parse(story) },
+            ctx.entry.updatedAt,
+          );
+        }
+        recordPlanningEntry(office, {
+          run: target.run,
+          proposal: target.proposal,
+          kind: "refined",
+          story,
+          at: ctx.entry.updatedAt,
+        });
+      });
     }
     return { applies: true };
   },

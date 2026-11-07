@@ -5,7 +5,16 @@ import { z } from "zod";
 
 import { defineCommand, defineEvent, defineRead } from "./definition";
 import { CommandName } from "./envelope";
-import { IdeaState, IdeaView } from "./ideas";
+import {
+  IDEA_CAPS,
+  IdeaCard,
+  IdeaDecision,
+  IdeaId,
+  IdeaOrigin,
+  IdeaRef,
+  IdeaState,
+  IdeaView,
+} from "./ideas";
 import {
   AgentId,
   Cursor,
@@ -256,13 +265,13 @@ export const gateReject = defineCommand({
   irreversible: false,
 });
 
-// A worker's proposal (0020, DIPO-186): its stored id is a hash of 64 lower-case hex
+// A worker's decision note (0020, DIPO-404): its stored id is a hash of 64 lower-case hex
 // characters. A command may name it by a unique prefix of at least 8 of them.
-export const ProposalId = z.string().regex(/^[0-9a-f]{64}$/, "expected a proposal id");
-export type ProposalId = z.infer<typeof ProposalId>;
-export const ProposalRef = z
+export const NoteId = z.string().regex(/^[0-9a-f]{64}$/, "expected a decision note id");
+export type NoteId = z.infer<typeof NoteId>;
+export const NoteRef = z
   .string()
-  .regex(/^[0-9a-f]{8,64}$/, "expected a proposal id, or at least its first 8 characters");
+  .regex(/^[0-9a-f]{8,64}$/, "expected a decision note id, or at least its first 8 characters");
 
 // What a flush of the planning lane did with one journaled change (DIPO-401, 0010): `opened` or
 // `updated` the office's backlog PR `pr` (its URL) on `branch`; `pushed` the branch but no PR is
@@ -282,20 +291,21 @@ export const LaneFlush = z.discriminatedUnion("state", [
 ]);
 export type LaneFlush = z.infer<typeof LaneFlush>;
 
-// (DIPO-166; 0020) [`proposals`]: files an open follow-up, spike
-// or tool proposal of a worker as a Backlog draft through the planning lane, with the title, the
-// Story line, the paths as references and the source story in the description, the worker's
-// text marked as the worker's words. `draft` is the draft's id once the lane created it; draft ids
-// are reused by Backlog.md, so it names the draft only until it is promoted or archived. Accepting
-// an accepted proposal changes nothing. Errors: `proposal.unknown`, `proposal.ambiguous` (a prefix
-// of several), `proposal.notOpen` (dismissed already). `flush` says what the lane's flush did with
-// the draft (DIPO-401); it is absent when nothing was flushed (the proposal was filed already).
-export const proposalAccept = defineCommand({
-  name: "proposal.accept",
+// (DIPO-454; 0020, 0022) [`ideas`]: files an idea that passed its audit, open on the desk, as a
+// Backlog draft through the planning lane: its title, and a description with its origin and source
+// story, the Story line, what was found with its evidence, what is proposed and why. A draft of a
+// milestone has that milestone; a tech-debt draft has none and the label `tech-debt`. `draft` is
+// the draft's id once the lane created it; draft ids are reused by Backlog.md, so it names the
+// draft only until it is promoted or archived. Accepting an accepted idea changes nothing.
+// Errors: `idea.unknown`, `idea.ambiguous` (a prefix of several), `idea.notOpen` (not passed, or
+// dismissed already). `flush` says what the lane's flush did with the draft (DIPO-401); it is
+// absent when nothing was flushed (the idea was filed already).
+export const ideaAccept = defineCommand({
+  name: "idea.accept",
   level: "office",
-  args: z.object({ proposal: ProposalRef }),
+  args: z.object({ idea: IdeaRef }),
   result: z.object({
-    proposal: ProposalId,
+    idea: IdeaId,
     state: z.literal("accepted"),
     draft: z.string().optional(),
     flush: LaneFlush.optional(),
@@ -304,14 +314,41 @@ export const proposalAccept = defineCommand({
   irreversible: false,
 });
 
-// (DIPO-166) [`proposals`]: closes an open proposal without filing anything.
-// Dismissing a dismissed proposal changes nothing. Errors as `proposal.accept`; `proposal.notOpen`
-// when it was accepted already.
-export const proposalDismiss = defineCommand({
-  name: "proposal.dismiss",
+// (DIPO-454) [`ideas`]: closes an idea open on the desk without filing anything; it is kept as
+// dismissed by the maintainer. Dismissing a dismissed idea changes nothing. Errors as
+// `idea.accept`; `idea.notOpen` when it was accepted already or never passed.
+export const ideaDismiss = defineCommand({
+  name: "idea.dismiss",
   level: "office",
-  args: z.object({ proposal: ProposalRef }),
-  result: z.object({ proposal: ProposalId, state: z.literal("dismissed") }),
+  args: z.object({ idea: IdeaRef }),
+  result: z.object({ idea: IdeaId, state: z.literal("dismissed") }),
+  confirm: false,
+  irreversible: false,
+});
+
+// (DIPO-454; 0022) [`ideas`]: the maintainer's quick idea, held with origin `quick` and audited at
+// once, like every incoming idea. `story` names the story it is about, if any. The title is the
+// first line of the text. `held` is false when the same quick idea was held already.
+export const ideaQuick = defineCommand({
+  name: "idea.quick",
+  level: "office",
+  args: z.object({
+    text: z.string().trim().min(1).max(IDEA_CAPS.text),
+    story: StoryRefValue.optional(),
+  }),
+  result: z.object({ idea: IdeaId, held: z.boolean() }),
+  confirm: false,
+  irreversible: false,
+});
+
+// (DIPO-404, DIPO-454; 0020) [`desk`]: closes a worker's decision note on the desk. dipo never
+// writes decision records; the maintainer adds the note by hand if they agree. Dismissing a
+// dismissed note changes nothing. Errors: `note.unknown`, `note.ambiguous`.
+export const noteDismiss = defineCommand({
+  name: "note.dismiss",
+  level: "office",
+  args: z.object({ note: NoteRef }),
+  result: z.object({ note: NoteId, state: z.literal("dismissed") }),
   confirm: false,
   irreversible: false,
 });
@@ -749,7 +786,8 @@ export const officeStats = defineRead({
 // `STARTS PAUSED`, the office's starts paused with its reason and what lifts it, with no story;
 // DIPO-380 `LOADING`, an office whose load is still running, with no story; DIPO-401
 // `PLANNING LANE`, a planning lane whose operations wait for a backlog PR longer than 30 minutes,
-// with no story; DIPO-440 `NEXT UP`, a Ready story offered for a free run slot).
+// with no story; DIPO-440 `NEXT UP`, a Ready story offered for a free run slot; DIPO-454 `IDEA`, an
+// idea that passed its audit with its card, and `DECISION NOTE`, a worker's note for a decision record).
 export const KNOWN_DESK_KINDS = [
   "STARTS PAUSED",
   "QUESTION",
@@ -762,7 +800,8 @@ export const KNOWN_DESK_KINDS = [
   "BACKLOG PR",
   "PLANNING LANE",
   "NOTICE",
-  "PROPOSAL",
+  "IDEA",
+  "DECISION NOTE",
   "NEXT UP",
   "PARKED BY YOU",
   "PROFILE",
@@ -778,20 +817,22 @@ export type DeskKind = z.infer<typeof DeskKind>;
 export const DeskAction = z.object({ command: CommandName, cli: z.string() });
 export type DeskAction = z.infer<typeof DeskAction>;
 
-// The proposal of a PROPOSAL item: a worker's follow-up, spike or tool proposal, or a decision note
-// (DIPO-186), with the id the maintainer accepts or dismisses it by.
-export const DeskProposal = z.object({
-  id: z.string(),
-  kind: z.string(), // follow-up, spike, tool or decision-note
-  title: z.string(),
+// The decision note of a DECISION NOTE item (DIPO-404): a worker's note for a decision record,
+// with the id the maintainer dismisses it by, its file, section and text, and the run it came from.
+export const DeskNote = z.object({
+  id: NoteId,
+  file: z.string(),
+  section: z.string(),
+  text: z.string(),
   run: RunId.optional(),
 });
-export type DeskProposal = z.infer<typeof DeskProposal>;
+export type DeskNote = z.infer<typeof DeskNote>;
 
 // One thing that waits on the maintainer (0020). `detail` is one code-built line;
 // `since` is when it began to wait; `blocks` lists the active stories that depend on its story.
 // `actions` are the commands it offers; `hand` says what to do by hand when no dipo command does
-// it, such as a merge on the code host for a PR labelled `autorelease: pending`.
+// it, such as a merge on the code host for a PR labelled `autorelease: pending`. An IDEA item holds
+// its card (`idea`), the proposed user story in full, and a DECISION NOTE item its note (`note`).
 export const DeskItem = z.object({
   kind: DeskKind,
   story: StoryId.optional(),
@@ -799,7 +840,8 @@ export const DeskItem = z.object({
   question: QuestionId.optional(),
   gate: GateId.optional(),
   pr: StoryPr.optional(),
-  proposal: DeskProposal.optional(),
+  idea: IdeaCard.optional(),
+  note: DeskNote.optional(),
   reason: ParkReason.optional(),
   detail: z.string(),
   since: Timestamp,
@@ -812,7 +854,8 @@ export type DeskItem = z.infer<typeof DeskItem>;
 // What waits on the maintainer, in the order of 0020: the office's starts paused (DIPO-359),
 // questions with a waiting worker, merge
 // gates, parks by reason with the stories parked by the maintainer last, hand actions and
-// proposals; within a group the items blocking the most stories first, then the oldest. Changes nothing.
+// the ideas that passed their audit with the decision notes; within a group the items blocking the
+// most stories first, then the oldest. Changes nothing.
 // (DIPO-158) [`desk`].
 export const officeDesk = defineRead({
   name: "office.desk",
@@ -1045,34 +1088,38 @@ export const storyPr = defineEvent({
   data: z.object({ story: StoryId, key: StoryKey, pr: StoryPr }),
 });
 
-// (DIPO-166; 0020) [`proposals`]: a worker report's proposal was stored for
-// the maintainer, once per proposal (a later report with the same title and paths files none).
-// `title` is the worker's words, cleaned of terminal control characters and on one line.
-export const proposalFiled = defineEvent({
-  type: "proposal.filed",
+// (DIPO-454; 0022) [`ideas`]: an idea passed its audit and waits on the desk as a proposed user
+// story. `title` is the idea's, cleaned of terminal control characters and on one line; `key` is
+// its source story's, when it has one.
+export const ideaPassed = defineEvent({
+  type: "idea.passed",
   stream: "office",
   derived: false,
   data: z.object({
-    proposal: ProposalId,
-    kind: z.string(), // follow-up, spike or tool
-    key: StoryKey,
+    idea: IdeaId,
+    origin: IdeaOrigin,
+    key: StoryKey.optional(),
     story: StoryId.optional(),
-    run: RunId,
     title: z.string(),
   }),
 });
 
-// (DIPO-166) [`proposals`]: the maintainer accepted (filed as a Backlog draft through
-// the planning lane) or dismissed a proposal.
-export const proposalClosed = defineEvent({
-  type: "proposal.closed",
+// (DIPO-454) [`ideas`]: the maintainer accepted an idea (filed as a Backlog draft through the
+// planning lane) or dismissed it.
+export const ideaClosed = defineEvent({
+  type: "idea.closed",
   stream: "office",
   derived: false,
-  data: z.object({
-    proposal: ProposalId,
-    key: StoryKey,
-    state: z.enum(["accepted", "dismissed"]),
-  }),
+  data: z.object({ idea: IdeaId, key: StoryKey.optional(), state: IdeaDecision }),
+});
+
+// (DIPO-404, DIPO-454) [`desk`]: a worker's decision note was dismissed by the maintainer, or
+// closed by reconcile because the ADR on the base holds its text.
+export const noteClosed = defineEvent({
+  type: "note.closed",
+  stream: "office",
+  derived: false,
+  data: z.object({ note: NoteId, key: StoryKey, state: z.literal("dismissed") }),
 });
 
 export const testStarted = defineEvent({
@@ -1115,8 +1162,10 @@ export const officeCommands = [
   storyDrop,
   gateApprove,
   gateReject,
-  proposalAccept,
-  proposalDismiss,
+  ideaAccept,
+  ideaDismiss,
+  ideaQuick,
+  noteDismiss,
   nextUpConfirm,
   nextUpDecline,
   testStart,
@@ -1159,8 +1208,9 @@ export const officeEvents = [
   storyParked,
   runEnded,
   storyPr,
-  proposalFiled,
-  proposalClosed,
+  ideaPassed,
+  ideaClosed,
+  noteClosed,
   testStarted,
   testRecorded,
   testEnded,

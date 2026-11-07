@@ -4,10 +4,11 @@
 // offers `a` answer.
 //
 // On a desk row a key is offered only when the row's `actions` lists its command; a view's row
-// binding wins over a global key (`n` rejects a merge and dismisses a proposal, `y` approves a merge
-// and accepts a proposal). An action no entry binds on its row, or whose key an earlier action of
-// the row took, shows its `cli` line in the footer. An answer is always a text (0020). Client and
-// daemon are one binary (0005), so every command in the table exists.
+// binding wins over a global key (`n` rejects a merge and dismisses an idea or a decision note, `y`
+// approves a merge and accepts an idea). `i` hands a quick idea to the audit from any view (DIPO-454).
+// An action no entry binds on its row, or whose key an earlier action of the row took, shows its
+// `cli` line in the footer. An answer is always a text (0020). Client and daemon are one binary
+// (0005), so every command in the table exists.
 
 import type { DeskAction, DeskItem } from "@dipsaus-orchestrator/contract";
 
@@ -25,6 +26,8 @@ export type ActionId =
   | "test"
   | "accept"
   | "dismiss"
+  | "dismissNote"
+  | "idea"
   | "steer"
   | "pass"
   | "fail";
@@ -64,17 +67,32 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "accept",
-    command: "proposal.accept",
+    command: "idea.accept",
     key: "y",
     hint: "[y] accept",
     views: ["desk"],
   },
   {
     id: "dismiss",
-    command: "proposal.dismiss",
+    command: "idea.dismiss",
     key: "n",
     hint: "[n] dismiss",
     views: ["desk"],
+  },
+  {
+    id: "dismissNote",
+    command: "note.dismiss",
+    key: "n",
+    hint: "[n] dismiss",
+    views: ["desk"],
+  },
+  // The maintainer's quick idea (DIPO-454): a key of every view, handed to the audit.
+  {
+    id: "idea",
+    command: "idea.quick",
+    key: "i",
+    hint: "[i]dea",
+    views: ["desk", "overview"],
   },
   {
     id: "resume",
@@ -148,9 +166,11 @@ function hasTarget(entry: KeyBinding, item: DeskItem): boolean {
     case "gate.approve":
     case "gate.reject":
       return item.gate !== undefined;
-    case "proposal.accept":
-    case "proposal.dismiss":
-      return item.proposal !== undefined;
+    case "idea.accept":
+    case "idea.dismiss":
+      return item.idea !== undefined;
+    case "note.dismiss":
+      return item.note !== undefined;
     default:
       return item.story !== undefined;
   }

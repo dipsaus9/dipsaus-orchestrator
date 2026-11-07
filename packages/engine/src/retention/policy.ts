@@ -79,10 +79,11 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   done_reports: aged("with its run, ended more than retention.days ago"),
   report_sendbacks: aged("with its run, ended more than retention.days ago"),
   decision_notes: aged("decided more than retention.days ago; an open note is kept"),
-  proposals: aged("decided more than retention.days ago; an open proposal is kept"),
   // DIPO-452: a held idea waits for its audit, a passed one for the maintainer, and a rejected one
   // stays findable with its reason for retro (0022).
-  ideas: kept("kept: every idea with its audit, for retro"),
+  ideas: kept("kept: every idea with its audit and the maintainer's decision, for retro"),
+  // DIPO-454: a draft a triage session promoted, until the story index renumbered its story.
+  draft_promotions: kept("one row per promoted draft's story"),
   questions: aged("with its run, ended more than retention.days ago"),
   run_outcomes: kept("kept: the outcome row of every ended run, for retro"),
   starts_paused: kept("one row per office and reason, deleted when that pause lifts"),

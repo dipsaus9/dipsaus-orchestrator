@@ -120,8 +120,33 @@ export const ProposedStory = z.object({
 });
 export type ProposedStory = z.infer<typeof ProposedStory>;
 
+// An idea's id: a hash of 64 lower-case hex characters. A command may name it by a unique prefix
+// of at least 8 of them.
+export const IdeaId = z.string().regex(/^[0-9a-f]{64}$/, "expected an idea id");
+export type IdeaId = z.infer<typeof IdeaId>;
+export const IdeaRef = z
+  .string()
+  .regex(/^[0-9a-f]{8,64}$/, "expected an idea id, or at least its first 8 characters");
+
+// The maintainer's decision on an idea that passed (DIPO-454): `accepted`, filed as a Backlog
+// draft, or `dismissed`, closed and kept. A passed idea without one waits on the desk.
+export const IDEA_DECISIONS = ["accepted", "dismissed"] as const;
+export const IdeaDecision = z.enum(IDEA_DECISIONS);
+export type IdeaDecision = z.infer<typeof IdeaDecision>;
+
+// A passed idea as its desk card shows it (DIPO-454): the proposed user story in full, with the
+// idea's id, origin, title and run. Every text is cleaned of terminal controls, never cut.
+export const IdeaCard = ProposedStory.extend({
+  id: IdeaId,
+  origin: IdeaOrigin,
+  title: z.string(),
+  run: RunId.optional(),
+});
+export type IdeaCard = z.infer<typeof IdeaCard>;
+
 // One idea as `office.ideas` lists it. `attempts` counts the audits that failed, were cut off or
 // were refused by schema; such an idea stays held and is audited again at the next trigger.
+// `decision` is the maintainer's on a passed idea, and `draft` the Backlog draft an accept filed.
 export const IdeaView = z.object({
   id: z.string(),
   origin: IdeaOrigin,
@@ -135,7 +160,10 @@ export const IdeaView = z.object({
   proposal: ProposedStory.optional(),
   attempts: Count,
   lastProblem: z.string().optional(),
+  decision: IdeaDecision.optional(),
+  draft: z.string().optional(),
   createdAt: Timestamp,
   decidedAt: Timestamp.optional(),
+  decisionAt: Timestamp.optional(),
 });
 export type IdeaView = z.infer<typeof IdeaView>;

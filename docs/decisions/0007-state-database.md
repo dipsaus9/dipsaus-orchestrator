@@ -59,12 +59,11 @@ Run detail and dipo's own state, grouped by subject. The groups below hold the m
 | Review and merge | Gates and their decisions, reviewer verdicts keyed on the code tree, story PRs, feedback items with their signatures, and the maintainer's tests (`acceptance_tests`) with their result per head (0002) |
 | Parks and questions | Park detail and history, questions and answers. The current park state is Backlog.md's (section 6) |
 | Claims | One live claim per story and per branch, enforced by unique indexes, plus released branches |
-| Backlog lane | The journal of planning operations and backlog PRs (0010) |
+| Backlog lane | The journal of planning operations and backlog PRs (0010), and each draft a triage session promoted with its new id, so the story index renumbers its story (0022) |
 | Run profile | Scans, profiles, capabilities, confirmations and proposals (0013) |
 | Prompts | Prompt part sizes and, when stored, prompt texts, plus worker notes for the handoff (0014) |
 | Config | Snapshots of the effective office configuration, keyed by hash (0017) |
-| Proposals | Worker proposals for the desk (0020) |
-| Ideas | Every incoming idea (0022): a worker's proposal, a reviewer's advisory finding, a planning session's aside or a quick idea, with its origin, source story and run, and its audit: held, passed with its proposed user story, or rejected with its reason and by whom (code or the audit). A held idea counts the audits that missed it and is never dropped |
+| Ideas | Every incoming idea (0022): a worker's proposal, a reviewer's advisory finding, a planning session's aside or a quick idea, with its origin, source story and run, and its audit: held, passed with its proposed user story, or rejected with its reason and by whom (code or the audit). A held idea counts the audits that missed it and is never dropped. A passed idea waits on the desk until the maintainer accepts it, with the draft that filed it, or dismisses it; both are kept |
 
 The database stores facts. Display status, columns, health and budget shares are derived by engine code when it reads, and go out in change-log entries and snapshots (0005).
 
@@ -134,4 +133,5 @@ The worker host appends the session's stream to `events.ndjson`. The engine read
 - `merge_slot`, `nudge_sources`, `base_verifies`, `verify_results`, the pricing tables, transcript cursors and `usage_high_water`. Each served a mechanism that is gone (2026-10-24).
 - Linux paths and the systemd log location (2026-10-10). macOS only (0004).
 - Worker proposals as the only incoming ideas the database held, each stored for the desk as it came (2026-10-24). Replaced by an `ideas` table that holds every incoming idea with its origin and its audit; the step that added it held the worker proposals then open as ideas (0022, 2026-11-06).
+- A `proposals` table that held each worker proposal for the desk with the maintainer's accept or dismiss (2026-10-24). Replaced by the maintainer's decision on a passed idea in `ideas`, and the table was dropped (0020, 0022, 2026-11-06).
 - 74 migration steps and the load-time code that settled state earlier binaries left (2026-10-12 to 2026-11-02). Replaced by one base schema and a fresh database (2026-11-03).

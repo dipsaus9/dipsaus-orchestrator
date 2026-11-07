@@ -97,11 +97,13 @@ export {
   addStory,
   findStoryByKey,
   isProvisionalId,
+  promotionOf,
+  recordPromotion,
   removeStory,
   renumberStory,
   resolveStoryRef,
 } from "./story-keys";
-export type { NewStory, StoryIdentity, StoryResolution } from "./story-keys";
+export type { NewStory, Promotion, StoryIdentity, StoryResolution } from "./story-keys";
 export {
   findStoryPr,
   latestStoryPr,

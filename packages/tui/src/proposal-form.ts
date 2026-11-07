@@ -3,9 +3,9 @@
 // context as `context:` followed by lines indented two spaces; the test plan as
 // `- automated: <check>` and `- manual: <check> => <expected>` lines, or `testPlan: not applicable:
 // <reason>`. A split's fields carry the prefix `edit.` or `story.`. Lines starting with `#` are
-// notes. The kind and the edited story's id are kept from the proposal, never edited. The engine
-// checks the result as it checks the session's (`planning.edit`), so the form checks only its own
-// syntax.
+// notes. The kind and the edited story's id, or a triage proposal's draft, are kept from the
+// proposal, never edited. The engine checks the result as it checks the session's
+// (`planning.edit`), so the form checks only its own syntax.
 
 import type { PlanningProposal, PlanningTestPlan } from "@dipsaus-orchestrator/contract";
 
@@ -49,10 +49,27 @@ function fieldLines(fields: Fields, prefix: string): string[] {
   return lines;
 }
 
+/** The story or draft a proposal is about, which the form keeps: an edit's or split's id, a triage proposal's draft. */
+function ownOf(
+  proposal: PlanningProposal,
+): { readonly field: "id" | "draft"; readonly value: string } | null {
+  switch (proposal.kind) {
+    case "story":
+      return null;
+    case "edit":
+    case "split":
+      return { field: "id", value: proposal.id };
+    case "refine":
+    case "drop":
+      return { field: "draft", value: proposal.draft };
+  }
+}
+
 /** Pure: `proposal` as the form the maintainer edits. */
 export function proposalForm(proposal: PlanningProposal): string {
+  const own = ownOf(proposal);
   const head = [
-    `# ${proposal.kind}${proposal.kind === "story" ? "" : ` ${proposal.id}`}: edit the fields, then Ctrl-S`,
+    `# ${proposal.kind}${own === null ? "" : ` ${own.value}`}: edit the fields, then Ctrl-S`,
   ];
   if (proposal.kind === "split") {
     const { kind: _kind, id: _id, edit, story, ...rest } = proposal;
@@ -65,7 +82,7 @@ export function proposalForm(proposal: PlanningProposal): string {
   }
   const { kind: _kind, ...rest } = proposal;
   const fields: Record<string, unknown> = { ...rest };
-  delete fields.id;
+  if (own !== null) delete fields[own.field];
   return [...head, ...fieldLines(fields, "")].join("\n");
 }
 
@@ -167,10 +184,11 @@ export function readProposalForm(
   const read = readFields(text);
   if (typeof read === "string") return { ok: false, error: read };
   const result: Record<string, unknown> = { kind: original.kind };
-  if (original.kind !== "story") result.id = original.id;
+  const own = ownOf(original);
+  if (own !== null) result[own.field] = own.value;
   for (const [key, field] of read) {
-    // The kind and the id are the proposal's own.
-    if (key === "kind" || key === "id") continue;
+    // The kind, the id and the draft are the proposal's own.
+    if (key === "kind" || key === "id" || key === "draft") continue;
     const name = key.split(".").at(-1) ?? "";
     const value = valueOf(name, field);
     if (typeof value === "string") return { ok: false, error: value };

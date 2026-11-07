@@ -4,13 +4,14 @@
 // (`keys.ts`); the stories the maintainer parked are listed apart under "Parked by you". An empty
 // desk says `Nothing waits on you.`. At 80 columns and wider an item with a hand action or with
 // stories it blocks gets a second line for them; below 80 every row is one line and the keys of
-// the selected row show in the footer only.
+// the selected row show in the footer only. The selected IDEA row shows its card under it: the
+// proposed user story in full, wrapped to the width (DIPO-454).
 //
 // No event carries the desk, so `useDesk` reads `office.desk` again after every office event that
 // can change it and after the store read the office again (a stream reset or a switch), at most
 // once a second. The TUI never orders, filters or derives a desk item itself.
 
-import type { OfficeStore } from "@dipsaus-orchestrator/client";
+import { ideaCardLines, type OfficeStore } from "@dipsaus-orchestrator/client";
 import type {
   Clock,
   DeskItem,
@@ -47,8 +48,9 @@ export const DESK_EVENTS: ReadonlySet<string> = new Set([
   "test.started",
   "test.recorded",
   "test.ended",
-  "proposal.filed",
-  "proposal.closed",
+  "idea.passed",
+  "idea.closed",
+  "note.closed",
   "story.pr",
   "work.phase",
 ]);
@@ -161,7 +163,7 @@ export function deskRowId(item: DeskItem): string {
     item.key ?? "",
     item.question ?? "",
     item.gate ?? "",
-    item.proposal?.id ?? "",
+    item.idea?.id ?? item.note?.id ?? "",
     item.pr?.number ?? "",
   ].join(":");
 }
@@ -209,7 +211,39 @@ export function rowHints(item: DeskItem): string {
     .join(" ");
 }
 
-/** One desk row's lines; the first is the row, a second (wide only) its hand action or blocks. */
+/** `text` broken into lines of at most `width` characters, at spaces where it can. */
+export function wrapText(text: string, width: number): string[] {
+  const room = Math.max(1, width);
+  const lines: string[] = [];
+  let rest = text;
+  while (Array.from(rest).length > room) {
+    const chars = Array.from(rest);
+    const head = chars.slice(0, room + 1).join("");
+    const space = head.lastIndexOf(" ");
+    const cut = space > 0 ? space : room;
+    lines.push(chars.slice(0, cut).join("").trimEnd());
+    rest = chars.slice(cut).join("").trimStart();
+  }
+  lines.push(rest);
+  return lines;
+}
+
+/**
+ * The card of a selected IDEA row (DIPO-454): its proposed user story in full, each line wrapped
+ * to the width under the row, never cut.
+ */
+export function ideaLines(item: DeskItem, indent: number, columns: number): string[] {
+  if (item.idea === undefined) return [];
+  const pad = " ".repeat(indent);
+  return ideaCardLines(item.idea).flatMap((line) =>
+    wrapText(line, columns - 1 - indent).map((part) => `${pad}${part}`),
+  );
+}
+
+/**
+ * One desk row's lines; the first is the row, a second (wide only) its hand action or blocks, and
+ * a selected IDEA row its card in full.
+ */
 export function rowLines(options: {
   readonly item: DeskItem;
   readonly selected: boolean;
@@ -240,6 +274,7 @@ export function rowLines(options: {
       lines.push(truncate(`${indent}${extra.join(` ${dot} `)}`, columns - 1, ellipsis));
     }
   }
+  if (options.selected) lines.push(...ideaLines(item, 2 + widths.kind + 1, columns));
   return lines;
 }
 

@@ -14,7 +14,8 @@ export const ids = {
   test: `tst_${ULID}`,
   request: ULID,
   request2: ULID2,
-  proposal: "3f".repeat(32),
+  idea: "3f2a9c1b7d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8",
+  note: "4e".repeat(32),
 };
 
 export const softwareCursor = { stream: "software", seq: 42 };
@@ -107,6 +108,24 @@ export const planningView = {
       proposal: planningStoryProposal,
       state: "filed",
       stories: ["DIPO-31"],
+      at: "2026-11-06T09:04:00.000Z",
+    },
+    {
+      n: 2,
+      proposal: {
+        ...planningStoryProposal,
+        kind: "refine",
+        draft: "DRAFT-4",
+        why: "The audit found the export missing.",
+      },
+      state: "filed",
+      stories: ["DIPO-32"],
+      at: "2026-11-06T09:04:00.000Z",
+    },
+    {
+      n: 3,
+      proposal: { kind: "drop", draft: "DRAFT-5", why: "DIPO-31 covers it." },
+      state: "open",
       at: "2026-11-06T09:04:00.000Z",
     },
   ],
@@ -278,13 +297,21 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
     args: { gate: ids.gate, note: "Split the migration." },
     result: { gate: ids.gate, decision: "rejected" },
   },
-  "proposal.accept": {
-    args: { proposal: ids.proposal.slice(0, 12) },
-    result: { proposal: ids.proposal, state: "accepted", draft: "DRAFT-4" },
+  "idea.accept": {
+    args: { idea: ids.idea.slice(0, 12) },
+    result: { idea: ids.idea, state: "accepted", draft: "DRAFT-4" },
   },
-  "proposal.dismiss": {
-    args: { proposal: ids.proposal },
-    result: { proposal: ids.proposal, state: "dismissed" },
+  "idea.dismiss": {
+    args: { idea: ids.idea },
+    result: { idea: ids.idea, state: "dismissed" },
+  },
+  "idea.quick": {
+    args: { text: "Cap the PR poll retry\nIt retries at once.", story: "DIPO-140" },
+    result: { idea: ids.idea, held: true },
+  },
+  "note.dismiss": {
+    args: { note: ids.note.slice(0, 8) },
+    result: { note: ids.note, state: "dismissed" },
   },
   "nextUp.confirm": {
     args: { story: "DIPO-15" },
@@ -480,6 +507,49 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
     args: { office: ids.office },
     result: [
       {
+        kind: "IDEA",
+        story: "DIPO-140",
+        key: ids.storyKey,
+        idea: {
+          id: ids.idea,
+          origin: "proposal",
+          title: "Cap the PR poll retry",
+          run: ids.run,
+          found: "The poll retries a failed read at once, without a limit.",
+          evidence: [{ file: "src/poll.ts", line: 42, quote: "retry();" }],
+          sourceStory: "DIPO-140",
+          storyLine:
+            "As maintainer I want the PR poll to back off after a failed read so that a dead host is not hammered",
+          proposed: "Back off the retry and cap it.",
+          why: "A dead host gets one request per second.",
+          serves: "tech-debt",
+        },
+        detail: '"Cap the PR poll retry" · tech debt · from DIPO-140',
+        since: "2026-11-06T11:00:00.000Z",
+        blocks: [],
+        actions: [
+          { command: "idea.accept", cli: "dipo idea accept 3f2a9c1b7d4e" },
+          { command: "idea.dismiss", cli: "dipo idea dismiss 3f2a9c1b7d4e" },
+        ],
+      },
+      {
+        kind: "DECISION NOTE",
+        story: "DIPO-140",
+        key: ids.storyKey,
+        note: {
+          id: ids.note,
+          file: "docs/decisions/0020-park-and-resume.md",
+          section: "The desk",
+          text: "Ideas show as cards.",
+          run: ids.run,
+        },
+        detail: 'docs/decisions/0020-park-and-resume.md, section "The desk": Ideas show as cards.',
+        since: "2026-11-06T11:00:00.000Z",
+        blocks: [],
+        actions: [{ command: "note.dismiss", cli: "dipo note dismiss 4e4e4e4e4e4e" }],
+        hand: "dipo never writes decision records: add the note by hand if you agree",
+      },
+      {
         kind: "QUESTION",
         story: "DIPO-140",
         key: ids.storyKey,
@@ -642,15 +712,15 @@ const officeEventFixtures: Record<string, unknown> = {
     key: ids.storyKey,
     pr: { number: 142, url: "https://github.com/example/demo/pull/142", state: "open" },
   },
-  "proposal.filed": {
-    proposal: ids.proposal,
-    kind: "follow-up",
+  "idea.passed": {
+    idea: ids.idea,
+    origin: "proposal",
     key: ids.storyKey,
     story: "DIPO-122",
-    run: ids.run,
     title: "Split RunOutcomes",
   },
-  "proposal.closed": { proposal: ids.proposal, key: ids.storyKey, state: "accepted" },
+  "idea.closed": { idea: ids.idea, key: ids.storyKey, state: "accepted" },
+  "note.closed": { note: ids.note, key: ids.storyKey, state: "dismissed" },
   "test.started": testView,
   "test.recorded": {
     test: ids.test,

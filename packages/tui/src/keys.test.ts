@@ -1,13 +1,26 @@
 // The key table (DIPO-308; 0009): a desk row offers a key only for a command its
-// `actions` lists and the engine's flags allow, `y` and `n` accept and dismiss a PROPOSAL row, a
-// key an earlier action of the row took or a command no entry binds shows its command line, and
-// the detail and the queue get steer, park and drop from the same table.
+// `actions` lists and the engine's flags allow, `y` and `n` accept and dismiss an IDEA row and `n`
+// dismisses a DECISION NOTE row (DIPO-454), a key an earlier action of the row took or a command no
+// entry binds shows its command line, and the detail and the queue get steer, park and drop from
+// the same table.
 
 import { describe, expect, it } from "bun:test";
 
 import type { DeskItem } from "@dipsaus-orchestrator/contract";
 
 import { KEY_TABLE, rowKeys, viewKeys } from "./keys";
+
+const CARD = {
+  id: "ab".repeat(32),
+  origin: "proposal",
+  title: "t",
+  found: "f",
+  evidence: [{ file: "src/a.ts", line: 1 }],
+  storyLine: "s",
+  proposed: "p",
+  why: "w",
+  serves: "m-3",
+};
 
 function row(item: Partial<DeskItem>): DeskItem {
   return {
@@ -16,7 +29,13 @@ function row(item: Partial<DeskItem>): DeskItem {
     key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C01",
     question: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0Q01",
     gate: "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0G01",
-    proposal: { id: "ab".repeat(32), kind: "follow-up", title: "t" },
+    idea: CARD,
+    note: {
+      id: "cd".repeat(32),
+      file: "docs/decisions/0020-park-and-resume.md",
+      section: "s",
+      text: "t",
+    },
     detail: "d",
     since: "2026-10-14T10:00:00.000Z",
     blocks: [],
@@ -46,13 +65,13 @@ describe("the key table", () => {
     }
   });
 
-  it("binds y to accept and n to dismiss on a PROPOSAL row", () => {
+  it("binds y to accept and n to dismiss on an IDEA row, and n to dismiss on a DECISION NOTE row", () => {
     const keys = rowKeys(
       row({
-        kind: "PROPOSAL",
+        kind: "IDEA",
         actions: [
-          { command: "proposal.accept", cli: "dipo propose accept ab" },
-          { command: "proposal.dismiss", cli: "dipo propose dismiss ab" },
+          { command: "idea.accept", cli: "dipo idea accept ab" },
+          { command: "idea.dismiss", cli: "dipo idea dismiss ab" },
         ],
       }),
     );
@@ -60,6 +79,24 @@ describe("the key table", () => {
       ["y", "accept"],
       ["n", "dismiss"],
     ]);
+    const note = rowKeys(
+      row({
+        kind: "DECISION NOTE",
+        actions: [{ command: "note.dismiss", cli: "dipo note dismiss cd" }],
+      }),
+    );
+    expect(note.bound.map((bound) => [bound.binding.key, bound.binding.id])).toEqual([
+      ["n", "dismissNote"],
+    ]);
+    // The old proposal commands bind no key.
+    expect(KEY_TABLE.some((entry) => entry.command.startsWith("proposal."))).toBe(false);
+  });
+
+  it("has i for the quick idea, sent with idea.quick (DIPO-454)", () => {
+    expect(KEY_TABLE.find((entry) => entry.id === "idea")).toMatchObject({
+      command: "idea.quick",
+      key: "i",
+    });
   });
 
   it("shows the command line of an action no entry binds, or whose key the row gave already", () => {
@@ -68,7 +105,7 @@ describe("the key table", () => {
         actions: [
           { command: "work.run", cli: "dipo run DIPO-1" },
           { command: "gate.reject", cli: 'dipo reject DIPO-1 --note "<why>"' },
-          { command: "proposal.dismiss", cli: "dipo propose dismiss ab" },
+          { command: "idea.dismiss", cli: "dipo idea dismiss ab" },
         ],
       }),
     );
@@ -76,7 +113,7 @@ describe("the key table", () => {
     expect(keys.bound.map((bound) => bound.binding.id)).toEqual(["reject"]);
     expect(keys.unbound.map((action) => action.cli)).toEqual([
       "dipo run DIPO-1",
-      "dipo propose dismiss ab",
+      "dipo idea dismiss ab",
     ]);
   });
 

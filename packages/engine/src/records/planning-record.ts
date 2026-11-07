@@ -1,12 +1,13 @@
-// The record of a planning session (DIPO-450, 0022): the stories its confirmed proposals filed or
-// edited, by the session's run and the proposal's number. Code writes it: an edit when the
-// maintainer confirms it, a new story when the planning lane applied it and the story has its id.
+// The record of a planning session (DIPO-450, 0022): the stories its confirmed proposals filed,
+// edited or refined from a draft (DIPO-454), by the session's run and the proposal's number. Code
+// writes it: an edit when the maintainer confirms it, a new or refined story when the planning lane
+// applied it and the story has its id.
 // A filing applied again on a newer base can get another id, so its row is replaced, not added.
 
 import type { OfficeHandle } from "../db/office";
 
 /** What a record entry says about its story. */
-export type PlanningRecordKind = "filed" | "edited";
+export type PlanningRecordKind = "filed" | "edited" | "refined";
 
 export interface PlanningRecordEntry {
   readonly run: string;

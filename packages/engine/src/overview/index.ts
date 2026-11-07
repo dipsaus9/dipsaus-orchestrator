@@ -27,8 +27,8 @@ export {
 export type { DeskGate, DeskSources, HandDeskItem, Implemented } from "./desk";
 export { digest, DIGEST_COUNTS, DIGEST_LINES_MAX, registerDigest } from "./digest";
 export type { DigestCount } from "./digest";
-export { openDecisionNotes, openProposals, proposalItems } from "./proposals";
-export type { ProposalItem } from "./proposals";
+export { ideaCard, ideaItems, openDecisionNotes } from "./proposals";
+export type { IdeaItem, NoteItem } from "./proposals";
 export {
   detail,
   OUTPUT_RANGE_MAX_BYTES,

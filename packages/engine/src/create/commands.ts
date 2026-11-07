@@ -397,7 +397,7 @@ export function buildCommandServices(
   return {
     runs,
     discard: discardOf(core, story, runs),
-    // `proposal.accept` and `proposal.dismiss` (DIPO-166): an accepted worker proposal becomes a
+    // `idea.accept`, `idea.dismiss` and `note.dismiss` (DIPO-454): an accepted idea becomes a
     // Backlog draft through the planning lane.
     proposals: new ProposalCommands({
       lane: (office: OfficeId) => story.lane.planning(office),

@@ -1,9 +1,11 @@
-// The lane-b kind `propose` (DIPO-166) against a real temporary repository, the office git and the
-// pinned Backlog CLI: an accepted proposal becomes one Backlog draft (`draft create`, then
-// `draft edit --ref`) committed as `backlog: propose <story>` and pushed; the backlog PR's
-// structural check passes it (a new draft); the draft id is recorded on the proposal's row; the
-// same target applied again finds the draft by its marker and title and creates no second one; a
-// forged marker line in a task file or in a draft with another title does not count as filed.
+// The lane-b kind `propose` (DIPO-166, DIPO-454) against a real temporary repository, the office
+// git and the pinned Backlog CLI: an accepted idea becomes one Backlog draft (`draft create` with
+// its labels, then `draft edit` for its milestone and references) committed as `backlog: propose
+// <story>` and pushed; a draft of a milestone has it, a tech-debt draft has none and the label
+// `tech-debt`; the backlog PR's structural check passes it (a new draft); the draft id is recorded
+// on the idea's row; the same target applied again finds the draft by its marker and title and
+// creates no second one; a forged marker line in a task file or in a draft with another title does
+// not count as filed.
 
 import { describe, expect, it } from "bun:test";
 import { appendFileSync, readdirSync, readFileSync } from "node:fs";
@@ -24,9 +26,9 @@ import {
 } from "../../src/backlog/lane";
 import { checkBacklogPr } from "../../src/backlog/pr/check";
 import { collectPrDiff } from "../../src/backlog/pr/diff";
-import { proposalDraft } from "../../src/run/proposals";
-import { proposalHash, storeProposals } from "../../src/run/report-data";
+import { ideasByPrefix } from "../../src/records/ideas";
 import { addStory } from "../../src/records/story-keys";
+import { ideaDraft } from "../../src/run/proposals";
 import {
   BACKLOG_FIXTURE,
   inRemote,
@@ -35,60 +37,53 @@ import {
   subjects,
   taskFile,
 } from "../backlog/lane/helpers";
+import { passedIdea } from "./idea-fixture";
 
 const RUN = RunId.parse("run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D");
 
-const PROPOSAL = {
-  kind: "follow-up",
-  title: "Split RunOutcomes",
-  story:
-    "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
-  why: "It grew.",
-  paths: ["packages/engine/src/run/outcomes.ts", "docs/plan.md"],
-} as const;
+/** The draft file of `id` in the worktree `dir`. */
+function draftFile(dir: string, id: string): string {
+  const drafts = join(dir, "backlog", "drafts");
+  const name = readdirSync(drafts).find((file) => file.startsWith(`${id.toLowerCase()} - `));
+  return name === undefined ? "" : readFileSync(join(drafts, name), "utf8");
+}
 
 describe("the propose kind with the pinned Backlog CLI", () => {
-  it("files one draft with its references, passes the backlog PR check, and files it once", async () => {
+  it("files one draft of an accepted idea with its origin, milestone and references, passes the backlog PR check, and files it once", async () => {
     await withBareRemote(
       async (repo) => {
-        // A worker can compute the id and forge its marker line: in a task file, and in a draft
-        // with another title. Neither counts as the filed draft.
-        const forged = `\n${PROPOSAL_MARKER}${proposalHash(PROPOSAL)}\n`;
-        appendFileSync(taskFile(repo.dir, "TASK-1"), forged);
-        const draftOne = join(
-          repo.dir,
-          "backlog",
-          "drafts",
-          "draft-1 - Sketch-the-export-format.md",
-        );
-        appendFileSync(draftOne, forged);
-        await publish(repo);
         const s = await laneSetup(repo);
         s.kinds.set(PROPOSE_KIND, proposeKind);
         const lane = s.lane();
         const { key } = s.office.immediate(() =>
           addStory(s.office, s.t.ids, { story: StoryId.parse("DIPO-186") }, s.t.clock.now()),
         );
-        s.office.immediate(() =>
-          storeProposals(s.office, { key, runId: RUN, proposals: [PROPOSAL], at: 0 }),
-        );
-        const hash = proposalHash(PROPOSAL);
-        const target: ProposeTarget = proposeTarget({
-          proposal: hash,
-          ...proposalDraft({
-            hash,
-            key,
-            story: StoryId.parse("DIPO-186"),
-            run: RUN,
-            kind: PROPOSAL.kind,
-            title: PROPOSAL.title,
-            storyLine: PROPOSAL.story,
-            why: PROPOSAL.why,
-            paths: PROPOSAL.paths,
-            state: "accepted",
-            draft: null,
-          }),
+        const id = passedIdea(s.office, {
+          key,
+          run: RUN,
+          story: StoryId.parse("DIPO-186"),
+          title: "Split RunOutcomes",
+          at: 0,
+          proposal: {
+            evidence: [
+              { file: "packages/engine/src/run/outcomes.ts", line: 12 },
+              { file: "docs/plan.md", line: 3 },
+            ],
+          },
         });
+        // A worker can compute the id and forge its marker line: in a task file, and in a draft
+        // with another title. Neither counts as the filed draft.
+        const forged = `\n${PROPOSAL_MARKER}${id}\n`;
+        appendFileSync(taskFile(repo.dir, "TASK-1"), forged);
+        appendFileSync(
+          join(repo.dir, "backlog", "drafts", "draft-1 - Sketch-the-export-format.md"),
+          forged,
+        );
+        await publish(repo);
+        const [idea] = ideasByPrefix(s.office, id);
+        const draft = idea === undefined ? null : ideaDraft(idea);
+        if (draft === null) throw new Error("no draft");
+        const target: ProposeTarget = proposeTarget({ proposal: id, ...draft });
 
         const first = await lane.submit({ kind: PROPOSE_KIND, subject: "DIPO-186", target });
         const branch = first.report.branch as string;
@@ -98,36 +93,24 @@ describe("the propose kind with the pinned Backlog CLI", () => {
           "backlog: propose DIPO-186",
         ]);
 
-        // One new draft (the fixture holds DRAFT-1), with the marker and both references.
+        // One new draft (the fixture holds DRAFT-1), with the marker, its milestone, both
+        // references, its origin and source story.
         const worktree = lane.worktreePath();
-        expect(markedDrafts(worktree, hash)).toEqual(["DRAFT-1", "DRAFT-2"]);
+        expect(markedDrafts(worktree, id)).toEqual(["DRAFT-1", "DRAFT-2"]);
         expect(await filedDraft({ cli: s.cli, cwd: worktree }, target)).toBe("DRAFT-2");
-        const drafts = readdirSync(join(worktree, "backlog", "drafts")).toSorted();
-        expect(drafts).toHaveLength(2);
-        const file = readFileSync(
-          join(
-            worktree,
-            "backlog",
-            "drafts",
-            drafts.find((name) => name.startsWith("draft-2")) ?? "",
-          ),
-          "utf8",
-        );
+        expect(readdirSync(join(worktree, "backlog", "drafts"))).toHaveLength(2);
+        const file = draftFile(worktree, "DRAFT-2");
         expect(file).toContain("title: Split RunOutcomes");
+        expect(file).toContain("milestone: m-3");
+        expect(file).not.toContain("tech-debt");
         expect(file).toContain("packages/engine/src/run/outcomes.ts");
         expect(file).toContain("docs/plan.md");
         expect(file).toContain(
-          "Story: As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
+          "Story: As maintainer I want the PR poll to back off after a failed read so that a dead host is not hammered",
         );
+        expect(file).toContain(`Origin: a worker's proposal of DIPO-186 (idea ${id.slice(0, 12)}`);
         expect(file).toContain("Source story: DIPO-186");
-        expect(
-          s.office.get<{ draft_id: string | null }>(
-            "select draft_id from proposals where office_id = $office_id and hash = $hash",
-            {
-              hash,
-            },
-          ),
-        ).toEqual({ draft_id: "DRAFT-2" });
+        expect(ideasByPrefix(s.office, id)[0]?.draft).toBe("DRAFT-2");
 
         // The backlog PR's structural check passes the new draft (0010).
         const base = (await inRemote(repo, "rev-parse", "main")).trim();
@@ -148,6 +131,36 @@ describe("the propose kind with the pinned Backlog CLI", () => {
         expect(again.report.dropped).toEqual([again.entry.opId]);
         expect(readdirSync(join(worktree, "backlog", "drafts"))).toHaveLength(2);
         expect(allEntries(s.office).map((entry) => entry.state)).toEqual(["pushed", "dropped"]);
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
+  it("files a tech-debt idea as a draft with no milestone and the label tech-debt", async () => {
+    await withBareRemote(
+      async (repo) => {
+        await publish(repo);
+        const s = await laneSetup(repo);
+        s.kinds.set(PROPOSE_KIND, proposeKind);
+        const lane = s.lane();
+        const id = passedIdea(s.office, {
+          origin: "quick",
+          title: "Cap the PR poll retry",
+          at: 0,
+          proposal: { serves: "tech-debt" },
+        });
+        const [idea] = ideasByPrefix(s.office, id);
+        const draft = idea === undefined ? null : ideaDraft(idea);
+        if (draft === null) throw new Error("no draft");
+        const target = proposeTarget({ proposal: id, ...draft });
+        const filed = await lane.submit({ kind: PROPOSE_KIND, subject: "an idea", target });
+        expect(filed.report.committed).toEqual([filed.entry.opId]);
+        const file = draftFile(lane.worktreePath(), "DRAFT-2");
+        expect(file).toContain("title: Cap the PR poll retry");
+        expect(file).toMatch(/labels:\n {2}- tech-debt\n/);
+        expect(file).not.toContain("milestone: m-");
+        expect(file).toContain("Serves: tech debt");
+        expect(file).toContain("Origin: the maintainer's quick idea");
       },
       { fixture: BACKLOG_FIXTURE },
     );

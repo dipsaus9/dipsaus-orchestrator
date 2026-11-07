@@ -3,7 +3,9 @@
 //
 // Identity (0005, 0007): a story whose id is a current id keeps its key. A key whose id vanished
 // is closed as `Removed` with an `engine.notice`, and an id no key has gets a new key: a new id
-// is a new story. Nothing is matched by branch, date or title.
+// is a new story. Nothing is matched by branch, date or title. The one rename is a draft a triage
+// session promoted (DIPO-454): the lane recorded its new id, so its key takes that id
+// (`story.renumbered`) once a pass reads the draft gone and the task there.
 
 import {
   type IdSource,
@@ -15,7 +17,7 @@ import {
 
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import { addStory, removeStory } from "../records/story-keys";
+import { addStory, promotionOf, removeStory, renumberStory } from "../records/story-keys";
 import { isUnknownStatus, storyView, workByKey } from "../views/story";
 
 import type { BacklogStory } from "./read";
@@ -143,8 +145,27 @@ export function applyIndex(
     if (k === undefined) unmatched.push(story);
     else matched.set(k.key, story);
   }
-  const vanished = known.filter((k) => !matched.has(k.key));
   const entries: NewEntry[] = [];
+
+  // A draft a triage session promoted (DIPO-454): its story takes the new id, renumbered, never
+  // closed and added again.
+  for (const k of known) {
+    if (matched.has(k.key) || !k.provisional) continue;
+    const promotion = promotionOf(office, k.key, k.story);
+    if (promotion === null) continue;
+    const index = unmatched.findIndex((candidate) => candidate.story === promotion.story);
+    const story = unmatched[index];
+    if (story === undefined) continue;
+    unmatched.splice(index, 1);
+    renumberStory(office, k.key, promotion.story, at);
+    matched.set(k.key, story);
+    entries.push({
+      type: "story.renumbered",
+      key: k.key,
+      delta: { key: k.key, from: k.story, to: promotion.story, detectedBy: "engine" },
+    });
+  }
+  const vanished = known.filter((k) => !matched.has(k.key));
 
   // 2. Vanished keys are closed as Removed.
   for (const k of vanished) {

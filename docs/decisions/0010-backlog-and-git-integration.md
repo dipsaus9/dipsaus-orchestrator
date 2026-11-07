@@ -30,7 +30,7 @@ Every backlog change is a commit in a pull request, so it reaches a protected ba
 
 Each edit runs the CLI in a fresh folder of dipo's own. The folder holds only the Backlog configuration from the base and the story's task file as committed at the branch tip, both read from git objects. dipo then commits the changed task file alone with `commit-tree`, as `<ID>: status <state>`, and pushes. These commits change no code and need no verify. A story branch may change no other `backlog/` file. Because the base shows a story's lifecycle only when its PR merges, `Done` and "merged" happen together.
 
-**The planning lane.** Changes that belong to no story PR go on an engine branch `dipo/backlog-<UTC time>`: office init, park and resume of a story that has no run, drop, accepted proposals, the stories a planning session files and edits (0022), and the other M3 rituals.
+**The planning lane.** Changes that belong to no story PR go on an engine branch `dipo/backlog-<UTC time>`: office init, park and resume of a story that has no run, drop, the drafts of accepted ideas (0020), the stories a planning session files and edits, the drafts a triage session refines or drops (0022), and the other M3 rituals. A draft refined in triage is promoted with Backlog's `draft promote`, then made Refined to the story standard with a branch named for its new id; dipo records the promotion, so the story index gives the story its new id (`story.renumbered`) instead of closing it and adding a new one.
 
 - **Journaled.** Each operation is a target-state entry in the database journal: `pending`, `applied`, `committed`, `pushed`, `merged`, `dropped`, `withdrawn`, or `failed`. It is applied through the CLI in the `_backlog` worktree and committed as `backlog: <op> <ID>`. When the CLI exits with a code other than 0 on an operation, or what it wrote does not read back, that operation is closed as `failed` with a notice, and the operations after it go on. A killed, timed-out or unstarted CLI, a refused file or a git error still fails the whole flush, and its operations stay journaled.
 - **One PR per office.** dipo pushes the branch and opens or updates one backlog-only PR. Later operations append to it until it merges, so many stories can change in one bulk PR.
@@ -59,7 +59,7 @@ Each edit runs the CLI in a fresh folder of dipo's own. The folder holds only th
 The engine reads and writes stories only through one interface, `StoryStore`:
 
 - **reads:** list the stories of a base or a branch, and read one story with its fields;
-- **writes:** set the status, tick criteria, write the park reason and notes, write the final summary, add a resolved unknown, file a draft, create a Refined story, and change a story's title, Story line and context, criteria and references.
+- **writes:** set the status, tick criteria, write the park reason and notes, write the final summary, add a resolved unknown, file a draft, create a Refined story, refine a draft into a Refined story, and change a story's title, Story line and context, criteria and references.
 
 The Backlog.md implementation is this ADR: the CLI, the task-file commits of the story lane and the backlog PRs of the planning lane. Every other part of the engine only knows the interface. Another tracker, such as Jira, would be another implementation of it; that is Later (0003), and it would also change where story facts live (0001).
 
@@ -149,7 +149,7 @@ There are no git hooks, no changes to existing ignore files or `info/exclude`, a
 - A reused branch merged with the base at claim, with a conflict as the worker's first feedback (2026-10-10). Replaced (2026-10-28) by reuse at the kept tip, then the conflict check and base sync (0002).
 - Seven separate places that made commits, and pushes from eight. Replaced by one module that makes every commit, ref change and push (2026-10-24).
 - A lane flush that failed as a whole when the CLI failed on one operation, so every operation after it waited (2026-10-10). Replaced by closing that operation as `failed` (2026-10-30).
-- Draft promotion with a journaled snapshot (2026-10-10). It moved to M3 and is designed when it is built (0003).
+- Draft promotion with a journaled snapshot (2026-10-10). Replaced by the planning lane's `refine` operation for a draft the maintainer confirms in a triage session, with the promotion recorded for the story index (0022, 2026-11-06).
 - An optional component map for collision checks (2026-10-10). It is M2 work and is designed then (0003).
 - `amend` releasing a claim with its task file restored to the merge base. That is M3 work (0003).
 - A StoryStore that could not create a story or change its wording, so the maintainer created and reworded every story by hand (2026-10-24). Replaced by the planning lane's `file` and `revise` operations for what the maintainer confirms in a planning session (0022, 2026-11-06).

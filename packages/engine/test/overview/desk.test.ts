@@ -5,13 +5,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import {
-  type DeskItem,
-  RequestId,
-  RunId,
-  StoryId,
-  type StoryKey,
-} from "@dipsaus-orchestrator/contract";
+import { DeskItem, RequestId, RunId, StoryId, type StoryKey } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { mergeGateSummary } from "../../src/run-state/gates";
@@ -23,9 +17,10 @@ import { insertPr, recordCheck } from "../../src/backlog/pr/records";
 import type { OfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import type { OfficeHandle } from "../../src/db/office";
+import { holdIdea } from "../../src/records/ideas";
 import { insertWorkerQuestion } from "../../src/run-state/questions";
 import { executeRead } from "../../src/reads/execute";
-import { storeDecisionNotes, storeProposals } from "../../src/run/report-data";
+import { storeDecisionNotes } from "../../src/run/report-data";
 import { insertTest } from "../../src/run/test-records";
 import { StoryDiscard } from "../../src/run/discard";
 import {
@@ -39,6 +34,7 @@ import {
 import { viewsFeature } from "./views-feature";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { pass, task } from "../stories/helpers";
+import { passedIdea, proposedStory } from "../run/idea-fixture";
 import { insertPark as insertParkRow } from "../run/park-fixture";
 import { keyOf, startRun } from "../views/helpers";
 import { backlogLayout } from "../story-store/backlog";
@@ -215,38 +211,24 @@ describe("the desk order (0020)", () => {
             base + 6 * HOUR,
           );
         });
-        // Group 5: a follow-up, a spike and a decision note, oldest first by row; spike leads.
+        // Group 6: two ideas that passed their audit, in the order they passed, then a decision note.
         const run = RunId.parse("run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1E");
         const key11 = keyOf(office, "DIPO-11");
+        passedIdea(office, {
+          key: key11,
+          run,
+          story: StoryId.parse("DIPO-11"),
+          title: "Split RunOutcomes",
+          at: base,
+        });
+        passedIdea(office, {
+          key: key11,
+          run,
+          story: StoryId.parse("DIPO-11"),
+          title: "Choose a queue",
+          at: base + HOUR,
+        });
         office.immediate(() => {
-          storeProposals(office, {
-            key: key11,
-            runId: run,
-            proposals: [
-              {
-                kind: "follow-up",
-                title: "Split RunOutcomes",
-                story:
-                  "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
-                why: "w",
-              },
-            ],
-            at: base,
-          });
-          storeProposals(office, {
-            key: key11,
-            runId: run,
-            proposals: [
-              {
-                kind: "spike",
-                title: "Choose a queue",
-                story:
-                  "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
-                why: "w",
-              },
-            ],
-            at: base + HOUR,
-          });
           storeDecisionNotes(office, {
             key: key11,
             runId: run,
@@ -283,9 +265,9 @@ describe("the desk order (0020)", () => {
           "PARKED BY YOU DIPO-9",
           "LEFTOVERS DIPO-10",
           "BACKLOG PR -",
-          "PROPOSAL DIPO-11",
-          "PROPOSAL DIPO-11",
-          "PROPOSAL DIPO-11",
+          "IDEA DIPO-11",
+          "IDEA DIPO-11",
+          "DECISION NOTE DIPO-11",
         ]);
         const byStory = (story: string, kind = "PARKED") =>
           items.find((item) => item.story === story && item.kind === kind);
@@ -335,8 +317,8 @@ describe("the desk order (0020)", () => {
           hand: expect.stringContaining("by hand on GitHub"),
         });
         expect(
-          items.filter((item) => item.kind === "PROPOSAL").map((item) => item.proposal?.kind),
-        ).toEqual(["spike", "follow-up", "decision-note"]);
+          items.filter((item) => item.kind === "IDEA").map((item) => item.idea?.title),
+        ).toEqual(["Split RunOutcomes", "Choose a queue"]);
         expect(byStory("DIPO-9", "PARKED BY YOU")).toMatchObject({
           reason: "by-maintainer",
           detail: "after M2",
@@ -638,7 +620,79 @@ describe("the office.desk read", () => {
       }
     }));
 
-  it("lists a decision note with its file, section and text, and offers only shipped commands", () =>
+  it("shows a passed idea as one item whose card holds its proposed user story in full (DIPO-454)", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-9", { status: "In Review" })]);
+        const key = keyOf(office, "DIPO-9");
+        const run = RunId.parse("run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D");
+        const at = t.clock.now();
+        // Longer than a desk line, with a terminal sequence the card must not carry.
+        const found = `${"The PR poll retries a failed read at once. ".repeat(10)}\u001b[31mNo limit.`;
+        const id = passedIdea(office, {
+          key,
+          run,
+          story: StoryId.parse("DIPO-9"),
+          title: "Cap the PR poll retry",
+          at,
+          proposal: { found, serves: "tech-debt" },
+        });
+        // A held idea and a rejected one never reach the desk.
+        office.immediate(() => {
+          holdIdea(office, {
+            origin: "quick",
+            key: null,
+            runId: null,
+            title: "Still held",
+            text: "Waits for its audit.",
+            at,
+          });
+        });
+        const story = proposedStory();
+        const card = {
+          id,
+          origin: "proposal",
+          title: "Cap the PR poll retry",
+          run,
+          found: `${"The PR poll retries a failed read at once. ".repeat(10)}No limit.`,
+          evidence: story.evidence,
+          sourceStory: StoryId.parse("DIPO-9"),
+          storyLine: story.storyLine,
+          proposed: story.proposed,
+          why: story.why,
+          serves: "tech-debt",
+        };
+        const items = desk(office, all, ALL_SOURCES);
+        expect(items).toEqual([
+          {
+            kind: "IDEA",
+            story: StoryId.parse("DIPO-9"),
+            key,
+            idea: card,
+            detail: '"Cap the PR poll retry" · tech debt · a worker\'s proposal of DIPO-9',
+            since: new Date(at).toISOString(),
+            blocks: [],
+            actions: [
+              { command: "idea.accept", cli: `dipo idea accept ${id.slice(0, 12)}` },
+              { command: "idea.dismiss", cli: `dipo idea dismiss ${id.slice(0, 12)}` },
+            ],
+          },
+        ]);
+        expect(DeskItem.parse(items[0]).idea?.found.length).toBeGreaterThan(DESK_DETAIL_MAX);
+        // The read offers only the commands the engine registered: none here.
+        expect((await readDesk(t, office))[0]).toMatchObject({
+          kind: "IDEA",
+          idea: card,
+          actions: [],
+        });
+      } finally {
+        t.state.close();
+      }
+    }));
+
+  it("lists a decision note with its file, section and text, offering its own dismiss", () =>
     withTempDir(async (dir) => {
       const t = await openTestState(dir);
       try {
@@ -660,57 +714,32 @@ describe("the office.desk read", () => {
             ],
             at,
           });
-          storeProposals(office, {
-            key,
-            runId: run,
-            proposals: [
-              {
-                kind: "follow-up",
-                title: "Split it",
-                story:
-                  "As maintainer I want the run outcomes split into two modules so that each module stays small enough to read.",
-                why: "size",
-              },
-            ],
-            at: at + 1,
-          });
         });
-        const items = await readDesk(t, office);
+        const items = desk(office, all, ALL_SOURCES);
+        const id = items[0]?.note?.id ?? "";
         expect(items).toEqual([
           {
-            kind: "PROPOSAL",
+            kind: "DECISION NOTE",
             story: StoryId.parse("DIPO-9"),
             key,
-            proposal: {
+            note: {
               id: expect.stringMatching(/^[0-9a-f]{64}$/),
-              kind: "follow-up",
-              title: "Split it",
-              run,
-            },
-            detail: `follow-up "Split it" · Story: As maintainer I want the run outcomes split into two modules so that each module stays small enough to read. Why: size · from ${run}`,
-            since: new Date(at + 1).toISOString(),
-            blocks: [],
-            // proposal.accept and proposal.dismiss are not registered in this engine yet.
-            actions: [],
-          },
-          {
-            kind: "PROPOSAL",
-            story: StoryId.parse("DIPO-9"),
-            key,
-            proposal: {
-              id: expect.stringMatching(/^[0-9a-f]{64}$/),
-              kind: "decision-note",
-              title: "Decision note for docs/decisions/0019-review-loop.md",
+              file: "docs/decisions/0019-review-loop.md",
+              section: "4. The reviewer session",
+              text: "The reviewer also reads the worker's deviations.",
               run,
             },
             detail:
-              'decision note · docs/decisions/0019-review-loop.md, section "4. The reviewer session": The reviewer also reads the worker\'s deviations.',
+              'docs/decisions/0019-review-loop.md, section "4. The reviewer session": The reviewer also reads the worker\'s deviations.',
             since: new Date(at).toISOString(),
             blocks: [],
-            actions: [],
+            actions: [{ command: "note.dismiss", cli: `dipo note dismiss ${id.slice(0, 12)}` }],
             hand: "dipo never writes decision records: add the note by hand if you agree",
           },
         ]);
+        // The old proposal items and their commands are gone.
+        expect(items.some((item) => item.kind === "PROPOSAL")).toBe(false);
+        expect(JSON.stringify(items)).not.toContain("propose");
       } finally {
         t.state.close();
       }
