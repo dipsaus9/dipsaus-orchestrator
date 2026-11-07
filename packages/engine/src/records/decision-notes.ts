@@ -80,7 +80,7 @@ export function openNotes(office: OfficeHandle): StoredNote[] {
 }
 
 /**
- * The `decision_notes` update that dismisses an open note, with its `proposal.closed` event; no
+ * The `decision_notes` update that dismisses an open note, with its `note.closed` event; no
  * event when the note is not open. The caller commits it in its own transaction.
  */
 export function dismissNote(office: OfficeHandle, note: StoredNote, at: number): NewEntry[] {
@@ -92,9 +92,9 @@ export function dismissNote(office: OfficeHandle, note: StoredNote, at: number):
   if (done === 0) return [];
   return [
     {
-      type: "proposal.closed",
+      type: "note.closed",
       key: note.key,
-      delta: { proposal: note.hash, key: note.key, state: "dismissed" },
+      delta: { note: note.hash, key: note.key, state: "dismissed" },
     },
   ];
 }

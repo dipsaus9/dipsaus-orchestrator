@@ -17,7 +17,7 @@
 // - Dismiss closes the idea (`dismissed`, `idea.answered`); nothing is filed, and the idea is kept
 //   as dismissed by the maintainer, for retro.
 // - A decision note (DIPO-404) is not an idea and is never filed: `note.dismiss` closes its row in
-//   `decision_notes` (`dismissed`, `proposal.closed`). dipo never writes decision records, and the
+//   `decision_notes` (`dismissed`, `note.closed`). dipo never writes decision records, and the
 //   maintainer adds a note by hand.
 //
 // An idea or note is named by its id or a unique prefix of at least 8 characters.

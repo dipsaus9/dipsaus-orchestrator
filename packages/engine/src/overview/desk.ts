@@ -26,8 +26,8 @@
 //    and parks whose write to Backlog.md failed), and the run profile's rows
 //    (DIPO-310): each pending proposal of the scan fallback and each stale confirmation, an office
 //    item with no story, offering its `dipo office confirm` lines (no TUI keys yet);
-// 6. the ideas that passed the audit (0022, DIPO-454), each a PROPOSED STORY whose `idea` holds the
-//    proposed user story in full for its card, offering `dipo idea accept` and `dipo idea dismiss`;
+// 6. the ideas that passed the audit (0022, DIPO-454), spikes before follow-ups, each a PROPOSED
+//    STORY whose `idea` holds the proposed user story in full for its card, offering `dipo idea accept` and `dipo idea dismiss`;
 //    then the decision notes of worker reports (DIPO-404), each offering `dipo note dismiss`;
 // 7. next up (0010, `run/next-up.ts`): one Ready story per free run slot, in next-up order, with
 //    one line of why and the files its references share with running stories, offering
@@ -282,8 +282,14 @@ const PARK_RANK: Readonly<Record<string, number>> = {
 };
 const OTHER_PARK_RANK = 7;
 
-/** Group 6's order: the proposed stories, then the decision notes. */
-const PROPOSAL_RANK = { idea: 0, note: 1 } as const;
+/**
+ * Group 6's order (0020): the proposed stories, spikes before follow-ups, then the decision notes.
+ * A proposed spike is one whose Story line is a spike's (0012: "We need to decide").
+ */
+const PROPOSAL_RANK = { spike: 0, idea: 1, note: 2 } as const;
+
+/** True for a spike's Story line (0012 R05). */
+const isSpikeLine = (line: string): boolean => line.trimStart().startsWith("We need to decide");
 
 /** The kind of an idea that passed the audit, on the desk as a proposed user story (0022). */
 export const PROPOSED_STORY_KIND = "PROPOSED STORY";
@@ -465,9 +471,9 @@ class DeskBuilder {
       ...item,
       detail: deskLine(item.detail),
       ...(item.hand === undefined ? {} : { hand: deskLine(item.hand) }),
-      ...(item.proposal === undefined
+      ...(item.note === undefined
         ? {}
-        : { proposal: { ...item.proposal, title: deskText(item.proposal.title) } }),
+        : { note: { ...item.note, title: deskText(item.note.title) } }),
       ...(item.idea === undefined ? {} : { idea: cleanIdea(item.idea) }),
     };
     this.#items.push({ group, rank, sinceMs, item: clean });
@@ -758,7 +764,8 @@ class DeskBuilder {
       const source = story.sourceStory ?? idea.story;
       const id = word(idea.id);
       const since = Date.parse(idea.decidedAt ?? idea.createdAt);
-      this.#add(GROUP.proposal, PROPOSAL_RANK.idea, since, {
+      const rank = isSpikeLine(story.storyLine) ? PROPOSAL_RANK.spike : PROPOSAL_RANK.idea;
+      this.#add(GROUP.proposal, rank, since, {
         kind: PROPOSED_STORY_KIND,
         ...(source === undefined ? {} : { story: source }),
         idea: {
@@ -783,9 +790,8 @@ class DeskBuilder {
       this.#add(GROUP.proposal, PROPOSAL_RANK.note, note.createdAt, {
         kind: DECISION_NOTE_KIND,
         ...(story === null ? {} : { story, key: note.key }),
-        proposal: {
+        note: {
           id: note.hash,
-          kind: "decision-note",
           title: `Decision note for ${note.file}`,
           run: RunId.parse(note.run),
         },

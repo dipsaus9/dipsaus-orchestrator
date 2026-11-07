@@ -17,7 +17,7 @@ function row(item: Partial<DeskItem>): DeskItem {
     key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C01",
     question: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0Q01",
     gate: "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0G01",
-    proposal: { id: "ab".repeat(32), kind: "decision-note", title: "t" },
+    note: { id: "ab".repeat(32), title: "t" },
     idea: {
       id: "cd".repeat(32),
       origin: "quick",

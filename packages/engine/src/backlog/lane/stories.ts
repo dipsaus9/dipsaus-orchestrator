@@ -19,7 +19,8 @@
 //
 // - `refine` (DIPO-454) turns a draft a triage session confirmed into a story: `draft promote`, which
 //   gives it a new task id, then `task edit` with the filing's title, description, Refined status,
-//   type, milestone, tier label, criteria, references and dependencies, and the field block with
+//   type, milestone, tier label, criteria, the draft's references with the refinement's added,
+//   dependencies, and the field block with
 //   the branch `<new ID>/<slug>`. The draft's own labels (`tech-debt`) stay. The target state is
 //   a filing's: applied again it finds the task by its title and Story line and only fills in what
 //   is missing. The new id goes into the session's record and on the draft's story key as
@@ -398,8 +399,11 @@ function refineCalls(view: PlainTask, target: RefineTarget): string[][] {
     if (view.acceptanceCriteria.length > 0) calls.push(["--clear-ac"]);
     calls.push(target.criteria.flatMap((text) => ["--ac", text]));
   }
-  if (target.references.length > 0)
-    calls.push(target.references.flatMap((path) => ["--ref", path]));
+  // `--ref` replaces the whole list: the draft's own references stay, the refinement's join them.
+  const references = [...new Set([...view.references, ...target.references])];
+  if (!sameSet(view.references, references)) {
+    calls.push(references.flatMap((path) => ["--ref", path]));
+  }
   if (target.dependencies.length > 0) {
     calls.push(target.dependencies.flatMap((dep) => ["--dep", dep]));
   }

@@ -875,14 +875,13 @@ export type DeskKind = z.infer<typeof DeskKind>;
 export const DeskAction = z.object({ command: CommandName, cli: z.string() });
 export type DeskAction = z.infer<typeof DeskAction>;
 
-// The note of a DECISION NOTE item (DIPO-404), with the id the maintainer dismisses it by.
-export const DeskProposal = z.object({
+// The note of a DECISION NOTE item (DIPO-404, DIPO-454), with the id the maintainer dismisses it by.
+export const DeskNote = z.object({
   id: z.string(),
-  kind: z.string(), // decision-note
   title: z.string(),
   run: RunId.optional(),
 });
-export type DeskProposal = z.infer<typeof DeskProposal>;
+export type DeskNote = z.infer<typeof DeskNote>;
 
 // The idea of a PROPOSED STORY item (0020, DIPO-454): an idea that passed the audit, with the id
 // the maintainer accepts or dismisses it by, where it came from, its title and its proposed user
@@ -909,7 +908,7 @@ export const DeskItem = z.object({
   question: QuestionId.optional(),
   gate: GateId.optional(),
   pr: StoryPr.optional(),
-  proposal: DeskProposal.optional(),
+  note: DeskNote.optional(),
   idea: DeskIdea.optional(),
   reason: ParkReason.optional(),
   detail: z.string(),
@@ -1188,8 +1187,9 @@ export const proposalFiled = defineEvent({
   }),
 });
 
-// (DIPO-166, DIPO-404) [`proposals`]: the maintainer dismissed a worker's decision note
-// (`note.dismiss`). `accepted` came from the proposals of an older dipo and is no longer written.
+// (DIPO-166) [`proposals`]: the maintainer accepted or dismissed a worker's proposal, or dismissed
+// a decision note. Read-only: no longer written (`idea.answered` and `note.closed` replace it);
+// kept so a stored log still renders.
 export const proposalClosed = defineEvent({
   type: "proposal.closed",
   stream: "office",
@@ -1199,6 +1199,15 @@ export const proposalClosed = defineEvent({
     key: StoryKey,
     state: z.enum(["accepted", "dismissed"]),
   }),
+});
+
+// (DIPO-404, DIPO-454) [`proposals`]: the maintainer dismissed a worker's decision note
+// (`note.dismiss`), or reconcile closed it because the decision record on the base holds it.
+export const noteClosed = defineEvent({
+  type: "note.closed",
+  stream: "office",
+  derived: false,
+  data: z.object({ note: ProposalId, key: StoryKey, state: z.literal("dismissed") }),
 });
 
 // (DIPO-454; 0022) [`ideas`]: an idea passed the audit and waits on the desk as a proposed user
@@ -1315,6 +1324,7 @@ export const officeEvents = [
   storyPr,
   proposalFiled,
   proposalClosed,
+  noteClosed,
   ideaPassed,
   ideaAnswered,
   testStarted,

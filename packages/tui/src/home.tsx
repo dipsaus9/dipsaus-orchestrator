@@ -84,7 +84,7 @@ function deskTarget(item: DeskItem, cli: string, id: ActionId): ActionTarget {
     ...(item.story === undefined ? {} : { story: String(item.story) }),
     ...(item.question === undefined ? {} : { question: String(item.question) }),
     ...(item.gate === undefined ? {} : { gate: String(item.gate) }),
-    ...(item.proposal === undefined ? {} : { proposal: item.proposal.id }),
+    ...(item.note === undefined ? {} : { note: item.note.id }),
     ...(item.idea === undefined ? {} : { idea: item.idea.id }),
     cli,
     ...(id === "answer" ? { text: item.detail } : {}),

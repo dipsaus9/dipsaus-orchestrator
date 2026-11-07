@@ -3035,6 +3035,24 @@
       },
       "required": ["proposal", "key", "state"]
     },
+    "note.closed.data": {
+      "type": "object",
+      "properties": {
+        "note": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "state": {
+          "type": "string",
+          "const": "dismissed"
+        }
+      },
+      "required": ["note", "key", "state"]
+    },
     "idea.passed.data": {
       "type": "object",
       "properties": {

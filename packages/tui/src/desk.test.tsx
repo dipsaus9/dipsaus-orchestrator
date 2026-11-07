@@ -156,7 +156,7 @@ const note = DeskItem.parse({
   kind: "DECISION NOTE",
   story: "DIPO-31",
   key: KEY_21,
-  proposal: { id: NOTE, kind: "decision-note", title: "Decision note for docs/x.md", run: RUN_21 },
+  note: { id: NOTE, title: "Decision note for docs/x.md", run: RUN_21 },
   detail: 'decision note · docs/x.md, section "4": Note.',
   since: ago(200),
   blocks: [],

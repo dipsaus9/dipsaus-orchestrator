@@ -631,12 +631,12 @@ describe("decision notes (criterion 4, DIPO-404)", () => {
     );
   }
 
-  it("still shows as a DECISION NOTE with dipo note dismiss, which closes it with proposal.closed", async () => {
+  it("still shows as a DECISION NOTE with dipo note dismiss, which closes it with note.closed", async () => {
     storeNotes([NOTE]);
     const notes = (await readDesk()).filter((entry) => entry.kind === "DECISION NOTE");
     expect(notes).toHaveLength(1);
     const [item] = notes;
-    const id = item?.proposal?.id ?? "";
+    const id = item?.note?.id ?? "";
     expect(item?.detail).toContain('section "4. The reviewer session"');
     expect(item?.hand).toContain("dipo never writes decision records");
     expect(item?.actions).toEqual([{ command: "note.dismiss", cli: `dipo note dismiss ${id}` }]);
@@ -647,15 +647,15 @@ describe("decision notes (criterion 4, DIPO-404)", () => {
       result: { note: id, state: "dismissed" },
     });
     expect(openNoteIds()).toEqual([]);
-    expect(logged("proposal.closed")).toEqual([{ proposal: id, key: w.key, state: "dismissed" }]);
+    expect(logged("note.closed")).toEqual([{ note: id, key: w.key, state: "dismissed" }]);
+    expect(logged("proposal.closed")).toEqual([]);
     expect((await readDesk()).filter((entry) => entry.kind === "DECISION NOTE")).toEqual([]);
     expect(await send("note.dismiss", { note: id })).toMatchObject({ ok: true, changed: false });
   });
 
   it("is never an idea: accept refuses its id, and an unknown note is named", async () => {
     storeNotes([NOTE]);
-    const id =
-      (await readDesk()).find((entry) => entry.kind === "DECISION NOTE")?.proposal?.id ?? "";
+    const id = (await readDesk()).find((entry) => entry.kind === "DECISION NOTE")?.note?.id ?? "";
     expect(await send("idea.accept", { idea: id })).toMatchObject({
       ok: false,
       error: { code: "idea.unknown" },

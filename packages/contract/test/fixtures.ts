@@ -682,6 +682,7 @@ const officeEventFixtures: Record<string, unknown> = {
   "proposal.closed": { proposal: ids.proposal, key: ids.storyKey, state: "accepted" },
   "idea.passed": { idea: ids.proposal, origin: "proposal", story: "DIPO-21", title: "Split it" },
   "idea.answered": { idea: ids.proposal, state: "dismissed" },
+  "note.closed": { note: ids.proposal, key: ids.storyKey, state: "dismissed" },
   "test.started": testView,
   "test.recorded": {
     test: ids.test,

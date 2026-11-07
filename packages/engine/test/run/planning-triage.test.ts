@@ -76,6 +76,20 @@ describe("a triage session (DIPO-454)", () => {
           join(repo.dir, "backlog", "drafts", "draft-2 - Cap-the-retries.md"),
           "---\nid: DRAFT-2\ntitle: Cap the retries\nstatus: Draft\nassignee: []\ncreated_date: '2026-10-12 11:28'\nlabels:\n  - tech-debt\ndependencies: []\n---\n\n## Description\n\n<!-- SECTION:DESCRIPTION:BEGIN -->\nStory: As maintainer I want the retries capped so that a dead host is not hammered.\n<!-- SECTION:DESCRIPTION:END -->\n",
         );
+        // DRAFT-1 names a reference of its own, which the refinement keeps.
+        const draftOne = join(
+          repo.dir,
+          "backlog",
+          "drafts",
+          "draft-1 - Sketch-the-export-format.md",
+        );
+        writeFileSync(
+          draftOne,
+          readFileSync(draftOne, "utf8").replace(
+            "dependencies: []\n",
+            "dependencies: []\nreferences:\n  - docs/export.md\n",
+          ),
+        );
         await publish(repo);
         const s = await laneSetup(repo);
         s.kinds.set(REFINE_KIND, refineKind);
@@ -176,6 +190,9 @@ describe("a triage session (DIPO-454)", () => {
         expect(text).toContain("- [ ] #1 The export writes one CSV row per active story");
         expect(text).toContain('branch: "TASK-4/export-story-list-as-csv"');
         expect(text).toContain("unknowns: []");
+        // `--ref` replaces the list: the draft's reference stays next to the refinement's.
+        expect(text).toContain("  - docs/export.md");
+        expect(text).toContain("  - packages/cli/src/export-command.ts");
         expect(
           readdirSync(join(worktree, "backlog", "drafts")).filter((n) => n.startsWith("draft-1")),
         ).toEqual([]);

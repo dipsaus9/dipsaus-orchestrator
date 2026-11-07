@@ -170,7 +170,7 @@ function hasTarget(entry: KeyBinding, item: DeskItem): boolean {
     case "idea.dismiss":
       return item.idea !== undefined;
     case "note.dismiss":
-      return item.proposal !== undefined;
+      return item.note !== undefined;
     default:
       return item.story !== undefined;
   }

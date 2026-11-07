@@ -65,7 +65,7 @@ Their behaviour is decided where the subject lives: 0020 for park, resume, drop 
 | Stream | Events |
 |---|---|
 | Software | `office.registered`, `office.forgotten`, `office.summary` (derived), `daemon.state`, `engine.notice`, `stream.mark` (derived) |
-| Office | `story.state`, `story.renumbered`, `story.parked`, `run.ended`, `story.pr`, `work.assigned`, `work.phase`, `work.progress`, `work.output`, `work.observed`, `usage.updated`, `gate.reached`, `gate.decided`, `question.asked`, `question.closed`, `proposal.filed` (no longer written), `proposal.closed`, `idea.passed`, `idea.answered`, `test.started`, `test.recorded`, `test.ended`, `scan.finished`, `engine.notice`, `stream.mark` (derived) |
+| Office | `story.state`, `story.renumbered`, `story.parked`, `run.ended`, `story.pr`, `work.assigned`, `work.phase`, `work.progress`, `work.output`, `work.observed`, `usage.updated`, `gate.reached`, `gate.decided`, `question.asked`, `question.closed`, `idea.passed`, `idea.answered`, `note.closed`, `proposal.filed` and `proposal.closed` (read-only: no longer written, kept so a stored change log still renders), `test.started`, `test.recorded`, `test.ended`, `scan.finished`, `engine.notice`, `stream.mark` (derived) |
 
 Every event about running work carries a `WorkRef` (story, key, run, agent, role, tier, model) and the engine's view of the run, so the overview shows who works on what without another read. The vocabularies these events carry are short and one per meaning (0009): lifecycle, park reason (0001), phase, and one health value with its signals as evidence.
 

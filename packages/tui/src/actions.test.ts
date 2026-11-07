@@ -59,7 +59,8 @@ describe("confirmations from the command definitions", () => {
       story: "DIPO-7",
       gate: "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
       question: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
-      proposal: "prp_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+      note: "cd".repeat(32),
+      idea: "ab".repeat(32),
       test: "tst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
     };
     for (const binding of KEY_TABLE) {

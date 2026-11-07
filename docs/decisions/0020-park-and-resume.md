@@ -109,7 +109,7 @@ Order, by what unblocks work soonest:
 3. Merge gates waiting for the maintainer (0002), with the PR link and the reason, plus `dipo approve` and `dipo reject` (or "merge by hand on GitHub" for a release-path PR).
 4. Parked stories: `ambiguous-spec`, then `review-blocked` (one row with both `dipo resume --note` and `dipo approve --note`), `budget-exceeded`, `verify-failing`, `conflict`, `scope-violation`, `worker-failed`, and last `by-maintainer`, listed apart as "Parked by you".
 5. Hand actions: leftovers, a backlog PR that failed its check, and a PR whose head changed outside dipo.
-6. Proposed stories, then decision notes.
+6. Proposed stories, spikes before follow-ups, then decision notes.
 7. Next up: one Ready story per free run slot, with `dipo next confirm` and `dipo next decline` (0010).
 
 Within a group, items that block the most other stories come first, then the oldest.

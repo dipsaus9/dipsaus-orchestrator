@@ -2704,13 +2704,10 @@
           },
           "required": ["number", "url", "state"]
         },
-        "proposal": {
+        "note": {
           "type": "object",
           "properties": {
             "id": {
-              "type": "string"
-            },
-            "kind": {
               "type": "string"
             },
             "title": {
@@ -2721,7 +2718,7 @@
               "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
             }
           },
-          "required": ["id", "kind", "title"]
+          "required": ["id", "title"]
         },
         "idea": {
           "type": "object",

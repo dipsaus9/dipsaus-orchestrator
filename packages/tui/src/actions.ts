@@ -81,7 +81,7 @@ export interface ActionTarget {
   readonly question?: string;
   readonly gate?: string;
   /** The decision note a dismiss is about (DIPO-404). */
-  readonly proposal?: string;
+  readonly note?: string;
   /** The proposed story an accept or dismiss is about (DIPO-454). */
   readonly idea?: string;
   /** The command line the engine built for the action, when a desk row offered it. */
@@ -318,7 +318,7 @@ export function requestOf(flow: Flow, requestId: RequestId): CommandRequest {
       args = { idea: target.idea };
       break;
     case "dismissNote":
-      args = { note: target.proposal };
+      args = { note: target.note };
       break;
     case "idea":
       args = { text: values.text ?? "" };

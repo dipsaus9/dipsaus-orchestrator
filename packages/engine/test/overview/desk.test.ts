@@ -54,6 +54,7 @@ function passedIdea(
   run: RunId,
   title: string,
   at: number,
+  storyLine = STORY_LINE,
 ): void {
   const id = holdIdea(office, { origin: "proposal", key, runId: run, title, text: "t", at });
   if (id === null) throw new Error("not held");
@@ -61,7 +62,7 @@ function passedIdea(
     proposal: {
       found: "f",
       evidence: [{ file: "src/a.ts", line: 1 }],
-      storyLine: STORY_LINE,
+      storyLine,
       proposed: "p",
       why: "w",
       serves: "m-3",
@@ -243,12 +244,20 @@ describe("the desk order (0020)", () => {
             base + 6 * HOUR,
           );
         });
-        // Group 6: two proposed stories, oldest first, then a decision note, older still.
+        // Group 6: a proposed spike first though it is newest, then a follow-up, then a decision
+        // note, older still.
         const run = RunId.parse("run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1E");
         const key11 = keyOf(office, "DIPO-11");
         office.immediate(() => {
           passedIdea(office, key11, run, "Split RunOutcomes", base + HOUR);
-          passedIdea(office, key11, run, "Choose a queue", base);
+          passedIdea(
+            office,
+            key11,
+            run,
+            "Choose a queue",
+            base + 2 * HOUR,
+            "We need to decide which queue design the office uses so that the next stories build on one design.",
+          );
           storeDecisionNotes(office, {
             key: key11,
             runId: run,
@@ -686,9 +695,8 @@ describe("the office.desk read", () => {
             kind: "DECISION NOTE",
             story: StoryId.parse("DIPO-9"),
             key,
-            proposal: {
+            note: {
               id: expect.stringMatching(/^[0-9a-f]{64}$/),
-              kind: "decision-note",
               title: "Decision note for docs/decisions/0019-review-loop.md",
               run,
             },
