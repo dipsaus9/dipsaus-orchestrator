@@ -41,19 +41,13 @@ describe("the class of a failed Actions job", () => {
     expect(codeql.some((line) => line.includes("CodeQL job status was failure"))).toBe(false);
   });
 
-  it("is the code's when a 504 is printed outside the failing step's error", () => {
-    // The 504 lines of the CodeQL log, then a later step that fails a test.
-    const log = [
-      fixture("dipo-463-codeql-bundle-504.log"),
-      "verify\tRun bun test\t2026-11-08T09:40:00.0000000Z ##[group]Run bun test",
-      ...Array.from(
-        { length: 20 },
-        (_, i) => `verify\tRun bun test\t2026-11-08T09:40:01.0000000Z ok ${i}`,
-      ),
-      "verify\tRun bun test\t2026-11-08T09:40:02.0000000Z ##[error]Process completed with exit code 1.",
-    ].join("\n");
-    // The first `##[error]` is still the CodeQL download: the failing step is that one.
-    expect(classifyJobLog(log)).toBe("infra");
+  it("is the code's when a 504 is printed outside the failing step's error, or with a test failure", () => {
+    // An earlier step printed the 504 of a retried download that then passed; the test step failed.
+    const retried = fixture("dipo-463-actionlint-504.log")
+      .split("\n")
+      .filter((line) => !line.includes("##[error]"))
+      .join("\n");
+    expect(classifyJobLog(`${retried}${fixture("test-failure.log")}`)).toBe("code");
     const late = fixture("test-failure.log").replace(
       " --seed=",
       "Unexpected HTTP response: 504\n --seed=",
