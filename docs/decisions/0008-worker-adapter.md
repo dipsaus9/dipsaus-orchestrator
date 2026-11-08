@@ -42,7 +42,7 @@ The engine names no tools. The adapter names each kind's tools: the developer's,
 **Technology.** Apple `container`: each box is its own VM with its own kernel. The engine reaches it through one box interface (`engine/src/box/`), so another backend can be added later without changing this design. Every call except the live session has a deadline.
 
 **Contents.**
-- A copy of the repository at the story's start commit, with **its own local git repository**: dipo runs `git init` in the copy and commits the start state, so tests and tools that need git work. It shares nothing with your repository: no refs, no config, no hooks, no history before the start commit, and the Mac never runs git in it.
+- A copy of the repository at the story's start commit, with **its own local git repository**: dipo runs `git init` in the copy and commits the start state, so tests and tools that need git work. It shares nothing with your repository: no refs, no config, no hooks, no history before the start commit, and the Mac never runs git in it. When dipo copies a merge of the base into the box (0002), a fixed dipo script commits the merged files in this repository as a commit of their own, so the worker's git log shows the base's changes and its git diff only its own work.
 - Files outside git only when the office config lists them in `box.files` and marks each as holding no real secrets.
 - Nothing of the maintainer's: no host environment variables, no `~/.npmrc` or other settings files, no Keychain, no SSH agent, no home folder, no mounted host directory.
 
@@ -208,6 +208,7 @@ An adapter implements section 1. An Agent SDK adapter would share `interpret`, b
 - `needs-permission` and `scopeRequest` in the report. A box worker has every permission, and references are a forecast (2026-10-21).
 - Plan-limit waits that held a run In Progress for days, and adapter holds per launch kind. Replaced by the office's starts paused (0020, 2026-10-24).
 - No git in the box at all (2026-10-21). Replaced by a box-local repository that shares nothing with yours (2026-10-24), because many test suites need git.
+- A box repository that got dipo's merges of the base in its files only, so the worker's git diff showed the base's changes as its own (2026-10-24). Replaced by a commit of each merge dipo copies in, in the box's repository (2026-11-08, DIPO-464).
 - A test box reached through a forwarder inside it on the box's address (2026-10-22). Replaced by a forwarder on the Mac's loopback (2026-10-28), because a VPN on the Mac routes the box network's range away from the box bridge.
 - The reviewer on the Mac with a `PreToolUse` web-gate hook and its relay through the worker host (2026-10-17). Replaced by a read-only reviewer box (2026-10-24); no session has hooks.
 - `WorkerSpec.tools`, the tool names of each role picked by the engine (2026-10-10). Replaced by `web`: the adapter names each kind's tools, so Claude's tool names stay in it (2026-10-29).
