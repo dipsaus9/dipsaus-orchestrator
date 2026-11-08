@@ -13,11 +13,11 @@ export type Mode =
 export type ModeAction =
   /** Back to home: an office opened, Esc in the switcher, or a privacy answer. */
   | { readonly type: "home" }
-  /** The switcher with row `index` selected: opened with `o`, or back from the path entry. */
+  /** Offices with row `index` selected: opened with `O`, or back from the path entry. */
   | { readonly type: "switcher"; readonly index: number }
   /** Moves the switcher's selection by `delta` among `count` offices. */
   | { readonly type: "move"; readonly delta: number; readonly count: number }
-  /** `n` in the switcher: starts typing a repository path. */
+  /** `a` on Offices: starts typing a repository path. */
   | { readonly type: "enter-path" }
   /** A printable key while typing the path. */
   | { readonly type: "type"; readonly input: string }
@@ -25,9 +25,9 @@ export type ModeAction =
   | { readonly type: "erase" }
   /** The privacy setting `key` is to become `value`, once the maintainer says yes. */
   | { readonly type: "confirm-privacy"; readonly key: string; readonly value: boolean }
-  /** `5` on home: the planning view (DIPO-449). */
+  /** `P` on home: the planning view (DIPO-449). */
   | { readonly type: "planning" }
-  /** `6` on home: the retro view (DIPO-453). */
+  /** `4` on home: the retro room (DIPO-453). */
   | { readonly type: "retro" };
 
 export function initialMode(startInSwitcher: boolean): Mode {

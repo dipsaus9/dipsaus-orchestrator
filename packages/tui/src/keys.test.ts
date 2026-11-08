@@ -109,8 +109,8 @@ describe("the key table", () => {
   });
 
   it("gives the detail steer and park and the queue park and drop", () => {
-    expect(viewKeys("detail").map((entry) => entry.key)).toEqual(["P", "s"]);
-    expect(viewKeys("queue").map((entry) => entry.key)).toEqual(["P", "d"]);
+    expect(viewKeys("detail").map((entry) => entry.key)).toEqual(["p", "s"]);
+    expect(viewKeys("queue").map((entry) => entry.key)).toEqual(["p", "X"]);
     expect(viewKeys("desk").map((entry) => [entry.key, entry.command])).toEqual([
       ["i", "idea.add"],
     ]);

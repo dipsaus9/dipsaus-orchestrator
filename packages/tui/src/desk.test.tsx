@@ -207,8 +207,8 @@ async function openDesk(
   });
   mounted.push(view.ui);
   view.session.desk = [...(options.desk ?? DESK)];
-  await view.ui.waitFor("· live");
-  await view.ui.press("3");
+  await view.ui.waitFor("daemon live");
+  await view.ui.press("1");
   await view.ui.waitFor("Your desk (");
   return view;
 }
@@ -251,8 +251,8 @@ async function selectRow(
 async function openQueue() {
   const view = await mount({ columns: 120, rows: 30 });
   mounted.push(view.ui);
-  await view.ui.waitFor("· live");
-  await view.ui.press("2");
+  await view.ui.waitFor("daemon live");
+  await view.ui.press("3");
   await view.ui.waitFor("next Ready story");
   await view.ui.press("j");
   await view.ui.waitFor("▌ READY (2)   DIPO-30");
@@ -299,13 +299,13 @@ describe("key 3 shows Your desk", () => {
     ]);
     // Kind, story, reason, detail, age and the row's keys.
     expect(rows[0]).toMatch(
-      /^ ▌ QUESTION +DIPO-19 +"Is a 404 on an empty office ok\?" +6m {2}\[a\]nswer$/,
+      /^ ▌ QUESTION +DIPO-19 +"Is a 404 on an empty office ok\?" +6m {2}a answer$/,
     );
     expect(rows[2]).toMatch(
-      /^ {3}PARKED +DIPO-26 +ambiguous-spec · May the compose file start the database\? +40m {2}\[a\]nswer \[r\]esume$/,
+      /^ {3}PARKED +DIPO-26 +ambiguous-spec · May the compose file start the database\? +40m {2}a answer {2}r start again$/,
     );
     expect(rows[7]).toMatch(
-      /^ {3}PARKED BY YOU +DIPO-29 +by-maintainer · after M2 +3d {2}\[r\]esume$/,
+      /^ {3}PARKED BY YOU +DIPO-29 +by-maintainer · after M2 +3d {2}r start again$/,
     );
     // "Parked by you" comes after every other row and before the stories it lists.
     expect(shown.indexOf(" Parked by you (1)")).toBe(shown.indexOf(rows[7]!) - 1);
@@ -332,7 +332,7 @@ describe("key 3 shows Your desk", () => {
     expect(frame).not.toContain("blocks DIPO-31");
     for (const line of body) expect(line.length).toBeLessThanOrEqual(70);
     // The row's keys move to the footer.
-    expect(shown.at(-1)).toContain("[a]nswer");
+    expect(shown.at(-1)).toContain("a answer");
   });
 });
 
@@ -418,7 +418,7 @@ describe("the key table on desk rows", () => {
   it("accepts a PROPOSED STORY row with y and dismisses one with n (DIPO-454)", async () => {
     const { ui, session } = await openDesk();
     await selectRow(ui, "DIPO-21");
-    expect(lines(ui.frame()).at(-1)).toContain("[y] accept [n] dismiss");
+    expect(lines(ui.frame()).at(-1)).toContain("y accept   n dismiss");
     await ui.press("y");
     await until(() => session.commands.length === 1, "idea.accept");
     await ui.press("n");
@@ -461,7 +461,7 @@ describe("the key table on desk rows", () => {
   it("hands a quick idea to the audit with i on any row (criterion 5)", async () => {
     const { ui, session } = await openDesk();
     await selectRow(ui, "DIPO-26");
-    expect(lines(ui.frame()).at(-1)).toContain("[i]dea");
+    expect(lines(ui.frame()).at(-1)).toContain("i idea…");
     await ui.press("i");
     await ui.waitFor("idea (its first words are its title): _");
     await ui.press("Show the spend per tier");
@@ -532,7 +532,7 @@ describe("the key table on desk rows", () => {
     });
     const { ui } = await openDesk({ desk: [unbound] });
     const frame = await ui.waitFor("type: dipo run DIPO-29");
-    expect(frame).toContain("[r]esume");
+    expect(frame).toContain("r start again");
   });
 
   it("approves a merge with y, and answers a parked question with a text", async () => {
@@ -559,7 +559,7 @@ describe("prompts", () => {
     const { ui, session } = await openDesk();
     await ui.press("a");
     await ui.waitFor("answer: _");
-    expect(lines(ui.frame()).at(-1)).toContain("[Enter] send  [Esc] cancel");
+    expect(lines(ui.frame()).at(-1)).toContain("⏎ send");
     await ui.press("escape");
     await ui.waitFor("answer DIPO-19: nothing sent");
     await ui.press("a");
@@ -579,13 +579,13 @@ describe("prompts", () => {
     await ui.press("a");
     await ui.press("later");
     session.setState("reconnecting");
-    await ui.waitFor("OFFLINE");
+    await ui.waitFor("offline since");
     await ui.press("enter");
     await ui.waitFor("offline: the prompt is kept");
     expect(ui.frame()).toContain("answer: later_");
     expect(session.commands).toEqual([]);
     session.setState("open");
-    await until(() => !ui.frame().includes("OFFLINE"), "back online");
+    await until(() => !ui.frame().includes("offline since"), "back online");
     await ui.press("enter");
     await until(() => session.commands.length === 1, "work.answer");
     expect(sent(session)).toEqual([
@@ -734,8 +734,8 @@ describe("prompts", () => {
 describe("the queue and the detail use the same table", () => {
   it("parks a story with P and its note", async () => {
     const { ui, session } = await openQueue();
-    expect(lines(ui.frame()).at(-1)).toContain("[P]ark  [d]rop");
-    await ui.press("P");
+    expect(lines(ui.frame()).at(-1)).toContain("p park   X drop");
+    await ui.press("p");
     await ui.waitFor("park note for DIPO-30: _");
     await ui.press("after M2");
     await ui.press("enter");
@@ -747,11 +747,11 @@ describe("the queue and the detail use the same table", () => {
 
   it("drops with the branch kept after y, and after D lists the losses and needs the typed id", async () => {
     const { ui, session } = await openQueue();
-    await ui.press("d");
+    await ui.press("X");
     await ui.waitFor("Drop DIPO-30: archive it and release its claim?");
     await ui.press("y");
     await until(() => session.commands.length === 1, "story.drop");
-    await ui.press("d");
+    await ui.press("X");
     await ui.press("D");
     await ui.waitFor("type DIPO-30 to confirm: _");
     expect(ui.frame()).toContain("lost: nothing");
@@ -771,20 +771,43 @@ describe("the queue and the detail use the same table", () => {
     });
   });
 
-  it("steers with s and parks with P in the live agent detail", async () => {
+  it("copies the focused story's id with c on the desk, the queue and the floor, and the run id in the detail", async () => {
+    const view = await mount({ columns: 120, rows: 30 });
+    mounted.push(view.ui);
+    const { ui, copied } = view;
+    await ui.waitFor("daemon live");
+    // The Floor: the focused row's story.
+    await ui.press("c");
+    await ui.waitFor("copied DIPO-21");
+    // The run detail: its run id.
+    await ui.press("enter");
+    await ui.waitFor("following the tail");
+    await ui.press("c");
+    await ui.waitFor("copied run_");
+    await ui.press("escape");
+    // The queue: the focused story row.
+    await ui.press("3");
+    await ui.waitFor("next Ready story");
+    await ui.press("j");
+    await ui.press("c");
+    await ui.waitFor("copied DIPO-30");
+    expect(copied).toEqual(["DIPO-21", expect.stringMatching(/^run_/), "DIPO-30"]);
+  });
+
+  it("steers with s and parks with p in the live agent detail", async () => {
     const view = await mount({ columns: 120, rows: 30 });
     mounted.push(view.ui);
     const { ui, session } = view;
-    await ui.waitFor("· live");
+    await ui.waitFor("daemon live");
     await ui.press("enter");
     await ui.waitFor("following the tail");
-    expect(lines(ui.frame()).at(-1)).toContain("[s]teer");
+    expect(lines(ui.frame()).at(-1)).toContain("s steer");
     await ui.press("s");
     await ui.waitFor("steer text: _");
     await ui.press("Keep the old flag");
     await ui.press("enter");
     await until(() => session.commands.length === 1, "work.steer");
-    await ui.press("P");
+    await ui.press("p");
     await ui.waitFor("park note for DIPO-21: _");
     await ui.press("after the release");
     await ui.press("enter");
@@ -801,13 +824,13 @@ describe("answers, closed prompts, read-your-writes and retry", () => {
     const view = await mount({ columns: 120, rows: 30 });
     mounted.push(view.ui);
     const { ui, session } = view;
-    await ui.waitFor("· live");
+    await ui.waitFor("daemon live");
     session.active(STREAM)?.options.onEvent(asked(8, RUN_19, "DIPO-19", KEY_19));
     // DIPO-19 is the third running row.
     await ui.press("j");
     await ui.press("j");
     await ui.waitFor("▌DIPO-19");
-    await until(() => lines(ui.frame()).at(-1)?.includes("[a]nswer") === true, "[a]nswer");
+    await until(() => lines(ui.frame()).at(-1)?.includes("a answer") === true, "a answer");
     await ui.press("a");
     await ui.waitFor('answer DIPO-19: "Is a 404 ok?"');
     await ui.press("yes");
@@ -846,7 +869,7 @@ describe("answers, closed prompts, read-your-writes and retry", () => {
       "answer DIPO-19: question.closed: This question is no longer waiting.",
     );
     expect(frame).not.toContain("answer: yes_");
-    expect(lines(frame).at(-1)).not.toContain("[Ctrl-R] retry");
+    expect(lines(frame).at(-1)).not.toContain("^R retry");
   });
 
   it("is done only once the office stream passes the reply cursor", async () => {
@@ -892,7 +915,7 @@ describe("answers, closed prompts, read-your-writes and retry", () => {
     await selectRow(ui, "DIPO-12");
     await ui.press("y");
     const frame = await ui.waitFor("approve DIPO-12: engine.recovering: The daemon is recovering.");
-    expect(lines(frame).at(-1)).toContain("[Ctrl-R] retry");
+    expect(lines(frame).at(-1)).toContain("^R retry");
     await ui.press("ctrl-r");
     await until(() => session.commands.length === 2, "the retry");
     const ids = session.commands.map(

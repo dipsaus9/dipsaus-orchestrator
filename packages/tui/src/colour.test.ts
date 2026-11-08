@@ -67,7 +67,7 @@ describe("colour", () => {
       );
       // Without colour only bold and underline stay (roles.json, noColor).
       for (const raw of [noColorEnv, noColorFlag]) {
-        expect(raw).toContain("OFFLINE");
+        expect(raw).toContain("offline since");
         const codes = new Set(raw.match(SGR) ?? []);
         for (const code of codes)
           expect(["\u001b[1m", "\u001b[22m", "\u001b[4m", "\u001b[24m"]).toContain(code);

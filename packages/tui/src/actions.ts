@@ -38,7 +38,7 @@ import {
 import type { Key } from "ink";
 import { useEffect, useState } from "react";
 
-import { binding, type ActionId } from "./keys";
+import { binding, type ActionId, type Hint } from "./keys";
 
 /** One command an action sends. */
 export interface CommandRequest {
@@ -404,6 +404,11 @@ function replyNote(flow: Flow, result: unknown): string | undefined {
 }
 
 /** The flows, the action on its way and the keys of an open prompt. */
+/** A key of an open prompt; the prompt's keys are never dropped from the footer. */
+function promptHint(key: string, label: string, side?: "right"): Hint {
+  return { key, label, priority: 100, ...(side === undefined ? {} : { side }) };
+}
+
 export function useActions(deps: ActionDeps) {
   const { store, offline, ellipsis } = deps;
   const [flow, setFlow] = useState<Flow | null>(null);
@@ -660,21 +665,26 @@ export function useActions(deps: ActionDeps) {
   };
 
   /** The footer keys while a prompt is open; null when none is. */
-  const promptHints = (): string | null => {
+  const promptHints = (): Hint[] | null => {
     if (flow === null) return null;
+    const escCancel = promptHint("esc", "cancel", "right");
     const step = flow.steps[flow.at];
-    if (step === undefined || flow.reading) return "[Esc] cancel";
+    if (step === undefined || flow.reading) return [escCancel];
     switch (step.kind) {
       case "text":
-        return "[Enter] send  [Esc] cancel";
+        return [promptHint("⏎", "send"), escCancel];
       case "typed":
-        return "[Enter] confirm  [Esc] cancel";
+        return [promptHint("⏎", "confirm"), escCancel];
       case "yesno":
-        return "[y] yes  [any other key] cancel";
+        return [promptHint("y", "yes"), promptHint("any other key", "cancel", "right")];
       case "drop":
-        return "[y] drop, keep branch  [D] delete branch  [any other key] cancel";
+        return [
+          promptHint("y", "drop, keep branch"),
+          promptHint("D", "delete branch"),
+          promptHint("any other key", "cancel", "right"),
+        ];
       case "losses":
-        return "[Esc] cancel";
+        return [escCancel];
     }
   };
 

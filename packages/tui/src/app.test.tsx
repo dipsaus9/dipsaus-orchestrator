@@ -34,28 +34,31 @@ function daemonState(to: string, seq: number): Event {
 describe("office switcher", () => {
   it("lists the three offices of the golden event log; arrows and Enter select one", async () => {
     const { ui, session, store } = await open();
-    await ui.waitFor("dipsaus-orchestrator · daemon running");
-    await ui.press("o");
+    await ui.waitFor("dipo / dipsaus-orchestrator");
+    await ui.press("O");
     const frame = await ui.waitFor("slaydoku");
-    expect(frame).toContain("Offices");
-    expect(frame).toContain(
-      [
-        "   OFFICE                RUNNING  NEEDS YOU  READY  TODAY",
-        " ▌ dipsaus-orchestrator  3        2          2" + " ".repeat(13) + "(open)",
-        "   couchcade             0        0          1",
-        "   slaydoku              1        1          0      84% !",
-      ].join("\n"),
-    );
-    expect(frame).toContain("[Enter] open  [n] open new repo path");
+    expect(frame).toContain("dipo / Offices");
+    // Offices (S2e): NEEDS YOU first after the name, RUNNING, READY and the TODAY bar.
+    const lines = frame.split("\n").map((line) => line.trimEnd());
+    const at = lines.findIndex((line) => line.startsWith("    OFFICE"));
+    expect(lines.slice(at, at + 6)).toEqual([
+      `    ${"OFFICE".padEnd(41)}NEEDS YOU   RUNNING   READY   TODAY`,
+      `▌ ● ${"dipsaus-orchestrator · open".padEnd(41)}2           3         2`,
+      `  ● ${"couchcade".padEnd(41)}0           0         1`,
+      `  ● ${"slaydoku".padEnd(41)}1           1         0       ${"━".repeat(12)} 84% ALERT`,
+      "",
+      "  + a  open a repository path…",
+    ]);
+    expect(lines.at(-1)).toMatch(/^↑↓ move {3}⏎ open {3}a new path +esc back {3}q q quit$/);
 
     await ui.press("down");
     await ui.press("down");
-    await ui.waitFor("▌ slaydoku");
+    await ui.waitFor("▌ ● slaydoku");
     await ui.press("up");
-    await ui.waitFor("▌ couchcade");
+    await ui.waitFor("▌ ● couchcade");
     await ui.press("down");
     await ui.press("enter");
-    const opened = await ui.waitFor("slaydoku · daemon running");
+    const opened = await ui.waitFor("dipo / slaydoku");
     expect(opened).toContain("SLAY-9");
     expect(opened).toContain("looping @");
 
@@ -84,35 +87,33 @@ describe("office switcher", () => {
       [{ color: false, ascii: true }, ">"],
     ] as const) {
       const { ui } = await open({ display });
-      await ui.waitFor("daemon running");
-      await ui.press("o");
+      await ui.waitFor("daemon live");
+      await ui.press("O");
       const frame = await ui.waitFor("slaydoku");
       const rows = frame
         .split("\n")
-        .filter((line) => /(dipsaus-orchestrator|couchcade|slaydoku) +\d/.test(line));
-      expect(rows.map((line) => line.slice(0, 3))).toEqual([` ${bar} `, "   ", "   "]);
+        .filter((line) =>
+          /(orchestrator · open|orchestrator - open|couchcade|slaydoku) +\d/.test(line),
+        );
+      expect(rows.map((line) => line.slice(0, 2))).toEqual([`${bar} `, "  ", "  "]);
     }
   });
 
-  it("lines the columns up at 120 and spells out a day usage alert (DIPO-81)", async () => {
-    const { ui } = await open({ columns: 120, rows: 30 });
-    await ui.waitFor("· live");
-    await ui.press("o");
+  it("narrows the office column on a narrow terminal and keeps the TODAY bar with its alert (DIPO-81)", async () => {
+    const { ui } = await open({ columns: 100, rows: 30 });
+    await ui.waitFor("daemon live");
+    await ui.press("O");
     const frame = await ui.waitFor("slaydoku");
     expect(frame).toContain(
-      [
-        "   OFFICE                RUNNING  NEEDS YOU  READY  TODAY",
-        " ▌ dipsaus-orchestrator  3        2          2" + " ".repeat(28) + "(open)",
-        "   couchcade             0        0          1",
-        "   slaydoku              1        1          0      84%  ALERT day usage",
-      ].join("\n"),
+      `  ● ${"slaydoku".padEnd(41)}1           1         0       ${"━".repeat(12)} 84% ALERT`,
     );
+    for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(100);
   });
 
-  it("shows READY as ? for a summary without it, and [q] quit at every width", async () => {
+  it("shows READY as ? for a summary without it, and q q quit at every width", async () => {
     for (const columns of [120, 80, 70, 60]) {
       const { ui, session } = await open({ columns, rows: 30 });
-      await ui.waitFor("· live");
+      await ui.waitFor("daemon live");
       session.active("software")?.options.onEvent({
         cursor: { stream: "software", seq: 60 },
         at: "2026-10-14T10:05:00.000Z",
@@ -126,9 +127,15 @@ describe("office switcher", () => {
           waitingOnMaintainer: 0,
         },
       } as Event);
-      await ui.press("o");
-      const frame = await ui.waitFor("   couchcade             0        0          ?");
-      expect(frame.split("\n").at(-1)).toContain("[q] quit");
+      await ui.press("O");
+      await ui.waitFor("couchcade");
+      const deadline = performance.now() + 1_000;
+      while (!/couchcade +0 +0 +\?/.test(ui.frame()) && performance.now() < deadline) {
+        await Bun.sleep(5);
+      }
+      const frame = ui.frame();
+      expect(frame).toMatch(/couchcade +0 +0 +\?/);
+      expect(frame.split("\n").at(-1)).toContain("q q quit");
       for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(columns);
     }
   });
@@ -140,26 +147,26 @@ describe("office switcher", () => {
     expect(ui.frame()).toContain("Offices");
   });
 
-  it("opens a new repository path with n through office.open, then switches to it", async () => {
+  it("opens a new repository path with a through office.open, then switches to it", async () => {
     const { ui, session } = await open();
     session.opened.set("/work/slaydoku", OFFICES.slaydoku);
-    await ui.press("o");
+    await ui.press("O");
     await ui.waitFor("Offices");
-    await ui.press("n");
-    await ui.waitFor("open repository path: _");
+    await ui.press("a");
+    await ui.waitFor("+ path: _");
     await ui.press("/work/slaydokx");
     await ui.press("backspace");
     await ui.press("u");
-    await ui.waitFor("open repository path: /work/slaydoku_");
+    await ui.waitFor("+ path: /work/slaydoku_");
     await ui.press("enter");
-    await ui.waitFor("slaydoku · daemon running");
+    await ui.waitFor("dipo / slaydoku");
     expect(session.commands).toEqual([{ name: "office.open", args: { path: "/work/slaydoku" } }]);
   });
 
   it("shows why office.open failed and returns to the list", async () => {
     const { ui } = await open();
-    await ui.press("o");
-    await ui.press("n");
+    await ui.press("O");
+    await ui.press("a");
     await ui.press("/nowhere");
     await ui.press("enter");
     const frame = await ui.waitFor("office.notFound: not a repository");
@@ -168,57 +175,123 @@ describe("office switcher", () => {
 });
 
 describe("connection and daemon states", () => {
-  it("disconnected: shows the offline banner and disables action keys", async () => {
+  it("offline: freezes the body in shade, says what happened, and leaves only the reading keys", async () => {
     const { ui, session } = await open();
-    await ui.waitFor("· live");
+    await ui.waitFor("daemon live");
     session.setState("reconnecting");
-    const frame = await ui.waitFor("OFFLINE since");
-    // The test clock is at 10:04 UTC; the banner shows local time.
-    // The header carries it: the daemon state is unknown while disconnected.
-    expect(frame).toMatch(/^ dipsaus-orchestrator · OFFLINE since \d\d:\d\d – view frozen$/m);
-    expect(frame).not.toContain("daemon running");
-    expect(frame).toContain("(offline: actions disabled)");
-    // Values keep their last state.
+    const frame = await ui.waitFor("offline since");
+    // The test clock is at 10:04 UTC; the chip shows local time. The daemon state is unknown.
+    expect(frame).toMatch(
+      /^dipo \/ dipsaus-orchestrator {3}\+1 elsewhere · O +✗ offline since \d\d:\d\d · view frozen$/m,
+    );
+    expect(frame).not.toContain("daemon live");
+    expect(frame).toContain("✗ Lost the daemon. Reconnecting…");
+    expect(frame).toMatch(/What you see is from \d\d:\d\d\. Actions are off\./);
+    expect(frame).toContain("The daemon keeps working if it's still up.");
+    expect(frame.split("\n").at(-1)).toBe(
+      "↑↓ move   ⏎ read   c copy id   q q quit   actions off while offline".replace(
+        "c copy id   ",
+        "",
+      ),
+    );
+    // Values keep their last state, frozen in shade so they cannot be taken for live ones.
     expect(frame).toContain("DIPO-21");
+    // oxlint-disable-next-line no-control-regex
+    expect(ui.raw()).toMatch(/\u001b\[2m\u001b\[30m[^\n]*DIPO-21/);
 
     const snapshotReads = () => session.reads.filter((read) => read.name === "office.snapshot");
     const before = snapshotReads().length;
-    await ui.press("o");
+    await ui.press("O");
     await ui.press("down");
     await ui.press("enter");
     await ui.waitFor("offline: actions are disabled");
     expect(snapshotReads()).toHaveLength(before);
-    await ui.press("n");
-    expect(ui.frame()).not.toContain("open repository path");
+    await ui.press("a");
+    expect(ui.frame()).not.toContain("+ path:");
   });
 
-  it("shows the recovering and draining banners", async () => {
+  it("shows recovering and stopping as header chips only, with the body as it was", async () => {
     const { ui, session } = await open();
-    await ui.waitFor("· live");
+    await ui.waitFor("daemon live");
     const software = session.active("software");
     software?.options.onEvent(daemonState("recovering", 50));
-    await ui.waitFor("Daemon recovering – office data after reconcile");
+    const recovering = await ui.waitFor("◌ daemon recovering");
+    // A plain reconcile has no body of its own.
+    expect(recovering).toContain("RUNNING (3)");
+    expect(recovering).not.toContain("Database unavailable");
     software?.options.onEvent(daemonState("draining", 51));
-    await ui.waitFor("Daemon stopping – will reconnect");
+    await ui.waitFor("◌ daemon stopping");
     expect(session.commands).toEqual([]);
   });
 
-  it("after a draining daemon goes away, shows offline instead of the stale draining state", async () => {
-    const { ui, session } = await open();
-    await ui.waitFor("· live");
+  it("shows the database problem's body while the daemon is held in recovering, with l and c", async () => {
+    const { ui, session, copied, daemonRequests } = await open();
+    await ui.waitFor("daemon live");
+    session.active("software")?.options.onEvent(daemonState("recovering", 50));
+    await ui.waitFor("◌ daemon recovering");
+    // The held daemon ends the office stream with database.unavailable (DIPO-111, DIPO-120).
+    const stream = session.active(`office:${OFFICES.dipsaus}`);
+    stream!.active = false;
+    stream?.options.onEnded?.({
+      code: "database.unavailable",
+      message: "the state database is unavailable",
+      retryable: true,
+      details: { reason: "migration", backup: "/s/backups/pre-v4.db" },
+    } as never);
+    const frame = await ui.waitFor("Database unavailable");
+    const lines = frame.split("\n").map((line) => line.trimEnd());
+    const at = lines.findIndex((line) => line.includes("Database unavailable"));
+    expect(lines.slice(at, at + 11)).toEqual([
+      "  ! Database unavailable",
+      "",
+      "    reason  migration",
+      "    backup  /s/backups/pre-v4.db",
+      "",
+      "    Stories and code are safe: they live in git.",
+      "    Only run history is at stake.",
+      "",
+      "    l open daemon log   c copy the backup path",
+      "    $ dipo daemon logs",
+      lines[at + 10] ?? "",
+    ]);
+    expect(frame).not.toContain("RUNNING (3)");
+    await ui.press("l");
+    await ui.press("c");
+    await ui.waitFor("copied /s/backups/pre-v4.db");
+    expect(daemonRequests).toEqual(["log"]);
+    expect(copied).toEqual(["/s/backups/pre-v4.db"]);
+    // Only the screen's keys work: no view key reaches the office.
+    await ui.press("3");
+    expect(ui.frame()).not.toContain("next Ready story");
+  });
+
+  it("after a draining daemon goes away, shows daemon stopped with its body and keys", async () => {
+    const { ui, session, daemonRequests } = await open();
+    await ui.waitFor("daemon live");
     session.active("software")?.options.onEvent(daemonState("draining", 51));
-    await ui.waitFor("Daemon stopping – will reconnect");
+    await ui.waitFor("◌ daemon stopping");
     session.setState("reconnecting");
-    const frame = await ui.waitFor("OFFLINE since");
-    expect(frame).not.toContain("draining");
-    expect(frame).not.toContain("Daemon stopping");
-    await ui.press("o");
-    expect(await ui.waitFor("Offices")).toContain("Offices · offline");
+    const frame = await ui.waitFor("✗ daemon stopped");
+    const lines = frame.split("\n").map((line) => line.trimEnd());
+    const at = lines.findIndex((line) => line.includes("The office manager"));
+    expect(lines.slice(at, at + 6)).toEqual([
+      "    ✗ The office manager isn't running.",
+      "",
+      "      No work is lost. Boxes pause until it's back.",
+      expect.stringMatching(/^ {6}Last seen \d\d:\d\d$/) as unknown as string,
+      "",
+      "      r restart daemon    l open its log",
+    ]);
+    expect(lines.at(-1)).toMatch(/^r restart daemon {3}l open its log +q q quit$/);
+    expect(frame).not.toContain("RUNNING (3)");
+    await ui.press("r");
+    await ui.waitFor("daemon started; reconnecting");
+    expect(daemonRequests).toEqual(["restart"]);
   });
 
   it("shows view reloaded (history gap) once after stream.resetRequired", async () => {
     const { ui, session } = await open();
-    await ui.waitFor("· live");
+    await ui.waitFor("daemon live");
     const stream = session.active(`office:${OFFICES.dipsaus}`);
     stream!.active = false;
     stream?.options.onEnded?.({ code: "stream.resetRequired", message: "gap", retryable: false });
@@ -239,6 +312,8 @@ describe("quitting", () => {
     const { ui, clock, quits } = await open();
     await ui.press("q");
     await ui.waitFor("press q again to quit");
+    // One q alone never quits.
+    expect(quits()).toBe(0);
     clock.advance(1_900);
     await ui.press("q");
     expect(quits()).toBe(1);
@@ -279,9 +354,10 @@ describe("terminal size and display", () => {
 
   it("--ascii writes only ASCII", async () => {
     const { ui, session } = await open({ display: { color: true, ascii: true } });
-    await ui.waitFor("dipsaus-orchestrator - daemon running - live");
+    await ui.waitFor("* daemon live");
+    expect(ui.frame()).toMatch(/^[\x20-\x7e\n]*$/);
     session.setState("reconnecting");
-    const frame = await ui.waitFor("OFFLINE since");
+    const frame = await ui.waitFor("offline since");
     expect(frame).toMatch(/^[\x20-\x7e\n]*$/);
   });
 });

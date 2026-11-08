@@ -1,12 +1,14 @@
-// The TUI root (0009): the header with office, daemon state and connection, the banners, the mode
+// The TUI root (0009): the header with office, daemon state and connection, the mode
 // that shows, and the footer with the keys that work now. The wiring only (DIPO-443): the mode
 // reducer is `mode.ts`; the modes around home (the office switcher, the typed path, the privacy
 // confirmation) are `modes.tsx`; home, with the overview, the queue, the desk, the checklist, the
 // privacy settings and the agent detail, is `home.tsx`; the hints are `footer.ts`.
 //
-// Global keys: `1` overview, `2` queue, `3` Your desk, `4` the test checklist, `o` offices, `q`
-// twice within 2 s quits, Ctrl+C quits. `5` opens the planning view (`planning.tsx`, DIPO-449), `6` the retro view (`retro.tsx`, DIPO-453). Action keys are off while offline. Each view's keys are
-// in the header of its file (`home.tsx` holds the handlers; the key table is `keys.ts`).
+// Global keys (keymap.json, DIPO-458): `1` Desk, `2` Floor, `3` Queue, `4` Retro (`retro.tsx`,
+// DIPO-453), `O` Offices, `P` the planning view (`planning.tsx`, DIPO-449), `q` twice within 2 s
+// quits, Ctrl+C quits. Action keys are off while offline. On the daemon screens only their keys
+// work: `r` restarts a stopped daemon, `l` opens its log, `c` copies the backup path. Each view's
+// keys are in the header of its file (`home.tsx` holds the handlers; the key table is `keys.ts`).
 //
 // An action is done only when the office stream passes its reply cursor (read-your-writes). An
 // error shows in the footer; a retryable one offers Ctrl-R, which sends the same request again
@@ -39,7 +41,7 @@ import {
 import { useBatchedState } from "./batch";
 import { type ReadDesk } from "./desk";
 import { type ReadOutput, type ReadPrompt } from "./detail";
-import { useHome } from "./home";
+import { leavesOverlay, useHome } from "./home";
 import { useKeys, useQuitKey } from "./input";
 import { type ReadDigest } from "./digest";
 import type { ActionId } from "./keys";
@@ -55,6 +57,7 @@ import {
 } from "./modes";
 import type { Display } from "./options";
 import { Screen } from "./screen";
+import { daemonScreen } from "./states";
 import { glyphs, isOffline } from "./views";
 
 export type ActionResult<T> =
@@ -129,6 +132,12 @@ export interface TuiActions {
   readRetro: ReadRetro;
   /** A fresh request id for a new action; a retry reuses the old one. */
   newRequestId(): RequestId;
+  /** Puts text on the clipboard (`c`, DIPO-458). */
+  copy(text: string): void;
+  /** Starts the stopped daemon; resolves to why it did not start, or null (DIPO-458). */
+  restartDaemon(): Promise<string | null>;
+  /** Opens the daemon's log outside the TUI; resolves to why it did not open, or null. */
+  openLog(): Promise<string | null>;
 }
 
 export interface AppProps {
@@ -177,6 +186,33 @@ function useAppActions(
   return { acts, act, refusedOffline };
 }
 
+/**
+ * The keys of a daemon screen (`states.tsx`): `r` restarts a stopped daemon, `l` opens its log,
+ * `c` copies the backup path; only these and quit work there.
+ */
+function onDaemonScreenKey(
+  screen: "stopped" | "database",
+  input: string,
+  ctx: {
+    readonly actions: TuiActions;
+    readonly state: OfficeStoreState;
+    readonly ellipsis: string;
+    readonly setMessage: (message: string | null) => void;
+  },
+): void {
+  const { actions, state, setMessage } = ctx;
+  const report = (done: string) => (failure: string | null) => setMessage(failure ?? done);
+  if (screen === "stopped" && input === "r") {
+    setMessage(`starting the daemon${ctx.ellipsis}`);
+    void actions.restartDaemon().then(report("daemon started; reconnecting"));
+  } else if (input === "l") {
+    void actions.openLog().then(report("opened the daemon log"));
+  } else if (screen === "database" && input === "c" && state.database?.backup !== undefined) {
+    actions.copy(state.database.backup);
+    setMessage(`copied ${state.database.backup}`);
+  }
+}
+
 export function App(props: AppProps) {
   const { store, clock, display, actions } = props;
   const state = useBatchedState(store, clock);
@@ -198,6 +234,7 @@ export function App(props: AppProps) {
     setMessage,
     refusedOffline,
     openSwitcher: () => dispatch({ type: "switcher", index: selectedOfficeIndex(state) }),
+    copy: (text) => actions.copy(text),
     confirmPrivacy: (key, value) => dispatch({ type: "confirm-privacy", key, value }),
   });
   const planning = usePlanning({
@@ -227,6 +264,12 @@ export function App(props: AppProps) {
       props.onQuit();
       return;
     }
+    const screen = daemonScreen(state);
+    if (screen !== null) {
+      if (!onQuitKey(input))
+        onDaemonScreenKey(screen, input, { actions, state, ellipsis, setMessage });
+      return;
+    }
     home.clearRefusal();
     if (state.notice !== null) store.dismissNotice();
     // An open action prompt takes every key (`actions.ts`).
@@ -236,10 +279,14 @@ export function App(props: AppProps) {
     else if (mode.kind === "confirm-privacy") onConfirmPrivacyKey(mode, input, modeKeys);
     else if (mode.kind === "planning") planning.onKey(input, key);
     else if (onQuitKey(input)) return;
-    else if (mode.kind === "retro") retro.onKey(input, key);
     else if (mode.kind === "switcher") onSwitcherKey(mode, input, key, modeKeys);
-    else if (input === "5") dispatch({ type: "planning" });
-    else if (input === "6") dispatch({ type: "retro" });
+    else if (input === "P") dispatch({ type: "planning" });
+    else if (input === "4") dispatch({ type: "retro" });
+    else if (mode.kind === "retro" && (leavesOverlay(input) || input === "O")) {
+      // A room key or Offices leaves the retro room for it.
+      goHome();
+      home.onKey(input, key);
+    } else if (mode.kind === "retro") retro.onKey(input, key);
     else home.onKey(input, key);
   };
 

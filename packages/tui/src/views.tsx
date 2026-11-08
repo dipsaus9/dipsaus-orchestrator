@@ -1,21 +1,32 @@
-// Presentational pieces of the TUI (0009): the header, the banners, the
-// office switcher, the narrow list and the footer. They render store state as
-// the engine sent it; every state is a word plus an ASCII glyph, colour is extra.
+// Presentational pieces of the TUI (0009, DIPO-458): the header, the rooms band and the Offices
+// view. They render store state as the engine sent it; every state is a word plus a glyph (an
+// ASCII twin under `--ascii`), colour is extra.
+//
+// The header is `dipo / <office>`, `+N elsewhere · O` when other offices need the maintainer, then
+// at the right the daemon chip, spend today and the time. The daemon chip is the one place the
+// connection and the daemon state show: `● daemon live`, `◌ daemon recovering`, `✗ offline since
+// 13:40 · view frozen`, `✗ daemon stopped`.
 
 import { type OfficeEntry, type OfficeStoreState, percent } from "@dipsaus-orchestrator/client";
-import type { DatabaseUnavailableDetails } from "@dipsaus-orchestrator/contract";
+import type { OfficeSummary } from "@dipsaus-orchestrator/contract";
 import { Box, Text } from "ink";
 
+import { Colored, type Role } from "./colour";
 import type { Display } from "./options";
-import { Colored } from "./colour";
 
-/** Below either size the TUI shows one list (0009). */
+/** The glyphs of the TUI and their `--ascii` twins (spec.md, Glyphs). */
 export function glyphs(ascii: boolean) {
   return {
     bar: ascii ? ">" : "▌",
     dot: ascii ? "-" : "·",
     dash: ascii ? "-" : "–",
     ellipsis: ascii ? "..." : "…",
+    live: ascii ? "*" : "●",
+    idle: ascii ? "o" : "○",
+    pending: ascii ? "~" : "◌",
+    failed: ascii ? "x" : "✗",
+    met: ascii ? "+" : "✓",
+    done: ascii ? "=" : "━",
   };
 }
 
@@ -49,23 +60,13 @@ export function clockTime(ms: number): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/**
- * The connection as one word for the header; a stream the daemon ended with an error that does
- * not retry says so with its code and message, since it no longer catches up (DIPO-327).
- */
-function connectionWord(state: OfficeStoreState, ascii: boolean): string {
-  if (state.connection === "idle" || state.connection === "connecting") {
-    return `connecting${glyphs(ascii).ellipsis}`;
-  }
-  if (state.connection !== "open") return "offline";
-  const ended = state.streamError;
-  if (ended !== null) return `stream ended: ${ended.code}: ${ended.message}`;
-  if (state.offlineSince !== null) return "catching up";
-  return state.live ? "live" : "catching up";
-}
-
 export function isOffline(state: OfficeStoreState): boolean {
   return state.connection === "reconnecting" || state.connection === "closed";
+}
+
+/** Offline after the daemon said it stops: the daemon is stopped, not merely out of reach. */
+export function daemonStopped(state: OfficeStoreState): boolean {
+  return isOffline(state) && state.daemon === "draining";
 }
 
 export function officeName(state: OfficeStoreState): string | null {
@@ -73,176 +74,485 @@ export function officeName(state: OfficeStoreState): string | null {
   return state.offices.find((entry) => entry.office === state.office)?.name ?? state.office;
 }
 
-export function Header(props: { state: OfficeStoreState; display: Display; title?: string }) {
-  const { state, display } = props;
-  const { dot } = glyphs(display.ascii);
-  const title = props.title ?? officeName(state) ?? "no office";
-  const offline = offlineBanner(state, display.ascii);
-  // Disconnected, the daemon state is not known: the header says so instead (0009).
-  if (offline !== null) {
-    return (
-      <Colored display={display} role="err" wrap="truncate-end">
-        {` ${title} ${dot} ${offline}`}
-      </Colored>
-    );
+/** The daemon chip of the header: a glyph and a word, each in its role. */
+export interface DaemonChip {
+  readonly glyph: string;
+  readonly glyphRole: Role;
+  readonly word: string;
+  readonly wordRole: Role | undefined;
+}
+
+function makeChip(
+  glyph: string,
+  glyphRole: Role,
+  word: string,
+  wordRole: Role | undefined,
+): DaemonChip {
+  return { glyph, glyphRole, word, wordRole };
+}
+
+/** The connection and the daemon state as one chip (spec.md, The frame and States). */
+export function daemonChip(state: OfficeStoreState, ascii: boolean): DaemonChip {
+  const g = glyphs(ascii);
+  if (daemonStopped(state)) return makeChip(g.failed, "err", "daemon stopped", "err");
+  if (isOffline(state)) {
+    const since = state.offlineSince === null ? "" : ` since ${clockTime(state.offlineSince)}`;
+    return makeChip(g.failed, "err", `offline${since} ${g.dot} view frozen`, "err");
   }
+  if (state.connection === "idle" || state.connection === "connecting") {
+    return makeChip(g.pending, "dim", `connecting${g.ellipsis}`, "dim");
+  }
+  const ended = state.streamError;
+  if (ended !== null) {
+    return makeChip(g.failed, "err", `stream ended: ${ended.code}: ${ended.message}`, "err");
+  }
+  switch (state.daemon) {
+    case "starting":
+    case "recovering":
+      return makeChip(g.pending, "acc", "daemon recovering", "acc");
+    case "draining":
+      return makeChip(g.pending, "acc", "daemon stopping", "acc");
+    default:
+      break;
+  }
+  if (!state.live || state.offlineSince !== null) {
+    return makeChip(g.pending, "dim", "daemon catching up", "dim");
+  }
+  return makeChip(g.live, "ok", "daemon live", undefined);
+}
+
+/** Dollars as `$19.14`. */
+function dollars(amount: number): string {
+  return `$${amount.toFixed(2)}`;
+}
+
+/** An office's spend today, from `dayUsage.estimatedCost` on its summary; null when unknown. */
+export function spendToday(summary: OfficeSummary | undefined): number | null {
+  const day = summary?.dayUsage;
+  if (day === undefined) return null;
+  if (day.estimatedCost !== undefined) return day.estimatedCost;
+  return day.tokens === 0 ? 0 : null;
+}
+
+/** `$19.14 today` for the open office, or `$27.10 today, all offices` on Offices; null when unknown. */
+export function spendText(state: OfficeStoreState, allOffices: boolean): string | null {
+  if (!allOffices) {
+    const spend = spendToday(state.offices.find((entry) => entry.office === state.office)?.summary);
+    return spend === null ? null : `${dollars(spend)} today`;
+  }
+  const known = state.offices
+    .map((entry) => spendToday(entry.summary))
+    .filter((spend) => spend !== null);
+  if (known.length === 0) return null;
+  return `${dollars(known.reduce((sum, spend) => sum + spend, 0))} today, all offices`;
+}
+
+/** What waits on the maintainer in the offices that are not open (`+2 elsewhere · O`). */
+export function elsewhere(state: OfficeStoreState): number {
+  return state.offices
+    .filter((entry) => entry.office !== state.office)
+    .reduce((sum, entry) => sum + (entry.summary?.waitingOnMaintainer ?? 0), 0);
+}
+
+/** The header's three parts as plain text. */
+export interface HeaderText {
+  /** `dipo / dipsaus-orchestrator`. */
+  readonly left: string;
+  /** `   +2 elsewhere · O`, or "". */
+  readonly elsewhere: string;
+  /** The daemon chip, then spend today and the time, four spaces apart. */
+  readonly right: string;
+}
+
+export function headerText(
+  state: OfficeStoreState,
+  ascii: boolean,
+  now: number,
+  title?: string,
+): HeaderText {
+  const g = glyphs(ascii);
+  const offices = title !== undefined;
+  const place = title ?? officeName(state) ?? "no office";
+  const others = offices ? 0 : elsewhere(state);
+  const chip = daemonChip(state, ascii);
+  const spend = spendText(state, offices);
+  // Offline the chip says when the view froze; spend and time would read as live.
+  const offline = isOffline(state);
+  return {
+    left: `dipo / ${place}`,
+    elsewhere: others === 0 ? "" : `   +${others} elsewhere ${g.dot} O`,
+    right: [
+      `${chip.glyph} ${chip.word}`,
+      ...(offline || spend === null ? [] : [spend]),
+      ...(offline ? [] : [clockTime(now)]),
+    ].join("    "),
+  };
+}
+
+/** The minimum gap between the header's left and right parts. */
+const HEADER_GAP = 3;
+
+/**
+ * The header fitted to `columns` (spec.md, Widths): spend and the time go first, then the office
+ * name shortens (`dipsaus-orch…`), then `+N elsewhere`; the daemon chip stays.
+ */
+export function fitHeader(text: HeaderText, chip: string, columns: number, ellipsis: string) {
+  const width = (t: HeaderText) => t.left.length + t.elsewhere.length + HEADER_GAP + t.right.length;
+  let fitted = text;
+  if (width(fitted) > columns) fitted = { ...fitted, right: chip };
+  const over = width(fitted) - columns;
+  if (over > 0) {
+    const keep = Math.max("dipo / ".length + 4, fitted.left.length - over - ellipsis.length);
+    fitted = { ...fitted, left: `${fitted.left.slice(0, keep)}${ellipsis}` };
+  }
+  if (width(fitted) > columns) fitted = { ...fitted, elsewhere: "" };
+  return fitted;
+}
+
+/** The header as one plain line of `columns` cells. */
+export function headerLine(text: HeaderText, columns: number): string {
+  const used = text.left.length + text.elsewhere.length + text.right.length;
+  return `${text.left}${text.elsewhere}${" ".repeat(Math.max(HEADER_GAP, columns - used))}${text.right}`;
+}
+
+export function Header(props: {
+  readonly state: OfficeStoreState;
+  readonly display: Display;
+  readonly now: number;
+  readonly columns: number;
+  /** A place that is not an office, such as `Offices`. */
+  readonly title?: string;
+}) {
+  const { state, display, now, columns } = props;
+  const chip = daemonChip(state, display.ascii);
+  const g = glyphs(display.ascii);
+  const chipText = `${chip.glyph} ${chip.word}`;
+  const text = fitHeader(
+    headerText(state, display.ascii, now, props.title),
+    chipText,
+    columns,
+    g.ellipsis,
+  );
+  const place = text.left.slice("dipo / ".length);
+  const others = text.elsewhere === "" ? 0 : elsewhere(state);
+  const tail = text.right.slice(chipText.length);
+  const used = text.left.length + text.elsewhere.length + text.right.length;
   return (
     <Text wrap="truncate-end">
-      {` ${title} ${dot} daemon ${state.daemon ?? "?"} ${dot} ${connectionWord(state, display.ascii)}`}
+      <Colored display={display} role="acc" bold>
+        dipo
+      </Colored>
+      <Colored display={display} role="dim">
+        {" / "}
+      </Colored>
+      {place}
+      {others === 0 ? null : (
+        <>
+          {"   "}
+          <Colored display={display} role="acc">
+            {`+${others}`}
+          </Colored>
+          <Colored display={display} role="dim">
+            {` elsewhere ${g.dot} `}
+          </Colored>
+          <Colored display={display} role="acc">
+            O
+          </Colored>
+        </>
+      )}
+      {" ".repeat(Math.max(HEADER_GAP, columns - used))}
+      <Colored display={display} role={chip.glyphRole}>
+        {chip.glyph}
+      </Colored>
+      <Colored display={display} role={chip.wordRole}>
+        {` ${chip.word}`}
+      </Colored>
+      <Colored display={display} role="dim">
+        {tail}
+      </Colored>
     </Text>
   );
 }
 
-/** `OFFLINE since <time> – view frozen` while disconnected, else null (0009). */
-export function offlineBanner(state: OfficeStoreState, ascii: boolean): string | null {
-  if (!isOffline(state) || state.offlineSince === null) return null;
-  return `OFFLINE since ${clockTime(state.offlineSince)} ${glyphs(ascii).dash} view frozen`;
+/** The rooms of an office, with the keys that switch to them. */
+export type Room = "desk" | "floor" | "queue" | "retro";
+
+const ROOMS: readonly { readonly room: Room; readonly key: string; readonly name: string }[] = [
+  { room: "desk", key: "1", name: "Desk" },
+  { room: "floor", key: "2", name: "Floor" },
+  { room: "queue", key: "3", name: "Queue" },
+  { room: "retro", key: "4", name: "Retro" },
+];
+
+/** Each room's count as the engine sent it: needs you, running, Ready·waiting; none for Retro. */
+export function roomCounts(
+  state: OfficeStoreState,
+  ascii: boolean,
+): Readonly<Record<Room, string>> {
+  const summary = state.offices.find((entry) => entry.office === state.office)?.summary;
+  const waiting = state.stories.filter((story) => story.column === "waiting").length;
+  return {
+    desk: summary === undefined ? "" : String(summary.waitingOnMaintainer),
+    floor: summary === undefined ? "" : String(summary.running),
+    queue: summary?.ready === undefined ? "" : `${summary.ready}${glyphs(ascii).dot}${waiting}`,
+    retro: "",
+  };
 }
 
-/** The banner lines for the connection and the daemon state (0009). */
-/**
- * The banner line of a daemon held in `recovering` because its state database is unavailable
- * (DIPO-111, DIPO-120, 0009): the reason, and the newest backup when there is one.
- */
-function databaseLine(database: DatabaseUnavailableDetails, dash: string): string {
-  const backup = database.backup === undefined ? "" : `; newest backup ${database.backup}`;
-  return `Database unavailable ${dash} reason: ${database.reason}${backup}`;
+/** The rooms band as plain text: `1 Desk 6    2 Floor 2    3 Queue 1·4    4 Retro`. */
+export function roomsText(state: OfficeStoreState, ascii: boolean): string {
+  const counts = roomCounts(state, ascii);
+  return ROOMS.map(
+    ({ room, key, name }) => `${key} ${name}${counts[room] === "" ? "" : ` ${counts[room]}`}`,
+  ).join("    ");
 }
 
-export function bannerLines(state: OfficeStoreState, ascii: boolean): string[] {
-  const { dash } = glyphs(ascii);
-  const lines: string[] = [];
-  // While offline the header carries the OFFLINE line, and the last daemon state is stale.
-  if (offlineBanner(state, ascii) !== null) return lines;
-  switch (state.daemon) {
-    case "starting":
-    case "recovering":
-      lines.push(
-        state.database === null
-          ? `Daemon recovering ${dash} office data after reconcile`
-          : databaseLine(state.database, dash),
-      );
-      break;
-    case "draining":
-      lines.push(`Daemon stopping ${dash} will reconnect`);
-      break;
-    default:
-      break;
-  }
-  return lines;
-}
-
-export function Banners(props: { state: OfficeStoreState; display: Display }) {
-  const lines = bannerLines(props.state, props.display.ascii);
+/** The rooms band: the current room hi and underlined, the others dim; the Desk count in acc. */
+export function Rooms(props: {
+  readonly state: OfficeStoreState;
+  readonly display: Display;
+  readonly current: Room | null;
+}) {
+  const { state, display, current } = props;
+  const counts = roomCounts(state, display.ascii);
   return (
-    <>
-      {lines.map((line) => (
-        <Colored
-          key={line}
-          display={props.display}
-          role={line.startsWith("OFFLINE") ? "err" : "acc"}
-        >
-          {` ${line}`}
-        </Colored>
-      ))}
-    </>
+    <Text wrap="truncate-end">
+      {ROOMS.map(({ room, key, name }, i) => {
+        const count = counts[room];
+        const here = room === current;
+        return (
+          <Text key={room}>
+            {i === 0 ? "" : "    "}
+            <Colored display={display} role={here ? "hi" : "dim"} underline={here}>
+              {`${key} ${name}${count === "" ? "" : " "}`}
+              {count === "" ? null : (
+                <Colored display={display} role={room === "desk" ? "acc" : undefined}>
+                  {count}
+                </Colored>
+              )}
+            </Colored>
+          </Text>
+        );
+      })}
+    </Text>
   );
 }
 
-/** The switcher's column titles (0009): running, needs you, Ready and today's tokens. */
-const SWITCHER_TITLES = ["OFFICE", "RUNNING", "NEEDS YOU", "READY", "TODAY"];
+/** Whole days since `iso`, or null without it. */
+export function idleDays(iso: string | undefined, now: number): number | null {
+  if (iso === undefined) return null;
+  const at = Date.parse(iso);
+  return Number.isNaN(at) ? null : Math.floor(Math.max(0, now - at) / 86_400_000);
+}
+
+/** An office's state on Offices: live, starts paused or idle (spec.md, Offices). */
+export type OfficeState = "live" | "paused" | "idle";
 
 /**
- * One office's cells under the switcher titles, from its `OfficeSummary`; `?` before the first
- * summary arrives, or for READY from an engine that does not send it. At 120 columns and wider an
- * alert reads `84%  ALERT day usage`, narrower `84% !`.
+ * Starts paused when the engine says so; live when open or running; idle after a whole day
+ * without a change in its log (`lastActivityAt`).
  */
-export function switcherCells(entry: OfficeEntry, full: boolean): string[] {
+export function officeState(entry: OfficeEntry, open: boolean, now: number): OfficeState {
   const summary = entry.summary;
-  if (summary === undefined) return [entry.name, "?", "?", "?", ""];
-  const day = summary.dayUsage;
-  const share = day?.share === undefined ? "" : percent(day.share);
-  const alert = day?.alert === true ? (full ? "  ALERT day usage" : " !") : "";
+  if (summary?.startsPaused === true) return "paused";
+  if (open || (summary?.running ?? 0) > 0) return "live";
+  const days = idleDays(summary?.lastActivityAt, now);
+  return days !== null && days >= 1 ? "idle" : "live";
+}
+
+/** The width of the TODAY bar. */
+const BAR_CELLS = 12;
+
+/** One office's cells on Offices, as text, from its `OfficeSummary`; `?` before the first one. */
+export interface OfficeCells {
+  readonly glyph: string;
+  readonly state: OfficeState;
+  readonly name: string;
+  /** ` · open`, ` · starts paused`, ` · idle 3 days`. */
+  readonly note: string;
+  readonly needs: string;
+  readonly running: string;
+  readonly ready: string;
+  /** The filled cells of the TODAY bar; null without a day limit. */
+  readonly filled: number | null;
+  /** `62%`, `96% ALERT`, or "". */
+  readonly share: string;
+  readonly alert: boolean;
+}
+
+/** The words after an office's name: `open`, `starts paused`, `idle 3 days`. */
+function officeNotes(state: OfficeState, open: boolean, days: number | null): string[] {
   return [
-    summary.name,
-    String(summary.running),
-    String(summary.waitingOnMaintainer),
-    summary.ready === undefined ? "?" : String(summary.ready),
-    `${share}${alert}`.trim(),
+    ...(open ? ["open"] : []),
+    ...(state === "paused" ? ["starts paused"] : []),
+    ...(state === "idle" && days !== null ? [`idle ${days} day${days === 1 ? "" : "s"}`] : []),
   ];
 }
 
-/**
- * The switcher's title line and one line per office, aligned under the titles. The focus bar marks
- * the focused office (`>` under `--ascii`), so it still reads under NO_COLOR.
- */
-export function switcherLines(
-  offices: readonly OfficeEntry[],
-  current: string | null,
+export function officeCells(
+  entry: OfficeEntry,
+  open: boolean,
+  now: number,
+  ascii: boolean,
+): OfficeCells {
+  const g = glyphs(ascii);
+  const summary = entry.summary;
+  const state = officeState(entry, open, now);
+  const notes = officeNotes(state, open, idleDays(summary?.lastActivityAt, now));
+  const day = summary?.dayUsage;
+  const share = day?.share;
+  return {
+    glyph: state === "paused" ? "!" : state === "idle" ? g.idle : g.live,
+    state,
+    name: summary?.name ?? entry.name,
+    note: notes.map((note) => ` ${g.dot} ${note}`).join(""),
+    needs: summary === undefined ? "?" : String(summary.waitingOnMaintainer),
+    running: summary === undefined ? "?" : String(summary.running),
+    ready: summary?.ready === undefined ? "?" : String(summary.ready),
+    filled: share === undefined ? null : Math.min(BAR_CELLS, Math.round(share * BAR_CELLS)),
+    share: share === undefined ? "" : `${percent(share)}${day?.alert === true ? " ALERT" : ""}`,
+    alert: day?.alert === true,
+  };
+}
+
+/** The column widths of Offices after the office column. */
+const NEEDS_WIDTH = 12;
+const RUNNING_WIDTH = 10;
+const READY_WIDTH = 8;
+
+/** The office column: 56 cells as the mock has it, narrower on a narrow terminal. */
+function officeWidth(cells: readonly OfficeCells[], columns: number): number {
+  const longest = Math.max(6, ...cells.map((cell) => cell.name.length + cell.note.length + 2));
+  const room = columns - 4 - NEEDS_WIDTH - RUNNING_WIDTH - READY_WIDTH - BAR_CELLS - 11;
+  return Math.max(longest + 3, Math.min(56, room));
+}
+
+/** The Offices lines as plain text: the titles and one line per office. */
+export function officesLines(
+  state: OfficeStoreState,
   index: number,
   columns: number,
+  now: number,
   ascii: boolean,
 ): string[] {
-  const { bar } = glyphs(ascii);
-  const rows = offices.map((entry) => switcherCells(entry, columns >= FULL_SWITCHER_COLUMNS));
-  const widths = SWITCHER_TITLES.map((title, i) =>
-    Math.max(title.length, ...rows.map((row) => row[i]?.length ?? 0)),
+  const g = glyphs(ascii);
+  const cells = state.offices.map((entry) =>
+    officeCells(entry, entry.office === state.office, now, ascii),
   );
-  const line = (cells: readonly string[]) =>
-    cells
-      .map((cell, i) => (i === cells.length - 1 ? cell : cell.padEnd(widths[i] ?? 0)))
-      .join("  ")
-      .trimEnd();
-  const texts = rows.map((row, i) => ` ${i === index ? bar : " "} ${line(row)}`);
-  // `(open)` lines up after the longest row when the line has room for it.
-  const longest = Math.max(0, ...texts.map((text) => text.length));
-  const openAt = longest + 8 <= columns ? longest : 0;
+  const width = officeWidth(cells, columns);
+  const bar = (cell: OfficeCells) =>
+    cell.filled === null ? "" : `${g.done.repeat(BAR_CELLS)} ${cell.share}`;
+  const title = `    ${"OFFICE".padEnd(width - 2)}${"NEEDS YOU".padEnd(NEEDS_WIDTH)}${"RUNNING".padEnd(RUNNING_WIDTH)}${"READY".padEnd(READY_WIDTH)}TODAY`;
   return [
-    `   ${line(SWITCHER_TITLES)}`,
-    ...texts.map((text, i) =>
-      offices[i]?.office === current ? `${text.padEnd(openAt)}  (open)` : text,
+    title,
+    ...cells.map((cell, i) =>
+      `${i === index ? g.bar : " "} ${cell.glyph} ${(cell.name + cell.note).padEnd(width - 2)}${cell.needs.padEnd(NEEDS_WIDTH)}${cell.running.padEnd(RUNNING_WIDTH)}${cell.ready.padEnd(READY_WIDTH)}${bar(cell)}`.trimEnd(),
     ),
   ];
 }
 
-/** At this width and wider the switcher spells out a day usage alert. */
-const FULL_SWITCHER_COLUMNS = 120;
-
-/** The office switcher (0009), built from `engine.hello` and `office.summary`. */
-export function SwitcherBody(props: {
-  state: OfficeStoreState;
-  display: Display;
-  index: number;
-  now: number;
-  columns: number;
+/** One office's row: the focus bar, the state glyph, the name, the counts and the TODAY bar. */
+function OfficeRow(props: {
+  readonly cell: OfficeCells;
+  readonly focused: boolean;
+  readonly width: number;
+  readonly display: Display;
 }) {
-  const { state, display, index } = props;
-  const [title, ...rows] = switcherLines(
-    state.offices,
-    state.office,
-    index,
-    props.columns,
-    display.ascii,
+  const { cell, focused, width, display } = props;
+  const g = glyphs(display.ascii);
+  const idle = cell.state === "idle";
+  const count = (value: string, w: number) => (
+    <Colored display={display} role={value === "0" || idle ? "dim" : undefined}>
+      {value.padEnd(w)}
+    </Colored>
   );
+  const needs = cell.needs !== "0" && cell.needs !== "?";
+  const filled = cell.filled ?? 0;
+  return (
+    <Colored display={display} role={focused ? "sel" : undefined} wrap="truncate-end">
+      {focused ? (
+        <Colored display={display} role="acc">
+          {g.bar}
+        </Colored>
+      ) : (
+        " "
+      )}{" "}
+      <Colored display={display} role={cell.state === "paused" ? "acc" : idle ? "dim" : "ok"}>
+        {cell.glyph}
+      </Colored>{" "}
+      <Colored display={display} role={idle ? "dim" : focused ? "hi" : undefined}>
+        {cell.name}
+      </Colored>
+      <Colored display={display} role="dim">
+        {cell.note.padEnd(Math.max(0, width - 2 - cell.name.length))}
+      </Colored>
+      <Colored display={display} role={needs ? "acc" : "dim"} bold={needs}>
+        {cell.needs}
+      </Colored>
+      {" ".repeat(Math.max(0, NEEDS_WIDTH - cell.needs.length))}
+      {count(cell.running, RUNNING_WIDTH)}
+      {count(cell.ready, READY_WIDTH)}
+      {cell.filled === null ? null : (
+        <>
+          <Colored display={display} role={cell.alert ? "err" : idle ? "faint" : "acc"}>
+            {g.done.repeat(filled)}
+          </Colored>
+          <Colored display={display} role="faint">
+            {g.done.repeat(BAR_CELLS - filled)}
+          </Colored>
+          <Colored display={display} role={cell.alert ? "err" : "dim"}>
+            {` ${cell.share}`}
+          </Colored>
+        </>
+      )}
+    </Colored>
+  );
+}
+
+/** Offices (S2e, 0009): every registered office from `engine.hello` and `office.summary`. */
+export function OfficesBody(props: {
+  readonly state: OfficeStoreState;
+  readonly display: Display;
+  readonly index: number;
+  readonly now: number;
+  readonly columns: number;
+  /** The path being typed after `a`, or null. */
+  readonly path: string | null;
+}) {
+  const { state, display, index, now, columns } = props;
+  const g = glyphs(display.ascii);
+  const cells = state.offices.map((entry) =>
+    officeCells(entry, entry.office === state.office, now, display.ascii),
+  );
+  const width = officeWidth(cells, columns);
+  const [title] = officesLines(state, index, columns, now, display.ascii);
   return (
     <Box flexDirection="column">
-      <Text>{` Offices ${glyphs(display.ascii).dot} ${isOffline(state) ? "offline" : `daemon ${state.daemon ?? "?"}`}  ${clockTime(props.now)}`}</Text>
       {state.offices.length === 0 ? (
-        <Text>{" No office is registered yet. Press n to open a repository."}</Text>
+        <Text>No office is registered yet. Press a to open a repository.</Text>
       ) : (
         <>
-          <Text wrap="truncate-end">{title}</Text>
-          {rows.map((text, i) => (
-            <Colored
+          <Colored display={display} role="dim" wrap="truncate-end">
+            {title}
+          </Colored>
+          {cells.map((cell, i) => (
+            <OfficeRow
               key={state.offices[i]?.office ?? i}
+              cell={cell}
+              focused={i === index}
+              width={width}
               display={display}
-              role={i === index ? "sel" : undefined}
-              wrap="truncate-end"
-            >
-              {text}
-            </Colored>
+            />
           ))}
         </>
+      )}
+      <Text> </Text>
+      {props.path === null ? (
+        <Colored display={display} role="dim">
+          {`  + a  open a repository path${g.ellipsis}`}
+        </Colored>
+      ) : (
+        <Text wrap="truncate-end">{`  + path: ${props.path}_`}</Text>
       )}
     </Box>
   );

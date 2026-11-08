@@ -4,8 +4,8 @@
 // words and glyphs. Bold and underline stay under NO_COLOR. `colour.test.ts` keeps every other file
 // free of Ink's colour props.
 
-import { Text, type TextProps } from "ink";
-import type { ReactNode } from "react";
+import { Box, Text, type TextProps } from "ink";
+import { createElement, type ReactNode } from "react";
 
 import type { Display } from "./options";
 import type { Tone } from "./theme";
@@ -112,4 +112,47 @@ export function Colored(props: ColoredProps) {
       {children}
     </Text>
   );
+}
+
+/** The SGR codes that paint the shade role on `display`; "" without colour. */
+function shadeCodes(display: Display): string {
+  if (!display.color) return "";
+  const tone = display.tone ?? "dark";
+  if (display.classical === true) {
+    const hex = TRUECOLOR.shade[tone];
+    const [r, g, b] = [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16));
+    return `\u001b[38;2;${r};${g};${b}m`;
+  }
+  return tone === "dark" ? "\u001b[2;30m" : "\u001b[2;37m";
+}
+
+// oxlint-disable-next-line no-control-regex
+const SGR = /\u001b\[[0-9;]*m/g;
+
+/**
+ * Its children's text repainted in shade (the frozen offline body, overlay backdrops): every colour
+ * inside is dropped so stale data can't be mistaken for live data. Ink runs a node's
+ * `internal_transform` over every line its subtree writes; a Box takes no such prop, so this is a
+ * plain `ink-box` with one. Without colour the text stays as it is.
+ */
+export function Shaded(props: { readonly display: Display; readonly children: ReactNode }) {
+  const codes = shadeCodes(props.display);
+  if (codes === "") return <Box flexDirection="column">{props.children}</Box>;
+  const transform = (line: string) => `${codes}${line.replace(SGR, "")}\u001b[0m`;
+  return createElement(
+    "ink-box",
+    {
+      style: { flexDirection: "column", flexGrow: 0, flexShrink: 1, flexWrap: "nowrap" },
+      internal_transform: transform,
+    },
+    props.children,
+  );
+}
+
+/**
+ * The OSC 52 sequence that puts `text` on the clipboard of the terminal (and of the terminal over
+ * ssh); the terminal draws nothing for it (`c`, DIPO-458). Every escape the TUI writes is in this file.
+ */
+export function osc52(text: string): string {
+  return `\u001b]52;c;${Buffer.from(text, "utf8").toString("base64")}\u0007`;
 }

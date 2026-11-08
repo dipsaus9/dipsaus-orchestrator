@@ -33,6 +33,14 @@ afterEach(async () => {
   for (const ui of mounted.splice(0)) await ui.unmount();
 });
 
+/** The Frame's bands (DIPO-458): header, rooms and a rule above the body; a rule and the keys under it. */
+const HEADER = expect.stringMatching(
+  /^dipo \/ dipsaus-orchestrator .*● daemon live {4}\d\d:\d\d$/,
+) as unknown as string;
+const ROOMS = expect.stringMatching(/^1 Desk .*4 Retro$/) as unknown as string;
+const RULE = expect.stringMatching(/^─+$/) as unknown as string;
+const keys = (pattern: RegExp) => expect.stringMatching(pattern) as unknown as string;
+
 function lines(frame: string): string[] {
   return frame.split("\n").map((line) => line.trimEnd());
 }
@@ -66,7 +74,7 @@ async function openDetail(options: { columns?: number; rows?: number; tail?: num
     outputTailBytes: options.tail ?? 800,
   });
   mounted.push(view.ui);
-  await view.ui.waitFor("· live");
+  await view.ui.waitFor("daemon live");
   await view.ui.press("j");
   await view.ui.waitFor("▌DIPO-24");
   // Only the detail's own reads count; the overview read the tails of every run before (DIPO-81).
@@ -88,21 +96,21 @@ describe("live agent detail", () => {
     for (const output of goldenOutputEvents) session.storeOutput(output);
     await ui.waitFor("(live)");
     expect(lines(ui.frame())).toEqual([
-      " dipsaus-orchestrator · daemon running · live",
+      HEADER,
+      ROOMS,
+      RULE,
       " DIPO-24 Add verify retry · developer · S · claude-sonnet · run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
       " now  looping @ · build · [tool] Edit src/retry.ts (live)",
       " phase    build                      │ output (worker) [w]orker* [v]erify [i] prompt",
-      " health   looping @                  │ [tool] Read src/retry.ts (step 25)",
-      " loop     2/3                        │ [tool] Edit src/verify.ts (step 26)",
-      " review   round 0                    │ Step 27: retries now stop at the cap in test/retry.test.ts.",
-      " criteria 2/3                        │ [tool] Read src/log.ts (step 28)",
-      "          [x][x][ ]                  │ [tool] Edit src/notice.ts (step 29)",
-      " usage    in 1k out 100              │ Step 30: retries now stop at the cap in src/retry.ts.",
-      "          cw 0 cr 0                  │ [tool] Read src/verify.ts (step 31)",
-      "          turns 22                   │ [tool] Edit test/retry.test.ts (step 32)",
-      " budget   [######--] 78% of 300k     │ Step 33: retries now stop at the cap in src/log.ts.",
-      "                                     │ [tool] Read src/notice.ts (step 34)",
-      "                                     │ [tool] Edit src/retry.ts (step 35)",
+      " health   looping @                  │ Step 27: retries now stop at the cap in test/retry.test.ts.",
+      " loop     2/3                        │ [tool] Read src/log.ts (step 28)",
+      " review   round 0                    │ [tool] Edit src/notice.ts (step 29)",
+      " criteria 2/3                        │ Step 30: retries now stop at the cap in src/retry.ts.",
+      "          [x][x][ ]                  │ [tool] Read src/verify.ts (step 31)",
+      " usage    in 1k out 100              │ [tool] Edit test/retry.test.ts (step 32)",
+      "          cw 0 cr 0                  │ Step 33: retries now stop at the cap in src/log.ts.",
+      "          turns 22                   │ [tool] Read src/notice.ts (step 34)",
+      " budget   [######--] 78% of 300k     │ [tool] Edit src/retry.ts (step 35)",
       "                                     │ Step 36: retries now stop at the cap in src/verify.ts.",
       "                                     │ [tool] Read test/retry.test.ts (step 37)",
       "                                     │ [tool] Edit src/log.ts (step 38)",
@@ -110,7 +118,10 @@ describe("live agent detail", () => {
       "                                     │ [tool] Bash",
       "                                     │ [tool] Edit src/retry.ts (live)",
       "                                     │ following the tail",
-      " [P]ark  [s]teer  [w]orker [v]erify [i] prompt  [k/j PgUp/PgDn] scroll  [End] follow tail  [Esc] back  [q] quit",
+      RULE,
+      keys(
+        /^p park {3}s steer {3}w v i streams {3}↑↓ PgUp PgDn scroll {3}End follow {3}z expand {3}c copy id +esc back {3}q q quit$/,
+      ),
     ]);
     // The tail came from work.outputRange reads to the end; the live text came from the stream.
     expect(rangeReads(session).filter((read) => read.source === "worker")).toEqual([
@@ -135,7 +146,7 @@ describe("live agent detail", () => {
     const view = await mount({ columns: 120, rows: 30 });
     mounted.push(view.ui);
     const { ui, session } = view;
-    await ui.waitFor("· live");
+    await ui.waitFor("daemon live");
     await ui.press("enter");
     await ui.waitFor("following the tail");
     const base = goldenSnapshots.get(OFFICES.dipsaus)!.work[0]!;
@@ -207,7 +218,7 @@ describe("live agent detail", () => {
     const { ui, session } = await openDetail({ tail: 1200 });
     const before = rangeReads(session).length;
     await ui.press("k");
-    let frame = await ui.waitFor("[End] follow tail");
+    let frame = await ui.waitFor("End follow");
     expect(frame).toContain("1 rows below");
     expect(frame).not.toContain("│ Step 39:");
     // No read yet: the pane still holds text above.
@@ -215,7 +226,7 @@ describe("live agent detail", () => {
 
     // A page up reaches the top of what is held: read the text before it.
     await ui.press("pageup");
-    await ui.waitFor("10 rows below");
+    await ui.waitFor("12 rows below");
     const deadline = performance.now() + 1_000;
     while (rangeReads(session).length === before && performance.now() < deadline) {
       await Bun.sleep(5);
@@ -235,11 +246,31 @@ describe("live agent detail", () => {
     // New output while scrolled back does not move the rows on screen.
     session.storeOutput(goldenOutputEvents[0]!);
     await Bun.sleep(150);
-    expect(lines(ui.frame()).slice(3, -2)).toEqual(lines(frame).slice(3, -2));
+    expect(lines(ui.frame()).slice(5, -3)).toEqual(lines(frame).slice(5, -3));
 
     await ui.press("end");
     frame = await ui.waitFor("following the tail");
     expect(frame).toContain("│ [tool] Bash");
+  });
+
+  it("z expands the stream to the whole screen and z or Esc brings the frame back", async () => {
+    const { ui } = await openDetail();
+    expect(ui.frame()).toContain("dipo / dipsaus-orchestrator");
+    await ui.press("z");
+    const deadline = performance.now() + 1_000;
+    while (ui.frame().includes("dipo / ") && performance.now() < deadline) await Bun.sleep(5);
+    const expanded = ui.frame();
+    expect(expanded).not.toContain("dipo / ");
+    expect(expanded).not.toContain("q q quit");
+    expect(expanded).toContain("following the tail");
+    expect(lines(expanded).length).toBeLessThanOrEqual(24);
+    await ui.press("escape");
+    await ui.waitFor("q q quit");
+    // Esc closed only the expansion: the detail is still open.
+    expect(ui.frame()).toContain("following the tail");
+    await ui.press("z");
+    await ui.press("z");
+    await ui.waitFor("q q quit");
   });
 
   it("reads the gap when a work.output range was missed", async () => {
@@ -289,7 +320,7 @@ describe("live agent detail", () => {
 
   it("P asks for a note and sends story.park with the story id", async () => {
     const { ui, session } = await openDetail();
-    await ui.press("P");
+    await ui.press("p");
     await ui.waitFor("park note for DIPO-24: _");
     expect(session.commands).toEqual([]);
     await ui.press("after the release");
@@ -302,7 +333,7 @@ describe("live agent detail", () => {
 
   it("P then Esc sends nothing", async () => {
     const { ui, session } = await openDetail();
-    await ui.press("P");
+    await ui.press("p");
     await ui.waitFor("park note for DIPO-24: _");
     await ui.press("escape");
     await ui.waitFor("park DIPO-24: nothing sent");
@@ -322,7 +353,7 @@ describe("live agent detail", () => {
             },
           }
         : undefined;
-    await ui.press("P");
+    await ui.press("p");
     await ui.press("later");
     await ui.press("enter");
     await ui.waitFor("park DIPO-24: story.notParkable: DIPO-24 is Done");
@@ -354,7 +385,7 @@ describe("live agent detail", () => {
     const frame = await ui.waitFor("run ended");
     expect(frame).toContain(" run ended · DIPO-24 is Parked (by-maintainer)");
     expect(frame).toContain("Step 39: retries now stop at the cap");
-    await ui.press("P");
+    await ui.press("p");
     await ui.waitFor("this run has ended; park its story from the queue or the desk");
     expect(session.commands).toEqual([]);
   });
@@ -365,7 +396,7 @@ describe("live agent detail", () => {
     let frame = await ui.waitFor("RUNNING (3)");
     expect(frame).toContain("▌DIPO-24");
 
-    await ui.press("2");
+    await ui.press("3");
     await ui.waitFor("next Ready story");
     // RUNNING: DIPO-21 is the row after six others in the queue.
     for (let i = 0; i < 6; i++) await ui.press("j");
@@ -380,8 +411,8 @@ describe("live agent detail", () => {
   it("Enter on a story that never ran says it has not run yet (DIPO-81)", async () => {
     const view = await mount({ columns: 120, rows: 30 });
     mounted.push(view.ui);
-    await view.ui.waitFor("· live");
-    await view.ui.press("2");
+    await view.ui.waitFor("daemon live");
+    await view.ui.press("3");
     await view.ui.waitFor("next Ready story");
     await view.ui.press("j");
     await view.ui.press("enter");
@@ -508,7 +539,7 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
       );
     }
     const frame = await ui.waitFor("May I drop the build folder?");
-    expect(lines(frame).slice(2, 7)).toEqual([
+    expect(lines(frame).slice(4, 9)).toEqual([
       " now  looping @ · build · Step 39: retries now stop at the cap in src/notice.ts.",
       " ? question 4m ago · Which greeting should the CLI print?",
       `   answer: dipo answer ${Q1} <text>`,
@@ -581,8 +612,8 @@ describe("the stored prompt in the detail (DIPO-137)", () => {
       name: "work.prompt",
       args: { office: OFFICES.dipsaus, run: RUN_24, agent },
     });
-    // p stays pause: it neither switches the pane nor sends a command.
-    await ui.press("p");
+    // An unbound key neither switches the pane nor sends a command.
+    await ui.press("x");
     expect(ui.frame()).toContain("│ · system file");
     expect(session.commands.filter((command) => command.name !== "office.open")).toEqual([]);
     await ui.press("w");
@@ -696,13 +727,13 @@ describe("the detail across a daemon restart (DIPO-327)", () => {
     const { ui, session } = await openDetail();
     endOffice(session, { code: "internal", message: "the stream broke", retryable: false });
     const frame = await ui.waitFor("stream ended");
-    expect(lines(frame)[0]).toBe(
-      " dipsaus-orchestrator · daemon running · stream ended: internal: the stream broke",
+    expect(lines(frame)[0]).toMatch(
+      /^dipo \/ dipsaus-orchestrator .*✗ stream ended: internal: the stream broke {4}\d\d:\d\d$/,
     );
     session.setState("reconnecting");
-    await ui.waitFor("OFFLINE since");
+    await ui.waitFor("offline since");
     session.setState("open");
-    await ui.waitFor("daemon running · live");
+    await ui.waitFor("daemon live");
     expect(ui.frame()).not.toContain("stream ended");
   });
 
@@ -710,7 +741,7 @@ describe("the detail across a daemon restart (DIPO-327)", () => {
     const { ui, session, store } = await openDetail();
     const last = store.state.cursor;
     session.setState("reconnecting");
-    await ui.waitFor("OFFLINE since");
+    await ui.waitFor("offline since");
     // The new daemon answers engine.hello while it recovers and refuses the re-sent subscription,
     // and every retry on the backoff, until it runs.
     session.hello = { ...goldenHello, daemon: "recovering" };
@@ -718,7 +749,7 @@ describe("the detail across a daemon restart (DIPO-327)", () => {
     session.setState("open");
     await Promise.resolve();
     endOffice(session, RECOVERING);
-    await ui.waitFor("daemon recovering · catching up");
+    await ui.waitFor("◌ daemon recovering");
     expect(ui.frame()).not.toContain("stream ended");
 
     // daemon.state on the software stream subscribes again at once, after the last cursor.
@@ -729,7 +760,7 @@ describe("the detail across a daemon restart (DIPO-327)", () => {
       type: "daemon.state",
       data: { from: "recovering", to: "running" },
     } as Event);
-    await ui.waitFor("daemon running · live");
+    await ui.waitFor("daemon live");
     expect(session.active(STREAM)?.after).toEqual(last);
 
     const build: WorkView = { ...golden24(), phase: "build", health: "busy" };

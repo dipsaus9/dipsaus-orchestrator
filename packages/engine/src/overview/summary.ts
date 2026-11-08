@@ -151,6 +151,7 @@ export function deriveOfficeSummary(
   const counts = columnCounts(office);
   const desk = counts.desk ?? 0;
   const gates = openGateViews(office).filter((gate) => gate.waitingOn === "maintainer").length;
+  const lastActivity = lastActivityAt(office);
   return {
     office: identity.office,
     name: identity.name,
@@ -166,7 +167,28 @@ export function deriveOfficeSummary(
     ...(usage === undefined
       ? {}
       : { dayUsage: usage.dayUsage, monthUsage: usage.monthUsage, evidence: usage.evidence }),
+    ...(lastActivity === undefined ? {} : { lastActivityAt: lastActivity }),
+    ...(startsPaused(office) ? { startsPaused: true as const } : {}),
   };
+}
+
+/** True while the office starts paused, for any reason (0020, DIPO-458). */
+function startsPaused(office: OfficeHandle): boolean {
+  return (
+    office.get("select 1 as paused from starts_paused where office_id = $office_id limit 1") !==
+    null
+  );
+}
+
+/**
+ * When the office's change log last moved, as an ISO time (DIPO-458): the Offices view's
+ * `idle N days`. Undefined while the log is empty.
+ */
+export function lastActivityAt(office: OfficeHandle): string | undefined {
+  const row = office.get<{ at: number | null }>(
+    "select max(at) as at from change_log where office_id = $office_id",
+  );
+  return row === null || row.at === null ? undefined : new Date(row.at).toISOString();
 }
 
 interface OfficeListRow {

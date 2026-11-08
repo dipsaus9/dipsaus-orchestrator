@@ -499,7 +499,7 @@ export function Detail(props: DetailProps) {
   else if (feed.busy && scrolled > 0) status = `reading earlier output${ellipsis}`;
   else if (scrolled > 0) {
     const top = start === 0 && feed.atStart ? "start of output  " : "";
-    status = `${top}${scrolled} rows below ${dot} [End] follow tail`;
+    status = `${top}${scrolled} rows below ${dot} End follow`;
   } else status = "following the tail";
   // The office's stored-output retention period, from its summary (DIPO-97).
   const retentionDays = state.offices.find((entry) => entry.office === state.office)?.summary

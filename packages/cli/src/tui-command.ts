@@ -4,12 +4,15 @@
 // command. The TUI itself is in `@dipsaus-orchestrator/tui`.
 
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import { ClientError, DipoClient } from "@dipsaus-orchestrator/client";
 import {
   connectOrStart,
+  describeStartFailure,
+  logsDir,
   OtherVersionError,
+  startDaemon,
   systemClock,
   systemLifecycleDeps,
 } from "@dipsaus-orchestrator/client/node";
@@ -79,6 +82,19 @@ export function systemTui(
       },
       clientInfo,
       queryBackground: () => queryBackground(process.stdin, process.stdout, systemClock),
+      // The daemon stopped screen (DIPO-458): `r` starts it as `dipo daemon start` does, `l` opens
+      // its log in the system viewer.
+      restartDaemon: async () => {
+        const result = await startDaemon(lifecycle);
+        return result.kind === "started" || result.kind === "already running"
+          ? null
+          : describeStartFailure(result);
+      },
+      openLog: async () => {
+        const log = join(logsDir(), "daemon.log");
+        const opened = Bun.spawn(["open", log], { stdout: "ignore", stderr: "ignore" });
+        return (await opened.exited) === 0 ? null : `could not open ${log}`;
+      },
     });
     releaseStdin(process.stdin);
     return code;

@@ -76,6 +76,8 @@ export async function mount(options: MountOptions = {}) {
   if (office !== null) await store.open(office);
   let quits = 0;
   let requests = 0;
+  const copied: string[] = [];
+  const daemonRequests: string[] = [];
   const actions: TuiActions = {
     openPath: async (path) => {
       const outcome = await session.command({ name: "office.open" } as never, { path } as never);
@@ -150,6 +152,17 @@ export async function mount(options: MountOptions = {}) {
       requests += 1;
       return `01J9ZK5Q8W3V4X6Y7Z8A9B0R${String(requests).padStart(2, "0")}` as RequestId;
     },
+    copy: (text) => {
+      copied.push(text);
+    },
+    restartDaemon: async () => {
+      daemonRequests.push("restart");
+      return null;
+    },
+    openLog: async () => {
+      daemonRequests.push("log");
+      return null;
+    },
   };
   const ui = render(
     <App
@@ -173,5 +186,9 @@ export async function mount(options: MountOptions = {}) {
     clock,
     ui,
     quits: () => quits,
+    /** What `c` put on the clipboard, in order. */
+    copied,
+    /** The daemon screen keys sent: `restart`, `log`. */
+    daemonRequests,
   };
 }

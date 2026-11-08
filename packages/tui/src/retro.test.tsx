@@ -38,18 +38,18 @@ describe("the retro view", () => {
   it("renders the numbers per tier and type, where stories came from, rework and rejections", async () => {
     const { ui, session } = await open();
     session.retro = { office: "x", lines: LINES };
-    await ui.press("6");
+    await ui.press("4");
     const frame = await ui.waitFor("Tier M, type feature: 5 stories, 4 merged");
     for (const line of LINES) expect(frame).toContain(line);
-    expect(frame).toContain("[Esc] back");
+    expect(frame).toContain("esc back");
     expect(session.reads.some((read) => read.name === "office.retro")).toBe(true);
   });
 
   it("shows the engine's error when the numbers cannot be read, and Esc goes home", async () => {
     const { ui } = await open();
-    await ui.press("6");
+    await ui.press("4");
     await ui.waitFor("capability.missing: none");
     await ui.press("escape");
-    await ui.waitFor("[o] offices");
+    await ui.waitFor("O offices");
   });
 });

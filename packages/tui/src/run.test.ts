@@ -63,7 +63,7 @@ describe("runTui", () => {
   it("opens the office of the current directory and quits on q twice, restoring the terminal", async () => {
     const { terminal, session, deps, waitScreen } = setup();
     const running = runTui([], deps);
-    await waitScreen("dipsaus-orchestrator · daemon running");
+    await waitScreen("dipo / dipsaus-orchestrator");
     await terminal.press("q");
     await terminal.press("q");
     expect(await running).toBe(0);
@@ -77,7 +77,7 @@ describe("runTui", () => {
   it("restores the terminal on SIGTERM", async () => {
     const { terminal, session, signals, deps, waitScreen } = setup();
     const running = runTui([], deps);
-    await waitScreen("dipsaus-orchestrator · daemon running");
+    await waitScreen("dipo / dipsaus-orchestrator");
     signals.get("SIGTERM")?.();
     expect(await running).toBe(143);
     expect(terminal.raw()).toContain(LEAVE_ALT);
@@ -89,7 +89,7 @@ describe("runTui", () => {
   it("restores the terminal on Ctrl+C", async () => {
     const { terminal, deps, waitScreen } = setup();
     const running = runTui([], deps);
-    await waitScreen("dipsaus-orchestrator · daemon running");
+    await waitScreen("dipo / dipsaus-orchestrator");
     await terminal.press("ctrl-c");
     expect(await running).toBe(0);
     expect(terminal.raw()).toContain(LEAVE_ALT);
@@ -99,7 +99,7 @@ describe("runTui", () => {
   it("--inline stays out of the alternate screen", async () => {
     const { terminal, deps, waitScreen } = setup();
     const running = runTui(["--inline", "--ascii"], deps);
-    await waitScreen("dipsaus-orchestrator - daemon running");
+    await waitScreen("dipo / dipsaus-orchestrator");
     await terminal.press("ctrl-c");
     expect(await running).toBe(0);
     expect(terminal.raw()).not.toContain(ENTER_ALT);
