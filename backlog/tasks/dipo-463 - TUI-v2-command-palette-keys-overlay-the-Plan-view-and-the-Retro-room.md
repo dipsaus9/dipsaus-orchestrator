@@ -1,10 +1,10 @@
 ---
 id: DIPO-463
 title: 'TUI v2: command palette, keys overlay, the Plan view and the Retro room'
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-06 14:24'
+updated_date: '2026-11-08 09:14'
 labels:
   - 'tier:M'
 milestone: m-6
