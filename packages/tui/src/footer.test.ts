@@ -44,14 +44,18 @@ describe("the footer registry", () => {
       "[2] queue",
       "[4] checklist",
       "[o] offices",
+      "[:] commands",
+      "[?] keys",
       "[q] quit",
     ]);
     expect(texts("desk", { ...ctx, hasRow: false, planningOpen: true })).toEqual([
       "[1] overview",
       "[2] queue",
       "[4] checklist",
-      "[5] planning",
+      "[P] planning",
       "[o] offices",
+      "[:] commands",
+      "[?] keys",
       "[q] quit",
     ]);
     expect(texts("desk", { ...ctx, offline: true }).at(-1)).toBe(
@@ -124,7 +128,13 @@ describe("the footer registry", () => {
   });
 
   it("gives the retro view scroll, back and quit (DIPO-453)", () => {
-    expect(texts("retro")).toEqual(["[j/k] scroll", "[Esc] back", "[q] quit"]);
+    expect(texts("retro")).toEqual([
+      "[j/k] scroll",
+      "[Esc] back",
+      "[:] commands",
+      "[?] keys",
+      "[q] quit",
+    ]);
   });
 
   it("fits the width by dropping the lowest priority and keeps quit", () => {

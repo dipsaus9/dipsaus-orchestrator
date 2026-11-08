@@ -5,7 +5,8 @@
 // privacy settings and the agent detail, is `home.tsx`; the hints are `footer.ts`.
 //
 // Global keys: `1` overview, `2` queue, `3` Your desk, `4` the test checklist, `o` offices, `q`
-// twice within 2 s quits, Ctrl+C quits. `5` opens the planning view (`planning.tsx`, DIPO-449), `6` the retro view (`retro.tsx`, DIPO-453). Action keys are off while offline. Each view's keys are
+// twice within 2 s quits, Ctrl+C quits. `5` or `P` opens the planning view (`planning.tsx`, DIPO-449), `6` the retro view (`retro.tsx`, DIPO-453). `:` and Ctrl-K open the
+// command palette (`palette.tsx`) and `?` the keys overlay (`help.tsx`, DIPO-463). Action keys are off while offline. Each view's keys are
 // in the header of its file (`home.tsx` holds the handlers; the key table is `keys.ts`).
 //
 // An action is done only when the office stream passes its reply cursor (read-your-writes). An
@@ -43,7 +44,8 @@ import { useHome } from "./home";
 import { useKeys, useQuitKey } from "./input";
 import { type ReadDigest } from "./digest";
 import type { ActionId } from "./keys";
-import { initialMode, modeReducer } from "./mode";
+import { initialMode, modeReducer, typesText } from "./mode";
+import { useOverlays } from "./overlays";
 import { usePlanning } from "./planning";
 import { type ReadRetro, useRetro } from "./retro";
 import {
@@ -177,6 +179,11 @@ function useAppActions(
   return { acts, act, refusedOffline };
 }
 
+/** `P` opens the plan where no view binds it (park is `P` on the desk, the queue and the detail). */
+function planKeyFree(home: ReturnType<typeof useHome>): boolean {
+  return home.detail === null && (home.view === "overview" || home.view === "settings");
+}
+
 export function App(props: AppProps) {
   const { store, clock, display, actions } = props;
   const state = useBatchedState(store, clock);
@@ -221,6 +228,8 @@ export function App(props: AppProps) {
     sendPrivacy: home.sendPrivacy,
   };
 
+  const overlays = useOverlays({ state, home, dispatch, setMessage });
+
   /** Picks the handler of the mode. */
   const handleKey = (input: string, key: Key) => {
     if (key.ctrl && input === "c") {
@@ -235,15 +244,16 @@ export function App(props: AppProps) {
     if (mode.kind === "path") onPathKey(mode, input, key, modeKeys);
     else if (mode.kind === "confirm-privacy") onConfirmPrivacyKey(mode, input, modeKeys);
     else if (mode.kind === "planning") planning.onKey(input, key);
+    else if (overlays.onKey(mode, input, key)) return;
     else if (onQuitKey(input)) return;
     else if (mode.kind === "retro") retro.onKey(input, key);
     else if (mode.kind === "switcher") onSwitcherKey(mode, input, key, modeKeys);
-    else if (input === "5") dispatch({ type: "planning" });
+    else if (input === "5" || (input === "P" && planKeyFree(home))) dispatch({ type: "planning" });
     else if (input === "6") dispatch({ type: "retro" });
     else home.onKey(input, key);
   };
 
-  useKeys(mode.kind === "path" || mode.kind === "planning" || acts.typing, handleKey);
+  useKeys(typesText(mode) || acts.typing, handleKey);
 
   return (
     <Screen

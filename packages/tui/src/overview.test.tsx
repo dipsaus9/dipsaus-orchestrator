@@ -157,7 +157,7 @@ describe("office overview board", () => {
       " READY (2)",
       " DIPO-30 Add park reasons to digest   S  Ready · [2] queue, then u",
       " DIPO-32 Desk sort order              M  Ready",
-      " [Enter] detail  [j/k] move  [2] queue  [3] desk  [p] privacy  [o] offices  [q] quit",
+      " [Enter] detail  [j/k] move  [2] queue  [3] desk  [o] offices  [:] commands  [?] keys  [q] quit",
     ]);
   });
 
@@ -182,7 +182,7 @@ describe("office overview board", () => {
       " READY (2)",
       " DIPO-30 Add park reasons to d…  Ready · [2] queue, then u",
       " DIPO-32 Desk sort order         Ready",
-      " [Enter] detail  [2] queue  [3] desk  [p] privacy  [o] offices  [q] quit",
+      " [Enter] detail  [j/k] move  [2] queue  [3] desk  [o] offices  [q] quit",
     ]);
   });
 
@@ -204,7 +204,7 @@ describe("office overview board", () => {
       " Nothing is running and nothing is Ready: DIPO-31 waits on DIPO-21, DIPO-33 is Refined (R15), DIPO-29 is parked (by mai…",
       " NEEDS YOU (1)",
       "▌DIPO-29 Web client shell  parked 3d · by maintainer: after M2",
-      " [Enter] detail  [j/k] move  [2] queue  [3] desk  [p] privacy  [o] offices  [q] quit",
+      " [Enter] detail  [j/k] move  [2] queue  [3] desk  [o] offices  [:] commands  [?] keys  [q] quit",
     ]);
   });
 

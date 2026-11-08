@@ -11,6 +11,7 @@ import { Frame } from "./frame";
 import { type Home, HomeMode } from "./home";
 import { inSwitcherMode, type Mode } from "./mode";
 import { ModeScreen, promptHeight } from "./modes";
+import { OverlayMode } from "./overlays";
 import { type Planning, PlanningMode } from "./planning";
 import { dialogComplete } from "./question-dialog";
 import { type Retro, RetroMode } from "./retro";
@@ -30,6 +31,8 @@ export interface ScreenProps {
   readonly message: string | null;
   readonly outputTailBytes?: number;
 }
+
+const overlaid = (mode: Mode) => mode.kind === "palette" || mode.kind === "help";
 
 export function Screen(props: ScreenProps) {
   const { mode, state, clock, display, home, acts, planning, retro } = props;
@@ -61,7 +64,7 @@ export function Screen(props: ScreenProps) {
     },
   });
   const panel =
-    inSwitcher || mode.kind === "planning" || mode.kind === "retro"
+    inSwitcher || mode.kind === "planning" || mode.kind === "retro" || overlaid(mode)
       ? []
       : [...home.panelLines(columns), ...acts.promptLines()];
   // Header, banners, footer keys and message, and the run lines stay on screen; the view gets
@@ -97,6 +100,9 @@ export function Screen(props: ScreenProps) {
           <PlanningMode planning={planning} display={display} columns={columns} height={height} />
         }
         retro={<RetroMode retro={retro} height={height} />}
+        overlay={
+          <OverlayMode mode={mode} home={home} state={state} display={display} columns={columns} />
+        }
         home={
           <HomeMode
             home={home}

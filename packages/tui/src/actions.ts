@@ -159,6 +159,7 @@ const VERBS: Readonly<Record<ActionId, string>> = {
   steer: "steer",
   pass: "pass",
   fail: "fail",
+  stop: "stop run",
 };
 
 /** What the irreversible commands do, as the typed confirmation says it (0009). */
@@ -261,6 +262,15 @@ function inputStepsOf(id: ActionId, target: ActionTarget, story: string): Step[]
       return [{ kind: "text", field: "text", label: "steer text" }];
     case "fail":
       return [{ kind: "text", field: "note", label: "fail note" }];
+    case "stop":
+      // Stopping a run is the only action with no key, so it always asks first (0009).
+      return [
+        {
+          kind: "yesno",
+          question: `Stop the run of ${story}? Its worker stops and the story is parked.`,
+        },
+        { kind: "text", field: "note", label: `stop note for ${story}` },
+      ];
     case "idea":
       return [{ kind: "text", field: "text", label: "idea (its first words are its title)" }];
     default:
@@ -344,6 +354,7 @@ export function requestOf(flow: Flow, requestId: RequestId): CommandRequest {
       break;
     case "discard":
     case "park":
+    case "stop":
       args = { ...story, ...note };
       break;
     default:

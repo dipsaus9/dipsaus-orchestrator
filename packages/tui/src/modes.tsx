@@ -168,6 +168,8 @@ export interface ModeScreenProps extends ScreenProps {
   readonly planning: ReactNode;
   /** What the retro view shows (DIPO-453). */
   readonly retro: ReactNode;
+  /** What the palette and the keys overlay show (DIPO-463). */
+  readonly overlay: ReactNode;
   /** Home's lines under its body; the switcher has none. */
   readonly panel: readonly string[];
 }
@@ -186,6 +188,9 @@ export function ModeScreen(props: ModeScreenProps) {
       return props.planning;
     case "retro":
       return props.retro;
+    case "palette":
+    case "help":
+      return props.overlay;
     case "home":
       return (
         <>

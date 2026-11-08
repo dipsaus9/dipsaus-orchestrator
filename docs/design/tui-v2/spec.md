@@ -201,6 +201,7 @@ File: `09-palette.txt`. `:` or `ctrl-k`, from anywhere.
 - Disabled rows say why (`Start again` faint, `not parked` dim) instead of disappearing.
 - With an empty query it lists your recent commands. Rare settings live only here, like privacy (`Privacy: what dipo stores`) and slots (`Parallel slots: 3`, the office's `caps.parallelRuns`), which frees up `p`.
 - Footer inside: `⏎ run   ↑↓ choose   esc close`.
+- Built (DIPO-463, `palette.tsx`, `overlays.tsx`): the rows come from `keys.ts`; stopping a run is the row `Stop run` (park with a yes/no first); `Privacy: what dipo stores…` opens the privacy view, which keeps its confirmation, and `p` no longer opens it. The overlay replaces the body for now; the shaded body behind it waits for the rooms band. `P` opens the Plan view where no view binds it (park is still `P` on the desk, queue and detail; `5` also works), and the Retro room stays on `6` until the checklist leaves room 4 (step 6).
 
 ## Keys overlay (S9)
 File: `13-keys-overlay.txt`. `?`, built from the same registry as the footer and palette.
@@ -209,6 +210,7 @@ File: `13-keys-overlay.txt`. `?`, built from the same registry as the footer and
 - Unavailable keys stay, faint, with the reason (`r      start again  · not parked`).
 - The rule is printed at the bottom: "Lowercase acts on this item. Capitals spend or destroy."
 - Typing filters the overlay and ⏎ runs the match: the palette in a smaller form.
+- Built (DIPO-463, `help.tsx`): ⏎ opens the palette with the typed text; `MOVE` and `ANYWHERE` list the keys that exist today (`MOVE_KEYS`, `GLOBAL_KEYS`, `NAV_KEYS` in `keys.ts`).
 
 ## States (S6, S7, S8)
 Files: `12-states.txt`, `15-budget-and-failed.txt`, `16-narrow.txt`.

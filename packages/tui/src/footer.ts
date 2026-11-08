@@ -51,6 +51,10 @@ function footerView(mode: Mode, view: View | "detail" | "ended" | "card"): Foote
       return "planning";
     case "retro":
       return "retro";
+    case "palette":
+      return "palette";
+    case "help":
+      return "help";
     case "confirm-privacy":
       return "privacy";
     case "switcher":
@@ -72,7 +76,15 @@ export function footerKeys(
   if (extras.prompt !== null) return fitHints([[extras.prompt, QUIT]], width);
   const shown = footerView(mode, view);
   const hints: Hint[] = [];
-  const ownKeys: readonly FooterView[] = ["path", "planning", "retro", "privacy", "switcher"];
+  const ownKeys: readonly FooterView[] = [
+    "path",
+    "planning",
+    "retro",
+    "palette",
+    "help",
+    "privacy",
+    "switcher",
+  ];
   if (!ownKeys.includes(shown)) {
     if (extras.retry || (run?.status === "failed" && run.error?.retryable === true)) {
       hints.push(["[Ctrl-R] retry", 80]);
