@@ -15,8 +15,9 @@
 //   was told lives in memory only: after a daemon restart an overlap still in place is told once
 //   more. That is accepted; it is a notice and a message, never a change: dipo takes no action on an
 //   overlap (0008).
-// - Catching up. dipo merges the base into a story only when git reports a conflict (0002), never
-//   for overlapping paths alone. The check is git's own merge (`git merge-tree --write-tree`, from
+// - Catching up. While a story's worker runs, dipo merges the base into it only when git reports a
+//   conflict (0002), never for overlapping paths alone; a base that moved is merged clean or
+//   conflicted before a resumed or fix round session instead (`run/base-merges.ts`, DIPO-464). The check is git's own merge (`git merge-tree --write-tree`, from
 //   git objects alone, no checkout, no model), planned on git's merge alone, never on the overlap of
 //   changed files: a re-claimed branch's earlier work lies below its start commit. First the box's
 //   work is taken as a part, so the branch tip is the box's code. Then, in the run's turn of
@@ -31,8 +32,9 @@
 //   3. it takes one more part from the box: a worker that changed files since the first part would
 //      lose them under the copy. Then dipo plans again on the new tip, once; a worker that keeps
 //      changing files parks the story;
-//   4. it removes and writes those paths in the box; only then the branch moves to the merge
-//      (`update-ref` from the tip read), and it is pushed without force;
+//   4. it removes and writes those paths in the box and commits them in the box's own git as a
+//      commit of their own (`commitInBoxRepository`, DIPO-464); only then the branch moves to the
+//      merge (`update-ref` from the tip read), and it is pushed without force;
 //   5. the maintainer gets a notice and the worker a message naming the files.
 //   The box is written before the branch moves: a box that kept the old files while the branch held
 //   the new ones would hand them back as the worker's next part and undo the merge. A stage or box
@@ -65,7 +67,8 @@
 //   from review until the worker resolved it.
 // - Stories In Review (`inReview`, DIPO-149): each pass checks their tips against the base with the
 //   same plan, once per tip and base commit (remembered in memory), and hands a conflict to
-//   `found`, a clean merge to `cleared`; nothing is merged until their next sync.
+//   `found`, a clean merge to `cleared`. `found` merges the base outside the box and starts a
+//   conflict hand-off fix round at once (`BaseCatchUps.inReview`, DIPO-464).
 //
 // Every git call runs on the repository without a work tree through the office git queue, with the
 // hardened config, hooks off and filters off (`filtersOffConfig`); none runs in a folder the worker
@@ -94,6 +97,7 @@ import { folderLookupRefused, treeFiles } from "../story-store/folder";
 import { inStoryFolder, linkTargetOf } from "../story-store/paths";
 import type { StoryStore } from "../story-store/store";
 import { BOX_WORKDIR, type BoxCodeDeps, filtersOffConfig, unpack } from "./code";
+import { commitInBoxRepository } from "./box-git";
 import { cleanDoorText } from "./door";
 import {
   blobId,
@@ -333,7 +337,7 @@ function files(n: number): string {
 
 /** Pure: the maintainer's notice of an overlap. */
 export function overlapNotice(overlap: StoryOverlap): string {
-  return `${overlap.a.story} and ${overlap.b.story} are both in progress and change the same ${files(overlap.paths.length)}: ${shownPaths(overlap.paths)}. Both continue; dipo merges the base into a story's branch and box only when git reports a conflict.`;
+  return `${overlap.a.story} and ${overlap.b.story} are both in progress and change the same ${files(overlap.paths.length)}: ${shownPaths(overlap.paths)}. Both continue; while they run, dipo merges the base into a story's branch and box only when git reports a conflict.`;
 }
 
 /** Pure: the message to a worker whose story overlaps `other`'s. */
@@ -1152,7 +1156,10 @@ export interface BoxCollisionsDeps {
    * sets `claims.pushed_at` once it reaches the remote). A throw is logged; the catch-up stands.
    */
   readonly pushed?: (run: PartRun, push: PushResult) => void;
-  /** A conflict found while the story is In Review (DIPO-149): recorded and told, never merged. */
+  /**
+   * A conflict found while the story is In Review (DIPO-149): recorded, then merged outside the
+   * box and handed to the worker as a fix round at once (DIPO-464).
+   */
   readonly found?: (run: PartRun, found: CatchUpFound) => void;
   /** A later check of a story In Review found no conflict: a conflict found earlier is cleared. */
   readonly cleared?: (run: PartRun) => void;
@@ -1342,37 +1349,13 @@ export class BoxCollisions {
   }
 
   /**
-   * The merge a maintainer resume of a `conflict` park asks for once its new session runs in the
-   * box (DIPO-324, 0020): whatever the box holds goes first, then the base is merged into the
-   * story branch and the box as a catch-up is, only when git still reports a conflict. Nothing is
-   * told to the worker and nothing parks here: the caller decides from the outcome.
-   */
-  async mergeOnResume(run: PartRun): Promise<SyncOutcome> {
-    const git = this.#deps.git(run.office);
-    if (git === undefined) return { kind: "none" };
-    const before = await this.#deps.parts.deliverLast(run.runId, CATCH_UP_PART_MESSAGE);
-    const park = partPark(before);
-    if (park !== null) return { kind: "park", park };
-    if (before.kind === "stopped") return { kind: "stopped" };
-    return this.#deps.parts.inTurn(run.runId, async (): Promise<SyncOutcome> => {
-      const plan = await this.#plan(git, run, false);
-      if (plan === null || plan.kind === "current" || plan.kind === "apart") {
-        return { kind: "none" };
-      }
-      if (plan.kind === "unwritable") return { kind: "park", park: this.#unwritable(run, plan) };
-      if (!conflicted(plan)) return { kind: "none" };
-      return this.#catchUp(git, run);
-    });
-  }
-
-  /**
    * Copies into the run's box what the story branch's tip holds outside the story folders and the tip
    * `from` did not (DIPO-324): the merges dipo committed on the branch outside the box since
    * `from` (the auto-merge's conflict hand-off), staged and checked as a catch-up's are, then removed and
    * written in the box. The box must run, and no part is taken meanwhile: the run's session has
    * not started. Throws when a stage or the copy fails; the branch is never moved here.
    */
-  async copyPending(run: PartRun, from: string): Promise<BoxChanges> {
+  async copyPending(run: PartRun, from: string, base = "the base"): Promise<BoxChanges> {
     const git = this.#deps.git(run.office);
     if (git === undefined) throw new BoxError("box.failed", `office ${run.office} has no git.`);
     const tip = await git.run((session) => revParse(session, `refs/heads/${run.branch}^{commit}`));
@@ -1383,7 +1366,7 @@ export class BoxCollisions {
     if (changes.written.length === 0 && changes.removed.length === 0) return changes;
     const staged = await this.#stage(git, tip, changes);
     try {
-      await this.#write(run, staged.dir, changes);
+      await this.#write(run, staged.dir, changes, `Merge ${base} into ${run.branch}`);
     } finally {
       await staged.remove();
     }
@@ -1672,7 +1655,7 @@ export class BoxCollisions {
           );
         }
         try {
-          await this.#write(run, staged.dir, changes);
+          await this.#write(run, staged.dir, changes, `Merge ${plan.base} into ${run.branch}`);
         } catch (error) {
           return copyFailed(error);
         }
@@ -1907,8 +1890,13 @@ export class BoxCollisions {
     }
   }
 
-  /** Removes and writes the merge's paths in the box. */
-  async #write(run: PartRun, dir: string, changes: BoxChanges): Promise<void> {
+  /**
+   * Removes and writes the merge's paths in the box, then commits them in the box's own git as a
+   * commit of their own with `subject` (`commitInBoxRepository`, DIPO-464). The copy stands when
+   * that commit fails: the box's git is the worker's tool, never what dipo delivers, so a failure
+   * is a warning.
+   */
+  async #write(run: PartRun, dir: string, changes: BoxChanges, subject: string): Promise<void> {
     for (const group of chunks(changes.removed)) {
       const removed = await this.#deps.boxes.exec(
         run.box,
@@ -1926,5 +1914,14 @@ export class BoxCollisions {
       // Never a root copy into `/work`, where the worker may have planted links (DIPO-334).
       await copyInAsUser(this.#deps.boxes, run.box, dir, BOX_WORKDIR);
     }
+    const paths = [...changes.written, ...changes.removed].toSorted();
+    await commitInBoxRepository(this.#deps.boxes, run.box, subject, paths).catch(
+      (error: unknown) => {
+        this.#deps.warn?.("a catch-up could not be committed in the box's git", {
+          run: run.runId,
+          reason: messageOf(error),
+        });
+      },
+    );
   }
 }

@@ -1,6 +1,6 @@
 // What the engine's box runs need besides the box workers (DIPO-271 to DIPO-324): Apple `container`
 // on the PATH, whether a run's box is ended, the sweeps a stopped daemon's leftovers get at start,
-// the package cache roots, the parts' `behind` check and the merge a resumed conflict park needs.
+// the package cache roots and the parts' `behind` check.
 
 import { realpathSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -8,7 +8,6 @@ import { isAbsolute, join } from "node:path";
 import type { OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 
 import { officePackageCacheRoot } from "../box/cache";
-import type { BoxCollisions, SyncOutcome } from "../box/collisions";
 import type { DoorPart } from "../box/door";
 import { boxEndedOf, boxRunState } from "../box/lifetime";
 import { sweepPartStages, type BoxParts, type PartRun } from "../box/parts";
@@ -177,37 +176,5 @@ export function boxBehind(offices: {
       return `dipo cannot read the office of ${run.story} here, so it cannot tell whether the box holds every merge dipo made on the branch; no part is taken until it can`;
     }
     return pendingBoxCopy(handle, run.runId) === null ? null : BOX_BEHIND_TEXT;
-  };
-}
-
-/**
- * The merge a resumed conflict park needs in its live run's box (DIPO-324,
- * `BoxCollisions.mergeOnResume`, which merges only when git still reports a conflict). The worker
- * was told dipo merges, so a merge dipo cannot even check here is never silent: it is a park of
- * the live run with what went wrong, and a warning.
- */
-export function conflictMergeOf(deps: {
-  readonly run: (runId: string) => PartRun | null;
-  readonly collisions: () => BoxCollisions | null;
-  readonly warn: (message: string, fields: Readonly<Record<string, unknown>>) => void;
-}): (office: OfficeId, runId: RunId) => Promise<SyncOutcome> {
-  return async (office, runId) => {
-    const run = deps.run(runId);
-    const collisions = deps.collisions();
-    if (run !== null && collisions !== null && run.office === office) {
-      return collisions.mergeOnResume(run);
-    }
-    const why =
-      run === null || run.office !== office
-        ? `dipo does not know the box of run ${runId} here`
-        : "this daemon has no box collisions to merge with";
-    deps.warn("the merge a conflict resume promised cannot run", { office, run: runId, why });
-    return {
-      kind: "park",
-      park: {
-        reason: "conflict",
-        detail: `dipo resumed the story to merge the base into its branch and box once the session ran, but ${why}, so nothing was merged; resume it again`,
-      },
-    };
   };
 }

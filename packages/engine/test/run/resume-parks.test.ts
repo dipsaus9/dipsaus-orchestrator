@@ -1019,7 +1019,7 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     expect(error.message).toContain("dipo discard DIPO-1");
   });
 
-  it("starts the box merge a conflict resume prepared only once the session started", async () => {
+  it("holds what a conflict resume prepared before the session, which merges a moved base first", async () => {
     park("conflict");
     const order: string[] = [];
     await resume(
@@ -1027,21 +1027,18 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
         parks: {
           conflicts: () => ({
             prepare: async () => {
-              order.push("prepare");
-              return {
-                message: "The remote branch holds 1 commit your branch lacks.",
-                afterStart: async () => {
-                  order.push(`merge after ${w.sessions.length} session`);
-                },
-              };
+              order.push(`prepare before ${w.sessions.length} sessions`);
+              return { message: "The remote branch holds 1 commit your branch lacks." };
             },
           }),
         },
       } as Partial<ResumptionOptions>),
       { note: "Merge theirs." },
     );
-    expect(order).toEqual(["prepare", "merge after 1 session"]);
+    expect(order).toEqual(["prepare before 0 sessions"]);
     expect(first(w.sessions[0])).toContain("The remote branch holds 1 commit");
+    // No merge waits for the live session: the session's start merges a moved base (DIPO-464).
+    expect(w.sessions[0]?.catchUp).toBe(true);
   });
 
   it("starts no session when the conflict resume parked the story again", async () => {
@@ -1072,6 +1069,26 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     expect(after).toEqual(before);
     expect(w.reviews).toEqual([run]);
   });
+});
+
+describe("the merge of a moved base before the worker's first turn (DIPO-464)", () => {
+  const resumable = Object.entries(RESUME_TABLE).filter(([, row]) => row.need.kind === "resume");
+  for (const [reason, row] of resumable) {
+    if (reason === "review-blocked") continue; // Its session is a fix round's (fix-rounds.test.ts).
+    it(`${reason}: the resumed developer session asks for the merge of a moved base`, async () => {
+      if (row.need.kind !== "resume") return;
+      const budget = row.need.budget === true;
+      park(reason, "In Progress");
+      if (budget) usage(60, 100_000);
+      await resume(
+        resumption(),
+        { note: "go", ...(budget ? { budget: { share: 50 } } : {}) },
+        ctx(true),
+      );
+      expect(w.sessions).toHaveLength(1);
+      expect(w.sessions[0]?.catchUp).toBe(true);
+    });
+  }
 });
 
 describe("no resume raises a cap without a recorded grant (0020, never silent)", () => {

@@ -767,6 +767,7 @@ function realResumer(
       | "git"
       | "boxes"
       | "boxSync"
+      | "catchUp"
     >
   > = {},
   config: OfficeConfig = OFFICE_DEFAULTS,
@@ -1906,6 +1907,81 @@ describe("the merges dipo made outside the box reach it before the worker (DIPO-
     expect(outcome).toEqual({
       kind: "failed",
       reason: "dipo's merge on the story branch could not be copied into the box: the box is gone",
+    });
+    expect(preparedSpecs.length).toBe(before);
+  });
+});
+
+describe("the merge of a moved base before a resumed or fix round session (DIPO-464)", () => {
+  const facts = { probe: async () => null, story: async () => storyOf(), handoff, workspace };
+
+  it("merges before the box copy and the worker, and the worker's first message carries what it held", async () => {
+    firstSession();
+    const order: string[] = [];
+    const boxes = { has: async () => "ready" as const } as unknown as RunBoxes;
+    const before = preparedSpecs.length;
+    const outcome = await realResumer(hosts, {
+      ...facts,
+      boxes,
+      catchUp: async (_office, run) => {
+        order.push("merge");
+        // As `BaseCatchUps.beforeSession`: the worker's message held on the one feedback path.
+        sendFeedback(
+          w.f.office,
+          run.runId,
+          { source: "conflict", key: "catch-up:c", text: "dipo: main is already merged." },
+          { at: w.f.t.clock.now() },
+        );
+        return { kind: "merged", commit: "c".repeat(40) };
+      },
+      boxSync: async () => {
+        order.push("copy into the box");
+      },
+    }).next({ ...nextRequest(), catchUp: true });
+    expect(outcome).toMatchObject({ kind: "started" });
+    expect(order).toEqual(["merge", "copy into the box"]);
+    expect(preparedSpecs.at(-1)?.taskMessage).toContain("dipo: main is already merged.");
+    expect(preparedSpecs.length).toBe(before + 1);
+  });
+
+  it("merges nothing for a session that does not ask, such as a restart's", async () => {
+    firstSession();
+    const asked: string[] = [];
+    const outcome = await realResumer(hosts, {
+      ...facts,
+      catchUp: async (_office, run) => {
+        asked.push(run.runId);
+        return { kind: "none" };
+      },
+    }).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started" });
+    expect(asked).toEqual([]);
+  });
+
+  it("starts no worker when the merge parks the story conflict, or when it fails", async () => {
+    firstSession();
+    const before = preparedSpecs.length;
+    const parked = await realResumer(hosts, {
+      ...facts,
+      catchUp: async () => ({
+        kind: "park",
+        detail: "git cannot merge main cleanly in paths the worker cannot write: .github/ci.yml",
+      }),
+    }).next({ ...nextRequest(), catchUp: true });
+    expect(parked).toEqual({
+      kind: "parked",
+      reason: "conflict",
+      detail: "git cannot merge main cleanly in paths the worker cannot write: .github/ci.yml",
+    });
+    const failed = await realResumer(hosts, {
+      ...facts,
+      catchUp: async () => {
+        throw new Error("git merge-tree failed");
+      },
+    }).next({ ...nextRequest(), catchUp: true });
+    expect(failed).toEqual({
+      kind: "failed",
+      reason: "dipo could not merge the moved base into the story branch: git merge-tree failed",
     });
     expect(preparedSpecs.length).toBe(before);
   });

@@ -29,7 +29,6 @@ import {
   boxBehind,
   boxPackageCache,
   boxRunEnded,
-  conflictMergeOf,
   containerOnPath,
   deliverThenCheck,
   finishEndedBoxRuns,
@@ -303,46 +302,11 @@ function behindWith(handle: OfficeHandle | undefined): string | null {
 }
 
 describe("the daemon's guards of a box run's merges (DIPO-324)", () => {
-  const run = BOX_RUN;
-
   it("refuses a part while a merge the box lacks is pending, and fails closed without the office", () => {
     const behind = behindWith;
     expect(behind(officeWith([]))).toBeNull();
     expect(behind(officeWith([{ catch_up_id: 1, tip_sha: "b".repeat(40) }]))).toBe(BOX_BEHIND_TEXT);
     // No office here: dipo cannot tell, so the part is refused.
     expect(behind(undefined)).toContain("cannot read the office of DIPO-1");
-  });
-
-  it("parks the live run, with a warning, when the merge a conflict resume promised cannot run", async () => {
-    const warned: string[] = [];
-    const merged: string[] = [];
-    const collisions = {
-      mergeOnResume: async (part: { runId: string }) => {
-        merged.push(part.runId);
-        return { kind: "none" as const };
-      },
-    } as unknown as BoxCollisions;
-    const merge = (found: typeof run | null, with_: BoxCollisions | null) =>
-      conflictMergeOf({
-        run: () => found,
-        collisions: () => with_,
-        warn: (message) => warned.push(message),
-      })(run.office, "run_1" as RunId);
-    for (const [found, with_] of [
-      [null, collisions],
-      [run, null],
-      [{ ...run, office: "off-2" as OfficeId }, collisions],
-    ] as const) {
-      const outcome = await merge(found, with_);
-      expect(outcome).toMatchObject({
-        kind: "park",
-        park: { reason: "conflict" },
-      });
-      if (outcome.kind === "park") expect(outcome.park.detail).toContain("nothing was merged");
-    }
-    expect(warned).toHaveLength(3);
-    expect(merged).toEqual([]);
-    expect(await merge(run, collisions)).toEqual({ kind: "none" });
-    expect(merged).toEqual(["run_1"]);
   });
 });

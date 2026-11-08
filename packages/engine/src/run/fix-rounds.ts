@@ -25,7 +25,7 @@
 //   its feedback, held, for the resume's session.
 // - Start (`START_KINDS.fix`, the worker place). The story's status goes back to In Progress on
 //   its branch (`<ID>: status In Progress`, lane a, through the park lift's single write path),
-//   then the developer's next session starts: a box run's developer gets a new session in its box
+//   then the developer's next session starts, with a base that moved merged first (DIPO-464): a box run's developer gets a new session in its box
 //   with a handoff (0008). That session carries every held message, the round's findings first and
 //   a resume note after them, and marks them and their items delivered in the transaction that
 //   records the new agent (`RunResumer`); a session that did not start parks the story as any
@@ -95,6 +95,12 @@ const ROUND_SOURCES: ReadonlySet<string> = new Set<FeedbackSource>([
 export const HELD_TEST_KEY = "test:";
 
 /**
+ * The key prefix of the message of a merge of the base before a session (DIPO-464,
+ * `BaseCatchUps`): a `conflict` message that is no fix round of its own.
+ */
+export const CATCH_UP_KEY = "catch-up:";
+
+/**
  * Holds a failed test's note on the run (DIPO-309): one held message on the one feedback path,
  * keyed `test:<test id>`, for the run's next developer session and its next round. Inside the
  * caller's transaction (`test.record` holds it in the transaction that records the fail), so the
@@ -145,7 +151,7 @@ export interface FixSessions {
     office: OfficeHandle,
     run: StoredRun,
     view: RunView,
-    request: { readonly why: string },
+    request: { readonly why: string; readonly catchUp?: boolean },
   ): Promise<boolean>;
 }
 
@@ -437,6 +443,7 @@ export class FixRounds {
     const head = roundMessages(office, run.runId)
       .filter((item) => item.via === "next" && item.state === "pending")
       .filter((item) => !item.key.startsWith(HELD_TEST_KEY))
+      .filter((item) => !item.key.startsWith(CATCH_UP_KEY))
       .at(-1)?.key;
     if (head === undefined || heldFeedback(office, run.runId).ids.length === 0) {
       return await this.#strand(
@@ -499,6 +506,8 @@ export class FixRounds {
     const work = async (): Promise<boolean> =>
       await this.#deps.sessions.next(office, fresh, view, {
         why: `the feedback on ${head.slice(0, 12)}`,
+        // A base that moved is merged before the worker's first turn (DIPO-464).
+        catchUp: true,
       });
     return this.#deps.guard === undefined
       ? await work()

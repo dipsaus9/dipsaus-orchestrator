@@ -5,7 +5,7 @@
 // the engine's run tests both build them here, so a test exercises the wiring the daemon runs.
 // What differs between them is only which ports are injected.
 
-import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
+import type { Clock, IdSource, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 
 import type { BoxWorkers } from "../box/workers";
 
@@ -33,7 +33,10 @@ import { IdeaAudits } from "../run/idea-audits";
 import { StartsPaused, type StartsPausedDeps } from "../run/starts-paused";
 import { afterRunExits } from "../run/temp-dirs";
 import { WebCalls } from "../run/web-calls";
+import { BaseCatchUps } from "../run/base-merges";
 import { ConflictResumes, type ConflictResumesDeps } from "../run/conflicts";
+import type { OfficeHandle } from "../db/office";
+import { findRun, type StoredRun } from "../records/run-records";
 import { resolveIntent, runIntents } from "../records/intents";
 import type { MergeReentry, PrReplacement } from "../run/park-resume";
 import type { StoryStore } from "../story-store/store";
@@ -96,11 +99,12 @@ export interface RunPorts {
   /** The auto-merge a story resumed to wait In Review goes back to (0002). */
   readonly mergeReentry?: () => MergeReentry | undefined;
   /**
-   * What a resumed `conflict` park needs: the merge in its live run's box
-   * (`BoxCollisions.mergeOnResume`, DIPO-324) and the story store it finds the story's own file
-   * with. Without it no conflict park resumes (`resume.notResumable`).
+   * The story store a merge of the base outside the box finds the story's own file with: the
+   * resume of a `conflict` park (DIPO-324) and the merge of a moved base before a resumed or fix
+   * round session and at a story In Review (`BaseCatchUps`, DIPO-464). Without it no conflict park
+   * resumes (`resume.notResumable`) and no base is merged outside the box.
    */
-  readonly conflictResume?: Pick<ConflictResumesDeps, "merge" | "stories">;
+  readonly conflictResume?: Pick<ConflictResumesDeps, "stories">;
   /** The new story PR of a story resumed with its PR closed (`StoryPrs.replace`, 0002). */
   readonly prReplacement?: () => PrReplacement | undefined;
   /**
@@ -167,6 +171,12 @@ export interface ComposedRuns {
    * head; `consider` is to be called when the CI of a head stops being pending.
    */
   readonly fixRounds: FixRounds | null;
+  /**
+   * A story In Review that the collision poll found conflicting with the base (DIPO-464): the
+   * base merged outside the box and the conflict handed to its worker as one fix round at once.
+   * Null without the story store port of a merge outside the box.
+   */
+  readonly inReviewConflict: ((office: OfficeId, runId: RunId) => Promise<void>) | null;
   readonly launcher: RunLauncher;
   readonly reattacher: RunReattacher | null;
   /**
@@ -306,6 +316,7 @@ interface Outcomes {
   readonly places: Places;
   readonly reviews: Reviews;
   readonly fixRounds: FixRounds;
+  readonly inReviewConflict: ((office: OfficeId, runId: RunId) => Promise<void>) | null;
 }
 
 /**
@@ -320,6 +331,7 @@ function buildOutcomes(
 ): Outcomes | null {
   if (control === null || ports.outcomes === undefined) return null;
   const { probe, signal, ...outcomePorts } = ports.outcomes;
+  const baseMerges = baseCatchUpsOf(ports);
   const resumer = new RunResumer({
     stories: ports.stories,
     clock: ports.clock,
@@ -335,6 +347,13 @@ function buildOutcomes(
     control: trackerOf(ports, control),
     ...given("boxes", ports.boxes),
     ...given("boxSync", ports.boxSync),
+    // A resumed or fix round session gets a base that moved merged first (DIPO-464).
+    ...given(
+      "catchUp",
+      baseMerges === null
+        ? undefined
+        : (office: OfficeId, run: StoredRun) => baseMerges.beforeSession(office, run),
+    ),
     profile: profileOf(ports),
     ...given("probe", probe),
     ...given("onChanged", ports.onChanged),
@@ -447,12 +466,119 @@ function buildOutcomes(
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
   });
-  return { resumer, outcomes, resumption, startsPaused, places, reviews, fixRounds };
+  // A story In Review whose branch conflicts with the base: merged and handed off at once (DIPO-464).
+  const inReviewConflict =
+    baseMerges === null ? null : inReviewConflictOf(ports, control, baseMerges, fixRounds);
+  return {
+    resumer,
+    outcomes,
+    resumption,
+    startsPaused,
+    places,
+    reviews,
+    fixRounds,
+    inReviewConflict,
+  };
+}
+
+/** The status a merge that took the other side's task file writes back: In Progress. */
+function restoreStatusOf(ports: RunPorts): (office: OfficeId, run: StoredRun) => Promise<void> {
+  return async (office, run) => {
+    const unpark = ports.outcomes?.unpark;
+    if (unpark === undefined || run.story === null || run.branch === null) return;
+    await unpark.lift(office, {
+      story: run.story,
+      branch: run.branch,
+      to: "In Progress",
+    });
+  };
+}
+
+/** The conflict item's character budget of the run's tier (`prompt.budgets.feedbackItem`). */
+function itemMaxOf(ports: RunPorts): (office: OfficeId, run: StoredRun) => number {
+  return (office, run) => {
+    const budgets = ports.offices.config(office)?.prompt.budgets.feedbackItem;
+    if (budgets === undefined) return 3_000;
+    const tier = run.tier as keyof typeof budgets | null;
+    return (tier === null ? undefined : budgets[tier]) ?? budgets.M;
+  };
+}
+
+/** Parks a run with no worker running, and resolves the park's intent, which no worker will. */
+function parkIdleOf(
+  ports: RunPorts,
+  control: RunControl,
+): (
+  office: OfficeHandle,
+  run: StoredRun,
+  park: { readonly reason: "conflict"; readonly detail: string },
+) => Promise<void> {
+  return async (office, run, park) => {
+    await control.park(office, run, workRefOf(office, run.runId) ?? undefined, {
+      intent: "park",
+      ops: [],
+      reason: park.reason,
+      detail: park.detail,
+    });
+    const intent = runIntents(office, run.runId)
+      .filter((candidate) => candidate.kind === "park" && candidate.resolvedAt === null)
+      .at(-1);
+    if (intent !== undefined) {
+      const at = ports.clock.now();
+      office.immediate(() => resolveIntent(office, run.runId, intent.intentId, "blocked", at));
+    }
+  };
+}
+
+/** The merges of a moved base outside the box (DIPO-464); null without the story store port. */
+function baseCatchUpsOf(ports: RunPorts): BaseCatchUps | null {
+  const conflict = ports.conflictResume;
+  if (conflict === undefined) return null;
+  return new BaseCatchUps({
+    stories: conflict.stories,
+    clock: ports.clock,
+    offices: ports.offices,
+    git: ports.git,
+    tmpRoot: ports.tmpRoot,
+    restoreStatus: restoreStatusOf(ports),
+    itemMax: itemMaxOf(ports),
+    ...given("onChanged", ports.onChanged),
+    ...given("warn", ports.warn),
+  });
 }
 
 /**
- * The resume of a `conflict` park (DIPO-324): the office git, the box merge of the live run, and
- * run control to tell its worker or park it. Undefined without the box merge.
+ * A story In Review that the collision poll found conflicting with the base (DIPO-464): the base
+ * merged and the conflict handed to the worker as one fix round, or the story parked `conflict`.
+ */
+function inReviewConflictOf(
+  ports: RunPorts,
+  control: RunControl,
+  baseMerges: BaseCatchUps,
+  fixRounds: FixRounds,
+): (office: OfficeId, runId: RunId) => Promise<void> {
+  const parkIdle = parkIdleOf(ports, control);
+  return async (officeId, runId) => {
+    const office = ports.offices.get(officeId);
+    const run = office === undefined ? null : findRun(office, runId);
+    if (office === undefined || run === null) return;
+    const merge = await baseMerges.inReview(officeId, run);
+    if (merge.kind === "park") {
+      await parkIdle(office, run, { reason: "conflict", detail: merge.detail });
+      return;
+    }
+    if (merge.kind !== "handOff") return;
+    const queued = await fixRounds.conflict(officeId, runId, {
+      head: merge.head,
+      item: merge.item,
+    });
+    if (!queued) ports.warn?.("the conflict of a story In Review was not handed over", { runId });
+  };
+}
+
+/**
+ * The resume of a `conflict` park (DIPO-324): the office git and its story store, and run control
+ * to park it again. Undefined without the story store port.
  */
 function conflictResumesOf(
   ports: RunPorts,
@@ -460,49 +586,17 @@ function conflictResumesOf(
 ): (() => ConflictResumes) | undefined {
   const conflict = ports.conflictResume;
   if (conflict === undefined) return undefined;
-  const { merge, stories } = conflict;
   const resumes = new ConflictResumes({
-    stories,
+    stories: conflict.stories,
     clock: ports.clock,
     offices: ports.offices,
     git: ports.git,
-    merge,
     tmpRoot: ports.tmpRoot,
     // A merge that took the other side's task file gets the story's status back (In Progress).
-    restoreStatus: async (office, run) => {
-      const unpark = ports.outcomes?.unpark;
-      if (unpark === undefined || run.story === null || run.branch === null) return;
-      await unpark.lift(office, {
-        story: run.story,
-        branch: run.branch,
-        to: "In Progress",
-      });
-    },
-    tell: (runId, text) => control.tellWorker(runId, text, "conflict"),
-    parkLive: (runId, park) => control.parkRun(runId, park),
+    restoreStatus: restoreStatusOf(ports),
     // An unwritable path that still conflicts parks again before any session (0020).
-    park: async (office, run, park) => {
-      await control.park(office, run, workRefOf(office, run.runId) ?? undefined, {
-        intent: "park",
-        ops: [],
-        reason: park.reason,
-        detail: park.detail,
-      });
-      // No worker runs, so nothing else resolves the park's intent (as a stranded fix round's).
-      const intent = runIntents(office, run.runId)
-        .filter((candidate) => candidate.kind === "park" && candidate.resolvedAt === null)
-        .at(-1);
-      if (intent !== undefined) {
-        const at = ports.clock.now();
-        office.immediate(() => resolveIntent(office, run.runId, intent.intentId, "blocked", at));
-      }
-    },
-    itemMax: (office, run) => {
-      const budgets = ports.offices.config(office)?.prompt.budgets.feedbackItem;
-      if (budgets === undefined) return 3_000;
-      const tier = run.tier as keyof typeof budgets | null;
-      return (tier === null ? undefined : budgets[tier]) ?? budgets.M;
-    },
+    park: parkIdleOf(ports, control),
+    itemMax: itemMaxOf(ports),
     ...given("warn", ports.warn),
   });
   return () => resumes;
@@ -721,6 +815,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
     places: built?.places ?? null,
     reviews: built?.reviews ?? null,
     fixRounds: built?.fixRounds ?? null,
+    inReviewConflict: built?.inReviewConflict ?? null,
     launcher,
     reattacher,
     planning: new PlanningSessions({
