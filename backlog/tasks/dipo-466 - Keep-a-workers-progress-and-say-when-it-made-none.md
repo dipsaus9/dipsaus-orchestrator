@@ -1,10 +1,10 @@
 ---
 id: DIPO-466
 title: Keep a worker's progress and say when it made none
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-08 12:17'
-updated_date: '2026-11-08 12:35'
+updated_date: '2026-11-08 12:41'
 labels:
   - 'tier:M'
 milestone: m-3
