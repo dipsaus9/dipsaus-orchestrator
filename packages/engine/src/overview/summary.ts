@@ -98,6 +98,8 @@ export interface OfficeIdentity {
 export interface SummarySettings {
   readonly optIns: readonly string[];
   readonly outputRetentionDays?: number;
+  /** `caps.parallelRuns`, absent without a valid configuration (DIPO-460). */
+  readonly slots?: number;
   /** Each privacy setting with its value and source, absent without a valid configuration. */
   readonly privacy?: readonly PrivacySetting[];
   /** Today's and this month's tokens with the all-office limits (`UsageMeter.of`, DIPO-311). */
@@ -123,6 +125,7 @@ export function summarySettings(
       ? {}
       : {
           outputRetentionDays: config.retention.days,
+          slots: config.caps.parallelRuns,
           privacy: PRIVACY_KEYS.map((name) => ({
             key: `privacy.${name}`,
             value: config.privacy[name],
@@ -147,7 +150,7 @@ export function deriveOfficeSummary(
   office: OfficeHandle,
   settings: SummarySettings = { optIns: [] },
 ): OfficeSummary {
-  const { optIns, outputRetentionDays, privacy, usage } = settings;
+  const { optIns, outputRetentionDays, slots, privacy, usage } = settings;
   const counts = columnCounts(office);
   const desk = counts.desk ?? 0;
   const gates = openGateViews(office).filter((gate) => gate.waitingOn === "maintainer").length;
@@ -163,6 +166,7 @@ export function deriveOfficeSummary(
     ready: counts.ready ?? 0,
     ...(optIns.length === 0 ? {} : { optIns: [...optIns] }),
     ...(outputRetentionDays === undefined ? {} : { outputRetentionDays }),
+    ...(slots === undefined ? {} : { slots }),
     ...(privacy === undefined ? {} : { privacy: [...privacy] }),
     ...(usage === undefined
       ? {}

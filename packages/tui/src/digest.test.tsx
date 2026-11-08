@@ -53,13 +53,13 @@ describe("the since-you-left line", () => {
     await readsReach(view.session.reads, 2);
     view.clock.advance(7 * MINUTE); // time spent in couchcade: not part of the dipsaus digest
     await view.store.switchTo(OFFICES.dipsaus);
-    await view.ui.waitFor("3 running");
+    await view.ui.waitFor("▌ ● DIPO-21");
     await readsReach(view.session.reads, 3);
     const frame = await view.ui.waitFor("since you left");
     const shown = lines(frame);
-    const count = shown.findIndex((line) => /^ \d+ running · /.test(line));
-    expect(shown[count + 1]).toBe(
-      ` since you left (${clockTime(Date.parse(SINCE))}): 2 done · 1 parked · 1 parked by you · 1 question`,
+    const rule = shown.findIndex((line) => /^─+$/.test(line));
+    expect(shown[rule + 1]).toBe(
+      `since you left (${clockTime(Date.parse(SINCE))}): 2 done · 1 parked · 1 parked by you · 1 question`,
     );
 
     // First sight of each office counts from when it opened; coming back counts from leaving.

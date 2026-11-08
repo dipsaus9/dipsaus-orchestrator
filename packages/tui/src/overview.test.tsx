@@ -1,7 +1,7 @@
-// The office overview board (DIPO-54 and DIPO-81 test plans): frames of the approved layout at 120
-// and 80 columns with running, needs-you, in-review and Ready rows, the two-line cards from 60 to
-// 79, the idle line, the `now:` line following live output, `[q] quit` at every width, cutting
-// the board to the height, and no line wider than the terminal.
+// The Floor (DIPO-54, DIPO-81 and DIPO-460 test plans): the ux-spec's S2 frame cell for cell,
+// RUNNING and IN REVIEW exclusive, health only when it needs the maintainer, the idle line, the
+// `now` line following live output, `q q quit` at every width, cutting the board to the height,
+// no line wider than the terminal, and opening any card.
 
 import { afterEach, describe, expect, it } from "bun:test";
 
@@ -16,8 +16,9 @@ import type {
 
 import type { OfficeStoreState } from "@dipsaus-orchestrator/client";
 
-import { countLine, fitSections, type Section } from "./overview";
+import { floorStories } from "./overview";
 import { goldenHello, goldenSnapshots, OFFICES } from "../test/support/fake-session";
+import { mockRows } from "../test/support/mock-screens";
 import { mount } from "../test/support/setup";
 import { officeCells } from "./views";
 
@@ -35,7 +36,6 @@ const HEADER = expect.stringMatching(
 ) as unknown as string;
 const ROOMS = expect.stringMatching(/^1 Desk .*4 Retro$/) as unknown as string;
 const RULE = expect.stringMatching(/^─+$/) as unknown as string;
-const keys = (pattern: RegExp) => expect.stringMatching(pattern) as unknown as string;
 
 function lines(frame: string): string[] {
   return frame.split("\n").map((line) => line.trimEnd());
@@ -143,86 +143,212 @@ function outputEvent(seq: number, run: string, source: string, from: number, tex
   } as Event;
 }
 
-describe("office overview board", () => {
-  it("shows the approved layout at 120 columns", async () => {
-    const { ui } = await open(120, 30, boardSnapshot());
-    const frame = await ui.waitFor("building · Step 39");
-    expect(lines(frame)).toEqual([
-      HEADER,
-      ROOMS,
-      RULE,
-      " 3 running · 2 needs you · 1 in review · Ready 2 · waiting 1",
-      " RUNNING (3)",
-      "▌DIPO-21 Stream worker events to th… developer M  build   busy >     AC 4/7  loop 2/5  [####----] 52% 38m  claude-sonnet",
-      "     now: building · no output yet",
-      " DIPO-24 Add verify retry            developer S  build   looping @  AC 2/3  loop 2/3  [######--] 78% 22m  claude-sonnet",
-      "     now: building · Step 39: retries now stop at the cap in src/notice.ts. · 12s ago",
-      " DIPO-19 Review the merge slot       reviewer L   review  quiet .    AC 9/9  loop 1/8  [#-------] 18% 1h05 claude-opus",
-      "     now: asking you · Keep the old merge slot?",
-      " NEEDS YOU (2)",
-      " DIPO-29 Web client shell             parked 3d · by maintainer: after M2",
-      " DIPO-26 Compose dev stack            parked 40m · needs permission: Bash(docker compose up)",
-      " IN REVIEW (1)",
-      " DIPO-28 Show the merge queue         L  in review · no worker running",
-      " READY (2)",
-      " DIPO-30 Add park reasons to digest   S  Ready · 3 Queue, then R",
-      " DIPO-32 Desk sort order              M  Ready",
-      RULE,
-      keys(/^↑↓ move {3}⏎ open {3}c copy id +: settings {3}O offices {3}q q quit$/),
-    ]);
+/** The part of a snapshot the Floor reads, as a store state. */
+function storeState(snapshot: OfficeSnapshot): OfficeStoreState {
+  return {
+    stories: snapshot.stories,
+    work: snapshot.work,
+    gates: snapshot.gates,
+  } as unknown as OfficeStoreState;
+}
+
+/** One running run on top of the golden work view `base`: story, title, phase and what the card shows. */
+function floorWork(
+  base: WorkView,
+  n: number,
+  fields: Partial<WorkView> & { phase: string; model: string },
+): WorkView {
+  const id = String(n).padStart(2, "0");
+  const { model, ...rest } = fields;
+  return {
+    ...base,
+    ...rest,
+    work: {
+      ...base.work,
+      story: `DIPO-4${id}`,
+      key: `sto_01J9ZK5Q8W3V4X6Y7Z8A9B0D${id}`,
+      run: `run_01J9ZK5Q8W3V4X6Y7Z8A9B0D${id}`,
+      model,
+    },
+    health: "busy",
+  } as WorkView;
+}
+
+const waiting = (n: number, on: number): StoryView =>
+  ({
+    key: `sto_01J9ZK5Q8W3V4X6Y7Z8A9B0E${n}`,
+    story: `DIPO-${n}`,
+    provisional: false,
+    title: `Waiting story ${n}`,
+    lifecycle: "Ready",
+    tier: "M",
+    column: "waiting",
+    waitingOn: [`DIPO-${on}`],
+  }) as StoryView;
+
+const level = (...ids: number[]) => ids.map((n) => `DIPO-${n}`);
+
+const floorStory = (view: WorkView, title: string, lifecycle: string, column: string) =>
+  ({
+    key: view.work.key,
+    story: view.work.story,
+    provisional: false,
+    title,
+    lifecycle,
+    tier: "M",
+    column,
+    work: view.work,
+  }) as StoryView;
+
+/** The ux-spec's S2 scenario: DIPO-447 merging, DIPO-446 in review, six stories waiting. */
+function floorScenario() {
+  const base = golden();
+  const usage = base.work[0]!.usage;
+  const running = floorWork(base.work[0]!, 47, {
+    phase: "merge",
+    model: "opus-5.5",
+    progress: { criteriaMet: 10, criteriaTotal: 10, loop: 1, loopCap: 8, reviewRound: 1 },
+    usage: { ...usage, run: { ...usage.run, elapsedMs: 36 * 60_000 }, budgetShare: 0.28 },
+  });
+  const reviewing = floorWork(base.work[0]!, 46, {
+    phase: "review",
+    model: "opus-5.5",
+    progress: { criteriaMet: 6, criteriaTotal: 8, loop: 1, loopCap: 8, reviewRound: 1 },
+    usage: { ...usage, run: { ...usage.run, elapsedMs: 4 * 60_000 } },
+  });
+  const snapshot: OfficeSnapshot = {
+    ...base,
+    work: [running, reviewing],
+    stories: [
+      floorStory(
+        running,
+        "Run a planning session with Claude in a read-only box",
+        "In Progress",
+        "running",
+      ),
+      floorStory(reviewing, "Planning tools for workers", "In Review", "review"),
+      ...[448, 449, 450, 451, 452, 453].map((n) => waiting(n, 447)),
+    ],
+    questions: [],
+    gates: [],
+  };
+  const chain = {
+    rows: [
+      { levels: [level(447), level(448, 449), level(450), level(451)], parked: "DIPO-447" },
+      { levels: [level(452), level(453)] },
+    ],
+    nodes: [],
+  };
+  return { snapshot, chain, output: new Map([[`${running.work.run}:worker`, "thinking 1.1s\n"]]) };
+}
+
+describe("the Floor", () => {
+  it("matches the ux-spec's S2: cards, pipeline lines, health-free, budget bar and UP NEXT", async () => {
+    const { snapshot, chain, output } = floorScenario();
+    // The mock is 112 cells wide; the Frame leaves the last column of the terminal free.
+    const view = await mount({
+      columns: 113,
+      rows: 30,
+      snapshots: new Map([[OFFICES.dipsaus, snapshot]]),
+      chain,
+      output,
+    });
+    mounted.push(view.ui);
+    await view.ui.waitFor("daemon live");
+    view.session.active("software")?.options.onEvent({
+      cursor: { stream: "software", seq: 90 },
+      at: "2026-10-14T10:04:00.000Z",
+      type: "office.summary",
+      data: { ...goldenHello.offices[0], slots: 3 },
+    } as Event);
+    const frame = await view.ui.waitFor("When DIPO-447 merges");
+    await view.ui.waitFor("1 of 3 slots");
+    const shown = lines(view.ui.frame());
+    const mock = mockRows("02-floor.txt");
+    // The body: from the row under the first rule to the UP NEXT sentence.
+    const from = shown.findIndex((line) => /^─+$/.test(line)) + 1;
+    const to = shown.findIndex((line) => line.includes("When DIPO-447"));
+    // The engine sends no review verdict yet, so the mock's `approved` is not drawn.
+    const expected = mock
+      .slice(
+        mock.findIndex((row) => row.startsWith("───")) + 1,
+        mock.findIndex((row) => row.includes("When DIPO-447")) + 1,
+      )
+      .map((row) => row.replace(" · review round 1 approved", " · review round 1"));
+    expect(shown.slice(from, to + 1)).toEqual(expected);
+    expect(frame).not.toContain("busy");
   });
 
-  it("drops role, loop and model from 80 to 119 columns", async () => {
-    const { ui } = await open(80, 30, boardSnapshot());
-    const frame = await ui.waitFor("building · Step 39");
-    expect(lines(frame)).toEqual([
-      HEADER,
-      ROOMS,
-      RULE,
-      " 3 running · 2 needs you · 1 in review · Ready 2 · waiting 1",
-      " RUNNING (3)",
-      "▌DIPO-21 Stream worker events … build  busy >    AC 4/7 [####----] 52% 38m",
-      "     now: building · no output yet",
-      " DIPO-24 Add verify retry       build  looping @ AC 2/3 [######--] 78% 22m",
-      "     now: building · Step 39: retries now stop at the cap in src/notice.ts. · 1…",
-      " DIPO-19 Review the merge slot  review quiet .   AC 9/9 [#-------] 18% 1h05",
-      "     now: asking you · Keep the old merge slot?",
-      " NEEDS YOU (2)",
-      " DIPO-29 Web client shell        parked 3d · by maintainer: after M2",
-      " DIPO-26 Compose dev stack       parked 40m · needs permission: Bash(docker com…",
-      " IN REVIEW (1)",
-      " DIPO-28 Show the merge queue    in review · no worker running",
-      " READY (2)",
-      " DIPO-30 Add park reasons to d…  Ready · 3 Queue, then R",
-      " DIPO-32 Desk sort order         Ready",
-      RULE,
-      keys(/^↑↓ move {3}⏎ open {3}c copy id +: settings {3}O offices {3}q q quit$/),
+  it("shows a story under RUNNING or IN REVIEW, never both", async () => {
+    const { snapshot, chain } = floorScenario();
+    const { running, review } = floorStories(storeState(snapshot));
+    expect(running.map((item) => String(item.story.story))).toEqual(["DIPO-447"]);
+    expect(review.map((item) => String(item.story.story))).toEqual(["DIPO-446"]);
+    // The reviewer's session ends: the story stays under IN REVIEW, with no session.
+    const idle = floorStories(storeState({ ...snapshot, work: [snapshot.work[0]!] }));
+    expect(idle.running.map((item) => String(item.story.story))).toEqual(["DIPO-447"]);
+    expect(idle.review.map((item) => [String(item.story.story), item.view === null])).toEqual([
+      ["DIPO-446", true],
     ]);
+    // No story is in both, whatever the sessions.
+    for (const work of [snapshot.work, [], [snapshot.work[1]!]]) {
+      const split = floorStories(storeState({ ...snapshot, work }));
+      const all = [...split.running, ...split.review].map((item) => String(item.story.story));
+      expect(new Set(all).size).toBe(all.length);
+    }
+    void chain;
   });
 
-  it("shows two-line cards from 60 to 79 columns with the now text on the second line", async () => {
-    const { ui } = await open(70, 30, boardSnapshot());
-    const frame = await ui.waitFor("building · Step 39");
-    expect(frame).toContain(
-      " DIPO-24  looping @  build  AC 2/3  loop 2/3  [######--] 78%  Add ver…\n   now: building · Step 39: retries now stop at the cap in src/notice…",
+  it("shows a story in review with no session under IN REVIEW alone, with no worker line", async () => {
+    const { snapshot, chain } = floorScenario();
+    const view = await mount({
+      columns: 112,
+      rows: 30,
+      snapshots: new Map([[OFFICES.dipsaus, { ...snapshot, work: [snapshot.work[0]!] }]]),
+      chain,
+    });
+    mounted.push(view.ui);
+    const frame = await view.ui.waitFor("no session");
+    const shown = lines(frame);
+    expect(shown.filter((line) => line.includes("DIPO-446"))).toHaveLength(1);
+    expect(shown.findIndex((line) => line.includes("IN REVIEW"))).toBeLessThan(
+      shown.findIndex((line) => line.includes("DIPO-446")),
     );
-    expect(frame).toContain(" NEEDS YOU (2)");
-    expect(frame).not.toContain("STORY");
+    expect(frame).toContain("no session · waits for its review, test or merge");
+  });
+
+  it("shows health only when it is stuck, looping or lost", async () => {
+    for (const [health, shown] of [
+      ["busy", false],
+      ["quiet", false],
+      ["stuck", true],
+      ["looping", true],
+      ["lost", true],
+    ] as const) {
+      const { snapshot, chain } = floorScenario();
+      const work = snapshot.work.map((entry, i) => (i === 0 ? { ...entry, health } : entry));
+      const view = await mount({
+        columns: 112,
+        rows: 30,
+        snapshots: new Map([[OFFICES.dipsaus, { ...snapshot, work }]]),
+        chain,
+      });
+      mounted.push(view.ui);
+      const frame = await view.ui.waitFor("DIPO-447");
+      const now = lines(frame).find((line) => line.includes("now merging")) ?? "";
+      expect(/ · (stuck|looping|lost)/i.test(now)).toBe(shown);
+      expect(now.includes("quiet")).toBe(false);
+    }
   });
 
   it("says why nothing runs when the office is idle", async () => {
     const { ui } = await open(120, 30, idleSnapshot());
-    expect(lines(ui.frame())).toEqual([
-      HEADER,
-      ROOMS,
-      RULE,
-      " 0 running · 2 needs you · 0 in review · Ready 0 · waiting 1",
-      " Nothing is running and nothing is Ready: DIPO-31 waits on DIPO-21, DIPO-33 is Refined (R15), DIPO-29 is parked (by mai…",
-      " NEEDS YOU (1)",
-      "▌DIPO-29 Web client shell  parked 3d · by maintainer: after M2",
-      RULE,
-      keys(/^↑↓ move {3}⏎ open {3}c copy id +: settings {3}O offices {3}q q quit$/),
-    ]);
+    const frame = ui.frame();
+    expect(frame).toContain("RUNNING");
+    expect(frame).toContain(
+      "Nothing is running and nothing is Ready: DIPO-31 waits on DIPO-21, DIPO-33 is Refined (R15), DIPO-29 is parke",
+    );
+    expect(frame).toContain("Nothing waits on another story.");
   });
 
   it("names the Refined story's rule from the gateFailures field, not the message (DIPO-97)", async () => {
@@ -252,32 +378,30 @@ describe("office overview board", () => {
   it("points at the queue when Ready stories wait and nothing runs", async () => {
     const base = golden();
     const { ui } = await open(120, 30, { ...base, work: [] });
-    const frame = ui.frame();
-    expect(frame).toContain(" Nothing is running. Ready 2: 3 Queue, then R to run one.");
-    expect(frame).toContain(" READY (2)");
+    expect(ui.frame()).toContain("Nothing is running. Ready 2: 3 Queue, then R to run one.");
   });
 
   it("follows live output on the now line, and its age moves with the clock", async () => {
-    const { ui, session, clock } = await open(120, 30, boardSnapshot());
+    const { ui, session, clock } = await open(120, 40, boardSnapshot());
     await ui.waitFor("building · Step 39: retries now stop at the cap in src/notice.ts. · 12s ago");
     session.storeOutput(outputEvent(8, RUN_21, "worker", 0, "[tool] Edit src/stream.ts\n"));
-    await ui.waitFor("now: building · [tool] Edit src/stream.ts");
+    await ui.waitFor("now building · [tool] Edit src/stream.ts");
     session.storeOutput(outputEvent(9, RUN_21, "worker", 26, "Streaming now works.\n"));
-    await ui.waitFor("now: building · Streaming now works.");
+    await ui.waitFor("now building · Streaming now works.");
     // Verify output no longer leads: verify runs in the box at the end of build (0002).
     const run24 = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24";
     const stored = session.output.get(`${run24}:verify`)!.length;
     session.storeOutput(outputEvent(10, run24, "verify", stored, "PASS test/retry.test.ts\n"));
     const worker = session.output.get(`${run24}:worker`)!.length;
     session.storeOutput(outputEvent(11, run24, "worker", worker, "All checks pass.\n"));
-    await ui.waitFor("now: building · All checks pass. · 12s ago");
+    await ui.waitFor("now building · All checks pass. · 12s ago");
     expect(ui.frame()).not.toContain("PASS test/retry.test.ts");
     clock.advance(60_000);
-    await ui.waitFor("now: building · All checks pass. · 1m ago", 2_000);
+    await ui.waitFor("now building · All checks pass. · 1m ago", 2_000);
   });
 
   it("reads the stored tails once when the office opens, not on every render", async () => {
-    const { ui, session } = await open(120, 30, boardSnapshot());
+    const { ui, session } = await open(120, 40, boardSnapshot());
     await ui.waitFor("building · Step 39");
     const reads = () => session.reads.filter((read) => read.name === "work.outputRange").length;
     const before = reads();
@@ -290,14 +414,6 @@ describe("office overview board", () => {
     expect(reads()).toBe(before);
   });
 
-  it("shows plain values and no evidence legend", async () => {
-    const { ui } = await open(120, 30, null);
-    const frame = ui.frame();
-    expect(frame).toContain("build   looping @  AC 2/3  loop 2/3  [######--] 78% 22m");
-    expect(frame).not.toContain("* claimed ~ estimated ? none");
-    for (const line of lines(frame)) expect(line.length).toBeLessThanOrEqual(120);
-  });
-
   it("keeps q q quit visible and no line wider than the terminal at every width", async () => {
     for (const columns of [120, 100, 80, 79, 70, 60]) {
       for (const rows of [30, 16]) {
@@ -307,26 +423,24 @@ describe("office overview board", () => {
         expect(shown.length).toBeLessThanOrEqual(rows);
         for (const line of shown) expect(line.length).toBeLessThanOrEqual(columns);
         await ui.press("3");
-        await ui.waitFor("next Ready story");
+        await ui.waitFor("READY");
         expect(ui.frame()).toContain("q q quit");
       }
     }
   });
 
-  it("cuts the board to the height and keeps the selected run on screen", async () => {
+  it("cuts the board to the height and keeps the selected card on screen", async () => {
     const { ui } = await open(120, 16, boardSnapshot());
-    const first = lines(ui.frame());
-    expect(first).toContain(" RUNNING (3)");
-    expect(first.length).toBeLessThanOrEqual(16);
+    expect(lines(ui.frame()).length).toBeLessThanOrEqual(16);
     await ui.press("j");
     await ui.press("j");
-    const frame = await ui.waitFor("▌DIPO-19");
+    const frame = await ui.waitFor("▌ ● DIPO-19");
     expect(lines(frame).length).toBeLessThanOrEqual(16);
     expect(frame).toContain("q q quit");
   });
 
   it("follows a work event with a new view", async () => {
-    const { ui, session } = await open(120);
+    const { ui, session } = await open(120, 40);
     const stream = session.active(STREAM);
     const before = golden().work[1]!;
     const view = { ...before, phase: "review", health: "busy" };
@@ -336,45 +450,7 @@ describe("office overview board", () => {
       type: "work.phase",
       data: { work: view.work, phase: "review", progress: view.progress, view },
     } as never);
-    const frame = await ui.waitFor("developer S  review  busy >");
-    expect(frame).toContain("now: reviewing ·");
-  });
-});
-
-function row(key: string, size: number) {
-  return {
-    key,
-    lines: Array.from({ length: size }, (_, i) => ({ key: `${key}${i}`, text: `${key}${i}` })),
-  };
-}
-
-describe("fitSections", () => {
-  const list: Section[] = [
-    { title: "RUNNING", rows: [row("a", 2), row("b", 2), row("c", 2)], keep: 2 },
-    { title: "READY", rows: [row("r", 1)] },
-  ];
-
-  it("shows every section that fits", () => {
-    expect(fitSections(list, 20, "…").map((line) => line.text)).toEqual([
-      " RUNNING (3)",
-      "a0",
-      "a1",
-      "b0",
-      "b1",
-      "c0",
-      "c1",
-      " READY (1)",
-      "r0",
-    ]);
-  });
-
-  it("cuts a section to whole rows with the kept row and a more line, and drops the rest", () => {
-    expect(fitSections(list, 5, "…").map((line) => line.text)).toEqual([
-      " RUNNING (3)",
-      "c0",
-      "c1",
-      "   … 2 more",
-    ]);
+    await ui.waitFor("now reviewing ·");
   });
 });
 
@@ -404,36 +480,31 @@ function record28(endedAt = "2026-10-14T08:04:00.000Z"): RunRecord {
   } as RunRecord;
 }
 
-/** Selects DIPO-28 (In Review) from the top: three running rows, DIPO-29 and DIPO-26 come first. */
+/** Selects DIPO-28 (In Review) from the top: the three running cards come first. */
 async function selectReview(ui: {
   press(key: string): Promise<void>;
   waitFor(text: string): Promise<string>;
 }) {
-  for (let i = 0; i < 5; i++) await ui.press("j");
-  return ui.waitFor("▌DIPO-28");
+  for (let i = 0; i < 3; i++) await ui.press("j");
+  return ui.waitFor("▌ ○ DIPO-28");
 }
 
-describe("opening any board row (DIPO-81)", () => {
-  it("j and k move over every section, running first", async () => {
-    const { ui } = await open(120, 30, boardSnapshot());
-    for (const story of [
-      "DIPO-24",
-      "DIPO-19",
-      "DIPO-29",
-      "DIPO-26",
-      "DIPO-28",
-      "DIPO-30",
-      "DIPO-32",
+describe("opening any card (DIPO-81)", () => {
+  it("j and k move over every card, running first, then in review", async () => {
+    const { ui } = await open(120, 40, boardSnapshot());
+    for (const [story, glyph] of [
+      ["DIPO-24", "●"],
+      ["DIPO-19", "●"],
+      ["DIPO-28", "○"],
     ]) {
       await ui.press("j");
-      await ui.waitFor(`▌${story}`);
+      await ui.waitFor(`▌ ${glyph} ${story}`);
     }
     await ui.press("j");
-    expect(ui.frame()).toContain("▌DIPO-32");
+    expect(ui.frame()).toContain("▌ ○ DIPO-28");
     await ui.press("k");
-    await ui.waitFor("▌DIPO-30");
-    expect(ui.frame()).toContain(" DIPO-21 ");
-    expect(ui.frame()).not.toContain("▌DIPO-21");
+    await ui.waitFor("▌ ● DIPO-19");
+    expect(ui.frame()).not.toContain("▌ ● DIPO-21");
   });
 
   it("Enter on an In Review row opens its last run with the stored output; Esc goes back", async () => {
@@ -471,8 +542,8 @@ describe("opening any board row (DIPO-81)", () => {
     await ui.waitFor("this run has ended; park its story from the queue or the desk");
     expect(session.commands).toEqual([]);
     await ui.press("escape");
-    frame = await ui.waitFor("RUNNING (3)");
-    expect(frame).toContain("▌DIPO-28 Show the merge queue");
+    frame = await ui.waitFor("IN REVIEW");
+    expect(frame).toContain("▌ ○ DIPO-28 ");
   });
 
   it("says the output was removed after the retention period, or that none was stored", async () => {
@@ -529,16 +600,6 @@ describe("opening any board row (DIPO-81)", () => {
     await shows(undefined, "2026-10-05T08:00:00.000Z", "no output stored");
   });
 
-  it("Enter on a Ready row that never ran says so in the footer", async () => {
-    const { ui } = await open(120, 30, boardSnapshot());
-    for (let i = 0; i < 6; i++) await ui.press("j");
-    await ui.waitFor("▌DIPO-30");
-    await ui.press("enter");
-    const frame = await ui.waitFor("DIPO-30 Add park reasons to digest · Ready, not run yet");
-    expect(frame).toContain("RUNNING (3)");
-    expect(lines(frame).at(-1)).toContain("q q quit");
-  });
-
   it("keeps q q quit visible in an ended run's detail at every width", async () => {
     for (const columns of [120, 80, 70, 60]) {
       const { ui, session } = await open(columns, 24, boardSnapshot());
@@ -569,16 +630,9 @@ describe("opening any board row (DIPO-81)", () => {
   });
 });
 
-describe("usage on the count line and in the switcher (DIPO-311)", () => {
+describe("usage in the switcher (DIPO-311)", () => {
   const NOW = Date.UTC(2026, 9, 22, 14);
   const office = OFFICES.dipsaus;
-  const stateWith = (summary: object): OfficeStoreState =>
-    ({
-      office,
-      work: [],
-      stories: [],
-      offices: [{ office, name: "dipsaus-orchestrator", summary }],
-    }) as unknown as OfficeStoreState;
   const base = {
     office,
     name: "o",
@@ -587,36 +641,6 @@ describe("usage on the count line and in the switcher (DIPO-311)", () => {
     parked: 0,
     waitingOnMaintainer: 0,
   };
-
-  it("shows today and this month of the limit with UTC next to the reset time", () => {
-    const line = countLine(
-      stateWith({
-        ...base,
-        dayUsage: { tokens: 1_200_000, limit: 4_000_000, share: 0.3, alert: false },
-        monthUsage: { tokens: 20_000_000, limit: 90_000_000, share: 0.22, alert: false },
-      }),
-      "·",
-      "full",
-      NOW,
-    );
-    expect(line).toContain(
-      "today 1.2M of 4.0M tokens (30%, resets 00:00 UTC) · this month 20.0M of 90.0M tokens (22%, resets 1 Nov 00:00 UTC)",
-    );
-  });
-
-  it("shows the tokens alone with no limit, no share and no alert", () => {
-    const line = countLine(
-      stateWith({
-        ...base,
-        dayUsage: { tokens: 1_200_000, alert: false },
-        monthUsage: { tokens: 3_000, alert: false },
-      }),
-      "·",
-      "full",
-      NOW,
-    );
-    expect(line).toEndWith("today 1.2M tokens · this month 3k tokens");
-  });
 
   it("keeps the ALERT wording on Offices' TODAY bar, in err", () => {
     const entry = {

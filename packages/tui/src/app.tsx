@@ -39,6 +39,7 @@ import {
   useActions,
 } from "./actions";
 import { useBatchedState } from "./batch";
+import type { ReadChain, ReadGate } from "./chain";
 import { type ReadDesk } from "./desk";
 import { type ReadOutput, type ReadPrompt } from "./detail";
 import { leavesOverlay, useHome } from "./home";
@@ -126,6 +127,10 @@ export interface TuiActions {
   readLosses(request: LossesRequest): Promise<LossesOutcome>;
   /** `office.desk` (DIPO-158). */
   readDesk: ReadDesk;
+  /** `office.chain`: the dependency graph for the Floor and the Queue (DIPO-460). */
+  readChain: ReadChain;
+  /** `story.gate`: the selected Queue story's gate (DIPO-460). */
+  readGate: ReadGate;
   /** `office.digest` from the time this TUI last saw the office (`digest.ts`). */
   readDigest: ReadDigest;
   /** `office.retro` (DIPO-453). */

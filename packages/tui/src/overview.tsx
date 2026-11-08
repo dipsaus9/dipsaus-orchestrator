@@ -1,27 +1,17 @@
-// The office overview, the Floor (`2`, 0009, DIPO-81): a board. A count line
-// at the top (running, needs you, in review, Ready, waiting, and today at 120 columns), then
-// the sections RUNNING, NEEDS YOU, IN REVIEW and READY with the story title on every row; empty
-// sections are hidden. Each running row has a `now:` line: a phase word, the newest stored worker
-// line as stored, and its age. With nothing running one line says why, from the stories the engine
-// sent (dependencies, Ready gate rules, parks).
-//
-// At 120 columns or more a running row shows role, tier, phase, health, criteria, loop, budget bar
-// with its share, elapsed time and model; from 80 to 119 phase, health, criteria and budget; from
-// 60 to 79 each run is a two-line card with the `now` text on its second line. The board is cut
-// to the rows it has room for, running rows first, so the footer with `q q quit` stays on screen.
-// The selected row is marked with `>`; `j`/`k` move over every row and Enter opens it: a running
-// story's live detail (DIPO-55), or the latest run of a story that ran (DIPO-81). Lines are
-// memoised by their text and cut to the width.
+// The Floor (`2`, 0009, DIPO-81, DIPO-460): what the team is doing, built for a second monitor.
+// RUNNING and IN REVIEW hold one card per story, and a story is in one of them, never both: a
+// story under review with no session, or whose session is the reviewer, is IN REVIEW; every other
+// story with a session is RUNNING. A card is the story line, the Pipeline with its loop or round,
+// the `now` line with the budget bar, and criteria, review round and model; health shows only
+// when it is stuck, looping or lost. UP NEXT is one sentence the engine computed from the
+// dependency graph (`chain.ts`). Stories that wait for you are on the Desk, Ready and waiting
+// ones in the Queue. The selected card is marked with `▌`; `j`/`k` move over every card and Enter
+// opens it: a running story's live detail (DIPO-55), or the latest run of a story that ran
+// (DIPO-81). Cards are memoised by what they say.
 
-import {
-  healthLabel,
-  type OfficeStoreState,
-  percent,
-  usageParts,
-} from "@dipsaus-orchestrator/client";
+import { healthLabel, type OfficeStoreState, percent } from "@dipsaus-orchestrator/client";
 import type {
   Clock,
-  GateView,
   RunId,
   StoryId,
   StoryKey,
@@ -29,82 +19,25 @@ import type {
   WorkView,
 } from "@dipsaus-orchestrator/contract";
 import { Box, Text } from "ink";
-import { memo, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
-import { age, budgetBar, elapsed, truncate, type Width } from "./format";
+import { type Chain, upNextSpans } from "./chain";
+import { elapsed, truncate } from "./format";
 import type { LatestLines } from "./latest";
-import { boardNow } from "./now";
+import { boardNowParts } from "./now";
 import type { Display } from "./options";
+import { pipelineSpans } from "./pipeline";
+import { cutSpans, focused, type Span, SpanLine, spread } from "./spans";
 import { glyphs } from "./views";
-import { Colored } from "./colour";
 
-/** The widest title per width tier; shorter titles keep their own width. */
-const TITLE_WIDTH: Readonly<Record<Width, number>> = { full: 27, medium: 22, cards: 16 };
+/** Columns the card's lines are indented by: focus bar, glyph and the story id padded to ten. */
+const INDENT = 14;
 
-/** The indent of a running row's `now:` line. */
-const NOW_INDENT = "     ";
-
-/** The cells of one run, as the engine sent them. */
-function cells(view: WorkView) {
-  const { progress, usage } = view;
-  return {
-    roleTier: `${view.work.role} ${view.work.tier}`,
-    phase: view.phase,
-    health: healthLabel(view.health),
-    ac: `AC ${progress.criteriaMet}/${progress.criteriaTotal}`,
-    loop: `loop ${progress.loop}/${progress.loopCap}`,
-    budget: `${budgetBar(usage)} ${percent(usage.budgetShare)}`,
-    time: elapsed(usage.run.elapsedMs),
-    model: view.work.model,
-  };
-}
-
-type Cells = ReturnType<typeof cells>;
-
-/** The cell groups of a running row per tier; each is padded to the widest in its column. */
-function groupsOf(row: Cells, width: Width): string[] {
-  if (width === "full") {
-    return [row.roleTier, row.phase, row.health, row.ac, row.loop, `${row.budget} ${row.time}`];
-  }
-  return [row.phase, row.health, row.ac, `${row.budget} ${row.time}`];
-}
-
-function columnWidths(rows: readonly (readonly string[])[]): number[] {
-  const widths: number[] = [];
-  for (const row of rows) {
-    row.forEach((cell, i) => {
-      widths[i] = Math.max(widths[i] ?? 0, cell.length);
-    });
-  }
-  return widths;
-}
+/** The cells of the budget bar. */
+const BAR_CELLS = 14;
 
 function columnCount(state: OfficeStoreState, column: string): number {
   return state.stories.filter((story) => story.column === column).length;
-}
-
-/**
- * `1 running · 1 needs you · 1 in review · Ready 1 · waiting 0 · today 1.2M of 4M tokens
- * (30%, resets 00:00 UTC) · this month 20M of 90M tokens (22%, resets 1 Nov 00:00 UTC)`. The
- * privacy words live in the settings, not here (DIPO-458).
- * The usage parts are the engine's (DIPO-311); without a limit only the tokens show.
- */
-export function countLine(
-  state: OfficeStoreState,
-  dot: string,
-  width: Width,
-  nowMs: number,
-): string {
-  const summary = state.offices.find((entry) => entry.office === state.office)?.summary;
-  const parts = [
-    `${state.work.length} running`,
-    `${summary?.waitingOnMaintainer ?? "?"} needs you`,
-    `${columnCount(state, "review")} in review`,
-    `Ready ${columnCount(state, "ready")}`,
-    `waiting ${columnCount(state, "waiting")}`,
-  ];
-  if (width === "full") parts.push(...usageParts(summary, nowMs));
-  return ` ${parts.join(` ${dot} `)}`;
 }
 
 /** A park reason in words: `by-maintainer` reads `by maintainer`. */
@@ -119,7 +52,7 @@ function words(reason: string): string {
  */
 export function idleLine(state: OfficeStoreState, dot: string): string {
   const ready = columnCount(state, "ready");
-  if (ready > 0) return ` Nothing is running. Ready ${ready}: 3 Queue, then R to run one.`;
+  if (ready > 0) return `Nothing is running. Ready ${ready}: 3 Queue, then R to run one.`;
   const reasons: string[] = [];
   for (const story of state.stories) {
     if (story.column !== "waiting") continue;
@@ -142,306 +75,288 @@ export function idleLine(state: OfficeStoreState, dot: string): string {
   const drafts = columnCount(state, "draft");
   if (drafts > 0) reasons.push(`${drafts} draft${drafts === 1 ? "" : "s"}`);
   if (reasons.length === 0) {
-    return ` Nothing is running and nothing is Ready ${dot} this office has no open story.`;
+    return `Nothing is running and nothing is Ready ${dot} this office has no open story.`;
   }
-  return ` Nothing is running and nothing is Ready: ${reasons.join(", ")}.`;
+  return `Nothing is running and nothing is Ready: ${reasons.join(", ")}.`;
 }
 
-/** One screen line of the board. */
-export interface BoardLine {
-  readonly key: string;
-  readonly text: string;
-  readonly tone?: "section" | "now" | "selected";
+/** One story on the Floor: its view, and the run when a session works on it. */
+export interface FloorStory {
+  readonly story: StoryView;
+  readonly view: WorkView | null;
 }
 
-/** One row of a section: the story line and, for a running row, its `now` line. */
-export interface BoardRow {
-  readonly key: string;
-  readonly lines: readonly BoardLine[];
-}
-
-export interface Section {
-  readonly title: string;
-  readonly rows: readonly BoardRow[];
-  /** The row that stays on screen when the section is cut: the selected run. */
-  readonly keep?: number;
-}
-
-/** The stories of the NEEDS YOU, IN REVIEW and READY sections, in the engine's order. */
-function waitingStories(state: OfficeStoreState) {
-  const running = new Set(state.work.map((view) => String(view.work.key)));
-  const gated = new Map<string, GateView>();
-  for (const gate of state.gates) {
-    const key = String(gate.work.key);
-    if (gate.waitingOn === "maintainer" && !running.has(key)) gated.set(key, gate);
+/**
+ * The stories of RUNNING and IN REVIEW, each story once: a story under review whose session is the
+ * reviewer, or that has none, is IN REVIEW; a story with any other session is RUNNING. A story
+ * that waits for the maintainer (a parked story, a gate waiting on them) is on the Desk instead.
+ */
+export function floorStories(state: OfficeStoreState): {
+  readonly running: readonly FloorStory[];
+  readonly review: readonly FloorStory[];
+} {
+  const waitsForYou = new Set(
+    state.gates
+      .filter((gate) => gate.waitingOn === "maintainer")
+      .map((gate) => String(gate.work.key)),
+  );
+  const storyOf = new Map(state.stories.map((story) => [String(story.key), story]));
+  const running: FloorStory[] = [];
+  const review: FloorStory[] = [];
+  const withRun = new Set<string>();
+  for (const view of state.work) {
+    const key = String(view.work.key);
+    withRun.add(key);
+    const story = storyOf.get(key);
+    if (story === undefined || story.column === "desk") continue;
+    const reviewing = story.column === "review" && view.phase === "review";
+    (reviewing ? review : running).push({ story, view });
   }
-  return {
-    needs: state.stories.filter((story) => story.column === "desk" || gated.has(String(story.key))),
-    review: state.stories.filter(
-      (story) => story.column === "review" && !gated.has(String(story.key)),
-    ),
-    ready: state.stories.filter((story) => story.column === "ready"),
-    gated,
-  };
+  for (const story of state.stories) {
+    const key = String(story.key);
+    if (story.column === "review" && !withRun.has(key) && !waitsForYou.has(key)) {
+      review.push({ story, view: null });
+    }
+  }
+  return { running, review };
 }
 
-/** One selectable board row: a story, with its run while it runs. */
+/** One selectable board row: a story, with its run while a session works on it. */
 export interface BoardEntry {
   readonly key: StoryKey;
   readonly story: StoryId;
   readonly run: RunId | null;
 }
 
-/** The board's selectable rows in screen order: running, needs you, in review, Ready. */
+/** The board's selectable rows in screen order: running, then in review. */
 export function boardEntries(state: OfficeStoreState): BoardEntry[] {
-  const { needs, review, ready } = waitingStories(state);
+  const { running, review } = floorStories(state);
+  return [...running, ...review].map(({ story, view }) => ({
+    key: story.key,
+    story: story.story,
+    run: view === null ? null : view.work.run,
+  }));
+}
+
+/** The budget bar: `━` filled in acc, the rest in faint; `=` and `-` under `--ascii`. */
+export function budgetSpans(share: number, ascii: boolean): Span[] {
+  const g = glyphs(ascii);
+  const filled = Math.max(0, Math.min(BAR_CELLS, Math.round(share * BAR_CELLS)));
+  const rest = ascii ? "-" : g.done;
   return [
-    ...state.work.map((view) => ({
-      key: view.work.key,
-      story: view.work.story,
-      run: view.work.run,
-    })),
-    ...[...needs, ...review, ...ready].map((story) => ({
-      key: story.key,
-      story: story.story,
-      run: null,
-    })),
+    { text: g.done.repeat(filled), role: "acc" },
+    { text: rest.repeat(BAR_CELLS - filled), role: "faint" },
   ];
 }
 
-interface Widths {
-  readonly story: number;
-  readonly title: number;
+/** One line of the board: its spans, and the card it belongs to. */
+interface FloorLine {
+  readonly key: string;
+  readonly spans: readonly Span[];
+  readonly card: string | null;
 }
 
-/** `>DIPO-24 Add verify retry       `: marker, id and title, padded to the board's widths. */
-function head(story: string, title: string, widths: Widths, ellipsis: string, marker = " ") {
-  const cut = truncate(title, widths.title, ellipsis).padEnd(widths.title);
-  return `${marker}${story.padEnd(widths.story)} ${cut}`;
+interface FloorOptions {
+  readonly state: OfficeStoreState;
+  readonly chain: Chain;
+  readonly latest: LatestLines | null;
+  readonly selected: string | null | undefined;
+  readonly now: number;
+  readonly width: number;
+  readonly ascii: boolean;
+  readonly digest?: string | null | undefined;
 }
 
-/** The board's sections, before they are cut to the height. */
-function sections(options: {
-  state: OfficeStoreState;
-  width: Width;
-  selected: string | null | undefined;
-  latest: LatestLines | null;
-  now: number;
-  dot: string;
-  bar: string;
-  columns: number;
-  ellipsis: string;
-}): Section[] {
-  const { state, width, latest, now, dot, bar, ellipsis } = options;
-  const { needs, review, ready, gated } = waitingStories(state);
-  const titleOf = new Map(state.stories.map((story) => [String(story.key), story.title]));
-  const named = [
-    ...state.work.map((view) => ({
-      story: String(view.work.story),
-      title: titleOf.get(String(view.work.key)) ?? "",
-    })),
-    ...[...needs, ...review, ...ready].map((story) => ({
-      story: String(story.story),
-      title: story.title,
-    })),
-  ];
-  const runCells = state.work.map((view) => cells(view));
-  const groups = runCells.map((row) => groupsOf(row, width));
-  const groupWidths = columnWidths(groups);
-  const sep = width === "full" ? "  " : " ";
-  // What follows the title on the widest running row: the title gives way so the row fits.
-  const tail =
-    width === "cards"
-      ? 0
-      : Math.max(
-          0,
-          ...runCells.map(
-            (row) =>
-              1 +
-              groupWidths.reduce((sum, w) => sum + w, 0) +
-              sep.length * (groupWidths.length - 1) +
-              (width === "full" ? 1 + row.model.length : 0),
-          ),
-        );
-  const storyWidth = Math.max(0, ...named.map((row) => row.story.length));
-  const widths: Widths = {
-    story: storyWidth,
-    title: Math.max(
-      Math.min(10, TITLE_WIDTH[width]),
-      Math.min(
-        TITLE_WIDTH[width],
-        Math.max(0, ...named.map((row) => row.title.length)),
-        options.columns - 2 - storyWidth - tail,
-      ),
-    ),
-  };
-  const running = state.work.map((view, i): BoardRow => {
-    const row = runCells[i]!;
-    const selected = String(view.work.key) === options.selected;
-    const marker = selected ? bar : " ";
-    const title = titleOf.get(String(view.work.key)) ?? "";
-    const nowText = boardNow({
+/** The card of one story: four lines for a running story, three for one in review. */
+function cardLines(
+  kind: "running" | "review",
+  item: FloorStory,
+  options: FloorOptions,
+): FloorLine[] {
+  const { state, latest, now, width, ascii } = options;
+  const g = glyphs(ascii);
+  const { story, view } = item;
+  const key = String(story.key);
+  const selected = key === options.selected;
+  const indent = " ".repeat(INDENT);
+  const line = (n: number, left: readonly Span[], right: readonly Span[] = []): FloorLine => ({
+    key: `${key}:${n}`,
+    card: key,
+    spans: focused(spread(left, right, width - 1), selected),
+  });
+  const time = view === null ? "" : elapsed(view.usage.run.elapsedMs);
+  const titleRoom = Math.max(0, width - 1 - INDENT - time.length - 2);
+  const first = line(
+    0,
+    [
+      { text: selected ? g.bar : " ", role: "acc" },
+      { text: " " },
+      kind === "running" ? { text: g.live, role: "ok" } : { text: g.idle, role: "acc" },
+      { text: " " },
+      { text: String(story.story).padEnd(10), role: "dim" },
+      { text: truncate(story.title, titleRoom, g.ellipsis), role: "hi" },
+    ],
+    [{ text: `${time} `, role: "dim" }],
+  );
+  const pipeline = view === null ? "review" : view.phase;
+  const marker =
+    view === null
+      ? ""
+      : kind === "running"
+        ? `loop ${view.progress.loop} of ${view.progress.loopCap}`
+        : `round ${view.progress.reviewRound}`;
+  const second = line(
+    1,
+    [{ text: indent }, ...pipelineSpans({ phase: pipeline, ascii })],
+    [{ text: `${marker} `, role: "dim" }],
+  );
+  const lines = [first, second];
+  if (view === null) {
+    lines.push(
+      line(2, [
+        { text: indent },
+        { text: `no session ${g.dot} waits for its review, test or merge`, role: "dim" },
+      ]),
+    );
+  } else if (kind === "review") {
+    const { criteriaMet, criteriaTotal } = view.progress;
+    lines.push(
+      line(2, [
+        { text: indent },
+        {
+          text: `reviewer reading ${g.dot} criteria ${criteriaMet} of ${criteriaTotal} checked so far`,
+          role: "dim",
+        },
+      ]),
+    );
+  } else {
+    const parts = boardNowParts({
       view,
       worker: latest?.line(view.work.run, "worker") ?? null,
       question: state.questions.find((question) => question.work.run === view.work.run),
       now,
-      dot,
     });
-    let first: string;
-    let second: string;
-    if (width === "cards") {
-      first = `${marker}${view.work.story}  ${row.health}  ${row.phase}  ${row.ac}  ${row.loop}  ${row.budget}  ${title}`;
-      second = `   now: ${nowText}`;
-    } else {
-      const cellsText = groups[i]!.map((cell, c) => cell.padEnd(groupWidths[c] ?? 0)).join(sep);
-      const model = width === "full" ? ` ${row.model}` : "";
-      first = `${head(String(view.work.story), title, widths, ellipsis, marker)} ${cellsText}${model}`;
-      second = `${NOW_INDENT}now: ${nowText}`;
-    }
-    const run = String(view.work.run);
-    return {
-      key: String(view.work.key),
-      lines: [
-        selected
-          ? { key: `${run}:row`, text: first, tone: "selected" }
-          : { key: `${run}:row`, text: first },
-        { key: `${run}:now`, text: second, tone: "now" },
-      ],
-    };
-  });
-
-  const tier = (story: StoryView) =>
-    width === "full" && story.tier !== undefined ? `${story.tier}  ` : "";
-  const line = (story: StoryView, note: string): BoardRow => {
-    const selected = String(story.key) === options.selected;
-    const text = `${head(String(story.story), story.title, widths, ellipsis, selected ? bar : " ")}  ${note}`;
-    return {
-      key: String(story.key),
-      lines: [
-        selected
-          ? { key: String(story.key), text, tone: "selected" }
-          : { key: String(story.key), text },
-      ],
-    };
-  };
-  const needsRows = needs.map((story) => {
-    const gate = gated.get(String(story.key));
-    if (gate !== undefined && story.column !== "desk") {
-      return line(story, `${gate.kind} gate waits on you ${dot} ${gate.summary}`);
-    }
-    const parked = story.parked;
-    if (parked === undefined) return line(story, "parked");
-    const detail = parked.detail === "" ? "" : `: ${parked.detail}`;
-    const since = age(now - Date.parse(parked.since));
-    return line(story, `parked ${since} ${dot} ${words(parked.reason)}${detail}`);
-  });
-  const reviewRows = review.map((story) =>
-    line(story, `${tier(story)}in review ${dot} no worker running`),
-  );
-  const readyRows = ready.map((story, i) =>
-    line(story, `${tier(story)}Ready${i === 0 ? ` ${dot} 3 Queue, then R` : ""}`),
-  );
-  const section = (title: string, rows: BoardRow[]): Section => {
-    const keep = rows.findIndex((row) => row.key === options.selected);
-    return keep === -1 ? { title, rows } : { title, rows, keep };
-  };
-  return [
-    section("RUNNING", running),
-    section("NEEDS YOU", needsRows),
-    section("IN REVIEW", reviewRows),
-    section("READY", readyRows),
-  ];
+    const unwell = view.health === "stuck" || view.health === "looping" || view.health === "lost";
+    lines.push(
+      line(
+        2,
+        [
+          { text: indent },
+          { text: "now ", role: "dim" },
+          parts.asking ? { text: parts.lead, role: "acc" } : { text: parts.lead },
+          { text: ` ${g.dot} ${parts.rest.join(` ${g.dot} `)}`, role: "dim" },
+          ...(unwell
+            ? [
+                { text: ` ${g.dot} `, role: "dim" as const },
+                { text: healthLabel(view.health), role: "err" as const },
+              ]
+            : []),
+        ],
+        [
+          { text: "budget ", role: "dim" },
+          ...budgetSpans(view.usage.budgetShare, ascii),
+          { text: ` ${percent(view.usage.budgetShare)} ` },
+        ],
+      ),
+    );
+    const { criteriaMet, criteriaTotal, reviewRound } = view.progress;
+    const complete = criteriaTotal > 0 && criteriaMet === criteriaTotal;
+    lines.push(
+      line(3, [
+        { text: indent },
+        { text: "criteria ", role: "dim" },
+        {
+          text: `${criteriaMet}/${criteriaTotal}${complete ? ` ${g.met}` : ""}`,
+          role: complete ? "ok" : undefined,
+        },
+        {
+          text: `${reviewRound > 0 ? ` ${g.dot} review round ${reviewRound}` : ""} ${g.dot} ${view.work.model}`,
+          role: "dim",
+        },
+      ]),
+    );
+  }
+  return lines;
 }
 
-/** The lines a section takes when it gets `space` lines: all of it, or a window with its kept row. */
-function cutSection(section: Section, space: number, ellipsis: string): BoardLine[] {
-  const title: BoardLine = {
-    key: `section:${section.title}`,
-    text: ` ${section.title} (${section.rows.length})`,
-    tone: "section",
+/** A section header: the title in hi and bold, its note dim at the right. */
+function header(key: string, title: string, note: string, width: number): FloorLine {
+  return {
+    key: `section:${key}`,
+    card: null,
+    spans: spread(
+      [{ text: title, role: "hi", bold: true }],
+      [{ text: note, role: "dim" }],
+      width - 1,
+    ),
   };
-  const need = 1 + section.rows.reduce((sum, row) => sum + row.lines.length, 0);
-  if (need <= space) return [title, ...section.rows.flatMap((row) => row.lines)];
-  if (space < 2) return [];
-  // The title and the "more" line take two lines; whole rows fill the rest.
-  const rowSpace = space - 2;
-  const fitting = (from: number) => {
-    let used = 0;
-    let count = 0;
-    for (const row of section.rows.slice(from)) {
-      if (used + row.lines.length > rowSpace) break;
-      used += row.lines.length;
-      count += 1;
-    }
-    return count;
-  };
-  const keep = Math.min(section.keep ?? 0, section.rows.length - 1);
-  let start = 0;
-  let shown = fitting(0);
-  while (start < keep && keep >= start + shown) {
-    start += 1;
-    shown = fitting(start);
-  }
-  return [
-    title,
-    ...section.rows.slice(start, start + shown).flatMap((row) => row.lines),
-    { key: `more:${section.title}`, text: `   ${ellipsis} ${section.rows.length - shown} more` },
-  ];
 }
 
-/**
- * The sections cut to `height` lines, in their order, which is their order of importance. A
- * section that does not fit shows its title, the whole rows that fit (always with its kept row)
- * and a line with the number left out. Room for the selected row's section (title, the row and
- * the "more" line) is kept first, so the selection stays on screen.
- */
-export function fitSections(
-  list: readonly Section[],
-  height: number,
-  ellipsis: string,
-): BoardLine[] {
-  const selected = list.findIndex(
-    (section) => section.keep !== undefined && section.rows.length > 0,
-  );
-  const kept = list[selected];
-  const reserve =
-    kept === undefined
-      ? 0
-      : 1 + (kept.rows[kept.keep ?? 0]?.lines.length ?? 0) + (kept.rows.length > 1 ? 1 : 0);
-  let room = height;
-  const out: BoardLine[] = [];
-  for (const [i, section] of list.entries()) {
-    if (section.rows.length === 0) continue;
-    const space = room - (i < selected ? reserve : 0);
-    const lines = cutSection(section, Math.max(0, space), ellipsis);
-    out.push(...lines);
-    room -= lines.length;
-    // A cut section ends the board, unless the selected section still follows.
-    if (lines.length === 0 || lines.at(-1)?.key.startsWith("more:")) {
-      if (i >= selected) break;
-    }
+const blank = (key: string): FloorLine => ({ key, spans: [], card: null });
+
+/** The board's lines: the sections, their cards and UP NEXT, before they are cut to the height. */
+export function floorLines(options: FloorOptions): FloorLine[] {
+  const { state, chain, width, ascii } = options;
+  const g = glyphs(ascii);
+  const { running, review } = floorStories(state);
+  const summary = state.offices.find((entry) => entry.office === state.office)?.summary;
+  const out: FloorLine[] = [];
+  if (options.digest !== undefined && options.digest !== null) {
+    out.push({ key: "digest", card: null, spans: [{ text: options.digest, role: "dim" }] });
   }
+  const slots = summary?.slots === undefined ? "" : `${running.length} of ${summary.slots} slots`;
+  out.push(header("running", "RUNNING", slots, width), blank("after:running"));
+  if (running.length === 0) {
+    out.push({
+      key: "idle",
+      card: null,
+      spans: [{ text: `  ${idleLine(state, g.dot)}`, role: "dim" }],
+    });
+  }
+  const cards = (kind: "running" | "review", list: readonly FloorStory[]) =>
+    list.forEach((item, i) => {
+      if (i > 0) out.push(blank(`gap:${item.story.key}`));
+      out.push(...cardLines(kind, item, options));
+    });
+  cards("running", running);
+  if (review.length > 0) {
+    out.push(blank("before:review"), header("review", "IN REVIEW", String(review.length), width));
+    out.push(blank("after:review"));
+    cards("review", review);
+  }
+  out.push(
+    blank("before:next"),
+    header(
+      "next",
+      "UP NEXT",
+      `${columnCount(state, "ready")} ready ${g.dot} ${columnCount(state, "waiting")} waiting`,
+      width,
+    ),
+    blank("after:next"),
+  );
+  const sentence = upNextSpans(chain, ascii ? "->" : "→");
+  out.push({
+    key: "sentence",
+    card: null,
+    spans:
+      sentence === null
+        ? [{ text: "    Nothing waits on another story.", role: "dim" }]
+        : [{ text: "    " }, ...sentence],
+  });
   return out;
 }
 
-/** Memoised by its text: a line renders again only when what it says changes. */
-const Line = memo(function Line(props: {
-  text: string;
-  tone: BoardLine["tone"];
-  display: Display;
-}) {
-  const { text, tone, display } = props;
-  return (
-    <Colored
-      display={display}
-      bold={tone === "section"}
-      role={tone === undefined || tone === "section" ? undefined : "sel"}
-      wrap="truncate-end"
-    >
-      {text}
-    </Colored>
-  );
-});
+/** The lines cut to `height`, from the first one, moved down so the selected card is on screen. */
+export function fitFloor(
+  lines: readonly FloorLine[],
+  height: number,
+  selected: string | null | undefined,
+) {
+  if (lines.length <= height) return lines;
+  const last = lines.findLastIndex((line) => line.card !== null && line.card === selected);
+  const start = last === -1 ? 0 : Math.max(0, last + 1 - height);
+  return lines.slice(start, start + height);
+}
 
 /** Renders again every second while runs show, so the age on the `now` lines moves on. */
 function useTick(clock: Clock, active: boolean): void {
@@ -459,20 +374,21 @@ function useTick(clock: Clock, active: boolean): void {
 export function Overview(props: {
   state: OfficeStoreState;
   display: Display;
-  width: Width;
   columns: number;
-  /** Rows for the board, from its count line to its last row. */
+  /** Rows for the board, from its first line to its last. */
   height: number;
   clock: Clock;
   /** The newest output lines of the running runs; null until an office is open. */
   latest: LatestLines | null;
-  /** The selected row by story key, marked with `>`; Enter opens it. */
+  /** The dependency chain the engine sent, for UP NEXT. */
+  chain: Chain;
+  /** The selected card by story key, marked with `▌`; Enter opens it. */
   selected?: string | null;
-  /** The "since you left" line from `office.digest`, under the count line (DIPO-308). */
+  /** The "since you left" line from `office.digest`, at the top (DIPO-308). */
   digest?: string | null;
 }) {
-  const { state, display, width, columns } = props;
-  const { dot, ellipsis } = glyphs(display.ascii);
+  const { state, display, columns } = props;
+  const { ellipsis } = glyphs(display.ascii);
   useTick(props.clock, state.work.length > 0);
   if (state.office === null) {
     return <Text>{" No office selected. Press o to choose one."}</Text>;
@@ -480,37 +396,21 @@ export function Overview(props: {
   if (state.loading && state.stories.length === 0) {
     return <Text>{` Loading${ellipsis}`}</Text>;
   }
-  const top: BoardLine[] = [
-    { key: "counts", text: countLine(state, dot, width, props.clock.now()) },
-  ];
-  if (props.digest !== undefined && props.digest !== null) {
-    top.push({ key: "digest", text: ` ${props.digest}` });
-  }
-  if (state.work.length === 0) top.push({ key: "idle", text: idleLine(state, dot) });
-  const board = fitSections(
-    sections({
-      state,
-      width,
-      selected: props.selected,
-      latest: props.latest,
-      now: props.clock.now(),
-      columns,
-      dot,
-      bar: glyphs(display.ascii).bar,
-      ellipsis,
-    }),
-    Math.max(0, props.height - top.length),
-    ellipsis,
-  );
+  const all = floorLines({
+    state,
+    chain: props.chain,
+    latest: props.latest,
+    selected: props.selected,
+    now: props.clock.now(),
+    width: columns,
+    ascii: display.ascii,
+    digest: props.digest,
+  });
+  const shown = fitFloor(all, props.height, props.selected);
   return (
     <Box flexDirection="column">
-      {[...top, ...board].map((line) => (
-        <Line
-          key={line.key}
-          text={truncate(line.text, columns, ellipsis)}
-          tone={line.tone}
-          display={display}
-        />
+      {shown.map((line) => (
+        <SpanLine key={line.key} spans={cutSpans(line.spans, columns - 1)} display={display} />
       ))}
     </Box>
   );

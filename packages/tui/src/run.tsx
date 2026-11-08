@@ -14,6 +14,7 @@ import {
   type Clock,
   type EngineError,
   findCommand,
+  officeChain,
   officeDesk,
   officeDigest,
   officeRetro,
@@ -21,6 +22,7 @@ import {
   officeOpen,
   officeSetPrivacy,
   storyDetail,
+  storyGate,
   storyLosses,
   workOutputRange,
   workPrompt,
@@ -302,6 +304,26 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
       readDesk: async (office) => {
         try {
           return await connected.read(officeDesk, { office });
+        } catch (error) {
+          return {
+            ok: false,
+            error: { code: "client.failed", message: errorText(error), retryable: false },
+          };
+        }
+      },
+      readChain: async (office) => {
+        try {
+          return await connected.read(officeChain, { office });
+        } catch (error) {
+          return {
+            ok: false,
+            error: { code: "client.failed", message: errorText(error), retryable: false },
+          };
+        }
+      },
+      readGate: async (office, story) => {
+        try {
+          return await connected.read(storyGate, { office, story });
         } catch (error) {
           return {
             ok: false,

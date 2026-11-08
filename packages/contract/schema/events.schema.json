@@ -159,6 +159,11 @@
             "required": ["key", "value", "source"]
           }
         },
+        "slots": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
         "lastActivityAt": {
           "type": "string",
           "format": "date-time",

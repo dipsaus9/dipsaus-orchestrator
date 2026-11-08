@@ -124,6 +124,10 @@ export class FakeSession implements TuiSession {
   desk: unknown[] | (() => unknown) = [];
   /** What `story.losses` answers, by story id. */
   readonly losses = new Map<string, { commits: unknown[] }>();
+  /** What `office.chain` answers (DIPO-460): nothing waits by default. */
+  chain: unknown = { rows: [], nodes: [] };
+  /** What `story.gate` answers by story id; a story not listed passes with 28 rules. */
+  readonly gates = new Map<string, unknown>();
   /** What `office.digest` answers; null answers with no digest read. */
   digest: unknown = null;
   /** What `office.retro` answers; null answers with an error (DIPO-453). */
@@ -164,6 +168,19 @@ export class FakeSession implements TuiSession {
           view,
           runs: this.runs.get(args.story ?? "") ?? [],
           verdicts: this.verdicts.get(args.story ?? "") ?? [],
+        },
+      };
+    }
+    if (definition.name === "office.chain") return { ok: true, result: this.chain };
+    if (definition.name === "story.gate") {
+      return {
+        ok: true,
+        result: this.gates.get(args.story ?? "") ?? {
+          story: args.story,
+          key: args.story,
+          passed: true,
+          failures: [],
+          rules: 28,
         },
       };
     }

@@ -76,7 +76,7 @@ async function openDetail(options: { columns?: number; rows?: number; tail?: num
   mounted.push(view.ui);
   await view.ui.waitFor("daemon live");
   await view.ui.press("j");
-  await view.ui.waitFor("▌DIPO-24");
+  await view.ui.waitFor("▌ ● DIPO-24");
   // Only the detail's own reads count; the overview read the tails of every run before (DIPO-81).
   view.session.reads.splice(0);
   await view.ui.press("enter");
@@ -101,8 +101,8 @@ describe("live agent detail", () => {
       RULE,
       " DIPO-24 Add verify retry · developer · S · claude-sonnet · run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
       " now  looping @ · build · [tool] Edit src/retry.ts (live)",
-      " phase    build                      │ output (worker) [w]orker* [v]erify [i] prompt",
-      " health   looping @                  │ Step 27: retries now stop at the cap in test/retry.test.ts.",
+      " setup ━━ ● build ┄┄ review ┄┄ test ┄┄ merge",
+      " health   looping @                  │ output (worker) [w]orker* [v]erify [i] prompt",
       " loop     2/3                        │ [tool] Read src/log.ts (step 28)",
       " review   round 0                    │ [tool] Edit src/notice.ts (step 29)",
       " criteria 2/3                        │ Step 30: retries now stop at the cap in src/retry.ts.",
@@ -134,7 +134,8 @@ describe("live agent detail", () => {
     for (const columns of [99, 80, 60]) {
       const { ui } = await openDetail({ columns });
       const frame = ui.frame();
-      expect(frame).toContain(" phase build  health looping @  loop 2/3  review round 0");
+      expect(frame).toContain(" setup ━━ ● build ┄┄ review ┄┄ test ┄┄ merge");
+      expect(frame).toContain(" health looping @  loop 2/3  review round 0");
       expect(frame).toContain(" criteria 2/3  [x][x][ ]");
       expect(frame).not.toContain("signals");
       expect(frame).toContain(" output (worker)");
@@ -214,7 +215,7 @@ describe("live agent detail", () => {
   });
 
   it("reads earlier output with work.outputRange when scrolling up, and End follows the tail", async () => {
-    // The pane keeps 1200 bytes of the 1705 stored: 27 of 40 lines, 17 rows on screen.
+    // The pane keeps 1200 bytes of the 1705 stored: 27 of 40 lines, 16 rows on screen (the pipeline line takes one).
     const { ui, session } = await openDetail({ tail: 1200 });
     const before = rangeReads(session).length;
     await ui.press("k");
@@ -226,7 +227,7 @@ describe("live agent detail", () => {
 
     // A page up reaches the top of what is held: read the text before it.
     await ui.press("pageup");
-    await ui.waitFor("12 rows below");
+    await ui.waitFor("13 rows below");
     const deadline = performance.now() + 1_000;
     while (rangeReads(session).length === before && performance.now() < deadline) {
       await Bun.sleep(5);
@@ -391,21 +392,39 @@ describe("live agent detail", () => {
   });
 
   it("Esc returns to the overview, or to the queue it came from", async () => {
-    const { ui } = await openDetail();
+    const { ui, session } = await openDetail();
     await ui.press("escape");
-    let frame = await ui.waitFor("RUNNING (3)");
-    expect(frame).toContain("▌DIPO-24");
+    let frame = await ui.waitFor("RUNNING");
+    expect(frame).toContain("▌ ● DIPO-24");
 
+    // DIPO-30 is Ready again after an earlier run: Enter opens that run, Esc comes back.
+    session.runs.set("sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C02", [
+      {
+        run: "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C02",
+        agents: ["agt_01J9ZK5Q8W3V4X6Y7Z8A9B0C02"],
+        role: "developer",
+        tier: "S",
+        model: "claude-haiku",
+        startedAt: "2026-10-14T07:00:00.000Z",
+        endedAt: "2026-10-14T08:04:00.000Z",
+        outcome: "completed",
+        usage: {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheCreateTokens: 0,
+          cacheReadTokens: 0,
+          turns: 1,
+          elapsedMs: 60_000,
+        },
+      } as never,
+    ]);
     await ui.press("3");
-    await ui.waitFor("next Ready story");
-    // RUNNING: DIPO-21 is the row after six others in the queue.
-    for (let i = 0; i < 6; i++) await ui.press("j");
-    await ui.waitFor("▌ RUNNING (3) DIPO-21");
+    await ui.waitFor("▌ → DIPO-30");
     await ui.press("enter");
-    await ui.waitFor("DIPO-21 Stream worker events to the TUI · developer");
+    await ui.waitFor("DIPO-30 Add park reasons to digest · developer");
     await ui.press("escape");
-    frame = await ui.waitFor("next Ready story");
-    expect(frame).toContain("▌ RUNNING (3) DIPO-21");
+    frame = await ui.waitFor("READY");
+    expect(frame).toContain("▌ → DIPO-30");
   });
 
   it("Enter on a story that never ran says it has not run yet (DIPO-81)", async () => {
@@ -413,8 +432,7 @@ describe("live agent detail", () => {
     mounted.push(view.ui);
     await view.ui.waitFor("daemon live");
     await view.ui.press("3");
-    await view.ui.waitFor("next Ready story");
-    await view.ui.press("j");
+    await view.ui.waitFor("READY");
     await view.ui.press("enter");
     await view.ui.waitFor("DIPO-30 Add park reasons to digest · Ready, not run yet");
   });
@@ -494,7 +512,7 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
       false,
     );
     await first.ui.press("escape");
-    await first.ui.waitFor("▌DIPO-24");
+    await first.ui.waitFor("▌ ● DIPO-24");
     await first.ui.press("enter");
     const reread = await first.ui.waitFor("phase: verify ──");
     expect(reread).toContain("[dipo] 2026-10-14T10:03:59.000Z phase done");
@@ -539,8 +557,9 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
       );
     }
     const frame = await ui.waitFor("May I drop the build folder?");
-    expect(lines(frame).slice(4, 9)).toEqual([
+    expect(lines(frame).slice(4, 10)).toEqual([
       " now  looping @ · build · Step 39: retries now stop at the cap in src/notice.ts.",
+      " setup ━━ ● build ┄┄ review ┄┄ test ┄┄ merge",
       " ? question 4m ago · Which greeting should the CLI print?",
       `   answer: dipo answer ${Q1} <text>`,
       " ? question 30s ago · May I drop the build folder?",
@@ -773,6 +792,6 @@ describe("the detail across a daemon restart (DIPO-327)", () => {
       }),
     );
     const frame = await ui.waitFor("now  busy > · build");
-    expect(frame).toContain(" phase    build");
+    expect(frame).toContain(" setup ━━ ● build ┄┄ review ┄┄ test ┄┄ merge");
   });
 });

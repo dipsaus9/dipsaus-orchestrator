@@ -471,6 +471,19 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
           message: "ready DIPO-21 failed R11: no declared scope; add at least one path with --ref",
         },
       ],
+      rules: 31,
+      touches: ["packages/tui/src/queue.tsx"],
+    },
+  },
+  "office.chain": {
+    args: { office: ids.office },
+    result: {
+      rows: [{ levels: [["DIPO-21"], ["DIPO-22", "DIPO-23"]], parked: "DIPO-21" }],
+      nodes: [
+        { story: "DIPO-21", key: ids.storyKey, state: "parked", unblocks: ["DIPO-22", "DIPO-23"] },
+        { story: "DIPO-22", key: ids.storyKey, state: "waiting", unblocks: [] },
+        { story: "DIPO-23", key: ids.storyKey, state: "waiting", unblocks: [] },
+      ],
     },
   },
   "office.stats": {

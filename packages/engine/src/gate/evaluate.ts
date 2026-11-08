@@ -22,6 +22,11 @@ export function rulesFor(mode: GateMode): readonly RuleCheck[] {
   return [mode === "ready" ? r01a : r01b, ...SHARED_RULES, ...(mode === "pickup" ? [r31] : [])];
 }
 
+/** How many rules `mode` checks, the warning rules included (DIPO-460). */
+export function ruleCount(mode: GateMode): number {
+  return rulesFor(mode).length + WARNING_RULES.length;
+}
+
 function readFields(description: string): Pick<GateContext, "fields" | "fieldError"> {
   try {
     return { fields: parseFieldBlock(description).fields, fieldError: undefined };

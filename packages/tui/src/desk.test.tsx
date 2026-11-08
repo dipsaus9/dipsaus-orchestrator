@@ -253,9 +253,7 @@ async function openQueue() {
   mounted.push(view.ui);
   await view.ui.waitFor("daemon live");
   await view.ui.press("3");
-  await view.ui.waitFor("next Ready story");
-  await view.ui.press("j");
-  await view.ui.waitFor("▌ READY (2)   DIPO-30");
+  await view.ui.waitFor("▌ → DIPO-30");
   return view;
 }
 
@@ -787,8 +785,7 @@ describe("the queue and the detail use the same table", () => {
     await ui.press("escape");
     // The queue: the focused story row.
     await ui.press("3");
-    await ui.waitFor("next Ready story");
-    await ui.press("j");
+    await ui.waitFor("READY");
     await ui.press("c");
     await ui.waitFor("copied DIPO-30");
     expect(copied).toEqual(["DIPO-21", expect.stringMatching(/^run_/), "DIPO-30"]);
@@ -829,7 +826,7 @@ describe("answers, closed prompts, read-your-writes and retry", () => {
     // DIPO-19 is the third running row.
     await ui.press("j");
     await ui.press("j");
-    await ui.waitFor("▌DIPO-19");
+    await ui.waitFor("▌ ● DIPO-19");
     await until(() => lines(ui.frame()).at(-1)?.includes("a answer") === true, "a answer");
     await ui.press("a");
     await ui.waitFor('answer DIPO-19: "Is a 404 ok?"');
