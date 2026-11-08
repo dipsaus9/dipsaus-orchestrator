@@ -110,7 +110,7 @@ dipo records the previous values. Existing ignore files are never edited.
 | Parts | Committed from git objects on the branch ref, then pushed (0008) |
 | Code tree key | The hash of `git ls-tree -r <commit>` without the story's own task file. Verdicts are keyed on it (0002) |
 | Conflict check | `git merge-tree --write-tree origin/<base> <branch>`. Exit 0 is clean, exit 1 with a tree and conflict lines is a conflict, and anything else is an error, not a conflict |
-| Base sync | Only on a conflict, as a merge from objects committed with its markers (0002). Never a rebase |
+| Base sync | When the base moved, before a resumed or fix round session, and on a conflict, as a merge from objects committed with its markers (0002). Never a rebase |
 | Push | Never forced, never to the base. A rejected push parks the story `conflict` |
 | Merge and Done | GitHub merges with `--squash` (0002). Done is the one Done check of 0002: the PR merged, or the story reads `Done` on the base while dipo holds its claim. It never comes from ancestry. `merge-tree` showing that a branch adds nothing to the base only decides whether the branch may be deleted (0020) |
 | Teardown | After Done, drop or discard: delete the local branch, delete the remote branch with a lease on the tip dipo pushed, and delete the box. A ref dipo did not create is never deleted |
@@ -145,6 +145,7 @@ There are no git hooks, no changes to existing ignore files or `info/exclude`, a
 - The office-load sweep of story worktrees an earlier binary left, with `worktree.rebuildable` and a desk item for the kept ones (2026-10-29). Gone with the database squash (0007, 2026-11-03).
 - Verify and commit at done with a scope check on the worktree, and lockfile pairing (2026-10-10). Replaced by parts, verify in the box with the required checks last (0002), and references as a forecast (0008).
 - A building-time sync for riskier stories (2026-10-10). Removed; dipo syncs only on a conflict (2026-10-24).
+- A base sync only on a conflict (2026-10-24). Replaced by a sync when the base moved, before a resumed or fix round session, and on a conflict (2026-11-08, DIPO-464), because a box cannot reach the base.
 - A conflict merge left in progress in a worktree (2026-10-16). Replaced by a merge committed with markers (0002).
 - A reused branch merged with the base at claim, with a conflict as the worker's first feedback (2026-10-10). Replaced (2026-10-28) by reuse at the kept tip, then the conflict check and base sync (0002).
 - Seven separate places that made commits, and pushes from eight. Replaced by one module that makes every commit, ref change and push (2026-10-24).

@@ -59,7 +59,7 @@ subject = 1 to 100 characters, no trailing period
 The maintainer applies these by hand (`docs/release.md`, `CLAUDE.md`). Agents and dipo change them only when the maintainer asks.
 
 - On `main`: PR required, 0 approvals, linear history, `enforce_admins`.
-- Required checks `ci-ok` and `pr-title`. **`strict` is off:** a PR is brought up to date only on a conflict (0002).
+- Required checks `ci-ok` and `pr-title`. **`strict` is off:** dipo merges the base itself when it moved (0002); GitHub does not demand it.
 - Squash merge only, with commit title `PR_TITLE` and commit message `BLANK`, so the checked title alone decides the version.
 - **"Allow auto-merge" on**, which dipo's merges use (0002).
 - **The branch ruleset "release path review":** a PR that changes `.github/**`, `install.sh`, the release-please config or `renovate.json` needs the code owner's review (`.github/CODEOWNERS` names the maintainer). Repository admins may bypass, on pull requests only. dipo treats every CODEOWNERS path as hand-merge only and never bypasses (0002).
@@ -124,6 +124,7 @@ gh attestation verify <file> --repo dipsaus9/dipsaus-orchestrator \
 
 - Four release targets: darwin-arm64, darwin-x64, linux-x64 and linux-arm64 (2026-10-10). Replaced by darwin-arm64 only (2026-10-24, 0004). The smoke jobs for the other three go, as do the glibc floor checks and the musl question.
 - `strict` on, with a merge slot that kept branches up to date at merge time (2026-10-10). `strict` turned off (2026-10-22). The slot was replaced by GitHub auto-merge (0002, 2026-10-24).
+- A PR brought up to date only on a conflict (2026-10-22). Replaced by dipo merging the base itself when it moved (0002, 2026-11-08, DIPO-464).
 - Fix rounds from a merge-time sync counted against the review round cap (2026-10-10). Replaced by one cap per source (0002).
 - Lockfile maintenance automerge (2026-10-10). Turned off (2026-10-23).
 - The full CI on every PR, backlog-only ones included (2026-10-10). Replaced by the light path for backlog-only PRs (2026-10-24).

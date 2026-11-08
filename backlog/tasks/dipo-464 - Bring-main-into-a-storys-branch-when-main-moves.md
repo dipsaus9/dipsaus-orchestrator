@@ -4,7 +4,7 @@ title: Bring main into a story's branch when main moves
 status: Done
 assignee: []
 created_date: '2026-11-08 12:17'
-updated_date: '2026-11-08 13:16'
+updated_date: '2026-11-08 13:26'
 labels:
   - 'tier:L'
 milestone: m-3
@@ -78,5 +78,5 @@ test_plan:
 - [x] #6 A conflicted merge is committed as git left it, copied into the box and handed to the worker in its first message with the conflicting files listed; no model outside the box resolves it, and a conflict in a path the worker cannot write parks the story conflict as today
 - [x] #7 A branch that already holds the base merges nothing, and the claim of a reused branch still merges nothing (0010)
 - [x] #8 A catch-up merge commit leaves the PR's diff against the base with only the story's own changes, and the squash merge still takes the PR title as its subject
-- [ ] #9 ADR 0002 brings back the sync without a conflict it removed on 2026-10-24: its no sync without a conflict text is rewritten to the merge when the base moved, giving DIPO-457 and DIPO-463 as the reason, with one Replaced line; ADR 0008 describes the catch-up commit in the box's git with one Replaced line; ADR 0016 stays untouched, since GitHub's up-to-date rule stays off and dipo does the merge; the maintainer approves the wording in the story's PR
+- [ ] #9 ADR 0002 brings back the sync without a conflict it removed on 2026-10-24: its no sync without a conflict text is rewritten to the merge when the base moved, giving DIPO-457 and DIPO-463 as the reason, with one Replaced line; ADR 0008 describes the catch-up commit in the box's git with one Replaced line; ADR 0010's base sync row and ADR 0016's strict line say dipo merges the base itself when it moved, each with one Replaced line, and GitHub's up-to-date rule stays off; the maintainer approves the wording in the story's PR
 <!-- AC:END -->
