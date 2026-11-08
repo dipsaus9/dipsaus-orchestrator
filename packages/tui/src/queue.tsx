@@ -1,8 +1,8 @@
-// The queue by lifecycle (`2`, 0009): one section per engine-derived column with
+// The queue by lifecycle (`3`, 0009): one section per engine-derived column with
 // its count, in the order of the 0009 layout. `waiting` rows name the dependencies that are not
 // Done, Refined rows show the first Ready gate message with its rule id, and the stories the
 // maintainer parked their note.
-// The first row is "next Ready story": `u` on it lets the engine pick, `u` on a story runs that one.
+// The first row is "next Ready story": `R` on it lets the engine pick, `R` on a story runs that one.
 // Done stories show only after `.`. Rows are memoised by story key, and each is cut to the width.
 
 import type { StoryView } from "@dipsaus-orchestrator/contract";

@@ -43,7 +43,7 @@ describe("the since-you-left line", () => {
       counts: { done: 2, parked: 1, parkedByYou: 1, questions: 1, merges: 0, proposals: 0 },
       lines: ["DIPO-12 done", "DIPO-14 done", "DIPO-26 parked: needs-permission"],
     };
-    await view.ui.waitFor("· live");
+    await view.ui.waitFor("daemon live");
     await readsReach(view.session.reads, 1);
     const opened = view.clock.now();
     view.clock.advance(5 * MINUTE);

@@ -3,9 +3,10 @@
 // `palette.tsx`'s and the keys overlay's `help.tsx`; both read the key registry.
 
 import type { OfficeStoreState } from "@dipsaus-orchestrator/client";
-import type { Key } from "ink";
-import type { Dispatch } from "react";
+import { Box, type Key } from "ink";
+import type { Dispatch, ReactNode } from "react";
 
+import { Shaded } from "./colour";
 import { Help } from "./help";
 import type { Home } from "./home";
 import { binding, NAV_KEYS } from "./keys";
@@ -53,8 +54,10 @@ export function useOverlays(args: OverlayArgs) {
       dispatch({ type: "home" });
       home.openSettings();
     } else if (run.kind === "go") {
-      if (run.to === "retro" || run.to === "planning") dispatch({ type: run.to });
-      else if (run.to === "offices") {
+      if (run.to === "retro" || run.to === "planning") {
+        dispatch({ type: "home" });
+        dispatch({ type: run.to });
+      } else if (run.to === "offices") {
         dispatch({ type: "switcher", index: selectedOfficeIndex(state) });
       } else {
         dispatch({ type: "home" });
@@ -138,5 +141,35 @@ export function OverlayMode(props: {
       index={mode.index}
       focus={focus}
     />
+  );
+}
+
+/** The palette or the keys over the body they opened on, which waits behind them in shade (S5, S9). */
+export function OverlayOver(props: {
+  readonly mode: Mode;
+  readonly home: Home;
+  readonly state: OfficeStoreState;
+  readonly display: Display;
+  readonly columns: number;
+  readonly height: number;
+  readonly behind: { readonly home: ReactNode; readonly retro: ReactNode };
+}) {
+  const { mode, display } = props;
+  if (mode.kind !== "palette" && mode.kind !== "help") return null;
+  return (
+    <Box flexDirection="column" height={props.height} overflow="hidden">
+      <Shaded display={display}>
+        {mode.back === "retro" ? props.behind.retro : props.behind.home}
+      </Shaded>
+      <Box position="absolute" flexDirection="column" width="100%">
+        <OverlayMode
+          mode={mode}
+          home={props.home}
+          state={props.state}
+          display={display}
+          columns={props.columns}
+        />
+      </Box>
+    </Box>
   );
 }

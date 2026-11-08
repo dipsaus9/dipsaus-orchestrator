@@ -55,7 +55,7 @@ describe("privacy settings view", () => {
     expect(frame).toContain("comments are not kept");
     await ui.press("escape");
     // Wait for the overview to render again before checking the settings view is gone.
-    const overview = await ui.waitFor("[2] queue");
+    const overview = await ui.waitFor(": commands");
     expect(overview).not.toContain("Privacy settings");
   });
 

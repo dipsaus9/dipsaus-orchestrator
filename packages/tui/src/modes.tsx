@@ -11,7 +11,7 @@ import type { TuiActions } from "./app";
 import type { Mode, ModeAction } from "./mode";
 import type { Display } from "./options";
 import { confirmPrompt, settingName } from "./settings";
-import { SwitcherBody } from "./views";
+import { OfficesBody } from "./views";
 
 /** The row of the switcher the open office is on. */
 export function selectedOfficeIndex(state: OfficeStoreState): number {
@@ -110,7 +110,7 @@ export function onSwitcherKey(
     const entry = ctx.state.offices[current.index];
     if (entry === undefined || ctx.refusedOffline()) return;
     switchTo(ctx, entry.office, entry.name);
-  } else if (input === "n") {
+  } else if (input === "a") {
     if (ctx.refusedOffline()) return;
     ctx.setMessage(null);
     ctx.dispatch({ type: "enter-path" });
@@ -129,19 +129,17 @@ interface ScreenProps {
   readonly columns: number;
 }
 
-/** The switcher: the offices, and the typed path under them in the path mode. */
+/** Offices: the offices, and the typed path under them in the path mode. */
 function SwitcherMode(props: ScreenProps & { readonly index: number; readonly path?: string }) {
   return (
-    <>
-      <SwitcherBody
-        state={props.state}
-        display={props.display}
-        index={props.index}
-        now={props.clock.now()}
-        columns={props.columns}
-      />
-      {props.path === undefined ? null : <Text>{` open repository path: ${props.path}_`}</Text>}
-    </>
+    <OfficesBody
+      state={props.state}
+      display={props.display}
+      index={props.index}
+      now={props.clock.now()}
+      columns={props.columns}
+      path={props.path ?? null}
+    />
   );
 }
 
@@ -204,8 +202,6 @@ export function ModeScreen(props: ModeScreenProps) {
 /** The lines the prompt of the mode takes under the body at `columns` wide. */
 export function promptHeight(mode: Mode, columns: number): number {
   switch (mode.kind) {
-    case "path":
-      return 1;
     case "confirm-privacy":
       // A confirmation question that wraps takes more than one line.
       return Math.ceil((confirmPrompt(mode.key, mode.value).length + 8) / Math.max(1, columns));

@@ -24,7 +24,7 @@ const LEFT = 52;
 
 const VIEW_NAMES: Readonly<Record<string, string>> = {
   desk: "Desk",
-  overview: "Overview",
+  overview: "Floor",
   queue: "Queue",
   detail: "Run",
   checklist: "Checklist",

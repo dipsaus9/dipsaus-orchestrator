@@ -52,13 +52,13 @@ describe("the palette's rows", () => {
     expect(new Set(groups)).toEqual(new Set(["on", "settings", "goto"]));
     const approve = rows.find((row) => row.label === "Approve");
     expect(approve).toMatchObject({ group: "on", key: "y", disabled: null });
-    expect(rows.find((row) => row.label === "Go to queue")).toMatchObject({ key: "2" });
+    expect(rows.find((row) => row.label === "Go to queue")).toMatchObject({ key: "3" });
     expect(rows.find((row) => row.group === "settings")?.label).toContain("Privacy");
   });
 
   it("keeps an action the item does not offer, with its reason", () => {
     const rows = paletteRows(mergeFocus, false);
-    expect(rows.find((row) => row.label === "Resume")).toMatchObject({
+    expect(rows.find((row) => row.label === "Start again")).toMatchObject({
       key: "r",
       disabled: "not parked",
     });
@@ -120,7 +120,7 @@ describe("the keys overlay", () => {
     expect(keys.item.find((entry) => entry.key === "r")?.off).toBe("not parked");
     expect(keys.typed).toEqual(["dipo approve DIPO-446 --note"]);
     expect(keys.global.map((entry) => entry.key)).toEqual(
-      expect.arrayContaining(["1", "2", "3", "4", "5", ":", "?", "q q"]),
+      expect.arrayContaining(["1–4", "P", "O", ":", "ctrl-k", "?", "q q"]),
     );
   });
 
@@ -134,7 +134,7 @@ describe("the keys overlay", () => {
 async function open() {
   const view = await mount({ columns: 120, rows: 30 });
   mounted.push(view.ui);
-  await view.ui.waitFor("· live");
+  await view.ui.waitFor("daemon live");
   return view;
 }
 
@@ -147,13 +147,13 @@ describe("the palette in the TUI", () => {
     expect(frame).toContain("Privacy: what dipo stores");
     expect(frame).toContain("⏎ run   ↑↓ choose   esc close");
     await ui.press("escape");
-    await ui.waitFor("[:] commands");
+    await ui.waitFor(": commands");
     await ui.press("?");
     frame = await ui.waitFor("ANYWHERE");
     expect(frame).toContain("type to search");
     expect(frame).toContain("Lowercase acts on this item. Capitals spend or destroy.");
     await ui.press("escape");
-    await ui.waitFor("[:] commands");
+    await ui.waitFor(": commands");
   });
 
   it("stops a run only from the palette, and asks first", async () => {
@@ -190,12 +190,12 @@ describe("the palette in the TUI", () => {
   it("opens the plan with P and the retro with the palette", async () => {
     const { ui } = await open();
     await ui.press("P");
-    await ui.waitFor("[Esc] back");
+    await ui.waitFor("esc back");
     await ui.press("escape");
-    await ui.waitFor("[:] commands");
+    await ui.waitFor(": commands");
     await ui.press(":");
     await ui.press("retro");
     await ui.press("enter");
-    await ui.waitFor("[j/k] scroll");
+    await ui.waitFor("↑↓ scroll");
   });
 });

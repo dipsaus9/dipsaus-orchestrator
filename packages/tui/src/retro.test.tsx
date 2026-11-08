@@ -1,4 +1,4 @@
-// The retro view (DIPO-453): `6` opens it from home, it shows the lines the engine built from its
+// The retro view (DIPO-453): `4` opens it from home, it shows the lines the engine built from its
 // numbers, per tier and type, and Esc goes back. The TUI counts nothing itself.
 
 import { afterEach, describe, expect, it } from "bun:test";
@@ -41,7 +41,7 @@ describe("the retro view", () => {
     await ui.press("4");
     const frame = await ui.waitFor("Tier M, type feature: 5 stories, 4 merged");
     for (const line of LINES) expect(frame).toContain(line);
-    expect(frame).toContain("[Esc] back");
+    expect(frame).toContain("esc back");
     expect(session.reads.some((read) => read.name === "office.retro")).toBe(true);
   });
 
@@ -50,6 +50,6 @@ describe("the retro view", () => {
     await ui.press("4");
     await ui.waitFor("capability.missing: none");
     await ui.press("escape");
-    await ui.waitFor("[o] offices");
+    await ui.waitFor("O offices");
   });
 });

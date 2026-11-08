@@ -27,12 +27,12 @@ const running = runTui(process.argv.slice(2), {
   clientInfo: { name: "colour-test", version: "0" },
 });
 
-await terminal.waitFor("daemon running", 5_000);
-for (const key of ["enter", "escape", "2", "3", "1", "p", "escape", "o", "escape", "q"]) {
+await terminal.waitFor("daemon live", 5_000);
+for (const key of ["enter", "escape", "3", "1", "2", ":", "escape", "O", "escape", "q"]) {
   await terminal.press(key);
 }
 session.setState("reconnecting");
-await terminal.waitFor("OFFLINE", 5_000);
+await terminal.waitFor("offline since", 5_000);
 await terminal.press("q");
 const code = await running;
 process.stdout.write(JSON.stringify(terminal.raw()));

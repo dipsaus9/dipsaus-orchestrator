@@ -69,7 +69,7 @@ async function restart(session: FakeSession, ui: { waitFor(text: string): Promis
     type: "daemon.state",
     data: { from: "recovering", to: "running" },
   } as Event);
-  await ui.waitFor("· live");
+  await ui.waitFor("daemon live");
   // Subscribed again after the last cursor the store applied, not from the head.
   expect(session.active(STREAM)?.after).toEqual(LAST);
 }
@@ -79,7 +79,7 @@ describe("an open TUI after a daemon restart", () => {
     const view = await mount({ columns: 120, rows: 30 });
     mounted.push(view.ui);
     const { ui, session, store } = view;
-    await ui.waitFor("· live");
+    await ui.waitFor("daemon live");
     await restart(session, ui);
 
     const before = golden().work[1]!;
@@ -94,7 +94,7 @@ describe("an open TUI after a daemon restart", () => {
     );
     await ui.waitFor("developer S  review  busy >");
 
-    await ui.press("2");
+    await ui.press("3");
     await ui.waitFor("next Ready story");
     const running = { ...goldenStory(KEY_30), lifecycle: "In Progress", column: "running" };
     session.active(STREAM)?.options.onEvent(
@@ -114,7 +114,7 @@ describe("an open TUI after a daemon restart", () => {
     const view = await mount({ columns: 120, rows: 24, outputTailBytes: 800 });
     mounted.push(view.ui);
     const { ui, session } = view;
-    await ui.waitFor("· live");
+    await ui.waitFor("daemon live");
     await ui.press("j");
     await ui.waitFor("▌DIPO-24");
     await ui.press("enter");
@@ -188,7 +188,7 @@ describe("an open TUI when a run ends (DIPO-421)", () => {
     const view = await mount({ columns: 120, rows: 30 });
     mounted.push(view.ui);
     const { ui, session } = view;
-    await ui.waitFor("· live");
+    await ui.waitFor("daemon live");
     expect(ui.frame()).toContain("3 running");
     expect(ui.frame()).toContain("DIPO-19");
 
@@ -202,7 +202,7 @@ describe("an open TUI when a run ends (DIPO-421)", () => {
     const view = await mount({ columns: 120, rows: 24, outputTailBytes: 800 });
     mounted.push(view.ui);
     const { ui, session } = view;
-    await ui.waitFor("· live");
+    await ui.waitFor("daemon live");
     await ui.press("j");
     await ui.waitFor("▌DIPO-24");
     await ui.press("enter");

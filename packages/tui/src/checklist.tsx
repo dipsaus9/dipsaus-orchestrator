@@ -1,7 +1,7 @@
-// The test checklist (`4`, DIPO-365, 0002, 0009): the manual steps of a story's open test, in
+// The test checklist (`t` on a desk row, DIPO-365, 0002, 0009): the manual steps of a story's open test, in
 // order, with local ticks that the engine never sees. The open test comes from the office store
-// (`test.started`, `test.recorded`, `test.ended`); the TUI does not derive it. `P` passes the test
-// and `F` fails it with a note that starts as the first unticked step (`actions.ts`); Esc leaves
+// (`test.started`, `test.recorded`, `test.ended`); the TUI does not derive it. `y` passes the test
+// and `n` fails it with a note that starts as the first unticked step (`actions.ts`); Esc leaves
 // the view and the test open. It names the story by its id, and shows the test's `url` and its
 // `dipo test shell <ID>` line when the test carries them (DIPO-421).
 

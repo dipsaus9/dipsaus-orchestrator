@@ -1,5 +1,5 @@
-// The test checklist in the TUI (DIPO-365 test plan): `4` and `t` on a desk row show the open
-// test's manual steps, Space ticks one locally, `P` sends a pass, `F` pre-fills the note with the
+// The test checklist in the TUI (DIPO-365 test plan, DIPO-458): `t` on a desk row shows the open
+// test's manual steps, Space ticks one locally, `y` sends a pass, `n` pre-fills the note with the
 // first unticked step and sends a fail, and Esc leaves the test open. While `test.start` runs the
 // checklist names the story by its id, never its internal key, and the open test shows its
 // `dipo test shell <ID>` line (DIPO-421). Frames are asserted with ANSI stripped.
@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { DeskItem, type Event, StreamName } from "@dipsaus-orchestrator/contract";
 
 import { OFFICES } from "../test/support/fake-session";
+import { BATCH_MS } from "./batch";
 import { mount } from "../test/support/setup";
 
 const mounted: { unmount(): Promise<void> }[] = [];
@@ -42,7 +43,7 @@ async function openTest() {
     rows: 30,
   });
   mounted.push(view.ui);
-  await view.ui.waitFor("· live");
+  await view.ui.waitFor("daemon live");
   view.session.active(STREAM)?.options.onEvent(
     event(20, "test.started", {
       test: TEST_19,
@@ -55,7 +56,27 @@ async function openTest() {
       startedAt: "2026-10-14T10:03:00.000Z",
     }),
   );
+  // The TUI takes the store's state at most every 100 ms (`batch.ts`): let the test arrive.
+  await Bun.sleep(BATCH_MS + 50);
   return view;
+}
+
+/** `t` on DIPO-19's desk row, which offers no new test: its open test's checklist. */
+async function showChecklist(view: Awaited<ReturnType<typeof openTest>>) {
+  view.session.desk = [
+    DeskItem.parse({
+      kind: "IN REVIEW",
+      story: "DIPO-19",
+      key: KEY_19,
+      detail: "testing",
+      since: "2026-10-14T10:00:00.000Z",
+      blocks: [],
+      actions: [],
+    }),
+  ];
+  await view.ui.press("1");
+  await view.ui.waitFor("▌ IN REVIEW DIPO-19");
+  await view.ui.press("t");
 }
 
 /** Waits until the command count reaches `count`, polling. */
@@ -75,9 +96,10 @@ function sent(session: {
 }
 
 describe("the test checklist", () => {
-  it("shows the open test's steps; Space ticks one locally; P passes and F fails with the note pre-filled", async () => {
-    const { ui, session } = await openTest();
-    await ui.press("T");
+  it("shows the open test's steps; Space ticks one locally; y passes and n fails with the note pre-filled", async () => {
+    const view = await openTest();
+    const { ui, session } = view;
+    await showChecklist(view);
     await ui.waitFor("Test of DIPO-19: dipo-test-19 at 9f8e7d6");
     expect(ui.frame()).toContain("open http://localhost:3000");
     // The focus bar marks the focused step.
@@ -89,8 +111,8 @@ describe("the test checklist", () => {
     await ui.waitFor("[x] 1. open the login page");
     expect(session.commands).toEqual([]);
 
-    // F pre-fills the note with the first unticked step, which is step 2 now.
-    await ui.press("F");
+    // n pre-fills the note with the first unticked step, which is step 2 now.
+    await ui.press("n");
     await ui.waitFor("fail note: submit a wrong password_");
     await ui.press("enter");
     await until(() => session.commands.length === 1, "test.record");
@@ -101,8 +123,8 @@ describe("the test checklist", () => {
       },
     ]);
 
-    // P sends a pass for the same open test.
-    await ui.press("P");
+    // y sends a pass for the same open test.
+    await ui.press("y");
     await until(() => session.commands.length === 2, "test.record pass");
     expect(sent(session)[1]).toEqual({
       name: "test.record",
@@ -111,15 +133,16 @@ describe("the test checklist", () => {
   });
 
   it("Esc leaves the view and sends nothing, so the test stays open", async () => {
-    const { ui, session } = await openTest();
-    await ui.press("T");
+    const view = await openTest();
+    const { ui, session } = view;
+    await showChecklist(view);
     await ui.waitFor("Test of DIPO-19");
     await ui.press("escape");
     await until(() => !ui.frame().includes("Test of DIPO-19"), "the checklist to close");
     expect(session.commands).toEqual([]);
 
     // Back in the checklist the test is still open, with its steps as they were.
-    await ui.press("T");
+    await ui.press("t");
     await ui.waitFor("Test of DIPO-19");
     expect(session.commands).toEqual([]);
   });
@@ -137,7 +160,7 @@ describe("the test checklist", () => {
         actions: [{ command: "test.start", cli: "dipo test DIPO-19" }],
       }),
     ];
-    await ui.press("3");
+    await ui.press("1");
     await ui.waitFor("Your desk (");
     await ui.press("t");
     await until(() => session.commands.length === 1, "test.start");
@@ -149,7 +172,7 @@ describe("the test checklist", () => {
     const view = await mount({ columns: 120, rows: 30 });
     mounted.push(view.ui);
     const { ui, session } = view;
-    await ui.waitFor("· live");
+    await ui.waitFor("daemon live");
     session.desk = [
       DeskItem.parse({
         kind: "IN REVIEW",
@@ -161,7 +184,7 @@ describe("the test checklist", () => {
         actions: [{ command: "test.start", cli: "dipo test DIPO-19" }],
       }),
     ];
-    await ui.press("3");
+    await ui.press("1");
     await ui.waitFor("Your desk (");
     await ui.press("t");
     await until(() => session.commands.length === 1, "test.start");

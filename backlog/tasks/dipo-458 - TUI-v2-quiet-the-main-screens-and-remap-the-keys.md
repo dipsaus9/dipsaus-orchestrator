@@ -1,10 +1,10 @@
 ---
 id: DIPO-458
 title: 'TUI v2: quiet the main screens and remap the keys'
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-07 11:12'
+updated_date: '2026-11-08 09:28'
 labels:
   - 'tier:S'
 milestone: m-6
@@ -62,13 +62,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The skipped list of a run no longer stays under every view; its summary shows once in the ticker
-- [ ] #2 The header shows dipo / office, `+2 elsewhere · O` when other offices need you, the daemon dot and word, spend today and the time only
-- [ ] #3 Keys follow keymap.json changedFromToday, and the footer shows the new keys
-- [ ] #4 Offline shows the frozen body in shade with action keys removed from the footer; recovering with a database problem and daemon stopped show the bodies of screens/12-states.txt
-- [ ] #5 Offices lists NEEDS YOU first in bold acc, RUNNING, READY and the TODAY bar, with the live, starts paused and idle glyphs
+- [x] #1 The skipped list of a run no longer stays under every view; its summary shows once in the ticker
+- [x] #2 The header shows dipo / office, `+2 elsewhere · O` when other offices need you, the daemon dot and word, spend today and the time only
+- [x] #3 Keys follow keymap.json changedFromToday, and the footer shows the new keys
+- [x] #4 Offline shows the frozen body in shade with action keys removed from the footer; recovering with a database problem and daemon stopped show the bodies of screens/12-states.txt
+- [x] #5 Offices lists NEEDS YOU first in bold acc, RUNNING, READY and the TODAY bar, with the live, starts paused and idle glyphs
 - [ ] #6 The header, footer, Offices and daemon state screens match the HTML preview. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
-- [ ] #7 office.summary carries today's spend (engine addition), and the header reads it from there
-- [ ] #8 OfficeSummary carries each office's last activity (engine addition), and Offices shows idle N days from it
+- [x] #7 office.summary carries today's spend (engine addition), and the header reads it from there
+- [x] #8 OfficeSummary carries each office's last activity (engine addition), and Offices shows idle N days from it
 - [ ] #9 Header, footer and Offices show the colour roles as the HTML preview's S10 shows them in truecolor and 16 colours, dark and light, and under NO_COLOR (the S10 look check moved here from DIPO-457)
 <!-- AC:END -->

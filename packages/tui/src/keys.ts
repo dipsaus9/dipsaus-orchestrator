@@ -1,6 +1,8 @@
-// The one key table of the TUI's actions (0009, DIPO-308): which key sends which
-// command, in which view. The desk binds every action `office.desk` can list; the live agent detail
-// adds `s` steer and `P` park, the queue `P` park and `d` drop, and an overview row whose run asks
+// The one key table of the TUI's actions (0009, DIPO-308, DIPO-458): which key sends which
+// command, in which view, as `docs/design/tui-v2/keymap.json` binds it. Lowercase acts on the
+// focused item, capitals spend or destroy (`R` run, `X` drop, `D` discard). The desk binds every
+// action `office.desk` can list; the live agent detail adds `s` steer and `p` park, the queue `p`
+// park and `X` drop, the test checklist `y` pass and `n` fail, and an overview row whose run asks
 // offers `a` answer.
 //
 // On a desk row a key is offered only when the row's `actions` lists its command; a view's row
@@ -10,6 +12,9 @@
 // always a text (0020). The desk's `i` hands the maintainer's quick idea to the audit (0022,
 // DIPO-454) on any row. Client and daemon are one binary (0005), so every command in the table
 // exists.
+//
+// The command palette (`palette.tsx`) and the keys overlay (`help.tsx`) read the same table,
+// `NAV_KEYS` and `GLOBAL_KEYS` (DIPO-463). Stopping a run has no key: it is a palette row.
 
 import type { DeskAction, DeskItem } from "@dipsaus-orchestrator/contract";
 
@@ -55,11 +60,14 @@ export interface KeyBinding {
   readonly priority: number;
   /** True when the focused item offers the action. */
   readonly when: (ctx: RowContext) => boolean;
-  /** The footer and row hint. */
-  readonly hint: string;
   readonly views: readonly ActionView[];
   /** Why the palette and the keys overlay list the action as off when `when` is false. */
   readonly why?: string;
+}
+
+/** A key and its label as the footer and a wide desk row print them: `y approve`. */
+export function hintText(entry: { readonly key: string; readonly label: string }): string {
+  return entry.key === "" ? entry.label : `${entry.key} ${entry.label}`;
 }
 
 /** The table, in the order a row's keys are shown and taken. */
@@ -71,7 +79,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     command: "work.answer",
     when: offered("work.answer"),
     key: "a",
-    hint: "[a]nswer",
     views: ["desk", "detail", "overview"],
   },
   {
@@ -82,7 +89,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     command: "gate.approve",
     when: offered("gate.approve"),
     key: "y",
-    hint: "[y] approve",
     views: ["desk"],
   },
   {
@@ -93,7 +99,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     command: "gate.reject",
     when: offered("gate.reject"),
     key: "n",
-    hint: "[n] reject",
     views: ["desk"],
   },
   {
@@ -103,7 +108,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     command: "idea.accept",
     when: offered("idea.accept"),
     key: "y",
-    hint: "[y] accept",
     views: ["desk"],
   },
   {
@@ -113,7 +117,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     command: "idea.dismiss",
     when: offered("idea.dismiss"),
     key: "n",
-    hint: "[n] dismiss",
     views: ["desk"],
   },
   {
@@ -123,7 +126,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     command: "note.dismiss",
     when: offered("note.dismiss"),
     key: "n",
-    hint: "[n] dismiss",
     views: ["desk"],
   },
   {
@@ -133,18 +135,16 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     command: "idea.add",
     when: () => true,
     key: "i",
-    hint: "[i]dea",
     views: ["desk"],
   },
   {
     id: "resume",
     why: "not parked",
-    label: "resume",
+    label: "start again",
     priority: 85,
     command: "work.resume",
     when: offered("work.resume"),
     key: "r",
-    hint: "[r]esume",
     views: ["desk"],
   },
   {
@@ -155,7 +155,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     command: "test.start",
     when: offered("test.start"),
     key: "t",
-    hint: "[t]est",
     views: ["desk"],
   },
   {
@@ -165,8 +164,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     priority: 85,
     command: "story.park",
     when: offered("story.park"),
-    key: "P",
-    hint: "[P]ark",
+    key: "p",
     views: ["desk", "detail", "queue"],
   },
   {
@@ -176,8 +174,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     priority: 85,
     command: "story.drop",
     when: offered("story.drop"),
-    key: "d",
-    hint: "[d]rop",
+    key: "X",
     views: ["desk", "queue"],
   },
   {
@@ -188,7 +185,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     command: "work.discard",
     when: offered("work.discard"),
     key: "D",
-    hint: "[Shift-D]iscard",
     views: ["desk"],
   },
   {
@@ -198,7 +194,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     command: "work.steer",
     when: offered("work.steer"),
     key: "s",
-    hint: "[s]teer",
     views: ["detail"],
   },
   // Stopping a run has no key (0009): it is a palette row, which asks first (`actions.ts`).
@@ -209,7 +204,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     command: "story.park",
     when: offered("story.park"),
     key: "",
-    hint: "",
     views: [],
     why: "no run is going",
   },
@@ -219,18 +213,16 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     priority: 75,
     command: "test.record",
     when: offered("test.record"),
-    key: "P",
-    hint: "[P] pass",
+    key: "y",
     views: ["checklist"],
   },
   {
     id: "fail",
-    label: "fail",
+    label: "fail…",
     priority: 75,
     command: "test.record",
     when: offered("test.record"),
-    key: "F",
-    hint: "[F] fail",
+    key: "n",
     views: ["checklist"],
   },
 ];
@@ -328,7 +320,7 @@ export interface FooterContext {
   readonly office: boolean;
   /** The view has a row to open: a desk row or a board entry. */
   readonly hasRow: boolean;
-  /** A planning session is open (the `5` key shows). */
+  /** A planning session is open (the `P` key shows). */
   readonly planningOpen: boolean;
   /** The planning view: whether a session is open, a message is on its way, an end is asked. */
   readonly planning: {
@@ -354,14 +346,16 @@ export interface FooterKey {
   readonly id: string;
   /** The key as the footer prints it. */
   readonly key: string;
-  /** The word for it in help and the palette. */
+  /** The word for it in the footer, help and the palette. */
   readonly label: string;
-  /** The footer text; the quit key says so when offline. */
-  readonly hint: string | ((ctx: FooterContext) => string);
+  /** The footer label when it depends on the screen, such as `save proposal 2`. */
+  readonly text?: (ctx: FooterContext) => string;
   readonly views: readonly FooterView[];
   readonly when?: (ctx: FooterContext) => boolean;
   /** Footer drop order when the width is short: the lowest goes first, 100 never. */
   readonly priority: number;
+  /** `right` for the global keys (esc back, q q quit); the verbs print left. */
+  readonly side?: "left" | "right";
 }
 
 const HOME_VIEWS: readonly FooterView[] = ["overview", "desk", "queue", "settings", "checklist"];
@@ -383,25 +377,23 @@ const proposing = (ctx: FooterContext) => free(ctx) && ctx.planning.proposals;
 
 /** A footer key for an action of the key table, so the action's key is defined once. */
 function fromTable(id: ActionId, footerId: string, views: readonly FooterView[]): FooterKey {
-  const { key, label, hint, priority } = binding(id);
-  return { id: footerId, key, label, hint, views, priority };
+  const { key, label, priority } = binding(id);
+  return { id: footerId, key, label, views, priority };
 }
 
 /** The footer's keys in the order they print. */
 export const FOOTER_KEYS: readonly FooterKey[] = [
   {
     id: "pathOpen",
-    key: "Enter",
+    key: "⏎",
     label: "open",
-    hint: "[Enter] open",
     views: ["path"],
     priority: NEVER,
   },
   {
     id: "pathCancel",
-    key: "Esc",
+    key: "esc",
     label: "cancel",
-    hint: "[Esc] cancel",
     views: ["path"],
     priority: NEVER,
   },
@@ -409,7 +401,6 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     id: "privacyYes",
     key: "y",
     label: "change it",
-    hint: "[y] change it",
     views: ["privacy"],
     priority: NEVER,
   },
@@ -417,7 +408,6 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     id: "privacyKeep",
     key: "any other key",
     label: "keep it",
-    hint: "[any other key] keep it",
     views: ["privacy"],
     priority: 50,
   },
@@ -425,7 +415,6 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     id: "planningEndYes",
     key: "y",
     label: "end the session",
-    hint: "[y] end the session",
     views: ["planning"],
     when: asking,
     priority: NEVER,
@@ -434,190 +423,170 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     id: "planningEndKeep",
     key: "any other key",
     label: "keep it",
-    hint: "[any other key] keep it",
     views: ["planning"],
     when: asking,
     priority: 50,
   },
   {
     id: "planningSend",
-    key: "Ctrl-S",
+    key: "ctrl-s",
     label: "send",
-    hint: (ctx) => (ctx.planning.session ? "[Ctrl-S] send" : "[Ctrl-S] start"),
+    text: (ctx) => (ctx.planning.session ? "send" : "start"),
     views: ["planning"],
     when: free,
     priority: NEVER,
   },
   {
     id: "planningSave",
-    key: "Ctrl-S",
+    key: "ctrl-s",
     label: "save proposal",
-    hint: (ctx) => `[Ctrl-S] save proposal ${ctx.planning.editing}`,
+    text: (ctx) => `save proposal ${ctx.planning.editing}`,
     views: ["planning"],
     when: saving,
     priority: NEVER,
   },
   {
     id: "planningReadySave",
-    key: "Ctrl-S",
+    key: "ctrl-s",
     label: "set the stories left Ready",
-    hint: "[Ctrl-S] set the stories left Ready",
     views: ["planning"],
     when: readying,
     priority: NEVER,
   },
   {
     id: "planningNewLine",
-    key: "Enter",
+    key: "⏎",
     label: "new line",
-    hint: "[Enter] new line",
     views: ["planning"],
     when: (ctx) => inInput(ctx) && !ctx.planning.readying,
     priority: 90,
   },
   {
     id: "planningKind",
-    key: "Tab",
+    key: "tab",
     label: "kind",
-    hint: "[Tab] kind",
     views: ["planning"],
     when: (ctx) => free(ctx) && !ctx.planning.session,
     priority: 80,
   },
   {
     id: "planningEnd",
-    key: "Ctrl-E",
+    key: "ctrl-e",
     label: "end session",
-    hint: "[Ctrl-E] end session",
     views: ["planning"],
     when: (ctx) => free(ctx) && ctx.planning.session,
     priority: 70,
   },
   {
     id: "planningConfirm",
-    key: "Ctrl-Y",
+    key: "ctrl-y",
     label: "confirm",
-    hint: "[Ctrl-Y] confirm",
     views: ["planning"],
     when: proposing,
     priority: 78,
   },
   {
     id: "planningEdit",
-    key: "Ctrl-R",
+    key: "ctrl-r",
     label: "edit",
-    hint: "[Ctrl-R] edit",
     views: ["planning"],
     when: proposing,
     priority: 76,
   },
   {
     id: "planningSetReady",
-    key: "Ctrl-G",
+    key: "ctrl-g",
     label: "set Ready",
-    hint: "[Ctrl-G] set Ready",
     views: ["planning"],
     when: proposing,
     priority: 75,
   },
   {
     id: "planningDecline",
-    key: "Ctrl-D",
+    key: "ctrl-d",
     label: "decline",
-    hint: "[Ctrl-D] decline",
     views: ["planning"],
     when: proposing,
     priority: 74,
   },
   {
     id: "planningProposal",
-    key: "Up/Down",
+    key: "↑↓",
     label: "proposal",
-    hint: "[Up/Down] proposal",
     views: ["planning"],
     when: proposing,
     priority: 72,
   },
   {
     id: "planningCancelEdit",
-    key: "Esc",
+    key: "esc",
     label: "cancel the edit",
-    hint: "[Esc] cancel the edit",
     views: ["planning"],
     when: saving,
     priority: 85,
   },
   {
     id: "planningReadyCancel",
-    key: "Esc",
+    key: "esc",
     label: "cancel",
-    hint: "[Esc] cancel",
     views: ["planning"],
     when: readying,
     priority: 85,
   },
   {
     id: "dialogTake",
-    key: "Enter",
+    key: "⏎",
     label: "take the answer",
-    hint: "[Enter] take the answer",
     views: ["planning"],
     when: typingAnswer,
     priority: NEVER,
   },
   {
     id: "dialogOptions",
-    key: "Esc",
+    key: "esc",
     label: "back to the options",
-    hint: "[Esc] back to the options",
     views: ["planning"],
     when: typingAnswer,
     priority: 85,
   },
   {
     id: "dialogSend",
-    key: "Ctrl-S",
+    key: "ctrl-s",
     label: "send the answers",
-    hint: (ctx) =>
-      ctx.planning.dialog?.complete === true
-        ? "[Ctrl-S] send the answers"
-        : "[Ctrl-S] send (when all answered)",
+    text: (ctx) =>
+      ctx.planning.dialog?.complete === true ? "send the answers" : "send (when all answered)",
     views: ["planning"],
     when: choosing,
     priority: NEVER,
   },
   {
     id: "dialogPick",
-    key: "Enter",
+    key: "⏎",
     label: "pick",
-    hint: "[Enter] pick",
     views: ["planning"],
     when: choosing,
     priority: 90,
   },
   {
     id: "dialogOption",
-    key: "Up/Down",
+    key: "↑↓",
     label: "option",
-    hint: "[Up/Down] option",
     views: ["planning"],
     when: choosing,
     priority: 80,
   },
   {
     id: "dialogQuestion",
-    key: "Left/Right",
+    key: "←→",
     label: "question",
-    hint: "[Left/Right] question",
     views: ["planning"],
     when: choosing,
     priority: 78,
   },
   {
     id: "dialogLeave",
-    key: "Ctrl-N",
+    key: "ctrl-n",
     label: "write a message instead",
-    hint: "[Ctrl-N] write a message instead",
     views: ["planning"],
     when: choosing,
     priority: 70,
@@ -626,354 +595,207 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     id: "planningSending",
     key: "",
     label: "sending",
-    hint: "sending",
     views: ["planning"],
     when: (ctx) => editing(ctx) && ctx.planning.sending,
     priority: 60,
   },
   {
     id: "planningBack",
-    key: "Esc",
+    key: "esc",
     label: "back",
-    hint: "[Esc] back",
     views: ["planning"],
     when: free,
     priority: 85,
+    side: "right",
   },
-  {
-    id: "paletteRun",
-    key: "Enter",
-    label: "run",
-    hint: "[Enter] run",
-    views: ["palette"],
-    priority: NEVER,
-  },
-  {
-    id: "paletteMove",
-    key: "Up/Down",
-    label: "choose",
-    hint: "[Up/Down] choose",
-    views: ["palette"],
-    priority: 70,
-  },
-  {
-    id: "paletteClose",
-    key: "Esc",
-    label: "close",
-    hint: "[Esc] close",
-    views: ["palette", "help"],
-    priority: 90,
-  },
-  {
-    id: "helpPalette",
-    key: "Enter",
-    label: "in the palette",
-    hint: "[Enter] in the palette",
-    views: ["help"],
-    priority: 60,
-  },
+  { id: "paletteRun", key: "⏎", label: "run", views: ["palette"], priority: NEVER },
+  { id: "paletteChoose", key: "↑↓", label: "choose", views: ["palette"], priority: 70 },
+  { id: "helpPalette", key: "⏎", label: "in the palette", views: ["help"], priority: 60 },
+  { id: "paletteClose", key: "esc", label: "close", views: ["palette", "help"], priority: 90 },
   {
     id: "retroScroll",
-    key: "j/k",
+    key: "↑↓",
     label: "scroll",
-    hint: "[j/k] scroll",
     views: ["retro"],
     priority: 30,
   },
   {
-    id: "retroBack",
-    key: "Esc",
-    label: "back",
-    hint: "[Esc] back",
-    views: ["retro"],
-    priority: 90,
+    id: "switcherMove",
+    key: "↑↓",
+    label: "move",
+    views: ["switcher"],
+    priority: 30,
   },
   {
     id: "switcherOpen",
-    key: "Enter",
+    key: "⏎",
     label: "open",
-    hint: "[Enter] open",
     views: ["switcher"],
     priority: 70,
   },
   {
     id: "switcherNew",
-    key: "n",
-    label: "open new repo path",
-    hint: "[n] open new repo path",
+    key: "a",
+    label: "new path",
     views: ["switcher"],
     priority: 40,
   },
+
+  { id: "cardScroll", key: "↑↓", label: "scroll", views: ["card"], priority: 30 },
+  { id: "cardCopy", key: "c", label: "copy id", views: ["card"], priority: 20 },
+
+  { id: "detailStreams", key: "w v i", label: "streams", views: ["detail"], priority: 75 },
+  { id: "detailScroll", key: "↑↓ PgUp PgDn", label: "scroll", views: ["detail"], priority: 35 },
+  { id: "detailFollow", key: "End", label: "follow", views: ["detail"], priority: 45 },
+  { id: "detailExpand", key: "z", label: "expand", views: ["detail"], priority: 25 },
+  { id: "detailCopy", key: "c", label: "copy id", views: ["detail"], priority: 20 },
+
+  { id: "settingsMove", key: "↑↓", label: "move", views: ["settings"], priority: 30 },
+  { id: "settingsToggle", key: "⏎", label: "toggle", views: ["settings"], priority: 70 },
+
+  { id: "queueMove", key: "↑↓", label: "move", views: ["queue"], priority: 30 },
+  { id: "queueStory", key: "⏎", label: "story", views: ["queue"], priority: 60 },
+  { id: "queueRun", key: "R", label: "run", views: ["queue"], priority: 70 },
+  { id: "queueDone", key: ".", label: "show done", views: ["queue"], priority: 20 },
   {
-    id: "switcherMove",
-    key: "j/k",
-    label: "move",
-    hint: "[j/k] move",
-    views: ["switcher"],
-    priority: 30,
-  },
-  {
-    id: "switcherBack",
-    key: "Esc",
-    label: "back",
-    hint: "[Esc] back",
-    views: ["switcher"],
-    when: (ctx) => ctx.office,
-    priority: 50,
+    id: "queueCopy",
+    key: "c",
+    label: "copy id",
+    views: ["queue"],
+    when: (ctx) => ctx.hasRow,
+    priority: 15,
   },
 
-  {
-    id: "cardScroll",
-    key: "j/k",
-    label: "scroll",
-    hint: "[j/k] scroll",
-    views: ["card"],
-    priority: 30,
-  },
-  { id: "cardBack", key: "Esc", label: "back", hint: "[Esc] back", views: ["card"], priority: 90 },
-
-  {
-    id: "detailStreams",
-    key: "w v i",
-    label: "streams",
-    hint: "[w]orker [v]erify [i] prompt",
-    views: ["detail"],
-    priority: 75,
-  },
-  {
-    id: "detailScroll",
-    key: "k/j PgUp/PgDn",
-    label: "scroll",
-    hint: "[k/j PgUp/PgDn] scroll",
-    views: ["detail"],
-    priority: 35,
-  },
-  {
-    id: "detailFollow",
-    key: "End",
-    label: "follow tail",
-    hint: "[End] follow tail",
-    views: ["detail"],
-    priority: 45,
-  },
-  {
-    id: "detailBack",
-    key: "Esc",
-    label: "back",
-    hint: "[Esc] back",
-    views: ["detail"],
-    priority: 90,
-  },
-
-  {
-    id: "settingsToggle",
-    key: "Enter",
-    label: "toggle",
-    hint: "[Enter] toggle",
-    views: ["settings"],
-    priority: 70,
-  },
-  {
-    id: "settingsMove",
-    key: "j/k",
-    label: "move",
-    hint: "[j/k] move",
-    views: ["settings"],
-    priority: 30,
-  },
-  {
-    id: "settingsBack",
-    key: "Esc",
-    label: "back",
-    hint: "[Esc] back",
-    views: ["settings"],
-    priority: 50,
-  },
-  {
-    id: "settingsOverview",
-    key: "1",
-    label: "overview",
-    hint: "[1] overview",
-    views: ["settings"],
-    priority: 40,
-  },
-
-  {
-    id: "queueDetail",
-    key: "Enter",
-    label: "detail",
-    hint: "[Enter] detail",
-    views: ["queue"],
-    priority: 60,
-  },
-  {
-    id: "queueRun",
-    key: "u",
-    label: "run selected",
-    hint: "r[u]n selected",
-    views: ["queue"],
-    priority: 70,
-  },
-  {
-    id: "queueMove",
-    key: "j/k",
-    label: "move",
-    hint: "[j/k] move",
-    views: ["queue"],
-    priority: 30,
-  },
-  {
-    id: "queueDone",
-    key: ".",
-    label: "show done",
-    hint: "[.] show done",
-    views: ["queue"],
-    priority: 20,
-  },
-  {
-    id: "queueOverview",
-    key: "1",
-    label: "overview",
-    hint: "[1] overview",
-    views: ["queue"],
-    priority: 50,
-  },
-  { id: "queueDesk", key: "3", label: "desk", hint: "[3] desk", views: ["queue"], priority: 45 },
-
-  {
-    id: "checklistTick",
-    key: "Space",
-    label: "tick",
-    hint: "[Space] tick",
-    views: ["checklist"],
-    priority: 70,
-  },
+  { id: "checklistStep", key: "↑↓", label: "step", views: ["checklist"], priority: 30 },
+  { id: "checklistTick", key: "space", label: "tick", views: ["checklist"], priority: 70 },
   fromTable("pass", "checklistPass", ["checklist"]),
   fromTable("fail", "checklistFail", ["checklist"]),
+
   {
-    id: "checklistStep",
-    key: "j/k",
-    label: "step",
-    hint: "[j/k] step",
-    views: ["checklist"],
+    id: "deskMove",
+    key: "↑↓",
+    label: "move",
+    views: ["desk", "overview"],
+    when: (ctx) => ctx.hasRow,
     priority: 30,
   },
   {
-    id: "checklistBack",
-    key: "Esc",
-    label: "back",
-    hint: "[Esc] back",
-    views: ["checklist"],
-    priority: 90,
-  },
-
-  {
-    id: "deskDetail",
-    key: "Enter",
-    label: "detail",
-    hint: "[Enter] detail",
+    id: "deskOpen",
+    key: "⏎",
+    label: "open",
     views: ["desk", "overview"],
     when: (ctx) => ctx.hasRow,
     priority: 60,
   },
   {
-    id: "deskMove",
-    key: "j/k",
-    label: "move",
-    hint: "[j/k] move",
+    id: "deskCopy",
+    key: "c",
+    label: "copy id",
     views: ["desk", "overview"],
     when: (ctx) => ctx.hasRow,
-    priority: 30,
-  },
-  {
-    id: "deskOverview",
-    key: "1",
-    label: "overview",
-    hint: "[1] overview",
-    views: ["desk"],
-    priority: 50,
-  },
-  { id: "deskQueue", key: "2", label: "queue", hint: "[2] queue", views: ["desk"], priority: 45 },
-  {
-    id: "deskChecklist",
-    key: "T",
-    label: "checklist",
-    hint: "[T] checklist",
-    views: ["desk"],
-    priority: 35,
-  },
-  {
-    id: "overviewQueue",
-    key: "2",
-    label: "queue",
-    hint: "[2] queue",
-    views: ["overview"],
-    priority: 50,
-  },
-  {
-    id: "overviewDesk",
-    key: "3",
-    label: "desk",
-    hint: "[3] desk",
-    views: ["overview"],
-    priority: 48,
+    priority: 15,
   },
 
+  // The global keys, at the right end of the footer.
   {
-    id: "planningOpen",
-    key: "5",
-    label: "planning",
-    hint: "[5] planning",
+    id: "back",
+    key: "esc",
+    label: "back",
+    views: ["switcher", "card", "detail", "settings", "checklist", "retro"],
+    when: (ctx) => ctx.office,
+    priority: 90,
+    side: "right",
+  },
+  {
+    id: "plan",
+    key: "P",
+    label: "plan",
     views: HOME_VIEWS,
     when: (ctx) => ctx.planningOpen,
     priority: 10,
-  },
-  {
-    id: "offices",
-    key: "o",
-    label: "offices",
-    hint: "[o] offices",
-    views: HOME_VIEWS,
-    priority: 40,
+    side: "right",
   },
   {
     id: "palette",
     key: ":",
     label: "commands",
-    hint: "[:] commands",
-    views: [...HOME_VIEWS, "retro"],
-    priority: 20,
+    views: ["overview", "desk", "queue"],
+    priority: 35,
+    side: "right",
   },
   {
     id: "help",
     key: "?",
     label: "keys",
-    hint: "[?] keys",
-    views: [...HOME_VIEWS, "retro"],
-    priority: 25,
+    views: ["overview", "desk", "queue"],
+    priority: 32,
+    side: "right",
+  },
+  {
+    id: "offices",
+    key: "O",
+    label: "offices",
+    views: ["overview", "desk", "queue"],
+    priority: 40,
+    side: "right",
   },
   {
     id: "quit",
-    key: "q",
+    key: "q q",
     label: "quit",
-    hint: (ctx) => `[q] quit${ctx.offline ? " (offline: actions disabled)" : ""}`,
     views: ["switcher", "card", "detail", "retro", ...HOME_VIEWS],
     priority: NEVER,
+    side: "right",
   },
 ];
 
-/** The footer hints of `view`, in print order, as `[text, priority]`. */
-export function footerHints(view: FooterView, ctx: FooterContext): [string, number][] {
+/** The keys the footer keeps while offline: reading still works, actions are off (0009). */
+const OFFLINE_KEYS: ReadonlySet<string> = new Set([
+  "deskMove",
+  "deskOpen",
+  "queueMove",
+  "queueStory",
+  "switcherMove",
+  "cardScroll",
+  "detailScroll",
+  "detailFollow",
+  "detailStreams",
+  "settingsMove",
+  "checklistStep",
+  "retroScroll",
+  "back",
+  "quit",
+]);
+
+/** A footer hint: the key in acc, its label, and the side it prints on (DIPO-458). */
+export interface Hint {
+  readonly key: string;
+  readonly label: string;
+  /** Footer drop order when the width is short: the lowest goes first, 100 never. */
+  readonly priority: number;
+  /** Verbs for the focused item print left, the global keys right. */
+  readonly side?: "left" | "right";
+  /** A hint that is a warning, such as `actions off while offline`, prints in err. */
+  readonly warning?: boolean;
+}
+
+/** The footer hints of `view` in print order; offline only the reading keys stay (keymap.json). */
+export function footerHints(view: FooterView, ctx: FooterContext): Hint[] {
   return FOOTER_KEYS.filter(
-    (entry) => entry.views.includes(view) && (entry.when?.(ctx) ?? true),
-  ).map((entry) => [
-    typeof entry.hint === "function" ? entry.hint(ctx) : entry.hint,
-    entry.priority,
-  ]);
+    (entry) =>
+      entry.views.includes(view) &&
+      (entry.when?.(ctx) ?? true) &&
+      (!ctx.offline || OFFLINE_KEYS.has(entry.id)),
+  ).map((entry) => ({
+    key: entry.key,
+    label: typeof entry.text === "function" ? entry.text(ctx) : entry.label,
+    priority: entry.priority,
+    ...(entry.side === undefined ? {} : { side: entry.side }),
+  }));
 }
 
 /** Where a navigation key goes: the rooms of the Frame, the Plan view and the offices. */
-export type NavTo = "overview" | "queue" | "desk" | "checklist" | "planning" | "retro" | "offices";
+export type NavTo = "desk" | "overview" | "queue" | "retro" | "planning" | "offices";
 
 export interface NavKey {
   readonly id: NavTo;
@@ -981,15 +803,14 @@ export interface NavKey {
   readonly label: string;
 }
 
-/** The keys that go to a room or view from anywhere in home; the palette's GO TO and the keys overlay read them. */
+/** The keys that go to a room or view from anywhere; the palette's GO TO and the keys overlay read them. */
 export const NAV_KEYS: readonly NavKey[] = [
-  { id: "overview", key: "1", label: "Overview" },
-  { id: "queue", key: "2", label: "Queue" },
-  { id: "desk", key: "3", label: "Your desk" },
-  { id: "checklist", key: "T", label: "Checklist" },
+  { id: "desk", key: "1", label: "Desk" },
+  { id: "overview", key: "2", label: "Floor" },
+  { id: "queue", key: "3", label: "Queue" },
   { id: "retro", key: "4", label: "Retro" },
-  { id: "planning", key: "5", label: "Plan" },
-  { id: "offices", key: "o", label: "Open offices…" },
+  { id: "planning", key: "P", label: "Plan" },
+  { id: "offices", key: "O", label: "Open offices…" },
 ];
 
 /** A key that moves, and the global keys the keys overlay prints next to the focused item's. */
@@ -1004,8 +825,16 @@ export const MOVE_KEYS: readonly PlainKey[] = [
   { key: "esc", label: "back" },
 ];
 
+const ROOMS: readonly NavTo[] = ["desk", "overview", "queue", "retro"];
+const roomKeys = NAV_KEYS.filter((nav) => ROOMS.includes(nav.id)).map((nav) => nav.key);
+
+/** The keys that work anywhere: the rooms as one range, then the other NAV_KEYS and the tools. */
 export const GLOBAL_KEYS: readonly PlainKey[] = [
-  ...NAV_KEYS.map(({ key, label }) => ({ key, label: label.replace("…", "").toLowerCase() })),
+  { key: `${roomKeys[0]}–${roomKeys.at(-1)}`, label: "rooms" },
+  ...NAV_KEYS.filter((nav) => !ROOMS.includes(nav.id)).map((nav) => ({
+    key: nav.key,
+    label: nav.label.replace("Open ", "").replace("…", "").toLowerCase(),
+  })),
   { key: ":", label: "all commands" },
   { key: "ctrl-k", label: "all commands" },
   { key: "?", label: "keys" },
