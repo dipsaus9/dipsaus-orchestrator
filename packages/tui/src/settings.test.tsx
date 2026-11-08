@@ -36,10 +36,17 @@ async function open() {
   return view;
 }
 
+/** Privacy settings are a palette row (DIPO-463): `:`, the query, Enter. */
+async function openSettings(ui: { press(key: string): Promise<void> }) {
+  await ui.press(":");
+  await ui.press("privacy");
+  await ui.press("enter");
+}
+
 describe("privacy settings view", () => {
   it("lists the settings with their values and sources and warns about comments", async () => {
     const { ui } = await open();
-    await ui.press(":");
+    await openSettings(ui);
     await ui.waitFor("Privacy settings");
     const frame = await ui.waitFor("keepRawEvents");
     expect(frame).toMatch(/storePrompts\s+on\s+\(default\)/);
@@ -48,13 +55,13 @@ describe("privacy settings view", () => {
     expect(frame).toContain("comments are not kept");
     await ui.press("escape");
     // Wait for the overview to render again before checking the settings view is gone.
-    const overview = await ui.waitFor(": settings");
+    const overview = await ui.waitFor(": commands");
     expect(overview).not.toContain("Privacy settings");
   });
 
   it("confirms a toggle with what is stored, sends the command, and drops the warning", async () => {
     const { ui, session } = await open();
-    await ui.press(":");
+    await openSettings(ui);
     await ui.waitFor("keepRawEvents");
     await ui.press("down");
     await ui.press("enter");
@@ -76,7 +83,7 @@ describe("privacy settings view", () => {
 
   it("sends nothing when the confirmation is declined", async () => {
     const { ui, session } = await open();
-    await ui.press(":");
+    await openSettings(ui);
     await ui.waitFor("keepRawEvents");
     await ui.press("enter");
     await ui.waitFor("Turn off storePrompts?");

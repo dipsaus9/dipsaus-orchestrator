@@ -27,7 +27,9 @@ import { Desk, DESK_WIDE_COLUMNS, deskRowId, deskRows, selectedRow, useDesk } fr
 import { Detail, type DetailTarget } from "./detail";
 import { skipReason, widthOf } from "./format";
 import { digestLine, useDigest } from "./digest";
+import { NO_KEY } from "./input";
 import { type ActionId, binding, type Hint, rowKeys, viewKeys } from "./keys";
+import { NO_FOCUS, type PaletteFocus } from "./palette";
 import { useLatestLines } from "./latest";
 import type { Display } from "./options";
 import { OUTPUT_TAIL_BYTES } from "./output";
@@ -505,10 +507,6 @@ export function useHome(args: HomeArgs) {
     } else if (input === "O") {
       setMessage(null);
       args.openSwitcher();
-    } else if (input === ":" && view !== "settings") {
-      // Until the command palette (step 7) lists SETTINGS, `:` opens them directly.
-      setMessage(null);
-      setView("settings");
     } else if (key.escape) {
       setRun(null);
       setMessage(null);
@@ -700,6 +698,69 @@ export function useHome(args: HomeArgs) {
     onViewKey[view](input, key);
   };
 
+  /** The item the palette and the keys overlay are about: the detail's run, else the view's row. */
+  const paletteFocus = (): PaletteFocus => {
+    const runningKeys = new Set(state.work.map((candidate) => candidate.work.key));
+    if (detail !== null) {
+      const live = state.work.find((candidate) => candidate.work.run === detail.target.run);
+      const commands = new Set<string>();
+      if (asks(detail.target.run)) commands.add("work.answer");
+      if (live !== undefined) commands.add("story.park").add("work.steer");
+      return {
+        ...NO_FOCUS,
+        view: "detail",
+        commands,
+        running: live !== undefined,
+        story: live === undefined ? null : String(live.work.story),
+        label: live === undefined ? null : String(live.work.story),
+      };
+    }
+    if (view === "overview" && overviewEntry !== null) {
+      return {
+        ...NO_FOCUS,
+        view: "overview",
+        label: String(overviewEntry.story),
+        story: String(overviewEntry.story),
+        commands: new Set(asks(overviewEntry.run) ? ["work.answer"] : []),
+        running: overviewEntry.run !== null,
+      };
+    }
+    const row = queue[queueSelected];
+    if (view === "queue" && row?.kind === "story") {
+      return {
+        ...NO_FOCUS,
+        view: "queue",
+        label: String(row.view.story),
+        story: String(row.view.story),
+        commands: new Set(["story.park", "story.drop"]),
+        running: runningKeys.has(row.view.key),
+      };
+    }
+    if (view === "desk" && deskItem !== null && card === null) {
+      const bound = rowKeys(deskItem);
+      return {
+        ...NO_FOCUS,
+        view: "desk",
+        kind: deskItem.kind,
+        label: deskItem.story === undefined ? deskItem.kind : String(deskItem.story),
+        story: deskItem.story === undefined ? null : String(deskItem.story),
+        commands: new Set(deskItem.actions.map((action) => action.command)),
+        running: deskItem.key !== undefined && runningKeys.has(deskItem.key),
+        typed: bound.unbound.map((action) => action.cli),
+      };
+    }
+    if (view === "desk") return { ...NO_FOCUS, view: "desk", commands: new Set() };
+    if (view === "checklist" && checklistTest !== null) {
+      return { ...NO_FOCUS, view: "checklist", commands: new Set(["test.record"]) };
+    }
+    return NO_FOCUS;
+  };
+
+  /** Stopping a run (palette only): the park flow, which asks first, for the focused story. */
+  const stopRun = (story: string) => {
+    act("stop", { story });
+  };
+
   // A refusal names a run on its way; the effect that clears it runs only after the frame that
   // shows the run done, so the footer drops it in that same frame.
   const activeRefusal = run?.status === "sending" || run?.status === "syncing" ? refusal : null;
@@ -770,6 +831,18 @@ export function useHome(args: HomeArgs) {
     latest,
     digest,
     onKey,
+    paletteFocus,
+    stopRun,
+    /** The privacy settings, opened from the palette. */
+    openSettings() {
+      setMessage(null);
+      setDetail(null);
+      setView("settings");
+    },
+    /** A navigation key of the palette or the keys: the same handler as pressing it. */
+    pressKey(input: string) {
+      onKey(input, NO_KEY);
+    },
     sendPrivacy,
     rowHintList,
     expanded,

@@ -168,7 +168,7 @@ describe("office overview board", () => {
       " DIPO-30 Add park reasons to digest   S  Ready · 3 Queue, then R",
       " DIPO-32 Desk sort order              M  Ready",
       RULE,
-      keys(/^↑↓ move {3}⏎ open {3}c copy id +: settings {3}O offices {3}q q quit$/),
+      keys(/^↑↓ move {3}⏎ open {3}c copy id +: commands {3}\? keys {3}O offices {3}q q quit$/),
     ]);
   });
 
@@ -196,7 +196,7 @@ describe("office overview board", () => {
       " DIPO-30 Add park reasons to d…  Ready · 3 Queue, then R",
       " DIPO-32 Desk sort order         Ready",
       RULE,
-      keys(/^↑↓ move {3}⏎ open {3}c copy id +: settings {3}O offices {3}q q quit$/),
+      keys(/^↑↓ move {3}⏎ open {3}c copy id +: commands {3}\? keys {3}O offices {3}q q quit$/),
     ]);
   });
 
@@ -221,7 +221,7 @@ describe("office overview board", () => {
       " NEEDS YOU (1)",
       "▌DIPO-29 Web client shell  parked 3d · by maintainer: after M2",
       RULE,
-      keys(/^↑↓ move {3}⏎ open {3}c copy id +: settings {3}O offices {3}q q quit$/),
+      keys(/^↑↓ move {3}⏎ open {3}c copy id +: commands {3}\? keys {3}O offices {3}q q quit$/),
     ]);
   });
 

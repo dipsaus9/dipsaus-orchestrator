@@ -8,8 +8,32 @@ import { useEffect, useState } from "react";
 /** A second `q` within this window quits (0009). */
 export const QUIT_WINDOW_MS = 2_000;
 
-/** A key event with no modifier, for keys taken one by one from a multi-key write. */
-const NO_KEY = {} as Key;
+/**
+ * A key event with no modifier: for keys taken one by one from a multi-key write, and for a key the
+ * palette presses on the maintainer's behalf.
+ */
+export const NO_KEY: Key = {
+  upArrow: false,
+  downArrow: false,
+  leftArrow: false,
+  rightArrow: false,
+  pageDown: false,
+  pageUp: false,
+  home: false,
+  end: false,
+  return: false,
+  escape: false,
+  ctrl: false,
+  shift: false,
+  tab: false,
+  backspace: false,
+  delete: false,
+  meta: false,
+  super: false,
+  hyper: false,
+  capsLock: false,
+  numLock: false,
+};
 
 /** `q` twice within the window quits; the returned function is true when the key was `q`. */
 export function useQuitKey(

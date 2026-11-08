@@ -68,7 +68,7 @@ describe("queue view", () => {
       "               DIPO-19 L  Review the merge slot",
       '   DESK (1)    DIPO-29 L  Web client shell                 "after M2" (parked by you 3d)',
       "─".repeat(119),
-      `↑↓ move   ⏎ story   R run   . show done   c copy id${" ".repeat(35)}: settings   O offices   q q quit`,
+      `↑↓ move   ⏎ story   R run   . show done   c copy id${" ".repeat(26)}: commands   ? keys   O offices   q q quit`,
     ]);
   });
 

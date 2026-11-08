@@ -12,6 +12,9 @@
 // always a text (0020). The desk's `i` hands the maintainer's quick idea to the audit (0022,
 // DIPO-454) on any row. Client and daemon are one binary (0005), so every command in the table
 // exists.
+//
+// The command palette (`palette.tsx`) and the keys overlay (`help.tsx`) read the same table,
+// `NAV_KEYS` and `GLOBAL_KEYS` (DIPO-463). Stopping a run has no key: it is a palette row.
 
 import type { DeskAction, DeskItem } from "@dipsaus-orchestrator/contract";
 
@@ -33,7 +36,8 @@ export type ActionId =
   | "idea"
   | "steer"
   | "pass"
-  | "fail";
+  | "fail"
+  | "stop";
 
 /** What the focused item offers: the commands its row, run or story can take. */
 export interface RowContext {
@@ -57,6 +61,8 @@ export interface KeyBinding {
   /** True when the focused item offers the action. */
   readonly when: (ctx: RowContext) => boolean;
   readonly views: readonly ActionView[];
+  /** Why the palette and the keys overlay list the action as off when `when` is false. */
+  readonly why?: string;
 }
 
 /** A key and its label as the footer and a wide desk row print them: `y approve`. */
@@ -77,6 +83,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "approve",
+    why: "no merge waits",
     label: "approve",
     priority: 85,
     command: "gate.approve",
@@ -86,6 +93,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "reject",
+    why: "no merge waits",
     label: "reject",
     priority: 85,
     command: "gate.reject",
@@ -131,6 +139,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "resume",
+    why: "not parked",
     label: "start again",
     priority: 85,
     command: "work.resume",
@@ -140,6 +149,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "test",
+    why: "no merge to test",
     label: "test",
     priority: 85,
     command: "test.start",
@@ -149,6 +159,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "park",
+    why: "nothing to park",
     label: "park",
     priority: 85,
     command: "story.park",
@@ -158,6 +169,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "drop",
+    why: "nothing to drop",
     label: "drop",
     priority: 85,
     command: "story.drop",
@@ -167,6 +179,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "discard",
+    why: "nothing to discard",
     label: "discard",
     priority: 85,
     command: "work.discard",
@@ -182,6 +195,17 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     when: offered("work.steer"),
     key: "s",
     views: ["detail"],
+  },
+  // Stopping a run has no key (0009): it is a palette row, which asks first (`actions.ts`).
+  {
+    id: "stop",
+    label: "stop run",
+    priority: 0,
+    command: "story.park",
+    when: offered("story.park"),
+    key: "",
+    views: [],
+    why: "no run is going",
   },
   {
     id: "pass",
@@ -279,6 +303,8 @@ export type FooterView =
   | "switcher"
   | "planning"
   | "retro"
+  | "palette"
+  | "help"
   | "overview"
   | "desk"
   | "queue"
@@ -330,6 +356,8 @@ export interface FooterKey {
   readonly priority: number;
   /** `right` for the global keys (esc back, q q quit); the verbs print left. */
   readonly side?: "left" | "right";
+  /** The palette's row for the key on the focused item, such as `Expand stream to full screen`. */
+  readonly palette?: string;
 }
 
 const HOME_VIEWS: readonly FooterView[] = ["overview", "desk", "queue", "settings", "checklist"];
@@ -582,6 +610,10 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     priority: 85,
     side: "right",
   },
+  { id: "paletteRun", key: "⏎", label: "run", views: ["palette"], priority: NEVER },
+  { id: "paletteChoose", key: "↑↓", label: "choose", views: ["palette"], priority: 70 },
+  { id: "helpPalette", key: "⏎", label: "in the palette", views: ["help"], priority: 60 },
+  { id: "paletteClose", key: "esc", label: "close", views: ["palette", "help"], priority: 90 },
   {
     id: "retroScroll",
     key: "↑↓",
@@ -617,8 +649,22 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   { id: "detailStreams", key: "w v i", label: "streams", views: ["detail"], priority: 75 },
   { id: "detailScroll", key: "↑↓ PgUp PgDn", label: "scroll", views: ["detail"], priority: 35 },
   { id: "detailFollow", key: "End", label: "follow", views: ["detail"], priority: 45 },
-  { id: "detailExpand", key: "z", label: "expand", views: ["detail"], priority: 25 },
-  { id: "detailCopy", key: "c", label: "copy id", views: ["detail"], priority: 20 },
+  {
+    id: "detailExpand",
+    key: "z",
+    label: "expand",
+    views: ["detail"],
+    priority: 25,
+    palette: "Expand stream to full screen",
+  },
+  {
+    id: "detailCopy",
+    key: "c",
+    label: "copy id",
+    views: ["detail"],
+    priority: 20,
+    palette: "Copy id",
+  },
 
   { id: "settingsMove", key: "↑↓", label: "move", views: ["settings"], priority: 30 },
   { id: "settingsToggle", key: "⏎", label: "toggle", views: ["settings"], priority: 70 },
@@ -686,11 +732,19 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     side: "right",
   },
   {
-    id: "settings",
+    id: "palette",
     key: ":",
-    label: "settings",
+    label: "commands",
     views: ["overview", "desk", "queue"],
     priority: 35,
+    side: "right",
+  },
+  {
+    id: "help",
+    key: "?",
+    label: "keys",
+    views: ["overview", "desk", "queue"],
+    priority: 32,
     side: "right",
   },
   {
@@ -755,3 +809,49 @@ export function footerHints(view: FooterView, ctx: FooterContext): Hint[] {
     ...(entry.side === undefined ? {} : { side: entry.side }),
   }));
 }
+
+/** Where a navigation key goes: the rooms of the Frame, the Plan view and the offices. */
+export type NavTo = "desk" | "overview" | "queue" | "retro" | "planning" | "offices";
+
+export interface NavKey {
+  readonly id: NavTo;
+  readonly key: string;
+  readonly label: string;
+}
+
+/** The keys that go to a room or view from anywhere; the palette's GO TO and the keys overlay read them. */
+export const NAV_KEYS: readonly NavKey[] = [
+  { id: "desk", key: "1", label: "Desk" },
+  { id: "overview", key: "2", label: "Floor" },
+  { id: "queue", key: "3", label: "Queue" },
+  { id: "retro", key: "4", label: "Retro" },
+  { id: "planning", key: "P", label: "Plan" },
+  { id: "offices", key: "O", label: "Open offices…" },
+];
+
+/** A key that moves, and the global keys the keys overlay prints next to the focused item's. */
+export interface PlainKey {
+  readonly key: string;
+  readonly label: string;
+}
+
+export const MOVE_KEYS: readonly PlainKey[] = [
+  { key: "↑↓ jk", label: "move" },
+  { key: "⏎", label: "open" },
+  { key: "esc", label: "back" },
+];
+
+const ROOMS: readonly NavTo[] = ["desk", "overview", "queue", "retro"];
+const roomKeys = NAV_KEYS.filter((nav) => ROOMS.includes(nav.id)).map((nav) => nav.key);
+
+/** The keys that work anywhere: the rooms as one range, then the other NAV_KEYS and the tools. */
+export const GLOBAL_KEYS: readonly PlainKey[] = [
+  { key: `${roomKeys[0]}–${roomKeys.at(-1)}`, label: "rooms" },
+  ...NAV_KEYS.filter((nav) => !ROOMS.includes(nav.id)).map((nav) => ({
+    key: nav.key,
+    label: nav.label.replace("Open ", "").replace("…", "").toLowerCase(),
+  })),
+  { key: ": ctrl-k", label: "all commands" },
+  { key: "?", label: "keys" },
+  { key: "q q", label: "quit (daemon keeps working)" },
+];
