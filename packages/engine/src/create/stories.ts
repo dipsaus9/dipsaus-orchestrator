@@ -89,6 +89,8 @@ function storyPrsOf(core: Core, partners: EnginePartners, guard: AutoMergeGuard)
     onChanged: core.onChanged,
     logger: core.logger.child({ component: "story-pr" }),
     review: host,
+    // A red head whose failed checks are all GitHub's is rerun, not counted (DIPO-465).
+    rerun: host,
     park: {
       writer: guardedParkWriter(gitParkWriter({ git: gitOf, stories: core.stories }), guard),
       implemented: core.implemented,

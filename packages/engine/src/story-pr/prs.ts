@@ -40,6 +40,19 @@
 // place. The body's status block lists each required check with its state and is rewritten when
 // one changes.
 //
+// A red head whose failed required checks all failed because of GitHub or a tool host (DIPO-465,
+// `ci-class.ts`: a download or HTTP 5xx error, a lost runner or a rate limit in the failing step's
+// error, with no model) is not a CI attempt: the engine reruns the failed jobs of their workflow
+// runs (`CiRerunHost.rerunFailedJobs`), appends one `ci-rerun` run step for the head, raises one
+// `ci.rerun` notice and watches the head again from the start, at most `CI_RERUNS_PER_HEAD` times
+// per head. An aggregate such as `ci-ok` that failed only because other jobs of its run failed
+// takes their class, and its rerun comes with theirs, since it needs them; the head is final again
+// once its required checks are, `ci-ok` among them. A failed check of a rerun run that still shows
+// the job that was rerun is the old attempt, and the head waits for the new one until the checks
+// wait runs out. A head with any failure that is the code's (a log matching no pattern, one that
+// could not be read, a check that is not an Actions job), a third infrastructure red on the same
+// head, or a rerun the host refused is red as above.
+//
 // CI is the final gate of a box run (0002): dipo ran the office's verify in the box at done
 // (DIPO-346), so the body's status block says CI checks the head after it, and red CI takes the
 // same loop as above.
@@ -74,6 +87,7 @@ import type { Logger } from "../log/logger";
 import type { PrStatePoll, PrStateReads } from "./pr-state";
 import {
   type AutoMergeHost,
+  type CiRerunHost,
   type CodeHost,
   CodeHostError,
   type HostPr,
@@ -130,6 +144,7 @@ import {
 import { withWorkViews } from "../views/work";
 
 import { type PrBodyReview, type PrBodyTest, storyPrBodyHash, storyPrBody } from "./body";
+import { aggregateClass, type CiFailureClass, classifyJobLog } from "./ci-class";
 import { latestRecordedTest } from "../run/test-records";
 import {
   checksFinal,
@@ -146,6 +161,7 @@ export const STORY_PR_NOTICES = {
   openFailed: "pr.openFailed",
   ciStuck: "ci.stuck",
   ciNone: "ci.none",
+  ciRerun: "ci.rerun",
   noRequired: "ci.noRequired",
   commentFailed: "pr.commentFailed",
   pushedAgain: "pr.pushedAgain",
@@ -159,6 +175,9 @@ export const STORY_PR_NOTICES = {
  * minute of the push; ten minutes covers a slow queue and still never holds a story for long.
  */
 export const NO_CI_WAIT_MS = 10 * 60_000;
+
+/** How many times the failed jobs of one head are rerun for infrastructure failures (DIPO-465). */
+export const CI_RERUNS_PER_HEAD = 2;
 
 /** How often a head whose checks are stuck is read (0002). */
 export const CI_STUCK_POLL_MS = 10 * 60_000;
@@ -184,6 +203,11 @@ export interface StoryPrsDeps {
    * failed check becomes an item with its name only.
    */
   readonly review?: PrReviewHost;
+  /**
+   * What reruns the failed jobs of a head whose failed required checks are all infrastructure
+   * failures (DIPO-465); without it such a head is red like any other.
+   */
+  readonly rerun?: CiRerunHost;
   /** What a red head at the CI cap parks through; without it that story is not parked. */
   readonly park?: {
     readonly writer: ParkWriter;
@@ -219,8 +243,8 @@ export interface StoryPrsDeps {
 /** What the poll knows of the pushed head of one story PR. */
 interface Watch {
   readonly head: string;
-  /** When the engine first saw this head's checks unfinished. */
-  readonly since: number;
+  /** When the engine first saw this head's checks unfinished, or reran its failed jobs (DIPO-465). */
+  since: number;
   /** The checks are final and handled: not read again until the head changes. */
   final: boolean;
   stuck: boolean;
@@ -241,6 +265,24 @@ interface Watch {
   noCi: boolean;
   /** A required check failed while others still run: not final, but it cannot pass (DIPO-382). */
   failing: boolean;
+  /**
+   * The links of the failed jobs the last rerun of this head reran (DIPO-465): a failed check that
+   * still shows one is the old attempt.
+   */
+  rerunLinks: ReadonlySet<string>;
+}
+
+/** What the engine read of a red head's failed checks (DIPO-465). */
+interface RedRead {
+  readonly items: CiFeedbackItem[];
+  /** Every failed required check is an infrastructure failure of an Actions job. */
+  readonly infra: boolean;
+  /** The workflow runs of the failed required checks, by id. */
+  readonly runs: readonly string[];
+  /** The failed required checks, by name. */
+  readonly checks: readonly string[];
+  /** The links of the failed jobs of those runs. */
+  readonly links: readonly string[];
 }
 
 interface Polled {
@@ -965,6 +1007,7 @@ export class StoryPrs {
         parkWarned: false,
         noCi: false,
         failing: false,
+        rerunLinks: new Set(),
       };
       state.watch.set(stored.runId, watch);
     }
@@ -1029,8 +1072,9 @@ export class StoryPrs {
     if (verdict.state === "passed") watch.final = true;
     watch.failing = verdict.state === "failed";
     if (verdict.state === "failed" && (final || waited)) {
-      // A park that failed leaves the head open, so the next poll tries the park again.
-      watch.final = await this.#red(officeId, state, run, stored, repo, reports);
+      // A park that failed leaves the head open, so the next poll tries the park again; a rerun
+      // (DIPO-465) leaves it open for the new attempt.
+      watch.final = await this.#red(officeId, state, run, stored, repo, reports, !waited);
     }
   }
 
@@ -1118,7 +1162,9 @@ export class StoryPrs {
   /**
    * A red head: builds its CI items (one log read per failed check, once per head per poller, so again after a restart), appends the
    * head's `ci` step unless an earlier poll did, and parks the story `verify-failing`
-   * when the run's CI cap is reached. False when that park failed, so the head stays open.
+   * when the run's CI cap is reached. A head not yet recorded whose failed required checks are all
+   * infrastructure failures is rerun instead (DIPO-465). False when the head stays open: the park
+   * failed, the failed jobs were rerun, or (while `fresh`) a rerun job still shows its old attempt.
    */
   async #red(
     officeId: OfficeId,
@@ -1127,6 +1173,7 @@ export class StoryPrs {
     stored: StoryPrRecord,
     repo: string,
     reports: readonly RequiredCheck[],
+    fresh: boolean,
   ): Promise<boolean> {
     const office = state.office;
     const watch = state.watch.get(run.runId) as Watch;
@@ -1135,7 +1182,19 @@ export class StoryPrs {
     );
     // After a restart the step is recorded but the items are gone: rebuild them, append no step.
     if (watch.items === null) {
-      watch.items = await this.#ciItems(officeId, run, stored, repo, reports);
+      const read = await this.#readRed(officeId, run, stored, repo, reports, fresh);
+      if (read === null) {
+        watch.failing = false;
+        return false;
+      }
+      if (
+        !recorded &&
+        read.infra &&
+        (await this.#rerun(officeId, state, run, stored, repo, read))
+      ) {
+        return false;
+      }
+      watch.items = read.items;
     }
     if (!recorded) {
       this.#write(officeId, state, () => {
@@ -1220,14 +1279,72 @@ export class StoryPrs {
     });
   }
 
-  /** One item per failed check of the head; the host is asked for every check once. */
-  async #ciItems(
+  /**
+   * Reruns the failed jobs of each run of `read` (DIPO-465) unless the head was rerun
+   * `CI_RERUNS_PER_HEAD` times, then appends its `ci-rerun` step, raises `ci.rerun` and watches the
+   * head again from the start. False when nothing was rerun or the host refused, so the head is red.
+   */
+  async #rerun(
+    officeId: OfficeId,
+    state: Polled,
+    run: StoredRun,
+    stored: StoryPrRecord,
+    repo: string,
+    read: RedRead,
+  ): Promise<boolean> {
+    const host = this.#deps.rerun;
+    if (host === undefined || read.runs.length === 0) return false;
+    const office = state.office;
+    const done = runSteps(office, run.runId).filter(
+      (step) => step.kind === "ci-rerun" && step.value === stored.headSha,
+    ).length;
+    if (done >= CI_RERUNS_PER_HEAD) return false;
+    try {
+      for (const id of read.runs) await host.rerunFailedJobs(repo, id);
+    } catch (error) {
+      this.#deps.logger?.warn("rerunning the failed CI jobs failed", {
+        office: officeId,
+        run: run.runId,
+        reason: messageOf(error),
+      });
+      return false;
+    }
+    const now = this.#deps.clock.now();
+    this.#write(officeId, state, () => {
+      appendRunStep(office, run.runId, "ci-rerun", stored.headSha, now);
+      return [
+        notice(
+          "info",
+          STORY_PR_NOTICES.ciRerun,
+          `dipo reran the failed CI jobs of the PR for ${stored.key} at ${stored.headSha.slice(0, 8)} (rerun ${done + 1} of ${CI_RERUNS_PER_HEAD} for this head): ${read.checks.join(", ")} failed because of GitHub or a tool host, not the code. It counts no CI attempt and starts no fix round.`,
+          stored.key,
+          run.runId,
+        ),
+      ];
+    });
+    const watch = state.watch.get(run.runId) as Watch;
+    watch.since = now;
+    watch.stuck = false;
+    watch.nextAt = 0;
+    watch.failing = false;
+    watch.items = null;
+    watch.rerunLinks = new Set(read.links);
+    return true;
+  }
+
+  /**
+   * One item per failed check of the head, and whose fault the failed required checks are
+   * (DIPO-465); the host is asked for every check once. Null while `fresh` and a failed job of a
+   * rerun run still shows the attempt that was rerun: the new attempt is not reported yet.
+   */
+  async #readRed(
     officeId: OfficeId,
     run: StoredRun,
     stored: StoryPrRecord,
     repo: string,
     reports: readonly RequiredCheck[],
-  ): Promise<CiFeedbackItem[]> {
+    fresh: boolean,
+  ): Promise<RedRead | null> {
     const config = this.#runConfig(officeId, run);
     const budgets = config.prompt.budgets.feedbackItem as Readonly<Record<string, number>>;
     const polled = this.#offices.get(officeId);
@@ -1257,10 +1374,16 @@ export class StoryPrs {
         failed.push({ ...report, link: "", workflow: "" });
       }
     }
+    const rerun = polled?.watch.get(run.runId)?.rerunLinks;
+    if (fresh && rerun !== undefined && failed.some((check) => rerun.has(check.link))) return null;
     const items: CiFeedbackItem[] = [];
+    // Whose fault each failed check is; an aggregate takes the class of the jobs that explain it.
+    const classes = new Map<string, CiFailureClass>();
+    const aggregates = new Map<string, readonly string[]>();
     for (const check of failed) {
       const explainedBy = explainingJobs(check, failed, required);
       if (explainedBy.length > 0) {
+        aggregates.set(check.name, explainedBy);
         items.push(
           ciFeedback(
             {
@@ -1275,10 +1398,12 @@ export class StoryPrs {
         continue;
       }
       let log: string | null = null;
+      let read = false;
       let noLog = "no log: the check is not a GitHub Actions job, see its link.";
       if (review !== undefined && check.link !== "") {
         try {
           log = await review.failedJobLog(repo, check.link);
+          read = true;
         } catch (error) {
           noLog = `no log: reading it failed (${messageOf(error)}).`;
         }
@@ -1288,8 +1413,29 @@ export class StoryPrs {
         noLog = "no log: dipo has no way to read job logs here.";
       }
       items.push(ciFeedback({ check: check.name, link: check.link, log, noLog }, options));
+      // Fail closed: a check whose log was not read is the code's.
+      classes.set(check.name, read ? classifyJobLog(log) : "code");
     }
-    return items;
+    for (const [name, jobs] of aggregates) {
+      classes.set(name, aggregateClass(jobs.map((job) => classes.get(job) ?? "code")));
+    }
+    const failedRequired = failed.filter(
+      (check) => required.has(check.name) || reports.some((r) => r.name === check.name),
+    );
+    const runs = failedRequired.map((check) => runOfLink(check.link));
+    const ids = [...new Set(runs.filter((id): id is string => id !== null))];
+    return {
+      items,
+      infra:
+        failedRequired.length > 0 &&
+        !runs.includes(null) &&
+        failedRequired.every((check) => classes.get(check.name) === "infra"),
+      runs: ids,
+      checks: failedRequired.map((check) => check.name),
+      links: failed
+        .filter((check) => ids.includes(runOfLink(check.link) ?? ""))
+        .map((check) => check.link),
+    };
   }
 
   #failed(officeId: OfficeId, state: Polled, runId: RunId, key: StoryKey, error: unknown): void {

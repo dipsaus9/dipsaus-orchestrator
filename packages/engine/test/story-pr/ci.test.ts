@@ -6,6 +6,8 @@
 // reports no check for at all is final with no CI after the bounded wait.
 
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
 
@@ -14,6 +16,7 @@ import type { OfficeHandle } from "../../src/db/office";
 import type { Logger } from "../../src/log/logger";
 import {
   type CheckBucket,
+  type CiRerunHost,
   type CodeHost,
   type HostPr,
   type NewPr,
@@ -32,6 +35,7 @@ import {
 } from "../../src/records";
 import type { BranchPark, ParkBranchRequest, ParkWriter } from "../../src/run/park";
 import {
+  CI_RERUNS_PER_HEAD,
   CI_STUCK_POLL_MS,
   NO_CI_WAIT_MS,
   type StoryPrFacts,
@@ -83,8 +87,11 @@ const VERIFY_LOG = [
   "verify\tUpload logs\t2026-10-20T10:00:03.0000000Z upload failed",
 ].join("\n");
 
-class CiHost implements CodeHost, PrReviewHost {
+class CiHost implements CodeHost, PrReviewHost, CiRerunHost {
   readonly calls: string[] = [];
+  /** The workflow runs whose failed jobs were rerun, and the error a rerun throws when set. */
+  readonly reruns: string[] = [];
+  rerunError: Error | null = null;
   readonly updates: { body: string }[] = [];
   /** What `requiredChecks` reports, and the head `viewPr` says the PR has. */
   required: RequiredCheck[] = [];
@@ -127,6 +134,11 @@ class CiHost implements CodeHost, PrReviewHost {
   }
   async commentPr(): Promise<string> {
     return "";
+  }
+  async rerunFailedJobs(_repo: string, run: string): Promise<void> {
+    this.calls.push(`rerunFailedJobs ${run}`);
+    if (this.rerunError !== null) throw this.rerunError;
+    this.reruns.push(run);
   }
   count(call: string): number {
     return this.calls.filter((c) => c === call).length;
@@ -243,6 +255,7 @@ async function inWorld(
         stories: backlogLayout,
         host,
         review: host,
+        rerun: host,
         park: {
           writer,
           // The park's database write runs this; a throw there makes the park fail.
@@ -1049,6 +1062,234 @@ describe("a head with a failed required check while others still run (DIPO-382)"
       await w.prs.retry(id);
       expect(w.prs.ciState(id, w.run)).toMatchObject({ kind: "red", head: HEAD_A });
       expect(ciSteps(w).map((step) => step.value)).toEqual([HEAD_A]);
+    });
+  });
+});
+
+// DIPO-465 (0002): a red head whose failed required checks all failed because of GitHub or a tool
+// host is rerun, not counted. The logs are trimmed copies of DIPO-463's real red heads.
+const ciLog = (name: string): string =>
+  readFileSync(join(import.meta.dir, "..", "fixtures", "ci-logs", name), "utf8");
+const ACTIONLINT_504 = ciLog("dipo-463-actionlint-504.log");
+const TEST_FAILURE = ciLog("test-failure.log");
+
+/**
+ * The red head of PR #624: ci-ok failed only because actionlint failed in the same run (run 100,
+ * attempt `attempt`, so each attempt has new job ids), with `log` as actionlint's log.
+ */
+function actionlintRed(w: World, attempt: number, log: string): void {
+  const jobs = { ciOk: 10 * attempt + 1, actionlint: 10 * attempt + 2 };
+  w.host.required = [report("ci-ok", "fail"), report("pr-title", "pass")];
+  w.host.all = [
+    { ...report("ci-ok", "fail"), link: link(jobs.ciOk), workflow: "ci" },
+    { ...report("actionlint", "fail"), link: link(jobs.actionlint), workflow: "ci" },
+    { ...report("pr-title", "pass"), link: link(1, 200), workflow: "pr-title" },
+  ];
+  w.host.logs.set(link(jobs.ciOk), ciLog("dipo-463-ci-ok-after-actionlint.log"));
+  w.host.logs.set(link(jobs.actionlint), log);
+}
+
+/** The new attempt GitHub starts once the failed jobs are rerun: ci-ok waits for actionlint. */
+function rerunStarted(w: World, attempt: number): void {
+  w.host.required = [report("ci-ok", "pending"), report("pr-title", "pass")];
+  w.host.all = [
+    { ...report("ci-ok", "pending"), link: link(10 * attempt + 1), workflow: "ci" },
+    { ...report("actionlint", "pending"), link: link(10 * attempt + 2), workflow: "ci" },
+    { ...report("pr-title", "pass"), link: link(1, 200), workflow: "pr-title" },
+  ];
+}
+
+const rerunSteps = (w: World) =>
+  runSteps(w.office, w.run).filter((step) => step.kind === "ci-rerun");
+
+describe("CI failures that are GitHub's, not the code's (DIPO-465)", () => {
+  it("reruns the failed jobs of a head whose failures are all infrastructure: a run step and a notice, no CI attempt", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      const told: string[] = [];
+      w.prs.onCiFinal((_office, run) => told.push(run));
+      await w.prs.sync(id, w.run);
+      actionlintRed(w, 1, ACTIONLINT_504);
+      await w.prs.retry(id);
+
+      expect(w.host.reruns).toEqual(["100"]);
+      expect(rerunSteps(w).map((step) => step.value)).toEqual([HEAD_A]);
+      const rerun = notices(w.office, STORY_PR_NOTICES.ciRerun);
+      expect(rerun).toHaveLength(1);
+      expect((rerun[0]?.data as { text: string } | undefined)?.text).toContain(
+        "rerun 1 of 2 for this head): ci-ok failed because of GitHub or a tool host",
+      );
+      // No CI attempt, no items and no red state, so no fix round starts.
+      expect(ciSteps(w)).toEqual([]);
+      expect(runRoundCounts(w.office, w.run).ciAttempts).toBe(0);
+      expect(w.prs.ciItems(id, w.run)).toBeNull();
+      expect(w.prs.ciState(id, w.run)).toEqual({ kind: "pending", head: HEAD_A });
+      expect(told).toEqual([]);
+
+      // GitHub still shows the attempt that was rerun: the head waits, nothing is rerun again.
+      await w.prs.retry(id);
+      expect(w.host.reruns).toEqual(["100"]);
+      expect(w.prs.ciState(id, w.run)).toEqual({ kind: "pending", head: HEAD_A });
+      // The new attempt runs; the head is final only once ci-ok is, and green then.
+      rerunStarted(w, 2);
+      await w.prs.retry(id);
+      expect(w.prs.ciState(id, w.run)).toEqual({ kind: "pending", head: HEAD_A });
+      w.host.required = [report("ci-ok", "pass"), report("pr-title", "pass")];
+      await w.prs.retry(id);
+      expect(w.prs.ciState(id, w.run)).toEqual({ kind: "green", head: HEAD_A });
+      expect(ciSteps(w)).toEqual([]);
+      expect(parked(w.office)).toEqual([]);
+      expect(told).toEqual([w.run]);
+    });
+  });
+
+  it("reruns a head at most twice; a third infrastructure red counts a CI attempt and goes to the fix round", async () => {
+    await inWorld(
+      async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        for (let attempt = 1; attempt <= CI_RERUNS_PER_HEAD + 1; attempt++) {
+          actionlintRed(w, attempt, ACTIONLINT_504);
+          await w.prs.retry(id);
+        }
+        expect(w.host.reruns).toEqual(["100", "100"]);
+        expect(rerunSteps(w)).toHaveLength(CI_RERUNS_PER_HEAD);
+        expect(notices(w.office, STORY_PR_NOTICES.ciRerun)).toHaveLength(CI_RERUNS_PER_HEAD);
+        expect(ciSteps(w).map((step) => step.value)).toEqual([HEAD_A]);
+        expect(runRoundCounts(w.office, w.run).ciAttempts).toBe(1);
+        const red = w.prs.ciState(id, w.run);
+        expect(red).toMatchObject({ kind: "red", head: HEAD_A });
+        expect(red?.kind === "red" ? red.items.map((item) => item.check) : []).toEqual([
+          "ci-ok",
+          "actionlint",
+        ]);
+        // A new head gets its own two reruns.
+        await pushHead(w, HEAD_B);
+        actionlintRed(w, 9, ACTIONLINT_504);
+        await w.prs.retry(id);
+        expect(w.host.reruns).toEqual(["100", "100", "100"]);
+        expect(rerunSteps(w).map((step) => step.value)).toEqual([HEAD_A, HEAD_A, HEAD_B]);
+      },
+      { ciCap: 5 },
+    );
+  });
+
+  it("counts a ci-ok that fails again after a rerun because the rerun job failed in the code", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      actionlintRed(w, 1, ACTIONLINT_504);
+      await w.prs.retry(id);
+      expect(w.host.reruns).toEqual(["100"]);
+      // The rerun actionlint job failed with a test failure: ci-ok takes its class.
+      actionlintRed(w, 2, TEST_FAILURE);
+      await w.prs.retry(id);
+      expect(w.host.reruns).toEqual(["100"]);
+      expect(ciSteps(w).map((step) => step.value)).toEqual([HEAD_A]);
+      expect(w.prs.ciState(id, w.run)).toMatchObject({ kind: "red", head: HEAD_A });
+    });
+  });
+
+  it("counts a head with any failure that is the code's, as today", async () => {
+    const cases: { name: string; setup: (w: World) => void }[] = [
+      {
+        name: "a test failure beside the 504",
+        setup: (w) => {
+          actionlintRed(w, 1, ACTIONLINT_504);
+          w.host.all = [
+            ...w.host.all,
+            { ...report("verify (1)", "fail"), link: link(3), workflow: "ci" },
+          ];
+          w.host.logs.set(link(3), TEST_FAILURE);
+        },
+      },
+      {
+        name: "a log that matches no pattern",
+        setup: (w) => actionlintRed(w, 1, ciLog("dipo-463-ci-ok-after-actionlint.log")),
+      },
+      {
+        name: "a log that could not be read",
+        setup: (w) => {
+          actionlintRed(w, 1, ACTIONLINT_504);
+          w.host.logs.delete(link(12));
+        },
+      },
+      {
+        name: "a failed required check that is not an Actions job",
+        setup: (w) => {
+          actionlintRed(w, 1, ACTIONLINT_504);
+          w.host.required = [report("ci-ok", "fail"), report("pr-title", "fail")];
+          w.host.all = w.host.all.map((check) =>
+            check.name === "pr-title"
+              ? { ...check, ...report("pr-title", "fail"), link: "https://ci.example.com/9" }
+              : check,
+          );
+        },
+      },
+    ];
+    for (const { name, setup } of cases) {
+      await inWorld(async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        setup(w);
+        await w.prs.retry(id);
+        expect({ name, reruns: w.host.reruns, ci: ciSteps(w).length }).toEqual({
+          name,
+          reruns: [],
+          ci: 1,
+        });
+        expect(w.prs.ciState(id, w.run)).toMatchObject({ kind: "red", head: HEAD_A });
+        expect(rerunSteps(w)).toEqual([]);
+      });
+    }
+  });
+
+  it("counts the head as today when the host refuses the rerun, or no rerun host is wired", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      actionlintRed(w, 1, ACTIONLINT_504);
+      w.host.rerunError = new Error("run 100 cannot be rerun");
+      await w.prs.retry(id);
+      expect(w.host.count("rerunFailedJobs 100")).toBe(1);
+      expect(ciSteps(w).map((step) => step.value)).toEqual([HEAD_A]);
+      expect(rerunSteps(w)).toEqual([]);
+      expect(notices(w.office, STORY_PR_NOTICES.ciRerun)).toEqual([]);
+      expect(w.prs.ciState(id, w.run)).toMatchObject({ kind: "red", head: HEAD_A });
+    });
+  });
+
+  it("does not rerun a head already counted before a restart", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      w.office.immediate(() => appendRunStep(w.office, w.run, "ci", HEAD_A, w.t.clock.now()));
+      w.restart();
+      actionlintRed(w, 1, ACTIONLINT_504);
+      await w.prs.retry(id);
+      expect(w.host.reruns).toEqual([]);
+      expect(ciSteps(w)).toHaveLength(1);
+      expect(w.prs.ciState(id, w.run)).toMatchObject({ kind: "red", head: HEAD_A });
+    });
+  });
+
+  it("stops waiting for a new attempt once the checks wait runs out, and counts the head", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      actionlintRed(w, 1, ACTIONLINT_504);
+      await w.prs.retry(id);
+      expect(w.host.reruns).toEqual(["100"]);
+      // GitHub never shows a new attempt.
+      await w.prs.retry(id);
+      expect(w.prs.ciState(id, w.run)).toEqual({ kind: "pending", head: HEAD_A });
+      w.t.clock.advance(w.config.merge.checksWaitMinutes * 60_000);
+      await w.prs.retry(id);
+      expect(w.host.reruns).toEqual(["100", "100"]);
+      w.t.clock.advance(w.config.merge.checksWaitMinutes * 60_000);
+      await w.prs.retry(id);
+      expect(ciSteps(w).map((step) => step.value)).toEqual([HEAD_A]);
+      expect(w.prs.ciState(id, w.run)).toMatchObject({ kind: "red", head: HEAD_A });
     });
   });
 });
