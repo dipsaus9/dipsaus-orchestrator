@@ -34,13 +34,13 @@ import { Lifecycle } from "@dipsaus-orchestrator/contract";
 import type { BacklogCli } from "../backlog/runner";
 import { AppleContainerBoxes } from "../box/apple-container";
 import { PACKAGE_CACHE_DIR } from "../box/cache";
-import { BoxCollisions } from "../box/collisions";
+import { BoxCollisions, CATCH_UP_PART_MESSAGE } from "../box/collisions";
 import { BOX_NET_TOOLS_DIR } from "../box/firewall";
 import { readBaseBox } from "../box/image";
 import { boxInstallInput, boxVerifyInput } from "../box/lifetime";
 import { startModelProxy, type ListenHttp } from "../box/model-proxy";
 import { proxiedUsageLedger } from "../records/proxied-usage";
-import { BoxParts, partStageRoot, type BoxPartsDeps, type PartRun } from "../box/parts";
+import { BoxParts, partPark, partStageRoot, type BoxPartsDeps, type PartRun } from "../box/parts";
 import { boxName, type BoxNetwork, type BoxPort, stateFolderLabel } from "../box/port";
 import { startBoxWebRoute } from "../box/safe-chain-box";
 import { TestBoxes, type TestBoxesDeps } from "../box/test-box";
@@ -990,6 +990,36 @@ function boxSyncOf(options: RunsOptions, parts: RunPortParts): NonNullable<RunPo
   };
 }
 
+/**
+ * The box's work since its last part taken as a part before a merge of a moved base is copied in
+ * (DIPO-464): the box is woken, and its part delivered though no session of the run is live yet.
+ * A box that is gone holds nothing undelivered (it is rebuilt from the delivered parts), and one
+ * that waits for an earlier merge dipo made outside it gives no part (DIPO-324).
+ */
+function boxPartOf(options: RunsOptions, parts: RunPortParts): NonNullable<RunPorts["boxPart"]> {
+  return async (office, run) => {
+    const handle = options.offices.get(office);
+    const part = parts.paths.partRun(run.runId);
+    const boxWorkers = parts.boxed?.workers ?? null;
+    const boxParts = parts.boxed?.parts ?? null;
+    if (
+      handle === undefined ||
+      part === null ||
+      part.runDir === undefined ||
+      boxWorkers === null ||
+      boxParts === null
+    ) {
+      throw new Error(`run ${run.runId} has no box dipo can take a part from here`);
+    }
+    if ((await boxWorkers.has(run.runId, part.runDir)) === "gone") return { kind: "taken" };
+    if (pendingBoxCopy(handle, run.runId) !== null) return { kind: "taken" };
+    await boxWorkers.awake({ runId: run.runId, runDir: part.runDir });
+    const outcome = await boxParts.deliverBeforeSession(run.runId, CATCH_UP_PART_MESSAGE);
+    const park = partPark(outcome);
+    return park === null ? { kind: "taken" } : { kind: "park", ...park };
+  };
+}
+
 /** The run ports that come straight from the options (DIPO-129). */
 function baseRunPorts(options: RunsOptions, parts: RunPortParts): Omit<RunPorts, "ingest"> {
   const refreshStory = options.stories;
@@ -1061,6 +1091,8 @@ function boxRunPorts(options: RunsOptions, parts: RunPortParts): Partial<RunPort
     // The merges dipo made on a box run's branch outside the box reach its box before the worker's
     // next session (DIPO-324): the box is started, the files copied in as a catch-up's are.
     boxSync: boxSyncOf(options, parts),
+    // The box's work goes first, before a merge of a moved base is copied in (DIPO-464).
+    boxPart: boxPartOf(options, parts),
     // A fix round waits for the CI of the pushed head and carries its red items (DIPO-148).
     ...(storyPr?.ciState === undefined
       ? {}

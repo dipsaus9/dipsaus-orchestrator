@@ -40,7 +40,7 @@ import {
   storyChangedFiles,
   type SyncOutcome,
 } from "../../src/box/collisions";
-import { BoxParts, type PartPark, type PartRun } from "../../src/box/parts";
+import { BoxParts, type PartPark, partPark, type PartRun } from "../../src/box/parts";
 import type { BoxPort } from "../../src/box/port";
 import { BOX_STAGE_ROOT } from "../../src/box/user";
 import { BOX_GIT_ENV, boxGitInitCommand } from "../../src/box/box-git";
@@ -1131,6 +1131,41 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         );
         // The worker's own change the merge did not touch stays as it was.
         expect(readFileSync(join(w.b.work, "src/b.ts"), "utf8")).toBe("b, still the worker's\n");
+      }));
+
+    it("keeps a parked box's undelivered edit to a file the base changes: taken as a part before the merge, then merged (DIPO-464)", () =>
+      inWorld(async (w) => {
+        write(w.b.work, { "src/b.ts": "b\n" });
+        await handPart(w, w.b, "B adds b");
+        // The story parks mid-work: no session is live, and the box holds an edit no part took.
+        w.reviewing.add(w.b.run.runId);
+        write(w.b.work, { "src/shared.ts": lines({ 0: "one from the worker" }) });
+        await onBase(w, { "src/shared.ts": lines({ 6: "seven from the base" }) });
+        // Before the merge: the box's work becomes a part, though the run is not live.
+        const taken = await w.parts.deliverBeforeSession(w.b.run.runId, CATCH_UP_PART_MESSAGE);
+        expect(taken).toMatchObject({ kind: "committed", paths: ["src/shared.ts"] });
+        // Then the merge outside the box and its copy in: the worker's edit and the base's both stay.
+        const { from } = await slotMerge(w, w.b);
+        await w.collisions.copyPending(w.b.run, from, "main");
+        const box = readFileSync(join(w.b.work, "src/shared.ts"), "utf8");
+        expect(box).toContain("one from the worker");
+        expect(box).toContain("seven from the base");
+        expect(w.parks).toEqual([]);
+      }));
+
+    it("gives no part before the session while the box lacks an earlier merge, and the caller parks (DIPO-464)", () =>
+      inWorld(async (w) => {
+        w.reviewing.add(w.b.run.runId);
+        write(w.b.work, { "src/b.ts": "undelivered\n" });
+        const before = await tipOf(w, w.b);
+        w.behind.set(w.b.run.runId, "the box lacks dipo's merge");
+        const taken = await w.parts.deliverBeforeSession(w.b.run.runId, CATCH_UP_PART_MESSAGE);
+        expect(partPark(taken)).toEqual({
+          reason: "conflict",
+          detail: "the box lacks dipo's merge",
+        });
+        expect(await tipOf(w, w.b)).toBe(before);
+        expect(readFileSync(join(w.b.work, "src/b.ts"), "utf8")).toBe("undelivered\n");
       }));
 
     it("throws when the copy fails, and the box keeps its files", () =>

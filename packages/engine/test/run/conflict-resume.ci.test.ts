@@ -34,7 +34,7 @@ import type { PartRun } from "../../src/box/parts";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
-import { BaseCatchUps } from "../../src/run/base-merges";
+import { BaseCatchUps, type BoxPartTaken } from "../../src/run/base-merges";
 import {
   appendHandOff,
   ConflictResumes,
@@ -76,6 +76,12 @@ interface World {
   readonly catchUps: BaseCatchUps;
   /** The status write-backs after a merge took the other side's task file. */
   readonly restored: number[];
+  /**
+   * What the box's part before a merge does (`BaseCatchUpsDeps.takePart`, DIPO-464); by default
+   * nothing was undelivered. Each call is counted in `takes`.
+   */
+  takePart: (run: StoredRun) => Promise<BoxPartTaken>;
+  readonly takes: string[];
   readonly parked: { reason: string; detail: string }[];
 }
 
@@ -181,6 +187,10 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
     restoreStatus: async () => {
       self!.restored.push(1);
     },
+    takePart: async (_office, stored) => {
+      self!.takes.push(stored.runId);
+      return self!.takePart(stored);
+    },
   });
   self = {
     repo,
@@ -199,6 +209,8 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
     },
     parked: [],
     restored: [],
+    takePart: async () => ({ kind: "taken" }),
+    takes: [],
   };
   return self;
 }
@@ -537,11 +549,64 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const caught = await w.catchUps.beforeSession(w.part.office, runOf(w));
         expect(caught).toEqual({
           kind: "park",
+          reason: "conflict",
           detail: expect.stringContaining("paths the worker cannot write: .github/ci.yml"),
         });
         expect(await head(w)).toBe(tip);
         expect(pendingBoxCopy(w.f.office, w.f.run)).toBeNull();
         expect(held(w)).toBe("");
+      }));
+
+    it("takes the box's undelivered work as a part first, so the merge holds it (DIPO-464)", () =>
+      inWorld(async (w) => {
+        await onBranch(w, { "src/mine.ts": "mine\n" }, "Mine");
+        await onBase(w, { "src/shared.ts": "one\ntwo\nthree from the base\n" });
+        // The part the box gives: the worker's edit no part took before it parked.
+        w.takePart = async () => {
+          await onBranch(w, { "src/shared.ts": "one from the worker\ntwo\nthree\n" }, "Part");
+          return { kind: "taken" };
+        };
+        const caught = await w.catchUps.beforeSession(w.part.office, runOf(w));
+        expect(caught.kind).toBe("merged");
+        expect(w.takes).toEqual([w.f.run]);
+        expect(await w.repo.git("show", `${await head(w)}:src/shared.ts`)).toBe(
+          "one from the worker\ntwo\nthree from the base\n",
+        );
+      }));
+
+    it("merges nothing and parks, the box's files kept, when the part cannot be taken or asks for a park", () =>
+      inWorld(async (w) => {
+        const tip = await onBranch(w, { "src/mine.ts": "mine\n" }, "Mine");
+        await onBase(w, { "docs/later.md": "later\n" });
+        w.takePart = async () => {
+          throw new Error("the box did not start");
+        };
+        expect(await w.catchUps.beforeSession(w.part.office, runOf(w))).toEqual({
+          kind: "park",
+          reason: "worker-failed",
+          detail:
+            "dipo could not take the box's work as a part before merging main into the story branch, so it merged nothing and the box keeps its files: the box did not start",
+        });
+        w.takePart = async () => ({
+          kind: "park",
+          reason: "scope-violation",
+          detail: "the part touched a protected file",
+        });
+        expect(await w.catchUps.beforeSession(w.part.office, runOf(w))).toEqual({
+          kind: "park",
+          reason: "scope-violation",
+          detail: "the part touched a protected file",
+        });
+        expect(await head(w)).toBe(tip);
+        expect(pendingBoxCopy(w.f.office, w.f.run)).toBeNull();
+        expect(held(w)).toBe("");
+      }));
+
+    it("takes no part when the base has not moved", () =>
+      inWorld(async (w) => {
+        await onBranch(w, { "src/mine.ts": "mine\n" }, "Mine");
+        expect(await w.catchUps.beforeSession(w.part.office, runOf(w))).toEqual({ kind: "none" });
+        expect(w.takes).toEqual([]);
       }));
 
     it("merges nothing for a branch that holds the base", () =>
@@ -560,6 +625,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const caught = await w.catchUps.beforeSession(w.part.office, runOf(w));
         expect(caught).toEqual({
           kind: "park",
+          reason: "conflict",
           detail: expect.stringContaining("the remote branch has commits the story branch lacks"),
         });
       }));

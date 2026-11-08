@@ -205,6 +205,39 @@ describe("a catch-up's commit in the box's own git (DIPO-464)", () => {
       expect(existsSync(join(work, BOX_GIT_CATCH_UP_INDEX))).toBe(false);
     }));
 
+  it("takes odd file names as plain paths: a space, a quote, a newline, a leading dash, a command substitution", () =>
+    withTempDir(async (dir) => {
+      const work = join(dir, "work");
+      const home = join(dir, "home");
+      mkdirSync(home);
+      code(work);
+      expect(init(work, home).status).toBe(0);
+      const odd = [
+        "src/with space.ts",
+        "src/it's quoted.ts",
+        'src/"double".ts',
+        "src/new\nline.ts",
+        "-rf",
+        "--force",
+        "src/$(touch pwned).ts",
+        "src/`touch pwned2`.ts",
+      ];
+      for (const path of odd) writeFileSync(join(work, path), `${path}\n`);
+      const commit = await commitInBoxRepository(localBox(work, home), "box", "Merge main", odd);
+      expect(commit).toMatch(/^[0-9a-f]{40}$/);
+      const committed = git(work, home, "show", "-z", "--name-only", "--format=", "HEAD")
+        .split("\0")
+        .filter((path) => path !== "");
+      expect(committed.toSorted()).toEqual([...odd].toSorted());
+      // No name ran as a command or an option.
+      expect(existsSync(join(work, "pwned"))).toBe(false);
+      expect(existsSync(join(work, "src", "pwned"))).toBe(false);
+      expect(existsSync(join(work, "pwned2"))).toBe(false);
+      expect(existsSync(join(work, "src", "pwned2"))).toBe(false);
+      expect(existsSync(join(work, "src", "a.ts"))).toBe(true);
+      expect(git(work, home, "status", "--porcelain")).toBe("");
+    }));
+
   it("commits nothing in a box without its repository, or for paths the merge left as they were", () =>
     withTempDir(async (dir) => {
       const work = join(dir, "work");

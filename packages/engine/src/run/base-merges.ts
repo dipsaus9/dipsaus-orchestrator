@@ -8,8 +8,11 @@
 //
 // - Before a session (`beforeSession`). The resume of a park of any reason that starts a developer
 //   session, and each fix round's session, ask for it (`NextSessionRequest.catchUp`). dipo fetches,
-//   and when the base moved and the branch lacks base commits it merges the base, clean or
-//   conflicted, before the handoff reads the branch and before the worker's first turn. A parked
+//   and when the base moved and the branch lacks base commits it first takes what the box holds
+//   since its last part as a part (`takePart`, the box woken for it), since a story parked mid-work
+//   takes no part and the copy of the merge would otherwise overwrite that work; a part that
+//   cannot be taken, or that asks for a park, parks the story and merges nothing. Then it merges
+//   the base, clean or conflicted, before the handoff reads the branch and before the worker's first turn. A parked
 //   story's box is stopped, so it gets the merge at its resume. The worker's first message holds
 //   what happened (`caughtUpText`): the base is already merged into its branch, the files the merge
 //   changed, and that the box cannot fetch the base; a conflict adds the conflict item, which the
@@ -26,9 +29,8 @@
 // merge commit changes neither the PR's diff against the base nor its squash merge, whose subject
 // stays the PR title (0002, 0016).
 //
-// Accepted: the box of a story parked mid-work may hold changes no part delivered yet; a merged file
-// among them gets the merge's version in the box, as the copy of any merge made outside the box
-// does (DIPO-324).
+// A box that still waits for an earlier merge dipo made outside it gives no part (DIPO-324: a part
+// then would undo that merge), so it gets the new merge on top of the pending copy, as before.
 
 import type { OfficeId, StoryKey } from "@dipsaus-orchestrator/contract";
 
@@ -65,11 +67,27 @@ export interface BaseCatchUpsDeps extends OutsideMergeDeps {
     config(office: OfficeId): OfficeConfig | undefined;
   };
   readonly git: (office: OfficeId) => OfficeGit | undefined;
+  /**
+   * Takes what the run's box holds since its last part as a part, the box woken for it, before a
+   * merge is copied in (`BoxParts.deliverBeforeSession`): the copy would otherwise overwrite work
+   * the worker never handed over. `park` when the part asks for one; throws when it cannot be
+   * taken. Without it no part is taken.
+   */
+  readonly takePart?: (office: OfficeId, run: StoredRun) => Promise<BoxPartTaken>;
   /** The conflict item's character budget of the run (`prompt.budgets.feedbackItem`). */
   readonly itemMax?: (office: OfficeId, run: StoredRun) => number;
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
+
+/** What taking the box's work as a part before a merge did (`BaseCatchUpsDeps.takePart`). */
+export type BoxPartTaken =
+  | { readonly kind: "taken" }
+  | {
+      readonly kind: "park";
+      readonly reason: "conflict" | "scope-violation";
+      readonly detail: string;
+    };
 
 /** What the merge at a story In Review hands on (`BaseCatchUps.inReview`). */
 export type InReviewMerge =
@@ -131,7 +149,10 @@ export class BaseCatchUps {
       });
     }
     const ref = await git.run((session) => baseRefOf(git, session));
-    if (ref === null) return { kind: "none" };
+    if (ref === null || !(await this.#behind(git, run, ref.ref))) return { kind: "none" };
+    // The box's work goes first, so the copy of the merge never overwrites what it holds.
+    const taken = await this.#takePart(officeId, run, ref.base);
+    if (taken.kind === "park") return taken;
     const merged = await mergeOutsideBox(this.#deps, office, git, run, {
       name: ref.base,
       ref: ref.ref,
@@ -141,12 +162,14 @@ export class BaseCatchUps {
     if (merged.kind === "unwritable") {
       return {
         kind: "park",
+        reason: "conflict",
         detail: `git cannot merge ${ref.base} at ${merged.onto.slice(0, 12)} cleanly in paths the worker cannot write: ${shownPaths(merged.paths)}`,
       };
     }
     if (merged.push.rejected) {
       return {
         kind: "park",
+        reason: "conflict",
         detail: `${merged.push.error ?? "the push was rejected"} after dipo merged ${ref.base}; the remote branch has commits the story branch lacks`,
       };
     }
@@ -203,6 +226,59 @@ export class BaseCatchUps {
       head: merged.commit,
       item: this.#item(officeId, run, ref.base, merged),
     };
+  }
+
+  /** True when the base `ref` holds commits the run's branch lacks. */
+  async #behind(git: OfficeGit, run: StoredRun, ref: string): Promise<boolean> {
+    if (run.branch === null) return false;
+    const branch = run.branch;
+    return git.run(async (session) => {
+      const read = async (rev: string) => {
+        const found = await session.step(session.repository, [
+          "rev-parse",
+          "--verify",
+          "--quiet",
+          rev,
+        ]);
+        return found.code === 0 ? found.stdout.trim() : null;
+      };
+      const tip = await read(`refs/heads/${branch}^{commit}`);
+      const onto = await read(`${ref}^{commit}`);
+      if (tip === null || onto === null) return false;
+      const held = await session.step(session.repository, [
+        "merge-base",
+        "--is-ancestor",
+        onto,
+        tip,
+      ]);
+      return held.code !== 0;
+    });
+  }
+
+  /**
+   * The box's work since its last part taken as a part before a merge (`takePart`): a park it asks
+   * for, or a failure, parks the story with nothing merged and the box's files kept.
+   */
+  async #takePart(
+    officeId: OfficeId,
+    run: StoredRun,
+    base: string,
+  ): Promise<
+    | BoxPartTaken
+    | { readonly kind: "park"; readonly reason: "worker-failed"; readonly detail: string }
+  > {
+    const take = this.#deps.takePart;
+    if (take === undefined) return { kind: "taken" };
+    try {
+      return await take(officeId, run);
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      return {
+        kind: "park",
+        reason: "worker-failed",
+        detail: `dipo could not take the box's work as a part before merging ${base} into the story branch, so it merged nothing and the box keeps its files: ${why}`,
+      };
+    }
   }
 
   #item(

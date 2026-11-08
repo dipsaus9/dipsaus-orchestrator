@@ -1964,7 +1964,8 @@ describe("the merge of a moved base before a resumed or fix round session (DIPO-
     const parked = await realResumer(hosts, {
       ...facts,
       catchUp: async () => ({
-        kind: "park",
+        kind: "park" as const,
+        reason: "conflict" as const,
         detail: "git cannot merge main cleanly in paths the worker cannot write: .github/ci.yml",
       }),
     }).next({ ...nextRequest(), catchUp: true });

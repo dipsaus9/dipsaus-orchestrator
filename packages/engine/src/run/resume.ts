@@ -222,8 +222,14 @@ export type SessionCatchUp =
   | { readonly kind: "none" }
   /** The base merged into the branch; the worker's message is held for the session. */
   | { readonly kind: "merged"; readonly commit: string }
-  /** No session: a path the worker cannot write conflicts, or the push was rejected. */
-  | { readonly kind: "park"; readonly detail: string };
+  /**
+   * No session: a path the worker cannot write conflicts, the push was rejected, or the box's work
+   * could not be taken as a part before the merge (nothing merged then).
+   */
+  | { readonly kind: "park"; readonly reason: CatchUpParkReason; readonly detail: string };
+
+/** Why the merge of a moved base before a session parks the story (DIPO-464). */
+export type CatchUpParkReason = "conflict" | "scope-violation" | "worker-failed";
 
 export interface NextSessionRequest {
   readonly office: OfficeId;
@@ -244,7 +250,7 @@ export type NextSessionOutcome =
   | { readonly kind: "started"; readonly agent: AgentId }
   | { readonly kind: "startFailed"; readonly pause: AdapterPause }
   /** The merge of a moved base parks the story instead (DIPO-464): nothing started. */
-  | { readonly kind: "parked"; readonly reason: "conflict"; readonly detail: string }
+  | { readonly kind: "parked"; readonly reason: CatchUpParkReason; readonly detail: string }
   /**
    * An earlier host of the run still runs after the wait (0005): nothing started. The
    * code is 0005's retryable `run.hostAlive`.
@@ -349,7 +355,7 @@ export class RunResumer implements NextSession {
         };
       }
       if (caught.kind === "park") {
-        return { kind: "parked", reason: "conflict", detail: caught.detail };
+        return { kind: "parked", reason: caught.reason, detail: caught.detail };
       }
     }
     const tier = startTierOf(office, run, inForce);

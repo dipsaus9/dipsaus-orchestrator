@@ -33,7 +33,7 @@ import { IdeaAudits } from "../run/idea-audits";
 import { StartsPaused, type StartsPausedDeps } from "../run/starts-paused";
 import { afterRunExits } from "../run/temp-dirs";
 import { WebCalls } from "../run/web-calls";
-import { BaseCatchUps } from "../run/base-merges";
+import { BaseCatchUps, type BaseCatchUpsDeps } from "../run/base-merges";
 import { ConflictResumes, type ConflictResumesDeps } from "../run/conflicts";
 import type { OfficeHandle } from "../db/office";
 import { findRun, type StoredRun } from "../records/run-records";
@@ -144,6 +144,11 @@ export interface RunPorts {
    * next developer session (DIPO-324); a failure parks the story instead of starting the worker.
    */
   readonly boxSync?: RunResumerDeps["boxSync"];
+  /**
+   * Takes what a run's box holds since its last part as a part, before a merge of a moved base is
+   * copied into it (DIPO-464, `BaseCatchUpsDeps.takePart`). Without it no part is taken first.
+   */
+  readonly boxPart?: BaseCatchUpsDeps["takePart"];
   /** Re-attach after a restart; needs `control`. */
   readonly reattach?: Omit<
     RunReattacherDeps,
@@ -542,6 +547,8 @@ function baseCatchUpsOf(ports: RunPorts): BaseCatchUps | null {
     tmpRoot: ports.tmpRoot,
     restoreStatus: restoreStatusOf(ports),
     itemMax: itemMaxOf(ports),
+    // The box's work is taken as a part before a merge is copied into it (DIPO-464).
+    ...given("takePart", ports.boxPart),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
   });
