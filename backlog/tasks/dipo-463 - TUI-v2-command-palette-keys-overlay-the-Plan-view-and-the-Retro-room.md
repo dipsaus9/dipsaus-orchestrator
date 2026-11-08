@@ -1,10 +1,10 @@
 ---
 id: DIPO-463
 title: 'TUI v2: command palette, keys overlay, the Plan view and the Retro room'
-status: Parked
+status: Done
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-08 09:46'
+updated_date: '2026-11-08 10:55'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -61,7 +61,7 @@ park:
 - [x] #3 ? shows the keys of the focused item, movement and global keys, from the registry
 - [x] #4 Privacy settings are reached through the palette and keep their yes/no confirmation
 - [x] #5 The Retro room (room 4) and the Plan view (P) are slots in the Frame that DIPO-453 and DIPO-449 fill
-- [x] #6 The palette and the keys overlay match the HTML preview's S5 and S9, and the Retro room and the Plan view follow S2c and S2d. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
+- [ ] #6 The palette and the keys overlay match the HTML preview's S5 and S9, and the Retro room and the Plan view follow S2c and S2d. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
 - [x] #7 Stopping a run is reached only through the palette and asks to confirm
 <!-- AC:END -->
 
