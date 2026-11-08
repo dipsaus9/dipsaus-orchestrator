@@ -27,7 +27,7 @@ export function frameRows(rooms: boolean, ticker: boolean): number {
 
 export interface FrameProps {
   readonly display: Display;
-  /** The header and the banners under it. */
+  /** The header. */
   readonly header: ReactNode;
   /** The rooms band; none outside an office's rooms. */
   readonly rooms?: ReactNode;

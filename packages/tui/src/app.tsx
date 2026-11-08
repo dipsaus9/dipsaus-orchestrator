@@ -1,4 +1,4 @@
-// The TUI root (0009): the header with office, daemon state and connection, the banners, the mode
+// The TUI root (0009): the header with office, daemon state and connection, the mode
 // that shows, and the footer with the keys that work now. The wiring only (DIPO-443): the mode
 // reducer is `mode.ts`; the modes around home (the office switcher, the typed path, the privacy
 // confirmation) are `modes.tsx`; home, with the overview, the queue, the desk, the checklist, the
