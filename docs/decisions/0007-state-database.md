@@ -49,7 +49,7 @@ Run detail and dipo's own state, grouped by subject. The groups below hold the m
 
 | Group | Holds |
 |---|---|
-| Identity | Story keys and their former ids (0005) |
+| Identity | Story keys and their former ids (0005), and per story its type, the time it first read as Ready and its origin, for retro (0022) |
 | Cache | `backlog_mirror`: what the engine last read from Backlog.md, keyed by content hash. Never a source of truth |
 | Change log | The outbox of section 5 |
 | Requests | Stored replies of office commands (0005), kept one day |
