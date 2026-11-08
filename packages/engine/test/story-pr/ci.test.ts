@@ -1273,6 +1273,31 @@ describe("CI failures that are GitHub's, not the code's (DIPO-465)", () => {
     });
   });
 
+  it("keeps a head pending when a restart reads the rerun attempt as new and the host refuses, until the wait runs out", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      actionlintRed(w, 1, ACTIONLINT_504);
+      await w.prs.retry(id);
+      expect(w.host.reruns).toEqual(["100"]);
+      // The daemon restarts before GitHub shows the new attempt: the old one looks new, and gh
+      // refuses to rerun the run that is in progress.
+      w.restart();
+      w.host.rerunError = new Error("run 100 cannot be rerun; it is in progress");
+      await w.prs.retry(id);
+      expect(w.host.count("rerunFailedJobs 100")).toBe(2);
+      expect(ciSteps(w)).toEqual([]);
+      expect(rerunSteps(w)).toHaveLength(1);
+      expect(w.prs.ciState(id, w.run)).toEqual({ kind: "pending", head: HEAD_A });
+      expect(runRoundCounts(w.office, w.run).ciAttempts).toBe(0);
+      // Past the checks wait it counts as today.
+      w.t.clock.advance(w.config.merge.checksWaitMinutes * 60_000);
+      await w.prs.retry(id);
+      expect(ciSteps(w).map((step) => step.value)).toEqual([HEAD_A]);
+      expect(w.prs.ciState(id, w.run)).toMatchObject({ kind: "red", head: HEAD_A });
+    });
+  });
+
   it("stops waiting for a new attempt once the checks wait runs out, and counts the head", async () => {
     await inWorld(async (w) => {
       const id = w.office.officeId;

@@ -51,7 +51,9 @@
 // the job that was rerun is the old attempt, and the head waits for the new one until the checks
 // wait runs out. A head with any failure that is the code's (a log matching no pattern, one that
 // could not be read, a check that is not an Actions job), a third infrastructure red on the same
-// head, or a rerun the host refused is red as above.
+// head, or a rerun the host refused is red as above; but a refused rerun of a head that was rerun
+// before (after a restart, the poll cannot tell the old attempt from a new one still running) waits
+// until the checks wait runs out, and then counts.
 //
 // CI is the final gate of a box run (0002): dipo ran the office's verify in the box at done
 // (DIPO-346), so the body's status block says CI checks the head after it, and red CI takes the
@@ -1187,12 +1189,10 @@ export class StoryPrs {
         watch.failing = false;
         return false;
       }
-      if (
-        !recorded &&
-        read.infra &&
-        (await this.#rerun(officeId, state, run, stored, repo, read))
-      ) {
-        return false;
+      if (!recorded && read.infra) {
+        const rerun = await this.#rerun(officeId, state, run, stored, repo, read, fresh);
+        if (rerun === "held") watch.failing = false;
+        if (rerun !== "red") return false;
       }
       watch.items = read.items;
     }
@@ -1282,7 +1282,10 @@ export class StoryPrs {
   /**
    * Reruns the failed jobs of each run of `read` (DIPO-465) unless the head was rerun
    * `CI_RERUNS_PER_HEAD` times, then appends its `ci-rerun` step, raises `ci.rerun` and watches the
-   * head again from the start. False when nothing was rerun or the host refused, so the head is red.
+   * head again from the start: `rerun`. `red` when nothing was rerun or the host refused, so the
+   * head is red. `held` when the host refused while `fresh` and this head was rerun before: after a
+   * restart the poll cannot tell the attempt that was rerun from a new one, and the host refuses to
+   * rerun a run still in progress, so the head waits until the checks wait runs out.
    */
   async #rerun(
     officeId: OfficeId,
@@ -1291,14 +1294,15 @@ export class StoryPrs {
     stored: StoryPrRecord,
     repo: string,
     read: RedRead,
-  ): Promise<boolean> {
+    fresh: boolean,
+  ): Promise<"rerun" | "held" | "red"> {
     const host = this.#deps.rerun;
-    if (host === undefined || read.runs.length === 0) return false;
+    if (host === undefined || read.runs.length === 0) return "red";
     const office = state.office;
     const done = runSteps(office, run.runId).filter(
       (step) => step.kind === "ci-rerun" && step.value === stored.headSha,
     ).length;
-    if (done >= CI_RERUNS_PER_HEAD) return false;
+    if (done >= CI_RERUNS_PER_HEAD) return "red";
     try {
       for (const id of read.runs) await host.rerunFailedJobs(repo, id);
     } catch (error) {
@@ -1307,7 +1311,7 @@ export class StoryPrs {
         run: run.runId,
         reason: messageOf(error),
       });
-      return false;
+      return fresh && done > 0 ? "held" : "red";
     }
     const now = this.#deps.clock.now();
     this.#write(officeId, state, () => {
@@ -1329,7 +1333,7 @@ export class StoryPrs {
     watch.failing = false;
     watch.items = null;
     watch.rerunLinks = new Set(read.links);
-    return true;
+    return "rerun";
   }
 
   /**
