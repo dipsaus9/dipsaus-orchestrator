@@ -168,7 +168,16 @@ export function deriveOfficeSummary(
       ? {}
       : { dayUsage: usage.dayUsage, monthUsage: usage.monthUsage, evidence: usage.evidence }),
     ...(lastActivity === undefined ? {} : { lastActivityAt: lastActivity }),
+    ...(startsPaused(office) ? { startsPaused: true as const } : {}),
   };
+}
+
+/** True while the office starts paused, for any reason (0020, DIPO-458). */
+function startsPaused(office: OfficeHandle): boolean {
+  return (
+    office.get("select 1 as paused from starts_paused where office_id = $office_id limit 1") !==
+    null
+  );
 }
 
 /**
