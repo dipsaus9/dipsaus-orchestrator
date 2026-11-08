@@ -1,10 +1,10 @@
 ---
 id: DIPO-467
 title: Warn at Ready when a story holds more than its tier usually does
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-08 12:17'
-updated_date: '2026-11-08 12:35'
+updated_date: '2026-11-08 12:41'
 labels:
   - 'tier:S'
 milestone: m-3
