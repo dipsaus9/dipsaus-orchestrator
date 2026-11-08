@@ -13,7 +13,8 @@
 // required checks, `api repos/<repo>/branches/<base>` and `api repos/<repo>/rules/branches/<base>`.
 // dipo never passes `--admin`. The review reads and comments
 // (DIPO-141) add `pr view --json labels`, `pr checks --json name,state,bucket,link,workflow`,
-// `run view --repo --job --log-failed` and `pr comment --repo --body-file -`. The newest of these is
+// `run view --repo --job --log-failed` and `pr comment --repo --body-file -`. A red head whose failed
+// checks are all GitHub's (DIPO-465) adds `run rerun <run> --repo --failed`. The newest of these is
 // `pr checks --json`, added in gh 2.50.0 (https://github.com/cli/cli/releases/tag/v2.50.0).
 //
 // Every `gh` call has a deadline on the engine clock (DIPO-314; `CALL_DEADLINE_MS`, 60 s, by
@@ -191,6 +192,19 @@ export interface PrReviewHost {
   failedJobLog(repo: string, link: string): Promise<string | null>;
   /** Posts `body` as a comment on a pull request and returns the comment's URL. Throws `CodeHostError`. */
   commentPr(repo: string, number: number, body: string): Promise<string>;
+}
+
+/**
+ * Reruns the failed jobs of a GitHub Actions run (DIPO-465): a red head whose failed required checks
+ * are all infrastructure failures. Kept apart from `PrReviewHost`, like `PrStateHost`.
+ */
+export interface CiRerunHost {
+  /**
+   * `gh run rerun <run> --repo <repo> --failed`: reruns the failed jobs of the workflow run `run`
+   * (its numeric id) and every job that needs them. Throws `CodeHostError`, also for a run id that
+   * is not a number, which runs nothing.
+   */
+  rerunFailedJobs(repo: string, run: string): Promise<void>;
 }
 
 /**
@@ -453,7 +467,9 @@ interface GhResult {
 }
 
 /** The `CodeHost` that runs `gh`. */
-export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost, AutoMergeHost {
+export class GhHost
+  implements CodeHost, PrStateHost, PrListHost, PrReviewHost, AutoMergeHost, CiRerunHost
+{
   readonly #spawn: Spawn;
   readonly #gh: string;
   readonly #env: Record<string, string>;
@@ -712,6 +728,13 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost, 
     this.#assertAuth(result);
     if (result.code !== 0) throw this.#failure(["run", "view"], result);
     return result.stdout;
+  }
+
+  async rerunFailedJobs(repo: string, run: string): Promise<void> {
+    if (!/^\d+$/.test(run)) {
+      throw new CodeHostError("failed", `${JSON.stringify(run)} is not a workflow run id.`);
+    }
+    await this.#ok(["run", "rerun", run, "--repo", repo, "--failed"]);
   }
 
   async commentPr(repo: string, number: number, body: string): Promise<string> {
