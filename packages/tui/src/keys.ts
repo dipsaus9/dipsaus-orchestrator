@@ -896,9 +896,9 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   { id: "deskQueue", key: "2", label: "queue", hint: "[2] queue", views: ["desk"], priority: 45 },
   {
     id: "deskChecklist",
-    key: "4",
+    key: "T",
     label: "checklist",
-    hint: "[4] checklist",
+    hint: "[T] checklist",
     views: ["desk"],
     priority: 35,
   },
@@ -921,9 +921,9 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
 
   {
     id: "planningOpen",
-    key: "P",
+    key: "5",
     label: "planning",
-    hint: "[P] planning",
+    hint: "[5] planning",
     views: HOME_VIEWS,
     when: (ctx) => ctx.planningOpen,
     priority: 10,
@@ -986,9 +986,9 @@ export const NAV_KEYS: readonly NavKey[] = [
   { id: "overview", key: "1", label: "Overview" },
   { id: "queue", key: "2", label: "Queue" },
   { id: "desk", key: "3", label: "Your desk" },
-  { id: "checklist", key: "4", label: "Checklist" },
-  { id: "planning", key: "P", label: "Plan" },
-  { id: "retro", key: "6", label: "Retro" },
+  { id: "checklist", key: "T", label: "Checklist" },
+  { id: "retro", key: "4", label: "Retro" },
+  { id: "planning", key: "5", label: "Plan" },
   { id: "offices", key: "o", label: "Open offices…" },
 ];
 

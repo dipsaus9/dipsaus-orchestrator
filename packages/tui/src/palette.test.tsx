@@ -120,7 +120,7 @@ describe("the keys overlay", () => {
     expect(keys.item.find((entry) => entry.key === "r")?.off).toBe("not parked");
     expect(keys.typed).toEqual(["dipo approve DIPO-446 --note"]);
     expect(keys.global.map((entry) => entry.key)).toEqual(
-      expect.arrayContaining(["1", "2", "3", "4", "P", ":", "?", "q q"]),
+      expect.arrayContaining(["1", "2", "3", "4", "5", ":", "?", "q q"]),
     );
   });
 

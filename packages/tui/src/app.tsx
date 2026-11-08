@@ -4,8 +4,8 @@
 // confirmation) are `modes.tsx`; home, with the overview, the queue, the desk, the checklist, the
 // privacy settings and the agent detail, is `home.tsx`; the hints are `footer.ts`.
 //
-// Global keys: `1` overview, `2` queue, `3` Your desk, `4` the test checklist, `o` offices, `q`
-// twice within 2 s quits, Ctrl+C quits. `5` or `P` opens the planning view (`planning.tsx`, DIPO-449), `6` the retro view (`retro.tsx`, DIPO-453). `:` and Ctrl-K open the
+// Global keys: `1` overview, `2` queue, `3` Your desk, `T` the test checklist, `o` offices, `q`
+// twice within 2 s quits, Ctrl+C quits. `5` (or `P` on the overview and settings) opens the planning view (`planning.tsx`, DIPO-449), `4` the retro view (`retro.tsx`, DIPO-453). `:` and Ctrl-K open the
 // command palette (`palette.tsx`) and `?` the keys overlay (`help.tsx`, DIPO-463). Action keys are off while offline. Each view's keys are
 // in the header of its file (`home.tsx` holds the handlers; the key table is `keys.ts`).
 //
@@ -249,7 +249,7 @@ export function App(props: AppProps) {
     else if (mode.kind === "retro") retro.onKey(input, key);
     else if (mode.kind === "switcher") onSwitcherKey(mode, input, key, modeKeys);
     else if (input === "5" || (input === "P" && planKeyFree(home))) dispatch({ type: "planning" });
-    else if (input === "6") dispatch({ type: "retro" });
+    else if (input === "4") dispatch({ type: "retro" });
     else home.onKey(input, key);
   };
 

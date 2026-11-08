@@ -125,9 +125,9 @@ function runLines(action: RunAction, state: OfficeStoreState, ellipsis: string):
   return lines;
 }
 
-/** True for the keys that leave an overlay for a view: `1` to `4` and `o`. */
+/** True for the keys that leave an overlay for a view: `1` to `3` and `o`. */
 function leavesOverlay(input: string): boolean {
-  return input === "1" || input === "2" || input === "3" || input === "4" || input === "o";
+  return input === "1" || input === "2" || input === "3" || input === "o";
 }
 
 /** What `useHome` needs from the app around it. */
@@ -237,7 +237,7 @@ export function useHome(args: HomeArgs) {
   // The open test the checklist shows: the story's, else the first open one (DIPO-365).
   const checklistTest =
     state.tests.find((test) => checklistKey === null || String(test.key) === checklistKey) ?? null;
-  /** `4`, or `t` on a desk row: the checklist of `story`, else any; Esc returns to `back`. */
+  /** `T`, or `t` on a desk row: the checklist of `story`, else any; Esc returns to `back`. */
   const openChecklist = (
     story: { readonly key: string; readonly id: string } | null,
     back: View,
@@ -482,7 +482,7 @@ export function useHome(args: HomeArgs) {
     } else if (input === "o") {
       setMessage(null);
       args.openSwitcher();
-    } else if (input === "4") {
+    } else if (input === "T") {
       // Esc returns to where the checklist was opened from, not to the checklist itself.
       openChecklist(null, view === "checklist" ? checklistBack : view);
     } else if (key.escape) {

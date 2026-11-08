@@ -77,7 +77,7 @@ function sent(session: {
 describe("the test checklist", () => {
   it("shows the open test's steps; Space ticks one locally; P passes and F fails with the note pre-filled", async () => {
     const { ui, session } = await openTest();
-    await ui.press("4");
+    await ui.press("T");
     await ui.waitFor("Test of DIPO-19: dipo-test-19 at 9f8e7d6");
     expect(ui.frame()).toContain("open http://localhost:3000");
     // The focus bar marks the focused step.
@@ -112,14 +112,14 @@ describe("the test checklist", () => {
 
   it("Esc leaves the view and sends nothing, so the test stays open", async () => {
     const { ui, session } = await openTest();
-    await ui.press("4");
+    await ui.press("T");
     await ui.waitFor("Test of DIPO-19");
     await ui.press("escape");
     await until(() => !ui.frame().includes("Test of DIPO-19"), "the checklist to close");
     expect(session.commands).toEqual([]);
 
     // Back in the checklist the test is still open, with its steps as they were.
-    await ui.press("4");
+    await ui.press("T");
     await ui.waitFor("Test of DIPO-19");
     expect(session.commands).toEqual([]);
   });
