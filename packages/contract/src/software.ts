@@ -72,6 +72,10 @@ export const OfficeSummary = z.object({
   // show and change them (0007). Absent when the office has no valid configuration.
   // DIPO-136.
   privacy: z.array(PrivacySetting).optional(),
+  // (DIPO-458): when the office's change log last moved, so the Offices view can say how long an
+  // office has been idle. Absent while the log is empty. Today's spend is
+  // `dayUsage.estimatedCost`.
+  lastActivityAt: z.iso.datetime().optional(),
 });
 export type OfficeSummary = z.infer<typeof OfficeSummary>;
 

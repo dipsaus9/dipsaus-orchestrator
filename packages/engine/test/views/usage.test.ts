@@ -137,6 +137,8 @@ describe("usage in the office summary", () => {
       );
       expect(summary.dayUsage?.share).toBe(0.88);
       expect(summary.monthUsage?.tokens).toBe(1190);
+      // Spend today for the TUI header (DIPO-458): the office's own estimated cost of the day.
+      expect(summary.dayUsage?.estimatedCost).toBe(0.0005);
     }));
 
   it("shows tokens with no share and no alert when no limit is set", () => {

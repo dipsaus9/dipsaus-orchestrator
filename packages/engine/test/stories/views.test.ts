@@ -154,7 +154,10 @@ describe("office summary", () => {
         parked: 1,
         waitingOnMaintainer: 1,
         ready: 0,
+        // The pass wrote the change log: its time is the last activity (DIPO-458).
+        lastActivityAt: summary.lastActivityAt,
       });
+      expect(summary.lastActivityAt).toBeString();
     }));
 
   it("counts no running story for an ended run while a worker host of it is still open (DIPO-446)", () =>
