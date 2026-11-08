@@ -65,6 +65,70 @@ describe("the class of a failed Actions job", () => {
   });
 });
 
+/** The actionlint 504 log with its curl error line replaced by `line`. */
+const curlError = (line: string): string =>
+  fixture("dipo-463-actionlint-504.log").replace(
+    "curl: (22) The requested URL returned error: 504",
+    line,
+  );
+
+/** The actionlint 504 log with `line` printed just before the step's `##[error]` line. */
+const beforeError = (line: string): string =>
+  fixture("dipo-463-actionlint-504.log").replace(
+    "##[error]Process completed with exit code 22.",
+    `503 Service Unavailable\n${line}\n##[error]Process completed with exit code 22.`,
+  );
+
+describe("the code's failures that print a 5xx or a download error", () => {
+  it("is the code's for the untrimmed test failure, whose annotations come before bun's summary", () => {
+    const log = fixture("test-failure-untrimmed.log");
+    expect(classifyJobLog(log)).toBe("code");
+    // A 503 in the failing test's annotation is still the code's: the step failed a test.
+    expect(
+      classifyJobLog(
+        log.replace(
+          "##[error]   next Ready story (the engine picks)",
+          "##[error]   503 Service Unavailable",
+        ),
+      ),
+    ).toBe("code");
+  });
+
+  it("is the code's for curl that cannot reach this runner's own loopback", () => {
+    for (const host of ["localhost", "127.0.0.1", "::1"]) {
+      const log = curlError(
+        `curl: (7) Failed to connect to ${host} port 3000 after 0 ms: Couldn't connect to server`,
+      );
+      expect({ host, class: classifyJobLog(log) }).toEqual({ host, class: "code" });
+    }
+    // The same error for another host is a download that failed.
+    expect(
+      classifyJobLog(
+        curlError(
+          "curl: (7) Failed to connect to github.com port 443 after 3 ms: Couldn't connect to server",
+        ),
+      ),
+    ).toBe("infra");
+    expect(classifyJobLog(beforeError("ok"))).toBe("infra");
+  });
+
+  it("is the code's when a test runner's summary says a test failed, whatever 5xx it printed", () => {
+    for (const summary of [
+      "Tests:       1 failed, 3 passed, 4 total",
+      "Test Files  1 failed | 3 passed (4)",
+      "========================= 1 failed, 2 passed in 0.12s =========================",
+      "  2 failing",
+      " 1 fail",
+      "(fail) the poll > retries a 503",
+    ]) {
+      expect({ summary, class: classifyJobLog(beforeError(summary)) }).toEqual({
+        summary,
+        class: "code",
+      });
+    }
+  });
+});
+
 describe("the class of an aggregate check", () => {
   it("is infrastructure only when every job that explains it is", () => {
     const actionlint = classifyJobLog(fixture("dipo-463-actionlint-504.log"));
