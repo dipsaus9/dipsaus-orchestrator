@@ -102,6 +102,8 @@ import {
 } from "../ingest/helpers";
 import { type HeldSession, withHeld } from "./held-session";
 import { sendFeedback } from "../../src/run/feedback";
+import { BoxError } from "../../src/box/port";
+import { COPY_WOULD_OVERWRITE } from "../../src/box/collisions";
 import { RECORDINGS_DIR } from "../workers/replay";
 import { memoryWorkspace } from "../context/helpers";
 import { plainTask } from "../prompts/helpers";
@@ -1097,6 +1099,30 @@ describe("restart windows of DIPO-51's review", () => {
     expect(starts).toBe(0);
   });
 
+  it("merges nothing, takes no part and copies nothing while an earlier host of the run still runs (DIPO-464)", async () => {
+    beforeRestart("terminated", 0);
+    const asked: string[] = [];
+    const resumer = realResumer(
+      { start: () => new Promise(() => undefined) },
+      {
+        probe: async (pid) => ({ pid, startTimeMs: 0, zombie: false, command: "dipo" }),
+        hostExitWaitMs: 0,
+        catchUp: async () => {
+          asked.push("merge");
+          return { kind: "none" };
+        },
+        boxSync: async () => {
+          asked.push("copy");
+        },
+      },
+    );
+    expect(await resumer.next({ ...nextRequest(), catchUp: true })).toMatchObject({
+      kind: "hostAlive",
+      pid: 4242,
+    });
+    expect(asked).toEqual([]);
+  });
+
   it("a stop between the new-session intent's resolution and the next session decides by the tag (window 2)", async () => {
     // crash-zeroed: an execution error while the worker waits is a `new-session` intent, tag `new-session:error`.
     // The first daemon's next session never returns: the daemon stops inside its await.
@@ -1956,6 +1982,28 @@ describe("the merge of a moved base before a resumed or fix round session (DIPO-
     }).next(nextRequest());
     expect(outcome).toMatchObject({ kind: "started" });
     expect(asked).toEqual([]);
+  });
+
+  it("parks conflict, starting no worker, when the copy would overwrite box files no part delivered", async () => {
+    firstSession();
+    const before = preparedSpecs.length;
+    const boxes = { has: async () => "ready" as const } as unknown as RunBoxes;
+    const outcome = await realResumer(hosts, {
+      ...facts,
+      boxes,
+      boxSync: async () => {
+        throw new BoxError(
+          COPY_WOULD_OVERWRITE,
+          "the box holds changes no part delivered in src/a.ts",
+        );
+      },
+    }).next({ ...nextRequest(), catchUp: true });
+    expect(outcome).toEqual({
+      kind: "parked",
+      reason: "conflict",
+      detail: "the box holds changes no part delivered in src/a.ts",
+    });
+    expect(preparedSpecs.length).toBe(before);
   });
 
   it("starts no worker when the merge parks the story conflict, or when it fails", async () => {

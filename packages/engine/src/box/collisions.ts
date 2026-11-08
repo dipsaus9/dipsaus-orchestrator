@@ -97,7 +97,7 @@ import { folderLookupRefused, treeFiles } from "../story-store/folder";
 import { inStoryFolder, linkTargetOf } from "../story-store/paths";
 import type { StoryStore } from "../story-store/store";
 import { BOX_WORKDIR, type BoxCodeDeps, filtersOffConfig, unpack } from "./code";
-import { commitInBoxRepository } from "./box-git";
+import { BOX_PATH_MISSING, boxBlobs, commitInBoxRepository } from "./box-git";
 import { cleanDoorText } from "./door";
 import {
   blobId,
@@ -909,6 +909,12 @@ export async function planCatchUp(
   return { kind: "merge", tip, onto, tree, commit, conflicts, taskFile };
 }
 
+/**
+ * The `BoxError` code of a copy of dipo's merges that would overwrite box files no part delivered
+ * (DIPO-464): nothing is copied, and the story parks `conflict` naming the paths.
+ */
+export const COPY_WOULD_OVERWRITE = "box.copyWouldOverwrite";
+
 /** The `BoxError` code of a merge dipo does not copy into a box: nothing of it is copied. */
 export const MERGE_REFUSED = "box.mergeRefused";
 
@@ -1353,7 +1359,9 @@ export class BoxCollisions {
    * `from` did not (DIPO-324): the merges dipo committed on the branch outside the box since
    * `from` (the auto-merge's conflict hand-off), staged and checked as a catch-up's are, then removed and
    * written in the box. The box must run, and no part is taken meanwhile: the run's session has
-   * not started. Throws when a stage or the copy fails; the branch is never moved here.
+   * not started. A box whose copy of a path to write or remove differs from `from` holds work no
+   * part delivered: nothing is copied (`COPY_WOULD_OVERWRITE`, DIPO-464). Throws when a stage or
+   * the copy fails; the branch is never moved here.
    */
   async copyPending(run: PartRun, from: string, base = "the base"): Promise<BoxChanges> {
     const git = this.#deps.git(run.office);
@@ -1364,6 +1372,7 @@ export class BoxCollisions {
       boxChangesOf(session, from, tip, this.#deps.stories),
     );
     if (changes.written.length === 0 && changes.removed.length === 0) return changes;
+    await this.#unchangedSince(git, run, from, [...changes.written, ...changes.removed]);
     const staged = await this.#stage(git, tip, changes);
     try {
       await this.#write(run, staged.dir, changes, `Merge ${base} into ${run.branch}`);
@@ -1376,6 +1385,30 @@ export class BoxCollisions {
       removed: changes.removed.length,
     });
     return changes;
+  }
+
+  /**
+   * Throws `COPY_WOULD_OVERWRITE` naming the paths whose copy in the box differs from the tip
+   * `from` (DIPO-464): work no part delivered, which the copy would overwrite. A path neither holds
+   * counts as the same.
+   */
+  async #unchangedSince(
+    git: OfficeGit,
+    run: PartRun,
+    from: string,
+    paths: readonly string[],
+  ): Promise<void> {
+    const sorted = [...paths].toSorted();
+    const want = await git.run((session) => entriesAt(session, from, sorted));
+    const got = await boxBlobs(this.#deps.boxes, run.box, sorted);
+    const differs = sorted.filter(
+      (path) => (want.get(path)?.id ?? BOX_PATH_MISSING) !== got.get(path),
+    );
+    if (differs.length === 0) return;
+    throw new BoxError(
+      COPY_WOULD_OVERWRITE,
+      `the box holds changes no part delivered in ${files(differs.length)} dipo's merge changes (${shownPaths(differs)}), so dipo copied nothing into it and the box keeps them. Hand them over or drop them in the box, then resume the story.`,
+    );
   }
 
   async #once(): Promise<void> {

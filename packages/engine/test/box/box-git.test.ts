@@ -22,6 +22,8 @@ import {
   BOX_GIT_EXISTS_EXIT,
   BOX_GIT_IDENTITY,
   BOX_GIT_START_SUBJECT,
+  BOX_PATH_MISSING,
+  boxBlobs,
   boxGitCatchUpCommand,
   boxGitInitCommand,
   commitInBoxRepository,
@@ -148,6 +150,14 @@ function localBox(work: string, home: string): Pick<BoxPort, "exec"> {
   };
 }
 
+/** git's blob id of `text`. */
+function blob(text: string): string {
+  return spawnSync("git", ["hash-object", "--stdin"], {
+    input: text,
+    encoding: "utf8",
+  }).stdout.trim();
+}
+
 describe("a catch-up's commit in the box's own git (DIPO-464)", () => {
   it("is a fixed script with no path but /work, its paths and subject passed as argv", () => {
     const command = boxGitCatchUpCommand("add", ["src/b.ts", "-rf"]);
@@ -236,6 +246,25 @@ describe("a catch-up's commit in the box's own git (DIPO-464)", () => {
       expect(existsSync(join(work, "src", "pwned2"))).toBe(false);
       expect(existsSync(join(work, "src", "a.ts"))).toBe(true);
       expect(git(work, home, "status", "--porcelain")).toBe("");
+    }));
+
+  it("reads each path's blob as /work holds it, odd names included, with no name in its output", () =>
+    withTempDir(async (dir) => {
+      const work = join(dir, "work");
+      const home = join(dir, "home");
+      mkdirSync(home);
+      code(work);
+      const odd = ["src/new\nline.ts", "-rf", "src/$(touch pwned).ts"];
+      for (const path of odd) writeFileSync(join(work, path), "same\n");
+      symlinkSync("a.ts", join(work, "src", "link.ts"));
+      const paths = [...odd, "src/a.ts", "src/link.ts", "src/gone.ts"];
+      const blobs = await boxBlobs(localBox(work, home), "box", paths);
+      for (const path of odd) expect(blobs.get(path)).toBe(blob("same\n"));
+      expect(blobs.get("src/a.ts")).toBe(blob("export const a = 1;\n"));
+      expect(blobs.get("src/link.ts")).toBe(blob("a.ts"));
+      expect(blobs.get("src/gone.ts")).toBe(BOX_PATH_MISSING);
+      expect(existsSync(join(work, "src", "pwned"))).toBe(false);
+      expect(existsSync(join(work, "pwned"))).toBe(false);
     }));
 
   it("commits nothing in a box without its repository, or for paths the merge left as they were", () =>

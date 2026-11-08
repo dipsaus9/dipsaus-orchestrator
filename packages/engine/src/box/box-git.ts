@@ -167,3 +167,61 @@ export async function commitInBoxRepository(
   }
   return step("commit", [subject, head]);
 }
+
+/** What `boxBlobsCommand` prints for a path the box does not hold as a file or a link. */
+export const BOX_PATH_MISSING = "missing";
+
+/**
+ * The script that prints git's blob id of each of its argv paths as `/work` holds them, one line
+ * per path in order (DIPO-464): a file's content with no filter, a symlink's target, or
+ * `BOX_PATH_MISSING`. It prints no path, so no file name can shape what dipo reads back.
+ */
+export function boxBlobsCommand(paths: readonly string[]): [string, ...string[]] {
+  return [
+    "/bin/sh",
+    "-c",
+    `set -eu
+cd '${BOX_WORKDIR}'
+shift
+for p; do
+  if [ -L "$p" ]; then printf '%s' "$(readlink -- "$p")" | git hash-object --stdin
+  elif [ -f "$p" ]; then git hash-object --no-filters -- "$p"
+  else echo '${BOX_PATH_MISSING}'; fi
+done`,
+    "dipo-box-git-blobs",
+    "blobs",
+    ...paths,
+  ];
+}
+
+/**
+ * Git's blob id of each of `paths` as the box's `/work` holds them (`boxBlobsCommand`), or
+ * `BOX_PATH_MISSING`, as the box user. Throws a `BoxError` when the script fails or prints
+ * another number of lines.
+ */
+export async function boxBlobs(
+  boxes: Pick<BoxPort, "exec">,
+  box: string,
+  paths: readonly string[],
+): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  for (let at = 0; at < paths.length; at += CATCH_UP_PATHS_PER_CALL) {
+    const group = paths.slice(at, at + CATCH_UP_PATHS_PER_CALL);
+    const result = await boxes.exec(box, boxBlobsCommand(group), {
+      cwd: BOX_WORKDIR,
+      env: BOX_GIT_ENV,
+      timeoutMs: BOX_GIT_CATCH_UP_TIMEOUT_MS,
+    });
+    const lines = result.stdout.split("\n").filter((line) => line !== "");
+    if (result.code !== 0 || lines.length !== group.length) {
+      throw new BoxError(
+        "box.failed",
+        `the box's files could not be compared with the story branch (exit ${result.code}).`,
+        false,
+        { box, stderr: result.stderr.trim().slice(-2000) },
+      );
+    }
+    group.forEach((path, n) => found.set(path, lines[n]!));
+  }
+  return found;
+}

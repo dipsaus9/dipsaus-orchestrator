@@ -10,7 +10,8 @@ import type { OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 import { officePackageCacheRoot } from "../box/cache";
 import type { DoorPart } from "../box/door";
 import { boxEndedOf, boxRunState } from "../box/lifetime";
-import { sweepPartStages, type BoxParts, type PartRun } from "../box/parts";
+import { CATCH_UP_PART_MESSAGE } from "../box/collisions";
+import { partPark, sweepPartStages, type BoxParts, type PartRun } from "../box/parts";
 import { sweepTokenCheckLeftovers } from "../box/token-check";
 import type { BoxEnded, BoxPassOptions, BoxWorkers, BoxPackageCacheDeps } from "../box/workers";
 import type { OfficeHandle } from "../db/office";
@@ -20,7 +21,8 @@ import { systemIsExecutable } from "../platform/tools";
 import { workerHostsOf } from "../records/worker-hosts";
 import { findClaim } from "../worktree/records";
 import { pendingBoxCopy } from "./conflicts";
-import { findRun } from "../records/run-records";
+import { findRun, type StoredRun } from "../records/run-records";
+import type { BoxPartTaken } from "./base-merges";
 
 /** Apple `container` on `pathEnv`, by absolute path; undefined when it is not there. */
 export function containerOnPath(
@@ -156,6 +158,41 @@ export function realDir(dir: string): string {
   } catch {
     return dir;
   }
+}
+
+/**
+ * The box's work since its last part taken as a part before a merge of a moved base is copied in
+ * (DIPO-464, `BaseCatchUpsDeps.takePart`): the box is woken, and its part delivered though no
+ * session of the run is live yet. A box that is gone holds nothing undelivered (it is rebuilt from
+ * the delivered parts), and one that waits for an earlier merge dipo made outside it gives no part
+ * (DIPO-324). Throws when the run has no box here.
+ */
+export function boxPartOf(deps: {
+  readonly offices: { get(office: OfficeId): OfficeHandle | undefined };
+  readonly partRun: (runId: string) => PartRun | null;
+  readonly workers: Pick<BoxWorkers, "has" | "awake"> | null;
+  readonly parts: Pick<BoxParts, "deliverBeforeSession"> | null;
+}): (office: OfficeId, run: StoredRun) => Promise<BoxPartTaken> {
+  return async (office, run) => {
+    const handle = deps.offices.get(office);
+    const part = deps.partRun(run.runId);
+    const { workers, parts } = deps;
+    if (
+      handle === undefined ||
+      part === null ||
+      part.runDir === undefined ||
+      workers === null ||
+      parts === null
+    ) {
+      throw new Error(`run ${run.runId} has no box dipo can take a part from here`);
+    }
+    if ((await workers.has(run.runId, part.runDir)) === "gone") return { kind: "taken" };
+    if (pendingBoxCopy(handle, run.runId) !== null) return { kind: "taken" };
+    await workers.awake({ runId: run.runId, runDir: part.runDir });
+    const outcome = await parts.deliverBeforeSession(run.runId, CATCH_UP_PART_MESSAGE);
+    const park = partPark(outcome);
+    return park === null ? { kind: "taken" } : { kind: "park", ...park };
+  };
 }
 
 /** Why a part is refused while the box lacks a merge dipo made outside it (DIPO-324). */

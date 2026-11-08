@@ -53,6 +53,8 @@ import type { IngestAdapter } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
 import type { ProcessProbe } from "../platform/process";
 import { promptParts, recordPromptParts, recordPromptTexts } from "../prompts/parts";
+import { COPY_WOULD_OVERWRITE } from "../box/collisions";
+import { BoxError } from "../box/port";
 import { BOX_RUN_FILE } from "../box/workers";
 import { BOX_LIFETIME_NOTICES, BoxLifetime, boxRebuiltText, type RunBoxes } from "../box/lifetime";
 import type { RunProfile } from "../scan/detect";
@@ -343,6 +345,10 @@ export class RunResumer implements NextSession {
       };
     }
     if (run.branch === null) return { kind: "failed", reason: `${run.runId} has no branch` };
+    // Never a new host while an earlier host of the run still runs (0005), and nothing is taken from,
+    // merged for or copied into a box an earlier worker may still write in (DIPO-464).
+    const alive = await this.#earlierHostAlive(office, run.runId);
+    if (alive !== null) return { kind: "hostAlive", code: "run.hostAlive", pid: alive };
     // A base that moved is merged before the handoff reads the branch (DIPO-464).
     if (request.catchUp === true && deps.catchUp !== undefined) {
       let caught: SessionCatchUp;
@@ -410,6 +416,10 @@ export class RunResumer implements NextSession {
       try {
         await deps.boxSync(request.office, run);
       } catch (error) {
+        // Work no part delivered would be overwritten: nothing was copied (DIPO-464).
+        if (error instanceof BoxError && error.code === COPY_WOULD_OVERWRITE) {
+          return { kind: "parked", reason: "conflict", detail: error.message };
+        }
         return {
           kind: "failed",
           reason: `dipo's merge on the story branch could not be copied into the box: ${messageOf(error)}`,
@@ -434,10 +444,6 @@ export class RunResumer implements NextSession {
       return { kind: "failed", reason: why };
     }
     if (!prepared.ok) return { kind: "startFailed", pause: prepared.pause };
-
-    // Never a new host while an earlier host of the run still runs (0005).
-    const alive = await this.#earlierHostAlive(office, run.runId);
-    if (alive !== null) return { kind: "hostAlive", code: "run.hostAlive", pid: alive };
 
     // The new host appends to the run's event file: its ingestion starts after what is there.
     const eventFile = join(paths.runDir, EVENTS_FILE);

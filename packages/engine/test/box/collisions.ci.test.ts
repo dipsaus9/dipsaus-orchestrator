@@ -33,6 +33,7 @@ import {
   type CatchUpMerged,
   CATCH_UP_PART_MESSAGE,
   COLLISION_NOTICES,
+  COPY_WOULD_OVERWRITE,
   conflictSignature,
   countedMarkers,
   type CollisionNotice,
@@ -167,7 +168,7 @@ function folderBoxes(
       }
       // dipo's fixed script of the box's own git (DIPO-464), run by the real /bin/sh and git with
       // the box's `/work` swapped for the box's folder.
-      if (command[0] === "/bin/sh" && command[3] === "dipo-box-git") {
+      if (command[0] === "/bin/sh" && command[3]?.startsWith("dipo-box-git") === true) {
         const [shell, flag, script, ...rest] = command;
         const ran = spawnSync(
           shell,
@@ -1151,6 +1152,44 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(box).toContain("one from the worker");
         expect(box).toContain("seven from the base");
         expect(w.parks).toEqual([]);
+      }));
+
+    it("takes a part before the session only for that call: the run is not live after it, and an unknown run throws (DIPO-464)", () =>
+      inWorld(async (w) => {
+        w.reviewing.add(w.b.run.runId);
+        write(w.b.work, { "src/b.ts": "first\n" });
+        const taken = await w.parts.deliverBeforeSession(w.b.run.runId, CATCH_UP_PART_MESSAGE);
+        expect(taken).toMatchObject({ kind: "committed", paths: ["src/b.ts"] });
+        const tip = await tipOf(w, w.b);
+        // Afterwards the run is not live again: the door's next part stays queued in the box.
+        write(w.b.work, { "src/b.ts": "second\n" });
+        await expect(handPart(w, w.b, "Later")).rejects.toThrow();
+        expect(await tipOf(w, w.b)).toBe(tip);
+        await expect(
+          w.parts.deliverBeforeSession("run_unknown", CATCH_UP_PART_MESSAGE),
+        ).rejects.toThrow("run run_unknown is not known here.");
+      }));
+
+    it("copies nothing over a box file no part delivered, naming it, and the box keeps it (DIPO-464)", () =>
+      inWorld(async (w) => {
+        write(w.b.work, { "src/b.ts": "b\n" });
+        await handPart(w, w.b, "B adds b");
+        await onBase(w, {
+          "src/shared.ts": lines({ 6: "seven from the base" }),
+          "docs/new.md": "new\n",
+        });
+        const { from } = await slotMerge(w, w.b);
+        // An edit no part took, in a file the merge writes.
+        write(w.b.work, { "src/shared.ts": lines({ 0: "one, never handed over" }) });
+        await expect(w.collisions.copyPending(w.b.run, from, "main")).rejects.toMatchObject({
+          code: COPY_WOULD_OVERWRITE,
+          message: expect.stringContaining("1 file dipo's merge changes (src/shared.ts)"),
+        });
+        expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toContain(
+          "one, never handed over",
+        );
+        expect(existsSync(join(w.b.work, "docs/new.md"))).toBe(false);
+        expect(w.copies).toEqual([]);
       }));
 
     it("gives no part before the session while the box lacks an earlier merge, and the caller parks (DIPO-464)", () =>

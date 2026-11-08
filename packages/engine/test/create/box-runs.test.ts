@@ -14,7 +14,9 @@ import type { OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 import { PACKAGE_CACHE_DIR } from "../../src/box/cache";
 import { BoxCollisions } from "../../src/box/collisions";
 import type { DoorPart } from "../../src/box/door";
-import { PART_STAGE_PREFIX, partStageRoot } from "../../src/box/parts";
+import { PART_STAGE_PREFIX, type PartOutcome, partStageRoot } from "../../src/box/parts";
+import { CATCH_UP_PART_MESSAGE } from "../../src/box/collisions";
+import type { StoredRun } from "../../src/records/run-records";
 import { boxName, type BoxPort } from "../../src/box/port";
 import { TOKEN_CHECK_DIR_PREFIX } from "../../src/box/token-check";
 import { BOX_INDEX_DIR, BOX_WAITING, BoxWorkers } from "../../src/box/workers";
@@ -27,6 +29,7 @@ import { buildRuns, type RunsOptions } from "../../src/create/runs";
 import {
   BOX_BEHIND_TEXT,
   boxBehind,
+  boxPartOf,
   boxPackageCache,
   boxRunEnded,
   containerOnPath,
@@ -308,5 +311,72 @@ describe("the daemon's guards of a box run's merges (DIPO-324)", () => {
     expect(behind(officeWith([{ catch_up_id: 1, tip_sha: "b".repeat(40) }]))).toBe(BOX_BEHIND_TEXT);
     // No office here: dipo cannot tell, so the part is refused.
     expect(behind(undefined)).toContain("cannot read the office of DIPO-1");
+  });
+});
+
+describe("the box's part before a merge of a moved base (DIPO-464, boxPartOf)", () => {
+  const stored = { runId: "run_1" } as unknown as StoredRun;
+  const world = (input: {
+    readonly presence: "ready" | "gone";
+    readonly pending: { catch_up_id: number; tip_sha: string }[];
+    readonly outcome?: PartOutcome;
+    readonly box?: boolean;
+  }) => {
+    const calls: string[] = [];
+    const take = boxPartOf({
+      offices: { get: () => officeWith(input.pending) },
+      partRun: () => (input.box === false ? null : { ...BOX_RUN, runDir: "/run-dir" }),
+      workers: {
+        has: async () => {
+          calls.push("has");
+          return input.presence;
+        },
+        awake: async () => {
+          calls.push("awake");
+          return BOX_RUN.box;
+        },
+      },
+      parts: {
+        deliverBeforeSession: async (_runId, message) => {
+          calls.push(`part: ${message}`);
+          return input.outcome ?? { kind: "empty" };
+        },
+      },
+    });
+    return { calls, take: () => take(BOX_RUN.office, stored) };
+  };
+
+  it("wakes a box that is there and takes its work as a part", async () => {
+    const w = world({ presence: "ready", pending: [] });
+    expect(await w.take()).toEqual({ kind: "taken" });
+    expect(w.calls).toEqual(["has", "awake", `part: ${CATCH_UP_PART_MESSAGE}`]);
+  });
+
+  it("takes no part from a box that is gone: it holds nothing undelivered", async () => {
+    const w = world({ presence: "gone", pending: [] });
+    expect(await w.take()).toEqual({ kind: "taken" });
+    expect(w.calls).toEqual(["has"]);
+  });
+
+  it("takes no part while the box waits for an earlier merge dipo made outside it", async () => {
+    const w = world({ presence: "ready", pending: [{ catch_up_id: 1, tip_sha: "b".repeat(40) }] });
+    expect(await w.take()).toEqual({ kind: "taken" });
+    expect(w.calls).toEqual(["has"]);
+  });
+
+  it("hands on the park a part asks for, and throws for a run with no box here", async () => {
+    const w = world({
+      presence: "ready",
+      pending: [],
+      outcome: { kind: "hit", hit: "protected-file", detail: "a protected file" } as PartOutcome,
+    });
+    expect(await w.take()).toEqual({
+      kind: "park",
+      reason: "scope-violation",
+      detail: "a protected file",
+    });
+    await expect(world({ presence: "ready", pending: [], box: false }).take()).rejects.toThrow(
+      "has no box dipo can take a part from here",
+    );
   });
 });
