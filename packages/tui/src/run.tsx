@@ -30,6 +30,7 @@ import { Box, render, Text, useInput } from "ink";
 import { useState } from "react";
 
 import { App, type TuiActions } from "./app";
+import { osc52 } from "./colour";
 import { QUIT_WINDOW_MS } from "./input";
 import { parseTuiArgs } from "./options";
 import { classicalEnv, detectTone } from "./theme";
@@ -60,6 +61,10 @@ export interface TuiDeps extends TuiStreams {
   readonly clientInfo: { readonly name: string; readonly version: string };
   /** Asks the terminal for its background colour (OSC 11); the theme falls back to `COLORFGBG`. */
   readonly queryBackground?: () => Promise<string | null>;
+  /** Starts the daemon after it stopped (`r`); resolves to why it did not start, or null. */
+  readonly restartDaemon?: () => Promise<string | null>;
+  /** Opens the daemon log outside the TUI (`l`); resolves to why it did not open, or null. */
+  readonly openLog?: () => Promise<string | null>;
 }
 
 /** The one line printed when stdin is not a terminal (0009). */
@@ -325,6 +330,17 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
         }
       },
       newRequestId: requestIds,
+      copy: (text) => {
+        deps.stdout.write(osc52(text));
+      },
+      restartDaemon: async () =>
+        deps.restartDaemon === undefined
+          ? "this dipo cannot start the daemon; run dipo daemon start"
+          : deps.restartDaemon().catch((error: unknown) => errorText(error)),
+      openLog: async () =>
+        deps.openLog === undefined
+          ? "run dipo daemon logs"
+          : deps.openLog().catch((error: unknown) => errorText(error)),
     };
     instance.rerender(
       <App
