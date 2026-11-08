@@ -1,4 +1,4 @@
-// Your desk (`3`, 0009, DIPO-132, DIPO-308): what waits on the
+// The Desk (`1`, 0009, DIPO-132, DIPO-308): what waits on the
 // maintainer, read from `office.desk` and shown in the engine's order. A count line, then one row
 // per item with its kind, story, park reason, detail, age and the keys its actions offer
 // (`keys.ts`); the stories the maintainer parked are listed apart under "Parked by you". An empty
@@ -23,7 +23,7 @@ import { Box } from "ink";
 import { useEffect, useRef, useState } from "react";
 
 import { age, truncate } from "./format";
-import { rowKeys } from "./keys";
+import { hintText, rowKeys } from "./keys";
 import type { Display } from "./options";
 import { glyphs } from "./views";
 import { Colored } from "./colour";
@@ -204,11 +204,11 @@ export function parkWords(item: DeskItem): string {
   return item.reason ?? "";
 }
 
-/** The key hints of a row, as the footer and wide rows show them. */
+/** The key hints of a row, as wide rows show them: `y approve  n reject`. */
 export function rowHints(item: DeskItem): string {
   return rowKeys(item)
-    .bound.map((entry) => entry.binding.hint)
-    .join(" ");
+    .bound.map((entry) => hintText(entry.binding))
+    .join("  ");
 }
 
 /** One desk row's lines; the first is the row, a second (wide only) its hand action or blocks. */
