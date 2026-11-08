@@ -12,6 +12,7 @@ import {
   type GateInput,
   type GateMode,
   type GateResult,
+  TIER_CEILINGS,
 } from "../../src/gate";
 import {
   ACTIVE_TASKS,
@@ -430,6 +431,7 @@ describe("evaluateGate", () => {
     );
     covered.add("R12"); // its own table below
     covered.add("R29"); // warns only, never fails: its own block below
+    covered.add("R32"); // warns only, in ready mode: its own block below
     expect([...covered].toSorted()).toEqual([...GATE_RULES].toSorted());
   });
 
@@ -1317,3 +1319,90 @@ describe("R05 Story line", () => {
     ]);
   });
 });
+
+// R32 (DIPO-467): a story with more criteria or references than its tier usually holds gets a
+// warning in ready mode, so the maintainer raises its tier or splits it. DIPO-458 had tier S, 9
+// criteria and 10 references, and hit the tier S turn cap with no part.
+const criteria = (n: number) =>
+  Array.from({ length: n }, (_, i) => ({
+    index: i + 1,
+    checked: false,
+    text: `The export writes column ${i + 1} of each row`,
+  }));
+const references = (n: number) => Array.from({ length: n }, (_, i) => `packages/export/f${i}.ts`);
+const sized = (tier: string, nCriteria: number, nReferences: number) =>
+  input({
+    labels: [`tier:${tier}`],
+    acceptanceCriteria: criteria(nCriteria),
+    references: references(nReferences),
+  });
+const over = (tier: string, count: number, what: string, ceiling: number) =>
+  `ready ${ID} warning R32: tier ${tier} story has ${count} ${what}, above the tier ${tier} ceiling of ${ceiling}; raise its tier or split it`;
+
+describe("R32 story size above its tier's ceiling", () => {
+  it("has the ceilings S 5 and 8, M 10 and 16, L 12 and 24", () => {
+    expect(TIER_CEILINGS).toEqual({
+      S: { criteria: 5, references: 8 },
+      M: { criteria: 10, references: 16 },
+      L: { criteria: 12, references: 24 },
+    });
+  });
+
+  for (const [tier, nCriteria, nReferences] of [
+    ["S", 5, 8],
+    ["M", 10, 16],
+    ["L", 12, 24],
+  ] as const) {
+    it(`warns above tier ${tier}'s ceiling, not at it, and the gate still passes`, () => {
+      const at = evaluateGate(sized(tier, nCriteria, nReferences), "ready");
+      expect(at.failures).toEqual([]);
+      expect(at).not.toHaveProperty("warnings");
+
+      const result = evaluateGate(sized(tier, nCriteria + 1, nReferences + 1), "ready");
+      expect(result.passed).toBe(true);
+      expect(result.failures).toEqual([]);
+      expect(result.warnings).toEqual([
+        { rule: "R32", message: over(tier, nCriteria + 1, "criteria", nCriteria) },
+        { rule: "R32", message: over(tier, nReferences + 1, "references", nReferences) },
+      ]);
+    });
+  }
+
+  it("warns on criteria alone or references alone, naming the tier, the count and the ceiling", () => {
+    expect(warnings(evaluateGate(sized("S", 6, 2), "ready"))).toEqual([
+      over("S", 6, "criteria", 5),
+    ]);
+    expect(warnings(evaluateGate(sized("S", 9, 10), "ready"))).toEqual([
+      over("S", 9, "criteria", 5),
+      over("S", 10, "references", 8),
+    ]);
+    expect(warnings(evaluateGate(sized("M", 2, 17), "ready"))).toEqual([
+      over("M", 17, "references", 16),
+    ]);
+    expect(gateText("R32", over("S", 6, "criteria", 5))).toBe(
+      "tier S story has 6 criteria, above the tier S ceiling of 5; raise its tier or split it",
+    );
+  });
+
+  it("is never evaluated in pickup mode", () => {
+    const story = sized("S", 9, 10);
+    const pickup = evaluateGate({ ...story, story: { ...story.story, status: "Ready" } }, "pickup");
+    expect(pickup.passed).toBe(true);
+    expect(pickup).not.toHaveProperty("warnings");
+  });
+
+  it("says nothing without exactly one known tier", () => {
+    const none = sized("S", 9, 10);
+    expect(r32Warnings({ ...none, story: { ...none.story, labels: [] } })).toEqual([]);
+    const two = sized("S", 9, 10);
+    expect(r32Warnings({ ...two, story: { ...two.story, labels: ["tier:S", "tier:M"] } })).toEqual(
+      [],
+    );
+    const custom = sized("S", 9, 10);
+    expect(r32Warnings({ ...custom, story: { ...custom.story, labels: ["tier:XL"] } })).toEqual([]);
+  });
+});
+
+function r32Warnings(gateInput: GateInput): readonly string[] {
+  return warnings(evaluateGate(gateInput, "ready")).filter((line) => line.includes(" R32: "));
+}

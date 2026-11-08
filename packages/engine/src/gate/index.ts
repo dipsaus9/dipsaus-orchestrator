@@ -45,10 +45,12 @@ export {
   r29,
   r30,
   r31,
+  r32,
   SHARED_RULES,
   STORY_PART_MIN,
-  WARNING_RULES,
   TEST_PLAN_TEXT_MIN,
+  TIER_CEILINGS,
+  warningRulesFor,
 } from "./rules";
 export type { GateContext, RuleCheck } from "./rules";
 export { characters, clean, wordMatch } from "./text";
