@@ -1,10 +1,10 @@
 ---
 id: DIPO-460
 title: 'TUI v2: the Floor with one pipeline line for every story'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-08 10:49'
+updated_date: '2026-11-08 11:14'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -56,14 +56,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One Pipeline component draws the five phases with verify and CI marks, and every view that shows a phase uses it
-- [ ] #2 A story shows under RUNNING or IN REVIEW, never both
-- [ ] #3 Health shows only when stuck, looping or lost
-- [ ] #4 The Floor shows the dependency chain as one sentence under UP NEXT
-- [ ] #5 The Queue shows Ready, waiting on a dependency and Refined groups with the reason column, and a preview with the chain picture that points to the Desk when a park blocks it
-- [ ] #6 The Floor and the Queue match the HTML preview's S2 and S2b. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
-- [ ] #7 The engine computes the dependency chain from the graph and sends it (engine addition); the Floor sentence, the CHAIN picture and the everything-below-N line render it without deriving anything
-- [ ] #8 A bare needs N in the Queue means the dependency is itself waiting, a state the engine supplies
-- [ ] #9 story.gate returns the number of rules (engine addition), shown as Gate ✓ N rules
-- [ ] #10 In the Queue, . toggles show done (N)
+- [x] #1 One Pipeline component draws the five phases with verify and CI marks, and every view that shows a phase uses it
+- [x] #2 A story shows under RUNNING or IN REVIEW, never both
+- [x] #3 Health shows only when stuck, looping or lost
+- [x] #4 The Floor shows the dependency chain as one sentence under UP NEXT
+- [x] #5 The Queue shows Ready, waiting on a dependency and Refined groups with the reason column, and a preview with the chain picture that points to the Desk when a park blocks it
+- [x] #6 The Floor and the Queue match the HTML preview's S2 and S2b. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
+- [x] #7 The engine computes the dependency chain from the graph and sends it (engine addition); the Floor sentence, the CHAIN picture and the everything-below-N line render it without deriving anything
+- [x] #8 A bare needs N in the Queue means the dependency is itself waiting, a state the engine supplies
+- [x] #9 story.gate returns the number of rules (engine addition), shown as Gate ✓ N rules
+- [x] #10 In the Queue, . toggles show done (N)
 <!-- AC:END -->
