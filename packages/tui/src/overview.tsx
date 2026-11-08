@@ -1,4 +1,4 @@
-// The office overview (`1`, 0009, DIPO-81): a board. A count line
+// The office overview, the Floor (`2`, 0009, DIPO-81): a board. A count line
 // at the top (running, needs you, in review, Ready, waiting, and today at 120 columns), then
 // the sections RUNNING, NEEDS YOU, IN REVIEW and READY with the story title on every row; empty
 // sections are hidden. Each running row has a `now:` line: a phase word, the newest stored worker
@@ -8,7 +8,7 @@
 // At 120 columns or more a running row shows role, tier, phase, health, criteria, loop, budget bar
 // with its share, elapsed time and model; from 80 to 119 phase, health, criteria and budget; from
 // 60 to 79 each run is a two-line card with the `now` text on its second line. The board is cut
-// to the rows it has room for, running rows first, so the footer with `[q] quit` stays on screen.
+// to the rows it has room for, running rows first, so the footer with `q q quit` stays on screen.
 // The selected row is marked with `>`; `j`/`k` move over every row and Enter opens it: a running
 // story's live detail (DIPO-55), or the latest run of a story that ran (DIPO-81). Lines are
 // memoised by their text and cut to the width.
@@ -35,7 +35,7 @@ import { age, budgetBar, elapsed, truncate, type Width } from "./format";
 import type { LatestLines } from "./latest";
 import { boardNow } from "./now";
 import type { Display } from "./options";
-import { glyphs, officeOptIns, storedLabel } from "./views";
+import { glyphs } from "./views";
 import { Colored } from "./colour";
 
 /** The widest title per width tier; shorter titles keep their own width. */
@@ -85,8 +85,8 @@ function columnCount(state: OfficeStoreState, column: string): number {
 
 /**
  * `1 running · 1 needs you · 1 in review · Ready 1 · waiting 0 · today 1.2M of 4M tokens
- * (30%, resets 00:00 UTC) · this month 20M of 90M tokens (22%, resets 1 Nov 00:00 UTC)`, with
- * `stores commands` before `today` while a privacy setting that stores data is on (0007).
+ * (30%, resets 00:00 UTC) · this month 20M of 90M tokens (22%, resets 1 Nov 00:00 UTC)`. The
+ * privacy words live in the settings, not here (DIPO-458).
  * The usage parts are the engine's (DIPO-311); without a limit only the tokens show.
  */
 export function countLine(
@@ -103,8 +103,6 @@ export function countLine(
     `Ready ${columnCount(state, "ready")}`,
     `waiting ${columnCount(state, "waiting")}`,
   ];
-  const stored = storedLabel(officeOptIns(state));
-  if (stored !== "") parts.push(stored);
   if (width === "full") parts.push(...usageParts(summary, nowMs));
   return ` ${parts.join(` ${dot} `)}`;
 }
@@ -115,13 +113,13 @@ function words(reason: string): string {
 }
 
 /**
- * Why nothing runs, in one line, from the stories the engine sent: Ready stories wait for `u`;
+ * Why nothing runs, in one line, from the stories the engine sent: Ready stories wait for `R`;
  * without them, the waiting dependencies, the first failed Ready gate rule of each Refined story,
  * the parked stories and the drafts.
  */
 export function idleLine(state: OfficeStoreState, dot: string): string {
   const ready = columnCount(state, "ready");
-  if (ready > 0) return ` Nothing is running. Ready ${ready}: [2] queue, then u to run one.`;
+  if (ready > 0) return ` Nothing is running. Ready ${ready}: 3 Queue, then R to run one.`;
   const reasons: string[] = [];
   for (const story of state.stories) {
     if (story.column !== "waiting") continue;
@@ -341,7 +339,7 @@ function sections(options: {
     line(story, `${tier(story)}in review ${dot} no worker running`),
   );
   const readyRows = ready.map((story, i) =>
-    line(story, `${tier(story)}Ready${i === 0 ? ` ${dot} [2] queue, then u` : ""}`),
+    line(story, `${tier(story)}Ready${i === 0 ? ` ${dot} 3 Queue, then R` : ""}`),
   );
   const section = (title: string, rows: BoardRow[]): Section => {
     const keep = rows.findIndex((row) => row.key === options.selected);

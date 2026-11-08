@@ -19,7 +19,7 @@ import type { OfficeStoreState } from "@dipsaus-orchestrator/client";
 import { countLine, fitSections, type Section } from "./overview";
 import { goldenHello, goldenSnapshots, OFFICES } from "../test/support/fake-session";
 import { mount } from "../test/support/setup";
-import { switcherCells } from "./views";
+import { officeCells } from "./views";
 
 const mounted: { unmount(): Promise<void> }[] = [];
 const STREAM = `office:${OFFICES.dipsaus}`;
@@ -28,6 +28,14 @@ const RUN_21 = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C01";
 afterEach(async () => {
   for (const ui of mounted.splice(0)) await ui.unmount();
 });
+
+/** The Frame's bands (DIPO-458): header, rooms and a rule above the body; a rule and the keys under it. */
+const HEADER = expect.stringMatching(
+  /^dipo \/ dipsaus-orchestrator .*● daemon live {4}\d\d:\d\d$/,
+) as unknown as string;
+const ROOMS = expect.stringMatching(/^1 Desk .*4 Retro$/) as unknown as string;
+const RULE = expect.stringMatching(/^─+$/) as unknown as string;
+const keys = (pattern: RegExp) => expect.stringMatching(pattern) as unknown as string;
 
 function lines(frame: string): string[] {
   return frame.split("\n").map((line) => line.trimEnd());
@@ -121,7 +129,7 @@ async function open(columns: number, rows = 30, snapshot: OfficeSnapshot | null 
       : { snapshots: new Map<OfficeId, OfficeSnapshot>([[OFFICES.dipsaus, snapshot]]) }),
   });
   mounted.push(view.ui);
-  await view.ui.waitFor("· live");
+  await view.ui.waitFor("daemon live");
   return view;
 }
 
@@ -140,7 +148,9 @@ describe("office overview board", () => {
     const { ui } = await open(120, 30, boardSnapshot());
     const frame = await ui.waitFor("building · Step 39");
     expect(lines(frame)).toEqual([
-      " dipsaus-orchestrator · daemon running · live",
+      HEADER,
+      ROOMS,
+      RULE,
       " 3 running · 2 needs you · 1 in review · Ready 2 · waiting 1",
       " RUNNING (3)",
       "▌DIPO-21 Stream worker events to th… developer M  build   busy >     AC 4/7  loop 2/5  [####----] 52% 38m  claude-sonnet",
@@ -155,9 +165,10 @@ describe("office overview board", () => {
       " IN REVIEW (1)",
       " DIPO-28 Show the merge queue         L  in review · no worker running",
       " READY (2)",
-      " DIPO-30 Add park reasons to digest   S  Ready · [2] queue, then u",
+      " DIPO-30 Add park reasons to digest   S  Ready · 3 Queue, then R",
       " DIPO-32 Desk sort order              M  Ready",
-      " [Enter] detail  [j/k] move  [2] queue  [3] desk  [p] privacy  [o] offices  [q] quit",
+      RULE,
+      keys(/^↑↓ move {3}⏎ open {3}c copy id +: settings {3}O offices {3}q q quit$/),
     ]);
   });
 
@@ -165,7 +176,9 @@ describe("office overview board", () => {
     const { ui } = await open(80, 30, boardSnapshot());
     const frame = await ui.waitFor("building · Step 39");
     expect(lines(frame)).toEqual([
-      " dipsaus-orchestrator · daemon running · live",
+      HEADER,
+      ROOMS,
+      RULE,
       " 3 running · 2 needs you · 1 in review · Ready 2 · waiting 1",
       " RUNNING (3)",
       "▌DIPO-21 Stream worker events … build  busy >    AC 4/7 [####----] 52% 38m",
@@ -180,9 +193,10 @@ describe("office overview board", () => {
       " IN REVIEW (1)",
       " DIPO-28 Show the merge queue    in review · no worker running",
       " READY (2)",
-      " DIPO-30 Add park reasons to d…  Ready · [2] queue, then u",
+      " DIPO-30 Add park reasons to d…  Ready · 3 Queue, then R",
       " DIPO-32 Desk sort order         Ready",
-      " [Enter] detail  [2] queue  [3] desk  [p] privacy  [o] offices  [q] quit",
+      RULE,
+      keys(/^↑↓ move {3}⏎ open {3}c copy id +: settings {3}O offices {3}q q quit$/),
     ]);
   });
 
@@ -199,12 +213,15 @@ describe("office overview board", () => {
   it("says why nothing runs when the office is idle", async () => {
     const { ui } = await open(120, 30, idleSnapshot());
     expect(lines(ui.frame())).toEqual([
-      " dipsaus-orchestrator · daemon running · live",
+      HEADER,
+      ROOMS,
+      RULE,
       " 0 running · 2 needs you · 0 in review · Ready 0 · waiting 1",
       " Nothing is running and nothing is Ready: DIPO-31 waits on DIPO-21, DIPO-33 is Refined (R15), DIPO-29 is parked (by mai…",
       " NEEDS YOU (1)",
       "▌DIPO-29 Web client shell  parked 3d · by maintainer: after M2",
-      " [Enter] detail  [j/k] move  [2] queue  [3] desk  [p] privacy  [o] offices  [q] quit",
+      RULE,
+      keys(/^↑↓ move {3}⏎ open {3}c copy id +: settings {3}O offices {3}q q quit$/),
     ]);
   });
 
@@ -236,7 +253,7 @@ describe("office overview board", () => {
     const base = golden();
     const { ui } = await open(120, 30, { ...base, work: [] });
     const frame = ui.frame();
-    expect(frame).toContain(" Nothing is running. Ready 2: [2] queue, then u to run one.");
+    expect(frame).toContain(" Nothing is running. Ready 2: 3 Queue, then R to run one.");
     expect(frame).toContain(" READY (2)");
   });
 
@@ -281,17 +298,17 @@ describe("office overview board", () => {
     for (const line of lines(frame)) expect(line.length).toBeLessThanOrEqual(120);
   });
 
-  it("keeps [q] quit visible and no line wider than the terminal at every width", async () => {
+  it("keeps q q quit visible and no line wider than the terminal at every width", async () => {
     for (const columns of [120, 100, 80, 79, 70, 60]) {
       for (const rows of [30, 16]) {
         const { ui } = await open(columns, rows, boardSnapshot());
         const shown = lines(ui.frame());
-        expect(shown.at(-1)).toContain("[q] quit");
+        expect(shown.at(-1)).toContain("q q quit");
         expect(shown.length).toBeLessThanOrEqual(rows);
         for (const line of shown) expect(line.length).toBeLessThanOrEqual(columns);
-        await ui.press("2");
+        await ui.press("3");
         await ui.waitFor("next Ready story");
-        expect(ui.frame()).toContain("[q] quit");
+        expect(ui.frame()).toContain("q q quit");
       }
     }
   });
@@ -305,7 +322,7 @@ describe("office overview board", () => {
     await ui.press("j");
     const frame = await ui.waitFor("▌DIPO-19");
     expect(lines(frame).length).toBeLessThanOrEqual(16);
-    expect(frame).toContain("[q] quit");
+    expect(frame).toContain("q q quit");
   });
 
   it("follows a work event with a new view", async () => {
@@ -428,8 +445,10 @@ describe("opening any board row (DIPO-81)", () => {
     await ui.press("enter");
     let frame = await ui.waitFor("│ Done.");
     const shown = lines(frame);
-    expect(shown.slice(0, 5)).toEqual([
-      " dipsaus-orchestrator · daemon running · live",
+    expect(shown.slice(0, 7)).toEqual([
+      HEADER,
+      ROOMS,
+      RULE,
       ` DIPO-28 Show the merge queue · developer · L · claude-haiku · ${RUN_28}`,
       " run ended · DIPO-28 is In Review",
       " run      ended 2h ago (completed)   │ output (worker) [w]orker* [v]erify [i] prompt",
@@ -439,7 +458,7 @@ describe("opening any board row (DIPO-81)", () => {
     expect(frame).toContain("│ Done.");
     expect(frame).toContain(" usage    in 12k out 3k");
     expect(shown.at(-1)).toBe(
-      " [w]orker [v]erify [i] prompt  [k/j PgUp/PgDn] scroll  [End] follow tail  [Esc] back  [q] quit",
+      `w v i streams   ↑↓ PgUp PgDn scroll   End follow   z expand   c copy id${" ".repeat(29)}esc back   q q quit`,
     );
     expect(session.reads).toContainEqual({
       name: "story.detail",
@@ -447,8 +466,8 @@ describe("opening any board row (DIPO-81)", () => {
     });
     await ui.press("v");
     frame = await ui.waitFor("│ all green");
-    // P parks nothing from an ended run's detail.
-    await ui.press("P");
+    // p parks nothing from an ended run's detail.
+    await ui.press("p");
     await ui.waitFor("this run has ended; park its story from the queue or the desk");
     expect(session.commands).toEqual([]);
     await ui.press("escape");
@@ -470,7 +489,7 @@ describe("opening any board row (DIPO-81)", () => {
     await recent.ui.press("enter");
     frame = await recent.ui.waitFor(" no output stored");
     expect(frame).toContain(" run ended 2h ago (completed)  role developer");
-    expect(lines(frame).at(-1)).toContain("[q] quit");
+    expect(lines(frame).at(-1)).toContain("q q quit");
   });
 
   it("shows a run open at In Review as at In Review, not as ended (DIPO-373)", async () => {
@@ -517,10 +536,10 @@ describe("opening any board row (DIPO-81)", () => {
     await ui.press("enter");
     const frame = await ui.waitFor("DIPO-30 Add park reasons to digest · Ready, not run yet");
     expect(frame).toContain("RUNNING (3)");
-    expect(lines(frame).at(-1)).toContain("[q] quit");
+    expect(lines(frame).at(-1)).toContain("q q quit");
   });
 
-  it("keeps [q] quit visible in an ended run's detail at every width", async () => {
+  it("keeps q q quit visible in an ended run's detail at every width", async () => {
     for (const columns of [120, 80, 70, 60]) {
       const { ui, session } = await open(columns, 24, boardSnapshot());
       session.runs.set(KEY_28, [record28()]);
@@ -528,25 +547,25 @@ describe("opening any board row (DIPO-81)", () => {
       await ui.press("enter");
       const frame = await ui.waitFor("run ended");
       const shown = lines(frame);
-      expect(shown.at(-1)).toContain("[q] quit");
+      expect(shown.at(-1)).toContain("q q quit");
       expect(shown.length).toBeLessThanOrEqual(24);
       for (const line of shown) expect(line.length).toBeLessThanOrEqual(columns);
     }
   });
 
-  it("names what the privacy settings that are on store, from the office summary (DIPO-83, DIPO-135)", async () => {
+  it("keeps the privacy words off the Floor and its header: they live in the settings (DIPO-458)", async () => {
     const { ui, session } = await open(120);
-    expect(ui.frame()).not.toContain("stores");
     const summary = goldenHello.offices.find((entry) => entry.office === OFFICES.dipsaus);
     session.active("software")?.options.onEvent({
       cursor: { stream: "software", seq: 90 },
       at: "2026-10-14T10:04:00.000Z",
       type: "office.summary",
-      data: { ...summary, optIns: ["privacy.storeCommandBodies"] },
+      data: { ...summary, optIns: ["privacy.storeCommandBodies"], ready: 7 },
     } as Event);
-    const frame = await ui.waitFor("stores commands");
-    expect(frame).toMatch(/ · waiting \d+ · stores commands/);
-    expect(frame).not.toContain("opt-in");
+    // The summary arrived: the Queue room counts its Ready stories.
+    const frame = await ui.waitFor("3 Queue 7");
+    expect(frame).not.toContain("stores");
+    expect(frame).not.toContain("privacy");
   });
 });
 
@@ -599,12 +618,15 @@ describe("usage on the count line and in the switcher (DIPO-311)", () => {
     expect(line).toEndWith("today 1.2M tokens · this month 3k tokens");
   });
 
-  it("keeps ALERT day usage in the switcher", () => {
+  it("keeps the ALERT wording on Offices' TODAY bar, in err", () => {
     const entry = {
       name: "o",
       office,
       summary: { ...base, dayUsage: { tokens: 9, limit: 10, share: 0.9, alert: true } },
     };
-    expect(switcherCells(entry as never, true).at(-1)).toBe("90%  ALERT day usage");
+    const cells = officeCells(entry as never, false, NOW, false);
+    expect(cells.share).toBe("90% ALERT");
+    expect(cells.alert).toBe(true);
+    expect(cells.filled).toBe(11);
   });
 });

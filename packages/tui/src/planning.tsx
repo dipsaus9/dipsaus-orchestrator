@@ -1,4 +1,4 @@
-// The planning view (DIPO-449, 0009, 0008): its own mode, opened with `5` from home. Without an open
+// The planning view (DIPO-449, 0009, 0008): its own mode, opened with `P` from home. Without an open
 // planning session it asks for a kind (`Tab` changes it) and a goal and starts one with
 // `planning.start`; with one it shows the session's kind, goal, state and live spend, the answers as
 // they stream in (`planning.output`), and the multi-line input for the next message

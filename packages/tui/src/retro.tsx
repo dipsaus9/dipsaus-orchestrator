@@ -1,4 +1,4 @@
-// The retro view (`6` from home, DIPO-453, 0022): why stories parked, the fix rounds and loops, the
+// The retro room (`4`, DIPO-453, 0022): why stories parked, the fix rounds and loops, the
 // cost and the time from Ready to merged per tier and type, where stories came from, the rework
 // share and what the audit and the maintainer turned away. The engine counts every number from its
 // database and builds the lines (`office.retro`); the TUI only reads them, scrolls them and draws

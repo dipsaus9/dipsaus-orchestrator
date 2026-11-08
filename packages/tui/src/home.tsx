@@ -1,7 +1,8 @@
-// The home mode of the TUI (0009, DIPO-443): the views behind `1` to `4` (overview, queue, privacy
-// settings, desk, checklist), the live agent detail and the desk card over them, and the `work.run`
-// a queue row sends. `useHome` holds their state and keys; `HomeMode` draws the one that shows.
-// `app.tsx` wires it to the modes and the footer.
+// The home mode of the TUI (0009, DIPO-443, DIPO-458): the rooms behind `1` to `3` (desk, floor,
+// queue), the test checklist `t` opens from a desk row, the privacy settings, the live agent detail
+// and the desk card over them, and the `work.run` `R` sends from a queue row. `useHome` holds
+// their state and keys; `HomeMode` draws the one that shows. `app.tsx` wires it to the modes and
+// the footer. A run's result shows once in the ticker and clears on the next key.
 
 import {
   cursorReached,
@@ -22,20 +23,11 @@ import { useEffect, useState } from "react";
 import type { ActionTarget, useActions } from "./actions";
 import type { RunRequest, RunResult, TuiActions } from "./app";
 import { Checklist, firstUnticked } from "./checklist";
-import {
-  Desk,
-  DESK_WIDE_COLUMNS,
-  deskRowId,
-  deskRows,
-  rowHints,
-  selectedRow,
-  useDesk,
-} from "./desk";
+import { Desk, DESK_WIDE_COLUMNS, deskRowId, deskRows, selectedRow, useDesk } from "./desk";
 import { Detail, type DetailTarget } from "./detail";
-import { type Hint } from "./footer";
 import { skipReason, widthOf } from "./format";
 import { digestLine, useDigest } from "./digest";
-import { type ActionId, binding, rowKeys, viewKeys } from "./keys";
+import { type ActionId, binding, type Hint, rowKeys, viewKeys } from "./keys";
 import { useLatestLines } from "./latest";
 import type { Display } from "./options";
 import { OUTPUT_TAIL_BYTES } from "./output";
@@ -91,42 +83,51 @@ function deskTarget(item: DeskItem, cli: string, id: ActionId): ActionTarget {
   };
 }
 
-/** The lines under the body for a run: what started, what was skipped and why. */
-function runLines(action: RunAction, state: OfficeStoreState, ellipsis: string): string[] {
-  const lines: string[] = [];
+/**
+ * A run as one ticker line (DIPO-458): what started and, after it, what was skipped and why, so no
+ * list of skipped stories stays under the views.
+ */
+export function runSummary(
+  action: RunAction,
+  state: OfficeStoreState,
+  ellipsis: string,
+  dot: string,
+): string | null {
   switch (action.status) {
     case "sending":
-      lines.push(`run ${action.label}: sending${ellipsis}`);
-      break;
-    case "syncing":
-      lines.push(`run ${action.label}: answered, waiting for the office stream${ellipsis}`);
-      break;
-    case "done":
-      lines.push(`run ${action.label}: done`);
-      break;
+      return `run ${action.label}: sending${ellipsis}`;
     case "failed":
-      return lines;
+      return null;
+    default:
+      break;
   }
   const result = action.result;
-  if (result === undefined) return lines;
-  for (const story of result.started) lines.push(`  started ${story.story} (${story.run})`);
+  const head =
+    action.status === "syncing"
+      ? `run ${action.label}: answered, waiting for the office stream${ellipsis}`
+      : `run ${action.label}: done`;
+  if (result === undefined) return head;
+  const parts = result.started.map((story) => `started ${story.story}`);
   for (const story of result.skipped) {
     const view = state.stories.find((candidate) => String(candidate.story) === story.story);
     const needs =
       story.reason === "dependency" && view?.waitingOn !== undefined && view.waitingOn.length > 0
         ? ` (needs ${view.waitingOn.join(", ")})`
         : "";
-    lines.push(`  skipped ${story.story}: ${skipReason(story.reason)}${needs}`);
+    parts.push(`skipped ${story.story}: ${skipReason(story.reason)}${needs}`);
   }
-  if (result.started.length === 0 && result.skipped.length === 0) {
-    lines.push("  no Ready story to start");
-  }
-  return lines;
+  if (parts.length === 0) parts.push("no Ready story to start");
+  return [head, ...parts].join(`  ${dot}  `);
 }
 
-/** True for the keys that leave an overlay for a view: `1` to `4` and `o`. */
-function leavesOverlay(input: string): boolean {
-  return input === "1" || input === "2" || input === "3" || input === "4" || input === "o";
+/** A key table entry as a footer hint. */
+function hintOf(entry: { key: string; label: string; priority: number }): Hint {
+  return { key: entry.key, label: entry.label, priority: entry.priority };
+}
+
+/** True for the keys that leave an overlay for a room: `1` to `4`, `O` and `P`. */
+export function leavesOverlay(input: string): boolean {
+  return ["1", "2", "3", "4", "O", "P"].includes(input);
 }
 
 /** What `useHome` needs from the app around it. */
@@ -144,8 +145,10 @@ export interface HomeArgs {
   readonly setMessage: (message: string | null) => void;
   /** True, with the footer saying so, while offline: the caller sends nothing. */
   readonly refusedOffline: () => boolean;
-  /** `o`: opens the office switcher. */
+  /** `O`: opens Offices. */
   readonly openSwitcher: () => void;
+  /** `c`: copies a story or run id to the clipboard. */
+  readonly copy: (text: string) => void;
   /** Asks to confirm a privacy change (the mode `confirm-privacy`). */
   readonly confirmPrivacy: (key: string, value: boolean) => void;
 }
@@ -154,12 +157,14 @@ export interface HomeArgs {
 export function useHome(args: HomeArgs) {
   const { store, clock, display, actions, state, ellipsis, acts, act, setMessage } = args;
   const [view, setView] = useState<View>("overview");
+  // `z` on the run stream: the stream takes the whole screen (DIPO-458).
+  const [expanded, setExpanded] = useState(false);
   // The selected queue row by story key, so it follows the story when the queue changes; null is
   // the "next Ready story" row.
   const [queueKey, setQueueKey] = useState<string | null>(null);
   const [showDone, setShowDone] = useState(false);
   const [run, setRun] = useState<RunAction | null>(null);
-  // Why a `u` was refused; cleared by the next key and when the run it names ends.
+  // Why an `R` was refused; cleared by the next key and when the run it names ends.
   const [refusal, setRefusal] = useState<string | null>(null);
   const [detail, setDetail] = useState<DetailState | null>(null);
   // The selected overview row by story key, so it follows the story when rows come and go.
@@ -236,7 +241,7 @@ export function useHome(args: HomeArgs) {
   // The open test the checklist shows: the story's, else the first open one (DIPO-365).
   const checklistTest =
     state.tests.find((test) => checklistKey === null || String(test.key) === checklistKey) ?? null;
-  /** `4`, or `t` on a desk row: the checklist of `story`, else any; Esc returns to `back`. */
+  /** `t` on a desk row: the checklist of `story`; Esc returns to `back`. */
   const openChecklist = (
     story: { readonly key: string; readonly id: string } | null,
     back: View,
@@ -248,7 +253,7 @@ export function useHome(args: HomeArgs) {
     setChecklistStep(0);
     setView("checklist");
   };
-  /** `P` or `F` on the checklist: passes or fails the open test, a fail with its note (DIPO-365). */
+  /** `y` or `n` on the checklist: passes or fails the open test, a fail with its note (DIPO-365). */
   const recordTest = (id: "pass" | "fail") => {
     if (checklistTest === null) {
       setMessage("no test is open to record");
@@ -278,7 +283,7 @@ export function useHome(args: HomeArgs) {
       });
     }
   };
-  /** `s` or `P` in the live agent detail. */
+  /** `s` or `p` in the live agent detail. */
   const steerOrPark = (id: "steer" | "park", runId: string) => {
     const live = state.work.find((candidate) => candidate.work.run === runId);
     if (live === undefined) {
@@ -419,10 +424,22 @@ export function useHome(args: HomeArgs) {
    * here; a view key or Ctrl-R closes nothing or the detail and goes on to the views.
    */
   const onDetailKey = (open: DetailState, input: string, key: Key): boolean => {
+    if (key.escape && expanded) {
+      setExpanded(false);
+      return true;
+    }
     if (key.escape) {
       setDetail(null);
       setView(open.back);
       setMessage(null);
+      return true;
+    }
+    if (input === "z") {
+      setExpanded(!expanded);
+      return true;
+    }
+    if (input === "c") {
+      copyId(open.target.run);
       return true;
     }
     // The key table's actions on the run (DIPO-308): answer its question, steer, park.
@@ -430,13 +447,16 @@ export function useHome(args: HomeArgs) {
       answerRun(open.target.run);
       return true;
     }
-    if (input === "s" || input === "P") {
+    if (input === "s" || input === "p") {
       steerOrPark(input === "s" ? "steer" : "park", open.target.run);
       return true;
     }
     const leaves = leavesOverlay(input);
     if (!leaves && !(key.ctrl && input === "r")) return true;
-    if (leaves) setDetail(null);
+    if (leaves) {
+      setDetail(null);
+      setExpanded(false);
+    }
     return false;
   };
 
@@ -463,27 +483,32 @@ export function useHome(args: HomeArgs) {
       setCard({ ...open, top: Math.max(0, open.top - 1) });
       return true;
     }
+    if (input === "c") {
+      if (open.item.story !== undefined) copyId(String(open.item.story));
+      return true;
+    }
     if (!leavesOverlay(input)) return true;
     setCard(null);
     return false;
   };
 
-  /** The keys every view shares: switch views, open the switcher or a checklist, Esc. */
+  /** The keys every view shares: switch rooms, open Offices, Esc. */
   const onSharedViewKey = (input: string, key: Key): boolean => {
     if (input === "1") {
-      setView("overview");
-    } else if (input === "2") {
-      setView("queue");
-    } else if (input === "3") {
       setMessage(null);
       setCard(null);
       setView("desk");
-    } else if (input === "o") {
+    } else if (input === "2") {
+      setView("overview");
+    } else if (input === "3") {
+      setView("queue");
+    } else if (input === "O") {
       setMessage(null);
       args.openSwitcher();
-    } else if (input === "4") {
-      // Esc returns to where the checklist was opened from, not to the checklist itself.
-      openChecklist(null, view === "checklist" ? checklistBack : view);
+    } else if (input === ":" && view !== "settings") {
+      // Until the command palette (step 7) lists SETTINGS, `:` opens them directly.
+      setMessage(null);
+      setView("settings");
     } else if (key.escape) {
       setRun(null);
       setMessage(null);
@@ -503,10 +528,7 @@ export function useHome(args: HomeArgs) {
       const entry = board[Math.max(0, Math.min(count - 1, index))];
       setOverviewKey(entry === undefined ? null : String(entry.key));
     };
-    if (input === "p") {
-      setMessage(null);
-      setView("settings");
-    } else if (key.downArrow || input === "j") {
+    if (key.downArrow || input === "j") {
       select(overviewIndex + 1);
     } else if (key.upArrow || input === "k") {
       select(overviewIndex - 1);
@@ -517,6 +539,8 @@ export function useHome(args: HomeArgs) {
     } else if (input === "a" && overviewEntry !== null) {
       if (overviewEntry.run === null) setMessage("no question waits on this row");
       else answerRun(overviewEntry.run);
+    } else if (input === "c" && overviewEntry !== null) {
+      copyId(String(overviewEntry.story));
     }
   };
 
@@ -570,9 +594,9 @@ export function useHome(args: HomeArgs) {
         ? ticked.filter((index) => index !== checklistStep)
         : [...ticked, checklistStep];
       setTicks({ ...ticks, [id]: next });
-    } else if (input === "P") {
+    } else if (input === "y") {
       recordTest("pass");
-    } else if (input === "F") {
+    } else if (input === "n") {
       recordTest("fail");
     }
   };
@@ -588,16 +612,19 @@ export function useHome(args: HomeArgs) {
       openStory(row.view.key, String(row.view.story), "queue");
     } else if (input === ".") {
       setShowDone(!showDone);
-    } else if (input === "u") {
+    } else if (input === "R") {
       if (args.refusedOffline()) return;
       runSelected();
-    } else if (input === "P" || input === "d") {
+    } else if (input === "p" || input === "X") {
       const row = queue[queueSelected];
       if (row?.kind !== "story") {
         setMessage("select a story to park or drop");
         return;
       }
-      act(input === "P" ? "park" : "drop", { story: String(row.view.story) });
+      act(input === "p" ? "park" : "drop", { story: String(row.view.story) });
+    } else if (input === "c") {
+      const row = queue[queueSelected];
+      if (row?.kind === "story") copyId(String(row.view.story));
     }
   };
 
@@ -611,6 +638,21 @@ export function useHome(args: HomeArgs) {
     } else if (input === "i") {
       // The maintainer's quick idea goes to the audit (0022, DIPO-454), whatever row is selected.
       act("idea", {});
+    } else if (input === "c" && deskItem !== null) {
+      if (deskItem.story !== undefined) copyId(String(deskItem.story));
+      else setMessage("this row names no story to copy");
+    } else if (
+      input === "t" &&
+      deskItem !== null &&
+      !rowKeys(deskItem).bound.some((entry) => entry.binding.key === "t") &&
+      openTestOf(deskItem) !== null
+    ) {
+      // A test that is open already and not offered again: `t` shows its checklist and sends
+      // nothing (DIPO-458; the checklist left room 4).
+      const test = openTestOf(deskItem);
+      if (test !== null) {
+        openChecklist({ key: String(test.key), id: String(test.story) }, "desk");
+      }
     } else if (deskItem !== null) {
       const bound = rowKeys(deskItem).bound.find((entry) => entry.binding.key === input);
       if (bound === undefined) return;
@@ -633,6 +675,18 @@ export function useHome(args: HomeArgs) {
     queue: onQueueKey,
     desk: onDeskKey,
   };
+
+  /** `c`: the id goes to the clipboard, and the ticker says so. */
+  const copyId = (id: string) => {
+    args.copy(id);
+    setMessage(`copied ${id}`);
+  };
+
+  /** The open test of a desk row's story, or null. */
+  const openTestOf = (item: DeskItem) =>
+    item.key === undefined
+      ? null
+      : (state.tests.find((test) => String(test.key) === String(item.key)) ?? null);
 
   /** An open detail or card first, then Ctrl-R, the shared view keys and the view's own. */
   const onKey = (input: string, key: Key) => {
@@ -663,34 +717,22 @@ export function useHome(args: HomeArgs) {
     const commands = new Set<string>();
     if (asks(detail.target.run)) commands.add("work.answer");
     if (detailLive) commands.add("story.park").add("work.steer");
-    if (asks(detail.target.run)) {
-      const answer = binding("answer");
-      rowHintList.push([answer.hint, answer.priority]);
-    }
-    for (const entry of viewKeys("detail", { commands })) {
-      rowHintList.push([entry.hint, entry.priority]);
-    }
+    if (asks(detail.target.run)) rowHintList.push(hintOf(binding("answer")));
+    for (const entry of viewKeys("detail", { commands })) rowHintList.push(hintOf(entry));
   } else if (view === "overview") {
     if (overviewEntry !== null && asks(overviewEntry.run)) {
-      const answer = binding("answer");
-      rowHintList.push([answer.hint, answer.priority]);
+      rowHintList.push(hintOf(binding("answer")));
     }
   } else if (view === "queue") {
     if (queue[queueSelected]?.kind === "story") {
       const commands = new Set(["story.park", "story.drop"]);
-      for (const entry of viewKeys("queue", { commands })) {
-        rowHintList.push([entry.hint, entry.priority]);
-      }
+      for (const entry of viewKeys("queue", { commands })) rowHintList.push(hintOf(entry));
     }
   } else if (view === "desk" && card === null) {
     if (deskItem !== null) {
-      // The row's keys print as one hint, kept as long as the highest of them.
-      const bound = rowKeys(deskItem).bound;
-      const hints = rowHints(deskItem);
-      const priority = Math.max(0, ...bound.map((entry) => entry.binding.priority));
-      if (hints !== "") rowHintList.push([hints, priority]);
+      for (const entry of rowKeys(deskItem).bound) rowHintList.push(hintOf(entry.binding));
     }
-    for (const entry of viewKeys("desk")) rowHintList.push([entry.hint, entry.priority]);
+    for (const entry of viewKeys("desk")) rowHintList.push(hintOf(entry));
   }
 
   const footerView: View | "detail" | "ended" | "card" =
@@ -730,6 +772,9 @@ export function useHome(args: HomeArgs) {
     onKey,
     sendPrivacy,
     rowHintList,
+    expanded,
+    /** The run's one ticker line until the next key after it is done (DIPO-458). */
+    runSummary: run === null ? null : runSummary(run, state, ellipsis, glyphs(display.ascii).dot),
     refusal: activeRefusal,
     failure,
     /** The view the footer names. */
@@ -740,13 +785,14 @@ export function useHome(args: HomeArgs) {
       setOverviewKey(null);
       setDetail(null);
     },
-    /** A key arrived: a refusal is gone. */
+    /** A key arrived: a refusal is gone, and so is a run that is done (it was shown once). */
     clearRefusal() {
       setRefusal(null);
+      if (run?.status === "done") setRun(null);
     },
-    /** The lines under the body: the run, and the selected desk row's actions no key sends. */
+    /** The lines under the body: the selected desk row's actions no key sends. */
     panelLines(columns: number): string[] {
-      const panel = run !== null ? runLines(run, state, ellipsis) : [];
+      const panel: string[] = [];
       // Below 80 columns the desk row has no second line, so its hand action goes here.
       if (detail === null && view === "desk" && card === null && deskItem !== null) {
         for (const action of rowKeys(deskItem).unbound) {

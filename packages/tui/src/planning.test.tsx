@@ -86,10 +86,10 @@ async function open(options: Parameters<typeof mount>[0] = { columns: 120, rows:
 describe("the planning view", () => {
   it("starts a session, sends a multi-line message, streams the answer with its spend and ends it", async () => {
     const { ui, session } = await open();
-    await ui.press("5");
+    await ui.press("P");
     const form = await ui.waitFor("no open planning session");
     expect(form).toContain("[plan]  refine  triage");
-    expect(form).toContain("[Ctrl-S] start");
+    expect(form).toContain("ctrl-s start");
 
     await ui.press("tab");
     await ui.waitFor("plan  [refine]  triage");
@@ -141,7 +141,7 @@ describe("the planning view", () => {
     );
     const done = await ui.waitFor("1 answer");
     expect(done).toContain("spend: in 12k · out 3k · cache write 1k · cache read 40k");
-    expect(done).toContain("[Ctrl-E] end session");
+    expect(done).toContain("ctrl-e end session");
 
     // A message of two lines: Enter adds a line, Ctrl-S sends.
     await ui.press("Why two?");
@@ -189,7 +189,7 @@ describe("the planning view", () => {
     ]);
     const output = new Map([[`${RUN}:worker`, "Earlier answer one.\nEarlier answer two.\n"]]);
     const { ui, session } = await open({ columns: 120, rows: 30, snapshots, output });
-    await ui.press("5");
+    await ui.press("P");
     const frame = await ui.waitFor("Earlier answer two.");
     expect(frame).toContain("Planning · plan · waiting · 2 answers");
     expect(frame).toContain("goal: Plan the export feature");
@@ -222,7 +222,7 @@ describe("the planning view", () => {
       ],
     ]);
     const { ui, session } = await open({ columns: 140, rows: 34, snapshots });
-    await ui.press("5");
+    await ui.press("P");
     const frame = await ui.waitFor("#2 story [S] Export as XML");
     expect(frame).toContain("proposals · 2 · 2 open");
     expect(frame).toContain("#1 story [M] Export as CSV · open");
@@ -230,7 +230,7 @@ describe("the planning view", () => {
     expect(frame).toContain("▌ #2");
     expect(frame).toContain("refused a proposal at");
     expect(frame).toContain("tier: Invalid option");
-    expect(frame).toContain("[Ctrl-Y] confirm");
+    expect(frame).toContain("ctrl-y confirm");
 
     const sent = async (name: string) => {
       for (let i = 0; i < 100 && !session.commands.some((c) => c.name === name); i++) {
@@ -261,7 +261,7 @@ describe("the planning view", () => {
     await ui.press("ctrl-r");
     const editing = await ui.waitFor("editing proposal 1:");
     expect(editing).toContain("tier: M");
-    expect(editing).toContain("[Ctrl-S] save proposal 1");
+    expect(editing).toContain("ctrl-s save proposal 1");
     const why = "why: Why Export as CSV: the maintainer asked for it.";
     for (let i = 0; i < why.length; i++) await ui.press("backspace");
     await ui.press("why: Shorter why.");
@@ -304,13 +304,13 @@ describe("the planning view", () => {
       [OFFICES.dipsaus, { ...golden(), planning: planningView({ questions: [block] }) }],
     ]);
     const { ui, session } = await open({ columns: 140, rows: 34, snapshots });
-    await ui.press("5");
+    await ui.press("P");
     const frame = await ui.waitFor("question 1 of 2");
     expect(frame).toContain("Should the export cover archived stories?");
     expect(frame).toContain("why I ask: It decides whether the CSV needs a status column.");
     expect(frame).toContain("▌ 1. No (recommended) · Only active stories.");
     expect(frame).toContain("3. Something else: write your own answer");
-    expect(frame).toContain("[Ctrl-S] send (when all answered)");
+    expect(frame).toContain("ctrl-s send (when all answered)");
 
     // Sending before every question has an answer sends nothing.
     await ui.press("ctrl-s");
@@ -324,12 +324,12 @@ describe("the planning view", () => {
     await ui.press("down");
     await ui.press("enter");
     const typing = await ui.waitFor("your answer: _");
-    expect(typing).toContain("[Esc] back to the options");
+    expect(typing).toContain("esc back to the options");
     await ui.press("A tab.");
     await ui.press("enter");
     const done = await ui.waitFor("1 No");
     expect(done).toContain("2 free: A tab.");
-    expect(done).toContain("[Ctrl-S] send the answers");
+    expect(done).toContain("ctrl-s send the answers");
 
     session.commandReply = (name) =>
       name === "planning.answer"
@@ -358,7 +358,7 @@ describe("the planning view", () => {
       ],
     ]);
     const { ui, session } = await open({ columns: 140, rows: 40, snapshots });
-    await ui.press("5");
+    await ui.press("P");
     await ui.waitFor("#2 story [M] Export as XML");
     await ui.press("ctrl-g");
     const form = await ui.waitFor("setting stories Ready:");
@@ -407,7 +407,7 @@ describe("the planning view", () => {
       ],
     ]);
     const { ui } = await open({ columns: 140, rows: 34, snapshots });
-    await ui.press("5");
+    await ui.press("P");
     const frame = await ui.waitFor("ready DIPO-32: refused");
     expect(frame).toContain("stays as it is: R08: no acceptance criteria");
     expect(frame).toContain("ready DIPO-31: set");
@@ -415,15 +415,15 @@ describe("the planning view", () => {
 
   it("leaves the other views and keys as they were: Esc returns to the overview", async () => {
     const { ui } = await open();
-    await ui.press("5");
+    await ui.press("P");
     await ui.waitFor("no open planning session");
     // q is text in the planning view, not quit.
     await ui.press("q");
     await ui.waitFor("> q");
     await ui.press("escape");
     const home = await ui.waitFor("RUNNING");
-    expect(home).not.toContain("[5] plan");
-    await ui.press("2");
-    await ui.waitFor("[1] overview");
+    expect(home).not.toContain("P plan");
+    await ui.press("3");
+    await ui.waitFor("R run");
   });
 });
