@@ -8,7 +8,14 @@ import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 
 import { Colored, type Role } from "./colour";
-import { type ActionId, type ActionView, KEY_TABLE, NAV_KEYS, type NavTo } from "./keys";
+import {
+  type ActionId,
+  type ActionView,
+  FOOTER_KEYS,
+  KEY_TABLE,
+  NAV_KEYS,
+  type NavTo,
+} from "./keys";
 import type { Display } from "./options";
 
 /** What the palette needs to know about the focused item. */
@@ -43,6 +50,8 @@ export const NO_FOCUS: PaletteFocus = {
 /** What a chosen row does. */
 export type PaletteRun =
   | { readonly kind: "action"; readonly id: ActionId }
+  /** A view's own key on the item, such as the detail's `z`: pressed as if typed. */
+  | { readonly kind: "key"; readonly key: string }
   | { readonly kind: "settings" }
   | { readonly kind: "go"; readonly to: NavTo };
 
@@ -62,6 +71,23 @@ export interface PaletteRow {
 const STORY_VERBS: readonly ActionId[] = ["resume", "test", "park", "drop", "discard"];
 
 const capital = (text: string) => text.slice(0, 1).toUpperCase() + text.slice(1);
+
+/** The view's own keys that have a palette row, such as the detail's `z` and `c`. */
+function viewKeyRows(view: ActionView): PaletteRow[] {
+  return FOOTER_KEYS.flatMap((entry): PaletteRow[] =>
+    entry.palette === undefined || !entry.views.some((shown) => shown === view)
+      ? []
+      : [
+          {
+            group: "on",
+            label: entry.palette,
+            key: entry.key,
+            disabled: null,
+            run: { kind: "key", key: entry.key },
+          },
+        ],
+  );
+}
 
 /** The actions of the focused item, in the registry's order, with a reason for each that is off. */
 export function itemRows(focus: PaletteFocus, offline: boolean): PaletteRow[] {
@@ -84,6 +110,7 @@ export function itemRows(focus: PaletteFocus, offline: boolean): PaletteRow[] {
       run: { kind: "action", id: entry.id },
     });
   }
+  rows.push(...viewKeyRows(view));
   if (focus.story !== null) {
     const stop = KEY_TABLE.find((entry) => entry.id === "stop");
     rows.push({

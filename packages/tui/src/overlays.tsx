@@ -63,6 +63,8 @@ export function useOverlays(args: OverlayArgs) {
         dispatch({ type: "home" });
         home.pressKey(NAV_KEYS.find((nav) => nav.id === run.to)?.key ?? "1");
       }
+    } else if (run.kind === "key") {
+      if (mode.back === "home") home.pressKey(run.key);
     } else if (run.id === "stop") {
       const story = home.paletteFocus().story;
       if (story !== null) home.stopRun(story);
@@ -110,7 +112,7 @@ export function useOverlays(args: OverlayArgs) {
 }
 
 /** The overlay of the mode over the body; none in any other mode. */
-export function OverlayMode(props: {
+function OverlayMode(props: {
   readonly mode: Mode;
   readonly home: Home;
   readonly state: OfficeStoreState;

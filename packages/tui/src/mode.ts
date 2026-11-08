@@ -1,7 +1,8 @@
 // The TUI's mode and its reducer (DIPO-443): home, the office switcher, the typed repository path,
-// the privacy confirmation, the planning view (DIPO-449), the retro view (DIPO-453) and the two overlays, the command palette and
-// the keys overlay (DIPO-463), which return to the mode they opened over. A mode change is one action, so each one is a pure step that
-// `mode.test.ts` covers.
+// the privacy confirmation, the planning view (DIPO-449), the retro view (DIPO-453) and the two
+// overlays, the command palette and the keys overlay (DIPO-463), which open over home or the retro
+// room and return to it. A mode change is one action, so each one is a pure step that `mode.test.ts`
+// covers.
 
 export type Mode =
   | { readonly kind: "home" }

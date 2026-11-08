@@ -30,6 +30,9 @@ const VIEW_NAMES: Readonly<Record<string, string>> = {
   checklist: "Checklist",
 };
 
+/** A key in the key column: seven cells, or the key and two spaces when it is longer. */
+const keyCell = (key: string) => (key.length >= 7 ? `${key}  ` : key.padEnd(7));
+
 /** The title: `KEYS · Desk · on a MERGE item`. */
 export function helpTitle(focus: PaletteFocus, display: Display): string {
   const dot = display.ascii ? "-" : "·";
@@ -80,10 +83,10 @@ export function helpLines(
     for (const entry of keys.item) {
       left.push(
         entry.off === null
-          ? [seg(entry.key.padEnd(7), "acc"), seg(entry.label.toLowerCase())]
+          ? [seg(keyCell(entry.key), "acc"), seg(entry.label.toLowerCase())]
           : [
               seg(
-                `${entry.key.padEnd(7)}${entry.label.toLowerCase()}  ${dot} ${entry.off}`,
+                `${keyCell(entry.key)}${entry.label.toLowerCase()}  ${dot} ${entry.off}`,
                 "faint",
               ),
             ],
@@ -97,13 +100,12 @@ export function helpLines(
   }
   if (keys.move.length > 0) {
     right.push([seg("MOVE", "dim")]);
-    for (const entry of keys.move) right.push([seg(entry.key.padEnd(7), "acc"), seg(entry.label)]);
+    for (const entry of keys.move) right.push([seg(keyCell(entry.key), "acc"), seg(entry.label)]);
   }
   if (keys.global.length > 0) {
     if (right.length > 0) right.push([]);
     right.push([seg("ANYWHERE", "dim")]);
-    for (const entry of keys.global)
-      right.push([seg(entry.key.padEnd(7), "acc"), seg(entry.label)]);
+    for (const entry of keys.global) right.push([seg(keyCell(entry.key), "acc"), seg(entry.label)]);
   }
   const title: Seg[] = [seg(helpTitle(focus, display), "hi")];
   const hint = query === "" ? "type to search" : `${query}${g.cursor}`;

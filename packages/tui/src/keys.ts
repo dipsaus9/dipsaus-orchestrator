@@ -356,6 +356,8 @@ export interface FooterKey {
   readonly priority: number;
   /** `right` for the global keys (esc back, q q quit); the verbs print left. */
   readonly side?: "left" | "right";
+  /** The palette's row for the key on the focused item, such as `Expand stream to full screen`. */
+  readonly palette?: string;
 }
 
 const HOME_VIEWS: readonly FooterView[] = ["overview", "desk", "queue", "settings", "checklist"];
@@ -647,8 +649,22 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   { id: "detailStreams", key: "w v i", label: "streams", views: ["detail"], priority: 75 },
   { id: "detailScroll", key: "↑↓ PgUp PgDn", label: "scroll", views: ["detail"], priority: 35 },
   { id: "detailFollow", key: "End", label: "follow", views: ["detail"], priority: 45 },
-  { id: "detailExpand", key: "z", label: "expand", views: ["detail"], priority: 25 },
-  { id: "detailCopy", key: "c", label: "copy id", views: ["detail"], priority: 20 },
+  {
+    id: "detailExpand",
+    key: "z",
+    label: "expand",
+    views: ["detail"],
+    priority: 25,
+    palette: "Expand stream to full screen",
+  },
+  {
+    id: "detailCopy",
+    key: "c",
+    label: "copy id",
+    views: ["detail"],
+    priority: 20,
+    palette: "Copy id",
+  },
 
   { id: "settingsMove", key: "↑↓", label: "move", views: ["settings"], priority: 30 },
   { id: "settingsToggle", key: "⏎", label: "toggle", views: ["settings"], priority: 70 },
@@ -835,8 +851,7 @@ export const GLOBAL_KEYS: readonly PlainKey[] = [
     key: nav.key,
     label: nav.label.replace("Open ", "").replace("…", "").toLowerCase(),
   })),
-  { key: ":", label: "all commands" },
-  { key: "ctrl-k", label: "all commands" },
+  { key: ": ctrl-k", label: "all commands" },
   { key: "?", label: "keys" },
   { key: "q q", label: "quit (daemon keeps working)" },
 ];

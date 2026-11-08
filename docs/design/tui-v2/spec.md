@@ -201,7 +201,7 @@ File: `09-palette.txt`. `:` or `ctrl-k`, from anywhere.
 - Disabled rows say why (`Start again` faint, `not parked` dim) instead of disappearing.
 - With an empty query it lists your recent commands. Rare settings live only here, like privacy (`Privacy: what dipo stores`) and slots (`Parallel slots: 3`, the office's `caps.parallelRuns`), which frees up `p`.
 - Footer inside: `⏎ run   ↑↓ choose   esc close`.
-- Built (DIPO-463, `palette.tsx`, `overlays.tsx`): the rows come from `keys.ts`; stopping a run is the row `Stop run` (park with a yes/no first); `Privacy: what dipo stores…` opens the privacy view, which keeps its confirmation. `:` opens the palette, which replaced DIPO-458's direct `:` to the settings. The body it opened on stays behind it in shade. GO TO lists the rooms `1`–`4`, `P` plan and `O` offices (`NAV_KEYS`).
+- Built (DIPO-463, `palette.tsx`, `overlays.tsx`): the rows come from `keys.ts`; stopping a run is the row `Stop run` (park with a yes/no first); `Privacy: what dipo stores…` opens the privacy view, which keeps its confirmation. `:` and `ctrl-k` open the palette from home (the Desk, Floor and Queue, a run and the settings) and from the Retro room, not from the Plan view, whose input takes what is typed; it replaced DIPO-458's direct `:` to the settings. On a run it also lists `z` expand stream and `c` copy id. The body it opened on stays behind it in shade. GO TO lists the rooms `1`–`4`, `P` plan and `O` offices (`NAV_KEYS`).
 
 ## Keys overlay (S9)
 File: `13-keys-overlay.txt`. `?`, built from the same registry as the footer and palette.

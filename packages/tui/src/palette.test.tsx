@@ -8,7 +8,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { DeskItem } from "@dipsaus-orchestrator/contract";
 
 import { helpKeys } from "./help";
-import { rowKeys } from "./keys";
+import { leavesOverlay } from "./home";
+import { NAV_KEYS, rowKeys } from "./keys";
 import { filterRows, fuzzyMatch, NO_FOCUS, type PaletteFocus, paletteRows } from "./palette";
 import { mount } from "../test/support/setup";
 
@@ -73,6 +74,20 @@ describe("the palette's rows", () => {
     }
   });
 
+  it("lists the detail's own keys: z expands the stream, c copies the id", () => {
+    const rows = paletteRows({ ...NO_FOCUS, view: "detail", commands: new Set() }, false);
+    expect(rows.find((row) => row.label === "Expand stream to full screen")).toMatchObject({
+      group: "on",
+      key: "z",
+      disabled: null,
+      run: { kind: "key", key: "z" },
+    });
+    expect(rows.find((row) => row.label === "Copy id")).toMatchObject({
+      key: "c",
+      run: { kind: "key", key: "c" },
+    });
+  });
+
   it("filters inside the groups and keeps their order", () => {
     const rows = paletteRows(mergeFocus, false);
     const shown = filterRows(rows, "pa");
@@ -83,6 +98,15 @@ describe("the palette's rows", () => {
     expect(shown.some((entry) => entry.row.label === "Go to queue")).toBe(false);
     expect(filterRows(rows, "").length).toBe(rows.length);
     expect(filterRows(rows, "qqqq")).toEqual([]);
+  });
+});
+
+describe("the navigation keys", () => {
+  it("are exactly the keys that leave an overlay for a room: 1 to 4, O and P", () => {
+    const keys = NAV_KEYS.map((nav) => nav.key);
+    expect(keys.toSorted()).toEqual(["1", "2", "3", "4", "O", "P"]);
+    for (const key of keys) expect(leavesOverlay(key)).toBe(true);
+    for (const key of ["5", "o", "p", ":", "?"]) expect(leavesOverlay(key)).toBe(false);
   });
 });
 
@@ -120,7 +144,7 @@ describe("the keys overlay", () => {
     expect(keys.item.find((entry) => entry.key === "r")?.off).toBe("not parked");
     expect(keys.typed).toEqual(["dipo approve DIPO-446 --note"]);
     expect(keys.global.map((entry) => entry.key)).toEqual(
-      expect.arrayContaining(["1–4", "P", "O", ":", "ctrl-k", "?", "q q"]),
+      expect.arrayContaining(["1–4", "P", "O", ": ctrl-k", "?", "q q"]),
     );
   });
 

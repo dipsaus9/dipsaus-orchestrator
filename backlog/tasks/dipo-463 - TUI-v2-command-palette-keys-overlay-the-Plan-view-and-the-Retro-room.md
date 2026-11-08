@@ -4,7 +4,7 @@ title: 'TUI v2: command palette, keys overlay, the Plan view and the Retro room'
 status: Done
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-08 10:55'
+updated_date: '2026-11-08 11:00'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -47,10 +47,6 @@ test_plan:
     - kind: "manual"
       check: "Open the palette with : and type pa, then open ? on a merge item, next to designs/dipo-ux-spec.html S5 and S9"
       expect: "Both overlays match the HTML preview side by side, with the body behind them in shade"
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "The box has no remote and no origin/main, and its only commit is \"Start of the story\", so I cannot merge DIPO-458 (PR #625). Can dipo put 458's merged main into the box, for example by rebasing the story branch on it, so I can merge it, keep its keys and make the palette take ':'?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 

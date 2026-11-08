@@ -27,6 +27,7 @@ import { Desk, DESK_WIDE_COLUMNS, deskRowId, deskRows, selectedRow, useDesk } fr
 import { Detail, type DetailTarget } from "./detail";
 import { skipReason, widthOf } from "./format";
 import { digestLine, useDigest } from "./digest";
+import { NO_KEY } from "./input";
 import { type ActionId, binding, type Hint, rowKeys, viewKeys } from "./keys";
 import { NO_FOCUS, type PaletteFocus } from "./palette";
 import { useLatestLines } from "./latest";
@@ -840,7 +841,7 @@ export function useHome(args: HomeArgs) {
     },
     /** A navigation key of the palette or the keys: the same handler as pressing it. */
     pressKey(input: string) {
-      onKey(input, {} as Key);
+      onKey(input, NO_KEY);
     },
     sendPrivacy,
     rowHintList,
