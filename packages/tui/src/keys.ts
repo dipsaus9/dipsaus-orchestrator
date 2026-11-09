@@ -6,8 +6,10 @@
 // offers `a` answer.
 //
 // On a desk row a key is offered only when the row's `actions` lists its command; a view's row
-// binding wins over a global key (`n` rejects a merge and dismisses a proposed story or a decision
-// note, `y` approves a merge and accepts a proposed story). An action no entry binds on its row, or
+// binding wins over a global key (`n` rejects a merge, dismisses a proposed story or a decision
+// note and declines a next up story; `y` approves a merge, accepts a proposed story and starts a
+// next up story). The Desk's preview shows a row's bound actions as buttons with their `button`
+// label, the first one primary (DIPO-459). An action no entry binds on its row, or
 // whose key an earlier action of the row took, shows its `cli` line in the footer. An answer is
 // always a text (0020). The desk's `i` hands the maintainer's quick idea to the audit (0022,
 // DIPO-454) on any row. Client and daemon are one binary (0005), so every command in the table
@@ -37,7 +39,9 @@ export type ActionId =
   | "steer"
   | "pass"
   | "fail"
-  | "stop";
+  | "stop"
+  | "nextConfirm"
+  | "nextDecline";
 
 /** What the focused item offers: the commands its row, run or story can take. */
 export interface RowContext {
@@ -63,6 +67,8 @@ export interface KeyBinding {
   readonly views: readonly ActionView[];
   /** Why the palette and the keys overlay list the action as off when `when` is false. */
   readonly why?: string;
+  /** Its label on a Desk preview button, `…` when it asks for more (`Reject…`). */
+  readonly button?: string;
 }
 
 /** A key and its label as the footer and a wide desk row print them: `y approve`. */
@@ -74,6 +80,7 @@ export function hintText(entry: { readonly key: string; readonly label: string }
 export const KEY_TABLE: readonly KeyBinding[] = [
   {
     id: "answer",
+    button: "Answer…",
     label: "answer",
     priority: 85,
     command: "work.answer",
@@ -83,6 +90,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "approve",
+    button: "Approve",
     why: "no merge waits",
     label: "approve",
     priority: 85,
@@ -93,6 +101,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "reject",
+    button: "Reject…",
     why: "no merge waits",
     label: "reject",
     priority: 85,
@@ -103,6 +112,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "accept",
+    button: "Accept",
     label: "accept",
     priority: 85,
     command: "idea.accept",
@@ -112,6 +122,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "dismiss",
+    button: "Dismiss",
     label: "dismiss",
     priority: 85,
     command: "idea.dismiss",
@@ -121,10 +132,33 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "dismissNote",
+    button: "Dismiss",
     label: "dismiss",
     priority: 85,
     command: "note.dismiss",
     when: offered("note.dismiss"),
+    key: "n",
+    views: ["desk"],
+  },
+  {
+    id: "nextConfirm",
+    why: "no story is offered as next up",
+    label: "start it",
+    button: "Start it",
+    priority: 85,
+    command: "nextUp.confirm",
+    when: offered("nextUp.confirm"),
+    key: "y",
+    views: ["desk"],
+  },
+  {
+    id: "nextDecline",
+    why: "no story is offered as next up",
+    label: "offer the next one",
+    button: "Offer the next one",
+    priority: 84,
+    command: "nextUp.decline",
+    when: offered("nextUp.decline"),
     key: "n",
     views: ["desk"],
   },
@@ -139,6 +173,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "resume",
+    button: "Start again",
     why: "not parked",
     label: "start again",
     priority: 85,
@@ -149,6 +184,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "test",
+    button: "Test first",
     why: "no merge to test",
     label: "test",
     priority: 85,
@@ -159,6 +195,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "park",
+    button: "Park…",
     why: "nothing to park",
     label: "park",
     priority: 85,
@@ -169,6 +206,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "drop",
+    button: "Drop…",
     why: "nothing to drop",
     label: "drop",
     priority: 85,
@@ -179,6 +217,7 @@ export const KEY_TABLE: readonly KeyBinding[] = [
   },
   {
     id: "discard",
+    button: "Discard…",
     why: "nothing to discard",
     label: "discard",
     priority: 85,
@@ -320,6 +359,8 @@ export interface FooterContext {
   readonly office: boolean;
   /** The view has a row to open: a desk row or a board entry. */
   readonly hasRow: boolean;
+  /** Below 100 columns: the Desk is one list, and ⏎ reads the focused item (DIPO-459). */
+  readonly narrow: boolean;
   /** A planning session is open (the `P` key shows). */
   readonly planningOpen: boolean;
   /** The planning view: whether a session is open, a message is on its way, an end is asked. */
@@ -699,7 +740,16 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     id: "deskOpen",
     key: "⏎",
     label: "open",
-    views: ["desk", "overview"],
+    views: ["overview"],
+    when: (ctx) => ctx.hasRow,
+    priority: 60,
+  },
+  {
+    id: "deskStory",
+    key: "⏎",
+    label: "open story",
+    text: (ctx) => (ctx.narrow ? "read" : "open story"),
+    views: ["desk"],
     when: (ctx) => ctx.hasRow,
     priority: 60,
   },
@@ -769,6 +819,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
 const OFFLINE_KEYS: ReadonlySet<string> = new Set([
   "deskMove",
   "deskOpen",
+  "deskStory",
   "queueMove",
   "queueStory",
   "switcherMove",

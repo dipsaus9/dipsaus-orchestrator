@@ -2,36 +2,38 @@
 // and `dipo desk` prints it. Code builds every item, its order and the command line it offers from
 // stored facts; nothing asks a model, and clients never derive it (0005, 0009).
 //
-// The groups, in the order of 0020:
-// 0. the office's starts paused (DIPO-359, `starts-paused.ts`), with its reason and what lifts it,
+// The groups, in the order of 0020 with the setup first (DIPO-459), which is the order of
+// `KNOWN_DESK_KINDS`, so a client that groups the items by kind keeps the engine's order:
+// 0. setup: the run profile's rows (DIPO-310), each pending proposal of the scan fallback and each
+//    stale confirmation, an office item with no story, offering its `dipo office confirm` lines;
+// 1. the office's starts paused (DIPO-359, `starts-paused.ts`), with its reason and what lifts it,
 //    offering `dipo daemon resume-starts`; an office item with no story;
-// 1. an open question no park carries, with `dipo answer <question> --text "<answer>"`; a
+// 2. an open question no park carries, with `dipo answer <question> --text "<answer>"`; a
 //    worker's question parks at once (0020), so it is on its PARKED row instead;
-// 2. merge gates that wait on the maintainer, with the PR from `story_prs`; a gate whose PR is
+// 3. merge gates that wait on the maintainer, with the PR from `story_prs`; a gate whose PR is
 //    labelled `autorelease: pending` offers a hand merge and no `dipo approve`; a gate marked
 //    hand-merge only because its PR changes the release path (DIPO-331, `gates.hand_merge`) names
 //    the PR, says the maintainer merges it by hand on GitHub, and offers only `dipo reject`; a
 //    gate that waits on the story's test (DIPO-309) offers `dipo test <ID>` first, or, while a
 //    test is open, `dipo test pass <ID>` and `dipo test fail <ID> --note`;
-// 3. open parks, by reason: `ambiguous-spec`, `review-blocked`, `budget-exceeded`,
+// 4. open parks, by reason: `ambiguous-spec`, `review-blocked`, `budget-exceeded`,
 //    `verify-failing`, `conflict`, `scope-violation`, `worker-failed`. A `review-blocked`
 //    park whose merge gate is open is one row with both `dipo resume --note` and `dipo approve
 //    --note` (or the hand merge when its PR is labelled `autorelease: pending` or its gate is
 //    marked hand-merge only for the release path), and that gate gets
 //    no MERGE row of its own;
-// 4. the stories parked `by-maintainer`, listed apart as "Parked by you";
-// 5. hand actions: a backlog PR whose structural check failed or could not run, a planning lane
-//    whose operations wait for a backlog PR longer than 30 minutes (DIPO-401), the items of
+// 5. hand actions, by kind in the order of `KNOWN_DESK_KINDS` (a kind it does not list last): a
+//    backlog PR whose structural check failed or could not run, a planning lane whose operations
+//    wait for a backlog PR longer than 30 minutes (DIPO-401), the items of
 //    `DeskSources.handItems` (DONE ELSEWHERE and LEFTOVERS, parks that still hold a story's work,
-//    and parks whose write to Backlog.md failed), and the run profile's rows
-//    (DIPO-310): each pending proposal of the scan fallback and each stale confirmation, an office
-//    item with no story, offering its `dipo office confirm` lines (no TUI keys yet);
+//    and parks whose write to Backlog.md failed);
 // 6. the ideas that passed the audit (0022, DIPO-454), spikes before follow-ups, each a PROPOSED
 //    STORY whose `idea` holds the proposed user story in full for its card, offering `dipo idea accept` and `dipo idea dismiss`;
 //    then the decision notes of worker reports (DIPO-404), each offering `dipo note dismiss`;
 // 7. next up (0010, `run/next-up.ts`): one Ready story per free run slot, in next-up order, with
 //    one line of why and the files its references share with running stories, offering
-//    `dipo next confirm <ID>` and `dipo next decline <ID>`.
+//    `dipo next confirm <ID>` and `dipo next decline <ID>`;
+// 8. the stories parked `by-maintainer`, listed apart as "Parked by you".
 // Within a group the items whose story blocks the most active stories come first, then the oldest.
 //
 // Every stored free text an item shows (questions, park details, gate summaries, PR titles, check
@@ -56,6 +58,7 @@ import {
   RunId,
   StoryId,
   StoryKey,
+  KNOWN_DESK_KINDS,
   type StoryPr,
   ideaOriginWords,
   servesWords,
@@ -74,6 +77,7 @@ import { findStoryPr, latestStoryPr } from "../records/story-prs";
 import { doneElsewhereDeskItems } from "../worktree/done-elsewhere";
 import { lifecycleOf } from "../views/story";
 
+import { PLANNER_ROLE, REVIEWER_ROLE } from "../records/caps";
 import { openNotes } from "../records/decision-notes";
 import { openPassedIdeas } from "../records/ideas";
 
@@ -167,6 +171,11 @@ export interface DeskSources {
   readonly startsPaused?: (office: OfficeHandle) => StartsPausedState | null;
   /** The stories offered for the office's free run slots, in order (0010); none without it. */
   readonly nextUp?: (office: OfficeHandle) => readonly NextUpDeskItem[];
+  /**
+   * What a merge gate's PR shows beyond its record (DIPO-459): its head's required checks and
+   * what its branch changes, from the story PR's CI watch and git; nothing without it.
+   */
+  readonly prFacts?: (office: OfficeHandle, run: RunId) => Pick<StoryPr, "checks" | "change">;
 }
 
 /**
@@ -241,6 +250,30 @@ export function heldParkDeskItems(office: OfficeHandle, stories: ParkStore): Han
   });
 }
 
+/**
+ * What each command a desk item offers does, in one line (`DeskAction.consequence`, DIPO-459): the
+ * TUI shows it under the item's buttons. A command not listed has none.
+ */
+export const DESK_CONSEQUENCES: Readonly<Partial<Record<CommandName, string>>> = {
+  "idea.accept": "Accepting files it as a Backlog draft. You refine it in a triage session.",
+  "idea.dismiss": "Dismissing files nothing; dipo keeps it as dismissed, for retro.",
+  "note.dismiss": "Dismissing closes the note; dipo never writes the decision records.",
+  "gate.approve": "Approve merges once the checks pass on the close-out head.",
+  "gate.reject": "Rejecting sends your note to the worker as a fix round.",
+  "test.start": "Testing runs the story's pushed head in a test box with its manual steps.",
+  "test.record":
+    "The result is recorded on the story; a fail note goes to the builder as a fix round.",
+  "work.answer": "The worker gets it on resume, and the run continues.",
+  "work.resume": "A fresh session starts with a handoff. The box and branch are kept.",
+  "work.discard": "Discarding ends the run, deletes the branch and returns the story to Refined.",
+  "story.drop": "Dropping archives the story and releases its claim.",
+  "story.park": "Parking stops its worker; the story waits on your desk until you resume it.",
+  "nextUp.confirm":
+    "Nothing starts until you confirm. Declined stories return once their task file changes.",
+  "nextUp.decline": "Declined stories return once their task file changes.",
+  "daemon.resumeStarts": "Lift it early, only if you raised your plan.",
+};
+
 /** Whether a command is registered, so the desk may offer it. */
 export type Implemented = (command: CommandName) => boolean;
 
@@ -248,17 +281,24 @@ export function implementedIn(registry: Registry): Implemented {
   return (command) => registry.command(command) !== undefined;
 }
 
-// The groups of 0020, in order.
+// The groups of 0020, in order, with the setup first and the maintainer's own parks last (DIPO-459).
 const GROUP = {
-  paused: 0,
-  live: 1,
-  merge: 2,
-  park: 3,
-  byYou: 4,
+  setup: 0,
+  paused: 1,
+  live: 2,
+  merge: 3,
+  park: 4,
   hand: 5,
   proposal: 6,
   nextUp: 7,
+  byYou: 8,
 } as const;
+
+/** A hand item's rank in group 5: its kind's place in `KNOWN_DESK_KINDS`, an unlisted kind last. */
+function kindRank(kind: string): number {
+  const at = (KNOWN_DESK_KINDS as readonly string[]).indexOf(kind);
+  return at === -1 ? KNOWN_DESK_KINDS.length : at;
+}
 
 /** The kind of a story offered for a free run slot (0010). */
 export const NEXT_UP_KIND = "NEXT UP";
@@ -270,7 +310,7 @@ export function sharedText(shared: NextUpDeskItem["shared"]): string {
   return `its references share files with running stories: ${each.join("; ")}`;
 }
 
-/** Group 3's order: by reason, as 0020 lists them; a reason outside the eight comes last. */
+/** Group 4's order: by reason, as 0020 lists them; a reason outside the eight comes last. */
 const PARK_RANK: Readonly<Record<string, number>> = {
   "ambiguous-spec": 0,
   "review-blocked": 1,
@@ -429,8 +469,44 @@ function cleanIdea(idea: DeskIdea): DeskIdea {
       proposed: deskText(story.proposed),
       why: deskText(story.why),
       serves: deskText(story.serves),
+      ...(story.tier === undefined ? {} : { tier: deskText(story.tier) }),
     },
+    ...(idea.raisedBy === undefined
+      ? {}
+      : {
+          raisedBy: {
+            role: deskText(idea.raisedBy.role),
+            ...(idea.raisedBy.model === undefined ? {} : { model: deskText(idea.raisedBy.model) }),
+          },
+        }),
   };
+}
+
+/** The role of the agent that raises an idea of each origin (0022); a quick idea is the maintainer's. */
+const RAISER_ROLES: Readonly<Record<string, string>> = {
+  proposal: "developer",
+  finding: REVIEWER_ROLE,
+  aside: PLANNER_ROLE,
+};
+
+/**
+ * Who raised an idea (DIPO-459): the maintainer for a quick idea; else the role of its origin with
+ * the model of that role's latest agent on the idea's run, or the role alone when no such agent is
+ * kept. Undefined for an origin with no known role, or an idea with no run.
+ */
+function raiserOf(
+  office: OfficeHandle,
+  idea: { readonly origin: string; readonly run?: string | undefined },
+): DeskIdea["raisedBy"] {
+  if (idea.origin === "quick") return { role: "maintainer" };
+  const role = RAISER_ROLES[idea.origin];
+  if (role === undefined || idea.run === undefined) return undefined;
+  const agent = office.get<{ model: string }>(
+    `select model from agents where office_id = $office_id and run_id = $run and role = $role
+      order by started_at desc, agent_id desc limit 1`,
+    { run: idea.run, role },
+  );
+  return agent === null ? { role } : { role, model: agent.model };
 }
 
 /** The desk's builder: one office, its sources and the commands this engine ships. */
@@ -456,9 +532,11 @@ class DeskBuilder {
     this.#now = now;
   }
 
-  /** The action, when this engine ships its command. */
+  /** The action with its consequence line, when this engine ships its command. */
   #action(command: CommandName, cli: string): DeskAction[] {
-    return this.#implemented(command) ? [{ command, cli }] : [];
+    if (!this.#implemented(command)) return [];
+    const consequence = DESK_CONSEQUENCES[command];
+    return [{ command, cli, ...(consequence === undefined ? {} : { consequence }) }];
   }
 
   #blocks(story: StoryId | null): StoryId[] {
@@ -501,7 +579,7 @@ class DeskBuilder {
     return this.#action("work.answer", `dipo answer ${id} --text "<answer>"`);
   }
 
-  /** Group 0: the office's starts paused, with what lifts it; nothing else starts until then. */
+  /** Group 1: the office's starts paused, with what lifts it; nothing else starts until then. */
   startsPaused(): void {
     const paused = this.#sources.startsPaused?.(this.#office) ?? null;
     if (paused === null) return;
@@ -519,7 +597,7 @@ class DeskBuilder {
     });
   }
 
-  /** Group 1: open questions no park carries; a park's questions are on its PARKED row. */
+  /** Group 2: open questions no park carries; a park's questions are on its PARKED row. */
   liveQuestions(): void {
     for (const question of openQuestions(this.#office)) {
       if (question.parkId !== null) continue;
@@ -572,7 +650,7 @@ class DeskBuilder {
     return labelled ? this.#handMerge(record) : null;
   }
 
-  /** Group 2: one merge gate that waits on the maintainer (see the file comment). */
+  /** Group 3: one merge gate that waits on the maintainer (see the file comment). */
   #mergeGate(gate: OpenMergeGate): void {
     const story = storyIdOf(this.#office, gate.key);
     if (story === null) return;
@@ -585,12 +663,15 @@ class DeskBuilder {
     if (hand !== null) actions = gate.hand_merge === "release-path" ? reject : [];
     // A story waiting on its test (DIPO-309): `dipo test`, or the record of its open test.
     if (waitsOnTest(gate.waits)) actions = [...this.#testActions(story, gate.key), ...actions];
+    const facts =
+      record === null ? {} : (this.#sources.prFacts?.(this.#office, record.runId) ?? {});
+    const pr = prOf(record).pr;
     this.#add(GROUP.merge, 0, gate.opened_at, {
       kind: "MERGE",
       story,
       key: StoryKey.parse(gate.key),
       gate: GateId.parse(gate.gate_id),
-      ...prOf(record),
+      ...(pr === undefined ? {} : { pr: { ...pr, ...facts } }),
       detail: deskText(gate.summary),
       since: iso(gate.opened_at),
       blocks: this.#blocks(story),
@@ -609,7 +690,7 @@ class DeskBuilder {
     ];
   }
 
-  /** Groups 2 and 3: merge gates and every open park, the maintainer's own parks apart. */
+  /** Groups 3, 4 and 8: merge gates and every open park, the maintainer's own parks last. */
   gatesAndParks(): void {
     // Every parked story (DIPO-360): the reason from Backlog.md, the rest from the open park row.
     const keys = this.#office.all<{ key: string; story_id: string }>(
@@ -703,7 +784,7 @@ class DeskBuilder {
   /** Group 5: PRs no story owns (backlog PRs whose check failed), then the sources' hand items. */
   handActions(): void {
     for (const item of this.#sources.prItems?.(this.#office) ?? []) {
-      this.#add(GROUP.hand, 0, item.since, {
+      this.#add(GROUP.hand, kindRank(item.kind), item.since, {
         kind: item.kind,
         pr: item.pr,
         detail: item.detail,
@@ -716,7 +797,7 @@ class DeskBuilder {
     for (const source of this.#sources.handItems) {
       for (const hand of source(this.#office, this.#sources.stories)) {
         const story = StoryId.parse(hand.story);
-        this.#add(GROUP.hand, 0, hand.since, {
+        this.#add(GROUP.hand, kindRank(hand.kind), hand.since, {
           kind: hand.kind,
           story,
           key: hand.key,
@@ -730,7 +811,7 @@ class DeskBuilder {
     // Office items with no story, such as a stuck planning lane (DIPO-401).
     if (this.#now !== undefined) {
       for (const item of this.#sources.officeItems?.(this.#office, this.#now) ?? []) {
-        this.#add(GROUP.hand, 0, item.since, {
+        this.#add(GROUP.hand, kindRank(item.kind), item.since, {
           kind: item.kind,
           detail: deskText(item.detail),
           since: iso(item.since),
@@ -740,9 +821,12 @@ class DeskBuilder {
         });
       }
     }
-    // The run profile's rows (DIPO-310): what the maintainer confirms by `dipo office confirm`.
+  }
+
+  /** The setup group: the run profile's rows (DIPO-310), what `dipo office confirm` confirms. */
+  setup(): void {
     for (const item of profileDeskItems(this.#office)) {
-      this.#add(GROUP.hand, 1, item.since, {
+      this.#add(GROUP.setup, 0, item.since, {
         kind: item.kind,
         detail: deskText(item.detail),
         since: iso(item.since),
@@ -765,6 +849,7 @@ class DeskBuilder {
       const id = word(idea.id);
       const since = Date.parse(idea.decidedAt ?? idea.createdAt);
       const rank = isSpikeLine(story.storyLine) ? PROPOSAL_RANK.spike : PROPOSAL_RANK.idea;
+      const raisedBy = raiserOf(this.#office, idea);
       this.#add(GROUP.proposal, rank, since, {
         kind: PROPOSED_STORY_KIND,
         ...(source === undefined ? {} : { story: source }),
@@ -774,6 +859,7 @@ class DeskBuilder {
           title: idea.title,
           ...(idea.run === undefined ? {} : { run: idea.run }),
           story,
+          ...(raisedBy === undefined ? {} : { raisedBy }),
         },
         detail: `${JSON.stringify(deskText(idea.title))} · ${servesWords(story.serves)} · from ${ideaOriginWords(idea.origin)}`,
         since: iso(since),
@@ -850,6 +936,7 @@ export function desk(
   now?: number,
 ): DeskItem[] {
   const builder = new DeskBuilder(office, sources, implemented, now);
+  builder.setup();
   builder.startsPaused();
   builder.liveQuestions();
   builder.gatesAndParks();

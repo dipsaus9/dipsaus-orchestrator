@@ -154,6 +154,7 @@ export function footerKeys(
         shown === "desk" ? extras.desk : shown === "queue" ? true : boardEntries(state).length > 0,
       planningOpen: state.planning !== null,
       planning: extras.planning,
+      narrow: width < 99,
     }),
   );
   if (!offline) return fit(hints);

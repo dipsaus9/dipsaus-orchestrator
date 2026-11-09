@@ -30,6 +30,7 @@ interface Digest {
   readonly since: string;
   readonly counts: Record<string, number>;
   readonly lines: string[];
+  readonly spent?: number;
 }
 
 async function readDigest(t: TestState, office: OfficeHandle, since?: string): Promise<Digest> {
@@ -155,6 +156,31 @@ describe("office.digest", () => {
       expect(result.counts["parkedByYou"]).toBe(1);
       expect(result.counts["parked"]).toBe(0);
       expect(result.lines).toEqual(["DIPO-2 parked by you"]);
+    }));
+
+  it("says what the agents whose usage moved after since cost, for the Since band (DIPO-459)", () =>
+    withOffice(async (t, office) => {
+      const usage = (agent: string, at: number, cost: number | null) =>
+        office.immediate(() => {
+          office.run(
+            `insert into agents (office_id, agent_id, run_id, role, model, started_at)
+             values ($office_id, $agent, 'run_1', 'developer', 'opus', 0)`,
+            { agent },
+          );
+          office.run(
+            `insert into usage_totals (office_id, run_id, agent_id, model, role, tier, updated_at,
+               cost_micros)
+             values ($office_id, 'run_1', $agent, 'opus', 'developer', 'S', $at, $cost)`,
+            { agent, at, cost },
+          );
+        });
+      const since = t.clock.now();
+      usage("agt-before", since - MINUTE, 9_000_000); // moved before since: not counted
+      const iso = new Date(since).toISOString();
+      expect((await readDigest(t, office, iso)).spent).toBeUndefined();
+      usage("agt-after", since + MINUTE, 4_100_000);
+      usage("agt-no-cost", since + MINUTE, null);
+      expect((await readDigest(t, office, iso)).spent).toBe(4.1);
     }));
 
   it("refuses a read without since: the engine keeps no last-seen time of its own", () =>

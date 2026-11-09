@@ -86,3 +86,37 @@ const SKIP_REASONS: Readonly<Record<string, string>> = {
 export function skipReason(reason: string): string {
   return SKIP_REASONS[reason] ?? reason;
 }
+
+/**
+ * `text` wrapped at `width` columns on its spaces, never cut (spec.md: a decision is never
+ * truncated); a word longer than the width is broken across lines. Line breaks in `text` stay.
+ */
+export function wrapWords(text: string, width: number): string[] {
+  const size = Math.max(1, width);
+  const out: string[] = [];
+  for (const paragraph of text.split("\n")) {
+    let line = "";
+    for (const word of paragraph.split(" ")) {
+      if (word === "") continue;
+      if (line === "") line = word;
+      else if (line.length + 1 + word.length <= size) line = `${line} ${word}`;
+      else {
+        out.push(line);
+        line = word;
+      }
+      while (line.length > size) {
+        out.push(line.slice(0, size));
+        line = line.slice(size);
+      }
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+/** A count as the previews print caps: `2.0M`, `150k`, `400`. */
+export function compactCount(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 10_000) return `${Math.round(count / 1_000)}k`;
+  return String(count);
+}

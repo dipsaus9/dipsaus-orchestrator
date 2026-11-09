@@ -322,10 +322,10 @@ describe("live agent detail", () => {
   it("P asks for a note and sends story.park with the story id", async () => {
     const { ui, session } = await openDetail();
     await ui.press("p");
-    await ui.waitFor("park note for DIPO-24: _");
+    await ui.waitFor("park note for DIPO-24");
     expect(session.commands).toEqual([]);
     await ui.press("after the release");
-    await ui.press("enter");
+    await ui.press("ctrl-s");
     await ui.waitFor("park DIPO-24: ");
     expect(session.commands.map((command) => [command.name, command.args])).toEqual([
       ["story.park", { story: "DIPO-24", note: "after the release" }],
@@ -335,7 +335,7 @@ describe("live agent detail", () => {
   it("P then Esc sends nothing", async () => {
     const { ui, session } = await openDetail();
     await ui.press("p");
-    await ui.waitFor("park note for DIPO-24: _");
+    await ui.waitFor("park note for DIPO-24");
     await ui.press("escape");
     await ui.waitFor("park DIPO-24: nothing sent");
     expect(session.commands).toEqual([]);
@@ -356,7 +356,7 @@ describe("live agent detail", () => {
         : undefined;
     await ui.press("p");
     await ui.press("later");
-    await ui.press("enter");
+    await ui.press("ctrl-s");
     await ui.waitFor("park DIPO-24: story.notParkable: DIPO-24 is Done");
   });
 

@@ -38,6 +38,7 @@ import {
   CI_RERUNS_PER_HEAD,
   CI_STUCK_POLL_MS,
   NO_CI_WAIT_MS,
+  numstatChange,
   type StoryPrFacts,
   StoryPrs,
   STORY_PR_NOTICES,
@@ -383,6 +384,41 @@ describe("the story PR body status block", () => {
       expect(w.host.updates).toHaveLength(3);
       expect(w.host.updates[2]?.body).toContain("`ci-ok` pass, `pr-title` pass");
     });
+  });
+});
+
+describe("what the desk's MERGE preview reads of a run's PR (DIPO-459)", () => {
+  it("counts the required checks with where they stand, and keeps the change of the last sync", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      expect(w.prs.deskFacts(id, w.run)).toEqual({});
+      w.facts = { ...FACTS, change: { files: 6, additions: 214, deletions: 38 } };
+      await w.prs.sync(id, w.run);
+      // No check read yet: the change alone.
+      expect(w.prs.deskFacts(id, w.run)).toEqual({
+        change: { files: 6, additions: 214, deletions: 38 },
+      });
+      await w.prs.retry(id);
+      expect(w.prs.deskFacts(id, w.run).checks).toEqual({ required: 2, state: "pending" });
+      w.host.required = [report("ci-ok", "fail"), report("pr-title", "pass")];
+      await w.prs.retry(id);
+      expect(w.prs.deskFacts(id, w.run).checks).toEqual({ required: 2, state: "failed" });
+      await pushHead(w, HEAD_B);
+      w.host.required = [report("ci-ok", "pass"), report("pr-title", "pass")];
+      await w.prs.retry(id);
+      expect(w.prs.deskFacts(id, w.run).checks).toEqual({ required: 2, state: "passed" });
+    });
+  });
+});
+
+describe("numstatChange", () => {
+  it("counts each file and its added and removed lines; a binary file has none", () => {
+    expect(numstatChange("12\t3\tsrc/a.ts\n0\t35\tsrc/b.ts\n-\t-\timg.png\n")).toEqual({
+      files: 3,
+      additions: 12,
+      deletions: 38,
+    });
+    expect(numstatChange("")).toEqual({ files: 0, additions: 0, deletions: 0 });
   });
 });
 

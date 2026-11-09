@@ -12,6 +12,7 @@ const ctx: FooterContext = {
   office: true,
   hasRow: true,
   planningOpen: false,
+  narrow: false,
   planning: {
     session: false,
     sending: false,
@@ -43,13 +44,15 @@ describe("the footer registry", () => {
   it("reads the hints of a view and its conditions from the registry, global keys at the right", () => {
     expect(texts("desk")).toEqual([
       "↑↓ move",
-      "⏎ open",
+      "⏎ open story",
       "c copy id",
       ": commands",
       "? keys",
       "O offices",
       "q q quit",
     ]);
+    // Below 100 columns ⏎ reads the focused item in full (DIPO-459).
+    expect(texts("desk", { ...ctx, narrow: true })).toContain("⏎ read");
     expect(texts("desk", { ...ctx, hasRow: false, planningOpen: true })).toEqual([
       "P plan",
       ": commands",
@@ -65,7 +68,11 @@ describe("the footer registry", () => {
   });
 
   it("keeps only the reading keys offline, then says actions are off", () => {
-    expect(texts("desk", { ...ctx, offline: true })).toEqual(["↑↓ move", "⏎ open", "q q quit"]);
+    expect(texts("desk", { ...ctx, offline: true })).toEqual([
+      "↑↓ move",
+      "⏎ open story",
+      "q q quit",
+    ]);
   });
 
   it("follows keymap.json changedFromToday: R run, p park, X drop, O offices, q q quit, y and n on a test", () => {

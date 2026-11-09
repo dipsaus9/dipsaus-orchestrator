@@ -164,7 +164,6 @@ interface FloorOptions {
   readonly now: number;
   readonly width: number;
   readonly ascii: boolean;
-  readonly digest?: string | null | undefined;
 }
 
 /** The card of one story: four lines for a running story, three for one in review. */
@@ -301,9 +300,6 @@ export function floorLines(options: FloorOptions): FloorLine[] {
   const { running, review } = floorStories(state);
   const summary = state.offices.find((entry) => entry.office === state.office)?.summary;
   const out: FloorLine[] = [];
-  if (options.digest !== undefined && options.digest !== null) {
-    out.push({ key: "digest", card: null, spans: [{ text: options.digest, role: "dim" }] });
-  }
   const slots = summary?.slots === undefined ? "" : `${running.length} of ${summary.slots} slots`;
   out.push(header("running", "RUNNING", slots, width), blank("after:running"));
   if (running.length === 0) {
@@ -384,8 +380,6 @@ export function Overview(props: {
   chain: Chain;
   /** The selected card by story key, marked with `▌`; Enter opens it. */
   selected?: string | null;
-  /** The "since you left" line from `office.digest`, at the top (DIPO-308). */
-  digest?: string | null;
 }) {
   const { state, display, columns } = props;
   const { ellipsis } = glyphs(display.ascii);
@@ -404,7 +398,6 @@ export function Overview(props: {
     now: props.clock.now(),
     width: columns,
     ascii: display.ascii,
-    digest: props.digest,
   });
   const shown = fitFloor(all, props.height, props.selected);
   return (

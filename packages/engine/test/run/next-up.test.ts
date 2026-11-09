@@ -27,7 +27,7 @@ import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import type { OfficeHandle } from "../../src/db/office";
 import { createLogger } from "../../src/log/logger";
-import { desk, DESK_SOURCES, type DeskSources } from "../../src/overview/desk";
+import { desk, DESK_CONSEQUENCES, DESK_SOURCES, type DeskSources } from "../../src/overview/desk";
 import { DeskNotifier } from "../../src/overview/desk-notify";
 import { systemClock } from "../../src/platform/clock";
 import type { NotificationText } from "../../src/platform/notify";
@@ -579,8 +579,16 @@ describe("the item on the desk", () => {
     );
     expect(items[1]?.detail).toContain("its references share no files with running stories");
     expect(items[0]?.actions).toEqual([
-      { command: "nextUp.confirm", cli: "dipo next confirm DIPO-2" },
-      { command: "nextUp.decline", cli: "dipo next decline DIPO-2" },
+      {
+        command: "nextUp.confirm",
+        cli: "dipo next confirm DIPO-2",
+        consequence: DESK_CONSEQUENCES["nextUp.confirm"],
+      },
+      {
+        command: "nextUp.decline",
+        cli: "dipo next decline DIPO-2",
+        consequence: DESK_CONSEQUENCES["nextUp.decline"],
+      },
     ]);
   });
 

@@ -67,6 +67,8 @@ export interface TuiDeps extends TuiStreams {
   readonly restartDaemon?: () => Promise<string | null>;
   /** Opens the daemon log outside the TUI (`l`); resolves to why it did not open, or null. */
   readonly openLog?: () => Promise<string | null>;
+  /** Opens an https URL in the browser (`o`, a PR); resolves to why it did not open, or null. */
+  readonly openUrl?: (url: string) => Promise<string | null>;
 }
 
 /** The one line printed when stdin is not a terminal (0009). */
@@ -363,6 +365,10 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
         deps.openLog === undefined
           ? "run dipo daemon logs"
           : deps.openLog().catch((error: unknown) => errorText(error)),
+      openUrl: async (url) =>
+        deps.openUrl === undefined
+          ? `open ${url} in your browser`
+          : deps.openUrl(url).catch((error: unknown) => errorText(error)),
     };
     instance.rerender(
       <App

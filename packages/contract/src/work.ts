@@ -204,10 +204,29 @@ export const KNOWN_STORY_PR_STATES = ["open", "merged", "closed"] as const;
 export const StoryPrState = openEnum(KNOWN_STORY_PR_STATES);
 export type StoryPrState = z.infer<typeof StoryPrState>;
 
+// (DIPO-459) What the desk's MERGE preview shows of a PR, each absent until the engine read it:
+// `checks`, the count of the pushed head's required checks and where they stand as the CI watch
+// evaluates them; `change`, the files the branch changes against the base and the lines it adds
+// and removes, from git.
+export const StoryPrChecks = z.object({
+  required: z.int().nonnegative(),
+  state: z.enum(["passed", "pending", "failed"]),
+});
+export type StoryPrChecks = z.infer<typeof StoryPrChecks>;
+
+export const StoryPrChange = z.object({
+  files: z.int().nonnegative(),
+  additions: z.int().nonnegative(),
+  deletions: z.int().nonnegative(),
+});
+export type StoryPrChange = z.infer<typeof StoryPrChange>;
+
 export const StoryPr = z.object({
   number: z.int().positive(),
   url: z.url(),
   state: StoryPrState,
+  checks: StoryPrChecks.optional(),
+  change: StoryPrChange.optional(),
 });
 export type StoryPr = z.infer<typeof StoryPr>;
 

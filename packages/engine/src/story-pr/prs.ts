@@ -78,6 +78,9 @@ import type {
   OfficeId,
   RunId,
   StoryKey,
+  StoryPr,
+  StoryPrChange,
+  StoryPrChecks,
   TimerHandle,
 } from "@dipsaus-orchestrator/contract";
 
@@ -298,6 +301,8 @@ interface Polled {
   readonly watch: Map<string, Watch>;
   /** The review state last written to each run's PR body, so a new verdict rewrites it. */
   readonly reviewed: Map<string, string>;
+  /** What each run's branch changes against the base, read at its last sync (DIPO-459). */
+  readonly change: Map<string, StoryPrChange>;
   /** The reads of the PR-state round the running pass belongs to (DIPO-314), or null. */
   reads: Pick<PrStateReads, "viewPr"> | null;
 }
@@ -357,6 +362,7 @@ export class StoryPrs {
       told: new Map(),
       watch: new Map(),
       reviewed: new Map(),
+      change: new Map(),
       reads: null,
     });
   }
@@ -573,6 +579,27 @@ export class StoryPrs {
     ]);
   }
 
+  /**
+   * What the desk's MERGE preview shows of a run's PR (DIPO-459): the count of its pushed head's
+   * required checks and where they stand, once the CI watch read which checks the base requires,
+   * and what its branch changes against the base, once a sync read it. A box run's head the host
+   * reported no check for has no checks to show.
+   */
+  deskFacts(officeId: OfficeId, runId: RunId): Pick<StoryPr, "checks" | "change"> {
+    const polled = this.#offices.get(officeId);
+    const watch = polled?.watch.get(runId);
+    const change = polled?.change.get(runId);
+    const out: { checks?: StoryPrChecks; change?: StoryPrChange } = {};
+    if (change !== undefined) out.change = change;
+    if (watch !== undefined && watch.names !== null && !watch.noCi) {
+      const required = requiredCheckStates(watch.reports, watch.names).length;
+      // A base that requires no check, with none reported, has not shown its CI yet (as `#watch`).
+      const state = required === 0 ? "pending" : evaluateChecks(watch.reports, watch.names).state;
+      out.checks = { required, state };
+    }
+    return out;
+  }
+
   /** The CI feedback items built for the red head of a run, or none (DIPO-148 sends them). */
   ciItems(
     officeId: OfficeId,
@@ -714,6 +741,8 @@ export class StoryPrs {
         );
       }
       const title = storyPrTitle(facts.story);
+      if (facts.change === undefined) state.change.delete(runId);
+      else state.change.set(runId, facts.change);
       const watch = state.watch.get(runId);
       const checks = requiredCheckStates(
         watch?.head === facts.head ? watch.reports : [],

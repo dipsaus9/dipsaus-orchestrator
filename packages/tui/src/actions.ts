@@ -2,17 +2,22 @@
 // DIPO-308). Each key of the table in `keys.ts` starts a flow: the prompts it needs, then one
 // command with `origin: "tui"` and a fresh request id.
 //
-// - Text prompts take Enter to send and Esc to cancel: the answer, the park, reject and discard
-//   notes, the steer text, and the resume note where the park needs one (the engine's command
-//   line for it names `--note`). A text prompt keeps its draft while offline and sends nothing.
+// - Text prompts are the Composer (DIPO-459): Enter adds a line, Ctrl-S sends, Esc cancels. The
+//   answer, the park, reject and discard notes, the steer text and the resume note: required where
+//   the engine's command line names `--note`, else optional and prefilled with the park's detail
+//   (the failing check, the conflicted paths). A text prompt keeps its draft while offline and sends
+//   nothing.
 // - Which actions confirm comes from the command definitions, as in the CLI (DIPO-320,
 //   `confirmSteps`): a command with `confirm` asks yes or no (reject, first); an `irreversible`
 //   one, or one an `irreversibleWhen` argument makes so (drop with branch deletion), reads
 //   `story.losses`, lists what is lost and asks for the story id typed out (0009 open question 4).
-//   Drop first asks whether to keep the branch; that choice is its yes or no.
+//   Drop reads its losses first and offers "also delete its branch" (space); that choice is its yes
+//   or no, and ticking it asks for the typed id.
 // - A resume with a budget (the engine's line names `--budget`, which `work.resume` declares in
-//   `confirmWhen`) is sent unconfirmed; the engine answers with the caps before and after, which
-//   the prompt shows before it asks yes or no and sends it confirmed.
+//   `confirmWhen`) is the top-up prompt: +25%, +50% or +100% (←→, the choices of `dipo resume
+//   --budget`) and its note (Tab). Its first Ctrl-S sends it unconfirmed, and the engine answers with
+//   the caps before and after, which the prompt shows; seeing them is the confirmation, so the next
+//   Ctrl-S sends it confirmed (spec.md, PARKED). A change of the top-up asks for its caps again.
 // - Every other action is one key.
 //
 // An action is done only when the office stream passes its reply cursor (read-your-writes), when
@@ -38,6 +43,7 @@ import {
 import type { Key } from "ink";
 import { useEffect, useState } from "react";
 
+import { composerKey, editDraft } from "./composer";
 import { binding, type ActionId, type Hint } from "./keys";
 
 /** One command an action sends. */
@@ -90,16 +96,28 @@ export interface ActionTarget {
   readonly text?: string;
   /** The open test a checklist action is about (DIPO-365). */
   readonly test?: string;
-  /** What a fail note starts with: the first unticked step (DIPO-365). */
+  /** What a fail note or an optional resume note starts with (DIPO-365, DIPO-459). */
   readonly prefill?: string;
+  /** The desk row the action was started on, so the row shows it pending (DIPO-459). */
+  readonly row?: string;
 }
 
-type Step =
-  | { readonly kind: "text"; readonly field: "text" | "note"; readonly label: string }
+export type Step =
+  | {
+      readonly kind: "text";
+      readonly field: "text" | "note";
+      readonly label: string;
+      /** True when an empty text may be sent: an optional resume note. */
+      readonly optional?: boolean;
+    }
   | { readonly kind: "yesno"; readonly question: string }
   | { readonly kind: "drop" }
   | { readonly kind: "losses"; readonly command: "work.discard" | "story.drop" }
-  | { readonly kind: "typed" };
+  | { readonly kind: "typed" }
+  | { readonly kind: "topup"; readonly noteRequired: boolean };
+
+/** The top-ups the resume prompt offers, as shares of the run's starting caps (`dipo resume --budget`). */
+export const TOP_UPS: readonly number[] = [25, 50, 100];
 
 interface Values {
   readonly text?: string;
@@ -121,9 +139,13 @@ export interface Flow {
   readonly values: Values;
   /** The text typed into the current text or typed-id prompt. */
   readonly draft: string;
-  /** What the prompt lists above its question: the losses, or the caps before and after. */
-  readonly lines: readonly string[];
-  /** True while `story.losses` is read. */
+  /** What `story.losses` listed for a discard or a drop; null before it was read. */
+  readonly losses: readonly LostCommit[] | null;
+  /** The top-up prompt's caps before and after, for the share they were asked for. */
+  readonly caps: { readonly share: number; readonly details: ResumeConfirmDetails } | null;
+  /** The top-up prompt's field in focus. */
+  readonly field: "choice" | "note";
+  /** True while `story.losses` is read, or the caps of a top-up are asked for. */
   readonly reading: boolean;
 }
 
@@ -140,6 +162,20 @@ export interface ActionState {
   readonly note?: string;
   /** The reply said `changed: false`: the state already matched, and nothing was written (0005). */
   readonly unchanged?: boolean;
+  /** The verb alone, for a desk row's pending line (`accept`). */
+  readonly verb: string;
+  /** The desk row it was started on (`ActionTarget.row`). */
+  readonly row?: string;
+}
+
+/** What a sent flow's state starts with: its label, request, verb and row. */
+function sentState(sent: Flow, request: CommandRequest) {
+  return {
+    label: sent.label,
+    request,
+    verb: VERBS[sent.id],
+    ...(sent.target.row === undefined ? {} : { row: sent.target.row }),
+  };
 }
 
 /** The verb of each action in its label. */
@@ -160,13 +196,8 @@ const VERBS: Readonly<Record<ActionId, string>> = {
   pass: "pass",
   fail: "fail",
   stop: "stop run",
-};
-
-/** What the irreversible commands do, as the typed confirmation says it (0009). */
-const LOSES: Readonly<Record<"work.discard" | "story.drop", string>> = {
-  "work.discard":
-    "ends the run, deletes the box and branch, closes the PR and returns the story to Refined",
-  "story.drop": "archives it, releases its claim and deletes its branch",
+  nextConfirm: "start",
+  nextDecline: "decline",
 };
 
 /** The budget a resume's command line names: `--budget +50%` or `--budget +200000`. */
@@ -179,6 +210,23 @@ export function budgetOf(cli: string | undefined): ResumeBudget | undefined {
 
 function needsNote(cli: string | undefined): boolean {
   return (cli ?? "").includes("--note");
+}
+
+/** A required note's label: the placeholder of the engine's line (`<answer>`, `<direction>`). */
+function noteLabel(cli: string | undefined): string {
+  return /--note "<([a-z ]+)>"/.exec(cli ?? "")?.[1] ?? "note";
+}
+
+/** The share the top-up prompt has chosen now. */
+export function shareChosen(flow: Flow): number {
+  const budget = flow.values.budget;
+  return budget !== undefined && "share" in budget ? budget.share : 50;
+}
+
+/** The share a top-up starts at: the one the engine's command line names, else +50%. */
+function shareOf(cli: string | undefined): number {
+  const budget = budgetOf(cli);
+  return budget !== undefined && "share" in budget ? budget.share : 50;
 }
 
 /** The commands whose losses `story.losses` lists. */
@@ -250,12 +298,17 @@ function inputStepsOf(id: ActionId, target: ActionTarget, story: string): Step[]
     case "reject":
       return [{ kind: "text", field: "note", label: "reject note" }];
     case "resume":
-      return needsNote(target.cli) ? [{ kind: "text", field: "note", label: "resume note" }] : [];
+      if (budgetOf(target.cli) !== undefined) {
+        return [{ kind: "topup", noteRequired: needsNote(target.cli) }];
+      }
+      return needsNote(target.cli)
+        ? [{ kind: "text", field: "note", label: noteLabel(target.cli) }]
+        : [{ kind: "text", field: "note", label: "note", optional: true }];
     case "discard":
       return [{ kind: "text", field: "note", label: "discard note" }];
     case "drop":
-      // Keep or delete the branch; `deleteBranch` then decides the rest (`confirmSteps`).
-      return [{ kind: "drop" }];
+      // What it loses first, then keep or delete the branch; `deleteBranch` decides the rest.
+      return [{ kind: "losses", command: "story.drop" }, { kind: "drop" }];
     case "park":
       return [{ kind: "text", field: "note", label: `park note for ${story}` }];
     case "steer":
@@ -285,7 +338,10 @@ export function startFlow(
   target: ActionTarget,
   lookup: DefinitionLookup = findCommand,
 ): Flow {
-  const budget = id === "resume" ? budgetOf(target.cli) : undefined;
+  const budget =
+    id === "resume" && budgetOf(target.cli) !== undefined
+      ? { share: shareOf(target.cli) }
+      : undefined;
   const subject =
     id === "accept" || id === "dismiss"
       ? "proposed story"
@@ -303,7 +359,9 @@ export function startFlow(
     at: 0,
     values: budget === undefined ? {} : { budget },
     draft: target.prefill ?? "",
-    lines: [],
+    losses: null,
+    caps: null,
+    field: "choice",
     reading: false,
   };
 }
@@ -369,32 +427,6 @@ export function requestOf(flow: Flow, requestId: RequestId): CommandRequest {
   return { office: flow.office, command, args, requestId, confirmed };
 }
 
-/** The lines listing what a discard or drop loses. */
-export function lossLines(
-  command: "work.discard" | "story.drop",
-  story: string,
-  losses: Extract<LossesOutcome, { ok: true }>["result"],
-): string[] {
-  const lines = [`${command === "work.discard" ? "Discard" : "Drop"} ${story}: ${LOSES[command]}.`];
-  if (losses.commits.length === 0) {
-    lines.push("  lost: nothing (no commits off the base)");
-  } else {
-    lines.push("  lost:");
-    for (const commit of losses.commits) lines.push(`    commit ${commit.sha} ${commit.subject}`);
-  }
-  return lines;
-}
-
-/** The caps before and after a top-up, as the resume question shows them. */
-export function capsLines(details: ResumeConfirmDetails): string[] {
-  const rows: [string, number, number][] = [
-    ["tokens", details.before.budgetTokens, details.after.budgetTokens],
-    ["turns", details.before.maxTurns, details.after.maxTurns],
-    ["minutes", details.before.maxMinutes, details.after.maxMinutes],
-  ];
-  return rows.map(([name, before, after]) => `  ${name.padEnd(8)}${before} -> ${after}`);
-}
-
 export interface ActionDeps {
   readonly store: OfficeStore;
   readonly sendCommand: (request: CommandRequest) => Promise<CommandOutcome>;
@@ -409,12 +441,19 @@ export interface ActionDeps {
 
 /** What an action's reply adds to its done line. */
 function replyNote(flow: Flow, result: unknown): string | undefined {
-  if (flow.id !== "test" || typeof result !== "object" || result === null) return undefined;
-  const checkout = (result as { checkout?: unknown }).checkout;
-  return typeof checkout === "string" ? `checkout ${checkout}` : undefined;
+  if (typeof result !== "object" || result === null) return undefined;
+  if (flow.id === "test") {
+    const checkout = (result as { checkout?: unknown }).checkout;
+    return typeof checkout === "string" ? `checkout ${checkout}` : undefined;
+  }
+  if (flow.id !== "accept") return undefined;
+  // `draft-31 in backlog PR #612` (DIPO-459): the draft and the PR the lane filed it in.
+  const { draft, flush } = result as { draft?: unknown; flush?: { pr?: unknown } };
+  if (typeof draft !== "string") return undefined;
+  const pr = typeof flush?.pr === "string" ? /\/pull\/(\d+)/.exec(flush.pr)?.[1] : undefined;
+  return pr === undefined ? draft : `${draft} in backlog PR #${pr}`;
 }
 
-/** The flows, the action on its way and the keys of an open prompt. */
 /** A key of an open prompt; the prompt's keys are never dropped from the footer. */
 function promptHint(key: string, label: string, side?: "right"): Hint {
   return { key, label, priority: 100, ...(side === undefined ? {} : { side }) };
@@ -439,45 +478,39 @@ export function useActions(deps: ActionDeps) {
 
   const dispatch = (request: CommandRequest, sent: Flow) => {
     setMessage(null);
-    setAction({ label: sent.label, request, status: "sending" });
+    setAction({ ...sentState(sent, request), status: "sending" });
     void deps.sendCommand(request).then((outcome) => {
       if (!outcome.ok) {
         const details = ResumeConfirmDetails.safeParse(outcome.error.details);
+        const share = sent.values.budget !== undefined && "share" in sent.values.budget;
         if (
           outcome.error.code === "confirmation.required" &&
           !request.confirmed &&
-          details.success
+          details.success &&
+          share
         ) {
-          // `confirmWhen`: the engine named the caps before and after; ask, then send confirmed.
+          // `confirmWhen`: the engine named the caps before and after; the top-up prompt shows
+          // them, and its next Ctrl-S sends it confirmed.
           setAction(null);
           setFlow({
             ...sent,
-            steps: [
-              { kind: "yesno", question: `Raise ${sent.target.story}'s caps and resume it?` },
-            ],
-            at: 0,
-            values: { ...sent.values, confirmed: true },
-            lines: [
-              `Top up ${sent.target.story}: its caps go from the left to the right.`,
-              ...capsLines(details.data),
-            ],
-            draft: "",
+            reading: false,
+            caps: { share: shareChosen(sent), details: details.data },
           });
           return;
         }
-        setAction({ label: sent.label, request, status: "failed", error: outcome.error });
+        setAction({ ...sentState(sent, request), status: "failed", error: outcome.error });
         return;
       }
       // `changed: false`: the state already matched and nothing was written, so there is no write to
       // wait for (0005, 0009).
       if (!outcome.changed) {
-        setAction({ label: sent.label, request, status: "done", unchanged: true });
+        setAction({ ...sentState(sent, request), status: "done", unchanged: true });
         return;
       }
       const note = replyNote(sent, outcome.result);
       setAction({
-        label: sent.label,
-        request,
+        ...sentState(sent, request),
         status: "syncing",
         ...(outcome.cursor === undefined ? {} : { cursor: outcome.cursor }),
         // Live, not the batched state: a re-read before this moment does not count.
@@ -511,7 +544,7 @@ export function useActions(deps: ActionDeps) {
       setMessage("offline: the prompt is kept; it goes on once the connection is back");
       return;
     }
-    setFlow({ ...next, reading: true, lines: [] });
+    setFlow({ ...next, reading: true, losses: null });
     const story = current.target.story ?? "";
     void deps
       .readLosses({ office: current.office, story, command: step.command })
@@ -524,12 +557,7 @@ export function useActions(deps: ActionDeps) {
         setFlow((open) =>
           open === null || open.label !== current.label
             ? open
-            : {
-                ...next,
-                at: at + 1,
-                reading: false,
-                lines: lossLines(step.command, story, outcome.result),
-              },
+            : { ...next, at: at + 1, reading: false, losses: outcome.result.commits },
         );
       });
   };
@@ -547,9 +575,41 @@ export function useActions(deps: ActionDeps) {
     }
     setMessage(null);
     const created = startFlow(id, deps.office, target);
-    if (created.steps.length === 0) advance({ ...created, at: -1 });
-    else setFlow(created);
+    // A flow that reads what it loses first (drop) reads it at once.
+    if (created.steps.length === 0 || created.steps[0]?.kind === "losses") {
+      advance({ ...created, at: -1 });
+    } else setFlow(created);
     return true;
+  };
+
+  /**
+   * Ctrl-S on the top-up prompt: the resume unconfirmed, for the caps of the chosen share; once they
+   * show, the resume confirmed.
+   */
+  const sendTopUp = (open: Flow, required: boolean) => {
+    const note = open.draft.trim();
+    if (required && note === "") {
+      setMessage("the note is empty; type it (tab), or Esc to cancel");
+      return;
+    }
+    if (offline) {
+      setMessage("offline: the prompt is kept; it sends once the connection is back");
+      return;
+    }
+    const share = shareChosen(open);
+    const shown = open.caps?.share === share;
+    const sent: Flow = {
+      ...open,
+      values: {
+        ...open.values,
+        ...(note === "" ? {} : { note }),
+        budget: { share },
+        ...(shown ? { confirmed: true } : {}),
+      },
+    };
+    if (shown) setFlow(null);
+    else setFlow({ ...open, reading: true });
+    dispatch(requestOf(sent, deps.newRequestId()), sent);
   };
 
   const cancel = (open: Flow) => {
@@ -566,57 +626,106 @@ export function useActions(deps: ActionDeps) {
       return true;
     }
     switch (step.kind) {
-      case "text":
-      case "typed": {
-        if (pressed.escape) {
+      case "text": {
+        // The Composer: Enter adds a line, Ctrl-S sends, Esc cancels.
+        const event = composerKey(flow.draft, input, pressed);
+        if (event.kind === "cancel") {
           cancel(flow);
-        } else if (pressed.return) {
+        } else if (event.kind === "edit") {
+          setFlow({ ...flow, draft: event.draft });
+        } else if (event.kind === "send") {
           const text = flow.draft.trim();
-          if (step.kind === "typed") {
-            // The typed id reads as every story reference does; only the story's own id passes.
-            const typed = storyRef(text);
-            if (typed === null || typed !== storyRef(flow.target.story ?? "")) {
-              setMessage(`type ${flow.target.story} to confirm, or Esc to cancel`);
-              return true;
-            }
-            setMessage(null);
-            advance(flow);
-            return true;
-          }
-          if (text === "") {
+          if (text === "" && step.optional !== true) {
             setMessage(`the ${step.label} is empty; type it, or Esc to cancel`);
             return true;
           }
           setMessage(null);
-          advance({ ...flow, values: { ...flow.values, [step.field]: text } });
-        } else if (pressed.backspace || pressed.delete) {
-          setFlow({ ...flow, draft: flow.draft.slice(0, -1) });
-        } else if (!pressed.ctrl && !pressed.meta && input !== "") {
-          // A paste arrives as one input and goes in literally, line breaks as spaces.
-          setFlow({ ...flow, draft: flow.draft + input.replace(/[\r\n]+/g, " ") });
+          const values = text === "" ? flow.values : { ...flow.values, [step.field]: text };
+          advance({ ...flow, values });
         }
         return true;
       }
+      case "typed": {
+        if (pressed.escape) {
+          cancel(flow);
+        } else if (pressed.return) {
+          // The typed id reads as every story reference does; only the story's own id passes.
+          const typed = storyRef(flow.draft.trim());
+          if (typed === null || typed !== storyRef(flow.target.story ?? "")) {
+            setMessage(`type ${flow.target.story} to confirm, or Esc to keep it`);
+            return true;
+          }
+          setMessage(null);
+          advance(flow);
+        } else {
+          // One line: a paste's line breaks are dropped.
+          const draft = editDraft(flow.draft, input.replace(/[\r\n]+/g, ""), pressed);
+          if (draft !== null) setFlow({ ...flow, draft });
+        }
+        return true;
+      }
+      case "topup":
+        return topUpKey(flow, step.noteRequired, input, pressed);
       case "yesno":
         if (input === "y" || input === "Y") advance(flow);
         else cancel(flow);
         return true;
-      case "drop":
-        if (input === "y" || input === "Y") {
-          advance({ ...flow, values: { ...flow.values, deleteBranch: false } });
-        } else if (input === "D") {
+      case "drop": {
+        const remove = flow.values.deleteBranch === true;
+        if (pressed.escape) {
+          cancel(flow);
+        } else if (input === " ") {
+          // Ticking "also delete its branch" makes the drop irreversible (`irreversibleWhen`).
+          setFlow({ ...flow, values: { ...flow.values, deleteBranch: !remove } });
+        } else if (input === "y" || input === "Y") {
           const story = flow.target.story ?? "the story";
+          // The losses were read when the drop started; only the typed id is left to ask.
+          const more = remove
+            ? confirmSteps(flow.id, story, { deleteBranch: true }).filter(
+                (extra) => extra.kind === "typed",
+              )
+            : [];
           advance({
             ...flow,
-            steps: [...flow.steps, ...confirmSteps(flow.id, story, { deleteBranch: true })],
-            values: { ...flow.values, deleteBranch: true },
+            steps: [...flow.steps, ...more],
+            values: { ...flow.values, deleteBranch: remove },
           });
-        } else cancel(flow);
+        }
         return true;
+      }
       case "losses":
         if (pressed.escape) cancel(flow);
         return true;
     }
+  };
+
+  /** A key on the top-up prompt: ←→ the share, Tab the field, the note's Composer, Ctrl-S. */
+  const topUpKey = (open: Flow, required: boolean, input: string, pressed: Key): boolean => {
+    if (pressed.escape) {
+      cancel(open);
+      return true;
+    }
+    if (open.reading) return true;
+    if (pressed.ctrl && input === "s") {
+      sendTopUp(open, required);
+      return true;
+    }
+    if (pressed.tab) {
+      setFlow({ ...open, field: open.field === "choice" ? "note" : "choice" });
+      return true;
+    }
+    if (open.field === "choice") {
+      if (!pressed.leftArrow && !pressed.rightArrow) return true;
+      const share = shareChosen(open);
+      const at = Math.max(0, TOP_UPS.indexOf(share));
+      const next =
+        TOP_UPS[Math.max(0, Math.min(TOP_UPS.length - 1, at + (pressed.leftArrow ? -1 : 1)))];
+      setFlow({ ...open, values: { ...open.values, budget: { share: next ?? share } } });
+      return true;
+    }
+    const draft = editDraft(open.draft, input, pressed);
+    if (draft !== null) setFlow({ ...open, draft });
+    return true;
   };
 
   /** Ctrl-R: sends a failed retryable action again with its request id; false when none waits. */
@@ -627,16 +736,21 @@ export function useActions(deps: ActionDeps) {
       return true;
     }
     const { request, label } = action;
+    const sent = {
+      label,
+      request,
+      verb: action.verb,
+      ...(action.row === undefined ? {} : { row: action.row }),
+    };
     setMessage(null);
-    setAction({ label, request, status: "sending" });
+    setAction({ ...sent, status: "sending" });
     void deps.sendCommand(request).then((outcome) => {
       if (!outcome.ok) {
-        setAction({ label, request, status: "failed", error: outcome.error });
+        setAction({ ...sent, status: "failed", error: outcome.error });
         return;
       }
       setAction({
-        label,
-        request,
+        ...sent,
         status: "syncing",
         ...(outcome.cursor === undefined ? {} : { cursor: outcome.cursor }),
         snapshots: store.state.snapshots,
@@ -651,49 +765,32 @@ export function useActions(deps: ActionDeps) {
     setMessage(null);
   };
 
-  /** The lines of the open prompt, above the footer. */
-  const promptLines = (): string[] => {
-    if (flow === null) return [];
-    const step = flow.steps[flow.at];
-    const story = flow.target.story ?? "";
-    if (flow.reading || step === undefined)
-      return [`${flow.label}: reading what is lost${ellipsis}`];
-    const named = flow.target.text === undefined ? [] : [`${flow.label}: ${flow.target.text}`];
-    switch (step.kind) {
-      case "text":
-        return [...named, `${step.label}: ${flow.draft}_`];
-      case "typed":
-        return [...flow.lines, `type ${story} to confirm: ${flow.draft}_`];
-      case "yesno":
-        return [...flow.lines, `${step.question} [y/N]`];
-      case "drop":
-        return [
-          `Drop ${story}: archive it and release its claim? [y] keep its branch  [D] delete the branch too`,
-        ];
-      case "losses":
-        return [`${flow.label}: reading what is lost${ellipsis}`];
-    }
-  };
-
-  /** The footer keys while a prompt is open; null when none is. */
+  /** The footer keys while a prompt is open (screens/11, 12); null when none is. */
   const promptHints = (): Hint[] | null => {
     if (flow === null) return null;
-    const escCancel = promptHint("esc", "cancel", "right");
+    const escCancel = promptHint("esc", "cancel");
+    const escKeep = promptHint("esc", "keep it");
     const step = flow.steps[flow.at];
     if (step === undefined || flow.reading) return [escCancel];
     switch (step.kind) {
       case "text":
-        return [promptHint("⏎", "send"), escCancel];
+        return [promptHint("⏎", "new line"), promptHint("ctrl-s", "send"), escCancel];
+      case "topup":
+        return [
+          promptHint("ctrl-s", flow.caps?.share === shareChosen(flow) ? "resume" : "show the caps"),
+          promptHint("←→", "top-up"),
+          promptHint("tab", "field"),
+          escCancel,
+        ];
       case "typed":
-        return [promptHint("⏎", "confirm"), escCancel];
+        return [
+          promptHint("⏎", `${flow.id === "drop" ? "drop" : "discard"} (when the id matches)`),
+          escKeep,
+        ];
       case "yesno":
         return [promptHint("y", "yes"), promptHint("any other key", "cancel", "right")];
       case "drop":
-        return [
-          promptHint("y", "drop, keep branch"),
-          promptHint("D", "delete branch"),
-          promptHint("any other key", "cancel", "right"),
-        ];
+        return [promptHint("y", "drop"), promptHint("space", "toggle branch"), escKeep];
       case "losses":
         return [escCancel];
     }
@@ -723,14 +820,15 @@ export function useActions(deps: ActionDeps) {
     key,
     retry,
     dismiss,
-    promptLines,
     promptHints,
     statusLine,
     /** True while a text or typed-id prompt takes whole inputs (a paste). */
     typing:
       flow !== null &&
       !flow.reading &&
-      (flow.steps[flow.at]?.kind === "text" || flow.steps[flow.at]?.kind === "typed"),
+      (flow.steps[flow.at]?.kind === "text" ||
+        flow.steps[flow.at]?.kind === "typed" ||
+        (flow.steps[flow.at]?.kind === "topup" && flow.field === "note")),
     retryable: action?.status === "failed" && action.error?.retryable === true,
     setMessage,
   };

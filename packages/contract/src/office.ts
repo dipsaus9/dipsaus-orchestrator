@@ -838,6 +838,8 @@ export const workPreview = defineRead({
 
 // Code-built "since you left" counts and lines (0009) [`digest`]. The client keeps `since`, the
 // time it last saw the office (0001); the result's `since` is the time the counts start from.
+// (DIPO-459) `spent`, for the Desk's Since band: the estimated cost in dollars of the office's
+// agents whose usage moved after `since`; absent when none of them reported a cost.
 export const officeDigest = defineRead({
   name: "office.digest",
   args: z.object({ office: OfficeId, since: Timestamp }),
@@ -845,6 +847,7 @@ export const officeDigest = defineRead({
     since: Timestamp,
     counts: z.record(z.string(), Count), // for example done, parked
     lines: z.array(z.string()),
+    spent: z.number().nonnegative().optional(),
     evidence: EvidenceMap.optional(),
   }),
 });
@@ -907,7 +910,10 @@ export const officeStats = defineRead({
 // `PLANNING LANE`, a planning lane whose operations wait for a backlog PR longer than 30 minutes,
 // with no story; DIPO-440 `NEXT UP`, a Ready story offered for a free run slot; DIPO-454
 // `PROPOSED STORY`, an idea that passed the audit, and `DECISION NOTE`, a worker's decision note).
+// The order is the desk's (DIPO-459): the setup kinds (`PROFILE`) first, the stories the maintainer
+// parked after next up; clients group the items by kind in this order and never sort them.
 export const KNOWN_DESK_KINDS = [
+  "PROFILE",
   "STARTS PAUSED",
   "QUESTION",
   "SCOPE",
@@ -923,7 +929,6 @@ export const KNOWN_DESK_KINDS = [
   "DECISION NOTE",
   "NEXT UP",
   "PARKED BY YOU",
-  "PROFILE",
   "LOADING",
 ] as const;
 /** The kind of the one item `office.desk` shows while its office is loading (DIPO-380). */
@@ -932,8 +937,13 @@ export const DeskKind = openEnum(KNOWN_DESK_KINDS);
 export type DeskKind = z.infer<typeof DeskKind>;
 
 // A command a desk item offers: the contract command and the exact command line to type, built by
-// the engine (0020).
-export const DeskAction = z.object({ command: CommandName, cli: z.string() });
+// the engine (0020). `consequence` (DIPO-459) is one code-built line saying what the action does,
+// such as "Accepting files it as a Backlog draft.", absent for a command the engine has none for.
+export const DeskAction = z.object({
+  command: CommandName,
+  cli: z.string(),
+  consequence: z.string().optional(),
+});
 export type DeskAction = z.infer<typeof DeskAction>;
 
 // The note of a DECISION NOTE item (DIPO-404, DIPO-454), with the id the maintainer dismisses it by.
@@ -949,12 +959,19 @@ export type DeskNote = z.infer<typeof DeskNote>;
 // story in full (what was found with its evidence and source story, the Story line, what is
 // proposed, why, and the milestone it serves or `tech-debt`). Every text is cleaned of terminal
 // sequences and kept whole: the card shows it in full.
+// `raisedBy` (DIPO-459) names who raised it: the role of its run's agent (`developer` for a worker's
+// proposal, `reviewer` for an advisory finding, `planner` for an aside) with that agent's model, or
+// `maintainer` with no model for a quick idea; absent when the run's agent is not kept.
+export const DeskIdeaRaiser = z.object({ role: z.string(), model: z.string().optional() });
+export type DeskIdeaRaiser = z.infer<typeof DeskIdeaRaiser>;
+
 export const DeskIdea = z.object({
   id: z.string(),
   origin: z.string(),
   title: z.string(),
   run: RunId.optional(),
   story: ProposedStory,
+  raisedBy: DeskIdeaRaiser.optional(),
 });
 export type DeskIdea = z.infer<typeof DeskIdea>;
 
