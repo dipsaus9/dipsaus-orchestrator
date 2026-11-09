@@ -1,10 +1,10 @@
 ---
 id: DIPO-462
 title: 'TUI v2: the story reader and the test overlay'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-09 18:03'
+updated_date: '2026-11-09 18:11'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -56,10 +56,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The story reader wraps every criterion, finding and quote at an 84-column measure and truncates nothing
-- [ ] #2 The latest review round is open and earlier rounds fold to one line
-- [ ] #3 t on a MERGE item starts the test and opens the overlay; y passes, n fails with the first unticked step as the note
-- [ ] #4 Esc hides the overlay and leaves the test open; a test.ended event says why it closed
-- [ ] #5 The story reader and the test overlay match the HTML preview's S4 and S1d. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
-- [ ] #6 A diff read for the story's branch exists (engine addition) and the Diff tab shows it
+- [x] #1 The story reader wraps every criterion, finding and quote at an 84-column measure and truncates nothing
+- [x] #2 The latest review round is open and earlier rounds fold to one line
+- [x] #3 t on a MERGE item starts the test and opens the overlay; y passes, n fails with the first unticked step as the note
+- [x] #4 Esc hides the overlay and leaves the test open; a test.ended event says why it closed
+- [x] #5 The story reader and the test overlay match the HTML preview's S4 and S1d. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
+- [x] #6 A diff read for the story's branch exists (engine addition) and the Diff tab shows it
 <!-- AC:END -->
