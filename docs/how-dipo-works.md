@@ -33,7 +33,7 @@ A story that cannot go on is **Parked** with one of eight reasons, keeps its bra
 | Reason | When | What you do |
 |---|---|---|
 | `ambiguous-spec` | The worker asked a question or reported it is blocked | `dipo answer` or `dipo resume --note` |
-| `budget-exceeded` | A token, turn or time limit was reached | `dipo resume --budget ... --note ...` |
+| `budget-exceeded` | A token, turn or time limit was reached; the park says "no part handed" when the run handed none, so the work is only in the box | `dipo resume --budget ... --note ...` |
 | `verify-failing` | Verify or CI stayed red after the allowed rounds | `dipo resume`, maybe with a note |
 | `conflict` | The worker could not resolve a merge conflict | `dipo resume`, maybe with a note |
 | `review-blocked` | The reviewer blocked it in three rounds | `dipo resume --note`, or overrule with `dipo approve --note` |

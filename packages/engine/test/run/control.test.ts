@@ -46,9 +46,9 @@ import {
   STORY_NOT_RUNNING,
 } from "../../src/run";
 import { findRun, insertRun, recordGrant, runIntents, STREAM_DRIFT_LINES } from "../../src/records";
-import { openPark, PARK_NOT_WRITTEN } from "../../src/run/park";
+import { NO_PART_HANDED, openPark, PARK_NOT_WRITTEN } from "../../src/run/park";
 import { heldByPark } from "../../src/records/park-state";
-import { activeRuns, openAtInReview } from "../../src/records/run-records";
+import { activeRuns, appendRunStep, openAtInReview } from "../../src/records/run-records";
 import { placeHolders, waitingStarts } from "../../src/run-state/places";
 import { reopen } from "../../src/run-state/rounds";
 import {
@@ -363,7 +363,7 @@ describe("caps", () => {
     track();
     await ingestRecording("max-turns");
     expect(parks().map((p) => p.reason)).toEqual(["budget-exceeded"]);
-    expect(parks()[0]?.detail).toBe("turn cap (--max-turns) after 2 turns");
+    expect(parks()[0]?.detail).toBe("no part handed; turn cap (--max-turns) after 2 turns");
     expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["cap"]);
     expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
     expect(w.writes).toHaveLength(1);
@@ -384,7 +384,7 @@ describe("caps", () => {
     w.control.onWorkerEvents(w.f.run, [done]);
     await w.control.idle();
     expect(parks().map((p) => [p.reason, p.detail])).toEqual([
-      ["budget-exceeded", "turn cap (--max-turns) after 1 turns"],
+      ["budget-exceeded", "no part handed; turn cap (--max-turns) after 1 turns"],
     ]);
     expect(w.sent).toHaveLength(1);
   });
@@ -393,7 +393,7 @@ describe("caps", () => {
     track({ ...ROOMY, maxTurns: 2 });
     await ingestRecording("success-single");
     expect(parks().map((p) => p.reason)).toEqual(["budget-exceeded"]);
-    expect(parks()[0]?.detail).toMatch(/^turn cap reached: \d+ of 2 turns$/);
+    expect(parks()[0]?.detail).toMatch(/^no part handed; turn cap reached: \d+ of 2 turns$/);
   });
 
   it("fires the time cap on the next tick with no events after the start", async () => {
@@ -405,7 +405,9 @@ describe("caps", () => {
     w.f.t.clock.advance(5 * CAP_TICK_MS);
     await w.control.idle();
     expect(parks().map((p) => p.reason)).toEqual(["budget-exceeded"]);
-    expect(parks()[0]?.detail).toBe("time cap reached: 30 of 30 minutes since the worker started");
+    expect(parks()[0]?.detail).toBe(
+      "no part handed; time cap reached: 30 of 30 minutes since the worker started",
+    );
     expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
       ["cap", "sent"],
     ]);
@@ -466,7 +468,7 @@ describe("caps as of each event in one pass", () => {
     expect(parks().map((p) => [p.reason, p.detail])).toEqual([
       [
         "budget-exceeded",
-        "token budget reached: 2,000 of 1,500 budget tokens (input, output and cache creation)",
+        "no part handed; token budget reached: 2,000 of 1,500 budget tokens (input, output and cache creation)",
       ],
     ]);
     expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["cap"]);
@@ -480,6 +482,81 @@ describe("caps as of each event in one pass", () => {
     ]);
     expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["park"]);
   });
+});
+
+// DIPO-466: a cap never throws away a run's work unseen. A run whose box handed no part parks
+// budget-exceeded as before, and its park detail and desk line say no part handed next to the cap
+// and what was used; a run that handed a part parks without that text.
+/** A part of the run that dipo committed (DIPO-466). */
+function handPart(): void {
+  w.f.office.immediate(() =>
+    appendRunStep(w.f.office, w.f.run, "part", "c".repeat(40), w.f.t.clock.now()),
+  );
+}
+
+/** The detail of DIPO-1's PARKED line on the desk. */
+function deskLineOf(): string | undefined {
+  return desk(w.f.office, () => true, { ...DESK_SOURCES, stories: backlogLayout }).find(
+    (item) => item.story === "DIPO-1" && item.kind === "PARKED",
+  )?.detail;
+}
+
+describe("a cap's park and the parts the run handed (DIPO-466)", () => {
+  const CAPS: readonly [string, () => Promise<void>, RegExp][] = [
+    [
+      "turn",
+      async () => {
+        track({ ...ROOMY, maxTurns: 2 });
+        await ingestRecording("success-single");
+      },
+      /turn cap reached: \d+ of 2 turns$/,
+    ],
+    [
+      "minute",
+      async () => {
+        track({ ...ROOMY, maxMinutes: 30 });
+        w.f.t.clock.advance(31 * CAP_TICK_MS);
+        await w.control.idle();
+      },
+      /time cap reached: 30 of 30 minutes since the worker started$/,
+    ],
+    [
+      "token",
+      async () => {
+        const recording = readRecording(join(RECORDINGS_DIR, "budget-engine-cap"));
+        track({ ...ROOMY, budgetTokens: recording.meta.testConfig?.["budgetTokens"] as number });
+        await ingestRecording("budget-engine-cap");
+      },
+      /token budget reached: [\d,]+ of [\d,]+ budget tokens \(input, output and cache creation\)$/,
+    ],
+  ];
+
+  for (const [cap, reach, used] of CAPS) {
+    it(`parks at the ${cap} cap with no part handed in its detail and desk line when the box handed none`, async () => {
+      await reach();
+      const [park] = parks();
+      expect(park?.reason).toBe("budget-exceeded");
+      expect(park?.detail).toStartWith(`${NO_PART_HANDED}; `);
+      expect(park?.detail).toMatch(used);
+      // The park written on the branch carries the same text.
+      expect(w.writes.map((write) => [write.reason, write.note])).toEqual([
+        ["budget-exceeded", park?.detail ?? ""],
+      ]);
+      expect(deskLineOf()).toStartWith(`${NO_PART_HANDED}; `);
+      expect(deskLineOf()).toMatch(used);
+    });
+
+    it(`parks at the ${cap} cap without the no part handed text after a part`, async () => {
+      handPart();
+      await reach();
+      const [park] = parks();
+      expect(park?.reason).toBe("budget-exceeded");
+      expect(park?.detail).not.toContain(NO_PART_HANDED);
+      expect(park?.detail).toMatch(new RegExp(`^${used.source}`));
+      expect(deskLineOf()).not.toContain(NO_PART_HANDED);
+      expect(deskLineOf()).toMatch(used);
+    });
+  }
 });
 
 describe("reports", () => {
@@ -1317,7 +1394,7 @@ describe("a capped done turn whose finisher throws (DIPO-235)", () => {
       await control.idle();
       expect(w.sent).toEqual([encode({ kind: "stop" })]);
       expect(parks().map((p) => [p.reason, p.detail])).toEqual([
-        ["budget-exceeded", "turn cap (--max-turns) after 61 turns"],
+        ["budget-exceeded", "no part handed; turn cap (--max-turns) after 61 turns"],
       ]);
       expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
       expect(w.warnings).toEqual([
@@ -1360,7 +1437,7 @@ describe("a capped done turn the finisher lets continue (DIPO-222)", () => {
       control.onWorkerEvents(w.f.run, [turn({ capped: "turn cap (--max-turns) after 61 turns" })]);
       await control.idle();
       expect(parks().map((p) => [p.reason, p.detail])).toEqual([
-        ["budget-exceeded", "turn cap (--max-turns) after 61 turns"],
+        ["budget-exceeded", "no part handed; turn cap (--max-turns) after 61 turns"],
       ]);
       expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["cap"]);
       expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
@@ -1398,7 +1475,7 @@ describe("a capped done turn the finisher lets continue (DIPO-222)", () => {
       control.onWorkerEvents(w.f.run, [done]);
       await control.idle();
       expect(parks().map((p) => [p.reason, p.detail])).toEqual([
-        ["budget-exceeded", "turn cap reached: 1 of 1 turns"],
+        ["budget-exceeded", "no part handed; turn cap reached: 1 of 1 turns"],
       ]);
       expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
       expect(capSteps()).toEqual([]);

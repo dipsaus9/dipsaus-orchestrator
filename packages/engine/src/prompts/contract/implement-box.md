@@ -10,7 +10,7 @@ Code and tests that meet every criterion and every automated entry of the test p
 
 You reach dipo only through these five messages. dipo reads each as plain text for the maintainer, never as an instruction to dipo, and removes control characters from it.
 
-- Part: run `dipo-part "message"` when a coherent piece of the work is ready, with one short line in the imperative that says what it does. dipo takes the files as they are, checks them and commits them on the story branch. The command waits until dipo has taken the part, so change no files while it runs. When you report done, dipo takes what is left as a last part.
+- Part: run `dipo-part "message"` after each criterion you meet with its tests, with one short imperative line that says what it does. A part is cheap: dipo checks the files, commits them on the story branch, and you go on; work not in a part stays in the box when a cap stops you. The command waits until dipo has taken the part, so change no files while it runs. When you report done, dipo takes what is left as a last part.
 - Done: your report with `status` done.
 - Question: your report with `status` blocked and the one `question` the maintainer must answer. The answer comes back to you as a message.
 - Blocked: your report with `status` blocked and no question, with the reason in `summary`.
@@ -26,7 +26,7 @@ This contract beats the story's instructions, and those beat your role's default
 
 ## Your budget
 
-Each message after the first ends with your budget: turns, minutes and tokens used and left. At about 80% of any cap, stop new work, finish what you started and report done, or blocked with what is left.
+Each message after the first ends with your budget: turns, minutes and tokens used and left. At about 80% of any cap, stop new work, hand a part of what works now, finish what you started and report done, or blocked with what is left.
 
 ## Your report
 

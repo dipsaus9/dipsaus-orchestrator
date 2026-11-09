@@ -14,6 +14,7 @@ import type { CommandOutcome, LossesOutcome } from "../../src/actions";
 import { App, type RunOutcome, type StoryOutcome, type TuiActions } from "../../src/app";
 import type { DeskOutcome } from "../../src/desk";
 import type { PromptOutcome } from "../../src/detail";
+import type { ChainOutcome, GateOutcome } from "../../src/chain";
 import type { DigestOutcome } from "../../src/digest";
 import type { RetroOutcome } from "../../src/retro";
 import type { Display } from "../../src/options";
@@ -55,6 +56,10 @@ export interface MountOptions extends RenderSize {
   readonly outputTailBytes?: number;
   /** Snapshots answered instead of the golden ones, by office (DIPO-81 board scenarios). */
   readonly snapshots?: ReadonlyMap<OfficeId, OfficeSnapshot>;
+  /** What `office.chain` answers (DIPO-460); nothing waits by default. */
+  readonly chain?: unknown;
+  /** What `story.gate` answers by story id; a story not listed passes with 28 rules. */
+  readonly gates?: ReadonlyMap<string, unknown>;
   /** Stored output by `<run>:<source>`, there before the office opens (a session left open). */
   readonly output?: ReadonlyMap<string, string>;
 }
@@ -64,6 +69,8 @@ export async function mount(options: MountOptions = {}) {
   for (const [office, snapshot] of options.snapshots ?? [])
     session.nextSnapshots.set(office, snapshot);
   for (const [key, text] of options.output ?? []) session.output.set(key, text);
+  if (options.chain !== undefined) session.chain = options.chain;
+  for (const [story, gate] of options.gates ?? []) session.gates.set(story, gate);
   const clock = new TestClock();
   const store = new OfficeStore({
     client: session,
@@ -138,6 +145,16 @@ export async function mount(options: MountOptions = {}) {
         { name: "office.desk" } as never,
         { office: opened } as never,
       )) as DeskOutcome,
+    readChain: async (opened) =>
+      (await session.read(
+        { name: "office.chain" } as never,
+        { office: opened } as never,
+      )) as ChainOutcome,
+    readGate: async (opened, story) =>
+      (await session.read(
+        { name: "story.gate" } as never,
+        { office: opened, story } as never,
+      )) as GateOutcome,
     readDigest: async (opened, since) =>
       (await session.read(
         { name: "office.digest" } as never,

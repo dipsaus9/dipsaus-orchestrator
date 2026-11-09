@@ -45,6 +45,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { budgetBar, truncate } from "./format";
 import type { Display } from "./options";
 import { endedLine, nowLine, shortAge } from "./now";
+import { Pipeline } from "./pipeline";
 import { compactRecordFactLines, noOutputLine, recordFactLines, recordHeaderLine } from "./past";
 import {
   type FeedChange,
@@ -191,7 +192,6 @@ function facts(view: WorkView) {
   const { progress, usage } = view;
   const run = usage.run;
   return {
-    phase: view.phase,
     health: healthLabel(view.health),
     loop: `${progress.loop}/${progress.loopCap}`,
     review: `round ${progress.reviewRound}`,
@@ -212,7 +212,6 @@ function facts(view: WorkView) {
 export function factLines(view: WorkView): string[] {
   const f = facts(view);
   const lines = [
-    `phase    ${f.phase}`,
     `health   ${f.health}`,
     `loop     ${f.loop}`,
     `review   ${f.review}`,
@@ -233,7 +232,7 @@ export function compactFactLines(view: WorkView): string[] {
   const f = facts(view);
   const cost = f.cost === "" ? "" : ` ${f.cost}`;
   return [
-    `phase ${f.phase}  health ${f.health}  loop ${f.loop}  review ${f.review}`,
+    `health ${f.health}  loop ${f.loop}  review ${f.review}`,
     `criteria ${f.criteria}${f.boxes === "" ? "" : `  ${f.boxes}`}`,
     `usage ${f.input} ${f.output} ${f.cacheWrite} ${f.cacheRead} ${f.turns}${cost}  budget ${f.budget}`,
   ];
@@ -393,7 +392,12 @@ export function Detail(props: DetailProps) {
   // Header, `now` line and questions, then (stacked) the facts, then the pane's title and status.
   const paneHeight = Math.max(
     1,
-    height - 2 - questionText.length - (side ? 0 : factText.length) - 2,
+    height -
+      2 -
+      (view === undefined ? 0 : 1) -
+      questionText.length -
+      (side ? 0 : factText.length) -
+      2,
   );
   const paneWidth = Math.max(10, side ? columns - FACTS_WIDTH - 3 : columns - 2);
 
@@ -551,6 +555,9 @@ export function Detail(props: DetailProps) {
       <Colored display={display} role={ended === undefined ? "ok" : "dim"} wrap="truncate-end">
         {` ${truncate(now, columns - 1, ellipsis)}`}
       </Colored>
+      {view === undefined ? null : (
+        <Pipeline display={display} phase={view.phase} ascii={display.ascii} lead=" " />
+      )}
       {questionText.map((line, i) => (
         <Colored key={`q${i}`} display={display} role="acc" wrap="truncate-end">
           {` ${truncate(line, columns - 1, ellipsis)}`}

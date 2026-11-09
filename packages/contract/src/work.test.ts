@@ -264,6 +264,7 @@ describe("office commands and reads", () => {
         "story.detail",
         "work.outputRange",
         "office.digest",
+        "office.chain",
         "story.gate",
         "story.losses",
         "office.stats",

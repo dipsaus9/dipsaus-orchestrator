@@ -9,8 +9,11 @@ import { expectGolden } from "./helpers";
 /** The one number the contract may hold: the wrap-up rule (DIPO-256) says "about 80% of any cap". */
 const WRAP_UP_PERCENT = "80%";
 
-/** One short page (0014, DIPO-346): the L1 contract's most characters and lines. */
-const ONE_PAGE_CHARACTERS = 4_200;
+/**
+ * One short page (0014, DIPO-346): the L1 contract's most characters and lines; DIPO-466 added the
+ * part after each criterion.
+ */
+const ONE_PAGE_CHARACTERS = 4_300;
 const ONE_PAGE_LINES = 50;
 
 // The box worker's contract (DIPO-272 AC #4, 0008, 0014), the only developer contract
@@ -185,11 +188,25 @@ describe("box worker system file", () => {
   });
 });
 
-describe("wrap-up rule (DIPO-256)", () => {
+describe("wrap-up rule (DIPO-256, DIPO-466)", () => {
   const rule =
-    "At about 80% of any cap, stop new work, finish what you started and report done, or blocked with what is left.";
+    "At about 80% of any cap, stop new work, hand a part of what works now, finish what you started and report done, or blocked with what is left.";
 
-  it("is in the box contract", () => {
+  it("is in the box contract and asks for a part of what works", () => {
     expect(renderSystemFile("implement-box", "developer")).toContain(rule);
+  });
+});
+
+// DIPO-466: a cap never throws away a run's work unseen, so the worker hands its work as it goes.
+describe("a part after each criterion (DIPO-466)", () => {
+  it("asks for a part after each criterion met with its tests and says a part is cheap", () => {
+    const text = renderSystemFile("implement-box", "developer");
+    expect(text).toContain(
+      '- Part: run `dipo-part "message"` after each criterion you meet with its tests, with one short imperative line that says what it does.',
+    );
+    expect(text).toContain(
+      "A part is cheap: dipo checks the files, commits them on the story branch, and you go on;",
+    );
+    expect(text).toContain("work not in a part stays in the box when a cap stops you.");
   });
 });

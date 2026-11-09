@@ -14,6 +14,7 @@ export {
   unparkRun,
   runOutcome,
   runRoundCounts,
+  runHandedPart,
   findRun,
   hasActiveRun,
   insertRun,

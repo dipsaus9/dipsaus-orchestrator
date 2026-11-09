@@ -64,9 +64,13 @@ describe("office switcher", () => {
 
     // Enter sent the read office.snapshot; the store left the old stream and follows the new one
     // after the cursor the read returned (0005).
-    // The overview reads the new office's output tails and its digest after it (DIPO-81).
+    // The overview reads the new office's output tails, its digest and its chain after it
+    // (DIPO-81, DIPO-460).
     const reads = session.reads.filter(
-      (read) => read.name !== "work.outputRange" && read.name !== "office.digest",
+      (read) =>
+        read.name !== "work.outputRange" &&
+        read.name !== "office.digest" &&
+        read.name !== "office.chain",
     );
     expect(reads.at(-1)).toEqual({
       name: "office.snapshot",
@@ -217,7 +221,7 @@ describe("connection and daemon states", () => {
     software?.options.onEvent(daemonState("recovering", 50));
     const recovering = await ui.waitFor("◌ daemon recovering");
     // A plain reconcile has no body of its own.
-    expect(recovering).toContain("RUNNING (3)");
+    expect(recovering).toContain("▌ ● DIPO-21");
     expect(recovering).not.toContain("Database unavailable");
     software?.options.onEvent(daemonState("draining", 51));
     await ui.waitFor("◌ daemon stopping");
@@ -254,7 +258,7 @@ describe("connection and daemon states", () => {
       "    $ dipo daemon logs",
       lines[at + 10] ?? "",
     ]);
-    expect(frame).not.toContain("RUNNING (3)");
+    expect(frame).not.toContain("▌ ● DIPO-21");
     await ui.press("l");
     await ui.press("c");
     await ui.waitFor("copied /s/backups/pre-v4.db");
@@ -262,7 +266,7 @@ describe("connection and daemon states", () => {
     expect(copied).toEqual(["/s/backups/pre-v4.db"]);
     // Only the screen's keys work: no view key reaches the office.
     await ui.press("3");
-    expect(ui.frame()).not.toContain("next Ready story");
+    expect(ui.frame()).not.toContain("READY");
   });
 
   it("after a draining daemon goes away, shows daemon stopped with its body and keys", async () => {
@@ -283,7 +287,7 @@ describe("connection and daemon states", () => {
       "      r restart daemon    l open its log",
     ]);
     expect(lines.at(-1)).toMatch(/^r restart daemon {3}l open its log +q q quit$/);
-    expect(frame).not.toContain("RUNNING (3)");
+    expect(frame).not.toContain("▌ ● DIPO-21");
     await ui.press("r");
     await ui.waitFor("daemon started; reconnecting");
     expect(daemonRequests).toEqual(["restart"]);
@@ -348,7 +352,7 @@ describe("terminal size and display", () => {
     const { ui } = await open({ columns: 100, rows: 15 });
     await ui.waitFor("Widen the terminal to at least 60 columns");
     ui.resize(100, 30);
-    const frame = await ui.waitFor("RUNNING (3)");
+    const frame = await ui.waitFor("RUNNING");
     expect(frame).not.toContain("Widen the terminal");
   });
 

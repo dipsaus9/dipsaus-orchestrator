@@ -750,6 +750,10 @@ export const storyGate = defineRead({
     failures: z.array(GateRuleFailure),
     waitingOn: z.array(GateDependency).optional(),
     warnings: z.array(GateRuleFailure).optional(),
+    // (DIPO-460): how many rules the gate checked, warning rules included, for `Gate ✓ 31 rules`.
+    rules: z.int().nonnegative(),
+    // (DIPO-460): the story's declared scope (its References), absent when it declares none.
+    touches: z.array(z.string()).optional(),
   }),
 });
 
@@ -846,6 +850,38 @@ export const officeDigest = defineRead({
     spent: z.number().nonnegative().optional(),
     evidence: EvidenceMap.optional(),
   }),
+});
+
+// What a story waiting on others sees of the dependency graph (DIPO-460): `moving` is a story
+// that is Ready, running or in review, `parked` one on the Desk, `waiting` any other story that is
+// not Done.
+export const ChainState = z.enum(["parked", "moving", "waiting"]);
+export type ChainState = z.infer<typeof ChainState>;
+
+// One story of a chain: its state and the stories that wait on it directly.
+export const ChainNode = z.object({
+  story: StoryId,
+  key: StoryKey,
+  state: ChainState,
+  unblocks: z.array(StoryId),
+});
+export type ChainNode = z.infer<typeof ChainNode>;
+
+// One connected piece of the graph of waiting stories, as levels: the first level holds the
+// stories nothing in the piece blocks, each later level the stories whose last blocker is in the
+// level before. `parked` names the parked story the rest waits on, absent when none is.
+export const ChainRow = z.object({
+  levels: z.array(z.array(StoryId)),
+  parked: StoryId.optional(),
+});
+export type ChainRow = z.infer<typeof ChainRow>;
+
+// The dependency chain the engine computes from the graph (DIPO-460): the pieces, parked ones
+// first, then by lowest story number, and every story in them.
+export const officeChain = defineRead({
+  name: "office.chain",
+  args: OfficeArgs,
+  result: z.object({ rows: z.array(ChainRow), nodes: z.array(ChainNode) }),
 });
 
 // Size of one office-scoped table for one office (0007 "Size"): its row count and the approximate
@@ -1392,6 +1428,7 @@ export const officeReads = [
   storyDetail,
   workOutputRange,
   officeDigest,
+  officeChain,
   storyGate,
   storyLosses,
   officeStats,

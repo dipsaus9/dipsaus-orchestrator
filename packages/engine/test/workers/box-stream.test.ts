@@ -457,14 +457,14 @@ describe("the caps on a box worker's stream (criterion 3)", () => {
     track(ROOMY);
     await ingest(boxRecording("max-turns"));
     expect(parks().map((park) => [park.reason, park.detail])).toEqual([
-      ["budget-exceeded", "turn cap (--max-turns) after 2 turns"],
+      ["budget-exceeded", "no part handed; turn cap (--max-turns) after 2 turns"],
     ]);
   });
 
   it("parks at the engine's summed turn cap", async () => {
     track({ ...ROOMY, maxTurns: 2 });
     await ingest(boxRecording("success-single"));
-    expect(parks()[0]?.detail).toMatch(/^turn cap reached: \d+ of 2 turns$/);
+    expect(parks()[0]?.detail).toMatch(/^no part handed; turn cap reached: \d+ of 2 turns$/);
   });
 
   it("parks at the minute cap on the next tick", async () => {
@@ -478,7 +478,7 @@ describe("the caps on a box worker's stream (criterion 3)", () => {
     f.t.clock.advance(31 * CAP_TICK_MS);
     await control.idle();
     expect(parks().map((park) => park.detail)).toContain(
-      "time cap reached: 30 of 30 minutes since the worker started",
+      "no part handed; time cap reached: 30 of 30 minutes since the worker started",
     );
     expect(sent.at(-1)).toEqual(encode({ kind: "stop" }));
   });

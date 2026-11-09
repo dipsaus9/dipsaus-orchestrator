@@ -1112,6 +1112,14 @@ export interface BoxPartsDeps {
    * `claims.pushed_at` once it reaches the remote). A throw is logged; the part stands.
    */
   readonly pushed?: (run: PartRun, push: PushResult) => void;
+  /**
+   * Records a part committed on the run's branch as a fact of the run (DIPO-466: a cap's park says
+   * when the run handed no part), before its push. A throw is logged; the part stands.
+   */
+  readonly committed?: (
+    run: PartRun,
+    part: { readonly n: number; readonly commit: string },
+  ) => void;
   /** Reads the run's door now (`BoxWorkers.readDoor`), so queued parts go first. */
   readonly readDoor?: (runId: string) => Promise<unknown> | null;
   readonly limits?: CacheArchiveLimits;
@@ -1774,6 +1782,7 @@ export class BoxParts {
       if (committed === "refused") return refused("git");
       if (committed.commit === null) return { kind: "empty" };
       const { commit, n } = committed;
+      this.#recordCommit(run, n, commit);
       this.#assertLive(run);
       const push = await git
         .run((session) => pushBranch(session, git.settings.remote, run.branch))
@@ -1782,6 +1791,18 @@ export class BoxParts {
       this.#deps.info?.("a part was committed", { run: run.runId, part: n, commit });
       return { kind: "committed", n, commit, paths: changes.map((c) => c.path), push };
     });
+  }
+
+  /** A part committed, as a fact of the run (DIPO-466); a failure to record it is logged only. */
+  #recordCommit(run: PartRun, n: number, commit: string): void {
+    try {
+      this.#deps.committed?.(run, { n, commit });
+    } catch (error) {
+      this.#deps.warn?.("a part could not be recorded on its run", {
+        run: run.runId,
+        reason: messageOf(error),
+      });
+    }
   }
 
   /** A part's push on the run's claim (DIPO-315); a failure to record it is logged only. */

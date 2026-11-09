@@ -27,7 +27,7 @@ import type { IndexResult } from "../stories/index-stories";
 import { findStoryByKey } from "../records/story-keys";
 import { StoryStoreError } from "../story-store/errors";
 import type { StoryStore } from "../story-store/store";
-import { evaluateGate } from "../gate/evaluate";
+import { evaluateGate, ruleCount } from "../gate/evaluate";
 import type { GateConfig, GateMode, GateResult, GateTask } from "../gate/types";
 
 import { baseSha, cachedGateTasks } from "./cache";
@@ -64,6 +64,8 @@ export interface GateEvaluation {
   readonly story: StoryId;
   readonly result: GateResult;
   readonly contentHash: string;
+  /** The story's declared scope (its References), for the Queue's preview (DIPO-460). */
+  readonly touches: readonly string[];
 }
 
 /** The first line of a CLI error, without the command line the runner prefixes. */
@@ -174,6 +176,7 @@ export class GateStore {
       story,
       result: evaluateGate(input, mode),
       contentHash: gateContentHash(input.story),
+      touches: input.story.references,
     };
   }
 
@@ -264,12 +267,14 @@ export class GateStore {
             if (ctx.office === undefined || identity === undefined) {
               throw new Error("story.gate runs with its office and its story resolved");
             }
-            const { result } = await this.checkReady(ctx.office.officeId, identity.story);
+            const { result, touches } = await this.checkReady(ctx.office.officeId, identity.story);
             return {
               story: identity.story,
               key: identity.key,
               passed: result.passed,
               failures: result.failures.map(({ rule, message }) => ({ rule, message })),
+              rules: ruleCount("ready"),
+              ...(touches.length === 0 ? {} : { touches: [...touches] }),
               ...(result.warnings === undefined
                 ? {}
                 : { warnings: result.warnings.map(({ rule, message }) => ({ rule, message })) }),
