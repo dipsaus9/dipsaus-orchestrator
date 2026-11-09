@@ -34,6 +34,7 @@ import {
 } from "./desk";
 import { previewLines } from "./desk-preview";
 import { Detail, type DetailTarget } from "./detail";
+import { useSteering } from "./steering";
 import { useChain, useGate } from "./chain";
 import { skipReason } from "./format";
 import { useDigest } from "./digest";
@@ -206,6 +207,8 @@ export function useHome(args: HomeArgs) {
   // Why an `R` was refused; cleared by the next key and when the run it names ends.
   const [refusal, setRefusal] = useState<string | null>(null);
   const [detail, setDetail] = useState<DetailState | null>(null);
+  // The steer Composer in the stream and the `you` lines it sent (DIPO-461).
+  const steering = useSteering({ actions, state, clock });
   // The selected overview row by story key, so it follows the story when rows come and go.
   const [overviewKey, setOverviewKey] = useState<string | null>(null);
   // The selected privacy setting, and whether one was written (the comments warning is then gone).
@@ -351,7 +354,7 @@ export function useHome(args: HomeArgs) {
       });
     }
   };
-  /** `s` or `p` in the live agent detail. */
+  /** `s` or `p` in the live agent detail: `s` opens the Composer in the stream. */
   const steerOrPark = (id: "steer" | "park", runId: string) => {
     const live = state.work.find((candidate) => candidate.work.run === runId);
     if (live === undefined) {
@@ -360,6 +363,8 @@ export function useHome(args: HomeArgs) {
           ? "this run has ended; there is no worker to steer"
           : "this run has ended; park its story from the queue or the desk",
       );
+    } else if (id === "steer") {
+      steering.open();
     } else {
       act(id, { story: String(live.work.story) });
     }
@@ -984,6 +989,14 @@ export function useHome(args: HomeArgs) {
       setDetail(null);
       setView("settings");
     },
+    steering,
+    /** A key while the steer Composer is open on the detail's live run; true when it took it. */
+    onSteerKey(input: string, key: Key): boolean {
+      if (detail === null || steering.draft === null) return false;
+      const live = state.work.find((candidate) => candidate.work.run === detail.target.run);
+      steering.onKey(input, key, String(detail.target.run), String(live?.work.story ?? ""));
+      return true;
+    },
     /** A navigation key of the palette or the keys: the same handler as pressing it. */
     pressKey(input: string) {
       onKey(input, NO_KEY);
@@ -1079,8 +1092,10 @@ export function HomeMode(props: HomeModeProps) {
         readPrompt={home.actions.readPrompt}
         columns={columns}
         height={height}
-        keysActive={props.keysActive}
+        keysActive={props.keysActive && home.steering.draft === null}
         tailBytes={props.outputTailBytes ?? OUTPUT_TAIL_BYTES}
+        steer={home.steering.draft}
+        sent={home.steering.sent(String(detail.target.run))}
       />
     );
   }

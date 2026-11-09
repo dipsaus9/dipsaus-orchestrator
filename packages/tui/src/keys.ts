@@ -690,9 +690,9 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   { id: "cardOpen", key: "o", label: "open on GitHub", views: ["card"], priority: 40 },
   { id: "cardCopy", key: "c", label: "copy id", views: ["card"], priority: 20 },
 
-  { id: "detailStreams", key: "w v i", label: "streams", views: ["detail"], priority: 75 },
-  { id: "detailScroll", key: "↑↓ PgUp PgDn", label: "scroll", views: ["detail"], priority: 35 },
-  { id: "detailFollow", key: "End", label: "follow", views: ["detail"], priority: 45 },
+  { id: "detailStreams", key: "v", label: "stream", views: ["detail"], priority: 75 },
+  { id: "detailScroll", key: "↑↓", label: "scroll", views: ["detail"], priority: 35 },
+  { id: "detailFollow", key: "G", label: "follow", views: ["detail"], priority: 45 },
   {
     id: "detailExpand",
     key: "z",

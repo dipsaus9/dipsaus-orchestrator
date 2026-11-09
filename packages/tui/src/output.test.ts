@@ -16,9 +16,7 @@ import {
   lastLine,
   OutputFeed,
   type RangeOutcome,
-  rowCount,
   splitLines,
-  visibleRows,
   wrapLines,
 } from "./output";
 import { markerRule } from "@dipsaus-orchestrator/client";
@@ -210,16 +208,6 @@ describe("output lines", () => {
     expect(wrapLines(["abcdefg", "", "hi"], 3)).toEqual(["abc", "def", "g", "", "hi"]);
   });
 
-  it("cuts only the lines that reach the screen into rows", () => {
-    const held = ["one", "abcdefg", "", "two", "three"];
-    expect(rowCount(held, 3)).toBe(8);
-    // Rows: one | abc def g | (empty) | two | thr ee.
-    expect(visibleRows(held, 3, 3, 0)).toEqual(["two", "thr", "ee"]);
-    expect(visibleRows(held, 3, 3, 3)).toEqual(["def", "g", ""]);
-    expect(visibleRows(held, 3, 3, 5)).toEqual(["one", "abc", "def"]);
-    expect(visibleRows(held, 3, 3, 9)).toEqual([]);
-  });
-
   it("finds the newest non-empty line", () => {
     expect(lastLine(["[tool] Read a.ts", "  ", ""])).toBe("[tool] Read a.ts");
     expect(lastLine([])).toBeNull();
@@ -277,15 +265,7 @@ describe("engine markers, flagged (DIPO-83, DIPO-95)", () => {
     expect(heldLines(text.slice(8), 8, [first, second])).toEqual([first, "half", second, "done"]);
   });
 
-  it("take their shown width in rows and on screen, and never become the newest line", () => {
-    const held = ["[tool] Read a.ts", phase(0), "done"];
-    expect(visibleRows(held, 80, 3, 0, true)).toEqual([
-      "[tool] Read a.ts",
-      `-- ${hms} phase: verify --`,
-      "done",
-    ]);
-    // The raw marker is 44 characters; shown it is 28, one row at 30 columns.
-    expect(rowCount([phase(0)], 30)).toBe(1);
+  it("an engine marker never becomes the newest line", () => {
     expect(lastLine(["working", phase(0)])).toBe("working");
     expect(lastLine([phase(0)])).toBeNull();
   });

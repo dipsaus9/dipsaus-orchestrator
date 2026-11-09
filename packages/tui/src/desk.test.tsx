@@ -951,7 +951,7 @@ describe("the queue and the detail use the same table", () => {
     await ui.waitFor("copied DIPO-21");
     // The run detail: its run id.
     await ui.press("enter");
-    await ui.waitFor("following the tail");
+    await ui.waitFor("following");
     await ui.press("c");
     await ui.waitFor("copied run_");
     await ui.press("escape");
@@ -969,13 +969,20 @@ describe("the queue and the detail use the same table", () => {
     const { ui, session } = view;
     await ui.waitFor("daemon live");
     await ui.press("enter");
-    await ui.waitFor("following the tail");
+    await ui.waitFor("following");
     expect(lines(ui.frame()).at(-1)).toContain("s steer");
+    session.commandReply = (name) =>
+      name === "work.steer"
+        ? { ok: true, result: { run: RUN_21, delivered: "next-turn" }, changed: true }
+        : undefined;
+    // The Composer opens in the stream, and the sent text stays there as a `you` line.
     await ui.press("s");
-    await ui.waitFor("steer text");
+    await ui.waitFor("steer DIPO-21 · arrives at its next turn");
     await ui.press("Keep the old flag");
     await ui.press("ctrl-s");
     await until(() => session.commands.length === 1, "work.steer");
+    await ui.waitFor("Keep the old flag · delivered next turn");
+    expect(ui.frame()).not.toContain("steer DIPO-21");
     await ui.press("p");
     await ui.waitFor("park note for DIPO-21");
     await ui.press("after the release");
@@ -1007,7 +1014,7 @@ describe("answers, pending rows, closed prompts, read-your-writes and retry", ()
     await ui.press("ctrl-s");
     await until(() => session.commands.length === 1, "the overview answer");
     await ui.press("enter");
-    await ui.waitFor("following the tail");
+    await ui.waitFor("following");
     await ui.press("a");
     await ui.waitFor("ctrl-s send");
     await ui.press("still yes");

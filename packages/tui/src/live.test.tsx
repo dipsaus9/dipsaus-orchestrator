@@ -120,7 +120,7 @@ describe("an open TUI after a daemon restart", () => {
     await ui.press("j");
     await ui.waitFor("▌ ● DIPO-24");
     await ui.press("enter");
-    await ui.waitFor("following the tail");
+    await ui.waitFor("following");
     await restart(session, ui);
 
     const parked = {
@@ -210,12 +210,12 @@ describe("an open TUI when a run ends (DIPO-421)", () => {
     await ui.press("j");
     await ui.waitFor("▌ ● DIPO-24");
     await ui.press("enter");
-    await ui.waitFor("following the tail");
+    await ui.waitFor("following");
 
     for (const event of endedDone(session, 8, KEY_24))
       session.active(STREAM)?.options.onEvent(event);
-    const frame = await ui.waitFor(" run ended · DIPO-24 is In Progress");
+    const frame = await ui.waitFor("run ended · DIPO-24 is In Progress");
     // The engine marker the same write carried is drawn in the output pane.
-    expect(frame).toContain("run ended: done");
+    expect(frame).toContain("run ended · done");
   });
 });

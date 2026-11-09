@@ -134,36 +134,6 @@ export function wrapLines(lines: readonly string[], width: number): string[] {
   return rows;
 }
 
-/** How many rows `lines` take at `width` columns. */
-export function rowCount(lines: readonly OutputLine[], width: number, ascii = false): number {
-  const size = Math.max(1, width);
-  let rows = 0;
-  for (const line of lines) {
-    rows += Math.max(1, Math.ceil(displayLine(line, ascii).length / size));
-  }
-  return rows;
-}
-
-/**
- * The `height` rows on screen when the pane is scrolled `offset` rows up from the bottom: only
- * the lines that reach the screen are cut into rows, the rest of the held text is not touched.
- */
-export function visibleRows(
-  lines: readonly OutputLine[],
-  width: number,
-  height: number,
-  offset: number,
-  ascii = false,
-): string[] {
-  const rows: string[] = [];
-  const wanted = height + offset;
-  for (let i = lines.length - 1; i >= 0 && rows.length < wanted; i--) {
-    rows.unshift(...wrapLines([displayLine(lines[i] ?? "", ascii)], width));
-  }
-  const end = Math.max(0, rows.length - offset);
-  return rows.slice(Math.max(0, end - height), end);
-}
-
 /** The last non-empty text line of `lines`, trimmed, or null; engine markers never count. */
 export function lastLine(lines: readonly OutputLine[]): string | null {
   for (let i = lines.length - 1; i >= 0; i--) {
