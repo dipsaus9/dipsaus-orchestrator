@@ -391,7 +391,8 @@ export function hasActiveRun(office: OfficeHandle): boolean {
  * a done report's turn crossed, and (DIPO-299) a pushed head of a box run for which the host
  * reported no CI check at all (`ci-none`, valued with the head; not a CI attempt), and (DIPO-465) a
  * rerun of the failed jobs of a head whose failed required checks were all infrastructure failures
- * (`ci-rerun`, valued with the head; not a CI attempt).
+ * (`ci-rerun`, valued with the head; not a CI attempt), and (DIPO-466) a part of a box run that dipo
+ * committed on its branch (`part`, valued with the commit).
  */
 export type RunStepKind =
   | "phase"
@@ -403,7 +404,8 @@ export type RunStepKind =
   | "override"
   | "cap"
   | "ci-none"
-  | "ci-rerun";
+  | "ci-rerun"
+  | "part";
 
 /** Appends one step to the run's append-only history. */
 export function appendRunStep(
@@ -669,6 +671,17 @@ export function runRoundCounts(office: OfficeHandle, runId: string): RunRounds {
     conflictHandoffs: handOffs,
     override: n("override") > 0,
   };
+}
+
+/** True when dipo committed at least one part the run's worker handed (DIPO-466, `part` steps). */
+export function runHandedPart(office: OfficeHandle, runId: string): boolean {
+  return (
+    office.get<{ one: number }>(
+      `select 1 as one from run_steps where office_id = $office_id and run_id = $run
+        and kind = 'part' limit 1`,
+      { run: runId },
+    ) !== null
+  );
 }
 
 /** The value of the `loop` step a red verify in the box writes (0002, DIPO-346). */

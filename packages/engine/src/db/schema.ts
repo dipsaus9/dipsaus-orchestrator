@@ -10,6 +10,7 @@ import { runStarts } from "./migrations/0005-run-starts";
 import { proposedStories } from "./migrations/0006-proposed-stories";
 import { retro } from "./migrations/0007-retro";
 import { ciRerunSteps } from "./migrations/0008-ci-rerun-steps";
+import { partSteps } from "./migrations/0009-part-steps";
 
 /**
  * Software-wide tables (0007). Every other table is office-scoped and has `office_id` as the first
@@ -26,4 +27,5 @@ export const MIGRATIONS: readonly Migration[] = [
   proposedStories,
   retro,
   ciRerunSteps,
+  partSteps,
 ];

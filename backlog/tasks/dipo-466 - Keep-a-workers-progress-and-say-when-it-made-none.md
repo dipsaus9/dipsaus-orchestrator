@@ -1,10 +1,10 @@
 ---
 id: DIPO-466
 title: Keep a worker's progress and say when it made none
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-08 12:17'
-updated_date: '2026-11-08 12:41'
+updated_date: '2026-11-09 10:31'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -55,8 +55,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The worker contract asks the worker to hand a part after each criterion it meets with its tests and says that a part is cheap, since dipo checks and commits it, and the wrap-up near a cap asks for a part of what works
-- [ ] #2 A regression test shows that each part the worker hands is committed and pushed before the next part is taken, so a cap loses at most the work since the last part
-- [ ] #3 A run that reaches a turn, minute or token cap while its box has handed no part still parks budget-exceeded, and its park detail and desk line say no part handed next to the cap and what was used
-- [ ] #4 A cap reached after at least one part parks budget-exceeded without the no part handed text
+- [x] #1 The worker contract asks the worker to hand a part after each criterion it meets with its tests and says that a part is cheap, since dipo checks and commits it, and the wrap-up near a cap asks for a part of what works
+- [x] #2 A regression test shows that each part the worker hands is committed and pushed before the next part is taken, so a cap loses at most the work since the last part
+- [x] #3 A run that reaches a turn, minute or token cap while its box has handed no part still parks budget-exceeded, and its park detail and desk line say no part handed next to the cap and what was used
+- [x] #4 A cap reached after at least one part parks budget-exceeded without the no part handed text
 <!-- AC:END -->
