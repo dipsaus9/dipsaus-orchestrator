@@ -487,18 +487,21 @@ describe("caps as of each event in one pass", () => {
 // DIPO-466: a cap never throws away a run's work unseen. A run whose box handed no part parks
 // budget-exceeded as before, and its park detail and desk line say no part handed next to the cap
 // and what was used; a run that handed a part parks without that text.
+/** A part of the run that dipo committed (DIPO-466). */
+function handPart(): void {
+  w.f.office.immediate(() =>
+    appendRunStep(w.f.office, w.f.run, "part", "c".repeat(40), w.f.t.clock.now()),
+  );
+}
+
+/** The detail of DIPO-1's PARKED line on the desk. */
+function deskLineOf(): string | undefined {
+  return desk(w.f.office, () => true, { ...DESK_SOURCES, stories: backlogLayout }).find(
+    (item) => item.story === "DIPO-1" && item.kind === "PARKED",
+  )?.detail;
+}
+
 describe("a cap's park and the parts the run handed (DIPO-466)", () => {
-  const PART_COMMIT = "c".repeat(40);
-  function handPart(): void {
-    w.f.office.immediate(() =>
-      appendRunStep(w.f.office, w.f.run, "part", PART_COMMIT, w.f.t.clock.now()),
-    );
-  }
-  function deskLineOf(): string | undefined {
-    return desk(w.f.office, () => true, { ...DESK_SOURCES, stories: backlogLayout }).find(
-      (item) => item.story === "DIPO-1" && item.kind === "PARKED",
-    )?.detail;
-  }
   const CAPS: readonly [string, () => Promise<void>, RegExp][] = [
     [
       "turn",
