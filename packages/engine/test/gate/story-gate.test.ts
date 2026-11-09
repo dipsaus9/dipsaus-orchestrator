@@ -11,6 +11,7 @@ import { describe, expect, it } from "bun:test";
 
 import { type OfficeId, StoryId } from "@dipsaus-orchestrator/contract";
 
+import { ruleCount } from "../../src/gate/evaluate";
 import { CommandError } from "../../src/commands/errors";
 import { cachedGateTasks, GateStore } from "../../src/gate-decisions";
 import { systemSpawn } from "../../src/platform/process";
@@ -19,6 +20,12 @@ import { backlog, CLI, failed, key, publish, read, withGatedOffice } from "./gat
 import { backlogStoryStore } from "../../src/backlog/store";
 
 describe("the Ready gate on the Backlog CLI", () => {
+  it("counts the rules a mode checks, warnings included", () => {
+    expect(ruleCount("ready")).toBe(29);
+    // Pickup adds R31, and R32 warns only at Ready.
+    expect(ruleCount("pickup")).toBe(ruleCount("ready"));
+  });
+
   it(
     "story.gate returns every failure of a failing story and stores nothing; unreadable inputs answer contract codes",
     () =>
@@ -29,6 +36,8 @@ describe("the Ready gate on the Backlog CLI", () => {
           story: "TASK-2",
           key: key(office, "TASK-2"),
           passed: false,
+          // The rules the Ready gate checks, warnings included, for `Gate ✓ N rules` (DIPO-460).
+          rules: ruleCount("ready"),
           failures: [
             failed(
               "TASK-2",

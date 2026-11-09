@@ -92,10 +92,10 @@ describe("an open TUI after a daemon restart", () => {
         view: moved,
       }),
     );
-    await ui.waitFor("developer S  review  busy >");
+    await ui.waitFor("now reviewing");
 
     await ui.press("3");
-    await ui.waitFor("next Ready story");
+    await ui.waitFor("READY");
     const running = { ...goldenStory(KEY_30), lifecycle: "In Progress", column: "running" };
     session.active(STREAM)?.options.onEvent(
       officeEvent(9, "story.state", {
@@ -106,7 +106,9 @@ describe("an open TUI after a daemon restart", () => {
         view: running,
       }),
     );
-    await ui.waitFor("RUNNING (4)");
+    // The story left the Ready group the moment the stream said so.
+    for (let i = 0; i < 40 && ui.frame().includes("DIPO-30"); i++) await Bun.sleep(50);
+    expect(ui.frame()).not.toContain("DIPO-30");
     expect(store.state.snapshots).toBe(1);
   });
 
@@ -116,7 +118,7 @@ describe("an open TUI after a daemon restart", () => {
     const { ui, session } = view;
     await ui.waitFor("daemon live");
     await ui.press("j");
-    await ui.waitFor("▌DIPO-24");
+    await ui.waitFor("▌ ● DIPO-24");
     await ui.press("enter");
     await ui.waitFor("following the tail");
     await restart(session, ui);
@@ -189,13 +191,15 @@ describe("an open TUI when a run ends (DIPO-421)", () => {
     mounted.push(view.ui);
     const { ui, session } = view;
     await ui.waitFor("daemon live");
-    expect(ui.frame()).toContain("3 running");
+    expect(ui.frame()).toContain("DIPO-21");
     expect(ui.frame()).toContain("DIPO-19");
 
     for (const event of endedDone(session, 8, KEY_19))
       session.active(STREAM)?.options.onEvent(event);
-    const frame = await ui.waitFor("2 running");
+    for (let i = 0; i < 40 && ui.frame().includes("DIPO-19"); i++) await Bun.sleep(50);
+    const frame = ui.frame();
     expect(frame).not.toContain("DIPO-19");
+    expect(frame).toContain("DIPO-24");
   });
 
   it("says the run ended in the live agent detail", async () => {
@@ -204,7 +208,7 @@ describe("an open TUI when a run ends (DIPO-421)", () => {
     const { ui, session } = view;
     await ui.waitFor("daemon live");
     await ui.press("j");
-    await ui.waitFor("▌DIPO-24");
+    await ui.waitFor("▌ ● DIPO-24");
     await ui.press("enter");
     await ui.waitFor("following the tail");
 

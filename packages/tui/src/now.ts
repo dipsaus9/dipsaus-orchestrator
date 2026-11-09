@@ -70,9 +70,35 @@ export function nowLine(options: {
   return parts.join(` ${dot} `);
 }
 
+/** The two parts of a running row's now text: the lead word and what follows it. */
+export interface BoardNowParts {
+  readonly lead: string;
+  /** The question's text, the worker's newest line, and its age; each when there is one. */
+  readonly rest: readonly string[];
+  /** True when the run asks the maintainer something, so the lead is `asking you`. */
+  readonly asking: boolean;
+}
+
+/** The parts of `boardNow`: the Floor draws the lead in fg and the rest dim (DIPO-460). */
+export function boardNowParts(options: {
+  view: WorkView;
+  worker: string | null;
+  question: QuestionView | undefined;
+  now: number;
+}): BoardNowParts {
+  const { view, worker, question, now } = options;
+  if (question !== undefined) return { lead: "asking you", rest: [question.text], asking: true };
+  const age = outputAge(view, now);
+  return {
+    lead: phaseWord(view.phase),
+    rest: [worker ?? "no output yet", ...(age === null ? [] : [age])],
+    asking: false,
+  };
+}
+
 /**
- * The overview's `now:` text of a running row: `building · [tool] <tool> src/app.ts · 12s ago`. A
- * run with an open question says `asking you` with the question.
+ * The now text of a running row: `building · [tool] <tool> src/app.ts · 12s ago`. A run with an
+ * open question says `asking you` with the question.
  */
 export function boardNow(options: {
   view: WorkView;
@@ -81,12 +107,6 @@ export function boardNow(options: {
   now: number;
   dot: string;
 }): string {
-  const { view, worker, question, now, dot } = options;
-  const age = outputAge(view, now);
-  if (question !== undefined) {
-    return ["asking you", question.text].join(` ${dot} `);
-  }
-  const parts = [phaseWord(view.phase), worker ?? "no output yet"];
-  if (age !== null) parts.push(age);
-  return parts.join(` ${dot} `);
+  const { lead, rest } = boardNowParts(options);
+  return [lead, ...rest].join(` ${options.dot} `);
 }

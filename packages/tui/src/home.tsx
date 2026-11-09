@@ -25,7 +25,8 @@ import type { RunRequest, RunResult, TuiActions } from "./app";
 import { Checklist, firstUnticked } from "./checklist";
 import { Desk, DESK_WIDE_COLUMNS, deskRowId, deskRows, selectedRow, useDesk } from "./desk";
 import { Detail, type DetailTarget } from "./detail";
-import { skipReason, widthOf } from "./format";
+import { useChain, useGate } from "./chain";
+import { skipReason } from "./format";
 import { digestLine, useDigest } from "./digest";
 import { NO_KEY } from "./input";
 import { type ActionId, binding, type Hint, rowKeys, viewKeys } from "./keys";
@@ -34,7 +35,7 @@ import { useLatestLines } from "./latest";
 import type { Display } from "./options";
 import { OUTPUT_TAIL_BYTES } from "./output";
 import { boardEntries, Overview } from "./overview";
-import { Queue, queueRows } from "./queue";
+import { doneCount, Queue, queueRows } from "./queue";
 import { privacySettings, Settings, settingName, appliesWords } from "./settings";
 import { type CardOutcome, StoryCard } from "./story-card";
 import { glyphs } from "./views";
@@ -161,8 +162,7 @@ export function useHome(args: HomeArgs) {
   const [view, setView] = useState<View>("overview");
   // `z` on the run stream: the stream takes the whole screen (DIPO-458).
   const [expanded, setExpanded] = useState(false);
-  // The selected queue row by story key, so it follows the story when the queue changes; null is
-  // the "next Ready story" row.
+  // The selected queue row by story key, so it follows the story when the queue changes.
   const [queueKey, setQueueKey] = useState<string | null>(null);
   const [showDone, setShowDone] = useState(false);
   const [run, setRun] = useState<RunAction | null>(null);
@@ -201,11 +201,26 @@ export function useHome(args: HomeArgs) {
   const queue = queueRows(state.stories, showDone);
   const queueSelected = Math.max(
     0,
-    queue.findIndex((row) => (row.kind === "next" ? null : row.view.key) === queueKey),
+    queue.findIndex((row) => row.view.key === queueKey),
   );
+  const queueRow = queue[queueSelected] ?? null;
+  // The dependency chain the Floor and the Queue draw, and the selected story's gate (DIPO-460).
+  const chain = useChain({
+    readChain: actions.readChain,
+    office: state.office,
+    stories: state.stories,
+    active: view === "overview" || view === "queue",
+  });
+  const gate = useGate({
+    readGate: actions.readGate,
+    office: state.office,
+    story: queueRow === null ? null : queueRow.view.story,
+    version: queueRow === null ? "" : `${queueRow.view.column}:${queueRow.view.lifecycle}`,
+    active: view === "queue",
+  });
   const selectQueue = (index: number) => {
     const row = queue[Math.max(0, Math.min(queue.length - 1, index))];
-    setQueueKey(row === undefined || row.kind === "next" ? null : row.view.key);
+    setQueueKey(row === undefined ? null : row.view.key);
   };
   // The desk (DIPO-308): read while it or a story opened from it shows; the selection by row id,
   // else its story key, else its place.
@@ -406,12 +421,12 @@ export function useHome(args: HomeArgs) {
       return;
     }
     const row = queue[queueSelected];
-    const requestId = actions.newRequestId();
-    if (row === undefined || row.kind === "next") {
-      send({ office: state.office, requestId }, "next Ready story");
-    } else {
-      send({ office: state.office, stories: [row.view.key], requestId }, String(row.view.story));
+    if (row === undefined) {
+      setMessage("select a story to run");
+      return;
     }
+    const requestId = actions.newRequestId();
+    send({ office: state.office, stories: [row.view.key], requestId }, String(row.view.story));
   };
 
   useEffect(() => {
@@ -606,7 +621,7 @@ export function useHome(args: HomeArgs) {
       selectQueue(queueSelected - 1);
     } else if (key.return) {
       const row = queue[queueSelected];
-      if (row?.kind !== "story") return;
+      if (row === undefined) return;
       openStory(row.view.key, String(row.view.story), "queue");
     } else if (input === ".") {
       setShowDone(!showDone);
@@ -615,14 +630,14 @@ export function useHome(args: HomeArgs) {
       runSelected();
     } else if (input === "p" || input === "X") {
       const row = queue[queueSelected];
-      if (row?.kind !== "story") {
+      if (row === undefined) {
         setMessage("select a story to park or drop");
         return;
       }
       act(input === "p" ? "park" : "drop", { story: String(row.view.story) });
     } else if (input === "c") {
       const row = queue[queueSelected];
-      if (row?.kind === "story") copyId(String(row.view.story));
+      if (row !== undefined) copyId(String(row.view.story));
     }
   };
 
@@ -726,7 +741,7 @@ export function useHome(args: HomeArgs) {
       };
     }
     const row = queue[queueSelected];
-    if (view === "queue" && row?.kind === "story") {
+    if (view === "queue" && row !== undefined) {
       return {
         ...NO_FOCUS,
         view: "queue",
@@ -785,7 +800,7 @@ export function useHome(args: HomeArgs) {
       rowHintList.push(hintOf(binding("answer")));
     }
   } else if (view === "queue") {
-    if (queue[queueSelected]?.kind === "story") {
+    if (queue[queueSelected] !== undefined) {
       const commands = new Set(["story.park", "story.drop"]);
       for (const entry of viewKeys("queue", { commands })) rowHintList.push(hintOf(entry));
     }
@@ -820,6 +835,10 @@ export function useHome(args: HomeArgs) {
     deskItem,
     queue,
     queueSelected,
+    chain,
+    gate,
+    showDone,
+    doneTotal: doneCount(state.stories),
     overviewEntry,
     settingsIndex,
     privacyWritten,
@@ -957,7 +976,10 @@ export function HomeMode(props: HomeModeProps) {
         display={display}
         columns={columns}
         height={height}
-        now={clock.now()}
+        chain={home.chain}
+        gate={home.gate}
+        showDone={home.showDone}
+        doneTotal={home.doneTotal}
       />
     );
   }
@@ -982,11 +1004,11 @@ export function HomeMode(props: HomeModeProps) {
     <Overview
       state={state}
       display={display}
-      width={widthOf(columns)}
       columns={columns}
       height={height}
       clock={clock}
       latest={home.latest}
+      chain={home.chain}
       selected={home.overviewEntry === null ? null : String(home.overviewEntry.key)}
       digest={home.digest === null ? null : digestLine(home.digest, glyphs(display.ascii).dot)}
     />

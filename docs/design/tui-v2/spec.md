@@ -131,7 +131,9 @@ Files: `14-desk-proposals.txt`, `01-desk.txt`, `11-desk-previews.txt`.
 File: `02-floor.txt`. Built for a second monitor.
 - **RUNNING** (bold hi) with `1 of 3 slots` dim at the right (the office's real `caps.parallelRuns`; the numbers in the mocks are examples); **IN REVIEW** with its count; **UP NEXT** with `0 ready · 6 waiting`.
 - A story card: focus column, state glyph (`●` ok running, `○` acc in review), dim id padded to 10, title, age right. Indented 14: the pipeline line with a right-aligned dim `loop 1 of 8` or `round 1`; `now merging · thinking 1.1s` with `budget ━━━━━━━━━━━━━━ 28%` right; `criteria 10/10 ✓ · review round 1 approved · opus-5.5`. In review: `reviewer reading · criteria 6 of 8 checked so far`.
-- States are exclusive: a story is either running or in review, never both. Health shows only when stuck, looping or lost (code review).
+- States are exclusive: a story is either running or in review, never both. A story under review with no session, or whose session is the reviewer (phase `review`), is IN REVIEW; every other story with a session is RUNNING. Stories that wait for you are on the Desk. Health shows only when stuck, looping or lost (code review), after the `now` text in err.
+- The slots come from `office.summary` (`slots`, `caps.parallelRuns`). The engine sends no review verdict yet, so `approved` after the review round is not drawn.
+- The count line and the token limits of the old board are gone; spend today is in the header and the limits are on Offices.
 - **UP NEXT** is a sentence the engine computes from the dependency graph and sends (engine addition in step 4): `When DIPO-447 merges → 448, 449 start in parallel, then 450 → 451, 452 → 453`. No "next decision" time. Press `3` for the full graph.
 
 ## Queue (S2b)
@@ -140,7 +142,7 @@ File: `05-queue.txt`. Replaces the "skipped…" block.
 - Row: focus column, glyph (`→` ok ready, `○` acc waiting, `✗` err refined), dim id, title, dim tier, reason column. `needs 447✗` (err) means the dependency is parked, so the wait is yours to clear; `needs 452→` (ok) means it is moving by itself; a bare `needs 449` (dim) means the dependency is itself waiting (not parked, not moving), a state the engine supplies; `next up` (ok) on the Ready row. Refined rows show the first gate failure in words (`2 unknowns`, `no test plan`); the full list is in the story view.
 - `  . show done (418)` dim at the end of the list.
 - Preview: `READY · tier M · offered as next up`, title, Gate (`✓ 31 rules · 1 warning R29`; `story.gate` returns the rule count, an engine addition in step 4), Needs, Unblocks, Touches, then `CHAIN` drawn as a picture (the engine computes the chain from the dependency graph and sends it, with the "everything below N waits on the park" line; engine addition in step 4) (`447✗ → 448 · 449 → 450 → 451`, `452  → 453`). When something blocks the chain the preview points to where you can fix it: "Everything below 447 waits on the park on your Desk. 1 go there." A waiting story's preview says "Waiting on DIPO-447".
-- `R` run now is a capital because it spends; it skips NEXT UP and asks nothing when a slot is free.
+- `R` run now is a capital because it spends; it starts the selected story and asks nothing when a slot is free. The list has no "next Ready story" row: the first Ready row is next up. The preview labels are padded to 9; below 100 columns the Queue is the list alone.
 
 ## Retro (S2c, DIPO-453)
 File: `06-retro.txt`. Every number from code.
