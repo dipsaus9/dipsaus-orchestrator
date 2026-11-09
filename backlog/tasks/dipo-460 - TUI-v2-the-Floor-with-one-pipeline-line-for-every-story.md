@@ -1,10 +1,10 @@
 ---
 id: DIPO-460
 title: 'TUI v2: the Floor with one pipeline line for every story'
-status: Parked
+status: Done
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-09 10:48'
+updated_date: '2026-11-09 22:08'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -89,10 +89,6 @@ test_plan:
       check: "(unit) the engine sends the dependency chain and a bare needs N for a waiting dependency"
     - kind: "automated"
       check: "(unit) story.gate returns the rule count and the Queue preview prints Gate ✓ N rules"
-park:
-  reason: "verify-failing"
-  from: "In Progress"
-  note: "dipo's verify in the box was red 5 times (the loop cap is 5). dipo ran the project's verify in your box after your done report, and it failed. Fix what it shows, then report done again.\n\nVerify failed at the verify step.\nCommand: bun run verify\nExit code: 1\nLocations:\n- none found\nLast output lines:\n[dipo: showing the last 30 of 559 output lines.]\n[shard 3/7] (pass) the scan session without a Bash sandbox > fails closed: every tool any kind or subagent has is denied by name, and none is allowed [0.06ms]\n[shard 3/7] (pass) the scan session's launch plan > runs on the Mac in its empty folder, with no box, worktree or branch [0.02ms]\n[shard 3/7] (pass) the scan session's launch plan > refuses a session with a tool or a folder in the checkout [0.03ms]\n[shard 3/7] (pass) the scan session's launch plan > defaults to sonnet, low effort, 100000 budget tokens, 5 minutes and one turn plus a retry [0.02ms]\n[shard 3/7] (pass) the scan session's launch plan > has no hooks, no MCP server and every plugin off, the office's allowed one too [0.01ms]\n[shard 3/7] (pass) the scan session's launch plan > passes the fallback's schema as the structured output and the task as first message [0.03ms]\n[shard 3/7] (pass) the scan session's launch plan > turns every tool off: an empty tool list and a deny rule for each tool by name [0.02ms]\n[shard 3/7] (pass) the scan session's result > carries the structured output, cleaned at the door, as the answer [0.19ms]\n[shard 3/7] (pass) the scan session's result > reads a 429 as a plan limit, which the fallback waits on [0.05ms]\n[shard 3/7] (pass) the scan session's result > ends blocked with no park and no feedback turn when there is no answer [0.04ms]\n[shard 3/7] \n[shard 3/7] test/lint-boundaries/adr-citations.test.ts:\n[shard 3/7] (pass) ADR citations and history in code (0003) > finds the source files of every root [1.82ms]\n[shard 3/7] (pass) ADR citations and history in code (0003) > knows each refused form and lets the look-alikes pass [0.16ms]\n[shard 3/7] (pass) ADR citations and history in code (0003) > are absent from every source file [105.14ms]\n[shard 3/7] \n[shard 3/7] 1 tests skipped:\n[shard 3/7] (skip) the backlog PR on GitHub > opens a chore(backlog) PR whose pr-title check passes and whose structural check passes\n[shard 3/7] \n[shard 3/7]  --seed=2054672292\n[shard 3/7]  958 pass\n[shard 3/7]  1 skip\n[shard 3/7]  0 fail\n[shard 3/7]  4104 expect() calls\n[shard 3/7] Ran 959 tests across 68 files. [23.88s]\nbun run test: 1 of 7 shards failed in 23.9 s (7)\n[shard 7/7] (fail) live agent detail > z expands the stream to the whole screen and z or Esc brings the frame back [49.63ms]\n[shard 7/7] (fail) live agent detail > z expands the stream to the whole screen and z or Esc brings the frame back [49.63ms]\nerror: script \"test\" exited with code 1\nerror: script \"verify\" exited with code 1\nBudget: 178 turns used, 22 left; 31 minutes used, 59 left; 548,614 tokens used, 251,386 left."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
