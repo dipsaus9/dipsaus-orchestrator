@@ -1,10 +1,10 @@
 ---
 id: DIPO-460
 title: 'TUI v2: the Floor with one pipeline line for every story'
-status: Parked
+status: Done
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-09 10:48'
+updated_date: '2026-11-09 17:35'
 labels:
   - 'tier:M'
 milestone: m-6
