@@ -24,7 +24,7 @@ export function rulesFor(mode: GateMode): readonly RuleCheck[] {
 
 /** How many rules `mode` checks, the warning rules included (DIPO-460). */
 export function ruleCount(mode: GateMode): number {
-  return rulesFor(mode).length + WARNING_RULES.length;
+  return rulesFor(mode).length + warningRulesFor(mode).length;
 }
 
 function readFields(description: string): Pick<GateContext, "fields" | "fieldError"> {

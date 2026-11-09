@@ -21,8 +21,9 @@ import { backlogStoryStore } from "../../src/backlog/store";
 
 describe("the Ready gate on the Backlog CLI", () => {
   it("counts the rules a mode checks, warnings included", () => {
-    expect(ruleCount("ready")).toBe(28);
-    expect(ruleCount("pickup")).toBe(ruleCount("ready") + 1);
+    expect(ruleCount("ready")).toBe(29);
+    // Pickup adds R31, and R32 warns only at Ready.
+    expect(ruleCount("pickup")).toBe(ruleCount("ready"));
   });
 
   it(

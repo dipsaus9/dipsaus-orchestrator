@@ -741,7 +741,7 @@ export function useHome(args: HomeArgs) {
       };
     }
     const row = queue[queueSelected];
-    if (view === "queue" && row?.kind === "story") {
+    if (view === "queue" && row !== undefined) {
       return {
         ...NO_FOCUS,
         view: "queue",
