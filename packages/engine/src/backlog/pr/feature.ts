@@ -635,7 +635,8 @@ export class BacklogPrs {
         parked = await mergedWhileParkedFacts({
           git,
           diff: collected,
-          base: tip ?? base,
+          // A base tip dipo cannot read refuses every Parked to Done rather than guess (DIPO-468).
+          base: tip,
           host: this.#deps.mergeCommits ?? null,
           repo: url === null ? null : repoOfRemoteUrl(url),
         });

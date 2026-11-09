@@ -35,9 +35,10 @@ export interface MergedFactsInput {
   /**
    * The commit the PR's base branch is at without the PR: its tip for an open PR (in CI the merge
    * commit's first parent), the base the PR's diff started from for one already merged. The last
-   * commit that touched a task file is looked up there.
+   * commit that touched a task file is looked up there. Null when dipo could not read it: every
+   * Parked to Done is then refused.
    */
-  readonly base: string;
+  readonly base: string | null;
   /** The code host, or null when there is none (every Parked to Done is then refused). */
   readonly host: MergeCommitHost | null;
   /** `[HOST/]OWNER/REPO` of the repository, or null when it is unknown. */
@@ -69,6 +70,9 @@ export async function mergedWhileParkedFacts(
 }
 
 async function factOf(input: MergedFactsInput, id: string): Promise<MergedFact> {
+  if (input.base === null) {
+    return { pr: null, why: "dipo could not read the commit the PR's base branch is at" };
+  }
   const sha = await lastTaskFileCommit(input.git, input.base, id);
   if (sha === null) {
     return { pr: null, why: `git finds no commit on the base that touched its task file` };
