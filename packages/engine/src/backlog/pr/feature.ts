@@ -36,6 +36,7 @@ import {
   type CodeHost,
   CodeHostError,
   type HostPr,
+  type MergeCommitHost,
   type PrListHost,
   repoOfRemoteUrl,
 } from "../../platform/host";
@@ -55,6 +56,7 @@ import { placeBranch, readBranch } from "./adopt";
 import { checkBacklogPr, type CheckResult, type PrDiff, type PrFacts } from "./check";
 import { loadFailureDeskItems } from "./desk";
 import { collectPrDiff } from "./diff";
+import { type MergedFact, mergedWhileParkedFacts } from "./merged";
 import {
   type BacklogPrRecord,
   blockStories,
@@ -115,6 +117,11 @@ export interface BacklogPrsDeps {
    * passes its `GhHost`.
    */
   readonly list?: PrListHost;
+  /**
+   * Names the PR that merged as a commit, for a backlog PR that sets a story Done whose own PR
+   * merged while it was parked (DIPO-468); without it every Parked to Done is refused.
+   */
+  readonly mergeCommits?: MergeCommitHost;
   /** The office's planning lane once the office loaded. */
   readonly lane: (office: OfficeId) => OfficeLane | undefined;
   readonly cli: BacklogCli;
@@ -602,18 +609,37 @@ export class BacklogPrs {
     const handle = this.#handle(office);
     let diff: PrDiff;
     let base = "";
+    let parked: Record<string, MergedFact> = {};
+    let prBase: string | null = null;
     try {
       diff = await lane.git.run(async (git) => {
         base = await this.#diffBase(git, lane, record, head, merged);
         const location = lane.git.worktreeLocation(lane.worktreePath());
         if (location.kind !== "worktree") throw new Error("expected the backlog worktree");
-        return collectPrDiff({
+        const collected = await collectPrDiff({
           git,
           worktree: location,
           cli: this.#deps.cli,
           base,
           head,
         });
+        // A story whose own PR merged while it was parked may go from Parked to Done (DIPO-468).
+        prBase = await this.#baseName(git, lane);
+        const url = await this.#remoteUrl(git, lane);
+        // An open PR: the base's tip, so a later commit that touched a task file there counts. A
+        // merged one: the base before its merge, which the diff started from.
+        const tip =
+          merged === null
+            ? await this.#revParse(git, `refs/remotes/${lane.git.settings.remote}/${prBase}`)
+            : base;
+        parked = await mergedWhileParkedFacts({
+          git,
+          diff: collected,
+          base: tip ?? base,
+          host: this.#deps.mergeCommits ?? null,
+          repo: url === null ? null : repoOfRemoteUrl(url),
+        });
+        return collected;
       });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -632,7 +658,7 @@ export class BacklogPrs {
       );
       throw error;
     }
-    const result = checkBacklogPr(diff, factsFor(handle, diff));
+    const result = checkBacklogPr(diff, { ...factsFor(handle, diff), merged: parked, prBase });
     const now = this.#deps.clock.now();
     this.#write(office, () => {
       recordCheck(handle, record.number, { head, base, ...result }, now);

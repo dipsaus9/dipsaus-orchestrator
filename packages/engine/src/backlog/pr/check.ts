@@ -10,7 +10,11 @@
 //   executable fails it, under `backlog/` too (DIPO-341).
 // - `parses` (R02): every changed task or draft that still exists parses: its view, and its `dipo`
 //   field block.
-// - `transition`: each status change is a 0012 transition that lane b may write (below).
+// - `transition`: each status change is a 0012 transition that lane b may write (below). Parked to
+//   Done is one only for a story whose own PR merged while it was parked: the one Done check
+//   (`decideDone`) answers merged for the claim {branch: the task's field-block `branch` on the
+//   base side, base: the PR's base} and the story PR whose merge commit last touched the task file
+//   on the base (`merged.ts`, DIPO-468). Every other Parked to Done is refused.
 // - `ready-decision`: each task that becomes `Ready` has a passing Ready gate decision stored for
 //   its content hash (DIPO-71).
 // - `no-claim`: no changed task has a live claim (DIPO-38); such a story belongs to lane a.
@@ -21,6 +25,9 @@ import { gateStoryFromView } from "../../gate/input";
 import { gateContentHash } from "../../gate/hash";
 import { FieldBlockError, parseFieldBlock } from "../../story-store/fields/block";
 import type { PlainTask } from "../../story-store/story";
+import { decideDone } from "../../worktree/done-check";
+
+import type { MergedFact } from "./merged";
 
 export const CHECK_RULES = [
   "backlog-only",
@@ -90,6 +97,13 @@ export interface PrFacts {
   readonly claimed: readonly StoryKey[];
   /** Content hashes with a passing Ready gate decision, per key. */
   readonly passing: Readonly<Record<string, readonly string[]>>;
+  /**
+   * The story PR fact of each task the PR moves from Parked to Done, by task id
+   * (`mergedWhileParkedFacts`, DIPO-468); absent means none, so each such change is refused.
+   */
+  readonly merged?: Readonly<Record<string, MergedFact>>;
+  /** The PR's base branch, the claim's base of that Done check; absent refuses each such change. */
+  readonly prBase?: string | null;
 }
 
 export interface CheckFailure {
@@ -152,6 +166,37 @@ function allowed(from: string | null, to: string | null): boolean {
   return LANE_B_TRANSITIONS.some(([a, b]) => a === from && b === to);
 }
 
+/**
+ * Why a task the PR moves from Parked to Done is not a story whose own PR merged while it was
+ * parked, or null when it is: the one Done check answers `merged` for the claim made of the
+ * before side's field-block branch and the PR's base, with the story PR the gatherer found.
+ */
+function notMergedWhileParked(change: TaskChange, facts: PrFacts): string | null {
+  if (change.before.where !== "task" || !change.before.view.ok) {
+    return "its task cannot be read on the base";
+  }
+  const fact = facts.merged?.[change.id];
+  if (fact === undefined) return "dipo did not ask which PR merged it";
+  if (fact.pr === null) return fact.why ?? "no story PR of it merged";
+  let branch: string | undefined;
+  try {
+    branch = parseFieldBlock(change.before.view.task.description).fields.branch;
+  } catch (error) {
+    if (!(error instanceof FieldBlockError)) throw error;
+    return `its field block on the base does not parse: ${error.message}`;
+  }
+  const base = facts.prBase ?? null;
+  if (branch === undefined || base === null) {
+    return branch === undefined
+      ? "its field block on the base names no branch"
+      : "dipo does not know the PR's base";
+  }
+  const answer = decideDone({ claim: { branch, base }, pr: fact.pr, baseStatus: "Parked" });
+  return answer === "merged"
+    ? null
+    : `the PR #${fact.pr.number} that last touched its task file on the base is ${fact.pr.branch} into ${fact.pr.base}, not its branch ${branch} into ${base}`;
+}
+
 function name(state: string | null): string {
   return state === null ? "no file" : state;
 }
@@ -205,10 +250,13 @@ export function checkBacklogPr(diff: PrDiff, facts: PrFacts): CheckResult {
     const beforeKnown = !(change.before.where === "task" && !change.before.view.ok);
     const afterKnown = !(after.where === "task" && !after.view.ok);
     if (beforeKnown && afterKnown && !allowed(from, to)) {
-      fail(
-        "transition",
-        `${change.id} moves from ${name(from)} to ${name(to)}, which a backlog PR may not do (0012)`,
-      );
+      const why = from === "Parked" && to === "Done" ? notMergedWhileParked(change, facts) : "";
+      if (why !== null) {
+        fail(
+          "transition",
+          `${change.id} moves from ${name(from)} to ${name(to)}, which a backlog PR may not do (0012)${why === "" ? "" : `: only a story whose own PR merged while it was parked may, and ${why}`}`,
+        );
+      }
     }
 
     if (to === "Ready" && from !== "Ready" && after.where === "task" && after.view.ok) {

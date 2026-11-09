@@ -117,6 +117,8 @@ function laneOf(
     host: core.host,
     // Reconcile lists the open `dipo/backlog-*` PRs to adopt one after a lost database (DIPO-80).
     list: core.host,
+    // A backlog PR that sets Done a story whose PR merged while it was parked (DIPO-468).
+    mergeCommits: core.host,
     lane: (office) => partners.lane.get().forOffice(office),
     cli: core.backlogCli,
     offices: core.offices,

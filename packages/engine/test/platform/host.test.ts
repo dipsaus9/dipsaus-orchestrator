@@ -536,7 +536,10 @@ describe("the review reads and comment (DIPO-141)", () => {
         return { stdout: JSON.stringify({ labels: [{ name: "autorelease: pending" }] }) };
       }
       if (command === "view") return { stdout: JSON.stringify(PR_JSON) };
-      if (group === "api") return { stdout: (command ?? "").includes("/rules/") ? "[]" : "{}" };
+      if (group === "api") {
+        const list = (command ?? "").includes("/rules/") || (command ?? "").endsWith("/pulls");
+        return { stdout: list ? "[]" : "{}" };
+      }
       return { stdout: "" };
     });
     const branch = PR_JSON.headRefName;
@@ -561,6 +564,7 @@ describe("the review reads and comment (DIPO-141)", () => {
       failedJobLog: () => gh.failedJobLog("o/r", JOB_LINK),
       commentPr: () => gh.commentPr("o/r", 7, "Review: approved"),
       rerunFailedJobs: () => gh.rerunFailedJobs("o/r", "1"),
+      mergedPrOfCommit: () => gh.mergedPrOfCommit("o/r", "a".repeat(40)),
     };
     const publicMethods = Object.getOwnPropertyNames(GhHost.prototype).filter(
       (name) => name !== "constructor",

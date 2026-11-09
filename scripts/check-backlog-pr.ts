@@ -9,6 +9,16 @@
 // - no task has a live claim. Claims live in the maintainer's dipo database, and dipo checks them
 //   with its own run of this check before it merges a backlog PR.
 //
+// A task the PR moves from Parked to Done passes only for a story whose own PR merged while it was
+// parked (DIPO-468): the engine's own gatherer (`mergedWhileParkedFacts`) asks git for the last
+// commit on the base that touched the task file and `gh` for the PR that merged as that commit, and
+// the check decides it with the one Done check. The repository on the host and the PR's base branch
+// come from `GITHUB_REPOSITORY` and `GITHUB_BASE_REF`, which GitHub Actions sets on a pull request;
+// `gh` reads its token from `GH_TOKEN`. Without them, or when `gh` fails or times out, every Parked
+// to Done is refused (fail closed). Any later commit that touched the task file on the base also
+// refuses it, by design: the last commit must be the story PR's own merge. The history must reach
+// that commit, so CI checks out the whole history.
+//
 // Usage: bun scripts/check-backlog-pr.ts <base> <head> [repository]
 //   <base> is the PR's base commit, <head> the commit to check (in CI the checked-out merge commit).
 //   The diff runs from their merge base to <head>.
@@ -25,6 +35,7 @@ import {
   type PrFacts,
 } from "../packages/engine/src/backlog/pr/check";
 import { collectPrDiff } from "../packages/engine/src/backlog/pr/diff";
+import { mergedWhileParkedFacts } from "../packages/engine/src/backlog/pr/merged";
 import type { BacklogCli } from "../packages/engine/src/backlog/runner";
 import { gateStoryFromView } from "../packages/engine/src/gate/input";
 import { gateContentHash } from "../packages/engine/src/gate/hash";
@@ -38,6 +49,7 @@ import {
   spawnGitExec,
 } from "../packages/engine/src/git/runner";
 import { systemClock } from "../packages/engine/src/platform/clock";
+import { GhHost, type MergeCommitHost } from "../packages/engine/src/platform/host";
 import { systemSpawn } from "../packages/engine/src/platform/process";
 
 import { checkReadyGate, REPO_BACKLOG_CLI } from "./check-ready-gate";
@@ -52,6 +64,12 @@ export interface BacklogPrCheckOptions {
   readonly cli: BacklogCli;
   /** Where the temporary worktree goes. */
   readonly tmp: string;
+  /** Names the PR that merged as a commit (DIPO-468); none refuses every Parked to Done. */
+  readonly host?: MergeCommitHost | null;
+  /** `[HOST/]OWNER/REPO` on the host; none refuses every Parked to Done. */
+  readonly hostRepo?: string | null;
+  /** The PR's base branch; none refuses every Parked to Done. */
+  readonly prBase?: string | null;
 }
 
 /** No repository hook runs: `worktree add` would run `post-checkout`. */
@@ -100,12 +118,16 @@ export async function checkBacklogPrIn(options: BacklogPrCheckOptions): Promise<
       gitDir: git(workTree, ["rev-parse", "--path-format=absolute", "--git-dir"]),
       workTree,
     };
-    const diff = await collectPrDiff({
-      git: session(commonDir, options.base),
-      worktree,
-      cli,
-      base,
-      head,
+    const steps = session(commonDir, options.base);
+    const diff = await collectPrDiff({ git: steps, worktree, cli, base, head });
+    // The base's tip: a commit on it after the story PR's merge that touched a task file counts.
+    const tip = git(repo, ["rev-parse", "--verify", `${options.base}^{commit}`]);
+    const merged = await mergedWhileParkedFacts({
+      git: steps,
+      diff,
+      base: tip,
+      host: options.host ?? null,
+      repo: options.hostRepo ?? null,
     });
     // The worktree is back on `head`: the Ready gate decides on the content the diff shows.
     const gate = await checkReadyGate(workTree, cli);
@@ -124,6 +146,8 @@ export async function checkBacklogPrIn(options: BacklogPrCheckOptions): Promise<
       keys: Object.fromEntries(diff.tasks.map((change) => [change.id, change.id as StoryKey])),
       claimed: [],
       passing,
+      merged,
+      prBase: options.prBase ?? null,
     };
     return checkBacklogPr(diff, facts);
   } finally {
@@ -147,7 +171,16 @@ if (import.meta.main) {
   }
   try {
     const tmp = process.env["RUNNER_TEMP"] ?? tmpdir();
-    const result = await checkBacklogPrIn({ repo, base, head, cli: REPO_BACKLOG_CLI, tmp });
+    const result = await checkBacklogPrIn({
+      repo,
+      base,
+      head,
+      cli: REPO_BACKLOG_CLI,
+      tmp,
+      host: new GhHost({ spawn: systemSpawn }),
+      hostRepo: process.env["GITHUB_REPOSITORY"] || null,
+      prBase: process.env["GITHUB_BASE_REF"] || null,
+    });
     if (!result.passed) {
       for (const failure of result.failures) console.error(`[${failure.rule}] ${failure.message}`);
       console.error(`Structural check failed with ${result.failures.length} failure(s)`);

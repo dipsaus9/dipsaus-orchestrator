@@ -1,6 +1,8 @@
 // The structural check of a backlog PR as a pure function over fixture diffs (DIPO-35; 0010):
 // each rule fails on its own fixture and names its rule and task, and a valid
-// office-init diff passes.
+// office-init diff passes. A Parked to Done passes only for a story whose own PR merged while it was
+// parked (DIPO-468), with its facts gathered over a fake git and host: the old barrier and every
+// bypass form still refuse.
 
 import { describe, expect, it } from "bun:test";
 
@@ -13,6 +15,9 @@ import {
   type TaskSide,
 } from "../../../src/backlog/pr/check";
 import { parseRawDiff, taskOfPath } from "../../../src/backlog/pr/diff";
+import { mergedWhileParkedFacts } from "../../../src/backlog/pr/merged";
+import type { GitSession } from "../../../src/git/office";
+import { CodeHostError, type HostPr, type MergeCommitHost } from "../../../src/platform/host";
 import type { PlainTask } from "../../../src/story-store/story";
 import { gateStoryFromView } from "../../../src/gate/input";
 import { gateContentHash } from "../../../src/gate/hash";
@@ -290,5 +295,264 @@ describe("checkBacklogPr", () => {
       { keys: { "TASK-1": K1 }, claimed: [K1], passing: {} },
     );
     expect(result.failures.map((f) => [f.rule, f.task])).toEqual([["no-claim", "TASK-1"]]);
+  });
+});
+
+// ---- Parked to Done for a story whose own PR merged while it was parked (DIPO-468) --------------
+
+const MERGE = sha("m");
+const BASE_COMMIT = sha("e");
+
+/** A field block naming `branch`. */
+function blockOf(branch: string): string {
+  return `Story: As maintainer I want a story that passes the gate so that the run can pick it up.\n\n${[
+    "```dipo",
+    `branch: "${branch}"`,
+    "unknowns: []",
+    "```",
+  ].join("\n")}`;
+}
+
+/** A Parked to Done change of `id`, its field block naming `before` on the base and `after` in the PR. */
+function parkedToDone(
+  id: string,
+  before = `${id}/add-csv`,
+  after = before,
+): PrDiff["tasks"][number] {
+  return {
+    id,
+    before: side(task(id, "Parked", blockOf(before))),
+    after: side(task(id, "Done", blockOf(after))),
+  };
+}
+
+/** A merged PR as the host names it. */
+function hostPr(over: Partial<HostPr> = {}): HostPr {
+  return {
+    number: 634,
+    url: "https://github.com/o/r/pull/634",
+    state: "merged",
+    head: "TASK-1/add-csv",
+    headSha: sha("h"),
+    base: "main",
+    title: "feat(TASK-1): x",
+    mergeCommit: MERGE,
+    ...over,
+  };
+}
+
+/**
+ * The check as dipo and CI run it on `changes`: a fake git whose `git log -1 <base> -- <task file>`
+ * names `last[id]`, and a fake host that names `prs[sha]` as the PR merged as that commit (or
+ * throws it). Returns the transition failures by task.
+ */
+async function decide(
+  changes: readonly PrDiff["tasks"][number][],
+  options: {
+    readonly last: Readonly<Record<string, string | null>>;
+    readonly prs?: Readonly<Record<string, HostPr | Error | null>>;
+    readonly prBase?: string | null;
+    readonly host?: boolean;
+  },
+): Promise<{ readonly transitions: [string, string][]; readonly asked: string[] }> {
+  const asked: string[] = [];
+  const logs: string[] = [];
+  const git = {
+    repository: { kind: "repository", commonDir: "/repo/.git" },
+    step: async (_location: unknown, args: readonly string[]) => {
+      logs.push(args.join(" "));
+      const glob = String(args.at(-1) ?? "");
+      const id = /\*\*\/(.+) - \*\.md$/.exec(glob)?.[1] ?? "";
+      const commit = options.last[id] ?? null;
+      return { code: 0, stdout: commit === null ? "" : `${commit}\n`, stderr: "" };
+    },
+    ok: async () => "",
+    base: async () => "main",
+  } as unknown as GitSession;
+  const host: MergeCommitHost = {
+    mergedPrOfCommit: async (repo, commit) => {
+      asked.push(`${repo} ${commit}`);
+      const answer = options.prs?.[commit] ?? null;
+      if (answer instanceof Error) throw answer;
+      return answer;
+    },
+  };
+  const diff: PrDiff = {
+    paths: changes.map((change) => `backlog/tasks/${change.id.toLowerCase()} - Story.md`),
+    tasks: changes,
+  };
+  const merged = await mergedWhileParkedFacts({
+    git,
+    diff,
+    base: BASE_COMMIT,
+    host: options.host === false ? null : host,
+    repo: "o/r",
+  });
+  // Every lookup is on the PR's base side, for the task's own file.
+  for (const line of logs) expect(line).toStartWith(`log -1 --format=%H ${BASE_COMMIT} -- `);
+  const result = checkBacklogPr(diff, {
+    ...NO_FACTS,
+    merged,
+    prBase: options.prBase === undefined ? "main" : options.prBase,
+  });
+  return {
+    transitions: result.failures
+      .filter((failure) => failure.rule === "transition")
+      .map((failure) => [failure.task ?? "", failure.message]),
+    asked,
+  };
+}
+
+const refusedIds = (outcome: { transitions: [string, string][] }) =>
+  outcome.transitions.map(([id]) => id);
+
+const refused = async (
+  changes: readonly PrDiff["tasks"][number][],
+  options: Parameters<typeof decide>[1],
+) => refusedIds(await decide(changes, options));
+
+describe("checkBacklogPr: Parked to Done of a story whose PR merged while it was parked (DIPO-468)", () => {
+  it("passes when the one Done check answers merged for the story PR whose merge commit last touched the task file on the base", async () => {
+    const outcome = await decide([parkedToDone("TASK-1")], {
+      last: { "TASK-1": MERGE },
+      prs: { [MERGE]: hostPr() },
+    });
+    expect(outcome.transitions).toEqual([]);
+    expect(outcome.asked).toEqual([`o/r ${MERGE}`]);
+  });
+
+  it("still refuses every other transition the old barrier refused, merged PR or not", async () => {
+    const changes = [
+      { id: "TASK-1", from: "Ready", to: "In Progress" },
+      { id: "TASK-2", from: "Refined", to: "Done" },
+      { id: "TASK-3", from: "In Progress", to: "Done" },
+      { id: "TASK-4", from: "In Review", to: "Done" },
+    ].map(({ id, from, to }) => ({
+      id,
+      before: side(task(id, from, blockOf("TASK-1/add-csv"))),
+      after: side(task(id, to, blockOf("TASK-1/add-csv"))),
+    }));
+    const outcome = await decide(changes, {
+      last: { "TASK-1": MERGE, "TASK-2": MERGE, "TASK-3": MERGE, "TASK-4": MERGE },
+      prs: { [MERGE]: hostPr() },
+    });
+    expect(outcome.transitions).toEqual([
+      ["TASK-1", "TASK-1 moves from Ready to In Progress, which a backlog PR may not do (0012)"],
+      ["TASK-2", "TASK-2 moves from Refined to Done, which a backlog PR may not do (0012)"],
+      ["TASK-3", "TASK-3 moves from In Progress to Done, which a backlog PR may not do (0012)"],
+      ["TASK-4", "TASK-4 moves from In Review to Done, which a backlog PR may not do (0012)"],
+    ]);
+    // Only a Parked to Done asks the host.
+    expect(outcome.asked).toEqual([]);
+  });
+
+  it("refuses Parked to Done without a merged PR: no facts, no host, no commit, no PR", async () => {
+    const change = parkedToDone("TASK-1");
+    const plain = checkBacklogPr(
+      { paths: ["backlog/tasks/task-1 - Story.md"], tasks: [change] },
+      NO_FACTS,
+    );
+    expect(plain.failures.map((f) => [f.rule, f.message])).toEqual([
+      [
+        "transition",
+        "TASK-1 moves from Parked to Done, which a backlog PR may not do (0012): only a story whose own PR merged while it was parked may, and dipo did not ask which PR merged it",
+      ],
+    ]);
+    for (const outcome of [
+      await decide([change], {
+        last: { "TASK-1": MERGE },
+        prs: { [MERGE]: hostPr() },
+        host: false,
+      }),
+      await decide([change], { last: { "TASK-1": null } }),
+      await decide([change], { last: { "TASK-1": MERGE }, prs: {} }),
+      await decide([change], {
+        last: { "TASK-1": MERGE },
+        prs: { [MERGE]: hostPr() },
+        prBase: null,
+      }),
+    ]) {
+      expect(refusedIds(outcome)).toEqual(["TASK-1"]);
+    }
+  });
+
+  it("refuses when the host fails or times out (fail closed)", async () => {
+    for (const error of [
+      new CodeHostError("failed", "HTTP 502"),
+      new CodeHostError("timedOut", "gh api did not finish"),
+      new CodeHostError("unauthenticated", "not logged in"),
+    ]) {
+      const outcome = await decide([parkedToDone("TASK-1")], {
+        last: { "TASK-1": MERGE },
+        prs: { [MERGE]: error },
+      });
+      expect(outcome.transitions).toEqual([
+        [
+          "TASK-1",
+          `TASK-1 moves from Parked to Done, which a backlog PR may not do (0012): only a story whose own PR merged while it was parked may, and the code host could not say which PR merged as ${MERGE.slice(0, 12)}: ${error.message}`,
+        ],
+      ]);
+    }
+  });
+
+  it("refuses each bypass form", async () => {
+    // A PR merged from another branch.
+    expect(
+      await refused([parkedToDone("TASK-1")], {
+        last: { "TASK-1": MERGE },
+        prs: { [MERGE]: hostPr({ head: "TASK-7/other" }) },
+      }),
+    ).toEqual(["TASK-1"]);
+    // A PR merged into another base.
+    expect(
+      await refused([parkedToDone("TASK-1")], {
+        last: { "TASK-1": MERGE },
+        prs: { [MERGE]: hostPr({ base: "release" }) },
+      }),
+    ).toEqual(["TASK-1"]);
+    // A closed PR that never merged, even one whose merge commit names the commit.
+    expect(
+      await refused([parkedToDone("TASK-1")], {
+        last: { "TASK-1": MERGE },
+        prs: { [MERGE]: hostPr({ state: "closed" }) },
+      }),
+    ).toEqual(["TASK-1"]);
+    // A merged PR whose merge commit is not the commit on the base.
+    expect(
+      await refused([parkedToDone("TASK-1")], {
+        last: { "TASK-1": MERGE },
+        prs: { [MERGE]: hostPr({ mergeCommit: sha("x") }) },
+      }),
+    ).toEqual(["TASK-1"]);
+    // An old merged PR of a reused branch: a later commit touched the task file, and only the old
+    // merge commit belongs to a PR of the branch.
+    const later = sha("l");
+    expect(
+      await refused([parkedToDone("TASK-1")], {
+        last: { "TASK-1": later },
+        prs: { [MERGE]: hostPr({ number: 5 }), [later]: null },
+      }),
+    ).toEqual(["TASK-1"]);
+    // The backlog PR changes the field block's branch to that of a merged PR and sets Done.
+    expect(
+      await refused([parkedToDone("TASK-1", "TASK-1/add-csv", "TASK-7/other")], {
+        last: { "TASK-1": MERGE },
+        prs: { [MERGE]: hostPr({ head: "TASK-7/other" }) },
+      }),
+    ).toEqual(["TASK-1"]);
+    // A story id typo names another story: TASK-2's file last changed in TASK-1's merge.
+    expect(
+      await refused([parkedToDone("TASK-2")], {
+        last: { "TASK-2": MERGE },
+        prs: { [MERGE]: hostPr() },
+      }),
+    ).toEqual(["TASK-2"]);
+    // A second story without its own merged PR in the same backlog PR: only it is refused.
+    expect(
+      await refused([parkedToDone("TASK-1"), parkedToDone("TASK-2")], {
+        last: { "TASK-1": MERGE, "TASK-2": sha("2") },
+        prs: { [MERGE]: hostPr(), [sha("2")]: null },
+      }),
+    ).toEqual(["TASK-2"]);
   });
 });

@@ -2,11 +2,20 @@
 // real Backlog CLI: a story the PR makes Ready that passes the Ready gate passes, one that fails
 // the gate fails `ready-decision`, a status change a backlog PR may not make fails `transition`,
 // and a path outside `backlog/` fails `backlog-only`. The temporary worktree is gone afterwards.
+// A Parked to Done (DIPO-468) passes only when `gh`, a fake executable run through the real spawn
+// path, names the story's own PR as the one that merged as the last commit on the base that
+// touched the task file; when gh fails, times out or names no merged PR it is refused (fail closed),
+// in the script's own run too.
 
 import { describe, expect, it } from "bun:test";
-import { chmodSync, readdirSync, symlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, symlinkSync } from "node:fs";
+import { join } from "node:path";
 
 import { type TempRepo, withTempRepo } from "../packages/testkit/src/index";
+
+import { GhHost } from "../packages/engine/src/platform/host";
+import { systemSpawn } from "../packages/engine/src/platform/process";
+import { fakeGh, type FakeGhMode, restPr } from "../packages/engine/test/platform/fake-gh";
 
 import { checkBacklogPrIn } from "./check-backlog-pr";
 import { REPO_BACKLOG_CLI } from "./check-ready-gate";
@@ -30,8 +39,13 @@ const CLEAN_PLAN = ['    - kind: "automated"', '      check: "the export writes 
 // R20: a manual entry needs an expected result.
 const NO_EXPECT = ['    - kind: "manual"', '      check: "the export opens in a spreadsheet"'];
 
-/** A task file as Backlog.md 1.53 writes it. */
-function taskFile(id: number, status: string, plan: readonly string[]): string {
+/** A task file as Backlog.md 1.53 writes it; `extra` lines go into its field block. */
+function taskFile(
+  id: number,
+  status: string,
+  plan: readonly string[],
+  extra: readonly string[] = [],
+): string {
   return [
     "---",
     `id: DIPO-${id}`,
@@ -56,6 +70,7 @@ function taskFile(id: number, status: string, plan: readonly string[]): string {
     "```dipo",
     `branch: "DIPO-${id}/export-rows"`,
     "unknowns: []",
+    ...extra,
     "test_plan:",
     "  entries:",
     ...plan,
@@ -140,4 +155,164 @@ describe("the structural check of a backlog-only PR in CI", () => {
       ]);
     });
   }, 60_000);
+});
+
+// ---- Parked to Done of a story whose own PR merged while it was parked (DIPO-468) --------------
+
+const PARK = [
+  "park:",
+  '  reason: "verify-failing"',
+  '  from: "In Progress"',
+  '  note: "verify red 5 times"',
+];
+
+/**
+ * A base whose last commit is the story PR's merge that wrote DIPO-1 Parked, and a backlog PR that
+ * sets it Done; returns the base, the head and the merge commit.
+ */
+async function parkedPr(repo: TempRepo): Promise<{ base: string; head: string; merge: string }> {
+  await Bun.write(`${repo.dir}/backlog/config.yml`, CONFIG);
+  await Bun.write(`${repo.dir}/backlog/milestones/m-0 - m0-fixture.md`, MILESTONE.join("\n"));
+  await Bun.write(`${repo.dir}/${path(1)}`, taskFile(1, "In Progress", CLEAN_PLAN));
+  await repo.commitAll("claim");
+  await Bun.write(`${repo.dir}/${path(1)}`, taskFile(1, "Parked", CLEAN_PLAN, PARK));
+  const merge = await repo.commitAll("feat(DIPO-1): export the rows (#634)");
+  await Bun.write(`${repo.dir}/${path(1)}`, taskFile(1, "Done", CLEAN_PLAN));
+  return { base: merge, head: await repo.commitAll("backlog: done DIPO-1"), merge };
+}
+
+/** The check through the real gh spawn path, with a fake gh in `mode` and a short deadline. */
+async function checkWithGh(repo: TempRepo, mode: (merge: string) => FakeGhMode) {
+  const { base, head, merge } = await parkedPr(repo);
+  const bin = join(repo.root, "bin");
+  mkdirSync(bin, { recursive: true });
+  const gh = fakeGh(bin, mode(merge));
+  const host = new GhHost({
+    spawn: systemSpawn,
+    gh: gh.path,
+    env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", HOME: repo.home },
+    deadlineMs: 500,
+  });
+  const result = await checkBacklogPrIn({
+    repo: repo.dir,
+    base,
+    head,
+    cli: REPO_BACKLOG_CLI,
+    tmp: repo.root,
+    host,
+    hostRepo: "o/r",
+    prBase: "main",
+  });
+  return { result, gh, merge };
+}
+
+const story = (merge: string, over: Record<string, unknown> | null = null) =>
+  JSON.stringify([over ?? restPr({ number: 634, head: "DIPO-1/export-rows", merge })]);
+
+describe("Parked to Done in the structural check (DIPO-468)", () => {
+  it("passes when gh names the story's own PR as merged as the last commit that touched its task file", async () => {
+    await withTempRepo(async (repo) => {
+      const { result, gh, merge } = await checkWithGh(repo, (commit) => ({
+        kind: "answer",
+        body: story(commit),
+      }));
+      expect(result.failures).toEqual([]);
+      expect(gh.calls()).toEqual([`api repos/o/r/commits/${merge}/pulls`]);
+    });
+  }, 60_000);
+
+  it("refuses it when gh fails, times out or names no merged PR (fail closed)", async () => {
+    const modes: ((merge: string) => FakeGhMode)[] = [
+      () => ({ kind: "fail", code: 1, stderr: "HTTP 502: Bad Gateway" }),
+      () => ({ kind: "fail", code: 4, stderr: "not logged in" }),
+      () => ({ kind: "hang" }),
+      () => ({ kind: "answer", body: "[]" }),
+      (merge) => ({
+        kind: "answer",
+        body: story(
+          merge,
+          restPr({ number: 634, head: "DIPO-1/export-rows", merge, merged: false }),
+        ),
+      }),
+      (merge) => ({
+        kind: "answer",
+        body: story(merge, restPr({ number: 7, head: "DIPO-9/other", merge })),
+      }),
+    ];
+    for (const mode of modes) {
+      await withTempRepo(async (repo) => {
+        const { result } = await checkWithGh(repo, mode);
+        expect(rules(result)).toEqual(["transition DIPO-1"]);
+        expect(result.passed).toBe(false);
+      });
+    }
+  }, 120_000);
+
+  it("refuses it when a later commit on the base touched the task file, by design", async () => {
+    await withTempRepo(async (repo) => {
+      const { base, head, merge } = await parkedPr(repo);
+      // A hand edit on the base after the merge: the last commit is no longer the story PR's.
+      await repo.git("checkout", "--quiet", "-b", "edited", base);
+      await Bun.write(
+        `${repo.dir}/${path(1)}`,
+        taskFile(1, "Parked", CLEAN_PLAN, PARK).replace("Export the rows", "Export every row"),
+      );
+      const edited = await repo.commitAll("edit the title by hand");
+      await repo.git("checkout", "--quiet", "--detach", head);
+      const bin = join(repo.root, "bin");
+      mkdirSync(bin, { recursive: true });
+      const gh = fakeGh(bin, { kind: "answer", body: story(merge) });
+      const result = await checkBacklogPrIn({
+        repo: repo.dir,
+        base: edited,
+        head,
+        cli: REPO_BACKLOG_CLI,
+        tmp: repo.root,
+        host: new GhHost({ spawn: systemSpawn, gh: gh.path, env: { HOME: repo.home } }),
+        hostRepo: "o/r",
+        prBase: "main",
+      });
+      expect(rules(result)).toContain("transition DIPO-1");
+    });
+  }, 60_000);
+
+  it("refuses it in the script's own run when gh fails, and passes it when gh names the PR", async () => {
+    for (const fail of [true, false]) {
+      await withTempRepo(async (repo) => {
+        const { base, head, merge } = await parkedPr(repo);
+        const bin = join(repo.root, "bin");
+        mkdirSync(bin, { recursive: true });
+        fakeGh(
+          bin,
+          fail
+            ? { kind: "fail", code: 1, stderr: "HTTP 502: Bad Gateway" }
+            : { kind: "answer", body: story(merge) },
+        );
+        const run = Bun.spawnSync(
+          [process.execPath, join(import.meta.dir, "check-backlog-pr.ts"), base, head, repo.dir],
+          {
+            env: {
+              ...repo.env,
+              PATH: `${bin}:${repo.env["PATH"] ?? process.env["PATH"] ?? "/usr/bin:/bin"}`,
+              GITHUB_REPOSITORY: "o/r",
+              GITHUB_BASE_REF: "main",
+              RUNNER_TEMP: repo.root,
+            },
+            stdout: "pipe",
+            stderr: "pipe",
+          },
+        );
+        if (fail) {
+          expect(run.exitCode).toBe(1);
+          expect(run.stderr.toString()).toContain(
+            "[transition] DIPO-1 moves from Parked to Done, which a backlog PR may not do (0012)",
+          );
+          expect(run.stderr.toString()).toContain("HTTP 502: Bad Gateway");
+        } else {
+          expect(run.stderr.toString()).toBe("");
+          expect(run.exitCode).toBe(0);
+        }
+      });
+    }
+  }, 120_000);
 });
