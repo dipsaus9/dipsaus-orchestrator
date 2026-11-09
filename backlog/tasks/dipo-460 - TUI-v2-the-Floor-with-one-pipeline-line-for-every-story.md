@@ -1,10 +1,10 @@
 ---
 id: DIPO-460
 title: 'TUI v2: the Floor with one pipeline line for every story'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-09 10:28'
+updated_date: '2026-11-09 10:35'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -21,6 +21,44 @@ references:
   - docs/design/tui-v2/designs/dipo-ux-spec.html
   - packages/contract/src/office.ts
   - packages/engine/src/gate
+modified_files:
+  - docs/design/tui-v2/spec.md
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/shared.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/src/software.ts
+  - packages/contract/src/work.test.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/gate-decisions/feature.ts
+  - packages/engine/src/gate/evaluate.ts
+  - packages/engine/src/overview/chain.ts
+  - packages/engine/src/overview/feature.ts
+  - packages/engine/src/overview/summary.ts
+  - packages/engine/test/gate/story-gate.test.ts
+  - packages/engine/test/overview/chain.test.ts
+  - packages/tui/src/app.test.tsx
+  - packages/tui/src/app.tsx
+  - packages/tui/src/chain.test.ts
+  - packages/tui/src/chain.ts
+  - packages/tui/src/desk.test.tsx
+  - packages/tui/src/detail.test.tsx
+  - packages/tui/src/detail.tsx
+  - packages/tui/src/digest.test.tsx
+  - packages/tui/src/home.tsx
+  - packages/tui/src/live.test.tsx
+  - packages/tui/src/now.ts
+  - packages/tui/src/overview.test.tsx
+  - packages/tui/src/overview.tsx
+  - packages/tui/src/pipeline.test.ts
+  - packages/tui/src/pipeline.tsx
+  - packages/tui/src/queue.test.tsx
+  - packages/tui/src/queue.tsx
+  - packages/tui/src/run.tsx
+  - packages/tui/src/spans.tsx
+  - packages/tui/test/support/fake-session.ts
+  - packages/tui/test/support/mock-screens.ts
+  - packages/tui/test/support/setup.tsx
 priority: medium
 type: feature
 ordinal: 433000
@@ -67,3 +105,18 @@ test_plan:
 - [x] #9 story.gate returns the number of rules (engine addition), shown as Gate ✓ N rules
 - [x] #10 In the Queue, . toggles show done (N)
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-09 10:35 UTC
+- Criteria met: 10 of 10 (as the worker reported them)
+- Loops: 3; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 511,395 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->
