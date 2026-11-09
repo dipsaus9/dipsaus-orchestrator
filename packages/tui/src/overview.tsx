@@ -164,7 +164,6 @@ interface FloorOptions {
   readonly now: number;
   readonly width: number;
   readonly ascii: boolean;
-  readonly digest?: string | null | undefined;
 }
 
 /** The card of one story: four lines for a running story, three for one in review. */
@@ -301,9 +300,6 @@ export function floorLines(options: FloorOptions): FloorLine[] {
   const { running, review } = floorStories(state);
   const summary = state.offices.find((entry) => entry.office === state.office)?.summary;
   const out: FloorLine[] = [];
-  if (options.digest !== undefined && options.digest !== null) {
-    out.push({ key: "digest", card: null, spans: [{ text: options.digest, role: "dim" }] });
-  }
   const slots = summary?.slots === undefined ? "" : `${running.length} of ${summary.slots} slots`;
   out.push(header("running", "RUNNING", slots, width), blank("after:running"));
   if (running.length === 0) {
@@ -384,11 +380,6 @@ export function Overview(props: {
   chain: Chain;
   /** The selected card by story key, marked with `▌`; Enter opens it. */
   selected?: string | null;
-<<<<<<< c36baa2a4c6f2d9b574dcc92eab6648ae5e59eda
-=======
-  /** The "since you left" line from `office.digest`, at the top (DIPO-308). */
-  digest?: string | null;
->>>>>>> ebd192c460fc493872823267d782eeb07cc5316a
 }) {
   const { state, display, columns } = props;
   const { ellipsis } = glyphs(display.ascii);
@@ -399,27 +390,6 @@ export function Overview(props: {
   if (state.loading && state.stories.length === 0) {
     return <Text>{` Loading${ellipsis}`}</Text>;
   }
-<<<<<<< c36baa2a4c6f2d9b574dcc92eab6648ae5e59eda
-  const top: BoardLine[] = [
-    { key: "counts", text: countLine(state, dot, width, props.clock.now()) },
-  ];
-  if (state.work.length === 0) top.push({ key: "idle", text: idleLine(state, dot) });
-  const board = fitSections(
-    sections({
-      state,
-      width,
-      selected: props.selected,
-      latest: props.latest,
-      now: props.clock.now(),
-      columns,
-      dot,
-      bar: glyphs(display.ascii).bar,
-      ellipsis,
-    }),
-    Math.max(0, props.height - top.length),
-    ellipsis,
-  );
-=======
   const all = floorLines({
     state,
     chain: props.chain,
@@ -428,10 +398,8 @@ export function Overview(props: {
     now: props.clock.now(),
     width: columns,
     ascii: display.ascii,
-    digest: props.digest,
   });
   const shown = fitFloor(all, props.height, props.selected);
->>>>>>> ebd192c460fc493872823267d782eeb07cc5316a
   return (
     <Box flexDirection="column">
       {shown.map((line) => (

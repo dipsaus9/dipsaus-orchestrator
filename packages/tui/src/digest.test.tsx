@@ -75,17 +75,11 @@ describe("the Since band", () => {
     await view.ui.press("1");
     const frame = await view.ui.waitFor("any key to dismiss");
     const shown = lines(frame);
-<<<<<<< c36baa2a4c6f2d9b574dcc92eab6648ae5e59eda
     const band = shown.findIndex((line) => line.startsWith("Since "));
     expect(shown[band]).toMatch(
       new RegExp(
         `^Since ${clockTime(Date.parse(SINCE))} · 1 merged · 2 new proposals · \\$4\\.10 spent +any key to dismiss$`,
       ),
-=======
-    const rule = shown.findIndex((line) => /^─+$/.test(line));
-    expect(shown[rule + 1]).toBe(
-      `since you left (${clockTime(Date.parse(SINCE))}): 2 done · 1 parked · 1 parked by you · 1 question`,
->>>>>>> ebd192c460fc493872823267d782eeb07cc5316a
     );
     expect(shown[band + 1]).toMatch(/^─+$/);
     expect(shown[band + 2]).toMatch(/^NEEDS YOU +1 {2}│/);

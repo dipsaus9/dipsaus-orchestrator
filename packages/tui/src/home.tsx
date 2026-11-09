@@ -34,14 +34,9 @@ import {
 } from "./desk";
 import { previewLines } from "./desk-preview";
 import { Detail, type DetailTarget } from "./detail";
-<<<<<<< c36baa2a4c6f2d9b574dcc92eab6648ae5e59eda
-import { skipReason, widthOf } from "./format";
-import { useDigest } from "./digest";
-=======
 import { useChain, useGate } from "./chain";
 import { skipReason } from "./format";
-import { digestLine, useDigest } from "./digest";
->>>>>>> ebd192c460fc493872823267d782eeb07cc5316a
+import { useDigest } from "./digest";
 import { NO_KEY } from "./input";
 import { type ActionId, binding, type Hint, rowKeys, viewKeys } from "./keys";
 import { NO_FOCUS, type PaletteFocus } from "./palette";
