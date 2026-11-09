@@ -15,7 +15,9 @@
 // `parks` (DIPO-360, 0001, 0007).
 //
 // A park has one of the eight reasons of 0001 and a one-line detail. The detail is text: no code
-// decides anything from it (0020).
+// decides anything from it (0020). A `budget-exceeded` park of a run whose worker handed no part
+// that dipo committed (no `part` step, DIPO-466) starts its detail with `NO_PART_HANDED`, before the
+// cap and what was used, so the maintainer sees that the run's work is still only in its box.
 //
 // A task file holding fields dipo does not know parks the story `scope-violation` instead, with the
 // refusal as detail. A park that could not be written on the branch, or a push that failed, is still
@@ -53,7 +55,7 @@ import { PARKED_STATUS } from "../worktree/done";
 
 import { endRunMarked } from "../ingest/markers";
 import { mirrorPark } from "../records/park-state";
-import { appendRunStep, findRun, type StoredRun } from "../records/run-records";
+import { appendRunStep, findRun, runHandedPart, type StoredRun } from "../records/run-records";
 import { parkResumeNeed } from "../records/resume-policy";
 import { renderParkBlock, runSummaryFacts } from "../records/summary";
 
@@ -459,6 +461,23 @@ export function parkActions(
   );
 }
 
+/** What a `budget-exceeded` park's detail starts with when its run handed no part (DIPO-466). */
+export const NO_PART_HANDED = "no part handed";
+
+/**
+ * The detail of a `budget-exceeded` park (DIPO-466): `NO_PART_HANDED` first when dipo committed no
+ * part of the run, so a cap never leaves the run's work in its box unseen; any other detail as it is.
+ */
+function capParkDetail(
+  office: OfficeHandle,
+  run: StoredRun,
+  reason: ParkReason,
+  detail: string,
+): string {
+  if (reason !== "budget-exceeded" || runHandedPart(office, run.runId)) return detail;
+  return `${NO_PART_HANDED}; ${detail}`;
+}
+
 /** Parks the run's story; see the file comment. Never throws for a branch write that failed. */
 export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<ParkOutcome> {
   const { run } = request;
@@ -468,7 +487,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
     throw new Error(`${run.runId} is not a story run; only a story parks.`);
   }
   let reason = request.reason;
-  let detail = request.detail;
+  let detail = capParkDetail(deps.office, run, reason, request.detail);
   let branch: BranchPark | null = null;
   let writeError: string | null = null;
   const notices: NewEntry[] = [];

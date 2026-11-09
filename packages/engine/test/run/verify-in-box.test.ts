@@ -1330,7 +1330,7 @@ describe("dipo's verify in the box at done (DIPO-346, 0002)", () => {
     await capPass([turn(DONE)], { turns: 1, tokens: 10 });
     const [park] = parks();
     expect(park?.reason).toBe("budget-exceeded");
-    expect(park?.detail).toStartWith(VERIFY_IN_BOX_INTRO);
+    expect(park?.detail).toStartWith(`no part handed; ${VERIFY_IN_BOX_INTRO}`);
     expect(loopSteps()).toEqual([]);
   });
 
@@ -1395,7 +1395,7 @@ describe("the conflict check at done (DIPO-149, DIPO-291)", () => {
     w.conflictCheck = () => ({ kind: "markers", text: markers });
     setRun("max_turns", 1);
     await capPass([turn(DONE)], { turns: 1, tokens: 10 });
-    expect(parks()).toEqual([{ reason: "budget-exceeded", detail: markers }]);
+    expect(parks()).toEqual([{ reason: "budget-exceeded", detail: `no part handed; ${markers}` }]);
     expect(feedbackTexts()).toEqual([]);
     expect(loopSteps()).toEqual([]);
   });
@@ -1741,7 +1741,7 @@ describe("a done report on the turn that crosses a cap, in a box run (DIPO-205, 
     setRun("max_turns", 1);
     await capPass([turn(null)], { turns: 1, tokens: 10 });
     expect(parks().map((p) => [p.reason, p.detail])).toEqual([
-      ["budget-exceeded", "turn cap reached: 1 of 1 turns"],
+      ["budget-exceeded", "no part handed; turn cap reached: 1 of 1 turns"],
     ]);
     expect(w.calls).toEqual([]);
     expect(capSteps()).toEqual([]);

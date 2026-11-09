@@ -485,7 +485,10 @@ describe("a full context (AC #2)", () => {
     track();
     await ingestRecording("prompt-too-long");
     expect(parks()).toEqual([
-      ["budget-exceeded", "prompt_too_long: the context is full again after a handoff"],
+      [
+        "budget-exceeded",
+        "no part handed; prompt_too_long: the context is full again after a handoff",
+      ],
     ]);
     expect(w.next).toEqual([]);
     expectEnded("parked");
@@ -902,7 +905,9 @@ describe("a park intent keeps its park across a restart (DIPO-433)", () => {
       expect(stored?.detail).toBe(parkIntentDetail({ reason, detail }));
       expect(intentPark(stored?.detail ?? "")).toEqual({ reason, detail });
       expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
-      expect(parks()).toEqual([[reason, detail]]);
+      // A budget-exceeded park of a run that handed no part says so first (DIPO-466).
+      const shown = reason === "budget-exceeded" ? `no part handed; ${detail}` : detail;
+      expect(parks()).toEqual([[reason, shown]]);
       expectEnded("parked");
       expect(runIntents(w.f.office, w.f.run).every((intent) => intent.resolvedAt !== null)).toBe(
         true,
@@ -916,7 +921,7 @@ describe("a park intent keeps its park across a restart (DIPO-433)", () => {
     const capStep = "maxTurns: turn cap: 100 turns reached";
     await stopAfterParkIntent({ reason: "budget-exceeded", detail: "verify passed late", capStep });
     expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
-    expect(parks()).toEqual([["budget-exceeded", "verify passed late"]]);
+    expect(parks()).toEqual([["budget-exceeded", "no part handed; verify passed late"]]);
     expect(
       runSteps(w.f.office, w.f.run)
         .filter((step) => step.kind === "cap")

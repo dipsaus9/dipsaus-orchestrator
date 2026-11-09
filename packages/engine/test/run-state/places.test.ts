@@ -460,12 +460,12 @@ describe("the pre-start cap check (DIPO-205)", () => {
         {
           story_id: "DIPO-8",
           reason: "budget-exceeded",
-          detail: "turn cap reached: 100 of 100 turns",
+          detail: "no part handed; turn cap reached: 100 of 100 turns",
         },
         {
           story_id: "DIPO-9",
           reason: "budget-exceeded",
-          detail: "turn cap reached: 100 of 100 turns",
+          detail: "no part handed; turn cap reached: 100 of 100 turns",
         },
       ]);
       expect(findRun(w.office, fix.run)).toMatchObject({ ending: "parked" });
