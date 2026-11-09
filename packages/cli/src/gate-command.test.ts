@@ -212,6 +212,20 @@ describe("dipo gate", () => {
     expect(failing.out).toEqual([failure, warning]);
   });
 
+  it("prints an R32 story size warning after the verdict and keeps the exit code (DIPO-467)", async () => {
+    const warning =
+      "ready DIPO-7 warning R32: tier S story has 6 criteria, above the tier S ceiling of 5; raise its tier or split it";
+    const ctx = fake(
+      () => ({
+        ok: true,
+        result: { ...result(true).result, warnings: [{ rule: "R32", message: warning }] },
+      }),
+      IN_OFFICE,
+    );
+    expect(await main(["gate", "DIPO-7"], ctx.deps)).toBe(0);
+    expect(ctx.out).toEqual(["ready DIPO-7 passed", warning]);
+  });
+
   it("prints an engine error and exits 1", async () => {
     const ctx = fake(
       () => ({

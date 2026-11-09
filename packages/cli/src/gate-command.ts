@@ -1,6 +1,6 @@
 // `dipo gate <id> [--office <id>]` (DIPO-71, M0 breakdown decision D3): the read-only Ready gate
 // check. It sends the read `story.gate` and prints `ready <ID> passed`, or each failure message on
-// its own line and exits 1. Each warning (R29, DIPO-251) is printed on its own line after that and
+// its own line and exits 1. Each warning (R29, DIPO-251; R32, DIPO-467) is printed on its own line after that and
 // does not change the exit code. The office comes from `--office`, else from the repository around the
 // current directory, as for `dipo office`.
 

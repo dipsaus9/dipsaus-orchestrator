@@ -6,7 +6,7 @@ import type { OfficeConfig } from "../config/schema";
 
 /**
  * `ready` evaluates R01a, `pickup` (the re-check inside `work.run`) R01b; both add R02 to R30, and
- * `pickup` adds R31.
+ * `pickup` adds R31. The warning R29 runs in both modes, the warning R32 in `ready` only.
  */
 export type GateMode = "ready" | "pickup";
 
@@ -41,6 +41,7 @@ export const GATE_RULES = [
   "R29",
   "R30",
   "R31",
+  "R32",
 ] as const;
 export type GateRule = (typeof GATE_RULES)[number];
 
@@ -136,7 +137,7 @@ export interface GateResult {
   /** Every failure, in rule order. */
   readonly failures: readonly GateFailure[];
   /**
-   * Every warning (R29, DIPO-251), `ready <ID> warning <rule>: <message>`, in rule order; absent
+   * Every warning (R29, DIPO-251; R32, DIPO-467), `ready <ID> warning <rule>: <message>`, in rule order; absent
    * when none. Warnings do not change `passed`.
    */
   readonly warnings?: readonly GateFailure[];
