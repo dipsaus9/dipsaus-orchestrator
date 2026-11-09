@@ -1,10 +1,10 @@
 ---
 id: DIPO-469
 title: Idea audits get past their start check
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-09 22:24'
-updated_date: '2026-11-09 22:30'
+updated_date: '2026-11-09 22:37'
 labels:
   - 'tier:S'
 milestone: m-3
