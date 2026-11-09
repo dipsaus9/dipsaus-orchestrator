@@ -63,6 +63,7 @@ import type { Display } from "./options";
 import { Screen } from "./screen";
 import { daemonScreen } from "./states";
 import { glyphs, isOffline } from "./views";
+import type { DiffOutcome } from "./story-card";
 
 export type ActionResult<T> =
   | { readonly ok: true; readonly value: T }
@@ -118,6 +119,8 @@ export interface TuiActions {
     readonly office: OfficeId;
     readonly story: StoryKey;
   }): Promise<StoryOutcome>;
+  /** `story.diff`: the diff of a story's branch, for the story reader's Diff section (DIPO-462). */
+  readDiff(request: { readonly office: OfficeId; readonly story: StoryKey }): Promise<DiffOutcome>;
   /** `office.open` for a path the maintainer typed. */
   openPath(path: string): Promise<ActionResult<OfficeId>>;
   /** `office.setPrivacy` for the setting the maintainer confirmed (DIPO-136). */

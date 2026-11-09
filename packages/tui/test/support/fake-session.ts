@@ -132,6 +132,8 @@ export class FakeSession implements TuiSession {
   digest: unknown = null;
   /** What `office.retro` answers; null answers with an error (DIPO-453). */
   retro: unknown = null;
+  /** What `story.diff` answers, by story key (DIPO-462). */
+  readonly diffs = new Map<string, unknown>();
   /** The decided gates `story.detail` answers, by story key (0002). */
   readonly verdicts = new Map<string, unknown[]>();
   /** Answers every command `runReply` and `office.open` do not; undefined falls through. */
@@ -168,6 +170,17 @@ export class FakeSession implements TuiSession {
           view,
           runs: this.runs.get(args.story ?? "") ?? [],
           verdicts: this.verdicts.get(args.story ?? "") ?? [],
+        },
+      };
+    }
+    if (definition.name === "story.diff") {
+      return {
+        ok: true,
+        result: this.diffs.get(args.story ?? "") ?? {
+          branch: null,
+          diff: "",
+          truncated: false,
+          unavailable: "the story has no branch yet",
         },
       };
     }

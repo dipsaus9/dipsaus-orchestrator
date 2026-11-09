@@ -22,6 +22,7 @@ import {
   officeOpen,
   officeSetPrivacy,
   storyDetail,
+  storyDiff,
   storyGate,
   storyLosses,
   workOutputRange,
@@ -256,6 +257,20 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
                 },
               }
             : outcome;
+        } catch (error) {
+          return {
+            ok: false,
+            error: { code: "client.failed", message: errorText(error), retryable: false },
+          };
+        }
+      },
+      readDiff: async (request) => {
+        try {
+          const outcome = await connected.read(storyDiff, {
+            office: request.office,
+            story: request.story,
+          });
+          return outcome.ok ? { ok: true, result: outcome.result } : outcome;
         } catch (error) {
           return {
             ok: false,

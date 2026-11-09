@@ -306,6 +306,14 @@ export type BranchDiffSource = (
   maxBytes: number,
 ) => Promise<{ base: string; diff: string; truncated: boolean } | null>;
 
+/** A `story.diff` answer with no diff, and why. */
+const none = (unavailable: string, branch: string | null) => ({
+  branch,
+  diff: "",
+  truncated: false,
+  unavailable,
+});
+
 /** `story.diff`: the diff of the story's newest run branch, or why there is none. */
 export async function diffOf(
   office: OfficeHandle,
@@ -317,12 +325,6 @@ export async function diffOf(
       order by started_at desc, run_id desc limit 1`,
     { key },
   );
-  const none = (unavailable: string, branch: string | null) => ({
-    branch,
-    diff: "",
-    truncated: false,
-    unavailable,
-  });
   if (row === null) return none("the story has no branch yet", null);
   if (source === undefined) return none("this engine reads no diffs", row.branch);
   const read = await source(office, row.branch, DIFF_MAX_BYTES).catch(() => null);
