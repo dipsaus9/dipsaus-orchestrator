@@ -16,7 +16,7 @@ import { statsFeature } from "./retention/stats";
 import type { StoryStore } from "./story-store/store";
 import { DESK_SOURCES, type DeskSources } from "./overview/desk";
 import type { OfficeHandle } from "./db/office";
-import { viewsFeatureWith } from "./overview/feature";
+import { type BranchDiffSource, viewsFeatureWith } from "./overview/feature";
 
 export interface EngineFeatureOptions {
   /**
@@ -30,6 +30,8 @@ export interface EngineFeatureOptions {
   readonly desk?: Partial<DeskSources>;
   /** The office's open planning session, for `office.snapshot` (DIPO-449). */
   readonly planning?: (office: OfficeHandle) => PlanningView | null;
+  /** Where `story.diff` reads a branch's diff (DIPO-462); none: it answers that it cannot. */
+  readonly branchDiff?: BranchDiffSource;
 }
 
 /** The engine's own feature modules, with the daemon's tools. */
@@ -51,6 +53,7 @@ export function engineFeatures(options: EngineFeatureOptions): readonly FeatureM
         ...options.desk,
       },
       options.planning,
+      options.branchDiff,
     ),
   ];
 }

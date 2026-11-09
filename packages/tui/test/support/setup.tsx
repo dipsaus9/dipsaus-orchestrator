@@ -12,6 +12,7 @@ import type {
 
 import type { CommandOutcome, LossesOutcome } from "../../src/actions";
 import { App, type RunOutcome, type StoryOutcome, type TuiActions } from "../../src/app";
+import type { DiffOutcome } from "../../src/story-card";
 import type { DeskOutcome } from "../../src/desk";
 import type { PromptOutcome } from "../../src/detail";
 import type { ChainOutcome, GateOutcome } from "../../src/chain";
@@ -129,6 +130,11 @@ export async function mount(options: MountOptions = {}) {
         { name: "story.detail" } as never,
         { office: request.office, story: request.story } as never,
       )) as StoryOutcome,
+    readDiff: async (request) =>
+      (await session.read(
+        { name: "story.diff" } as never,
+        { office: request.office, story: request.story } as never,
+      )) as DiffOutcome,
     sendCommand: async (request) =>
       (await session.command({ name: request.command } as never, request.args as never, {
         office: request.office,

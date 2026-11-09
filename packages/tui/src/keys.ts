@@ -684,7 +684,10 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     priority: 40,
   },
 
+  { id: "cardSection", key: "←→", label: "section", views: ["card"], priority: 60 },
   { id: "cardScroll", key: "↑↓", label: "scroll", views: ["card"], priority: 30 },
+  { id: "cardExpand", key: "⏎", label: "expand round", views: ["card"], priority: 50 },
+  { id: "cardOpen", key: "o", label: "open on GitHub", views: ["card"], priority: 40 },
   { id: "cardCopy", key: "c", label: "copy id", views: ["card"], priority: 20 },
 
   { id: "detailStreams", key: "w v i", label: "streams", views: ["detail"], priority: 75 },
@@ -823,6 +826,7 @@ const OFFLINE_KEYS: ReadonlySet<string> = new Set([
   "queueMove",
   "queueStory",
   "switcherMove",
+  "cardSection",
   "cardScroll",
   "detailScroll",
   "detailFollow",

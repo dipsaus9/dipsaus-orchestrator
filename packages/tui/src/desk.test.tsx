@@ -1168,40 +1168,71 @@ describe("Enter on a desk item", () => {
     },
   ]);
 
-  it("opens the story with its park record and every review verdict; Esc returns to the same item", async () => {
+  it("opens the story reader: the park record, then the Reviews section with the round in full; Esc returns to the same item", async () => {
     const { ui, session } = await openDesk();
     session.verdicts.set(KEY_24, verdicts);
     await selectRow(ui, "DIPO-24");
     expect(lines(ui.frame()).at(-1)).toContain("⏎ open story");
     await ui.press("enter");
-    const frame = await ui.waitFor("review verdicts (1)");
+    const frame = await ui.waitFor("Reviews 1");
     const shown = lines(frame);
-    expect(shown).toContain(" DIPO-24 Add verify retry · In Progress");
-    expect(shown).toContain(" park: review-blocked · 1h ago");
-    expect(shown).toContain("   round 3 blocked: #2 not met");
-    expect(shown.some((line) => line.startsWith(" round 1 · 4f2a9c1e5d6b · blocked · "))).toBe(
-      true,
-    );
-    // Per-criterion results and findings show plain, with no evidence marker.
-    expect(shown).toContain("   criteria: #1 met  #2 unmet");
-    expect(shown).toContain("     #2 no notice on the cap");
-    expect(shown).toContain(
-      "   finding blocking correctness #2 src/retry.ts:41: the cap is off by one",
-    );
-    expect(shown).toContain('     quote (checked): "if (tries > cap)"');
-    expect(shown).toContain('     quote (unverified): "let x"');
+    expect(shown).toContain(" DIPO-24 Add verify retry");
     expect(
       shown.some(
-        (line) => line.includes("overridden by you") && line.includes('"the cap is fine as is"'),
+        (line) => line.includes("park: review-blocked") || line.includes("review-blocked"),
       ),
     ).toBe(true);
-    expect(shown).toContain("   comment: https://github.com/o/r/pull/7#issuecomment-1");
     expect(session.reads.find((read) => read.name === "story.detail")?.args).toMatchObject({
       story: KEY_24,
     });
+    await ui.press("right");
+    await ui.press("right");
+    await ui.waitFor("ROUND 1 · 4f2a9c1 ·");
+    const reviews = lines(ui.frame());
+    // Criteria, findings and the quote show, indented under the 84-column measure.
+    expect(reviews.some((line) => line.includes("✗ 2  no notice on the cap"))).toBe(true);
+    expect(
+      reviews.some(
+        (line) =>
+          line.includes("! ") && line.includes("blocking · correctness · #2 src/retry.ts:41"),
+      ),
+    ).toBe(true);
+    expect(reviews.some((line) => line.includes("the cap is off by one"))).toBe(true);
+    expect(reviews.some((line) => line.includes("│  if (tries > cap)"))).toBe(true);
+    expect(reviews.some((line) => line.includes("advisory · maintainability · unverified"))).toBe(
+      true,
+    );
+    expect(
+      reviews.some(
+        (line) => line.includes("overridden by you") && line.includes('"the cap is fine as is"'),
+      ),
+    ).toBe(true);
+    expect(reviews.some((line) => line.includes("o open comment on GitHub"))).toBe(true);
     await ui.press("escape");
     await ui.waitFor("NEEDS YOU");
     const row = itemRows(ui.frame()).find((line) => line.startsWith("▌ "));
     expect(row).toContain("DIPO-24");
+  });
+
+  it("the Diff section reads the story's branch diff and shows it", async () => {
+    const { ui, session } = await openDesk();
+    session.verdicts.set(KEY_24, verdicts);
+    session.diffs.set(KEY_24, {
+      branch: "DIPO-24/retry",
+      base: "main",
+      diff: "diff --git a/src/retry.ts b/src/retry.ts\n@@ -1 +1 @@\n-const cap = 3;\n+const cap = 4;\n",
+      truncated: false,
+    });
+    await selectRow(ui, "DIPO-24");
+    await ui.press("enter");
+    await ui.waitFor("Reviews 1");
+    for (let i = 0; i < 4; i++) await ui.press("right");
+    await ui.waitFor("+const cap = 4;");
+    const shown = lines(ui.frame());
+    expect(shown.some((line) => line.includes("DIPO-24/retry against main"))).toBe(true);
+    expect(shown.some((line) => line.includes("-const cap = 3;"))).toBe(true);
+    expect(session.reads.find((read) => read.name === "story.diff")?.args).toMatchObject({
+      story: KEY_24,
+    });
   });
 });

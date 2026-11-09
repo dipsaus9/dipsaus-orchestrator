@@ -100,15 +100,15 @@ describe("the test checklist", () => {
     const view = await openTest();
     const { ui, session } = view;
     await showChecklist(view);
-    await ui.waitFor("Test of DIPO-19: dipo-test-19 at 9f8e7d6");
-    expect(ui.frame()).toContain("open http://localhost:3000");
+    await ui.waitFor("DIPO-19 at 9f8e7d6 · box dipo-test-19");
+    expect(ui.frame()).toContain("open   http://localhost:3000");
     // The focus bar marks the focused step.
-    expect(ui.frame()).toContain("▌ [ ] 1. open the login page -> the form shows");
-    expect(ui.frame()).toContain("  [ ] 2. submit a wrong password");
+    expect(ui.frame()).toContain("▌ ○ 1 open the login page");
+    expect(ui.frame()).toContain("  ○ 2 submit a wrong password");
 
     // The first step ticked locally: no command is sent for it.
     await ui.press(" ");
-    await ui.waitFor("[x] 1. open the login page");
+    await ui.waitFor("✓ 1 open the login page");
     expect(session.commands).toEqual([]);
 
     // n pre-fills the note with the first unticked step, which is step 2 now.
@@ -136,14 +136,14 @@ describe("the test checklist", () => {
     const view = await openTest();
     const { ui, session } = view;
     await showChecklist(view);
-    await ui.waitFor("Test of DIPO-19");
+    await ui.waitFor("box dipo-test-19");
     await ui.press("escape");
-    await until(() => !ui.frame().includes("Test of DIPO-19"), "the checklist to close");
+    await until(() => !ui.frame().includes("box dipo-test-19"), "the checklist to close");
     expect(session.commands).toEqual([]);
 
     // Back in the checklist the test is still open, with its steps as they were.
     await ui.press("t");
-    await ui.waitFor("Test of DIPO-19");
+    await ui.waitFor("box dipo-test-19");
     expect(session.commands).toEqual([]);
   });
 
@@ -165,7 +165,7 @@ describe("the test checklist", () => {
     await ui.press("t");
     await until(() => session.commands.length === 1, "test.start");
     expect(sent(session)).toEqual([{ name: "test.start", args: { story: "DIPO-19" } }]);
-    await ui.waitFor("Test of DIPO-19");
+    await ui.waitFor("box dipo-test-19");
   });
 
   it("names the story by its id until the test opens, then shows its shell line", async () => {
@@ -204,8 +204,42 @@ describe("the test checklist", () => {
         startedAt: "2026-10-14T10:03:00.000Z",
       }),
     );
-    const frame = await ui.waitFor("Test of DIPO-19: dipo-test-19 at 9f8e7d6");
-    expect(frame).toContain(" shell: dipo test shell DIPO-19");
+    const frame = await ui.waitFor("DIPO-19 at 9f8e7d6 · box dipo-test-19");
+    expect(frame).toContain("shell  dipo test shell DIPO-19");
     expect(frame).not.toContain(KEY_19);
+  });
+
+  it("c copies the shell line; a test that ends says why it closed", async () => {
+    const view = await openTest();
+    const { ui, session } = view;
+    session.active(STREAM)?.options.onEvent(
+      event(21, "test.started", {
+        test: TEST_19,
+        story: "DIPO-19",
+        key: KEY_19,
+        checkout: "dipo-test-19",
+        head: "9f8e7d6c5b4a3210",
+        steps,
+        shell: "dipo test shell DIPO-19",
+        startedAt: "2026-10-14T10:03:00.000Z",
+      }),
+    );
+    await Bun.sleep(BATCH_MS + 50);
+    await showChecklist(view);
+    await ui.waitFor("c copies");
+    await ui.press("c");
+    await ui.waitFor("copied dipo test shell DIPO-19");
+    expect(view.copied).toEqual(["dipo test shell DIPO-19"]);
+
+    // The test closes on a new head: the overlay stays and says why.
+    session.active(STREAM)?.options.onEvent(
+      event(22, "test.ended", {
+        test: TEST_19,
+        story: "DIPO-19",
+        key: KEY_19,
+        reason: "new-head",
+      }),
+    );
+    await ui.waitFor("It closed because a new head was pushed.");
   });
 });

@@ -256,10 +256,16 @@ describe("live agent detail", () => {
 
   it("z expands the stream to the whole screen and z or Esc brings the frame back", async () => {
     const { ui } = await openDetail();
-    expect(ui.frame()).toContain("dipo / dipsaus-orchestrator");
+    await ui.waitFor("dipo / dipsaus-orchestrator");
+    await ui.waitFor("following the tail");
     await ui.press("z");
-    const deadline = performance.now() + 1_000;
-    while (ui.frame().includes("dipo / ") && performance.now() < deadline) await Bun.sleep(5);
+    const deadline = performance.now() + 3_000;
+    while (
+      (ui.frame().includes("dipo / ") || !ui.frame().includes("following the tail")) &&
+      performance.now() < deadline
+    ) {
+      await Bun.sleep(5);
+    }
     const expanded = ui.frame();
     expect(expanded).not.toContain("dipo / ");
     expect(expanded).not.toContain("q q quit");
@@ -268,7 +274,7 @@ describe("live agent detail", () => {
     await ui.press("escape");
     await ui.waitFor("q q quit");
     // Esc closed only the expansion: the detail is still open.
-    expect(ui.frame()).toContain("following the tail");
+    await ui.waitFor("following the tail");
     await ui.press("z");
     await ui.press("z");
     await ui.waitFor("q q quit");

@@ -17,12 +17,12 @@ import {
   officeSetPrivacy,
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
-import { type Key, useWindowSize } from "ink";
+import { Box, type Key, useWindowSize } from "ink";
 import { useEffect, useState } from "react";
 
 import type { ActionTarget, useActions } from "./actions";
 import type { RunRequest, RunResult, TuiActions } from "./app";
-import { Checklist, firstUnticked } from "./checklist";
+import { Checklist, endedWords, firstUnticked } from "./checklist";
 import {
   Desk,
   DESK_SPLIT_COLUMNS,
@@ -48,8 +48,16 @@ import type { SegLine } from "./segments";
 import { boardEntries, Overview } from "./overview";
 import { doneCount, Queue, queueRows } from "./queue";
 import { privacySettings, Settings, settingName, appliesWords } from "./settings";
-import { type CardOutcome, StoryCard } from "./story-card";
+import {
+  type CardOutcome,
+  type DiffOutcome,
+  nextOpen,
+  SECTIONS,
+  type Section,
+  StoryCard,
+} from "./story-card";
 import { glyphs } from "./views";
+import { Shaded } from "./colour";
 
 export type View = "overview" | "queue" | "settings" | "desk" | "checklist";
 
@@ -58,6 +66,10 @@ interface CardState {
   readonly item: DeskItem;
   readonly outcome: CardOutcome | null;
   readonly top: number;
+  /** The section shown (DIPO-462), the earlier review rounds shown open and the diff once read. */
+  readonly section: Section;
+  readonly open: readonly number[];
+  readonly diff: DiffOutcome | null;
 }
 
 /** The live agent detail and the view Esc returns to. */
@@ -360,7 +372,7 @@ export function useHome(args: HomeArgs) {
     if (item.idea !== undefined) {
       setMessage(null);
       setDeskSelection({ id: deskRowId(item), key: item.key ?? null, index: deskIndex });
-      setCard({ item, outcome: null, top: 0 });
+      setCard({ item, outcome: null, top: 0, section: "Story", open: [], diff: null });
       return;
     }
     if (item.key === undefined || state.office === null) {
@@ -370,11 +382,16 @@ export function useHome(args: HomeArgs) {
     const office = state.office;
     setMessage(null);
     setDeskSelection({ id: deskRowId(item), key: item.key, index: deskIndex });
-    setCard({ item, outcome: null, top: 0 });
+    setCard({ item, outcome: null, top: 0, section: "Story", open: [], diff: null });
     void actions.readStory({ office, story: item.key }).then((outcome) => {
       if (store.state.office !== office) return;
       const read: CardOutcome = outcome.ok
-        ? { ok: true, view: outcome.result.view, verdicts: outcome.result.verdicts ?? [] }
+        ? {
+            ok: true,
+            view: outcome.result.view,
+            verdicts: outcome.result.verdicts ?? [],
+            runs: outcome.result.runs,
+          }
         : outcome;
       setCard((open) => (open?.item === item ? { ...open, outcome: read } : open));
     });
@@ -524,11 +541,43 @@ export function useHome(args: HomeArgs) {
     send(run.request, run.label);
   };
 
+  /** Shows `section` of the card; the Diff section reads `story.diff` the first time. */
+  const showSection = (open: CardState, section: Section) => {
+    setCard({ ...open, section, top: 0 });
+    if (section !== "Diff" || open.diff !== null || open.item.key === undefined) return;
+    const office = state.office;
+    if (office === null) return;
+    const { item } = open;
+    void actions.readDiff({ office, story: item.key as StoryKey }).then((diff) => {
+      if (store.state.office !== office) return;
+      setCard((current) => (current?.item === item ? { ...current, diff } : current));
+    });
+  };
+
   /** The story a desk row opened: Esc returns to the desk, `j`/`k` scroll, view keys leave it. */
   const onCardKey = (open: CardState, input: string, key: Key): boolean => {
     if (key.escape) {
       setCard(null);
       setMessage(null);
+      return true;
+    }
+    const at = SECTIONS.indexOf(open.section);
+    if (key.leftArrow || key.rightArrow || input === "h" || input === "l") {
+      const step = key.leftArrow || input === "h" ? -1 : 1;
+      const section = SECTIONS[(at + step + SECTIONS.length) % SECTIONS.length] ?? "Story";
+      showSection(open, section);
+      return true;
+    }
+    if (key.return && open.section === "Reviews" && open.outcome?.ok === true) {
+      setCard({ ...open, open: nextOpen(open.outcome.verdicts, open.open), top: 0 });
+      return true;
+    }
+    if (input === "o" && open.section === "Reviews" && open.outcome?.ok === true) {
+      const url = open.outcome.verdicts
+        .flatMap((verdict) => (verdict.review === undefined ? [] : [verdict.review]))
+        .toSorted((a, b) => b.round - a.round)[0]?.commentUrl;
+      if (url === undefined) setMessage("the latest round has no comment on GitHub");
+      else void args.openUrl(url).then((failure) => setMessage(failure ?? `opened ${url}`));
       return true;
     }
     if (key.downArrow || input === "j") {
@@ -651,6 +700,11 @@ export function useHome(args: HomeArgs) {
       recordTest("pass");
     } else if (input === "n") {
       recordTest("fail");
+    } else if (input === "c" && checklistTest?.shell !== undefined) {
+      copyId(checklistTest.shell);
+    } else if (input === "o" && checklistTest?.url !== undefined) {
+      const url = checklistTest.url;
+      void args.openUrl(url).then((failure) => setMessage(failure ?? `opened ${url}`));
     }
   };
 
@@ -1050,32 +1104,34 @@ export function HomeMode(props: HomeModeProps) {
         columns={columns}
         height={height}
         top={card.top}
+        section={card.section}
+        open={card.open}
+        diff={card.diff}
       />
     );
   }
-  if (view === "desk") {
-    return (
-      <Desk
-        desk={home.desk}
-        selected={home.deskIndex}
-        columns={columns}
-        height={height}
-        now={clock.now()}
-        display={display}
-        title={(story) =>
-          state.stories.find((candidate) => String(candidate.story) === story)?.title ?? null
-        }
-        preview={home.deskPreviewLines}
-        previewOpen={home.deskPreview}
-        since={home.sinceShown ? home.digest : null}
-        action={home.deskAction}
-        team={{
-          running: state.work.length,
-          inReview: state.stories.filter((story) => story.column === "review").length,
-        }}
-      />
-    );
-  }
+  const deskElement = (
+    <Desk
+      desk={home.desk}
+      selected={home.deskIndex}
+      columns={columns}
+      height={height}
+      now={clock.now()}
+      display={display}
+      title={(story) =>
+        state.stories.find((candidate) => String(candidate.story) === story)?.title ?? null
+      }
+      preview={home.deskPreviewLines}
+      previewOpen={home.deskPreview}
+      since={home.sinceShown ? home.digest : null}
+      action={home.deskAction}
+      team={{
+        running: state.work.length,
+        inReview: state.stories.filter((story) => story.column === "review").length,
+      }}
+    />
+  );
+  if (view === "desk") return deskElement;
   if (view === "queue") {
     return (
       <Queue
@@ -1093,19 +1149,30 @@ export function HomeMode(props: HomeModeProps) {
   }
   if (view === "checklist") {
     const { checklistTest, checklistKey, checklistStory } = home;
+    const ended = state.testEnd;
     return (
-      <Checklist
-        test={checklistTest}
-        empty={
-          checklistKey === null
-            ? "No test is open. t on a desk row starts one."
-            : `No test is open for ${checklistStory ?? "this story"}.`
-        }
-        ticked={checklistTest === null ? [] : (home.ticks[checklistTest.test] ?? [])}
-        step={home.checklistStep}
-        display={display}
-        columns={columns}
-      />
+      <Box flexDirection="column" height={height} overflow="hidden">
+        <Shaded display={display}>{deskElement}</Shaded>
+        <Box position="absolute" flexDirection="column" width="100%">
+          <Checklist
+            test={checklistTest}
+            empty={
+              checklistKey === null
+                ? "No test is open. t on a desk row starts one."
+                : `No test is open for ${checklistStory ?? "this story"}.`
+            }
+            ended={
+              checklistTest === null && ended !== null && String(ended.story) === checklistStory
+                ? endedWords(ended.reason)
+                : null
+            }
+            ticked={checklistTest === null ? [] : (home.ticks[checklistTest.test] ?? [])}
+            step={home.checklistStep}
+            display={display}
+            columns={columns}
+          />
+        </Box>
+      </Box>
     );
   }
   return (

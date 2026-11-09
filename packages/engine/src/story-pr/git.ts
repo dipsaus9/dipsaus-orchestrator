@@ -132,3 +132,41 @@ export function gitStoryPrOps(deps: {
     },
   };
 }
+
+/** What `branchDiff` read: the base's name and the diff text, cut at the byte cap. */
+export interface BranchDiff {
+  readonly base: string;
+  readonly diff: string;
+  readonly truncated: boolean;
+}
+
+/**
+ * The unified diff of `branch` against the base's tip, three-dot as the PR shows it (DIPO-462);
+ * null when git cannot tell (no base, no such branch). The branch is read from the local heads,
+ * else from the remote's.
+ */
+export function branchDiff(
+  git: OfficeGit,
+  branch: string,
+  maxBytes: number,
+): Promise<BranchDiff | null> {
+  return git.run(async (session) => {
+    const base = await baseRefOf(git, session);
+    if (base === null) return null;
+    for (const head of [`refs/heads/${branch}`, `refs/remotes/${git.settings.remote}/${branch}`]) {
+      const diff = await session.step(session.repository, [
+        "diff",
+        "--no-renames",
+        "--no-color",
+        "--no-ext-diff",
+        `${base.ref}...${head}`,
+      ]);
+      if (diff.code !== 0) continue;
+      const bytes = new TextEncoder().encode(diff.stdout);
+      if (bytes.length <= maxBytes) return { base: base.base, diff: diff.stdout, truncated: false };
+      const cut = new TextDecoder().decode(bytes.subarray(0, maxBytes)).replace(/�$/, "");
+      return { base: base.base, diff: cut, truncated: true };
+    }
+    return null;
+  });
+}

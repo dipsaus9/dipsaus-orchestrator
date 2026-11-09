@@ -689,6 +689,22 @@ export const storyDetail = defineRead({
   }),
 });
 
+// (DIPO-462): the unified diff of the story's branch against the base, three-dot as its PR shows
+// it, for the story reader's Diff section. `diff` is cut at `DIFF_MAX_BYTES` (`truncated`); it is
+// empty when the story has no branch or git could not say (`unavailable` says why then).
+export const DIFF_MAX_BYTES = 512 * 1024;
+export const storyDiff = defineRead({
+  name: "story.diff",
+  args: z.object({ office: OfficeId, story: StoryRefValue }),
+  result: z.object({
+    branch: z.string().nullable(),
+    base: z.string().optional(),
+    diff: z.string(),
+    truncated: z.boolean(),
+    unavailable: z.string().optional(),
+  }),
+});
+
 // Stored output text for a byte range; `to` absent reads to the end of what is stored.
 export const workOutputRange = defineRead({
   name: "work.outputRange",
@@ -1429,6 +1445,7 @@ export const officeCommands = [
 export const officeReads = [
   officeSnapshot,
   storyDetail,
+  storyDiff,
   workOutputRange,
   officeDigest,
   officeChain,
