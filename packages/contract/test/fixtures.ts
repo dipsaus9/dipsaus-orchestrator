@@ -394,6 +394,15 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
 
 const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
   "office.snapshot": { args: { office: ids.office }, result: officeSnapshot },
+  "story.diff": {
+    args: { office: ids.office, story: "DIPO-21" },
+    result: {
+      branch: "DIPO-21/work",
+      base: "main",
+      diff: "diff --git a/a.txt b/a.txt\n+one\n",
+      truncated: false,
+    },
+  },
   "story.detail": {
     args: { office: ids.office, story: "DIPO-21" },
     result: {

@@ -140,6 +140,12 @@ export interface OfficeStoreState {
   readonly gates: readonly GateView[];
   readonly questions: readonly QuestionView[];
   readonly tests: readonly TestView[];
+  /** The newest `test.ended` the store saw, for the overlay that showed the test (DIPO-462). */
+  readonly testEnd: {
+    readonly test: string;
+    readonly story: string;
+    readonly reason: string;
+  } | null;
   /** The selected office's open planning session (DIPO-449); null without one. */
   readonly planning: PlanningView | null;
   /**
@@ -212,6 +218,7 @@ const EMPTY_OFFICE = {
   gates: [],
   questions: [],
   tests: [],
+  testEnd: null,
   planning: null,
   cursor: null,
 } as const;
@@ -498,6 +505,7 @@ export class OfficeStore {
       gates: snapshot.gates,
       questions: snapshot.questions,
       tests: snapshot.tests,
+      testEnd: null,
       planning: snapshot.planning ?? null,
       cursor: snapshot.cursor,
       snapshots: this.#state.snapshots + 1,
@@ -835,7 +843,10 @@ export class OfficeStore {
       case testEnded.type: {
         const data = testEnded.data.safeParse(event.data);
         if (!data.success) return;
-        this.#update({ tests: this.#state.tests.filter((test) => test.test !== data.data.test) });
+        this.#update({
+          tests: this.#state.tests.filter((test) => test.test !== data.data.test),
+          testEnd: { test: data.data.test, story: data.data.story, reason: data.data.reason },
+        });
         return;
       }
       default:

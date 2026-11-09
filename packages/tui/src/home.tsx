@@ -17,12 +17,12 @@ import {
   officeSetPrivacy,
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
-import { type Key, useWindowSize } from "ink";
+import { Box, type Key, useWindowSize } from "ink";
 import { useEffect, useState } from "react";
 
 import type { ActionTarget, useActions } from "./actions";
 import type { RunRequest, RunResult, TuiActions } from "./app";
-import { Checklist, firstUnticked } from "./checklist";
+import { Checklist, endedWords, firstUnticked } from "./checklist";
 import {
   Desk,
   DESK_SPLIT_COLUMNS,
@@ -50,6 +50,7 @@ import { doneCount, Queue, queueRows } from "./queue";
 import { privacySettings, Settings, settingName, appliesWords } from "./settings";
 import { type CardOutcome, StoryCard } from "./story-card";
 import { glyphs } from "./views";
+import { Shaded } from "./colour";
 
 export type View = "overview" | "queue" | "settings" | "desk" | "checklist";
 
@@ -651,6 +652,11 @@ export function useHome(args: HomeArgs) {
       recordTest("pass");
     } else if (input === "n") {
       recordTest("fail");
+    } else if (input === "c" && checklistTest?.shell !== undefined) {
+      copyId(checklistTest.shell);
+    } else if (input === "o" && checklistTest?.url !== undefined) {
+      const url = checklistTest.url;
+      void args.openUrl(url).then((failure) => setMessage(failure ?? `opened ${url}`));
     }
   };
 
@@ -1053,29 +1059,28 @@ export function HomeMode(props: HomeModeProps) {
       />
     );
   }
-  if (view === "desk") {
-    return (
-      <Desk
-        desk={home.desk}
-        selected={home.deskIndex}
-        columns={columns}
-        height={height}
-        now={clock.now()}
-        display={display}
-        title={(story) =>
-          state.stories.find((candidate) => String(candidate.story) === story)?.title ?? null
-        }
-        preview={home.deskPreviewLines}
-        previewOpen={home.deskPreview}
-        since={home.sinceShown ? home.digest : null}
-        action={home.deskAction}
-        team={{
-          running: state.work.length,
-          inReview: state.stories.filter((story) => story.column === "review").length,
-        }}
-      />
-    );
-  }
+  const deskElement = (
+    <Desk
+      desk={home.desk}
+      selected={home.deskIndex}
+      columns={columns}
+      height={height}
+      now={clock.now()}
+      display={display}
+      title={(story) =>
+        state.stories.find((candidate) => String(candidate.story) === story)?.title ?? null
+      }
+      preview={home.deskPreviewLines}
+      previewOpen={home.deskPreview}
+      since={home.sinceShown ? home.digest : null}
+      action={home.deskAction}
+      team={{
+        running: state.work.length,
+        inReview: state.stories.filter((story) => story.column === "review").length,
+      }}
+    />
+  );
+  if (view === "desk") return deskElement;
   if (view === "queue") {
     return (
       <Queue
@@ -1093,19 +1098,30 @@ export function HomeMode(props: HomeModeProps) {
   }
   if (view === "checklist") {
     const { checklistTest, checklistKey, checklistStory } = home;
+    const ended = state.testEnd;
     return (
-      <Checklist
-        test={checklistTest}
-        empty={
-          checklistKey === null
-            ? "No test is open. t on a desk row starts one."
-            : `No test is open for ${checklistStory ?? "this story"}.`
-        }
-        ticked={checklistTest === null ? [] : (home.ticks[checklistTest.test] ?? [])}
-        step={home.checklistStep}
-        display={display}
-        columns={columns}
-      />
+      <Box flexDirection="column" height={height} overflow="hidden">
+        <Shaded display={display}>{deskElement}</Shaded>
+        <Box position="absolute" flexDirection="column" width="100%">
+          <Checklist
+            test={checklistTest}
+            empty={
+              checklistKey === null
+                ? "No test is open. t on a desk row starts one."
+                : `No test is open for ${checklistStory ?? "this story"}.`
+            }
+            ended={
+              checklistTest === null && ended !== null && String(ended.story) === checklistStory
+                ? endedWords(ended.reason)
+                : null
+            }
+            ticked={checklistTest === null ? [] : (home.ticks[checklistTest.test] ?? [])}
+            step={home.checklistStep}
+            display={display}
+            columns={columns}
+          />
+        </Box>
+      </Box>
     );
   }
   return (

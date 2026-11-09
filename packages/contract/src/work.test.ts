@@ -262,6 +262,7 @@ describe("office commands and reads", () => {
       [
         "office.snapshot",
         "story.detail",
+        "story.diff",
         "work.outputRange",
         "office.digest",
         "office.chain",
