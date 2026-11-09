@@ -577,6 +577,42 @@
                   "type": "string"
                 }
               ]
+            },
+            "checks": {
+              "type": "object",
+              "properties": {
+                "required": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["passed", "pending", "failed"]
+                }
+              },
+              "required": ["required", "state"]
+            },
+            "change": {
+              "type": "object",
+              "properties": {
+                "files": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "additions": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "deletions": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["files", "additions", "deletions"]
             }
           },
           "required": ["number", "url", "state"]
@@ -1246,6 +1282,42 @@
                         "type": "string"
                       }
                     ]
+                  },
+                  "checks": {
+                    "type": "object",
+                    "properties": {
+                      "required": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": ["passed", "pending", "failed"]
+                      }
+                    },
+                    "required": ["required", "state"]
+                  },
+                  "change": {
+                    "type": "object",
+                    "properties": {
+                      "files": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "additions": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "deletions": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": ["files", "additions", "deletions"]
                   }
                 },
                 "required": ["number", "url", "state"]
@@ -2718,6 +2790,7 @@
             {
               "type": "string",
               "enum": [
+                "PROFILE",
                 "STARTS PAUSED",
                 "QUESTION",
                 "SCOPE",
@@ -2733,7 +2806,6 @@
                 "DECISION NOTE",
                 "NEXT UP",
                 "PARKED BY YOU",
-                "PROFILE",
                 "LOADING"
               ]
             },
@@ -2780,6 +2852,42 @@
                   "type": "string"
                 }
               ]
+            },
+            "checks": {
+              "type": "object",
+              "properties": {
+                "required": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["passed", "pending", "failed"]
+                }
+              },
+              "required": ["required", "state"]
+            },
+            "change": {
+              "type": "object",
+              "properties": {
+                "files": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "additions": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "deletions": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["files", "additions", "deletions"]
             }
           },
           "required": ["number", "url", "state"]
@@ -2865,9 +2973,24 @@
                 },
                 "serves": {
                   "type": "string"
+                },
+                "tier": {
+                  "type": "string"
                 }
               },
               "required": ["found", "evidence", "storyLine", "proposed", "why", "serves"]
+            },
+            "raisedBy": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                }
+              },
+              "required": ["role"]
             }
           },
           "required": ["id", "origin", "title", "story"]
@@ -2917,6 +3040,9 @@
                 "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)+$"
               },
               "cli": {
+                "type": "string"
+              },
+              "consequence": {
                 "type": "string"
               }
             },
@@ -3019,6 +3145,9 @@
               "type": "string"
             },
             "serves": {
+              "type": "string"
+            },
+            "tier": {
               "type": "string"
             }
           },
@@ -3166,6 +3295,11 @@
                     "type": "string",
                     "pattern": "^(?:m-\\d+|tech-debt)$",
                     "description": "the milestone id it serves, such as \"m-3\", or \"tech-debt\""
+                  },
+                  "tier": {
+                    "description": "the size of the work it asks for, as the backlog's tiers: S, M or L",
+                    "type": "string",
+                    "enum": ["S", "M", "L"]
                   }
                 },
                 "required": [

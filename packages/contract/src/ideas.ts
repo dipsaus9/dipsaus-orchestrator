@@ -7,7 +7,7 @@
 import { z } from "zod";
 
 import { RunId, StoryId } from "./ids";
-import { openEnum } from "./work";
+import { KNOWN_TIERS, openEnum } from "./work";
 
 const Count = z.int().nonnegative();
 const Timestamp = z.iso.datetime();
@@ -92,6 +92,10 @@ export const AuditPass = z.strictObject({
   proposed: Text(caps.proposed).describe("what the story proposes"),
   why: Text(caps.why).describe("why it is needed"),
   serves: IdeaServes,
+  tier: z
+    .enum(KNOWN_TIERS)
+    .optional()
+    .describe("the size of the work it asks for, as the backlog's tiers: S, M or L"),
 });
 export const AuditReject = z.strictObject({
   idea: Text(caps.ideaRef).describe("the id of the idea, as its idea tag names it"),
@@ -117,6 +121,8 @@ export const ProposedStory = z.object({
   proposed: z.string(),
   why: z.string(),
   serves: z.string(),
+  // The audit's tier for the work (DIPO-459), the card's Size; absent for an older pass.
+  tier: z.string().optional(),
 });
 export type ProposedStory = z.infer<typeof ProposedStory>;
 

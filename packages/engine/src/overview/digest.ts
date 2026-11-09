@@ -2,7 +2,9 @@
 // the stored change log, and gives one code-built line per fact in log order. The client keeps
 // `since` itself, so the engine does not depend on which clients connect (0001). Nothing here asks
 // a model; worker text (an idea's title) is cleaned as the desk cleans it, because a terminal
-// shows the line.
+// shows the line. `spent` (DIPO-459, the Desk's Since band) is the cost the CLI reported for the
+// office's agents whose usage moved after `since`, estimated as every cost is (0008): an agent that
+// ran across `since` counts whole.
 
 import { officeDigest } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
@@ -119,7 +121,17 @@ export function digest(office: OfficeHandle, since: number): z.input<typeof offi
     counts[fact.count] += 1;
     if (lines.length < DIGEST_LINES_MAX) lines.push(fact.line);
   }
-  return { since: new Date(since).toISOString(), counts, lines };
+  const cost = office.get<{ cost: number | null }>(
+    `select sum(cost_micros) as cost from usage_totals
+      where office_id = $office_id and updated_at > $since`,
+    { since },
+  )?.cost;
+  return {
+    since: new Date(since).toISOString(),
+    counts,
+    lines,
+    ...(cost === null || cost === undefined ? {} : { spent: cost / 1_000_000 }),
+  };
 }
 
 /** Registers `office.digest`; `overview/feature.ts` calls it. */

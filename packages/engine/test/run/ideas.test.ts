@@ -435,6 +435,18 @@ describe("the audit's answer (DIPO-452)", () => {
       });
     }));
 
+  it("keeps the audit's tier with the pass, the card's Size (DIPO-459)", () =>
+    withWorld(async (w) => {
+      w.answer = (request) =>
+        answered({ ideas: request.ideas.map((idea) => passOf(idea, { tier: "S" })) });
+      const story = storyRun(w, "DIPO-12");
+      propose(w, story, "Cap the PR poll retry");
+      endStoryRun(w, story.run, "parked");
+      await poke(w);
+      expect(byTitle(w, "Cap the PR poll retry")?.proposal?.tier).toBe("S");
+      expect(auditSystemFile()).toContain("and its tier: `S`, `M` or `L`");
+    }));
+
   it("keeps a reject with its reason", () =>
     withWorld(async (w) => {
       w.answer = (request) =>

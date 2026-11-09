@@ -508,6 +508,42 @@
                       "type": "string"
                     }
                   ]
+                },
+                "checks": {
+                  "type": "object",
+                  "properties": {
+                    "required": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": ["passed", "pending", "failed"]
+                    }
+                  },
+                  "required": ["required", "state"]
+                },
+                "change": {
+                  "type": "object",
+                  "properties": {
+                    "files": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "additions": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "deletions": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": ["files", "additions", "deletions"]
                 }
               },
               "required": ["number", "url", "state"]
@@ -2991,6 +3027,42 @@
                   "type": "string"
                 }
               ]
+            },
+            "checks": {
+              "type": "object",
+              "properties": {
+                "required": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["passed", "pending", "failed"]
+                }
+              },
+              "required": ["required", "state"]
+            },
+            "change": {
+              "type": "object",
+              "properties": {
+                "files": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "additions": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "deletions": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["files", "additions", "deletions"]
             }
           },
           "required": ["number", "url", "state"]

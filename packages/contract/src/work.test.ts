@@ -368,7 +368,10 @@ describe("the desk", () => {
     expect(DeskItem.parse(item)).toEqual(item as never);
     expect(DeskItem.safeParse({ ...item, kind: "SOMETHING NEW" }).success).toBe(true);
     expect(KNOWN_DESK_KINDS).toContain("PARKED BY YOU");
-    expect(KNOWN_DESK_KINDS[0]).toBe("STARTS PAUSED");
+    expect(KNOWN_DESK_KINDS[0]).toBe("PROFILE");
+    expect(KNOWN_DESK_KINDS.indexOf("PARKED BY YOU")).toBeGreaterThan(
+      KNOWN_DESK_KINDS.indexOf("NEXT UP"),
+    );
   });
 
   it("needs a detail, a since, blocks and actions, and a dotted command name", () => {

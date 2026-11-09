@@ -40,6 +40,7 @@ import { executeCommand } from "../../src/commands/execute";
 import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import type { OfficeHandle } from "../../src/db/office";
+import { DESK_CONSEQUENCES } from "../../src/overview/desk";
 import { executeRead } from "../../src/reads/execute";
 import { holdIdea, ideaViews, passIdea, rejectIdea } from "../../src/records/ideas";
 import { IdeaAnswers, ideaDraft } from "../../src/run/idea-answers";
@@ -233,13 +234,23 @@ describe("a passed idea on the desk (criterion 1)", () => {
       title: "Split RunOutcomes",
       run: RUN,
       story: proposalOf("m-3"),
+      // Its run keeps no developer agent here: the role alone (DIPO-459).
+      raisedBy: { role: "developer" },
     });
     // The card is never cut: `found` is longer than any desk line.
     expect(item?.idea?.story.found.length ?? 0).toBeGreaterThan(300);
     expect(item?.detail).toBe(`"Split RunOutcomes" · milestone m-3 · from a worker's proposal`);
     expect(item?.actions).toEqual([
-      { command: "idea.accept", cli: `dipo idea accept ${id}` },
-      { command: "idea.dismiss", cli: `dipo idea dismiss ${id}` },
+      {
+        command: "idea.accept",
+        cli: `dipo idea accept ${id}`,
+        consequence: DESK_CONSEQUENCES["idea.accept"],
+      },
+      {
+        command: "idea.dismiss",
+        cli: `dipo idea dismiss ${id}`,
+        consequence: DESK_CONSEQUENCES["idea.dismiss"],
+      },
     ]);
   });
 
@@ -639,7 +650,13 @@ describe("decision notes (criterion 4, DIPO-404)", () => {
     const id = item?.note?.id ?? "";
     expect(item?.detail).toContain('section "4. The reviewer session"');
     expect(item?.hand).toContain("dipo never writes decision records");
-    expect(item?.actions).toEqual([{ command: "note.dismiss", cli: `dipo note dismiss ${id}` }]);
+    expect(item?.actions).toEqual([
+      {
+        command: "note.dismiss",
+        cli: `dipo note dismiss ${id}`,
+        consequence: DESK_CONSEQUENCES["note.dismiss"],
+      },
+    ]);
     const reply = await send("note.dismiss", { note: id.slice(0, 12) });
     expect(reply).toMatchObject({
       ok: true,

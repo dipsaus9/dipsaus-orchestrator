@@ -2,7 +2,7 @@
 
 export { storyPrBodyHash, STORY_PR_MAX_BODY, storyPrBody } from "./body";
 export type { PrBodyStatus, PrBodyStory } from "./body";
-export { gitStoryPrOps } from "./git";
+export { gitStoryPrOps, numstatChange } from "./git";
 export type { StoryPrFacts, PrStory, StoryPrGit } from "./git";
 export { checksFinal, evaluateChecks, requiredCheckStates } from "./checks";
 export type { ChecksVerdict, RequiredCheckState } from "./checks";

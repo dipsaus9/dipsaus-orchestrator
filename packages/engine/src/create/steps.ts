@@ -111,6 +111,8 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
         ],
         // The stories offered for free run slots (DIPO-440, 0010).
         nextUp: (handle) => commands.nextUp.offers(handle.officeId as OfficeId),
+        // A merge gate's required checks and change stats (DIPO-459).
+        prFacts: (handle, run) => story.storyPrs.deskFacts(handle.officeId as OfficeId, run),
       },
       planning: (handle) => runs.planning.view(handle.officeId as OfficeId),
     }),

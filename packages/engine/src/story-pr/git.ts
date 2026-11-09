@@ -1,11 +1,13 @@
 // What the story PR reads from the story's branch and the repository (DIPO-144): the story as
 // committed on its branch, read through the StoryStore (`viewOnBranch`), the branch tip, the remote
-// URL and the base. Every step is an office git queue item through the hardened runner,
-// as the steps of verify and commit are.
+// URL and the base, and what the branch changes against the base (DIPO-459, the desk's MERGE
+// preview). Every step is an office git queue item through the hardened runner, as the steps of
+// verify and commit are.
 
-import type { OfficeId } from "@dipsaus-orchestrator/contract";
+import type { OfficeId, StoryPrChange } from "@dipsaus-orchestrator/contract";
 
-import type { OfficeGit } from "../git/office";
+import { baseRefOf } from "../box/collisions";
+import type { GitSession, OfficeGit } from "../git/office";
 import { branchTip, type PushResult, pushBranch } from "../git/write";
 import { promptStoryOf } from "../prompts/story";
 import { parseFieldBlock } from "../story-store/fields/block";
@@ -29,6 +31,43 @@ export interface StoryPrFacts {
   readonly remoteUrl: string | null;
   /** The base branch the PR targets. */
   readonly base: string;
+  /** The files the branch changes against the base and their lines; absent when git could not say. */
+  readonly change?: StoryPrChange;
+}
+
+/**
+ * Pure: `git diff --numstat` as a change: one line per file, `<added>\t<removed>\t<path>`; a
+ * binary file (`-\t-`) counts as a file with no lines.
+ */
+export function numstatChange(stdout: string): StoryPrChange {
+  let files = 0;
+  let additions = 0;
+  let deletions = 0;
+  for (const line of stdout.split("\n")) {
+    const match = /^(\d+|-)\t(\d+|-)\t./.exec(line);
+    if (match === null) continue;
+    files += 1;
+    additions += match[1] === "-" ? 0 : Number(match[1]);
+    deletions += match[2] === "-" ? 0 : Number(match[2]);
+  }
+  return { files, additions, deletions };
+}
+
+/** What `head` changes against the base's tip, three-dot as the PR shows it; undefined on a failure. */
+async function changeOf(
+  git: OfficeGit,
+  session: GitSession,
+  head: string,
+): Promise<StoryPrChange | undefined> {
+  const base = await baseRefOf(git, session);
+  if (base === null) return undefined;
+  const diff = await session.step(session.repository, [
+    "diff",
+    "--numstat",
+    "--no-renames",
+    `${base.ref}...${head}`,
+  ]);
+  return diff.code === 0 ? numstatChange(diff.stdout) : undefined;
 }
 
 export interface StoryPrGit {
@@ -69,6 +108,7 @@ export function gitStoryPrOps(deps: {
           `remote.${git.settings.remote}.url`,
         ]);
         const url = remote.stdout.trim();
+        const change = await changeOf(git, session, head).catch(() => undefined);
         return {
           story: {
             id: prompt.id,
@@ -86,6 +126,7 @@ export function gitStoryPrOps(deps: {
           head,
           remoteUrl: remote.code === 0 && url !== "" ? url : null,
           base: await git.resolveBaseIn(session),
+          ...(change === undefined ? {} : { change }),
         };
       });
     },

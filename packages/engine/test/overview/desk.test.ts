@@ -6,7 +6,9 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  type CommandName,
   type DeskItem,
+  KNOWN_DESK_KINDS,
   RequestId,
   RunId,
   StoryId,
@@ -35,9 +37,16 @@ import {
   deskLine,
   deskText,
   type DeskSources,
+  DESK_CONSEQUENCES,
   DESK_SOURCES,
 } from "../../src/overview/desk";
 import { viewsFeature } from "./views-feature";
+
+/** A desk action as the engine builds it: the command line and its consequence line (DIPO-459). */
+function deskAction(command: CommandName, cli: string) {
+  const consequence = DESK_CONSEQUENCES[command];
+  return { command, cli, ...(consequence === undefined ? {} : { consequence }) };
+}
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { pass, task } from "../stories/helpers";
 import { insertPark as insertParkRow } from "../run/park-fixture";
@@ -184,7 +193,7 @@ describe("the desk order (0020)", () => {
           summary: "merge.autoMerge is off: approve or reject the merge",
           at: base + HOUR,
         });
-        // Group 3: by reason as 0020 lists them, whatever their age; group 4: the stories the
+        // Group 4: by reason as 0020 lists them, whatever their age; group 8, last: the stories the
         // maintainer parked.
         insertPark(office, "DIPO-5", { reason: "by-maintainer", detail: "stopped", at: base });
         insertPark(office, "DIPO-6", {
@@ -290,14 +299,20 @@ describe("the desk order (0020)", () => {
           "PARKED DIPO-7",
           "PARKED DIPO-6",
           "PARKED DIPO-8",
-          "PARKED BY YOU DIPO-5",
-          "PARKED BY YOU DIPO-9",
           "LEFTOVERS DIPO-10",
           "BACKLOG PR -",
           "PROPOSED STORY DIPO-11",
           "PROPOSED STORY DIPO-11",
           "DECISION NOTE DIPO-11",
+          "PARKED BY YOU DIPO-5",
+          "PARKED BY YOU DIPO-9",
         ]);
+        // The kinds come in the order of `KNOWN_DESK_KINDS` (DIPO-459), so a client that groups
+        // by kind keeps this order.
+        const ranks = items.map((item) =>
+          (KNOWN_DESK_KINDS as readonly string[]).indexOf(item.kind),
+        );
+        expect(ranks).toEqual(ranks.toSorted((a, b) => a - b));
         const byStory = (story: string, kind = "PARKED") =>
           items.find((item) => item.story === story && item.kind === kind);
         expect(byStory("DIPO-7")?.blocks).toEqual([
@@ -337,7 +352,7 @@ describe("the desk order (0020)", () => {
           ],
         });
         expect(byStory("DIPO-5", "PARKED BY YOU")?.actions).toEqual([
-          { command: "work.resume", cli: "dipo resume DIPO-5" },
+          deskAction("work.resume", "dipo resume DIPO-5"),
         ]);
         expect(items.find((item) => item.kind === "BACKLOG PR")).toMatchObject({
           pr: { number: 40 },
@@ -508,8 +523,8 @@ describe("review-blocked parks and hand-merge-only gates", () => {
             (item) => item.actions,
           ),
         ).toEqual([
-          [{ command: "work.resume", cli: "dipo resume DIPO-2" }],
-          [{ command: "work.discard", cli: 'dipo discard DIPO-1 --note "<why>"' }],
+          [deskAction("work.resume", "dipo resume DIPO-2")],
+          [deskAction("work.discard", 'dipo discard DIPO-1 --note "<why>"')],
         ]);
       } finally {
         t.state.close();
@@ -684,6 +699,8 @@ describe("the office.desk read", () => {
               title: "Split it",
               run,
               story: expect.objectContaining({ storyLine: STORY_LINE, serves: "m-3" }),
+              // A worker's proposal whose run keeps no developer agent names the role alone.
+              raisedBy: { role: "developer" },
             },
             detail: `"Split it" · milestone m-3 · from a worker's proposal`,
             since: new Date(at + 2).toISOString(),
@@ -813,11 +830,12 @@ describe("the desk shows a story Done elsewhere (DIPO-161)", () => {
 
         const items = await readWithDiscard(t, office);
 
-        expect(rows(items)).toEqual(["LEFTOVERS DIPO-105", "DONE ELSEWHERE DIPO-106"]);
-        expect(items[0]?.actions).toEqual([
-          { command: "work.discard", cli: 'dipo discard DIPO-105 --note "<why>"' },
+        // DONE ELSEWHERE before LEFTOVERS, as `KNOWN_DESK_KINDS` orders them (DIPO-459).
+        expect(rows(items)).toEqual(["DONE ELSEWHERE DIPO-106", "LEFTOVERS DIPO-105"]);
+        expect(items[1]?.actions).toEqual([
+          deskAction("work.discard", 'dipo discard DIPO-105 --note "<why>"'),
         ]);
-        expect(items[0]?.detail).toContain("1 commit not on main");
+        expect(items[1]?.detail).toContain("1 commit not on main");
       } finally {
         t.state.close();
       }
@@ -846,10 +864,7 @@ describe("a worker question on the desk (DIPO-159, 0020)", () => {
         expect(item?.detail.endsWith('…"')).toBe(true);
         expect(Array.from(item?.detail ?? "").length).toBeLessThanOrEqual(DESK_DETAIL_MAX);
         expect(item?.actions).toEqual([
-          {
-            command: "work.answer",
-            cli: 'dipo answer qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A --text "<answer>"',
-          },
+          deskAction("work.answer", 'dipo answer qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A --text "<answer>"'),
         ]);
       } finally {
         t.state.close();
@@ -928,7 +943,7 @@ describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
           detail: "no new session starts · plan limit until 2026-10-28T12:00:00.000Z",
           since: new Date(at).toISOString(),
           blocks: [],
-          actions: [{ command: "daemon.resumeStarts", cli: "dipo daemon resume-starts" }],
+          actions: [deskAction("daemon.resumeStarts", "dipo daemon resume-starts")],
           hand: "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-starts`.",
         });
 
@@ -1033,4 +1048,169 @@ describe("a cut desk detail (DIPO-415)", () => {
       expect(shown.split("`").length % 2).toBe(1);
     }
   });
+});
+
+// The facts the TUI's Desk preview shows (DIPO-459), built by the engine.
+describe("what the desk preview shows (DIPO-459)", () => {
+  it("puts the profile's setup rows first and the stories the maintainer parked last", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-1"), task("DIPO-2")]);
+        const at = t.clock.now();
+        insertPark(office, "DIPO-1", { reason: "by-maintainer", detail: "later", at });
+        insertPark(office, "DIPO-2", { reason: "verify-failing", detail: "red", at });
+        const items = desk(office, all, {
+          ...ALL_SOURCES,
+          startsPaused: () => ({
+            reason: "plan-limit",
+            detail: "plan limit",
+            since: at,
+            until: null,
+            lifts: "It lifts by itself.",
+          }),
+          nextUp: () => [
+            {
+              story: StoryId.parse("DIPO-3"),
+              key: keyOf(office, "DIPO-1"),
+              title: "Three",
+              why: "first Ready story",
+              shared: [],
+              since: at,
+            },
+          ],
+        });
+        expect(items.map((item) => item.kind)).toEqual([
+          "STARTS PAUSED",
+          "PARKED",
+          "NEXT UP",
+          "PARKED BY YOU",
+        ]);
+      } finally {
+        t.state.close();
+      }
+    }));
+
+  it("gives each action its consequence line, and a MERGE item its PR's checks and change", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-1", { status: "In Review" })]);
+        const started = startRun(t, office, "DIPO-1", dir);
+        const at = t.clock.now();
+        insertStoryPr(office, { key: started.key, run: started.run, number: 7, at });
+        insertMergeGate(office, {
+          id: "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0C1C",
+          key: started.key,
+          run: started.run,
+          summary: "merge.autoMerge is off: approve or reject the merge",
+          at,
+        });
+        const seen: string[] = [];
+        const [item] = desk(office, all, {
+          ...ALL_SOURCES,
+          prFacts: (_office, run) => {
+            seen.push(run);
+            return {
+              checks: { required: 4, state: "passed" },
+              change: { files: 6, additions: 214, deletions: 38 },
+            };
+          },
+        });
+        expect(seen).toEqual([started.run]);
+        expect(item?.pr).toEqual({
+          number: 7,
+          url: "https://github.com/o/r/pull/7",
+          state: "open",
+          checks: { required: 4, state: "passed" },
+          change: { files: 6, additions: 214, deletions: 38 },
+        });
+        expect(item?.actions.map((action) => action.consequence)).toEqual([
+          "Approve merges once the checks pass on the close-out head.",
+          "Rejecting sends your note to the worker as a fix round.",
+        ]);
+        // Without the source the PR is its record alone.
+        expect(desk(office, all, ALL_SOURCES)[0]?.pr).toEqual({
+          number: 7,
+          url: "https://github.com/o/r/pull/7",
+          state: "open",
+        });
+      } finally {
+        t.state.close();
+      }
+    }));
+
+  it("names the proposal's tier and who raised it: the role of its origin and that agent's model", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-1")]);
+        const key = keyOf(office, "DIPO-1");
+        const run = RunId.parse("run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1E");
+        const at = t.clock.now();
+        office.immediate(() => {
+          office.run(
+            `insert into agents (office_id, agent_id, run_id, role, model, started_at)
+             values ($office_id, 'agt-dev', $run, 'developer', 'sonnet-5.5', 0),
+                    ($office_id, 'agt-rev', $run, 'reviewer', 'opus-5.5', 1)`,
+            { run },
+          );
+          const finding = holdIdea(office, {
+            origin: "finding",
+            key,
+            runId: run,
+            title: "CLI verbs for planning",
+            text: "t",
+            at,
+          });
+          const quick = holdIdea(office, {
+            origin: "quick",
+            key: null,
+            runId: null,
+            title: "A quick one",
+            text: "q",
+            at,
+          });
+          for (const [id, tier] of [
+            [finding, "S"],
+            [quick, undefined],
+          ] as const) {
+            if (id === null) throw new Error("not held");
+            passIdea(office, id, {
+              proposal: {
+                found: "f",
+                evidence: [{ file: "src/a.ts", line: 1 }],
+                storyLine: STORY_LINE,
+                proposed: "p",
+                why: "w",
+                serves: "m-3",
+                ...(tier === undefined ? {} : { tier }),
+              },
+              auditRun: "run_audit",
+              at: at + 1,
+            });
+          }
+        });
+        const items = desk(office, all, ALL_SOURCES);
+        const ideas = items.map((item) => item.idea);
+        const facts = (title: string) => {
+          const idea = ideas.find((candidate) => candidate?.title === title);
+          return [idea?.story.tier, idea?.raisedBy];
+        };
+        expect(facts("CLI verbs for planning")).toEqual([
+          "S",
+          { role: "reviewer", model: "opus-5.5" },
+        ]);
+        expect(facts("A quick one")).toEqual([undefined, { role: "maintainer" }]);
+        expect(items[0]?.actions.map((a) => a.consequence)).toEqual([
+          "Accepting files it as a Backlog draft. You refine it in a triage session.",
+          "Dismissing files nothing; dipo keeps it as dismissed, for retro.",
+        ]);
+      } finally {
+        t.state.close();
+      }
+    }));
 });

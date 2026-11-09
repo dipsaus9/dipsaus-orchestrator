@@ -157,6 +157,7 @@ function proposedStory(
     proposed: verdict.proposed,
     why: verdict.why,
     serves: verdict.serves,
+    ...(verdict.tier === undefined ? {} : { tier: verdict.tier }),
   };
 }
 
