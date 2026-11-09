@@ -1,10 +1,10 @@
 ---
 id: DIPO-461
 title: 'TUI v2: the run stream as a readable table with folded thinking'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-09 22:17'
+updated_date: '2026-11-09 22:34'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -47,13 +47,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Tool lines show time, verb and target on one line, with the full command on Enter
-- [ ] #2 Consecutive thinking lines fold into one with their count and tokens
-- [ ] #3 The worker, reviewer, verify and prompt sources are filter tabs in one stream
-- [ ] #4 Scrolling up pauses following and G follows again
-- [ ] #5 Steer opens the Composer in the stream and the sent text shows with next-turn or on-resume
-- [ ] #6 The Run screen and the steer prompt match the HTML preview's S3 and S7. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
-- [ ] #7 v switches the stream filter on the Run, and tab stays next pane
-- [ ] #8 says and verdict lines are bright (hi)
+- [x] #1 Tool lines show time, verb and target on one line, with the full command on Enter
+- [x] #2 Consecutive thinking lines fold into one with their count and tokens
+- [x] #3 The worker, reviewer, verify and prompt sources are filter tabs in one stream
+- [x] #4 Scrolling up pauses following and G follows again
+- [x] #5 Steer opens the Composer in the stream and the sent text shows with next-turn or on-resume
+- [x] #6 The Run screen and the steer prompt match the HTML preview's S3 and S7. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
+- [x] #7 v switches the stream filter on the Run, and tab stays next pane
+- [x] #8 says and verdict lines are bright (hi)
 - [ ] #9 Finished stream lines render with Ink Static, so they never re-render
 <!-- AC:END -->
