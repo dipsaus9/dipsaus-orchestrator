@@ -1,10 +1,10 @@
 ---
 id: DIPO-462
 title: 'TUI v2: the story reader and the test overlay'
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-08 12:17'
+updated_date: '2026-11-09 18:03'
 labels:
   - 'tier:M'
 milestone: m-6
