@@ -106,13 +106,17 @@ A worker may add up to three proposals to any report: a follow-up, a spike or a 
 
 Order, by what unblocks work soonest:
 
-1. Starts paused, with its reason and what lifts it.
-2. Open questions.
-3. Merge gates waiting for the maintainer (0002), with the PR link and the reason, plus `dipo approve` and `dipo reject` (or "merge by hand on GitHub" for a release-path PR).
-4. Parked stories: `ambiguous-spec`, then `review-blocked` (one row with both `dipo resume --note` and `dipo approve --note`), `budget-exceeded`, `verify-failing`, `conflict`, `scope-violation`, `worker-failed`, and last `by-maintainer`, listed apart as "Parked by you".
-5. Hand actions: leftovers, a backlog PR that failed its check, and a PR whose head changed outside dipo.
-6. Proposed stories, spikes before follow-ups, then decision notes.
-7. Next up: one Ready story per free run slot, with `dipo next confirm` and `dipo next decline` (0010).
+1. Setup: the run profile's rows, a pending proposal or a stale confirmation, each with its `dipo office confirm` line.
+2. Starts paused, with its reason and what lifts it.
+3. Open questions.
+4. Merge gates waiting for the maintainer (0002), with the PR link and the reason, plus `dipo approve` and `dipo reject` (or "merge by hand on GitHub" for a release-path PR).
+5. Parked stories: `ambiguous-spec`, then `review-blocked` (one row with both `dipo resume --note` and `dipo approve --note`), `budget-exceeded`, `verify-failing`, `conflict`, `scope-violation` and `worker-failed`.
+6. Hand actions: a story done elsewhere while its worker lives, leftovers, a backlog PR that failed its check, a planning lane that has waited on a backlog PR for more than 30 minutes, and a park the backlog does not hold.
+7. Proposed stories, spikes before follow-ups, then decision notes, then one line per story whose PR merged while it was parked (section 7), with no action.
+8. Next up: one Ready story per free run slot, with `dipo next confirm` and `dipo next decline` (0010).
+9. Last, the stories parked `by-maintainer`, listed apart as "Parked by you".
+
+The kinds of desk items are listed in this order in the contract, so a client that groups the items by kind keeps the desk's order and never sorts them.
 
 Within a group, items that block the most other stories come first, then the oldest.
 
@@ -131,4 +135,5 @@ Within a group, items that block the most other stories come first, then the old
 - A worker's proposal that went to the desk with no check first (2026-10-24). Replaced by a proposal held as an idea and audited before it reaches the maintainer (0022, 2026-11-06).
 - A worker's proposal on the desk as a one-line item, with `dipo propose accept` and `dipo propose dismiss`, and a decision note dismissed by the same command (2026-10-24). Replaced by the proposed story: one desk item per idea that passed the audit, its card in full, with `dipo idea accept` and `dipo idea dismiss`, and a decision note with its own `dipo note dismiss` (2026-11-06).
 - A parked story whose own PR merged kept its claim, its branch and its park, with a notice to resolve the park by hand (2026-10-24). Replaced by the park resolved as merged (2026-11-09).
+- The run profile's rows among the hand actions, and "Parked by you" right after the other parks (2026-10-24). Replaced by setup first and "Parked by you" last, after next up (2026-11-09).
 - The waiting command path with a crash-injection test per command. Idempotency is limited to commands that start or change a run (0005).
