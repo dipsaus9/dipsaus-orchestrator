@@ -1,7 +1,7 @@
 ---
 id: DIPO-461
 title: 'TUI v2: the run stream as a readable table with folded thinking'
-status: In Progress
+status: Parked
 assignee: []
 created_date: '2026-11-06 14:12'
 updated_date: '2026-11-09 22:40'
@@ -42,6 +42,10 @@ test_plan:
     - kind: "manual"
       check: "Watch a running story with Enter on the Floor next to designs/dipo-ux-spec.html S3, then steer it with s"
       expect: "Left column, filter tabs, stream table, folded thinking, says and verdict lines, the steer Composer and the you line match the HTML preview side by side"
+park:
+  reason: "ambiguous-spec"
+  from: "In Progress"
+  note: "Criterion 9 (finished stream lines render with Ink Static) conflicts with the fixed-height scrolling stream pane on the alternate screen: Static output goes above the frame, and it cannot be scrolled, filtered by tab or paused. May I change criterion 9 to \"finished stream lines are memoised and never re-render\" (the current implementation), and reword spec.md and migration.md to match? Or do you want Static used anyway, for example only in the inline mode (`--inline`)?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -57,3 +61,16 @@ test_plan:
 - [x] #8 says and verdict lines are bright (hi)
 - [ ] #9 Finished stream lines render with Ink Static, so they never re-render
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-09 22:40 UTC: ambiguous-spec
+- Detail: Criterion 9 (finished stream lines render with Ink Static) conflicts with the fixed-height scrolling stream pane on the alternate screen: Static output goes above the frame, and it cannot be scrolled…
+- Run: run_01M7166VR4A0PVVGF9M1V8NDPV
+- Criteria met: 8 of 9 (as the worker reported them)
+- Loops: 0 of 5; CI attempts: 0 of 2
+- Review rounds: 1, failed 1 of 3
+- Budget used: 314,473 of 800,000 tokens; 111 of 200 turns; 18 of 90 minutes
+- Last good commit: 73331b45656f0105704fdc787272c2fcea6fe80e
+<!-- SECTION:NOTES:END -->
