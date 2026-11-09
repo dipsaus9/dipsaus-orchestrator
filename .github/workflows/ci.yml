@@ -71,17 +71,21 @@ jobs:
 
   # 0016: the Ready gate on every Ready story, on every PR and push, and on a backlog-only PR the
   # structural check of 0010 on every story the PR changes.
+  # A backlog PR may set Done a story whose own PR merged while it was parked (DIPO-468): the check
+  # asks git for the last commit on the base that touched the task file, so it needs the whole
+  # history, and asks gh which PR merged as that commit, so it reads pull requests.
   ready-gate:
     name: ready-gate
     needs: changes
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 2
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
@@ -95,6 +99,8 @@ jobs:
       # The changes job checked that the checkout is the PR's merge commit, so HEAD^1 is the base.
       - name: The structural check on the stories the PR changes (0010)
         if: needs.changes.outputs.scope == 'backlog-only'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: bun scripts/check-backlog-pr.ts HEAD^1 HEAD
 
   # 0016: format, lint and typecheck, once, on Linux.
