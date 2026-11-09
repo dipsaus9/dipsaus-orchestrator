@@ -5,7 +5,7 @@ import { describe, expect, it } from "bun:test";
 
 import { findCommand, type OfficeId } from "@dipsaus-orchestrator/contract";
 
-import { confirmSteps, startFlow } from "./actions";
+import { confirmSteps, requestOf, shareChosen, startFlow, TOP_UPS } from "./actions";
 import { KEY_TABLE } from "./keys";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D" as OfficeId;
@@ -76,5 +76,58 @@ describe("confirmations from the command definitions", () => {
         last: "typed",
       });
     }
+  });
+});
+
+/** A resume flow for the engine's command line of a park reason (0020's table, `desk.ts`). */
+function resume(cli: string) {
+  return startFlow("resume", OFFICE, { story: "DIPO-7", cli });
+}
+
+describe("the resume prompt asks only for what the park reason needs (spec.md, PARKED)", () => {
+  it("is the top-up of +25% +50% +100% with its note for budget-exceeded, at the line's share", () => {
+    const flow = resume('dipo resume DIPO-7 --budget +50% --note "<why>"');
+    expect(flow.steps).toEqual([{ kind: "topup", noteRequired: true }]);
+    expect(TOP_UPS).toEqual([25, 50, 100]);
+    expect(shareChosen(flow)).toBe(50);
+    expect(flow.caps).toBeNull();
+  });
+
+  it("is a required direction for review-blocked, and the answer for ambiguous-spec", () => {
+    expect(resume('dipo resume DIPO-7 --note "<direction>"').steps).toEqual([
+      { kind: "text", field: "note", label: "direction" },
+    ]);
+    expect(resume('dipo resume DIPO-7 --note "<answer>"').steps).toEqual([
+      { kind: "text", field: "note", label: "answer" },
+    ]);
+  });
+
+  it("is an optional note, prefilled with the failing check, for verify-failing and the like", () => {
+    const flow = startFlow("resume", OFFICE, {
+      story: "DIPO-7",
+      cli: "dipo resume DIPO-7",
+      prefill: "bun run verify → 2 shards failed",
+    });
+    expect(flow.steps).toEqual([{ kind: "text", field: "note", label: "note", optional: true }]);
+    expect(flow.draft).toBe("bun run verify → 2 shards failed");
+  });
+
+  it("sends the top-up unconfirmed until its caps showed, then confirmed", () => {
+    const flow = resume('dipo resume DIPO-7 --budget +50% --note "<why>"');
+    const asked = requestOf({ ...flow, values: { ...flow.values, note: "room" } }, "r1" as never);
+    expect(asked).toMatchObject({
+      command: "work.resume",
+      args: { story: "DIPO-7", note: "room", budget: { share: 50 } },
+      confirmed: false,
+    });
+    const confirmed = requestOf(
+      { ...flow, values: { ...flow.values, note: "room", confirmed: true } },
+      "r2" as never,
+    );
+    expect(confirmed.confirmed).toBe(true);
+  });
+
+  it("reads a drop's losses first, then asks keep or delete the branch", () => {
+    expect(kinds(startFlow("drop", OFFICE, { story: "DIPO-7" }).steps)).toEqual(["losses", "drop"]);
   });
 });

@@ -163,6 +163,10 @@ export async function mount(options: MountOptions = {}) {
       daemonRequests.push("log");
       return null;
     },
+    openUrl: async (url) => {
+      daemonRequests.push(`open ${url}`);
+      return null;
+    },
   };
   const ui = render(
     <App

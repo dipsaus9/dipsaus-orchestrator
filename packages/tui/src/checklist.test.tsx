@@ -75,7 +75,7 @@ async function showChecklist(view: Awaited<ReturnType<typeof openTest>>) {
     }),
   ];
   await view.ui.press("1");
-  await view.ui.waitFor("▌ IN REVIEW DIPO-19");
+  await view.ui.waitFor("▌ ○ DIPO-19");
   await view.ui.press("t");
 }
 
@@ -113,8 +113,8 @@ describe("the test checklist", () => {
 
     // n pre-fills the note with the first unticked step, which is step 2 now.
     await ui.press("n");
-    await ui.waitFor("fail note: submit a wrong password_");
-    await ui.press("enter");
+    await ui.waitFor("submit a wrong password▍");
+    await ui.press("ctrl-s");
     await until(() => session.commands.length === 1, "test.record");
     expect(sent(session)).toEqual([
       {
@@ -161,7 +161,7 @@ describe("the test checklist", () => {
       }),
     ];
     await ui.press("1");
-    await ui.waitFor("Your desk (");
+    await ui.waitFor("NEEDS YOU");
     await ui.press("t");
     await until(() => session.commands.length === 1, "test.start");
     expect(sent(session)).toEqual([{ name: "test.start", args: { story: "DIPO-19" } }]);
@@ -185,7 +185,7 @@ describe("the test checklist", () => {
       }),
     ];
     await ui.press("1");
-    await ui.waitFor("Your desk (");
+    await ui.waitFor("NEEDS YOU");
     await ui.press("t");
     await until(() => session.commands.length === 1, "test.start");
     const waiting = await ui.waitFor("No test is open for DIPO-19.");

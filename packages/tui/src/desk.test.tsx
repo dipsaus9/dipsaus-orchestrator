@@ -1,15 +1,17 @@
-// Your desk in the TUI (DIPO-308 test plan): key `3` shows the rows of `office.desk` in the read's
-// order with "Parked by you" apart, the empty desk, one-line rows below 80 columns; the desk is read
-// again after desk-changing events and a stream reset, at most once a second, keeping the selected
-// story; the key table offers only what a row lists and the flags allow; the prompts send the
-// matching commands; closed prompts, read-your-writes and Ctrl-R; and Enter opens the story with
-// its park record and review verdicts. Frames are asserted with ANSI stripped.
+// The Desk in the TUI (DIPO-308, DIPO-459): key `1` shows `office.desk` as a list grouped by kind
+// in the engine's order with a preview of the focused item at 100 columns or wider, one list below
+// 100 where Enter opens the preview; the empty Desk; the desk is read again after desk-changing
+// events and a stream reset, at most once a second, keeping the selected story; the key table
+// offers only what an item lists, y and n acting on what it asks; the prompts (the Composer, the
+// top-up, discard and drop) send the matching commands; pending rows, closed prompts,
+// read-your-writes and Ctrl-R; and Enter opens the story with its park record and review verdicts.
+// Frames are asserted with ANSI stripped.
 
 import { afterEach, describe, expect, it } from "bun:test";
 
 import { DeskItem, type Event, Verdict } from "@dipsaus-orchestrator/contract";
 
-import { DESK_READ_INTERVAL_MS, EMPTY_DESK } from "./desk";
+import { DESK_LIST_COLUMNS, DESK_READ_INTERVAL_MS, deskGroups, EMPTY_DESK } from "./desk";
 import { OFFICES } from "../test/support/fake-session";
 import { mount } from "../test/support/setup";
 
@@ -175,7 +177,8 @@ const byYou = DeskItem.parse({
   actions: [{ command: "work.resume", cli: "dipo resume DIPO-29" }],
 });
 
-const DESK = [question, merge, askedPark, reviewBlocked, budget, byYou, backlogPr, proposal];
+// The engine's order (DIPO-459): the stories the maintainer parked come last.
+const DESK = [question, merge, askedPark, reviewBlocked, budget, backlogPr, proposal, byYou];
 
 afterEach(async () => {
   for (const ui of mounted.splice(0)) await ui.unmount();
@@ -183,6 +186,37 @@ afterEach(async () => {
 
 function lines(frame: string): string[] {
   return frame.split("\n").map((line) => line.trimEnd());
+}
+
+/** The list's side of each body line: the part before the pane rule when the Desk is split. */
+function listSide(frame: string): string[] {
+  return lines(frame).map((line) =>
+    line.charAt(DESK_LIST_COLUMNS) === "│" ? line.slice(0, DESK_LIST_COLUMNS).trimEnd() : line,
+  );
+}
+
+/** The preview's side of each body line. */
+function previewSide(frame: string): string[] {
+  return lines(frame)
+    .filter((line) => line.charAt(DESK_LIST_COLUMNS) === "│")
+    .map((line) => line.slice(DESK_LIST_COLUMNS + 3));
+}
+
+/** The list's item rows: the focus column, a kind glyph, the title. */
+function itemRows(frame: string): string[] {
+  return listSide(frame).filter((line) => /^[▌ ] [!?○✗◆→◌] /.test(line));
+}
+
+/** The text of the open prompt's box, its border cells stripped. */
+function boxText(frame: string): string {
+  const split = lines(frame).some((line) => line.charAt(DESK_LIST_COLUMNS) === "│");
+  return (split ? previewSide(frame) : lines(frame))
+    .flatMap((line) => {
+      const at = line.indexOf("│ ");
+      const end = line.lastIndexOf("│");
+      return at === -1 || end <= at ? [] : [line.slice(at + 1, end).trim()];
+    })
+    .join("\n");
 }
 
 function event(seq: number, type: string, data: unknown): Event {
@@ -203,13 +237,16 @@ async function openDesk(
 ) {
   const view = await mount({
     columns: options.columns ?? 120,
-    rows: options.rows ?? 30,
+    rows: options.rows ?? 34,
   });
   mounted.push(view.ui);
   view.session.desk = [...(options.desk ?? DESK)];
   await view.ui.waitFor("daemon live");
   await view.ui.press("1");
-  await view.ui.waitFor("Your desk (");
+  const desk = options.desk ?? DESK;
+  await view.ui.waitFor(
+    desk.length === 0 ? EMPTY_DESK : desk[0]?.kind === "PROFILE" ? "SETUP" : String(desk[0]?.kind),
+  );
   return view;
 }
 
@@ -232,19 +269,21 @@ async function until(check: () => boolean, what: string, ms = 2_000): Promise<vo
   }
 }
 
-async function selectRow(
-  ui: { press(key: string): Promise<void>; frame(): string },
-  story: string,
-) {
+/** Moves the focus to the row whose title holds `text`. */
+async function selectRow(ui: { press(key: string): Promise<void>; frame(): string }, text: string) {
   for (let i = 0; i < 12; i++) {
-    const rows = lines(ui.frame()).filter((line) => /^ [▌ ] [A-Z]/.test(line));
-    const at = rows.findIndex((line) => line.startsWith(" ▌ "));
-    const want = rows.findIndex((line) => line.includes(` ${story} `));
-    if (want === -1) break;
+    const rows = itemRows(ui.frame());
+    const at = rows.findIndex((line) => line.startsWith("▌ "));
+    const want = rows.findIndex((line) => line.includes(text));
     if (at === want) return;
-    await ui.press(at < want ? "j" : "k");
+    // A row below the window comes into view as the focus moves down.
+    await ui.press(want === -1 || at < want ? "j" : "k");
+    await until(
+      () => itemRows(ui.frame()).findIndex((line) => line.startsWith("▌ ")) !== at,
+      "the focus to move",
+    );
   }
-  throw new Error(`no row of ${story} could be selected:\n${ui.frame()}`);
+  throw new Error(`no row of ${text} could be selected:\n${ui.frame()}`);
 }
 
 /** The queue with DIPO-30 selected. */
@@ -278,61 +317,94 @@ function asked(seq: number, run: string, story: string, key: string) {
   });
 }
 
-describe("key 3 shows Your desk", () => {
-  it("lists the rows of office.desk in the read's order, with Parked by you apart", async () => {
+describe("the desk's groups", () => {
+  it("groups the items by kind where each kind first comes, keeping the engine's order", () => {
+    const later = DeskItem.parse({ ...question, story: "DIPO-40", question: undefined });
+    const { groups, all } = deskGroups([question, merge, later, byYou]);
+    expect(groups.map((group) => group.kind)).toEqual(["QUESTION", "MERGE", "PARKED BY YOU"]);
+    expect(all.map((item) => String(item.story))).toEqual([
+      "DIPO-19",
+      "DIPO-40",
+      "DIPO-12",
+      "DIPO-29",
+    ]);
+    // The engine's order is KNOWN_DESK_KINDS' with setup first: grouping changes nothing in it.
+    const profile = DeskItem.parse({ ...backlogPr, kind: "PROFILE", pr: undefined });
+    expect(deskGroups([profile, ...DESK]).all).toEqual([profile, ...DESK]);
+  });
+});
+
+describe("key 1 shows the Desk", () => {
+  it("lists the items by kind in the engine's order under NEEDS YOU, with the focused item's preview", async () => {
     const { ui } = await openDesk();
-    const frame = await ui.waitFor("Parked by you (1)");
-    const shown = lines(frame);
-    const start = shown.indexOf(" Your desk (7)");
-    expect(start).toBeGreaterThan(0);
-    const rows = shown.slice(start + 1).filter((line) => /^ [▌ ] [A-Z]/.test(line));
-    const kinds = ["PARKED BY YOU", "BACKLOG PR", "QUESTION", "PROPOSED STORY", "PARKED", "MERGE"];
-    expect(rows.map((row) => kinds.find((kind) => row.slice(3).startsWith(kind)))).toEqual([
+    const frame = await ui.waitFor("NEEDS YOU");
+    const list = listSide(frame);
+    const heading = list.findIndex((line) => line.startsWith("NEEDS YOU"));
+    // The count leaves out the stories the maintainer parked; the count sits at the list's right.
+    expect(list[heading]).toMatch(/^NEEDS YOU +7$/);
+    expect(lines(frame)[heading]?.slice(0, DESK_LIST_COLUMNS)).toMatch(/7 {2}$/);
+    const headers = list.filter((line) => /^[A-Z]/.test(line) && !line.startsWith("NEEDS"));
+    expect(headers).toEqual([
       "QUESTION",
       "MERGE",
       "PARKED",
-      "PARKED",
-      "PARKED",
       "BACKLOG PR",
-      "PROPOSED STORY",
+      "PROPOSALS · from your AI team",
       "PARKED BY YOU",
     ]);
-    // Kind, story, reason, detail, age and the row's keys.
-    expect(rows[0]).toMatch(
-      /^ ▌ QUESTION +DIPO-19 +"Is a 404 on an empty office ok\?" +6m {2}a answer$/,
+    const rows = itemRows(frame);
+    // The story with its title from the snapshot, else what the item says; the age at the right.
+    expect(rows[0]).toMatch(/^▌ \? DIPO-19 Review the merge slot +6m$/);
+    expect(rows[2]).toMatch(/^ {2}\? DIPO-26 May the compose file start … 40m$/);
+    expect(rows.at(-1)).toMatch(/^ {2}○ DIPO-29 Web client shell +3d$/);
+    // A second dim row: the reason and what it blocks.
+    expect(list).toContain('    "Is a 404 on an empty office ok?"');
+    expect(list).toContain("    ambiguous-spec");
+    expect(list.some((line) => /^ {4}reviewer passed, test passed · blocks 1/.test(line))).toBe(
+      true,
     );
-    expect(rows[2]).toMatch(
-      /^ {3}PARKED +DIPO-26 +ambiguous-spec · May the compose file start the database\? +40m {2}a answer {2}r start again$/,
-    );
-    expect(rows[7]).toMatch(
-      /^ {3}PARKED BY YOU +DIPO-29 +by-maintainer · after M2 +3d {2}r start again$/,
-    );
-    // "Parked by you" comes after every other row and before the stories it lists.
-    expect(shown.indexOf(" Parked by you (1)")).toBe(shown.indexOf(rows[7]!) - 1);
-    // At 80 columns and wider an item's hand action and blocked stories get a second line.
-    expect(frame).toContain("by hand: fix the branch backlog/add of PR #9");
-    expect(frame).toContain("blocks DIPO-31");
+    // A blank row between groups; no verbs on the rows.
+    expect(list[list.indexOf("MERGE") - 1]).toBe("");
+    expect(rows.join("\n")).not.toContain("a answer");
+    // The focused QUESTION in the preview: its question in full, its button and the cli line.
+    const preview = previewSide(frame);
+    expect(preview[0]).toBe("QUESTION · worker waiting 6m");
+    expect(preview).toContain('"Is a 404 on an empty office ok?"');
+    expect(preview).toContain("⟦ a Answer… ⟧");
+    expect(preview).toContain('$ dipo answer qst_01J9ZK5Q8W3V4X6Y7Z8A9B0Q19 --text "<answer>"');
+    expect(preview).toContain("The worker gets it on resume, and the run continues.");
   });
 
-  it("says Nothing waits on you. for an empty desk", async () => {
+  it("says Nothing needs you. and what the team does for an empty desk", async () => {
     const { ui } = await openDesk({ desk: [] });
     const frame = await ui.waitFor(EMPTY_DESK);
-    expect(lines(frame)).toContain(" Your desk (0)");
-    expect(lines(frame)).toContain(` ${EMPTY_DESK}`);
+    expect(lines(frame)).toContain(`    ✓ ${EMPTY_DESK}`);
+    expect(frame).toMatch(/The team is on it: \d+ running, \d+ in review\./);
+    expect(lines(frame)).toContain("      2 watch the floor");
   });
 
-  it("shows each row on one line below 80 columns", async () => {
-    const { ui } = await openDesk({ columns: 70 });
-    const frame = await ui.waitFor("Parked by you (1)");
+  it("is one list below 100 columns: no heading, short group names, Enter opens the preview", async () => {
+    const { ui, session } = await openDesk({ columns: 80 });
+    const frame = await ui.waitFor("PROPOSALS");
     const shown = lines(frame);
-    const start = shown.indexOf(" Your desk (7)");
-    const body = shown.slice(start + 1, shown.indexOf(" Parked by you (1)") + 2);
-    // Seven waiting rows, the title and the parked row: nothing else between them.
-    expect(body).toHaveLength(9);
-    expect(frame).not.toContain("blocks DIPO-31");
-    for (const line of body) expect(line.length).toBeLessThanOrEqual(70);
-    // The row's keys move to the footer.
-    expect(shown.at(-1)).toContain("a answer");
+    expect(frame).not.toContain("NEEDS YOU");
+    expect(frame).not.toContain("│  QUESTION ·");
+    expect(shown).toContain("PROPOSALS");
+    for (const line of shown) expect(line.length).toBeLessThanOrEqual(80);
+    // Each row keeps its second row.
+    expect(shown).toContain("    ambiguous-spec");
+    expect(lines(frame).at(-1)).toContain("⏎ read");
+    await ui.press("enter");
+    const preview = await ui.waitFor("QUESTION · worker waiting 6m");
+    expect(preview).toContain("⟦ a Answer… ⟧");
+    expect(session.reads.filter((read) => read.name === "story.detail")).toEqual([]);
+    await ui.press("escape");
+    await ui.waitFor("PROPOSALS");
+    // In the preview a second Enter opens the story.
+    await ui.press("enter");
+    await ui.waitFor("QUESTION · worker waiting 6m");
+    await ui.press("enter");
+    await until(() => session.reads.some((read) => read.name === "story.detail"), "story.detail");
   });
 });
 
@@ -358,7 +430,7 @@ describe("the desk stays current", () => {
       event(12, "story.state", { story: "DIPO-29", key: KEY_29, from: "Parked", to: "Ready" }),
     );
     await until(() => deskReads(session) === 3, "the read after a story left Parked");
-    expect(ui.frame()).toContain("Your desk (7)");
+    expect(ui.frame()).toContain("NEEDS YOU");
   });
 
   it("reads it again when the office's starts pause or lift, and not for another notice (0020)", async () => {
@@ -402,23 +474,22 @@ describe("the desk stays current", () => {
     });
     await until(() => store.state.snapshots === snapshots + 1, "the snapshot after the reset");
     await until(() => deskReads(session) === 2, "the desk read after the reset");
-    const rows = () => lines(ui.frame()).filter((line) => /^ [▌ ] [A-Z]/.test(line));
     await until(
-      () => rows()[0]?.includes("PROPOSED STORY") === true,
+      () => itemRows(ui.frame())[0]?.includes("Split RunOutcomes") === true,
       `the desk read after the reset on screen:\n${ui.frame()}`,
     );
-    const selected = rows().filter((line) => line.startsWith(" ▌ "));
+    const selected = itemRows(ui.frame()).filter((line) => line.startsWith("▌ "));
     expect(selected).toHaveLength(1);
-    expect(selected[0]).toStartWith(" ▌ PARKED");
     expect(selected[0]).toContain("DIPO-26");
   });
 });
 
-describe("the key table on desk rows", () => {
-  it("accepts a PROPOSED STORY row with y and dismisses one with n (DIPO-454)", async () => {
+describe("the key table on desk items", () => {
+  it("accepts a PROPOSED STORY with y and dismisses one with n (DIPO-454)", async () => {
     const { ui, session } = await openDesk();
-    await selectRow(ui, "DIPO-21");
+    await selectRow(ui, "Split RunOutcomes");
     expect(lines(ui.frame()).at(-1)).toContain("y accept   n dismiss");
+    expect(previewSide(ui.frame())).toContain("⟦ y Accept ⟧  ⟦ n Dismiss ⟧");
     await ui.press("y");
     await until(() => session.commands.length === 1, "idea.accept");
     await ui.press("n");
@@ -431,7 +502,7 @@ describe("the key table on desk rows", () => {
 
   it("opens a PROPOSED STORY's card with Enter, its proposed user story in full", async () => {
     const { ui, session } = await openDesk();
-    await selectRow(ui, "DIPO-21");
+    await selectRow(ui, "Split RunOutcomes");
     await ui.press("enter");
     const frame = await ui.waitFor("proposed story");
     // Wrapped, never cut: the end of the long finding and every part are on screen.
@@ -450,56 +521,15 @@ describe("the key table on desk rows", () => {
     expect(session.reads.filter((read) => read.name === "story.detail")).toEqual([]);
   });
 
-  it("dismisses a DECISION NOTE row with n through note.dismiss", async () => {
+  it("dismisses a DECISION NOTE with n through note.dismiss", async () => {
     const { ui, session } = await openDesk({ desk: [...DESK, note] });
-    await selectRow(ui, "DIPO-31");
+    await selectRow(ui, "Decision note for docs/x.md");
     await ui.press("n");
     await until(() => session.commands.length === 1, "note.dismiss");
     expect(sent(session)).toEqual([{ name: "note.dismiss", args: { note: NOTE } }]);
   });
 
-  it("hands a quick idea to the audit with i on any row (criterion 5)", async () => {
-    const { ui, session } = await openDesk();
-    await selectRow(ui, "DIPO-26");
-    expect(lines(ui.frame()).at(-1)).toContain("i idea…");
-    await ui.press("i");
-    await ui.waitFor("idea (its first words are its title): _");
-    await ui.press("Show the spend per tier");
-    await ui.press("enter");
-    await until(() => session.commands.length === 1, "idea.add");
-    expect(sent(session)).toEqual([
-      { name: "idea.add", args: { text: "Show the spend per tier" } },
-    ]);
-  });
-
-  it("offers a key only for what the row lists", async () => {
-    const { ui, session } = await openDesk();
-    // The QUESTION row lists no resume: `r` sends nothing.
-    await selectRow(ui, "DIPO-19");
-    await ui.press("r");
-    await Bun.sleep(50);
-    expect(session.commands).toEqual([]);
-    // Every action of the QUESTION row has its key: no command line to type.
-    expect(ui.frame()).not.toContain("type:");
-  });
-
-  it("shows the office's starts paused first, with what lifts it and its command line (0020)", async () => {
-    const paused = DeskItem.parse({
-      kind: "STARTS PAUSED",
-      detail: "no new session starts · plan limit until 2026-10-14T12:00:00.000Z",
-      since: ago(4),
-      blocks: [],
-      actions: [{ command: "daemon.resumeStarts", cli: "dipo daemon resume-starts" }],
-      hand: "It lifts by itself at 2026-10-14T12:02:00.000Z, or with `dipo daemon resume-starts`.",
-    });
-    const { ui } = await openDesk({ desk: [paused, byYou] });
-    const frame = await ui.waitFor("type: dipo daemon resume-starts");
-    const rows = lines(frame).filter((line) => /^ [▌ ] [A-Z]/.test(line));
-    expect(rows[0]).toMatch(/^ ▌ STARTS PAUSED +no new session starts · plan limit until/);
-    expect(frame).toContain("by hand: It lifts by itself at 2026-10-14T12:02:00.000Z");
-  });
-
-  it("shows a story offered as next up with its why, its shared files and the confirm and decline lines (0010)", async () => {
+  it("starts a NEXT UP story with y and declines one with n (0010)", async () => {
     const nextUp = DeskItem.parse({
       kind: "NEXT UP",
       story: "DIPO-29",
@@ -513,11 +543,62 @@ describe("the key table on desk rows", () => {
         { command: "nextUp.decline", cli: "dipo next decline DIPO-29" },
       ],
     });
-    const { ui } = await openDesk({ desk: [nextUp] });
-    const frame = await ui.waitFor("type: dipo next confirm DIPO-29");
-    expect(frame).toContain("NEXT UP");
-    expect(frame).toContain("dipo next decline DIPO-29");
+    const { ui, session } = await openDesk({ desk: [nextUp] });
+    const frame = await ui.waitFor("⟦ y Start it ⟧");
+    expect(frame).toContain("⟦ n Offer the next one ⟧");
     expect(frame).toContain("m-2 is the earliest milestone");
+    expect(frame).toContain("$ dipo next confirm DIPO-29");
+    expect(lines(frame).at(-1)).toContain("y start it   n offer the next one");
+    await ui.press("y");
+    await until(() => session.commands.length === 1, "nextUp.confirm");
+    await ui.press("n");
+    await until(() => session.commands.length === 2, "nextUp.decline");
+    expect(sent(session)).toEqual([
+      { name: "nextUp.confirm", args: { story: "DIPO-29" } },
+      { name: "nextUp.decline", args: { story: "DIPO-29" } },
+    ]);
+  });
+
+  it("hands a quick idea to the audit with i on any item (criterion 5)", async () => {
+    const { ui, session } = await openDesk();
+    await selectRow(ui, "DIPO-26");
+    expect(lines(ui.frame()).at(-1)).toContain("i idea…");
+    await ui.press("i");
+    await ui.waitFor("idea (its first words are its title)");
+    await ui.press("Show the spend per tier");
+    await ui.press("ctrl-s");
+    await until(() => session.commands.length === 1, "idea.add");
+    expect(sent(session)).toEqual([
+      { name: "idea.add", args: { text: "Show the spend per tier" } },
+    ]);
+  });
+
+  it("offers a key only for what the item lists", async () => {
+    const { ui, session } = await openDesk();
+    // The QUESTION lists no resume: `r` sends nothing, and opens nothing.
+    await selectRow(ui, "DIPO-19");
+    await ui.press("r");
+    await Bun.sleep(50);
+    expect(session.commands).toEqual([]);
+    expect(ui.frame()).not.toContain("ctrl-s send");
+  });
+
+  it("shows the office's starts paused first, what lifts it and the command line of the lift (0020)", async () => {
+    const paused = DeskItem.parse({
+      kind: "STARTS PAUSED",
+      detail: "no new session starts · plan limit until 2026-10-14T12:00:00.000Z",
+      since: ago(4),
+      blocks: [],
+      actions: [{ command: "daemon.resumeStarts", cli: "dipo daemon resume-starts" }],
+      hand: "It lifts by itself at 2026-10-14T12:02:00.000Z, or with `dipo daemon resume-starts`.",
+    });
+    const { ui } = await openDesk({ desk: [paused, byYou] });
+    const frame = await ui.waitFor("$ dipo daemon resume-starts");
+    expect(itemRows(frame)[0]).toMatch(/^▌ ! no new session starts · plan limit u… 4m$/);
+    const preview = previewSide(frame);
+    expect(preview[1]).toBe("No new sessions start in this office");
+    expect(preview.join(" ")).toContain("Lifts   It lifts by itself at 2026-10-14T12:02:00.000Z");
+    expect(preview).toContain("✓ Nothing to do. Look away until it lifts.");
   });
 
   it("shows the command line of an action the table does not bind", async () => {
@@ -531,20 +612,22 @@ describe("the key table on desk rows", () => {
       ],
     });
     const { ui } = await openDesk({ desk: [unbound] });
-    const frame = await ui.waitFor("type: dipo run DIPO-29");
-    expect(frame).toContain("r start again");
+    const frame = await ui.waitFor("$ dipo run DIPO-29");
+    expect(frame).toContain("r start again   s start again with a hint   ⏎ open run");
+    expect(lines(frame).at(-1)).toContain("r start again");
   });
 
-  it("approves a merge with y, and answers a parked question with a text", async () => {
+  it("approves a merge with y, and answers a parked question with r as with a", async () => {
     const { ui, session } = await openDesk();
     await selectRow(ui, "DIPO-12");
     await ui.press("y");
     await until(() => session.commands.length === 1, "gate.approve");
     await selectRow(ui, "DIPO-26");
-    await ui.press("a");
-    await ui.waitFor("answer: _");
+    await ui.press("r");
+    await ui.waitFor("ctrl-s send");
+    expect(boxText(ui.frame())).toContain("answer");
     await ui.press("allow");
-    await ui.press("enter");
+    await ui.press("ctrl-s");
     await until(() => session.commands.length === 2, "the answer");
     // An answer that reads "allow" is text, never a decision (0020).
     expect(sent(session)).toEqual([
@@ -552,25 +635,42 @@ describe("the key table on desk rows", () => {
       { name: "work.answer", args: { question: Q26, text: "allow" } },
     ]);
   });
+
+  it("opens a merge's PR with o", async () => {
+    const view = await openDesk();
+    await selectRow(view.ui, "DIPO-12");
+    expect(previewSide(view.ui.frame()).some((line) => line.includes("⟦ o PR ⟧"))).toBe(true);
+    await view.ui.press("o");
+    await until(() => view.daemonRequests.length === 1, "the PR to open");
+    expect(view.daemonRequests).toEqual(["open https://github.com/o/r/pull/7"]);
+  });
 });
 
 describe("prompts", () => {
-  it("answers a question with the typed text: Enter sends, Esc cancels", async () => {
+  it("answers a question in the Composer under it: Enter adds a line, ctrl-s sends, Esc cancels", async () => {
     const { ui, session } = await openDesk();
     await ui.press("a");
-    await ui.waitFor("answer: _");
-    expect(lines(ui.frame()).at(-1)).toContain("⏎ send");
+    await ui.waitFor("ctrl-s send");
+    expect(lines(ui.frame()).at(-1)).toContain("⏎ new line   ctrl-s send   esc cancel");
+    // The Composer is in the preview, under the question.
+    const preview = previewSide(ui.frame());
+    expect(preview.findIndex((line) => line.startsWith("┌"))).toBeGreaterThan(
+      preview.indexOf('"Is a 404 on an empty office ok?"'),
+    );
     await ui.press("escape");
     await ui.waitFor("answer DIPO-19: nothing sent");
     await ui.press("a");
-    await ui.waitFor("answer: _");
-    // A paste goes in whole.
+    await ui.waitFor("ctrl-s send");
+    // A paste goes in whole; Enter adds a line.
     await ui.press("Yes, a 404 is fine");
-    await ui.waitFor("answer: Yes, a 404 is fine_");
     await ui.press("enter");
+    await ui.press("for now");
+    await ui.waitFor("for now▍");
+    expect(boxText(ui.frame())).toContain("answer\nYes, a 404 is fine\nfor now▍");
+    await ui.press("ctrl-s");
     await until(() => session.commands.length === 1, "work.answer");
     expect(sent(session)).toEqual([
-      { name: "work.answer", args: { question: Q19, text: "Yes, a 404 is fine" } },
+      { name: "work.answer", args: { question: Q19, text: "Yes, a 404 is fine\nfor now" } },
     ]);
   });
 
@@ -580,13 +680,13 @@ describe("prompts", () => {
     await ui.press("later");
     session.setState("reconnecting");
     await ui.waitFor("offline since");
-    await ui.press("enter");
+    await ui.press("ctrl-s");
     await ui.waitFor("offline: the prompt is kept");
-    expect(ui.frame()).toContain("answer: later_");
+    expect(ui.frame()).toContain("later▍");
     expect(session.commands).toEqual([]);
     session.setState("open");
     await until(() => !ui.frame().includes("offline since"), "back online");
-    await ui.press("enter");
+    await ui.press("ctrl-s");
     await until(() => session.commands.length === 1, "work.answer");
     expect(sent(session)).toEqual([
       { name: "work.answer", args: { question: Q19, text: "later" } },
@@ -602,9 +702,9 @@ describe("prompts", () => {
     await ui.waitFor("reject DIPO-12: nothing sent");
     await ui.press("n");
     await ui.press("y");
-    await ui.waitFor("reject note: _");
+    await ui.waitFor("reject note");
     await ui.press("Handle the empty office");
-    await ui.press("enter");
+    await ui.press("ctrl-s");
     await until(() => session.commands.length === 1, "gate.reject");
     expect(session.commands[0]).toMatchObject({
       name: "gate.reject",
@@ -613,22 +713,51 @@ describe("prompts", () => {
     });
   });
 
-  it("asks the note of a review-blocked approve and of its resume", async () => {
+  it("asks the note of a review-blocked overrule and the direction of its resume", async () => {
     const { ui, session } = await openDesk();
     await selectRow(ui, "DIPO-24");
+    expect(previewSide(ui.frame())).toContain("⟦ r Start again ⟧  ⟦ y Overrule… ⟧");
     await ui.press("y");
     await ui.waitFor("approve note");
     await ui.press("Ship it");
-    await ui.press("enter");
+    await ui.press("ctrl-s");
     await until(() => session.commands.length === 1, "gate.approve");
     await ui.press("r");
-    await ui.waitFor("resume note: _");
+    await ui.waitFor("direction");
+    // A required note: an empty one is not sent.
+    await ui.press("ctrl-s");
+    await ui.waitFor("the direction is empty");
     await ui.press("Try the other parser");
-    await ui.press("enter");
+    await ui.press("ctrl-s");
     await until(() => session.commands.length === 2, "work.resume");
     expect(sent(session)).toEqual([
       { name: "gate.approve", args: { gate: GATE_24, note: "Ship it" } },
       { name: "work.resume", args: { story: "DIPO-24", note: "Try the other parser" } },
+    ]);
+  });
+
+  it("starts a failed run again with its note prefilled from the failing check, or with a hint", async () => {
+    const failed = DeskItem.parse({
+      ...byYou,
+      kind: "PARKED",
+      reason: "verify-failing",
+      detail: "bun run verify → 2 shards failed",
+      actions: [{ command: "work.resume", cli: "dipo resume DIPO-29" }],
+    });
+    const { ui, session } = await openDesk({ desk: [failed] });
+    await ui.press("r");
+    await ui.waitFor("bun run verify → 2 shards failed▍");
+    await ui.press("ctrl-s");
+    await until(() => session.commands.length === 1, "work.resume");
+    await ui.press("s");
+    await ui.waitFor("ctrl-s send");
+    expect(ui.frame()).not.toContain("2 shards failed▍");
+    await ui.press("Skip the flaky shard");
+    await ui.press("ctrl-s");
+    await until(() => session.commands.length === 2, "the resume with a hint");
+    expect(sent(session)).toEqual([
+      { name: "work.resume", args: { story: "DIPO-29", note: "bun run verify → 2 shards failed" } },
+      { name: "work.resume", args: { story: "DIPO-29", note: "Skip the flaky shard" } },
     ]);
   });
 
@@ -644,16 +773,16 @@ describe("prompts", () => {
         : undefined;
     await selectRow(ui, "DIPO-24");
     await ui.press("r");
-    await ui.waitFor("resume note: _");
+    await ui.waitFor("direction");
     await ui.press("It runs already");
-    await ui.press("enter");
+    await ui.press("ctrl-s");
     const frame = await ui.waitFor("resume DIPO-24: already so; nothing changed");
     expect(frame).not.toContain("resume DIPO-24: done");
   });
 
-  it("shows the caps before and after a budget resume and sends it confirmed after a yes", async () => {
+  it("offers the top-ups of a budget park, shows the caps before and after, and then resumes", async () => {
     const { ui, session } = await openDesk();
-    session.commandReply = (name, _args, options) => {
+    session.commandReply = (name, args, options) => {
       if (name !== "work.resume") return undefined;
       if ((options as { confirmed?: boolean }).confirmed === true) {
         return {
@@ -662,6 +791,7 @@ describe("prompts", () => {
           changed: true,
         };
       }
+      const share = (args as { budget: { share: number } }).budget.share;
       return {
         ok: false,
         error: {
@@ -669,21 +799,34 @@ describe("prompts", () => {
           message: "A top-up needs confirmation.",
           retryable: false,
           details: {
-            before: { budgetTokens: 100_000, maxTurns: 80, maxMinutes: 60 },
-            after: { budgetTokens: 150_000, maxTurns: 120, maxMinutes: 90 },
+            before: { budgetTokens: 2_000_000, maxTurns: 400, maxMinutes: 60 },
+            after: {
+              budgetTokens: 2_000_000 * (1 + share / 100),
+              maxTurns: 400 * (1 + share / 100),
+              maxMinutes: 90,
+            },
           },
         },
       };
     };
     await selectRow(ui, "DIPO-22");
+    expect(previewSide(ui.frame())).toContain(
+      "r start again with a top-up: +25% · +50% · +100%   ⏎ inspect",
+    );
     await ui.press("r");
+    await ui.waitFor("top up");
+    // The share the engine's line names is chosen; ←→ choose another.
+    expect(boxText(ui.frame())).toContain("top up    +25%  ⟦ +50% ⟧  +100%");
+    await ui.press("right");
+    await ui.waitFor("⟦ +100% ⟧");
+    await ui.press("tab");
     await ui.press("More room");
-    await ui.press("enter");
-    const frame = await ui.waitFor("Raise DIPO-22's caps and resume it? [y/N]");
-    expect(lines(frame)).toContain("   tokens  100000 -> 150000");
-    expect(lines(frame)).toContain("   turns   80 -> 120");
-    expect(lines(frame)).toContain("   minutes 60 -> 90");
-    await ui.press("y");
+    await ui.press("ctrl-s");
+    // The first ctrl-s asks the engine for the caps; seeing them is the confirmation.
+    const frame = await ui.waitFor("2.0M → 4.0M tokens · 400 → 800 turns");
+    expect(lines(frame).at(-1)).toContain("ctrl-s resume");
+    expect(session.commands).toHaveLength(1);
+    await ui.press("ctrl-s");
     await until(() => session.commands.length === 2, "the confirmed resume");
     expect(session.commands.map((command) => command.options)).toMatchObject([
       { confirmed: false },
@@ -692,29 +835,31 @@ describe("prompts", () => {
     expect(session.commands[1]?.args).toEqual({
       story: "DIPO-22",
       note: "More room",
-      budget: { share: 50 },
+      budget: { share: 100 },
     });
     await ui.waitFor("resume DIPO-22: done");
   });
 
-  it("lists what a discard loses and needs the story id typed out", async () => {
+  it("lists what a discard loses in a red box and needs the story id typed out", async () => {
     const { ui, session } = await openDesk();
     session.losses.set("DIPO-22", {
       commits: [{ sha: "4f2a9c1", subject: "Cap the retries" }],
     });
     await selectRow(ui, "DIPO-22");
     await ui.press("D");
-    await ui.waitFor("discard note: _");
+    await ui.waitFor("Discard DIPO-22?");
     await ui.press("Wrong approach");
-    await ui.press("enter");
-    const frame = await ui.waitFor("type DIPO-22 to confirm: _");
-    expect(lines(frame)).toContain(
-      " Discard DIPO-22: ends the run, deletes the box and branch, closes the PR and returns the story to Refined.",
-    );
-    expect(lines(frame)).toContain("     commit 4f2a9c1 Cap the retries");
+    await ui.press("ctrl-s");
+    const frame = await ui.waitFor("to confirm");
+    const box = boxText(frame);
+    expect(box).toContain("✗ Discard DIPO-22?");
+    expect(box).toContain("Lost: 1 commit not on the base");
+    expect(box).toContain("4f2a9c1 Cap the retries");
+    expect(box).toContain("note  Wrong approach");
+    expect(lines(frame).at(-1)).toContain("⏎ discard (when the id matches)   esc keep it");
     await ui.press("DIPO-2");
     await ui.press("enter");
-    await ui.waitFor("type DIPO-22 to confirm, or Esc to cancel");
+    await ui.waitFor("type DIPO-22 to confirm, or Esc to keep it");
     expect(session.commands).toEqual([]);
     await ui.press("2");
     await ui.press("enter");
@@ -732,29 +877,34 @@ describe("prompts", () => {
 });
 
 describe("the queue and the detail use the same table", () => {
-  it("parks a story with P and its note", async () => {
+  it("parks a story with p and its note", async () => {
     const { ui, session } = await openQueue();
     expect(lines(ui.frame()).at(-1)).toContain("p park   X drop");
     await ui.press("p");
-    await ui.waitFor("park note for DIPO-30: _");
+    await ui.waitFor("park note for DIPO-30");
     await ui.press("after M2");
-    await ui.press("enter");
+    await ui.press("ctrl-s");
     await until(() => session.commands.length === 1, "story.park");
     expect(sent(session)).toEqual([
       { name: "story.park", args: { story: "DIPO-30", note: "after M2" } },
     ]);
   });
 
-  it("drops with the branch kept after y, and after D lists the losses and needs the typed id", async () => {
+  it("drops with the branch kept after y, and with it deleted after space, the losses and the typed id", async () => {
     const { ui, session } = await openQueue();
     await ui.press("X");
-    await ui.waitFor("Drop DIPO-30: archive it and release its claim?");
+    await ui.waitFor("Drop DIPO-30 from the backlog?");
+    expect(boxText(ui.frame())).toContain("[ ] also delete its branch (space)");
+    expect(boxText(ui.frame())).toContain("keeps 0 commits if left unticked");
     await ui.press("y");
     await until(() => session.commands.length === 1, "story.drop");
     await ui.press("X");
-    await ui.press("D");
-    await ui.waitFor("type DIPO-30 to confirm: _");
-    expect(ui.frame()).toContain("lost: nothing");
+    await ui.waitFor("Drop DIPO-30 from the backlog?");
+    await ui.press(" ");
+    await ui.waitFor("[x] also delete its branch");
+    expect(boxText(ui.frame())).toContain("Lost: nothing");
+    await ui.press("y");
+    await ui.waitFor("to confirm");
     await ui.press("DIPO-30");
     await ui.press("enter");
     await until(() => session.commands.length === 2, "story.drop with deleteBranch");
@@ -803,14 +953,14 @@ describe("the queue and the detail use the same table", () => {
     await ui.waitFor("following the tail");
     expect(lines(ui.frame()).at(-1)).toContain("s steer");
     await ui.press("s");
-    await ui.waitFor("steer text: _");
+    await ui.waitFor("steer text");
     await ui.press("Keep the old flag");
-    await ui.press("enter");
+    await ui.press("ctrl-s");
     await until(() => session.commands.length === 1, "work.steer");
     await ui.press("p");
-    await ui.waitFor("park note for DIPO-21: _");
+    await ui.waitFor("park note for DIPO-21");
     await ui.press("after the release");
-    await ui.press("enter");
+    await ui.press("ctrl-s");
     await until(() => session.commands.length === 2, "story.park");
     expect(sent(session)).toEqual([
       { name: "work.steer", args: { story: "DIPO-21", text: "Keep the old flag" } },
@@ -819,7 +969,7 @@ describe("the queue and the detail use the same table", () => {
   });
 });
 
-describe("answers, closed prompts, read-your-writes and retry", () => {
+describe("answers, pending rows, closed prompts, read-your-writes and retry", () => {
   it("answers from an overview row whose run asks and from the live agent detail", async () => {
     const view = await mount({ columns: 120, rows: 30 });
     mounted.push(view.ui);
@@ -832,16 +982,17 @@ describe("answers, closed prompts, read-your-writes and retry", () => {
     await ui.waitFor("▌DIPO-19");
     await until(() => lines(ui.frame()).at(-1)?.includes("a answer") === true, "a answer");
     await ui.press("a");
+    // Outside the Desk the Composer sits under the body, with what it answers above it.
     await ui.waitFor('answer DIPO-19: "Is a 404 ok?"');
     await ui.press("yes");
-    await ui.press("enter");
+    await ui.press("ctrl-s");
     await until(() => session.commands.length === 1, "the overview answer");
     await ui.press("enter");
     await ui.waitFor("following the tail");
     await ui.press("a");
-    await ui.waitFor("answer: _");
+    await ui.waitFor("ctrl-s send");
     await ui.press("still yes");
-    await ui.press("enter");
+    await ui.press("ctrl-s");
     await until(() => session.commands.length === 2, "the detail answer");
     expect(sent(session)).toEqual([
       { name: "work.answer", args: { question: Q19, text: "yes" } },
@@ -864,35 +1015,50 @@ describe("answers, closed prompts, read-your-writes and retry", () => {
         : undefined;
     await ui.press("a");
     await ui.press("yes");
-    await ui.press("enter");
+    await ui.press("ctrl-s");
     const frame = await ui.waitFor(
       "answer DIPO-19: question.closed: This question is no longer waiting.",
     );
-    expect(frame).not.toContain("answer: yes_");
+    expect(frame).not.toContain("yes▍");
     expect(lines(frame).at(-1)).not.toContain("^R retry");
+    // The row says it failed, in place.
+    expect(listSide(frame)).toContain("  ✗ answer failed: question.closed");
   });
 
-  it("is done only once the office stream passes the reply cursor", async () => {
+  it("shows the item pending on its row until the office stream passes the reply cursor, then the result", async () => {
     const { ui, session } = await openDesk();
     session.commandReply = (name) =>
       name === "idea.accept"
         ? {
             ok: true,
-            result: { idea: PROPOSAL, state: "accepted" },
+            result: {
+              idea: PROPOSAL,
+              state: "accepted",
+              draft: "draft-31",
+              flush: {
+                state: "opened",
+                branch: "backlog/x",
+                pr: "https://github.com/o/r/pull/612",
+              },
+            },
             changed: true,
             cursor: { stream: STREAM, seq: 20 },
           }
         : undefined;
-    await selectRow(ui, "DIPO-21");
+    await selectRow(ui, "Split RunOutcomes");
     await ui.press("y");
     await ui.waitFor("accept proposed story: answered, waiting for the office stream");
+    expect(itemRows(ui.frame()).find((row) => row.includes("Split RunOutcomes"))).toMatch(
+      /^▌ ◌ Split RunOutcomes +accepting…$/,
+    );
     session.active(STREAM)?.options.onEvent(event(19, "work.progress", { work: { run: RUN_21 } }));
     await Bun.sleep(150);
     expect(ui.frame()).toContain("accept proposed story: answered, waiting for the office stream");
     session
       .active(STREAM)
       ?.options.onEvent(event(20, "idea.answered", { idea: PROPOSAL, state: "accepted" }));
-    await ui.waitFor("accept proposed story: done");
+    await ui.waitFor("accept proposed story: done; draft-31 in backlog PR #612");
+    expect(listSide(ui.frame())).toContain("  ✓ accepted · draft-31 in backlog PR #612");
   });
 
   it("offers Ctrl-R after a retryable error and sends the same request id again", async () => {
@@ -916,6 +1082,11 @@ describe("answers, closed prompts, read-your-writes and retry", () => {
     await ui.press("y");
     const frame = await ui.waitFor("approve DIPO-12: engine.recovering: The daemon is recovering.");
     expect(lines(frame).at(-1)).toContain("^R retry");
+    // On the row too, with its ^R.
+    expect(listSide(frame)).toContain("  ✗ approve failed: engine.recovering");
+    expect(
+      listSide(frame).some((line) => /^ {4}The daemon is recovering\. · \^R retry$/.test(line)),
+    ).toBe(true);
     await ui.press("ctrl-r");
     await until(() => session.commands.length === 2, "the retry");
     const ids = session.commands.map(
@@ -926,7 +1097,7 @@ describe("answers, closed prompts, read-your-writes and retry", () => {
   });
 });
 
-describe("Enter on a desk row", () => {
+describe("Enter on a desk item", () => {
   const verdicts = Verdict.array().parse([
     {
       gate: "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0R01",
@@ -978,10 +1149,11 @@ describe("Enter on a desk row", () => {
     },
   ]);
 
-  it("opens the story with its park record and every review verdict; Esc returns to the same row", async () => {
+  it("opens the story with its park record and every review verdict; Esc returns to the same item", async () => {
     const { ui, session } = await openDesk();
     session.verdicts.set(KEY_24, verdicts);
     await selectRow(ui, "DIPO-24");
+    expect(lines(ui.frame()).at(-1)).toContain("⏎ open story");
     await ui.press("enter");
     const frame = await ui.waitFor("review verdicts (1)");
     const shown = lines(frame);
@@ -1009,8 +1181,8 @@ describe("Enter on a desk row", () => {
       story: KEY_24,
     });
     await ui.press("escape");
-    await ui.waitFor("Your desk (7)");
-    const row = lines(ui.frame()).find((line) => line.startsWith(" ▌ "));
+    await ui.waitFor("NEEDS YOU");
+    const row = itemRows(ui.frame()).find((line) => line.startsWith("▌ "));
     expect(row).toContain("DIPO-24");
   });
 });

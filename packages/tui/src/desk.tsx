@@ -1,41 +1,66 @@
-// The Desk (`1`, 0009, DIPO-132, DIPO-308): what waits on the
-// maintainer, read from `office.desk` and shown in the engine's order. A count line, then one row
-// per item with its kind, story, park reason, detail, age and the keys its actions offer
-// (`keys.ts`); the stories the maintainer parked are listed apart under "Parked by you". An empty
-// desk says `Nothing waits on you.`. At 80 columns and wider an item with a hand action or with
-// stories it blocks gets a second line for them; below 80 every row is one line and the keys of
-// the selected row show in the footer only.
+// The Desk (`1`, 0009, DIPO-132, DIPO-308, DIPO-459): what waits on the maintainer, read from
+// `office.desk` and shown in the engine's order (spec.md, Desk; screens/14, 01, 11, 16).
+//
+// At 100 columns or wider it is a list (46 columns) and a preview of the focused item
+// (`desk-preview.ts`), split by a faint rule: the bold `NEEDS YOU` heading with its count, then one
+// dim header per kind in the order the engine's items come in (the engine orders them by
+// `KNOWN_DESK_KINDS`, the setup kinds first, so grouping keeps its order; the TUI never re-sorts),
+// a blank row between groups. A row is the focus column (`▌`), the kind's glyph, the title and the
+// age; its second, dim row is the reason and `blocks N`. Verbs live in the preview and the footer,
+// never on a row. Above the list the Since band says what changed since the maintainer last looked
+// (`office.digest`), until any key dismisses it. Below 100 columns the Desk is the list alone, each
+// row keeping its second row, and Enter opens the preview full screen.
+//
+// An action started on a row shows on it while it is on its way (`◌ accepting…`) and its result in
+// place until the desk is read again (`✓ accepted · draft-31`, or `✗ accept failed: …` with
+// `^R retry`), so focus never jumps. An empty Desk says `✓ Nothing needs you.` and what the team is
+// doing.
 //
 // No event carries the desk, so `useDesk` reads `office.desk` again after every office event that
 // can change it and after the store read the office again (a stream reset or a switch), at most
 // once a second. The TUI never orders, filters or derives a desk item itself.
 
 import type { OfficeStore } from "@dipsaus-orchestrator/client";
-import type {
-  Clock,
-  DeskItem,
-  EngineError,
-  Event,
-  OfficeId,
-  TimerHandle,
+import {
+  type Clock,
+  DESK_LOADING_KIND,
+  type DeskItem,
+  type EngineError,
+  type Event,
+  type OfficeId,
+  type TimerHandle,
 } from "@dipsaus-orchestrator/contract";
 import { Box } from "ink";
 import { useEffect, useRef, useState } from "react";
 
+import type { ActionState } from "./actions";
+import type { Role } from "./colour";
+import type { DigestResult } from "./digest";
 import { age, truncate } from "./format";
-import { hintText, rowKeys } from "./keys";
 import type { Display } from "./options";
-import { glyphs } from "./views";
-import { Colored } from "./colour";
+import {
+  fitLine,
+  lineWidth,
+  seg,
+  selected,
+  type Seg,
+  type SegLine,
+  SegRow,
+  spread,
+} from "./segments";
+import { clockTime, glyphs } from "./views";
 
-/** The narrowest terminal whose desk rows may take a second line (0009). */
-export const DESK_WIDE_COLUMNS = 80;
+/** The narrowest terminal that splits the Desk into a list and a preview (spec.md, Widths). */
+export const DESK_SPLIT_COLUMNS = 100;
+
+/** The list's width beside the preview. */
+export const DESK_LIST_COLUMNS = 46;
 
 /** The desk reads `office.desk` at most this often. */
 export const DESK_READ_INTERVAL_MS = 1_000;
 
-/** Said by an empty desk. */
-export const EMPTY_DESK = "Nothing waits on you.";
+/** Said by an empty desk (screens/12-states.txt, mock 16). */
+export const EMPTY_DESK = "Nothing needs you.";
 
 /** The office events after which the desk may have changed (DIPO-308). */
 export const DESK_EVENTS: ReadonlySet<string> = new Set([
@@ -168,22 +193,43 @@ export function deskRowId(item: DeskItem): string {
   ].join(":");
 }
 
-/** The kind of a desk item for a story the maintainer parked, listed under its own title (0020). */
+/** The kind of a desk item for a story the maintainer parked (0020). */
 export const PARKED_BY_YOU = "PARKED BY YOU";
 
+/** One group of the list: a kind and its items, in the engine's order. */
+export interface DeskGroup {
+  readonly kind: string;
+  readonly items: readonly DeskItem[];
+}
+
 /**
- * The desk's rows in the engine's order: what waits, then the stories the maintainer parked,
- * listed apart (0020).
+ * The desk's items by kind, each kind where its first item comes in the engine's order, so the
+ * order the engine gives (`KNOWN_DESK_KINDS`) stays; `all` is the order focus moves in.
  */
-export function deskRows(items: readonly DeskItem[]): {
-  readonly waiting: readonly DeskItem[];
-  readonly byYou: readonly DeskItem[];
-  /** Both lists in display order: the order `j` and `k` move in. */
+export function deskGroups(items: readonly DeskItem[]): {
+  readonly groups: readonly DeskGroup[];
   readonly all: readonly DeskItem[];
 } {
-  const waiting = items.filter((item) => item.kind !== PARKED_BY_YOU);
-  const byYou = items.filter((item) => item.kind === PARKED_BY_YOU);
-  return { waiting, byYou, all: [...waiting, ...byYou] };
+  const groups: { kind: string; items: DeskItem[] }[] = [];
+  for (const item of items) {
+    const group = groups.find((candidate) => candidate.kind === item.kind);
+    if (group === undefined) groups.push({ kind: item.kind, items: [item] });
+    else group.items.push(item);
+  }
+  return { groups, all: groups.flatMap((group) => group.items) };
+}
+
+/** The items that need the maintainer, for the heading's count: not the ones they parked. */
+export function needsYou(items: readonly DeskItem[]): number {
+  return items.filter((item) => item.kind !== PARKED_BY_YOU && item.kind !== DESK_LOADING_KIND)
+    .length;
+}
+
+/** A group's header (spec.md, Group names): PROFILE is `SETUP`, proposals are from your AI team. */
+export function groupName(kind: string, narrow: boolean): string {
+  if (kind === "PROFILE") return "SETUP";
+  if (kind === "PROPOSED STORY") return narrow ? "PROPOSALS" : "PROPOSALS · from your AI team";
+  return kind;
 }
 
 /** The selected row: by its id, else the first row of the same story, else the same index. */
@@ -204,126 +250,300 @@ export function parkWords(item: DeskItem): string {
   return item.reason ?? "";
 }
 
-/** The key hints of a row, as wide rows show them: `y approve  n reject`. */
-export function rowHints(item: DeskItem): string {
-  return rowKeys(item)
-    .bound.map((entry) => hintText(entry.binding))
-    .join("  ");
+/**
+ * The kind's glyph and its role (spec.md, Kind glyphs): `!` paused, `?` question, `○` a waiting
+ * gate, `✗` a park or a setup issue, `◆` a proposal, `→` next up. Each reads without colour.
+ */
+export function kindGlyph(
+  item: DeskItem,
+  ascii: boolean,
+): { readonly glyph: string; readonly role: Role } {
+  const g = glyphs(ascii);
+  switch (item.kind) {
+    case "STARTS PAUSED":
+      return { glyph: "!", role: "acc" };
+    case "QUESTION":
+      return { glyph: "?", role: "acc" };
+    case "PARKED":
+      return item.reason === "ambiguous-spec"
+        ? { glyph: "?", role: "acc" }
+        : { glyph: g.failed, role: "err" };
+    case "PROFILE":
+    case "PARK NOT WRITTEN":
+      return { glyph: g.failed, role: "err" };
+    case "PROPOSED STORY":
+    case "DECISION NOTE":
+      return { glyph: ascii ? "#" : "◆", role: "acc" };
+    case "NEXT UP":
+      return { glyph: ascii ? ">" : "→", role: "ok" };
+    case PARKED_BY_YOU:
+      return { glyph: g.idle, role: "dim" };
+    case DESK_LOADING_KIND:
+      return { glyph: g.pending, role: "dim" };
+    default:
+      return { glyph: g.idle, role: "acc" };
+  }
 }
 
-/** One desk row's lines; the first is the row, a second (wide only) its hand action or blocks. */
-export function rowLines(options: {
-  readonly item: DeskItem;
-  readonly selected: boolean;
-  /** Column widths; `hints` is the widest key hint of the rows, 0 below 80 columns. */
-  readonly widths: { readonly kind: number; readonly story: number; readonly hints: number };
-  readonly columns: number;
-  readonly now: number;
-  readonly display: Display;
-}): string[] {
-  const { item, widths, columns, now, display } = options;
-  const { bar, dot, ellipsis } = glyphs(display.ascii);
-  const wide = columns >= DESK_WIDE_COLUMNS;
-  const marker = options.selected ? bar : " ";
-  const head = `${marker} ${item.kind.padEnd(widths.kind)} ${(item.story ?? "").padEnd(widths.story)}`;
-  const park = parkWords(item);
-  const middle = park === "" ? item.detail : `${park} ${dot} ${item.detail}`;
-  const when = age(now - Date.parse(item.since));
-  const hints = wide ? rowHints(item) : "";
-  const tail = `  ${when.padStart(3)}${widths.hints === 0 ? "" : `  ${hints.padEnd(widths.hints)}`}`;
-  const room = Math.max(0, columns - 1 - head.length - 2 - tail.length);
-  const lines = [`${head}  ${truncate(middle, room, ellipsis).padEnd(room)}${tail}`];
-  if (wide) {
-    const extra: string[] = [];
-    if (item.hand !== undefined) extra.push(`by hand: ${item.hand}`);
-    if (item.blocks.length > 0) extra.push(`blocks ${item.blocks.join(", ")}`);
-    if (extra.length > 0) {
-      const indent = " ".repeat(2 + widths.kind + 1);
-      lines.push(truncate(`${indent}${extra.join(` ${dot} `)}`, columns - 1, ellipsis));
-    }
+/** What a row's facts are, from the item and the store's story titles. */
+export interface RowFacts {
+  readonly title: string;
+  /** The dim second row; "" for none. */
+  readonly second: string;
+}
+
+/** A row's title and second row (spec.md, Row): the story with its title, then the reason and blocks. */
+export function rowFacts(item: DeskItem, storyTitle: string | null, dot: string): RowFacts {
+  const story = item.story === undefined ? null : String(item.story);
+  const blocks = item.blocks.length === 0 ? "" : `blocks ${item.blocks.length}`;
+  const join = (...parts: string[]) => parts.filter((part) => part !== "").join(` ${dot} `);
+  if (item.kind === "PROFILE")
+    return { title: item.detail, second: "blocks every story in this office" };
+  if (item.idea !== undefined) {
+    const source = item.idea.story.sourceStory ?? story ?? "";
+    return { title: item.idea.title, second: join(item.idea.origin, source, blocks) };
   }
-  return lines;
+  if (item.note !== undefined) return { title: item.note.title, second: join(story ?? "", blocks) };
+  if (item.kind === "PARKED" || item.kind === PARKED_BY_YOU) {
+    return {
+      title: story === null ? item.detail : `${story} ${storyTitle ?? item.detail}`,
+      second: join(item.reason ?? "", blocks),
+    };
+  }
+  if (story === null) return { title: item.detail, second: blocks };
+  if (storyTitle === null) return { title: `${story} ${item.detail}`, second: blocks };
+  return { title: `${story} ${storyTitle}`, second: join(item.detail, blocks) };
+}
+
+/** The present and past of a verb on a pending row: `accepting…`, `accepted`. */
+const VERB_FORMS: Readonly<Record<string, readonly [string, string]>> = {
+  accept: ["accepting", "accepted"],
+  dismiss: ["dismissing", "dismissed"],
+  approve: ["approving", "approved"],
+  reject: ["rejecting", "rejected"],
+  answer: ["answering", "answered"],
+  resume: ["starting again", "started again"],
+  start: ["starting", "started"],
+  decline: ["declining", "declined"],
+  test: ["starting the test", "test started"],
+  discard: ["discarding", "discarded"],
+  drop: ["dropping", "dropped"],
+  park: ["parking", "parked"],
+};
+
+function verbForms(verb: string): readonly [string, string] {
+  return VERB_FORMS[verb] ?? [verb, `${verb} done`];
+}
+
+/** What a list draws: its rows and which of them belong to the focused item. */
+export interface ListContext {
+  readonly width: number;
+  readonly selected: number;
+  readonly now: number;
+  readonly ascii: boolean;
+  /** Below 100 columns: no heading, short group names (screens/16-narrow.txt). */
+  readonly narrow: boolean;
+  /** A story's title by id, from the office snapshot. */
+  readonly title: (story: string) => string | null;
+  /** The action on its way or just answered, for the row it was started on. */
+  readonly action: ActionState | null;
+}
+
+/** The pending or answered lines of the row an action was started on (spec.md, Pending and retry). */
+function actionRows(action: ActionState, width: number, ascii: boolean): SegLine[] {
+  const g = glyphs(ascii);
+  const done = verbForms(action.verb)[1];
+  if (action.status === "failed") {
+    const error = action.error;
+    const retry = error?.retryable === true;
+    return [
+      [
+        seg("  "),
+        seg(`${g.failed} `, "err"),
+        seg(`${action.verb} failed: ${error?.code ?? "error"}`),
+      ],
+      [
+        seg("    "),
+        seg(truncate(error?.message ?? "", Math.max(0, width - 16), g.ellipsis), "dim"),
+        ...(retry ? [seg(` ${g.dot} `, "dim"), seg("^R", "acc"), seg(" retry", "dim")] : []),
+      ],
+    ];
+  }
+  if (action.status !== "done") return [];
+  const words = action.unchanged === true ? "already so; nothing changed" : done;
+  return [
+    [
+      seg("  "),
+      seg(`${g.met} `, "ok"),
+      seg(action.note === undefined ? words : `${words} ${g.dot} ${action.note}`),
+    ],
+  ];
+}
+
+/** The list's rows and the range of the focused item's rows in them. */
+export function listLines(
+  groups: readonly DeskGroup[],
+  ctx: ListContext,
+): { readonly lines: SegLine[]; readonly focus: readonly [number, number] } {
+  const g = glyphs(ctx.ascii);
+  const lines: SegLine[] = [];
+  let focus: [number, number] = [0, 0];
+  if (!ctx.narrow) {
+    const count = needsYou(groups.flatMap((group) => group.items));
+    lines.push(spread([seg("NEEDS YOU", "hi", true)], [seg(`${count}  `, "acc")], ctx.width), []);
+  }
+  let index = 0;
+  groups.forEach((group, n) => {
+    if (n > 0) lines.push([]);
+    lines.push([seg(groupName(group.kind, ctx.narrow), "dim")]);
+    for (const item of group.items) {
+      const focused = index === ctx.selected;
+      const from = lines.length;
+      const facts = rowFacts(
+        item,
+        item.story === undefined ? null : ctx.title(String(item.story)),
+        g.dot,
+      );
+      const action = ctx.action?.row === deskRowId(item) ? ctx.action : null;
+      const pending =
+        action !== null && (action.status === "sending" || action.status === "syncing");
+      const { glyph, role } = pending
+        ? { glyph: g.pending, role: "dim" as const }
+        : kindGlyph(item, ctx.ascii);
+      const right: Seg = pending
+        ? seg(`${verbForms(action.verb)[0]}${g.ellipsis}  `, "dim")
+        : seg(`${age(ctx.now - Date.parse(item.since))}  `, "dim");
+      const room = Math.max(1, ctx.width - 4 - right.text.length - 1);
+      const first: SegLine = [
+        seg(focused ? `${g.bar} ` : "  ", "acc"),
+        seg(`${glyph} `, role),
+        seg(truncate(facts.title, room, g.ellipsis), pending ? "dim" : focused ? "hi" : undefined),
+      ];
+      const row = spread(first, [right], ctx.width);
+      lines.push(focused ? selected(fitLine(row, ctx.width)) : row);
+      if (facts.second !== "") {
+        const second: SegLine = [
+          seg(`    ${truncate(facts.second, ctx.width - 5, g.ellipsis)}`, "dim"),
+        ];
+        lines.push(focused ? selected(fitLine(second, ctx.width)) : second);
+      }
+      if (action !== null) lines.push(...actionRows(action, ctx.width, ctx.ascii));
+      if (focused) focus = [from, lines.length - 1];
+      index += 1;
+    }
+  });
+  return { lines, focus };
+}
+
+/**
+ * The Since band (spec.md, The frame): `Since 09:41 · 1 merged · 2 new proposals · $4.10 spent`
+ * with `any key to dismiss` at the right; null when nothing it counts changed.
+ */
+export function sinceBand(digest: DigestResult, width: number, ascii: boolean): SegLine | null {
+  const { dot } = glyphs(ascii);
+  const merged = digest.counts["done"] ?? 0;
+  const proposals = digest.counts["proposals"] ?? 0;
+  const spent = digest.spent ?? 0;
+  if (merged === 0 && proposals === 0 && spent === 0) return null;
+  const parts: Seg[] = [seg(`Since ${clockTime(Date.parse(digest.since))}`, "dim")];
+  const add = (text: string, role: Role) => parts.push(seg(` ${dot} `, "dim"), seg(text, role));
+  if (merged > 0) add(`${merged} merged`, "fg");
+  if (proposals > 0) add(`${proposals} new proposal${proposals === 1 ? "" : "s"}`, "dim");
+  if (spent > 0) add(`$${spent.toFixed(2)} spent`, "dim");
+  return spread(parts, [seg("any key to dismiss", "dim")], width);
+}
+
+/** The empty Desk (screens/12-states.txt, mock 16): reassure, say what the team does, offer the Floor. */
+export function emptyLines(running: number, inReview: number, ascii: boolean): SegLine[] {
+  return [
+    [],
+    [],
+    [seg("    "), seg(glyphs(ascii).met, "ok"), seg(" "), seg(EMPTY_DESK, "hi")],
+    [],
+    [seg(`      The team is on it: ${running} running, ${inReview} in review.`)],
+    [],
+    [seg("      "), seg("2", "acc"), seg(" watch the floor")],
+  ];
+}
+
+/** The rows of a pane at `height`, scrolled so the focused range shows. */
+export function windowed(
+  lines: readonly SegLine[],
+  height: number,
+  focus: readonly [number, number],
+): SegLine[] {
+  const room = Math.max(1, height);
+  const start = Math.max(0, Math.min(focus[1] - room + 1, focus[0]));
+  return lines.slice(start, start + room);
 }
 
 export function Desk(props: {
   readonly desk: DeskState;
-  /** The selected row in `deskRows(...).all`, -1 for none. */
+  /** The focused row in `deskGroups(...).all`, -1 for none. */
   readonly selected: number;
   readonly columns: number;
   readonly height: number;
   readonly now: number;
   readonly display: Display;
+  readonly title: (story: string) => string | null;
+  /** The focused item's preview at the pane's width (`desk-preview.ts`). */
+  readonly preview: (width: number) => readonly SegLine[];
+  /** Below 100 columns, Enter opened the preview full screen. */
+  readonly previewOpen: boolean;
+  /** The Since band's digest, while it shows. */
+  readonly since: DigestResult | null;
+  readonly action: ActionState | null;
+  /** The office's running and in-review counts, for the empty Desk. */
+  readonly team: { readonly running: number; readonly inReview: number };
 }) {
   const { desk, columns, display } = props;
-  const { ellipsis } = glyphs(display.ascii);
-  const line = (text: string, key: string, tone?: "selected" | "title") => {
-    const shown = truncate(text, columns - 1, ellipsis);
-    return (
-      <Colored
-        key={key}
-        display={display}
-        bold={tone === "title"}
-        role={tone === "selected" ? "sel" : undefined}
-        wrap="truncate-end"
-      >
-        {` ${shown}`}
-      </Colored>
-    );
-  };
+  const g = glyphs(display.ascii);
+  const width = columns - 1;
+  const rows = (lines: readonly SegLine[]) => (
+    <Box flexDirection="column">
+      {lines.map((line, i) => (
+        <SegRow key={i} line={line} display={display} />
+      ))}
+    </Box>
+  );
   if (desk.items === null) {
-    return (
-      <Box flexDirection="column">
-        {line("Your desk", "title", "title")}
-        {line(
-          desk.error === null
-            ? `reading the desk${ellipsis}`
-            : `desk: ${desk.error.code}: ${desk.error.message}`,
-          "status",
-        )}
-      </Box>
-    );
+    const status =
+      desk.error === null
+        ? `reading the desk${g.ellipsis}`
+        : `desk: ${desk.error.code}: ${desk.error.message}`;
+    return rows([[seg(status, "dim")]]);
   }
-  const { waiting, byYou, all } = deskRows(desk.items);
-  const widths = {
-    kind: Math.max(0, ...all.map((item) => item.kind.length)),
-    story: Math.max(0, ...all.map((item) => (item.story ?? "").length)),
-    hints:
-      columns >= DESK_WIDE_COLUMNS ? Math.max(0, ...all.map((item) => rowHints(item).length)) : 0,
-  };
-  const rendered = all.map((item, i) =>
-    rowLines({
-      item,
-      selected: i === props.selected,
-      widths,
-      columns,
-      now: props.now,
-      display,
-    }),
-  );
-  const out: { text: string; key: string; tone?: "selected" | "title" }[] = [];
-  out.push({ text: `Your desk (${waiting.length})`, key: "count", tone: "title" });
-  if (desk.error !== null) {
-    out.push({ text: `desk: ${desk.error.code}: ${desk.error.message}`, key: "error" });
-  }
-  if (waiting.length === 0) out.push({ text: EMPTY_DESK, key: "empty" });
-  // The rows with "Parked by you" before the first of them, then a window that keeps the selected
-  // row on screen.
-  const body: { text: string; key: string; tone?: "selected" | "title"; row: number }[] = [];
-  rendered.forEach((lines, i) => {
-    if (i === waiting.length) {
-      body.push({ text: `Parked by you (${byYou.length})`, key: "by-you", tone: "title", row: i });
-    }
-    const id = deskRowId(all[i]!);
-    lines.forEach((text, n) => {
-      const selected = i === props.selected && n === 0;
-      body.push({ text, key: `${id}:${n}`, row: i, ...(selected ? { tone: "selected" } : {}) });
-    });
+  const { groups, all } = deskGroups(desk.items);
+  const error: SegLine[] =
+    desk.error === null ? [] : [[seg(`desk: ${desk.error.code}: ${desk.error.message}`, "err")]];
+  if (all.length === 0)
+    return rows([...error, ...emptyLines(props.team.running, props.team.inReview, display.ascii)]);
+  const narrow = columns < DESK_SPLIT_COLUMNS;
+  if (narrow && props.previewOpen)
+    return rows([...error, ...windowed(props.preview(width), props.height - error.length, [0, 0])]);
+  const band = narrow || props.since === null ? null : sinceBand(props.since, width, display.ascii);
+  const top: SegLine[] = [...error];
+  if (band !== null) top.push(band, [seg((display.ascii ? "-" : "─").repeat(width), "faint")]);
+  const height = Math.max(1, props.height - top.length);
+  const list = listLines(groups, {
+    width: narrow ? width : DESK_LIST_COLUMNS,
+    selected: props.selected,
+    now: props.now,
+    ascii: display.ascii,
+    narrow,
+    title: props.title,
+    action: props.action,
   });
-  const room = Math.max(1, props.height - out.length);
-  const last = body.findLastIndex((entry) => entry.row === props.selected);
-  const start = Math.max(0, last - room + 1);
-  out.push(...body.slice(start, start + room));
-  return (
-    <Box flexDirection="column">{out.map((entry) => line(entry.text, entry.key, entry.tone))}</Box>
-  );
+  const shown = windowed(list.lines, height, list.focus);
+  if (narrow) return rows([...top, ...shown]);
+  const paneWidth = width - DESK_LIST_COLUMNS - 3;
+  const preview = props.preview(paneWidth);
+  const rule = seg(display.ascii ? "|" : "│", "faint");
+  const body: SegLine[] = [];
+  for (let i = 0; i < height; i++) {
+    const left = fitLine(shown[i] ?? [], DESK_LIST_COLUMNS);
+    const right = preview[i] ?? [];
+    body.push(lineWidth(right) === 0 ? [...left, rule] : [...left, rule, seg("  "), ...right]);
+  }
+  return rows([...top, ...body]);
 }

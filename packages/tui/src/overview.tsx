@@ -468,8 +468,6 @@ export function Overview(props: {
   latest: LatestLines | null;
   /** The selected row by story key, marked with `>`; Enter opens it. */
   selected?: string | null;
-  /** The "since you left" line from `office.digest`, under the count line (DIPO-308). */
-  digest?: string | null;
 }) {
   const { state, display, width, columns } = props;
   const { dot, ellipsis } = glyphs(display.ascii);
@@ -483,9 +481,6 @@ export function Overview(props: {
   const top: BoardLine[] = [
     { key: "counts", text: countLine(state, dot, width, props.clock.now()) },
   ];
-  if (props.digest !== undefined && props.digest !== null) {
-    top.push({ key: "digest", text: ` ${props.digest}` });
-  }
   if (state.work.length === 0) top.push({ key: "idle", text: idleLine(state, dot) });
   const board = fitSections(
     sections({

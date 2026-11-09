@@ -10,6 +10,7 @@ import type { Dispatch, ReactNode } from "react";
 import type { TuiActions } from "./app";
 import type { Mode, ModeAction } from "./mode";
 import type { Display } from "./options";
+import { type SegLine, SegRow } from "./segments";
 import { confirmPrompt, settingName } from "./settings";
 import { OfficesBody } from "./views";
 
@@ -117,9 +118,9 @@ export function onSwitcherKey(
   }
 }
 
-/** The lines under a body (a run, a desk row's actions, an open action prompt). */
-function Panel(props: { readonly lines: readonly string[] }) {
-  return props.lines.map((line, i) => <Text key={i} wrap="truncate-end">{` ${line}`}</Text>);
+/** The lines under a body: an open action prompt's box (`prompt-box.ts`). */
+function Panel(props: { readonly lines: readonly SegLine[]; readonly display: Display }) {
+  return props.lines.map((line, i) => <SegRow key={i} line={line} display={props.display} />);
 }
 
 interface ScreenProps {
@@ -147,12 +148,13 @@ function SwitcherMode(props: ScreenProps & { readonly index: number; readonly pa
 function ConfirmPrivacyMode(props: {
   readonly mode: Extract<Mode, { kind: "confirm-privacy" }>;
   readonly home: ReactNode;
-  readonly panel: readonly string[];
+  readonly panel: readonly SegLine[];
+  readonly display: Display;
 }) {
   return (
     <>
       {props.home}
-      <Panel lines={props.panel} />
+      <Panel lines={props.panel} display={props.display} />
       <Text>{` ${confirmPrompt(props.mode.key, props.mode.value)} [y/N]`}</Text>
     </>
   );
@@ -169,7 +171,7 @@ export interface ModeScreenProps extends ScreenProps {
   /** What the palette and the keys overlay show (DIPO-463). */
   readonly overlay: ReactNode;
   /** Home's lines under its body; the switcher has none. */
-  readonly panel: readonly string[];
+  readonly panel: readonly SegLine[];
 }
 
 /** The body of the mode, then the lines and prompt under it. */
@@ -181,7 +183,14 @@ export function ModeScreen(props: ModeScreenProps) {
     case "path":
       return <SwitcherMode {...props} index={mode.index} path={mode.text} />;
     case "confirm-privacy":
-      return <ConfirmPrivacyMode mode={mode} home={props.home} panel={props.panel} />;
+      return (
+        <ConfirmPrivacyMode
+          mode={mode}
+          home={props.home}
+          panel={props.panel}
+          display={props.display}
+        />
+      );
     case "planning":
       return props.planning;
     case "retro":
@@ -193,7 +202,7 @@ export function ModeScreen(props: ModeScreenProps) {
       return (
         <>
           {props.home}
-          <Panel lines={props.panel} />
+          <Panel lines={props.panel} display={props.display} />
         </>
       );
   }

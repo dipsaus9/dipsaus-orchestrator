@@ -73,6 +73,7 @@ describe("the header", () => {
     expect(text).toEqual({
       left: "dipo / dipsaus-orchestrator",
       elsewhere: "   +2 elsewhere · O",
+      plan: "",
       right: "● daemon live    $19.14 today    10:42",
     });
     const line = headerLine(text, 112);
@@ -109,8 +110,23 @@ describe("the header", () => {
     expect(headerText(offices, false, NOW, "Offices")).toEqual({
       left: "dipo / Offices",
       elsewhere: "",
+      plan: "",
       right: "● daemon live    $27.10 today, all offices    10:42",
     });
+  });
+});
+
+describe("the header while a planning session is open (DIPO-459)", () => {
+  it("shows ● plan open at the right, before the daemon chip, and drops it before the chip", () => {
+    const text = headerText(state(), false, NOW, undefined, true);
+    expect(text.plan).toBe("● plan open    ");
+    expect(headerLine(text, 112)).toMatch(
+      / {3}● plan open {4}● daemon live {4}\$19\.14 today {4}10:42$/,
+    );
+    expect(headerLine(text, 112)).toHaveLength(112);
+    const narrow = fitHeader(text, "● daemon live", 60, "…");
+    expect(narrow.plan).toBe("");
+    expect(narrow.right).toBe("● daemon live");
   });
 });
 

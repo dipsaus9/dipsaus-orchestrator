@@ -95,6 +95,12 @@ export function systemTui(
         const opened = Bun.spawn(["open", log], { stdout: "ignore", stderr: "ignore" });
         return (await opened.exited) === 0 ? null : `could not open ${log}`;
       },
+      // `o` on a Desk item opens its PR (DIPO-459); only an https URL goes to `open`.
+      openUrl: async (url) => {
+        if (!/^https:\/\/[^\s]+$/.test(url)) return `not an https URL: ${url}`;
+        const opened = Bun.spawn(["open", url], { stdout: "ignore", stderr: "ignore" });
+        return (await opened.exited) === 0 ? null : `could not open ${url}`;
+      },
     });
     releaseStdin(process.stdin);
     return code;

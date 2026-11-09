@@ -16,6 +16,8 @@ import { type Home, HomeMode } from "./home";
 import { inSwitcherMode, type Mode } from "./mode";
 import { ModeScreen, promptHeight } from "./modes";
 import { OverlayOver } from "./overlays";
+import { promptRows } from "./prompt-box";
+import type { SegLine } from "./segments";
 import { type Planning, PlanningMode } from "./planning";
 import { dialogComplete } from "./question-dialog";
 import { type Retro, RetroMode } from "./retro";
@@ -112,6 +114,17 @@ function StateBody(props: {
   );
 }
 
+/**
+ * The open prompt's box under the body (`prompt-box.ts`); none in the views with their own input,
+ * and none when the Desk draws it in the focused item's preview.
+ */
+function panelRows(props: ScreenProps, columns: number): SegLine[] {
+  const { mode, acts, home, display } = props;
+  const own = inSwitcherMode(mode) || mode.kind === "planning" || mode.kind === "retro";
+  if (own || overlaid(mode) || acts.flow === null || home.promptInDesk) return [];
+  return promptRows(acts.flow, { width: columns - 1, ascii: display.ascii, context: true });
+}
+
 export function Screen(props: ScreenProps) {
   const { mode, state, clock, display, home, acts, planning, retro } = props;
   const { columns, rows } = useWindowSize();
@@ -129,10 +142,7 @@ export function Screen(props: ScreenProps) {
   const keys = screenKeys(props, columns);
   const room = screen === null ? currentRoom(mode, home) : null;
   const bare = home.expanded && home.detail !== null && screen === null;
-  const panel =
-    inSwitcher || mode.kind === "planning" || mode.kind === "retro" || overlaid(mode)
-      ? []
-      : [...home.panelLines(columns), ...acts.promptLines()];
+  const panel = panelRows(props, columns);
   // The bands and the lines under the body stay on screen; the view gets the rest.
   const height = bare
     ? rows - 1
@@ -188,6 +198,7 @@ export function Screen(props: ScreenProps) {
           display={display}
           now={clock.now()}
           columns={columns - 1}
+          planOpen={room === "desk" && state.planning !== null}
           {...(inSwitcher ? { title: "Offices" } : {})}
         />
       }

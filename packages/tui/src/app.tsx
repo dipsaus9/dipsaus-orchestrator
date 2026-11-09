@@ -141,6 +141,8 @@ export interface TuiActions {
   restartDaemon(): Promise<string | null>;
   /** Opens the daemon's log outside the TUI; resolves to why it did not open, or null. */
   openLog(): Promise<string | null>;
+  /** Opens a PR's https URL in the browser (`o` on the Desk); resolves to why it did not, or null. */
+  openUrl(url: string): Promise<string | null>;
 }
 
 export interface AppProps {
@@ -239,6 +241,7 @@ export function App(props: AppProps) {
     openSwitcher: () => dispatch({ type: "switcher", index: selectedOfficeIndex(state) }),
     copy: (text) => actions.copy(text),
     confirmPrivacy: (key, value) => dispatch({ type: "confirm-privacy", key, value }),
+    openUrl: (url) => actions.openUrl(url),
   });
   const planning = usePlanning({
     store,

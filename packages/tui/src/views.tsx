@@ -3,7 +3,8 @@
 // ASCII twin under `--ascii`), colour is extra.
 //
 // The header is `dipo / <office>`, `+N elsewhere · O` when other offices need the maintainer, then
-// at the right the daemon chip, spend today and the time. The daemon chip is the one place the
+// at the right `● plan open` on the Desk while a planning session is open (DIPO-459), the daemon
+// chip, spend today and the time. The daemon chip is the one place the
 // connection and the daemon state show: `● daemon live`, `◌ daemon recovering`, `✗ offline since
 // 13:40 · view frozen`, `✗ daemon stopped`.
 
@@ -154,12 +155,14 @@ export function elsewhere(state: OfficeStoreState): number {
     .reduce((sum, entry) => sum + (entry.summary?.waitingOnMaintainer ?? 0), 0);
 }
 
-/** The header's three parts as plain text. */
+/** The header's parts as plain text. */
 export interface HeaderText {
   /** `dipo / dipsaus-orchestrator`. */
   readonly left: string;
   /** `   +2 elsewhere · O`, or "". */
   readonly elsewhere: string;
+  /** `● plan open` and four spaces, or "". */
+  readonly plan: string;
   /** The daemon chip, then spend today and the time, four spaces apart. */
   readonly right: string;
 }
@@ -169,6 +172,7 @@ export function headerText(
   ascii: boolean,
   now: number,
   title?: string,
+  planOpen = false,
 ): HeaderText {
   const g = glyphs(ascii);
   const offices = title !== undefined;
@@ -181,6 +185,7 @@ export function headerText(
   return {
     left: `dipo / ${place}`,
     elsewhere: others === 0 ? "" : `   +${others} elsewhere ${g.dot} O`,
+    plan: planOpen && !offline ? `${g.live} plan open    ` : "",
     right: [
       `${chip.glyph} ${chip.word}`,
       ...(offline || spend === null ? [] : [spend]),
@@ -197,9 +202,11 @@ const HEADER_GAP = 3;
  * name shortens (`dipsaus-orch…`), then `+N elsewhere`; the daemon chip stays.
  */
 export function fitHeader(text: HeaderText, chip: string, columns: number, ellipsis: string) {
-  const width = (t: HeaderText) => t.left.length + t.elsewhere.length + HEADER_GAP + t.right.length;
+  const width = (t: HeaderText) =>
+    t.left.length + t.elsewhere.length + HEADER_GAP + t.plan.length + t.right.length;
   let fitted = text;
   if (width(fitted) > columns) fitted = { ...fitted, right: chip };
+  if (width(fitted) > columns) fitted = { ...fitted, plan: "" };
   const over = width(fitted) - columns;
   if (over > 0) {
     const keep = Math.max("dipo / ".length + 4, fitted.left.length - over - ellipsis.length);
@@ -211,8 +218,8 @@ export function fitHeader(text: HeaderText, chip: string, columns: number, ellip
 
 /** The header as one plain line of `columns` cells. */
 export function headerLine(text: HeaderText, columns: number): string {
-  const used = text.left.length + text.elsewhere.length + text.right.length;
-  return `${text.left}${text.elsewhere}${" ".repeat(Math.max(HEADER_GAP, columns - used))}${text.right}`;
+  const used = text.left.length + text.elsewhere.length + text.plan.length + text.right.length;
+  return `${text.left}${text.elsewhere}${" ".repeat(Math.max(HEADER_GAP, columns - used))}${text.plan}${text.right}`;
 }
 
 export function Header(props: {
@@ -222,13 +229,15 @@ export function Header(props: {
   readonly columns: number;
   /** A place that is not an office, such as `Offices`. */
   readonly title?: string;
+  /** On the Desk while a planning session is open: `● plan open` at the right. */
+  readonly planOpen?: boolean;
 }) {
   const { state, display, now, columns } = props;
   const chip = daemonChip(state, display.ascii);
   const g = glyphs(display.ascii);
   const chipText = `${chip.glyph} ${chip.word}`;
   const text = fitHeader(
-    headerText(state, display.ascii, now, props.title),
+    headerText(state, display.ascii, now, props.title, props.planOpen === true),
     chipText,
     columns,
     g.ellipsis,
@@ -236,7 +245,7 @@ export function Header(props: {
   const place = text.left.slice("dipo / ".length);
   const others = text.elsewhere === "" ? 0 : elsewhere(state);
   const tail = text.right.slice(chipText.length);
-  const used = text.left.length + text.elsewhere.length + text.right.length;
+  const used = text.left.length + text.elsewhere.length + text.plan.length + text.right.length;
   return (
     <Text wrap="truncate-end">
       <Colored display={display} role="acc" bold>
@@ -261,6 +270,14 @@ export function Header(props: {
         </>
       )}
       {" ".repeat(Math.max(HEADER_GAP, columns - used))}
+      {text.plan === "" ? null : (
+        <>
+          <Colored display={display} role="acc">
+            {g.live}
+          </Colored>
+          {text.plan.slice(g.live.length)}
+        </>
+      )}
       <Colored display={display} role={chip.glyphRole}>
         {chip.glyph}
       </Colored>

@@ -17,22 +17,33 @@ import {
   officeSetPrivacy,
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
-import type { Key } from "ink";
+import { type Key, useWindowSize } from "ink";
 import { useEffect, useState } from "react";
 
 import type { ActionTarget, useActions } from "./actions";
 import type { RunRequest, RunResult, TuiActions } from "./app";
 import { Checklist, firstUnticked } from "./checklist";
-import { Desk, DESK_WIDE_COLUMNS, deskRowId, deskRows, selectedRow, useDesk } from "./desk";
+import {
+  Desk,
+  DESK_SPLIT_COLUMNS,
+  deskGroups,
+  deskRowId,
+  selectedRow,
+  sinceBand,
+  useDesk,
+} from "./desk";
+import { previewLines } from "./desk-preview";
 import { Detail, type DetailTarget } from "./detail";
 import { skipReason, widthOf } from "./format";
-import { digestLine, useDigest } from "./digest";
+import { useDigest } from "./digest";
 import { NO_KEY } from "./input";
 import { type ActionId, binding, type Hint, rowKeys, viewKeys } from "./keys";
 import { NO_FOCUS, type PaletteFocus } from "./palette";
 import { useLatestLines } from "./latest";
 import type { Display } from "./options";
 import { OUTPUT_TAIL_BYTES } from "./output";
+import { promptRows } from "./prompt-box";
+import type { SegLine } from "./segments";
 import { boardEntries, Overview } from "./overview";
 import { Queue, queueRows } from "./queue";
 import { privacySettings, Settings, settingName, appliesWords } from "./settings";
@@ -72,9 +83,20 @@ function oneLine(text: string): string {
   return text.replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, " ").trim();
 }
 
+/** The park reasons whose resume note starts as the park's detail: the failing check, the paths. */
+const PREFILLED_PARKS: ReadonlySet<string> = new Set([
+  "verify-failing",
+  "conflict",
+  "worker-failed",
+]);
+
 /** What a desk row's action is about, with the command line the engine built for it. */
 function deskTarget(item: DeskItem, cli: string, id: ActionId): ActionTarget {
+  const prefill =
+    id === "resume" && PREFILLED_PARKS.has(item.reason ?? "") && !cli.includes("--note");
   return {
+    row: deskRowId(item),
+    ...(prefill ? { prefill: item.detail } : {}),
     ...(item.story === undefined ? {} : { story: String(item.story) }),
     ...(item.question === undefined ? {} : { question: String(item.question) }),
     ...(item.gate === undefined ? {} : { gate: String(item.gate) }),
@@ -153,11 +175,14 @@ export interface HomeArgs {
   readonly copy: (text: string) => void;
   /** Asks to confirm a privacy change (the mode `confirm-privacy`). */
   readonly confirmPrivacy: (key: string, value: boolean) => void;
+  /** `o`: opens a PR in the browser; resolves to why it did not open, or null. */
+  readonly openUrl: (url: string) => Promise<string | null>;
 }
 
 /** The state, the keys and the footer facts of the home mode. */
 export function useHome(args: HomeArgs) {
   const { store, clock, display, actions, state, ellipsis, acts, act, setMessage } = args;
+  const { columns } = useWindowSize();
   const [view, setView] = useState<View>("overview");
   // `z` on the run stream: the stream takes the whole screen (DIPO-458).
   const [expanded, setExpanded] = useState(false);
@@ -215,6 +240,10 @@ export function useHome(args: HomeArgs) {
     readonly index: number;
   }>({ id: null, key: null, index: 0 });
   const [card, setCard] = useState<CardState | null>(null);
+  // Below 100 columns Enter opens the focused item's preview full screen (spec.md, Widths).
+  const [deskPreview, setDeskPreview] = useState(false);
+  // The digest whose Since band any key dismissed, by its `since`.
+  const [sinceDismissed, setSinceDismissed] = useState<string | null>(null);
   const desk = useDesk({
     store,
     clock,
@@ -223,7 +252,7 @@ export function useHome(args: HomeArgs) {
     active: view === "desk" && detail === null,
     snapshots: state.snapshots,
   });
-  const deskAll = desk.items === null ? [] : deskRows(desk.items).all;
+  const deskAll = desk.items === null ? [] : deskGroups(desk.items).all;
   const deskIndex = selectedRow(deskAll, deskSelection);
   const deskItem = deskAll[deskIndex] ?? null;
   const selectDesk = (index: number) => {
@@ -240,6 +269,16 @@ export function useHome(args: HomeArgs) {
     readDigest: actions.readDigest,
     clock,
   });
+  const deskNarrow = columns < DESK_SPLIT_COLUMNS;
+  // The Since band shows on the wide Desk until any key dismisses it (spec.md, The frame).
+  const sinceShown =
+    view === "desk" &&
+    detail === null &&
+    card === null &&
+    !deskNarrow &&
+    digest !== null &&
+    digest.since !== sinceDismissed &&
+    sinceBand(digest, columns - 1, display.ascii) !== null;
   // The open test the checklist shows: the story's, else the first open one (DIPO-365).
   const checklistTest =
     state.tests.find((test) => checklistKey === null || String(test.key) === checklistKey) ?? null;
@@ -511,6 +550,7 @@ export function useHome(args: HomeArgs) {
       setRun(null);
       setMessage(null);
       acts.dismiss();
+      setDeskPreview(false);
       if (view === "settings") setView("overview");
       // Esc leaves the test open: nothing is sent (DIPO-365).
       if (view === "checklist") setView(checklistBack);
@@ -626,13 +666,39 @@ export function useHome(args: HomeArgs) {
     }
   };
 
+  /** Starts a desk action on `item` with the command line the engine built for it. */
+  const actOnDesk = (item: DeskItem, id: ActionId, cli: string) => {
+    setDeskSelection({ id: deskRowId(item), key: item.key ?? null, index: deskIndex });
+    act(id, deskTarget(item, cli, id));
+  };
+
   const onDeskKey = (input: string, key: Key) => {
+    const resume = deskItem?.actions.find((action) => action.command === "work.resume");
+    const answer = deskItem?.actions.find((action) => action.command === "work.answer");
     if (key.downArrow || input === "j") {
+      setDeskPreview(false);
       selectDesk(deskIndex + 1);
     } else if (key.upArrow || input === "k") {
+      setDeskPreview(false);
       selectDesk(deskIndex - 1);
     } else if (key.return && deskItem !== null) {
-      openCard(deskItem);
+      // Below 100 columns the first Enter opens the preview, the next one the story.
+      if (deskNarrow && !deskPreview) setDeskPreview(true);
+      else openCard(deskItem);
+    } else if (input === "o" && deskItem?.pr !== undefined) {
+      const url = deskItem.pr.url;
+      void args.openUrl(url).then((failure) => setMessage(failure ?? `opened ${url}`));
+    } else if (input === "r" && deskItem?.kind === "PARKED" && answer !== undefined) {
+      // An ambiguous-spec park starts again with its answer: `r` is `a` (spec.md, PARKED).
+      actOnDesk(deskItem, "answer", answer.cli);
+    } else if (
+      input === "s" &&
+      deskItem !== null &&
+      resume !== undefined &&
+      deskItem.kind === "PARKED"
+    ) {
+      // A failed run starts again with a hint: the resume's note, empty (screens/15).
+      act("resume", { ...deskTarget(deskItem, resume.cli, "resume"), prefill: "" });
     } else if (input === "i") {
       // The maintainer's quick idea goes to the audit (0022, DIPO-454), whatever row is selected.
       act("idea", {});
@@ -654,14 +720,14 @@ export function useHome(args: HomeArgs) {
     } else if (deskItem !== null) {
       const bound = rowKeys(deskItem).bound.find((entry) => entry.binding.key === input);
       if (bound === undefined) return;
-      setDeskSelection({ id: deskRowId(deskItem), key: deskItem.key ?? null, index: deskIndex });
       if (bound.binding.id === "test" && deskItem.key !== undefined) {
         const storyKey = String(deskItem.key);
         const id =
           deskItem.story ?? state.stories.find((story) => String(story.key) === storyKey)?.story;
+        setDeskSelection({ id: deskRowId(deskItem), key: deskItem.key ?? null, index: deskIndex });
         openChecklist({ key: storyKey, id: id === undefined ? "this story" : String(id) }, "desk");
       }
-      act(bound.binding.id, deskTarget(deskItem, bound.action.cli, bound.binding.id));
+      actOnDesk(deskItem, bound.binding.id, bound.action.cli);
     }
   };
 
@@ -688,6 +754,11 @@ export function useHome(args: HomeArgs) {
 
   /** An open detail or card first, then Ctrl-R, the shared view keys and the view's own. */
   const onKey = (input: string, key: Key) => {
+    if (sinceShown && digest !== null) {
+      // Any key dismisses the Since band, and does nothing else (keymap.json, dismissSince).
+      setSinceDismissed(digest.since);
+      return;
+    }
     if (detail !== null && onDetailKey(detail, input, key)) return;
     if (key.ctrl && input === "r") {
       onRetryKey();
@@ -792,6 +863,7 @@ export function useHome(args: HomeArgs) {
   } else if (view === "desk" && card === null) {
     if (deskItem !== null) {
       for (const entry of rowKeys(deskItem).bound) rowHintList.push(hintOf(entry.binding));
+      if (deskItem.pr !== undefined) rowHintList.push({ key: "o", label: "PR", priority: 20 });
     }
     for (const entry of viewKeys("desk")) rowHintList.push(hintOf(entry));
   }
@@ -863,19 +935,44 @@ export function useHome(args: HomeArgs) {
       setRefusal(null);
       if (run?.status === "done") setRun(null);
     },
-    /** The lines under the body: the selected desk row's actions no key sends. */
-    panelLines(columns: number): string[] {
-      const panel: string[] = [];
-      // Below 80 columns the desk row has no second line, so its hand action goes here.
-      if (detail === null && view === "desk" && card === null && deskItem !== null) {
-        for (const action of rowKeys(deskItem).unbound) {
-          panel.push(`type: ${action.cli}`);
-        }
-        if (deskItem.hand !== undefined && columns < DESK_WIDE_COLUMNS) {
-          panel.push(`by hand: ${deskItem.hand}`);
-        }
-      }
-      return panel;
+    sinceShown,
+    deskPreview,
+    /** The action on its way or just answered, for the desk row it was started on. */
+    deskAction: acts.action,
+    /** True when the open prompt is drawn in the focused desk item's preview, not under the body. */
+    promptInDesk:
+      acts.flow !== null &&
+      detail === null &&
+      view === "desk" &&
+      card === null &&
+      deskItem !== null &&
+      acts.flow.target.row === deskRowId(deskItem) &&
+      (!deskNarrow || deskPreview),
+    /** The focused desk item's preview at `width` (`desk-preview.ts`), its open prompt in it. */
+    deskPreviewLines(width: number): readonly SegLine[] {
+      if (deskItem === null) return [];
+      const story = deskItem.story === undefined ? null : String(deskItem.story);
+      const storyView =
+        story === null
+          ? undefined
+          : state.stories.find((candidate) => String(candidate.story) === story);
+      const work = state.work.find(
+        (candidate) => String(candidate.work.key) === String(deskItem.key ?? ""),
+      );
+      const flow = acts.flow;
+      const prompt =
+        flow !== null && flow.target.row === deskRowId(deskItem)
+          ? promptRows(flow, { width, ascii: display.ascii, context: false })
+          : null;
+      return previewLines(deskItem, {
+        width,
+        now: clock.now(),
+        ascii: display.ascii,
+        title: storyView?.title ?? null,
+        phase: work?.phase ?? null,
+        waitingOn: (storyView?.waitingOn ?? []).map(String),
+        prompt,
+      });
     },
   };
 }
@@ -946,6 +1043,17 @@ export function HomeMode(props: HomeModeProps) {
         height={height}
         now={clock.now()}
         display={display}
+        title={(story) =>
+          state.stories.find((candidate) => String(candidate.story) === story)?.title ?? null
+        }
+        preview={home.deskPreviewLines}
+        previewOpen={home.deskPreview}
+        since={home.sinceShown ? home.digest : null}
+        action={home.deskAction}
+        team={{
+          running: state.work.length,
+          inReview: state.stories.filter((story) => story.column === "review").length,
+        }}
       />
     );
   }
@@ -988,7 +1096,6 @@ export function HomeMode(props: HomeModeProps) {
       clock={clock}
       latest={home.latest}
       selected={home.overviewEntry === null ? null : String(home.overviewEntry.key)}
-      digest={home.digest === null ? null : digestLine(home.digest, glyphs(display.ascii).dot)}
     />
   );
 }
