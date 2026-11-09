@@ -1,10 +1,10 @@
 ---
 id: DIPO-461
 title: 'TUI v2: the run stream as a readable table with folded thinking'
-status: In Review
+status: In Progress
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-09 22:34'
+updated_date: '2026-11-09 22:40'
 labels:
   - 'tier:M'
 milestone: m-6
