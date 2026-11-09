@@ -1,10 +1,10 @@
 ---
 id: DIPO-459
 title: 'TUI v2: the Desk as a list with a preview, grouped by kind'
-status: In Review
+status: In Progress
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-09 11:11'
+updated_date: '2026-11-09 11:53'
 labels:
   - 'tier:L'
 milestone: m-6
