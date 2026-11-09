@@ -1,10 +1,10 @@
 ---
 id: DIPO-459
 title: 'TUI v2: the Desk as a list with a preview, grouped by kind'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-09 10:32'
+updated_date: '2026-11-09 11:11'
 labels:
   - 'tier:L'
 milestone: m-6
@@ -68,19 +68,19 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 At 100 columns or wider the Desk shows a list grouped by kind in the engine's order and a preview of the focused item
-- [ ] #2 The preview shows detail, blocks, since, hand, the bound actions as buttons and the cli line, and never truncates
-- [ ] #3 y and n act on what the item asks: approve/reject, accept/dismiss, confirm/decline
-- [ ] #4 Resume asks only for what the park reason needs, as spec.md lists
-- [ ] #5 Below 100 columns the Desk is one list and Enter opens the preview
-- [ ] #6 The Since 09:41 band shows above the list at 100 columns or wider and any key dismisses it
-- [ ] #7 The empty Desk, budget reached, run failed, pending and retry rows, and the discard and drop prompts read as screens/12-states.txt and screens/15-budget-and-failed.txt show
-- [ ] #8 The Desk at 112 and at 80 columns matches the HTML preview's S1, S1b, S1c and S6. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
-- [ ] #9 KNOWN_DESK_KINDS puts the setup kinds first (engine addition); the TUI still never re-sorts
-- [ ] #10 The office read carries a since-you-last-looked summary (merged, new proposals, spend since a time) that the Since band shows (engine addition)
-- [ ] #11 DeskAction has an optional consequence line (engine addition) that the preview shows under the buttons
-- [ ] #12 The story PR read carries the required-check count and state and the change stats (files, +/−) from gh/git (engine addition), and the MERGE preview shows them
-- [ ] #13 The PROPOSAL preview shows the story text, Why, Blocks, Size (the audit's tier only) and Raised … by <role> (<model>) as produced by the M3 idea audit (DIPO-452, DIPO-454)
-- [ ] #14 The header shows ● plan open at the right while a planning session is open
-- [ ] #15 QUESTION opens the Composer to answer
+- [x] #1 At 100 columns or wider the Desk shows a list grouped by kind in the engine's order and a preview of the focused item
+- [x] #2 The preview shows detail, blocks, since, hand, the bound actions as buttons and the cli line, and never truncates
+- [x] #3 y and n act on what the item asks: approve/reject, accept/dismiss, confirm/decline
+- [x] #4 Resume asks only for what the park reason needs, as spec.md lists
+- [x] #5 Below 100 columns the Desk is one list and Enter opens the preview
+- [x] #6 The Since 09:41 band shows above the list at 100 columns or wider and any key dismisses it
+- [x] #7 The empty Desk, budget reached, run failed, pending and retry rows, and the discard and drop prompts read as screens/12-states.txt and screens/15-budget-and-failed.txt show
+- [x] #8 The Desk at 112 and at 80 columns matches the HTML preview's S1, S1b, S1c and S6. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
+- [x] #9 KNOWN_DESK_KINDS puts the setup kinds first (engine addition); the TUI still never re-sorts
+- [x] #10 The office read carries a since-you-last-looked summary (merged, new proposals, spend since a time) that the Since band shows (engine addition)
+- [x] #11 DeskAction has an optional consequence line (engine addition) that the preview shows under the buttons
+- [x] #12 The story PR read carries the required-check count and state and the change stats (files, +/−) from gh/git (engine addition), and the MERGE preview shows them
+- [x] #13 The PROPOSAL preview shows the story text, Why, Blocks, Size (the audit's tier only) and Raised … by <role> (<model>) as produced by the M3 idea audit (DIPO-452, DIPO-454)
+- [x] #14 The header shows ● plan open at the right while a planning session is open
+- [x] #15 QUESTION opens the Composer to answer
 <!-- AC:END -->
