@@ -1,0 +1,77 @@
+ci-ok	Check that every needed job succeeded or was skipped by design	﻿2026-11-08T09:43:02.2323422Z ##[group]Run echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2324898Z ^[[36;1mecho "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2326422Z ^[[36;1m# Skipped by design, and nothing else: dependency-review outside pull requests, and the^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2328415Z ^[[36;1m# heavy jobs on a pull request that the changes job (which itself succeeded) found changes^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2330231Z ^[[36;1m# only backlog/ (0016). changes and ready-gate must always succeed.^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2331500Z ^[[36;1mfailed=$(echo "$NEEDS" | jq -r --arg event "$EVENT" '^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2332865Z ^[[36;1m  (.changes.result == "success" and .changes.outputs.scope == "backlog-only") as $light^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2334138Z ^[[36;1m  | to_entries[]^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2335071Z ^[[36;1m  | select(.value.result != "success")^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2336067Z ^[[36;1m  | select(^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2336814Z ^[[36;1m      .value.result != "skipped"^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2337967Z ^[[36;1m      or (^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2338909Z ^[[36;1m        (.key == "dependency-review" and $event != "pull_request")^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2340388Z ^[[36;1m        or ($event == "pull_request" and $light^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2341617Z ^[[36;1m          and (.key | IN("checks", "test-shards", "verify", "shellcheck",^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2342808Z ^[[36;1m            "actionlint", "dependency-review", "smoke")))^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2343828Z ^[[36;1m        | not))^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2344603Z ^[[36;1m  | .key')^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2345341Z ^[[36;1mif [ -n "$failed" ]; then^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2346188Z ^[[36;1m  echo "Not green: $failed"^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2346988Z ^[[36;1m  exit 1^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2347909Z ^[[36;1mfi^[[0m
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2870657Z shell: /usr/bin/bash -e {0}
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2872128Z env:
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2872829Z   EVENT: pull_request
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2876628Z   NEEDS: {
+ci-ok	Check that every needed job succeeded or was skipped by design	  "changes": {
+ci-ok	Check that every needed job succeeded or was skipped by design	    "result": "success",
+ci-ok	Check that every needed job succeeded or was skipped by design	    "outputs": {
+ci-ok	Check that every needed job succeeded or was skipped by design	      "scope": "full"
+ci-ok	Check that every needed job succeeded or was skipped by design	    }
+ci-ok	Check that every needed job succeeded or was skipped by design	  },
+ci-ok	Check that every needed job succeeded or was skipped by design	  "ready-gate": {
+ci-ok	Check that every needed job succeeded or was skipped by design	    "result": "success",
+ci-ok	Check that every needed job succeeded or was skipped by design	    "outputs": {}
+ci-ok	Check that every needed job succeeded or was skipped by design	  },
+ci-ok	Check that every needed job succeeded or was skipped by design	  "checks": {
+ci-ok	Check that every needed job succeeded or was skipped by design	    "result": "success",
+ci-ok	Check that every needed job succeeded or was skipped by design	    "outputs": {}
+ci-ok	Check that every needed job succeeded or was skipped by design	  },
+ci-ok	Check that every needed job succeeded or was skipped by design	  "test-shards": {
+ci-ok	Check that every needed job succeeded or was skipped by design	    "result": "success",
+ci-ok	Check that every needed job succeeded or was skipped by design	    "outputs": {}
+ci-ok	Check that every needed job succeeded or was skipped by design	  },
+ci-ok	Check that every needed job succeeded or was skipped by design	  "verify": {
+ci-ok	Check that every needed job succeeded or was skipped by design	    "result": "success",
+ci-ok	Check that every needed job succeeded or was skipped by design	    "outputs": {}
+ci-ok	Check that every needed job succeeded or was skipped by design	  },
+ci-ok	Check that every needed job succeeded or was skipped by design	  "shellcheck": {
+ci-ok	Check that every needed job succeeded or was skipped by design	    "result": "success",
+ci-ok	Check that every needed job succeeded or was skipped by design	    "outputs": {}
+ci-ok	Check that every needed job succeeded or was skipped by design	  },
+ci-ok	Check that every needed job succeeded or was skipped by design	  "actionlint": {
+ci-ok	Check that every needed job succeeded or was skipped by design	    "result": "failure",
+ci-ok	Check that every needed job succeeded or was skipped by design	    "outputs": {}
+ci-ok	Check that every needed job succeeded or was skipped by design	  },
+ci-ok	Check that every needed job succeeded or was skipped by design	  "dependency-review": {
+ci-ok	Check that every needed job succeeded or was skipped by design	    "result": "success",
+ci-ok	Check that every needed job succeeded or was skipped by design	    "outputs": {}
+ci-ok	Check that every needed job succeeded or was skipped by design	  },
+ci-ok	Check that every needed job succeeded or was skipped by design	  "smoke": {
+ci-ok	Check that every needed job succeeded or was skipped by design	    "result": "success",
+ci-ok	Check that every needed job succeeded or was skipped by design	    "outputs": {}
+ci-ok	Check that every needed job succeeded or was skipped by design	  }
+ci-ok	Check that every needed job succeeded or was skipped by design	}
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.2881229Z ##[endgroup]
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.3111841Z changes: success
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.3112569Z ready-gate: success
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.3113079Z checks: success
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.3113590Z test-shards: success
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.3114179Z verify: success
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.3114658Z shellcheck: success
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.3115180Z actionlint: failure
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.3115680Z dependency-review: success
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.3116325Z smoke: success
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.3144606Z Not green: actionlint
+ci-ok	Check that every needed job succeeded or was skipped by design	2026-11-08T09:43:02.3173818Z ##[error]Process completed with exit code 1.

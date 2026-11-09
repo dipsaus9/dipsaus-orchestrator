@@ -1,0 +1,25 @@
+verify (3)	bun test on this shard's files	﻿2026-11-06T15:48:35.4087940Z ##[group]Run bun scripts/test-shards.ts run "$RUNNER_OS" "$SHARD" "$SHARDS"
+verify (3)	bun test on this shard's files	2026-11-06T15:48:35.4088402Z ^[[36;1mbun scripts/test-shards.ts run "$RUNNER_OS" "$SHARD" "$SHARDS"^[[0m
+verify (3)	bun test on this shard's files	2026-11-06T15:48:35.4104288Z shell: /usr/bin/bash -e {0}
+verify (3)	bun test on this shard's files	2026-11-06T15:48:35.4104512Z env:
+verify (3)	bun test on this shard's files	2026-11-06T15:48:35.4104691Z   DIPO_TEST_CI: 1
+verify (3)	bun test on this shard's files	2026-11-06T15:48:35.4104884Z   DIPO_TMP: /tmp/d.cBXbMG
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4338351Z ##[group]packages/engine/test/box/real-box.box.test.ts:
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4360553Z 
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4360861Z ##[endgroup]
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4360968Z 
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4361047Z 1 tests skipped:
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4361472Z (skip) dipo daemon lifecycle on the compiled binary > starts, reports, restarts and stops the daemon, and autostarts it for a command
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4361847Z 
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4362079Z 
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4362158Z 1 tests failed:
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4362593Z (fail) u runs stories > shows the decision at once and the story in setup from it: the answer's cursor is the decision's own entry (DIPO-456) [1020.46ms]
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4362990Z 
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4363074Z  --seed=2603394517
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4363261Z  2264 pass
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4363428Z  1 skip
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4363597Z  1 fail
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4363755Z  98899 expect() calls
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4363960Z Ran 2266 tests across 191 files. [208.99s]
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4619080Z error: script "test" exited with code 1
+verify (3)	bun test on this shard's files	2026-11-06T15:52:04.4651492Z ##[error]Process completed with exit code 1.

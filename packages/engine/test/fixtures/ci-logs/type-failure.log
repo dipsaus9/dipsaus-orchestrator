@@ -1,0 +1,21 @@
+verify	Run bun run verify	﻿2026-10-30T08:10:53.9854578Z ##[group]Run bun run verify
+verify	Run bun run verify	2026-10-30T08:10:53.9854769Z ^[[36;1mbun run verify^[[0m
+verify	Run bun run verify	2026-10-30T08:10:53.9870597Z shell: /usr/bin/bash -e {0}
+verify	Run bun run verify	2026-10-30T08:10:53.9870735Z env:
+verify	Run bun run verify	2026-10-30T08:10:53.9870848Z   DIPO_TEST_CI: 1
+verify	Run bun run verify	2026-10-30T08:10:53.9870968Z ##[endgroup]
+verify	Run bun run verify	2026-10-30T08:10:53.9917926Z $ bun run format:check && bun run lint && bun run typecheck && bun run test
+verify	Run bun run verify	2026-10-30T08:10:53.9939740Z $ oxfmt --check
+verify	Run bun run verify	2026-10-30T08:10:54.1913173Z Checking formatting...
+verify	Run bun run verify	2026-10-30T08:10:54.1913455Z 
+verify	Run bun run verify	2026-10-30T08:10:54.3378893Z All matched files use the correct format.
+verify	Run bun run verify	2026-10-30T08:10:54.3379471Z Finished in 147ms on 1359 files using 4 threads.
+verify	Run bun run verify	2026-10-30T08:10:54.3952928Z $ oxlint --deny-warnings
+verify	Run bun run verify	2026-10-30T08:10:55.6401591Z Found 0 warnings and 0 errors.
+verify	Run bun run verify	2026-10-30T08:10:55.6402000Z Finished in 1.2s on 1173 files with 152 rules using 4 threads.
+verify	Run bun run verify	2026-10-30T08:10:55.6656360Z $ tsc -b
+verify	Run bun run verify	2026-10-30T08:10:59.1067413Z packages/tui/src/checklist.test.tsx(29,10): error TS2352: Conversion of type '{ cursor: { stream: string; epoch: string; seq: number; }; at: string; type: string; data: unknown; }' to type '{ cursor: { stream: string & $brand<"StreamName">; seq: number; }; at: string; type: string; causedBy?: (string & $brand<"RequestId">) | undefined; data: unknown; }' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+verify	Run bun run verify	2026-10-30T08:10:59.1076248Z   The types of 'cursor.stream' are incompatible between these types.
+verify	Run bun run verify	2026-10-30T08:10:59.1077069Z     Type 'string' is not comparable to type 'string & $brand<"StreamName">'.
+verify	Run bun run verify	2026-10-30T08:10:59.1096744Z       Type 'string' is not comparable to type '$brand<"StreamName">'.
+verify	Run bun run verify	2026-10-30T08:10:59.4349938Z ##[error]Process completed with exit code 2.

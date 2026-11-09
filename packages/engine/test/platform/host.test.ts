@@ -409,6 +409,31 @@ describe("the review reads and comment (DIPO-141)", () => {
     ]);
   });
 
+  it("reruns the failed jobs of a workflow run by its id, after the version check (DIPO-465)", async () => {
+    const { host: gh, stub } = host(() => ({ stdout: "" }));
+    await gh.rerunFailedJobs("o/r", "42467945689");
+    expect(stub.calls.map((call) => call.cmd)).toEqual([
+      ["gh", "--version"],
+      ["gh", "run", "rerun", "42467945689", "--repo", "o/r", "--failed"],
+    ]);
+  });
+
+  it("throws on a rerun gh refuses, and runs nothing for a run id that is not a number", async () => {
+    const { host: gh, stub } = host(() => ({
+      stderr: "run 9 cannot be rerun; its workflow file may be broken",
+      code: 1,
+    }));
+    const error = await gh.rerunFailedJobs("o/r", "9").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CodeHostError);
+    expect((error as CodeHostError).message).toContain("cannot be rerun");
+    const before = stub.calls.length;
+    for (const run of ["", "9 --repo x/y", "--failed", "1;2"]) {
+      const refused = await gh.rerunFailedJobs("o/r", run).catch((e: unknown) => e);
+      expect(refused).toBeInstanceOf(CodeHostError);
+    }
+    expect(stub.calls).toHaveLength(before);
+  });
+
   it("reads no log for a link that is not an Actions job of this repository, and runs nothing", async () => {
     const { host: gh, stub } = host(() => ({ stdout: "" }));
     const others = [
@@ -535,6 +560,7 @@ describe("the review reads and comment (DIPO-141)", () => {
       prChecks: () => gh.prChecks("o/r", 7),
       failedJobLog: () => gh.failedJobLog("o/r", JOB_LINK),
       commentPr: () => gh.commentPr("o/r", 7, "Review: approved"),
+      rerunFailedJobs: () => gh.rerunFailedJobs("o/r", "1"),
     };
     const publicMethods = Object.getOwnPropertyNames(GhHost.prototype).filter(
       (name) => name !== "constructor",

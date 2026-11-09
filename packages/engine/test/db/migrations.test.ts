@@ -362,9 +362,9 @@ describe("the base schema", () => {
       const state = await openStateDatabase(options(dir, MIGRATIONS));
       try {
         const db = state.connection;
-        expect(MIGRATIONS.map((step) => step.version)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+        expect(MIGRATIONS.map((step) => step.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
         expect(db.get<{ user_version: number }>("pragma user_version")).toEqual({
-          user_version: 7,
+          user_version: 8,
         });
         const tables = db
           .all<{ name: string; strict: number }>(
