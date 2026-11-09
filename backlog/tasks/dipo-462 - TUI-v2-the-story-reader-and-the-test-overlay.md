@@ -1,10 +1,10 @@
 ---
 id: DIPO-462
 title: 'TUI v2: the story reader and the test overlay'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-09 18:34'
+updated_date: '2026-11-09 22:06'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -20,6 +20,30 @@ references:
   - docs/design/tui-v2/designs/dipo-ux-spec.html
   - packages/contract/src/office.ts
   - packages/engine/src/reads
+modified_files:
+  - packages/client/src/store/office-store.ts
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/src/work.test.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/create/steps.ts
+  - packages/engine/src/features.ts
+  - packages/engine/src/overview/feature.ts
+  - packages/engine/src/story-pr/git.ts
+  - packages/engine/src/story-pr/index.ts
+  - packages/engine/test/overview/story-diff.test.ts
+  - packages/tui/src/app.tsx
+  - packages/tui/src/checklist.test.tsx
+  - packages/tui/src/checklist.tsx
+  - packages/tui/src/desk.test.tsx
+  - packages/tui/src/detail.test.tsx
+  - packages/tui/src/home.tsx
+  - packages/tui/src/keys.ts
+  - packages/tui/src/run.tsx
+  - packages/tui/src/story-card.test.ts
+  - packages/tui/src/story-card.tsx
+  - packages/tui/test/support/fake-session.ts
+  - packages/tui/test/support/setup.tsx
 priority: medium
 type: feature
 ordinal: 435000
@@ -63,3 +87,18 @@ test_plan:
 - [x] #5 The story reader and the test overlay match the HTML preview's S4 and S1d. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
 - [x] #6 A diff read for the story's branch exists (engine addition) and the Diff tab shows it
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-09 22:06 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 4; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 1
+- Budget used: 270,018 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
