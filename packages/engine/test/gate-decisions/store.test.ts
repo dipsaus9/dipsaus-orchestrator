@@ -16,7 +16,7 @@ import {
   gateContentHash,
   type GateMode,
   rulesFor,
-  WARNING_RULES,
+  warningRulesFor,
 } from "../../src/gate";
 import {
   BaseTreeCache,
@@ -113,8 +113,10 @@ describe("gate content hash", () => {
 describe("rule results", () => {
   for (const mode of ["ready", "pickup"] as const) {
     it(`names one rule per check of ${mode} mode`, () => {
-      // R29 only warns, so it is named but not among the rules that fail (DIPO-251).
-      expect(ruleNamesFor(mode)).toHaveLength(rulesFor(mode).length + WARNING_RULES.length);
+      // R29 and R32 only warn, so they are named but not among the rules that fail (DIPO-251,
+      // DIPO-467); R32 only in ready mode.
+      expect(ruleNamesFor(mode)).toHaveLength(rulesFor(mode).length + warningRulesFor(mode).length);
+      expect(ruleNamesFor(mode).includes("R32")).toBe(mode === "ready");
       expect(ruleNamesFor(mode)[0]).toBe(mode === "ready" ? "R01a" : "R01b");
     });
   }
@@ -148,6 +150,29 @@ describe("rule results", () => {
       expect(
         ruleResults(evaluateGate(input(), "ready")).some((result) => "warnings" in result),
       ).toBe(false);
+    }));
+
+  it("stores an R32 warning on a passed R32 result of a ready decision (DIPO-467)", () =>
+    withStory((t, office, story) => {
+      const acceptanceCriteria = Array.from({ length: 6 }, (_, i) => ({
+        index: i + 1,
+        checked: false,
+        text: `The export writes column ${i + 1} of each row`,
+      }));
+      const changes = { labels: ["tier:S"], acceptanceCriteria };
+      const decision = store(t, office, story, "ready", changes);
+      expect(decision.passed).toBe(true);
+      expect(decision.ruleResults.find((result) => result.rule === "R32")).toEqual({
+        rule: "R32",
+        passed: true,
+        messages: [],
+        warnings: [
+          "ready DIPO-7 warning R32: tier S story has 6 criteria, above the tier S ceiling of 5; raise its tier or split it",
+        ],
+      });
+      expect(gateDecisionsOf(office, story.key)[0]?.ruleResults).toEqual(decision.ruleResults);
+      const pickup = store(t, office, story, "pickup", changes);
+      expect(pickup.ruleResults.some((result) => result.rule === "R32")).toBe(false);
     }));
 
   it("lists every rule with its failures, passed or not", () => {

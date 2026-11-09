@@ -1,0 +1,73 @@
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4547064Z ##[group]Run github/codeql-action/init@v4
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4547320Z with:
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4547488Z   analysis-kinds: code-scanning
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4547706Z   languages: javascript-typescript
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4547913Z   build-mode: none
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4548085Z   dependency-caching: true
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4548356Z   config: default-setup:
+Analyze (javascript-typescript)	UNKNOWN STEP	  org:
+Analyze (javascript-typescript)	UNKNOWN STEP	    model-packs: [  ]
+Analyze (javascript-typescript)	UNKNOWN STEP	threat-models: [  ]
+Analyze (javascript-typescript)	UNKNOWN STEP	
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4550702Z   token: ***
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4551161Z   matrix: {
+Analyze (javascript-typescript)	UNKNOWN STEP	  "language": "javascript-typescript",
+Analyze (javascript-typescript)	UNKNOWN STEP	  "category": "/language:javascript-typescript",
+Analyze (javascript-typescript)	UNKNOWN STEP	  "build-mode": "none",
+Analyze (javascript-typescript)	UNKNOWN STEP	  "runner": "[\"ubuntu-latest\"]"
+Analyze (javascript-typescript)	UNKNOWN STEP	}
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4551661Z   debug: false
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4551835Z   check-run-id: 128691700444
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4552029Z   job-status: success
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4552199Z env:
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4552367Z   CODE_SCANNING_REF: refs/pull/624/head
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4552591Z   CODE_SCANNING_BASE_BRANCH: main
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4552855Z   CODE_SCANNING_IS_ANALYZING_DEFAULT_BRANCH: false
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4553128Z   CODE_SCANNING_IS_STEADY_STATE_DEFAULT_SETUP: true
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4561918Z   CODEQL_ACTION_JOB_RUN_UUID: f78bb5ef-e369-452c-8d6c-d6aa0c1739a3
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4562200Z   CODEQL_PROXY_HOST: 
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4562390Z   CODEQL_PROXY_PORT: 
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4562585Z   CODEQL_PROXY_CA_CERTIFICATE: 
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4562779Z   CODEQL_PROXY_URLS: 
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.4562952Z ##[endgroup]
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:08.6905208Z Existing job run UUID is f78bb5ef-e369-452c-8d6c-d6aa0c1739a3.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:09.6738688Z ##[group]Setup CodeQL tools
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:09.6803949Z [command]/usr/bin/tar --version
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:09.6852404Z tar (GNU tar) 1.35
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:09.6853102Z Copyright (C) 2023 Free Software Foundation, Inc.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:09.6853599Z License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:09.6854023Z This is free software: you are free to change and redistribute it.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:09.6854491Z There is NO WARRANTY, to the extent permitted by law.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:09.6854846Z 
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:09.6855090Z Written by John Gilmore and Jay Fenlason.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:09.6862549Z Found gnu tar version 1.35.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:09.8728899Z Found 39 overlay-base databases in the Actions cache.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:09.8729519Z Found overlay databases for the following CodeQL versions in the Actions cache: 2.27.4, 2.27.3
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:09.8730703Z Using CodeQL version 2.27.4 since this is the highest enabled version that has a cached overlay-base database.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:09.8750409Z Did not find CodeQL tools version 2.27.4 in the toolcache.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:09.8755336Z Selected the per-language CodeQL bundle for 'javascript'.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:09.8756857Z Using CodeQL CLI version 2.27.4 sourced from https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.4/codeql-bundle-javascript-linux64.tar.zst .
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:14.1478571Z Deleted the CodeQL tools at '/opt/hostedtoolcache/CodeQL/2.27.3' from the toolcache to free up disk space.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:14.1488404Z Downloading CodeQL tools from https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.4/codeql-bundle-javascript-linux64.tar.zst . This may take a while.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:14.1489414Z Streaming the extraction of the CodeQL bundle.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:25.2839021Z ##[warning]Failed to download and extract CodeQL bundle using streaming with error: Failed to download CodeQL bundle from https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.4/codeql-bundle-javascript-linux64.tar.zst. HTTP status code: 504.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:25.2847796Z ##[warning]Falling back to downloading the bundle before extracting.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:36.3419433Z Unexpected HTTP response: 504
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:37:36.3419705Z Waiting 16 seconds before trying again
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:38:03.4275125Z Unexpected HTTP response: 504
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:38:03.4275475Z Waiting 12 seconds before trying again
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:38:26.5776120Z ##[error]Unable to download and extract CodeQL CLI: Unexpected HTTP response: 504
+Analyze (javascript-typescript)	UNKNOWN STEP	
+Analyze (javascript-typescript)	UNKNOWN STEP	Details: Error: Unexpected HTTP response: 504
+Analyze (javascript-typescript)	UNKNOWN STEP	    at /home/runner/work/_actions/github/codeql-action/v4/lib/entry-points.js:114414:23
+Analyze (javascript-typescript)	UNKNOWN STEP	    at Generator.next (<anonymous>)
+Analyze (javascript-typescript)	UNKNOWN STEP	    at fulfilled (/home/runner/work/_actions/github/codeql-action/v4/lib/entry-points.js:114317:28)
+Analyze (javascript-typescript)	UNKNOWN STEP	    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:38:26.8627108Z Post job cleanup.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:38:27.1012079Z Existing job run UUID is f78bb5ef-e369-452c-8d6c-d6aa0c1739a3.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:38:27.1029273Z ##[warning]Debugging artifacts are unavailable since the 'init' Action failed before it could produce any.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:38:27.1030634Z CodeQL job status was failure.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:38:27.1040289Z Sending status report for init-post step.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:38:27.4950018Z Status report sent for init-post step.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:38:27.5409290Z Post job cleanup.
+Analyze (javascript-typescript)	UNKNOWN STEP	2026-11-08T09:38:27.7964903Z Post job cleanup.

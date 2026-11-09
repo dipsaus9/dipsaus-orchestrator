@@ -10,7 +10,7 @@ import { GATE_RULES, type GateMode, type GateResult, type GateRule } from "../ga
 
 /**
  * One rule's result as stored: passed, or failed with every message it gave. A rule that only
- * warns (R29) always passed, with its warnings, when it gave any (DIPO-251).
+ * warns (R29, R32) always passed, with its warnings, when it gave any (DIPO-251).
  */
 export interface RuleResult {
   readonly rule: GateRule;
@@ -32,9 +32,13 @@ export interface GateDecisionRecord {
 
 /** The rules a mode evaluates, by name, in the order `rulesFor(mode)` runs them. */
 export function ruleNamesFor(mode: GateMode): GateRule[] {
-  // R31 is a pickup rule only: a Ready decision never names it.
+  // R31 is a pickup rule only and R32 a ready warning only: the other mode never names it.
   const shared = GATE_RULES.filter(
-    (rule) => rule !== "R01a" && rule !== "R01b" && !(mode === "ready" && rule === "R31"),
+    (rule) =>
+      rule !== "R01a" &&
+      rule !== "R01b" &&
+      !(mode === "ready" && rule === "R31") &&
+      !(mode === "pickup" && rule === "R32"),
   );
   return [mode === "ready" ? "R01a" : "R01b", ...shared];
 }

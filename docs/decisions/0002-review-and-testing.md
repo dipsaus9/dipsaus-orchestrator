@@ -54,7 +54,8 @@ The run is one run per claim. Its active period ends at In Review and reopens fo
 - **dipo runs verify.** When the done report passes the report gate, dipo runs the office's verify command in the story's box, as the box user, with a deadline. The box has its own local git repository (0008), so tests that need git pass. Red is feedback (section 5); green goes on to the conflict check. The worker may run tests and verify while it works, but only dipo's run counts.
 - **The required checks come last.** They must pass on the head that merges: GitHub's auto-merge waits for them on the close-out head, and a merge gate that waits for the maintainer opens only once they are green on the reviewed head. A red verify is caught in the box, so a CI round is rarely the one that finds it.
 - **Polling.** One PR poll per office, every `polling.prStateSeconds`, for each story PR whose head has unfinished checks: `gh pr view` (state, head, labels, mergeable) and `gh pr checks`. A head whose checks stay unfinished past a time limit raises one notice, and its polling slows down.
-- **Logs.** For each failed check that is a GitHub Actions job, dipo fetches the tail of the failed job's log once per head, capped, and parses `file:line` locations for the feedback.
+- **Logs.** For each failed check that is a GitHub Actions job, dipo fetches the tail of the failed job's log once per head and attempt, capped, and parses `file:line` locations for the feedback.
+- **Infrastructure failures are rerun.** Code reads the failing step of each failed required check's job log, with no model. A download or HTTP 5xx error from GitHub or a tool host, a lost runner or a rate limit is an infrastructure failure. Anything else, a log dipo cannot read and a check that is not a GitHub Actions job count as the code's. An aggregate check such as `ci-ok` that failed only because other jobs of its run failed takes their class. When every failed required check of a head is an infrastructure failure, dipo reruns the failed jobs of their runs and watches the head again, up to 2 times per head. Each rerun is a run step and a notice to the maintainer; it counts no CI attempt and starts no fix round. A third infrastructure red on the same head counts like any red head.
 - **Who talks to GitHub.** Only engine code, with the maintainer's `gh` login. Workers and the reviewer never get `gh`.
 
 ## 5. One feedback path
@@ -69,7 +70,7 @@ Every kind of feedback reaches the developer the same way: as a message to the d
   | Source | Cap | At the cap |
   |---|---|---|
   | Report gate refusals and a red verify in the box (a send-back of proposal Story lines alone is not counted, 0020) | Tier `loops` | `verify-failing` |
-  | Red required checks, on a reviewed head or a close-out head | CI attempts, default 2 | `verify-failing` |
+  | Red required checks, on a reviewed head or a close-out head, except a rerun infrastructure failure (section 4) | CI attempts, default 2 | `verify-failing` |
   | Blocked review | Failed rounds, default 3 | `review-blocked` |
   | Conflict | Failed conflict hand-offs, default 2 | `conflict` |
   | Maintainer reject | None; the budget bounds it | None |
@@ -157,3 +158,4 @@ A resume, fix round, conflict hand-off or review that finds every slot taken wai
 - A merge gate that opened only once the required checks were green on the reviewed head, so every story waited for CI twice, on the reviewed head and again on the close-out head (2026-10-24). Replaced by a gate decided by rule that opens on the approved review, with CI once, on the close-out head; a gate that waits for the maintainer still opens only on green checks (2026-10-30).
 - Advisory findings kept only on the stored verdict and in the review comment (2026-10-24). Replaced by each advisory finding also held as an idea and audited before it reaches the maintainer (0022, 2026-11-06).
 - A story PR that changed `docs/decisions/` and merged by rule after an approved review (2026-10-30). Replaced by a merge gate that waits for the maintainer for any change under `docs/decisions/`, in story PRs and in backlog PRs (2026-10-30).
+- Every red head counted as a CI attempt, also when a check failed because GitHub or a tool host failed (2026-10-24). Replaced by a rerun of the failed jobs, up to 2 per head and not counted, when every failed required check is an infrastructure failure (2026-11-08): DIPO-463 parked after two heads that failed only on HTTP 504 downloads.

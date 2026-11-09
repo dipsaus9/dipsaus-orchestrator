@@ -1,0 +1,78 @@
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7778721Z ##[group]Run echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7779992Z ^[[36;1mecho "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7781131Z ^[[36;1m# Skipped by design, and nothing else: dependency-review outside pull requests, and the^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7782501Z ^[[36;1m# heavy jobs on a pull request that the changes job (which itself succeeded) found changes^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7783816Z ^[[36;1m# only backlog/ (0016). changes and ready-gate must always succeed.^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7784754Z ^[[36;1mfailed=$(echo "$NEEDS" | jq -r --arg event "$EVENT" '^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7785917Z ^[[36;1m  (.changes.result == "success" and .changes.outputs.scope == "backlog-only") as $light^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7786871Z ^[[36;1m  | to_entries[]^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7788155Z ^[[36;1m  | select(.value.result != "success")^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7789015Z ^[[36;1m  | select(^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7789765Z ^[[36;1m      .value.result != "skipped"^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7790435Z ^[[36;1m      or (^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7791120Z ^[[36;1m        (.key == "dependency-review" and $event != "pull_request")^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7792088Z ^[[36;1m        or ($event == "pull_request" and $light^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7792978Z ^[[36;1m          and (.key | IN("checks", "test-shards", "verify", "shellcheck",^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7793954Z ^[[36;1m            "actionlint", "dependency-review", "smoke")))^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7794714Z ^[[36;1m        | not))^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7795276Z ^[[36;1m  | .key')^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7795991Z ^[[36;1mif [ -n "$failed" ]; then^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7796648Z ^[[36;1m  echo "Not green: $failed"^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7892896Z ^[[36;1m  exit 1^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.7893403Z ^[[36;1mfi^[[0m
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8287023Z shell: /usr/bin/bash -e {0}
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8288775Z env:
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8289533Z   EVENT: pull_request
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8294569Z   NEEDS: {
+ci-ok	UNKNOWN STEP	  "changes": {
+ci-ok	UNKNOWN STEP	    "result": "success",
+ci-ok	UNKNOWN STEP	    "outputs": {
+ci-ok	UNKNOWN STEP	      "scope": "full"
+ci-ok	UNKNOWN STEP	    }
+ci-ok	UNKNOWN STEP	  },
+ci-ok	UNKNOWN STEP	  "ready-gate": {
+ci-ok	UNKNOWN STEP	    "result": "success",
+ci-ok	UNKNOWN STEP	    "outputs": {}
+ci-ok	UNKNOWN STEP	  },
+ci-ok	UNKNOWN STEP	  "checks": {
+ci-ok	UNKNOWN STEP	    "result": "success",
+ci-ok	UNKNOWN STEP	    "outputs": {}
+ci-ok	UNKNOWN STEP	  },
+ci-ok	UNKNOWN STEP	  "test-shards": {
+ci-ok	UNKNOWN STEP	    "result": "success",
+ci-ok	UNKNOWN STEP	    "outputs": {}
+ci-ok	UNKNOWN STEP	  },
+ci-ok	UNKNOWN STEP	  "verify": {
+ci-ok	UNKNOWN STEP	    "result": "success",
+ci-ok	UNKNOWN STEP	    "outputs": {}
+ci-ok	UNKNOWN STEP	  },
+ci-ok	UNKNOWN STEP	  "shellcheck": {
+ci-ok	UNKNOWN STEP	    "result": "success",
+ci-ok	UNKNOWN STEP	    "outputs": {}
+ci-ok	UNKNOWN STEP	  },
+ci-ok	UNKNOWN STEP	  "actionlint": {
+ci-ok	UNKNOWN STEP	    "result": "failure",
+ci-ok	UNKNOWN STEP	    "outputs": {}
+ci-ok	UNKNOWN STEP	  },
+ci-ok	UNKNOWN STEP	  "dependency-review": {
+ci-ok	UNKNOWN STEP	    "result": "success",
+ci-ok	UNKNOWN STEP	    "outputs": {}
+ci-ok	UNKNOWN STEP	  },
+ci-ok	UNKNOWN STEP	  "smoke": {
+ci-ok	UNKNOWN STEP	    "result": "success",
+ci-ok	UNKNOWN STEP	    "outputs": {}
+ci-ok	UNKNOWN STEP	  }
+ci-ok	UNKNOWN STEP	}
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8300491Z ##[endgroup]
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8614163Z changes: success
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8615862Z ready-gate: success
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8617998Z checks: success
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8619222Z test-shards: success
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8620716Z verify: success
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8622151Z shellcheck: success
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8623548Z actionlint: failure
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8624952Z dependency-review: success
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8626478Z smoke: success
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8635905Z Not green: actionlint
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8674812Z ##[error]Process completed with exit code 1.
+ci-ok	UNKNOWN STEP	2026-11-08T09:41:42.8914906Z Cleaning up orphan processes

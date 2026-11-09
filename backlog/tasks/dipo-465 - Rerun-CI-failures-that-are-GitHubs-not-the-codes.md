@@ -1,10 +1,10 @@
 ---
 id: DIPO-465
 title: 'Rerun CI failures that are GitHub''s, not the code''s'
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-08 12:17'
-updated_date: '2026-11-08 12:41'
+updated_date: '2026-11-08 13:05'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -64,11 +64,11 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Code classifies each failed required check of a red head as infrastructure or code from its job's failing step and log tail, with no model; the patterns for download or HTTP 5xx errors, a lost runner and a rate limit are named in code, and the tests use log fixtures committed from DIPO-463's real red heads (the HTTP 504 downloads of actionlint and the CodeQL bundle), not hand-written strings
-- [ ] #2 A failure that matches no pattern, a log that cannot be read and a check that is not a GitHub Actions job count as the code's
-- [ ] #3 An aggregate check that failed only because other jobs of its run failed takes the class of those jobs; a rerun of the failed jobs reruns the failed ci-ok aggregate with them, the head is final again only once ci-ok is final, and a ci-ok that fails again because a rerun job failed again takes that job's class
-- [ ] #4 The rerun goes through a new GitHub host method that runs gh run rerun with the run id and --failed, tested through the real host path with the host tests' spawn stub, not only a fake host
-- [ ] #5 When every failed required check of a head is infrastructure, dipo reruns the failed jobs of their runs and watches the head again, up to 2 reruns per head, recording each rerun as a run step and a notice to the maintainer
-- [ ] #6 A rerun counts no CI attempt and starts no fix round, while a red head with any code failure, or a third infrastructure red on the same head, counts a CI attempt and starts a fix round as today
-- [ ] #7 ADR 0002 says that infrastructure failures are rerun and do not count toward the CI cap, with one Replaced line
+- [x] #1 Code classifies each failed required check of a red head as infrastructure or code from its job's failing step and log tail, with no model; the patterns for download or HTTP 5xx errors, a lost runner and a rate limit are named in code, and the tests use log fixtures committed from DIPO-463's real red heads (the HTTP 504 downloads of actionlint and the CodeQL bundle), not hand-written strings
+- [x] #2 A failure that matches no pattern, a log that cannot be read and a check that is not a GitHub Actions job count as the code's
+- [x] #3 An aggregate check that failed only because other jobs of its run failed takes the class of those jobs; a rerun of the failed jobs reruns the failed ci-ok aggregate with them, the head is final again only once ci-ok is final, and a ci-ok that fails again because a rerun job failed again takes that job's class
+- [x] #4 The rerun goes through a new GitHub host method that runs gh run rerun with the run id and --failed, tested through the real host path with the host tests' spawn stub, not only a fake host
+- [x] #5 When every failed required check of a head is infrastructure, dipo reruns the failed jobs of their runs and watches the head again, up to 2 reruns per head, recording each rerun as a run step and a notice to the maintainer
+- [x] #6 A rerun counts no CI attempt and starts no fix round, while a red head with any code failure, or a third infrastructure red on the same head, counts a CI attempt and starts a fix round as today
+- [x] #7 ADR 0002 says that infrastructure failures are rerun and do not count toward the CI cap, with one Replaced line
 <!-- AC:END -->

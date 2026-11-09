@@ -1,10 +1,10 @@
 ---
 id: DIPO-467
 title: Warn at Ready when a story holds more than its tier usually does
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-08 12:17'
-updated_date: '2026-11-08 12:41'
+updated_date: '2026-11-08 12:51'
 labels:
   - 'tier:S'
 milestone: m-3
@@ -51,8 +51,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A new gate warning R32 warns when a story's criteria count or reference count is above its tier's ceiling, never fails the gate, and runs in ready mode only, not in pickup mode
-- [ ] #2 The ceilings are constants in code, tier S 5 criteria and 8 references, tier M 10 and 16, tier L 12 and 24, and the message names the tier, the count and the ceiling
-- [ ] #3 The warning shows in dipo gate and in the stored gate record
-- [ ] #4 ADR 0012 describes the warning under the warnings that never fail the gate, without a rule number, and changes the sentence under what the gate does not check that names whether the size is right, with one Replaced line
+- [x] #1 A new gate warning R32 warns when a story's criteria count or reference count is above its tier's ceiling, never fails the gate, and runs in ready mode only, not in pickup mode
+- [x] #2 The ceilings are constants in code, tier S 5 criteria and 8 references, tier M 10 and 16, tier L 12 and 24, and the message names the tier, the count and the ceiling
+- [x] #3 The warning shows in dipo gate and in the stored gate record
+- [x] #4 ADR 0012 describes the warning under the warnings that never fail the gate, without a rule number, and changes the sentence under what the gate does not check that names whether the size is right, with one Replaced line
 <!-- AC:END -->
