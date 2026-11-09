@@ -1,10 +1,10 @@
 ---
 id: DIPO-468
 title: A story whose PR merges while it is parked becomes Done
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-09 17:56'
-updated_date: '2026-11-09 18:51'
+updated_date: '2026-11-09 19:19'
 labels:
   - 'tier:L'
 milestone: m-3
@@ -78,12 +78,12 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When the one Done check answers merged for a claim whose branch status is Parked, the Done poll resolves the open park as merged, ends the run done and tears down the box and branch as for any merged story, with one line on the desk saying the story PR merged while the story was parked; this replaces the teardown.parked keep in #merged only
-- [ ] #2 A merged PR whose branch moved past the merged head with work the base lacks still keeps its own parked keep in #movedPast, and a run with a live worker keeps its claim, each with a test
-- [ ] #3 When the base does not say Done after such a teardown, dipo writes Done for the story through its planning lane after the claim is released, and writes nothing when the base already says Done
-- [ ] #4 The backlog PR check, in dipo's own run and in CI, accepts Parked to Done for a task exactly when decideDone answers merged for it, with the claim made of the branch in the task's dipo field block on the base side and the PR's base, and the PR being the story PR whose merge commit is the last commit on the base that touched the task file; it reuses decideDone and adds no third Done definition next to DIPO-445's next-up skip
-- [ ] #5 The old barrier still refuses every other transition, with a test for each: Ready to In Progress, Refined to Done, In Progress or In Review to Done, and Parked to Done without a merged PR
-- [ ] #6 Tests cover the bypass forms, each refused: a PR merged from another branch, a closed unmerged PR, a merged PR whose merge commit is not on the base, an old merged PR of a reused branch, a backlog PR that edits the field block branch and sets Parked to Done in the same PR, a story id typo that names another story, and a second story without its own merged PR in the same backlog PR
-- [ ] #7 A fail-closed test against the real path runs scripts/check-backlog-pr.ts on a temporary repository and shows Parked to Done refused when gh fails, times out or answers no merged PR
+- [x] #1 When the one Done check answers merged for a claim whose branch status is Parked, the Done poll resolves the open park as merged, ends the run done and tears down the box and branch as for any merged story, with one line on the desk saying the story PR merged while the story was parked; this replaces the teardown.parked keep in #merged only
+- [x] #2 A merged PR whose branch moved past the merged head with work the base lacks still keeps its own parked keep in #movedPast, and a run with a live worker keeps its claim, each with a test
+- [x] #3 When the base does not say Done after such a teardown, dipo writes Done for the story through its planning lane after the claim is released, and writes nothing when the base already says Done
+- [x] #4 The backlog PR check, in dipo's own run and in CI, accepts Parked to Done for a task exactly when decideDone answers merged for it, with the claim made of the branch in the task's dipo field block on the base side and the PR's base, and the PR being the story PR whose merge commit is the last commit on the base that touched the task file; it reuses decideDone and adds no third Done definition next to DIPO-445's next-up skip
+- [x] #5 The old barrier still refuses every other transition, with a test for each: Ready to In Progress, Refined to Done, In Progress or In Review to Done, and Parked to Done without a merged PR
+- [x] #6 Tests cover the bypass forms, each refused: a PR merged from another branch, a closed unmerged PR, a merged PR whose merge commit is not on the base, an old merged PR of a reused branch, a backlog PR that edits the field block branch and sets Parked to Done in the same PR, a story id typo that names another story, and a second story without its own merged PR in the same backlog PR
+- [x] #7 A fail-closed test against the real path runs scripts/check-backlog-pr.ts on a temporary repository and shows Parked to Done refused when gh fails, times out or answers no merged PR
 - [ ] #8 ADR 0012 gets a Parked to Done row for a story whose PR merged and ADR 0020 describes the park resolved as merged, each with one Replaced line; the maintainer approves the wording in the story's PR
 <!-- AC:END -->
