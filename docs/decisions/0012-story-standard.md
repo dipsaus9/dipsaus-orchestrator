@@ -106,9 +106,9 @@ Every other transition is refused. Three more rules:
 
 Each failure prints `ready <ID> failed <rule>: <message>`. Rule numbers are stable once released, and new rules get new numbers.
 
-**Warnings that never fail the gate.** An automated test-plan entry that names a path no reference covers (formerly R29) is shown in `dipo gate`, in the gate record and in the CI check.
+**Warnings that never fail the gate.** An automated test-plan entry that names a path no reference covers (formerly R29) is shown in `dipo gate`, in the gate record and in the CI check. In the `ready` mode only, a story with more criteria or more references than its tier usually holds is shown in `dipo gate` and in the gate record, naming the tier, the count and the ceiling, so the maintainer raises the tier or splits the story before a run hits its caps. The ceilings are constants in code: tier S 5 criteria and 8 references, tier M 10 and 16, tier L 12 and 24. The pickup mode and the CI check, which runs it, do not show it.
 
-**What the gate does not check.** Whether paths exist, whether the Story line describes one story, whether criteria are good, whether the size is right, and whether a criterion names a step the worker cannot take. These are judgments for refine, the maintainer and the reviewer.
+**What the gate does not check.** Whether paths exist, whether the Story line describes one story, whether criteria are good, whether the size is right beyond the size warning, and whether a criterion names a step the worker cannot take. These are judgments for refine, the maintainer and the reviewer.
 
 ## 4. Spikes and design stories
 
@@ -121,6 +121,7 @@ Each failure prints `ready <ID> failed <rule>: <message>`. Rule numbers are stab
 - R27, which failed criteria that named a step the worker cannot take, matched by a phrase list (2026-10-18). Removed (2026-10-24): it is a judgment for refine and the reviewer, and a phrase list is a blunt way to make it.
 - R28, which failed stories labelled `dropped` or `on-hold` (2026-10-20). Removed (2026-10-24): a set-aside story is Parked `by-maintainer`, and a dropped story is Removed (0020). There are no such labels.
 - R29 as a hard rule (2026-10-20). Made a warning (2026-10-22), because references are a forecast.
+- Story size left wholly to judgment, with no gate output on it (2026-10-24). Replaced by the size warning against the tier's ceilings (2026-11-08).
 - References as a write fence with a scope check at done, scope requests and `needs-scope` (2026-10-10, 2026-10-16). Replaced by references as a forecast (2026-10-21).
 - The park reasons `on-hold`, `stopped`, `interrupted` and `needs-permission`, and `hold` as its own transition. Replaced by the eight reasons of 0001 and `dipo park` (2026-10-24).
 - `amend` of a parked story (Parked to Refined with criteria unchecked). That is M3 work (0003).

@@ -1,4 +1,4 @@
-// The retro view (DIPO-453): `6` opens it from home, it shows the lines the engine built from its
+// The retro view (DIPO-453): `4` opens it from home, it shows the lines the engine built from its
 // numbers, per tier and type, and Esc goes back. The TUI counts nothing itself.
 
 import { afterEach, describe, expect, it } from "bun:test";

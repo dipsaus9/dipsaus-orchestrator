@@ -133,6 +133,7 @@ describe("queue view", () => {
     expect(frame.slice(1, 15)).toEqual([
       "1 Desk 2    2 Floor 3    3 Queue 2·1    4 Retro",
       "─".repeat(119),
+<<<<<<< 44e27a35e11e7d16bb5312136a6241fee491cb4e
       "READY                                                      2  │  READY · tier S · offered as next up",
       "▌ → DIPO-30   Add park reasons to digest      S  next up      │  DIPO-30 Add park reasons to digest",
       "  → DIPO-32   Desk sort order                 M  ready        │",
@@ -145,6 +146,20 @@ describe("queue view", () => {
       "                                                              │",
       "  . show done (1)                                             │",
       "                                                              │",
+=======
+      " ▌ next Ready story (the engine picks)",
+      "   READY (2)   DIPO-30 S  Add park reasons to digest",
+      "               DIPO-32 M  Desk sort order",
+      "   WAITING (1) DIPO-31 M  Cost view                        needs DIPO-21",
+      '   REFINED (1) DIPO-33 M  Office forget flow               R15 2 unknowns open or resolved without an answer: "Keep the…',
+      "   DRAFT (1)   DRAFT-4    Retro ritual",
+      "   RUNNING (3) DIPO-21 M  Stream worker events to the TUI",
+      "               DIPO-24 S  Add verify retry",
+      "               DIPO-19 L  Review the merge slot",
+      '   DESK (1)    DIPO-29 L  Web client shell                 "after M2" (parked by you 3d)',
+      "─".repeat(119),
+      `↑↓ move   ⏎ story   R run   . show done   c copy id${" ".repeat(26)}: commands   ? keys   O offices   q q quit`,
+>>>>>>> d7e842b21ddb7b3e136dcb05b6e8decd18f35863
     ]);
     // Running, drafts and parked stories are not queued: the Floor and the Desk show them.
     expect(ui.frame()).not.toContain("DIPO-24");

@@ -10,7 +10,7 @@ import {
   r31,
   type RuleCheck,
   SHARED_RULES,
-  WARNING_RULES,
+  warningRulesFor,
 } from "./rules";
 import { BUILT_IN_ROSTER, type GateInput, type GateMode, type GateResult } from "./types";
 
@@ -38,7 +38,7 @@ function readFields(description: string): Pick<GateContext, "fields" | "fieldErr
 }
 
 /**
- * Evaluates every rule of `mode` and returns every failure and every warning (R29); passes only
+ * Evaluates every rule of `mode` and returns every failure and every warning (R29, R32); passes only
  * with zero failures, whatever the warnings.
  */
 export function evaluateGate(input: GateInput, mode: GateMode): GateResult {
@@ -51,7 +51,7 @@ export function evaluateGate(input: GateInput, mode: GateMode): GateResult {
     roster: input.roster ?? BUILT_IN_ROSTER,
   };
   const failures = rulesFor(mode).flatMap((rule) => rule(context));
-  const warnings = WARNING_RULES.flatMap((rule) => rule(context));
+  const warnings = warningRulesFor(mode).flatMap((rule) => rule(context));
   const waiting = input.story.waitingOn ?? [];
   return {
     mode,

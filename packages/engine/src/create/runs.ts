@@ -67,8 +67,8 @@ import { runCaps } from "../records/caps";
 import {
   boxBehind,
   boxPackageCache,
+  boxPartOf,
   boxRunEnded,
-  conflictMergeOf,
   containerOnPath,
   deliverThenCheck,
   finishEndedBoxRuns,
@@ -561,6 +561,26 @@ function runNotice(
 }
 
 /**
+ * A conflict the collision poll found for a story In Review: recorded, then merged and handed to
+ * the worker as one fix round at once (DIPO-464).
+ */
+function foundInReview(
+  options: RunsOptions,
+  service: StoryConflicts,
+  inReviewConflict: ((office: OfficeId, runId: RunId) => Promise<void>) | null,
+): (run: PartRun, found: Parameters<StoryConflicts["found"]>[1]) => void {
+  return (run, found) => {
+    service.found(run, found);
+    void inReviewConflict?.(run.office, run.runId as RunId).catch((error: unknown) => {
+      options.logger.warn("the merge of a story In Review that conflicts failed", {
+        run: run.runId,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    });
+  };
+}
+
+/**
  * The collision check of the box runs in progress (DIPO-277): their changed files compared, an
  * overlap told to the maintainer (an `engine.notice`) and to both workers, and the second story
  * caught up once the first merged. Null without a box backend.
@@ -574,6 +594,8 @@ function boxCollisions(
     readonly service: StoryConflicts | null;
     readonly isBoxRun: (office: OfficeId, run: StoredRun) => boolean;
     readonly unpark: UnparkWriter;
+    /** The merge and hand-off of a story In Review that conflicts with the base (DIPO-464). */
+    readonly inReviewConflict: ((office: OfficeId, runId: RunId) => Promise<void>) | null;
   },
 ): BoxCollisions | null {
   if (boxed === null) return null;
@@ -617,8 +639,7 @@ function boxCollisions(
       : {
           recorded: (run: PartRun, merged: Parameters<StoryConflicts["recorded"]>[1]) =>
             service.recorded(run, merged),
-          found: (run: PartRun, found: Parameters<StoryConflicts["found"]>[1]) =>
-            service.found(run, found),
+          found: foundInReview(options, service, conflicts.inReviewConflict),
           cleared: (run: PartRun) => service.cleared(run),
         }),
     // A catch-up that changed a lockfile installs the office's packages in the box again, as the
@@ -965,7 +986,7 @@ function boxSyncOf(options: RunsOptions, parts: RunPortParts): NonNullable<RunPo
       throw new Error(`run ${run.runId} has no box dipo can copy into here`);
     }
     await boxWorkers.awake({ runId: run.runId, runDir: part.runDir });
-    await collisions.copyPending(part, pending.from);
+    await collisions.copyPending(part, pending.from, pending.bases.join(" and "));
     handle.immediate(() => markBoxCopied(handle, run.runId, pending.ids));
   };
 }
@@ -1009,16 +1030,10 @@ function boxRunPorts(options: RunsOptions, parts: RunPortParts): Partial<RunPort
   const boxWorkers = parts.boxed?.workers ?? null;
   const storyPr = options.storyPr;
   return {
-    // A resumed conflict park merges in its live run's box (DIPO-324), and a story resumed to wait
-    // In Review again gets a new story PR when its PR was closed (0002).
-    conflictResume: {
-      merge: conflictMergeOf({
-        run: (runId) => parts.paths.partRun(runId),
-        collisions: () => parts.collisions.get(),
-        warn: (message, fields) => options.logger.warn(message, fields),
-      }),
-      stories: options.storyStore,
-    },
+    // A resumed conflict park and a moved base merge outside the box in dipo's own git (DIPO-324,
+    // DIPO-464), and a story resumed to wait In Review again gets a new story PR when its PR was
+    // closed (0002).
+    conflictResume: { stories: options.storyStore },
     ...(storyPr?.replace === undefined
       ? {}
       : {
@@ -1047,6 +1062,13 @@ function boxRunPorts(options: RunsOptions, parts: RunPortParts): Partial<RunPort
     // The merges dipo made on a box run's branch outside the box reach its box before the worker's
     // next session (DIPO-324): the box is started, the files copied in as a catch-up's are.
     boxSync: boxSyncOf(options, parts),
+    // The box's work goes first, before a merge of a moved base is copied in (DIPO-464).
+    boxPart: boxPartOf({
+      offices: options.offices,
+      partRun: (runId) => parts.paths.partRun(runId),
+      workers: parts.boxed?.workers ?? null,
+      parts: parts.boxed?.parts ?? null,
+    }),
     // A fix round waits for the CI of the pushed head and carries its red items (DIPO-148).
     ...(storyPr?.ciState === undefined
       ? {}
@@ -1253,6 +1275,7 @@ export function buildRuns(options: RunsOptions): EngineRuns {
     service: storyConflicts,
     isBoxRun,
     unpark: branchWriters(options).unpark,
+    inReviewConflict: composed.inReviewConflict,
   });
   connectRunsPartners(partners, {
     control: composed.control,

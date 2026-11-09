@@ -1,0 +1,29 @@
+actionlint	UNKNOWN STEP	2026-11-08T09:37:16.7875429Z ##[group]Run archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+actionlint	UNKNOWN STEP	2026-11-08T09:37:16.7876679Z ^[[36;1marchive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"^[[0m
+actionlint	UNKNOWN STEP	2026-11-08T09:37:16.7877780Z ^[[36;1mcurl -fsSL --proto '=https' --tlsv1.2 -o "$RUNNER_TEMP/$archive" \^[[0m
+actionlint	UNKNOWN STEP	2026-11-08T09:37:16.7879095Z ^[[36;1m  "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/$archive"^[[0m
+actionlint	UNKNOWN STEP	2026-11-08T09:37:16.7880473Z ^[[36;1mecho "$ACTIONLINT_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict^[[0m
+actionlint	UNKNOWN STEP	2026-11-08T09:37:16.7881613Z ^[[36;1mtar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint^[[0m
+actionlint	UNKNOWN STEP	2026-11-08T09:37:16.7902841Z shell: /usr/bin/bash -e {0}
+actionlint	UNKNOWN STEP	2026-11-08T09:37:16.7903454Z env:
+actionlint	UNKNOWN STEP	2026-11-08T09:37:16.7903964Z   ACTIONLINT_VERSION: 1.7.12
+actionlint	UNKNOWN STEP	2026-11-08T09:37:16.7905076Z   ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+actionlint	UNKNOWN STEP	2026-11-08T09:37:16.7906057Z ##[endgroup]
+actionlint	UNKNOWN STEP	2026-11-08T09:37:16.9293652Z curl: (22) The requested URL returned error: 504
+actionlint	UNKNOWN STEP	2026-11-08T09:37:16.9327640Z ##[error]Process completed with exit code 22.
+actionlint	UNKNOWN STEP	2026-11-08T09:37:16.9575844Z Post job cleanup.
+actionlint	UNKNOWN STEP	2026-11-08T09:37:17.0222585Z [command]/usr/bin/git version
+actionlint	UNKNOWN STEP	2026-11-08T09:37:17.0260209Z git version 2.56.0
+actionlint	UNKNOWN STEP	2026-11-08T09:37:17.0286218Z Temporarily overriding HOME='/home/runner/work/_temp/46f958d5-0e56-46b8-89f8-7aaefd29cd80' before making global git config changes
+actionlint	UNKNOWN STEP	2026-11-08T09:37:17.0288807Z Adding repository directory to the temporary git global config as a safe directory
+actionlint	UNKNOWN STEP	2026-11-08T09:37:17.0290958Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/dipsaus-orchestrator/dipsaus-orchestrator
+actionlint	UNKNOWN STEP	2026-11-08T09:37:17.0325547Z Removing SSH command configuration
+actionlint	UNKNOWN STEP	2026-11-08T09:37:17.0331005Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+actionlint	UNKNOWN STEP	2026-11-08T09:37:17.0371215Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+actionlint	UNKNOWN STEP	2026-11-08T09:37:17.0590552Z Removing HTTP extra header
+actionlint	UNKNOWN STEP	2026-11-08T09:37:17.0596689Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+actionlint	UNKNOWN STEP	2026-11-08T09:37:17.0637156Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+actionlint	UNKNOWN STEP	2026-11-08T09:37:17.0861162Z Removing includeIf entries pointing to credentials config files
+actionlint	UNKNOWN STEP	2026-11-08T09:37:17.0865813Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+actionlint	UNKNOWN STEP	2026-11-08T09:37:17.0938361Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+actionlint	UNKNOWN STEP	2026-11-08T09:37:17.1275494Z Cleaning up orphan processes

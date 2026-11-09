@@ -1,6 +1,6 @@
 // What the engine's box runs need besides the box workers (DIPO-271 to DIPO-324): Apple `container`
 // on the PATH, whether a run's box is ended, the sweeps a stopped daemon's leftovers get at start,
-// the package cache roots, the parts' `behind` check and the merge a resumed conflict park needs.
+// the package cache roots and the parts' `behind` check.
 
 import { realpathSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -8,10 +8,10 @@ import { isAbsolute, join } from "node:path";
 import type { OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 
 import { officePackageCacheRoot } from "../box/cache";
-import type { BoxCollisions, SyncOutcome } from "../box/collisions";
 import type { DoorPart } from "../box/door";
 import { boxEndedOf, boxRunState } from "../box/lifetime";
-import { sweepPartStages, type BoxParts, type PartRun } from "../box/parts";
+import { CATCH_UP_PART_MESSAGE } from "../box/collisions";
+import { partPark, sweepPartStages, type BoxParts, type PartRun } from "../box/parts";
 import { sweepTokenCheckLeftovers } from "../box/token-check";
 import type { BoxEnded, BoxPassOptions, BoxWorkers, BoxPackageCacheDeps } from "../box/workers";
 import type { OfficeHandle } from "../db/office";
@@ -21,7 +21,8 @@ import { systemIsExecutable } from "../platform/tools";
 import { workerHostsOf } from "../records/worker-hosts";
 import { findClaim } from "../worktree/records";
 import { pendingBoxCopy } from "./conflicts";
-import { findRun } from "../records/run-records";
+import { findRun, type StoredRun } from "../records/run-records";
+import type { BoxPartTaken } from "./base-merges";
 
 /** Apple `container` on `pathEnv`, by absolute path; undefined when it is not there. */
 export function containerOnPath(
@@ -159,6 +160,41 @@ export function realDir(dir: string): string {
   }
 }
 
+/**
+ * The box's work since its last part taken as a part before a merge of a moved base is copied in
+ * (DIPO-464, `BaseCatchUpsDeps.takePart`): the box is woken, and its part delivered though no
+ * session of the run is live yet. A box that is gone holds nothing undelivered (it is rebuilt from
+ * the delivered parts), and one that waits for an earlier merge dipo made outside it gives no part
+ * (DIPO-324). Throws when the run has no box here.
+ */
+export function boxPartOf(deps: {
+  readonly offices: { get(office: OfficeId): OfficeHandle | undefined };
+  readonly partRun: (runId: string) => PartRun | null;
+  readonly workers: Pick<BoxWorkers, "has" | "awake"> | null;
+  readonly parts: Pick<BoxParts, "deliverBeforeSession"> | null;
+}): (office: OfficeId, run: StoredRun) => Promise<BoxPartTaken> {
+  return async (office, run) => {
+    const handle = deps.offices.get(office);
+    const part = deps.partRun(run.runId);
+    const { workers, parts } = deps;
+    if (
+      handle === undefined ||
+      part === null ||
+      part.runDir === undefined ||
+      workers === null ||
+      parts === null
+    ) {
+      throw new Error(`run ${run.runId} has no box dipo can take a part from here`);
+    }
+    if ((await workers.has(run.runId, part.runDir)) === "gone") return { kind: "taken" };
+    if (pendingBoxCopy(handle, run.runId) !== null) return { kind: "taken" };
+    await workers.awake({ runId: run.runId, runDir: part.runDir });
+    const outcome = await parts.deliverBeforeSession(run.runId, CATCH_UP_PART_MESSAGE);
+    const park = partPark(outcome);
+    return park === null ? { kind: "taken" } : { kind: "park", ...park };
+  };
+}
+
 /** Why a part is refused while the box lacks a merge dipo made outside it (DIPO-324). */
 export const BOX_BEHIND_TEXT =
   "dipo merged the base into the story branch outside the box, and the box has not received that merge, so a part now would undo it; resume the story to copy the merge into the box first";
@@ -177,37 +213,5 @@ export function boxBehind(offices: {
       return `dipo cannot read the office of ${run.story} here, so it cannot tell whether the box holds every merge dipo made on the branch; no part is taken until it can`;
     }
     return pendingBoxCopy(handle, run.runId) === null ? null : BOX_BEHIND_TEXT;
-  };
-}
-
-/**
- * The merge a resumed conflict park needs in its live run's box (DIPO-324,
- * `BoxCollisions.mergeOnResume`, which merges only when git still reports a conflict). The worker
- * was told dipo merges, so a merge dipo cannot even check here is never silent: it is a park of
- * the live run with what went wrong, and a warning.
- */
-export function conflictMergeOf(deps: {
-  readonly run: (runId: string) => PartRun | null;
-  readonly collisions: () => BoxCollisions | null;
-  readonly warn: (message: string, fields: Readonly<Record<string, unknown>>) => void;
-}): (office: OfficeId, runId: RunId) => Promise<SyncOutcome> {
-  return async (office, runId) => {
-    const run = deps.run(runId);
-    const collisions = deps.collisions();
-    if (run !== null && collisions !== null && run.office === office) {
-      return collisions.mergeOnResume(run);
-    }
-    const why =
-      run === null || run.office !== office
-        ? `dipo does not know the box of run ${runId} here`
-        : "this daemon has no box collisions to merge with";
-    deps.warn("the merge a conflict resume promised cannot run", { office, run: runId, why });
-    return {
-      kind: "park",
-      park: {
-        reason: "conflict",
-        detail: `dipo resumed the story to merge the base into its branch and box once the session ran, but ${why}, so nothing was merged; resume it again`,
-      },
-    };
   };
 }

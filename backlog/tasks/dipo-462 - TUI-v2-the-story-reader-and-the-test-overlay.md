@@ -4,9 +4,9 @@ title: 'TUI v2: the story reader and the test overlay'
 status: Ready
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-06 14:24'
+updated_date: '2026-11-08 12:17'
 labels:
-  - 'tier:S'
+  - 'tier:M'
 milestone: m-6
 dependencies:
   - DIPO-459

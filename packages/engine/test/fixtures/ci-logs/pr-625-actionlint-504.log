@@ -1,0 +1,13 @@
+actionlint	Download actionlint and check it against the pinned SHA-256	﻿2026-11-08T09:39:05.6154292Z ##[group]Run archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+actionlint	Download actionlint and check it against the pinned SHA-256	2026-11-08T09:39:05.6155227Z ^[[36;1marchive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"^[[0m
+actionlint	Download actionlint and check it against the pinned SHA-256	2026-11-08T09:39:05.6155940Z ^[[36;1mcurl -fsSL --proto '=https' --tlsv1.2 -o "$RUNNER_TEMP/$archive" \^[[0m
+actionlint	Download actionlint and check it against the pinned SHA-256	2026-11-08T09:39:05.6156797Z ^[[36;1m  "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/$archive"^[[0m
+actionlint	Download actionlint and check it against the pinned SHA-256	2026-11-08T09:39:05.6157996Z ^[[36;1mecho "$ACTIONLINT_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict^[[0m
+actionlint	Download actionlint and check it against the pinned SHA-256	2026-11-08T09:39:05.6158720Z ^[[36;1mtar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint^[[0m
+actionlint	Download actionlint and check it against the pinned SHA-256	2026-11-08T09:39:05.6183826Z shell: /usr/bin/bash -e {0}
+actionlint	Download actionlint and check it against the pinned SHA-256	2026-11-08T09:39:05.6184289Z env:
+actionlint	Download actionlint and check it against the pinned SHA-256	2026-11-08T09:39:05.6184659Z   ACTIONLINT_VERSION: 1.7.12
+actionlint	Download actionlint and check it against the pinned SHA-256	2026-11-08T09:39:05.6185252Z   ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+actionlint	Download actionlint and check it against the pinned SHA-256	2026-11-08T09:39:05.6185876Z ##[endgroup]
+actionlint	Download actionlint and check it against the pinned SHA-256	2026-11-08T09:39:05.6669347Z curl: (22) The requested URL returned error: 504
+actionlint	Download actionlint and check it against the pinned SHA-256	2026-11-08T09:39:05.6709515Z ##[error]Process completed with exit code 22.

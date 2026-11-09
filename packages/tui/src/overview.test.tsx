@@ -143,6 +143,7 @@ function outputEvent(seq: number, run: string, source: string, from: number, tex
   } as Event;
 }
 
+<<<<<<< 44e27a35e11e7d16bb5312136a6241fee491cb4e
 /** The part of a snapshot the Floor reads, as a store state. */
 function storeState(snapshot: OfficeSnapshot): OfficeStoreState {
   return {
@@ -289,6 +290,62 @@ describe("the Floor", () => {
     expect(idle.running.map((item) => String(item.story.story))).toEqual(["DIPO-447"]);
     expect(idle.review.map((item) => [String(item.story.story), item.view === null])).toEqual([
       ["DIPO-446", true],
+=======
+describe("office overview board", () => {
+  it("shows the approved layout at 120 columns", async () => {
+    const { ui } = await open(120, 30, boardSnapshot());
+    const frame = await ui.waitFor("building · Step 39");
+    expect(lines(frame)).toEqual([
+      HEADER,
+      ROOMS,
+      RULE,
+      " 3 running · 2 needs you · 1 in review · Ready 2 · waiting 1",
+      " RUNNING (3)",
+      "▌DIPO-21 Stream worker events to th… developer M  build   busy >     AC 4/7  loop 2/5  [####----] 52% 38m  claude-sonnet",
+      "     now: building · no output yet",
+      " DIPO-24 Add verify retry            developer S  build   looping @  AC 2/3  loop 2/3  [######--] 78% 22m  claude-sonnet",
+      "     now: building · Step 39: retries now stop at the cap in src/notice.ts. · 12s ago",
+      " DIPO-19 Review the merge slot       reviewer L   review  quiet .    AC 9/9  loop 1/8  [#-------] 18% 1h05 claude-opus",
+      "     now: asking you · Keep the old merge slot?",
+      " NEEDS YOU (2)",
+      " DIPO-29 Web client shell             parked 3d · by maintainer: after M2",
+      " DIPO-26 Compose dev stack            parked 40m · needs permission: Bash(docker compose up)",
+      " IN REVIEW (1)",
+      " DIPO-28 Show the merge queue         L  in review · no worker running",
+      " READY (2)",
+      " DIPO-30 Add park reasons to digest   S  Ready · 3 Queue, then R",
+      " DIPO-32 Desk sort order              M  Ready",
+      RULE,
+      keys(/^↑↓ move {3}⏎ open {3}c copy id +: commands {3}\? keys {3}O offices {3}q q quit$/),
+    ]);
+  });
+
+  it("drops role, loop and model from 80 to 119 columns", async () => {
+    const { ui } = await open(80, 30, boardSnapshot());
+    const frame = await ui.waitFor("building · Step 39");
+    expect(lines(frame)).toEqual([
+      HEADER,
+      ROOMS,
+      RULE,
+      " 3 running · 2 needs you · 1 in review · Ready 2 · waiting 1",
+      " RUNNING (3)",
+      "▌DIPO-21 Stream worker events … build  busy >    AC 4/7 [####----] 52% 38m",
+      "     now: building · no output yet",
+      " DIPO-24 Add verify retry       build  looping @ AC 2/3 [######--] 78% 22m",
+      "     now: building · Step 39: retries now stop at the cap in src/notice.ts. · 1…",
+      " DIPO-19 Review the merge slot  review quiet .   AC 9/9 [#-------] 18% 1h05",
+      "     now: asking you · Keep the old merge slot?",
+      " NEEDS YOU (2)",
+      " DIPO-29 Web client shell        parked 3d · by maintainer: after M2",
+      " DIPO-26 Compose dev stack       parked 40m · needs permission: Bash(docker com…",
+      " IN REVIEW (1)",
+      " DIPO-28 Show the merge queue    in review · no worker running",
+      " READY (2)",
+      " DIPO-30 Add park reasons to d…  Ready · 3 Queue, then R",
+      " DIPO-32 Desk sort order         Ready",
+      RULE,
+      keys(/^↑↓ move {3}⏎ open {3}c copy id +: commands {3}\? keys {3}O offices {3}q q quit$/),
+>>>>>>> d7e842b21ddb7b3e136dcb05b6e8decd18f35863
     ]);
     // No story is in both, whatever the sessions.
     for (const work of [snapshot.work, [], [snapshot.work[1]!]]) {
@@ -343,12 +400,26 @@ describe("the Floor", () => {
 
   it("says why nothing runs when the office is idle", async () => {
     const { ui } = await open(120, 30, idleSnapshot());
+<<<<<<< 44e27a35e11e7d16bb5312136a6241fee491cb4e
     const frame = ui.frame();
     expect(frame).toContain("RUNNING");
     expect(frame).toContain(
       "Nothing is running and nothing is Ready: DIPO-31 waits on DIPO-21, DIPO-33 is Refined (R15), DIPO-29 is parke",
     );
     expect(frame).toContain("Nothing waits on another story.");
+=======
+    expect(lines(ui.frame())).toEqual([
+      HEADER,
+      ROOMS,
+      RULE,
+      " 0 running · 2 needs you · 0 in review · Ready 0 · waiting 1",
+      " Nothing is running and nothing is Ready: DIPO-31 waits on DIPO-21, DIPO-33 is Refined (R15), DIPO-29 is parked (by mai…",
+      " NEEDS YOU (1)",
+      "▌DIPO-29 Web client shell  parked 3d · by maintainer: after M2",
+      RULE,
+      keys(/^↑↓ move {3}⏎ open {3}c copy id +: commands {3}\? keys {3}O offices {3}q q quit$/),
+    ]);
+>>>>>>> d7e842b21ddb7b3e136dcb05b6e8decd18f35863
   });
 
   it("names the Refined story's rule from the gateFailures field, not the message (DIPO-97)", async () => {

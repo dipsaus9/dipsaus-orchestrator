@@ -15,6 +15,7 @@ import { Frame, frameRows } from "./frame";
 import { type Home, HomeMode } from "./home";
 import { inSwitcherMode, type Mode } from "./mode";
 import { ModeScreen, promptHeight } from "./modes";
+import { OverlayOver } from "./overlays";
 import { type Planning, PlanningMode } from "./planning";
 import { dialogComplete } from "./question-dialog";
 import { type Retro, RetroMode } from "./retro";
@@ -43,10 +44,13 @@ export interface ScreenProps {
   readonly outputTailBytes?: number;
 }
 
-/** The room the rooms band marks, or null where it does not show. */
+const overlaid = (mode: Mode) => mode.kind === "palette" || mode.kind === "help";
+
+/** The room the rooms band marks, or null where it does not show; an overlay keeps its room's. */
 function currentRoom(mode: Mode, home: Home): Room | null {
   if (mode.kind === "retro") return "retro";
-  if (mode.kind !== "home" && mode.kind !== "confirm-privacy") return null;
+  if ((mode.kind === "palette" || mode.kind === "help") && mode.back === "retro") return "retro";
+  if (mode.kind !== "home" && mode.kind !== "confirm-privacy" && !overlaid(mode)) return null;
   switch (home.view) {
     case "desk":
     case "checklist":
@@ -126,7 +130,7 @@ export function Screen(props: ScreenProps) {
   const room = screen === null ? currentRoom(mode, home) : null;
   const bare = home.expanded && home.detail !== null && screen === null;
   const panel =
-    inSwitcher || mode.kind === "planning" || mode.kind === "retro"
+    inSwitcher || mode.kind === "planning" || mode.kind === "retro" || overlaid(mode)
       ? []
       : [...home.panelLines(columns), ...acts.promptLines()];
   // The bands and the lines under the body stay on screen; the view gets the rest.
@@ -138,6 +142,16 @@ export function Screen(props: ScreenProps) {
       promptHeight(mode, columns) -
       (offline && screen === null ? OFFLINE_LINES : 0);
 
+  const retroBody = <RetroMode retro={retro} height={height} />;
+  const homeBody = (
+    <HomeMode
+      home={home}
+      columns={columns}
+      height={height}
+      keysActive={mode.kind === "home" && acts.flow === null}
+      {...(props.outputTailBytes === undefined ? {} : { outputTailBytes: props.outputTailBytes })}
+    />
+  );
   const body = (
     <ModeScreen
       mode={mode}
@@ -149,18 +163,19 @@ export function Screen(props: ScreenProps) {
       planning={
         <PlanningMode planning={planning} display={display} columns={columns} height={height} />
       }
-      retro={<RetroMode retro={retro} height={height} />}
-      home={
-        <HomeMode
+      retro={retroBody}
+      overlay={
+        <OverlayOver
+          mode={mode}
           home={home}
+          state={state}
+          display={display}
           columns={columns}
           height={height}
-          keysActive={mode.kind === "home" && acts.flow === null}
-          {...(props.outputTailBytes === undefined
-            ? {}
-            : { outputTailBytes: props.outputTailBytes })}
+          behind={{ home: homeBody, retro: retroBody }}
         />
       }
+      home={homeBody}
     />
   );
 

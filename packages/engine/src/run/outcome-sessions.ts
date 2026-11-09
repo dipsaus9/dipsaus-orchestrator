@@ -35,12 +35,15 @@ export class SessionStarts {
    * `worker-failed` with the pause's detail, to resume by itself when the pause lifts; under a
    * failed adapter check it goes the start failure's way. What the session is told comes from the
    * one feedback path (`feedback.ts`): the resumer sends every held message with its first one.
+   * `catchUp`: a base that moved is merged into the branch before the worker's first turn (a
+   * resume or a fix round, DIPO-464); a conflict in a path the worker cannot write parks
+   * `conflict`.
    */
   async next(
     office: OfficeHandle,
     run: StoredRun,
     view: RunView,
-    request: { readonly why: string },
+    request: { readonly why: string; readonly catchUp?: boolean },
   ): Promise<boolean> {
     const paused = this.#deps.startsPaused?.()?.state(view.office) ?? null;
     if (paused?.reason === "plan-limit") {
@@ -71,6 +74,7 @@ export class SessionStarts {
         why: request.why,
         caps: view.caps,
         startedAt: view.startedAt,
+        ...(request.catchUp === true ? { catchUp: true as const } : {}),
       });
     } catch (error) {
       outcome = { kind: "failed" as const, reason: messageOf(error) };
@@ -87,6 +91,14 @@ export class SessionStarts {
           ops: [],
           reason: "worker-failed",
           detail: `${request.why}; the next session did not start: ${outcome.reason}`,
+        });
+        return false;
+      case "parked":
+        await this.#s.park(office, run, view.work, {
+          intent: "park",
+          ops: [],
+          reason: outcome.reason,
+          detail: outcome.detail,
         });
         return false;
       case "hostAlive":

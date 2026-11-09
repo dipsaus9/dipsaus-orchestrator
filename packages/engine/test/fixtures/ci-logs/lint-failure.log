@@ -1,0 +1,22 @@
+verify	UNKNOWN STEP	2026-10-20T09:27:56.1782175Z ##[group]Run bun run verify
+verify	UNKNOWN STEP	2026-10-20T09:27:56.1782402Z ^[[36;1mbun run verify^[[0m
+verify	UNKNOWN STEP	2026-10-20T09:27:56.1831390Z shell: /usr/bin/bash -e {0}
+verify	UNKNOWN STEP	2026-10-20T09:27:56.1831608Z env:
+verify	UNKNOWN STEP	2026-10-20T09:27:56.1831785Z   DIPO_TEST_CI: 1
+verify	UNKNOWN STEP	2026-10-20T09:27:56.1831962Z ##[endgroup]
+verify	UNKNOWN STEP	2026-10-20T09:27:56.1910320Z $ bun run format:check && bun run lint && bun run typecheck && bun test
+verify	UNKNOWN STEP	2026-10-20T09:27:56.1932743Z $ oxfmt --check
+verify	UNKNOWN STEP	2026-10-20T09:27:56.3314201Z Checking formatting...
+verify	UNKNOWN STEP	2026-10-20T09:27:56.3314555Z 
+verify	UNKNOWN STEP	2026-10-20T09:27:56.4618721Z All matched files use the correct format.
+verify	UNKNOWN STEP	2026-10-20T09:27:56.4619260Z Finished in 130ms on 1032 files using 4 threads.
+verify	UNKNOWN STEP	2026-10-20T09:27:56.5187718Z $ oxlint --deny-warnings
+verify	UNKNOWN STEP	2026-10-20T09:27:57.4346395Z ##[error]packages/engine/test/run/host-watch.test.ts:132:12: Function `unboundHost` does not capture any variables from its parent scope
+verify	UNKNOWN STEP	2026-10-20T09:27:57.4355824Z ##[error]packages/engine/test/run/host-watch.test.ts:146:18: Function `advancePast` does not capture any variables from its parent scope
+verify	UNKNOWN STEP	2026-10-20T09:27:57.4357013Z 
+verify	UNKNOWN STEP	2026-10-20T09:27:57.4357162Z Found 0 warnings and 2 errors.
+verify	UNKNOWN STEP	2026-10-20T09:27:57.4357570Z Finished in 886ms on 877 files with 142 rules using 4 threads.
+verify	UNKNOWN STEP	2026-10-20T09:27:57.4464561Z error: script "lint" exited with code 1
+verify	UNKNOWN STEP	2026-10-20T09:27:57.4470316Z error: script "verify" exited with code 1
+verify	UNKNOWN STEP	2026-10-20T09:27:57.4478162Z ##[error]Process completed with exit code 1.
+verify	UNKNOWN STEP	2026-10-20T09:27:57.4574823Z Post job cleanup.

@@ -1193,6 +1193,8 @@ export class BoxParts {
   readonly #chains = new Map<string, Promise<unknown>>();
   /** The door reads that failed in a row, per run (`PART_STUCK_READS`). */
   readonly #failed = new Map<string, FailStreak>();
+  /** Runs whose part is taken before their next session (`deliverBeforeSession`): live for it. */
+  readonly #beforeSession = new Set<string>();
   /** The stage folders in use, which `sweepStages` leaves. */
   readonly #stages = new Set<string>();
 
@@ -1316,6 +1318,23 @@ export class BoxParts {
       }
       throw error;
     });
+  }
+
+  /**
+   * Before a run's next developer session (DIPO-464): whatever its awake box holds since the last
+   * part becomes a part with `message`, though no session of the run is live yet, so a merge of
+   * the base copied in next never overwrites work the worker did not hand over. A box that lacks
+   * a merge dipo made outside it (`behind`) gives no part. The caller parks on a park outcome.
+   */
+  async deliverBeforeSession(runId: string, message: string): Promise<PartOutcome> {
+    const run = this.#deps.run(runId);
+    if (run === null) throw new BoxError(PART_FAILED, `run ${runId} is not known here.`);
+    this.#beforeSession.add(runId);
+    try {
+      return this.#settled(run, await this.#serial(runId, () => this.#deliver(run, message)));
+    } finally {
+      this.#beforeSession.delete(runId);
+    }
   }
 
   /**
@@ -1510,7 +1529,7 @@ export class BoxParts {
 
   /** Throws `PART_WAITING` when the run no longer goes on, so the part stays queued. */
   #assertLive(run: PartRun): void {
-    if (!this.#deps.live(run.runId)) {
+    if (!this.#deps.live(run.runId) && !this.#beforeSession.has(run.runId)) {
       throw new BoxError(
         PART_WAITING,
         `run ${run.runId} ended while its part was taken; it stays queued.`,

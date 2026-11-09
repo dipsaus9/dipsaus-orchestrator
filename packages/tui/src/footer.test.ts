@@ -45,18 +45,20 @@ describe("the footer registry", () => {
       "↑↓ move",
       "⏎ open",
       "c copy id",
-      ": settings",
+      ": commands",
+      "? keys",
       "O offices",
       "q q quit",
     ]);
     expect(texts("desk", { ...ctx, hasRow: false, planningOpen: true })).toEqual([
       "P plan",
-      ": settings",
+      ": commands",
+      "? keys",
       "O offices",
       "q q quit",
     ]);
     expect(line("queue", 100)).toMatch(
-      /^↑↓ move   ⏎ story   R run   \. show done   c copy id +: settings   O offices   q q quit$/,
+      /^↑↓ move   ⏎ story   R run   \. show done   c copy id +: commands   \? keys   O offices   q q quit$/,
     );
     expect(line("switcher", 100)).toMatch(/^↑↓ move   ⏎ open   a new path +esc back   q q quit$/);
     expect(line("switcher", 100)).toHaveLength(100);

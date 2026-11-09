@@ -51,8 +51,12 @@
 //
 // A `conflict` park's developer session gets the message `ConflictResumer.prepare` builds from git
 // (the kept merge's conflict item, or the commits only the remote branch holds), held as a
-// `conflict` message right before the session starts, and the merge it needs runs once that
-// session started (`afterStart`), in the live run's box.
+// `conflict` message right before the session starts.
+//
+// The resume of every reason that starts a developer session asks for the merge of a moved base
+// before the worker's first turn (`catchUp`, DIPO-464, `BaseCatchUps.beforeSession`): the
+// session's start merges the base into the branch in dipo's own git when the branch lacks base
+// commits, clean or conflicted, and copies it into the box before the worker starts.
 //
 // The one resume that needs no command (0020): when the office's starts paused lifts, dipo resumes
 // each park a plan limit made through this same path (`ResumeRequest.lifted`, `starts-paused.ts`),
@@ -195,11 +199,6 @@ function resumeKey(intentId: number): string {
 export interface ConflictPrepared {
   /** The first message: the conflict item, or the commits only the remote branch holds. */
   readonly message: string;
-  /**
-   * Runs once that session started and the run is live: the merge a box run needs, made in the
-   * run's turn of parts so the box gets it too (`BoxCollisions.mergeOnResume`).
-   */
-  readonly afterStart?: () => Promise<void>;
 }
 
 /** The 0002 conflict hand-off a `conflict` park resumes through (`ConflictResumes`, DIPO-324). */
@@ -207,8 +206,8 @@ export interface ConflictResumer {
   /**
    * After the park is lifted, before the session: what git says the developer needs (the kept
    * merge's conflict item, the commits only the remote branch holds after a rejected push, or the
-   * base merged again), and the merge the session needs once it runs; or `parked` when it parked
-   * the story again (a path the worker cannot write still conflicts).
+   * base merged again before the session); or `parked` when it parked the story again (a path the
+   * worker cannot write still conflicts).
    */
   prepare(office: OfficeId, run: StoredRun): Promise<ConflictPrepared | { readonly parked: true }>;
 }
@@ -1198,7 +1197,6 @@ export class ParkResumes {
       return false;
     }
     const key = resumeKey(intentId);
-    let afterStart: (() => Promise<void>) | undefined;
     if (detail.reason === "conflict") {
       let prepared;
       try {
@@ -1226,26 +1224,18 @@ export class ParkResumes {
           { at },
         );
       });
-      afterStart = prepared.afterStart;
     }
-    const started = await this.#sessions.next(office, run, view, { why: detail.why });
+    // A base that moved is merged before the worker's first turn (DIPO-464).
+    const started = await this.#sessions.next(office, run, view, {
+      why: detail.why,
+      catchUp: true,
+    });
     const at = clock.now();
     office.immediate(() => {
       // The next resume builds its own parts again; the maintainer's words stay held.
       if (!started) dropHeld(office, run.runId, key, at, "notStarted");
       resolveIntent(office, run.runId, intentId, started ? "resumed" : "notStarted", at);
     });
-    if (started && afterStart !== undefined) {
-      // The merge the session needs runs in its live run's turn, outside this run's guard.
-      const job = afterStart().catch((error: unknown) => {
-        this.#s.deps.warn?.("the merge of a resumed conflict failed", {
-          run: run.runId,
-          reason: messageOf(error),
-        });
-      });
-      this.#inflight.add(job);
-      void job.finally(() => this.#inflight.delete(job));
-    }
     return started;
   }
 

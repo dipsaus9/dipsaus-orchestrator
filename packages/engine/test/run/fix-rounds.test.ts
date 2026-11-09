@@ -120,6 +120,8 @@ interface Started {
   readonly why: string;
   readonly message: string | undefined;
   readonly work: WorkRef;
+  /** The session asked for the merge of a moved base before the worker's first turn (DIPO-464). */
+  readonly catchUp: boolean;
 }
 
 interface World {
@@ -204,6 +206,7 @@ function world(): World {
         started.push({
           run: run.runId,
           why: request.why,
+          catchUp: request.catchUp === true,
           // The held messages, delivered with the agent's record as `RunResumer` does.
           message: heldFirstMessage(w.office, run.runId, now(), state.starts),
           work: runView.work,
@@ -386,6 +389,8 @@ describe("the timing of a fix round (0002)", () => {
     // Advisory findings are listed as optional.
     expect(session?.message).toContain("Optional: the reviewer also left these advisory findings.");
     expect(session?.message).toContain("- maintainability: name the helper better.");
+    // A base that moved is merged before the worker's first turn (DIPO-464).
+    expect(session?.catchUp).toBe(true);
     // The developer's session continues, not the reviewer's.
     expect(String(session?.work.role)).toBe("developer");
     expect(String(session?.work.agent)).not.toBe("agt-reviewer");

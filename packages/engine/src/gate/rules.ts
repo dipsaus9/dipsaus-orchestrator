@@ -795,5 +795,46 @@ export const SHARED_RULES: readonly RuleCheck[] = [
   r30,
 ];
 
-/** The rules that only warn (R29), evaluated in both modes after the others, in rule order. */
-export const WARNING_RULES: readonly RuleCheck[] = [r29];
+/**
+ * R32: the most criteria and references a story of a tier usually holds (DIPO-467). Tier-labelled
+ * stories on main on 2026-11-08 held at the 90th percentile S 5 criteria, M 10 and L 11; the
+ * reference ceilings are about twice the median. A tier outside this table gets no warning.
+ */
+export const TIER_CEILINGS: Readonly<
+  Record<string, { readonly criteria: number; readonly references: number }>
+> = {
+  S: { criteria: 5, references: 8 },
+  M: { criteria: 10, references: 16 },
+  L: { criteria: 12, references: 24 },
+};
+
+/**
+ * R32 (DIPO-467): a story with more criteria or references than its tier's ceiling
+ * (`TIER_CEILINGS`) gets a warning per count over it, so the maintainer raises its tier or splits
+ * it before a run hits its caps. It warns and never fails, in ready mode only: it is for the
+ * maintainer before Ready, and the pickup stays as it is. Without exactly one tier (R16) it says
+ * nothing.
+ */
+export const r32: RuleCheck = (context) => {
+  const [tier, ...more] = context.labels.tiers;
+  const ceiling = tier === undefined || more.length > 0 ? undefined : TIER_CEILINGS[tier];
+  if (tier === undefined || ceiling === undefined) return [];
+  const counts = [
+    ["criteria", context.story.acceptanceCriteria.length, ceiling.criteria],
+    ["references", context.story.references.length, ceiling.references],
+  ] as const;
+  return counts
+    .filter(([, count, most]) => count > most)
+    .flatMap(([what, count, most]) =>
+      warn(
+        context,
+        "R32",
+        `tier ${tier} story has ${count} ${what}, above the tier ${tier} ceiling of ${most}; raise its tier or split it`,
+      ),
+    );
+};
+
+/** The rules that only warn, evaluated after the others, in rule order: R29, and R32 in ready mode. */
+export function warningRulesFor(mode: GateMode): readonly RuleCheck[] {
+  return mode === "ready" ? [r29, r32] : [r29];
+}

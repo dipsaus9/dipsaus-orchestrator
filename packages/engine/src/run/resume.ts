@@ -53,6 +53,8 @@ import type { IngestAdapter } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
 import type { ProcessProbe } from "../platform/process";
 import { promptParts, recordPromptParts, recordPromptTexts } from "../prompts/parts";
+import { COPY_WOULD_OVERWRITE } from "../box/collisions";
+import { BoxError } from "../box/port";
 import { BOX_RUN_FILE } from "../box/workers";
 import { BOX_LIFETIME_NOTICES, BoxLifetime, boxRebuiltText, type RunBoxes } from "../box/lifetime";
 import type { RunProfile } from "../scan/detect";
@@ -187,6 +189,13 @@ export interface RunResumerDeps {
    * the session does not start (the caller parks the story). Nothing is copied without it.
    */
   readonly boxSync?: (office: OfficeId, run: StoredRun) => Promise<void>;
+  /**
+   * The merge of a moved base into the run's branch before a session that asks for it (a resume
+   * or a fix round, DIPO-464; `BaseCatchUps.beforeSession`): made in dipo's own git outside the
+   * box, so `boxSync` copies it in; its message for the worker held on the one feedback path.
+   * Nothing is merged without it.
+   */
+  readonly catchUp?: (office: OfficeId, run: StoredRun) => Promise<SessionCatchUp>;
   /** The office's current run profile, whose install a rebuilt box gets (DIPO-294). */
   readonly profile?: (office: OfficeId) => RunProfile | null;
   /** The handoff facts of the worktree; `gatherHandoff` on the office git by default. */
@@ -209,6 +218,21 @@ interface HandoffMessage {
   readonly text: string;
 }
 
+/** What the merge of a moved base before a session did (`RunResumerDeps.catchUp`, DIPO-464). */
+export type SessionCatchUp =
+  /** Nothing merged: the branch holds the base, or there is none. */
+  | { readonly kind: "none" }
+  /** The base merged into the branch; the worker's message is held for the session. */
+  | { readonly kind: "merged"; readonly commit: string }
+  /**
+   * No session: a path the worker cannot write conflicts, the push was rejected, or the box's work
+   * could not be taken as a part before the merge (nothing merged then).
+   */
+  | { readonly kind: "park"; readonly reason: CatchUpParkReason; readonly detail: string };
+
+/** Why the merge of a moved base before a session parks the story (DIPO-464). */
+export type CatchUpParkReason = "conflict" | "scope-violation" | "worker-failed";
+
 export interface NextSessionRequest {
   readonly office: OfficeId;
   readonly run: StoredRun;
@@ -220,11 +244,15 @@ export interface NextSessionRequest {
   readonly caps: Caps;
   /** When the run's first worker started, on the engine clock. */
   readonly startedAt: number;
+  /** A resume or a fix round: a base that moved is merged first (`RunResumerDeps.catchUp`). */
+  readonly catchUp?: true;
 }
 
 export type NextSessionOutcome =
   | { readonly kind: "started"; readonly agent: AgentId }
   | { readonly kind: "startFailed"; readonly pause: AdapterPause }
+  /** The merge of a moved base parks the story instead (DIPO-464): nothing started. */
+  | { readonly kind: "parked"; readonly reason: CatchUpParkReason; readonly detail: string }
   /**
    * An earlier host of the run still runs after the wait (0005): nothing started. The
    * code is 0005's retryable `run.hostAlive`.
@@ -317,6 +345,25 @@ export class RunResumer implements NextSession {
       };
     }
     if (run.branch === null) return { kind: "failed", reason: `${run.runId} has no branch` };
+    // Never a new host while an earlier host of the run still runs (0005), and nothing is taken from,
+    // merged for or copied into a box an earlier worker may still write in (DIPO-464).
+    const alive = await this.#earlierHostAlive(office, run.runId);
+    if (alive !== null) return { kind: "hostAlive", code: "run.hostAlive", pid: alive };
+    // A base that moved is merged before the handoff reads the branch (DIPO-464).
+    if (request.catchUp === true && deps.catchUp !== undefined) {
+      let caught: SessionCatchUp;
+      try {
+        caught = await deps.catchUp(request.office, run);
+      } catch (error) {
+        return {
+          kind: "failed",
+          reason: `dipo could not merge the moved base into the story branch: ${messageOf(error)}`,
+        };
+      }
+      if (caught.kind === "park") {
+        return { kind: "parked", reason: caught.reason, detail: caught.detail };
+      }
+    }
     const tier = startTierOf(office, run, inForce);
     const paths = runLaunchPaths(git, deps, run.runId);
     const previous = previousAgent(office, run.runId, request.work.agent);
@@ -369,6 +416,10 @@ export class RunResumer implements NextSession {
       try {
         await deps.boxSync(request.office, run);
       } catch (error) {
+        // Work no part delivered would be overwritten: nothing was copied (DIPO-464).
+        if (error instanceof BoxError && error.code === COPY_WOULD_OVERWRITE) {
+          return { kind: "parked", reason: "conflict", detail: error.message };
+        }
         return {
           kind: "failed",
           reason: `dipo's merge on the story branch could not be copied into the box: ${messageOf(error)}`,
@@ -393,10 +444,6 @@ export class RunResumer implements NextSession {
       return { kind: "failed", reason: why };
     }
     if (!prepared.ok) return { kind: "startFailed", pause: prepared.pause };
-
-    // Never a new host while an earlier host of the run still runs (0005).
-    const alive = await this.#earlierHostAlive(office, run.runId);
-    if (alive !== null) return { kind: "hostAlive", code: "run.hostAlive", pid: alive };
 
     // The new host appends to the run's event file: its ingestion starts after what is there.
     const eventFile = join(paths.runDir, EVENTS_FILE);

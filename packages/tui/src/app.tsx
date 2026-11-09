@@ -6,9 +6,11 @@
 //
 // Global keys (keymap.json, DIPO-458): `1` Desk, `2` Floor, `3` Queue, `4` Retro (`retro.tsx`,
 // DIPO-453), `O` Offices, `P` the planning view (`planning.tsx`, DIPO-449), `q` twice within 2 s
-// quits, Ctrl+C quits. Action keys are off while offline. On the daemon screens only their keys
-// work: `r` restarts a stopped daemon, `l` opens its log, `c` copies the backup path. Each view's
-// keys are in the header of its file (`home.tsx` holds the handlers; the key table is `keys.ts`).
+// quits, Ctrl+C quits. `:` and Ctrl-K open the command palette (`palette.tsx`), which also lists
+// the settings, and `?` the keys overlay (`help.tsx`, DIPO-463). Action keys are off while offline.
+// On the daemon screens only their keys work: `r` restarts a stopped daemon, `l` opens its log,
+// `c` copies the backup path. Each view's keys are in the header of its file (`home.tsx` holds the
+// handlers; the key table is `keys.ts`).
 //
 // An action is done only when the office stream passes its reply cursor (read-your-writes). An
 // error shows in the footer; a retryable one offers Ctrl-R, which sends the same request again
@@ -46,7 +48,8 @@ import { leavesOverlay, useHome } from "./home";
 import { useKeys, useQuitKey } from "./input";
 import { type ReadDigest } from "./digest";
 import type { ActionId } from "./keys";
-import { initialMode, modeReducer } from "./mode";
+import { initialMode, modeReducer, typesText } from "./mode";
+import { useOverlays } from "./overlays";
 import { usePlanning } from "./planning";
 import { type ReadRetro, useRetro } from "./retro";
 import {
@@ -263,6 +266,8 @@ export function App(props: AppProps) {
     sendPrivacy: home.sendPrivacy,
   };
 
+  const overlays = useOverlays({ state, home, dispatch, setMessage });
+
   /** Picks the handler of the mode. */
   const handleKey = (input: string, key: Key) => {
     if (key.ctrl && input === "c") {
@@ -283,6 +288,7 @@ export function App(props: AppProps) {
     if (mode.kind === "path") onPathKey(mode, input, key, modeKeys);
     else if (mode.kind === "confirm-privacy") onConfirmPrivacyKey(mode, input, modeKeys);
     else if (mode.kind === "planning") planning.onKey(input, key);
+    else if (overlays.onKey(mode, input, key)) return;
     else if (onQuitKey(input)) return;
     else if (mode.kind === "switcher") onSwitcherKey(mode, input, key, modeKeys);
     else if (input === "P") dispatch({ type: "planning" });
@@ -295,7 +301,7 @@ export function App(props: AppProps) {
     else home.onKey(input, key);
   };
 
-  useKeys(mode.kind === "path" || mode.kind === "planning" || acts.typing, handleKey);
+  useKeys(typesText(mode) || acts.typing, handleKey);
 
   return (
     <Screen

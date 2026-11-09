@@ -23,7 +23,7 @@ Release (0016, `docs/release.md`): `.github/workflows/release.yml` is a dry run 
 Repository settings the maintainer applies by hand on `main` (0016):
 
 - Required status checks: `ci-ok` and `pr-title` (app GitHub Actions).
-- `strict` off (since 2026-10-22, 0016): a PR is brought up to date with `main` only on a conflict.
+- `strict` off (since 2026-10-22, 0016): dipo merges `main` into a story's branch itself when `main` moved (0002); GitHub does not demand it.
 - Squash merge commit title `PR_TITLE`, squash merge commit message `BLANK`.
 - "Allow auto-merge" on, which dipo's merges use (0002).
 - Branch ruleset "release path review" (since 2026-10-23, 0016, DIPO-321): pull request required, 0 approvals, "Require review from Code Owners" (`.github/CODEOWNERS`: `.github/`, `install.sh`, the release-please config, `renovate.json`); bypass for repository admins, pull requests only. Agents and dipo never bypass it.

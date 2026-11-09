@@ -20,7 +20,7 @@ You write a story in your project's backlog and say it is Ready. dipo takes it f
 
 **6. A reviewer checks it.** dipo ticks the met criteria, sets the status In Review and opens the pull request. The PR's title and body are built from the story, with no model text. A separate reviewer session reads the change in a read-only box of its own. It never sees the developer's reasoning. It judges each criterion, and a finding blocks only when its evidence checks out against the actual changed lines. dipo posts the verdict as one PR comment (0002). A blocked review starts a fix round. The overview shows the story under IN REVIEW.
 
-**7. CI runs.** GitHub runs the repository's required checks on the pushed head. dipo polls them. When a check fails, dipo reads the failing job's log, finds the file and line, and sends that to the worker as a fix round (0002).
+**7. CI runs.** GitHub runs the repository's required checks on the pushed head. dipo polls them. When a check fails, dipo reads the failing job's log, finds the file and line, and sends that to the worker as a fix round (0002). When every failed check failed because of GitHub or a tool host, such as an HTTP 5xx error on a download, a lost runner or a rate limit, dipo reruns the failed jobs instead, up to twice per head, and the rerun counts no CI attempt (0002).
 
 **8. The merge gate decides.** Once the review approves, the merge gate opens. Usually it is decided by rule and dipo goes ahead at once. It waits for you when you asked for it: auto-merge off, the story flagged test-before-merge, a wait label on the PR, a criterion the reviewer left to you, a change to `docs/decisions/`, a change to a path `CODEOWNERS` protects, or a base branch that requires no checks (so no CI would run). Then it shows on your desk with `dipo approve` and `dipo reject` ready to type. `dipo test <id>` starts a test box with the story's code running and shows you the URL and the manual test steps. You record the result with `dipo test pass` or `dipo test fail` (0002).
 
@@ -40,6 +40,8 @@ A story that cannot go on is **Parked** with one of eight reasons, keeps its bra
 | `scope-violation` | A part touched a protected file or held a secret | Not resumable: `dipo discard`, then a new run |
 | `worker-failed` | The worker, its box or its host failed | `dipo resume` |
 | `by-maintainer` | You parked it | `dipo resume` |
+
+A box cannot reach your remote, so its worker can never fetch or merge main itself. When main moved, dipo merges it into the story's branch for the worker: before the first turn of every resumed session and every fix round, clean or with conflicts, and right away for a story In Review that main now conflicts with. The merge is pushed, copied into the box and committed in the box's own git, and the worker's first message names the files it changed (0002, 0008).
 
 A problem that is not one story's, such as the subscription's plan limit or a broken login, pauses new starts for the whole office ("starts paused"). It lifts by itself when the cause clears, or with `dipo daemon resume-starts`; a pause for the box token lifts only with a new `dipo login box`. A session that hits the plan limit parks `worker-failed` and resumes by itself once the pause lifts (0020).
 

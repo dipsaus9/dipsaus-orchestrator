@@ -738,7 +738,7 @@ export type GateDependency = z.infer<typeof GateDependency>;
 // (DIPO-179): `waitingOn` lists the dependencies that are not Done, absent when none
 // are open. The verdict does not depend on it: a passing story can still wait before pickup.
 // (DIPO-251): `warnings` lists the rules that only warn (R29, test plan names no
-// Reference covers), each `ready <ID> warning <rule>: <message>`, absent when none. They do not
+// Reference covers; R32, more criteria or references than the tier usually holds), each `ready <ID> warning <rule>: <message>`, absent when none. They do not
 // change `passed`.
 export const storyGate = defineRead({
   name: "story.gate",
