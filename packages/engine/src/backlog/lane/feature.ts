@@ -23,6 +23,7 @@ import {
 } from "./lane";
 import {
   DISCARD_KIND,
+  DONE_KIND,
   dropKind,
   EDIT_KIND,
   editKind,
@@ -51,6 +52,8 @@ export class BacklogLane {
     this.register(editKind(DISCARD_KIND));
     // A planning session sets its stories Ready after the gate passed (0012, DIPO-451).
     this.register(editKind(READY_KIND));
+    // A story whose own PR merged while it was parked is set Done (0020, DIPO-468).
+    this.register(editKind(DONE_KIND));
     // An idea the maintainer accepted from the desk, filed as a Backlog draft (0020, DIPO-454).
     this.register(proposeKind);
     // The stories a planning session files and edits (0022, DIPO-450).

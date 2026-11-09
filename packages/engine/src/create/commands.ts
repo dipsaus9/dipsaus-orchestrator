@@ -387,8 +387,16 @@ function listenForIdeas(core: Core, runs: EngineRuns): void {
  * removed and its slot freed. A story Done on the base through another branch has its open story
  * PR closed and the box of its ended run deleted (DIPO-161).
  */
-function teardownOf(core: Core, runs: EngineRuns): StoryTeardown {
+function teardownOf(core: Core, story: StoryServices, runs: EngineRuns): StoryTeardown {
   return new StoryTeardown({
+    // A story whose PR merged while it was parked is set Done through the planning lane once its
+    // claim is released (DIPO-468); the lane's backlog PR merges once its check passes.
+    writeDone: async (office, target) => {
+      const lane = story.lane.planning(office);
+      if (lane === undefined) return;
+      const change = await lane.setDone(target);
+      if (lane.outcomeOf(change)?.outcome === "waiting") await lane.flush(change);
+    },
     prState: core.prState,
     git: core.gitOf,
     host: core.host,
@@ -425,7 +433,7 @@ export function buildCommandServices(
     storyTests: storyTestsOf(core, story, runs, { runProfiles, autoMerge }),
     workRun,
     nextUp: nextUpOf(core, story, runs, workRun),
-    teardown: teardownOf(core, runs),
+    teardown: teardownOf(core, story, runs),
     autoMerge,
     mergeGates: mergeGatesOf(core, story, runs, autoMerge),
   };

@@ -6,8 +6,12 @@
 //
 // - Merged: dipo's record of the story PR says merged first, also when the host answered for a
 //   record that still said open, so next up never offers the story once its claim goes. The story
-//   is torn down (`teardown.ts`) unless it is Parked or a worker host of its run is still live: a
-//   parked story keeps its branch. A branch that moved past the merged head with
+//   is torn down (`teardown.ts`) unless a worker host of its run is still live. A story whose
+//   branch says Parked is torn down too once no worker of its run is live (DIPO-468, 0020): the
+//   merge is the fact, so its open park is resolved as `merged` in the teardown's transaction, and
+//   once the claim is released dipo writes Done through the planning lane while the base still
+//   says Parked (`merged-parked.ts`; each poll first writes it for any such story a crash left).
+//   A branch that moved past the merged head with
 //   changes the base lacks (`git merge-tree` decides only that, 0010) is released as `done` with its
 //   branch as a leftover once no worker runs (`releaseMovedPastMerge`, DIPO-332), or kept with a
 //   notice while it is parked.
@@ -31,7 +35,7 @@
 // branch merged through the reads the round gave it, so a story PR the story-PR poll read this
 // round answers it without another host call. Any other poll asks the host.
 
-import type { Clock, OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
+import type { Clock, OfficeId, StoryKey, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
@@ -44,6 +48,7 @@ import { findStoryPr, setStoryPrState, updateStoryPr } from "../records/story-pr
 import { type CodeHost, type PrStateHost, repoOfRemoteUrl } from "../platform/host";
 import type { PrStatePoll } from "../story-pr/pr-state";
 import type { StoryStore } from "../story-store/store";
+import { lifecycleOf } from "../views/story";
 import { withWorkViews } from "../views/work";
 
 import { notice, writeWith } from "./claim";
@@ -64,6 +69,7 @@ import {
   settlePending,
 } from "./done-elsewhere";
 import { type ClaimRecord, liveClaims } from "./records";
+import { mergedParksAwaitingDone } from "./merged-parked";
 import { addsNothingTo } from "./release";
 import {
   claimGitFacts,
@@ -132,8 +138,19 @@ export interface StoryTeardownDeps {
   };
   /** The story's status on its branch, or null when unreadable; the story store by default. */
   readonly statusOf?: (claim: ClaimRecord) => Promise<string | null>;
+  /** What `_base` says of a story (`baseStatusOf`); the story store in `_base` by default. */
+  readonly baseStatusOf?: (story: string) => Promise<BaseStatus>;
   /** Closes dipo's open story PR of a story Done elsewhere; the `gh` host in the daemon. */
   readonly prCloser?: Pick<CodeHost, "closePr"> | null;
+  /**
+   * Writes Done for a story through the office's planning lane (0010): the Done poll calls it once a
+   * story whose PR merged while it was parked is released and the base does not say Done
+   * (DIPO-468). Without it nothing is written.
+   */
+  readonly writeDone?: (
+    office: OfficeId,
+    story: { readonly key: StoryKey; readonly story: string },
+  ) => Promise<void>;
   /** Checks and deletes the boxes of ended runs after a release (0008). */
   readonly finishBoxes?: () => Promise<unknown>;
   readonly onChanged?: (office: OfficeId) => void;
@@ -177,6 +194,8 @@ interface Polled {
   readonly told: Map<string, string>;
   /** The polls in a row the host failed per claim run (`HOST_FAILURES_NOTICED`). */
   readonly hostFailures: Map<string, number>;
+  /** The last failure told per story whose Done write failed (DIPO-468), so it is told once. */
+  readonly doneNotWritten: Map<string, string>;
   /** The reads of the PR-state round the running poll belongs to (DIPO-314), or null. */
   reads: PrStateHost | null;
 }
@@ -219,6 +238,7 @@ export class StoryTeardown {
       busy: Promise.resolve(),
       told: new Map(),
       hostFailures: new Map(),
+      doneNotWritten: new Map(),
       reads: null,
     });
   }
@@ -266,6 +286,10 @@ export class StoryTeardown {
       ...(this.#deps.onChanged === undefined ? {} : { onChanged: this.#deps.onChanged }),
     };
     await settlePending(this.#elsewhereDeps(deps));
+    // A story whose PR merged while it was parked, released before a crash wrote its Done.
+    for (const park of mergedParksAwaitingDone(state.office)) {
+      await this.#writeDone(state, deps, park);
+    }
     for (const claim of liveClaims(state.office)) {
       // A claim whose setup never finished is the claims' load step's to roll back.
       if (claim.claimSha === null) continue;
@@ -323,7 +347,7 @@ export class StoryTeardown {
     const facts = await git.run((session) => claimGitFacts(git, session, claim));
     const repo = facts.url === null ? null : repoOfRemoteUrl(facts.url);
     const { pr, hostError } = await claimPr(host, repo, state.office, claim);
-    const base = await baseStatusOf(git, this.#deps.stories, claim.story);
+    const base = await this.#baseStatus(git, claim.story);
     const answer = decideDone({
       claim,
       pr,
@@ -418,7 +442,10 @@ export class StoryTeardown {
       );
       return "kept";
     }
-    // A teardown that already started passed this check before it removed anything.
+    // A teardown that already started passed this check before it removed anything; it resolves
+    // the open park it found then.
+    let parked =
+      claim.teardownStartedAt !== null && hasOpenPark(this.#deps.stories, state.office, claim);
     if (claim.teardownStartedAt === null) {
       const status = await this.#statusOf(deps.git, claim);
       if (status === null) {
@@ -433,19 +460,27 @@ export class StoryTeardown {
         return "kept";
       }
       if (status === PARKED_STATUS) {
-        this.#tell(
-          state,
-          deps,
-          claim,
-          "warn",
-          TEARDOWN_NOTICES.parked,
-          `${claim.story} looks merged, but it is Parked, so dipo keeps its branch ${claim.branch}. Resolve the park to finish it.`,
-        );
-        return "kept";
+        // Its own PR merged while it was parked (DIPO-468): the merge is the fact. A run that is
+        // still open (a park in flight) keeps its claim until it ends.
+        if (hasLiveWorker(state.office, claim)) {
+          this.#tell(
+            state,
+            deps,
+            claim,
+            "info",
+            TEARDOWN_NOTICES.kept,
+            `${claim.story} is Done: its PR #${pr.number} merged while it was parked, but its run is still live; dipo ends it once the run has ended.`,
+          );
+          return "kept";
+        }
+        parked = true;
       }
     }
-    const outcome = await tearDown(deps, claim, pr, tip);
-    if (outcome.ok) return "tornDown";
+    const outcome = await tearDown(deps, claim, pr, tip, { parked });
+    if (outcome.ok) {
+      if (parked) await this.#writeDone(state, deps, claim);
+      return "tornDown";
+    }
     this.#tell(
       state,
       deps,
@@ -516,6 +551,36 @@ export class StoryTeardown {
     const row = findDoneElsewhere(state.office, claim.runId);
     if (row !== null) await settleDoneElsewhere(elsewhere, row);
     return "released";
+  }
+
+  /**
+   * Writes Done for a story whose PR merged while it was parked, after its claim was released
+   * (DIPO-468): through the planning lane, only while the base does not say Done. A base that cannot
+   * be read is tried again on the next poll; a write that fails is told once.
+   */
+  async #writeDone(
+    state: Polled,
+    deps: TeardownDeps,
+    story: { readonly key: StoryKey; readonly story: string },
+  ): Promise<void> {
+    const write = this.#deps.writeDone;
+    if (write === undefined) return;
+    const base = await this.#baseStatus(deps.git, story.story);
+    if (base.status === null || lifecycleOf("task", base.status) === "Done") return;
+    try {
+      await write(deps.officeId, story);
+      state.doneNotWritten.delete(story.key);
+    } catch (error) {
+      const text = `${story.story}'s PR merged while it was parked, but dipo could not write Done for it through its backlog PR: ${error instanceof Error ? error.message : String(error)}. dipo tries again on its next poll.`;
+      if (state.doneNotWritten.get(story.key) === text) return;
+      state.doneNotWritten.set(story.key, text);
+      writeWith(deps, () => [notice("warn", TEARDOWN_NOTICES.doneNotWritten, text, story.key)]);
+    }
+  }
+
+  /** What `_base` says of `story` (`baseStatusOf`, or the injected read). */
+  #baseStatus(git: OfficeGit, story: string): Promise<BaseStatus> {
+    return this.#deps.baseStatusOf?.(story) ?? baseStatusOf(git, this.#deps.stories, story);
   }
 
   #elsewhereDeps(deps: TeardownDeps): DoneElsewhereDeps {

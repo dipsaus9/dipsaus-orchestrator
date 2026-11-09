@@ -75,6 +75,7 @@ import { LIFT_COMMAND, type StartsPausedState } from "../run/starts-paused";
 import { profileDeskItems } from "../scan/profile-view";
 import { findStoryPr, latestStoryPr } from "../records/story-prs";
 import { doneElsewhereDeskItems } from "../worktree/done-elsewhere";
+import { mergedParkDeskItems } from "../worktree/merged-parked";
 import { lifecycleOf } from "../views/story";
 
 import { PLANNER_ROLE, REVIEWER_ROLE } from "../records/caps";
@@ -180,12 +181,13 @@ export interface DeskSources {
 
 /**
  * The sources of this engine: no stored PR labels; the hand items are DONE ELSEWHERE
- * (a live worker of a story Done on the base) and LEFTOVERS (what such a story left kept, with
- * `dipo discard <id> --note "<why>"`).
+ * (a live worker of a story Done on the base), LEFTOVERS (what such a story left kept, with
+ * `dipo discard <id> --note "<why>"`), the parks that still hold a story's work, and one line per
+ * story whose PR merged while it was parked until the base says Done (DIPO-468), with no action.
  */
 export const DESK_SOURCES: Omit<DeskSources, "stories"> = {
   handMergeOnly: () => false,
-  handItems: [doneElsewhereDeskItems, heldParkDeskItems],
+  handItems: [doneElsewhereDeskItems, heldParkDeskItems, mergedParkDeskItems],
 };
 
 /** True when a merge gate's stored reasons name the test-before-merge flag (DIPO-309). */

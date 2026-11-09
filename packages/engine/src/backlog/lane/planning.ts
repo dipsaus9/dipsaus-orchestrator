@@ -11,6 +11,7 @@ import type { OfficeHandle } from "../../db/office";
 
 import {
   DISCARD_KIND,
+  DONE_KIND,
   DROP_KIND,
   EDIT_KIND,
   FILE_KIND,
@@ -78,6 +79,20 @@ export function readyOp(key: StoryKey, story: string): LaneOp & { readonly key: 
     key,
     subject: story,
     target: { from: [REFINED_STATUS], status: READY_STATUS },
+  };
+}
+
+/**
+ * The operation that sets a story Done whose own PR merged while it was parked (DIPO-468): only
+ * while it is Parked, with its park record removed. The backlog PR check accepts it only when the
+ * one Done check answers merged for the story (`backlog/pr/merged.ts`).
+ */
+export function doneOp(key: StoryKey, story: string): LaneOp & { readonly key: StoryKey } {
+  return {
+    kind: DONE_KIND,
+    key,
+    subject: story,
+    target: { from: ["Parked"], status: "Done", unset: ["park"] },
   };
 }
 
@@ -199,6 +214,7 @@ export function planningLane(lane: OfficeLane): PlanningLane {
       once({ kind: DROP_KIND, key, subject: story, target: { kind }, releasesClaim: true }),
     discard: ({ key, story }) => once(discardOp(key, story)),
     setReady: ({ key, story }) => once(readyOp(key, story)),
+    setDone: ({ key, story }) => once(doneOp(key, story)),
     toRefined: ({ key, story }) =>
       lane.journal({
         kind: EDIT_KIND,

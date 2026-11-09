@@ -54,6 +54,11 @@ export const REVISE_KIND = "revise";
 export const REFINE_KIND = "refine";
 /** Sets a Refined story Ready after its Ready gate decision passed (DIPO-451). */
 export const READY_KIND = "ready";
+/**
+ * Sets a Parked story Done with its park record removed, after its own PR merged while it was
+ * parked and its claim was released (DIPO-468).
+ */
+export const DONE_KIND = "done";
 
 /** The target state of an edit: status, field-block keys and labels. */
 export const EditTarget = z
@@ -190,6 +195,12 @@ export interface PlanningLane {
    * passing gate decision first. Reuses an open one.
    */
   setReady(story: PlanningStory): Promise<PlannedChange>;
+  /**
+   * Sets a Parked story Done with the park record removed, applied only while it is Parked
+   * (DIPO-468): its own PR merged while it was parked, and the Done poll released its claim.
+   * Reuses an open one.
+   */
+  setDone(story: PlanningStory): Promise<PlannedChange>;
   /** Moves a Ready story back to Refined (a failed pickup check). */
   toRefined(story: PlanningStory): Promise<PlannedChange>;
   /** Files an accepted idea as a draft; `subject` names it in the commit. */
