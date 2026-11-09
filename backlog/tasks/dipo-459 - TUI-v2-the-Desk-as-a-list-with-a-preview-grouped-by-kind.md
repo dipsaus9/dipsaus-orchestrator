@@ -1,10 +1,10 @@
 ---
 id: DIPO-459
 title: 'TUI v2: the Desk as a list with a preview, grouped by kind'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-09 17:37'
+updated_date: '2026-11-09 17:54'
 labels:
   - 'tier:L'
 milestone: m-6
@@ -24,6 +24,56 @@ references:
   - docs/design/tui-v2/screens/16-narrow.txt
   - docs/design/tui-v2/screens/12-states.txt
   - docs/design/tui-v2/designs/dipo-ux-spec.html
+modified_files:
+  - docs/design/tui-v2/spec.md
+  - packages/cli/src/tui-command.ts
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/ideas.ts
+  - packages/contract/src/office.ts
+  - packages/contract/src/work.test.ts
+  - packages/contract/src/work.ts
+  - packages/engine/src/create/steps.ts
+  - packages/engine/src/overview/desk.ts
+  - packages/engine/src/overview/digest.ts
+  - packages/engine/src/prompts/contract/audit-box.md
+  - packages/engine/src/run/idea-audits.ts
+  - packages/engine/src/story-pr/git.ts
+  - packages/engine/src/story-pr/index.ts
+  - packages/engine/src/story-pr/prs.ts
+  - packages/engine/test/overview/desk.test.ts
+  - packages/engine/test/overview/digest.test.ts
+  - packages/engine/test/run/idea-answers.test.ts
+  - packages/engine/test/run/ideas.test.ts
+  - packages/engine/test/run/next-up.test.ts
+  - packages/engine/test/story-pr/ci.test.ts
+  - packages/tui/src/actions.test.ts
+  - packages/tui/src/actions.ts
+  - packages/tui/src/app.tsx
+  - packages/tui/src/checklist.test.tsx
+  - packages/tui/src/desk-preview.test.ts
+  - packages/tui/src/desk-preview.ts
+  - packages/tui/src/desk.test.tsx
+  - packages/tui/src/desk.tsx
+  - packages/tui/src/detail.test.tsx
+  - packages/tui/src/digest.test.tsx
+  - packages/tui/src/digest.ts
+  - packages/tui/src/footer.test.ts
+  - packages/tui/src/footer.ts
+  - packages/tui/src/format.ts
+  - packages/tui/src/header.test.ts
+  - packages/tui/src/home.tsx
+  - packages/tui/src/keys.ts
+  - packages/tui/src/modes.tsx
+  - packages/tui/src/overview.tsx
+  - packages/tui/src/palette.test.tsx
+  - packages/tui/src/prompt-box.ts
+  - packages/tui/src/run.tsx
+  - packages/tui/src/screen.tsx
+  - packages/tui/src/segments.tsx
+  - packages/tui/src/views.tsx
+  - packages/tui/test/support/setup.tsx
 priority: medium
 type: feature
 ordinal: 432000
@@ -99,3 +149,19 @@ Parked 2026-11-09 17:37 UTC: by-maintainer
 
 Resumed 2026-11-09 17:37 UTC; grants: none; note: none
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-09 17:54 UTC
+- Criteria met: 15 of 15 (as the worker reported them)
+- Loops: 3; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 819,562 of 2,000,000 tokens
+- Runs: 1; resumes: 1
+- Parks: 1
+  - 2026-11-09 17:37 UTC by-maintainer: stale gate after main merge
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 6
+<!-- SECTION:FINAL_SUMMARY:END -->
