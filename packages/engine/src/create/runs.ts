@@ -20,15 +20,15 @@
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 
-import type {
-  Clock,
-  CommandName,
-  IdSource,
-  OfficeId,
+import {
+  type Clock,
+  type CommandName,
+  type IdSource,
+  type OfficeId,
   RunId,
-  Spawn,
-  StoryKey,
-  ToolPaths,
+  type Spawn,
+  type StoryKey,
+  type ToolPaths,
 } from "@dipsaus-orchestrator/contract";
 import { Lifecycle } from "@dipsaus-orchestrator/contract";
 import type { BacklogCli } from "../backlog/runner";
@@ -98,7 +98,7 @@ import type { MergeReentry } from "../run/park-resume";
 import type { Places } from "../run-state/places";
 import { RunReattacher } from "../run/reattach";
 import { sendFeedback } from "../run/feedback";
-import { findRun, recordSafeChain, type StoredRun } from "../records/run-records";
+import { appendRunStep, findRun, recordSafeChain, type StoredRun } from "../records/run-records";
 import { baseStoryFacts } from "../run/resume";
 import type { Resumption } from "../run/resumption";
 import type { AdapterPauses, StartsPaused } from "../run/starts-paused";
@@ -293,6 +293,19 @@ export interface RunMergePorts {
   readonly itemMax: NonNullable<StoryMergeDeps["itemMax"]>;
 }
 
+/** Records a part dipo committed on a box run's branch as a `part` step of the run (DIPO-466). */
+function partStepRecorder(
+  options: RunsOptions,
+): (run: PartRun, part: { readonly commit: string }) => void {
+  return (run, part) => {
+    const handle = options.offices.get(run.office);
+    if (handle === undefined) return;
+    handle.immediate(() =>
+      appendRunStep(handle, RunId.parse(run.runId), "part", part.commit, options.clock.now()),
+    );
+  };
+}
+
 /**
  * Records a push of a box run's story branch on its live claim in the run's office (DIPO-315):
  * every story-branch push dipo makes sets `claims.pushed_at` once it reaches the remote.
@@ -432,6 +445,7 @@ function boxPartsOf(
     },
     readDoor: (runId) => workers.get().readDoor(runId),
     pushed: claimPushRecorder(options),
+    committed: partStepRecorder(options),
     warn: (message, fields) => options.logger.warn(message, fields),
     info: (message, fields) => options.logger.info(message, fields),
   });

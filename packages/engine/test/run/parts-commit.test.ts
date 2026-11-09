@@ -357,6 +357,69 @@ describe("a part on real git", () => {
     }));
 });
 
+// DIPO-466: a cap loses at most the work since the last part, because each part the worker hands
+// is committed and pushed before the next part is taken out of the box.
+describe("the parts of one run, one at a time (DIPO-466)", () => {
+  it("commits and pushes each part before it takes the next, and records each on the run", () => {
+    const events: string[] = [];
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let takes = 0;
+    let taken!: () => void;
+    const firstTaken = new Promise<void>((resolve) => {
+      taken = resolve;
+    });
+    return inParts(
+      async (w) => {
+        write(w.work, { "src/a.ts": "export const a = 2;\n" });
+        const first = w.parts.onPart(part("First part"));
+        await firstTaken;
+        // The worker hands a second part while the first is still being taken out.
+        write(w.work, { "src/b.ts": "export const b = 1;\n" });
+        const second = w.parts.onPart(part("Second part"));
+        await Bun.sleep(50);
+        expect(takes).toBe(1);
+        release();
+        await Promise.all([first, second]);
+        expect(w.parks).toEqual([]);
+        const remote = await tip(w, "remote");
+        const one = (await w.repo.git("rev-parse", `${remote}^`)).trim();
+        expect(events).toEqual([
+          `take, remote at ${w.claimTip}`,
+          `committed 1 ${one}`,
+          "pushed",
+          `take, remote at ${one}`,
+          `committed 2 ${remote}`,
+          "pushed",
+        ]);
+        // Each part holds what the box held when it was taken.
+        expect(await pathsAt(w, one)).not.toContain("src/b.ts");
+        expect(await pathsAt(w, remote)).toContain("src/b.ts");
+      },
+      {
+        onExec: (w) => {
+          takes += 1;
+          const at = spawnSync(
+            "git",
+            ["--git-dir", w.repo.remote, "rev-parse", `refs/heads/${BRANCH}`],
+            { env: w.repo.env, encoding: "utf8" },
+          ).stdout.trim();
+          events.push(`take, remote at ${at}`);
+          if (takes !== 1) return undefined;
+          taken();
+          return { hold: held };
+        },
+        deps: {
+          committed: (_run, done) => events.push(`committed ${done.n} ${done.commit}`),
+          pushed: (_run, push) => events.push(push.pushed ? "pushed" : `not pushed: ${push.error}`),
+        },
+      },
+    );
+  });
+});
+
 // ---- the box's own git repository (DIPO-346) -----------------------------------------------------
 
 /** Runs dipo's init script of the box's repository on the fake box's folder, as the box does. */
