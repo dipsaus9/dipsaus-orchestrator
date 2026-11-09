@@ -22,6 +22,7 @@ import { gitBranchTips, gitChangedFiles, NextUp } from "../run/next-up";
 import { WorkRun } from "../run/work-run";
 import { RunProfiles } from "../scan/feature";
 import { StoryDiscard } from "../run/discard";
+import { writeDone } from "../story-store/planning";
 import { StoryTeardown } from "../worktree/done";
 import { join } from "node:path";
 import type { Core } from "./core";
@@ -393,9 +394,7 @@ function teardownOf(core: Core, story: StoryServices, runs: EngineRuns): StoryTe
     // claim is released (DIPO-468); the lane's backlog PR merges once its check passes.
     writeDone: async (office, target) => {
       const lane = story.lane.planning(office);
-      if (lane === undefined) return;
-      const change = await lane.setDone(target);
-      if (lane.outcomeOf(change)?.outcome === "waiting") await lane.flush(change);
+      if (lane !== undefined) await writeDone(lane, target);
     },
     prState: core.prState,
     git: core.gitOf,

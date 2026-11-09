@@ -96,6 +96,29 @@ export function doneOp(key: StoryKey, story: string): LaneOp & { readonly key: S
   };
 }
 
+/**
+ * The `done` operation of the story `key` the lane dropped while its current open branch was
+ * open, or undefined (DIPO-468). A branch cut before the story PR merged does not hold the story as
+ * Parked, so a `done` appended to it is dropped; journaling it again on every Done poll would drop
+ * it again, with a notice each time. Until that branch is merged or closed, `setDone` answers with
+ * the dropped operation instead; once no branch is open, the next one starts from the base.
+ */
+function heldDone(office: OfficeHandle, key: StoryKey): PlannedChange | undefined {
+  const entries = allEntries(office);
+  const onBranch = entries.filter(
+    (entry) => OPEN_STATES.includes(entry.state) && entry.branch !== null,
+  );
+  if (onBranch.length === 0) return undefined;
+  const since = Math.min(...onBranch.map((entry) => entry.createdAt));
+  return entries.findLast(
+    (entry) =>
+      entry.key === key &&
+      entry.kind === DONE_KIND &&
+      entry.state === "dropped" &&
+      (entry.closedAt ?? entry.updatedAt) >= since,
+  );
+}
+
 /** The branches with a backlog PR recorded on an open operation. */
 function branchesWithPr(office: OfficeHandle): Set<string> {
   const branches = new Set<string>();
@@ -214,7 +237,7 @@ export function planningLane(lane: OfficeLane): PlanningLane {
       once({ kind: DROP_KIND, key, subject: story, target: { kind }, releasesClaim: true }),
     discard: ({ key, story }) => once(discardOp(key, story)),
     setReady: ({ key, story }) => once(readyOp(key, story)),
-    setDone: ({ key, story }) => once(doneOp(key, story)),
+    setDone: async ({ key, story }) => heldDone(lane.office, key) ?? once(doneOp(key, story)),
     toRefined: ({ key, story }) =>
       lane.journal({
         kind: EDIT_KIND,

@@ -48,6 +48,7 @@ export {
   PENDING_LANE_NOTICE,
   PROPOSE_KIND,
   RESUME_KIND,
+  writeDone,
 } from "./planning";
 export type {
   JournalState,
