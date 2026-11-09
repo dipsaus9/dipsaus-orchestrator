@@ -909,7 +909,9 @@ export const officeStats = defineRead({
 // DIPO-380 `LOADING`, an office whose load is still running, with no story; DIPO-401
 // `PLANNING LANE`, a planning lane whose operations wait for a backlog PR longer than 30 minutes,
 // with no story; DIPO-440 `NEXT UP`, a Ready story offered for a free run slot; DIPO-454
-// `PROPOSED STORY`, an idea that passed the audit, and `DECISION NOTE`, a worker's decision note).
+// `PROPOSED STORY`, an idea that passed the audit, and `DECISION NOTE`, a worker's decision note;
+// DIPO-468 `MERGED WHILE PARKED`, one line with no action for a story whose PR merged while it was
+// parked, until the base says Done).
 // The order is the desk's (DIPO-459): the setup kinds (`PROFILE`) first, the stories the maintainer
 // parked after next up; clients group the items by kind in this order and never sort them.
 export const KNOWN_DESK_KINDS = [
@@ -927,6 +929,7 @@ export const KNOWN_DESK_KINDS = [
   "NOTICE",
   "PROPOSED STORY",
   "DECISION NOTE",
+  "MERGED WHILE PARKED",
   "NEXT UP",
   "PARKED BY YOU",
   "LOADING",

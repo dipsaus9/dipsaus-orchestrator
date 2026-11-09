@@ -30,6 +30,8 @@
 // 6. the ideas that passed the audit (0022, DIPO-454), spikes before follow-ups, each a PROPOSED
 //    STORY whose `idea` holds the proposed user story in full for its card, offering `dipo idea accept` and `dipo idea dismiss`;
 //    then the decision notes of worker reports (DIPO-404), each offering `dipo note dismiss`;
+//    then one MERGED WHILE PARKED line per story whose PR merged while it was parked, with no
+//    action, until the base says Done (DIPO-468);
 // 7. next up (0010, `run/next-up.ts`): one Ready story per free run slot, in next-up order, with
 //    one line of why and the files its references share with running stories, offering
 //    `dipo next confirm <ID>` and `dipo next decline <ID>`;
@@ -75,7 +77,7 @@ import { LIFT_COMMAND, type StartsPausedState } from "../run/starts-paused";
 import { profileDeskItems } from "../scan/profile-view";
 import { findStoryPr, latestStoryPr } from "../records/story-prs";
 import { doneElsewhereDeskItems } from "../worktree/done-elsewhere";
-import { mergedParkDeskItems } from "../worktree/merged-parked";
+import { MERGED_WHILE_PARKED, mergedParkDeskItems } from "../worktree/merged-parked";
 import { lifecycleOf } from "../views/story";
 
 import { PLANNER_ROLE, REVIEWER_ROLE } from "../records/caps";
@@ -328,7 +330,7 @@ const OTHER_PARK_RANK = 7;
  * Group 6's order (0020): the proposed stories, spikes before follow-ups, then the decision notes.
  * A proposed spike is one whose Story line is a spike's (0012: "We need to decide").
  */
-const PROPOSAL_RANK = { spike: 0, idea: 1, note: 2 } as const;
+const PROPOSAL_RANK = { spike: 0, idea: 1, note: 2, merged: 3 } as const;
 
 /** True for a spike's Story line (0012 R05). */
 const isSpikeLine = (line: string): boolean => line.trimStart().startsWith("We need to decide");
@@ -799,15 +801,23 @@ class DeskBuilder {
     for (const source of this.#sources.handItems) {
       for (const hand of source(this.#office, this.#sources.stories)) {
         const story = StoryId.parse(hand.story);
-        this.#add(GROUP.hand, kindRank(hand.kind), hand.since, {
-          kind: hand.kind,
-          story,
-          key: hand.key,
-          detail: deskText(hand.detail),
-          since: iso(hand.since),
-          blocks: this.#blocks(story),
-          actions: hand.actions.flatMap((action) => this.#action(action.command, action.cli)),
-        });
+        // A story whose PR merged while it was parked is a line to read, not a hand action: it
+        // sorts after the decision notes, where `KNOWN_DESK_KINDS` lists it (DIPO-468).
+        const informational = hand.kind === MERGED_WHILE_PARKED;
+        this.#add(
+          informational ? GROUP.proposal : GROUP.hand,
+          informational ? PROPOSAL_RANK.merged : kindRank(hand.kind),
+          hand.since,
+          {
+            kind: hand.kind,
+            story,
+            key: hand.key,
+            detail: deskText(hand.detail),
+            since: iso(hand.since),
+            blocks: this.#blocks(story),
+            actions: hand.actions.flatMap((action) => this.#action(action.command, action.cli)),
+          },
+        );
       }
     }
     // Office items with no story, such as a stuck planning lane (DIPO-401).
