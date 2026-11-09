@@ -15,6 +15,8 @@ import {
   type RunRecord,
   type StoryKey,
   storyDetail,
+  storyDiff,
+  DIFF_MAX_BYTES,
   type Verdict,
   workOutputRange,
   workPrompt,
@@ -297,6 +299,37 @@ export function storedPrompt(
   return { run, agent, texts: promptTextsOf(office, run, agent) };
 }
 
+/** The diff of a story's branch against the base, from git (DIPO-462); null when git cannot tell. */
+export type BranchDiffSource = (
+  office: OfficeHandle,
+  branch: string,
+  maxBytes: number,
+) => Promise<{ base: string; diff: string; truncated: boolean } | null>;
+
+/** `story.diff`: the diff of the story's newest run branch, or why there is none. */
+export async function diffOf(
+  office: OfficeHandle,
+  key: StoryKey,
+  source: BranchDiffSource | undefined,
+): Promise<z.input<typeof storyDiff.result>> {
+  const row = office.get<{ branch: string }>(
+    `select branch from runs where office_id = $office_id and key = $key and branch is not null
+      order by started_at desc, run_id desc limit 1`,
+    { key },
+  );
+  const none = (unavailable: string, branch: string | null) => ({
+    branch,
+    diff: "",
+    truncated: false,
+    unavailable,
+  });
+  if (row === null) return none("the story has no branch yet", null);
+  if (source === undefined) return none("this engine reads no diffs", row.branch);
+  const read = await source(office, row.branch, DIFF_MAX_BYTES).catch(() => null);
+  if (read === null) return none("git could not read the branch against the base", row.branch);
+  return { branch: row.branch, ...read };
+}
+
 /**
  * The view reads, listed in `features.ts`, with the desk's sources beyond this engine's own (the
  * daemon's office starts paused, 0020).
@@ -304,6 +337,7 @@ export function storedPrompt(
 export function viewsFeatureWith(
   desk: Partial<DeskSources> & Pick<DeskSources, "stories">,
   planning?: (office: OfficeHandle) => PlanningView | null,
+  diffSource?: BranchDiffSource,
 ): FeatureModule {
   const sources: DeskSources = { ...DESK_SOURCES, ...desk };
   return {
@@ -316,6 +350,10 @@ export function viewsFeatureWith(
       registry.addRead({
         definition: storyDetail,
         handle: (ctx, args) => detail(officeOf(ctx), args.story as StoryKey),
+      });
+      registry.addAsyncRead({
+        definition: storyDiff,
+        handle: (ctx, args) => diffOf(officeOf(ctx), args.story as StoryKey, diffSource),
       });
       registry.addRead({
         definition: workOutputRange,

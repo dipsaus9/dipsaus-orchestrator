@@ -18,6 +18,7 @@ import { PLANNING_RECOVERY_STEP } from "../run/planning-session";
 import { RUN_TEMP_SWEEP_STEP } from "../run/temp-dirs";
 import { RECONCILE_STEP } from "../reconcile/feature";
 import { runningStoryCount, sessionRunCount } from "../overview/summary";
+import { branchDiff } from "../story-pr/git";
 import type { CommandServices } from "./commands";
 import { controlFeature, sumOverOffices } from "./control";
 import type { Core } from "./core";
@@ -115,6 +116,11 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
         prFacts: (handle, run) => story.storyPrs.deskFacts(handle.officeId as OfficeId, run),
       },
       planning: (handle) => runs.planning.view(handle.officeId as OfficeId),
+      // The Diff section of the story reader (DIPO-462).
+      branchDiff: async (handle, branch, maxBytes) => {
+        const git = core.gitOf(handle.officeId as OfficeId);
+        return git === undefined ? null : branchDiff(git, branch, maxBytes);
+      },
     }),
     core.engineGit.feature,
     // Claims pin their worktree snapshots on the office git, so after it.
