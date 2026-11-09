@@ -1,10 +1,10 @@
 ---
 id: DIPO-468
 title: A story whose PR merges while it is parked becomes Done
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-09 17:56'
-updated_date: '2026-11-09 18:02'
+updated_date: '2026-11-09 18:51'
 labels:
   - 'tier:L'
 milestone: m-3
