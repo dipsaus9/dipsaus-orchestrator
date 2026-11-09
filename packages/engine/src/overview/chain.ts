@@ -66,15 +66,22 @@ export function chainOf(stories: readonly StoryView[]): z.output<typeof officeCh
     }
   }
   // A level is one more than the deepest story the story waits on; a cycle counts as level 0.
-  const depth = (id: string, seen: ReadonlySet<string>): number => {
-    const deps = needs.get(id)?.filter((dep) => !seen.has(dep)) ?? [];
-    if (deps.length === 0) return 0;
-    return 1 + Math.max(...deps.map((dep) => depth(dep, new Set([...seen, id]))));
+  const memo = new Map<string, number>();
+  const walking = new Set<string>();
+  const depth = (id: string): number => {
+    const known = memo.get(id);
+    if (known !== undefined) return known;
+    walking.add(id);
+    const deps = needs.get(id)?.filter((dep) => !walking.has(dep)) ?? [];
+    const level = deps.length === 0 ? 0 : 1 + Math.max(...deps.map(depth));
+    walking.delete(id);
+    memo.set(id, level);
+    return level;
   };
   const rows: ChainRow[] = [...members.values()].map((ids) => {
     const levels: StoryId[][] = [];
     for (const id of [...ids].toSorted(byNumber)) {
-      const level = depth(id, new Set());
+      const level = depth(id);
       (levels[level] ??= []).push(StoryId.parse(id));
     }
     const parked = levels.flat().find((id) => stateOf(byId.get(id)) === "parked");
