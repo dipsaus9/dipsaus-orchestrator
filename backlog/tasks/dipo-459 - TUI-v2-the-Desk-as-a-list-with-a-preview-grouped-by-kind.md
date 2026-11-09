@@ -1,10 +1,10 @@
 ---
 id: DIPO-459
 title: 'TUI v2: the Desk as a list with a preview, grouped by kind'
-status: In Review
+status: Parked
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-09 12:15'
+updated_date: '2026-11-09 17:37'
 labels:
   - 'tier:L'
 milestone: m-6
@@ -63,6 +63,10 @@ test_plan:
       check: "(unit) the story PR read carries required-check count and state and change stats, and the MERGE preview prints them"
     - kind: "automated"
       check: "(unit) the PROPOSAL preview shows the audit's story text, Why, Blocks, Size tier and Raised by role and model"
+park:
+  reason: "by-maintainer"
+  from: "In Review"
+  note: "stale gate after main merge"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -84,3 +88,16 @@ test_plan:
 - [x] #14 The header shows ● plan open at the right while a planning session is open
 - [x] #15 QUESTION opens the Composer to answer
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-09 17:37 UTC: by-maintainer
+- Detail: stale gate after main merge
+- Run: run_01M6ZXSZ3AVJEYS383ZVTHT49F
+- Criteria met: 15 of 15 (as the worker reported them)
+- Loops: 3 of 8; CI attempts: 0 of 2
+- Review rounds: 1, failed 0 of 3
+- Budget used: 819,562 of 2,000,000 tokens; 288 of 300 turns; 383 of 180 minutes
+- Last good commit: 254d557efc7eb93313f29650ac975eef1a5bba2e
+<!-- SECTION:NOTES:END -->
