@@ -54,6 +54,11 @@ export const REVISE_KIND = "revise";
 export const REFINE_KIND = "refine";
 /** Sets a Refined story Ready after its Ready gate decision passed (DIPO-451). */
 export const READY_KIND = "ready";
+/**
+ * Sets a Parked story Done with its park record removed, after its own PR merged while it was
+ * parked and its claim was released (DIPO-468).
+ */
+export const DONE_KIND = "done";
 
 /** The target state of an edit: status, field-block keys and labels. */
 export const EditTarget = z
@@ -190,6 +195,13 @@ export interface PlanningLane {
    * passing gate decision first. Reuses an open one.
    */
   setReady(story: PlanningStory): Promise<PlannedChange>;
+  /**
+   * Sets a Parked story Done with the park record removed, applied only while it is Parked
+   * (DIPO-468): its own PR merged while it was parked, and the Done poll released its claim.
+   * Reuses an open one, and answers with one the lane dropped while its current open branch stays
+   * open (that branch does not hold the story as Parked).
+   */
+  setDone(story: PlanningStory): Promise<PlannedChange>;
   /** Moves a Ready story back to Refined (a failed pickup check). */
   toRefined(story: PlanningStory): Promise<PlannedChange>;
   /** Files an accepted idea as a draft; `subject` names it in the commit. */
@@ -229,6 +241,16 @@ export interface PlanningLane {
    * whether it is still open; undefined when there is none.
    */
   draftOf(idea: string): (PlannedChange & { readonly open: boolean }) | undefined;
+}
+
+/**
+ * Sets a story Done whose own PR merged while it was parked (DIPO-468): journals the `done` change
+ * (`setDone`) and flushes the lane when it waits to be applied. A change already on a branch, or
+ * one the lane holds back after it was dropped, is left as it is.
+ */
+export async function writeDone(lane: PlanningLane, story: PlanningStory): Promise<void> {
+  const change = await lane.setDone(story);
+  if (lane.outcomeOf(change)?.outcome === "waiting") await lane.flush(change);
 }
 
 /** How far a journaled change got, as `PlanningLane.outcomeOf` says it. */

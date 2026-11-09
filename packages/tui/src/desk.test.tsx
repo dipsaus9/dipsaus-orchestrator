@@ -373,6 +373,28 @@ describe("key 1 shows the Desk", () => {
     expect(preview).toContain("The worker gets it on resume, and the run continues.");
   });
 
+  it("shows a story whose PR merged while it was parked as its own group after the decision notes, with no action (DIPO-468)", async () => {
+    const merged = DeskItem.parse({
+      kind: "MERGED WHILE PARKED",
+      story: "DIPO-22",
+      key: KEY_22,
+      detail:
+        "its PR #634 merged while it was parked; dipo ended its run and sets it Done through its backlog PR",
+      since: ago(5),
+      blocks: [],
+      actions: [],
+    });
+    const { ui } = await openDesk({ desk: [question, note, merged] });
+    const frame = await ui.waitFor("MERGED WHILE PARKED");
+    const list = listSide(frame);
+    const headers = list.filter((line) => /^[A-Z]/.test(line) && !line.startsWith("NEEDS"));
+    expect(headers).toEqual(["QUESTION", "DECISION NOTE", "MERGED WHILE PARKED"]);
+    // Its row says what happened; it offers no key of its own.
+    expect(itemRows(frame).some((row) => /DIPO-22 its PR #634 merged while it/.test(row))).toBe(
+      true,
+    );
+  });
+
   it("says Nothing needs you. and what the team does for an empty desk", async () => {
     const { ui } = await openDesk({ desk: [] });
     const frame = await ui.waitFor(EMPTY_DESK);

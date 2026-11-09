@@ -84,7 +84,9 @@ export type ParkResolution =
   | "discard"
   | "reconcile"
   | "done-elsewhere"
-  | "override";
+  | "override"
+  /** The story's own PR merged while it was parked (0020, DIPO-468). */
+  | "merged";
 
 /** The run the park `parkId` was made on and when it was first made, or null. */
 export function parkedRunOf(

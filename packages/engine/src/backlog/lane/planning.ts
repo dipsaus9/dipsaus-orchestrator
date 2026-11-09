@@ -11,6 +11,7 @@ import type { OfficeHandle } from "../../db/office";
 
 import {
   DISCARD_KIND,
+  DONE_KIND,
   DROP_KIND,
   EDIT_KIND,
   FILE_KIND,
@@ -79,6 +80,43 @@ export function readyOp(key: StoryKey, story: string): LaneOp & { readonly key: 
     subject: story,
     target: { from: [REFINED_STATUS], status: READY_STATUS },
   };
+}
+
+/**
+ * The operation that sets a story Done whose own PR merged while it was parked (DIPO-468): only
+ * while it is Parked, with its park record removed. The backlog PR check accepts it only when the
+ * one Done check answers merged for the story (`backlog/pr/merged.ts`).
+ */
+export function doneOp(key: StoryKey, story: string): LaneOp & { readonly key: StoryKey } {
+  return {
+    kind: DONE_KIND,
+    key,
+    subject: story,
+    target: { from: ["Parked"], status: "Done", unset: ["park"] },
+  };
+}
+
+/**
+ * The `done` operation of the story `key` the lane dropped while its current open branch was
+ * open, or undefined (DIPO-468). A branch cut before the story PR merged does not hold the story as
+ * Parked, so a `done` appended to it is dropped; journaling it again on every Done poll would drop
+ * it again, with a notice each time. Until that branch is merged or closed, `setDone` answers with
+ * the dropped operation instead; once no branch is open, the next one starts from the base.
+ */
+function heldDone(office: OfficeHandle, key: StoryKey): PlannedChange | undefined {
+  const entries = allEntries(office);
+  const onBranch = entries.filter(
+    (entry) => OPEN_STATES.includes(entry.state) && entry.branch !== null,
+  );
+  if (onBranch.length === 0) return undefined;
+  const since = Math.min(...onBranch.map((entry) => entry.createdAt));
+  return entries.findLast(
+    (entry) =>
+      entry.key === key &&
+      entry.kind === DONE_KIND &&
+      entry.state === "dropped" &&
+      (entry.closedAt ?? entry.updatedAt) >= since,
+  );
 }
 
 /** The branches with a backlog PR recorded on an open operation. */
@@ -199,6 +237,7 @@ export function planningLane(lane: OfficeLane): PlanningLane {
       once({ kind: DROP_KIND, key, subject: story, target: { kind }, releasesClaim: true }),
     discard: ({ key, story }) => once(discardOp(key, story)),
     setReady: ({ key, story }) => once(readyOp(key, story)),
+    setDone: async ({ key, story }) => heldDone(lane.office, key) ?? once(doneOp(key, story)),
     toRefined: ({ key, story }) =>
       lane.journal({
         kind: EDIT_KIND,

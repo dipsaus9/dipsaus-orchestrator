@@ -28,11 +28,17 @@ interface Job {
   if?: string;
   "runs-on"?: string;
   env?: Record<string, string>;
+  permissions?: Record<string, string>;
   strategy?: {
     "fail-fast"?: boolean;
     matrix?: { shard?: number[]; include?: Record<string, string>[] };
   };
   steps?: Step[];
+}
+
+/** The checkout step of the job `id`. */
+function checkout(id: string): Step | undefined {
+  return job(id).steps?.find((step) => step.uses?.startsWith("actions/checkout@"));
 }
 
 const flow = Bun.YAML.parse(readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8")) as {
@@ -106,13 +112,18 @@ describe("ci.yml light path: the jobs", () => {
     );
     expect(structural?.run).toBe("bun scripts/check-backlog-pr.ts HEAD^1 HEAD");
     expect(structural?.if).toBe("needs.changes.outputs.scope == 'backlog-only'");
+    // gh names the story PR of a Parked to Done with the job's own read token (DIPO-468).
+    expect(structural?.env).toEqual({ GH_TOKEN: "${{ github.token }}" });
+    expect(job("ready-gate").permissions).toEqual({ contents: "read", "pull-requests": "read" });
   });
 
-  it("checks out the base and the PR head next to the merge commit in both jobs", () => {
-    for (const id of ["changes", "ready-gate"]) {
-      const checkout = job(id).steps?.find((step) => step.uses?.startsWith("actions/checkout@"));
-      expect(checkout?.with).toEqual({ "persist-credentials": false, "fetch-depth": 2 });
-    }
+  it("checks out the base and the PR head next to the merge commit, and the whole history for the structural check", () => {
+    expect(checkout("changes")?.with).toEqual({ "persist-credentials": false, "fetch-depth": 2 });
+    // The last commit on the base that touched a task file may be far back (DIPO-468).
+    expect(checkout("ready-gate")?.with).toEqual({
+      "persist-credentials": false,
+      "fetch-depth": 0,
+    });
   });
 });
 

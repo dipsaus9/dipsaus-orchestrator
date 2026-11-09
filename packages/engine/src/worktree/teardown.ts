@@ -15,6 +15,7 @@
 
 import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
 
+import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
 import { deleteBranch, deleteRemoteBranch, remoteUrl } from "../git/write";
@@ -22,6 +23,7 @@ import { forgetWorkerNotes } from "../prompts/notes";
 import { findStoryPr } from "../records/story-prs";
 
 import { notice, writeWith } from "./claim";
+import { resolveMergedParks } from "./merged-parked";
 import { type ClaimRecord, markTeardownStarted, releaseClaim } from "./records";
 
 /** `engine.notice` codes of Done detection and teardown. */
@@ -35,6 +37,7 @@ export const TEARDOWN_NOTICES = {
   claimGone: "done.claimGone",
   statusUnknown: "teardown.statusUnknown",
   hostUnreachable: "done.hostUnreachable",
+  doneNotWritten: "done.doneNotWritten",
 } as const;
 
 /** The release reason of a claim whose story reached Done. */
@@ -96,33 +99,41 @@ export type TeardownOutcome =
 /**
  * Deletes the branch of a claim whose story PR `pr` merged, then releases the claim and deletes its
  * tier T rows. `tip` is the branch tip the Done poll judged (null when the branch was gone): a
- * branch that moved since keeps everything. The caller puts the notices on the office.
+ * branch that moved since keeps everything. With `parked` (the story's branch says Parked, DIPO-468)
+ * the release also resolves the story's open park as `merged` in the same transaction. The caller
+ * puts the notices on the office.
  */
 export async function tearDown(
   deps: TeardownDeps,
   claim: ClaimRecord,
   pr: MergedPr,
   tip: string | null,
+  options: { readonly parked?: boolean } = {},
 ): Promise<TeardownOutcome> {
   const outcome = await deps.git.run((git) => removeAll(deps, git, claim, tip));
   if (!outcome.ok) return outcome;
   const how = `its PR #${pr.number} merged (${pr.url})`;
+  const parked = options.parked === true;
   writeWith(deps, () => {
+    const at = deps.clock.now();
     releaseClaim(deps.office, claim.runId, {
-      at: deps.clock.now(),
+      at,
       reason: DONE_RELEASE_REASON,
       ending: "done",
       keepBranch: false,
     });
     forgetWorkerNotes(deps.office, claim.branch);
-    const entries = [
+    const entries: NewEntry[] = parked ? resolveMergedParks(deps.office, claim.key, at) : [];
+    entries.push(
       notice(
         "info",
         TEARDOWN_NOTICES.done,
-        `${claim.story} is Done: ${how}. dipo deleted the branch ${claim.branch}.`,
+        parked
+          ? `${claim.story} is Done: ${how} while it was parked. dipo resolved the park, ended its run, deleted the branch ${claim.branch}, and sets the story Done on ${claim.base} through its backlog PR.`
+          : `${claim.story} is Done: ${how}. dipo deleted the branch ${claim.branch}.`,
         claim.key,
       ),
-    ];
+    );
     if (outcome.remoteProblem !== null) {
       entries.push(
         notice(

@@ -54,6 +54,7 @@ Drafts use Backlog.md's draft feature: an idea has a temporary `DRAFT-n` id unti
 | In Review | Done | The PR merged (0002) | GitHub, on dipo's request or the maintainer's merge |
 | Refined, Ready, In Progress, In Review | Parked | A park reason from 0001; `by-maintainer` through `dipo park` | Engine or maintainer |
 | Parked | The state it left | `dipo resume` (0020) | Maintainer, or code after a plan limit |
+| Parked | Done | The story's PR merged while it was parked (0020). The story PR carried the park's status to the base, so dipo sets Done in a backlog PR once its claim is released. The backlog PR check, in dipo and in CI, accepts it only when the one Done check (0002) answers merged for the story PR whose merge commit is the last commit on the base that touched the task file, with the branch of the task's field block on the base. Any later commit that touched the task file refuses it | Engine, decided by code |
 | In Progress, In Review, Parked | Refined | `dipo discard`: the work is thrown away (0020) | Maintainer |
 | Draft, Refined, Ready, Parked | Removed | `dipo drop` archives the story; refused while an active story depends on it | Maintainer |
 
@@ -127,4 +128,5 @@ Each failure prints `ready <ID> failed <rule>: <message>`. Rule numbers are stab
 - `amend` of a parked story (Parked to Refined with criteria unchecked). That is M3 work (0003).
 - Merge-time sync conflicts and red checks counted against the review round cap (2026-10-10). Replaced by one cap per source (0002, 2026-10-16).
 - The In Review to In Progress row without the close-out head (2026-10-24), when a story closed out only after green checks on its reviewed head. Replaced by the row's note on red checks of a close-out head, since a story decided by rule now closes out before its checks run (0002, 2026-10-30).
+- Parked left only by a resume, a discard or a drop (2026-10-24), so a story whose PR merged while it was parked stayed Parked on the base. Replaced by the Parked to Done row for a story whose PR merged (2026-11-09).
 - The `Outcome:` line, the one result a story delivers (2026-10-10). Replaced by the `Story:` line (2026-11-03), so every story says whom it serves and why.

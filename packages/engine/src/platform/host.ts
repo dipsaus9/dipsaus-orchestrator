@@ -123,6 +123,19 @@ export interface PrStateHost {
 }
 
 /**
+ * The merged PR of a merge commit (DIPO-468): the backlog PR check asks it which story PR's merge
+ * commit last touched a task file on the base. Kept apart from `CodeHost`, like `PrStateHost`.
+ */
+export interface MergeCommitHost {
+  /**
+   * The merged pull request whose merge commit is `sha` (a full commit id), or null when no PR
+   * merged as that commit: a PR that only contains the commit, an open PR and a closed unmerged PR
+   * are none. Throws `CodeHostError`.
+   */
+  mergedPrOfCommit(repo: string, sha: string): Promise<HostPr | null>;
+}
+
+/**
  * GitHub's auto-merge and the base's required checks (0002). Kept apart from `CodeHost`, like
  * `PrStateHost`. Nothing here bypasses a rule of the base: no `--admin`.
  */
@@ -355,6 +368,40 @@ function prOf(json: PrJson): HostPr {
   };
 }
 
+/** `ref` or `sha` of a REST pull request's `head` or `base` object, or "". */
+function restRef(side: unknown, key: "ref" | "sha"): string {
+  const value =
+    typeof side === "object" && side !== null ? (side as Record<string, unknown>)[key] : "";
+  return typeof value === "string" ? value : "";
+}
+
+/**
+ * A merged pull request as GitHub's REST API returns it, or null when it did not merge (no
+ * `merged_at`: an open PR, or a closed one whose `merge_commit_sha` is only a test merge).
+ */
+function restPrOf(json: unknown): HostPr | null {
+  if (typeof json !== "object" || json === null) return null;
+  const row = json as Record<string, unknown>;
+  if (typeof row["merged_at"] !== "string" || row["merged_at"] === "") return null;
+  if (typeof row["number"] !== "number" || typeof row["html_url"] !== "string") {
+    throw new CodeHostError(
+      "failed",
+      `gh printed a pull request dipo cannot read: ${JSON.stringify(json).slice(0, 200)}`,
+    );
+  }
+  const merge = row["merge_commit_sha"];
+  return {
+    number: row["number"],
+    url: row["html_url"],
+    state: "merged",
+    head: restRef(row["head"], "ref"),
+    headSha: restRef(row["head"], "sha"),
+    base: restRef(row["base"], "ref"),
+    title: typeof row["title"] === "string" ? row["title"] : "",
+    mergeCommit: typeof merge === "string" && merge !== "" ? merge : null,
+  };
+}
+
 /** gh's `mergeable` (`MERGEABLE`, `CONFLICTING`, `UNKNOWN`). */
 function mergeableOf(value: unknown): Mergeable {
   const text = String(value ?? "").toLowerCase();
@@ -468,7 +515,14 @@ interface GhResult {
 
 /** The `CodeHost` that runs `gh`. */
 export class GhHost
-  implements CodeHost, PrStateHost, PrListHost, PrReviewHost, AutoMergeHost, CiRerunHost
+  implements
+    CodeHost,
+    PrStateHost,
+    PrListHost,
+    PrReviewHost,
+    AutoMergeHost,
+    CiRerunHost,
+    MergeCommitHost
 {
   readonly #spawn: Spawn;
   readonly #gh: string;
@@ -660,6 +714,23 @@ export class GhHost
 
   async disableAutoMerge(repo: string, number: number): Promise<void> {
     await this.#ok(["pr", "merge", String(number), "--repo", repo, "--disable-auto"]);
+  }
+
+  async mergedPrOfCommit(repo: string, sha: string): Promise<HostPr | null> {
+    if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(sha)) {
+      throw new CodeHostError("failed", `${JSON.stringify(sha)} is not a full commit id`);
+    }
+    const { flags, path } = apiTarget(repo);
+    // `GET /repos/{o}/{r}/commits/{sha}/pulls`: the PRs associated with the commit, which include
+    // PRs that merely contain it; only the one that merged as it counts.
+    const out = await this.#ok(["api", ...flags, `repos/${path}/commits/${sha}/pulls`]);
+    const list = parseJson(out, "a pull request list");
+    if (!Array.isArray(list)) throw new CodeHostError("failed", "gh printed no pull request list");
+    for (const item of list) {
+      const pr = restPrOf(item);
+      if (pr !== null && pr.mergeCommit === sha) return pr;
+    }
+    return null;
   }
 
   async requiredCheckNames(repo: string, base: string): Promise<string[]> {

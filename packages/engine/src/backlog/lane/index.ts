@@ -35,6 +35,7 @@ export type {
 } from "./lane";
 export {
   DISCARD_KIND,
+  DONE_KIND,
   DROP_KIND,
   DropTarget,
   dropKind,

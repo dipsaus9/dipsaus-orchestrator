@@ -18,6 +18,7 @@ import { editLabels, FieldWriteError, viewStory, writeFields } from "../fields/w
 import { FieldBlockError } from "../../story-store/fields/block";
 import {
   DISCARD_KIND,
+  DONE_KIND,
   DROP_KIND,
   DropTarget,
   EDIT_KIND,
@@ -65,6 +66,7 @@ export interface LaneOpKind {
 // The target-state model is the seam's (`story-store/planning.ts`); the kinds apply it here.
 export {
   DISCARD_KIND,
+  DONE_KIND,
   DROP_KIND,
   DropTarget,
   EDIT_KIND,

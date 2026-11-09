@@ -28,7 +28,7 @@
 
 import type { Clock, OfficeId, RunId, SkipReason, StoryKey } from "@dipsaus-orchestrator/contract";
 
-import { appendEntries } from "../changelog/log";
+import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { FETCH_CONFIG } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
@@ -691,7 +691,7 @@ export function notice(
 }
 
 /** Runs `fn` in one transaction and appends the entries it returns. */
-export function writeWith(deps: NoticeDeps, fn: () => ReturnType<typeof notice>[] | void): void {
+export function writeWith(deps: NoticeDeps, fn: () => readonly NewEntry[] | void): void {
   const at = deps.clock.now();
   const appended = deps.office.immediate(() => {
     const entries = fn() ?? [];

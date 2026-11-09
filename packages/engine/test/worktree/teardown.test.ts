@@ -29,7 +29,10 @@ import {
   tearDown,
 } from "../../src/worktree";
 import { findStoryPr, insertStoryPr } from "../../src/records/story-prs";
-import { HOST_FAILURES_NOTICED } from "../../src/worktree/done";
+import { HOST_FAILURES_NOTICED, type StoryTeardownDeps } from "../../src/worktree/done";
+import { MERGED_WHILE_PARKED, mergedParkDeskItems } from "../../src/worktree/merged-parked";
+import { DESK_SOURCES } from "../../src/overview/desk";
+import { insertPark as parkFixture } from "../run/park-fixture";
 import { insertClaim, markTeardownStarted } from "../../src/worktree/records";
 import { notices } from "../backlog/lane/helpers";
 import { hangingSpawn, settle as letCallsRun } from "../platform/hanging";
@@ -212,6 +215,9 @@ function teardownOf(
     status?: string | null | ((call: number) => string | null);
     onStatus?: () => void;
     config?: OfficeConfig;
+    /** The story's status on the base; none (unreadable) when absent. */
+    baseStatus?: string | null;
+    writeDone?: StoryTeardownDeps["writeDone"];
   } = {},
 ): StoryTeardown {
   let calls = 0;
@@ -233,6 +239,8 @@ function teardownOf(
       if (typeof status === "function") return status(calls);
       return status === undefined ? "Done" : status;
     },
+    baseStatusOf: async () => ({ status: options.baseStatus ?? null, head: null }),
+    ...(options.writeDone === undefined ? {} : { writeDone: options.writeDone }),
   });
   teardown.track(officeId, world.office, world.t.clock);
   return teardown;
@@ -274,6 +282,40 @@ function liveHost(world: World): void {
        values ($office_id, $run, 'agt_1', 1, 1, '/s', 1, '/r', '/e', 1)`,
       { run: world.claim().runId },
     ),
+  );
+}
+
+/** A run row for the claim, not ended: its worker is live (a park in flight ends it). */
+function openRun(world: World): void {
+  world.office.immediate(() =>
+    world.office.run(
+      `insert into runs (office_id, run_id, kind, role, model, budget_unit, budget_limit,
+         loop_cap, config_hash, started_at)
+       values ($office_id, $run, 'session', 'developer', 'haiku', 'tokens', 1, 1, 'h', 0)`,
+      { run: world.claim().runId },
+    ),
+  );
+}
+
+/** The claim's story parked `verify-failing` on its run: the open park row and the mirror's read. */
+function parkClaim(world: World): number {
+  const claim = world.claim();
+  return world.office.immediate(() =>
+    parkFixture(world.office, {
+      key: claim.key,
+      story: claim.story,
+      runId: claim.runId,
+      reason: "verify-failing",
+      detail: "verify red 5 times",
+      at: 1,
+      lastGoodCommit: TIP,
+    }),
+  );
+}
+
+function parkRows(world: World) {
+  return world.office.all<{ park_id: number; resolved_how: string | null }>(
+    "select park_id, resolved_how from parks where office_id = $office_id order by park_id",
   );
 }
 
@@ -663,19 +705,6 @@ describe("the Done poll", () => {
       ]);
     }));
 
-  it("keeps the branch of a parked story", () =>
-    withWorld(async (world) => {
-      const report = await teardownOf(world, { status: "Parked" }).poll(
-        world.office.officeId as OfficeId,
-      );
-      expect(report.kept).toHaveLength(1);
-      expect(world.steps.some((s) => s.startsWith("worktree") || s.startsWith("branch"))).toBe(
-        false,
-      );
-      expect(world.claim().releasedAt).toBeNull();
-      expect(notices(world.office).map((n) => n.code)).toEqual([TEARDOWN_NOTICES.parked]);
-    }));
-
   it("keeps everything this poll when the story's status cannot be read, noticed once", () =>
     withWorld(async (world) => {
       const officeId = world.office.officeId as OfficeId;
@@ -694,13 +723,15 @@ describe("the Done poll", () => {
   it("tells each cause of a claim once, even when causes alternate", () =>
     withWorld(async (world) => {
       const officeId = world.office.officeId as OfficeId;
+      // A parked story whose run is still open is kept (DIPO-468), with its own notice.
+      openRun(world);
       const teardown = teardownOf(world, {
         status: (call) => (call % 2 === 1 ? null : "Parked"),
       });
       for (let i = 0; i < 4; i++) await teardown.poll(officeId);
       expect(notices(world.office).map((n) => n.code)).toEqual([
         TEARDOWN_NOTICES.statusUnknown,
-        TEARDOWN_NOTICES.parked,
+        TEARDOWN_NOTICES.kept,
       ]);
     }));
 
@@ -802,5 +833,138 @@ describe("the Done poll", () => {
       expect(reader.calls).toHaveLength(3);
       expect(reader.calls[0]).toBe(`o/r ${BRANCH}`);
       teardown.stop();
+    }));
+});
+
+describe("a story whose PR merged while it was parked (DIPO-468)", () => {
+  it("resolves the park as merged, ends the run done, tears down the branch and adds one desk line", () =>
+    withWorld(async (world) => {
+      const officeId = world.office.officeId as OfficeId;
+      const claim = world.claim();
+      const parkId = parkClaim(world);
+      const writes: { story: string; released: boolean }[] = [];
+      const teardown = teardownOf(world, {
+        status: "Parked",
+        baseStatus: "Parked",
+        writeDone: async (_office, story) => {
+          writes.push({ story: story.story, released: world.claim().releasedAt !== null });
+        },
+      });
+      expect(await teardown.answer(officeId, claim)).toBe("merged");
+      const report = await teardown.poll(officeId);
+      expect(report.tornDown).toHaveLength(1);
+      const after = world.claim();
+      expect(after.releasedAt).not.toBeNull();
+      expect(after.releaseReason).toBe(DONE_RELEASE_REASON);
+      // The branch went locally and on the remote, as for any merged story.
+      expect(world.steps).toContain(`update-ref -d refs/heads/${BRANCH} ${TIP}`);
+      expect(world.steps.some((s) => s.startsWith("push") && s.includes("--delete"))).toBe(true);
+      expect(parkRows(world)).toEqual([{ park_id: parkId, resolved_how: "merged" }]);
+      const told = notices(world.office);
+      expect(told.map((n) => n.code)).toEqual([TEARDOWN_NOTICES.done]);
+      expect(told[0]?.text).toContain("merged (https://github.com/o/r/pull/9) while it was parked");
+      // Done is written through the planning lane only after the claim was released.
+      expect(writes).toEqual([{ story: "TASK-1", released: true }]);
+      // One desk line until the base says Done; no action, nothing to do by hand.
+      const items = mergedParkDeskItems(world.office);
+      expect(items).toEqual([
+        {
+          kind: MERGED_WHILE_PARKED,
+          key: claim.key,
+          story: "TASK-1",
+          detail:
+            "its PR #9 merged while it was parked; dipo ended its run and sets it Done through its backlog PR",
+          since: expect.any(Number),
+          actions: [],
+        },
+      ]);
+      expect(DESK_SOURCES.handItems).toContain(mergedParkDeskItems);
+      world.office.immediate(() =>
+        world.office.run(
+          "update backlog_mirror set status = 'Done', park = null where office_id = $office_id",
+        ),
+      );
+      expect(mergedParkDeskItems(world.office)).toEqual([]);
+    }));
+
+  it("writes nothing when the base already says Done", () =>
+    withWorld(async (world) => {
+      parkClaim(world);
+      const writes: string[] = [];
+      const report = await teardownOf(world, {
+        status: "Parked",
+        baseStatus: "Done",
+        writeDone: async (_office, story) => {
+          writes.push(story.story);
+        },
+      }).poll(world.office.officeId as OfficeId);
+      expect(report.tornDown).toHaveLength(1);
+      expect(writes).toEqual([]);
+    }));
+
+  it("writes Done again on the next poll for a released story a crash left Parked on the base", () =>
+    withWorld(async (world) => {
+      const officeId = world.office.officeId as OfficeId;
+      parkClaim(world);
+      let fail = true;
+      const writes: string[] = [];
+      const teardown = teardownOf(world, {
+        status: "Parked",
+        baseStatus: "Parked",
+        writeDone: async (_office, story) => {
+          if (fail) throw new Error("the lane is busy");
+          writes.push(story.story);
+        },
+      });
+      await teardown.poll(officeId);
+      await teardown.poll(officeId);
+      const told = notices(world.office).filter((n) => n.code === TEARDOWN_NOTICES.doneNotWritten);
+      // Told once, though two polls failed.
+      expect(told).toHaveLength(1);
+      expect(told[0]?.text).toContain("the lane is busy");
+      fail = false;
+      await teardown.poll(officeId);
+      expect(writes).toEqual(["TASK-1"]);
+    }));
+
+  it("keeps the claim of a parked story whose run is still live", () =>
+    withWorld(async (world) => {
+      parkClaim(world);
+      openRun(world);
+      const writes: string[] = [];
+      const report = await teardownOf(world, {
+        status: "Parked",
+        baseStatus: "Parked",
+        writeDone: async (_office, story) => {
+          writes.push(story.story);
+        },
+      }).poll(world.office.officeId as OfficeId);
+      expect(report.kept).toHaveLength(1);
+      expect(world.claim().releasedAt).toBeNull();
+      expect(world.steps.some((s) => s.startsWith("update-ref"))).toBe(false);
+      expect(parkRows(world).map((row) => row.resolved_how)).toEqual([null]);
+      expect(writes).toEqual([]);
+      expect(notices(world.office).map((n) => n.code)).toEqual([TEARDOWN_NOTICES.kept]);
+    }));
+
+  it("keeps a parked claim whose branch moved past the merged head with work the base lacks", () =>
+    withWorld(async (world) => {
+      parkClaim(world);
+      world.answer = (args) =>
+        args[0] === "merge-tree" ? { stdout: `${"5".repeat(40)}\n` } : undefined;
+      const writes: string[] = [];
+      const report = await teardownOf(world, {
+        host: host({ headSha: "6".repeat(40) }),
+        status: "Parked",
+        baseStatus: "Parked",
+        writeDone: async (_office, story) => {
+          writes.push(story.story);
+        },
+      }).poll(world.office.officeId as OfficeId);
+      expect(report.kept).toHaveLength(1);
+      expect(world.claim().releasedAt).toBeNull();
+      expect(parkRows(world).map((row) => row.resolved_how)).toEqual([null]);
+      expect(writes).toEqual([]);
+      expect(notices(world.office).map((n) => n.code)).toEqual([TEARDOWN_NOTICES.parked]);
     }));
 });
