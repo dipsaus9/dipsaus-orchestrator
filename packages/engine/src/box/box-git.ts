@@ -14,6 +14,13 @@
 //   worker's own `git commit` in the box works. What the worker does with it stays in the box:
 //   every part leaves the box without `.git` (`partArchiveCommand`), and a part that carries a
 //   `.git` path anyway is refused on the Mac (`protectedKind`).
+// - A merge of the base that dipo copies into the box (a catch-up, DIPO-464) is committed in the
+//   box's repository as a commit of its own (`commitInBoxRepository`), by a second fixed script
+//   (`boxGitCatchUpCommand`): only the paths the merge wrote or removed go in, through a temporary
+//   index read from the box's HEAD, so whatever the worker changed or staged elsewhere stays out of
+//   it, and the box's own index takes the same paths, so the worker's `git log` shows the base's
+//   changes and its `git diff` only its own work. A box without the repository (made before it, or
+//   one whose `.git` is not a plain folder) commits nothing.
 
 import { BOX_WORKDIR } from "./code";
 import { BoxError, type BoxPort } from "./port";
@@ -73,4 +80,148 @@ export async function initBoxRepository(boxes: Pick<BoxPort, "exec">, box: strin
       { box, stderr: result.stderr.trim().slice(-2000) },
     );
   }
+}
+
+/** How long one step of the catch-up commit in a box may take. */
+export const BOX_GIT_CATCH_UP_TIMEOUT_MS = 60_000;
+/** How many paths one step of the catch-up commit names. */
+const CATCH_UP_PATHS_PER_CALL = 100;
+/** The box repository's temporary index of a catch-up commit, inside its `.git`. */
+export const BOX_GIT_CATCH_UP_INDEX = ".git/dipo-catch-up-index";
+
+/**
+ * The script of one step of a catch-up commit in the box's repository (see the file comment), its
+ * step and arguments after it as argv: `begin` reads HEAD into the temporary index and prints
+ * HEAD; `add <path>...` takes the paths' state in `/work` into the temporary index and the box's
+ * own index; `commit <subject> <head>` commits the temporary index on `<head>` and moves HEAD
+ * from `<head>` only. It prints `none` when `/work/.git` is not a plain folder, and `same` when
+ * the paths changed nothing.
+ */
+export function boxGitCatchUpCommand(
+  step: "begin" | "add" | "commit",
+  args: readonly string[],
+): [string, ...string[]] {
+  return [
+    "/bin/sh",
+    "-c",
+    `set -eu
+cd '${BOX_WORKDIR}'
+if [ ! -d .git ] || [ -L .git ]; then echo none; exit 0; fi
+ix='${BOX_GIT_CATCH_UP_INDEX}'
+step=$1; shift
+case "$step" in
+begin)
+  rm -f "$ix"
+  GIT_INDEX_FILE="$ix" git read-tree HEAD
+  git rev-parse --verify HEAD ;;
+add)
+  GIT_INDEX_FILE="$ix" git update-index --add --remove -- "$@"
+  git update-index --add --remove -- "$@" ;;
+commit)
+  tree=$(GIT_INDEX_FILE="$ix" git write-tree)
+  rm -f "$ix"
+  if [ "$tree" = "$(git rev-parse --verify "$2^{tree}")" ]; then echo same; exit 0; fi
+  next=$(git commit-tree "$tree" -p "$2" -m "$1")
+  git update-ref -m "$1" HEAD "$next" "$2"
+  echo "$next" ;;
+*) exit 2 ;;
+esac`,
+    "dipo-box-git",
+    step,
+    ...args,
+  ];
+}
+
+/**
+ * Commits `paths` as `/work` holds them in the box's repository as one commit with `subject`
+ * (see the file comment), as the box user. `none` when the box has no repository, `same` when
+ * the paths changed nothing, else the commit. Throws a `BoxError` when a step fails.
+ */
+export async function commitInBoxRepository(
+  boxes: Pick<BoxPort, "exec">,
+  box: string,
+  subject: string,
+  paths: readonly string[],
+): Promise<string> {
+  const step = async (name: "begin" | "add" | "commit", args: readonly string[]) => {
+    const result = await boxes.exec(box, boxGitCatchUpCommand(name, args), {
+      cwd: BOX_WORKDIR,
+      env: BOX_GIT_ENV,
+      timeoutMs: BOX_GIT_CATCH_UP_TIMEOUT_MS,
+    });
+    if (result.code !== 0) {
+      throw new BoxError(
+        "box.failed",
+        `the catch-up commit in the box's git repository failed at ${name} (exit ${result.code}).`,
+        false,
+        { box, stderr: result.stderr.trim().slice(-2000) },
+      );
+    }
+    return result.stdout.trim();
+  };
+  if (paths.length === 0) return "same";
+  const head = await step("begin", []);
+  if (head === "none") return "none";
+  for (let at = 0; at < paths.length; at += CATCH_UP_PATHS_PER_CALL) {
+    await step("add", paths.slice(at, at + CATCH_UP_PATHS_PER_CALL));
+  }
+  return step("commit", [subject, head]);
+}
+
+/** What `boxBlobsCommand` prints for a path the box does not hold as a file or a link. */
+export const BOX_PATH_MISSING = "missing";
+
+/**
+ * The script that prints git's blob id of each of its argv paths as `/work` holds them, one line
+ * per path in order (DIPO-464): a file's content with no filter, a symlink's target, or
+ * `BOX_PATH_MISSING`. It prints no path, so no file name can shape what dipo reads back.
+ */
+export function boxBlobsCommand(paths: readonly string[]): [string, ...string[]] {
+  return [
+    "/bin/sh",
+    "-c",
+    `set -eu
+cd '${BOX_WORKDIR}'
+shift
+for p; do
+  if [ -L "$p" ]; then printf '%s' "$(readlink -- "$p")" | git hash-object --stdin
+  elif [ -f "$p" ]; then git hash-object --no-filters -- "$p"
+  else echo '${BOX_PATH_MISSING}'; fi
+done`,
+    "dipo-box-git-blobs",
+    "blobs",
+    ...paths,
+  ];
+}
+
+/**
+ * Git's blob id of each of `paths` as the box's `/work` holds them (`boxBlobsCommand`), or
+ * `BOX_PATH_MISSING`, as the box user. Throws a `BoxError` when the script fails or prints
+ * another number of lines.
+ */
+export async function boxBlobs(
+  boxes: Pick<BoxPort, "exec">,
+  box: string,
+  paths: readonly string[],
+): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  for (let at = 0; at < paths.length; at += CATCH_UP_PATHS_PER_CALL) {
+    const group = paths.slice(at, at + CATCH_UP_PATHS_PER_CALL);
+    const result = await boxes.exec(box, boxBlobsCommand(group), {
+      cwd: BOX_WORKDIR,
+      env: BOX_GIT_ENV,
+      timeoutMs: BOX_GIT_CATCH_UP_TIMEOUT_MS,
+    });
+    const lines = result.stdout.split("\n").filter((line) => line !== "");
+    if (result.code !== 0 || lines.length !== group.length) {
+      throw new BoxError(
+        "box.failed",
+        `the box's files could not be compared with the story branch (exit ${result.code}).`,
+        false,
+        { box, stderr: result.stderr.trim().slice(-2000) },
+      );
+    }
+    group.forEach((path, n) => found.set(path, lines[n]!));
+  }
+  return found;
 }

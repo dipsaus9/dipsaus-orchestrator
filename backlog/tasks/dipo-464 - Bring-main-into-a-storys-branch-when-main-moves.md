@@ -1,10 +1,10 @@
 ---
 id: DIPO-464
 title: Bring main into a story's branch when main moves
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-08 12:17'
-updated_date: '2026-11-08 12:41'
+updated_date: '2026-11-08 13:26'
 labels:
   - 'tier:L'
 milestone: m-3
@@ -70,13 +70,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When the base moved and the story branch lacks base commits, the resume of a park of any reason merges the fetched base into the branch in dipo's own git before the worker's first turn, whether the merge is clean or conflicted
-- [ ] #2 Each fix round's developer session gets the same merge before the worker's first turn when the branch is behind the base
-- [ ] #3 A story In Review whose branch the PR poll finds conflicting with the base gets the base merged and a conflict hand-off fix round at that poll, instead of waiting for its next In Review or the auto-merge
-- [ ] #4 A clean merge is pushed without force, copied into the box and committed in the box's local git as a commit of its own, so the worker's git log shows the base's changes and its git diff shows only its own work
-- [ ] #5 The worker's first message after a catch-up says that main is already merged into its branch, names the merged files, and says that the box cannot fetch main
-- [ ] #6 A conflicted merge is committed as git left it, copied into the box and handed to the worker in its first message with the conflicting files listed; no model outside the box resolves it, and a conflict in a path the worker cannot write parks the story conflict as today
-- [ ] #7 A branch that already holds the base merges nothing, and the claim of a reused branch still merges nothing (0010)
-- [ ] #8 A catch-up merge commit leaves the PR's diff against the base with only the story's own changes, and the squash merge still takes the PR title as its subject
-- [ ] #9 ADR 0002 brings back the sync without a conflict it removed on 2026-10-24: its no sync without a conflict text is rewritten to the merge when the base moved, giving DIPO-457 and DIPO-463 as the reason, with one Replaced line; ADR 0008 describes the catch-up commit in the box's git with one Replaced line; ADR 0016 stays untouched, since GitHub's up-to-date rule stays off and dipo does the merge; the maintainer approves the wording in the story's PR
+- [x] #1 When the base moved and the story branch lacks base commits, the resume of a park of any reason merges the fetched base into the branch in dipo's own git before the worker's first turn, whether the merge is clean or conflicted
+- [x] #2 Each fix round's developer session gets the same merge before the worker's first turn when the branch is behind the base
+- [x] #3 A story In Review whose branch the PR poll finds conflicting with the base gets the base merged and a conflict hand-off fix round at that poll, instead of waiting for its next In Review or the auto-merge
+- [x] #4 A clean merge is pushed without force, copied into the box and committed in the box's local git as a commit of its own, so the worker's git log shows the base's changes and its git diff shows only its own work
+- [x] #5 The worker's first message after a catch-up says that main is already merged into its branch, names the merged files, and says that the box cannot fetch main
+- [x] #6 A conflicted merge is committed as git left it, copied into the box and handed to the worker in its first message with the conflicting files listed; no model outside the box resolves it, and a conflict in a path the worker cannot write parks the story conflict as today
+- [x] #7 A branch that already holds the base merges nothing, and the claim of a reused branch still merges nothing (0010)
+- [x] #8 A catch-up merge commit leaves the PR's diff against the base with only the story's own changes, and the squash merge still takes the PR title as its subject
+- [ ] #9 ADR 0002 brings back the sync without a conflict it removed on 2026-10-24: its no sync without a conflict text is rewritten to the merge when the base moved, giving DIPO-457 and DIPO-463 as the reason, with one Replaced line; ADR 0008 describes the catch-up commit in the box's git with one Replaced line; ADR 0010's base sync row and ADR 0016's strict line say dipo merges the base itself when it moved, each with one Replaced line, and GitHub's up-to-date rule stays off; the maintainer approves the wording in the story's PR
 <!-- AC:END -->

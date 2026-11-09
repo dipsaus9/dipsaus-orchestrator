@@ -403,7 +403,7 @@ describe("the texts", () => {
       paths: ["src/shared.ts"],
     };
     expect(overlapNotice(overlap)).toBe(
-      "DIPO-1 and DIPO-2 are both in progress and change the same 1 file: src/shared.ts. Both continue; dipo merges the base into a story's branch and box only when git reports a conflict.",
+      "DIPO-1 and DIPO-2 are both in progress and change the same 1 file: src/shared.ts. Both continue; while they run, dipo merges the base into a story's branch and box only when git reports a conflict.",
     );
     expect(overlapMessage("DIPO-1", ["src/shared.ts"])).toContain(
       "another story in progress, DIPO-1, changes the same 1 file as you: src/shared.ts. Both stories continue.",

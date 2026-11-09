@@ -33,6 +33,7 @@ import {
   type CatchUpMerged,
   CATCH_UP_PART_MESSAGE,
   COLLISION_NOTICES,
+  COPY_WOULD_OVERWRITE,
   conflictSignature,
   countedMarkers,
   type CollisionNotice,
@@ -40,9 +41,10 @@ import {
   storyChangedFiles,
   type SyncOutcome,
 } from "../../src/box/collisions";
-import { BoxParts, type PartPark, type PartRun } from "../../src/box/parts";
+import { BoxParts, type PartPark, partPark, type PartRun } from "../../src/box/parts";
 import type { BoxPort } from "../../src/box/port";
 import { BOX_STAGE_ROOT } from "../../src/box/user";
+import { BOX_GIT_ENV, boxGitInitCommand } from "../../src/box/box-git";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import { backlogLayout } from "../story-store/backlog";
@@ -163,6 +165,24 @@ function folderBoxes(
           cpSync(staged.get(stage)!, folder(box), { recursive: true, force: true });
         }
         return { code: 0, stdout: "", stderr: "" };
+      }
+      // dipo's fixed script of the box's own git (DIPO-464), run by the real /bin/sh and git with
+      // the box's `/work` swapped for the box's folder.
+      if (command[0] === "/bin/sh" && command[3]?.startsWith("dipo-box-git") === true) {
+        const [shell, flag, script, ...rest] = command;
+        const ran = spawnSync(
+          shell,
+          [flag ?? "", (script ?? "").replaceAll("'/work'", `'${folder(box)}'`), ...rest],
+          {
+            env: {
+              PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+              HOME: folder(box),
+              ...BOX_GIT_ENV,
+            },
+            encoding: "utf8",
+          },
+        );
+        return { code: ran.status, stdout: ran.stdout, stderr: ran.stderr };
       }
       const [program, flag, dashes, ...paths] = command;
       if (program !== "rm" || flag !== "-f" || dashes !== "--") {
@@ -440,7 +460,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           {
             level: "warn",
             code: COLLISION_NOTICES.overlap,
-            text: "DIPO-1 and DIPO-2 are both in progress and change the same 1 file: src/shared.ts. Both continue; dipo merges the base into a story's branch and box only when git reports a conflict.",
+            text: "DIPO-1 and DIPO-2 are both in progress and change the same 1 file: src/shared.ts. Both continue; while they run, dipo merges the base into a story's branch and box only when git reports a conflict.",
           },
         ]);
         expect(w.told.map((t) => t.runId)).toEqual(["run_1", "run_2"]);
@@ -1032,36 +1052,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect((await w.repo.git("show", `${tip}:src/remote.ts`)).trim()).toBe("remote");
         expect((await w.repo.git("show", `${tip}:src/early.ts`)).trim()).toBe("early");
       }));
-
-    it("merges nothing when the base moved without a conflict, and merges and hands back a conflict", () =>
-      inWorld(async (w) => {
-        write(w.b.work, { "src/b.ts": "b\n" });
-        await handPart(w, w.b, "B adds b");
-        const before = await tipOf(w, w.b);
-        await onBase(w, { "docs/elsewhere.md": "elsewhere\n" });
-        expect(await w.collisions.mergeOnResume(w.b.run)).toEqual({ kind: "none" });
-        expect(await tipOf(w, w.b)).toBe(before);
-        expect(existsSync(join(w.b.work, "docs/elsewhere.md"))).toBe(false);
-        expect(w.copies).toEqual([]);
-        expect(w.recorded).toEqual([]);
-
-        const { onto: conflicting } = await conflictAndMerge(w);
-        const conflicted = await w.collisions.mergeOnResume(w.b.run);
-        expect(conflicted.kind).toBe("merged");
-        if (conflicted.kind !== "merged" || conflicted.item === null) throw new Error("no item");
-        expect(conflicted.merged.onto).toBe(conflicting);
-        expect(conflicted.item.text).toContain("Conflicted files: content: src/shared.ts");
-        expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toContain("<<<<<<< ");
-        // The caller tells the worker.
-        expect(w.told).toEqual([]);
-      }));
-
-    it("parks nothing itself and reports a stopped run", () =>
-      inWorld(async (w) => {
-        w.reviewing.add(w.b.run.runId);
-        expect(await w.collisions.mergeOnResume(w.b.run)).toEqual({ kind: "stopped" });
-        expect(w.parks).toEqual([]);
-      }));
   });
 
   describe("a merge dipo committed on the branch outside the box (DIPO-324)", () => {
@@ -1102,8 +1092,35 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           "backlog/tasks/dipo-1 - One.md": "---\nid: DIPO-1\nstatus: Done\n---\n",
         });
         const { from } = await slotMerge(w, w.b);
-        const copied = await w.collisions.copyPending(w.b.run, from);
+        // The box's own git repository (DIPO-346), with the worker's own work not committed.
+        const [shell, flag, script] = boxGitInitCommand();
+        const env = {
+          PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+          HOME: w.b.work,
+          ...BOX_GIT_ENV,
+        };
+        const inited = spawnSync(shell, [flag, script.replaceAll("'/work'", `'${w.b.work}'`)], {
+          env,
+          encoding: "utf8",
+        });
+        expect(inited.status).toBe(0);
+        write(w.b.work, { "src/b.ts": "b, still the worker's\n" });
+        const boxGit = (...args: string[]) =>
+          spawnSync("git", args, { cwd: w.b.work, env, encoding: "utf8" }).stdout.trim();
+        const start = boxGit("rev-parse", "HEAD");
+        const copied = await w.collisions.copyPending(w.b.run, from, "main");
         expect([...copied.written].toSorted()).toEqual(["assets/logo.png", "docs/README.md"]);
+        // The merge is a commit of its own in the box's git (DIPO-464): the base's changes in its
+        // log, only the worker's own work in its diff.
+        expect(boxGit("rev-parse", "HEAD^")).toBe(start);
+        expect(boxGit("log", "-1", "--format=%s")).toBe(`Merge main into ${w.b.run.branch}`);
+        // README.md was never in this box, so its removal changes nothing there.
+        expect(boxGit("show", "--name-only", "--format=", "HEAD").split("\n")).toEqual([
+          "assets/logo.png",
+          "docs/README.md",
+          "src/old.ts",
+        ]);
+        expect(boxGit("diff", "--name-only", "HEAD")).toBe("src/b.ts");
         expect([...copied.removed].toSorted()).toEqual(["README.md", "src/old.ts"]);
         expect(existsSync(join(w.b.work, "src/old.ts"))).toBe(false);
         expect(existsSync(join(w.b.work, "README.md"))).toBe(false);
@@ -1113,7 +1130,81 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(readFileSync(join(w.b.work, "backlog/tasks/dipo-1 - One.md"), "utf8")).toContain(
           "status: Ready",
         );
-        expect(readFileSync(join(w.b.work, "src/b.ts"), "utf8")).toBe("b\n");
+        // The worker's own change the merge did not touch stays as it was.
+        expect(readFileSync(join(w.b.work, "src/b.ts"), "utf8")).toBe("b, still the worker's\n");
+      }));
+
+    it("keeps a parked box's undelivered edit to a file the base changes: taken as a part before the merge, then merged (DIPO-464)", () =>
+      inWorld(async (w) => {
+        write(w.b.work, { "src/b.ts": "b\n" });
+        await handPart(w, w.b, "B adds b");
+        // The story parks mid-work: no session is live, and the box holds an edit no part took.
+        w.reviewing.add(w.b.run.runId);
+        write(w.b.work, { "src/shared.ts": lines({ 0: "one from the worker" }) });
+        await onBase(w, { "src/shared.ts": lines({ 6: "seven from the base" }) });
+        // Before the merge: the box's work becomes a part, though the run is not live.
+        const taken = await w.parts.deliverBeforeSession(w.b.run.runId, CATCH_UP_PART_MESSAGE);
+        expect(taken).toMatchObject({ kind: "committed", paths: ["src/shared.ts"] });
+        // Then the merge outside the box and its copy in: the worker's edit and the base's both stay.
+        const { from } = await slotMerge(w, w.b);
+        await w.collisions.copyPending(w.b.run, from, "main");
+        const box = readFileSync(join(w.b.work, "src/shared.ts"), "utf8");
+        expect(box).toContain("one from the worker");
+        expect(box).toContain("seven from the base");
+        expect(w.parks).toEqual([]);
+      }));
+
+    it("takes a part before the session only for that call: the run is not live after it, and an unknown run throws (DIPO-464)", () =>
+      inWorld(async (w) => {
+        w.reviewing.add(w.b.run.runId);
+        write(w.b.work, { "src/b.ts": "first\n" });
+        const taken = await w.parts.deliverBeforeSession(w.b.run.runId, CATCH_UP_PART_MESSAGE);
+        expect(taken).toMatchObject({ kind: "committed", paths: ["src/b.ts"] });
+        const tip = await tipOf(w, w.b);
+        // Afterwards the run is not live again: the door's next part stays queued in the box.
+        write(w.b.work, { "src/b.ts": "second\n" });
+        await expect(handPart(w, w.b, "Later")).rejects.toThrow();
+        expect(await tipOf(w, w.b)).toBe(tip);
+        await expect(
+          w.parts.deliverBeforeSession("run_unknown", CATCH_UP_PART_MESSAGE),
+        ).rejects.toThrow("run run_unknown is not known here.");
+      }));
+
+    it("copies nothing over a box file no part delivered, naming it, and the box keeps it (DIPO-464)", () =>
+      inWorld(async (w) => {
+        write(w.b.work, { "src/b.ts": "b\n" });
+        await handPart(w, w.b, "B adds b");
+        await onBase(w, {
+          "src/shared.ts": lines({ 6: "seven from the base" }),
+          "docs/new.md": "new\n",
+        });
+        const { from } = await slotMerge(w, w.b);
+        // An edit no part took, in a file the merge writes.
+        write(w.b.work, { "src/shared.ts": lines({ 0: "one, never handed over" }) });
+        await expect(w.collisions.copyPending(w.b.run, from, "main")).rejects.toMatchObject({
+          code: COPY_WOULD_OVERWRITE,
+          message: expect.stringContaining("1 file dipo's merge changes (src/shared.ts)"),
+        });
+        expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toContain(
+          "one, never handed over",
+        );
+        expect(existsSync(join(w.b.work, "docs/new.md"))).toBe(false);
+        expect(w.copies).toEqual([]);
+      }));
+
+    it("gives no part before the session while the box lacks an earlier merge, and the caller parks (DIPO-464)", () =>
+      inWorld(async (w) => {
+        w.reviewing.add(w.b.run.runId);
+        write(w.b.work, { "src/b.ts": "undelivered\n" });
+        const before = await tipOf(w, w.b);
+        w.behind.set(w.b.run.runId, "the box lacks dipo's merge");
+        const taken = await w.parts.deliverBeforeSession(w.b.run.runId, CATCH_UP_PART_MESSAGE);
+        expect(partPark(taken)).toEqual({
+          reason: "conflict",
+          detail: "the box lacks dipo's merge",
+        });
+        expect(await tipOf(w, w.b)).toBe(before);
+        expect(readFileSync(join(w.b.work, "src/b.ts"), "utf8")).toBe("undelivered\n");
       }));
 
     it("throws when the copy fails, and the box keeps its files", () =>

@@ -460,7 +460,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const told = notices(w).filter((n) => n.code === CONFLICT_NOTICES.inReview);
         expect(told).toHaveLength(1);
         expect(told[0]!.text).toBe(
-          `DIPO-1 is In Review, and main at ${"d".repeat(12)} conflicts with its branch in src/shared.ts. dipo merges the base at the story's next In Review, or when GitHub reports the conflict at its merge, and hands the conflict to its worker then.`,
+          `DIPO-1 is In Review, and main at ${"d".repeat(12)} conflicts with its branch in src/shared.ts. dipo merges the base into its branch now and hands the conflict to its worker in a fix round.`,
         );
         expect(baseConflictOf(office, w.key)).toMatchObject({
           base: "main",

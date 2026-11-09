@@ -2,11 +2,13 @@
 // and git on a folder that stands in for the box's `/work` (the script's only path is swapped for
 // it). The script makes a repository that shares nothing with the maintainer's: one commit of the
 // start state, its own identity, no hooks, no remote and no history, and it refuses a `/work` that
-// already holds a `.git` of any kind. The calls `BoxWorkers.create` makes are in workers.test.ts,
-// and the repository in a real box is in box-git.box.test.ts.
+// already holds a `.git` of any kind. A catch-up's commit (DIPO-464) runs the same way: only the
+// merged paths go into a commit of its own, so the worker's git diff shows only its own work. The
+// calls `BoxWorkers.create` makes are in workers.test.ts, and the repository in a real box is in
+// box-git.box.test.ts.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
@@ -15,12 +17,18 @@ import { cleanEnv, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
   BOX_GIT_BRANCH,
+  BOX_GIT_CATCH_UP_INDEX,
   BOX_GIT_ENV,
   BOX_GIT_EXISTS_EXIT,
   BOX_GIT_IDENTITY,
   BOX_GIT_START_SUBJECT,
+  BOX_PATH_MISSING,
+  boxBlobs,
+  boxGitCatchUpCommand,
   boxGitInitCommand,
+  commitInBoxRepository,
 } from "../../src/box/box-git";
+import type { BoxPort } from "../../src/box/port";
 import { BOX_WORKDIR } from "../../src/box/code";
 
 /** An environment like the box user's: a home of its own, plus what the script's env sets. */
@@ -122,4 +130,172 @@ describe("the box's own git repository", () => {
         expect(readdirSync(work).toSorted()).toEqual(before);
       }));
   }
+});
+
+/**
+ * The box interface's exec on the Mac for the catch-up commit's steps: the script's `/work` swapped
+ * for `work`, run by the real /bin/sh and git with the box user's environment.
+ */
+function localBox(work: string, home: string): Pick<BoxPort, "exec"> {
+  return {
+    exec: async (_box, command, options) => {
+      const [shell, flag, script, ...rest] = command;
+      const ran = spawnSync(
+        shell,
+        [flag ?? "", (script ?? "").replaceAll(`'${BOX_WORKDIR}'`, `'${work}'`), ...rest],
+        { env: { ...boxEnv(home), ...options?.env }, encoding: "utf8" },
+      );
+      return { code: ran.status, stdout: ran.stdout, stderr: ran.stderr };
+    },
+  };
+}
+
+/** git's blob id of `text`. */
+function blob(text: string): string {
+  return spawnSync("git", ["hash-object", "--stdin"], {
+    input: text,
+    encoding: "utf8",
+  }).stdout.trim();
+}
+
+describe("a catch-up's commit in the box's own git (DIPO-464)", () => {
+  it("is a fixed script with no path but /work, its paths and subject passed as argv", () => {
+    const command = boxGitCatchUpCommand("add", ["src/b.ts", "-rf"]);
+    expect(command.slice(0, 2)).toEqual(["/bin/sh", "-c"]);
+    expect(command.slice(3)).toEqual(["dipo-box-git", "add", "src/b.ts", "-rf"]);
+    const script = command[2] ?? "";
+    expect(script).toContain(`cd '${BOX_WORKDIR}'`);
+    expect(script).toContain('git update-index --add --remove -- "$@"');
+    expect([...new Set(script.match(/(?<![.\w])\/[A-Za-z][^\s'"]*/g))]).toEqual([BOX_WORKDIR]);
+  });
+
+  it("commits only the merged paths as a commit of its own, so git log shows the base and git diff only the worker's work", () =>
+    withTempDir(async (dir) => {
+      const work = join(dir, "work");
+      const home = join(dir, "home");
+      mkdirSync(home);
+      code(work);
+      writeFileSync(join(work, "src", "gone.ts"), "gone\n");
+      expect(init(work, home).status).toBe(0);
+      const start = git(work, home, "rev-parse", "HEAD").trim();
+      // The worker's own work, one file staged: stays out of dipo's commit.
+      writeFileSync(join(work, "src", "a.ts"), "export const a = 2;\n");
+      writeFileSync(join(work, "src", "mine.ts"), "mine\n");
+      git(work, home, "add", "src/mine.ts");
+      // dipo copied the merge in: a changed file, a new one, a removed one.
+      mkdirSync(join(work, "lib"));
+      writeFileSync(join(work, "lib", "base.ts"), "from the base\n");
+      writeFileSync(join(work, ".gitignore"), "node_modules/\n.env\ndist/\n");
+      rmSync(join(work, "src", "gone.ts"));
+      const commit = await commitInBoxRepository(
+        localBox(work, home),
+        "box",
+        "Merge main into DIPO-1/one",
+        [".gitignore", "lib/base.ts", "src/gone.ts"],
+      );
+      expect(commit).toMatch(/^[0-9a-f]{40}$/);
+      expect(git(work, home, "rev-parse", "HEAD").trim()).toBe(commit);
+      expect(git(work, home, "rev-parse", "HEAD^").trim()).toBe(start);
+      expect(git(work, home, "log", "-1", "--format=%s|%an").trim()).toBe(
+        `Merge main into DIPO-1/one|${BOX_GIT_IDENTITY.name}`,
+      );
+      expect(
+        git(work, home, "show", "--name-status", "--format=", "HEAD").trim().split("\n"),
+      ).toEqual(["M\t.gitignore", "A\tlib/base.ts", "D\tsrc/gone.ts"]);
+      // git diff (work tree against the index) and git diff HEAD: only the worker's own work.
+      expect(git(work, home, "diff", "--name-only").trim()).toBe("src/a.ts");
+      expect(git(work, home, "diff", "--name-only", "HEAD").trim().split("\n")).toEqual([
+        "src/a.ts",
+        "src/mine.ts",
+      ]);
+      expect(git(work, home, "status", "--porcelain").trim().split("\n")).toEqual([
+        "M src/a.ts",
+        "A  src/mine.ts",
+      ]);
+      expect(existsSync(join(work, BOX_GIT_CATCH_UP_INDEX))).toBe(false);
+    }));
+
+  it("takes odd file names as plain paths: a space, a quote, a newline, a leading dash, a command substitution", () =>
+    withTempDir(async (dir) => {
+      const work = join(dir, "work");
+      const home = join(dir, "home");
+      mkdirSync(home);
+      code(work);
+      expect(init(work, home).status).toBe(0);
+      const odd = [
+        "src/with space.ts",
+        "src/it's quoted.ts",
+        'src/"double".ts',
+        "src/new\nline.ts",
+        "-rf",
+        "--force",
+        "src/$(touch pwned).ts",
+        "src/`touch pwned2`.ts",
+      ];
+      for (const path of odd) writeFileSync(join(work, path), `${path}\n`);
+      const commit = await commitInBoxRepository(localBox(work, home), "box", "Merge main", odd);
+      expect(commit).toMatch(/^[0-9a-f]{40}$/);
+      const committed = git(work, home, "show", "-z", "--name-only", "--format=", "HEAD")
+        .split("\0")
+        .filter((path) => path !== "");
+      expect(committed.toSorted()).toEqual([...odd].toSorted());
+      // No name ran as a command or an option.
+      expect(existsSync(join(work, "pwned"))).toBe(false);
+      expect(existsSync(join(work, "src", "pwned"))).toBe(false);
+      expect(existsSync(join(work, "pwned2"))).toBe(false);
+      expect(existsSync(join(work, "src", "pwned2"))).toBe(false);
+      expect(existsSync(join(work, "src", "a.ts"))).toBe(true);
+      expect(git(work, home, "status", "--porcelain")).toBe("");
+    }));
+
+  it("reads each path's blob as /work holds it, odd names included, with no name in its output", () =>
+    withTempDir(async (dir) => {
+      const work = join(dir, "work");
+      const home = join(dir, "home");
+      mkdirSync(home);
+      code(work);
+      const odd = ["src/new\nline.ts", "-rf", "src/$(touch pwned).ts"];
+      for (const path of odd) writeFileSync(join(work, path), "same\n");
+      symlinkSync("a.ts", join(work, "src", "link.ts"));
+      const paths = [...odd, "src/a.ts", "src/link.ts", "src/gone.ts"];
+      const blobs = await boxBlobs(localBox(work, home), "box", paths);
+      for (const path of odd) expect(blobs.get(path)).toBe(blob("same\n"));
+      expect(blobs.get("src/a.ts")).toBe(blob("export const a = 1;\n"));
+      expect(blobs.get("src/link.ts")).toBe(blob("a.ts"));
+      expect(blobs.get("src/gone.ts")).toBe(BOX_PATH_MISSING);
+      expect(existsSync(join(work, "src", "pwned"))).toBe(false);
+      expect(existsSync(join(work, "pwned"))).toBe(false);
+    }));
+
+  it("commits nothing in a box without its repository, or for paths the merge left as they were", () =>
+    withTempDir(async (dir) => {
+      const work = join(dir, "work");
+      const home = join(dir, "home");
+      mkdirSync(home);
+      code(work);
+      const box = localBox(work, home);
+      expect(await commitInBoxRepository(box, "box", "Merge main", ["src/a.ts"])).toBe("none");
+      expect(existsSync(join(work, ".git"))).toBe(false);
+      expect(init(work, home).status).toBe(0);
+      const head = git(work, home, "rev-parse", "HEAD").trim();
+      expect(await commitInBoxRepository(box, "box", "Merge main", ["src/a.ts"])).toBe("same");
+      expect(await commitInBoxRepository(box, "box", "Merge main", [])).toBe("same");
+      expect(git(work, home, "rev-parse", "HEAD").trim()).toBe(head);
+    }));
+
+  it("throws when a step fails, and leaves HEAD where it was", () =>
+    withTempDir(async (dir) => {
+      const work = join(dir, "work");
+      const home = join(dir, "home");
+      mkdirSync(home);
+      code(work);
+      expect(init(work, home).status).toBe(0);
+      const head = git(work, home, "rev-parse", "HEAD").trim();
+      writeFileSync(join(work, "src", "a.ts"), "merged\n");
+      writeFileSync(join(work, ".git", "index.lock"), "");
+      await expect(
+        commitInBoxRepository(localBox(work, home), "box", "Merge main", ["src/a.ts"]),
+      ).rejects.toThrow("the catch-up commit in the box's git repository failed at add");
+      expect(git(work, home, "rev-parse", "HEAD").trim()).toBe(head);
+    }));
 });

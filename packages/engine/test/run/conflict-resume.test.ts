@@ -1,16 +1,14 @@
 // The resume of a `conflict` park of a box run (DIPO-324; 0020, 0002, 0008):
 // `ConflictResumes` on a migrated state database built from fixtures and a real git repository
-// with a bare remote under DIPO_TMP. The box merge of the live run (`BoxCollisions.mergeOnResume`,
-// tested in test/box/collisions.test.ts), telling the worker and parking are fakes that record
-// what they were asked:
+// with a bare remote under DIPO_TMP. Parking is a fake that records what it was asked:
 //
 // What git and the run's hand-offs say decides which case a resume is, never the park's detail:
 //
 // - a kept merge (its hand-offs failed at the conflict cap), with the base where it left it: the
 //   first message is the conflict item rebuilt from git (what is left unresolved, with its hunks at
 //   the tip), a new hand-off starts, and nothing is merged;
-// - a kept merge with a moved base: the same item, and once the session runs the base is merged
-//   again and the worker gets the new conflict item;
+// - a kept merge with a moved base: the same item, and the session's start merges the base again
+//   (`BaseCatchUps.beforeSession`, DIPO-464);
 // - commits only the remote branch holds (a rejected push): the remote is fetched, the first
 //   message names those commits (subject, author, files), and they are merged before the session
 //   and pushed, never forced, with the box copy left for the session's start;
@@ -32,8 +30,7 @@ import {
   withBareRemote,
 } from "@dipsaus-orchestrator/testkit";
 
-import type { SyncOutcome } from "../../src/box/collisions";
-import type { PartPark, PartRun } from "../../src/box/parts";
+import type { PartRun } from "../../src/box/parts";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
@@ -62,14 +59,8 @@ interface World {
   readonly conflicts: StoryConflicts;
   readonly resumes: ConflictResumes;
   readonly part: PartRun;
-  /** What the fake box merge returns, and the sources it was asked to merge. */
-  merge: SyncOutcome;
-  /** The box merges asked for once the session ran. */
-  readonly merges: number[];
   /** The status write-backs after a merge took the other side's task file. */
   readonly restored: number[];
-  readonly told: string[];
-  readonly livePark: PartPark[];
   readonly parked: { reason: string; detail: string }[];
 }
 
@@ -162,17 +153,6 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
     restoreStatus: async () => {
       self!.restored.push(1);
     },
-    merge: async () => {
-      self!.merges.push(1);
-      return self!.merge;
-    },
-    tell: async (_runId, text) => {
-      self!.told.push(text);
-    },
-    parkLive: (_runId, park) => {
-      self!.livePark.push(park);
-      return true;
-    },
     park: async (_office, _run, park) => {
       self!.parked.push(park);
     },
@@ -191,10 +171,6 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
       startSha,
       box: `dipo-${run}`,
     },
-    merge: { kind: "none" },
-    merges: [],
-    told: [],
-    livePark: [],
     parked: [],
     restored: [],
   };
@@ -237,7 +213,6 @@ describe("a conflict resume, from git's facts", () => {
       await onBranch(w, { "src/mine.ts": "mine\n" }, "Mine");
       const out = prepared(await w.resumes.prepare(w.part.office, runOf(w)));
       expect(out.message).toContain("nothing needs merging now");
-      expect(out.afterStart).toBeUndefined();
     }));
 
   it("lists at most the shown commits and files, counting the rest", () => {
@@ -276,7 +251,7 @@ describe("a merge the merge slot made outside the box (DIPO-324)", () => {
       await w.conflicts.recorded(w.part, merged("a".repeat(40), "b".repeat(40), true));
       await w.conflicts.recorded(w.part, merged("b".repeat(40), "c".repeat(40), true));
       const pending = pendingBoxCopy(office, w.f.run);
-      expect(pending).toEqual({ from: "a".repeat(40), ids: [2, 3] });
+      expect(pending).toEqual({ from: "a".repeat(40), ids: [2, 3], bases: ["main"] });
       office.immediate(() => markBoxCopied(office, w.f.run, pending!.ids));
       expect(pendingBoxCopy(office, w.f.run)).toBeNull();
     }));

@@ -603,6 +603,23 @@ describe("a crash (AC #3)", () => {
     expect(parks()[0]?.[1]).toContain("the next session did not start: the worker host");
     expectEnded("parked");
   });
+
+  it("a next session whose merge of a moved base parks it parks conflict with its detail (DIPO-464)", async () => {
+    w.nextOutcome = {
+      kind: "parked",
+      reason: "conflict",
+      detail: "git cannot merge main cleanly in paths the worker cannot write: .github/ci.yml",
+    };
+    track();
+    await ingestRecording("terminated");
+    expect(parks()).toEqual([
+      [
+        "conflict",
+        "git cannot merge main cleanly in paths the worker cannot write: .github/ci.yml",
+      ],
+    ]);
+    expectEnded("parked");
+  });
 });
 
 describe("a rejected init (AC #4)", () => {

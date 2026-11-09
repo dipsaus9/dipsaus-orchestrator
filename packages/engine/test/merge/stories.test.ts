@@ -155,6 +155,31 @@ describe("an approved merge gate", () => {
     expect(s.git.calls).toHaveLength(4);
   });
 
+  it("squash-merges a head that holds dipo's merge of the base with the PR title as its subject and the pushed head (DIPO-464)", async () => {
+    s = await storyWorld();
+    // The reviewed head H1 is dipo's clean merge of the base before a fix round's session.
+    s.w.office.immediate(() =>
+      recordCatchUp(
+        s.w.office,
+        s.run,
+        {
+          kind: "merged",
+          base: "main",
+          onto: "b".repeat(40),
+          tip: "a".repeat(40),
+          commit: H1,
+          conflicts: [],
+          boxCopy: "pending",
+        },
+        s.w.t.clock.now(),
+      ),
+    );
+    await toArmed();
+    expect(s.host.subjects).toEqual([TITLE]);
+    expect(s.host.armedAt).toEqual([{ number: PR, head: C1 }]);
+    expect(s.git.calls).not.toContain(`conflictMerge ${BRANCH}`);
+  });
+
   it("does not turn auto-merge on when the push failed, and says why", async () => {
     s = await storyWorld();
     s.git.pushAnswer = { ok: false, detail: "the remote refused" };
