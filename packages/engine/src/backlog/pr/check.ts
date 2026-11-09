@@ -191,6 +191,11 @@ function notMergedWhileParked(change: TaskChange, facts: PrFacts): string | null
       ? "its field block on the base names no branch"
       : "dipo does not know the PR's base";
   }
+  // The branch is the story's own (0012 F15, `<ID>/<slug>`): another story's PR that rewrote this
+  // field block cannot make its own merge count for this story.
+  if (!branch.startsWith(`${change.id}/`)) {
+    return `its field block on the base names the branch ${branch}, which is not one of ${change.id}`;
+  }
   const answer = decideDone({ claim: { branch, base }, pr: fact.pr, baseStatus: "Parked" });
   return answer === "merged"
     ? null

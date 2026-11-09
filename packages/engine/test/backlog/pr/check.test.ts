@@ -353,6 +353,8 @@ async function decide(
     readonly prs?: Readonly<Record<string, HostPr | Error | null>>;
     readonly prBase?: string | null;
     readonly host?: boolean;
+    /** The base tip; null is one dipo could not read. */
+    readonly base?: string | null;
   },
 ): Promise<{ readonly transitions: [string, string][]; readonly asked: string[] }> {
   const asked: string[] = [];
@@ -384,7 +386,7 @@ async function decide(
   const merged = await mergedWhileParkedFacts({
     git,
     diff,
-    base: BASE_COMMIT,
+    base: options.base === undefined ? BASE_COMMIT : options.base,
     host: options.host === false ? null : host,
     repo: "o/r",
   });
@@ -474,6 +476,36 @@ describe("checkBacklogPr: Parked to Done of a story whose PR merged while it was
     ]) {
       expect(refusedIds(outcome)).toEqual(["TASK-1"]);
     }
+  });
+
+  it("refuses when dipo cannot read the base's tip, without asking git or the host", async () => {
+    const outcome = await decide([parkedToDone("TASK-1")], {
+      last: { "TASK-1": MERGE },
+      prs: { [MERGE]: hostPr() },
+      base: null,
+    });
+    expect(outcome.transitions).toEqual([
+      [
+        "TASK-1",
+        "TASK-1 moves from Parked to Done, which a backlog PR may not do (0012): only a story whose own PR merged while it was parked may, and dipo could not read the commit the PR's base branch is at",
+      ],
+    ]);
+    expect(outcome.asked).toEqual([]);
+  });
+
+  it("refuses when the base-side field block names another story's branch", async () => {
+    // Story TASK-1's PR rewrote TASK-2's field block to TASK-1's branch and parked it: TASK-1's
+    // merge must not count for TASK-2.
+    const outcome = await decide([parkedToDone("TASK-2", "TASK-1/add-csv")], {
+      last: { "TASK-2": MERGE },
+      prs: { [MERGE]: hostPr() },
+    });
+    expect(outcome.transitions).toEqual([
+      [
+        "TASK-2",
+        "TASK-2 moves from Parked to Done, which a backlog PR may not do (0012): only a story whose own PR merged while it was parked may, and its field block on the base names the branch TASK-1/add-csv, which is not one of TASK-2",
+      ],
+    ]);
   });
 
   it("refuses when the host fails or times out (fail closed)", async () => {
