@@ -116,14 +116,18 @@ function findingLines(review: ReviewVerdict, ascii: boolean): SegLine[] {
   for (const finding of review.findings) {
     const place = findingPlace(finding);
     const role = finding.severity === "blocking" ? "err" : "acc";
-    out.push(BLANK, [
-      seg("!    ", role),
-      seg(`${finding.severity} · ${finding.kind}`, role),
-      seg(
-        `${place === "" ? "" : ` · ${place}`}${finding.unverified === true ? " · unverified" : ""}`,
-        "dim",
-      ),
-    ]);
+    const head = `${finding.severity} · ${finding.kind}`;
+    const tail = `${place === "" ? "" : ` · ${place}`}${finding.unverified === true ? " · unverified" : ""}`;
+    // The header wraps like the text: a long path keeps its place and its `unverified` mark.
+    out.push(BLANK);
+    wrapWords(head + tail, READER_MEASURE - 5).forEach((row, i) => {
+      const lead = seg(i === 0 ? "!    " : "     ", role);
+      out.push(
+        i === 0
+          ? [lead, seg(row.slice(0, head.length), role), seg(row.slice(head.length), "dim")]
+          : [lead, seg(row, "dim")],
+      );
+    });
     out.push(...hanging([seg("     ")], READER_MEASURE, finding.text));
     if (finding.quote !== undefined) {
       for (const row of wrapWords(finding.quote, READER_MEASURE - 8)) {

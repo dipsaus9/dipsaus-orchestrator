@@ -7,7 +7,7 @@ import { describe, expect, it } from "bun:test";
 import { Verdict } from "@dipsaus-orchestrator/contract";
 
 import { lineText } from "./segments";
-import { nextOpen, READER_MEASURE, reviewLines } from "./story-card";
+import { nextOpen, reviewLines } from "./story-card";
 
 const LONG = Array.from({ length: 30 }, (_, i) => `word${i}`).join(" ");
 const QUOTE = `const value = ${"x".repeat(150)};`;
@@ -56,11 +56,39 @@ const text = (open: readonly number[]) =>
 describe("the story reader's Reviews section", () => {
   it("wraps long findings, criteria and quotes at 84 columns and truncates nothing", () => {
     const rows = text([]);
-    expect(Math.max(...rows.map((row) => row.length))).toBeLessThanOrEqual(READER_MEASURE);
+    expect(Math.max(...rows.map((row) => row.length))).toBeLessThanOrEqual(84);
     // Every word of the long text is still there after the wrap.
     const joined = rows.join(" ").replace(/\s+/g, " ");
     for (let i = 0; i < 30; i++) expect(joined).toContain(`word${i}`);
     expect(rows.join("").replace(/[^x]/g, "").length).toBe(150);
+  });
+
+  it("wraps a finding header with a repo-length path and keeps its place and mark", () => {
+    const file = `packages/engine/test/overview/${"deep/".repeat(8)}story-diff.test.ts`;
+    const long = Verdict.array().parse([
+      {
+        ...round(1, "aaaaaaa1111"),
+        review: {
+          ...round(1, "aaaaaaa1111").review,
+          findings: [
+            {
+              severity: "blocking",
+              kind: "correctness",
+              criterion: 2,
+              file,
+              line: 120,
+              text: "t",
+              unverified: true,
+            },
+          ],
+        },
+      },
+    ]);
+    const rows = reviewLines(long, [], false).map((line) => lineText(line));
+    expect(Math.max(...rows.map((row) => row.length))).toBeLessThanOrEqual(84);
+    const joined = rows.join("").replace(/\s+/g, "");
+    expect(joined).toContain(`${file}:120`);
+    expect(joined).toContain("unverified");
   });
 
   it("opens the newest round and folds the earlier ones to one line", () => {
