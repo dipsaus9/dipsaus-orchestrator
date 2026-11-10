@@ -1,10 +1,10 @@
 ---
 id: DIPO-461
 title: 'TUI v2: the run stream as a readable table with folded thinking'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-10 08:11'
+updated_date: '2026-11-10 08:13'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -58,7 +58,7 @@ test_plan:
 - [x] #6 The Run screen and the steer prompt match the HTML preview's S3 and S7. The screens must match `docs/design/tui-v2/designs/dipo-ux-spec.html` exactly; the text mocks in `screens/` are the same screens in text
 - [x] #7 v switches the stream filter on the Run, and tab stays next pane
 - [x] #8 says and verdict lines are bright (hi)
-- [ ] #9 Finished stream lines render with Ink Static, so they never re-render
+- [x] #9 Finished stream lines render with Ink Static, so they never re-render
 <!-- AC:END -->
 
 ## Implementation Notes
