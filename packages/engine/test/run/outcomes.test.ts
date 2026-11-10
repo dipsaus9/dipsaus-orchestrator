@@ -22,7 +22,15 @@ import {
   readRecording,
 } from "@dipsaus-orchestrator/testkit";
 
-import { CAP_REFUSAL } from "../../src/box/model-proxy";
+import {
+  BOX_PLACEHOLDER_API_KEY,
+  CAP_REFUSAL,
+  type ListenHttp,
+  type ProxyHandler,
+  startModelProxy,
+} from "../../src/box/model-proxy";
+import { proxiedUsageLedger } from "../../src/records/proxied-usage";
+import { fakeContainer } from "../box/fake-container";
 import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { appendEntries } from "../../src/changelog/log";
 import { OFFICE_DEFAULTS } from "../../src/config";
@@ -56,6 +64,7 @@ import {
 } from "../../src/records";
 import { sendFeedback } from "../../src/run/feedback";
 import { intentPark, parkIntentDetail } from "../../src/run/outcome-types";
+import { recordAgent } from "../../src/records/agents";
 import { recordProxyRefusal } from "../../src/records/proxy-refusals";
 import { recordWorkerHost } from "../../src/records/worker-hosts";
 import { addStory } from "../../src/records/story-keys";
@@ -938,6 +947,63 @@ describe("a 429 the model proxy sent at a run's token cap (DIPO-484)", () => {
     expect(w.paused).toHaveLength(1);
     expect(parks().map((park) => park[0])).toEqual(["worker-failed"]);
     expect(parks()[0]?.[1]).not.toContain(CAP_REFUSAL);
+  });
+});
+
+describe("a 429 the model proxy did not send (fail closed, DIPO-484)", () => {
+  it("the real proxy passes an upstream 429 and records no refusal, so the real interpreter's 429 turn pauses the office", async () => {
+    track();
+    const BOX = "192.0.2.20";
+    w.f.office.immediate(() =>
+      recordAgent(w.f.office, {
+        agentId: w.f.agent,
+        runId: w.f.run,
+        role: "developer",
+        model: "haiku",
+        startedAt: w.f.t.clock.now(),
+      }),
+    );
+    let handler: ProxyHandler | null = null;
+    const listen: ListenHttp = (options) => {
+      handler = options.fetch;
+      return { port: 4000, stop: async () => {} };
+    };
+    const security = fakeContainer((args) =>
+      args[0] === "find-generic-password"
+        ? { stdout: "fake-box-login-for-tests-0123456789\n" }
+        : undefined,
+    );
+    await startModelProxy({
+      network: { hostAddress: "192.0.2.1" },
+      ledger: proxiedUsageLedger({
+        owner: (address) =>
+          address === BOX ? { office: w.f.office.officeId, run: w.f.run, agent: w.f.agent } : null,
+        office: (office) => (office === w.f.office.officeId ? w.f.office : undefined),
+        clock: w.f.t.clock,
+      }),
+      keychain: { spawn: security.spawn, clock: new ManualClock(), env: { PATH: "/usr/bin:/bin" } },
+      listen,
+      upstream: "https://model.example",
+      fetch: async () => new Response("rate limited", { status: 429 }),
+    });
+    if (handler === null) throw new Error("the proxy did not listen");
+    const handle: ProxyHandler = handler;
+    const response = await handle(
+      new Request("http://192.0.2.1:4000/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": BOX_PLACEHOLDER_API_KEY },
+        body: JSON.stringify({ model: "claude-haiku-5-5" }),
+      }),
+      BOX,
+    );
+    expect(response.status).toBe(429);
+    expect(w.f.office.all("select * from proxy_refusals where office_id = $office_id")).toEqual([]);
+    // The worker's turn ends by that 429: nothing the proxy recorded says otherwise.
+    await ingestRecording("plan-limit-429");
+    expect(w.paused.map((entry) => entry.pause.detail)).toEqual([
+      "plan limit (no reset time given)",
+    ]);
+    expect(parks().map((park) => park[0])).toEqual(["worker-failed"]);
   });
 });
 
