@@ -70,7 +70,7 @@ describe("the footer registry", () => {
       "q q quit",
     ]);
     expect(line("queue", 100)).toMatch(
-      /^↑↓ move   ⏎ story   r run   \. show done   c copy id +: commands   \? keys   O offices   q q quit$/,
+      /^↑↓ move   ⏎ story   r run   space mark   \. show done +: commands   \? keys   O offices   q q quit$/,
     );
     expect(line("switcher", 100)).toMatch(/^↑↓ move   ⏎ open   a new path +esc back   q q quit$/);
     expect(line("switcher", 100)).toHaveLength(100);
@@ -201,6 +201,8 @@ describe("the key table of DIPO-479", () => {
   it("is held by keymap.json", () => {
     expect(entries.get("plan")).toBe("5");
     expect(entries.get("runNow")).toBe("r");
+    expect(entries.get("markReady")).toBe("space");
+    expect(entries.get("queueReady")).toBe("Y");
     expect(entries.get("discussPlan")).toBe("d");
     expect(entries.get("planSend")).toBe("⏎");
     expect(entries.get("planNewLine")).toBe("shift-⏎");

@@ -699,6 +699,167 @@
       },
       "required": ["story", "key"]
     },
+    "story.ready.args": {
+      "type": "object",
+      "properties": {
+        "stories": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": ["stories"]
+    },
+    "story.ready.result": {
+      "type": "object",
+      "properties": {
+        "queued": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "refused": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "story": {
+                "type": "string"
+              },
+              "messages": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["story", "messages"]
+          }
+        },
+        "flush": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "opened"
+                },
+                "branch": {
+                  "type": "string"
+                },
+                "pr": {
+                  "type": "string"
+                }
+              },
+              "required": ["state", "branch", "pr"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "updated"
+                },
+                "branch": {
+                  "type": "string"
+                },
+                "pr": {
+                  "type": "string"
+                }
+              },
+              "required": ["state", "branch", "pr"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "pushed"
+                },
+                "branch": {
+                  "type": "string"
+                }
+              },
+              "required": ["state", "branch"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "merged"
+                }
+              },
+              "required": ["state"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "held"
+                },
+                "branch": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": ["state", "branch", "reason"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "waiting"
+                },
+                "branch": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": ["state", "reason"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "failed"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": ["state", "reason"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "closed"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": ["state", "reason"]
+            }
+          ]
+        }
+      },
+      "required": ["queued", "refused"]
+    },
     "gate.approve.args": {
       "type": "object",
       "properties": {

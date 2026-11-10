@@ -555,6 +555,9 @@
             "required": ["rule", "message", "text"]
           }
         },
+        "gatePasses": {
+          "type": "boolean"
+        },
         "pr": {
           "type": "object",
           "properties": {
@@ -1259,6 +1262,9 @@
                   },
                   "required": ["rule", "message", "text"]
                 }
+              },
+              "gatePasses": {
+                "type": "boolean"
               },
               "pr": {
                 "type": "object",

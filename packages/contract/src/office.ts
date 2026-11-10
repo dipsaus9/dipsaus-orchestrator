@@ -586,6 +586,29 @@ export const planningReady = defineCommand({
   irreversible: false,
 });
 
+// Sets Refined stories Ready (DIPO-482, 0012): the maintainer's own command, from the Queue and
+// `dipo ready`, for any story the office has on the base; ids are matched without case. For each,
+// dipo evaluates the Ready gate against the story as the base branch holds it and stores the
+// decision; one that passes is set Ready through the planning lane, in a backlog PR other than the
+// one that filed it, and is listed in `queued`; one that fails, or is not Refined, or has an edit
+// still waiting in the lane, stays as it is and is listed in `refused` with the reasons. `flush`
+// says what the lane's flush did, with the backlog PR the queued ones wait on. Errors, changing
+// nothing: `story.unknown` (an id that names no story, an archived one included),
+// `story.draft` (a `DRAFT-n` id: promote it first), `story.ambiguous` and `planning.notFiled` (the
+// office has no backlog lane yet).
+export const storyReady = defineCommand({
+  name: "story.ready",
+  level: "office",
+  args: z.object({ stories: z.array(z.string().min(1)).min(1) }),
+  result: z.object({
+    queued: z.array(z.string()),
+    refused: z.array(z.object({ story: z.string(), messages: z.array(z.string()) })),
+    flush: LaneFlush.optional(),
+  }),
+  confirm: false,
+  irreversible: false,
+});
+
 // Reads
 
 const OfficeArgs = z.object({ office: OfficeId });
@@ -1437,6 +1460,7 @@ export const officeCommands = [
   workDiscard,
   storyPark,
   storyDrop,
+  storyReady,
   gateApprove,
   gateReject,
   ideaAccept,

@@ -35,6 +35,7 @@ import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
 import { PROFILE_SUBCOMMANDS } from "./profile-commands";
 import { nextCommand } from "./next-command";
+import { readyCommand } from "./ready-command";
 import { ideaCommand, noteCommand } from "./idea-command";
 import { runCommand } from "./run-command";
 import { steerCommand } from "./intervene-commands";
@@ -158,6 +159,10 @@ Usage:
                     by-maintainer with your note: a running worker is stopped
                     first, and branch and box are kept; nothing picks it up
                     until you resume it
+  dipo ready <id>... [--office <id>]
+                    set Refined stories Ready: each one that passes the Ready
+                    gate goes into a backlog PR and prints the PR it waits on;
+                    each one refused prints the gate's messages (exit 1)
   dipo resume <id> [--note <text>] [--budget +<n>%|+<tokens>] [--yes] [--office <id>]
                     resume a parked story as its park reason says: a question
                     needs its answer as the note, review-blocked a note with a
@@ -436,6 +441,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "park") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return parkCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "ready") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return readyCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "drop") {
     const { version } = versionInfo(deps.stamp, deps.runtime);

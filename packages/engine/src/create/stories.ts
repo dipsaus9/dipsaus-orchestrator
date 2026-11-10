@@ -211,12 +211,18 @@ function holdsOf(core: Core, partners: EnginePartners): AdapterPauses {
  * operations, the story PR closed through the code host and the claim released with the office
  * git; a story with a run parks through run control, in the run services.
  */
-function planningOf(core: Core, partners: EnginePartners, lane: BacklogLane): StoryPlanning {
+function planningOf(
+  core: Core,
+  partners: EnginePartners,
+  lane: BacklogLane,
+  gates: GateStore,
+): StoryPlanning {
   return new StoryPlanning(
     storyPlanningDeps(
       {
         stories: core.stories,
         lane: (office) => lane.planning(office),
+        gate: () => gates,
         git: core.gitOf,
         host: core.host,
         implemented: core.implemented,
@@ -247,6 +253,15 @@ export function buildStoryServices(core: Core, partners: EnginePartners): StoryS
     onChanged: core.onChanged,
   });
   const storyIndex = storyIndexOf(core, backlogPrs);
+  // The Ready gate (DIPO-71): the read `story.gate` and stored decisions, read on `_base`.
+  const gates = new GateStore({
+    git: core.engineGit,
+    stories: core.stories,
+    offices: core.offices,
+    clock: core.deps.clock,
+    ids: core.ids,
+    index: storyIndex,
+  });
   return {
     claims,
     storyPrs,
@@ -254,18 +269,10 @@ export function buildStoryServices(core: Core, partners: EnginePartners): StoryS
     lane,
     officeInit,
     storyIndex,
-    // The Ready gate (DIPO-71): the read `story.gate` and stored decisions, read on `_base`.
-    gates: new GateStore({
-      git: core.engineGit,
-      stories: core.stories,
-      offices: core.offices,
-      clock: core.deps.clock,
-      ids: core.ids,
-      index: storyIndex,
-    }),
+    gates,
     holds: holdsOf(core, partners),
     runBase: storyRunBase({ git: core.gitOf, stories: core.stories }),
-    planning: planningOf(core, partners, lane),
+    planning: planningOf(core, partners, lane, gates),
     autoMergeGuard,
   };
 }

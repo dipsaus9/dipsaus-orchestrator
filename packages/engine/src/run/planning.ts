@@ -36,6 +36,7 @@ import {
   type StoryKey,
   storyDrop,
   storyPark,
+  storyReady,
   storyLosses,
   type StoryView,
 } from "@dipsaus-orchestrator/contract";
@@ -54,12 +55,13 @@ import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
 import { type CodeHost, CodeHostError } from "../platform/host";
 import type { ProcessProbe, SignalProcess } from "../platform/process";
+import { type PlanningGate, readyStories, type ReadyIdentity } from "./ready-stories";
 import { openPark, openParkIds, parkActions, resolvePark } from "./park";
 import { insertPark } from "../run-state/park-records";
 import type { ParkStore } from "../records/park-state";
 import { activeRuns } from "../records/run-records";
 import { liveRunHostsText, stopHostsOfEndedRun } from "../records/worker-hosts";
-import type { StoryIdentity } from "../records/story-keys";
+import { isProvisionalId, resolveStoryRef, type StoryIdentity } from "../records/story-keys";
 import { latestStoryPr, setStoryPrState } from "../records/story-prs";
 import { LIVE_CLAIM_REFUSAL, PlanningRefusedError } from "../story-store/errors";
 import { DROP_KIND, type PlanningLane } from "../story-store/planning";
@@ -89,6 +91,8 @@ export interface StoryPlanningDeps {
   /** The office's planning lane (0010), through the StoryStore seam. */
   readonly lane: (office: OfficeHandle["officeId"]) => PlanningLane | undefined;
   readonly git: (office: OfficeHandle["officeId"]) => OfficeGit | undefined;
+  /** The office's Ready gate, which `story.ready` evaluates and stores (DIPO-482). */
+  readonly gate?: (office: OfficeHandle["officeId"]) => PlanningGate | undefined;
   /** The code host the open story PR is closed on. */
   readonly host: Pick<CodeHost, "closePr">;
   /** The commands the engine registered, for the `actions` of `story.parked`. */
@@ -107,6 +111,8 @@ export interface StoryPlanningDeps {
 type StoryResult = { story: StoryId; key: StoryKey };
 type ParkArgs = z.output<typeof storyPark.args>;
 type ParkResult = z.input<typeof storyPark.result>;
+type ReadyArgs = z.output<typeof storyReady.args>;
+type ReadyResult = z.input<typeof storyReady.result>;
 type DropArgs = z.output<typeof storyDrop.args>;
 type LossesArgs = z.output<typeof storyLosses.args>;
 type LossesResult = {
@@ -143,6 +149,10 @@ export class StoryPlanning {
         registry.addAsyncOfficeCommand({
           definition: storyDrop,
           handle: (ctx, args) => this.drop(ctx, args),
+        });
+        registry.addAsyncOfficeCommand({
+          definition: storyReady,
+          handle: (ctx, args) => this.ready(ctx, args),
         });
         registry.addAsyncRead({
           definition: storyLosses,
@@ -209,6 +219,66 @@ export class StoryPlanning {
       return [...found.values()];
     });
     return { story, key, commits };
+  }
+
+  // ---- ready ---------------------------------------------------------------------------------
+
+  /**
+   * `story.ready` (DIPO-482): sets each named Refined story that passes the Ready gate Ready
+   * through the lane, by the one function `planning.ready` uses (`readyStories`). Every id is
+   * resolved first, so an unknown, archived or draft id changes nothing; a story that is not
+   * Refined, or fails the gate, is refused alone and the others still go.
+   */
+  async ready(ctx: AsyncCommandContext, args: ReadyArgs): Promise<CommandOutcome<ReadyResult>> {
+    const office = ctx.office;
+    const lane = this.#deps.lane(office.officeId);
+    const gate = this.#deps.gate?.(office.officeId);
+    if (lane === undefined || gate === undefined) {
+      throw new CommandError(
+        "planning.notFiled",
+        "This office has no backlog lane yet, so nothing can be set Ready; try again once it loaded.",
+      );
+    }
+    const chosen: ReadyIdentity[] = [];
+    const refused: ReadyResult["refused"] = [];
+    for (const ref of args.stories) {
+      const id = ref.startsWith("sto_") ? ref : ref.toUpperCase();
+      if (isProvisionalId(id)) {
+        throw new CommandError(
+          "story.draft",
+          `${id} is a draft; promote it to a story before it can be set Ready.`,
+          { story: id },
+        );
+      }
+      const found = resolveStoryRef(office, id);
+      const view = found.ok ? storyView(office, found.key) : null;
+      if (!found.ok || view === null || view.lifecycle === "Removed") {
+        if (found.ok || found.error.code === "story.unknown") {
+          throw new CommandError("story.unknown", `No story has the id ${id}.`, { story: id });
+        }
+        throw new CommandError(found.error.code, found.error.message, found.error.details);
+      }
+      if (chosen.some((other) => other.story === found.story)) continue;
+      if (refused.some((other) => other.story === found.story)) continue;
+      if (view.lifecycle !== "Refined") {
+        refused.push({
+          story: found.story,
+          messages: [`${found.story} is ${view.lifecycle}; only a Refined story is set Ready.`],
+        });
+      } else {
+        chosen.push({ story: found.story, key: found.key });
+      }
+    }
+    const batch = await readyStories({ office, lane, gate }, chosen);
+    const flush = batch.last === undefined ? null : await lane.flush(batch.last);
+    return {
+      result: {
+        queued: batch.queued,
+        refused: [...refused, ...batch.refused],
+        ...(flush === null ? {} : { flush }),
+      },
+      changed: batch.queued.length > 0,
+    };
   }
 
   // ---- park ----------------------------------------------------------------------------------

@@ -7,6 +7,7 @@
 // chain. Everything in the preview is what the engine sent (`story.gate`, `office.chain`). `.`
 // shows the Done stories (N). Rows are cut to the width.
 
+import type { ReadyLine } from "@dipsaus-orchestrator/client";
 import type { StoryView } from "@dipsaus-orchestrator/contract";
 import { Box } from "ink";
 
@@ -61,6 +62,9 @@ export function doneCount(stories: readonly StoryView[]): number {
   return stories.filter((story) => story.column === "done").length;
 }
 
+/** Marked Refined rows, by story key: the stories `Y` sets Ready (DIPO-482). */
+export type Marks = ReadonlySet<string>;
+
 /** The first failed Ready gate rule's text of a Refined story; the message when no rule gave one. */
 function gateReason(view: StoryView): string {
   const failure = view.gateFailures?.[0];
@@ -90,6 +94,8 @@ function reasonSpans(row: QueueRow, layout: Layout, chain: Chain, ascii: boolean
     return [{ text: "needs ", role: "dim" }, ...needsSpans(view.waitingOn ?? [], chain, ascii)];
   }
   if (row.group === "refined") {
+    // The gate's stored verdict (DIPO-482): it passes, or the first failure in plain words.
+    if (view.gatePasses === true) return [{ text: "gate passes", role: "ok" }];
     const ellipsis = glyphs(ascii).ellipsis;
     return [{ text: truncate(gateReason(view), layout.reasonWidth, ellipsis), role: "dim" }];
   }
@@ -100,10 +106,11 @@ function reasonSpans(row: QueueRow, layout: Layout, chain: Chain, ascii: boolean
 function rowSpans(
   row: QueueRow,
   layout: Layout,
-  selected: boolean,
+  state: { readonly selected: boolean; readonly marked: boolean },
   chain: Chain,
   display: Display,
 ): Span[] {
+  const { selected, marked } = state;
   const g = glyphs(display.ascii);
   const { view } = row;
   const glyph: Span =
@@ -112,13 +119,15 @@ function rowSpans(
       : row.group === "waiting"
         ? { text: g.idle, role: "acc" }
         : row.group === "refined"
-          ? { text: g.failed, role: "err" }
+          ? view.gatePasses === true
+            ? { text: g.met, role: "ok" }
+            : { text: g.failed, role: "err" }
           : { text: g.met, role: "dim" };
   const reason = cutSpans(reasonSpans(row, layout, chain, display.ascii), layout.reasonWidth);
   const title = truncate(view.title, layout.titleWidth - 1, g.ellipsis).padEnd(layout.titleWidth);
   return [
     { text: selected ? g.bar : " ", role: "acc" },
-    { text: " " },
+    { text: marked ? g.live : " ", role: "acc" },
     glyph,
     { text: " " },
     { text: String(view.story).padEnd(layout.idWidth + 2), role: "dim" },
@@ -143,6 +152,7 @@ function listLines(options: {
   display: Display;
   showDone: boolean;
   doneTotal: number;
+  marks: Marks;
 }): ListLine[] {
   const { rows, layout, display } = options;
   const lines: ListLine[] = [];
@@ -163,7 +173,16 @@ function listLines(options: {
       lines.push({
         key: String(row.view.key),
         row: index,
-        spans: rowSpans(row, layout, index === options.selected, options.chain, display),
+        spans: rowSpans(
+          row,
+          layout,
+          {
+            selected: index === options.selected,
+            marked: options.marks.has(String(row.view.key)),
+          },
+          options.chain,
+          display,
+        ),
       });
     }
   }
@@ -333,6 +352,10 @@ export function Queue(props: {
   gate: GateFacts | null | undefined;
   showDone: boolean;
   doneTotal: number;
+  /** The rows marked with space. */
+  marks: Marks;
+  /** What `story.ready` answered, one line per story, under the list. */
+  result: readonly ReadyLine[];
 }) {
   const { rows, selected, display, chain, gate } = props;
   const width = props.columns - 1;
@@ -346,8 +369,11 @@ export function Queue(props: {
     display,
     showDone: props.showDone,
     doneTotal: props.doneTotal,
+    marks: props.marks,
   });
-  const shown = windowOf(list, Math.max(1, props.height), selected);
+  const resultSpans = resultLines(props.result, display, width);
+  const listHeight = Math.max(1, props.height - resultSpans.length);
+  const shown = windowOf(list, listHeight, selected);
   const chosen = rows[selected];
   const previewWidth = Math.max(0, width - LIST_WIDTH - 3);
   const preview =
@@ -360,7 +386,7 @@ export function Queue(props: {
       {rows.length === 0 && props.doneTotal === 0 ? (
         <SpanLine spans={[{ text: " The queue is empty.", role: "dim" }]} display={display} />
       ) : null}
-      {Array.from({ length: Math.max(1, props.height) }, (_, i) => {
+      {Array.from({ length: listHeight }, (_, i) => {
         const line = shown[i];
         const left = line === undefined ? [] : line.spans;
         const right = preview[i] ?? [];
@@ -391,6 +417,37 @@ export function Queue(props: {
           />
         );
       })}
+      {resultSpans.map((spans, i) => (
+        <SpanLine key={`result:${i}`} spans={spans} display={display} />
+      ))}
     </Box>
   );
+}
+
+/** At most this many result lines show; the rest is counted. */
+const RESULT_LINES = 6;
+
+/** The result of the last set-Ready: a heading and one line per story, cut to the width. */
+function resultLines(result: readonly ReadyLine[], display: Display, width: number): Span[][] {
+  if (result.length === 0) return [];
+  const g = glyphs(display.ascii);
+  const shown = result.slice(0, RESULT_LINES);
+  const lines: Span[][] = [
+    [{ text: " SET READY", role: "hi", bold: true }],
+    ...shown.map((line): Span[] =>
+      cutSpans(
+        [
+          { text: " " },
+          line.state === "queued" ? { text: g.met, role: "ok" } : { text: g.failed, role: "err" },
+          { text: ` ${line.story}  `, role: "dim" },
+          { text: line.state === "queued" ? line.text : `refused: ${line.text}` },
+        ],
+        width,
+      ),
+    ),
+  ];
+  if (result.length > shown.length) {
+    lines.push([{ text: ` and ${result.length - shown.length} more`, role: "dim" }]);
+  }
+  return lines;
 }

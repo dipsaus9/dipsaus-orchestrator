@@ -50,4 +50,5 @@ export { markerRule } from "./marker-text";
 export { byteLength, outputPieces, textFrom } from "./output-range";
 export type { OutputRange } from "./output-range";
 export { storyRef } from "./story-ref";
+export { type ReadyLine, type ReadyResult, readyLines, readyWaitingText } from "./ready-text";
 export { percent, resetText, usageParts, usageTokens, usageWindowText } from "./usage-text";

@@ -320,6 +320,9 @@ export const StoryView = z.object({
   // its rule id. A message no rule gave (a pickup check that could not size the story) is only in
   // `gateMessages`.
   gateFailures: z.array(StoryGateFailure).optional(),
+  // (DIPO-482): the story's latest Ready gate decision approved it; set for a Refined story only,
+  // so the Queue can say the gate passes. Absent without a decision or when it failed.
+  gatePasses: z.boolean().optional(),
   // (DIPO-140): the story's PR, once one is open.
   pr: StoryPr.optional(),
   evidence: EvidenceMap.optional(),

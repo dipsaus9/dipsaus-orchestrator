@@ -236,6 +236,7 @@ describe("office commands and reads", () => {
         "work.discard",
         "story.park",
         "story.drop",
+        "story.ready",
         "gate.approve",
         "gate.reject",
         "idea.accept",

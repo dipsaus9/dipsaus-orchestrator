@@ -48,6 +48,7 @@ import { promptRows } from "./prompt-box";
 import type { SegLine } from "./segments";
 import { boardEntries, Overview } from "./overview";
 import { doneCount, Queue, queueRows } from "./queue";
+import { readyLines } from "@dipsaus-orchestrator/client";
 import { privacySettings, Settings, settingName, appliesWords } from "./settings";
 import {
   type CardOutcome,
@@ -162,6 +163,10 @@ export function runSummary(
 }
 
 /** A key table entry as a footer hint. */
+/** A Refined story: the only row Y sets Ready. */
+const isRefined = (row: { readonly view: { readonly lifecycle: string } }) =>
+  row.view.lifecycle === "Refined";
+
 function hintOf(entry: { key: string; label: string; priority: number }): Hint {
   return { key: entry.key, label: entry.label, priority: entry.priority };
 }
@@ -206,6 +211,8 @@ export function useHome(args: HomeArgs) {
   // The selected queue row by story key, so it follows the story when the queue changes.
   const [queueKey, setQueueKey] = useState<string | null>(null);
   const [showDone, setShowDone] = useState(false);
+  // The Refined rows marked with space, by story key; `Y` sets them Ready (DIPO-482).
+  const [marks, setMarks] = useState<ReadonlySet<string>>(new Set());
   const [run, setRun] = useState<RunAction | null>(null);
   // Why an `R` was refused; cleared by the next key and when the run it names ends.
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -247,6 +254,12 @@ export function useHome(args: HomeArgs) {
     queue.findIndex((row) => row.view.key === queueKey),
   );
   const queueRow = queue[queueSelected] ?? null;
+  // What `Y` sets Ready: the marked rows that are still Refined, else the focused one if it is.
+  const readyTargets = (() => {
+    const marked = queue.filter((row) => marks.has(String(row.view.key)) && isRefined(row));
+    if (marked.length > 0) return marked;
+    return queueRow !== null && isRefined(queueRow) ? [queueRow] : [];
+  })();
   // The dependency chain the Floor and the Queue draw, and the selected story's gate (DIPO-460).
   const chain = useChain({
     readChain: actions.readChain,
@@ -718,6 +731,25 @@ export function useHome(args: HomeArgs) {
     }
   };
 
+  const markSelected = () => {
+    const row = queue[queueSelected];
+    if (row === undefined || !isRefined(row)) {
+      setMessage("only a Refined story can be marked to set Ready");
+      return;
+    }
+    const next = new Set(marks);
+    const id = String(row.view.key);
+    if (!next.delete(id)) next.add(id);
+    setMarks(next);
+  };
+
+  // A set-Ready that was sent has used the marks.
+  const readyRequest =
+    acts.action?.request.command === "story.ready" ? acts.action.request.requestId : null;
+  useEffect(() => {
+    if (readyRequest !== null) setMarks(new Set());
+  }, [readyRequest]);
+
   const onQueueKey = (input: string, key: Key) => {
     if (key.downArrow || input === "j") {
       selectQueue(queueSelected + 1);
@@ -729,6 +761,15 @@ export function useHome(args: HomeArgs) {
       openStory(row.view.key, String(row.view.story), "queue");
     } else if (input === ".") {
       setShowDone(!showDone);
+    } else if (input === " ") {
+      markSelected();
+    } else if (input === "Y") {
+      if (args.refusedOffline()) return;
+      if (readyTargets.length === 0) {
+        setMessage("select a Refined story first; space marks several");
+        return;
+      }
+      act("ready", { stories: readyTargets.map((row) => String(row.view.story)) });
     } else if (input === "r") {
       if (args.refusedOffline()) return;
       runSelected();
@@ -943,6 +984,7 @@ export function useHome(args: HomeArgs) {
   } else if (view === "queue") {
     if (queue[queueSelected] !== undefined) {
       const commands = new Set(["story.park", "story.drop"]);
+      if (readyTargets.length > 0) commands.add("story.ready");
       for (const entry of viewKeys("queue", { commands })) rowHintList.push(hintOf(entry));
     }
   } else if (view === "desk" && card === null) {
@@ -980,6 +1022,8 @@ export function useHome(args: HomeArgs) {
     chain,
     gate,
     showDone,
+    marks,
+    readyResult: acts.action?.ready === undefined ? [] : readyLines(acts.action.ready),
     doneTotal: doneCount(state.stories),
     overviewEntry,
     settingsIndex,
@@ -1172,6 +1216,8 @@ export function HomeMode(props: HomeModeProps) {
         gate={home.gate}
         showDone={home.showDone}
         doneTotal={home.doneTotal}
+        marks={home.marks}
+        result={home.readyResult}
       />
     );
   }

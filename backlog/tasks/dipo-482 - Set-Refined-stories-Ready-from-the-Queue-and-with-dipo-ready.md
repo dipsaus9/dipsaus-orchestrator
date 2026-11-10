@@ -1,10 +1,10 @@
 ---
 id: DIPO-482
 title: Set Refined stories Ready from the Queue and with dipo ready
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-10 15:30'
-updated_date: '2026-11-10 15:57'
+updated_date: '2026-11-10 18:01'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -26,6 +26,40 @@ references:
   - docs/design/tui-v2/keymap.json
   - docs/design/tui-v2/screens/05-queue.txt
   - docs/design/tui-v2/spec.md
+modified_files:
+  - docs/decisions/0009-tui.md
+  - docs/decisions/0012-story-standard.md
+  - docs/design/tui-v2/keymap.json
+  - docs/design/tui-v2/screens/05-queue.txt
+  - docs/design/tui-v2/spec.md
+  - packages/cli/src/index.ts
+  - packages/cli/src/ready-command.ts
+  - packages/cli/src/story-commands.test.ts
+  - packages/client/src/index.ts
+  - packages/client/src/ready-text.ts
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/src/work.test.ts
+  - packages/contract/src/work.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/create/stories.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/run/planning.ts
+  - packages/engine/src/run/ready-stories.ts
+  - packages/engine/src/views/index.ts
+  - packages/engine/src/views/story.ts
+  - packages/engine/test/run/planning-ready.test.ts
+  - packages/engine/test/run/story-ready.test.ts
+  - packages/tui/src/actions.ts
+  - packages/tui/src/footer.test.ts
+  - packages/tui/src/home.tsx
+  - packages/tui/src/keys.test.ts
+  - packages/tui/src/keys.ts
+  - packages/tui/src/queue.test.tsx
+  - packages/tui/src/queue.tsx
 priority: high
 type: feature
 ordinal: 454000
@@ -77,13 +111,28 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A new office command story.ready sets each named Refined story on the base that passes the Ready gate Ready through the planning lane, stores the passing decision, and never in the PR that filed it
-- [ ] #2 planning.ready and story.ready call one Ready function moved out of the planning session; planning.ready keeps its rule that only the session's stories are chosen, through DIPO-480's session-story helper
-- [ ] #3 A story filed but not merged, a story with an open edit in the lane, a gate failure, a Draft, an In Progress, In Review, Parked or Done story and an unknown id are refused with a reason and stay as they are, each with a test
-- [ ] #4 Bypass forms have tests: a lower-case id, a DRAFT-n id, the same id twice, an archived story's id, a list with an unknown id (nothing changes) and a list with one gate failure (the others still go)
-- [ ] #5 A fail-closed test runs story.ready through the real engine command, gate and lane on a fixture-built office and shows a failing story gets no Ready change
-- [ ] #6 The Queue shows on each Refined row that the gate passes or its first failure in plain words with what to fix
-- [ ] #7 In the Queue, space marks Refined rows and Y sets the marked or focused stories Ready after one confirm that lists them, and the result shows each story set, queued with the backlog PR it waits on (from the flush result) or refused with the gate's messages
-- [ ] #8 dipo ready <id>... sends story.ready and prints each story's result, exiting non-zero when one was refused
-- [ ] #9 ADR 0012's Refined to Ready row and ADR 0009's Queue view and actions describe the Queue and dipo ready, with Replaced lines where a rule is replaced, and keymap.json, screens/05-queue.txt and spec.md show space and Y
+- [x] #1 A new office command story.ready sets each named Refined story on the base that passes the Ready gate Ready through the planning lane, stores the passing decision, and never in the PR that filed it
+- [x] #2 planning.ready and story.ready call one Ready function moved out of the planning session; planning.ready keeps its rule that only the session's stories are chosen, through DIPO-480's session-story helper
+- [x] #3 A story filed but not merged, a story with an open edit in the lane, a gate failure, a Draft, an In Progress, In Review, Parked or Done story and an unknown id are refused with a reason and stay as they are, each with a test
+- [x] #4 Bypass forms have tests: a lower-case id, a DRAFT-n id, the same id twice, an archived story's id, a list with an unknown id (nothing changes) and a list with one gate failure (the others still go)
+- [x] #5 A fail-closed test runs story.ready through the real engine command, gate and lane on a fixture-built office and shows a failing story gets no Ready change
+- [x] #6 The Queue shows on each Refined row that the gate passes or its first failure in plain words with what to fix
+- [x] #7 In the Queue, space marks Refined rows and Y sets the marked or focused stories Ready after one confirm that lists them, and the result shows each story set, queued with the backlog PR it waits on (from the flush result) or refused with the gate's messages
+- [x] #8 dipo ready <id>... sends story.ready and prints each story's result, exiting non-zero when one was refused
+- [x] #9 ADR 0012's Refined to Ready row and ADR 0009's Queue view and actions describe the Queue and dipo ready, with Replaced lines where a rule is replaced, and keymap.json, screens/05-queue.txt and spec.md show space and Y
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-10 18:01 UTC
+- Criteria met: 9 of 9 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 259,407 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
