@@ -316,7 +316,8 @@ describe("the planning view", () => {
     const frame = await ui.waitFor("question 1 of 2");
     expect(frame).toContain("Should the export cover archived stories?");
     expect(frame).toContain("why I ask: It decides whether the CSV needs a status column.");
-    expect(frame).toContain("▌ 1. No (recommended) · Only active stories.");
+    expect(frame).toContain("▌ 1. No (recommended)");
+    expect(frame).toContain("     Only active stories.");
     expect(frame).toContain("3. Something else: write your own answer");
     expect(frame).toContain("ctrl-s send (when all answered)");
 
@@ -335,8 +336,8 @@ describe("the planning view", () => {
     expect(typing).toContain("esc back to the options");
     await ui.press("A tab.");
     await ui.press("enter");
-    const done = await ui.waitFor("1 No");
-    expect(done).toContain("2 free: A tab.");
+    const done = await ui.waitFor("Scope: No ✓");
+    expect(done).toContain("Format: free: A tab. ✓");
     expect(done).toContain("ctrl-s send the answers");
 
     session.commandReply = (name) =>
@@ -495,5 +496,38 @@ describe("the keys of the planning view (DIPO-479)", () => {
       await Bun.sleep(50);
       expect(ui.frame()).not.toContain("no open planning session");
     }
+  });
+
+  it("folds tool and thinking lines to one line each, opens a focused fold with Enter and shows no block text (DIPO-486)", async () => {
+    const snapshots = new Map([[OFFICES.dipsaus, { ...golden(), planning: planningView() }]]);
+    const target = `packages/engine/src/${"deep/".repeat(12)}export-command.ts`;
+    const text = [
+      "[thinking] 1.0s ~300 tokens",
+      "[thinking] 2.0s ~500 tokens",
+      `[tool] Read ${target}`,
+      "I read the code. **Two** options, see `export.ts`.",
+      "```dipo-questions",
+      '{"questions": []}',
+      "```",
+      "",
+    ].join("\n");
+    const output = new Map([[`${RUN}:worker`, text]]);
+    const { ui } = await open({ columns: 100, rows: 30, snapshots, output });
+    await ui.press("5");
+    const frame = await ui.waitFor("I read the code.");
+    expect(frame).toContain("2 thoughts · 0.8k tokens");
+    expect(frame).toContain("⏎ full");
+    expect(frame).not.toContain("dipo-questions");
+    expect(frame).not.toContain('"questions"');
+    expect(frame).not.toContain("**");
+
+    // Tab focuses the first fold, Tab the second; Enter opens it and Enter shuts it again.
+    await ui.press("tab");
+    await ui.press("tab");
+    await ui.press("enter");
+    const open1 = await ui.waitFor("port-command.ts");
+    expect(open1).not.toContain("⏎ full");
+    await ui.press("enter");
+    expect(await ui.waitFor("⏎ full")).toContain("⏎ full");
   });
 });

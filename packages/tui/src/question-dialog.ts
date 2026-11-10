@@ -11,8 +11,9 @@ import type { PlanningQuestionBlock } from "@dipsaus-orchestrator/contract";
 import type { Key } from "ink";
 
 import { editDraft } from "./composer";
-import { truncate } from "./format";
 import type { Display } from "./options";
+import { wrapSpans } from "./markdown";
+import type { Span } from "./spans";
 import { glyphs } from "./views";
 
 /** One answer, as `planning.answer` takes it: an option's index or a free text. */
@@ -146,47 +147,91 @@ function answerWords(block: PlanningQuestionBlock, index: number, state: DialogS
 }
 
 /**
- * Pure: the dialog as rows: a heading with the progress, the question with its purpose, each
- * option with its description, the free answer row, and what each question answered so far.
+ * Pure: the dialog as rows of spans (DIPO-486), each wrapped at the column width. A heading with
+ * the progress; the question set apart in hi and bold; why it is asked; the options as a numbered
+ * list with the cursor's row marked, the recommended one in ok and the chosen one ticked, each
+ * description under its option; the free answer row; and the answer of every question, so a choice
+ * is seen before sending and changed with Left and Right.
  */
-export function dialogLines(
+export function dialogRows(
   block: PlanningQuestionBlock,
   state: DialogState,
   columns: number,
   display: Display,
-): string[] {
+): Span[][] {
   const question = block.questions[state.index];
   if (question === undefined) return [];
-  const { dot, ellipsis, bar } = glyphs(display.ascii);
-  const width = Math.max(10, columns - 4);
-  const cut = (text: string) => truncate(text, width, ellipsis);
-  const mark = (on: boolean) => (on ? bar : " ");
-  const lines = [
-    cut(
-      `question ${state.index + 1} of ${block.questions.length} ${dot} ${question.header} ${dot} ${state.answers.filter((a) => a !== null).length} answered`,
+  const { dot, bar, met } = glyphs(display.ascii);
+  const width = Math.max(10, columns - 2);
+  const mark = (on: boolean): Span => ({ text: on ? `${bar} ` : "  ", role: "acc" });
+  const answer = state.answers[state.index];
+  const chosen = answer !== null && answer !== undefined && "option" in answer ? answer.option : -1;
+  const answered = state.answers.filter((a) => a !== null).length;
+  const rows: Span[][] = [
+    ...wrapSpans(
+      [
+        {
+          text: `question ${state.index + 1} of ${block.questions.length} ${dot} ${question.header} ${dot} ${answered} answered`,
+          role: "dim",
+        },
+      ],
+      width,
+      { indent: 0 },
     ),
-    cut(question.question),
-    cut(`why I ask: ${question.purpose}`),
+    ...wrapSpans([{ text: question.question, role: "hi", bold: true }], width, {
+      prefix: [{ text: "? ", role: "acc", bold: true }],
+    }),
+    ...wrapSpans([{ text: question.purpose, role: "dim" }], width, {
+      prefix: [{ text: "  why I ask: ", role: "dim" }],
+      indent: 2,
+    }),
   ];
   for (const [i, option] of question.options.entries()) {
-    lines.push(
-      cut(
-        `${mark(state.cursor === i && state.typing === null)} ${i + 1}. ${option.label}${option.recommended === true ? " (recommended)" : ""} ${dot} ${option.description}`,
+    const here = state.cursor === i && state.typing === null;
+    rows.push(
+      ...wrapSpans(
+        [
+          { text: option.label, role: "hi", ...(here ? { bold: true } : {}) },
+          ...(option.recommended === true ? [{ text: " (recommended)", role: "ok" as const }] : []),
+          ...(chosen === i ? [{ text: ` ${met}`, role: "ok" as const }] : []),
+        ],
+        width,
+        { prefix: [mark(here), { text: `${i + 1}. ` }], indent: 5 },
       ),
+      ...wrapSpans([{ text: option.description, role: "dim" }], width, {
+        indent: 5,
+        prefix: [{ text: "     " }],
+      }),
     );
   }
   const free = question.options.length;
-  lines.push(
-    cut(
-      state.typing === null
-        ? `${mark(state.cursor === free)} ${free + 1}. Something else: write your own answer`
-        : `  ${free + 1}. your answer: ${state.typing}_`,
-    ),
+  rows.push(
+    ...(state.typing === null
+      ? wrapSpans([{ text: "Something else: write your own answer" }], width, {
+          prefix: [mark(state.cursor === free), { text: `${free + 1}. ` }],
+          indent: 5,
+        })
+      : wrapSpans([{ text: `${state.typing}_`, role: "hi" }], width, {
+          prefix: [{ text: `  ${free + 1}. your answer: `, role: "acc" }],
+          indent: 5,
+        })),
   );
-  lines.push(
-    cut(
-      `answers: ${block.questions.map((_, i) => `${i + 1} ${answerWords(block, i, state)}`).join(` ${dot} `)}`,
-    ),
-  );
-  return lines;
+  rows.push([{ text: "answers", role: "dim" }]);
+  for (const [i, other] of block.questions.entries()) {
+    const words = answerWords(block, i, state);
+    const done = state.answers[i] !== null;
+    rows.push(
+      ...wrapSpans(
+        [
+          { text: other.header, role: i === state.index ? "hi" : "dim" },
+          { text: ": " },
+          { text: words, role: done ? "ok" : "dim" },
+          ...(done ? [{ text: ` ${met}`, role: "ok" as const }] : []),
+        ],
+        width,
+        { prefix: [mark(i === state.index), { text: `${i + 1} ` }], indent: 5 },
+      ),
+    );
+  }
+  return rows;
 }

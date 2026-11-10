@@ -44,15 +44,17 @@ import type { TuiActions } from "./app";
 import { COMPOSER_ROWS, Composer, composerKey, composerRows } from "./composer";
 import { truncate } from "./format";
 import type { Display } from "./options";
-import { splitLines, wrapLines } from "./output";
+import { splitLines } from "./output";
 import { proposalForm, readProposalForm } from "./proposal-form";
 import {
   dialogAnswers,
   dialogKey,
-  dialogLines,
+  dialogRows,
   type DialogState,
   freshDialog,
 } from "./question-dialog";
+import { SpanLine } from "./spans";
+import { foldCount, transcriptRows } from "./transcript";
 import { clockTime, glyphs } from "./views";
 
 const encoder = new TextEncoder();
@@ -83,6 +85,9 @@ export interface Planning {
   /** What is under way: a start, a message or an end; null otherwise. */
   readonly sending: Sending | null;
   readonly confirmingEnd: boolean;
+  /** The fold under the focus bar and the folds that are open (DIPO-486), by number. */
+  readonly focus: number | null;
+  readonly open: ReadonlySet<number>;
   /** The number of the selected proposal, or null without one (DIPO-450). */
   readonly selected: number | null;
   /** The number of the proposal whose form the input holds, or null. */
@@ -485,6 +490,40 @@ function useResets(
   useEffect(() => setDraft(""), [office]);
 }
 
+/**
+ * The folds of the conversation (DIPO-486): the one under the focus bar and the ones open. Tab
+ * walks the folds and Shift+Tab walks back, past the last the focus is off; Enter on an empty
+ * input opens the focused fold and shuts it again. A new session starts with every fold shut.
+ */
+function useFolds(transcript: string, run: string | null, office: string | null) {
+  const [focus, setFocus] = useState<number | null>(null);
+  const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
+  const folds = foldCount(transcript);
+  useEffect(() => {
+    setFocus(null);
+    setOpen(new Set());
+  }, [run, office]);
+  return {
+    focus,
+    open,
+    move: (step: number) => {
+      if (folds === 0) return;
+      setFocus((at) => {
+        const next = at === null ? (step > 0 ? 0 : folds - 1) : at + step;
+        return next < 0 || next >= folds ? null : next;
+      });
+    },
+    toggle: () => {
+      if (focus === null) return;
+      setOpen((held) => {
+        const next = new Set(held);
+        if (!next.delete(focus)) next.add(focus);
+        return next;
+      });
+    },
+  };
+}
+
 /** The planning view's state; always mounted, so an open draft survives a visit to another mode. */
 export function usePlanning(args: PlanningArgs): Planning {
   const { state } = args;
@@ -496,11 +535,9 @@ export function usePlanning(args: PlanningArgs): Planning {
   const [sending, setSending] = useState<Sending | null>(null);
   const [confirmingEnd, setConfirmingEnd] = useState(false);
   const { transcript, local } = useTranscript(args);
-
+  const fold = useFolds(transcript, run, office);
   useResets(run, office, setConfirmingEnd, setDraft);
-
   const kind = PLANNING_KINDS[kindIndex] ?? PLANNING_KINDS[0];
-
   const send: Send = (which, command, commandArgs, done) =>
     sendCommand(args, setSending, which, { command, args: commandArgs }, done);
   const proposals = useProposals(args, { draft, setDraft, send, sending: sending !== null });
@@ -553,6 +590,7 @@ export function usePlanning(args: PlanningArgs): Planning {
     if (proposals.onKey(input, key)) return;
     if (key.tab) {
       if (view === null) setKindIndex((index) => (index + 1) % PLANNING_KINDS.length);
+      else fold.move(key.shift ? -1 : 1);
       return;
     }
     const event = composerKey(draft, input, key, true);
@@ -560,6 +598,8 @@ export function usePlanning(args: PlanningArgs): Planning {
       // The session keeps running.
       args.setMessage(null);
       args.leave();
+    } else if (event.kind === "send" && fold.focus !== null && draft.trim() === "") {
+      fold.toggle();
     } else if (event.kind === "send") submit();
     else if (event.kind === "edit") setDraft(event.draft);
   };
@@ -571,6 +611,8 @@ export function usePlanning(args: PlanningArgs): Planning {
     transcript,
     sending,
     confirmingEnd,
+    focus: fold.focus,
+    open: fold.open,
     selected: proposals.selected,
     editing: proposals.editing,
     readying: proposals.readying,
@@ -711,6 +753,23 @@ export function refusalLines(view: PlanningView, columns: number, display: Displ
   ];
 }
 
+/** The last `room` rows of the conversation; a focused fold above them pulls the window up to it. */
+function conversationRows(planning: Planning, columns: number, display: Display, room: number) {
+  const { dot, ellipsis, bar, live } = glyphs(display.ascii);
+  const all = transcriptRows(planning.transcript, Math.max(10, columns - 2), {
+    dot,
+    ellipsis,
+    rule: display.ascii ? "-" : "─",
+    bar,
+    bullet: live,
+    open: planning.open,
+    focus: planning.focus,
+  });
+  const focused = all.findIndex((row) => planning.focus !== null && row.fold === planning.focus);
+  const start = Math.min(Math.max(0, all.length - room), focused < 0 ? Infinity : focused);
+  return all.slice(start, start + room);
+}
+
 export interface PlanningModeProps {
   readonly planning: Planning;
   readonly display: Display;
@@ -733,10 +792,11 @@ export function PlanningMode(props: PlanningModeProps) {
         ]
       : [...headLines(view, columns, display), ...refusalLines(view, columns, display)];
   const inputRows = planning.editing === null && !planning.readying ? COMPOSER_ROWS : FORM_ROWS;
-  const input =
+  const dialog =
     planning.dialog === null
-      ? composerRows(planning.draft, columns, inputRows)
-      : dialogLines(planning.dialog.block, planning.dialog.state, columns, display);
+      ? null
+      : dialogRows(planning.dialog.block, planning.dialog.state, columns, display);
+  const inputLength = dialog?.length ?? composerRows(planning.draft, columns, inputRows).length;
   const confirm = planning.confirmingEnd ? ["End the planning session? [y/N]"] : [];
   // The proposals (DIPO-450) sit between the answers and the input; an edit says which it is.
   const proposals = [
@@ -747,12 +807,9 @@ export function PlanningMode(props: PlanningModeProps) {
   ];
   const room = Math.max(
     0,
-    props.height - head.length - input.length - confirm.length - proposals.length - 2,
+    props.height - head.length - inputLength - confirm.length - proposals.length - 2,
   );
-  const rows =
-    view === null
-      ? []
-      : wrapLines(splitLines(planning.transcript), Math.max(10, columns - 2)).slice(-room);
+  const rows = view === null ? [] : conversationRows(planning, columns, display, room);
   return (
     <Box flexDirection="column">
       {head.map((line, i) => (
@@ -769,15 +826,19 @@ export function PlanningMode(props: PlanningModeProps) {
                   : ` waiting for the answer${glyphs(display.ascii).ellipsis}`}
               </Text>,
             ]
-          : rows.map((row, i) => <Text key={`row:${i}`} wrap="truncate-end">{` ${row}`}</Text>)}
+          : rows.map((row, i) => (
+              <SpanLine key={`row:${i}`} spans={[{ text: " " }, ...row.spans]} display={display} />
+            ))}
       {view === null ? null : <Text wrap="truncate-end">{` ${rule}`}</Text>}
       {proposals.map((line, i) => (
         <Text key={`proposal:${i}`} wrap="truncate-end">{` ${line}`}</Text>
       ))}
-      {planning.dialog === null ? (
+      {dialog === null ? (
         <Composer draft={planning.draft} columns={columns} rows={inputRows} />
       ) : (
-        input.map((line, i) => <Text key={`dialog:${i}`} wrap="truncate-end">{` ${line}`}</Text>)
+        dialog.map((line, i) => (
+          <SpanLine key={`dialog:${i}`} spans={[{ text: " " }, ...line]} display={display} />
+        ))
       )}
       {confirm.map((line) => (
         <Text key="confirm">{` ${line}`}</Text>
