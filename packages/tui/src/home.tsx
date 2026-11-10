@@ -163,7 +163,7 @@ function hintOf(entry: { key: string; label: string; priority: number }): Hint {
   return { key: entry.key, label: entry.label, priority: entry.priority };
 }
 
-/** True for the keys that leave an overlay for a room: `1` to `4`, `O` and `P`. */
+/** True for the keys that leave an overlay for a room: `1` to `5` and `O`. */
 export function leavesOverlay(input: string): boolean {
   return ["1", "2", "3", "4", "5", "O"].includes(input);
 }
