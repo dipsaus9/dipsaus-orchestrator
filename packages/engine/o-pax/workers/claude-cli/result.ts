@@ -1,0 +1,212 @@
+// The run's result once `exit.json` exists (0008). Pure. It applies only when
+// no pending intent explains the exit: the engine reads `stop`, `new-session`, `cap` and `park`
+// first. The adapter reports facts and proposes a park; the engine decides.
+
+import type { ParkReason } from "@dipsaus-orchestrator/contract";
+
+import type {
+  ExitRecord,
+  ReportKind,
+  ReviewReport,
+  WorkerOutcome,
+  WorkerReport,
+  WorkerResult,
+  WorkerRetry,
+} from "../types";
+import {
+  ASSISTANT_429_LIMIT,
+  type ClaudeParseState,
+  currentTotals,
+  TURN_429_LIMIT,
+} from "./interpret";
+
+/** Exit code of a Claude process ended by SIGTERM (0008). */
+export const SIGTERM_EXIT_CODE = 143;
+
+interface Decision {
+  readonly outcome: WorkerOutcome;
+  readonly report: WorkerReport | null;
+  readonly review?: ReviewReport;
+  readonly answer?: unknown;
+  readonly park?: { readonly reason: ParkReason; readonly detail: string };
+  readonly retry?: WorkerRetry;
+  readonly detail?: string;
+  readonly http429?: true;
+}
+
+function exitText(exit: ExitRecord): string {
+  return exit.signal !== null ? `signal ${exit.signal}` : `exit ${exit.code ?? "unknown"}`;
+}
+
+function crashed(detail: string): Decision {
+  // One new session with a handoff if budget remains is the engine's call; the proposal is the
+  // park that follows when it does not.
+  return {
+    outcome: "crashed",
+    report: null,
+    park: { reason: "worker-failed", detail },
+  };
+}
+
+function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
+  const turn = state.lastTurn;
+
+  if (state.initRejected !== null) {
+    return {
+      outcome: "initRejected",
+      report: null,
+      park: { reason: "worker-failed", detail: state.initRejected },
+    };
+  }
+  // The story stays Ready: a start failure is never a park.
+  if (state.startFailure !== null)
+    return { outcome: "startFailed", report: null, detail: state.startFailure };
+  // Plan limits wait for the reset; never a park.
+  if (state.planLimit !== null)
+    return {
+      outcome: "plan-limit",
+      report: null,
+      ...(state.planLimit === ASSISTANT_429_LIMIT || state.planLimit === TURN_429_LIMIT
+        ? { http429: true as const }
+        : {}),
+    };
+  if (state.capped !== null) {
+    return {
+      outcome: "capped",
+      report: turn?.report ?? null,
+      park: { reason: "budget-exceeded", detail: state.capped },
+    };
+  }
+  if (exit.signal !== null || exit.code === SIGTERM_EXIT_CODE) {
+    return crashed(`${exitText(exit)} with no intent recorded`);
+  }
+  if (state.truncated || state.pending !== "") {
+    return crashed(`stream ended in a partial line, ${exitText(exit)}`);
+  }
+  if (turn === null) {
+    const line =
+      state.unparsedLine === undefined ? "" : `, its last stdout line: ${state.unparsedLine}`;
+    return crashed(`no result before ${exitText(exit)}${line}`);
+  }
+
+  if (turn.terminal === "prompt_too_long") {
+    // 0008: one new session with a 0014 handoff, then `budget-exceeded`.
+    return {
+      outcome: "capped",
+      report: null,
+      park: { reason: "budget-exceeded", detail: "prompt_too_long: the context is full" },
+      retry: "handoff",
+    };
+  }
+  if (turn.subtype === "error_max_structured_output_retries") {
+    if (state.reportKind === "session" || state.reportKind === "audit") {
+      return {
+        outcome: "blocked",
+        report: null,
+        detail: "no valid answer: error_max_structured_output_retries",
+      };
+    }
+    return noReport("error_max_structured_output_retries", state.reportKind);
+  }
+  if (turn.subtype !== "success") {
+    const why =
+      turn.apiErrorStatus === null
+        ? turn.terminal
+        : `${turn.terminal}, HTTP ${turn.apiErrorStatus}`;
+    const last = state.lastError === null ? "" : `, last error ${state.lastError}`;
+    return crashed(`${turn.subtype} (${why})${last}, ${exitText(exit)}`);
+  }
+
+  if (state.reportKind === "session" || state.reportKind === "audit") {
+    // A session outside a story (DIPO-310), or an idea's audit (DIPO-452): its structured output
+    // is all it returns, and the engine checks it; there is no park and no feedback turn, its
+    // retry is the CLI's own.
+    const answer = turn.answer;
+    if (answer === undefined) {
+      return {
+        outcome: "blocked",
+        report: null,
+        detail: `no valid answer: ${turn.reportProblem ?? "no structured_output"}`,
+      };
+    }
+    return exit.code === 0
+      ? { outcome: "done", report: null, answer }
+      : { ...crashed(`answer but ${exitText(exit)}`), answer };
+  }
+  if (state.reportKind === "review") {
+    // A reviewer session (0002): a valid report is all it returns; code computes
+    // the verdict from it.
+    const review = turn.review;
+    if (review === undefined) return noReport(turn.reportProblem ?? "no report", "review");
+    return exit.code === 0
+      ? { outcome: "done", report: null, review }
+      : { ...crashed(`review report but ${exitText(exit)}`), review };
+  }
+  if (state.reportKind === "planning") {
+    // The maintainer's planning session (DIPO-447): its turns end in text, and it ends when the
+    // maintainer ends it, so a clean exit is done.
+    return exit.code === 0 ? { outcome: "done", report: null } : crashed(exitText(exit));
+  }
+  const report = turn.report;
+  if (report === null) return noReport(turn.reportProblem ?? "no report");
+  if (report.status === "done") {
+    return exit.code === 0
+      ? { outcome: "done", report }
+      : { ...crashed(`done report but ${exitText(exit)}`), report };
+  }
+  return {
+    outcome: "blocked",
+    report,
+    park: { reason: "ambiguous-spec", detail: report.question ?? report.summary },
+  };
+}
+
+/**
+ * No valid report after a turn (it does not parse or does not match the schema): one correction
+ * turn first (engine), then `worker-failed` (0008), for a developer and a reviewer alike. Only a
+ * worker that asks or reports it is blocked parks `ambiguous-spec` (0001).
+ */
+function noReport(why: string, kind?: ReportKind): Decision {
+  if (kind === "review") {
+    return {
+      outcome: "blocked",
+      report: null,
+      park: { reason: "worker-failed", detail: `no valid review report: ${why}` },
+      retry: "report-feedback",
+    };
+  }
+  return {
+    outcome: "blocked",
+    report: null,
+    park: { reason: "worker-failed", detail: `no valid report: ${why}` },
+    retry: "report-feedback",
+  };
+}
+
+/**
+ * The exit the decision reads (DIPO-88): a signal the host inferred counts only with exit 143,
+ * the code Claude ends with on SIGTERM; with any other code the exit reads as that code alone,
+ * so the outcome is the one it was before the host inferred signals.
+ */
+function decidingExit(exit: ExitRecord): ExitRecord {
+  if (exit.signalInferred !== true || exit.code === SIGTERM_EXIT_CODE) return exit;
+  return { code: exit.code, signal: null };
+}
+
+/** Pure: the Worker result from the parse state and the exit record. */
+export function result(state: ClaudeParseState, exit: ExitRecord): WorkerResult {
+  const decision = decide(state, decidingExit(exit));
+  const sessionId = state.sessionId ?? "";
+  return {
+    outcome: decision.outcome,
+    report: decision.report,
+    ...(decision.review === undefined ? {} : { review: decision.review }),
+    ...(decision.answer === undefined ? {} : { answer: decision.answer }),
+    usage: currentTotals(state),
+    sessionId,
+    ...(decision.park === undefined ? {} : { park: decision.park }),
+    ...(decision.retry === undefined ? {} : { retry: decision.retry }),
+    ...(decision.detail === undefined ? {} : { detail: decision.detail }),
+    ...(decision.http429 === true ? { http429: true as const } : {}),
+  };
+}

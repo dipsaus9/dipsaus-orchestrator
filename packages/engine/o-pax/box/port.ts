@@ -1,0 +1,352 @@
+// The box interface (0008, DIPO-265): what dipo needs from one real box per
+// story, with no box technology named. A backend (today Apple `container`, `apple-container.ts`)
+// implements it; a Linux backend can be added later behind the same interface. Every call but
+// `execLive` has a deadline and fails with `box.timedOut` when it passes. A deadline kills only
+// the backend's client program, not what it already set going: after `box.timedOut` the caller
+// stops or deletes the box (see `create` and `exec`).
+
+import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+
+import type { ChildExit, ChildStdin, Signal } from "@dipsaus-orchestrator/contract";
+
+import type { BoxFirewall } from "./firewall";
+
+/** Every box dipo makes is named `dipo-<run id>`. */
+export const BOX_NAME_PREFIX = "dipo-";
+/** The label key every box and network dipo makes carries; a box's value is its run id. */
+export const BOX_LABEL = "dipo";
+/**
+ * The second label key every box dipo makes carries (DIPO-374): its value names the state folder
+ * whose daemon made the box (`stateFolderLabel`), so a daemon-start sweep deletes only its own
+ * helper boxes. A backend made without it (`BoxPort.stateLabel` null) labels none.
+ */
+export const BOX_STATE_LABEL = "dipo.state";
+/** A `BOX_STATE_LABEL` value: lowercase letters, digits, dots and dashes, never an option. */
+export const STATE_LABEL_VALUE = /^[a-z0-9][a-z0-9.-]{0,127}$/;
+/** Where the office package cache (0008, DIPO-267) appears in a box, read-only. */
+export const BOX_PACKAGE_CACHE_PATH = "/dipo/package-cache";
+/** The deadline of one box call unless the call names another. */
+export const BOX_CALL_TIMEOUT_MS = 60_000;
+/**
+ * The deadline of one image build (DIPO-266): a build installs the toolchain and Claude Code over
+ * the network and takes minutes.
+ */
+export const BOX_BUILD_TIMEOUT_MS = 30 * 60_000;
+/** The deadline of the pull of a build's base image (DIPO-281). */
+export const BOX_PULL_TIMEOUT_MS = 10 * 60_000;
+/** The repository name of every box image dipo builds; the tag is a hash of its description. */
+export const BOX_IMAGE_REPOSITORY = "dipo-box";
+/** The Safe-Chain CA bundle dipo copies into its build folder for the build's npm installs. */
+export const BOX_BUILD_CA_FILE = "safe-chain-ca.pem";
+/**
+ * The run id prefix of a build box (DIPO-281): the box an image is built in, on the host-only box
+ * network, and committed from. Only a build box runs a command with all its capabilities.
+ */
+export const BUILD_BOX_RUN_PREFIX = "build-";
+/**
+ * The run id prefix of a test box (DIPO-309): the box a story's pushed head runs in for the
+ * maintainer's test, named by its test id (`tst_<ulid>`).
+ */
+export const TEST_BOX_RUN_PREFIX = "tst_";
+
+/** A run id a box name may carry: what `IdSource` makes (`run_<ulid>`), and test ids. */
+const RUN_ID = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+/** The longest box name; Apple `container` allows a DNS label (63). */
+const MAX_BOX_NAME = 63;
+
+/** A box failure; `code` is dotted like the contract's error codes, `box.timedOut` among them. */
+export class BoxError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly retryable = false,
+    readonly details: Readonly<Record<string, unknown>> = {},
+  ) {
+    super(message);
+    this.name = "BoxError";
+  }
+}
+
+/** True when `error` is a box call killed at its deadline. */
+export function isBoxTimedOut(error: unknown): error is BoxError {
+  return error instanceof BoxError && error.code === "box.timedOut";
+}
+
+/**
+ * The `BOX_STATE_LABEL` value of the state folder `stateDir` (DIPO-374): the sha256 of its real
+ * path, so one folder always gets one value and two folders never share one. For a folder that
+ * does not exist yet, the real path of its deepest existing parent with the rest appended, so
+ * `/tmp/x` and `/private/tmp/x` share one value before `x` exists too.
+ */
+export function stateFolderLabel(stateDir: string): string {
+  return createHash("sha256")
+    .update(realPathOf(resolve(stateDir)))
+    .digest("hex");
+}
+
+/** The real path of the absolute `path`, through its deepest existing parent when it is missing. */
+function realPathOf(path: string): string {
+  const missing: string[] = [];
+  let at = path;
+  for (;;) {
+    try {
+      return join(realpathSync(at), ...missing.toReversed());
+    } catch {
+      const parent = dirname(at);
+      if (parent === at) return path;
+      missing.push(basename(at));
+      at = parent;
+    }
+  }
+}
+
+/** The box name of `runId`; refuses a run id the name cannot carry. */
+export function boxName(runId: string): string {
+  const name = `${BOX_NAME_PREFIX}${runId}`;
+  if (!RUN_ID.test(runId) || name.length > MAX_BOX_NAME) {
+    throw new BoxError("box.refused", `run id ${JSON.stringify(runId)} cannot name a box.`, false, {
+      runId,
+    });
+  }
+  return name;
+}
+
+/** The run id of a dipo box name, or null when the name is not one of dipo's. */
+export function runIdOfBox(name: string): string | null {
+  if (!name.startsWith(BOX_NAME_PREFIX)) return null;
+  const runId = name.slice(BOX_NAME_PREFIX.length);
+  return RUN_ID.test(runId) ? runId : null;
+}
+
+/** What the start check found: the backend's version, or why boxes cannot run. */
+export type BoxCheck =
+  | { readonly ok: true; readonly version: string }
+  | { readonly ok: false; readonly reason: string; readonly version: string | null };
+
+/**
+ * The only network mode a box may join (0008): host-only, no route
+ * out. dipo's web proxy on the network's host address is the box's one way out.
+ */
+export type BoxNetworkMode = "hostOnly";
+
+/** The network boxes join, as `network()` prepared it. */
+export interface BoxNetwork {
+  readonly name: string;
+  readonly mode: BoxNetworkMode;
+  /** The Mac's address on the network, where dipo's proxies listen for the boxes. */
+  readonly hostAddress: string;
+}
+
+/** What one box is made from. Nothing of the maintainer's is attached (0008). */
+export interface BoxSpec {
+  readonly runId: string;
+  /** The office's box image (0008, DIPO-266). */
+  readonly image: string;
+  readonly network: BoxNetwork;
+  /**
+   * The host folder of the office package cache (DIPO-267), mounted read-only at
+   * `BOX_PACKAGE_CACHE_PATH`; the only host folder a box ever sees. It must resolve, with realpath,
+   * to a folder under dipo's package cache root, or the box is refused. Absent: nothing is mounted.
+   */
+  readonly packageCache?: string;
+  /**
+   * The host folder of the box network tools of the box's image (DIPO-281, `firewall.ts`), mounted
+   * read-only at `BOX_NET_TOOLS_PATH`. Every box but a build box must have it: its keepalive and
+   * every command dipo starts in it run from there. It must resolve, with realpath, to a folder
+   * under dipo's tools root that holds the tools, or the box is refused.
+   */
+  readonly netTools?: string;
+}
+
+export type BoxState = "running" | "stopped" | "unknown";
+
+/** One of dipo's boxes, as `list()` sees it. */
+export interface BoxInfo {
+  readonly name: string;
+  readonly runId: string;
+  readonly state: BoxState;
+  /**
+   * Its `BOX_STATE_LABEL` value; null when it has none or it cannot be read (a box made before
+   * DIPO-374), and then no daemon-start sweep deletes it.
+   */
+  readonly stateLabel: string | null;
+}
+
+/** Options of a command run in a box. */
+export interface BoxExecOptions {
+  /** Absolute working directory inside the box. */
+  readonly cwd?: string;
+  /** The command's environment additions, set inside the box; nothing comes from the host. */
+  readonly env?: Readonly<Record<string, string>>;
+  /** Overrides the call's deadline (`exec` only). */
+  readonly timeoutMs?: number;
+  /**
+   * Runs the command with all of the box's capabilities instead of contained (DIPO-281,
+   * `containedCommand`). Only a build box takes it, for its first step, before any install script
+   * ran; every other box refuses it.
+   */
+  readonly fullPrivilege?: true;
+  /**
+   * Runs the command as one of dipo's root steps (DIPO-334): root, with an allow list of
+   * capabilities. A build box takes any, with its own list (`buildRootStepCommand`); every other
+   * box only `isRootStep`, with the fixed steps' smaller list (`rootStepCommand`, DIPO-336).
+   */
+  readonly rootStep?: true;
+}
+
+/** A finished command in a box. A non-zero exit is a result, not an error. */
+export interface BoxExecResult {
+  readonly code: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+/** A long-running command in a box, with its stdin and stdout; it has no deadline. */
+export interface BoxProcess {
+  readonly stdin: ChildStdin;
+  readonly stdout: ReadableStream<Uint8Array>;
+  readonly stderr: ReadableStream<Uint8Array>;
+  readonly exited: Promise<ChildExit>;
+  kill(signal?: Signal): void;
+}
+
+/**
+ * A backend call another program runs (DIPO-271: the worker host runs a box worker's long-running
+ * exec and its stop): the argv, its program an absolute path, and the client's environment on
+ * the Mac. Nothing in `env` reaches the box; a box gets only what the argv names.
+ */
+export interface BoxClientCommand {
+  readonly argv: readonly [string, ...string[]];
+  readonly env: Readonly<Record<string, string>>;
+}
+
+/** The memory a running box uses. */
+export interface BoxMemory {
+  readonly usedBytes: number;
+  /** The box's memory limit; null when the backend does not say. */
+  readonly limitBytes: number | null;
+}
+
+/** Per-call deadline override for the lifecycle calls. */
+export interface BoxCallOptions {
+  readonly timeoutMs?: number;
+}
+
+export interface BoxPort {
+  /** The backend id, for example `apple-container`. */
+  readonly id: string;
+  /**
+   * The `BOX_STATE_LABEL` value every box this backend makes carries: its daemon's state folder's
+   * (`stateFolderLabel`, DIPO-374). Null: it labels none, and its daemon-start sweep deletes none.
+   */
+  readonly stateLabel: string | null;
+  /** The start check: refuses with a reason when boxes cannot run on this machine. */
+  check(options?: BoxCallOptions): Promise<BoxCheck>;
+  /** Prepares the host-only box network, or reuses it; refuses one that is not host-only. */
+  network(options?: BoxCallOptions): Promise<BoxNetwork>;
+  /**
+   * Creates a stopped box from `spec` and returns its name, `dipo-<run id>`. On `box.timedOut`
+   * only the client was killed: a create already sent may still finish, so the caller deletes
+   * the box by its name before it tries again.
+   */
+  create(spec: BoxSpec, options?: BoxCallOptions): Promise<string>;
+  start(name: string, options?: BoxCallOptions): Promise<void>;
+  /** Stops a box; its files are kept for the next `start`. */
+  stop(name: string, options?: BoxCallOptions): Promise<void>;
+  /** Deletes a box and its files, also while it runs. */
+  delete(name: string, options?: BoxCallOptions): Promise<void>;
+  /** Copies the host path `from` to `to` inside the box. */
+  copyIn(name: string, from: string, to: string, options?: BoxCallOptions): Promise<void>;
+  /** Copies `from` inside the box to the host path `to`. */
+  copyOut(name: string, from: string, to: string, options?: BoxCallOptions): Promise<void>;
+  /**
+   * Writes the box's whole filesystem as a tar archive to the host path `to`. The backend makes
+   * it from the host, so nothing in the box can shape what it holds (the post-run token check).
+   */
+  exportFiles(name: string, to: string, options?: BoxCallOptions): Promise<void>;
+  /**
+   * Runs a command in a running box to its end, within the deadline. On `box.timedOut` only the
+   * client was killed: the command may still run inside the box, so the caller stops or deletes
+   * the box.
+   */
+  exec(
+    name: string,
+    command: readonly [string, ...string[]],
+    options?: BoxExecOptions,
+  ): Promise<BoxExecResult>;
+  /** Starts a long-running command in a running box with stdin and stdout; no deadline. */
+  execLive(
+    name: string,
+    command: readonly [string, ...string[]],
+    options?: Omit<BoxExecOptions, "timeoutMs">,
+  ): BoxProcess;
+  /**
+   * The call `execLive` makes, for another program to run (DIPO-271: the worker host). Killing
+   * that client leaves the command running in the box, so pair it with `stopCommand`.
+   */
+  execLiveCommand(
+    name: string,
+    command: readonly [string, ...string[]],
+    options?: Omit<BoxExecOptions, "timeoutMs">,
+  ): BoxClientCommand;
+  /** The call `stop` makes, for another program to run; it ends every process in the box. */
+  stopCommand(name: string): BoxClientCommand;
+  /** The memory a box uses; null when it is not running. Unreadable figures fail the call. */
+  memory(name: string, options?: BoxCallOptions): Promise<BoxMemory | null>;
+  /** dipo's own boxes, running or stopped; never another program's. */
+  list(options?: BoxCallOptions): Promise<BoxInfo[]>;
+  /**
+   * Sets the box firewall of a running box (DIPO-281, `firewall.ts`): output only to loopback and
+   * to `firewall.hostAddress` on `firewall.ports`, set with the box's network tools and checked
+   * after. Fails with `box.firewallFailed` when it cannot be set or does not show as set.
+   */
+  firewall(name: string, firewall: BoxFirewall, options?: BoxCallOptions): Promise<void>;
+  /** True when the image `tag` exists on this machine, so a build can be skipped. */
+  hasImage(tag: string, options?: BoxCallOptions): Promise<boolean>;
+  /** Pulls the base image `reference` of a build onto this machine (DIPO-281). */
+  pullImage(reference: string, options?: BoxCallOptions): Promise<void>;
+  /**
+   * Makes the image `tag` from the files of the stopped build box `name` (DIPO-281). Only a build
+   * box may be committed.
+   */
+  commit(name: string, tag: string, options?: BoxCallOptions): Promise<void>;
+  /** Deletes the box image `tag`, so a build can make it again. */
+  deleteImage(tag: string, options?: BoxCallOptions): Promise<void>;
+  /**
+   * The IPv4 address of the running box `name` on dipo's box network (DIPO-343: dipo's web proxy
+   * reaches the Safe-Chain box there); null when the box does not run or has none.
+   */
+  address(name: string, options?: BoxCallOptions): Promise<string | null>;
+}
+
+/** A line of the daemon's log, as its logger's `info` and `warn` write it. */
+export type BoxLog = (message: string, fields: Readonly<Record<string, unknown>>) => void;
+
+/**
+ * True when the state folder labelled `own` made `box` (DIPO-374): the one rule of which listed
+ * boxes a daemon-start sweep may delete, the helper boxes and the test boxes alike (DIPO-419). Apple
+ * `container` lists every box on the Mac, so a box of another state folder's daemon, a test's, and a
+ * box with no label are never this daemon's; a backend that labels none (`own` null) owns none.
+ */
+export function madeHere(box: Pick<BoxInfo, "stateLabel">, own: string | null): boolean {
+  return own !== null && box.stateLabel === own;
+}
+
+/**
+ * Deletes box `name` and logs at info which box went and `why` (DIPO-419): the one way dipo deletes
+ * a box, so the daemon's log names every box it deleted; `info` is required, so no caller deletes
+ * without the line. A delete that fails rejects as
+ * `BoxPort.delete` does and logs nothing here; its caller warns or swallows it.
+ */
+export async function deleteBox(
+  boxes: Pick<BoxPort, "delete">,
+  name: string,
+  why: string,
+  info: BoxLog,
+  options?: BoxCallOptions,
+): Promise<void> {
+  await boxes.delete(name, options);
+  info?.("deleted a box", { box: name, why });
+}

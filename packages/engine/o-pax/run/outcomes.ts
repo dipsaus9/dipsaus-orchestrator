@@ -1,0 +1,126 @@
+// Worker outcomes (0008, 0014). Run control hands this
+// every turn problem, rejected init, plan limit and classifier switch of a tracked run, and the
+// worker's exit once the turns before it are handled. Every op is stored as a `run_intents` row
+// before it is sent; the intents carry a tag at the start of their detail:
+//
+// - `steer` `feedback report <agent> <via> <text>`: a turn whose report does not parse or match the
+//   schema gets one correction turn "report in the schema" (`prompts/feedback/report.md`) through
+//   the one feedback path (`feedback.ts`); the next turn answers it. A second turn without one
+//   parks `worker-failed` ("no valid report: <why>"; 0008): a bad report is
+//   a broken worker, never a question. A worker that exits before it answered is resumed with the
+//   correction held for its first message.
+// - `new-session` `new-session:context-full`: a turn ended `prompt_too_long`; stdin is closed and
+//   SIGTERM follows after 10 s. At the exit the agent ends `prompt-too-long` and one new session
+//   with a handoff starts. A second full context parks `budget-exceeded`.
+// - `new-session` `new-session:error`: a turn ended in an execution error while the process waits
+//   (maintainer decision Q4): a crash, handled at the exit as one.
+// - A crash with no intent (a signal, exit 143, an execution error, a cut stream): usage is
+//   already recovered by ingestion; when no earlier agent of the run crashed and no cap fired, the
+//   agent ends `crashed` and one new session with a handoff starts. Otherwise the story parks
+//   `worker-failed` with the last error.
+// - `stop` `init-rejected`: a `system/init` that fails its checks (key source, model) stops the
+//   worker at once (stdin closed, SIGTERM now, SIGKILL after 30 s) and parks `worker-failed` with
+//   an `engine.notice` `run.initRejected`.
+// - `stop` `start-failed`: a start failure (startup failure, authentication, billing, account on
+//   hold) pauses starts for the adapter (reason `adapter`) and raises `run.startFailed`. When the
+//   branch holds no work the claim is released (branch kept, story Ready); when it holds
+//   commits past the claim, the story parks `worker-failed` and everything is kept (0008).
+//   A start the adapter refuses at its first line (`startRefused`, DIPO-108: a plugin the office
+//   does not allow) stores the same intent but stops the worker at once, as a rejected init does
+//   (stdin closed, SIGTERM now, SIGKILL after 30 s), and never parks for it.
+// - A rejected plan limit (a `rate_limit_event` `rejected`, `credits_required`, a 429 turn, or an
+//   exit the adapter reads as one) pauses the office's starts (0020, `starts-paused.ts`) and parks
+//   the story `worker-failed` with the detail "plan limit until <time>",
+//   marked to resume by itself when the pause lifts. An `allowed_warning` changes nothing.
+// - A classifier switch is recorded in the session's parser state and announced once per run and
+//   model with `engine.notice` `run.modelSwitched`; it never parks.
+//
+// Each counter fires once per run and they are independent (maintainer decision Q5); they are
+// read from facts (`run_intents`, `agents.end_reason`), so a restart keeps them. Every run that
+// ends goes through `endRun`: parked by a park, dropped by the claim release of a start failure
+// (0020).
+//
+// The class is split by responsibility: `outcome-turns.ts` (after a turn), `outcome-exits.ts`
+// (at the exit), `outcome-sessions.ts` (next session, start failure), `outcome-restart.ts` (after
+// a restart), `outcome-support.ts` (shared facts) and `deciding.ts` (the one deciding guard).
+// `outcome-types.ts` holds the vocabulary; this file keeps the public class and re-exports all of
+// it. Resuming a parked run is not here: it is `resumption.ts` (DIPO-138), which builds on
+// the `parts` this exposes.
+
+import type { OfficeId } from "@dipsaus-orchestrator/contract";
+
+import type { FeatureModule } from "../commands/registry";
+import type { TurnProblem } from "../workers/types";
+
+import { ExitOutcomes } from "./outcome-exits";
+import { Redispatch } from "./outcome-restart";
+import { SessionStarts } from "./outcome-sessions";
+import { OutcomeSupport } from "./outcome-support";
+import { TurnOutcomes } from "./outcome-turns";
+import type {
+  ExitContext,
+  PlanLimitHit,
+  RunOutcomesDeps,
+  RunOutcomesPort,
+  RunView,
+} from "./outcome-types";
+
+export * from "./outcome-types";
+
+/** The units a resumption shares with worker outcomes: their facts, guard and session starts. */
+export interface OutcomeParts {
+  readonly support: OutcomeSupport;
+  readonly sessions: SessionStarts;
+}
+
+export class RunOutcomes implements RunOutcomesPort {
+  readonly #support: OutcomeSupport;
+  readonly #turns: TurnOutcomes;
+  readonly #exits: ExitOutcomes;
+  readonly #restart: Redispatch;
+  readonly parts: OutcomeParts;
+
+  constructor(deps: RunOutcomesDeps) {
+    this.#support = new OutcomeSupport(deps);
+    const sessions = new SessionStarts(this.#support);
+    this.#turns = new TurnOutcomes(this.#support);
+    this.#exits = new ExitOutcomes(this.#support, sessions);
+    this.parts = { support: this.#support, sessions };
+    this.#restart = new Redispatch(this.#support, this.#exits, sessions);
+  }
+
+  onTurnProblem(view: RunView, problem: TurnProblem): Promise<void> {
+    return this.#turns.onTurnProblem(view, problem);
+  }
+
+  answered(view: RunView): void {
+    this.#turns.answered(view);
+  }
+
+  onPlanLimit(view: RunView, limit: PlanLimitHit): void {
+    this.#turns.onPlanLimit(view, limit);
+  }
+
+  onModelSwitched(view: RunView, model: string): void {
+    this.#turns.onModelSwitched(view, model);
+  }
+
+  onExit(exit: ExitContext): Promise<void> {
+    return this.#exits.onExit(exit);
+  }
+
+  /** True while an exit of the run is being decided here (DIPO-57). */
+  busy(runId: string): boolean {
+    return this.#support.guard.busy(runId);
+  }
+
+  /** The load step that decides the exits a restart left undecided. */
+  get feature(): FeatureModule {
+    return this.#restart.feature;
+  }
+
+  /** Decides the exits a restart left undecided; the number of runs it handled. */
+  redispatch(officeId: OfficeId): Promise<number> {
+    return this.#restart.redispatch(officeId);
+  }
+}

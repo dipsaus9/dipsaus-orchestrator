@@ -1,0 +1,105 @@
+// Worker prompt assembly (0014, DIPO-47): the L1+L2 system file, the `implement` task message,
+// verify feedback items, the handoff block, worker notes and prompt part measurements; the
+// `review` system file and task message (0002).
+
+export { assembleTaskMessage, taskBudgetsFor } from "./assemble";
+export type { Drop, TaskBudgets, TaskMessage, TaskMessageInput } from "./assemble";
+export {
+  assembleContract,
+  CONTRACT_MAX_DEFAULT,
+  CONTRACT_SECTIONS,
+  CONTRACT_TOO_LARGE,
+  contractSize,
+  ContractTooLargeError,
+  SECTION_ORDER,
+} from "./contract";
+export type { Section, SectionName } from "./contract";
+export {
+  advisoryLines,
+  capFeedbackText,
+  collapseWhitespace,
+  FEEDBACK_ITEM_MAX,
+  FEEDBACK_LOCATIONS_MAX,
+  FEEDBACK_LOG_LINES_DEFAULT,
+  FEEDBACK_MESSAGE_MAX,
+  ciFeedback,
+  fixRoundMessage,
+  parseActionsLog,
+  parseLocations,
+  plainOutput,
+  rejectFeedbackItem,
+  rejectSignature,
+  reviewCriterionSignature,
+  reviewFeedbackItems,
+  reviewFindingSignature,
+  verifyFeedback,
+} from "./feedback";
+export type {
+  CiFailure,
+  CiFeedbackItem,
+  FeedbackItem,
+  FeedbackSource,
+  FixItem,
+  FixRoundItem,
+  SourceLocation,
+  VerifyFailure,
+  VerifyFeedbackItem,
+  VerifyFeedbackOptions,
+} from "./feedback";
+export {
+  BOX_CHANGES,
+  BOX_VERIFY,
+  gatherHandoff,
+  HANDOFF_BUDGET_DEFAULT,
+  HANDOFF_NOTE_MAX,
+  renderHandoff,
+} from "./handoff";
+export { budgetLine, withBudgetLine } from "./budget";
+export type { BudgetCaps, BudgetFacts, BudgetUsed } from "./budget";
+export type { GatherHandoffOptions, HandoffFacts, HandoffFeedback, LastVerify } from "./handoff";
+export {
+  capNotes,
+  forgetWorkerNotes,
+  latestWorkerNotes,
+  recordWorkerNotes,
+  WORKER_NOTES_MAX,
+} from "./notes";
+export type { RecordWorkerNotesInput, WorkerNotes } from "./notes";
+export {
+  CHARS_PER_TOKEN,
+  measurePart,
+  promptParts,
+  promptPartsOf,
+  recordPromptParts,
+  SYSTEM_PART,
+  TASK_PART,
+} from "./parts";
+export type { PromptPart } from "./parts";
+export { backgroundOf, promptStoryOf, storyLineOf } from "./story";
+export type { PromptCriterion, PromptDependency, PromptStory, PromptStoryOptions } from "./story";
+export {
+  assembleReviewTaskMessage,
+  REVIEW_SECTION_ORDER,
+  reviewCommitSection,
+  type ReviewChangedPath,
+  type ReviewCommitCopy,
+  type ReviewSection,
+  type ReviewSectionName,
+  type ReviewTaskInput,
+  type ReviewTaskMessage,
+  withReviewCommit,
+} from "./review";
+export { renderSystemFile } from "./system";
+export {
+  CONTRACT_TEMPLATES,
+  FEEDBACK_TEMPLATES,
+  renderTemplate,
+  ROLE_TEMPLATES,
+  slotsOf,
+  TASK_TEMPLATES,
+  templateProblems,
+  neutraliseTags,
+  PROMPT_TAGS,
+  rendered,
+} from "./templates";
+export type { BuiltInRole, ContractKind, Rendered } from "./templates";

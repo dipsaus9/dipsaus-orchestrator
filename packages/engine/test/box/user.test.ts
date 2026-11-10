@@ -2,8 +2,15 @@
 // the box user through a root-only stage, never a root copy into a folder the worker can write.
 
 import { describe, expect, it } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
-import { BOX_WORKDIR, BOX_DIPO_DIR } from "../../src/box/code";
+import { withTempDir } from "@dipsaus-orchestrator/testkit";
+
+import { BOX_WORKDIR, BOX_DIPO_DIR, packFolder } from "../../src/box/code";
+import { systemClock } from "../../src/platform/clock";
+import { systemSpawn } from "../../src/platform/process";
 import { DOOR_QUEUE } from "../../src/box/door";
 import { BOX_NET_TOOLS_PATH, BOX_USER_GID, BOX_USER_UID } from "../../src/box/firewall";
 import { BUILD_DIR_IN_BOX } from "../../src/box/image";
@@ -24,6 +31,8 @@ import {
   stageHandOverCommand,
   stageMakeCommand,
   stageRemoveCommand,
+  stageUnpackCommand,
+  STAGE_ARCHIVE,
   type UserCopyBoxes,
 } from "../../src/box/user";
 import { BOX_COMMAND_DIR } from "../../src/box/verify";
@@ -162,5 +171,46 @@ describe("a copy for the box user (DIPO-334)", () => {
       "making a stage folder in the box failed",
     );
     expect(steps).toHaveLength(1);
+  });
+});
+
+describe("a copy of names the backend would change (DIPO-488)", () => {
+  it("goes in as one archive the box user unpacks, never as a folder", async () => {
+    const { boxes, steps } = recording();
+    const removed: string[] = [];
+    await copyInAsUser(boxes, "dipo-run_1", "/tmp/d488/code", BOX_WORKDIR, async (folder) => ({
+      file: `${folder}.tar`,
+      remove: async () => void removed.push(folder),
+    }));
+    const stage = steps[0]!.what.split(" ").at(-1)!;
+    expect(steps).toEqual([
+      { kind: "exec", what: stageMakeCommand(stage).join(" "), root: true },
+      { kind: "copy", what: `/tmp/d488/code.tar -> ${stage}/${STAGE_ARCHIVE}` },
+      { kind: "exec", what: stageHandOverCommand(stage).join(" "), root: true },
+      { kind: "exec", what: stageUnpackCommand(stage, BOX_WORKDIR).join(" ") },
+      { kind: "exec", what: stageRemoveCommand(stage).join(" "), root: true },
+    ]);
+    expect(removed).toEqual(["/tmp/d488/code"]);
+    expect(isRootStep(stageUnpackCommand(stage, BOX_WORKDIR))).toBe(false);
+  });
+
+  it("packs a folder with ASCII names or not into an archive whose names are the bytes of the files'", async () => {
+    await withTempDir(async (tmp) => {
+      const folder = join(tmp, "code");
+      const names = ["ellipsis-only-l….md", "`open`.md", `${"x".repeat(160)}.md`];
+      mkdirSync(folder);
+      for (const name of names) writeFileSync(join(folder, name), name);
+      const deps = { spawn: systemSpawn, clock: systemClock };
+      const archive = await packFolder(deps, tmp, folder);
+      const out = join(tmp, "out");
+      mkdirSync(out);
+      const unpacked = spawnSync("tar", ["-x", "-f", archive.file, "-C", out], {
+        env: { PATH: "/usr/bin:/bin", LC_ALL: "C" },
+      });
+      expect(unpacked.status).toBe(0);
+      expect(readdirSync(out).toSorted()).toEqual(names.toSorted());
+      await archive.remove();
+      expect(existsSync(archive.file)).toBe(false);
+    });
   });
 });

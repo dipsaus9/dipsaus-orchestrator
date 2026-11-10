@@ -12,7 +12,17 @@
 // steps are kept in `stageSteps`. Every box it makes carries its state folder label
 // (`FAKE_STATE_LABEL` by default, DIPO-374), which a test may change on a box (`stateLabel`).
 
-import { cpSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join, relative } from "node:path";
 
 import type { ChildExit, Signal } from "@dipsaus-orchestrator/contract";
@@ -40,9 +50,12 @@ import {
   boxName,
 } from "../../src/box/port";
 import { TOKEN_CHECK_ENV_COMMAND } from "../../src/box/token-check";
-import { BOX_STAGE_ROOT } from "../../src/box/user";
+import { BOX_STAGE_ROOT, STAGE_ARCHIVE } from "../../src/box/user";
 
 import { tarBytes } from "./tar-bytes";
+
+/** Where the fake boxes unpack archives: `DIPO_TMP`, else `/tmp`. */
+const TMP_ROOT = process.env["DIPO_TMP"] ?? "/tmp";
 
 /** The container program the client commands name. */
 export const FAKE_CONTAINER = "/usr/local/bin/container";
@@ -90,6 +103,17 @@ export interface FakeBoxState {
   stateLabel: string | null;
 }
 
+/** Changes each non-ASCII character in the names below `dir` to one `*`. */
+function mangleNames(dir: string): void {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const mangled = entry.name.replace(/[^\x00-\x7f]/gu, "*");
+    const at = join(dir, entry.name);
+    const now = mangled === entry.name ? at : join(dir, mangled);
+    if (now !== at) renameSync(at, now);
+    if (entry.isDirectory()) mangleNames(now);
+  }
+}
+
 /** The relative paths under `dir`, folders ending in `/`, sorted. */
 export function listing(dir: string): string[] {
   const out: string[] = [];
@@ -130,6 +154,11 @@ export interface FakeBoxesOptions {
    * `<files>/<box name><box path>`, so a test can change it and archive it (`filesOf`).
    */
   readonly files?: string;
+  /**
+   * A folder copied in (`copyIn` of a folder) changes each non-ASCII character of a file name to
+   * one `*`, as Apple `container copy` does (DIPO-488); an archive file is copied as it is.
+   */
+  readonly mangleNames?: boolean;
   /** Fails `stop` with this error (a box that cannot be stopped). */
   readonly stopFails?: Error;
   /**
@@ -299,6 +328,16 @@ export class FakeBoxes implements BoxPort {
     const box = this.#box(name);
     if (box.state !== "running") throw new BoxError("box.failed", `${name} is not running`);
     if (to.startsWith(`${BOX_STAGE_ROOT}/`)) {
+      if (to.endsWith(`/${STAGE_ARCHIVE}`)) {
+        // An archive: unpacked as the box's tar does, byte for byte, into a host folder of its own.
+        const folder = mkdtempSync(join(TMP_ROOT, "fake-box-stage-"));
+        const unpacked = spawnSync("tar", ["-x", "-f", from, "-C", folder], {
+          env: { PATH: "/usr/bin:/bin", LC_ALL: "C" },
+        });
+        if (unpacked.status !== 0) throw new Error(`tar failed: ${String(unpacked.stderr)}`);
+        this.#staged.set(`${name} ${to.slice(0, -STAGE_ARCHIVE.length - 1)}`, `${folder}/.`);
+        return;
+      }
       // Logged and kept when the box user copies it on.
       this.#staged.set(`${name} ${to}`, from);
       return;
@@ -306,13 +345,16 @@ export class FakeBoxes implements BoxPort {
     this.#copied(name, from, to);
   }
 
-  #copied(name: string, from: string, to: string): void {
+  #copied(name: string, from: string, to: string, archive = false): void {
     this.log.push(`copy in ${name} ${to}`);
     const box = this.#box(name);
     const dir = from.endsWith("/.") ? from.slice(0, -2) : from;
     box.copies.push({ to, listing: statSync(dir).isDirectory() ? listing(dir) : [from] });
     if (this.#options.files !== undefined) {
-      cpSync(dir, this.filesOf(name, to), { recursive: true, verbatimSymlinks: true });
+      const target = this.filesOf(name, to);
+      cpSync(dir, target, { recursive: true, verbatimSymlinks: true });
+      if (this.#options.mangleNames === true && !archive && statSync(dir).isDirectory())
+        mangleNames(target);
     }
   }
 
@@ -322,15 +364,25 @@ export class FakeBoxes implements BoxPort {
     command: readonly string[],
     options: BoxExecOptions | undefined,
   ): BoxExecResult | null {
-    const stage = command.find((part) => part.startsWith(`${BOX_STAGE_ROOT}/`));
-    if (stage === undefined) return null;
+    const named = command.find((part) => part.startsWith(`${BOX_STAGE_ROOT}/`));
+    if (named === undefined) return null;
+    const stage = named.endsWith(`/${STAGE_ARCHIVE}`)
+      ? named.slice(0, -STAGE_ARCHIVE.length - 1)
+      : named;
     this.stageSteps.push({ box: name, command, ...(options === undefined ? {} : { options }) });
-    if (command[0] === "/bin/cp") {
+    if (command[0] === "/bin/cp" || command[0] === "/bin/tar") {
       const from = this.#staged.get(`${name} ${stage}`);
       if (from === undefined) return { code: 1, stdout: "", stderr: "no such stage" };
-      this.#copied(name, from, command.at(-1) ?? "");
+      this.#copied(
+        name,
+        from,
+        command[0] === "/bin/tar" ? (command.at(-3) ?? "") : (command.at(-1) ?? ""),
+        command[0] === "/bin/tar",
+      );
     }
     if (command[0] === "/bin/rm") {
+      const staged = this.#staged.get(`${name} ${stage}`);
+      if (staged?.startsWith(TMP_ROOT) === true) rmSync(staged.slice(0, -2), { recursive: true });
       this.#staged.delete(`${name} ${stage}`);
       if (this.#options.files !== undefined) {
         rmSync(this.filesOf(name, stage), { recursive: true, force: true });

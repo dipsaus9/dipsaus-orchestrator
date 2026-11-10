@@ -1,0 +1,309 @@
+// The worker report as Claude returns it through `--json-schema` (0008; fields from 0014). The zod
+// schema parses the `structured_output` of a result; the JSON Schema is what the launch plan passes
+// on argv and writes to the run directory. Each report kind has its own (0008): `WorkerReport` for
+// `implement`, `ReviewReport` for `review` (0002), and the contract's `PlanningProposal` for the
+// proposal blocks of a planning session's answers (DIPO-450).
+//
+// The worker report is the door of the messages story done, question, blocked and proposal (0008,
+// W2 to W5): `parseWorkerReport` holds it to `WORKER_REPORT_MAX_CHARS`, cleans every string of
+// terminal control and other unsafe characters (`cleanDoorText`) and then parses it strictly, every
+// text field with its length cap. dipo reads the report as data only.
+
+import { PlanningProposal } from "@dipsaus-orchestrator/contract";
+import { z } from "zod";
+
+import { cleanDoorStrings, doorKeysClean } from "../../box/door";
+import { toJsonSchema } from "../json-schema";
+import {
+  REVIEW_SUMMARY_MAX,
+  type JsonSchema,
+  type SchemaKind,
+  type ReviewReport,
+  type WorkerReport,
+} from "../types";
+
+const Text = z.string().min(1);
+
+/** The largest worker report, as JSON characters, before any field is read. */
+export const WORKER_REPORT_MAX_CHARS = 64_000;
+
+/** The length caps of the worker report's text fields (characters). */
+export const WORKER_REPORT_CAPS = {
+  criteria: 50,
+  evidence: 2_000,
+  summary: 4_000,
+  commitSubject: 200,
+  question: 2_000,
+  notes: 8_000,
+  proposals: 3,
+  proposalTitle: 120,
+  proposalStory: 500,
+  proposalWhy: 1_000,
+  proposalPaths: 20,
+  path: 300,
+  testPlan: 50,
+  testEvidence: 500,
+  deviations: 10,
+  deviationWhere: 300,
+  deviationWhat: 1_000,
+  deviationWhy: 1_000,
+  decisionNotes: 3,
+  noteFile: 200,
+  noteSection: 200,
+  noteText: 2_000,
+} as const;
+
+/**
+ * A decision file a note may name: a Markdown file directly under the decision records folder, by
+ * its repo-relative path (0008).
+ */
+export const DECISION_FILE = /^docs\/decisions\/[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
+
+const caps = WORKER_REPORT_CAPS;
+
+/**
+ * A proposal (0008 W5): a follow-up story, a spike, or a tool the box lacks. Data only. Its story
+ * line is held to its length cap here; the engine checks its shape (0012 R05) and sends a line that
+ * fails back once, then drops that proposal (`run/proposal-lines.ts`).
+ */
+export const WorkerProposalSchema = z.strictObject({
+  kind: z
+    .enum(["follow-up", "spike", "tool"])
+    .describe("follow-up: a story; spike: a question to research; tool: a tool the box lacks"),
+  title: Text.max(caps.proposalTitle).describe("a short title"),
+  story: Text.max(caps.proposalStory).describe(
+    "one line: As <maintainer|worker|reviewer> I want <capability> so that <value>. For a spike: We need to decide <question> so that <value>. Plain words: no backticks, file paths or code",
+  ),
+  why: Text.max(caps.proposalWhy).describe("why it is needed, and what you saw"),
+  paths: z
+    .array(Text.max(caps.path))
+    .max(caps.proposalPaths)
+    .exactOptional()
+    .describe("files it concerns, relative to the repository root"),
+});
+
+/** A test-plan entry as the worker reports it (DIPO-254): number, status and evidence. */
+export const WorkerTestPlanEntrySchema = z.strictObject({
+  n: z.int().positive().describe("the entry's number in the story's test plan"),
+  status: z
+    .enum(["done", "not-done", "manual"])
+    .describe(
+      "done: written and passing; not-done: not written or not passing; manual: a manual entry",
+    ),
+  evidence: Text.max(caps.testEvidence).describe("the test file and name, or why it is not done"),
+});
+
+/** A deviation (DIPO-254): where the change differs from a criterion or the context, and why. */
+export const WorkerDeviationSchema = z.strictObject({
+  where: Text.max(caps.deviationWhere).describe("the criterion, file or part of the context"),
+  what: Text.max(caps.deviationWhat).describe("what the change does differently"),
+  why: Text.max(caps.deviationWhy).describe("why"),
+});
+
+/** A note proposed for a decision record (DIPO-186). Data only: dipo never writes it there. */
+export const WorkerDecisionNoteSchema = z.strictObject({
+  file: Text.max(caps.noteFile)
+    .regex(DECISION_FILE)
+    .describe("the decision file, relative to the repository root"),
+  section: Text.max(caps.noteSection).describe("the heading of the section the note is for"),
+  text: Text.max(caps.noteText).describe("the note as it would read in the decision record"),
+});
+
+export const WorkerReportSchema = z.strictObject({
+  status: z.enum(["done", "blocked"]).describe("done when every criterion is met, else blocked"),
+  criteria: z
+    .array(
+      z.strictObject({
+        n: z.int().positive().describe("criterion number as in the story"),
+        met: z.boolean(),
+        evidence: z
+          .string()
+          .max(caps.evidence)
+          .describe("file, test or command output that shows it"),
+      }),
+    )
+    .max(caps.criteria)
+    .describe("one entry per acceptance criterion"),
+  summary: Text.max(caps.summary).describe(
+    "what changed, in a few sentences; when blocked without a question, the reason",
+  ),
+  commitSubject: Text.max(caps.commitSubject).describe(
+    "proposed commit subject, imperative, without the story id",
+  ),
+  question: Text.max(caps.question)
+    .exactOptional()
+    .describe("blocked only: the one question the maintainer must answer"),
+  notes: z.string().max(caps.notes).exactOptional().describe("notes for a next session"),
+  proposals: z
+    .array(WorkerProposalSchema)
+    .max(caps.proposals)
+    .exactOptional()
+    .describe(
+      "follow-ups, spikes or tools for the maintainer to decide on; nothing happens on its own",
+    ),
+  testPlan: z
+    .array(WorkerTestPlanEntrySchema)
+    .max(caps.testPlan)
+    .exactOptional()
+    .describe("one entry per test-plan entry of the story"),
+  deviations: z
+    .array(WorkerDeviationSchema)
+    .max(caps.deviations)
+    .exactOptional()
+    .describe("where the change differs from a criterion or the context, and why"),
+  decisionNotes: z
+    .array(WorkerDecisionNoteSchema)
+    .max(caps.decisionNotes)
+    .exactOptional()
+    .describe("notes proposed for decision records, for the maintainer; never written there"),
+});
+
+// The schema the CLI checks a worker's report against (DIPO-416): the same shape, but `testPlan` is
+// required, an empty list when the story has no entries. The parser keeps it optional, so a report
+// without it still parses (0017 recordings and scripted turns).
+export const WorkerCliReportSchema = WorkerReportSchema.extend({
+  testPlan: z
+    .array(WorkerTestPlanEntrySchema)
+    .max(caps.testPlan)
+    .describe("one entry per test-plan entry of the story; an empty list when it has none"),
+});
+
+export const ReviewReportSchema = z.strictObject({
+  criteria: z
+    .array(
+      z.strictObject({
+        n: z.int().positive().describe("criterion number as in the story"),
+        status: z
+          .enum(["met", "unmet", "maintainer"])
+          .describe("maintainer: only the maintainer can check it"),
+        evidence: z
+          .string()
+          .describe("what in the diff or the worktree shows it; required for unmet and maintainer"),
+      }),
+    )
+    .describe("exactly one entry per acceptance criterion"),
+  findings: z
+    .array(
+      z.strictObject({
+        severity: z.enum(["blocking", "advisory"]),
+        kind: z.enum(["scope", "test", "correctness", "security", "maintainability", "other"]),
+        criterion: z.int().positive().exactOptional().describe("the criterion it concerns"),
+        testEntry: z
+          .int()
+          .positive()
+          .exactOptional()
+          .describe("kind test: the number of the automated test plan entry with no test"),
+        file: Text.exactOptional().describe("a changed path, relative to the worktree root"),
+        line: z.int().positive().exactOptional().describe("the line in that file at this commit"),
+        quote: Text.exactOptional().describe("that line, exactly as it is in the file"),
+        text: Text.describe("what is wrong and why"),
+      }),
+    )
+    .describe("problems found; an empty list when there are none"),
+  summary: Text.max(REVIEW_SUMMARY_MAX).describe("the review in a few sentences"),
+});
+
+// Compile-time checks that the parsers and the contract types agree in both directions.
+type Parsed = z.infer<typeof WorkerReportSchema>;
+const toContract = (report: Parsed): WorkerReport => report;
+const fromContract = (report: WorkerReport): Parsed => {
+  const { proposals, testPlan, deviations, decisionNotes, ...rest } = report;
+  return {
+    ...rest,
+    criteria: [...report.criteria],
+    ...(testPlan === undefined ? {} : { testPlan: [...testPlan] }),
+    ...(deviations === undefined ? {} : { deviations: [...deviations] }),
+    ...(decisionNotes === undefined ? {} : { decisionNotes: [...decisionNotes] }),
+    ...(proposals === undefined
+      ? {}
+      : {
+          proposals: proposals.map(({ paths, ...proposal }) => ({
+            ...proposal,
+            ...(paths === undefined ? {} : { paths: [...paths] }),
+          })),
+        }),
+  };
+};
+void toContract;
+void fromContract;
+type ParsedReview = z.infer<typeof ReviewReportSchema>;
+const reviewToContract = (report: ParsedReview): ReviewReport => report;
+const reviewFromContract = (report: ReviewReport): ParsedReview => ({
+  ...report,
+  criteria: [...report.criteria],
+  findings: [...report.findings],
+});
+void reviewToContract;
+void reviewFromContract;
+
+/** The JSON Schema of `WorkerReport` for `--json-schema`. */
+export const WORKER_REPORT_JSON_SCHEMA: JsonSchema = toJsonSchema(WorkerCliReportSchema, "output");
+
+/** The JSON Schema of `ReviewReport` for `--json-schema` (0002). */
+export const REVIEW_REPORT_JSON_SCHEMA: JsonSchema = toJsonSchema(ReviewReportSchema, "output");
+
+/**
+ * The JSON Schema of the contract's `PlanningProposal` (DIPO-450): a planning session gets it in its
+ * first message, since its answers are text and its proposal blocks pass no `--json-schema`; the
+ * engine validates each block against the zod schema itself.
+ */
+export const PLANNING_PROPOSAL_JSON_SCHEMA: JsonSchema = toJsonSchema(PlanningProposal, "input");
+
+/** The report schema of each report kind, as `WorkerPort.reportSchema` hands it out. */
+export const REPORT_JSON_SCHEMAS: Readonly<Record<SchemaKind, JsonSchema>> = {
+  implement: WORKER_REPORT_JSON_SCHEMA,
+  review: REVIEW_REPORT_JSON_SCHEMA,
+  planning: PLANNING_PROPOSAL_JSON_SCHEMA,
+};
+
+/** A worker report, or why the output is not one. */
+export type WorkerReportRead =
+  | { readonly ok: true; readonly report: WorkerReport }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Pure: a result's `structured_output` as a worker report (the door of W2 to W5): at most
+ * `WORKER_REPORT_MAX_CHARS` as JSON, every string cleaned with `cleanDoorText`, then the strict
+ * schema with its length caps, so an empty text after cleaning fails too.
+ */
+export function parseWorkerReport(output: unknown): WorkerReportRead {
+  if (output === undefined || output === null) return { ok: false, error: "no structured_output" };
+  let size: number;
+  try {
+    size = JSON.stringify(output).length;
+  } catch {
+    return { ok: false, error: "structured_output is not JSON" };
+  }
+  if (size > WORKER_REPORT_MAX_CHARS) {
+    return {
+      ok: false,
+      error: `structured_output has ${size} characters; at most ${WORKER_REPORT_MAX_CHARS} are allowed`,
+    };
+  }
+  // The error names no field or key: an unknown key is the worker's text, and this one goes into
+  // a park detail and the report feedback.
+  // Keys are never cleaned: one that holds anything cleaning would change is refused.
+  if (!doorKeysClean(output))
+    return { ok: false, error: "structured_output fails the report schema" };
+  const parsed = WorkerReportSchema.safeParse(cleanDoorStrings(output));
+  if (!parsed.success) return { ok: false, error: "structured_output fails the report schema" };
+  return { ok: true, report: parsed.data };
+}
+
+/** A review report, or why the output is not one. */
+export type ReviewReportRead =
+  | { readonly ok: true; readonly report: ReviewReport }
+  | { readonly ok: false; readonly error: string };
+
+/** Pure: a result's `structured_output` as a review report, or the schema's error. */
+export function parseReviewReport(output: unknown): ReviewReportRead {
+  if (output === undefined || output === null) return { ok: false, error: "no structured_output" };
+  const parsed = ReviewReportSchema.safeParse(output);
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((issue) => `${issue.path.join(".") || "report"}: ${issue.message}`)
+      .join("; ");
+    return { ok: false, error: `structured_output fails the review report schema: ${issues}` };
+  }
+  return { ok: true, report: parsed.data };
+}

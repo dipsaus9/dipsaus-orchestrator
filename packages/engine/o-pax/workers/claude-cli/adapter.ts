@@ -1,0 +1,330 @@
+// The Claude CLI `WorkerAdapter`, built per run (DIPO-74; 0008). `plan(spec)` closes
+// over the run's `ClaudeLaunchContext`, so the engine calls the 0008 signature while DIPO-40's
+// `plan(spec, ctx)` stays pure. `claudeWorkerPort` is what the daemon hands the run code: the
+// adapter for a run's paths, the launch checks through the adapter hold, and the parser state.
+//
+// A developer session runs only in its run's box (DIPO-240, 0008): `prepare` plans it there with
+// `planInBox`, and refuses one whose run has no box as a plan (`PlanError`). A reviewer session
+// runs only in the read-only box its caller made for it (`BoxWorkers.review`, 0002), handed to
+// `prepare` as its place, and so does a planning session (`BoxWorkers.planning`, DIPO-447) and an
+// audit session in a planning box of its own (DIPO-452). A `session` runs on the Mac with its plan and launch checks (`plan.ts`, `launch-checks.ts`).
+
+import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
+
+import type { AdapterPauses } from "../../run/starts-paused";
+import type { PreparedWorker, RunLaunchPaths, SessionFacts, WorkerPort } from "../port";
+import type {
+  AdapterStatus,
+  ExitRecord,
+  HostLine,
+  LaunchPlan,
+  LineScrub,
+  ParseState,
+  WorkerAdapter,
+  WorkerSpec,
+} from "../types";
+import { PlanError } from "../types";
+import { BOX_DIPO_DIR, BOX_WORKDIR } from "../../box/code";
+import { BoxError } from "../../box/port";
+import type { BoxSession, BoxWorkers } from "../../box/workers";
+import { planInBox } from "./box-plan";
+import { encode } from "./encode";
+import { initialState, interpret, nextSessionOptions, type ClaudeParseState } from "./interpret";
+import { prepareLaunch, type ClaudeLaunchCheckDeps } from "./launch-checks";
+import {
+  CLAUDE_CLI_ADAPTER_ID,
+  DEVELOPER_ON_MAC_REFUSED,
+  ENV_ALLOWLIST,
+  plan,
+  reportsBySchema,
+  AUDITOR_ON_MAC_REFUSED,
+  PLANNER_ON_MAC_REFUSED,
+  REVIEWER_ON_MAC_REFUSED,
+  type ClaudeLaunchContext,
+} from "./plan";
+import { readInstalledPlugins, type PluginFiles } from "./plugins";
+import { probe } from "./probe";
+import { REPORT_JSON_SCHEMAS } from "./report-schema";
+import { result } from "./result";
+import { AUDIT_KIND } from "./tools";
+
+export interface ClaudeCliAdapterDeps {
+  readonly spawn: Spawn;
+  readonly clock: Clock;
+  readonly probeTimeoutMs?: number;
+}
+
+/**
+ * What the host removes from each stdout line (DIPO-105): the text, signature and redacted data of
+ * every thinking block, in assistant lines and in stream events. The block's `type` and the
+ * duration and token fields stay, so ingestion still counts the thinking.
+ */
+export const CLAUDE_LINE_SCRUB: LineScrub = {
+  blockTypes: ["thinking", "redacted_thinking", "thinking_delta", "signature_delta"],
+  fields: ["thinking", "signature", "data"],
+};
+
+/** The plan with the Claude line scrub attached; the host applies it before it appends a line. */
+function scrubbed(launch: LaunchPlan): LaunchPlan {
+  return { ...launch, lineScrub: CLAUDE_LINE_SCRUB };
+}
+
+/** The environment `probe` runs with: the session's allowlist, so it sees the session's login. */
+function probeEnv(ctx: ClaudeLaunchContext): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const name of ENV_ALLOWLIST) {
+    const value = ctx.env[name];
+    if (value !== undefined) env[name] = value;
+  }
+  env["HOME"] = ctx.home;
+  return env;
+}
+
+/**
+ * The parser state with the `system/init` checks of this launch switched on. The engine's
+ * `initialState` has no configuration; the adapter of the launch (or resume) has, so it sets them
+ * on every line, whatever the stored state held, a null included:
+ *
+ * - the plugins a session may load (none, 0008) and the plugin ids of this launch (DIPO-108);
+ * - the skills check (DIPO-130), always: every session is planned with `--disable-slash-commands`.
+ */
+function withInitChecks(
+  state: ClaudeParseState,
+  ctx: ClaudeLaunchContext,
+  boxWorker: boolean,
+): ClaudeParseState {
+  const checked = {
+    ...state,
+    refuseSkills: true,
+    // A box worker has only the placeholder key, which the model proxy replaces (DIPO-271).
+    ...(boxWorker ? { placeholderKey: true } : {}),
+  };
+  if (ctx.plugins === undefined) return checked;
+  const installed = ctx.plugins.installed;
+  return {
+    ...checked,
+    allowedPlugins: ctx.plugins.allowed,
+    knownPlugins: Array.isArray(installed) ? installed : [],
+  };
+}
+
+/** The Claude CLI adapter for one run; `boxWorker` when its developer runs in a box (DIPO-271). */
+export function claudeCliAdapter(
+  ctx: ClaudeLaunchContext,
+  deps: ClaudeCliAdapterDeps,
+  options: { readonly boxWorker?: boolean } = {},
+): WorkerAdapter {
+  const boxWorker = options.boxWorker === true;
+  return {
+    id: CLAUDE_CLI_ADAPTER_ID,
+    probe: (): Promise<AdapterStatus> =>
+      probe({
+        spawn: deps.spawn,
+        clock: deps.clock,
+        claudePath: ctx.claudePath,
+        env: probeEnv(ctx),
+        ...(deps.probeTimeoutMs === undefined ? {} : { timeoutMs: deps.probeTimeoutMs }),
+      }),
+    plan: (spec: WorkerSpec) => scrubbed(plan(spec, ctx)),
+    encode,
+    interpret: (line: HostLine, state: ParseState) =>
+      interpret(
+        line,
+        withInitChecks(state as unknown as ClaudeParseState, ctx, boxWorker),
+      ) as unknown as {
+        readonly events: ReturnType<typeof interpret>["events"];
+        readonly state: ParseState;
+      },
+    result: (state: ParseState, exit: ExitRecord) =>
+      result(state as unknown as ClaudeParseState, exit),
+  };
+}
+
+export interface ClaudeWorkerPortDeps extends ClaudeCliAdapterDeps {
+  /** The `claude` the daemon resolved on its PATH at start; undefined when none was found. */
+  readonly claudePath: string | undefined;
+  readonly home: string;
+  /** The daemon's environment; the plan takes only allowlisted names from it. */
+  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly holds: AdapterPauses;
+  /**
+   * Reads Claude Code's plugin lists (DIPO-108); a test seam. Defaults to the files under
+   * `home`.
+   */
+  readonly pluginFiles?: PluginFiles;
+  /** The launch checks' settings reader (DIPO-105); a test seam. Defaults to the real one. */
+  readonly launchCheckSeams?: Pick<ClaudeLaunchCheckDeps, "readText">;
+  /**
+   * The box workers (DIPO-271, DIPO-240): a run whose run directory records a box runs its
+   * developer sessions in that box. Without them, or for a run without a box, no developer
+   * session is planned.
+   */
+  readonly boxes?: ClaudeBoxWorkers;
+}
+
+/** What the Claude worker port needs of the box workers (`BoxWorkers`). */
+export type ClaudeBoxWorkers = Pick<BoxWorkers, "isBoxRun" | "session">;
+
+/**
+ * Prepares a developer session in the run's box (DIPO-271): the adapter's pause first (a sticky
+ * box-token pause refuses here), then the box session, then the plan. A box that cannot be made
+ * ready pauses the adapter with the `box` check, as a failed launch check; a run whose box is gone
+ * is refused as a plan (`PlanError`), pausing nothing.
+ */
+async function prepareInBox(
+  spec: WorkerSpec,
+  paths: RunLaunchPaths,
+  boxes: ClaudeBoxWorkers,
+  holds: AdapterPauses,
+): Promise<PreparedWorker> {
+  const gate = await holds.gateLaunch(CLAUDE_CLI_ADAPTER_ID, async () => ({ ok: true }));
+  if (!gate.ok) return gate;
+  let session;
+  try {
+    // The run is open here: the launcher made it, or the resumer's caller reopened it, so no pass
+    // stops this box while its session starts (`BoxWorkers.session`, DIPO-278).
+    session = await boxes.session({
+      runId: spec.run,
+      agent: spec.agent,
+      runDir: paths.runDir,
+      systemFile: spec.systemFile,
+    });
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    if (error instanceof BoxError && error.code === "box.gone") throw new PlanError(why);
+    const pause = holds.pause(CLAUDE_CLI_ADAPTER_ID, [
+      {
+        check: BOX_CHECK,
+        detail: `the worker's box could not be made ready: ${why}`,
+        fix: "Check that Apple container runs (`container system status`) and the daemon log, then name the story again.",
+      },
+    ]);
+    return { ok: false, outcome: "startFailed", pause };
+  }
+  return { ok: true, plan: scrubbed(planInBox(spec, session, paths.runDir)) };
+}
+
+/** The placeholder of the dry run's box, which a real run names after its run id. */
+export const PREVIEW_BOX = "dipo-<run-id>";
+
+/**
+ * The box session of the dry run (DIPO-240): the plan shows the command Claude Code runs in the
+ * box, with placeholders for the box and dipo's routes a real run makes.
+ */
+function previewSession(): BoxSession {
+  return {
+    box: PREVIEW_BOX,
+    workdir: BOX_WORKDIR,
+    env: {
+      HTTPS_PROXY: "<dipo's web route for the box>",
+      HTTP_PROXY: "<dipo's web route for the box>",
+      NODE_EXTRA_CA_CERTS: `${BOX_DIPO_DIR}/safe-chain-ca.pem`,
+      ANTHROPIC_BASE_URL: "<dipo's model proxy for the box>",
+    },
+    systemFile: `${BOX_DIPO_DIR}/system.md`,
+    exec: (command, env) => ({ argv: command, env: { ...env } }),
+    stop: { argv: ["<the box backend>", "stop", PREVIEW_BOX], env: {} },
+  };
+}
+
+/** The launch check name of a box that could not be made ready for a session. */
+export const BOX_CHECK = "box";
+
+/** The launch context of one run from its paths and the daemon. */
+export function claudeLaunchContext(
+  deps: Pick<ClaudeWorkerPortDeps, "claudePath" | "home" | "env" | "pluginFiles">,
+  paths: RunLaunchPaths,
+): ClaudeLaunchContext {
+  if (deps.claudePath === undefined) {
+    throw new PlanError(
+      "claude was not found on the daemon's PATH; install Claude Code and restart the daemon with it on PATH",
+    );
+  }
+  return {
+    claudePath: deps.claudePath,
+    home: deps.home,
+    env: deps.env,
+    toolVariables: [],
+    mainCheckout: paths.mainCheckout,
+    runDir: paths.runDir,
+    tmpDir: paths.tmpDir,
+    shortTmpDir: paths.shortTmpDir,
+    // Read per launch, so a plugin installed since the last run is switched off too (DIPO-108).
+    // No session loads a plugin (0008).
+    plugins: { installed: readInstalledPlugins(deps.home, deps.pluginFiles), allowed: [] },
+  };
+}
+
+/** The Claude CLI as a run's worker. */
+export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
+  return {
+    id: CLAUDE_CLI_ADAPTER_ID,
+    reportSchema: REPORT_JSON_SCHEMAS,
+    adapter: (paths) =>
+      claudeCliAdapter(claudeLaunchContext(deps, paths), deps, {
+        boxWorker: deps.boxes?.isBoxRun(paths.runDir) === true,
+      }),
+    previewBox: (spec, paths) => scrubbed(planInBox(spec, previewSession(), paths.runDir)),
+    prepare: async (spec, paths, _config, _checkSession, place) => {
+      // A reviewer, planning or audit session goes into the read-only box made for it, never onto
+      // the Mac (0002, DIPO-447, DIPO-452).
+      if (spec.kind === "review" || spec.kind === "planning" || spec.kind === AUDIT_KIND) {
+        if (place === undefined) throw new PlanError(onMacRefusal(spec.kind));
+        const gate = await deps.holds.gateLaunch(CLAUDE_CLI_ADAPTER_ID, async () => ({ ok: true }));
+        if (!gate.ok) return gate;
+        return { ok: true, plan: scrubbed(planInBox(spec, place, paths.runDir)) };
+      }
+      // A developer session goes into its run's box, never onto the Mac (0008).
+      if (spec.kind === "implement") {
+        if (deps.boxes?.isBoxRun(paths.runDir) !== true) {
+          throw new PlanError(
+            deps.boxes === undefined
+              ? `${DEVELOPER_ON_MAC_REFUSED}, and this daemon has no box backend: install Apple container and restart the daemon with it on its PATH`
+              : `${DEVELOPER_ON_MAC_REFUSED}, and the run has no box`,
+          );
+        }
+        return prepareInBox(spec, paths, deps.boxes, deps.holds);
+      }
+      const prepared = await prepareLaunch(spec, claudeLaunchContext(deps, paths), deps.holds, {
+        spawn: deps.spawn,
+        clock: deps.clock,
+        ...deps.launchCheckSeams,
+      });
+      return prepared.ok ? { ok: true, plan: scrubbed(prepared.plan) } : prepared;
+    },
+    initialState: (spec, previous) =>
+      initialState({
+        ...(previous === undefined
+          ? { plannedModel: spec.model }
+          : nextSessionOptions(previous as unknown as ClaudeParseState, spec.model)),
+        // A reviewer's result carries a `ReviewReport` (0002); a session's its
+        // structured output (DIPO-310). A reviewer runs only in its reviewer box, with the
+        // placeholder key, whatever its run's directory holds (0002).
+        ...(spec.kind === "review" ? { reportKind: "review" as const, placeholderKey: true } : {}),
+        // A planning session answers in text and runs only in its own read-only box (DIPO-447).
+        ...(spec.kind === "planning"
+          ? { reportKind: "planning" as const, placeholderKey: true }
+          : {}),
+        ...(spec.kind === "session" ? { reportKind: "session" as const } : {}),
+        // An audit session answers once in structured output, only in its own read-only box
+        // (DIPO-452).
+        ...(spec.kind === AUDIT_KIND ? { reportKind: "audit" as const, placeholderKey: true } : {}),
+        // The init check allows the report tool exactly where the plan passed the schema (DIPO-469).
+        reportBySchema: reportsBySchema(spec.kind),
+      }) as unknown as ParseState,
+    encode,
+    result: (state, exit) => result(state as unknown as ClaudeParseState, exit),
+    sessionFacts: (state) => claudeSessionFacts(state as unknown as ClaudeParseState),
+  };
+}
+
+/** Why a read-only kind's session is never planned on the Mac. */
+function onMacRefusal(kind: string): string {
+  if (kind === "review") return REVIEWER_ON_MAC_REFUSED;
+  return kind === AUDIT_KIND ? AUDITOR_ON_MAC_REFUSED : PLANNER_ON_MAC_REFUSED;
+}
+
+/** What a Claude session's parser state says for its next session (DIPO-51). */
+export function claudeSessionFacts(state: Partial<ClaudeParseState>): SessionFacts {
+  return { lastReport: state.lastTurn?.report ?? null };
+}

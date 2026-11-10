@@ -1,0 +1,161 @@
+// The planning lane per office, and its office load step (DIPO-27 seam): after a crash, open
+// journal entries are replayed while the office loads, before any other git queue item of the
+// office (0007, 0010). The step must run after `git.version`,
+// which attaches the office's git, so the daemon registers this feature after `EngineGit.feature`.
+
+import type { OfficeId } from "@dipsaus-orchestrator/contract";
+
+import { appendEntries } from "../../changelog/log";
+import type { FeatureModule } from "../../commands/registry";
+import type { OfficeHandle } from "../../db/office";
+import type { OfficeLoadContext } from "../../office/steps";
+import type { PlanningLane } from "../../story-store/planning";
+import type { OfficeHandItem } from "../../overview/desk";
+
+import { laneDeskItems } from "./desk";
+import { openEntries } from "./journal";
+import {
+  type BacklogLaneDeps,
+  LANE_NOTICES,
+  LANE_REPLAY_STEP,
+  LaneFlushError,
+  OfficeLane,
+} from "./lane";
+import {
+  DISCARD_KIND,
+  DONE_KIND,
+  dropKind,
+  EDIT_KIND,
+  editKind,
+  HOLD_KIND,
+  type LaneOpKind,
+  READY_KIND,
+  RESUME_KIND,
+} from "./ops";
+import { planningLane } from "./planning";
+import { proposeKind } from "./propose";
+import { fileKind, refineKind, reviseKind } from "./stories";
+
+export class BacklogLane {
+  readonly #deps: BacklogLaneDeps;
+  readonly #kinds = new Map<string, LaneOpKind>();
+  readonly #offices = new Map<OfficeId, OfficeLane>();
+
+  constructor(deps: BacklogLaneDeps) {
+    this.#deps = deps;
+    this.register(editKind(EDIT_KIND));
+    // Hold, resume of a hold and drop (0020, DIPO-160).
+    this.register(editKind(HOLD_KIND));
+    this.register(editKind(RESUME_KIND));
+    this.register(dropKind);
+    // Discard (0020, DIPO-161).
+    this.register(editKind(DISCARD_KIND));
+    // A planning session sets its stories Ready after the gate passed (0012, DIPO-451).
+    this.register(editKind(READY_KIND));
+    // A story whose own PR merged while it was parked is set Done (0020, DIPO-468).
+    this.register(editKind(DONE_KIND));
+    // An idea the maintainer accepted from the desk, filed as a Backlog draft (0020, DIPO-454).
+    this.register(proposeKind);
+    // The stories a planning session files and edits (0022, DIPO-450).
+    this.register(fileKind);
+    this.register(reviseKind);
+    // A draft a triage session refines into a story (0022, DIPO-454).
+    this.register(refineKind);
+    for (const kind of deps.kinds ?? []) this.register(kind);
+  }
+
+  /** Adds an operation kind; a kind name belongs to one registration. */
+  register(kind: LaneOpKind): void {
+    if (this.#kinds.has(kind.kind)) {
+      throw new Error(`The lane operation kind ${kind.kind} is registered twice.`);
+    }
+    this.#kinds.set(kind.kind, kind);
+  }
+
+  /** The office's lane once its office has loaded; undefined before. */
+  forOffice(office: OfficeId): OfficeLane | undefined {
+    return this.#offices.get(office);
+  }
+
+  /** The office's lane as the StoryStore seam offers it (`PlanningLane`); undefined before. */
+  planning(office: OfficeId): PlanningLane | undefined {
+    const lane = this.#offices.get(office);
+    return lane === undefined ? undefined : planningLane(lane);
+  }
+
+  /** Creates the office's lane, or keeps the one it has when its handle and git are the same. */
+  attach(ctx: OfficeLoadContext): OfficeLane | string {
+    const git = this.#deps.git(ctx.officeId);
+    if (git === undefined) {
+      return "the office's git is not attached; the git.version load step must run before the backlog lane";
+    }
+    const existing = this.#offices.get(ctx.officeId);
+    if (existing !== undefined && existing.git === git) return existing;
+    const lane = new OfficeLane({
+      officeId: ctx.officeId,
+      office: ctx.office,
+      git,
+      cli: this.#deps.cli,
+      clock: ctx.clock,
+      kinds: this.#kinds,
+      ...(this.#deps.liveClaim === undefined ? {} : { liveClaim: this.#deps.liveClaim }),
+      ...(this.#deps.onChanged === undefined ? {} : { onChanged: this.#deps.onChanged }),
+      ...(this.#deps.onFlushed === undefined ? {} : { onFlushed: this.#deps.onFlushed }),
+      ...(this.#deps.held === undefined ? {} : { held: this.#deps.held }),
+      ...(this.#deps.refreshStory === undefined ? {} : { refreshStory: this.#deps.refreshStory }),
+      ...(this.#deps.logger === undefined ? {} : { logger: this.#deps.logger }),
+    });
+    this.#offices.set(ctx.officeId, lane);
+    return lane;
+  }
+
+  /**
+   * Attaches the lane and replays open journal entries. A replay that fails leaves the entries
+   * open for the next flush and puts an `engine.notice` on the office; the office still loads.
+   */
+  async replay(ctx: OfficeLoadContext): Promise<string | null> {
+    const lane = this.attach(ctx);
+    if (typeof lane === "string") return lane;
+    if (openEntries(ctx.office).length === 0) return null;
+    try {
+      await lane.flush({ replay: true });
+    } catch (error) {
+      // The flush put its own notice on the office.
+      if (error instanceof LaneFlushError) return null;
+      const text = `Replaying the open backlog operations failed: ${error instanceof Error ? error.message : String(error)}. They stay journaled and are applied at the next backlog change.`;
+      ctx.office.immediate(() =>
+        appendEntries(
+          ctx.office,
+          [
+            {
+              type: "engine.notice",
+              delta: { level: "error", code: LANE_NOTICES.replayFailed, text },
+            },
+          ],
+          { at: ctx.clock.now() },
+        ),
+      );
+      this.#deps.onChanged?.(ctx.officeId);
+    }
+    return null;
+  }
+
+  /** The desk item of the office's lane when it is stuck (DIPO-401); none otherwise. */
+  deskItems(office: OfficeHandle, now: number): OfficeHandItem[] {
+    const lane = this.#offices.get(office.officeId);
+    return laneDeskItems(office, lane?.stall() ?? null, now);
+  }
+
+  /** The feature module that adds the replay load step. */
+  get feature(): FeatureModule {
+    return {
+      name: "backlog/lane",
+      register: (registry) => {
+        registry.registerLoadStep(LANE_REPLAY_STEP, async (ctx) => {
+          const reason = await this.replay(ctx);
+          return reason === null ? { ok: true } : { ok: false, reason };
+        });
+      },
+    };
+  }
+}

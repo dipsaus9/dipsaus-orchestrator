@@ -1,0 +1,99 @@
+// What a run needs from a worker adapter (DIPO-74), adapter-neutral: the adapter for one run, its
+// launch checks, the parser state ingestion starts from and the report schema. The daemon supplies the Claude CLI one
+// (`claude-cli/adapter.ts`); tests supply fakes. Nothing here names a CLI.
+
+import type { BoxSession } from "../box/workers";
+import type { OfficeConfig } from "../config";
+import type { AdapterPause } from "../run/starts-paused";
+import type {
+  ExitRecord,
+  HostOp,
+  JsonSchema,
+  LaunchPlan,
+  ParseState,
+  SchemaKind,
+  SteerOp,
+  WorkerAdapter,
+  WorkerReport,
+  WorkerResult,
+  WorkerSpec,
+} from "./types";
+
+/** Where one run lives; every path is absolute. */
+export interface RunLaunchPaths {
+  /** The story worktree; the worker's working directory. */
+  readonly workdir: string;
+  /** The repository's main checkout. */
+  readonly mainCheckout: string;
+  /** `<git-common-dir>/dipo/runs/<run-id>`, where the host writes the plan's files. */
+  readonly runDir: string;
+  /** The worker host's socket. */
+  readonly hostSocket: string;
+  /** The run's temp directory; npm's debug logs go under it. */
+  readonly tmpDir: string;
+  /**
+   * The run's short temp root (DIPO-118), the session's `DIPO_TMP`: short enough for testkit's Unix
+   * socket path limit.
+   */
+  readonly shortTmpDir: string;
+}
+
+/** The resolved verify of an office: argument lists run in order, from `cwd` below the checkout. */
+export interface VerifyCommands {
+  readonly commands: readonly (readonly string[])[];
+  /** Repo-relative working directory; `"."` is the root. */
+  readonly cwd: string;
+}
+
+export type PreparedWorker =
+  | { readonly ok: true; readonly plan: LaunchPlan }
+  | { readonly ok: false; readonly outcome: "startFailed"; readonly pause: AdapterPause };
+
+export interface WorkerPort {
+  /** The adapter id (for example `claude-cli`): the daemon's one adapter (0001). */
+  readonly id: string;
+  /**
+   * The JSON Schema a run puts in `WorkerSpec.reportSchema`, per kind (0008): `WorkerReport` for
+   * `implement`, `ReviewReport` for `review`, and for `planning` the proposal block a planning session
+   * writes in its answers (DIPO-450).
+   */
+  readonly reportSchema: Readonly<Record<SchemaKind, JsonSchema>>;
+  /** The adapter for one run, its `plan` bound to the run's launch context (0008). */
+  adapter(paths: RunLaunchPaths, config: OfficeConfig): WorkerAdapter;
+  /**
+   * Plans the launch and runs the adapter's launch checks before it (0008). A refused check pauses
+   * the adapter's starts and returns `startFailed`; a spec or path that cannot be planned throws
+   * `PlanError`. A developer session is planned only in its run's box (DIPO-240, 0008); a reviewer
+   * session only in `place`, the read-only box its caller made for it (0002).
+   */
+  prepare(
+    spec: WorkerSpec,
+    paths: RunLaunchPaths,
+    config: OfficeConfig,
+    checkSession: string,
+    place?: BoxSession,
+  ): Promise<PreparedWorker>;
+  /**
+   * The dry run's plan of a developer session in a box (DIPO-240): what the worker host would run,
+   * with placeholders for the box a real run makes. An adapter without it shows none.
+   */
+  previewBox?(spec: WorkerSpec, paths: RunLaunchPaths): LaunchPlan;
+  /**
+   * The parser state ingestion of a session starts from. For the run's next session (DIPO-51)
+   * `previous` is the previous session's stored state: recorded classifier switches carry over.
+   * The spec's kind decides which report the state parses.
+   */
+  initialState(spec: WorkerSpec, previous?: ParseState): ParseState;
+  /** Pure: a steering op as host ops (the adapter's `encode`, DIPO-50); needs no run paths. */
+  encode(op: SteerOp): HostOp[];
+  /** Pure: the run's result from a session's parser state and exit (the adapter's `result`). */
+  result(state: ParseState, exit: ExitRecord): WorkerResult;
+  /** Pure: what a session's parser state says for the handoff of the next session (DIPO-51). */
+  sessionFacts(state: ParseState): SessionFacts;
+}
+
+/** What a session's parser state says for its next session (DIPO-51). */
+export interface SessionFacts {
+  /** The last valid report of the session; null when there is none. */
+  readonly lastReport: WorkerReport | null;
+}

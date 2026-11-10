@@ -77,6 +77,17 @@ export function stageCopyCommand(stage: string, to: string): [string, ...string[
   return ["/bin/cp", "-R", "-P", "--preserve=mode,timestamps", "-T", "--", stage, to];
 }
 
+/** The archive's name in a stage folder: ASCII, so the backend's copy never touches it. */
+export const STAGE_ARCHIVE = "files.tar";
+
+/**
+ * The box user's unpacking of the stage's archive into the folder `to`, which exists. The archive
+ * is dipo's own, in GNU format: its names are bytes, which the box's tar writes as they are.
+ */
+export function stageUnpackCommand(stage: string, to: string): [string, ...string[]] {
+  return ["/bin/tar", "-x", "-f", `${stage}/${STAGE_ARCHIVE}`, "-C", to, "-p", "--no-same-owner"];
+}
+
 /**
  * True when `command` is one of dipo's root steps a box other than a build box may run: a stage
  * folder's make, hand-over or removal, or the mode of `dipo-part`. Nothing else runs as root there.
@@ -113,24 +124,47 @@ async function fixedStep(
 }
 
 /**
+ * A folder's contents as one archive file on the host (DIPO-488): `file` is its path, `remove`
+ * deletes it. See `packFolder` in `code.ts`.
+ */
+export interface FolderArchive {
+  readonly file: string;
+  remove(): Promise<void>;
+}
+
+/**
  * Copies the contents of the host folder `from` into the box folder `to` as the box user (file
  * comment): into a fresh root-only stage, given to the box user there, copied on by the box user,
- * and the stage removed whatever happened.
+ * and the stage removed whatever happened. With `pack` the folder goes in as one archive named
+ * `STAGE_ARCHIVE` and the box user unpacks it into `to`, which must exist: the backend's own
+ * folder copy changes a non-ASCII file name (`…` arrives as `*`), an archive's bytes it does not
+ * read. Without `pack` the folder is copied as it is: only for names dipo made, which are ASCII.
  */
 export async function copyInAsUser(
   boxes: UserCopyBoxes,
   box: string,
   from: string,
   to: string,
+  pack?: (folder: string) => Promise<FolderArchive>,
 ): Promise<void> {
   const stage = newStagePath();
   const remove = () =>
     fixedStep(boxes, box, stageRemoveCommand(stage), "removing the stage folder", true);
   await fixedStep(boxes, box, stageMakeCommand(stage), "making a stage folder in the box", true);
   try {
-    await boxes.copyIn(box, `${from}/.`, stage);
+    if (pack === undefined) {
+      await boxes.copyIn(box, `${from}/.`, stage);
+    } else {
+      const archive = await pack(from);
+      try {
+        await boxes.copyIn(box, archive.file, `${stage}/${STAGE_ARCHIVE}`);
+      } finally {
+        await archive.remove();
+      }
+    }
     await fixedStep(boxes, box, stageHandOverCommand(stage), "handing the copy over", true);
-    await fixedStep(boxes, box, stageCopyCommand(stage, to), `copying into ${to}`, false);
+    const copy = pack === undefined ? stageCopyCommand(stage, to) : stageUnpackCommand(stage, to);
+    await fixedStep(boxes, box, copy, `copying into ${to}`, false);
   } catch (error) {
     // The copy's own failure is the one reported; a stage left behind is root's and harmless.
     await remove().catch(() => undefined);

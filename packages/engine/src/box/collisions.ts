@@ -96,7 +96,7 @@ import { neutraliseTags, renderTemplate } from "../prompts/templates";
 import { folderLookupRefused, treeFiles } from "../story-store/folder";
 import { inStoryFolder, linkTargetOf } from "../story-store/paths";
 import type { StoryStore } from "../story-store/store";
-import { BOX_WORKDIR, type BoxCodeDeps, filtersOffConfig, unpack } from "./code";
+import { BOX_WORKDIR, type BoxCodeDeps, filtersOffConfig, packFolder, unpack } from "./code";
 import { BOX_PATH_MISSING, boxBlobs, commitInBoxRepository } from "./box-git";
 import { cleanDoorText } from "./door";
 import {
@@ -1945,7 +1945,9 @@ export class BoxCollisions {
     }
     if (changes.written.length > 0) {
       // Never a root copy into `/work`, where the worker may have planted links (DIPO-334).
-      await copyInAsUser(this.#deps.boxes, run.box, dir, BOX_WORKDIR);
+      await copyInAsUser(this.#deps.boxes, run.box, dir, BOX_WORKDIR, (folder) =>
+        packFolder(this.#deps.code, this.#deps.tmpRoot, folder),
+      );
     }
     const paths = [...changes.written, ...changes.removed].toSorted();
     await commitInBoxRepository(this.#deps.boxes, run.box, subject, paths).catch(
