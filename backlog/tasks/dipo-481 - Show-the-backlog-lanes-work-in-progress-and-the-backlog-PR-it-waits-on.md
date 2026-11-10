@@ -4,12 +4,12 @@ title: Show the backlog lane's work in progress and the backlog PR it waits on
 status: Refined
 assignee: []
 created_date: '2026-11-10 15:27'
-updated_date: '2026-11-10 15:37'
+updated_date: '2026-11-10 15:50'
 labels:
   - 'tier:M'
 milestone: m-6
 dependencies:
-  - DIPO-479
+  - DIPO-487
 references:
   - packages/engine/src/backlog/lane/journal.ts
   - packages/engine/src/backlog/lane/lane.ts
@@ -43,7 +43,7 @@ What main has (reuse it, one mechanism, 0001):
 
 The engine adds one read of the lane's progress to `office.snapshot`, kept current by an event when the journal or the backlog PR changes: each open operation (what it does in words: an accepted idea filed as a draft, a confirmed story filed, an edit, a story set Ready, a park; its subject; queued, on the branch or in the PR; since when) and the open backlog PR it waits on (number, URL, CI running, passed or failed, auto-merge on, merged). The TUI joins what the engine sent and derives nothing (0009).
 
-Where the maintainer sees it: the Floor shows one BACKLOG line while any operation is open ("2 changes wait for backlog PR #656 · CI running"), and Enter on it lists them; a Desk accept whose flush was held says "queued: waits for backlog PR #656" and the idea shows queued until filed; in the Plan view the "filing…" line of a confirmed proposal (DIPO-479 owns that line) gets this read's data: "filing… waiting for backlog PR #656, CI running", then "filed as DIPO-n". `dipo desk` is not changed by this story. Needs DIPO-479 for the Plan view's line.
+Where the maintainer sees it: the Floor shows one BACKLOG line while any operation is open ("2 changes wait for backlog PR #656 · CI running"), and Enter on it lists them; a Desk accept whose flush was held says "queued: waits for backlog PR #656" and the idea shows queued until filed; in the Plan view the "filing…" line of a confirmed proposal (DIPO-487 owns that line) gets this read's data: "filing… waiting for backlog PR #656, CI running", then "filed as DIPO-n". `dipo desk` is not changed by this story. Needs DIPO-487 for the Plan view's line.
 
 Tier M: one engine read with one event, the CI state through an existing port, and three places in the TUI.
 
@@ -74,7 +74,7 @@ test_plan:
 - [ ] #2 The read is built from the lane journal (openEntries) and the backlog PR records, and the PR's CI state comes through the code host port the auto-merge round uses; no second journal or poll is added
 - [ ] #3 The Floor shows one BACKLOG line while an operation is open, with the count, the PR number and its CI state, and Enter lists the operations; with none open the line is absent
 - [ ] #4 A Desk accept whose flush was held says it is queued and which backlog PR it waits on, and the idea shows queued until it is filed
-- [ ] #5 In the Plan view a confirmed proposal's filing line (DIPO-479) shows the backlog PR it waits on and its CI state from this read, then 'filed as DIPO-n'
+- [ ] #5 In the Plan view a confirmed proposal's filing line (DIPO-487) shows the backlog PR it waits on and its CI state from this read, then 'filed as DIPO-n'
 - [ ] #6 The PLANNING LANE desk item for a lane stuck 30 minutes stays as it is
 - [ ] #7 docs/design/tui-v2/screens/02-floor.txt, 07-plan.txt and spec.md show the BACKLOG line and the filing line with the PR, and the views match them
 <!-- AC:END -->

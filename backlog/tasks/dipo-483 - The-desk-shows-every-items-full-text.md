@@ -4,7 +4,7 @@ title: The desk shows every item's full text
 status: Refined
 assignee: []
 created_date: '2026-11-10 15:36'
-updated_date: '2026-11-10 15:37'
+updated_date: '2026-11-10 15:50'
 labels:
   - 'tier:S'
 milestone: m-6

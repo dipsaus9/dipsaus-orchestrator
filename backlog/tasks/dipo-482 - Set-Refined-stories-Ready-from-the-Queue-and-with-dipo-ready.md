@@ -4,11 +4,13 @@ title: Set Refined stories Ready from the Queue and with dipo ready
 status: Refined
 assignee: []
 created_date: '2026-11-10 15:30'
-updated_date: '2026-11-10 15:37'
+updated_date: '2026-11-10 15:50'
 labels:
   - 'tier:M'
 milestone: m-3
-dependencies: []
+dependencies:
+  - DIPO-479
+  - DIPO-480
 references:
   - packages/engine/src/run/planning-session.ts
   - packages/engine/src/gate-decisions/feature.ts
@@ -36,9 +38,9 @@ Story: As maintainer I want to pick Refined stories in the Queue, or name them t
 
 M3 (0022): it widens M3's Ready step (DIPO-451) beyond a planning session, and M3 is the milestone in progress, so it is not held behind M6. The maintainer's words (2026-11-10): "it is annoying now that we have a lot of things in the refined lane but not ready. I don't know how I get them into ready. This has to be easier. Maybe even in the queue view?"
 
-On main the only way is `planning.ready`, key Ctrl-G in the Plan view today (Y in the end preview by design, DIPO-479), and only for stories that session filed or edited: `ready` in packages/engine/src/run/planning-session.ts (:788-860) refuses any other story with `planning.storyUnknown` (:801-822), and `#readyOne` (:861-908) does the work: a story with no key yet (filing PR not merged) or with an edit still open in the lane is refused, the gate is evaluated in the `ready` mode and its decision stored (`recordGateDecision`), and a passing story is set Ready through the planning lane (`lane.setReady`), in a backlog PR other than the one that filed it (0012). The Queue already shows a Refined story's first gate failure and, in its preview, the gate from `story.gate` (packages/tui/src/queue.tsx:57-60), but not that a story passes.
+On main the only way is `planning.ready`, key Ctrl-G in the Plan view today (Y in the Ready step from DIPO-487), and only for stories that session filed or edited: `ready` in packages/engine/src/run/planning-session.ts (:788-860) refuses any other story with `planning.storyUnknown` (:801-822), and `#readyOne` (:861-908) does the work: a story with no key yet (filing PR not merged) or with an edit still open in the lane is refused, the gate is evaluated in the `ready` mode and its decision stored (`recordGateDecision`), and a passing story is set Ready through the planning lane (`lane.setReady`), in a backlog PR other than the one that filed it (0012). The Queue already shows a Refined story's first gate failure and, in its preview, the gate from `story.gate` (packages/tui/src/queue.tsx:57-60), but not that a story passes.
 
-One mechanism (0001): `#readyOne` moves out of the planning session into one engine function that a new office command `story.ready { stories }` and `planning.ready` both call; it is not copied. `planning.ready` keeps its "only this session's stories" rule as its own choice of stories, since it is the session's end step; `story.ready` takes any story the office has on the base. Who may set Ready does not widen: only the maintainer's commands (TUI and CLI) send it, never a worker, reviewer or planner, which have no command access (0008, 0022). What the old path refuses stays refused on the new one, and `story.ready` adds one rule the planning path did not need: only a Refined story is set Ready.
+One mechanism (0001): `#readyOne` moves out of the planning session into one engine function that a new office command `story.ready { stories }` and `planning.ready` both call; it is not copied. `planning.ready` keeps its "only this session's stories" rule as its own choice of stories, since it is the session's end step, through the session-story helper DIPO-480 adds (which also covers a story whose filing PR has not merged); `story.ready` takes any story the office has on the base. Who may set Ready does not widen: only the maintainer's commands (TUI and CLI) send it, never a worker, reviewer or planner, which have no command access (0008, 0022). What the old path refuses stays refused on the new one, and `story.ready` adds one rule the planning path did not need: only a Refined story is set Ready.
 
 The Queue: Refined rows show "gate passes" (ok) or the first failure in plain words with what to fix, from the engine's stored gate result; space marks a row; Y sets the marked rows (or the focused one) Ready after one confirm that lists them; the result shows per story set, queued or refused with the gate's messages, and a queued one names the backlog PR it waits on from the command result's flush (`LaneFlush`, held or opened with its PR); DIPO-481's lane read adds the CI state once it lands, with no change here. The CLI verb `dipo ready <id>...` sends the same command and prints the same result.
 
@@ -46,7 +48,7 @@ ADR lines that change (the maintainer approves the wording in this story's PR): 
 
 This changes who may set a story Ready and when, so (CLAUDE.md, R30): the old path caught a story filed but not merged, a story whose edit still waits in the lane, a gate failure and (for `planning.ready`) a story of another session; each keeps a test. The new path also refuses a Draft, an In Progress, In Review, Parked or Done story and an unknown id. Bypass forms to test: a lower-case id, a `DRAFT-n` id, the same id twice, an archived story's id, and a list where one id is unknown (nothing changes) or one fails the gate (the others still go). The fail-closed test runs `story.ready` through the real engine command with a fixture-built office, the real gate and lane, never a fake gate.
 
-Tier M: one moved engine function and one command, a CLI verb, and the Queue's marks and key. No dependency: it does not wait for DIPO-479 or DIPO-481.
+Tier M: one moved engine function and one command, a CLI verb, and the Queue's marks and key. Needs DIPO-480, because both rewrite `ready` in planning-session.ts and this story keeps the session rule through 480's helper, and DIPO-479, because both change the Queue's keys, keymap.json `runNow` and ADR 0009's actions table (479 moves run now to r; this story adds space and Y beside it). It does not wait for DIPO-481.
 
 ```dipo
 branch: "DIPO-482/ready-from-the-queue"
@@ -76,7 +78,7 @@ test_plan:
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 A new office command story.ready sets each named Refined story on the base that passes the Ready gate Ready through the planning lane, stores the passing decision, and never in the PR that filed it
-- [ ] #2 planning.ready and story.ready call one Ready function moved out of the planning session; planning.ready keeps its rule that only the session's stories are chosen
+- [ ] #2 planning.ready and story.ready call one Ready function moved out of the planning session; planning.ready keeps its rule that only the session's stories are chosen, through DIPO-480's session-story helper
 - [ ] #3 A story filed but not merged, a story with an open edit in the lane, a gate failure, a Draft, an In Progress, In Review, Parked or Done story and an unknown id are refused with a reason and stay as they are, each with a test
 - [ ] #4 Bypass forms have tests: a lower-case id, a DRAFT-n id, the same id twice, an archived story's id, a list with an unknown id (nothing changes) and a list with one gate failure (the others still go)
 - [ ] #5 A fail-closed test runs story.ready through the real engine command, gate and lane on a fixture-built office and shows a failing story gets no Ready change
