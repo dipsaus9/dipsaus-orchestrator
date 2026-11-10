@@ -62,6 +62,8 @@ interface World {
   readonly requests: AuditSessionRequest[];
   /** What the scripted audit worker answers; by default it passes every idea. */
   answer: (request: AuditSessionRequest) => AuditSessionResult;
+  /** When set, asking for the audit session runner throws this: a failure the audit does not catch itself. */
+  runnerFails?: string;
 }
 
 /** A pass verdict for `idea`, valid by the contract's schema. */
@@ -118,12 +120,15 @@ function world(t: TestState): World {
   (w as { audits: IdeaAudits }).audits = new IdeaAudits({
     clock: t.clock,
     offices: { get: () => office, config: () => OFFICE_DEFAULTS },
-    runner: () => ({
-      run: async (request) => {
-        w.requests.push(request);
-        return w.answer(request);
-      },
-    }),
+    runner: () => {
+      if (w.runnerFails !== undefined) throw new Error(w.runnerFails);
+      return {
+        run: async (request) => {
+          w.requests.push(request);
+          return w.answer(request);
+        },
+      };
+    },
   });
   return w;
 }
@@ -588,6 +593,15 @@ describe("an idea whose audit did not decide it is audited again (DIPO-452)", ()
       expect(w.requests).toHaveLength(2);
       expect(w.requests[1]?.ideas.map((idea) => idea.title)).toEqual(["First", "Second"]);
       expect(ideas(w).map((idea) => idea.state)).toEqual(["passed", "passed"]);
+    }));
+
+  it("keeps the cause of a failure the audit did not catch itself with the held idea (DIPO-484)", () =>
+    withWorld(async (w) => {
+      w.runnerFails = "the box backend is gone";
+      holdQuick(w.audits, w.office, w.t.clock, { title: "First", text: "Its text." });
+      await w.audits.idle();
+      expect(byTitle(w, "First")).toMatchObject({ state: "held", attempts: 1 });
+      expect(byTitle(w, "First")?.lastProblem).toBe("the audit failed: the box backend is gone");
     }));
 
   it("audits again the ideas of an audit a restart cut off", () =>

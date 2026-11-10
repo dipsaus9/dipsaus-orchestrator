@@ -10,6 +10,8 @@ import {
   chainMark,
   chainPictureSpans,
   needsSpans,
+  refinedLines,
+  refinedText,
   shortId,
   upNextSpans,
 } from "./chain";
@@ -94,5 +96,41 @@ describe("needs marks", () => {
   it("treats a dependency the engine sent no node for as waiting", () => {
     expect(chainMark(undefined, false)).toBe("");
     expect(spansText(needsSpans([id(999)], chain, false))).toBe("999");
+  });
+});
+
+describe("a Refined dependency (DIPO-484)", () => {
+  const refinedChain: Chain = {
+    rows: [{ levels: [level(470), level(471)] }, ...rows],
+    nodes: [
+      { ...node(470, "refined", [471]), reason: "no test plan" },
+      node(448, "waiting"),
+      ...chain.nodes,
+    ],
+  };
+
+  it("reads Refined, not Ready yet with its first gate failure, not blocked", () => {
+    expect(refinedText(refinedChain.nodes[0])).toBe("Refined, not Ready yet: no test plan");
+    expect(refinedText(node(470, "refined"))).toBe("Refined, not Ready yet");
+    expect(refinedText(node(448, "waiting"))).toBeNull();
+    expect(refinedLines(level(470, 448), refinedChain)).toEqual([
+      "DIPO-470 Refined, not Ready yet: no test plan",
+    ]);
+  });
+
+  it("marks the dependency in the needs column and the picture, and a waiting one stays bare", () => {
+    expect(spansText(needsSpans([id(470)], refinedChain, false))).toBe("470◌ Refined");
+    expect(spansText(needsSpans([id(470)], refinedChain, true))).toBe("470o Refined");
+    expect(spansText(needsSpans([id(448)], refinedChain, false))).toBe("448");
+    const [piece] = refinedChain.rows;
+    const picture = chainPictureSpans(piece as ChainRow, refinedChain, "→", "·", false);
+    expect(spansText(picture)).toBe("470◌ → 471");
+    expect(picture[0]?.role).toBe("acc");
+  });
+
+  it("says in the UP NEXT sentence that the maintainer's Ready is what it waits for", () => {
+    const text = spansText(upNextSpans(refinedChain, "→") ?? []);
+    expect(text).toContain("DIPO-470 Refined, not Ready yet: no test plan");
+    expect(upNextSpans(chain, "→")?.some((span) => span.text.includes("Refined"))).toBe(false);
   });
 });
