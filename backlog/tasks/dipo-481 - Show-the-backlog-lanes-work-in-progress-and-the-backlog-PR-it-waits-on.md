@@ -1,10 +1,10 @@
 ---
 id: DIPO-481
 title: Show the backlog lane's work in progress and the backlog PR it waits on
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 15:27'
-updated_date: '2026-11-10 18:25'
+updated_date: '2026-11-10 18:36'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -70,11 +70,11 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 office.snapshot carries the backlog lane's progress: each open operation in words with its subject, state and since, and the open backlog PR it waits on with number, URL, CI state, auto-merge and merged; an event says when it changes
-- [ ] #2 The read is built from the lane journal (openEntries) and the backlog PR records, and the PR's CI state comes through the code host port the auto-merge round uses; no second journal or poll is added
-- [ ] #3 The Floor shows one BACKLOG line while an operation is open, with the count, the PR number and its CI state, and Enter lists the operations; with none open the line is absent
-- [ ] #4 A Desk accept whose flush was held says it is queued and which backlog PR it waits on, and the idea shows queued until it is filed
-- [ ] #5 In the Plan view a confirmed proposal's filing line (DIPO-487) shows the backlog PR it waits on and its CI state from this read, then 'filed as DIPO-n'
-- [ ] #6 The PLANNING LANE desk item for a lane stuck 30 minutes stays as it is
-- [ ] #7 docs/design/tui-v2/screens/02-floor.txt, 07-plan.txt and spec.md show the BACKLOG line and the filing line with the PR, and the views match them
+- [x] #1 office.snapshot carries the backlog lane's progress: each open operation in words with its subject, state and since, and the open backlog PR it waits on with number, URL, CI state, auto-merge and merged; an event says when it changes
+- [x] #2 The read is built from the lane journal (openEntries) and the backlog PR records, and the PR's CI state comes through the code host port the auto-merge round uses; no second journal or poll is added
+- [x] #3 The Floor shows one BACKLOG line while an operation is open, with the count, the PR number and its CI state, and Enter lists the operations; with none open the line is absent
+- [x] #4 A Desk accept whose flush was held says it is queued and which backlog PR it waits on, and the idea shows queued until it is filed
+- [x] #5 In the Plan view a confirmed proposal's filing line (DIPO-487) shows the backlog PR it waits on and its CI state from this read, then 'filed as DIPO-n'
+- [x] #6 The PLANNING LANE desk item for a lane stuck 30 minutes stays as it is
+- [x] #7 docs/design/tui-v2/screens/02-floor.txt, 07-plan.txt and spec.md show the BACKLOG line and the filing line with the PR, and the views match them
 <!-- AC:END -->
