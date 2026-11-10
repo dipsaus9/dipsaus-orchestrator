@@ -3,10 +3,10 @@ id: DIPO-487
 title: >-
   The planning view is one conversation column with inline story cards and a
   Ready step
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 15:46'
-updated_date: '2026-11-10 15:57'
+updated_date: '2026-11-10 17:37'
 labels:
   - 'tier:M'
 milestone: m-6
