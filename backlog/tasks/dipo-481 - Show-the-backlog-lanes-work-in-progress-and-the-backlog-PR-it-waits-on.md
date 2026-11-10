@@ -1,10 +1,10 @@
 ---
 id: DIPO-481
 title: Show the backlog lane's work in progress and the backlog PR it waits on
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-10 15:27'
-updated_date: '2026-11-10 15:50'
+updated_date: '2026-11-10 15:57'
 labels:
   - 'tier:M'
 milestone: m-6
