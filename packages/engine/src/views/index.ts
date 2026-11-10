@@ -6,7 +6,7 @@ export {
   columnOf,
   deriveColumn,
   deriveStoryView,
-  gateFailures,
+  latestGate,
   isUnknownStatus,
   LIFECYCLE_COLUMNS,
   lifecycleOf,

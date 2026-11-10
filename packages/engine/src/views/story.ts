@@ -77,6 +77,8 @@ export interface StoryFacts {
   readonly park?: ParkFacts;
   /** The failures of the latest Ready gate decision, when it failed. */
   readonly gateFailures?: readonly GateFailureFact[];
+  /** The latest Ready gate decision approved the story (DIPO-482). */
+  readonly gatePasses?: boolean;
   /** Who works on the story's active run. */
   readonly work?: WorkRef;
   /** The story's PR on the code host (0002). */
@@ -124,6 +126,7 @@ export function deriveStoryView(facts: StoryFacts): StoryView {
     ...(column === "waiting"
       ? { waitingOn: (facts.waitingOn ?? []).map((id) => StoryId.parse(id)) }
       : {}),
+    ...(facts.lifecycle === "Refined" && facts.gatePasses === true ? { gatePasses: true } : {}),
     ...(gateMessages.length === 0 ? {} : { gateMessages }),
     ...(ruleFailures.length === 0 ? {} : { gateFailures: ruleFailures }),
   };
@@ -188,8 +191,11 @@ function parkOf(json: string | null, since: number | null): ParkFacts | undefine
   return parsed.success ? { ...parsed.data, since } : undefined;
 }
 
-/** The failed rules of the story's latest Ready gate decision, when it failed. */
-export function gateFailures(office: OfficeHandle, key: string): GateFailureFact[] {
+/** The story's latest Ready gate decision: whether it passed and the failed rules; null if none. */
+export function latestGate(
+  office: OfficeHandle,
+  key: string,
+): { passed: boolean; failures: GateFailureFact[] } | null {
   const row = office.get<{ decision: string; rule_results: string }>(
     `select d.decision, d.rule_results from gate_decisions d
        join gates g on g.office_id = d.office_id and g.gate_id = d.gate_id
@@ -197,11 +203,15 @@ export function gateFailures(office: OfficeHandle, key: string): GateFailureFact
       order by d.decided_at desc, d.rowid desc limit 1`,
     { key },
   );
-  if (row === null || row.decision !== "rejected") return [];
+  if (row === null) return null;
+  if (row.decision !== "rejected") return { passed: true, failures: [] };
   const results = JSON.parse(row.rule_results) as RuleResult[];
-  return results
-    .filter((result) => !result.passed)
-    .flatMap(({ rule, messages }) => messages.map((message) => ({ rule, message })));
+  return {
+    passed: false,
+    failures: results
+      .filter((result) => !result.passed)
+      .flatMap(({ rule, messages }) => messages.map((message) => ({ rule, message }))),
+  };
 }
 
 /** Who works on each story with an active run, by key; pass it to `storyView` for many stories. */
@@ -229,6 +239,7 @@ function viewOfRow(
       ? "Removed"
       : lifecycleOf(row.kind, row.status);
   const park = parkOf(row.park, row.park_since);
+  const refined = lifecycle === "Refined" ? latestGate(office, row.key) : null;
   const ref = work.get(row.key);
   const pr = latestStoryPr(office, row.key);
   return deriveStoryView({
@@ -239,7 +250,8 @@ function viewOfRow(
     ...(row.tier === null ? {} : { tier: row.tier }),
     waitingOn: idsOf(row.waiting_on),
     ...(park === undefined ? {} : { park }),
-    gateFailures: lifecycle === "Refined" ? gateFailures(office, row.key) : [],
+    gateFailures: refined?.failures ?? [],
+    gatePasses: refined?.passed === true,
     ...(ref === undefined ? {} : { work: ref }),
     ...(pr === null ? {} : { pr: { number: pr.number, url: pr.url, state: pr.state } }),
   });

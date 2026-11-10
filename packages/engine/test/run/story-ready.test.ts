@@ -28,6 +28,7 @@ import type { OfficeHandle } from "../../src/db/office";
 import { addStory, removeStory } from "../../src/records/story-keys";
 import { StoryPlanning } from "../../src/run/planning";
 import { readyStory } from "../../src/run/ready-stories";
+import { deriveStoryView } from "../../src/views/story";
 import { writeMirror } from "../../src/stories/apply";
 import type { BacklogStory } from "../../src/stories/read";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
@@ -281,5 +282,22 @@ describe("the one Ready function (DIPO-482)", () => {
     );
     expect(outcome.change).toBeUndefined();
     expect(outcome.messages.join()).toContain("not on the base branch");
+  });
+});
+
+describe("the Queue's gate verdict (DIPO-482)", () => {
+  const facts = { key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D", story: "DIPO-1", title: "T" } as never;
+  it("says a Refined story's gate passes only from a passing stored decision", () => {
+    const refined = (extra: object) =>
+      deriveStoryView({ ...(facts as object), lifecycle: "Refined", ...extra } as never);
+    expect(refined({ gatePasses: true }).gatePasses).toBe(true);
+    expect(refined({}).gatePasses).toBeUndefined();
+    expect(refined({ gatePasses: false }).gatePasses).toBeUndefined();
+    const ready = deriveStoryView({
+      ...(facts as object),
+      lifecycle: "Ready",
+      gatePasses: true,
+    } as never);
+    expect(ready.gatePasses).toBeUndefined();
   });
 });
