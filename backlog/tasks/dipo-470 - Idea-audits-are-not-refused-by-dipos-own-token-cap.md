@@ -1,10 +1,10 @@
 ---
 id: DIPO-470
 title: Idea audits are not refused by dipo's own token cap
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 10:16'
-updated_date: '2026-11-10 10:55'
+updated_date: '2026-11-10 11:10'
 labels:
   - 'tier:S'
 milestone: m-3
@@ -24,6 +24,13 @@ references:
   - docs/decisions/0008-worker-adapter.md
   - docs/decisions/0022-planning-sessions.md
   - docs/decisions/0020-park-and-resume.md
+modified_files:
+  - docs/decisions/0008-worker-adapter.md
+  - packages/engine/src/box/model-proxy.ts
+  - packages/engine/src/records/caps.ts
+  - packages/engine/src/records/proxied-usage.ts
+  - packages/engine/test/box/model-proxy-count.test.ts
+  - packages/engine/test/records/caps.test.ts
 priority: high
 type: bug
 ordinal: 443000
@@ -94,3 +101,19 @@ Parked 2026-11-10 10:47 UTC: ambiguous-spec
 
 Resumed 2026-11-10 10:54 UTC; grants: none; note: Approved: write the proposed 0008 line 63 wording, then finish the story
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-10 11:10 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 132,478 of 300,000 tokens
+- Runs: 1; resumes: 1
+- Parks: 1
+  - 2026-11-10 10:47 UTC ambiguous-spec: The fix is in and verified: idea audits and planning sessions are uncapped by one rule on the run's record. isUncapped(run) in caps.ts (kind session and budgetLimit 0) replaces the planner-only role…
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
