@@ -1,10 +1,10 @@
 ---
 id: DIPO-469
 title: Idea audits get past their start check
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-09 22:24'
-updated_date: '2026-11-10 08:17'
+updated_date: '2026-11-10 08:18'
 labels:
   - 'tier:S'
 milestone: m-3
@@ -21,6 +21,17 @@ references:
   - docs/decisions/0008-worker-adapter.md
   - docs/decisions/0022-planning-sessions.md
   - packages/engine/src/workers/claude-cli/plan.ts
+modified_files:
+  - packages/engine/src/workers/claude-cli/adapter.ts
+  - packages/engine/src/workers/claude-cli/box-plan.ts
+  - packages/engine/src/workers/claude-cli/interpret.ts
+  - packages/engine/src/workers/claude-cli/plan.ts
+  - >-
+    packages/engine/test/recordings/claude-cli-derived/audit-init-derived/meta.json
+  - >-
+    packages/engine/test/recordings/claude-cli-derived/audit-init-derived/stream.jsonl
+  - packages/engine/test/workers/audit-tools.test.ts
+  - packages/engine/test/workers/box-plan.test.ts
 priority: high
 type: bug
 ordinal: 442000
@@ -70,3 +81,18 @@ test_plan:
 - [x] #4 Tests cover the bypass forms, each rejected: StructuredOutput in a planning session's init, whose plan passes no schema; near-miss names such as structuredoutput, Structured_Output, StructuredOutputs and mcp__x__StructuredOutput; StructuredOutput in an audit whose parse state says no schema was passed; and a planning plan with --json-schema added, refused by a new check the builder adds to checkReadOnlyArgv (box-plan.ts ~:124), which does not look at --json-schema today
 - [x] #5 A fail-closed test on the real path, with no live model run needed: a fixture derived from the real live init in packages/engine/test/recordings/claude-cli/review-approved-live/stream.jsonl, its tools swapped for PLANNING_TOOLS plus StructuredOutput and marked derived in its meta.json, runs through the real interpreter with the adapter's audit parse state; it passes init, and is rejected when Bash is added to its init
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-10 08:18 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 151,092 of 300,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
