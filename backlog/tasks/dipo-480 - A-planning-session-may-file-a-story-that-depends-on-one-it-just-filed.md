@@ -1,10 +1,10 @@
 ---
 id: DIPO-480
 title: A planning session knows the stories it filed
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-10 15:21'
-updated_date: '2026-11-10 15:50'
+updated_date: '2026-11-10 15:57'
 labels:
   - 'tier:M'
 milestone: m-3
