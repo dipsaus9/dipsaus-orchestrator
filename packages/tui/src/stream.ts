@@ -54,18 +54,31 @@ const TOOL = /^\[tool\] (\S+)(?: (.*))?$/;
 const THINKING = /^\[thinking\](?: (\d+(?:\.\d+)?)s)?(?: ~(\d+) tokens)?$/;
 const VERDICT = /^verdict\b[:\s-]*(.*)$/i;
 
+/** True for a stored line that is one tool call or one thinking block: what folds (DIPO-486). */
+export function isFoldLine(line: string): boolean {
+  const text = line.trim();
+  return TOOL.test(text) || THINKING.test(text);
+}
+
 /** `1000` tokens as `1.0k`; under a hundred as the number. */
 export function tokensText(tokens: number): string {
   return tokens >= 100 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
 }
 
-/** The text of a folded thinking entry: `4 thoughts · 1.0k tokens` or `thinking 1.1s`. */
+/**
+ * The text of a folded thinking entry: `4 thoughts · 1.0k tokens` or `thinking 1.1s`; opened
+ * (`full`), a folded entry adds the seconds it took.
+ */
 export function thinkingText(
   entry: Extract<StreamEntry, { kind: "thinking" }>,
   dot: string,
+  full = false,
 ): string {
   const tokens = entry.tokens === null ? [] : [`${tokensText(entry.tokens)} tokens`];
-  if (entry.count > 1) return [`${entry.count} thoughts`, ...tokens].join(` ${dot} `);
+  if (entry.count > 1) {
+    const took = full && entry.seconds !== null ? [`${entry.seconds.toFixed(1)}s`] : [];
+    return [`${entry.count} thoughts`, ...tokens, ...took].join(` ${dot} `);
+  }
   const first = `thinking${entry.seconds === null ? "" : ` ${entry.seconds.toFixed(1)}s`}`;
   return [first, ...tokens].join(` ${dot} `);
 }
@@ -254,7 +267,7 @@ export function streamRows(
       rows.push([gutter(), { text: entry.text }]);
     } else if (entry.kind === "thinking") {
       const first = lead(entry.time, options.dot.repeat(2), "dim");
-      wrapWords(thinkingText(entry, options.dot), room).forEach((text, i) => {
+      wrapWords(thinkingText(entry, options.dot, options.full), room).forEach((text, i) => {
         rows.push([...(i === 0 ? first : [gutter()]), { text, role: "dim" }]);
       });
     } else if (entry.kind === "tool") {
