@@ -3,10 +3,10 @@ id: DIPO-486
 title: >-
   The planning view shows the answer first, with folded details, clean questions
   and rendered markdown
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 15:46'
-updated_date: '2026-11-10 17:51'
+updated_date: '2026-11-10 17:57'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -64,9 +64,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Thinking and tool output fold to one line each by default, the answer text shows first, and a folded line opens on demand without a modifier key, through the Run stream's fold (DIPO-461), not a second one
-- [ ] #2 The question and proposal blocks the engine reads never show as raw JSON or fence text in the conversation; only their rendered form shows
-- [ ] #3 A question renders with the question set apart, its options as a list with the recommended one marked, and the chosen answers visible and changeable before sending
-- [ ] #4 Every line of the conversation and of the question view wraps at the column width at word boundaries, with no broken or cut lines
-- [ ] #5 Claude's markdown (headings, lists, bold, inline code, code blocks) renders in the TUI's colour roles, with no new colours
+- [x] #1 Thinking and tool output fold to one line each by default, the answer text shows first, and a folded line opens on demand without a modifier key, through the Run stream's fold (DIPO-461), not a second one
+- [x] #2 The question and proposal blocks the engine reads never show as raw JSON or fence text in the conversation; only their rendered form shows
+- [x] #3 A question renders with the question set apart, its options as a list with the recommended one marked, and the chosen answers visible and changeable before sending
+- [x] #4 Every line of the conversation and of the question view wraps at the column width at word boundaries, with no broken or cut lines
+- [x] #5 Claude's markdown (headings, lists, bold, inline code, code blocks) renders in the TUI's colour roles, with no new colours
 <!-- AC:END -->
