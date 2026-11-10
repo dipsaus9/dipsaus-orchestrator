@@ -22,8 +22,8 @@
 //   write to the run's records. When the owner cannot be told or the write fails, the request is
 //   refused (403, 503) and nothing is forwarded: no token is spent that nobody counts. Once the
 //   run's (or the reviewer's) token cap is reached, a new request is refused with 429. A planning
-//   session's box (DIPO-447) is counted the same way, against its planning run, which has no story
-//   and no run cap: its requests are never refused for a cap.
+//   session's box (DIPO-447) and an idea audit's box (DIPO-470) are counted the same way, against
+//   their session run: a session run with no token budget is never refused for a cap.
 // - The usage of each answer it passes is added to that run as the upstream sends it: the JSON
 //   body's `usage`, or a stream's `message_start` usage (input and cache at once) and each later
 //   `message_delta` usage over it (their numbers are totals so far, so only the change is added).

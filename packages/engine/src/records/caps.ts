@@ -110,6 +110,15 @@ export const PLANNER_ROLE = "planner";
 export const AUDITOR_ROLE = "auditor";
 
 /**
+ * Whether a run has no token cap (DIPO-470, 0008): a session run whose recorded budget is 0, such as
+ * a planning session's or an idea audit's. It reads the run's record, never its agents' roles, and
+ * a grant never lifts it, since a run with no cap has nothing to raise.
+ */
+export function isUncapped(run: StoredRun): boolean {
+  return run.kind === "session" && run.budgetLimit === 0;
+}
+
+/**
  * The developer's totals of the run from the stored usage, and the wall-clock time from
  * `startedAt` (when its worker host started, moved by the time it stood parked, ended or in
  * review) to `now`. The budget and the turns count only the developer's agents: a reviewer's tokens, turns and minutes count against

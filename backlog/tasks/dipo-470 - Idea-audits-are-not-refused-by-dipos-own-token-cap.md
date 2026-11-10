@@ -1,10 +1,10 @@
 ---
 id: DIPO-470
 title: Idea audits are not refused by dipo's own token cap
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-10 10:16'
-updated_date: '2026-11-10 10:31'
+updated_date: '2026-11-10 11:10'
 labels:
   - 'tier:S'
 milestone: m-3
@@ -24,6 +24,13 @@ references:
   - docs/decisions/0008-worker-adapter.md
   - docs/decisions/0022-planning-sessions.md
   - docs/decisions/0020-park-and-resume.md
+modified_files:
+  - docs/decisions/0008-worker-adapter.md
+  - packages/engine/src/box/model-proxy.ts
+  - packages/engine/src/records/caps.ts
+  - packages/engine/src/records/proxied-usage.ts
+  - packages/engine/test/box/model-proxy-count.test.ts
+  - packages/engine/test/records/caps.test.ts
 priority: high
 type: bug
 ordinal: 443000
@@ -50,7 +57,10 @@ Built by dipo where it can (tier S). A failed audit leaves its ideas held and ne
 
 ```dipo
 branch: "DIPO-470/audit-proxy-cap"
-unknowns: []
+unknowns:
+  - q: "The fix is in and verified: idea audits and planning sessions are uncapped by one rule on the run's record. isUncapped(run) in caps.ts (kind session and budgetLimit 0) replaces the planner-only role check in both scopeOf and capReached in proxied-usage.ts. The proxy header comment in model-proxy.ts now states the rule. Tests added in caps.test.ts and model-proxy-count.test.ts cover criteria 1 to 5. bun run verify passes (format, lint, typecheck, all 7 test shards). Criterion 6 is blocked on your approval of the 0008 wording; I did not edit the ADR. The part was taken by dipo-part. The change is uncommitted in the working tree.</summary>\n<parameter name=\"question\">Do you approve this wording for 0008 line 63? It replaces 'A planning session's box is counted the same way, against its planning run, which has no cap: its requests count in the office's usage and spend and are never refused for one.' Proposed: 'A session run with no token budget (a planning session's or an idea audit's, recorded with budget limit 0) is counted the same way, against that run: its requests count in the office's usage and spend and are never refused for a cap.' If yes, I will write it, or you can apply it yourself."
+    status: "resolved"
+    answer: "Approved: write the proposed 0008 line 63 wording, then finish the story"
 test_plan:
   entries:
     - kind: "automated"
@@ -69,10 +79,41 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An idea audit session's model requests go through the model proxy (200) and count in the office's usage and spend, with no token cap, as a planning session's do
-- [ ] #2 One function next to the caps decides that a run has no token cap, keyed on the run's record (kind session and budget limit 0); scopeOf and capReached in proxied-usage.ts both ask it, and the planner-only role check it replaces is gone
-- [ ] #3 The old barrier still holds, with a test for each: a story run's developer over its budget gets 429, a reviewer over its own cap gets 429, a scan session over its real budget gets 429, and an address with no run row is refused as today
-- [ ] #4 Tests cover the bypass forms, each refused with 429 at its budget: a story run recorded with budget limit 0, an agent whose role is planner or auditor on a story run, and an agent with an unknown role
-- [ ] #5 A fail-closed test on the real path: the real startModelProxy, a fake upstream, a fixture-built office database and the real ledger forward an audit session's request (200) and refuse a developer at its cap (429, nothing forwarded)
-- [ ] #6 The 0008 line on the proxy's cap names the rule (a session run with no budget is never refused for a cap); the maintainer approves the wording in this story's PR
+- [x] #1 An idea audit session's model requests go through the model proxy (200) and count in the office's usage and spend, with no token cap, as a planning session's do
+- [x] #2 One function next to the caps decides that a run has no token cap, keyed on the run's record (kind session and budget limit 0); scopeOf and capReached in proxied-usage.ts both ask it, and the planner-only role check it replaces is gone
+- [x] #3 The old barrier still holds, with a test for each: a story run's developer over its budget gets 429, a reviewer over its own cap gets 429, a scan session over its real budget gets 429, and an address with no run row is refused as today
+- [x] #4 Tests cover the bypass forms, each refused with 429 at its budget: a story run recorded with budget limit 0, an agent whose role is planner or auditor on a story run, and an agent with an unknown role
+- [x] #5 A fail-closed test on the real path: the real startModelProxy, a fake upstream, a fixture-built office database and the real ledger forward an audit session's request (200) and refuse a developer at its cap (429, nothing forwarded)
+- [x] #6 The 0008 line on the proxy's cap names the rule (a session run with no budget is never refused for a cap); the maintainer approves the wording in this story's PR
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-10 10:47 UTC: ambiguous-spec
+- Detail: The fix is in and verified: idea audits and planning sessions are uncapped by one rule on the run's record. isUncapped(run) in caps.ts (kind session and budgetLimit 0) replaces the planner-only role…
+- Run: run_01M72GXWVBZAJ6346ZFSMFXX2S
+- Criteria met: 5 of 6 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 99,082 of 300,000 tokens; 40 of 90 turns; 2 of 45 minutes
+- Last good commit: 1f2ae2f7265f6f31d809a653edb0377abdef1e47
+
+Resumed 2026-11-10 10:54 UTC; grants: none; note: Approved: write the proposed 0008 line 63 wording, then finish the story
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-10 11:10 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 132,478 of 300,000 tokens
+- Runs: 1; resumes: 1
+- Parks: 1
+  - 2026-11-10 10:47 UTC ambiguous-spec: The fix is in and verified: idea audits and planning sessions are uncapped by one rule on the run's record. isUncapped(run) in caps.ts (kind session and budgetLimit 0) replaces the planner-only role…
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
