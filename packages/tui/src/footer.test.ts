@@ -3,9 +3,17 @@
 // kept; offline only the reading keys stay, then `actions off while offline`.
 
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
 
 import { fitHints, footerLine } from "./footer";
-import { FOOTER_KEYS, footerHints, type FooterContext, type FooterView, hintText } from "./keys";
+import {
+  FOOTER_KEYS,
+  footerHints,
+  type FooterContext,
+  type FooterView,
+  hintText,
+  NAV_KEYS,
+} from "./keys";
 
 const ctx: FooterContext = {
   offline: false,
@@ -54,14 +62,14 @@ describe("the footer registry", () => {
     // Below 100 columns ⏎ reads the focused item in full (DIPO-459).
     expect(texts("desk", { ...ctx, narrow: true })).toContain("⏎ read");
     expect(texts("desk", { ...ctx, hasRow: false, planningOpen: true })).toEqual([
-      "P plan",
+      "5 plan",
       ": commands",
       "? keys",
       "O offices",
       "q q quit",
     ]);
     expect(line("queue", 100)).toMatch(
-      /^↑↓ move   ⏎ story   R run   \. show done   c copy id +: commands   \? keys   O offices   q q quit$/,
+      /^↑↓ move   ⏎ story   r run   \. show done   c copy id +: commands   \? keys   O offices   q q quit$/,
     );
     expect(line("switcher", 100)).toMatch(/^↑↓ move   ⏎ open   a new path +esc back   q q quit$/);
     expect(line("switcher", 100)).toHaveLength(100);
@@ -75,8 +83,8 @@ describe("the footer registry", () => {
     ]);
   });
 
-  it("follows keymap.json changedFromToday: R run, p park, X drop, O offices, q q quit, y and n on a test", () => {
-    expect(keys("queue")).toContain("R");
+  it("follows keymap.json changedFromToday: r run, p park, X drop, O offices, q q quit, y and n on a test", () => {
+    expect(keys("queue")).toContain("r");
     expect(keys("queue")).not.toContain("u");
     expect(keys("desk")).toContain("O");
     expect(keys("desk")).not.toContain("o");
@@ -93,9 +101,9 @@ describe("the footer registry", () => {
 
   it("reads the planning keys from the session state", () => {
     expect(texts("planning")).toContain("tab kind");
-    expect(texts("planning")).toContain("ctrl-s start");
+    expect(texts("planning")).toContain("⏎ start");
     expect(texts("planning", { ...ctx, planning: { ...ctx.planning, session: true } })).toContain(
-      "ctrl-s send",
+      "⏎ send",
     );
     expect(
       texts("planning", { ...ctx, planning: { ...ctx.planning, confirmingEnd: true } }),
@@ -106,8 +114,8 @@ describe("the footer registry", () => {
     const session = { ...ctx.planning, session: true, proposals: true };
     expect(texts("planning", { ...ctx, planning: session })).toContain("ctrl-y confirm");
     expect(texts("planning", { ...ctx, planning: { ...session, editing: 2 } })).toEqual([
-      "ctrl-s save proposal 2",
-      "⏎ new line",
+      "⏎ save proposal 2",
+      "shift-⏎ new line",
       "esc cancel the edit",
     ]);
   });
@@ -115,9 +123,9 @@ describe("the footer registry", () => {
   it("offers ctrl-g set Ready with proposals, and only the Ready keys while readying (DIPO-451)", () => {
     const session = { ...ctx.planning, session: true, proposals: true };
     expect(texts("planning", { ...ctx, planning: session })).toEqual([
-      "ctrl-s send",
-      "⏎ new line",
-      "ctrl-e end session",
+      "⏎ send",
+      "shift-⏎ new line",
+      "/end end session",
       "ctrl-y confirm",
       "ctrl-r edit",
       "ctrl-g set Ready",
@@ -126,12 +134,12 @@ describe("the footer registry", () => {
       "esc back",
     ]);
     expect(texts("planning", { ...ctx, planning: { ...session, readying: true } })).toEqual([
-      "ctrl-s set the stories left Ready",
+      "⏎ set the stories left Ready",
       "esc cancel",
     ]);
     expect(
       texts("planning", { ...ctx, planning: { ...session, readying: true, sending: true } }),
-    ).toEqual(["ctrl-s set the stories left Ready", "esc cancel", "sending"]);
+    ).toEqual(["⏎ set the stories left Ready", "esc cancel", "sending"]);
   });
 
   it("gives the question dialog its keys over the input's, with sending (DIPO-455)", () => {
@@ -155,7 +163,7 @@ describe("the footer registry", () => {
   });
 
   it("gives the retro view scroll, back and quit (DIPO-453)", () => {
-    expect(texts("retro")).toEqual(["↑↓ scroll", "esc back", "q q quit"]);
+    expect(texts("retro")).toEqual(["↑↓ scroll", "d discuss in a plan", "esc back", "q q quit"]);
   });
 
   it("fits the width by dropping the lowest priority and keeps quit", () => {
@@ -164,5 +172,37 @@ describe("the footer registry", () => {
     expect(fitted.length).toBeLessThanOrEqual(30);
     expect(fitted).toContain("q q quit");
     expect(footerLine(fitHints(hints, 10), 10)).toBe("  q q quit");
+  });
+});
+
+describe("the key table of DIPO-479", () => {
+  const keymap = JSON.parse(
+    readFileSync(new URL("../../../docs/design/tui-v2/keymap.json", import.meta.url), "utf8"),
+  ) as { global: { id: string; key: string }[]; actions: { id: string; key: string }[] };
+  const entries = new Map(
+    [...keymap.global, ...keymap.actions].map((entry) => [entry.id, entry.key]),
+  );
+
+  it("reads the footer's keys from the registry: 5 plan, r run, d discuss, Enter send, /end", () => {
+    expect(texts("desk", { ...ctx, planningOpen: true })).toContain("5 plan");
+    expect(texts("queue")).toContain("r run");
+    expect(texts("retro")).toContain("d discuss in a plan");
+    const session = { ...ctx.planning, session: true };
+    expect(texts("planning", { ...ctx, planning: session })).toEqual([
+      "⏎ send",
+      "shift-⏎ new line",
+      "/end end session",
+      "esc back",
+    ]);
+    expect(NAV_KEYS.find((nav) => nav.id === "planning")?.key).toBe("5");
+  });
+
+  it("is held by keymap.json", () => {
+    expect(entries.get("plan")).toBe("5");
+    expect(entries.get("runNow")).toBe("r");
+    expect(entries.get("discussPlan")).toBe("d");
+    expect(entries.get("planSend")).toBe("⏎");
+    expect(entries.get("planNewLine")).toBe("shift-⏎");
+    expect(entries.get("planEnd")).toBe("/end");
   });
 });

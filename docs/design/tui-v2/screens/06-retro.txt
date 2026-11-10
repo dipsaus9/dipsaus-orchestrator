@@ -28,4 +28,4 @@ review-blocked   [acc]━━[/] 1                                    [faint]│[
                                                          [faint]│[/]
                                                          [faint]│[/]
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-[acc]←→[/] period   [acc]tab[/] tier · type   [acc]⏎[/] stories behind a row   [acc]P[/] discuss in a plan                   [dim][acc]:[/] commands   [acc]?[/] keys[/]
+[acc]←→[/] period   [acc]tab[/] tier · type   [acc]⏎[/] stories behind a row   [acc]d[/] discuss in a plan                   [dim][acc]:[/] commands   [acc]?[/] keys[/]

@@ -65,7 +65,7 @@ const DROP: PlanningProposal = { kind: "drop", draft: "DRAFT-4", why: "Covered b
 
 describe("the proposal form (DIPO-450)", () => {
   it("keeps a refine's and a drop's draft, which the form never edits (DIPO-454)", () => {
-    expect(proposalForm(DROP).split("\n")[0]).toBe("# drop DRAFT-4: edit the fields, then Ctrl-S");
+    expect(proposalForm(DROP).split("\n")[0]).toBe("# drop DRAFT-4: edit the fields, then Enter");
     expect(proposalForm(REFINE)).not.toContain("draft:");
     const read = readProposalForm(REFINE, `draft: DRAFT-9\n${proposalForm(REFINE)}`);
     expect(read).toEqual({ ok: true, proposal: REFINE });

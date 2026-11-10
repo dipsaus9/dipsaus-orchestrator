@@ -13,7 +13,7 @@
         [acc]│[/]  [faint]r      start again  · not parked[/]                                                            [acc]│[/]
         [acc]│[/]                                                 [dim]ANYWHERE[/]                                     [acc]│[/]
         [acc]│[/]  [dim]NO KEY · TYPE IT[/]                               [acc]1–4[/]    rooms                                 [acc]│[/]
-        [acc]│[/]  [dim]$ dipo approve DIPO-446 --note[/]                 [acc]P[/]      plan                                  [acc]│[/]
+        [acc]│[/]  [dim]$ dipo approve DIPO-446 --note[/]                 [acc]5[/]      plan                                  [acc]│[/]
         [acc]│[/]                                                 [acc]O[/]      offices                               [acc]│[/]
         [acc]│[/]                                                 [acc]:[/]      all commands                          [acc]│[/]
         [acc]│[/]                                                 [acc]q q[/]    quit (daemon keeps working)           [acc]│[/]

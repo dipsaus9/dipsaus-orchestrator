@@ -28,6 +28,6 @@
                                                               [faint]│[/]
                                                               [faint]│[/]
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-[acc]↑↓[/] move   [acc]R[/] run now   [acc]p[/] park   [acc]X[/] drop   [acc]⏎[/] story   [acc].[/] done                                       [dim][acc]/[/] filter   [acc]?[/] keys[/]
+[acc]↑↓[/] move   [acc]r[/] run now   [acc]p[/] park   [acc]X[/] drop   [acc]⏎[/] story   [acc].[/] done                                       [dim][acc]/[/] filter   [acc]?[/] keys[/]
 --- notes ---
 needs NNN✗ = the dependency is parked (yours to clear) · needs NNN→ = the dependency is moving by itself.

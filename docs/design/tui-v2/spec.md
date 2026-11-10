@@ -51,7 +51,7 @@ Make the maintainer's decisions obvious, and keep everything else quiet but reac
 Three levels and four rooms. Drill down with ⏎ and climb back with esc. Overlays sit above every level.
 - **Offices** (`O`, one per product repo) → **Office** with four rooms → **Story** (⏎: story · criteria · reviews · runs) → **Run** (⏎ on a running story: live stream, steer, park). The ux-spec's IA diagram labels Offices `o`; it is `O`.
 - Rooms: **1 Desk** (needs you, `office.desk`), **2 Floor** (running, in review), **3 Queue** (ready, waiting), **4 Retro** (done, cost; DIPO-453).
-- **Plan view** (`P` from anywhere, DIPO-447 to 452) is a document view in the Frame, not a room. Esc leaves it open, the Desk header shows `● plan open` at the right while it is open (`01-desk.txt`), and reopening the TUI goes straight back to it.
+- **Plan view** (`5` from anywhere, DIPO-447 to 452) is a document view in the Frame, not a room. Esc leaves it open, the Desk header shows `● plan open` at the right while it is open (`01-desk.txt`), and reopening the TUI goes straight back to it.
 - Overlays: `:` or `ctrl-k` the command palette (everything is reachable there), `?` every key for this screen, `/` filter the list in focus, `t` the test overlay, and the Composer prompts.
 - **Launch rule.** Inside a repo, `dipo` opens that office: on the Desk if anything needs you, otherwise on the Floor. Outside a repo it opens Offices. Quitting the TUI never stops the daemon, and the first quit of a session says so once.
 
@@ -143,7 +143,7 @@ File: `05-queue.txt`. Replaces the "skipped…" block.
 - Row: focus column, glyph (`→` ok ready, `○` acc waiting, `✗` err refined), dim id, title, dim tier, reason column. `needs 447✗` (err) means the dependency is parked, so the wait is yours to clear; `needs 452→` (ok) means it is moving by itself; a bare `needs 449` (dim) means the dependency is itself waiting (not parked, not moving), a state the engine supplies; `next up` (ok) on the Ready row. Refined rows show the first gate failure in words (`2 unknowns`, `no test plan`); the full list is in the story view.
 - `  . show done (418)` dim at the end of the list.
 - Preview: `READY · tier M · offered as next up`, title, Gate (`✓ 31 rules · 1 warning R29`; `story.gate` returns the rule count, an engine addition in step 4), Needs, Unblocks, Touches, then `CHAIN` drawn as a picture (the engine computes the chain from the dependency graph and sends it, with the "everything below N waits on the park" line; engine addition in step 4) (`447✗ → 448 · 449 → 450 → 451`, `452  → 453`). When something blocks the chain the preview points to where you can fix it: "Everything below 447 waits on the park on your Desk. 1 go there." A waiting story's preview says "Waiting on DIPO-447".
-- `R` run now is a capital because it spends; it starts the selected story and asks nothing when a slot is free. The list has no "next Ready story" row: the first Ready row is next up. The preview labels are padded to 9; below 100 columns the Queue is the list alone.
+- `r` run now (it was `R`; the Queue has no other `r`, and on the Desk `r` stays resume and retry) starts the selected story and asks nothing when a slot is free. The list has no "next Ready story" row: the first Ready row is next up. The preview labels are padded to 9; below 100 columns the Queue is the list alone.
 
 ## Retro (S2c, DIPO-453)
 File: `06-retro.txt`. Every number from code.
@@ -152,7 +152,7 @@ File: `06-retro.txt`. Every number from code.
 - Three headline numbers (bold hi, label dim): `38 merged`, `$214 spent · $5.63 per story`, `4h 10m median Ready → merged`. Rework and "Worth a look" are not part of M6 (the retro, DIPO-453, may add them later).
 - **BY TIER** table (stories, cost/st, rounds, loops, Ready→merged). A value that is double the median turns err. ⏎ on any row lists the stories behind it; the focused row is on sel.
 - Bars for **WHY STORIES PARKED** and **WHERE STORIES CAME FROM**, the same `━` as the pipeline and budget (one visual word for "amount"), acc, with the small rest in faint and dim.
-- `P` starts a planning session that gets these numbers as text in its first message (DIPO-453 criterion #4).
+- `d` starts a planning session that gets these numbers as text in its first message (DIPO-453 criterion #4).
 
 ## Plan (S2d, DIPO-447 to 452)
 File: `07-plan.txt`.
@@ -204,7 +204,7 @@ File: `09-palette.txt`. `:` or `ctrl-k`, from anywhere.
 - Disabled rows say why (`Start again` faint, `not parked` dim) instead of disappearing.
 - With an empty query it lists your recent commands. Rare settings live only here, like privacy (`Privacy: what dipo stores`) and slots (`Parallel slots: 3`, the office's `caps.parallelRuns`), which frees up `p`.
 - Footer inside: `⏎ run   ↑↓ choose   esc close`.
-- Built (DIPO-463, `palette.tsx`, `overlays.tsx`): the rows come from `keys.ts`; stopping a run is the row `Stop run` (park with a yes/no first); `Privacy: what dipo stores…` opens the privacy view, which keeps its confirmation. `:` and `ctrl-k` open the palette from home (the Desk, Floor and Queue, a run and the settings) and from the Retro room, not from the Plan view, whose input takes what is typed; it replaced DIPO-458's direct `:` to the settings. On a run it also lists `z` expand stream and `c` copy id. The body it opened on stays behind it in shade. GO TO lists the rooms `1`–`4`, `P` plan and `O` offices (`NAV_KEYS`).
+- Built (DIPO-463, `palette.tsx`, `overlays.tsx`): the rows come from `keys.ts`; stopping a run is the row `Stop run` (park with a yes/no first); `Privacy: what dipo stores…` opens the privacy view, which keeps its confirmation. `:` and `ctrl-k` open the palette from home (the Desk, Floor and Queue, a run and the settings) and from the Retro room, not from the Plan view, whose input takes what is typed; it replaced DIPO-458's direct `:` to the settings. On a run it also lists `z` expand stream and `c` copy id. The body it opened on stays behind it in shade. GO TO lists the rooms `1`–`4`, `5` plan and `O` offices (`NAV_KEYS`).
 
 ## Keys overlay (S9)
 File: `13-keys-overlay.txt`. `?`, built from the same registry as the footer and palette.
@@ -233,9 +233,9 @@ Files: `12-states.txt`, `15-budget-and-failed.txt`, `16-narrow.txt`.
 
 Four layers. Layer 0 is enough to use dipo; each layer above it is optional speed. Lowercase letters act on the focused item and never navigate; capitals spend or destroy.
 - **L0 · everyone**: `↑ ↓` move focus, `⏎` open / drill in, `esc` back / close, `tab` next pane, `1–4` Desk, Floor, Queue, Retro, `?` keys for this screen, `q q` quit (twice within 2 s; the daemon keeps working).
-- **L1 · verbs on the focused item**: `y` yes (approve, accept, confirm next up, pass a test, overrule), `n` no (reject, dismiss, decline, or fail; asks for a note), `a` answer a question, `r` start again (resume a park, retry a failed run), `t` start a test (opens the checklist), `s` steer the worker, `p` park, `c` copy (the id, the test's shell line, the restore command), `f` raise an advisory as a proposal, `z` expand the stream, `R X D` run · drop · discard. Also `o` open the PR or comment in the browser and `^R` retry a failed action.
+- **L1 · verbs on the focused item**: `y` yes (approve, accept, confirm next up, pass a test, overrule), `n` no (reject, dismiss, decline, or fail; asks for a note), `a` answer a question, `r` start again (resume a park, retry a failed run), `t` start a test (opens the checklist), `s` steer the worker, `p` park, `c` copy (the id, the test's shell line, the restore command), `f` raise an advisory as a proposal, `z` expand the stream, `X D` drop · discard; `r` in the Queue runs the story now. Also `o` open the PR or comment in the browser and `^R` retry a failed action.
 - **L2 · vim motions**: `j k` move, `h l` back / open, `g G` top / bottom (G follows the stream), `/` filter list, `n N` next / previous match only while a search is open.
-- **L3 · everything else**: `:` command palette, `ctrl-k` the same for non-vim hands, `O` switch office (capital O, from anywhere), `P` open or continue the planning session.
+- **L3 · everything else**: `:` command palette, `ctrl-k` the same for non-vim hands, `O` switch office (capital O, from anywhere), `5` open or continue the planning session.
 - **Scope**: a key bound to a view wins over a global (`*`) binding in that view. On Plan `c` is confirm, not copy id; on the Run `v` switches the stream filter and `tab` stays next pane.
 - Screen-only keys: Offices `a` new path; daemon stopped `r` restart and `l` log; recovering `l` log.
 

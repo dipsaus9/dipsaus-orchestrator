@@ -1,6 +1,7 @@
 // The Composer (0009, DIPO-457): the one multi-line input of the TUI. Enter adds a line, Ctrl-S
-// sends, Esc cancels, Backspace erases, and a paste keeps its line breaks. The planning view uses
-// it for the goal and the messages; later views mount it for answers, notes and steering.
+// sends, Esc cancels, Backspace erases, and a paste keeps its line breaks. The planning view
+// (DIPO-479) reads it the chat way instead: Enter sends, and a new line is Shift+Enter,
+// Option+Enter or a backslash before Enter. Other views mount it for answers, notes and steering.
 
 import type { Key } from "ink";
 import { Box, Text } from "ink";
@@ -41,8 +42,33 @@ export type ComposerEvent =
   | { readonly kind: "cancel" }
   | { readonly kind: "other" };
 
+/** What a handler would get for Shift+Enter in xterm's modifyOtherKeys form (`CSI 27;2;13~`); Ink 8 drops that sequence before `useInput`, so only the unit reads it today. */
+const SHIFT_ENTER_OTHER_KEYS = "[27;2;13~";
+
+/**
+ * `enterSends`: Enter sends and a new line is Shift+Enter (kitty `CSI 13;2u` or `CSI 27;2;13~`),
+ * Option+Enter (ESC CR) or a trailing backslash before Enter; Ctrl-S is not a send key then.
+ */
+function enterSendsKey(draft: string, input: string, key: Key): ComposerEvent {
+  if (key.escape) return { kind: "cancel" };
+  if (input === SHIFT_ENTER_OTHER_KEYS) return { kind: "edit", draft: `${draft}\n` };
+  if (!key.return) {
+    const next = editDraft(draft, input, key);
+    return next === null ? { kind: "other" } : { kind: "edit", draft: next };
+  }
+  if (key.shift || key.meta) return { kind: "edit", draft: `${draft}\n` };
+  if (draft.endsWith("\\")) return { kind: "edit", draft: `${draft.slice(0, -1)}\n` };
+  return { kind: "send" };
+}
+
 /** Reads one key: Ctrl-S sends, Esc cancels, anything else is an edit or not the Composer's. */
-export function composerKey(draft: string, input: string, key: Key): ComposerEvent {
+export function composerKey(
+  draft: string,
+  input: string,
+  key: Key,
+  enterSends = false,
+): ComposerEvent {
+  if (enterSends) return enterSendsKey(draft, input, key);
   if (key.escape) return { kind: "cancel" };
   if (key.ctrl && input === "s") return { kind: "send" };
   const next = editDraft(draft, input, key);

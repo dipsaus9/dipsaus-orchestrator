@@ -53,3 +53,18 @@ describe("the retro view", () => {
     await ui.waitFor("O offices");
   });
 });
+
+describe("discuss in a plan (DIPO-479)", () => {
+  it("opens the planning view on d with the retro's numbers in the input, and P does nothing", async () => {
+    const { ui, session } = await open();
+    session.retro = { office: "x", lines: LINES };
+    await ui.press("4");
+    await ui.waitFor("Tier M, type feature: 5 stories, 4 merged");
+    await ui.press("P");
+    await Bun.sleep(50);
+    expect(ui.frame()).not.toContain("no open planning session");
+    await ui.press("d");
+    const frame = await ui.waitFor("no open planning session");
+    expect(frame).toContain("Proposed stories you dismissed: 2_");
+  });
+});
