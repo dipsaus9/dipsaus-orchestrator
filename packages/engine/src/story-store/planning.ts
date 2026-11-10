@@ -218,6 +218,12 @@ export interface PlanningLane {
    * undefined when the journal no longer has it.
    */
   outcomeOf(change: PlannedChange): PlannedOutcome | undefined;
+  /**
+   * The filings, refinements and revisions the model session `run` journaled for its proposal
+   * `proposal` (DIPO-480), each with how far it got and its target; none once the journal has no
+   * such change.
+   */
+  filingsOf(run: string, proposal: number): PlannedFiling[];
   /** Gives a journaled change up before anything of it was applied. */
   withdraw(change: PlannedChange): void;
   /**
@@ -257,7 +263,17 @@ export async function writeDone(lane: PlanningLane, story: PlanningStory): Promi
 export interface PlannedOutcome {
   readonly outcome: "waiting" | "applied" | "closed";
   readonly notice: string | null;
+  /** True once the change's backlog PR merged: the base holds it. */
+  readonly merged: boolean;
 }
+
+/** A change a planning session's proposal journaled, with its target (DIPO-480). */
+export type PlannedFiling = PlannedOutcome &
+  (
+    | { readonly kind: typeof FILE_KIND; readonly target: FileTarget }
+    | { readonly kind: typeof REFINE_KIND; readonly target: RefineTarget }
+    | { readonly kind: typeof REVISE_KIND; readonly target: ReviseTarget }
+  );
 
 /** Why the planning lane holds a story from pickup (0010: a pending change always wins). */
 export type PlanningHold =
