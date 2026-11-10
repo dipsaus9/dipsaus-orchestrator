@@ -1,10 +1,10 @@
 ---
 id: DIPO-485
 title: dipo offers to update itself when it is behind
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 15:36'
-updated_date: '2026-11-10 16:35'
+updated_date: '2026-11-10 16:47'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -67,11 +67,11 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When an office's base has engine commits after the running build and nothing runs, the desk shows one update item naming the commits; with anything running it shows none
-- [ ] #2 Its action, after one confirm, pauses new starts, runs bun install --frozen-lockfile and the build from the base commit in a dipo-owned worktree, checks the built binary reports that commit, moves it over the running binary as a new file, restarts by running dipo daemon restart from the new binary, and reports the new commit
-- [ ] #3 The update is refused while a run, session or audit is open; while it runs a start is refused as dipo is updating; a failed install, build or check keeps the old binary, lifts the pause and gives the reason
-- [ ] #4 Bypass forms have tests: a base that moves during the build, a start asked for during it, a lockfile that does not match package.json, a worktree path linking out of dipo's home, and a build output that is no executable or reports another commit
-- [ ] #5 A fail-closed test runs the real update command with a failing stand-in build and shows the old binary unchanged and the daemon still on it
-- [ ] #6 dipo update sends the same command and prints its result
-- [ ] #7 ADR 0016's self-update line (101) and ADR 0005's Upgrades line (192) describe the update from the base, each with one Replaced line beside 0005's auto-restart line (211), and upgrade.ts's header no longer says the daemon never restarts itself
+- [x] #1 When an office's base has engine commits after the running build and nothing runs, the desk shows one update item naming the commits; with anything running it shows none
+- [x] #2 Its action, after one confirm, pauses new starts, runs bun install --frozen-lockfile and the build from the base commit in a dipo-owned worktree, checks the built binary reports that commit, moves it over the running binary as a new file, restarts by running dipo daemon restart from the new binary, and reports the new commit
+- [x] #3 The update is refused while a run, session or audit is open; while it runs a start is refused as dipo is updating; a failed install, build or check keeps the old binary, lifts the pause and gives the reason
+- [x] #4 Bypass forms have tests: a base that moves during the build, a start asked for during it, a lockfile that does not match package.json, a worktree path linking out of dipo's home, and a build output that is no executable or reports another commit
+- [x] #5 A fail-closed test runs the real update command with a failing stand-in build and shows the old binary unchanged and the daemon still on it
+- [x] #6 dipo update sends the same command and prints its result
+- [x] #7 ADR 0016's self-update line (101) and ADR 0005's Upgrades line (192) describe the update from the base, each with one Replaced line beside 0005's auto-restart line (211), and upgrade.ts's header no longer says the daemon never restarts itself
 <!-- AC:END -->
