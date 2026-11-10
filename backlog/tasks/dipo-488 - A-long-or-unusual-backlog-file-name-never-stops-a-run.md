@@ -1,10 +1,10 @@
 ---
 id: DIPO-488
 title: A long or unusual backlog file name never stops a run
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 16:34'
-updated_date: '2026-11-10 17:02'
+updated_date: '2026-11-10 17:17'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -74,11 +74,11 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The copy into a box keeps every file name byte-exact, so a non-ASCII name such as … no longer arrives as * (container copy, the hop the 2026-11-10 diagnostic found), with the fix in dipo's copy path; a *.box.test.ts proves it on a real box and the maintainer runs it by hand (a manual test-plan entry, 0017), and a unit test with a recorded copy holding the mangled bytes proves the fix without a box
-- [ ] #2 The tree check compares paths byte-exact and unquoted end to end (git -z output, no core.quotePath quoting, no Unicode normalisation), with tests for …, other UTF-8, a backticks-only name, a 150-byte-plus ASCII path, spaces and quotes
-- [ ] #3 The old check still catches a rewritten lockfile, a generated tracked file and a deleted tracked file, each with a test
-- [ ] #4 Bypass forms have tests: a changed file whose name is non-ASCII, backticks-only, quoted or a 150-byte-plus ASCII path still counts as changed and is named, and a tracked file the install renamed counts as changed
-- [ ] #5 A fail-closed test on the real path runs the real changedSinceStart against a real temporary git repository holding such names: an unchanged tree is same, a changed one is changed
-- [ ] #6 A launch whose box is not made ready logs WARN with the run, the story and the reason (not only the fixed why of the box's deletion), and the reason shows on the desk and in dipo watch; the setup.failed hint at worktree/claim.ts:187 (run dipo daemon logs --level debug) becomes true because the step's output is logged, or is removed; DIPO-484 does not cover this launch path
-- [ ] #7 One shared title cut replaces both capped functions (run/idea-answers.ts:77-80 and records/ideas.ts:61-65) and the duplicate is removed; a title over the cap is cut on a word boundary with no … or other non-ASCII mark added, so dipo never puts … into a file name, with a test
+- [x] #1 The copy into a box keeps every file name byte-exact, so a non-ASCII name such as … no longer arrives as * (container copy, the hop the 2026-11-10 diagnostic found), with the fix in dipo's copy path; a *.box.test.ts proves it on a real box and the maintainer runs it by hand (a manual test-plan entry, 0017), and a unit test with a recorded copy holding the mangled bytes proves the fix without a box
+- [x] #2 The tree check compares paths byte-exact and unquoted end to end (git -z output, no core.quotePath quoting, no Unicode normalisation), with tests for …, other UTF-8, a backticks-only name, a 150-byte-plus ASCII path, spaces and quotes
+- [x] #3 The old check still catches a rewritten lockfile, a generated tracked file and a deleted tracked file, each with a test
+- [x] #4 Bypass forms have tests: a changed file whose name is non-ASCII, backticks-only, quoted or a 150-byte-plus ASCII path still counts as changed and is named, and a tracked file the install renamed counts as changed
+- [x] #5 A fail-closed test on the real path runs the real changedSinceStart against a real temporary git repository holding such names: an unchanged tree is same, a changed one is changed
+- [x] #6 A launch whose box is not made ready logs WARN with the run, the story and the reason (not only the fixed why of the box's deletion), and the reason shows on the desk and in dipo watch; the setup.failed hint at worktree/claim.ts:187 (run dipo daemon logs --level debug) becomes true because the step's output is logged, or is removed; DIPO-484 does not cover this launch path
+- [x] #7 One shared title cut replaces both capped functions (run/idea-answers.ts:77-80 and records/ideas.ts:61-65) and the duplicate is removed; a title over the cap is cut on a word boundary with no … or other non-ASCII mark added, so dipo never puts … into a file name, with a test
 <!-- AC:END -->
