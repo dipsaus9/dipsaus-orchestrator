@@ -52,7 +52,7 @@ The daemon serves the frames of one connection side by side. Reads run as they a
 | Ideas | `idea.add`, `idea.accept`, `idea.dismiss`, `note.dismiss` |
 | Next up | `nextUp.confirm`, `nextUp.decline` |
 | Testing | `test.start`, `test.record` |
-| Daemon | `daemon.stop`, `daemon.setLogLevel`, `daemon.resumeStarts` |
+| Daemon | `daemon.stop`, `daemon.setLogLevel`, `daemon.resumeStarts`, `daemon.update` |
 
 Their behaviour is decided where the subject lives: 0020 for park, resume, drop and discard; 0002 for gates and testing; 0013 for scan, infer and confirm; 0010 for init and next up. `commands.describe` lists every command and read with the JSON Schema of its args and result, and marks those a client must confirm first (`confirm`) or ask for a typed id (`irreversible`). A ritual or roster command arrives with its milestone (0003).
 
@@ -189,7 +189,7 @@ The daemon never owns a worker process. Each session gets a worker host, `dipo d
 
 - **Keep-awake.** While any office has a live worker host or a confirmed run waiting to start, the daemon holds `caffeinate -i -w <daemon pid>`, and releases it 2 minutes after work stops. Closing the lid on battery still sleeps the Mac.
 - **Logs.** JSON lines with time, level, message, component, office and run, in `daemon.log`, rotated at 10 MB with 5 kept. A worker host writes `host.log` in its run directory. Prompts and command bodies appear only at `debug` and `trace`. A field whose name ends in `token`, `secret`, `password`, `apiKey`, `credential` or `privateKey` is redacted at every level. `dipo daemon logs` reads the files directly, so it works while the daemon is down.
-- **Upgrades.** A running daemon keeps its old binary. It checks its executable every 60 s and reports "upgrade pending". `dipo daemon restart` drains it and starts the new binary. Worker hosts keep running, and the new daemon re-attaches them (section 17).
+- **Upgrades.** A running daemon keeps its old binary. It checks its executable every 60 s and reports "upgrade pending". `dipo daemon restart` drains it and starts the new binary. An update from the desk (DIPO-485) pauses new starts, swaps the binary and runs `dipo daemon restart` itself. Worker hosts keep running, and the new daemon re-attaches them (section 17).
 - **Autostart.** `dipo daemon install` writes a launchd agent with `KeepAlive` (restart after a crash), `AbandonProcessGroup` and an exit timeout above the drain cap. With it, `dipo daemon start`, `stop` and `restart` go through `launchctl`. `dipo daemon uninstall` removes it.
 - **Software settings** live in `<state>/config.yaml`: `daemon.autostart`, the spend alerts and `notify.desk` (0009).
 
@@ -208,5 +208,5 @@ The daemon never owns a worker process. Each session gets a worker host, `dipo d
 - `dipo.pid` as the lock: created with `O_EXCL`, a stale record deleted only when unchanged, and lock checks after the bind and at the minute upgrade check (2026-10-24 to 2026-10-30). A starter paused between its re-read and its delete could still run beside another. Replaced by the SQLite lock of section 15, which the operating system releases (2026-10-30).
 - Follow-only worker hosts and a verified-SIGTERM protocol for them (2026-10-15). Replaced by re-attach or park (2026-10-24).
 - Linux support: systemd units and scopes, `systemd-inhibit`, lingering checks (2026-10-10). macOS only (0004, 2026-10-24).
-- Auto-restart on upgrade (`daemon.autoRestartOnUpgrade`, default off). Removed; `dipo daemon restart` is the way (2026-10-24).
+- Auto-restart on upgrade (`daemon.autoRestartOnUpgrade`, default off). Removed; `dipo daemon restart` is the way (2026-10-24). The daemon restarts itself again only after a confirmed update from the desk (`daemon.update`, DIPO-485, 2026-11-10), through the same `dipo daemon restart`; a changed binary alone still restarts nothing.
 - `createEngine` building its own spawn and clock from the daemon's options (2026-10-24). The daemon passes them in with its other process concerns, so tests replace them (2026-10-29).

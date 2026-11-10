@@ -202,7 +202,7 @@ export function formatRunning(status: DaemonStatusResult): string[] {
     if (behind.commits === 0) continue;
     const plural = behind.commits === 1 ? "commit" : "commits";
     lines.push(
-      `  ${behind.name ?? behind.office}: the base has ${behind.commits} engine ${plural} after this build; rebuild dipo and run \`dipo daemon restart\``,
+      `  ${behind.name ?? behind.office}: the base has ${behind.commits} engine ${plural} after this build; run \`dipo update\` when nothing runs, or rebuild dipo and run \`dipo daemon restart\``,
     );
   }
   if (status.upgradePending) {

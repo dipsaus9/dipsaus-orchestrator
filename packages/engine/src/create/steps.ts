@@ -21,6 +21,8 @@ import { runningStoryCount, sessionRunCount } from "../overview/summary";
 import { branchDiff } from "../story-pr/git";
 import type { CommandServices } from "./commands";
 import { controlFeature, sumOverOffices } from "./control";
+import { SelfUpdate } from "../update/self-update";
+import { selfUpdateOf, updateDeskItems } from "./update-service";
 import type { Core } from "./core";
 import { DATABASE_UNAVAILABLE } from "./lifecycle";
 import type { OfficeServices } from "./office-services";
@@ -46,7 +48,11 @@ function privacySummaryFeature(core: Core): FeatureModule {
 }
 
 /** `engine.hello` and the `daemon.*` read and commands (0005). */
-function processFeatures(core: Core, services: Services): FeatureModule[] {
+function processFeatures(
+  core: Core,
+  services: Services,
+  update: SelfUpdate | null,
+): FeatureModule[] {
   const { deps, lifecycle, offices } = core;
   const { daemon } = deps;
   const { office, commands } = services;
@@ -85,6 +91,7 @@ function processFeatures(core: Core, services: Services): FeatureModule[] {
           const handle = offices.get(id);
           return handle === undefined ? undefined : sessionRunCount(handle);
         }),
+      ...(update === null ? {} : { update: (id: OfficeId) => update.run(id) }),
       requestStop: daemon.requestStop,
     }),
   ];
@@ -96,6 +103,7 @@ function processFeatures(core: Core, services: Services): FeatureModule[] {
  */
 export function featureList(core: Core, services: Services): FeatureModule[] {
   const { story, commands, office } = services;
+  const selfUpdate = selfUpdateOf(core, office);
   const { runs } = commands;
   return [
     // The desk shows the office's starts paused first (0020), and a stuck planning lane among
@@ -109,6 +117,7 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
         officeItems: (handle, now) => [
           ...story.lane.deskItems(handle, now),
           ...story.backlogPrs.loadFailureDeskItems(handle.officeId as OfficeId),
+          ...updateDeskItems(selfUpdate, handle.officeId as OfficeId, now),
         ],
         // The stories offered for free run slots (DIPO-440, 0010).
         nextUp: (handle) => commands.nextUp.offers(handle.officeId as OfficeId),
@@ -164,7 +173,7 @@ export function featureList(core: Core, services: Services): FeatureModule[] {
     commands.reconciler.feature,
     officeFeature(core.offices),
     privacySummaryFeature(core),
-    ...processFeatures(core, services),
+    ...processFeatures(core, services, selfUpdate),
     ...(core.deps.features ?? []),
   ];
 }

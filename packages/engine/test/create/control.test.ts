@@ -94,7 +94,7 @@ describe("daemon.status build commit (DIPO-198)", () => {
     // Nothing read yet: no rows, and the first read is under way in the background.
     expect(status(deps).engineBehind).toEqual([]);
     expect(cache.reading(OFFICE)).toBe(true);
-    reads.shift()?.({ kind: "count", commits: 2 });
+    reads.shift()?.({ kind: "count", commits: 2, tip: "abc", titles: [] });
     await cache.refresh(OFFICE);
 
     // The next read hangs; status keeps answering with the cached row, without stacking reads.

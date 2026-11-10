@@ -59,6 +59,28 @@ describe("engineCommitsAfter", () => {
     });
   });
 
+  it("names the base commit and the subjects of the engine commits, newest first (DIPO-485)", async () => {
+    await withBareRemote(async (repo) => {
+      const build = await published(repo);
+      writeIn(repo.dir, "packages/engine/a.md");
+      await repo.commitAll("feat: first");
+      writeIn(repo.dir, "docs/notes.md");
+      await repo.commitAll("docs only");
+      writeIn(repo.dir, "packages/engine/b.md");
+      const tip = await repo.commitAll("fix: second");
+      await repo.git("push", "--quiet", "origin", "main");
+      const office = officeGit(repo);
+      await office.fetch();
+
+      expect(await readEngineCommitsAfter(office, build)).toEqual({
+        kind: "count",
+        commits: 2,
+        tip,
+        titles: ["fix: second", "feat: first"],
+      });
+    });
+  });
+
   it("counts the base as fetched, not the checkout's HEAD", async () => {
     await withBareRemote(async (repo) => {
       const build = await published(repo);

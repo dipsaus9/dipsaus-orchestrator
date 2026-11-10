@@ -10,6 +10,7 @@ import {
   daemonSetLogLevel,
   daemonStatus,
   daemonStop,
+  daemonUpdate,
   type OfficeId,
   type ToolPaths,
 } from "@dipsaus-orchestrator/contract";
@@ -61,6 +62,13 @@ export interface ControlDeps {
    * offices had something lifted. None without it.
    */
   readonly liftStartsPaused?: (why: string) => number;
+  /**
+   * `daemon.update` (DIPO-485): builds the office's base, replaces the binary and starts the
+   * restart; throws `CommandError`. None without it.
+   */
+  readonly update?: (
+    office: OfficeId,
+  ) => Promise<{ readonly commit: string; readonly commits: number }>;
   /** Starts the drain; the first request wins (`foreground.ts`). */
   readonly requestStop: (request: DrainRequest) => void;
 }
@@ -123,6 +131,18 @@ export function controlFeature(deps: ControlDeps): FeatureModule {
           lifecycle.transition("draining", STOP_REASON);
           deps.requestStop({ reason: STOP_REASON, stopWorkers: args.stopWorkers });
           return { result: { state: "draining" as const }, changed: true };
+        },
+      });
+
+      registry.addSoftwareCommand({
+        definition: daemonUpdate,
+        handle: async (_ctx, args) => {
+          if (deps.update === undefined) {
+            throw new CommandError("update.refused", "dipo does not update here.", {
+              reason: "unavailable",
+            });
+          }
+          return { result: await deps.update(args.office), changed: true };
         },
       });
 

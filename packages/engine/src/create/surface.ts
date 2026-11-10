@@ -39,11 +39,21 @@ import type { OfficeChanges } from "./notify";
 /** Names any connection may use in every daemon state (0005: also `starting`). */
 const ALWAYS_ALLOWED: ReadonlySet<string> = new Set(["engine.hello", "commands.describe"]);
 
+/** The commands that start a story run or a session: refused while dipo updates itself (DIPO-485). */
+const START_COMMANDS: ReadonlySet<string> = new Set([
+  "work.run",
+  "work.resume",
+  "nextUp.confirm",
+  "planning.start",
+  "planning.continue",
+]);
+
 /**
  * The lifecycle check for one request (0005), null when it may run: office commands and reads get
  * `engine.recovering` in `starting` and `recovering`; in `draining` no command but `daemon.*`
  * starts, with the retryable `daemon.draining`, so a client retries it against the next daemon. `engine.hello`,
- * `commands.describe` and `daemon.*` always run.
+ * `commands.describe` and `daemon.*` always run. While dipo updates itself (DIPO-485) a command that
+ * starts a run or a session fails with `daemon.updating`.
  */
 export function lifecycleGate(
   lifecycle: DaemonLifecycle,
@@ -54,6 +64,7 @@ export function lifecycleGate(
   const access = lifecycle.officeAccess();
   if (access !== null) return access;
   if (kind === "command" && lifecycle.state === "draining") return lifecycle.scheduling();
+  if (kind === "command" && START_COMMANDS.has(name)) return lifecycle.scheduling();
   return null;
 }
 

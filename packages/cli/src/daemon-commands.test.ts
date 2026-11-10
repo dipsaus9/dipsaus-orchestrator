@@ -188,7 +188,7 @@ describe("dipo daemon status build commit (DIPO-198)", () => {
     expect(await main(["daemon", "status"], ctx.deps)).toBe(0);
     expect(ctx.out).toContain("  commit:     1a2b3c4d5e6f-dirty");
     expect(ctx.out).toContain(
-      "  dipsaus-orchestrator: the base has 1 engine commit after this build; rebuild dipo and run `dipo daemon restart`",
+      "  dipsaus-orchestrator: the base has 1 engine commit after this build; run `dipo update` when nothing runs, or rebuild dipo and run `dipo daemon restart`",
     );
     expect(ctx.out.join("\n")).not.toContain("current:");
   });
