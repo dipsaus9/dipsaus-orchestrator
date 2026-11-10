@@ -1,10 +1,10 @@
 ---
 id: DIPO-484
 title: dipo names the real cause of every failure
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 15:36'
-updated_date: '2026-11-10 16:27'
+updated_date: '2026-11-10 16:43'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -66,10 +66,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The model proxy records each refusal it sends in the run's records at ModelUseCapped, for the run its peer address names, and a 429 in a turn with a recorded refusal ends that run capped with the proxy's reason instead of a plan limit; no stream text decides it
-- [ ] #2 Every old plan-limit case with no recorded proxy refusal still pauses the office as plan-limit, each with a test
-- [ ] #3 Bypass forms have tests: the proxy's refusal text or a fake marker in worker output, a tool result or the report, a refusal recorded for another run and one recorded after the turn ended all still read as plan-limit
-- [ ] #4 A fail-closed test runs the real model proxy and interpreter on a fixture-built office and shows an upstream 429 with no recorded refusal pauses the office
-- [ ] #5 Every failed or cut-off audit and every failed session shows on the desk or in dipo ideas with its cause, not only in the daemon log
-- [ ] #6 office.chain gives a Refined dependency its own state refined instead of waiting (overview/chain.ts:18-24), and the Queue, the Floor and the Desk show it as Refined, not Ready yet, with its first gate failure
+- [x] #1 The model proxy records each refusal it sends in the run's records at ModelUseCapped, for the run its peer address names, and a 429 in a turn with a recorded refusal ends that run capped with the proxy's reason instead of a plan limit; no stream text decides it
+- [x] #2 Every old plan-limit case with no recorded proxy refusal still pauses the office as plan-limit, each with a test
+- [x] #3 Bypass forms have tests: the proxy's refusal text or a fake marker in worker output, a tool result or the report, a refusal recorded for another run and one recorded after the turn ended all still read as plan-limit
+- [x] #4 A fail-closed test runs the real model proxy and interpreter on a fixture-built office and shows an upstream 429 with no recorded refusal pauses the office
+- [x] #5 Every failed or cut-off audit and every failed session shows on the desk or in dipo ideas with its cause, not only in the daemon log
+- [x] #6 office.chain gives a Refined dependency its own state refined instead of waiting (overview/chain.ts:18-24), and the Queue, the Floor and the Desk show it as Refined, not Ready yet, with its first gate failure
 <!-- AC:END -->
