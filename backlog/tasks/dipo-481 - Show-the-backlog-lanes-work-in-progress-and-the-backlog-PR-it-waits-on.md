@@ -4,7 +4,7 @@ title: Show the backlog lane's work in progress and the backlog PR it waits on
 status: Refined
 assignee: []
 created_date: '2026-11-10 15:27'
-updated_date: '2026-11-10 15:28'
+updated_date: '2026-11-10 15:37'
 labels:
   - 'tier:M'
 milestone: m-6

@@ -4,7 +4,7 @@ title: A planning session knows the stories it filed
 status: Refined
 assignee: []
 created_date: '2026-11-10 15:21'
-updated_date: '2026-11-10 15:28'
+updated_date: '2026-11-10 15:37'
 labels:
   - 'tier:M'
 milestone: m-3
