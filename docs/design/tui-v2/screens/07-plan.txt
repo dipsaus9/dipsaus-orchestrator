@@ -10,7 +10,7 @@
  references into the box.
  No discovery and no plugins. Two stories:
 [ok]   ✓ filed as DIPO-488 · Copy referenced skills into the box[/]
-[dim]     filing… · Show the skill list in the story card[/]
+[dim]     filing… waiting for backlog PR #656, CI running · Show the skill list in the story card[/]
  [sel][acc]▌[/] [hi]**◆ Refuse a story whose skill is missing · S**[/][/]
 [sel][dim]     As maintainer I want the Ready gate to fail when a skill the story names is not in the repository so th…[/][/]
 [sel][acc]     c confirm   e edit   x decline   esc to the input[/][/]
@@ -30,5 +30,5 @@
 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [acc]c[/] confirm   [acc]e[/] edit   [acc]x[/] decline   [acc]↑↓[/] card   [acc]esc[/] to the input
 --- notes ---
-One conversation column (DIPO-487): the rows under the header are the view as the TUI draws it, and `planning.test.tsx` holds them cell for cell. Compared with ux-spec mock 11 the side rail is a fold-out on Tab, the input is one line with no box, proposals are cards (`c` confirm, `e` edit, `x` decline) and a confirmed one is one line.
+One conversation column (DIPO-487): the rows under the header are the view as the TUI draws it, and `planning.test.tsx` holds them cell for cell. Compared with ux-spec mock 11 the side rail is a fold-out on Tab, the input is one line with no box, proposals are cards (`c` confirm, `e` edit, `x` decline) and a confirmed one is one line (`filing…` names the backlog PR it waits on and its CI while the lane has an open change, DIPO-481).
 The focused card shows its keys. Without a focused card the footer reads `⏎ send   shift-⏎ new line   /end end session   ↑ cards   tab stories` and `esc back` at the right.

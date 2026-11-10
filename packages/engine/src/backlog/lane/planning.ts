@@ -7,6 +7,7 @@
 
 import type { LaneFlush, StoryKey } from "@dipsaus-orchestrator/contract";
 
+import { appendEntries } from "../../changelog/log";
 import type { OfficeHandle } from "../../db/office";
 
 import {
@@ -40,6 +41,7 @@ import {
   updateEntry,
 } from "./journal";
 import { ALREADY_ON_BRANCH, type FlushReport, LaneFlushError, type OfficeLane } from "./lane";
+import { progressEntries } from "./progress";
 import { proposeTarget } from "./propose";
 
 /** The Backlog.md statuses a hold applies from; `To Do` is what office init migrates to Refined. */
@@ -234,6 +236,15 @@ function filingsOf(office: OfficeHandle, run: string, proposal: number): Planned
   return filings;
 }
 
+/** Withdraws a journaled change, and the lane's progress says so (DIPO-481). */
+function withdrawEntry(lane: OfficeLane, opId: number): void {
+  const { office, clock } = lane;
+  office.immediate(() => {
+    updateEntry(office, opId, { state: "withdrawn" }, clock.now());
+    appendEntries(office, progressEntries(office), { at: clock.now() });
+  });
+}
+
 /** The office's `PlanningLane` on its `OfficeLane`. */
 export function planningLane(lane: OfficeLane): PlanningLane {
   const open = (key: StoryKey, kind: string): JournalEntry | undefined =>
@@ -297,12 +308,7 @@ export function planningLane(lane: OfficeLane): PlanningLane {
       const from = failed.from === "Ready" || failed.from === "Refined" ? failed.from : null;
       return { opId: failed.opId, from };
     },
-    withdraw(change) {
-      const office = lane.office;
-      office.immediate(() =>
-        updateEntry(office, change.opId, { state: "withdrawn" }, lane.clock.now()),
-      );
-    },
+    withdraw: (change) => withdrawEntry(lane, change.opId),
     async flush(change) {
       const before = branchesWithPr(lane.office);
       let report: FlushReport;

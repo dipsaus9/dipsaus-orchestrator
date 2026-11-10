@@ -12,6 +12,7 @@
 import { healthLabel, type OfficeStoreState, percent } from "@dipsaus-orchestrator/client";
 import type {
   Clock,
+  LaneProgress,
   RunId,
   StoryId,
   StoryKey,
@@ -24,6 +25,7 @@ import { useEffect, useState } from "react";
 import { type Chain, upNextSpans } from "./chain";
 import { elapsed, truncate } from "./format";
 import type { LatestLines } from "./latest";
+import { backlogText, opStateWords } from "./lane";
 import { boardNowParts } from "./now";
 import type { Display } from "./options";
 import { pipelineSpans } from "./pipeline";
@@ -121,21 +123,37 @@ export function floorStories(state: OfficeStoreState): {
   return { running, review };
 }
 
+/** The key of the BACKLOG row, which Enter opens into the list of the lane's open changes (DIPO-481). */
+export const BACKLOG_ROW = "backlog";
+
 /** One selectable board row: a story, with its run while a session works on it. */
-export interface BoardEntry {
+export interface StoryEntry {
   readonly key: StoryKey;
   readonly story: StoryId;
   readonly run: RunId | null;
 }
 
-/** The board's selectable rows in screen order: running, then in review. */
+/** The BACKLOG row, present while the planning lane has an open change. */
+export interface BacklogEntry {
+  readonly key: typeof BACKLOG_ROW;
+}
+
+export type BoardEntry = StoryEntry | BacklogEntry;
+
+/** True for the BACKLOG row. */
+export function isBacklogEntry(entry: BoardEntry): entry is BacklogEntry {
+  return entry.key === BACKLOG_ROW;
+}
+
+/** The board's selectable rows in screen order: running, in review, then BACKLOG while it shows. */
 export function boardEntries(state: OfficeStoreState): BoardEntry[] {
   const { running, review } = floorStories(state);
-  return [...running, ...review].map(({ story, view }) => ({
+  const stories = [...running, ...review].map(({ story, view }): StoryEntry => ({
     key: story.key,
     story: story.story,
     run: view === null ? null : view.work.run,
   }));
+  return state.lane === null ? stories : [...stories, { key: BACKLOG_ROW }];
 }
 
 /** The budget bar: `━` filled in acc, the rest in faint; `=` and `-` under `--ascii`. */
@@ -164,6 +182,8 @@ interface FloorOptions {
   readonly now: number;
   readonly width: number;
   readonly ascii: boolean;
+  /** Enter on the BACKLOG row listed the lane's open changes under it. */
+  readonly backlogOpen?: boolean;
 }
 
 /** The card of one story: four lines for a running story, three for one in review. */
@@ -339,7 +359,56 @@ export function floorLines(options: FloorOptions): FloorLine[] {
         ? [{ text: "    Nothing waits on another story.", role: "dim" }]
         : [{ text: "    " }, ...sentence],
   });
+  if (state.lane !== null) out.push(...backlogLines(state.lane, options));
   return out;
+}
+
+/**
+ * The BACKLOG row while the planning lane has an open change (DIPO-481): how many changes wait,
+ * for which backlog PR, and that PR's CI as the engine read it. Opened with Enter, it lists each
+ * change in words, its subject, how far it got and since when.
+ */
+function backlogLines(lane: LaneProgress, options: FloorOptions): FloorLine[] {
+  const { width, ascii, now } = options;
+  const g = glyphs(ascii);
+  const selected = options.selected === BACKLOG_ROW;
+  const open = options.backlogOpen === true;
+  const { text, failed } = backlogText(lane, g.dot);
+  const line = (n: string, left: readonly Span[], right: readonly Span[] = []): FloorLine => ({
+    key: `backlog:${n}`,
+    card: BACKLOG_ROW,
+    spans: focused(spread(left, right, width - 1), selected),
+  });
+  const lines = [
+    { key: "before:backlog", spans: [], card: null },
+    line(
+      "0",
+      [
+        { text: selected ? g.bar : " ", role: "acc" },
+        { text: " " },
+        { text: g.idle, role: "acc" },
+        { text: " " },
+        { text: "BACKLOG".padEnd(10), role: "dim" },
+        { text, role: failed ? "err" : "hi" },
+      ],
+      [{ text: `⏎ ${open ? "hide" : "list"} `, role: "dim" }],
+    ),
+  ];
+  if (!open) return lines;
+  const indent = " ".repeat(INDENT);
+  lane.ops.forEach((op, i) => {
+    const since = elapsed(Math.max(0, now - Date.parse(op.since)));
+    lines.push(
+      line(String(i + 1), [
+        { text: indent },
+        {
+          text: `${op.what} ${g.dot} ${op.subject} ${g.dot} ${opStateWords(op.state)} ${g.dot} ${since}`,
+          role: "dim",
+        },
+      ]),
+    );
+  });
+  return lines;
 }
 
 /** The lines cut to `height`, from the first one, moved down so the selected card is on screen. */
@@ -380,6 +449,8 @@ export function Overview(props: {
   chain: Chain;
   /** The selected card by story key, marked with `▌`; Enter opens it. */
   selected?: string | null;
+  /** The BACKLOG row lists the lane's open changes (DIPO-481). */
+  backlogOpen?: boolean;
 }) {
   const { state, display, columns } = props;
   const { ellipsis } = glyphs(display.ascii);
@@ -395,6 +466,7 @@ export function Overview(props: {
     chain: props.chain,
     latest: props.latest,
     selected: props.selected,
+    backlogOpen: props.backlogOpen === true,
     now: props.clock.now(),
     width: columns,
     ascii: display.ascii,

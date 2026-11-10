@@ -87,6 +87,7 @@ import {
   openEntries,
   updateEntry,
 } from "./journal";
+import { progressEntries } from "./progress";
 import type { LaneOpKind } from "./ops";
 
 /** The engine's backlog worktree under the worktree root (0010). */
@@ -369,7 +370,7 @@ export class OfficeLane {
     }
     return this.#git.run(async (git) => {
       await this.#assertBase(git);
-      return this.#office.immediate(() => {
+      const entry = this.#office.immediate(() => {
         if (
           op.releasesClaim !== true &&
           op.key !== undefined &&
@@ -381,8 +382,12 @@ export class OfficeLane {
             { key: op.key, subject: op.subject },
           );
         }
-        return insertEntry(this.#office, op, this.#clock.now());
+        const inserted = insertEntry(this.#office, op, this.#clock.now());
+        appendEntries(this.#office, progressEntries(this.#office), { at: this.#clock.now() });
+        return inserted;
       });
+      this.#onChanged(this.officeId);
+      return entry;
     });
   }
 
@@ -928,7 +933,8 @@ export class OfficeLane {
   #write(fn: () => NewEntry[] | void): void {
     const now = this.#clock.now();
     const notices = this.#office.immediate(() => {
-      const entries = fn() ?? [];
+      // A change of the journal appends the lane's progress with it (DIPO-481).
+      const entries = [...(fn() ?? []), ...progressEntries(this.#office)];
       appendEntries(this.#office, entries, { at: now });
       return entries.length;
     });

@@ -40,6 +40,7 @@ import {
   type EngineError,
   type CommandDefinition,
   findCommand,
+  type LaneProgress,
   type LostCommit,
   type OfficeId,
   type RequestId,
@@ -107,6 +108,8 @@ export interface ActionTarget {
   readonly test?: string;
   /** What a fail note or an optional resume note starts with (DIPO-365, DIPO-459). */
   readonly prefill?: string;
+  /** What the desk row is called, for the queued line of an accept (DIPO-481). */
+  readonly title?: string;
   /** The desk row the action was started on, so the row shows it pending (DIPO-459). */
   readonly row?: string;
 }
@@ -169,6 +172,10 @@ export interface ActionState {
   readonly error?: EngineError;
   /** What the reply adds to the done line, such as a test checkout. */
   readonly note?: string;
+  /** The lane queued the change and has not filed it; the Desk says so until the snapshot does (DIPO-481). */
+  readonly queued?: boolean;
+  /** What the action was about, for the Desk's queued line once its row is gone. */
+  readonly title?: string;
   /** The reply said `changed: false`: the state already matched, and nothing was written (0005). */
   readonly unchanged?: boolean;
   /** The verb alone, for a desk row's pending line (`accept`). */
@@ -186,6 +193,7 @@ function sentState(sent: Flow, request: CommandRequest) {
     request,
     verb: VERBS[sent.id],
     ...(sent.target.row === undefined ? {} : { row: sent.target.row }),
+    ...(sent.target.title === undefined ? {} : { title: sent.target.title }),
   };
 }
 
@@ -485,23 +493,40 @@ function readySummary(result: ReadyResult): string {
     .join(", ");
 }
 
-/** What an action's reply adds to its done line. */
-function replyNote(flow: Flow, result: unknown): string | undefined {
-  if (typeof result !== "object" || result === null) return undefined;
+/** The flush states that leave an accepted idea journaled, not filed (DIPO-481). */
+const QUEUED_FLUSHES: ReadonlySet<string> = new Set(["held", "waiting", "pushed"]);
+
+/** What an action's reply adds to its done line; `queued` when the lane has not filed the change. */
+function replyNote(
+  flow: Flow,
+  result: unknown,
+  lane: LaneProgress | null,
+): { readonly note?: string; readonly queued?: true } {
+  if (typeof result !== "object" || result === null) return {};
   if (flow.id === "test") {
     const checkout = (result as { checkout?: unknown }).checkout;
-    return typeof checkout === "string" ? `checkout ${checkout}` : undefined;
+    return typeof checkout === "string" ? { note: `checkout ${checkout}` } : {};
   }
   if (flow.id === "ready") {
     const ready = readyOf(result);
-    return ready === undefined ? undefined : readySummary(ready);
+    return ready === undefined ? {} : { note: readySummary(ready) };
   }
-  if (flow.id !== "accept") return undefined;
-  // `draft-31 in backlog PR #612` (DIPO-459): the draft and the PR the lane filed it in.
-  const { draft, flush } = result as { draft?: unknown; flush?: { pr?: unknown } };
-  if (typeof draft !== "string") return undefined;
+  if (flow.id !== "accept") return {};
+  const { draft, flush } = result as {
+    draft?: unknown;
+    flush?: { state?: unknown; pr?: unknown };
+  };
+  // `queued: waits for backlog PR #656` (DIPO-481): the lane holds the change for a backlog PR.
+  if (typeof flush?.state === "string" && QUEUED_FLUSHES.has(flush.state)) {
+    const number = lane?.pr?.number;
+    return {
+      note: `queued: waits for ${number === undefined ? "its backlog PR" : `backlog PR #${number}`}`,
+      queued: true,
+    };
+  }
+  if (typeof draft !== "string") return {};
   const pr = typeof flush?.pr === "string" ? /\/pull\/(\d+)/.exec(flush.pr)?.[1] : undefined;
-  return pr === undefined ? draft : `${draft} in backlog PR #${pr}`;
+  return { note: pr === undefined ? draft : `${draft} in backlog PR #${pr}` };
 }
 
 /** A key of an open prompt; the prompt's keys are never dropped from the footer. */
@@ -564,7 +589,7 @@ export function useActions(deps: ActionDeps) {
         });
         return;
       }
-      const note = replyNote(sent, outcome.result);
+      const { note, queued } = replyNote(sent, outcome.result, store.state.lane);
       setAction({
         ...sentState(sent, request),
         ...(ready === undefined ? {} : { ready }),
@@ -573,6 +598,7 @@ export function useActions(deps: ActionDeps) {
         // Live, not the batched state: a re-read before this moment does not count.
         snapshots: store.state.snapshots,
         ...(note === undefined ? {} : { note }),
+        ...(queued === undefined ? {} : { queued }),
       });
     });
   };
@@ -798,6 +824,7 @@ export function useActions(deps: ActionDeps) {
       request,
       verb: action.verb,
       ...(action.row === undefined ? {} : { row: action.row }),
+      ...(action.title === undefined ? {} : { title: action.title }),
     };
     setMessage(null);
     setAction({ ...sent, status: "sending" });

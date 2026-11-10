@@ -35,8 +35,10 @@ import {
   CodeHostError,
   type HostPr,
   type PrReviewHost,
+  type RequiredCheck,
 } from "../../platform/host";
 import { openEntries, updateEntry } from "../lane/journal";
+import { ciOf, progressEntries, rememberPr } from "../lane/progress";
 import type { OfficeLane } from "../lane/lane";
 
 import { repoOfUrl } from "./feature";
@@ -79,6 +81,8 @@ interface Pr {
   readonly repo: string;
   readonly head: string;
   readonly view: HostPr;
+  /** The required checks the round read for the lane's progress, or null when it could not. */
+  readonly checks: readonly RequiredCheck[] | null;
 }
 
 /** Why auto-merge goes off for a backlog PR. */
@@ -179,9 +183,23 @@ export class BacklogMerges implements BacklogAutoMerge {
     if (view.autoMerge === true && view.state === "open") ctx.armed.add(record.number);
     else ctx.armed.delete(record.number);
     ctx.seen.add(record.number);
-    if (view.state === "merged") return this.#merged(ctx, { record, repo, head, view });
+    // The PR's CI for the lane's progress (DIPO-481): the required checks this round reads
+    // anyway, read once here and handed to the stop check.
+    const checks =
+      view.state === "open"
+        ? await this.#deps.host.requiredChecks(repo, record.number).catch(() => null)
+        : null;
+    const changed = rememberPr(ctx.office, record.number, {
+      ci: ciOf(checks),
+      autoMerge: view.autoMerge === true && view.state === "open",
+      merged: view.state === "merged",
+    });
+    if (changed) ctx.write(() => progressEntries(ctx.office));
+    if (view.state === "merged") {
+      return this.#merged(ctx, { record, repo, head, view, checks });
+    }
     if (view.state !== "open") return;
-    const pr: Pr = { record, repo, head, view };
+    const pr: Pr = { record, repo, head, view, checks };
     return view.autoMerge === true ? this.#watch(ctx, pr) : this.#arm(ctx, pr);
   }
 
@@ -197,7 +215,7 @@ export class BacklogMerges implements BacklogAutoMerge {
     const adr = await ctx.git.adrPaths(pr.head).catch(() => null);
     if (adr === null) return "adrUnknown";
     if (adr.length > 0) return "adrChange";
-    const checks = await this.#deps.host.requiredChecks(pr.repo, pr.record.number);
+    const checks = pr.checks ?? (await this.#deps.host.requiredChecks(pr.repo, pr.record.number));
     if (checks.some((check) => check.bucket === "fail" || check.bucket === "cancel")) {
       return "checksFailed";
     }
@@ -354,6 +372,7 @@ export class BacklogMerges implements BacklogAutoMerge {
           BACKLOG_MERGE_NOTICES.merged,
           `GitHub merged the backlog PR #${number} at ${head.slice(0, 12)} after its required checks and the structural check passed.`,
         ),
+        ...progressEntries(ctx.office),
       ];
     });
     const problem = await ctx.git.deleteBranch(pr.record.branch).catch(messageOf);

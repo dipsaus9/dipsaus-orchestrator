@@ -609,6 +609,42 @@ export const storyReady = defineCommand({
   irreversible: false,
 });
 
+// The planning lane's work in progress (DIPO-481, 0010): each open journaled change in words, and
+// the backlog PR they wait on. `state` says how far a change got: `queued` (journaled, not yet on a
+// branch), `branch` (committed on dipo's backlog branch, not yet in the PR) or `pr` (pushed to the
+// open backlog PR). `ci` is the PR's required checks as the last auto-merge round read them:
+// `running`, `passed`, `failed`, or `unknown` before a round read them or when the base requires
+// none. `merged` is true when GitHub shows the PR merged and dipo has not closed its record yet.
+export const LaneOpState = z.enum(["queued", "branch", "pr"]);
+export type LaneOpState = z.infer<typeof LaneOpState>;
+
+export const LaneOpView = z.object({
+  op: z.int().positive(),
+  // What the change does, in words: "an accepted idea filed as a draft".
+  what: z.string(),
+  subject: z.string(),
+  state: LaneOpState,
+  since: Timestamp,
+});
+export type LaneOpView = z.infer<typeof LaneOpView>;
+
+export const LaneCi = z.enum(["running", "passed", "failed", "unknown"]);
+export type LaneCi = z.infer<typeof LaneCi>;
+
+export const LanePrView = z.object({
+  number: z.int().positive(),
+  url: z.string(),
+  ci: LaneCi,
+  autoMerge: z.boolean(),
+  merged: z.boolean(),
+});
+export type LanePrView = z.infer<typeof LanePrView>;
+
+// `ops` are the open changes in journal order; `pr` is the office's open backlog PR when there is
+// one. In `office.snapshot` the view is absent while no change is open.
+export const LaneProgress = z.object({ ops: z.array(LaneOpView), pr: LanePrView.optional() });
+export type LaneProgress = z.infer<typeof LaneProgress>;
+
 // Reads
 
 const OfficeArgs = z.object({ office: OfficeId });
@@ -623,6 +659,8 @@ export const OfficeSnapshot = z.object({
   tests: z.array(TestView),
   // The office's open planning session (DIPO-449); absent without one.
   planning: PlanningView.optional(),
+  // The planning lane's open changes and the backlog PR they wait on (DIPO-481); absent when none.
+  lane: LaneProgress.optional(),
 });
 export type OfficeSnapshot = z.infer<typeof OfficeSnapshot>;
 
@@ -1250,6 +1288,15 @@ export const planningUpdated = defineEvent({
   data: z.object({ run: RunId, view: PlanningView }),
 });
 
+// The planning lane's open changes or the backlog PR they wait on changed (DIPO-481). Cumulative:
+// `lane` is the whole view, with no `ops` once every change is on the base.
+export const laneProgress = defineEvent({
+  type: "lane.progress",
+  stream: "office",
+  derived: false,
+  data: z.object({ lane: LaneProgress }),
+});
+
 // A planning session continued in a fresh model session (DIPO-448): `run` is the fresh one,
 // `previous` the model session that ended, and `reason` why it ended (a full context, an idle
 // end, a daemon stop). Follows the `planning.started` of the fresh session.
@@ -1529,4 +1576,5 @@ export const officeEvents = [
   planningUpdated,
   planningContinued,
   planningEnded,
+  laneProgress,
 ] as const;

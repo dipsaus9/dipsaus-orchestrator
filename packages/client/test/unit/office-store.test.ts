@@ -277,6 +277,36 @@ describe("OfficeStore", () => {
     expect(store.state.planning).toBeNull();
   });
 
+  it("keeps the planning lane's progress from the snapshot and the lane.progress event (DIPO-481)", async () => {
+    const { client, store, snapshots } = await setup();
+    const stream = `office:${A}`;
+    const lane = {
+      ops: [
+        {
+          op: 3,
+          what: "an accepted idea filed as a draft",
+          subject: "an idea",
+          state: "queued",
+          since: AT,
+        },
+      ],
+      pr: { number: 656, url: "https://x/pull/656", ci: "running", autoMerge: true, merged: false },
+    };
+    expect(store.state.lane).toBeNull();
+    snapshots.set(A, { ...(snapshots.get(A) as OfficeSnapshot), lane } as OfficeSnapshot);
+    await store.switchTo(B);
+    await store.switchTo(A);
+    expect(store.state.lane?.pr?.number).toBe(656);
+    client.emit(
+      stream,
+      event(stream, 6, "lane.progress", { lane: { ...lane, pr: { ...lane.pr, ci: "passed" } } }),
+    );
+    expect(store.state.lane?.pr?.ci).toBe("passed");
+    // The lane has nothing open: the store has no lane.
+    client.emit(stream, event(stream, 7, "lane.progress", { lane: { ops: [] } }));
+    expect(store.state.lane).toBeNull();
+  });
+
   it("drops events whose cursor it already applied", async () => {
     const { client, store } = await setup();
     const stream = `office:${A}`;

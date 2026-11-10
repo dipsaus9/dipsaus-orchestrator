@@ -39,6 +39,8 @@ import {
   type OutputMarker,
   type OutputSource,
   officeSummary,
+  laneProgress,
+  type LaneProgress,
   planningEnded,
   planningOutput,
   planningStarted,
@@ -148,6 +150,8 @@ export interface OfficeStoreState {
   } | null;
   /** The selected office's open planning session (DIPO-449); null without one. */
   readonly planning: PlanningView | null;
+  /** The planning lane's open changes and the backlog PR they wait on (DIPO-481); null when none. */
+  readonly lane: LaneProgress | null;
   /**
    * The last stored cursor of the selected office stream the store applied, starting at the
    * snapshot cursor; null without an office. A client compares a command reply cursor with it to
@@ -220,6 +224,7 @@ const EMPTY_OFFICE = {
   tests: [],
   testEnd: null,
   planning: null,
+  lane: null,
   cursor: null,
 } as const;
 
@@ -507,6 +512,7 @@ export class OfficeStore {
       tests: snapshot.tests,
       testEnd: null,
       planning: snapshot.planning ?? null,
+      lane: snapshot.lane ?? null,
       cursor: snapshot.cursor,
       snapshots: this.#state.snapshots + 1,
     });
@@ -775,6 +781,12 @@ export class OfficeStore {
       return;
     }
     if (this.#applyPlanning(event)) return;
+    if (event.type === laneProgress.type) {
+      const data = laneProgress.data.safeParse(event.data);
+      if (data.success)
+        this.#update({ lane: data.data.lane.ops.length === 0 ? null : data.data.lane });
+      return;
+    }
     switch (event.type) {
       case runEnded.type: {
         const data = runEnded.data.safeParse(event.data);
