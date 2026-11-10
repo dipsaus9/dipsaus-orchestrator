@@ -1,10 +1,10 @@
 ---
 id: DIPO-470
 title: Idea audits are not refused by dipo's own token cap
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-11-10 10:16'
-updated_date: '2026-11-10 10:24'
+updated_date: '2026-11-10 10:31'
 labels:
   - 'tier:S'
 milestone: m-3
