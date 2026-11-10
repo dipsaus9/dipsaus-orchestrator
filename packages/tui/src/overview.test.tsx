@@ -514,29 +514,31 @@ describe("opening any card (DIPO-81)", () => {
     session.output.set(`${RUN_28}:verify`, "$ bun run verify\nall green\n");
     await selectReview(ui);
     await ui.press("enter");
-    let frame = await ui.waitFor("│ Done.");
+    let frame = await ui.waitFor("Done.");
     const shown = lines(frame);
-    expect(shown.slice(0, 7)).toEqual([
+    expect(shown.slice(0, 8)).toEqual([
       HEADER,
       ROOMS,
       RULE,
-      ` DIPO-28 Show the merge queue · developer · L · claude-haiku · ${RUN_28}`,
+      `DIPO-28 Show the merge queue · developer · L · claude-haiku · ${RUN_28}`,
+      RULE,
       " run ended · DIPO-28 is In Review",
-      " run      ended 2h ago (completed)   │ output (worker) [w]orker* [v]erify [i] prompt",
-      " role     developer                  │ Reading the story.",
+      expect.stringMatching(/^run      ended 2h ago \(completed\)   │ +all   worker/),
+      expect.stringMatching(/^role     developer                  │ +says +Reading the story\./),
     ]);
-    expect(frame).toContain(" model    claude-haiku");
-    expect(frame).toContain("│ Done.");
-    expect(frame).toContain(" usage    in 12k out 3k");
+    expect(frame).toContain("model    claude-haiku");
+    expect(frame).toContain("usage    in 12k out 3k");
     expect(shown.at(-1)).toBe(
-      `w v i streams   ↑↓ PgUp PgDn scroll   End follow   z expand   c copy id${" ".repeat(29)}esc back   q q quit`,
+      `v stream   ↑↓ scroll   G follow   z expand   c copy id${" ".repeat(46)}esc back   q q quit`,
     );
     expect(session.reads).toContainEqual({
       name: "story.detail",
       args: { office: OFFICES.dipsaus, story: KEY_28 },
     });
     await ui.press("v");
-    frame = await ui.waitFor("│ all green");
+    await ui.press("v");
+    await ui.press("v");
+    frame = await ui.waitFor("all green");
     // p parks nothing from an ended run's detail.
     await ui.press("p");
     await ui.waitFor("this run has ended; park its story from the queue or the desk");
@@ -552,7 +554,7 @@ describe("opening any card (DIPO-81)", () => {
     await selectReview(old.ui);
     await old.ui.press("enter");
     let frame = await old.ui.waitFor("run ended · DIPO-28 is In Review");
-    frame = await old.ui.waitFor("│ output removed after the retention period");
+    frame = await old.ui.waitFor("output removed after the retention period");
 
     const recent = await open(80, 30, boardSnapshot());
     recent.session.runs.set(KEY_28, [record28()]);
@@ -590,7 +592,7 @@ describe("opening any card (DIPO-81)", () => {
       await selectReview(ui);
       await ui.press("enter");
       await ui.waitFor("run ended · DIPO-28 is In Review");
-      return ui.waitFor(`│ ${line}`);
+      return ui.waitFor(line);
     };
     // Nine days ago: removed under the golden 7 days (the test above), kept under 30.
     await shows(30, "2026-10-05T08:00:00.000Z", "no output stored");

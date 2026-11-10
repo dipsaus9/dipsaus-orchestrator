@@ -179,7 +179,7 @@ File: `03-run.txt`. ⏎ on a running story.
 - Scrolling up pauses following and shows "paused · G to follow". `z` expands the stream to full screen. `c` copies the run id.
 - **Steer** (S7, second block): `s` opens the Composer at the foot of the stream (`steer DIPO-447 · arrives at its next turn`), so the context stays visible above it. Once sent, the message lands as a `you` line (`you` ok), with its delivery state from the reply (`next-turn` or `on-resume`, shown as `· delivered next turn`). A reviewer session answers "Not steerable: the reviewer is working".
 - Stopping a run is in the palette only (no key) and asks for confirmation.
-- Render the stream with `<Static>` for finished lines and a live tail below.
+- Render the stream as a scrolling pane whose finished lines are memoised and never re-render, with a live tail below.
 
 ## Story reader (S4)
 File: `04-story-reader.txt`. Nothing truncated.
@@ -267,7 +267,7 @@ Box Drawing, Geometric Shapes and two Dingbats only, no Nerd Font glyphs. Colour
 - One `<Frame>` component for header, rooms, body, ticker and keys. Screens provide only the body and a `keys` array; the same array feeds the footer, the `?` overlay and the palette.
 - One action registry `{id, key, label, when(item), run}`; footer, palette and mouse read from it.
 - `<Composer>` (step 1) is the multi-line input for every prompt (DIPO-449 needs it).
-- The run stream uses `<Static>` for finished lines and a live tail.
+- The run stream memoises finished lines so they never re-render, and keeps a live tail.
 - Layout from `useStdout().columns` and rows: ≥ 100 columns split panes, 60 to 99 one pane, below 60 columns or 16 rows the widen message.
 - Theme: OSC 11, then `COLORFGBG`, then dark; respect `NO_COLOR`.
 - Mouse: SGR mode 1006.

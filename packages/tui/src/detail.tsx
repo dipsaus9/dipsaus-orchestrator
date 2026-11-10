@@ -36,31 +36,35 @@ import type {
   RunId,
   RunRecord,
   StoryKey,
-  StoryView,
   WorkView,
 } from "@dipsaus-orchestrator/contract";
 import { Box, Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { budgetBar, truncate } from "./format";
+import { composerRows } from "./composer";
+import { budgetBar, elapsed, truncate } from "./format";
 import type { Display } from "./options";
-import { endedLine, nowLine, shortAge } from "./now";
-import { Pipeline } from "./pipeline";
-import { compactRecordFactLines, noOutputLine, recordFactLines, recordHeaderLine } from "./past";
+import { endedLine, shortAge } from "./now";
+import { pipelineSpans } from "./pipeline";
+import { cutSpans, type Span, SpanLine, spread } from "./spans";
 import {
-  type FeedChange,
-  lastLine,
-  OutputFeed,
-  type RangeOutcome,
-  rowCount,
-  visibleRows,
-  wrapLines,
-} from "./output";
+  filterEntries,
+  nextFilter,
+  type SentSteer,
+  STREAM_FILTERS,
+  type StreamFilter,
+  streamEntries,
+  type StreamRow,
+  streamRows,
+  youRow,
+} from "./stream";
+import { compactRecordFactLines, noOutputLine, recordFactLines, recordHeaderLine } from "./past";
+import { type FeedChange, OutputFeed, type RangeOutcome, wrapLines } from "./output";
 import { glyphs, officeOptIns, storedLabel } from "./views";
 import { Colored } from "./colour";
 
-// The `now` line is shared with the overview (DIPO-81).
-export { nowLine, shortAge } from "./now";
+// The age shared with the overview (DIPO-81).
+export { shortAge } from "./now";
 
 /** The run the detail shows; the key finds its story when the id changes. */
 export interface DetailTarget {
@@ -126,29 +130,17 @@ export function promptLines(
 /** At this width and wider, facts and output sit side by side. */
 export const SIDE_BY_SIDE_COLUMNS = 100;
 /** The facts column when side by side. */
-export const FACTS_WIDTH = 36;
+export const FACTS_WIDTH = 28;
+/** The facts column of a stored run, whose lines are longer. */
+const RECORD_FACTS_WIDTH = 36;
+/** The draft rows the steer box shows. */
+const STEER_DRAFT_ROWS = 3;
 /** The most criteria boxes drawn; more show as the count only. */
 const MAX_BOXES = 20;
 /** The most open questions the detail lists; more show as a count. */
 export const MAX_QUESTIONS = 3;
 /** The opt-in that puts tool inputs into the worker output (0007). */
 const COMMAND_BODIES = "privacy.storeCommandBodies";
-
-/**
- * `DIPO-24 Add verify retry · developer · S · claude-sonnet · run_01J…  [follow]` (AC 1); `[follow]`
- * when the engine says the run's host is followed only, so it takes no steer (0005).
- */
-export function headerLine(view: WorkView, story: StoryView | undefined, dot: string): string {
-  const { work } = view;
-  const parts = [
-    `${work.story}${story === undefined ? "" : ` ${story.title}`}`,
-    work.role,
-    work.tier,
-    work.model,
-    String(work.run),
-  ];
-  return parts.join(` ${dot} `);
-}
 
 /** How to answer a question from a shell: `dipo answer <id> <text>` (DIPO-59). */
 export function answerHint(question: QuestionView): string {
@@ -208,23 +200,59 @@ function facts(view: WorkView) {
   };
 }
 
-/** The facts as a column of labelled lines, for the side-by-side layout (AC 2). */
-export function factLines(view: WorkView): string[] {
-  const f = facts(view);
-  const lines = [
-    `health   ${f.health}`,
-    `loop     ${f.loop}`,
-    `review   ${f.review}`,
-    `criteria ${f.criteria}`,
+/** One labelled line of the Run's left column. */
+function row(label: string, value: string | readonly Span[]): Span[] {
+  return [
+    { text: label.padEnd(10), role: "dim" },
+    ...(typeof value === "string" ? [{ text: value }] : value),
   ];
-  if (f.boxes !== "") lines.push(`         ${f.boxes}`);
-  lines.push(
-    `usage    ${f.input} ${f.output}`,
-    `         ${f.cacheWrite} ${f.cacheRead}`,
-    `         ${f.turns}${f.cost === "" ? "" : `  ${f.cost}`}`,
-    `budget   ${f.budget}`,
-  );
-  return lines;
+}
+
+/** The width of the bar under the budget line. */
+const BUDGET_BAR_CELLS = 25;
+
+/**
+ * The facts as the Run's left column (ux-spec S3): dim labels over values, usage and the budget bar
+ * as their own blocks, for the side-by-side layout (AC 2).
+ */
+export function factRows(view: WorkView, width: number, ascii: boolean): Span[][] {
+  const g = glyphs(ascii);
+  const f = facts(view);
+  const { progress, usage } = view;
+  const done = progress.criteriaTotal > 0 && progress.criteriaMet >= progress.criteriaTotal;
+  const run = String(view.work.run);
+  const filled = Math.round(Math.min(1, Math.max(0, usage.budgetShare)) * BUDGET_BAR_CELLS);
+  const bar = g.done;
+  const { run: totals } = usage;
+  const rows: Span[][] = [
+    row("PHASE", view.phase),
+    row("HEALTH", [
+      { text: `${g.live} `, role: view.health === "busy" ? "ok" : "acc" },
+      { text: f.health },
+    ]),
+    row(
+      "CRITERIA",
+      done ? [{ text: `${f.criteria} ${g.met}`, role: "ok" }] : [{ text: f.criteria }],
+    ),
+    row("REVIEW", f.review),
+    [],
+    [{ text: "USAGE", role: "dim" }],
+    row("in", usageTokens(totals.inputTokens)),
+    row("out", usageTokens(totals.outputTokens)),
+    row("cache w", usageTokens(totals.cacheCreateTokens)),
+    row("cache r", usageTokens(totals.cacheReadTokens)),
+    row("turns", String(totals.turns)),
+    [],
+    row("BUDGET", `${percent(usage.budgetShare)} of ${usageTokens(usage.budget.limit)}`),
+    [
+      { text: bar.repeat(filled), role: "acc" },
+      { text: bar.repeat(BUDGET_BAR_CELLS - filled), role: "faint" },
+    ],
+    [],
+    row("MODEL", view.work.model),
+    row("RUN", run.length > 12 ? `${g.ellipsis}${run.slice(-10)}` : run),
+  ];
+  return rows.map((spans) => cutSpans(spans, width));
 }
 
 /** The facts in four lines, for the stacked layout below 100 columns (AC 2). */
@@ -294,6 +322,78 @@ export interface DetailProps {
   /** False while a prompt has the keys. */
   readonly keysActive: boolean;
   readonly tailBytes: number;
+  /** The steer draft while the Composer is open in the stream, else null (home owns it). */
+  readonly steer: string | null;
+  /** What the maintainer steered this run with, oldest first, as `you` lines. */
+  readonly sent: readonly SentSteer[];
+}
+
+/** The Composer at the foot of the stream: a box with the draft, under a title and over its keys. */
+function SteerBox(props: {
+  readonly display: Display;
+  readonly story: string;
+  readonly draft: string;
+  readonly width: number;
+  readonly ascii: boolean;
+}) {
+  const { display, width, ascii } = props;
+  const { dot } = glyphs(ascii);
+  const { tl, tr, bl, br, h, v } = ascii
+    ? { tl: "+", tr: "+", bl: "+", br: "+", h: "-", v: "|" }
+    : { tl: "┌", tr: "┐", bl: "└", br: "┘", h: "─", v: "│" };
+  const room = width - 5;
+  const drafted = composerRows(props.draft, room + 2, STEER_DRAFT_ROWS, "");
+  const cursor = ascii ? "_" : "▍";
+  const edge = (left: string, right: string): readonly Span[] => [
+    { text: `${left}${h.repeat(width - 4)}${right}`, role: "acc" },
+  ];
+  const boxed = (inside: readonly Span[]): readonly Span[] => {
+    const used = inside.reduce((sum, span) => sum + span.text.length, 0);
+    return [
+      { text: v, role: "acc" },
+      { text: " " },
+      ...inside,
+      { text: `${" ".repeat(Math.max(0, room - used))}` },
+      { text: v, role: "acc" },
+    ];
+  };
+  const draftRow = (i: number): readonly Span[] => {
+    const text = (drafted[i] ?? "").slice(0, room);
+    if (i !== drafted.length - 1) return boxed([{ text, role: "hi" }]);
+    return boxed([
+      { text: text.slice(0, -1), role: "hi" },
+      { text: cursor, role: "acc" },
+    ]);
+  };
+  return (
+    <Box flexDirection="column" paddingLeft={1}>
+      <SpanLine display={display} spans={edge(tl, tr)} />
+      <SpanLine
+        display={display}
+        spans={boxed([
+          {
+            text: `steer ${props.story} ${dot} arrives at its next turn`.slice(0, room),
+            role: "dim",
+          },
+        ])}
+      />
+      {Array.from({ length: STEER_DRAFT_ROWS }, (_, i) => (
+        <SpanLine key={i} display={display} spans={draftRow(i)} />
+      ))}
+      <SpanLine display={display} spans={edge(bl, br)} />
+      <SpanLine
+        display={display}
+        spans={[
+          { text: "⏎", role: "acc" },
+          { text: " new line   ", role: "dim" },
+          { text: "ctrl-s", role: "acc" },
+          { text: " send   ", role: "dim" },
+          { text: "esc", role: "acc" },
+          { text: " cancel", role: "dim" },
+        ]}
+      />
+    </Box>
+  );
 }
 
 /** The last view of the run while the engine still sends it; kept after the run ends. */
@@ -308,7 +408,10 @@ export function Detail(props: DetailProps) {
   const { state, store, clock, display, target, columns, height } = props;
   const { dot, ellipsis } = glyphs(display.ascii);
   const view = useRunView(state, target);
-  const [source, setSource] = useState<"worker" | "verify" | "prompt">("worker");
+  const [filter, setFilter] = useState<StreamFilter>("all");
+  // Enter shows every tool target whole; Enter again cuts them to one row.
+  const [full, setFull] = useState(false);
+  const source = filter === "prompt" ? "prompt" : filter === "verify" ? "verify" : "worker";
   // The prompt pane reads from its top; rows scrolled off the top.
   const [promptTop, setPromptTop] = useState(0);
   const [prompt, setPrompt] = useState<PromptState>({ kind: "loading" });
@@ -372,12 +475,12 @@ export function Detail(props: DetailProps) {
   }, [source, promptAgent, promptOffice, target.run, state.snapshots, props.readPrompt]);
 
   const side = columns >= SIDE_BY_SIDE_COLUMNS;
+  const current = state.work.some((candidate) => candidate.work.run === target.run);
+  const story = state.stories.find((candidate) => candidate.key === target.key);
   const record = view === undefined ? target.record : undefined;
   const factText =
     view !== undefined
-      ? side
-        ? factLines(view)
-        : compactFactLines(view)
+      ? compactFactLines(view)
       : record === undefined
         ? []
         : side
@@ -389,23 +492,52 @@ export function Detail(props: DetailProps) {
     clock.now(),
     dot,
   );
-  // Header, `now` line and questions, then (stacked) the facts, then the pane's title and status.
+  // Header lines, the pipeline, a rule and the questions, then (stacked) the facts, the filter tabs
+  // and the steer box under the stream.
+  const steerRows = props.steer === null ? 0 : STEER_DRAFT_ROWS + 4;
   const paneHeight = Math.max(
     1,
     height -
       2 -
       (view === undefined ? 0 : 1) -
+      (current ? 0 : 1) -
       questionText.length -
       (side ? 0 : factText.length) -
-      2,
+      1 -
+      steerRows,
   );
-  const paneWidth = Math.max(10, side ? columns - FACTS_WIDTH - 3 : columns - 2);
+  const factsWidth = view === undefined ? RECORD_FACTS_WIDTH : FACTS_WIDTH;
+  const paneWidth = Math.max(10, side ? columns - factsWidth - 1 : columns);
 
-  // Only the row count of all held text; the rows themselves are cut for the screen alone.
-  const total = useMemo(
-    () => rowCount(shown.feed.lines, paneWidth, display.ascii),
-    [shown.feed, shown.version, paneWidth, display.ascii],
+  // The rows of the filtered stream: what the worker and verify wrote, then what was steered.
+  const rule = display.ascii ? "-" : "─";
+  const streamAll = useMemo(() => {
+    const entries = filterEntries(
+      filter,
+      streamEntries(worker.feed.lines, dot),
+      streamEntries(verify.feed.lines, dot, "verify"),
+    );
+    return streamRows(entries, paneWidth, { full, dot, ellipsis, rule });
+  }, [
+    worker.feed,
+    worker.version,
+    verify.feed,
+    verify.version,
+    filter,
+    paneWidth,
+    full,
+    dot,
+    ellipsis,
+    rule,
+  ]);
+  const youRows = useMemo(
+    () =>
+      filter === "all" || filter === "worker"
+        ? props.sent.map((sent) => youRow(sent, paneWidth, { dot, ellipsis }))
+        : [],
+    [filter, props.sent, paneWidth, dot, ellipsis],
   );
+  const total = streamAll.length + youRows.length;
   const promptRows = useMemo(
     () =>
       prompt.kind === "loaded" && prompt.texts.length > 0
@@ -424,7 +556,7 @@ export function Detail(props: DetailProps) {
     const delta = total - previousTotal.current;
     previousTotal.current = total;
     if (shown.lastChange.current === "append" && delta > 0) {
-      setOffset((current) => (current > 0 ? current + delta : 0));
+      setOffset((held) => (held > 0 ? held + delta : 0));
     }
   }, [total]);
 
@@ -442,13 +574,12 @@ export function Detail(props: DetailProps) {
 
   useInput(
     (input, key) => {
-      if (input === "w" || input === "v" || input === "i") {
-        const next = input === "w" ? "worker" : input === "v" ? "verify" : "prompt";
-        if (next !== source) {
-          setSource(next);
-          setOffset(0);
-          setPromptTop(0);
-        }
+      if (input === "v") {
+        setFilter(nextFilter(filter));
+        setOffset(0);
+        setPromptTop(0);
+      } else if (key.return) {
+        setFull(!full);
       } else if (source === "prompt") {
         const page = Math.max(1, paneHeight - 1);
         if (key.upArrow || input === "k") setPromptTop(Math.max(0, promptAt - 1));
@@ -475,88 +606,126 @@ export function Detail(props: DetailProps) {
     return <Text>{" This run is not in the office view."}</Text>;
   }
 
-  const current = state.work.some((candidate) => candidate.work.run === target.run);
-  const story = state.stories.find((candidate) => candidate.key === target.key);
   const ended = current ? undefined : (story ?? null);
-  const now =
-    view === undefined
-      ? endedLine(ended ?? null, dot, record)
-      : nowLine({
-          view,
-          ended,
-          worker: lastLine(worker.feed.lines),
-          now: clock.now(),
-          dot,
-        });
 
   const start = Math.max(0, total - paneHeight - scrolled);
-  const visible = visibleRows(shown.feed.lines, paneWidth, paneHeight, scrolled, display.ascii);
+  const stream = [...streamAll, ...youRows];
+  const end = Math.max(0, stream.length - scrolled);
+  const visible = stream.slice(Math.max(0, end - paneHeight), end);
   const feed = shown.feed;
-  const tabs = `[w]orker${source === "worker" ? "*" : ""} [v]erify${source === "verify" ? "*" : ""} [i] prompt${source === "prompt" ? "*" : ""}`;
-  // With commands stored (the default, DIPO-135), tool lines in the worker output carry their
-  // commands (0007).
-  const stores = source === "worker" && officeOptIns(state).includes(COMMAND_BODIES);
-  const title = `${source === "prompt" ? "prompt (stored)" : `output (${source})`} ${tabs}${stores ? `  ${storedLabel([COMMAND_BODIES])}` : ""}`;
   let status: string;
   if (feed.error !== null) status = feed.error;
   else if (!feed.loaded) status = `reading output${ellipsis}`;
   else if (feed.busy && scrolled > 0) status = `reading earlier output${ellipsis}`;
   else if (scrolled > 0) {
     const top = start === 0 && feed.atStart ? "start of output  " : "";
-    status = `${top}${scrolled} rows below ${dot} End follow`;
-  } else status = "following the tail";
+    status = `${top}paused ${dot} G to follow`;
+  } else status = `following ${display.ascii ? "v" : "↓"}`;
   // The office's stored-output retention period, from its summary (DIPO-97).
   const retentionDays = state.offices.find((entry) => entry.office === state.office)?.summary
     ?.outputRetentionDays;
-  const empty =
+  const empty: StreamRow[] =
     feed.loaded && total === 0
       ? [
-          ended === undefined
-            ? `no ${source} output yet`
-            : noOutputLine(record?.endedAt ?? record?.inReviewSince, clock.now(), retentionDays),
+          [
+            {
+              text: `  ${
+                ended === undefined
+                  ? `no ${filter === "all" ? "worker" : filter} output yet`
+                  : noOutputLine(
+                      record?.endedAt ?? record?.inReviewSince,
+                      clock.now(),
+                      retentionDays,
+                    )
+              }`,
+              role: "dim",
+            },
+          ],
         ]
       : [];
-  let rows: string[] = [...empty, ...visible];
+  let rows: readonly StreamRow[] = [...empty, ...visible];
   if (source === "prompt") {
     if (prompt.kind === "loading") status = `reading prompt${ellipsis}`;
     else if (prompt.kind === "error") status = prompt.message;
-    else if (promptRows.length === 0) status = "Esc back";
+    else if (promptRows.length === 0) status = "esc back";
     else {
-      status = `rows ${promptAt + 1}-${Math.min(promptRows.length, promptAt + paneHeight)} of ${promptRows.length} ${dot} [k/j PgUp/PgDn] scroll`;
+      status = `rows ${promptAt + 1}-${Math.min(promptRows.length, promptAt + paneHeight)} of ${promptRows.length}`;
     }
-    rows =
+    rows = (
       prompt.kind === "loaded" && promptRows.length === 0
         ? [NO_PROMPT_STORED]
-        : promptRows.slice(promptAt, promptAt + paneHeight);
+        : promptRows.slice(promptAt, promptAt + paneHeight)
+    ).map((text): StreamRow => [{ text: `  ${text}` }]);
   }
+  // With commands stored (the default, DIPO-135), tool lines in the worker output carry their
+  // commands (0007).
+  const stores = source === "worker" && officeOptIns(state).includes(COMMAND_BODIES);
+  const tabs = STREAM_FILTERS.flatMap((name, i): Span[] => [
+    ...(i === 0 ? [] : [{ text: " ".repeat(3) }]),
+    name === filter ? { text: name, role: "hi", underline: true } : { text: name, role: "dim" },
+  ]);
+  const right = `${stores ? `${storedLabel([COMMAND_BODIES])} ${dot} ` : ""}${status}`;
+  const tabRow = spread(
+    [{ text: "  " }, ...tabs],
+    [{ text: truncate(right, Math.max(10, paneWidth - 30), ellipsis), role: "dim" }],
+    paneWidth,
+  );
   const pane = (
-    <Box flexDirection="column" width={side ? paneWidth + 1 : columns}>
-      <Text wrap="truncate-end">{` ${truncate(title, paneWidth, ellipsis)}`}</Text>
-      {rows.map((row, i) => (
-        <Text key={i} wrap="truncate-end">{` ${row}`}</Text>
+    <Box flexDirection="column" width={paneWidth}>
+      <SpanLine display={display} spans={tabRow} />
+      {rows.map((line, i) => (
+        <SpanLine key={i} display={display} spans={cutSpans(line, paneWidth)} />
       ))}
       {Array.from({ length: Math.max(0, paneHeight - rows.length) }, (_, i) => (
         <Text key={`pad${i}`}> </Text>
       ))}
-      <Text wrap="truncate-end">{` ${truncate(status, paneWidth, ellipsis)}`}</Text>
+      {props.steer === null ? null : (
+        <SteerBox
+          display={display}
+          story={String(story?.story ?? view?.work.story ?? "")}
+          draft={props.steer}
+          width={paneWidth}
+          ascii={display.ascii}
+        />
+      )}
     </Box>
   );
+  const title = story?.title ?? view?.work.story ?? record?.run ?? "";
+  const loopLine =
+    view === undefined
+      ? []
+      : [
+          {
+            text: `loop ${view.progress.loop} of ${view.progress.loopCap} ${dot} ${elapsed(clock.now() - Date.parse(view.startedAt))}`,
+            role: "dim" as const,
+          },
+        ];
   const header = (
     <>
-      <Colored display={display} bold wrap="truncate-end">
-        {` ${truncate(
+      <Colored display={display} role="hi" bold wrap="truncate-end">
+        {`${truncate(
           view === undefined && record !== undefined
             ? recordHeaderLine(record, story, dot)
-            : headerLine(view!, story, dot),
+            : String(title),
           columns - 1,
           ellipsis,
         )}`}
       </Colored>
-      <Colored display={display} role={ended === undefined ? "ok" : "dim"} wrap="truncate-end">
-        {` ${truncate(now, columns - 1, ellipsis)}`}
-      </Colored>
       {view === undefined ? null : (
-        <Pipeline display={display} phase={view.phase} ascii={display.ascii} lead=" " />
+        <SpanLine
+          display={display}
+          spans={spread(
+            pipelineSpans({ phase: view.phase, ascii: display.ascii }),
+            loopLine,
+            columns,
+          )}
+        />
+      )}
+      <Text wrap="truncate-end">{rule.repeat(columns)}</Text>
+      {ended === undefined ? null : (
+        <Colored display={display} role="dim" wrap="truncate-end">
+          {` ${truncate(endedLine(ended, dot, record), columns - 1, ellipsis)}`}
+        </Colored>
       )}
       {questionText.map((line, i) => (
         <Colored key={`q${i}`} display={display} role="acc" wrap="truncate-end">
@@ -580,14 +749,22 @@ export function Detail(props: DetailProps) {
     <Box flexDirection="column">
       {header}
       <Box flexDirection="row">
-        <Box flexDirection="column" width={FACTS_WIDTH + 1}>
-          {factText.map((line, i) => (
-            <Text key={i} wrap="truncate-end">{` ${truncate(line, FACTS_WIDTH, ellipsis)}`}</Text>
-          ))}
+        <Box flexDirection="column" width={factsWidth}>
+          {view === undefined
+            ? factText.map((line, i) => (
+                <Text key={i} wrap="truncate-end">
+                  {truncate(line, factsWidth - 1, ellipsis)}
+                </Text>
+              ))
+            : factRows(view, FACTS_WIDTH, display.ascii)
+                .slice(0, paneHeight + 1 + steerRows)
+                .map((spans, i) => <SpanLine key={i} display={display} spans={spans} />)}
         </Box>
         <Box width={1} flexDirection="column">
-          {Array.from({ length: paneHeight + 2 }, (_, i) => (
-            <Text key={i}>{display.ascii ? "|" : "│"}</Text>
+          {Array.from({ length: paneHeight + 1 + steerRows }, (_, i) => (
+            <Colored key={i} display={display} role="faint">
+              {display.ascii ? "|" : "│"}
+            </Colored>
           ))}
         </Box>
         {pane}

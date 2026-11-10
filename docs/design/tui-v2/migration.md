@@ -8,7 +8,7 @@ Each step is a story dipo can run on its own (filed as M6 stories). Dependency: 
 | 2 | Quiet down: clear the RunResult panel, ticker, header diet with spend today, key remap, daemon states, Offices | S | 1 | headers and footers of every screen; `08-offices.txt`; offline, recovering and daemon stopped in `12-states.txt` | app.tsx panel; views.tsx Header; keys.ts; offices view |
 | 3 | Desk with preview and kind groups, setup first, Since band, consequence lines | M | 2, DIPO-452, {{M3-454}} | `14-desk-proposals.txt`, `01-desk.txt`, `11-desk-previews.txt`, `15-budget-and-failed.txt`, `16-narrow.txt`; empty Desk, pending, discard and drop in `12-states.txt` | desk.tsx split; + desk-preview.tsx; keys.ts rowKeys |
 | 4 | Floor, Queue and `<Pipeline>` | M | 1, 2 | `02-floor.txt`, `05-queue.txt` | overview.tsx; queue.tsx; + pipeline.tsx; run.tsx |
-| 5 | Run stream as a table | M | 4 | `03-run.txt` | output.ts folding; detail.tsx tabs; `<Static>` for finished lines |
+| 5 | Run stream as a table | M | 4 | `03-run.txt` | output.ts folding; detail.tsx tabs; memoised finished lines |
 | 6 | Story reader and test overlay | S | 3 | `04-story-reader.txt`, `10-test-overlay.txt` | story-card.tsx; checklist.tsx → overlay; detail.tsx |
 | 7 | Palette, keys overlay, the Plan view and the Retro room | M | 1 (+ DIPO-449/453) | `09-palette.txt`, `13-keys-overlay.txt`, `07-plan.txt`, `06-retro.txt` | + palette.tsx; + help.tsx; settings.tsx → palette |
 

@@ -44,7 +44,6 @@ packages/engine/src/workers/types.ts
 packages/testkit/src/env.ts
 packages/testkit/src/fake-process.ts
 packages/testkit/src/git.ts
-packages/tui/src/detail.tsx
 packages/tui/src/past.ts
 scripts/engine-graph.ts
 tools/box-probe/model-proxy.ts

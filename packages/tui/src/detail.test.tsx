@@ -80,8 +80,13 @@ async function openDetail(options: { columns?: number; rows?: number; tail?: num
   // Only the detail's own reads count; the overview read the tails of every run before (DIPO-81).
   view.session.reads.splice(0);
   await view.ui.press("enter");
-  await view.ui.waitFor("following the tail");
+  await view.ui.waitFor("following");
   return view;
+}
+
+/** The prompt is the fifth filter: all, worker, reviewer, verify, prompt. */
+async function toPrompt(ui: { press(key: string): Promise<unknown> }) {
+  for (let i = 0; i < 4; i++) await ui.press("v");
 }
 
 function rangeReads(session: { reads: readonly { name: string; args: unknown }[] }) {
@@ -99,28 +104,28 @@ describe("live agent detail", () => {
       HEADER,
       ROOMS,
       RULE,
-      " DIPO-24 Add verify retry · developer · S · claude-sonnet · run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24",
-      " now  looping @ · build · [tool] Edit src/retry.ts (live)",
-      " setup ━━ ● build ┄┄ review ┄┄ test ┄┄ merge",
-      " health   looping @                  │ output (worker) [w]orker* [v]erify [i] prompt",
-      " loop     2/3                        │ [tool] Read src/log.ts (step 28)",
-      " review   round 0                    │ [tool] Edit src/notice.ts (step 29)",
-      " criteria 2/3                        │ Step 30: retries now stop at the cap in src/retry.ts.",
-      "          [x][x][ ]                  │ [tool] Read src/verify.ts (step 31)",
-      " usage    in 1k out 100              │ [tool] Edit test/retry.test.ts (step 32)",
-      "          cw 0 cr 0                  │ Step 33: retries now stop at the cap in src/log.ts.",
-      "          turns 22                   │ [tool] Read src/notice.ts (step 34)",
-      " budget   [######--] 78% of 300k     │ [tool] Edit src/retry.ts (step 35)",
-      "                                     │ Step 36: retries now stop at the cap in src/verify.ts.",
-      "                                     │ [tool] Read test/retry.test.ts (step 37)",
-      "                                     │ [tool] Edit src/log.ts (step 38)",
-      "                                     │ Step 39: retries now stop at the cap in src/notice.ts.",
-      "                                     │ [tool] Bash",
-      "                                     │ [tool] Edit src/retry.ts (live)",
-      "                                     │ following the tail",
+      "Add verify retry",
+      "setup ━━ ● build ┄┄ review ┄┄ test ┄┄ merge                                                            loop 2 of 3 · 22m",
+      RULE,
+      "PHASE     build             │  all   worker   reviewer   verify   prompt                                     following ↓",
+      "HEALTH    ● looping @       │         read   src/notice.ts (step 34)",
+      "CRITERIA  2/3               │         edit   src/retry.ts (step 35)",
+      "REVIEW    round 0           │         says   Step 36: retries now stop at the cap in src/verify.ts.",
+      "                            │         read   test/retry.test.ts (step 37)",
+      "USAGE                       │         edit   src/log.ts (step 38)",
+      "in        1k                │         says   Step 39: retries now stop at the cap in src/notice.ts.",
+      "out       100               │         bash",
+      "cache w   0                 │         edit   src/retry.ts (live)",
+      "cache r   0                 │  ── verify ───────────────────────────────────────────────────────────────────────────────",
+      "turns     22                │                $ bun run verify",
+      "                            │                oxfmt --check: ok",
+      "BUDGET    78% of 300k       │                oxlint: ok",
+      "━━━━━━━━━━━━━━━━━━━━━━━━━   │                tsc -b: ok",
+      "                            │                FAIL test/retry.test.ts > caps at 3 retries",
+      "MODEL     claude-sonnet     │                  expected 3, received 4",
       RULE,
       keys(
-        /^p park {3}s steer {3}w v i streams {3}↑↓ PgUp PgDn scroll {3}End follow {3}z expand {3}c copy id +esc back {3}q q quit$/,
+        /^p park {3}s steer {3}v stream {3}↑↓ scroll {3}G follow {3}z expand {3}c copy id +esc back {3}q q quit$/,
       ),
     ]);
     // The tail came from work.outputRange reads to the end; the live text came from the stream.
@@ -134,11 +139,11 @@ describe("live agent detail", () => {
     for (const columns of [99, 80, 60]) {
       const { ui } = await openDetail({ columns });
       const frame = ui.frame();
-      expect(frame).toContain(" setup ━━ ● build ┄┄ review ┄┄ test ┄┄ merge");
+      expect(frame).toContain("setup ━━ ● build ┄┄ review ┄┄ test ┄┄ merge");
       expect(frame).toContain(" health looping @  loop 2/3  review round 0");
       expect(frame).toContain(" criteria 2/3  [x][x][ ]");
       expect(frame).not.toContain("signals");
-      expect(frame).toContain(" output (worker)");
+      expect(frame).toContain("all   worker   reviewer   verify   prompt");
       for (const line of lines(frame)) expect(line.length).toBeLessThanOrEqual(columns);
     }
   });
@@ -149,7 +154,7 @@ describe("live agent detail", () => {
     const { ui, session } = view;
     await ui.waitFor("daemon live");
     await ui.press("enter");
-    await ui.waitFor("following the tail");
+    await ui.waitFor("following");
     const base = goldenSnapshots.get(OFFICES.dipsaus)!.work[0]!;
     const since = "2026-10-14T09:58:00.000Z";
     const updated: WorkView = {
@@ -163,71 +168,60 @@ describe("live agent detail", () => {
       ?.options.onEvent(
         event(8, "work.observed", { work: base.work, signal: "no-output", since, view: updated }),
       );
-    const frame = await ui.waitFor("health   quiet .");
+    const frame = await ui.waitFor("HEALTH    ● quiet .");
     // The watchdog fact is evidence on work.observed only; the detail shows the one health value.
     expect(frame).not.toContain("signals");
     expect(frame).not.toContain("no-output");
     // The TUI shows no evidence markers, so a claimed value shows plain.
-    expect(frame).toContain(" usage    in 210k out 18k");
-    expect(frame).toContain("          cw 6k cr 1.1M");
-    expect(frame).toContain("          turns 31  ~$0.84");
-    expect(frame).toContain(" budget   [####----] 52% of 300k");
-    expect(frame).toContain(" criteria 4/7");
-    expect(frame).toContain("[x][x][x][x][ ][ ][ ]");
-    expect(frame).toContain(" now  quiet . · build · no output yet");
+    expect(frame).toContain("in        210k");
+    expect(frame).toContain("out       18k");
+    expect(frame).toContain("cache w   6k");
+    expect(frame).toContain("cache r   1.1M");
+    expect(frame).toContain("turns     31");
+    expect(frame).toContain("BUDGET    52% of 300k");
+    expect(frame).toContain("CRITERIA  4/7");
   });
 
-  it("answers what the worker does now: the newest line and its age", async () => {
-    const { ui, session } = await openDetail();
-    const build: WorkView = {
-      ...golden24(),
-      phase: "build",
-      health: "busy",
-      lastOutputAt: "2026-10-14T10:03:48.000Z",
-    };
-    session.active(STREAM)?.options.onEvent(
-      event(8, "work.phase", {
-        work: build.work,
-        phase: "build",
-        progress: build.progress,
-        view: build,
-      }),
-    );
-    // The test clock stands at 10:04:00.
-    await ui.waitFor(
-      "now  busy > · build · Step 39: retries now stop at the cap in src/notice.ts. · 12s ago",
-    );
-    for (const output of goldenOutputEvents) session.storeOutput(output);
-    await ui.waitFor("now  busy > · build · [tool] Edit src/retry.ts (live)");
-  });
-
-  it("switches to the verify output with v and back with w", async () => {
+  it("cycles the stream filter with v: all, worker, reviewer, verify, prompt, and tab does not", async () => {
     const { ui } = await openDetail();
+    const tabs = () => lines(ui.frame()).find((line) => line.includes("reviewer   verify"))!;
+    expect(tabs()).toContain("│  all   worker");
     await ui.press("v");
-    const frame = await ui.waitFor("output (verify)");
-    expect(frame).toContain("[w]orker [v]erify*");
-    expect(frame).toContain("│ $ bun run verify");
+    // worker: the tool lines and the agent's words, no verify output
+    const worker = await ui.waitFor("src/log.ts");
+    expect(worker).not.toContain("$ bun run verify");
+    await ui.press("v");
+    await ui.waitFor("no reviewer output yet");
+    await ui.press("v");
+    const frame = await ui.waitFor("$ bun run verify");
     // Escape sequences of the stored output are not written to the terminal.
-    expect(frame).toContain("│ FAIL test/retry.test.ts > caps at 3 retries");
-    expect(frame).toContain("│   expected 3, received 4");
-    await ui.press("w");
-    await ui.waitFor("output (worker)");
+    expect(frame).toContain("FAIL test/retry.test.ts > caps at 3 retries");
+    expect(frame).toContain("  expected 3, received 4");
+    expect(frame).not.toContain("src/log.ts");
+    await ui.press("v");
+    await ui.waitFor("no prompt is stored");
+    await ui.press("v");
+    await ui.waitFor("src/log.ts");
+    // Tab stays the next pane key: it does not switch the filter.
+    await ui.press("tab");
+    await Bun.sleep(50);
+    expect(tabs()).toContain("│  all   worker");
   });
 
-  it("reads earlier output with work.outputRange when scrolling up, and End follows the tail", async () => {
-    // The pane keeps 1200 bytes of the 1705 stored: 27 of 40 lines, 16 rows on screen (the pipeline line takes one).
+  it("reads earlier output with work.outputRange when scrolling up, and G follows the tail", async () => {
+    // The pane keeps 1200 bytes of the 1705 stored: 27 of 40 lines; the worker filter shows them.
     const { ui, session } = await openDetail({ tail: 1200 });
+    await ui.press("v");
     const before = rangeReads(session).length;
     await ui.press("k");
-    let frame = await ui.waitFor("End follow");
-    expect(frame).toContain("1 rows below");
-    expect(frame).not.toContain("│ Step 39:");
+    let frame = await ui.waitFor("paused · G to follow");
+    expect(frame).not.toContain("following");
+    expect(frame).not.toContain("Step 39:");
     // No read yet: the pane still holds text above.
     expect(rangeReads(session)).toHaveLength(before);
 
     // A page up reaches the top of what is held: read the text before it.
     await ui.press("pageup");
-    await ui.waitFor("13 rows below");
     const deadline = performance.now() + 1_000;
     while (rangeReads(session).length === before && performance.now() < deadline) {
       await Bun.sleep(5);
@@ -242,26 +236,26 @@ describe("live agent detail", () => {
     await ui.press("pageup");
     await ui.press("pageup");
     frame = await ui.waitFor("start of output");
-    expect(frame).toContain("│ Reading the story and the verify code first.");
+    expect(frame).toContain("Reading the story and the verify code first.");
 
     // New output while scrolled back does not move the rows on screen.
     session.storeOutput(goldenOutputEvents[0]!);
     await Bun.sleep(150);
     expect(lines(ui.frame()).slice(5, -3)).toEqual(lines(frame).slice(5, -3));
 
-    await ui.press("end");
-    frame = await ui.waitFor("following the tail");
-    expect(frame).toContain("│ [tool] Bash");
+    await ui.press("G");
+    frame = await ui.waitFor("following");
+    expect(frame).toMatch(/│ +bash\n/);
   });
 
   it("z expands the stream to the whole screen and z or Esc brings the frame back", async () => {
     const { ui } = await openDetail();
     await ui.waitFor("dipo / dipsaus-orchestrator");
-    await ui.waitFor("following the tail");
+    await ui.waitFor("following");
     await ui.press("z");
     const deadline = performance.now() + 3_000;
     while (
-      (ui.frame().includes("dipo / ") || !ui.frame().includes("following the tail")) &&
+      (ui.frame().includes("dipo / ") || !ui.frame().includes("following")) &&
       performance.now() < deadline
     ) {
       await Bun.sleep(5);
@@ -269,12 +263,12 @@ describe("live agent detail", () => {
     const expanded = ui.frame();
     expect(expanded).not.toContain("dipo / ");
     expect(expanded).not.toContain("q q quit");
-    expect(expanded).toContain("following the tail");
+    expect(expanded).toContain("following");
     expect(lines(expanded).length).toBeLessThanOrEqual(24);
     await ui.press("escape");
     await ui.waitFor("q q quit");
     // Esc closed only the expansion: the detail is still open.
-    await ui.waitFor("following the tail");
+    await ui.waitFor("following");
     await ui.press("z");
     await ui.press("z");
     await ui.waitFor("q q quit");
@@ -287,7 +281,7 @@ describe("live agent detail", () => {
     session.storeOutput(missed!, false);
     session.storeOutput(next!);
     const frame = await ui.waitFor("(live)");
-    expect(frame).toContain("│ [tool] Bash\n");
+    expect(frame).toMatch(/│ +bash\n/);
     expect(rangeReads(session).slice(before)[0]).toMatchObject({ source: "worker", from: 1705 });
   });
 
@@ -477,10 +471,10 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
       }),
     );
     const local = new Date(Date.parse(at));
-    const hms = [local.getHours(), local.getMinutes(), local.getSeconds()]
+    const hm = [local.getHours(), local.getMinutes()]
       .map((n) => String(n).padStart(2, "0"))
       .join(":");
-    const frame = await ui.waitFor(`── ${hms} phase: verify ──`);
+    const frame = await ui.waitFor(`── verify · ${hm} ──`);
     expect(frame).not.toContain("[dipo]");
   });
 
@@ -499,7 +493,7 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
     await first.ui.waitFor("(live)");
     first.session.storeOutput(forgedEvent(10, 1749));
     const live = await first.ui.waitFor("phase done");
-    expect(live).toContain("[dipo]");
+    expect(live).toContain("says   [dipo]");
     expect(live).not.toContain("phase: done");
 
     // Read back from the stored output on reopening: the engine's flagged marker is a rule, the
@@ -520,10 +514,11 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
     await first.ui.press("escape");
     await first.ui.waitFor("▌ ● DIPO-24");
     await first.ui.press("enter");
-    const reread = await first.ui.waitFor("phase: verify ──");
+    const reread = await first.ui.waitFor("── verify · ");
     expect(reread).toContain("[dipo] 2026-10-14T10:03:59.000Z phase done");
     expect(reread).not.toContain("phase: done");
     expect(reread).not.toContain("phase verify");
+    expect(reread).not.toContain("phase: verify");
   });
 
   it("lists the story's open questions with kind, age, text and how to answer them", async () => {
@@ -563,9 +558,7 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
       );
     }
     const frame = await ui.waitFor("May I drop the build folder?");
-    expect(lines(frame).slice(4, 10)).toEqual([
-      " now  looping @ · build · Step 39: retries now stop at the cap in src/notice.ts.",
-      " setup ━━ ● build ┄┄ review ┄┄ test ┄┄ merge",
+    expect(lines(frame).slice(6, 10)).toEqual([
       " ? question 4m ago · Which greeting should the CLI print?",
       `   answer: dipo answer ${Q1} <text>`,
       " ? question 30s ago · May I drop the build folder?",
@@ -600,7 +593,7 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
     expect(questionLines([], 0, "·")).toEqual([]);
   });
 
-  it("names the stored commands in the worker output title while privacy.storeCommandBodies is on", async () => {
+  it("names the stored commands next to the stream filters while privacy.storeCommandBodies is on", async () => {
     const { ui, session } = await openDetail();
     expect(ui.frame()).not.toContain("stores");
     const summary = goldenHello.offices.find((entry) => entry.office === OFFICES.dipsaus);
@@ -611,43 +604,45 @@ describe("open questions and the command opt-in in the detail (DIPO-83)", () => 
       data: { ...summary, optIns: ["privacy.storeCommandBodies"] },
     } as Event);
     let frame = await ui.waitFor("stores commands");
-    expect(frame).toContain("output (worker) [w]orker* [v]erify [i] prompt  stores commands");
+    expect(frame).toContain("stores commands · following");
     expect(frame).not.toContain("opt-in");
-    await ui.press("v");
-    frame = await ui.waitFor("[v]erify*");
+    // Commands are stored in the worker's output only: the verify tab does not say so.
+    for (let i = 0; i < 3; i++) await ui.press("v");
+    await Bun.sleep(50);
+    frame = ui.frame();
     expect(frame).not.toContain("stores commands");
   });
 });
 
 describe("the stored prompt in the detail (DIPO-137)", () => {
-  it("shows the system file and the first message on i, and Esc leaves p unbound", async () => {
+  it("shows the system file and the first message in the prompt tab, and an unbound key does nothing", async () => {
     const { ui, session } = await openDetail();
     const agent = golden24().work.agent;
     session.prompts.set(`${RUN_24}:${agent}`, [
       { part: "system", text: "You are the developer.\nFollow the scope.\n" },
       { part: "message", text: "Story DIPO-24: add the verify retry." },
     ]);
-    await ui.press("i");
+    await toPrompt(ui);
     const frame = await ui.waitFor("first message");
-    expect(frame).toContain("prompt (stored) [w]orker [v]erify [i] prompt*");
-    expect(frame).toContain("│ · system file");
-    expect(frame).toContain("│ You are the developer.");
-    expect(frame).toContain("│ Story DIPO-24: add the verify retry.");
+    expect(frame).toContain("│  all   worker   reviewer   verify   prompt");
+    expect(frame).toContain("  · system file");
+    expect(frame).toContain("  You are the developer.");
+    expect(frame).toContain("  Story DIPO-24: add the verify retry.");
     expect(session.reads).toContainEqual({
       name: "work.prompt",
       args: { office: OFFICES.dipsaus, run: RUN_24, agent },
     });
     // An unbound key neither switches the pane nor sends a command.
     await ui.press("x");
-    expect(ui.frame()).toContain("│ · system file");
+    expect(ui.frame()).toContain("  · system file");
     expect(session.commands.filter((command) => command.name !== "office.open")).toEqual([]);
-    await ui.press("w");
-    await ui.waitFor("output (worker)");
+    await ui.press("v");
+    await ui.waitFor("src/log.ts");
   });
 
   it("says when no prompt is stored", async () => {
     const { ui } = await openDetail();
-    await ui.press("i");
+    await toPrompt(ui);
     const frame = await ui.waitFor("no prompt is stored");
     expect(frame).toContain("privacy.storePrompts is off");
   });
@@ -658,7 +653,7 @@ describe("the stored prompt in the detail (DIPO-137)", () => {
     session.prompts.set(`${RUN_24}:${agent}`, [
       { part: "message", text: "Story DIPO-24: add the verify retry." },
     ]);
-    await ui.press("i");
+    await toPrompt(ui);
     await ui.waitFor("first message");
     const build: WorkView = { ...golden24(), phase: "build", health: "busy" };
     session.active(STREAM)?.options.onEvent(
@@ -670,14 +665,14 @@ describe("the stored prompt in the detail (DIPO-137)", () => {
       }),
     );
     await ui.waitFor("build");
-    expect(ui.frame()).toContain("│ Story DIPO-24: add the verify retry.");
+    expect(ui.frame()).toContain("  Story DIPO-24: add the verify retry.");
     expect(ui.frame()).not.toContain("reading prompt");
     expect(session.reads.filter((read) => read.name === "work.prompt")).toHaveLength(1);
   });
 });
 
 describe("worker thinking in the detail (DIPO-96)", () => {
-  it("shows a finished thinking block on the now line and in the output pane", async () => {
+  it("shows a finished thinking block as one folded line of the stream", async () => {
     const { ui, session } = await openDetail();
     const build: WorkView = {
       ...golden24(),
@@ -694,7 +689,7 @@ describe("worker thinking in the detail (DIPO-96)", () => {
       }),
     );
     for (const output of goldenOutputEvents) session.storeOutput(output);
-    await ui.waitFor("[tool] Edit src/retry.ts (live)");
+    await ui.waitFor("edit   src/retry.ts (live)");
     const last = goldenOutputEvents[goldenOutputEvents.length - 1];
     if (last === undefined) throw new Error("no golden work.output event");
     const data = last.data as { from: number; to: number; text: string };
@@ -705,10 +700,9 @@ describe("worker thinking in the detail (DIPO-96)", () => {
       cursor: { ...last.cursor, seq: last.cursor.seq + 1 },
       data: { ...data, from: data.to, to: data.to + text.length, text },
     } as Event);
-    const frame = await ui.waitFor("now  busy > · build · [thinking] 0.9s ~265 tokens · 2s ago");
-    expect(
-      lines(frame).filter((line) => line.includes("[thinking] 0.9s ~265 tokens")),
-    ).toHaveLength(2);
+    const frame = await ui.waitFor("thinking 0.9s · 0.3k tokens");
+    expect(lines(frame).filter((line) => line.includes("thinking 0.9s"))).toHaveLength(1);
+    expect(frame).not.toContain("[thinking]");
   });
 });
 
@@ -797,7 +791,90 @@ describe("the detail across a daemon restart (DIPO-327)", () => {
         view: build,
       }),
     );
-    const frame = await ui.waitFor("now  busy > · build");
-    expect(frame).toContain(" setup ━━ ● build ┄┄ review ┄┄ test ┄┄ merge");
+    const frame = await ui.waitFor("HEALTH    ● busy");
+    expect(frame).toContain("setup ━━ ● build ┄┄ review ┄┄ test ┄┄ merge");
+  });
+});
+
+describe("steering from the stream (DIPO-461)", () => {
+  it("opens the Composer at the foot of the stream, keeps keys like q and v in the draft, and Esc cancels", async () => {
+    const { ui, session } = await openDetail();
+    await ui.press("s");
+    await ui.waitFor("steer DIPO-24 · arrives at its next turn");
+    await ui.press("quit v");
+    const frame = await ui.waitFor("quit v");
+    // The draft took the keys: the filter did not change, nothing quit and nothing was sent.
+    expect(frame).toContain("│  all   worker");
+    expect(frame).not.toContain("press q again");
+    expect(frame).toContain("ctrl-s send");
+    await ui.press("escape");
+    await Bun.sleep(50);
+    expect(ui.frame()).not.toContain("ctrl-s send");
+    expect(session.commands.filter((command) => command.name === "work.steer")).toEqual([]);
+  });
+
+  it("shows the sent text as a you line with on-resume from the reply, and a refusal as not sent", async () => {
+    const { ui, session } = await openDetail();
+    let reply: unknown = {
+      ok: true,
+      result: { run: RUN_24, delivered: "on-resume" },
+      changed: true,
+    };
+    session.commandReply = (name) => (name === "work.steer" ? reply : undefined);
+    await ui.press("s");
+    await ui.waitFor("ctrl-s send");
+    await ui.press("Keep the old flag");
+    await ui.press("ctrl-s");
+    const frame = await ui.waitFor("Keep the old flag · delivered on resume");
+    expect(frame).toMatch(/\d\d:\d\d {2}you {4}Keep the old flag/);
+    expect(
+      session.commands
+        .filter((command) => command.name === "work.steer")
+        .map(({ name, args }) => ({ name, args })),
+    ).toEqual([{ name: "work.steer", args: { story: "DIPO-24", text: "Keep the old flag" } }]);
+
+    reply = {
+      ok: false,
+      error: { code: "story.notSteerable", message: "the reviewer is working", retryable: false },
+    };
+    await ui.press("s");
+    await ui.waitFor("ctrl-s send");
+    await ui.press("Again");
+    await ui.press("ctrl-s");
+    await ui.waitFor("not sent: story.notSteerable: the reviewer is working");
+    // The earlier line stays above the new one.
+    expect(ui.frame()).toContain("delivered on resume");
+  });
+
+  it("shows a long command whole on Enter and cut again on the next Enter", async () => {
+    const { ui, session } = await openDetail();
+    const command = `bun test ${"packages/tui/src/some-long-test-name.test.ts ".repeat(4)}`.trim();
+    const text = `[tool] Bash ${command}\n`;
+    const last = goldenOutputEvents[goldenOutputEvents.length - 1]!;
+    const data = last.data as { to: number };
+    for (const output of goldenOutputEvents) session.storeOutput(output);
+    session.storeOutput({
+      ...last,
+      cursor: { ...last.cursor, seq: last.cursor.seq + 1 },
+      data: { ...(last.data as object), from: data.to, to: data.to + text.length, text },
+    } as Event);
+    const cut = await ui.waitFor("⏎ full");
+    expect(cut).not.toContain(command);
+    await ui.press("enter");
+    let frame = await ui.waitFor("some-long-test-name.test.ts");
+    expect(frame).not.toContain("⏎ full");
+    expect(frame.split("some-long-test-name").length - 1).toBe(4);
+    await ui.press("enter");
+    frame = await ui.waitFor("⏎ full");
+    expect(frame).toContain("bun test packages");
+  });
+
+  it("scrolling up pauses following and G follows again", async () => {
+    const { ui } = await openDetail({ tail: 1200 });
+    await ui.press("v");
+    await ui.press("k");
+    await ui.waitFor("paused · G to follow");
+    await ui.press("G");
+    await ui.waitFor("following");
   });
 });

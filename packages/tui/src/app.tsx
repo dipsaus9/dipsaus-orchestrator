@@ -290,6 +290,7 @@ export function App(props: AppProps) {
     if (state.notice !== null) store.dismissNotice();
     // An open action prompt takes every key (`actions.ts`).
     if (acts.key(input, key)) return;
+    if (home.onSteerKey(input, key)) return;
     acts.setMessage(null);
     if (mode.kind === "path") onPathKey(mode, input, key, modeKeys);
     else if (mode.kind === "confirm-privacy") onConfirmPrivacyKey(mode, input, modeKeys);
@@ -307,7 +308,7 @@ export function App(props: AppProps) {
     else home.onKey(input, key);
   };
 
-  useKeys(typesText(mode) || acts.typing, handleKey);
+  useKeys(typesText(mode) || acts.typing || home.steering.draft !== null, handleKey);
 
   return (
     <Screen
