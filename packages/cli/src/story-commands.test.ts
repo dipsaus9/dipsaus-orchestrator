@@ -359,3 +359,49 @@ describe("dipo discard and drop loss lists (DIPO-161 review)", () => {
     expect(ctx.ws.questions[0]).toContain("in between is lost too");
   });
 });
+
+describe("dipo ready", () => {
+  const PR = "https://github.com/o/r/pull/8";
+  const answer = (sent: Sent) => {
+    const stories = (sent.args as { stories: string[] }).stories;
+    return {
+      ok: true,
+      changed: true,
+      result: {
+        queued: stories.slice(0, 1),
+        refused: stories.slice(1).map((story) => ({ story, messages: ["R01a: no criteria"] })),
+        flush: { state: "opened", branch: "dipo/backlog-1", pr: PR },
+      },
+    };
+  };
+
+  it("sends story.ready with every id and prints each story's result, the PR it waits on first", async () => {
+    const ctx = fake(answer);
+    expect(await main(["ready", "DIPO-1", "dipo-2"], ctx.deps)).toBe(1);
+    expect(ctx.sent).toEqual([
+      { name: "story.ready", args: { stories: ["DIPO-1", "DIPO-2"] }, office: OFFICE },
+    ]);
+    expect(ctx.out).toEqual([
+      `DIPO-1: waiting for the backlog PR ${PR}`,
+      "DIPO-2: refused: R01a: no criteria",
+    ]);
+  });
+
+  it("exits 0 when every story was set", async () => {
+    const ctx = fake(answer);
+    expect(await main(["ready", "DIPO-1"], ctx.deps)).toBe(0);
+    expect(ctx.out).toEqual([`DIPO-1: waiting for the backlog PR ${PR}`]);
+  });
+
+  it("needs a story id, and prints an engine refusal and exits 1", async () => {
+    expect(await main(["ready"], fake(answer).deps)).toBe(2);
+    expect(await main(["ready", "nonsense"], fake(answer).deps)).toBe(2);
+    const ctx = fake(() => ({
+      ok: false,
+      error: { code: "story.unknown", message: "No story has the id DIPO-9.", retryable: false },
+    }));
+    expect(await main(["ready", "DIPO-9"], ctx.deps)).toBe(1);
+    expect(ctx.err[0]).toContain("story.unknown");
+    expect(ctx.out).toEqual([]);
+  });
+});
