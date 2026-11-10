@@ -1,10 +1,10 @@
 ---
 id: DIPO-488
 title: A long or unusual backlog file name never stops a run
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 16:34'
-updated_date: '2026-11-10 17:17'
+updated_date: '2026-11-10 17:23'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -26,6 +26,32 @@ references:
   - packages/engine/src/records/ideas.ts
   - packages/engine/src/backlog/lane/propose.ts
   - packages/engine/test/box/real-box.box.test.ts
+modified_files:
+  - packages/engine/src/box/code.ts
+  - packages/engine/src/box/collisions.ts
+  - packages/engine/src/box/index.ts
+  - packages/engine/src/box/user.ts
+  - packages/engine/src/box/workers.ts
+  - packages/engine/src/create/commands.ts
+  - packages/engine/src/overview/desk.ts
+  - packages/engine/src/records/ideas.ts
+  - packages/engine/src/run/idea-answers.ts
+  - packages/engine/src/run/launch.ts
+  - packages/engine/src/run/next-up.ts
+  - packages/engine/src/run/work-run.ts
+  - packages/engine/src/worktree/claim.ts
+  - packages/engine/test/box/collisions.ci.test.ts
+  - packages/engine/test/box/collisions.test.ts
+  - packages/engine/test/box/fake-boxes.ts
+  - packages/engine/test/box/real-box.box.test.ts
+  - packages/engine/test/box/user.test.ts
+  - packages/engine/test/box/workers.test.ts
+  - packages/engine/test/overview/desk.test.ts
+  - packages/engine/test/records/idea-cut.test.ts
+  - packages/engine/test/run/idea-answers.test.ts
+  - packages/engine/test/run/next-up.test.ts
+  - packages/engine/test/run/start.test.ts
+  - packages/tui/src/desk.tsx
 priority: high
 type: bug
 ordinal: 460000
@@ -82,3 +108,18 @@ test_plan:
 - [x] #6 A launch whose box is not made ready logs WARN with the run, the story and the reason (not only the fixed why of the box's deletion), and the reason shows on the desk and in dipo watch; the setup.failed hint at worktree/claim.ts:187 (run dipo daemon logs --level debug) becomes true because the step's output is logged, or is removed; DIPO-484 does not cover this launch path
 - [x] #7 One shared title cut replaces both capped functions (run/idea-answers.ts:77-80 and records/ideas.ts:61-65) and the duplicate is removed; a title over the cap is cut on a word boundary with no … or other non-ASCII mark added, so dipo never puts … into a file name, with a test
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-10 17:23 UTC
+- Criteria met: 7 of 7 (as the worker reported them)
+- Loops: 1; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 227,733 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->
