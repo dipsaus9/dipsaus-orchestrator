@@ -1,10 +1,10 @@
 ---
 id: DIPO-481
 title: Show the backlog lane's work in progress and the backlog PR it waits on
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 15:27'
-updated_date: '2026-11-10 18:36'
+updated_date: '2026-11-10 18:37'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -24,6 +24,35 @@ references:
   - docs/design/tui-v2/screens/02-floor.txt
   - docs/design/tui-v2/screens/07-plan.txt
   - docs/design/tui-v2/spec.md
+modified_files:
+  - docs/design/tui-v2/screens/02-floor.txt
+  - docs/design/tui-v2/screens/07-plan.txt
+  - docs/design/tui-v2/spec.md
+  - packages/client/src/store/office-store.ts
+  - packages/client/test/unit/office-store.test.ts
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/backlog/lane/lane.ts
+  - packages/engine/src/backlog/lane/planning.ts
+  - packages/engine/src/backlog/lane/progress.ts
+  - packages/engine/src/backlog/pr/feature.ts
+  - packages/engine/src/backlog/pr/merge.ts
+  - packages/engine/src/features.ts
+  - packages/engine/src/overview/feature.ts
+  - packages/engine/test/merge/progress.test.ts
+  - packages/tui/src/actions.ts
+  - packages/tui/src/desk.test.tsx
+  - packages/tui/src/desk.tsx
+  - packages/tui/src/home.tsx
+  - packages/tui/src/lane.ts
+  - packages/tui/src/overview.test.tsx
+  - packages/tui/src/overview.tsx
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/screen.tsx
 priority: high
 type: feature
 ordinal: 453000
@@ -78,3 +107,18 @@ test_plan:
 - [x] #6 The PLANNING LANE desk item for a lane stuck 30 minutes stays as it is
 - [x] #7 docs/design/tui-v2/screens/02-floor.txt, 07-plan.txt and spec.md show the BACKLOG line and the filing line with the PR, and the views match them
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-10 18:37 UTC
+- Criteria met: 7 of 7 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 315,203 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->
