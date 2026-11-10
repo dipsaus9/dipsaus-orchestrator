@@ -1,12 +1,10 @@
 ---
 id: DRAFT-10
-title: >-
-  As maintainer I want to run more than one planning session per office at a
-  time (for example planning M4 while triaging…
+title: Run more than one planning session per office at a time
 status: Draft
 assignee: []
 created_date: '2026-11-10 15:28'
-updated_date: '2026-11-10 15:28'
+updated_date: '2026-11-10 16:14'
 labels: []
 milestone: m-3
 dependencies: []

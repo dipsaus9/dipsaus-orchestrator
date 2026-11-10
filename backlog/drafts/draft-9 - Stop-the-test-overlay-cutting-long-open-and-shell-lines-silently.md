@@ -1,12 +1,10 @@
 ---
 id: DRAFT-9
-title: >-
-  The overlay's `open` and `shell` lines are also cut silently by `fitLine` at
-  TEST_INNER when the URL or shell line is l…
+title: Stop the test overlay cutting long open and shell lines silently
 status: Draft
 assignee: []
 created_date: '2026-11-10 14:23'
-updated_date: '2026-11-10 14:23'
+updated_date: '2026-11-10 16:14'
 labels: []
 milestone: m-6
 dependencies: []
