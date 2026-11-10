@@ -3,10 +3,10 @@ id: DIPO-487
 title: >-
   The planning view is one conversation column with inline story cards and a
   Ready step
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 15:46'
-updated_date: '2026-11-10 18:09'
+updated_date: '2026-11-10 18:15'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -115,11 +115,11 @@ test_plan:
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Closed 2026-11-10 18:01 UTC
+Closed 2026-11-10 18:15 UTC
 - Criteria met: 6 of 6 (as the worker reported them)
 - Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
-- Review rounds: 1, failed 0
-- Budget used: 201,156 of 800,000 tokens
+- Review rounds: 3, failed 0
+- Budget used: 293,208 of 800,000 tokens
 - Runs: 1; resumes: 0
 - Parks: none
 - Grants: none
