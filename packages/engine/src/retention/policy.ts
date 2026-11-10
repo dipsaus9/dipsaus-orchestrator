@@ -70,6 +70,7 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   catch_ups: aged("with its run, ended more than retention.days ago"),
   runs: aged("ended more than retention.days ago; an active run is kept"),
   run_steps: aged("with its run, ended more than retention.days ago"),
+  proxy_refusals: aged("with its run, ended more than retention.days ago"),
   run_grants: aged("with its run, ended more than retention.days ago"),
   run_signals: aged("with its run, ended more than retention.days ago"),
   run_intents: aged("with its run, ended more than retention.days ago"),

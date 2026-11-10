@@ -76,6 +76,11 @@ function agoWords(ms: number): string {
   return short.endsWith("m") ? `${short.slice(0, -1)} min ago` : `${short} ago`;
 }
 
+/** `1 Refined, not Ready yet`, or ""; those stories wait for you, not for the item (DIPO-484). */
+function refinedText(item: DeskItem): string {
+  return (item.refined ?? []).length === 0 ? "" : `${item.refined?.length} Refined, not Ready yet`;
+}
+
 /** `blocks 3`, or "". */
 function blocksText(item: DeskItem): string {
   return item.blocks.length === 0 ? "" : `blocks ${item.blocks.length}`;
@@ -106,7 +111,7 @@ function kindLine(item: DeskItem, ctx: PreviewContext): string {
       break;
     case "PARKED":
     case "PARKED BY YOU":
-      parts.push(item.reason ?? "", waited, blocksText(item));
+      parts.push(item.reason ?? "", waited, blocksText(item), refinedText(item));
       break;
     case "PROPOSED STORY":
       parts.push(ideaWhy(item));
@@ -208,6 +213,10 @@ function factRows(item: DeskItem, ctx: PreviewContext): SegLine[] {
   const { dot } = glyphs(ctx.ascii);
   const rows: SegLine[] = [];
   const blocks = item.blocks.join(` ${dot} `);
+  const refined = (item.refined ?? []).map(
+    (entry) =>
+      `${entry.story} Refined, not Ready yet${entry.reason === undefined ? "" : `: ${entry.reason}`}`,
+  );
   switch (item.kind) {
     case "MERGE":
       rows.push(...labelled("Why", item.detail, ctx.width));
@@ -240,6 +249,7 @@ function factRows(item: DeskItem, ctx: PreviewContext): SegLine[] {
       break;
   }
   if (blocks !== "") rows.push(...labelled("Blocks", blocks, ctx.width));
+  for (const text of refined) rows.push(...labelled("Refined", text, ctx.width));
   if (item.hand !== undefined) rows.push(...labelled("By hand", item.hand, ctx.width));
   return rows;
 }

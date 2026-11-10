@@ -389,6 +389,8 @@ export type WorkerEvent =
        * `session`, `weekly` or `model:<family>`; absent when it cannot.
        */
       readonly scope?: PlanLimitScope;
+      /** True when the limit is a turn that ended by an HTTP 429, which dipo's own model proxy also sends (DIPO-484). */
+      readonly http429?: true;
     }
   /**
    * One context compaction. `preTokens` is the context size before it; absent when the adapter
@@ -449,6 +451,8 @@ export type PlanLimitScope = "session" | "weekly" | `model:${string}`;
 export interface TurnProblem {
   readonly kind: TurnProblemKind;
   readonly detail: string;
+  /** A `planLimit` problem that is a turn ended by an HTTP 429 (DIPO-484). */
+  readonly http429?: true;
 }
 
 export type TurnProblemKind = "report" | "contextFull" | "error" | "startFailed" | "planLimit";
@@ -468,6 +472,8 @@ export type WorkerOutcome =
 export interface WorkerResult {
   readonly outcome: WorkerOutcome;
   readonly report: WorkerReport | null;
+  /** A `plan-limit` outcome that is an HTTP 429: dipo's own model proxy sends that too (DIPO-484). */
+  readonly http429?: true;
   /** A `review` session's valid report; absent in other kinds. */
   readonly review?: ReviewReport;
   /** A `session` or `audit` kind's structured output, for the engine to check (DIPO-310). */

@@ -869,9 +869,9 @@ export const officeDigest = defineRead({
 });
 
 // What a story waiting on others sees of the dependency graph (DIPO-460): `moving` is a story
-// that is Ready, running or in review, `parked` one on the Desk, `waiting` any other story that is
-// not Done.
-export const ChainState = z.enum(["parked", "moving", "waiting"]);
+// that is Ready, running or in review, `parked` one on the Desk, `refined` one that is Refined and
+// waits for the maintainer to set it Ready (DIPO-484), `waiting` any other story that is not Done.
+export const ChainState = z.enum(["parked", "moving", "refined", "waiting"]);
 export type ChainState = z.infer<typeof ChainState>;
 
 // One story of a chain: its state and the stories that wait on it directly.
@@ -879,6 +879,8 @@ export const ChainNode = z.object({
   story: StoryId,
   key: StoryKey,
   state: ChainState,
+  // The first failed Ready gate rule of a `refined` story.
+  reason: z.string().optional(),
   unblocks: z.array(StoryId),
 });
 export type ChainNode = z.infer<typeof ChainNode>;
@@ -1011,6 +1013,9 @@ export const DeskItem = z.object({
   detail: z.string(),
   since: Timestamp,
   blocks: z.array(StoryId),
+  // The Refined stories that depend on its story: they wait for the maintainer to set them Ready, so
+  // `blocks` does not count them (DIPO-484); `reason` is each one's first failed Ready gate rule.
+  refined: z.array(z.object({ story: StoryId, reason: z.string().optional() })).optional(),
   actions: z.array(DeskAction),
   hand: z.string().optional(),
 });

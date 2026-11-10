@@ -60,6 +60,7 @@ import {
 import { evidenceProblems, type ReviewFacts, validateReport } from "../review/validate";
 import { judgeReview } from "../review/verdict";
 import { recordCrashedEnd } from "../records/agents";
+import { proxyRefusalOf } from "../records/proxy-refusals";
 import { findStoryPr } from "../records/story-prs";
 import { withWorkViews } from "../views/work";
 import type {
@@ -694,7 +695,10 @@ export class Reviews {
         await this.#invalid(office, view, problem.detail);
         return;
       case "planLimit":
-        this.onPlanLimit(view, { credits: false });
+        this.onPlanLimit(view, {
+          credits: false,
+          ...(problem.http429 === true ? { http429: true as const } : {}),
+        });
         return;
       case "startFailed":
         this.#deps.ender()?.act(view.runId, {
@@ -717,6 +721,21 @@ export class Reviews {
    * the pause lifts, and that resume starts a fresh review of the same head (0002).
    */
   onPlanLimit(view: RunView, limit: PlanLimitHit): void {
+    // A 429 the model proxy sent at the reviewer's token cap is that cap, not the plan (DIPO-484).
+    const office = this.#deps.offices.get(view.office);
+    const refusal =
+      limit.http429 === true && office !== undefined
+        ? proxyRefusalOf(office, view.runId, view.work.agent, this.#deps.clock.now())
+        : null;
+    if (refusal !== null) {
+      this.#deps.ender()?.begin(view.runId, {
+        intent: "cap",
+        ops: [{ closeStdin: true }, { signal: "SIGTERM", afterMs: 10_000 }],
+        reason: "budget-exceeded",
+        detail: refusal,
+      });
+      return;
+    }
     const pause = planLimitPause(limit, this.#deps.clock.now());
     this.#deps.startsPaused?.()?.pausePlanLimit(view.office, pause);
     this.#deps

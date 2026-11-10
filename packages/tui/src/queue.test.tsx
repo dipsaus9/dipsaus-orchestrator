@@ -249,6 +249,43 @@ describe("queue view", () => {
     await view.ui.waitFor("Gate     ✗ R15 2 unknowns");
   });
 
+  it("shows a Refined dependency as Refined, not Ready yet with its first gate failure, in the needs column and the preview (DIPO-484)", async () => {
+    const { snapshot, chain, gates } = queueScenario();
+    const stories = [
+      ...snapshot.stories,
+      queued(454, "Show the spend", "waiting", { waitingOn: ["DIPO-116"] }),
+    ];
+    const refinedChain = {
+      rows: [...chain.rows, { levels: [level(116), level(454)] }],
+      nodes: [
+        ...chain.nodes,
+        {
+          story: "DIPO-116",
+          key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B116",
+          state: "refined",
+          reason: "2 unknowns",
+          unblocks: level(454),
+        },
+      ],
+    };
+    const view = await mount({
+      columns: 120,
+      rows: 30,
+      snapshots: new Map([[OFFICES.dipsaus, { ...snapshot, stories }]]),
+      chain: refinedChain,
+      gates,
+    });
+    mounted.push(view.ui);
+    await view.ui.waitFor("daemon live");
+    await view.ui.press("3");
+    for (let i = 0; i < 5; i++) await view.ui.press("j");
+    await view.ui.waitFor("▌ ○ DIPO-454");
+    const frame = await view.ui.waitFor("Refined  DIPO-116");
+    expect(frame).toMatch(/needs 116◌ Re/);
+    expect(frame).toContain("Refined  DIPO-116 Refined, not Ready yet: 2 unknowns");
+    expect(frame).toContain("116◌ → 454");
+  });
+
   it("draws the arrows and marks of the chain with the ascii twins", async () => {
     const { snapshot, chain, gates } = queueScenario();
     const view = await mount({

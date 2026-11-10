@@ -23,6 +23,7 @@ import type { Clock, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 
 import {
   type ModelUsageLedger,
+  CAP_REFUSAL,
   ModelUseCapped,
   type ProxyAccount,
   type ProxyOwner,
@@ -30,6 +31,7 @@ import {
 import type { OfficeHandle } from "../db/office";
 
 import { isUncapped, REVIEWER_ROLE, reviewTotals, runCaps, runTotals } from "./caps";
+import { recordProxyRefusal } from "./proxy-refusals";
 import { findRun } from "./run-records";
 import {
   feedFinalChanges,
@@ -93,13 +95,18 @@ export function proxiedUsageLedger(deps: ProxiedUsageLedgerDeps): ModelUsageLedg
     open: (owner, model): ProxyAccount => {
       const office = deps.office(owner.office as OfficeId);
       if (office === undefined) throw new Error(`office ${owner.office} is not loaded`);
-      const scope = office.immediate(() => {
+      // The refusal is written apart from the throw, so the write is not rolled back with it.
+      const opened = office.immediate(() => {
         const found = scopeOf(office, owner);
-        if (capReached(office, found))
-          throw new ModelUseCapped(`run ${owner.run} reached its token cap`);
+        if (capReached(office, found)) {
+          recordProxyRefusal(office, found.run as RunId, CAP_REFUSAL, deps.clock.now());
+          return null;
+        }
         openProxiedRow(office, found, model, deps.clock.now());
         return found;
       });
+      if (opened === null) throw new ModelUseCapped(CAP_REFUSAL);
+      const scope = opened;
       return (usage) => {
         const at = deps.clock.now();
         office.immediate(() => {

@@ -10,7 +10,14 @@
 import type { StoryView } from "@dipsaus-orchestrator/contract";
 import { Box } from "ink";
 
-import { type Chain, chainPictureSpans, type GateFacts, needsSpans, shortId } from "./chain";
+import {
+  type Chain,
+  chainPictureSpans,
+  type GateFacts,
+  needsSpans,
+  refinedLines,
+  shortId,
+} from "./chain";
 import { truncate } from "./format";
 import type { Display } from "./options";
 import { cutSpans, focused, type Span, SpanLine, spread } from "./spans";
@@ -288,6 +295,9 @@ function previewLines(input: PreviewInput): Span[][] {
       ? [{ text: "all done", role: "ok" as const }]
       : needsSpans(waitingOn, chain, display.ascii)),
   ]);
+  for (const text of refinedLines(waitingOn, chain)) {
+    lines.push([label("Refined"), { text, role: "acc" }]);
+  }
   const unblocks = node?.unblocks ?? [];
   lines.push([label("Unblocks"), { text: unblocks.length === 0 ? "-" : unblocks.join(", ") }]);
   const touches = gate === undefined || gate === null ? [] : (gate.touches ?? []);

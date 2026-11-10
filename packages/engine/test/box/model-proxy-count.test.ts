@@ -24,6 +24,7 @@ import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import {
   BOX_PLACEHOLDER_API_KEY,
+  CAP_REFUSAL,
   type ListenHttp,
   type ModelUsageLedger,
   type ProxyHandler,
@@ -217,6 +218,13 @@ function ledger(overrides: Partial<ModelUsageLedger> = {}): ModelUsageLedger {
     }),
     ...overrides,
   };
+}
+
+/** The refusals the proxy recorded, oldest first. */
+function refusals(): { run: string; reason: string }[] {
+  return f.office.all<{ run: string; reason: string }>(
+    "select run_id as run, reason from proxy_refusals where office_id = $office_id order by run_id, refusal",
+  );
 }
 
 /** The stored tokens of `run`, summed over its rows. */
@@ -655,6 +663,29 @@ describe("fail closed (criterion 7)", () => {
     expect(upstream.calls).toHaveLength(1);
     // Another run's box is not held by it.
     expect((await handle(boxRequest("/v1/messages"), BOX_B)).status).toBe(200);
+  });
+
+  it("records each refusal it sends against the run its peer address names, never one a header or body names (DIPO-484)", async () => {
+    const upstream = upstreamOf(() => jsonAnswer({ input_tokens: BUDGET, output_tokens: 1 }));
+    const handle = await realProxy(ledger(), upstream.fetch);
+    expect(refusals()).toEqual([]);
+    await handle(boxRequest("/v1/messages"), BOX_A);
+    // BOX_A's run is capped; the request claims the other run in a header and in the body.
+    const claimed = boxRequest(
+      "/v1/messages",
+      { model: "claude-haiku-5-5", run: runB },
+      { "x-dipo-run": runB },
+    );
+    expect((await handle(claimed, BOX_A)).status).toBe(429);
+    expect((await handle(boxRequest("/v1/messages"), BOX_A)).status).toBe(429);
+    expect(refusals()).toEqual([
+      { run: f.run, reason: CAP_REFUSAL },
+      { run: f.run, reason: CAP_REFUSAL },
+    ]);
+    // A request that is passed on, or one from a box no session owns, records no refusal.
+    expect((await handle(boxRequest("/v1/messages"), BOX_B)).status).toBe(200);
+    expect((await handle(boxRequest("/v1/messages"), "192.0.2.99")).status).toBe(403);
+    expect(refusals()).toHaveLength(2);
   });
 
   it("answers 503 instead of the body when an answer's usage cannot be added", async () => {

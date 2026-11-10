@@ -302,3 +302,26 @@ describe("the NEXT UP preview", () => {
     expect(shown.at(-1)).toBe("$ dipo next confirm DIPO-452");
   });
 });
+
+describe("the Refined stories of an item (DIPO-484)", () => {
+  const parked = DeskItem.parse({
+    kind: "PARKED",
+    story: "DIPO-447",
+    reason: "budget-exceeded",
+    detail: "Used 2.0M of 2.0M",
+    since: ago(31),
+    blocks: ["DIPO-448"],
+    refined: [{ story: "DIPO-449", reason: "no test plan" }, { story: "DIPO-450" }],
+    actions: [],
+  });
+
+  it("counts them apart from blocks and names each as Refined, not Ready yet with its first gate failure", () => {
+    const shown = text(previewLines(parked, CTX));
+    expect(shown[0]).toBe("PARKED · budget-exceeded · 31m · blocks 1 · 2 Refined, not Ready yet");
+    expect(shown.some((row) => row.includes("Blocks") && row.includes("DIPO-448"))).toBe(true);
+    expect(shown.some((row) => row.includes("DIPO-449 Refined, not Ready yet: no test plan"))).toBe(
+      true,
+    );
+    expect(shown.some((row) => row.includes("DIPO-450 Refined, not Ready yet"))).toBe(true);
+  });
+});

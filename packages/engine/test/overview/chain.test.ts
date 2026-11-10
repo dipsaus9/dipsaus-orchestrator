@@ -70,3 +70,31 @@ describe("chainOf", () => {
     expect(rows).toHaveLength(1);
   });
 });
+
+describe("chainOf with a Refined dependency (DIPO-484)", () => {
+  const refined = {
+    ...story(470, "refined"),
+    lifecycle: "Refined",
+    gateFailures: [{ rule: "R1", text: "the story has no test plan" }],
+  } as unknown as StoryView;
+
+  it("gives a Refined dependency the state refined with its first gate failure", () => {
+    const { nodes } = chainOf([refined, story(471, "waiting", [470])]);
+    const of = (name: string) => nodes.find((node) => node.story === name);
+    expect(of("DIPO-470")).toMatchObject({
+      state: "refined",
+      reason: "the story has no test plan",
+      unblocks: [id(471)],
+    });
+  });
+
+  it("keeps waiting for a dependency that is itself waiting on another", () => {
+    const { nodes } = chainOf([
+      refined,
+      story(471, "waiting", [470]),
+      story(472, "waiting", [471]),
+    ]);
+    expect(nodes.find((node) => node.story === "DIPO-471")).toMatchObject({ state: "waiting" });
+    expect(nodes.find((node) => node.story === "DIPO-471")?.reason).toBeUndefined();
+  });
+});
