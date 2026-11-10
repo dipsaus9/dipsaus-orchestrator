@@ -377,6 +377,18 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
     args: { proposal: 2 },
     result: { run: ids.run, proposal: 2, state: "declined" },
   },
+  "story.ready": {
+    args: { stories: ["DIPO-31", "DIPO-32"] },
+    result: {
+      queued: ["DIPO-31"],
+      refused: [{ story: "DIPO-32", messages: ["R01a: the story has no acceptance criteria"] }],
+      flush: {
+        state: "opened",
+        branch: "dipo/backlog-20261106T091000",
+        pr: "https://github.com/o/r/pull/8",
+      },
+    },
+  },
   "planning.ready": {
     args: { stories: ["DIPO-31", "DIPO-32"] },
     result: {

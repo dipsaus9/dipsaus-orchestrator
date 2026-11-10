@@ -138,7 +138,7 @@ import type { LaunchedHost } from "../records/worker-hosts";
 import { draftOrigins } from "../records/ideas";
 import { isProvisionalId, resolveStoryRef, type StoryIdentity } from "../records/story-keys";
 import { PlanningRefusedError } from "../story-store/errors";
-import type { GateStore } from "../gate-decisions";
+import { type PlanningGate, readyStories } from "./ready-stories";
 import {
   type PlannedChange,
   type PlannedFiling,
@@ -382,8 +382,7 @@ export interface PlanningSessionsDeps {
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
-/** The part of the Ready gate a planning session uses. */
-export type PlanningGate = Pick<GateStore, "recordGateDecision">;
+export type { PlanningGate };
 
 /** The model session a fresh one continues, and why that one ended. */
 interface Continued {
@@ -879,27 +878,28 @@ export class PlanningSessions {
       const identity = { story: filed.story, key: filed.key };
       if (!chosen.some((other) => other.story === identity.story)) chosen.push(identity);
     }
-    const queued: string[] = [];
-    const refused: ReadyResult["refused"] = [];
-    let last: PlannedChange | undefined;
-    for (const identity of chosen) {
-      const before = open.ready.get(identity.story);
-      if (
-        before !== undefined &&
-        before.changes.length > 0 &&
-        this.#readyState(open, before) !== "failed"
-      ) {
-        queued.push(identity.story);
-        continue;
-      }
-      const outcome = await this.#readyOne(open, identity, lane, gate);
-      if (outcome.change === undefined) {
-        refused.push({ story: identity.story, messages: outcome.messages });
-      } else {
-        queued.push(identity.story);
-        last = outcome.change;
-      }
-    }
+    const at = this.#deps.clock.now();
+    const { queued, refused, last } = await readyStories(
+      { office: open.handle, lane, gate },
+      chosen,
+      {
+        settled: (identity) => {
+          const before = open.ready.get(identity.story);
+          return (
+            before !== undefined &&
+            before.changes.length > 0 &&
+            this.#readyState(open, before) !== "failed"
+          );
+        },
+        record: (identity, outcome) =>
+          open.ready.set(identity.story, {
+            story: identity.story,
+            changes: outcome.change === undefined ? [] : [outcome.change],
+            messages: outcome.messages,
+            at,
+          }),
+      },
+    );
     this.#append(open, () => [this.#updated(open)]);
     const flush = last === undefined ? null : await lane.flush(last);
     this.#append(open, () => [this.#updated(open)]);
@@ -912,55 +912,6 @@ export class PlanningSessions {
       },
       changed: true,
     };
-  }
-
-  /** The gate for one chosen story and, when it passes, the lane change that sets it Ready. */
-  async #readyOne(
-    open: Open,
-    identity: { readonly story: string; readonly key: StoryKey | null },
-    lane: PlanningLane,
-    gate: PlanningGate,
-  ): Promise<{ change?: PlannedChange; messages: string[] }> {
-    const at = this.#deps.clock.now();
-    const refuse = (messages: string[]) => {
-      open.ready.set(identity.story, { story: identity.story, changes: [], messages, at });
-      return { messages };
-    };
-    const { key } = identity;
-    const notFiledYet = `${identity.story} is not on the base branch yet; set it Ready once the backlog PR that filed it has merged`;
-    if (key === null) {
-      return refuse([notFiledYet]);
-    }
-    if (lane.isOpen(key, REVISE_KIND)) {
-      return refuse([
-        "an edit of it still waits for its backlog PR to merge; set it Ready after that",
-      ]);
-    }
-    let decision;
-    try {
-      decision = await gate.recordGateDecision(open.office, key, "ready");
-    } catch (error) {
-      if (!(error instanceof CommandError) || error.error.code !== "story.unknown") throw error;
-      return refuse([notFiledYet]);
-    }
-    if (!decision.result.passed) {
-      return refuse(
-        decision.result.failures.map((failure) => `${failure.rule}: ${failure.message}`),
-      );
-    }
-    try {
-      const change = await lane.setReady({ key, story: identity.story });
-      open.ready.set(identity.story, {
-        story: identity.story,
-        changes: [change],
-        messages: [],
-        at,
-      });
-      return { change, messages: [] };
-    } catch (error) {
-      if (!(error instanceof PlanningRefusedError)) throw error;
-      return refuse([error.message]);
-    }
   }
 
   /** How far setting one story Ready got, from the lane. */
