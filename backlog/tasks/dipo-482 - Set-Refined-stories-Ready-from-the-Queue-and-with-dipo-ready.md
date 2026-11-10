@@ -1,10 +1,10 @@
 ---
 id: DIPO-482
 title: Set Refined stories Ready from the Queue and with dipo ready
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 15:30'
-updated_date: '2026-11-10 15:57'
+updated_date: '2026-11-10 17:37'
 labels:
   - 'tier:M'
 milestone: m-3
