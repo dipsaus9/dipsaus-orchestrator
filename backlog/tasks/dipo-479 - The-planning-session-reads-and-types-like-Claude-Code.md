@@ -1,10 +1,10 @@
 ---
 id: DIPO-479
 title: 'Type and move in the planning view like Claude Code: Enter sends, Plan on 5'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 15:21'
-updated_date: '2026-11-10 16:50'
+updated_date: '2026-11-10 17:02'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -20,6 +20,31 @@ references:
   - docs/design/tui-v2/keymap.json
   - docs/design/tui-v2/migration.md
   - docs/decisions/0009-tui.md
+modified_files:
+  - docs/decisions/0009-tui.md
+  - docs/design/tui-v2/keymap.json
+  - docs/design/tui-v2/migration.md
+  - docs/design/tui-v2/screens/05-queue.txt
+  - docs/design/tui-v2/screens/06-retro.txt
+  - docs/design/tui-v2/screens/07-plan.txt
+  - docs/design/tui-v2/screens/13-keys-overlay.txt
+  - docs/design/tui-v2/spec.md
+  - packages/tui/src/app.tsx
+  - packages/tui/src/composer.test.tsx
+  - packages/tui/src/composer.tsx
+  - packages/tui/src/footer.test.ts
+  - packages/tui/src/home.tsx
+  - packages/tui/src/keys.ts
+  - packages/tui/src/mode.ts
+  - packages/tui/src/palette.test.tsx
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/proposal-form.test.ts
+  - packages/tui/src/proposal-form.ts
+  - packages/tui/src/queue.test.tsx
+  - packages/tui/src/queue.tsx
+  - packages/tui/src/retro.test.tsx
+  - packages/tui/src/retro.tsx
 priority: high
 type: feature
 ordinal: 451000
@@ -96,3 +121,18 @@ test_plan:
 - [x] #4 keymap.json, the keys overlay and the footer hold the story's key table
 - [x] #5 ADR 0009's section 3 first line, section 4's R row and the Global keys line describe key 5, Enter to send and r for run now, with one Replaced line for Ctrl-S, Ctrl-E, P and R
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-10 17:02 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 162,268 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
