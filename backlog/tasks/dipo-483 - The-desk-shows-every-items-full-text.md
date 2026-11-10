@@ -1,10 +1,10 @@
 ---
 id: DIPO-483
 title: The desk shows every item's full text
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 15:36'
-updated_date: '2026-11-10 17:11'
+updated_date: '2026-11-10 17:14'
 labels:
   - 'tier:S'
 milestone: m-6
@@ -60,10 +60,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 office.desk carries each item's full cleaned detail and hand text beside the one-line row form; the 300-character cut is gone outside the list row
-- [ ] #2 The desk preview shows the full text wrapped at the pane width, scrollable when taller than the pane, never cut
-- [ ] #3 dipo desk prints each item's full text, and dipo desk --json carries it whole
-- [ ] #4 A worker report whose summary holds a raw question parameter fragment and no question field parks with the question taken from after the fragment, and no tag text reaches the park, the desk or the task
+- [x] #1 office.desk carries each item's full cleaned detail and hand text beside the one-line row form; the 300-character cut is gone outside the list row
+- [x] #2 The desk preview shows the full text wrapped at the pane width, scrollable when taller than the pane, never cut
+- [x] #3 dipo desk prints each item's full text, and dipo desk --json carries it whole
+- [x] #4 A worker report whose summary holds a raw question parameter fragment and no question field parks with the question taken from after the fragment, and no tag text reaches the park, the desk or the task
 <!-- AC:END -->
 
 ## Implementation Notes
