@@ -1,4 +1,4 @@
-// dipo updates itself from the base commit of an office (DIPO-485, 0005 section 19, 0016). When an
+// dipo updates itself from the base commit of an office (DIPO-485, 0005, 0016). When an
 // office's base has engine commits after the running build and nothing runs, the desk offers the
 // update; its command pauses new starts, checks the base commit out in a dipo-owned worktree under
 // `<state>/update`, runs `bun install --frozen-lockfile` and the repository's build script there,

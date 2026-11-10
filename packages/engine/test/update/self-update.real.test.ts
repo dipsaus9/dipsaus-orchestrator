@@ -58,9 +58,7 @@ async function run(
 }
 
 async function setup(repo: TempRepo, options: { build: string; stale?: boolean }) {
-  const { tip, env } = await office(repo, options.build, {
-    ...(options.stale === undefined ? {} : { stale: options.stale }),
-  });
+  const { tip, env } = await office(repo, options.build, { stale: options.stale === true });
   const home = join(repo.root, "state");
   const binary = join(repo.root, "dipo");
   Bun.spawnSync(["mkdir", "-p", home]);
