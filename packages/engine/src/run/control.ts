@@ -403,6 +403,7 @@ export class RunControl implements RunEnder {
         outcomes.onPlanLimit(viewOf(tracked), {
           credits: event.creditsRequired === true,
           ...(event.resetsAt === undefined ? {} : { resetsAt: event.resetsAt }),
+          ...(event.http429 === true ? { http429: true as const } : {}),
         });
         return;
       }
@@ -444,7 +445,10 @@ export class RunControl implements RunEnder {
         outcomes?.answered(viewOf(tracked));
         if (event.problem?.kind === "planLimit" && outcomes !== undefined) {
           if (toGate && refused.length > 0) this.#dropProposals(tracked, refused);
-          outcomes.onPlanLimit(viewOf(tracked), { credits: false });
+          outcomes.onPlanLimit(viewOf(tracked), {
+            credits: false,
+            ...(event.problem.http429 === true ? { http429: true as const } : {}),
+          });
           return;
         }
         // A blocked report parks at once (0020).

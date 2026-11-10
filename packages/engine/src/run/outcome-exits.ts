@@ -24,6 +24,7 @@ import {
   type RunView,
 } from "./outcome-types";
 import { findRun, type StoredRun } from "../records/run-records";
+import { proxyRefusalOf } from "../records/proxy-refusals";
 import { planLimitPause } from "./starts-paused";
 
 export class ExitOutcomes {
@@ -191,6 +192,15 @@ export class ExitOutcomes {
         );
         return;
       case "plan-limit": {
+        // A 429 the model proxy sent at the run's token cap is that cap, not the plan (DIPO-484).
+        const refusal =
+          result.http429 === true
+            ? proxyRefusalOf(office, run.runId, agent, this.#deps.clock.now())
+            : null;
+        if (refusal !== null) {
+          await park({ intent: "cap", reason: "budget-exceeded", detail: refusal });
+          return;
+        }
         // An exit the adapter reads as a plan limit, with no event that named its reset (0020).
         const pause = planLimitPause({ credits: false }, this.#deps.clock.now());
         this.#deps.startsPaused?.()?.pausePlanLimit(view.office, pause);

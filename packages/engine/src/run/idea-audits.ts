@@ -317,8 +317,20 @@ export class IdeaAudits {
     const batch = due.slice(0, AUDIT_BATCH_MAX);
     for (const idea of batch) tried.add(idea.id);
     const left = due.length > batch.length;
-    const rest = this.#codeFirst(office, handle, batch);
-    if (rest.length > 0) await this.#session(office, handle, settings, rest);
+    try {
+      const rest = this.#codeFirst(office, handle, batch);
+      if (rest.length > 0) await this.#session(office, handle, settings, rest);
+    } catch (error) {
+      // A failure the audit did not catch itself stays with the ideas it left held, so `dipo ideas`
+      // names it (DIPO-484).
+      this.#missed(
+        office,
+        handle,
+        batch.map((idea) => idea.id),
+        `the audit failed: ${messageOf(error)}`,
+        null,
+      );
+    }
     return left;
   }
 

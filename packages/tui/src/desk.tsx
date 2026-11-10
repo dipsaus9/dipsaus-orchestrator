@@ -295,8 +295,13 @@ export interface RowFacts {
 /** A row's title and second row (spec.md, Row): the story with its title, then the reason and blocks. */
 export function rowFacts(item: DeskItem, storyTitle: string | null, dot: string): RowFacts {
   const story = item.story === undefined ? null : String(item.story);
-  const blocks = item.blocks.length === 0 ? "" : `blocks ${item.blocks.length}`;
   const join = (...parts: string[]) => parts.filter((part) => part !== "").join(` ${dot} `);
+  // Refined stories wait for the maintainer, so they are not counted as blocked (DIPO-484).
+  const refined = item.refined?.length ?? 0;
+  const blocks = join(
+    item.blocks.length === 0 ? "" : `blocks ${item.blocks.length}`,
+    refined === 0 ? "" : `${refined} Refined, not Ready yet`,
+  );
   if (item.kind === "PROFILE")
     return { title: item.detail, second: "blocks every story in this office" };
   if (item.idea !== undefined) {

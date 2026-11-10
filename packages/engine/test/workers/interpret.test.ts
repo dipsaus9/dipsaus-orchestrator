@@ -808,7 +808,7 @@ describe("worker outcomes (DIPO-51)", () => {
     ]);
     const limit = events.findIndex((event) => event.t === "limit");
     const turn = events.findIndex((event) => event.t === "turn");
-    expect(events[limit]).toEqual({ t: "limit", status: "rejected" });
+    expect(events[limit]).toEqual({ t: "limit", status: "rejected", http429: true });
     expect(limit).toBeLessThan(turn);
     expect((events[turn] as Extract<WorkerEvent, { t: "turn" }>).problem?.kind).toBe("planLimit");
   });

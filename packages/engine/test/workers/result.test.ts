@@ -85,6 +85,8 @@ describe("result rows without a recording (0008)", () => {
     const res = result(state, OK);
     expect(res.outcome).toBe("plan-limit");
     expect(res.park).toBeUndefined();
+    // A real plan rejection is never an HTTP 429 the proxy could have sent (DIPO-484).
+    expect(res.http429).toBeUndefined();
   });
 
   it("a turn ended by a 429 gives plan-limit with no park", () => {
@@ -100,6 +102,39 @@ describe("result rows without a recording (0008)", () => {
     const res = result(state, { code: 1, signal: null });
     expect(res.outcome).toBe("plan-limit");
     expect(res.park).toBeUndefined();
+  });
+
+  it("a turn ended by a 429 is a plan-limit that may be the proxy's own 429 (DIPO-484)", () => {
+    const state = feed([
+      resultLine({
+        subtype: "error_during_execution",
+        is_error: true,
+        terminal_reason: "error",
+        api_error_status: 429,
+        structured_output: undefined,
+      }),
+    ]);
+    expect(result(state, { code: 1, signal: null }).http429).toBe(true);
+  });
+
+  it("an assistant rate_limit error gives plan-limit that may be the proxy's own 429 (DIPO-484)", () => {
+    const state = feed([
+      out({
+        type: "assistant",
+        message: {
+          model: MODEL,
+          id: "msg-1",
+          content: [],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+        error: "rate_limit",
+        parent_tool_use_id: null,
+      }),
+      resultLine({ structured_output: undefined }),
+    ]);
+    const res = result(state, OK);
+    expect(res.outcome).toBe("plan-limit");
+    expect(res.http429).toBe(true);
   });
 
   it("error_max_structured_output_retries: blocked, no report, one correction turn before worker-failed", () => {

@@ -224,6 +224,8 @@ export interface ExitContext {
 export interface PlanLimitHit {
   readonly credits: boolean;
   readonly resetsAt?: string;
+  /** The limit is an HTTP 429, which dipo's model proxy sends at a run's token cap too (DIPO-484). */
+  readonly http429?: true;
 }
 
 /** The office's starts paused as worker outcomes and the review rounds tell it of a plan limit. */

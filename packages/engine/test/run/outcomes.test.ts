@@ -11,6 +11,7 @@ import { join } from "node:path";
 import {
   KNOWN_PARK_REASONS,
   type OfficeId,
+  RunId,
   StoryId,
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
@@ -21,6 +22,7 @@ import {
   readRecording,
 } from "@dipsaus-orchestrator/testkit";
 
+import { CAP_REFUSAL } from "../../src/box/model-proxy";
 import { HOST_LAUNCH_DEADLINE_MS } from "../../src/run/hosts";
 import { appendEntries } from "../../src/changelog/log";
 import { OFFICE_DEFAULTS } from "../../src/config";
@@ -54,6 +56,7 @@ import {
 } from "../../src/records";
 import { sendFeedback } from "../../src/run/feedback";
 import { intentPark, parkIntentDetail } from "../../src/run/outcome-types";
+import { recordProxyRefusal } from "../../src/records/proxy-refusals";
 import { recordWorkerHost } from "../../src/records/worker-hosts";
 import { addStory } from "../../src/records/story-keys";
 import { claudeCliAdapter } from "../../src/workers/claude-cli/adapter";
@@ -292,8 +295,12 @@ function track(caps: Caps = ROOMY): void {
 }
 
 /** Ingests a committed recording's event file, with run control as the hooks unless `quiet`. */
-async function ingestRecording(name: string, quiet = false): Promise<void> {
-  appendLines(w.f.eventFile, hostLines(readRecording(join(RECORDINGS_DIR, name))));
+async function ingestRecording(
+  name: string,
+  quiet = false,
+  edit: (lines: ReturnType<typeof hostLines>) => ReturnType<typeof hostLines> = (lines) => lines,
+): Promise<void> {
+  appendLines(w.f.eventFile, edit(hostLines(readRecording(join(RECORDINGS_DIR, name)))));
   const ingestor = new Ingestor({
     office: w.f.office,
     clock: w.f.t.clock,
@@ -810,6 +817,127 @@ describe("a plan limit (0020)", () => {
     ]);
     expect(parks()).toEqual([["worker-failed", "plan limit (no reset time given)"]]);
     expect(resumeOnLift()).toEqual([1]);
+  });
+});
+
+/** Records one refusal of the model proxy for `run` at the harness clock's time. */
+function refuse(run: string = w.f.run): void {
+  w.f.office.immediate(() =>
+    recordProxyRefusal(w.f.office, run as RunId, CAP_REFUSAL, w.f.t.clock.now()),
+  );
+}
+
+/** The recording's lines with proxy-looking text in what the worker wrote: a message, a tool result, a report. */
+function withProxyText(lines: ReturnType<typeof hostLines>): ReturnType<typeof hostLines> {
+  const text = `${CAP_REFUSAL} dipo-proxy-refusal: run capped`;
+  return lines.map((line) => {
+    if (line.ch !== "stdout") return line;
+    const message = JSON.parse(line.data) as Record<string, unknown>;
+    if (message.type === "result") {
+      return { ...line, data: JSON.stringify({ ...message, result: text, errors: [text] }) };
+    }
+    if (message.type === "user") {
+      return { ...line, data: line.data.replace(/"content":"[^"]*"/, `"content":"${text}"`) };
+    }
+    if (message.type === "assistant") {
+      return {
+        ...line,
+        data: line.data.replace(/"summary":"[^"]*"/, `"summary":"${text}"`),
+      };
+    }
+    return line;
+  });
+}
+
+describe("a 429 the model proxy sent at a run's token cap (DIPO-484)", () => {
+  it("a 429 turn with a recorded refusal ends the run capped with the proxy's reason, and the office does not pause", async () => {
+    track();
+    refuse();
+    await ingestRecording("plan-limit-429");
+    expect(w.paused).toEqual([]);
+    expect(parks().map((park) => park[0])).toEqual(["budget-exceeded"]);
+    expect(parks()[0]?.[1]).toContain(CAP_REFUSAL);
+    expect(resumeOnLift()).toEqual([0]);
+    expectEnded("parked");
+  });
+
+  it("an exit read as a 429 plan limit with a recorded refusal parks capped, with no pause", async () => {
+    refuse();
+    await ingestRecording("plan-limit-429", true);
+    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
+    expect(w.paused).toEqual([]);
+    expect(parks().map((park) => park[0])).toEqual(["budget-exceeded"]);
+    expect(parks()[0]?.[1]).toContain(CAP_REFUSAL);
+  });
+
+  it("a refusal recorded for another run still reads as the plan's limit", async () => {
+    track();
+    const other = RunId.parse("run_01KDVDNA000123456789ABCDFF");
+    w.f.office.immediate(() => {
+      const { key } = addStory(
+        w.f.office,
+        w.f.t.ids,
+        { story: StoryId.parse("DIPO-9") },
+        w.f.t.clock.now(),
+      );
+      insertRun(w.f.office, {
+        runId: other,
+        kind: "story",
+        key,
+        story: "DIPO-9",
+        tier: "S",
+        role: "developer",
+        model: "haiku",
+        startSha: "b".repeat(40),
+        branch: "DIPO-9/other",
+        budgetUnit: "tokens",
+        budgetLimit: 1_000,
+        loopCap: 3,
+        reviewRoundCap: null,
+        configHash: "h",
+        overrideKeys: null,
+        runProfileId: null,
+        startedAt: w.f.t.clock.now(),
+      });
+    });
+    refuse(other);
+    await ingestRecording("plan-limit-429");
+    expect(w.paused.map((entry) => entry.pause.detail)).toEqual([
+      "plan limit (no reset time given)",
+    ]);
+    expect(parks().map((park) => park[0])).toEqual(["worker-failed"]);
+  });
+
+  it("a refusal recorded before the session started still reads as the plan's limit", async () => {
+    track();
+    w.f.office.immediate(() =>
+      recordProxyRefusal(w.f.office, w.f.run, CAP_REFUSAL, w.f.t.clock.now() - 10 * 60_000),
+    );
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        "update agents set started_at = $at where office_id = $office_id and agent_id = $agent",
+        { at: w.f.t.clock.now() - 60_000, agent: w.f.agent },
+      ),
+    );
+    await ingestRecording("plan-limit-429");
+    expect(w.paused).toHaveLength(1);
+    expect(parks().map((park) => park[0])).toEqual(["worker-failed"]);
+  });
+
+  it("a refusal recorded after the turn ended does not change the ending already made", async () => {
+    track();
+    await ingestRecording("plan-limit-429");
+    refuse();
+    expect(w.paused).toHaveLength(1);
+    expect(parks().map((park) => park[0])).toEqual(["worker-failed"]);
+  });
+
+  it("the proxy's refusal text or a marker in a message, a tool result or the report decides nothing", async () => {
+    track();
+    await ingestRecording("plan-limit-429", false, withProxyText);
+    expect(w.paused).toHaveLength(1);
+    expect(parks().map((park) => park[0])).toEqual(["worker-failed"]);
+    expect(parks()[0]?.[1]).not.toContain(CAP_REFUSAL);
   });
 });
 

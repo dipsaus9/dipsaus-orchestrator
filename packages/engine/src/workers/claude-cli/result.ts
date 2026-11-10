@@ -13,7 +13,12 @@ import type {
   WorkerResult,
   WorkerRetry,
 } from "../types";
-import { currentTotals, type ClaudeParseState } from "./interpret";
+import {
+  ASSISTANT_429_LIMIT,
+  type ClaudeParseState,
+  currentTotals,
+  TURN_429_LIMIT,
+} from "./interpret";
 
 /** Exit code of a Claude process ended by SIGTERM (0008). */
 export const SIGTERM_EXIT_CODE = 143;
@@ -26,6 +31,7 @@ interface Decision {
   readonly park?: { readonly reason: ParkReason; readonly detail: string };
   readonly retry?: WorkerRetry;
   readonly detail?: string;
+  readonly http429?: true;
 }
 
 function exitText(exit: ExitRecord): string {
@@ -56,7 +62,14 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
   if (state.startFailure !== null)
     return { outcome: "startFailed", report: null, detail: state.startFailure };
   // Plan limits wait for the reset; never a park.
-  if (state.planLimit !== null) return { outcome: "plan-limit", report: null };
+  if (state.planLimit !== null)
+    return {
+      outcome: "plan-limit",
+      report: null,
+      ...(state.planLimit === ASSISTANT_429_LIMIT || state.planLimit === TURN_429_LIMIT
+        ? { http429: true as const }
+        : {}),
+    };
   if (state.capped !== null) {
     return {
       outcome: "capped",
@@ -194,5 +207,6 @@ export function result(state: ClaudeParseState, exit: ExitRecord): WorkerResult 
     ...(decision.park === undefined ? {} : { park: decision.park }),
     ...(decision.retry === undefined ? {} : { retry: decision.retry }),
     ...(decision.detail === undefined ? {} : { detail: decision.detail }),
+    ...(decision.http429 === true ? { http429: true as const } : {}),
   };
 }
