@@ -504,6 +504,28 @@
       "priority": 1
     },
     {
+      "id": "markReady",
+      "key": "space",
+      "label": "mark",
+      "views": [
+        "queue"
+      ],
+      "when": "a Refined row; marks or unmarks it for Y",
+      "priority": 3
+    },
+    {
+      "id": "queueReady",
+      "key": "Y",
+      "label": "set Ready",
+      "command": "story.ready",
+      "views": [
+        "queue"
+      ],
+      "when": "marked Refined rows, or the focused Refined row",
+      "confirm": "one prompt that lists the stories; y sets each one that passes the Ready gate, the others stay Refined with the gate's messages",
+      "priority": 1
+    },
+    {
       "id": "drop",
       "key": "X",
       "label": "drop",

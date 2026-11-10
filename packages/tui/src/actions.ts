@@ -28,7 +28,13 @@
 // `changed: false` ends at once with "already so; nothing changed", such as a resume of a story
 // that already runs.
 
-import { cursorReached, type OfficeStore, storyRef } from "@dipsaus-orchestrator/client";
+import {
+  cursorReached,
+  type OfficeStore,
+  type ReadyResult,
+  readyLines,
+  storyRef,
+} from "@dipsaus-orchestrator/client";
 import {
   type Cursor,
   type EngineError,
@@ -39,6 +45,7 @@ import {
   type RequestId,
   type ResumeBudget,
   ResumeConfirmDetails,
+  storyReady,
 } from "@dipsaus-orchestrator/contract";
 import type { Key } from "ink";
 import { useEffect, useState } from "react";
@@ -84,6 +91,8 @@ export interface LossesRequest {
 export interface ActionTarget {
   /** The story id, sent as the story reference. */
   readonly story?: string;
+  /** The stories a `ready` action sets Ready, in the order the Queue lists them (DIPO-482). */
+  readonly stories?: readonly string[];
   readonly question?: string;
   readonly gate?: string;
   /** The decision note a dismiss is about (DIPO-404). */
@@ -166,6 +175,8 @@ export interface ActionState {
   readonly verb: string;
   /** The desk row it was started on (`ActionTarget.row`). */
   readonly row?: string;
+  /** What `story.ready` answered, for the Queue's result lines (DIPO-482). */
+  readonly ready?: ReadyResult;
 }
 
 /** What a sent flow's state starts with: its label, request, verb and row. */
@@ -186,6 +197,7 @@ const VERBS: Readonly<Record<ActionId, string>> = {
   resume: "resume",
   discard: "discard",
   drop: "drop",
+  ready: "set Ready",
   park: "park",
   test: "test",
   accept: "accept",
@@ -311,6 +323,14 @@ function inputStepsOf(id: ActionId, target: ActionTarget, story: string): Step[]
       return [{ kind: "losses", command: "story.drop" }, { kind: "drop" }];
     case "park":
       return [{ kind: "text", field: "note", label: `park note for ${story}` }];
+    case "ready":
+      // One confirm that lists every story (DIPO-482); the engine's gate decides each one.
+      return [
+        {
+          kind: "yesno",
+          question: `Set ${(target.stories ?? []).join(", ")} Ready? Each one that passes the Ready gate goes into a backlog PR; the others stay Refined.`,
+        },
+      ];
     case "steer":
       return [{ kind: "text", field: "text", label: "steer text" }];
     case "fail":
@@ -331,6 +351,17 @@ function inputStepsOf(id: ActionId, target: ActionTarget, story: string): Step[]
   }
 }
 
+/** `DIPO-1, DIPO-2`, or a count when there are many. */
+function storiesLabel(stories: readonly string[]): string {
+  return stories.length <= 3 ? stories.join(", ") : `${stories.length} stories`;
+}
+
+/** The result of a `story.ready` reply, when it parses. */
+function readyOf(result: unknown): ReadyResult | undefined {
+  const parsed = storyReady.result.safeParse(result);
+  return parsed.success ? parsed.data : undefined;
+}
+
 /** A new flow for the action `id` on `target`. */
 export function startFlow(
   id: ActionId,
@@ -349,7 +380,9 @@ export function startFlow(
         ? "decision note"
         : id === "idea"
           ? "a quick idea"
-          : (target.story ?? "");
+          : id === "ready"
+            ? storiesLabel(target.stories ?? [])
+            : (target.story ?? "");
   return {
     id,
     office,
@@ -415,6 +448,9 @@ export function requestOf(flow: Flow, requestId: RequestId): CommandRequest {
     case "stop":
       args = { ...story, ...note };
       break;
+    case "ready":
+      args = { stories: target.stories ?? [] };
+      break;
     default:
       args = story;
   }
@@ -439,12 +475,26 @@ export interface ActionDeps {
   readonly ellipsis: string;
 }
 
+/** `2 set, 1 refused` for the footer; the lines are in the Queue. */
+function readySummary(result: ReadyResult): string {
+  const lines = readyLines(result);
+  const refused = lines.filter((line) => line.state === "refused").length;
+  const set = lines.length - refused;
+  return [set > 0 ? `${set} set` : null, refused > 0 ? `${refused} refused` : null]
+    .filter((part) => part !== null)
+    .join(", ");
+}
+
 /** What an action's reply adds to its done line. */
 function replyNote(flow: Flow, result: unknown): string | undefined {
   if (typeof result !== "object" || result === null) return undefined;
   if (flow.id === "test") {
     const checkout = (result as { checkout?: unknown }).checkout;
     return typeof checkout === "string" ? `checkout ${checkout}` : undefined;
+  }
+  if (flow.id === "ready") {
+    const ready = readyOf(result);
+    return ready === undefined ? undefined : readySummary(ready);
   }
   if (flow.id !== "accept") return undefined;
   // `draft-31 in backlog PR #612` (DIPO-459): the draft and the PR the lane filed it in.
@@ -504,13 +554,20 @@ export function useActions(deps: ActionDeps) {
       }
       // `changed: false`: the state already matched and nothing was written, so there is no write to
       // wait for (0005, 0009).
+      const ready = sent.id === "ready" ? readyOf(outcome.result) : undefined;
       if (!outcome.changed) {
-        setAction({ ...sentState(sent, request), status: "done", unchanged: true });
+        setAction({
+          ...sentState(sent, request),
+          status: "done",
+          unchanged: true,
+          ...(ready === undefined ? {} : { ready }),
+        });
         return;
       }
       const note = replyNote(sent, outcome.result);
       setAction({
         ...sentState(sent, request),
+        ...(ready === undefined ? {} : { ready }),
         status: "syncing",
         ...(outcome.cursor === undefined ? {} : { cursor: outcome.cursor }),
         // Live, not the batched state: a re-read before this moment does not count.
@@ -806,7 +863,11 @@ export function useActions(deps: ActionDeps) {
       case "syncing":
         return `${action.label}: answered, waiting for the office stream${ellipsis}`;
       case "done":
-        if (action.unchanged === true) return `${action.label}: already so; nothing changed`;
+        if (action.unchanged === true) {
+          return action.ready === undefined
+            ? `${action.label}: already so; nothing changed`
+            : `${action.label}: ${readySummary(action.ready)}`;
+        }
         return `${action.label}: done${action.note === undefined ? "" : `; ${action.note}`}`;
       case "failed":
         return `${action.label}: ${action.error?.code}: ${action.error?.message}`;

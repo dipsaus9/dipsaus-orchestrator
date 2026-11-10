@@ -150,7 +150,7 @@ describe("queue view", () => {
     expect(ui.frame()).not.toContain("DIPO-24");
     expect(ui.frame()).not.toContain("DRAFT");
     expect(frame.at(-1)).toBe(
-      `p park   X drop   ↑↓ move   ⏎ story   r run   . show done   c copy id${" ".repeat(8)}: commands   ? keys   O offices   q q quit`,
+      `p park   X drop   ↑↓ move   ⏎ story   r run   space mark   . show done${" ".repeat(7)}: commands   ? keys   O offices   q q quit`,
     );
   });
 
@@ -564,5 +564,95 @@ describe("run now on r (DIPO-479)", () => {
     await ui.press("R");
     await Bun.sleep(100);
     expect(session.commands.some((c) => c.name === "work.run")).toBe(false);
+  });
+});
+
+async function openRefined(columns = 120) {
+  const base = goldenSnapshots.get(OFFICES.dipsaus)!;
+  const stories = [
+    queued(501, "Passing story", "refined", { gatePasses: true }),
+    queued(502, "Failing story", "refined", {
+      gateFailures: [failure("R09", "no test plan")],
+    }),
+    queued(503, "Second passing", "refined", { gatePasses: true }),
+    queued(504, "Ready already", "ready"),
+  ];
+  const view = await mount({
+    columns,
+    rows: 30,
+    snapshots: new Map([[OFFICES.dipsaus, { ...base, work: [], stories } as typeof base]]),
+  });
+  mounted.push(view.ui);
+  await view.ui.waitFor("daemon live");
+  await view.ui.press("3");
+  await view.ui.waitFor("REFINED");
+  return view;
+}
+
+describe("setting Refined stories Ready from the Queue (DIPO-482)", () => {
+  const PR = "https://github.com/o/r/pull/8";
+
+  it("shows on each Refined row that the gate passes, or its first failure", async () => {
+    const { ui } = await openRefined();
+    const frame = ui.frame();
+    expect(frame).toMatch(/✓ DIPO-501 +Passing story +M +gate passes/);
+    expect(frame).toMatch(/✗ DIPO-502 +Failing story +M +no test plan/);
+    expect(frame).toMatch(/✓ DIPO-503 +Second passing +M +gate passes/);
+  });
+
+  it("marks with space, lists the marked ones in one confirm on Y, and shows the result per story", async () => {
+    const { ui, session } = await openRefined();
+    // Ready is the first group; move down onto the Refined rows.
+    await ui.press("j");
+    await ui.press(" ");
+    await ui.press("j");
+    await ui.press(" ");
+    await ui.press("j");
+    await ui.press(" ");
+    expect(ui.frame()).toMatch(/ ●✗ DIPO-502/);
+    expect(ui.frame()).toMatch(/▌●✓ DIPO-503/);
+    session.commandReply = (name) =>
+      name === "story.ready"
+        ? {
+            ok: true,
+            changed: true,
+            result: {
+              queued: ["DIPO-501", "DIPO-503"],
+              refused: [{ story: "DIPO-502", messages: ["R09: no test plan"] }],
+              flush: { state: "opened", branch: "dipo/backlog-1", pr: PR },
+            },
+            cursor: { stream: STREAM, seq: 9 },
+          }
+        : undefined;
+    expect(session.commands.filter((sent) => sent.name === "story.ready")).toEqual([]);
+    await ui.press("Y");
+    const asked = await ui.waitFor("Ready?");
+    expect(asked).toContain("Set DIPO-501, DIPO-502, DIPO-503 Ready?");
+    expect(session.commands.filter((sent) => sent.name === "story.ready")).toEqual([]);
+    await ui.press("y");
+    const shown = await ui.waitFor("SET READY");
+    expect(session.commands.find((sent) => sent.name === "story.ready")).toMatchObject({
+      args: { stories: ["DIPO-501", "DIPO-502", "DIPO-503"] },
+    });
+    expect(shown).toContain(`DIPO-501  waiting for the backlog PR ${PR}`);
+    expect(shown).toContain(`DIPO-503  waiting for the backlog PR ${PR}`);
+    expect(shown).toContain("DIPO-502  refused: R09: no test plan");
+    // The marks were used up.
+    expect(shown).not.toMatch(/●[✓✗] DIPO/);
+  });
+
+  it("sets the focused story when none is marked, and marks only Refined rows", async () => {
+    const { ui, session } = await openRefined();
+    // The first row is a Ready story: it cannot be marked, and Y has nothing to set.
+    await ui.press(" ");
+    await ui.waitFor("only a Refined story can be marked");
+    await ui.press("Y");
+    await ui.waitFor("select a Refined story first");
+    await ui.press("j");
+    await ui.press("Y");
+    const asked = await ui.waitFor("Ready?");
+    expect(asked).toContain("Set DIPO-501 Ready?");
+    await ui.press("n");
+    expect(session.commands.filter((sent) => sent.name === "story.ready")).toEqual([]);
   });
 });

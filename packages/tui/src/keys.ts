@@ -30,6 +30,7 @@ export type ActionId =
   | "resume"
   | "discard"
   | "drop"
+  | "ready"
   | "park"
   | "test"
   | "accept"
@@ -216,6 +217,16 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     views: ["desk", "queue"],
   },
   {
+    id: "ready",
+    why: "nothing to set Ready",
+    label: "set Ready",
+    priority: 85,
+    command: "story.ready",
+    when: offered("story.ready"),
+    key: "Y",
+    views: ["queue"],
+  },
+  {
     id: "discard",
     button: "Discard…",
     why: "nothing to discard",
@@ -330,7 +341,7 @@ export function viewKeys(view: ActionView, ctx?: RowContext): KeyBinding[] {
       entry.views.includes(view) &&
       (ctx === undefined || entry.when(ctx)) &&
       (view !== "detail" || entry.id === "steer" || entry.id === "park") &&
-      (view !== "queue" || entry.id === "park" || entry.id === "drop") &&
+      (view !== "queue" || entry.id === "park" || entry.id === "drop" || entry.id === "ready") &&
       (view !== "desk" || entry.id === "idea"),
   );
 }
@@ -717,6 +728,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   { id: "queueMove", key: "↑↓", label: "move", views: ["queue"], priority: 30 },
   { id: "queueStory", key: "⏎", label: "story", views: ["queue"], priority: 60 },
   { id: "queueRun", key: "r", label: "run", views: ["queue"], priority: 70 },
+  { id: "queueMark", key: "space", label: "mark", views: ["queue"], priority: 65 },
   { id: "queueDone", key: ".", label: "show done", views: ["queue"], priority: 20 },
   {
     id: "queueCopy",

@@ -28,6 +28,7 @@
                                                               [faint]│[/]
                                                               [faint]│[/]
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-[acc]↑↓[/] move   [acc]r[/] run now   [acc]p[/] park   [acc]X[/] drop   [acc]⏎[/] story   [acc].[/] done                                       [dim][acc]/[/] filter   [acc]?[/] keys[/]
+[acc]↑↓[/] move   [acc]r[/] run now   [acc]p[/] park   [acc]X[/] drop   [acc]space[/] mark   [acc]Y[/] set Ready   [acc]⏎[/] story   [acc].[/] done      [dim][acc]/[/] filter   [acc]?[/] keys[/]
 --- notes ---
+space marks a Refined row (acc ● left of the glyph); Y sets the marked rows, or the focused one, Ready after one confirm. A Refined row whose gate passes shows ✓ and "gate passes" (ok) in the reason column. The result of Y is listed under the list as SET READY.
 needs NNN✗ = the dependency is parked (yours to clear) · needs NNN→ = the dependency is moving by itself.
