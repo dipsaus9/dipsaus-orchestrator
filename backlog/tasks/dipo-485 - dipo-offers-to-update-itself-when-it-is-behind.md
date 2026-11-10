@@ -1,10 +1,10 @@
 ---
 id: DIPO-485
 title: dipo offers to update itself when it is behind
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 15:36'
-updated_date: '2026-11-10 16:56'
+updated_date: '2026-11-10 17:05'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -21,6 +21,44 @@ references:
   - docs/decisions/0016-ci-release-and-versioning.md
   - docs/decisions/0005-command-and-event-model.md
   - docs/decisions/0004-language-and-runtime.md
+modified_files:
+  - docs/decisions/0004-language-and-runtime.md
+  - docs/decisions/0005-command-and-event-model.md
+  - docs/decisions/0016-ci-release-and-versioning.md
+  - packages/cli/src/daemon-commands.test.ts
+  - packages/cli/src/daemon-commands.ts
+  - packages/cli/src/index.ts
+  - packages/cli/src/update-command.test.ts
+  - packages/cli/src/update-command.ts
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/definition.test.ts
+  - packages/contract/src/errors.ts
+  - packages/contract/src/office.ts
+  - packages/contract/src/software.ts
+  - packages/contract/test/fixtures.ts
+  - packages/daemon/src/foreground.ts
+  - packages/daemon/src/upgrade.ts
+  - packages/engine/src/create/commands.ts
+  - packages/engine/src/create/control.ts
+  - packages/engine/src/create/deps.ts
+  - packages/engine/src/create/engine-behind.ts
+  - packages/engine/src/create/lifecycle.ts
+  - packages/engine/src/create/steps.ts
+  - packages/engine/src/create/surface.ts
+  - packages/engine/src/create/update-service.ts
+  - packages/engine/src/git/build-commit.ts
+  - packages/engine/src/overview/desk.ts
+  - packages/engine/src/update/self-update.ts
+  - packages/engine/test/create/control.test.ts
+  - packages/engine/test/create/engine-behind.test.ts
+  - packages/engine/test/git/build-commit.test.ts
+  - packages/engine/test/overview/desk.test.ts
+  - packages/engine/test/update/self-update.real.test.ts
+  - packages/engine/test/update/self-update.test.ts
+  - test/self-update/self-update-adr.test.ts
+  - tools/lint/oxlint-plugin.js
 priority: medium
 type: feature
 ordinal: 457000
@@ -75,3 +113,18 @@ test_plan:
 - [x] #6 dipo update sends the same command and prints its result
 - [x] #7 ADR 0016's self-update line (101) and ADR 0005's Upgrades line (192) describe the update from the base, each with one Replaced line beside 0005's auto-restart line (211), and upgrade.ts's header no longer says the daemon never restarts itself
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-10 17:05 UTC
+- Criteria met: 7 of 7 (as the worker reported them)
+- Loops: 0; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 291,004 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->
