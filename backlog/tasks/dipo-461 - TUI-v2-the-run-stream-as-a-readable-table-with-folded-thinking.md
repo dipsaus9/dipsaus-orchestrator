@@ -1,10 +1,10 @@
 ---
 id: DIPO-461
 title: 'TUI v2: the run stream as a readable table with folded thinking'
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-11-06 14:12'
-updated_date: '2026-11-09 22:40'
+updated_date: '2026-11-10 08:11'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -32,7 +32,10 @@ Design: docs/design/tui-v2/ (spec.md, screens/, keymap.json, roles.json, migrati
 
 ```dipo
 branch: "DIPO-461/tui-v2-run-stream"
-unknowns: []
+unknowns:
+  - q: "Criterion 9 (finished stream lines render with Ink Static) conflicts with the fixed-height scrolling stream pane on the alternate screen: Static output goes above the frame, and it cannot be scrolled, filtered by tab or paused. May I change criterion 9 to \"finished stream lines are memoised and never re-render\" (the current implementation), and reword spec.md and migration.md to match? Or do you want Static used anyway, for example only in the inline mode (`--inline`)?"
+    status: "resolved"
+    answer: "Yes: change criterion 9 to finished stream lines are memoised and never re-render; keep the scrolling pane"
 test_plan:
   entries:
     - kind: "automated"
@@ -42,10 +45,6 @@ test_plan:
     - kind: "manual"
       check: "Watch a running story with Enter on the Floor next to designs/dipo-ux-spec.html S3, then steer it with s"
       expect: "Left column, filter tabs, stream table, folded thinking, says and verdict lines, the steer Composer and the you line match the HTML preview side by side"
-park:
-  reason: "ambiguous-spec"
-  from: "In Progress"
-  note: "Criterion 9 (finished stream lines render with Ink Static) conflicts with the fixed-height scrolling stream pane on the alternate screen: Static output goes above the frame, and it cannot be scrolled, filtered by tab or paused. May I change criterion 9 to \"finished stream lines are memoised and never re-render\" (the current implementation), and reword spec.md and migration.md to match? Or do you want Static used anyway, for example only in the inline mode (`--inline`)?"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -73,4 +72,6 @@ Parked 2026-11-09 22:40 UTC: ambiguous-spec
 - Review rounds: 1, failed 1 of 3
 - Budget used: 314,473 of 800,000 tokens; 111 of 200 turns; 18 of 90 minutes
 - Last good commit: 73331b45656f0105704fdc787272c2fcea6fe80e
+
+Resumed 2026-11-10 08:11 UTC; grants: none; note: Yes: change criterion 9 to finished stream lines are memoised and never re-render; keep the scrolling pane
 <!-- SECTION:NOTES:END -->
