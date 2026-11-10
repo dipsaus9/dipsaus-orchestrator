@@ -3,7 +3,7 @@
 // Whatever fails, the old binary stays byte for byte and the daemon stays on it, starts allowed.
 
 import { describe, expect, it } from "bun:test";
-import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
@@ -23,9 +23,19 @@ const OLD = "#!/bin/sh\necho old\n";
 
 /** A repository whose `build` script is `build`, with a lockfile that matches its package.json. */
 async function office(repo: TempRepo, build: string, options: { stale?: boolean } = {}) {
+  // Two local packages, so the lockfile exists with no network: the stale case adds the second.
+  for (const name of ["dep-a", "dep-b"]) {
+    mkdirSync(join(repo.dir, name), { recursive: true });
+    writeFileSync(join(repo.dir, name, "package.json"), JSON.stringify({ name, version: "1.0.0" }));
+  }
   writeFileSync(
     join(repo.dir, "package.json"),
-    JSON.stringify({ name: "fixture", version: "0.0.0", scripts: { build } }),
+    JSON.stringify({
+      name: "fixture",
+      version: "0.0.0",
+      scripts: { build },
+      dependencies: { "dep-a": "file:./dep-a" },
+    }),
   );
   const env = { ...repo.env, PATH: process.env["PATH"] ?? "/usr/bin:/bin" };
   const installed = Bun.spawnSync([process.execPath, "install"], { cwd: repo.dir, env });
@@ -39,7 +49,7 @@ async function office(repo: TempRepo, build: string, options: { stale?: boolean 
         name: "fixture",
         version: "0.0.0",
         scripts: { build },
-        dependencies: { "left-pad": "1.3.0" },
+        dependencies: { "dep-a": "file:./dep-a", "dep-b": "file:./dep-b" },
       }),
     );
   } else {
