@@ -1,10 +1,10 @@
 ---
 id: DIPO-479
 title: 'Type and move in the planning view like Claude Code: Enter sends, Plan on 5'
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 15:21'
-updated_date: '2026-11-10 16:41'
+updated_date: '2026-11-10 16:50'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -90,9 +90,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 In the Plan view's input Enter sends and Shift+Enter makes a new line; Option+Enter and a trailing backslash before Enter always make a new line; Ctrl-S no longer sends there
-- [ ] #2 Ctrl-E is replaced by /end typed in the input, which ends the session after a yes; the Plan input has no modifier shortcut
-- [ ] #3 Planning opens on key 5 as the fifth main view and P no longer opens it; the Retro's discuss in a plan moves from P to d; in the Queue run now moves from R to r, and r on the Desk is unchanged
-- [ ] #4 keymap.json, the keys overlay and the footer hold the story's key table
-- [ ] #5 ADR 0009's section 3 first line, section 4's R row and the Global keys line describe key 5, Enter to send and r for run now, with one Replaced line for Ctrl-S, Ctrl-E, P and R
+- [x] #1 In the Plan view's input Enter sends and Shift+Enter makes a new line; Option+Enter and a trailing backslash before Enter always make a new line; Ctrl-S no longer sends there
+- [x] #2 Ctrl-E is replaced by /end typed in the input, which ends the session after a yes; the Plan input has no modifier shortcut
+- [x] #3 Planning opens on key 5 as the fifth main view and P no longer opens it; the Retro's discuss in a plan moves from P to d; in the Queue run now moves from R to r, and r on the Desk is unchanged
+- [x] #4 keymap.json, the keys overlay and the footer hold the story's key table
+- [x] #5 ADR 0009's section 3 first line, section 4's R row and the Global keys line describe key 5, Enter to send and r for run now, with one Replaced line for Ctrl-S, Ctrl-E, P and R
 <!-- AC:END -->
