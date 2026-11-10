@@ -3,10 +3,10 @@ id: DIPO-487
 title: >-
   The planning view is one conversation column with inline story cards and a
   Ready step
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 15:46'
-updated_date: '2026-11-10 17:45'
+updated_date: '2026-11-10 18:01'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -22,6 +22,16 @@ references:
   - docs/design/tui-v2/spec.md
   - docs/design/tui-v2/migration.md
   - docs/decisions/0009-tui.md
+modified_files:
+  - docs/decisions/0009-tui.md
+  - docs/design/tui-v2/migration.md
+  - docs/design/tui-v2/screens/07-plan.txt
+  - docs/design/tui-v2/spec.md
+  - packages/tui/src/footer.test.ts
+  - packages/tui/src/keys.ts
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/screen.tsx
 priority: high
 type: feature
 ordinal: 459000
@@ -101,3 +111,18 @@ test_plan:
 - [x] #5 screens/07-plan.txt, spec.md and migration.md describe the new Plan view, and the view matches 07-plan.txt
 - [x] #6 ADR 0009's Planning line describes the conversation column, the inline cards and the Ready step, with one Replaced line for the centred script, the side rail and the modifier keys for proposals and Ready
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-10 18:01 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 201,156 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
