@@ -44,6 +44,7 @@ describe("the footer registry", () => {
   it("reads the hints of a view and its conditions from the registry, global keys at the right", () => {
     expect(texts("desk")).toEqual([
       "↑↓ move",
+      "PgUp/PgDn scroll",
       "⏎ open story",
       "c copy id",
       ": commands",

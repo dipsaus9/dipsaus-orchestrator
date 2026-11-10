@@ -235,6 +235,26 @@ describe("the preview never truncates", () => {
     expect(lines.join(" ")).toContain("word0 word1");
     expect(lines.join(" ")).toContain('word59"');
   });
+
+  it("shows a park's whole question at 80 and 120 columns, with no cut and no ellipsis (DIPO-483)", () => {
+    const question = Array.from({ length: 25 }, (_, i) => `part ${i} ${"q".repeat(70)}`).join("\n");
+    const park = DeskItem.parse({
+      kind: "PARKED",
+      story: "DIPO-3",
+      reason: "ambiguous-spec",
+      detail: question.replace(/\s+/g, " ").slice(0, 300),
+      fullDetail: question,
+      since: ago(4),
+      blocks: [],
+      actions: [{ command: "work.answer", cli: 'dipo answer qst_7f2c --text "<answer>"' }],
+    });
+    for (const width of [80, 120]) {
+      const lines = text(previewLines(park, { ...CTX, width }));
+      expect(lines.join(" ")).not.toContain("…");
+      for (const line of lines) expect(line.length).toBeLessThanOrEqual(width);
+      expect(lines.join(" ")).toContain("part 24 qqq");
+    }
+  });
 });
 
 describe("the state cards of screens/15", () => {

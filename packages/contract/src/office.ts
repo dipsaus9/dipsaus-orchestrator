@@ -1000,25 +1000,36 @@ export type DeskIdea = z.infer<typeof DeskIdea>;
 // `since` is when it began to wait; `blocks` lists the active stories that depend on its story.
 // `actions` are the commands it offers; `hand` says what to do by hand when no dipo command does
 // it, such as a merge on the code host for a PR labelled `autorelease: pending`.
-export const DeskItem = z.object({
-  kind: DeskKind,
-  story: StoryId.optional(),
-  key: StoryKey.optional(),
-  question: QuestionId.optional(),
-  gate: GateId.optional(),
-  pr: StoryPr.optional(),
-  note: DeskNote.optional(),
-  idea: DeskIdea.optional(),
-  reason: ParkReason.optional(),
-  detail: z.string(),
-  since: Timestamp,
-  blocks: z.array(StoryId),
-  // The Refined stories that depend on its story: they wait for the maintainer to set them Ready, so
-  // `blocks` does not count them (DIPO-484); `reason` is each one's first failed Ready gate rule.
-  refined: z.array(z.object({ story: StoryId, reason: z.string().optional() })).optional(),
-  actions: z.array(DeskAction),
-  hand: z.string().optional(),
-});
+export const DeskItem = z
+  .object({
+    kind: DeskKind,
+    story: StoryId.optional(),
+    key: StoryKey.optional(),
+    question: QuestionId.optional(),
+    gate: GateId.optional(),
+    pr: StoryPr.optional(),
+    note: DeskNote.optional(),
+    idea: DeskIdea.optional(),
+    reason: ParkReason.optional(),
+    // The one-line row form, cut for the list (DIPO-483). `fullDetail` is the whole cleaned text,
+    // never cut, with its line breaks; an item sent without it reads as its row form.
+    detail: z.string(),
+    fullDetail: z.string().optional(),
+    since: Timestamp,
+    blocks: z.array(StoryId),
+    // The Refined stories that depend on its story: they wait for the maintainer to set them Ready, so
+    // `blocks` does not count them (DIPO-484); `reason` is each one's first failed Ready gate rule.
+    refined: z.array(z.object({ story: StoryId, reason: z.string().optional() })).optional(),
+    actions: z.array(DeskAction),
+    hand: z.string().optional(),
+    // `fullHand` is the hand text whole, as `fullDetail` is (DIPO-483).
+    fullHand: z.string().optional(),
+  })
+  .transform((item) => ({
+    ...item,
+    fullDetail: item.fullDetail ?? item.detail,
+    ...(item.hand === undefined ? {} : { fullHand: item.fullHand ?? item.hand }),
+  }));
 export type DeskItem = z.infer<typeof DeskItem>;
 
 // What waits on the maintainer, in the order of 0020: the office's starts paused (DIPO-359),

@@ -39,9 +39,10 @@
 // Within a group the items whose story blocks the most active stories come first, then the oldest.
 //
 // Every stored free text an item shows (questions, park details, gate summaries, PR titles, check
-// failures, proposals) is cleaned of escape sequences, controls and bidi overrides, put on one line
-// and capped at `DESK_DETAIL_MAX` (`deskText`, `deskLine`): worker and host text is data, and a
-// terminal must never run it.
+// failures, proposals) is cleaned of escape sequences, controls and bidi overrides: worker and host
+// text is data, and a terminal must never run it. Its row form is one line capped at
+// `DESK_DETAIL_MAX` (`deskText`, `deskLine`), for the list only; `fullDetail` and `fullHand` keep the
+// whole text with its line breaks, never cut (`deskFull`, DIPO-483).
 //
 // An action is listed only when this engine registers its command as shipped, so the desk never
 // offers a command the daemon would answer with `capability.missing`. Other modules supply
@@ -354,6 +355,9 @@ interface Ranked {
  */
 export const DESK_DETAIL_MAX = 300;
 
+/** An item as a builder gives it: `fullDetail` is its whole text when `detail` is only the row form. */
+type DeskItemInput = Omit<DeskItem, "fullDetail" | "fullHand"> & { readonly fullDetail?: string };
+
 /** One line: runs of whitespace (newlines too) become one space. */
 function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
@@ -372,6 +376,14 @@ export function deskText(text: string): string {
 /** A detail or hand text: cleaned, on one line, and at most `DESK_DETAIL_MAX` characters. */
 export function deskLine(text: string): string {
   return cut(deskText(text), DESK_DETAIL_MAX);
+}
+
+/**
+ * A stored text whole, as the desk shows it in full: cleaned as `deskText` cleans it, but with its
+ * line breaks kept and never cut (DIPO-483). The one-line form (`deskLine`) is the list row's only.
+ */
+export function deskFull(text: string): string {
+  return cleanDoorText(text).trim();
 }
 
 /**
@@ -555,8 +567,11 @@ class DeskBuilder {
     return story === null ? [] : (this.#dependents.get(story.toUpperCase()) ?? []);
   }
 
-  /** Adds an item; its detail and hand text are cleaned and capped here, whoever built them. */
-  #add(group: number, rank: number, sinceMs: number, item: DeskItem): void {
+  /**
+   * Adds an item; its detail and hand text are cleaned here, whoever built them. The row form is
+   * capped; `fullDetail` (default: the detail as built) and the hand's full text are not (DIPO-483).
+   */
+  #add(group: number, rank: number, sinceMs: number, item: DeskItemInput): void {
     // A Refined story that depends on the item's story waits for the maintainer to set it Ready, so
     // it is listed apart from what the item blocks (DIPO-484).
     const refined = item.blocks.filter((id) => this.#refined.has(id.toUpperCase()));
@@ -572,7 +587,10 @@ class DeskBuilder {
             }),
           }),
       detail: deskLine(item.detail),
-      ...(item.hand === undefined ? {} : { hand: deskLine(item.hand) }),
+      fullDetail: deskFull(item.fullDetail ?? item.detail),
+      ...(item.hand === undefined
+        ? {}
+        : { hand: deskLine(item.hand), fullHand: deskFull(item.hand) }),
       ...(item.note === undefined
         ? {}
         : { note: { ...item.note, title: deskText(item.note.title) } }),
@@ -637,6 +655,7 @@ class DeskBuilder {
         ...(story === null || key === null ? {} : { story, key: StoryKey.parse(key) }),
         question: QuestionId.parse(question.questionId),
         detail: JSON.stringify(text),
+        fullDetail: deskFull(question.text),
         since: iso(question.askedAt),
         blocks: this.#blocks(story),
         actions: this.#answerActions(question),
@@ -783,6 +802,7 @@ class DeskBuilder {
           ...prOf(record),
           reason: park.reason,
           detail: deskText(park.detail),
+          fullDetail: deskFull(park.detail),
           since: iso(park.at),
           blocks: this.#blocks(story),
           actions,
@@ -991,6 +1011,7 @@ export function registerDesk(registry: FeatureRegistry, sources: DeskSources): v
       {
         kind: DESK_LOADING_KIND,
         detail: "the office is loading; its desk follows when the load ends",
+        fullDetail: "the office is loading; its desk follows when the load ends",
         since: iso(nowMs),
         blocks: [],
         actions: [],

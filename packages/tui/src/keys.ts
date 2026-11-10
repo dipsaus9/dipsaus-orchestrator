@@ -740,6 +740,15 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     priority: 30,
   },
   {
+    id: "deskScroll",
+    key: "PgUp/PgDn",
+    label: "scroll",
+    views: ["desk"],
+    when: (ctx) => ctx.hasRow,
+    // The footer drops the lowest priority first: a scroll is the least needed hint (DIPO-483).
+    priority: 10,
+  },
+  {
     id: "deskOpen",
     key: "⏎",
     label: "open",

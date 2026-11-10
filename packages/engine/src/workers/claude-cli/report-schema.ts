@@ -266,6 +266,32 @@ export type WorkerReportRead =
  * `WORKER_REPORT_MAX_CHARS` as JSON, every string cleaned with `cleanDoorText`, then the strict
  * schema with its length caps, so an empty text after cleaning fails too.
  */
+/** The question parameter of a tool call that leaked into a report's summary (DIPO-470). */
+const LEAKED_QUESTION = /<parameter name="question">/;
+const LEAKED_SUMMARY_END = /<\/summary>\s*$/;
+const LEAKED_PARAMETER_END = /<\/(?:parameter|invoke)>\s*$/;
+
+/**
+ * A report whose summary holds a raw question parameter and no question field (DIPO-470): the text
+ * after the parameter is the question, the text before it the summary, and no tag of the leaked
+ * call is left in either. Any other output is returned as it is.
+ */
+export function splitLeakedQuestion(output: unknown): unknown {
+  if (output === null || typeof output !== "object") return output;
+  const report = output as Record<string, unknown>;
+  const summary = report["summary"];
+  if (report["question"] !== undefined || typeof summary !== "string") return output;
+  const at = LEAKED_QUESTION.exec(summary);
+  if (at === null) return output;
+  const question = summary
+    .slice(at.index + at[0].length)
+    .replace(LEAKED_PARAMETER_END, "")
+    .trim();
+  if (question === "") return output;
+  const head = summary.slice(0, at.index).replace(LEAKED_SUMMARY_END, "").trim();
+  return { ...report, summary: head === "" ? question : head, question };
+}
+
 export function parseWorkerReport(output: unknown): WorkerReportRead {
   if (output === undefined || output === null) return { ok: false, error: "no structured_output" };
   let size: number;
@@ -285,7 +311,7 @@ export function parseWorkerReport(output: unknown): WorkerReportRead {
   // Keys are never cleaned: one that holds anything cleaning would change is refused.
   if (!doorKeysClean(output))
     return { ok: false, error: "structured_output fails the report schema" };
-  const parsed = WorkerReportSchema.safeParse(cleanDoorStrings(output));
+  const parsed = WorkerReportSchema.safeParse(splitLeakedQuestion(cleanDoorStrings(output)));
   if (!parsed.success) return { ok: false, error: "structured_output fails the report schema" };
   return { ok: true, report: parsed.data };
 }

@@ -173,6 +173,7 @@ describe("a planning session (DIPO-447)", () => {
           kind: "gate",
           story: "DIPO-9" as never,
           detail: "merge waits for the maintainer",
+          fullDetail: "merge waits for the maintainer",
           since: "2026-11-05T10:00:00.000Z",
           blocks: [],
           actions: [],

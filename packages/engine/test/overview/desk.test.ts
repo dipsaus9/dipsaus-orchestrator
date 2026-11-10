@@ -597,6 +597,29 @@ describe("stored text on the desk", () => {
     expect(deskLine("y".repeat(DESK_DETAIL_MAX))).toBe("y".repeat(DESK_DETAIL_MAX));
     expect(deskLine("y".repeat(DESK_DETAIL_MAX + 1))).toBe(`${"y".repeat(DESK_DETAIL_MAX - 1)}…`);
   });
+
+  it("carries a long, multi-line park detail whole, beside its one-line row form (DIPO-483)", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-3", { status: "Parked" })]);
+        const detail = Array.from(
+          { length: 20 },
+          (_, i) => `part ${i}\u001b[2J ${"w".repeat(90)}`,
+        ).join("\n");
+        insertPark(office, "DIPO-3", { reason: "worker-failed", detail, at: 0 });
+        const [item] = desk(office, all, ALL_SOURCES);
+        const whole = detail.replaceAll("\u001b[2J", "");
+        expect(item?.fullDetail).toBe(whole);
+        expect(item?.fullDetail.length).toBeGreaterThan(DESK_DETAIL_MAX);
+        expect(item?.fullDetail).toContain("\n");
+        expect(item?.detail).not.toContain("\n");
+        expect(Array.from(item?.detail ?? "").length).toBeLessThanOrEqual(DESK_DETAIL_MAX);
+      } finally {
+        t.state.close();
+      }
+    }));
 });
 
 describe("the parks the merge slot makes (DIPO-324, DIPO-344)", () => {
@@ -706,6 +729,7 @@ describe("the office.desk read", () => {
               raisedBy: { role: "developer" },
             },
             detail: `"Split it" · milestone m-3 · from a worker's proposal`,
+            fullDetail: `"Split it" · milestone m-3 · from a worker's proposal`,
             since: new Date(at + 2).toISOString(),
             blocks: [],
             // idea.accept and idea.dismiss are not registered in this engine.
@@ -722,10 +746,13 @@ describe("the office.desk read", () => {
             },
             detail:
               'decision note · docs/decisions/0019-review-loop.md, section "4. The reviewer session": The reviewer also reads the worker\'s deviations.',
+            fullDetail:
+              'decision note · docs/decisions/0019-review-loop.md, section "4. The reviewer session": The reviewer also reads the worker\'s deviations.',
             since: new Date(at).toISOString(),
             blocks: [],
             actions: [],
             hand: "dipo never writes decision records: add the note by hand if you agree",
+            fullHand: "dipo never writes decision records: add the note by hand if you agree",
           },
         ]);
       } finally {
@@ -944,10 +971,13 @@ describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
         expect(items[0]).toEqual({
           kind: "STARTS PAUSED",
           detail: "no new session starts · plan limit until 2026-10-28T12:00:00.000Z",
+          fullDetail: "no new session starts · plan limit until 2026-10-28T12:00:00.000Z",
           since: new Date(at).toISOString(),
           blocks: [],
           actions: [deskAction("daemon.resumeStarts", "dipo daemon resume-starts")],
           hand: "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-starts`.",
+          fullHand:
+            "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-starts`.",
         });
 
         const adapter = desk(office, all, {
@@ -1022,10 +1052,14 @@ describe("a stuck planning lane on the desk (DIPO-401)", () => {
             kind: "PLANNING LANE",
             detail:
               "the planning lane is stuck: 1 backlog operation waits for a backlog PR, the oldest for 31 minutes · the backlog branch waits: push failed",
+            fullDetail:
+              "the planning lane is stuck: 1 backlog operation waits for a backlog PR, the oldest for 31 minutes · the backlog branch waits: push failed",
             since: new Date(at).toISOString(),
             blocks: [],
             actions: [],
             hand: "fix what the reason names; dipo applies the operations at the next backlog change or office load, and the daemon log has a line for each flush that stops",
+            fullHand:
+              "fix what the reason names; dipo applies the operations at the next backlog change or office load, and the daemon log has a line for each flush that stops",
           },
         ]);
       } finally {

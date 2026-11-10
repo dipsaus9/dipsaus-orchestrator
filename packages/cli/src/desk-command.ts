@@ -37,7 +37,7 @@ export function age(sinceMs: number, nowMs: number): string {
 function commandLine(item: DeskItem): string {
   const lines = [
     ...item.actions.map((action) => action.cli),
-    ...(item.hand === undefined ? [] : [item.hand]),
+    ...(item.fullHand === undefined ? [] : [item.fullHand.split("\n").join(" ")]),
   ];
   return lines.length === 0 ? "(no command in this dipo yet)" : lines.join(" | ");
 }
@@ -68,6 +68,12 @@ export function formatDesk(
     const reason = item.reason === undefined ? "" : `${item.reason} · `;
     lines.push(`${item.kind.padEnd(kindWidth)} ${story}  ${reason}${item.detail}  ${since}`);
     lines.push(`${" ".repeat(kindWidth + 1)}${commandLine(item)}`);
+    // The whole text under the item when the row form cut or folded it (DIPO-483).
+    if (item.fullDetail !== item.detail) {
+      for (const line of item.fullDetail.split("\n")) {
+        lines.push(`${" ".repeat(kindWidth + 1)}${line}`.trimEnd());
+      }
+    }
     if (item.idea !== undefined) {
       for (const line of proposedStoryLines(item.idea.story)) {
         lines.push(`${" ".repeat(kindWidth + 3)}${line}`);
@@ -77,7 +83,7 @@ export function formatDesk(
   // The stories parked by the maintainer, listed apart at the end (0020).
   byYou.forEach((item, at) => {
     const head = at === 0 ? byYouHead : "";
-    const note = item.detail === "" ? "" : `${JSON.stringify(item.detail)}   `;
+    const note = item.fullDetail === "" ? "" : `${JSON.stringify(item.fullDetail)}   `;
     const story = (item.story ?? "").padEnd(byYouStoryWidth);
     lines.push(`${head.padEnd(byYouHead.length)}  ${story} ${note}${commandLine(item)}`.trimEnd());
   });

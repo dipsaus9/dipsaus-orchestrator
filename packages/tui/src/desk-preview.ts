@@ -140,7 +140,7 @@ export function previewTitle(item: DeskItem, title: string | null): string {
   if (story !== null && item.kind === "PARKED" && FAILED_REASONS.has(item.reason ?? "")) {
     return `${story} ${FAILED_WORDS[item.reason ?? ""] ?? item.reason}`;
   }
-  if (story === null) return item.detail;
+  if (story === null) return item.fullDetail;
   return title === null ? story : `${story} ${title}`;
 }
 
@@ -219,7 +219,7 @@ function factRows(item: DeskItem, ctx: PreviewContext): SegLine[] {
   );
   switch (item.kind) {
     case "MERGE":
-      rows.push(...labelled("Why", item.detail, ctx.width));
+      rows.push(...labelled("Why", item.fullDetail, ctx.width));
       rows.push(...checksRow(item, ctx), ...changeRow(item, ctx));
       break;
     case "PROPOSED STORY": {
@@ -239,18 +239,18 @@ function factRows(item: DeskItem, ctx: PreviewContext): SegLine[] {
       return rows;
     }
     case "NEXT UP":
-      rows.push(...labelled("Why", item.detail, ctx.width));
+      rows.push(...labelled("Why", item.fullDetail, ctx.width));
       break;
     case "STARTS PAUSED":
-      rows.push(...labelled("Reason", item.detail, ctx.width));
-      if (item.hand !== undefined) rows.push(...labelled("Lifts", item.hand, ctx.width));
+      rows.push(...labelled("Reason", item.fullDetail, ctx.width));
+      if (item.fullHand !== undefined) rows.push(...labelled("Lifts", item.fullHand, ctx.width));
       return rows;
     default:
       break;
   }
   if (blocks !== "") rows.push(...labelled("Blocks", blocks, ctx.width));
   for (const text of refined) rows.push(...labelled("Refined", text, ctx.width));
-  if (item.hand !== undefined) rows.push(...labelled("By hand", item.hand, ctx.width));
+  if (item.fullHand !== undefined) rows.push(...labelled("By hand", item.fullHand, ctx.width));
   return rows;
 }
 
@@ -258,15 +258,15 @@ function factRows(item: DeskItem, ctx: PreviewContext): SegLine[] {
 function textRows(item: DeskItem, ctx: PreviewContext, title: string): SegLine[] {
   if (item.idea !== undefined) return prose(item.idea.story.storyLine, ctx.width);
   if (["MERGE", "NEXT UP", "STARTS PAUSED"].includes(item.kind)) return [];
-  if (item.detail === title) return [];
+  if (item.fullDetail === title) return [];
   if (item.kind === "PARKED" && item.reason === "scope-violation") {
     return [
       ...prose("Not resumable: a part touched a protected file.", ctx.width),
-      ...prose(item.detail, ctx.width),
+      ...prose(item.fullDetail, ctx.width),
     ];
   }
   const parked = item.kind === "PARKED" && item.reason === "budget-exceeded";
-  return prose(item.detail, ctx.width, parked ? "dim" : undefined);
+  return prose(item.fullDetail, ctx.width, parked ? "dim" : undefined);
 }
 
 /** One button: `⟦ y Approve ⟧`, its brackets acc when it is the primary one, else faint. */

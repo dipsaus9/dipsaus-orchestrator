@@ -11,7 +11,14 @@ import { afterEach, describe, expect, it } from "bun:test";
 
 import { DeskItem, type Event, Verdict } from "@dipsaus-orchestrator/contract";
 
-import { DESK_LIST_COLUMNS, DESK_READ_INTERVAL_MS, deskGroups, EMPTY_DESK, rowFacts } from "./desk";
+import {
+  DESK_LIST_COLUMNS,
+  DESK_READ_INTERVAL_MS,
+  deskGroups,
+  EMPTY_DESK,
+  previewRows,
+  rowFacts,
+} from "./desk";
 import { OFFICES } from "../test/support/fake-session";
 import { mount } from "../test/support/setup";
 
@@ -1261,5 +1268,14 @@ describe("a row's second line with Refined dependents (DIPO-484)", () => {
     );
     const only = DeskItem.parse({ ...item, blocks: [] });
     expect(rowFacts(only, "Title", "·").second).toBe("budget-exceeded · 1 Refined, not Ready yet");
+  });
+});
+
+describe("the desk preview scrolls (DIPO-483)", () => {
+  it("shows the rows from the scroll offset down, and the last rows past the end", () => {
+    const rows = Array.from({ length: 30 }, (_, i) => [{ text: `row ${i}` }]);
+    expect(previewRows(rows, 10, 0)).toEqual(rows.slice(0, 10));
+    expect(previewRows(rows, 10, 8)).toEqual(rows.slice(8, 18));
+    expect(previewRows(rows, 10, 500)).toEqual(rows.slice(20, 30));
   });
 });
