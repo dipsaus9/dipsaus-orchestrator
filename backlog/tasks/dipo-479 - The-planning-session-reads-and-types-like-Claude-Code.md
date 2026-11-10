@@ -1,10 +1,10 @@
 ---
 id: DIPO-479
 title: 'Type and move in the planning view like Claude Code: Enter sends, Plan on 5'
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 15:21'
-updated_date: '2026-11-10 15:57'
+updated_date: '2026-11-10 16:41'
 labels:
   - 'tier:M'
 milestone: m-6
