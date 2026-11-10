@@ -5,7 +5,7 @@
 // privacy settings and the agent detail, is `home.tsx`; the hints are `footer.ts`.
 //
 // Global keys (keymap.json, DIPO-458): `1` Desk, `2` Floor, `3` Queue, `4` Retro (`retro.tsx`,
-// DIPO-453), `O` Offices, `P` the planning view (`planning.tsx`, DIPO-449), `q` twice within 2 s
+// DIPO-453), `5` the planning view (`planning.tsx`, DIPO-449), `O` Offices, `q` twice within 2 s
 // quits, Ctrl+C quits. `:` and Ctrl-K open the command palette (`palette.tsx`), which also lists
 // the settings, and `?` the keys overlay (`help.tsx`, DIPO-463). Action keys are off while offline.
 // On the daemon screens only their keys work: `r` restarts a stopped daemon, `l` opens its log,
@@ -251,15 +251,14 @@ export function App(props: AppProps) {
     confirmPrivacy: (key, value) => dispatch({ type: "confirm-privacy", key, value }),
     openUrl: (url) => actions.openUrl(url),
   });
+  const shared = { store, actions, state, setMessage, refusedOffline };
   const planning = usePlanning({
-    store,
-    actions,
-    state,
-    setMessage,
-    refusedOffline,
+    ...shared,
     leave: goHome,
+    open: () => dispatch({ type: "planning" }),
   });
-  const retro = useRetro({ store, actions, state, active: mode.kind === "retro", leave: goHome });
+  const ro = { store, actions, state, active: mode.kind === "retro", leave: goHome };
+  const retro = useRetro({ ...ro, discuss: planning.discuss });
   const modeKeys: ModeKeys = {
     store,
     actions,
@@ -298,7 +297,7 @@ export function App(props: AppProps) {
     else if (overlays.onKey(mode, input, key)) return;
     else if (onQuitKey(input)) return;
     else if (mode.kind === "switcher") onSwitcherKey(mode, input, key, modeKeys);
-    else if (input === "P") dispatch({ type: "planning" });
+    else if (input === "5") dispatch({ type: "planning" });
     else if (input === "4") dispatch({ type: "retro" });
     else if (mode.kind === "retro" && (leavesOverlay(input) || input === "O")) {
       // A room key or Offices leaves the retro room for it.

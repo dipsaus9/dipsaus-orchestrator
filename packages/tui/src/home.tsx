@@ -166,9 +166,9 @@ function hintOf(entry: { key: string; label: string; priority: number }): Hint {
   return { key: entry.key, label: entry.label, priority: entry.priority };
 }
 
-/** True for the keys that leave an overlay for a room: `1` to `4`, `O` and `P`. */
+/** True for the keys that leave an overlay for a room: `1` to `5` and `O`. */
 export function leavesOverlay(input: string): boolean {
-  return ["1", "2", "3", "4", "O", "P"].includes(input);
+  return ["1", "2", "3", "4", "5", "O"].includes(input);
 }
 
 /** What `useHome` needs from the app around it. */
@@ -729,7 +729,7 @@ export function useHome(args: HomeArgs) {
       openStory(row.view.key, String(row.view.story), "queue");
     } else if (input === ".") {
       setShowDone(!showDone);
-    } else if (input === "R") {
+    } else if (input === "r") {
       if (args.refusedOffline()) return;
       runSelected();
     } else if (input === "p" || input === "X") {

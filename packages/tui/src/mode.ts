@@ -37,7 +37,7 @@ export type ModeAction =
   | { readonly type: "erase" }
   /** The privacy setting `key` is to become `value`, once the maintainer says yes. */
   | { readonly type: "confirm-privacy"; readonly key: string; readonly value: boolean }
-  /** `P` on home: the planning view (DIPO-449). */
+  /** `5` on home: the planning view (DIPO-449). */
   | { readonly type: "planning" }
   /** `4` on home: the retro room (DIPO-453). */
   | { readonly type: "retro" }
@@ -83,7 +83,7 @@ export function modeReducer(mode: Mode, action: ModeAction): Mode {
     case "confirm-privacy":
       return { kind: "confirm-privacy", key: action.key, value: action.value };
     case "planning":
-      return mode.kind === "home" ? { kind: "planning" } : mode;
+      return mode.kind === "home" || mode.kind === "retro" ? { kind: "planning" } : mode;
     case "retro":
       return mode.kind === "home" ? { kind: "retro" } : mode;
     default:

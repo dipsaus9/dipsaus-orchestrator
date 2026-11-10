@@ -150,7 +150,7 @@ describe("queue view", () => {
     expect(ui.frame()).not.toContain("DIPO-24");
     expect(ui.frame()).not.toContain("DRAFT");
     expect(frame.at(-1)).toBe(
-      `p park   X drop   ↑↓ move   ⏎ story   R run   . show done   c copy id${" ".repeat(8)}: commands   ? keys   O offices   q q quit`,
+      `p park   X drop   ↑↓ move   ⏎ story   r run   . show done   c copy id${" ".repeat(8)}: commands   ? keys   O offices   q q quit`,
     );
   });
 
@@ -344,7 +344,7 @@ describe("R runs stories", () => {
       },
       changed: false,
     });
-    await ui.press("R");
+    await ui.press("r");
     const done = await ui.waitFor("run DIPO-30: done");
     const ticker = lines(done).filter((line) => line.includes("skipped"));
     expect(ticker).toHaveLength(1);
@@ -370,7 +370,7 @@ describe("R runs stories", () => {
       changed: true,
       cursor: { stream: STREAM, seq: 9 },
     });
-    await ui.press("R");
+    await ui.press("r");
     await ui.waitFor("waiting for the office stream");
     const starting = { ...golden(KEY_30), column: "running" } as StoryView;
     session.active(STREAM)?.options.onEvent(storyEvent(9, starting, "Ready"));
@@ -380,7 +380,7 @@ describe("R runs stories", () => {
     expect(done).not.toContain("→ DIPO-30");
     expect(done).not.toContain("wait for its reply");
     // A second u is sent at once: nothing waits for the first start's setup.
-    await ui.press("R");
+    await ui.press("r");
     expect(ui.frame()).not.toContain("wait for its reply");
     expect(session.commands).toHaveLength(2);
   });
@@ -389,7 +389,7 @@ describe("R runs stories", () => {
     const { ui, session } = await openQueue();
     const reply = Promise.withResolvers<unknown>();
     session.runReply = () => reply.promise;
-    await ui.press("R");
+    await ui.press("r");
     await ui.waitFor("run DIPO-30: sending");
     expect(session.commands).toEqual([
       {
@@ -435,7 +435,7 @@ describe("R runs stories", () => {
       changed: true,
       cursor: { stream: STREAM, seq: 9 },
     });
-    await ui.press("R");
+    await ui.press("r");
     await ui.waitFor("waiting for the office stream");
     // A history gap: the store reads the snapshot again, at seq 2, before seq 9 came.
     const base = goldenSnapshots.get(OFFICES.dipsaus)!;
@@ -453,7 +453,7 @@ describe("R runs stories", () => {
     const { ui, session } = await openQueue();
     const reply = Promise.withResolvers<unknown>();
     session.runReply = () => reply.promise;
-    await ui.press("RR");
+    await ui.press("rr");
     await ui.waitFor("run DIPO-30 is being sent; wait for its reply");
     expect(session.commands).toHaveLength(1);
     reply.resolve({ ok: true, result: { started: [], skipped: [] }, changed: false });
@@ -464,8 +464,8 @@ describe("R runs stories", () => {
   it("clears a refusal on the next key", async () => {
     const { ui, session } = await openQueue();
     session.runReply = () => new Promise(() => {});
-    await ui.press("R");
-    await ui.press("R");
+    await ui.press("r");
+    await ui.press("r");
     await ui.waitFor("wait for its reply");
     await ui.press("j");
     await ui.waitFor("▌ → DIPO-32");
@@ -483,9 +483,9 @@ describe("R runs stories", () => {
       changed: true,
       cursor: { stream: STREAM, seq: 9 },
     });
-    await ui.press("R");
+    await ui.press("r");
     await ui.waitFor("waiting for the office stream");
-    await ui.press("R");
+    await ui.press("r");
     await ui.waitFor("waits for the office stream; wait until it is done");
     expect(session.commands).toHaveLength(1);
   });
@@ -497,7 +497,7 @@ describe("R runs stories", () => {
       result: { started: [], skipped: [{ story: "DIPO-31", key: KEY_31, reason: "dependency" }] },
       changed: false,
     });
-    await ui.press("R");
+    await ui.press("r");
     const frame = await ui.waitFor("run DIPO-30: done");
     expect(frame).toContain("skipped DIPO-31: a dependency is not Done (needs DIPO-21)");
     expect(session.commands.map((command) => command.args)).toEqual([{ stories: [KEY_30] }]);
@@ -507,7 +507,7 @@ describe("R runs stories", () => {
     const { ui, session } = await openQueue();
     for (let i = 0; i < 2; i++) await ui.press("down");
     await ui.waitFor("▌ ○ DIPO-31");
-    await ui.press("R");
+    await ui.press("r");
     await ui.waitFor("run DIPO-31: done");
     expect(session.commands.map((command) => command.args)).toEqual([{ stories: [KEY_31] }]);
   });
@@ -524,7 +524,7 @@ describe("R runs stories", () => {
           }
         : { ok: true, result: { started: [], skipped: [] }, changed: false };
     };
-    await ui.press("R");
+    await ui.press("r");
     const failed = await ui.waitFor("engine.recovering: the daemon recovers");
     expect(failed).toContain("^R retry");
     await ui.press("ctrl-r");
@@ -542,7 +542,7 @@ describe("R runs stories", () => {
       ok: false,
       error: { code: "daemon.draining", message: "scheduling is off", retryable: false },
     });
-    await ui.press("R");
+    await ui.press("r");
     expect(await ui.waitFor("daemon.draining: scheduling is off")).not.toContain("^R");
     await ui.press("ctrl-r");
     expect(session.commands).toHaveLength(1);
@@ -552,8 +552,17 @@ describe("R runs stories", () => {
     const { ui, session } = await openQueue();
     session.setState("reconnecting");
     await ui.waitFor("offline since");
-    await ui.press("R");
+    await ui.press("r");
     await ui.waitFor("offline: actions are disabled");
     expect(session.commands).toEqual([]);
+  });
+});
+
+describe("run now on r (DIPO-479)", () => {
+  it("does nothing on R in the queue", async () => {
+    const { ui, session } = await openQueue();
+    await ui.press("R");
+    await Bun.sleep(100);
+    expect(session.commands.some((c) => c.name === "work.run")).toBe(false);
   });
 });

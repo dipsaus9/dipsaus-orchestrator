@@ -1,5 +1,5 @@
 // The planning view (DIPO-449): start a session with a kind and a goal, write a multi-line message
-// (Enter adds a line, Ctrl-S sends), read the streamed answer with the live spend, end the session;
+// (Shift+Enter adds a line, Enter sends), read the streamed answer with the live spend, end the session;
 // and reopening the TUI shows the open session again, with its stored answers and the notice of a
 // fresh Claude session. Frames are asserted with ANSI stripped.
 
@@ -86,10 +86,10 @@ async function open(options: Parameters<typeof mount>[0] = { columns: 120, rows:
 describe("the planning view", () => {
   it("starts a session, sends a multi-line message, streams the answer with its spend and ends it", async () => {
     const { ui, session } = await open();
-    await ui.press("P");
+    await ui.press("5");
     const form = await ui.waitFor("no open planning session");
     expect(form).toContain("[plan]  refine  triage");
-    expect(form).toContain("ctrl-s start");
+    expect(form).toContain("⏎ start");
 
     await ui.press("tab");
     await ui.waitFor("plan  [refine]  triage");
@@ -97,7 +97,7 @@ describe("the planning view", () => {
     await ui.press("tab");
     await ui.waitFor("[plan]");
     await ui.press("Plan the export");
-    await ui.press("enter");
+    await ui.press("\u001b[13;2u");
     await ui.press("and its tests");
     await ui.waitFor("> Plan the export");
     session.commandReply = (name) =>
@@ -108,7 +108,7 @@ describe("the planning view", () => {
             changed: true,
           }
         : undefined;
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     for (let i = 0; i < 100 && !session.commands.some((c) => c.name === "planning.start"); i++) {
       await Bun.sleep(5);
     }
@@ -141,13 +141,16 @@ describe("the planning view", () => {
     );
     const done = await ui.waitFor("1 answer");
     expect(done).toContain("spend: in 12k · out 3k · cache write 1k · cache read 40k");
-    expect(done).toContain("ctrl-e end session");
+    expect(done).toContain("/end end session");
 
-    // A message of two lines: Enter adds a line, Ctrl-S sends.
+    // A message of two lines: Option+Enter adds a line, Enter sends; Ctrl-S sends nothing.
     await ui.press("Why two?");
-    await ui.press("enter");
+    await ui.press("\u001b\r");
     await ui.press("And the order?");
     await ui.press("ctrl-s");
+    await Bun.sleep(50);
+    expect(session.commands.some((c) => c.name === "planning.message")).toBe(false);
+    await ui.press("enter");
     for (let i = 0; i < 100 && !session.commands.some((c) => c.name === "planning.message"); i++) {
       await Bun.sleep(5);
     }
@@ -156,12 +159,17 @@ describe("the planning view", () => {
     const asked = await ui.waitFor("you> And the order?");
     expect(asked).toContain("you> Why two?");
 
-    // Ending asks first.
+    // Ending asks first; Ctrl-E does nothing, /end then Enter asks.
     await ui.press("ctrl-e");
+    await Bun.sleep(50);
+    expect(ui.frame()).not.toContain("End the planning session?");
+    await ui.press("/end");
+    await ui.press("enter");
     await ui.waitFor("End the planning session? [y/N]");
     await ui.press("n");
     await ui.waitFor("the session stays open");
-    await ui.press("ctrl-e");
+    await ui.press("/end");
+    await ui.press("enter");
     await ui.press("y");
     for (let i = 0; i < 100 && !session.commands.some((c) => c.name === "planning.end"); i++) {
       await Bun.sleep(5);
@@ -189,7 +197,7 @@ describe("the planning view", () => {
     ]);
     const output = new Map([[`${RUN}:worker`, "Earlier answer one.\nEarlier answer two.\n"]]);
     const { ui, session } = await open({ columns: 120, rows: 30, snapshots, output });
-    await ui.press("P");
+    await ui.press("5");
     const frame = await ui.waitFor("Earlier answer two.");
     expect(frame).toContain("Planning · plan · waiting · 2 answers");
     expect(frame).toContain("goal: Plan the export feature");
@@ -198,7 +206,7 @@ describe("the planning view", () => {
 
     // Continue it: a message goes to the open session, not to a new start.
     await ui.press("And a third?");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     for (let i = 0; i < 100 && !session.commands.some((c) => c.name === "planning.message"); i++) {
       await Bun.sleep(5);
     }
@@ -222,7 +230,7 @@ describe("the planning view", () => {
       ],
     ]);
     const { ui, session } = await open({ columns: 140, rows: 34, snapshots });
-    await ui.press("P");
+    await ui.press("5");
     const frame = await ui.waitFor("#2 story [S] Export as XML");
     expect(frame).toContain("proposals · 2 · 2 open");
     expect(frame).toContain("#1 story [M] Export as CSV · open");
@@ -256,16 +264,16 @@ describe("the planning view", () => {
     expect((await sent("planning.confirm"))?.args).toEqual({ proposal: 1 });
     await ui.waitFor("proposal 1 confirmed: DIPO-31");
 
-    // Edit: the proposal goes into the input as a form, and Ctrl-S sends it as planning.edit.
+    // Edit: the proposal goes into the input as a form, and Enter sends it as planning.edit.
     session.commandReply = () => undefined;
     await ui.press("ctrl-r");
     const editing = await ui.waitFor("editing proposal 1:");
     expect(editing).toContain("tier: M");
-    expect(editing).toContain("ctrl-s save proposal 1");
+    expect(editing).toContain("⏎ save proposal 1");
     const why = "why: Why Export as CSV: the maintainer asked for it.";
     for (let i = 0; i < why.length; i++) await ui.press("backspace");
     await ui.press("why: Shorter why.");
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     const edit = await sent("planning.edit");
     expect(edit?.args).toMatchObject({
       proposal: 1,
@@ -304,7 +312,7 @@ describe("the planning view", () => {
       [OFFICES.dipsaus, { ...golden(), planning: planningView({ questions: [block] }) }],
     ]);
     const { ui, session } = await open({ columns: 140, rows: 34, snapshots });
-    await ui.press("P");
+    await ui.press("5");
     const frame = await ui.waitFor("question 1 of 2");
     expect(frame).toContain("Should the export cover archived stories?");
     expect(frame).toContain("why I ask: It decides whether the CSV needs a status column.");
@@ -358,7 +366,7 @@ describe("the planning view", () => {
       ],
     ]);
     const { ui, session } = await open({ columns: 140, rows: 40, snapshots });
-    await ui.press("P");
+    await ui.press("5");
     await ui.waitFor("#2 story [M] Export as XML");
     await ui.press("ctrl-g");
     const form = await ui.waitFor("setting stories Ready:");
@@ -375,7 +383,7 @@ describe("the planning view", () => {
             changed: true,
           }
         : undefined;
-    await ui.press("ctrl-s");
+    await ui.press("enter");
     for (let i = 0; i < 100 && !session.commands.some((c) => c.name === "planning.ready"); i++) {
       await Bun.sleep(5);
     }
@@ -407,7 +415,7 @@ describe("the planning view", () => {
       ],
     ]);
     const { ui } = await open({ columns: 140, rows: 34, snapshots });
-    await ui.press("P");
+    await ui.press("5");
     const frame = await ui.waitFor("ready DIPO-32: refused");
     expect(frame).toContain("stays as it is: R08: no acceptance criteria");
     expect(frame).toContain("ready DIPO-31: set");
@@ -415,7 +423,7 @@ describe("the planning view", () => {
 
   it("leaves the other views and keys as they were: Esc returns to the overview", async () => {
     const { ui } = await open();
-    await ui.press("P");
+    await ui.press("5");
     await ui.waitFor("no open planning session");
     // q is text in the planning view, not quit.
     await ui.press("q");
@@ -424,6 +432,68 @@ describe("the planning view", () => {
     const home = await ui.waitFor("RUNNING");
     expect(home).not.toContain("P plan");
     await ui.press("3");
-    await ui.waitFor("R run");
+    await ui.waitFor("r run");
+  });
+});
+
+const sentMessage = async (session: Awaited<ReturnType<typeof open>>["session"]) => {
+  for (let i = 0; i < 100 && !session.commands.some((c) => c.name === "planning.message"); i++) {
+    await Bun.sleep(5);
+  }
+  return session.commands.find((c) => c.name === "planning.message");
+};
+const openSession = async () => {
+  const snapshots = new Map([[OFFICES.dipsaus, { ...golden(), planning: planningView() }]]);
+  return open({ columns: 120, rows: 30, snapshots });
+};
+
+describe("the keys of the planning view (DIPO-479)", () => {
+  it("makes a new line on Shift+Enter, Option+Enter and a trailing backslash, and Enter sends", async () => {
+    const { ui, session } = await openSession();
+    await ui.press("5");
+    await ui.waitFor("Planning · plan");
+    await ui.press("one");
+    await ui.press("\u001b\r");
+    await ui.press("two");
+    await ui.press("\u001b[13;2u");
+    await ui.press("three\\");
+    await ui.press("enter");
+    await ui.press("four");
+    await ui.waitFor("four");
+    await ui.press("enter");
+    expect((await sentMessage(session))?.args).toEqual({ text: "one\ntwo\nthree\nfour" });
+  });
+
+  it("asks to end on /end then Enter only, and Ctrl-E does nothing", async () => {
+    const { ui, session } = await openSession();
+    await ui.press("5");
+    await ui.waitFor("Planning · plan");
+    await ui.press("ctrl-e");
+    await Bun.sleep(50);
+    expect(ui.frame()).not.toContain("End the planning session?");
+    await ui.press("/end");
+    await ui.press("enter");
+    await ui.waitFor("End the planning session? [y/N]");
+    await ui.press("y");
+    for (let i = 0; i < 100 && !session.commands.some((c) => c.name === "planning.end"); i++) {
+      await Bun.sleep(5);
+    }
+    expect(session.commands.some((c) => c.name === "planning.end")).toBe(true);
+    expect(session.commands.some((c) => c.name === "planning.message")).toBe(false);
+  });
+
+  it("opens on 5 from every room, the card and the settings, and P opens nothing", async () => {
+    const { ui } = await open();
+    await ui.press("P");
+    await Bun.sleep(50);
+    expect(ui.frame()).not.toContain("no open planning session");
+    for (const room of ["1", "2", "3", "4"]) {
+      await ui.press(room);
+      await ui.press("5");
+      await ui.waitFor("no open planning session");
+      await ui.press("escape");
+      await Bun.sleep(50);
+      expect(ui.frame()).not.toContain("no open planning session");
+    }
   });
 });

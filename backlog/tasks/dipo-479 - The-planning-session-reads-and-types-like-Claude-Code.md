@@ -1,10 +1,10 @@
 ---
 id: DIPO-479
 title: 'Type and move in the planning view like Claude Code: Enter sends, Plan on 5'
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-10 15:21'
-updated_date: '2026-11-10 15:57'
+updated_date: '2026-11-10 17:25'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -20,6 +20,31 @@ references:
   - docs/design/tui-v2/keymap.json
   - docs/design/tui-v2/migration.md
   - docs/decisions/0009-tui.md
+modified_files:
+  - docs/decisions/0009-tui.md
+  - docs/design/tui-v2/keymap.json
+  - docs/design/tui-v2/migration.md
+  - docs/design/tui-v2/screens/05-queue.txt
+  - docs/design/tui-v2/screens/06-retro.txt
+  - docs/design/tui-v2/screens/07-plan.txt
+  - docs/design/tui-v2/screens/13-keys-overlay.txt
+  - docs/design/tui-v2/spec.md
+  - packages/tui/src/app.tsx
+  - packages/tui/src/composer.test.tsx
+  - packages/tui/src/composer.tsx
+  - packages/tui/src/footer.test.ts
+  - packages/tui/src/home.tsx
+  - packages/tui/src/keys.ts
+  - packages/tui/src/mode.ts
+  - packages/tui/src/palette.test.tsx
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/proposal-form.test.ts
+  - packages/tui/src/proposal-form.ts
+  - packages/tui/src/queue.test.tsx
+  - packages/tui/src/queue.tsx
+  - packages/tui/src/retro.test.tsx
+  - packages/tui/src/retro.tsx
 priority: high
 type: feature
 ordinal: 451000
@@ -90,9 +115,24 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 In the Plan view's input Enter sends and Shift+Enter makes a new line; Option+Enter and a trailing backslash before Enter always make a new line; Ctrl-S no longer sends there
-- [ ] #2 Ctrl-E is replaced by /end typed in the input, which ends the session after a yes; the Plan input has no modifier shortcut
-- [ ] #3 Planning opens on key 5 as the fifth main view and P no longer opens it; the Retro's discuss in a plan moves from P to d; in the Queue run now moves from R to r, and r on the Desk is unchanged
-- [ ] #4 keymap.json, the keys overlay and the footer hold the story's key table
-- [ ] #5 ADR 0009's section 3 first line, section 4's R row and the Global keys line describe key 5, Enter to send and r for run now, with one Replaced line for Ctrl-S, Ctrl-E, P and R
+- [x] #1 In the Plan view's input Enter sends and Shift+Enter makes a new line; Option+Enter and a trailing backslash before Enter always make a new line; Ctrl-S no longer sends there
+- [x] #2 Ctrl-E is replaced by /end typed in the input, which ends the session after a yes; the Plan input has no modifier shortcut
+- [x] #3 Planning opens on key 5 as the fifth main view and P no longer opens it; the Retro's discuss in a plan moves from P to d; in the Queue run now moves from R to r, and r on the Desk is unchanged
+- [x] #4 keymap.json, the keys overlay and the footer hold the story's key table
+- [x] #5 ADR 0009's section 3 first line, section 4's R row and the Global keys line describe key 5, Enter to send and r for run now, with one Replaced line for Ctrl-S, Ctrl-E, P and R
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-10 17:25 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 184,143 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

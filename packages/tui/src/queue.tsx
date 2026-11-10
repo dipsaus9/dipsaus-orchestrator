@@ -43,7 +43,7 @@ const LABEL_WIDTH = 9;
 export interface QueueRow {
   readonly view: StoryView;
   readonly group: QueueGroup;
-  /** The first Ready story: the one `R` starts first and the engine offers as next up. */
+  /** The first Ready story: the one `r` starts first and the engine offers as next up. */
   readonly nextUp: boolean;
 }
 

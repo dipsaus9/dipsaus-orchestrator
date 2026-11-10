@@ -19,7 +19,7 @@ Each step is a story dipo can run on its own (filed as M6 stories). Dependency: 
 4. Overview becomes the Floor. One `<Pipeline phase checks>` component with the five real phases, used everywhere. RUNNING and IN REVIEW become exclusive. Health only shows when it is stuck, looping or lost. Add the UP NEXT chain sentence. The Queue gets its three groups, the reason column (`needs 447✗` / `needs 452→`), the preview with gate, needs, unblocks, touches and the CHAIN picture, and `. show done`.
 5. Fold thinking runs. Show time, verb and target columns. Make says and verdict bright. `w`, `v` and `i` become the stream filter tabs (all, worker, reviewer, verify, prompt), switched with `v`; `tab` stays next pane. Scrolling up pauses following. Steer opens the Composer inline and the sent message shows as a `you` line with its delivery state.
 6. The story card gets Story, Criteria, Reviews, Runs and Diff sections, centred at 84 columns, with wrapping instead of truncation. The checklist leaves room 4 and becomes the overlay opened by `t`, with `y`/`n` for pass/fail.
-7. Command palette (`:` and `ctrl-k`) and the `?` overlay from the registry. Settings and privacy live there. The Plan view (DIPO-449) and the Retro room (DIPO-453) mount inside the Frame, laid out as `07-plan.txt` and `06-retro.txt`.
+7. Command palette (`:` and `ctrl-k`) and the `?` overlay from the registry. Settings and privacy live there. The Plan view (DIPO-449) and the Retro room (DIPO-453) mount inside the Frame, laid out as `07-plan.txt` and `06-retro.txt`. Plan is the fifth view, on `5`, and its input sends on Enter (DIPO-479).
 
 ## The only engine and contract additions
 Ten, each added by the step that first shows it:

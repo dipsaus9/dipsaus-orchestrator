@@ -2,7 +2,7 @@
 // cost and the time from Ready to merged per tier and type, where stories came from, the rework
 // share and what the audit and the maintainer turned away. The engine counts every number from its
 // database and builds the lines (`office.retro`); the TUI only reads them, scrolls them and draws
-// them. The view reads again after the events that change a number. Esc goes back to home. Its footer
+// them. The view reads again after the events that change a number. `d` carries the numbers into a planning session (`5`); Esc goes back to home. Its footer
 // keys come from the key registry (`FOOTER_KEYS`, DIPO-457).
 
 import type { OfficeStore, OfficeStoreState } from "@dipsaus-orchestrator/client";
@@ -49,8 +49,10 @@ export function useRetro(options: {
   readonly state: OfficeStoreState;
   readonly active: boolean;
   readonly leave: () => void;
+  /** `d`: opens the planning view with the retro's lines as the first message. */
+  readonly discuss: (text: string) => void;
 }): Retro {
-  const { store, actions, state: current, active, leave } = options;
+  const { store, actions, state: current, active, leave, discuss } = options;
   const { office, snapshots } = current;
   const { rows } = useWindowSize();
   const height = Math.max(1, rows - 6);
@@ -94,7 +96,9 @@ export function useRetro(options: {
     onKey: (input, key) => {
       const last = Math.max(0, count - height);
       if (key.escape) leave();
-      else if (key.downArrow || input === "j") setTop((value) => Math.min(last, value + 1));
+      else if (input === "d" && state.lines !== null) {
+        discuss(["Let's discuss this retro:", "", ...state.lines].join("\n"));
+      } else if (key.downArrow || input === "j") setTop((value) => Math.min(last, value + 1));
       else if (key.upArrow || input === "k") setTop((value) => Math.max(0, value - 1));
       else if (key.pageDown) setTop((value) => Math.min(last, value + height));
       else if (key.pageUp) setTop((value) => Math.max(0, value - height));

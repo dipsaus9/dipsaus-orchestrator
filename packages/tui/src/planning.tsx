@@ -1,4 +1,4 @@
-// The planning view (DIPO-449, 0009, 0008): its own mode, opened with `P` from home. Without an open
+// The planning view (DIPO-449, 0009, 0008): its own mode, opened with `5` beside the rooms. Without an open
 // planning session it asks for a kind (`Tab` changes it) and a goal and starts one with
 // `planning.start`; with one it shows the session's kind, goal, state and live spend, the answers as
 // they stream in (`planning.output`), and the multi-line input for the next message
@@ -7,19 +7,19 @@
 // stored answers, read with `work.outputRange`; a session that continued in a fresh model session
 // says so (DIPO-448).
 //
-// The input: Enter adds a line, Ctrl-S sends (the one documented key), Backspace erases, a paste
-// keeps its line breaks. Ctrl-E ends the session after a yes (`planning.end`). Esc goes back to home
-// and leaves the session running. The maintainer's own messages show in the transcript of this
+// The input (DIPO-479): Enter sends; Shift+Enter, Option+Enter or a backslash before Enter adds a
+// line; Backspace erases, a paste keeps its line breaks. `/end` then Enter ends the session after a
+// yes (`planning.end`). Esc goes back to home and leaves the session running. The maintainer's own messages show in the transcript of this
 // run of the TUI only; the engine stores the answers.
 //
 // Proposals (DIPO-450): the session's proposals show above the transcript, each with its number,
 // proposed tier, title and state, and one line of why; the latest refused block shows its problems.
 // Up and Down select a proposal; Ctrl-Y confirms it (`planning.confirm`), Ctrl-D declines it
-// (`planning.decline`) and Ctrl-R puts it into the input as a form (`proposal-form.ts`) that Ctrl-S
+// (`planning.decline`) and Ctrl-R puts it into the input as a form (`proposal-form.ts`) that Enter
 // sends as `planning.edit`, and Esc leaves unsent.
 //
 // The final confirm (DIPO-451): Ctrl-G puts the session's filed stories into the input, one per
-// line; the lines the maintainer keeps are the stories that go Ready, and Ctrl-S sends them as
+// line; the lines the maintainer keeps are the stories that go Ready, and Enter sends them as
 // `planning.ready`. Esc leaves it unsent. The stories the gate refused show below the proposals
 // with the gate's messages, and the stories set Ready with their state.
 
@@ -71,6 +71,8 @@ export interface PlanningArgs {
   readonly refusedOffline: () => boolean;
   /** Esc: back to home. */
   readonly leave: () => void;
+  /** Opens the planning view (the retro's `d`). */
+  readonly open: () => void;
 }
 
 export interface Planning {
@@ -89,6 +91,8 @@ export interface Planning {
   readonly readying: boolean;
   /** The block of questions the maintainer answers now, and the dialog's state (DIPO-455). */
   readonly dialog: { readonly block: PlanningQuestionBlock; readonly state: DialogState } | null;
+  /** Opens the view with `text` in the input, as the retro's `d` does (DIPO-479). */
+  discuss(text: string): void;
   onKey(input: string, key: Key): void;
 }
 
@@ -261,7 +265,10 @@ export function readyCandidates(view: PlanningView): { story: string; summary: s
   return [...found].map(([story, summary]) => ({ story, summary }));
 }
 
-const READY_NOTE = "# Keep the stories that go Ready, one per line; Ctrl-S sends, Esc cancels.";
+/** The text that asks to end the session; it is typed in the input, with no key of its own. */
+const END_COMMAND = "/end";
+
+const READY_NOTE = "# Keep the stories that go Ready, one per line; Enter sends, Esc cancels.";
 
 /** The text of the Ready form: a note, then each candidate with what it is. */
 export function readyForm(candidates: readonly { story: string; summary: string }[]): string {
@@ -514,6 +521,11 @@ export function usePlanning(args: PlanningArgs): Planning {
       args.setMessage(view === null ? "write the goal first" : "write a message first");
       return;
     }
+    if (view !== null && text === END_COMMAND) {
+      setDraft("");
+      setConfirmingEnd(true);
+      return;
+    }
     if (args.refusedOffline()) return;
     if (view === null) {
       send("start", "planning.start", { kind, goal: text }, () => setDraft(""));
@@ -539,15 +551,11 @@ export function usePlanning(args: PlanningArgs): Planning {
     }
     if (questions.onKey(input, key)) return;
     if (proposals.onKey(input, key)) return;
-    if (key.ctrl && input === "e") {
-      if (view !== null && sending === null) setConfirmingEnd(true);
-      return;
-    }
     if (key.tab) {
       if (view === null) setKindIndex((index) => (index + 1) % PLANNING_KINDS.length);
       return;
     }
-    const event = composerKey(draft, input, key);
+    const event = composerKey(draft, input, key, true);
     if (event.kind === "cancel") {
       // The session keeps running.
       args.setMessage(null);
@@ -567,6 +575,10 @@ export function usePlanning(args: PlanningArgs): Planning {
     editing: proposals.editing,
     readying: proposals.readying,
     dialog: questions.dialog,
+    discuss: (text) => {
+      setDraft(text);
+      args.open();
+    },
     onKey,
   };
 }

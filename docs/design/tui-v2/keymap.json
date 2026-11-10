@@ -191,13 +191,13 @@
     },
     {
       "id": "plan",
-      "key": "P",
+      "key": "5",
       "label": "plan",
       "layer": "L3",
       "views": [
         "*"
       ],
-      "when": "open or continue the planning session",
+      "when": "open or continue the planning session; the fifth main view beside the rooms 1–4",
       "priority": 9
     },
     {
@@ -494,7 +494,7 @@
     },
     {
       "id": "runNow",
-      "key": "R",
+      "key": "r",
       "label": "run now",
       "command": "work.run",
       "views": [
@@ -586,7 +586,7 @@
     },
     {
       "id": "discussPlan",
-      "key": "P",
+      "key": "d",
       "label": "discuss in a plan",
       "views": [
         "retro"
@@ -645,13 +645,54 @@
       "priority": 2
     },
     {
+      "id": "planSend",
+      "key": "⏎",
+      "label": "send",
+      "views": [
+        "plan"
+      ],
+      "when": "Composer has focus; sends the message (planning.message)",
+      "priority": 1
+    },
+    {
+      "id": "planNewLine",
+      "key": "shift-⏎",
+      "label": "new line",
+      "views": [
+        "plan"
+      ],
+      "when": "also option-⏎, or a trailing backslash then ⏎; a terminal that sends the same byte for shift-⏎ as for ⏎ needs its own setting, option-⏎ always works",
+      "priority": 2
+    },
+    {
+      "id": "planFocus",
+      "key": "↑",
+      "label": "to the conversation",
+      "views": [
+        "plan"
+      ],
+      "when": "the input is empty (DIPO-487)",
+      "priority": 2
+    },
+    {
+      "id": "planFold",
+      "key": "⏎",
+      "label": "open / fold",
+      "views": [
+        "plan"
+      ],
+      "when": "a conversation line has focus (DIPO-487)",
+      "priority": 2
+    },
+    {
       "id": "planEnd",
-      "key": "ctrl-e",
+      "key": "/end",
       "label": "end session",
       "views": [
         "plan"
       ],
-      "priority": 2
+      "priority": 2,
+      "when": "typed in the input, then ⏎: asks, and y ends the session (the Ready step from DIPO-487)"
     },
     {
       "id": "planLeave",
@@ -1061,7 +1102,7 @@
   "offline": "While offline only ↑↓ move, ⏎ read and q q quit show, then 'actions off while offline' in err. Action keys disappear from the footer instead of failing when pressed.",
   "noKey": "An action without a key shows its exact cli line (dim, starting with $) in the preview and in the ? overlay under 'NO KEY · TYPE IT'.",
   "changedFromToday": {
-    "u run": "R",
+    "u run": "r",
     "d drop": "X",
     "P park": "p",
     "P pass": "y in the test overlay",
@@ -1069,6 +1110,9 @@
     "o offices": "O",
     "p privacy": "palette → SETTINGS",
     "4 checklist": "t overlay; 4 = Retro",
-    "y copy id": "c"
+    "y copy id": "c",
+    "P plan": "5",
+    "ctrl-s send in the plan": "⏎",
+    "ctrl-e end in the plan": "/end"
   }
 }

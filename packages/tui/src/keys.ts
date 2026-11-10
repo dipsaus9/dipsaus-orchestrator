@@ -472,7 +472,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   },
   {
     id: "planningSend",
-    key: "ctrl-s",
+    key: "⏎",
     label: "send",
     text: (ctx) => (ctx.planning.session ? "send" : "start"),
     views: ["planning"],
@@ -481,7 +481,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   },
   {
     id: "planningSave",
-    key: "ctrl-s",
+    key: "⏎",
     label: "save proposal",
     text: (ctx) => `save proposal ${ctx.planning.editing}`,
     views: ["planning"],
@@ -490,7 +490,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   },
   {
     id: "planningReadySave",
-    key: "ctrl-s",
+    key: "⏎",
     label: "set the stories left Ready",
     views: ["planning"],
     when: readying,
@@ -498,7 +498,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   },
   {
     id: "planningNewLine",
-    key: "⏎",
+    key: "shift-⏎",
     label: "new line",
     views: ["planning"],
     when: (ctx) => inInput(ctx) && !ctx.planning.readying,
@@ -514,7 +514,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   },
   {
     id: "planningEnd",
-    key: "ctrl-e",
+    key: "/end",
     label: "end session",
     views: ["planning"],
     when: (ctx) => free(ctx) && ctx.planning.session,
@@ -662,6 +662,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
     views: ["retro"],
     priority: 30,
   },
+  { id: "retroDiscuss", key: "d", label: "discuss in a plan", views: ["retro"], priority: 50 },
   {
     id: "switcherMove",
     key: "↑↓",
@@ -715,7 +716,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
 
   { id: "queueMove", key: "↑↓", label: "move", views: ["queue"], priority: 30 },
   { id: "queueStory", key: "⏎", label: "story", views: ["queue"], priority: 60 },
-  { id: "queueRun", key: "R", label: "run", views: ["queue"], priority: 70 },
+  { id: "queueRun", key: "r", label: "run", views: ["queue"], priority: 70 },
   { id: "queueDone", key: ".", label: "show done", views: ["queue"], priority: 20 },
   {
     id: "queueCopy",
@@ -786,7 +787,7 @@ export const FOOTER_KEYS: readonly FooterKey[] = [
   },
   {
     id: "plan",
-    key: "P",
+    key: "5",
     label: "plan",
     views: HOME_VIEWS,
     when: (ctx) => ctx.planningOpen,
@@ -889,7 +890,7 @@ export const NAV_KEYS: readonly NavKey[] = [
   { id: "overview", key: "2", label: "Floor" },
   { id: "queue", key: "3", label: "Queue" },
   { id: "retro", key: "4", label: "Retro" },
-  { id: "planning", key: "P", label: "Plan" },
+  { id: "planning", key: "5", label: "Plan" },
   { id: "offices", key: "O", label: "Open offices…" },
 ];
 

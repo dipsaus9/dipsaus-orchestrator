@@ -70,7 +70,7 @@ function subjectOf(
 export function proposalForm(proposal: PlanningProposal): string {
   const subject = subjectOf(proposal);
   const head = [
-    `# ${proposal.kind}${subject === null ? "" : ` ${subject.value}`}: edit the fields, then Ctrl-S`,
+    `# ${proposal.kind}${subject === null ? "" : ` ${subject.value}`}: edit the fields, then Enter`,
   ];
   if (proposal.kind === "split") {
     const { kind: _kind, id: _id, edit, story, ...rest } = proposal;

@@ -28,4 +28,4 @@
 [acc]│[/] [acc]you [/][hi]Fine. Also add a test plan line for the gate rule.[/][acc]▍[/]                                                      [acc]│[/]
 [acc]│[/]                                                                                                              [acc]│[/]
 [acc]└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘[/]
-[acc]⏎[/] new line   [acc]ctrl-s[/] send   [acc]tab[/] to stories   [acc]ctrl-e[/] end session                            [dim][acc]esc[/] leave (keeps open)[/]
+[acc]⏎[/] send   [acc]shift-⏎[/] new line   [acc]tab[/] to stories   [acc]/end[/] end session                            [dim][acc]esc[/] leave (keeps open)[/]

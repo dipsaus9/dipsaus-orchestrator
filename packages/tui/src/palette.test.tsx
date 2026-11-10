@@ -102,11 +102,11 @@ describe("the palette's rows", () => {
 });
 
 describe("the navigation keys", () => {
-  it("are exactly the keys that leave an overlay for a room: 1 to 4, O and P", () => {
+  it("are exactly the keys that leave an overlay for a room: 1 to 5 and O", () => {
     const keys = NAV_KEYS.map((nav) => nav.key);
-    expect(keys.toSorted()).toEqual(["1", "2", "3", "4", "O", "P"]);
+    expect(keys.toSorted()).toEqual(["1", "2", "3", "4", "5", "O"]);
     for (const key of keys) expect(leavesOverlay(key)).toBe(true);
-    for (const key of ["5", "o", "p", ":", "?"]) expect(leavesOverlay(key)).toBe(false);
+    for (const key of ["6", "o", "p", "P", ":", "?"]) expect(leavesOverlay(key)).toBe(false);
   });
 });
 
@@ -144,7 +144,7 @@ describe("the keys overlay", () => {
     expect(keys.item.find((entry) => entry.key === "r")?.off).toBe("not parked");
     expect(keys.typed).toEqual(["dipo approve DIPO-446 --note"]);
     expect(keys.global.map((entry) => entry.key)).toEqual(
-      expect.arrayContaining(["1–4", "P", "O", ": ctrl-k", "?", "q q"]),
+      expect.arrayContaining(["1–4", "5", "O", ": ctrl-k", "?", "q q"]),
     );
   });
 
@@ -213,7 +213,7 @@ describe("the palette in the TUI", () => {
 
   it("opens the plan with P and the retro with the palette", async () => {
     const { ui } = await open();
-    await ui.press("P");
+    await ui.press("5");
     await ui.waitFor("esc back");
     await ui.press("escape");
     await ui.waitFor(": commands");
