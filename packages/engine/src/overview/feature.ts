@@ -6,6 +6,7 @@
 import {
   AgentId,
   GateId,
+  type LaneProgress,
   type OfficeSnapshot,
   officeSnapshot,
   type OutputSource,
@@ -57,8 +58,10 @@ function officeOf(ctx: ReadContext): OfficeHandle {
 export function snapshot(
   office: OfficeHandle,
   planning: (office: OfficeHandle) => PlanningView | null = () => null,
+  lane: (office: OfficeHandle) => LaneProgress | null = () => null,
 ): OfficeSnapshot {
   const session = planning(office);
+  const progress = lane(office);
   return {
     cursor: headCursor(office),
     stories: activeStoryViews(office),
@@ -69,6 +72,8 @@ export function snapshot(
     tests: openTestViews(office),
     // The open planning session (DIPO-449).
     ...(session === null ? {} : { planning: session }),
+    // The planning lane's open changes and the backlog PR they wait on (DIPO-481).
+    ...(progress === null ? {} : { lane: progress }),
   };
 }
 
@@ -340,6 +345,7 @@ export function viewsFeatureWith(
   desk: Partial<DeskSources> & Pick<DeskSources, "stories">,
   planning?: (office: OfficeHandle) => PlanningView | null,
   diffSource?: BranchDiffSource,
+  lane?: (office: OfficeHandle) => LaneProgress | null,
 ): FeatureModule {
   const sources: DeskSources = { ...DESK_SOURCES, ...desk };
   return {
@@ -347,7 +353,7 @@ export function viewsFeatureWith(
     register(registry) {
       registry.addRead({
         definition: officeSnapshot,
-        handle: (ctx) => snapshot(officeOf(ctx), planning),
+        handle: (ctx) => snapshot(officeOf(ctx), planning, lane),
       });
       registry.addRead({
         definition: storyDetail,

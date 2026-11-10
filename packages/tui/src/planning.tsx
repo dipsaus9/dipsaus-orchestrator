@@ -35,6 +35,7 @@ import {
   usageTokens,
 } from "@dipsaus-orchestrator/client";
 import {
+  type LaneProgress,
   PLANNING_KINDS,
   type PlanningProposalView,
   type PlanningQuestionBlock,
@@ -49,6 +50,7 @@ import type { TuiActions } from "./app";
 import { Colored, type Role } from "./colour";
 import { COMPOSER_ROWS, Composer, composerKey, composerRows } from "./composer";
 import { truncate } from "./format";
+import { waitsOn } from "./lane";
 import type { Display } from "./options";
 import { splitLines } from "./output";
 import { proposalForm, readProposalForm } from "./proposal-form";
@@ -777,9 +779,22 @@ interface Block {
   readonly focused?: boolean;
 }
 
+/** Pure: what a confirmed proposal's line says: where it waits while filing, then where it was filed. */
+function filingWords(
+  item: PlanningProposalView,
+  lane: LaneProgress | null,
+  ellipsis: string,
+): string {
+  if (item.state === "filing") {
+    return `filing${ellipsis}${lane === null ? "" : ` waiting for ${waitsOn(lane)}`}`;
+  }
+  const ids = item.stories ?? [];
+  return `filed${ids.length === 0 ? "" : ` as ${ids.join(", ")}`}`;
+}
+
 /**
  * Pure: what the conversation shows of the proposals (DIPO-487): a line for each confirmed one,
- * `filing…` and then `filed as DIPO-n`, a card for each one that still needs a decision, and
+ * `filing…` (with the backlog PR it waits on and its CI, from the lane's progress, DIPO-481) and then `filed as DIPO-n`, a card for each one that still needs a decision, and
  * nothing for a declined one. The focused card shows its keys.
  */
 export function proposalBlocks(
@@ -787,6 +802,7 @@ export function proposalBlocks(
   focused: number | null,
   columns: number,
   display: Display,
+  lane: LaneProgress | null = null,
 ): Block[] {
   const { ellipsis, bar, failed, met } = glyphs(display.ascii);
   const width = Math.max(10, columns - 4);
@@ -796,11 +812,7 @@ export function proposalBlocks(
     const { title, tier } = proposalHead(item.proposal);
     const named = `${title}${tier === undefined ? "" : ` · ${tier}`}`;
     if (item.state === "filing" || item.state === "filed") {
-      const ids = item.stories ?? [];
-      const said =
-        item.state === "filing"
-          ? `filing${ellipsis}`
-          : `filed${ids.length === 0 ? "" : ` as ${ids.join(", ")}`}`;
+      const said = filingWords(item, lane, ellipsis);
       lines.push({
         rows: [
           {
@@ -964,6 +976,8 @@ export interface PlanningModeProps {
   readonly columns: number;
   /** Rows for the view, from its first line to the end of the input. */
   readonly height: number;
+  /** The planning lane's open changes and the backlog PR they wait on (DIPO-481); null when none. */
+  readonly lane: LaneProgress | null;
 }
 
 /** Drops the blocks that fit least, never the focused one, until the rows fit `max`. */
@@ -1036,7 +1050,8 @@ export function PlanningMode(props: PlanningModeProps) {
           ...readyLines(view, columns, display).map((text): Row => ({ text })),
           ...(planning.rail ? railRows(view, columns, display) : []),
         ];
-  const blocks = view === null ? [] : proposalBlocks(view, planning.focused, columns, display);
+  const blocks =
+    view === null ? [] : proposalBlocks(view, planning.focused, columns, display, props.lane);
   const space = Math.max(1, props.height - head.length - foot - 2);
   const cards = fitBlocks(blocks, Math.max(1, space - extra.length - 1));
   const room = Math.max(0, space - cards.length - extra.length);

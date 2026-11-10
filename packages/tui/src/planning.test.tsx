@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 
-import type { Event, PlanningView } from "@dipsaus-orchestrator/contract";
+import type { Event, LaneProgress, PlanningView } from "@dipsaus-orchestrator/contract";
 
 import { goldenSnapshots, OFFICES } from "../test/support/fake-session";
 import { mockRows } from "../test/support/mock-screens";
@@ -718,6 +718,71 @@ describe("the keys of the planning view (DIPO-479)", () => {
   });
 });
 
+/** One open lane change waiting on backlog PR #656, whose CI is `ci` (DIPO-481). */
+const laneOnPr = (ci: "running" | "failed"): LaneProgress => ({
+  ops: [
+    {
+      op: 4,
+      what: "a confirmed story filed",
+      subject: "DIPO-489",
+      state: "queued",
+      since: "2026-10-14T10:00:00.000Z",
+    },
+  ],
+  pr: { number: 656, url: "https://x/pull/656", ci, autoMerge: true, merged: false },
+});
+const filingView = (state: string, stories?: string[]) =>
+  planningView({
+    proposals: [
+      {
+        ...proposal(1, "Export as XML", "S"),
+        state,
+        ...(stories === undefined ? {} : { stories }),
+      },
+    ],
+  } as Partial<PlanningView>);
+
+describe("the filing line with the backlog PR (DIPO-481)", () => {
+  it("names the backlog PR and its CI while filing, then says filed as DIPO-n", async () => {
+    const waiting = await open({
+      columns: 112,
+      rows: 30,
+      snapshots: new Map([
+        [
+          OFFICES.dipsaus,
+          { ...golden(), planning: filingView("filing"), lane: laneOnPr("running") },
+        ],
+      ]),
+    });
+    await waiting.ui.press("5");
+    await waiting.ui.waitFor("filing… waiting for backlog PR #656, CI running · Export as XML");
+    // The PR's CI moves on with the engine's next read.
+    const failed = await open({
+      columns: 112,
+      rows: 30,
+      snapshots: new Map([
+        [
+          OFFICES.dipsaus,
+          { ...golden(), planning: filingView("filing"), lane: laneOnPr("failed") },
+        ],
+      ]),
+    });
+    await failed.ui.press("5");
+    await failed.ui.waitFor("filing… waiting for backlog PR #656, CI failed · Export as XML");
+    // Filed: the lane is empty and the line says where the story went.
+    const done = await open({
+      columns: 112,
+      rows: 30,
+      snapshots: new Map([
+        [OFFICES.dipsaus, { ...golden(), planning: filingView("filed", ["DIPO-489"]) }],
+      ]),
+    });
+    await done.ui.press("5");
+    const frame = await done.ui.waitFor("filed as DIPO-489 · Export as XML");
+    expect(frame).not.toContain("backlog PR");
+  });
+});
+
 describe("the Plan view of screens/07-plan.txt (DIPO-487)", () => {
   it("matches the mock at 112 columns", async () => {
     const snapshots = new Map([
@@ -725,6 +790,8 @@ describe("the Plan view of screens/07-plan.txt (DIPO-487)", () => {
         OFFICES.dipsaus,
         {
           ...golden(),
+          // The confirmed story waits for backlog PR #656 (DIPO-481).
+          lane: laneOnPr("running"),
           planning: planningView({
             goal: "Split DIPO-116 into stories that can be Ready this week",
             turns: 2,

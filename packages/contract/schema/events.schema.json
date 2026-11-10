@@ -8391,6 +8391,71 @@
         }
       },
       "required": ["run", "reason", "view"]
+    },
+    "lane.progress.data": {
+      "type": "object",
+      "properties": {
+        "lane": {
+          "type": "object",
+          "properties": {
+            "ops": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "what": {
+                    "type": "string"
+                  },
+                  "subject": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": ["queued", "branch", "pr"]
+                  },
+                  "since": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": ["op", "what", "subject", "state", "since"]
+              }
+            },
+            "pr": {
+              "type": "object",
+              "properties": {
+                "number": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "url": {
+                  "type": "string"
+                },
+                "ci": {
+                  "type": "string",
+                  "enum": ["running", "passed", "failed", "unknown"]
+                },
+                "autoMerge": {
+                  "type": "boolean"
+                },
+                "merged": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["number", "url", "ci", "autoMerge", "merged"]
+            }
+          },
+          "required": ["ops"]
+        }
+      },
+      "required": ["lane"]
     }
   }
 }

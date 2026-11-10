@@ -46,7 +46,8 @@ import type { Display } from "./options";
 import { OUTPUT_TAIL_BYTES } from "./output";
 import { promptRows } from "./prompt-box";
 import type { SegLine } from "./segments";
-import { boardEntries, Overview } from "./overview";
+import { waitsOn } from "./lane";
+import { boardEntries, isBacklogEntry, Overview } from "./overview";
 import { doneCount, Queue, queueRows } from "./queue";
 import { readyLines } from "@dipsaus-orchestrator/client";
 import { privacySettings, Settings, settingName, appliesWords } from "./settings";
@@ -119,7 +120,7 @@ function deskTarget(item: DeskItem, cli: string, id: ActionId): ActionTarget {
     ...(item.question === undefined ? {} : { question: String(item.question) }),
     ...(item.gate === undefined ? {} : { gate: String(item.gate) }),
     ...(item.note === undefined ? {} : { note: item.note.id }),
-    ...(item.idea === undefined ? {} : { idea: item.idea.id }),
+    ...(item.idea === undefined ? {} : { idea: item.idea.id, title: item.idea.title }),
     cli,
     ...(id === "answer" ? { text: item.detail } : {}),
   };
@@ -247,7 +248,11 @@ export function useHome(args: HomeArgs) {
     0,
     board.findIndex((entry) => String(entry.key) === overviewKey),
   );
-  const overviewEntry = board[overviewIndex] ?? null;
+  const overviewPick = board[overviewIndex] ?? null;
+  // The BACKLOG row (DIPO-481) is no story: its Enter lists the lane's open changes under it.
+  const backlogSelected = overviewPick !== null && isBacklogEntry(overviewPick);
+  const overviewEntry = overviewPick === null || isBacklogEntry(overviewPick) ? null : overviewPick;
+  const [backlogOpen, setBacklogOpen] = useState(false);
   const queue = queueRows(state.stories, showDone);
   const queueSelected = Math.max(
     0,
@@ -657,6 +662,8 @@ export function useHome(args: HomeArgs) {
       select(overviewIndex + 1);
     } else if (key.upArrow || input === "k") {
       select(overviewIndex - 1);
+    } else if (key.return && backlogSelected) {
+      setBacklogOpen(!backlogOpen);
     } else if (key.return && overviewEntry !== null) {
       setOverviewKey(String(overviewEntry.key));
       if (overviewEntry.run !== null) openDetail(overviewEntry.run, "overview");
@@ -1026,6 +1033,9 @@ export function useHome(args: HomeArgs) {
     readyResult: acts.action?.ready === undefined ? [] : readyLines(acts.action.ready),
     doneTotal: doneCount(state.stories),
     overviewEntry,
+    /** The selected board row, a story's key or the BACKLOG row's. */
+    overviewSelected: overviewPick === null ? null : String(overviewPick.key),
+    backlogOpen,
     settingsIndex,
     privacyWritten,
     checklistKey,
@@ -1081,6 +1091,11 @@ export function useHome(args: HomeArgs) {
     deskScroll,
     /** The action on its way or just answered, for the desk row it was started on. */
     deskAction: acts.action,
+    /** The accepted idea the lane queued, until the snapshot has no open change (DIPO-481). */
+    deskQueued:
+      acts.action?.queued === true && state.lane !== null
+        ? { title: acts.action.title ?? "an accepted idea", waits: waitsOn(state.lane) }
+        : null,
     /** True when the open prompt is drawn in the focused desk item's preview, not under the body. */
     promptInDesk:
       acts.flow !== null &&
@@ -1197,6 +1212,7 @@ export function HomeMode(props: HomeModeProps) {
       previewScroll={home.deskScroll}
       since={home.sinceShown ? home.digest : null}
       action={home.deskAction}
+      queued={home.deskQueued}
       team={{
         running: state.work.length,
         inReview: state.stories.filter((story) => story.column === "review").length,
@@ -1258,7 +1274,8 @@ export function HomeMode(props: HomeModeProps) {
       clock={clock}
       latest={home.latest}
       chain={home.chain}
-      selected={home.overviewEntry === null ? null : String(home.overviewEntry.key)}
+      selected={home.overviewSelected}
+      backlogOpen={home.backlogOpen}
     />
   );
 }

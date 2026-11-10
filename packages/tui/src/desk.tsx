@@ -50,6 +50,27 @@ import {
 } from "./segments";
 import { clockTime, glyphs } from "./views";
 
+/** An accepted idea queued in the lane: its title and the backlog PR it waits on, as words. */
+export interface QueuedAccept {
+  readonly title: string;
+  readonly waits: string;
+}
+
+/**
+ * The line of an accepted idea the lane queued and has not filed (DIPO-481); it stays until the
+ * engine's snapshot has no open change left.
+ */
+export function queuedLine(queued: QueuedAccept, width: number, ascii: boolean): SegLine {
+  const g = glyphs(ascii);
+  const head = `${g.pending} queued: `;
+  const room = Math.max(1, width - head.length - queued.waits.length - 8);
+  return [
+    seg(head, "dim"),
+    seg(truncate(queued.title, room, g.ellipsis)),
+    seg(` ${g.dot} waits for ${queued.waits}`, "dim"),
+  ];
+}
+
 /** The narrowest terminal that splits the Desk into a list and a preview (spec.md, Widths). */
 export const DESK_SPLIT_COLUMNS = 100;
 
@@ -510,6 +531,11 @@ export function Desk(props: {
   /** The Since band's digest, while it shows. */
   readonly since: DigestResult | null;
   readonly action: ActionState | null;
+  /**
+   * The accepted idea the lane has queued and not filed (DIPO-481): its title and where it waits,
+   * until the snapshot says filed. Null when none.
+   */
+  readonly queued: QueuedAccept | null;
   /** The office's running and in-review counts, for the empty Desk. */
   readonly team: { readonly running: number; readonly inReview: number };
 }) {
@@ -533,8 +559,15 @@ export function Desk(props: {
   const { groups, all } = deskGroups(desk.items);
   const error: SegLine[] =
     desk.error === null ? [] : [[seg(`desk: ${desk.error.code}: ${desk.error.message}`, "err")]];
-  if (all.length === 0)
-    return rows([...error, ...emptyLines(props.team.running, props.team.inReview, display.ascii)]);
+  const queuedRows: SegLine[] =
+    props.queued === null ? [] : [queuedLine(props.queued, width, display.ascii)];
+  if (all.length === 0) {
+    return rows([
+      ...error,
+      ...queuedRows,
+      ...emptyLines(props.team.running, props.team.inReview, display.ascii),
+    ]);
+  }
   const narrow = columns < DESK_SPLIT_COLUMNS;
   if (narrow && props.previewOpen)
     return rows([
@@ -542,7 +575,7 @@ export function Desk(props: {
       ...previewRows(props.preview(width), props.height - error.length, props.previewScroll),
     ]);
   const band = narrow || props.since === null ? null : sinceBand(props.since, width, display.ascii);
-  const top: SegLine[] = [...error];
+  const top: SegLine[] = [...error, ...queuedRows];
   if (band !== null) top.push(band, [seg((display.ascii ? "-" : "─").repeat(width), "faint")]);
   const height = Math.max(1, props.height - top.length);
   const list = listLines(groups, {

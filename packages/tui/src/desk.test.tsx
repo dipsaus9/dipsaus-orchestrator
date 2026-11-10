@@ -322,6 +322,20 @@ function asked(seq: number, run: string, story: string, key: string) {
   });
 }
 
+/** `lane.progress` data: `ops` open on backlog PR #656, whose CI runs (DIPO-481). */
+const laneOn656 = (ops: unknown[]) => ({
+  lane: {
+    ops,
+    pr: {
+      number: 656,
+      url: "https://github.com/o/r/pull/656",
+      ci: "running",
+      autoMerge: true,
+      merged: false,
+    },
+  },
+});
+
 describe("the desk's groups", () => {
   it("groups the items by kind where each kind first comes, keeping the engine's order", () => {
     const later = DeskItem.parse({ ...question, story: "DIPO-40", question: undefined });
@@ -1092,6 +1106,49 @@ describe("answers, pending rows, closed prompts, read-your-writes and retry", ()
       ?.options.onEvent(event(20, "idea.answered", { idea: PROPOSAL, state: "accepted" }));
     await ui.waitFor("accept proposed story: done; draft-31 in backlog PR #612");
     expect(listSide(ui.frame())).toContain("  ✓ accepted · draft-31 in backlog PR #612");
+  });
+
+  it("says an accept whose flush was held is queued and for which backlog PR, until the snapshot says filed (DIPO-481)", async () => {
+    const { ui, session } = await openDesk();
+    session.commandReply = (name) =>
+      name === "idea.accept"
+        ? {
+            ok: true,
+            result: {
+              idea: PROPOSAL,
+              state: "accepted",
+              flush: { state: "held", branch: "dipo/backlog-x", reason: "auto-merge is on" },
+            },
+            changed: true,
+            cursor: { stream: STREAM, seq: 20 },
+          }
+        : undefined;
+    const op = {
+      op: 9,
+      what: "an accepted idea filed as a draft",
+      subject: "an idea",
+      state: "queued",
+      since: "2026-10-14T10:05:00.000Z",
+    };
+    // The lane journals the accept before it answers: the store has the backlog PR already.
+    session.active(STREAM)?.options.onEvent(event(19, "lane.progress", laneOn656([op])));
+    await selectRow(ui, "Split RunOutcomes");
+    await ui.press("y");
+    await ui.waitFor("accept proposed story: answered, waiting for the office stream");
+    session
+      .active(STREAM)
+      ?.options.onEvent(event(20, "idea.answered", { idea: PROPOSAL, state: "accepted" }));
+    await ui.waitFor("accept proposed story: done; queued: waits for backlog PR #656");
+    // The idea has left the desk; the queued line stands until the lane has nothing open.
+    session.desk = DESK.filter((item) => item.idea === undefined);
+    session.active(STREAM)?.options.onEvent(event(21, "story.state", { story: "DIPO-1" }));
+    const queued = await ui.waitFor(
+      "◌ queued: Split RunOutcomes · waits for backlog PR #656, CI running",
+    );
+    expect(queued).not.toContain("filed");
+    session.active(STREAM)?.options.onEvent(event(22, "lane.progress", { lane: { ops: [] } }));
+    await Bun.sleep(150);
+    expect(ui.frame()).not.toContain("◌ queued:");
   });
 
   it("offers Ctrl-R after a retryable error and sends the same request id again", async () => {

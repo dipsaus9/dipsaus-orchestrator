@@ -1,10 +1,10 @@
 ---
 id: DIPO-481
 title: Show the backlog lane's work in progress and the backlog PR it waits on
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-10 15:27'
-updated_date: '2026-11-10 15:57'
+updated_date: '2026-11-10 18:37'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -24,6 +24,35 @@ references:
   - docs/design/tui-v2/screens/02-floor.txt
   - docs/design/tui-v2/screens/07-plan.txt
   - docs/design/tui-v2/spec.md
+modified_files:
+  - docs/design/tui-v2/screens/02-floor.txt
+  - docs/design/tui-v2/screens/07-plan.txt
+  - docs/design/tui-v2/spec.md
+  - packages/client/src/store/office-store.ts
+  - packages/client/test/unit/office-store.test.ts
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/test/fixtures.ts
+  - packages/engine/src/backlog/lane/lane.ts
+  - packages/engine/src/backlog/lane/planning.ts
+  - packages/engine/src/backlog/lane/progress.ts
+  - packages/engine/src/backlog/pr/feature.ts
+  - packages/engine/src/backlog/pr/merge.ts
+  - packages/engine/src/features.ts
+  - packages/engine/src/overview/feature.ts
+  - packages/engine/test/merge/progress.test.ts
+  - packages/tui/src/actions.ts
+  - packages/tui/src/desk.test.tsx
+  - packages/tui/src/desk.tsx
+  - packages/tui/src/home.tsx
+  - packages/tui/src/lane.ts
+  - packages/tui/src/overview.test.tsx
+  - packages/tui/src/overview.tsx
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/screen.tsx
 priority: high
 type: feature
 ordinal: 453000
@@ -70,11 +99,26 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 office.snapshot carries the backlog lane's progress: each open operation in words with its subject, state and since, and the open backlog PR it waits on with number, URL, CI state, auto-merge and merged; an event says when it changes
-- [ ] #2 The read is built from the lane journal (openEntries) and the backlog PR records, and the PR's CI state comes through the code host port the auto-merge round uses; no second journal or poll is added
-- [ ] #3 The Floor shows one BACKLOG line while an operation is open, with the count, the PR number and its CI state, and Enter lists the operations; with none open the line is absent
-- [ ] #4 A Desk accept whose flush was held says it is queued and which backlog PR it waits on, and the idea shows queued until it is filed
-- [ ] #5 In the Plan view a confirmed proposal's filing line (DIPO-487) shows the backlog PR it waits on and its CI state from this read, then 'filed as DIPO-n'
-- [ ] #6 The PLANNING LANE desk item for a lane stuck 30 minutes stays as it is
-- [ ] #7 docs/design/tui-v2/screens/02-floor.txt, 07-plan.txt and spec.md show the BACKLOG line and the filing line with the PR, and the views match them
+- [x] #1 office.snapshot carries the backlog lane's progress: each open operation in words with its subject, state and since, and the open backlog PR it waits on with number, URL, CI state, auto-merge and merged; an event says when it changes
+- [x] #2 The read is built from the lane journal (openEntries) and the backlog PR records, and the PR's CI state comes through the code host port the auto-merge round uses; no second journal or poll is added
+- [x] #3 The Floor shows one BACKLOG line while an operation is open, with the count, the PR number and its CI state, and Enter lists the operations; with none open the line is absent
+- [x] #4 A Desk accept whose flush was held says it is queued and which backlog PR it waits on, and the idea shows queued until it is filed
+- [x] #5 In the Plan view a confirmed proposal's filing line (DIPO-487) shows the backlog PR it waits on and its CI state from this read, then 'filed as DIPO-n'
+- [x] #6 The PLANNING LANE desk item for a lane stuck 30 minutes stays as it is
+- [x] #7 docs/design/tui-v2/screens/02-floor.txt, 07-plan.txt and spec.md show the BACKLOG line and the filing line with the PR, and the views match them
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-10 18:37 UTC
+- Criteria met: 7 of 7 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 315,203 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->

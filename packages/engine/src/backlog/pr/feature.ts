@@ -49,6 +49,7 @@ import {
   recordPrRef,
   takenOpIds,
 } from "../lane/journal";
+import { progressEntries } from "../lane/progress";
 import { type FlushReport, LANE_BRANCH_PREFIX, type OfficeLane } from "../lane/lane";
 import type { BacklogCli } from "../runner";
 
@@ -769,7 +770,8 @@ export class BacklogPrs {
     const handle = this.#handle(office);
     const now = this.#deps.clock.now();
     const count = handle.immediate(() => {
-      const entries = fn() ?? [];
+      // A change of an entry or of the PR appends the lane's progress with it (DIPO-481).
+      const entries = [...(fn() ?? []), ...progressEntries(handle)];
       appendEntries(handle, entries, { at: now });
       return entries.length;
     });

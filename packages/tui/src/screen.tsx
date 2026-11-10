@@ -173,7 +173,13 @@ export function Screen(props: ScreenProps) {
       columns={columns}
       panel={panel}
       planning={
-        <PlanningMode planning={planning} display={display} columns={columns} height={height} />
+        <PlanningMode
+          planning={planning}
+          display={display}
+          columns={columns}
+          height={height}
+          lane={state.lane}
+        />
       }
       retro={retroBody}
       overlay={

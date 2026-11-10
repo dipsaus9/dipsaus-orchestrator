@@ -790,6 +790,26 @@ const officeEventFixtures: Record<string, unknown> = {
     reason: "context-full",
     view: { ...planningView, state: "working", turns: 0 },
   },
+  "lane.progress": {
+    lane: {
+      ops: [
+        {
+          op: 3,
+          what: "an accepted idea filed as a draft",
+          subject: "idea 4f2a9c1e",
+          state: "pr",
+          since: "2026-11-10T15:23:00.000Z",
+        },
+      ],
+      pr: {
+        number: 656,
+        url: "https://github.com/acme/widgets/pull/656",
+        ci: "running",
+        autoMerge: true,
+        merged: false,
+      },
+    },
+  },
   "planning.ended": {
     run: ids.run,
     reason: "maintainer",

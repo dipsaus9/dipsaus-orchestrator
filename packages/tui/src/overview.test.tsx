@@ -231,6 +231,32 @@ function floorScenario() {
     ],
     questions: [],
     gates: [],
+    // The planning lane has two changes open and the backlog PR #656 runs its CI (DIPO-481).
+    lane: {
+      ops: [
+        {
+          op: 7,
+          what: "an accepted idea filed as a draft",
+          subject: "idea 4f2a9c1e",
+          state: "queued",
+          since: "2026-10-14T10:00:00.000Z",
+        },
+        {
+          op: 8,
+          what: "a confirmed story filed",
+          subject: "DIPO-488",
+          state: "pr",
+          since: "2026-10-14T09:58:00.000Z",
+        },
+      ],
+      pr: {
+        number: 656,
+        url: "https://github.com/acme/widgets/pull/656",
+        ci: "running",
+        autoMerge: true,
+        merged: false,
+      },
+    },
   };
   const chain = {
     rows: [
@@ -265,18 +291,68 @@ describe("the Floor", () => {
     await view.ui.waitFor("1 of 3 slots");
     const shown = lines(view.ui.frame());
     const mock = mockRows("02-floor.txt");
-    // The body: from the row under the first rule to the UP NEXT sentence.
+    // The body: from the row under the first rule to the BACKLOG row (DIPO-481).
     const from = shown.findIndex((line) => /^─+$/.test(line)) + 1;
-    const to = shown.findIndex((line) => line.includes("When DIPO-447"));
+    const to = shown.findIndex((line) => line.includes("BACKLOG"));
     // The engine sends no review verdict yet, so the mock's `approved` is not drawn.
     const expected = mock
       .slice(
         mock.findIndex((row) => row.startsWith("───")) + 1,
-        mock.findIndex((row) => row.includes("When DIPO-447")) + 1,
+        mock.findIndex((row) => row.includes("BACKLOG")) + 1,
       )
       .map((row) => row.replace(" · review round 1 approved", " · review round 1"));
     expect(shown.slice(from, to + 1)).toEqual(expected);
     expect(frame).not.toContain("busy");
+  });
+
+  it("shows one BACKLOG row while the lane has an open change, and none without one (DIPO-481)", async () => {
+    const { snapshot, chain } = floorScenario();
+    const withLane = await mount({
+      columns: 112,
+      rows: 30,
+      snapshots: new Map([[OFFICES.dipsaus, snapshot]]),
+      chain,
+    });
+    mounted.push(withLane.ui);
+    const shown = lines(await withLane.ui.waitFor("BACKLOG"));
+    expect(shown.filter((line) => line.includes("BACKLOG"))).toHaveLength(1);
+    expect(shown.find((line) => line.includes("BACKLOG"))).toContain(
+      "2 changes wait for backlog PR #656 · CI running",
+    );
+    // The lane has nothing open: the row is gone.
+    const { lane: _lane, ...quiet } = snapshot;
+    const without = await mount({
+      columns: 112,
+      rows: 30,
+      snapshots: new Map([[OFFICES.dipsaus, quiet]]),
+      chain,
+    });
+    mounted.push(without.ui);
+    await without.ui.waitFor("When DIPO-447 merges");
+    expect(without.ui.frame()).not.toContain("BACKLOG");
+  });
+
+  it("lists the lane's open changes with Enter on the BACKLOG row, and hides them with Enter again (DIPO-481)", async () => {
+    const { snapshot, chain } = floorScenario();
+    const view = await mount({
+      columns: 112,
+      rows: 30,
+      snapshots: new Map([[OFFICES.dipsaus, snapshot]]),
+      chain,
+    });
+    mounted.push(view.ui);
+    await view.ui.waitFor("BACKLOG");
+    // Two story cards come first; the BACKLOG row is the third stop.
+    for (let i = 0; i < 3; i++) await view.ui.press("j");
+    await view.ui.waitFor("▌ ○ BACKLOG");
+    await view.ui.press("enter");
+    const frame = await view.ui.waitFor("a confirmed story filed");
+    expect(frame).toContain("an accepted idea filed as a draft · idea 4f2a9c1e · queued");
+    expect(frame).toContain("a confirmed story filed · DIPO-488 · in the PR");
+    expect(frame).toContain("⏎ hide");
+    await view.ui.press("enter");
+    await Bun.sleep(50);
+    expect(view.ui.frame()).not.toContain("a confirmed story filed");
   });
 
   it("shows a story under RUNNING or IN REVIEW, never both", async () => {

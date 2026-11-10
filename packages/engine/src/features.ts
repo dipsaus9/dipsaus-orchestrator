@@ -6,6 +6,7 @@ import type { PlanningView } from "@dipsaus-orchestrator/contract";
 
 import { backlogFeature } from "./backlog";
 import { failedHoldDeskItems } from "./backlog/lane/desk";
+import { snapshotLane } from "./backlog/lane/progress";
 import { backlogPrDeskItems } from "./backlog/pr/desk";
 import type { BacklogCli } from "./backlog/runner";
 import { backlogStoryStore } from "./backlog/store";
@@ -54,6 +55,8 @@ export function engineFeatures(options: EngineFeatureOptions): readonly FeatureM
       },
       options.planning,
       options.branchDiff,
+      // The planning lane's work in progress (DIPO-481).
+      snapshotLane,
     ),
   ];
 }
