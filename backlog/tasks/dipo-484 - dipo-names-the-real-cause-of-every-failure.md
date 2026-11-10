@@ -1,10 +1,10 @@
 ---
 id: DIPO-484
 title: dipo names the real cause of every failure
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 15:36'
-updated_date: '2026-11-10 16:43'
+updated_date: '2026-11-10 16:45'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -22,6 +22,49 @@ references:
   - packages/tui/src/queue.tsx
   - packages/tui/src/desk.tsx
   - packages/tui/src/desk-preview.ts
+modified_files:
+  - packages/cli/src/ideas-command.test.ts
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/engine/src/box/model-proxy.ts
+  - packages/engine/src/db/migrations/0011-proxy-refusals.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/overview/chain.ts
+  - packages/engine/src/overview/desk.ts
+  - packages/engine/src/records/proxied-usage.ts
+  - packages/engine/src/records/proxy-refusals.ts
+  - packages/engine/src/retention/policy.ts
+  - packages/engine/src/retention/run.ts
+  - packages/engine/src/run/audit-session.ts
+  - packages/engine/src/run/control.ts
+  - packages/engine/src/run/idea-audits.ts
+  - packages/engine/src/run/outcome-exits.ts
+  - packages/engine/src/run/outcome-turns.ts
+  - packages/engine/src/run/outcome-types.ts
+  - packages/engine/src/run/reviews.ts
+  - packages/engine/src/run/session-run.ts
+  - packages/engine/src/workers/claude-cli/interpret.ts
+  - packages/engine/src/workers/claude-cli/result.ts
+  - packages/engine/src/workers/claude-cli/schema.ts
+  - packages/engine/src/workers/types.ts
+  - packages/engine/test/box/model-proxy-count.test.ts
+  - packages/engine/test/db/migrations.test.ts
+  - packages/engine/test/overview/chain.test.ts
+  - packages/engine/test/overview/desk.test.ts
+  - packages/engine/test/run/audit-session.test.ts
+  - packages/engine/test/run/ideas.test.ts
+  - packages/engine/test/run/outcomes.test.ts
+  - packages/engine/test/workers/interpret.test.ts
+  - packages/engine/test/workers/result.test.ts
+  - packages/tui/src/chain.test.ts
+  - packages/tui/src/chain.ts
+  - packages/tui/src/desk-preview.test.ts
+  - packages/tui/src/desk-preview.ts
+  - packages/tui/src/desk.test.tsx
+  - packages/tui/src/desk.tsx
+  - packages/tui/src/queue.test.tsx
+  - packages/tui/src/queue.tsx
 priority: high
 type: bug
 ordinal: 456000
@@ -73,3 +116,18 @@ test_plan:
 - [x] #5 Every failed or cut-off audit and every failed session shows on the desk or in dipo ideas with its cause, not only in the daemon log
 - [x] #6 office.chain gives a Refined dependency its own state refined instead of waiting (overview/chain.ts:18-24), and the Queue, the Floor and the Desk show it as Refined, not Ready yet, with its first gate failure
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-10 16:45 UTC
+- Criteria met: 6 of 6 (as the worker reported them)
+- Loops: 1; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 275,780 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 1
+<!-- SECTION:FINAL_SUMMARY:END -->
