@@ -22,9 +22,16 @@ import {
   claudeCliAdapter,
   claudeWorkerPort,
 } from "../../src/workers/claude-cli/adapter";
-import { BOX_CLAUDE, BOX_CLAUDE_ENV, planInBox } from "../../src/workers/claude-cli/box-plan";
+import {
+  BOX_CLAUDE,
+  BOX_CLAUDE_ENV,
+  checkReadOnlyArgv,
+  planInBox,
+} from "../../src/workers/claude-cli/box-plan";
 import { userMessageLine } from "../../src/workers/claude-cli/encode";
 import { initialState } from "../../src/workers/claude-cli/interpret";
+import { plan as planOnMac, reportsBySchema } from "../../src/workers/claude-cli/plan";
+import { AUDIT_KIND } from "../../src/workers/claude-cli/tools";
 import { AdapterPauses, type StickyPauseStore } from "../../src/run/starts-paused";
 import type { RunLaunchPaths } from "../../src/workers/port";
 import { PlanError, type HostLine, type ParseState } from "../../src/workers/types";
@@ -37,6 +44,7 @@ import {
   RUN_DIR,
   SHORT_TMP_DIR,
   spec,
+  sessionSpec,
   TMP_DIR,
   WORKDIR,
 } from "./launch-fixtures";
@@ -388,5 +396,50 @@ describe("the box's placeholder key at system/init", () => {
       .adapter(PATHS, OFFICE_DEFAULTS)
       .interpret(init("ANTHROPIC_API_KEY"), developer.initialState(spec())).events;
     expect(events.some((event) => event.t === "initRejected")).toBe(true);
+  });
+});
+
+describe("the report schema flag has one owner (DIPO-469)", () => {
+  const SCHEMA = { type: "object", properties: {} };
+  const kinds = ["implement", "review", AUDIT_KIND, "planning"];
+
+  it("decides --json-schema in one function: every kind but a planning session reports by schema", () => {
+    expect(
+      ["implement", "review", "session", AUDIT_KIND].map((kind) => reportsBySchema(kind)),
+    ).toEqual([true, true, true, true]);
+    expect(reportsBySchema("planning")).toBe(false);
+  });
+
+  it("the box plan adds --json-schema exactly where that function says, for each box kind", () => {
+    for (const kind of kinds) {
+      const argv = planInBox(spec({ kind, reportSchema: SCHEMA }), session(), RUN_DIR).argv;
+      expect(inBox(argv).includes("--json-schema")).toBe(reportsBySchema(kind));
+    }
+  });
+
+  it("the Mac plan asks the same function for its flag: a session passes it", () => {
+    const argv = planOnMac(sessionSpec({ reportSchema: SCHEMA }), context()).argv;
+    expect(argv.includes("--json-schema")).toBe(reportsBySchema("session"));
+  });
+
+  it("the adapter's parse state carries the same answer for each kind", () => {
+    const claude = port(
+      { isBoxRun: () => true, session: async () => session() },
+      new AdapterPauses({ clock, notify: () => {} }),
+    );
+    for (const kind of [...kinds, "session"]) {
+      const state = claude.initialState(spec({ kind, reportSchema: SCHEMA }), undefined) as {
+        reportBySchema?: boolean;
+      };
+      expect(state.reportBySchema === true).toBe(reportsBySchema(kind));
+    }
+  });
+
+  it("refuses a planning plan with --json-schema added, which its check did not look at before (DIPO-469)", () => {
+    const argv = inBox(planInBox(spec({ kind: "planning" }), session(), RUN_DIR).argv);
+    expect(() => checkReadOnlyArgv("planning", argv)).not.toThrow();
+    expect(() => checkReadOnlyArgv("planning", [...argv, "--json-schema", "{}"])).toThrow(
+      PlanError,
+    );
   });
 });

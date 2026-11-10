@@ -36,6 +36,7 @@ import {
   DEVELOPER_ON_MAC_REFUSED,
   ENV_ALLOWLIST,
   plan,
+  reportsBySchema,
   AUDITOR_ON_MAC_REFUSED,
   PLANNER_ON_MAC_REFUSED,
   REVIEWER_ON_MAC_REFUSED,
@@ -308,6 +309,8 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
         // An audit session answers once in structured output, only in its own read-only box
         // (DIPO-452).
         ...(spec.kind === AUDIT_KIND ? { reportKind: "audit" as const, placeholderKey: true } : {}),
+        // The init check allows the report tool exactly where the plan passed the schema (DIPO-469).
+        reportBySchema: reportsBySchema(spec.kind),
       }) as unknown as ParseState,
     encode,
     result: (state, exit) => result(state as unknown as ClaudeParseState, exit),

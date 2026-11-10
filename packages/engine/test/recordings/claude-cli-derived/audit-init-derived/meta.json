@@ -1,0 +1,15 @@
+{
+  "scenario": "audit-init-derived",
+  "source": "derived",
+  "derivedFrom": "review-approved-live",
+  "claude_code_version": "2.1.302",
+  "captured_at": "2026-11-10",
+  "expected": "An audit session (DIPO-452, DIPO-469) whose plan passed --json-schema: its system/init lists the planning tools and StructuredOutput, the report tool, and no other tool. Its init check passes. The same init with Bash added is rejected at init.",
+  "model": "haiku",
+  "kind": "audit",
+  "derivation": "The system/init line of review-approved-live, with its tools replaced by Read, Glob, Grep, WebSearch, WebFetch and StructuredOutput: the tool list of an audit session with a schema. Its three redacted plugins are named as the builtin ids they are (cc-plugin-agents-md, cc-plugin-telemetry, cc-plugin-plugin-authoring, @builtin), as withBuiltinPlugins names them. Everything else is the captured line. Not a live capture; the live init of an audit session is not recorded.",
+  "unknown_types": [],
+  "checks": {
+    "tools": ["Read", "Glob", "Grep", "WebSearch", "WebFetch", "StructuredOutput"]
+  }
+}
