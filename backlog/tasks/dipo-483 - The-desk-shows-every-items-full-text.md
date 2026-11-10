@@ -1,10 +1,10 @@
 ---
 id: DIPO-483
 title: The desk shows every item's full text
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 15:36'
-updated_date: '2026-11-10 15:57'
+updated_date: '2026-11-10 17:02'
 labels:
   - 'tier:S'
 milestone: m-6
