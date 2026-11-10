@@ -1,10 +1,10 @@
 ---
 id: DIPO-479
 title: 'Type and move in the planning view like Claude Code: Enter sends, Plan on 5'
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 15:21'
-updated_date: '2026-11-10 17:20'
+updated_date: '2026-11-10 17:25'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -125,11 +125,11 @@ test_plan:
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Closed 2026-11-10 17:02 UTC
+Closed 2026-11-10 17:25 UTC
 - Criteria met: 5 of 5 (as the worker reported them)
-- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
-- Review rounds: 1, failed 0
-- Budget used: 162,268 of 800,000 tokens
+- Loops: 0; CI attempts: 1 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 2, failed 0
+- Budget used: 184,143 of 800,000 tokens
 - Runs: 1; resumes: 0
 - Parks: none
 - Grants: none
