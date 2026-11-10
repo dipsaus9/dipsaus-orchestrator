@@ -4,7 +4,7 @@ title: The planning session reads and types like Claude Code
 status: Refined
 assignee: []
 created_date: '2026-11-10 15:21'
-updated_date: '2026-11-10 15:22'
+updated_date: '2026-11-10 15:28'
 labels:
   - 'tier:L'
 milestone: m-6
@@ -41,11 +41,12 @@ M6 (TUI v2). The maintainer's hand test of the planning session on 2026-11-10: "
 4. Questions need structure and colour: the question stands out, its options are a clear list with the recommended one marked, and the choices made are visible before sending and can be reviewed and changed.
 5. Lines break wrongly in the question part. Every line wraps at the column width at word boundaries, with no broken or cut lines.
 6. Claude's markdown shows raw. Headings, lists, bold, inline code and code blocks render, in the TUI's colour roles (roles.json, M6), with no new colours.
-7. Layout: today the view is a centred script with a side rail and a boxed input (screens/07-plan.txt). It becomes one conversation column like Claude Code: your message, the answer, the folded details, and one input at the foot, with nothing else competing for space. The stories rail becomes a fold-out on Tab (IN THIS PLAN, DECISIONS, ON END with Y). Proposed stories show inline as compact cards (title, tier, state, first story line); c, e and x on a focused card and Y in the end preview stay. With an empty input, the up arrow moves focus into the conversation, the arrows move between folded lines and cards, Enter opens or folds the focused line, and typing returns to the input. This layout is the agent's recommendation; the maintainer approves the design wording in this story's PR.
+7. Layout: today the view is a centred script with a side rail and a boxed input (screens/07-plan.txt). It becomes one conversation column like Claude Code: your message, the answer, the folded details, and one input at the foot, with nothing else competing for space. The stories rail becomes a fold-out on Tab (IN THIS PLAN, DECISIONS, ON END with Y). Proposed stories show inline as compact cards (title, tier, first story line), with c (confirm), e (edit) and x (drop from plan) on a focused card and Y in the end preview, as keymap.json already names them. On main the view still uses modifier keys for these (packages/tui/src/planning.tsx:17-23 and packages/tui/src/keys.ts:525-549: Ctrl-Y confirm, Ctrl-D decline, Ctrl-R edit, Ctrl-G Ready); c, e, x and Y replace them. With an empty input, the up arrow moves focus into the conversation, the arrows move between folded lines and cards, Enter opens or folds the focused line, and typing returns to the input. This layout is the agent's recommendation; the maintainer approves the design wording in this story's PR.
+8. "If I approved a proposal it doesn't go away in the planning session." On main `proposalLines` (packages/tui/src/planning.tsx:634-664) lists every proposal whatever its state, three rows ending at the selected one (:648), and only counts the open ones (:651); `stepSelection` (:99-108) moves over all of them, although only open and failed ones take a decision (`decidable`, :95-97). A proposal the maintainer confirmed leaves the open proposals at once and shows only as one compact line in the conversation: "filing…" while its state is `filing`, then "filed as DIPO-n" once `filed` (the ids from `stories`, packages/contract/src/work.ts:726-746). A declined one leaves too. Only proposals that still need a decision (open, and failed with the lane's reason) stay as cards and take the selection.
 
 Design files change to match: docs/design/tui-v2/screens/07-plan.txt, keymap.json (the plan entries, the Plan view's send and new-line keys, planEnd), spec.md (the Plan section, and a note that the text mock wins over the HTML's mock 11) and migration.md. ADR 0009 changes in section 3 (Views), the Planning line ("shows ... the streamed answers, takes multi-line messages, shows Claude's question blocks as a dialog"), which gets the conversation column, Enter to send and folded details, plus one line in its Replaced list for the centred script with side rail and Ctrl+S. The other Composer prompts (steer, answer, note, top-up) are not part of this story.
 
-Tier L: it changes input, output and layout of one view. If it runs over, split it into input (criteria 1, 2) and output and layout (criteria 3 to 9).
+Tier L: it changes input, output and layout of one view. If it runs over, split it into input (criteria 1, 2) and output and layout (criteria 3 to 11).
 
 ```dipo
 branch: "DIPO-479/planning-like-claude-code"
@@ -65,7 +66,9 @@ test_plan:
     - kind: "automated"
       check: "(unit) markdown headings, lists, bold, inline code and code blocks render with colour roles from roles.json; a test fails on a colour not in roles.json"
     - kind: "automated"
-      check: "(unit) the Plan view renders one conversation column and one input at the foot; Tab opens and closes the stories fold-out; a proposed story renders as an inline card where c, e and x act on the focused card, and Y in the end preview sets them Ready"
+      check: "(unit) the Plan view renders one conversation column and one input at the foot; Tab opens and closes the stories fold-out; a proposed story renders as an inline card where c, e and x act on the focused card, and Y in the end preview sets them Ready; Ctrl-Y, Ctrl-D, Ctrl-R and Ctrl-G do nothing there"
+    - kind: "automated"
+      check: "(unit) after c on a proposal, a view with it filing shows one 'filing…' line and no card, a view with it filed shows one 'filed as DIPO-n' line, a declined one shows no card, and the selection moves only over open and failed proposals"
     - kind: "manual"
       check: "In Warp, open P on the scratch repository, type two lines with Shift+Enter, then with Option+Enter and with a trailing backslash, and send with Enter"
       expect: "Each way makes a new line and Enter sends; note what Warp sends for Shift+Enter and whether a Warp setting was needed"
@@ -84,7 +87,8 @@ test_plan:
 - [ ] #5 A question renders with the question set apart, its options as a list with the recommended one marked, and the chosen answers visible and changeable before sending
 - [ ] #6 Every line of the conversation and of the question view wraps at the column width at word boundaries, with no broken or cut lines
 - [ ] #7 Claude's markdown (headings, lists, bold, inline code, code blocks) renders in the TUI's colour roles, with no new colours
-- [ ] #8 The Plan view is one conversation column with one input at the foot; the stories rail is a fold-out on Tab; proposed stories show inline as compact cards where c, e and x work on the focused card, and Y in the end preview still sets them Ready
-- [ ] #9 screens/07-plan.txt, keymap.json, spec.md and migration.md describe the new Plan view, and the view matches 07-plan.txt
-- [ ] #10 ADR 0009's Planning line describes the conversation column, Enter to send and folded details, with one Replaced line for the centred script, the side rail and Ctrl+S
+- [ ] #8 The Plan view is one conversation column with one input at the foot; the stories rail is a fold-out on Tab; proposed stories show inline as compact cards where c, e and x work on the focused card, and Y in the end preview sets them Ready, replacing Ctrl-Y, Ctrl-D, Ctrl-R and Ctrl-G
+- [ ] #9 A confirmed proposal leaves the open proposals at once and shows only as one compact line, 'filing…' and then 'filed as DIPO-n'; a declined one leaves too; only open and failed proposals stay as cards and take the selection
+- [ ] #10 screens/07-plan.txt, keymap.json, spec.md and migration.md describe the new Plan view, and the view matches 07-plan.txt
+- [ ] #11 ADR 0009's Planning line describes the conversation column, Enter to send and folded details, with one Replaced line for the centred script, the side rail and Ctrl+S
 <!-- AC:END -->
