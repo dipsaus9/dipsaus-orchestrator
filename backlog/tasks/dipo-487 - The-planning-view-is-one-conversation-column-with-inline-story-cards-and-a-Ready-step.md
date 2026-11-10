@@ -3,10 +3,10 @@ id: DIPO-487
 title: >-
   The planning view is one conversation column with inline story cards and a
   Ready step
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 15:46'
-updated_date: '2026-11-10 17:37'
+updated_date: '2026-11-10 17:45'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -94,10 +94,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Plan view is one conversation column with one input at the foot, and the stories rail is a fold-out on Tab
-- [ ] #2 Proposed stories show inline as compact cards; with a card focused c sends planning.confirm, x sends planning.decline and e puts its form in the input where Enter sends planning.edit; Esc or any other printable key returns focus to the input; Ctrl-Y, Ctrl-D, Ctrl-R and Ctrl-G are gone
-- [ ] #3 A confirmed proposal leaves the open proposals at once and shows only as one compact line, 'filing…' and then 'filed as DIPO-n'; a declined one leaves too; only open and failed proposals stay as cards and take the selection
-- [ ] #4 /end opens the Ready step: it lists the session's filed and edited stories not yet Ready, all ticked; space toggles one; Y sends planning.ready with the ticked stories and then planning.end and shows each story set, queued or refused with the gate's messages; n ends with none set Ready; Esc keeps the session open
-- [ ] #5 screens/07-plan.txt, spec.md and migration.md describe the new Plan view, and the view matches 07-plan.txt
-- [ ] #6 ADR 0009's Planning line describes the conversation column, the inline cards and the Ready step, with one Replaced line for the centred script, the side rail and the modifier keys for proposals and Ready
+- [x] #1 The Plan view is one conversation column with one input at the foot, and the stories rail is a fold-out on Tab
+- [x] #2 Proposed stories show inline as compact cards; with a card focused c sends planning.confirm, x sends planning.decline and e puts its form in the input where Enter sends planning.edit; Esc or any other printable key returns focus to the input; Ctrl-Y, Ctrl-D, Ctrl-R and Ctrl-G are gone
+- [x] #3 A confirmed proposal leaves the open proposals at once and shows only as one compact line, 'filing…' and then 'filed as DIPO-n'; a declined one leaves too; only open and failed proposals stay as cards and take the selection
+- [x] #4 /end opens the Ready step: it lists the session's filed and edited stories not yet Ready, all ticked; space toggles one; Y sends planning.ready with the ticked stories and then planning.end and shows each story set, queued or refused with the gate's messages; n ends with none set Ready; Esc keeps the session open
+- [x] #5 screens/07-plan.txt, spec.md and migration.md describe the new Plan view, and the view matches 07-plan.txt
+- [x] #6 ADR 0009's Planning line describes the conversation column, the inline cards and the Ready step, with one Replaced line for the centred script, the side rail and the modifier keys for proposals and Ready
 <!-- AC:END -->
