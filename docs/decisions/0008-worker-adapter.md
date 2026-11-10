@@ -161,7 +161,8 @@ The task message is the first stdin line, never on argv. The box's environment h
 | A crash while the daemon watches the session | One fresh session with a handoff, then `worker-failed` |
 | A host found dead or not answering at recovery | Parks `worker-failed` (0005) |
 | 10 stream lines that fail their schema, or usage that cannot be read | Parks `worker-failed` ("stream drift"), naming the Claude Code version |
-| `rate_limit_event` `rejected` | Parks `worker-failed` ("plan limit until T"). The office's starts paused holds until T and then resumes it (0020) |
+| `rate_limit_event` `rejected`, or a turn ended by an HTTP 429 | Parks `worker-failed` ("plan limit until T"). The office's starts paused holds until T and then resumes it (0020) |
+| An HTTP 429 the model proxy sent at the run's token cap | The engine recorded that refusal (`proxy_refusals`) for the run the peer address names, so a story run parks `budget-exceeded` with the proxy's reason, a session ends with it, and the office's starts do not pause. No stream text, header or body decides it: the adapter only says that an ending was an HTTP 429 |
 | Login, billing, start-up or box token failure | The office's starts paused, with a notice. The story stays where it was |
 | `apiKeySource` not `none` | Stops the session and pauses starts in every office |
 
@@ -213,4 +214,5 @@ An adapter implements section 1. An Agent SDK adapter would share `interpret`, b
 - The reviewer on the Mac with a `PreToolUse` web-gate hook and its relay through the worker host (2026-10-17). Replaced by a read-only reviewer box (2026-10-24); no session has hooks.
 - `WorkerSpec.tools`, the tool names of each role picked by the engine (2026-10-10). Replaced by `web`: the adapter names each kind's tools, so Claude's tool names stay in it (2026-10-29).
 - The keepalive as the box's PID 1 (2026-10-22), which never reaped orphans, so zombies piled up in a long-lived box. Replaced by Apple container's init as PID 1 with the keepalive as its child (2026-10-30, DIPO-378).
+- Every HTTP 429 read as the plan's limit, the model proxy's own refusal at a run's cap included (2026-11-02). Replaced by the engine's record of each proxy refusal, which decides a capped ending (2026-11-10, DIPO-484).
 - Caps that counted only the usage of Claude Code's own stream (2026-10-10), so a product's tests or `curl` in a box spent the subscription unseen. Replaced by the model proxy's count of every request a box makes, by the sender's address (2026-11-02, DIPO-425).
