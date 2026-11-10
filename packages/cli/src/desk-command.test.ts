@@ -160,7 +160,7 @@ const EXAMPLE: DeskItem[] = officeDesk.result.parse([
 
 /** A story the maintainer parked with no note, like the example's. */
 function byYou(story: string): DeskItem {
-  return DeskItem.parse({ ...EXAMPLE[5], story, detail: "" });
+  return DeskItem.parse({ ...EXAMPLE[5], story, detail: "", fullDetail: "" });
 }
 
 const EXAMPLE_LINES = [
@@ -216,7 +216,7 @@ describe("formatDesk", () => {
       actions: [],
       hand: "merge PR #7 by hand on GitHub",
     });
-    const { hand: _, ...withoutHand } = merge;
+    const { hand: _, fullHand: _whole, ...withoutHand } = merge;
     const bare = DeskItem.parse({ ...withoutHand, story: "DIPO-8" });
     expect(formatDesk("demo", [merge, bare, byYou("DIPO-1"), byYou("DIPO-22")], NOW)).toEqual([
       "demo · desk 2 · parked by you 2",
@@ -287,6 +287,24 @@ describe("formatDesk", () => {
     ]);
   });
 
+  it("prints the whole text under the item, its line breaks kept (DIPO-483)", () => {
+    const whole = `the first line of the question\n${"a long stretch of the question ".repeat(20)}end`;
+    const item = DeskItem.parse({
+      kind: "PARKED",
+      story: "DIPO-3",
+      reason: "ambiguous-spec",
+      detail: whole.replace(/\s+/g, " ").slice(0, 60),
+      fullDetail: whole,
+      since: "2026-11-10T08:00:00.000Z",
+      blocks: [],
+      actions: [],
+    });
+    const lines = formatDesk("demo", [item], NOW);
+    for (const line of whole.split("\n")) expect(lines).toContain(`${" ".repeat(7)}${line}`);
+    expect(lines.some((line) => line.endsWith("end"))).toBe(true);
+    expect(lines.join("\n")).not.toContain("…");
+  });
+
   it("shows the age in minutes, hours, then days", () => {
     expect(age(NOW - 59 * MINUTE, NOW)).toBe("59m");
     expect(age(NOW - 60 * MINUTE, NOW)).toBe("1h");
@@ -322,6 +340,22 @@ describe("dipo desk", () => {
     expect(await main(["desk", "--json"], ctx.deps)).toBe(0);
     expect(ctx.out).toHaveLength(1);
     expect(JSON.parse(ctx.out[0] ?? "")).toEqual(EXAMPLE);
+  });
+
+  it("carries an item's whole text in --json (DIPO-483)", async () => {
+    const whole = `${"the question, whole ".repeat(30)}end`;
+    const item = DeskItem.parse({
+      kind: "PARKED",
+      story: "DIPO-3",
+      detail: whole.slice(0, 80),
+      fullDetail: whole,
+      since: "2026-11-10T08:00:00.000Z",
+      blocks: [],
+      actions: [],
+    });
+    const ctx = fake(() => ({ ok: true, result: [item] }));
+    expect(await main(["desk", "--json"], ctx.deps)).toBe(0);
+    expect(JSON.parse(ctx.out[0] ?? "")[0].fullDetail).toBe(whole);
   });
 
   it("refuses an unknown argument with the usage exit code", async () => {

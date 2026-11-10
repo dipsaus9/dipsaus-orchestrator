@@ -1,10 +1,10 @@
 ---
 id: DIPO-483
 title: The desk shows every item's full text
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-10 15:36'
-updated_date: '2026-11-10 15:57'
+updated_date: '2026-11-10 17:15'
 labels:
   - 'tier:S'
 milestone: m-6
@@ -18,6 +18,27 @@ references:
   - packages/engine/src/workers/claude-cli/result.ts
   - packages/engine/src/workers/claude-cli/interpret.ts
   - packages/engine/src/records/summary.ts
+modified_files:
+  - packages/cli/src/desk-command.test.ts
+  - packages/cli/src/desk-command.ts
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/src/work.test.ts
+  - packages/engine/src/overview/desk.ts
+  - packages/engine/src/workers/claude-cli/report-schema.ts
+  - packages/engine/test/overview/desk-notify.test.ts
+  - packages/engine/test/overview/desk.test.ts
+  - packages/engine/test/run/planning-session.test.ts
+  - packages/engine/test/workers/report-schema.test.ts
+  - packages/engine/test/workers/result.test.ts
+  - packages/tui/src/desk-preview.test.ts
+  - packages/tui/src/desk-preview.ts
+  - packages/tui/src/desk.test.tsx
+  - packages/tui/src/desk.tsx
+  - packages/tui/src/footer.test.ts
+  - packages/tui/src/home.tsx
+  - packages/tui/src/keys.ts
 priority: high
 type: bug
 ordinal: 455000
@@ -60,8 +81,40 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 office.desk carries each item's full cleaned detail and hand text beside the one-line row form; the 300-character cut is gone outside the list row
-- [ ] #2 The desk preview shows the full text wrapped at the pane width, scrollable when taller than the pane, never cut
-- [ ] #3 dipo desk prints each item's full text, and dipo desk --json carries it whole
-- [ ] #4 A worker report whose summary holds a raw question parameter fragment and no question field parks with the question taken from after the fragment, and no tag text reaches the park, the desk or the task
+- [x] #1 office.desk carries each item's full cleaned detail and hand text beside the one-line row form; the 300-character cut is gone outside the list row
+- [x] #2 The desk preview shows the full text wrapped at the pane width, scrollable when taller than the pane, never cut
+- [x] #3 dipo desk prints each item's full text, and dipo desk --json carries it whole
+- [x] #4 A worker report whose summary holds a raw question parameter fragment and no question field parks with the question taken from after the fragment, and no tag text reaches the park, the desk or the task
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-11-10 17:10 UTC: budget-exceeded
+- Detail: turn cap (--max-turns) after 91 turns
+- Run: run_01M736HKMXFD1Y2SP9A27BG0SY
+- Criteria met: 0 of 4 (as the worker reported them)
+- Loops: 0 of 3; CI attempts: 0 of 2
+- Review rounds: 0, failed 0 of 3
+- Budget used: 216,127 of 300,000 tokens; 91 of 90 turns; 8 of 45 minutes
+- Last good commit: 87e5e1fbdaaf67097389da0e1bbcfc1a2990c803
+
+Resumed 2026-11-10 17:11 UTC; grants: budget +150,000 tokens, +45 turns, +23 minutes; note: Good progress on commit 87e5e1fb (engine carries full text). Continue from there: finish the desk preview wrap/scroll, dipo desk full print, the question-fragment park fix and their tests, then close…
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-10 17:15 UTC
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 271,103 of 450,000 tokens
+- Runs: 1; resumes: 1
+- Parks: 1
+  - 2026-11-10 17:10 UTC budget-exceeded: turn cap (--max-turns) after 91 turns
+- Grants: 1
+  - 2026-11-10 17:11 UTC budget +150,000 tokens, +45 turns, +23 minutes
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

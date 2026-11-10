@@ -17,6 +17,34 @@ const done: WorkerReport = {
 };
 const cliOk = (report: unknown) => WorkerCliReportSchema.safeParse(report).success;
 
+describe("a question that leaked into the summary (DIPO-470)", () => {
+  it("takes the question from after the parameter and keeps the tags out of the report", () => {
+    const leaked = {
+      ...done,
+      status: "blocked",
+      summary:
+        'Two registries exist.</summary>\n<parameter name="question">Which registry?</parameter>',
+    };
+    const read = parseWorkerReport(leaked);
+    expect(read.ok).toBe(true);
+    if (!read.ok) return;
+    expect(read.report.question).toBe("Which registry?");
+    expect(read.report.summary).toBe("Two registries exist.");
+    expect(JSON.stringify(read.report)).not.toMatch(/<\/?(summary|parameter|invoke)/);
+  });
+
+  it("leaves a report that has a question field as it is", () => {
+    const asked: WorkerReport = {
+      ...done,
+      status: "blocked",
+      summary: "Two registries exist.",
+      question: "Which registry?",
+    };
+    const read = parseWorkerReport(asked);
+    expect(read).toEqual({ ok: true, report: asked });
+  });
+});
+
 describe("worker report schema", () => {
   it("parses a done report and a blocked one with a question", () => {
     expect<WorkerReport>(WorkerReportSchema.parse(done)).toEqual(done);

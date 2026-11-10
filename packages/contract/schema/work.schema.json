@@ -3020,6 +3020,9 @@
         "detail": {
           "type": "string"
         },
+        "fullDetail": {
+          "type": "string"
+        },
         "since": {
           "type": "string",
           "format": "date-time",
@@ -3068,6 +3071,9 @@
           }
         },
         "hand": {
+          "type": "string"
+        },
+        "fullHand": {
           "type": "string"
         }
       },

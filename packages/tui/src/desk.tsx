@@ -471,6 +471,13 @@ export function emptyLines(running: number, inReview: number, ascii: boolean): S
   ];
 }
 
+/** The rows of a preview at `height`, from `scroll` down; past its end, the last rows show (DIPO-483). */
+export function previewRows(lines: readonly SegLine[], height: number, scroll: number): SegLine[] {
+  const room = Math.max(1, height);
+  const start = Math.max(0, Math.min(scroll, lines.length - room));
+  return lines.slice(start, start + room);
+}
+
 /** The rows of a pane at `height`, scrolled so the focused range shows. */
 export function windowed(
   lines: readonly SegLine[],
@@ -495,6 +502,8 @@ export function Desk(props: {
   readonly preview: (width: number) => readonly SegLine[];
   /** Below 100 columns, Enter opened the preview full screen. */
   readonly previewOpen: boolean;
+  /** The first preview row shown; PgUp and PgDn move it (DIPO-483). */
+  readonly previewScroll: number;
   /** The Since band's digest, while it shows. */
   readonly since: DigestResult | null;
   readonly action: ActionState | null;
@@ -525,7 +534,10 @@ export function Desk(props: {
     return rows([...error, ...emptyLines(props.team.running, props.team.inReview, display.ascii)]);
   const narrow = columns < DESK_SPLIT_COLUMNS;
   if (narrow && props.previewOpen)
-    return rows([...error, ...windowed(props.preview(width), props.height - error.length, [0, 0])]);
+    return rows([
+      ...error,
+      ...previewRows(props.preview(width), props.height - error.length, props.previewScroll),
+    ]);
   const band = narrow || props.since === null ? null : sinceBand(props.since, width, display.ascii);
   const top: SegLine[] = [...error];
   if (band !== null) top.push(band, [seg((display.ascii ? "-" : "─").repeat(width), "faint")]);
@@ -542,7 +554,7 @@ export function Desk(props: {
   const shown = windowed(list.lines, height, list.focus);
   if (narrow) return rows([...top, ...shown]);
   const paneWidth = width - DESK_LIST_COLUMNS - 3;
-  const preview = props.preview(paneWidth);
+  const preview = previewRows(props.preview(paneWidth), height, props.previewScroll);
   const rule = seg(display.ascii ? "|" : "│", "faint");
   const body: SegLine[] = [];
   for (let i = 0; i < height; i++) {

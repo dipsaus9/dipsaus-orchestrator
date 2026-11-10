@@ -367,7 +367,8 @@ describe("the desk", () => {
   };
 
   it("parses an item with its actions, and a kind a later minor adds", () => {
-    expect(DeskItem.parse(item)).toEqual(item as never);
+    // A sender that leaves `fullDetail` out reads as its row form (DIPO-483).
+    expect(DeskItem.parse(item)).toEqual({ ...item, fullDetail: item.detail } as never);
     expect(DeskItem.safeParse({ ...item, kind: "SOMETHING NEW" }).success).toBe(true);
     expect(KNOWN_DESK_KINDS).toContain("PARKED BY YOU");
     expect(KNOWN_DESK_KINDS[0]).toBe("PROFILE");

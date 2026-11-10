@@ -18,6 +18,7 @@ function item(kind: string, story: string | undefined, detail = "waits"): DeskIt
     kind,
     ...(story === undefined ? {} : { story: StoryId.parse(story) }),
     detail,
+    fullDetail: detail,
     since: "2026-10-30T10:00:00.000Z",
     blocks: [],
     actions: [],

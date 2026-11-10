@@ -97,6 +97,9 @@ function oneLine(text: string): string {
   return text.replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, " ").trim();
 }
 
+/** The rows PgUp and PgDn move the desk's preview by (DIPO-483). */
+const DESK_SCROLL_STEP = 8;
+
 /** The park reasons whose resume note starts as the park's detail: the failing check, the paths. */
 const PREFILLED_PARKS: ReadonlySet<string> = new Set([
   "verify-failing",
@@ -272,6 +275,8 @@ export function useHome(args: HomeArgs) {
   const [card, setCard] = useState<CardState | null>(null);
   // Below 100 columns Enter opens the focused item's preview full screen (spec.md, Widths).
   const [deskPreview, setDeskPreview] = useState(false);
+  // The preview's first row: PgUp and PgDn move it by a step, and moving the selection resets it.
+  const [deskScroll, setDeskScroll] = useState(0);
   // The digest whose Since band any key dismissed, by its `since`.
   const [sinceDismissed, setSinceDismissed] = useState<string | null>(null);
   const desk = useDesk({
@@ -749,11 +754,17 @@ export function useHome(args: HomeArgs) {
   const onDeskKey = (input: string, key: Key) => {
     const resume = deskItem?.actions.find((action) => action.command === "work.resume");
     const answer = deskItem?.actions.find((action) => action.command === "work.answer");
-    if (key.downArrow || input === "j") {
+    if (key.pageDown) {
+      setDeskScroll((at) => at + DESK_SCROLL_STEP);
+    } else if (key.pageUp) {
+      setDeskScroll((at) => Math.max(0, at - DESK_SCROLL_STEP));
+    } else if (key.downArrow || input === "j") {
       setDeskPreview(false);
+      setDeskScroll(0);
       selectDesk(deskIndex + 1);
     } else if (key.upArrow || input === "k") {
       setDeskPreview(false);
+      setDeskScroll(0);
       selectDesk(deskIndex - 1);
     } else if (key.return && deskItem !== null) {
       // Below 100 columns the first Enter opens the preview, the next one the story.
@@ -1023,6 +1034,7 @@ export function useHome(args: HomeArgs) {
     },
     sinceShown,
     deskPreview,
+    deskScroll,
     /** The action on its way or just answered, for the desk row it was started on. */
     deskAction: acts.action,
     /** True when the open prompt is drawn in the focused desk item's preview, not under the body. */
@@ -1138,6 +1150,7 @@ export function HomeMode(props: HomeModeProps) {
       }
       preview={home.deskPreviewLines}
       previewOpen={home.deskPreview}
+      previewScroll={home.deskScroll}
       since={home.sinceShown ? home.digest : null}
       action={home.deskAction}
       team={{

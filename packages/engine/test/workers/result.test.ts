@@ -192,6 +192,21 @@ describe("result rows without a recording (0008)", () => {
     expect(res.retry).toBeUndefined();
     expect(result(feed([resultLine()]), OK)).toMatchObject({ outcome: "done" });
   });
+
+  it("a blocked report whose summary leaked a question parameter parks with the question (DIPO-470)", () => {
+    const leaked = resultLine({
+      structured_output: {
+        ...report,
+        status: "blocked",
+        summary:
+          'Two registries exist.</summary>\n<parameter name="question">Which registry?</parameter>',
+      },
+    });
+    const res = result(feed([leaked]), OK);
+    expect(res.outcome).toBe("blocked");
+    expect(res.park).toEqual({ reason: "ambiguous-spec", detail: "Which registry?" });
+    expect(JSON.stringify(res)).not.toMatch(/<\/?(summary|parameter|invoke)/);
+  });
 });
 
 describe("usage of a turn that did not complete", () => {
