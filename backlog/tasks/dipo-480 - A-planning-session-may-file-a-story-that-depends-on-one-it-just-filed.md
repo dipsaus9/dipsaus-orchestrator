@@ -1,10 +1,10 @@
 ---
 id: DIPO-480
 title: A planning session knows the stories it filed
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 15:21'
-updated_date: '2026-11-10 16:33'
+updated_date: '2026-11-10 16:35'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -20,6 +20,14 @@ references:
   - packages/engine/test/run/planning-filing.test.ts
   - packages/engine/test/run/planning-ready.test.ts
   - packages/engine/test/run/planning-world.ts
+modified_files:
+  - packages/engine/src/backlog/lane/planning.ts
+  - packages/engine/src/prompts/contract/planning-box.md
+  - packages/engine/src/records/planning-record.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/story-store/planning.ts
+  - packages/engine/test/prompts/planning-contract.test.ts
+  - packages/engine/test/run/planning-filed-stories.test.ts
 priority: high
 type: bug
 ordinal: 452000
@@ -76,3 +84,18 @@ test_plan:
 - [x] #7 The planning contract says stories filed or merged after the copy's commit are in that list and not in the copy, so Claude never calls a listed story missing
 - [x] #8 The planning contract names the planning view's Ready step in words and tells Claude never to name a TUI key, with a test that fails on a key name in the planning prompts
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-10 16:35 UTC
+- Criteria met: 8 of 8 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 174,748 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
