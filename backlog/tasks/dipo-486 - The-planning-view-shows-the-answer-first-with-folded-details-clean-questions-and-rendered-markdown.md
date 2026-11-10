@@ -3,10 +3,10 @@ id: DIPO-486
 title: >-
   The planning view shows the answer first, with folded details, clean questions
   and rendered markdown
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-11-10 15:46'
-updated_date: '2026-11-10 17:57'
+updated_date: '2026-11-10 17:58'
 labels:
   - 'tier:M'
 milestone: m-6
@@ -19,6 +19,14 @@ references:
   - packages/tui/src/stream.ts
   - packages/tui/src/colour.tsx
   - docs/design/tui-v2/roles.json
+modified_files:
+  - packages/tui/src/markdown.ts
+  - packages/tui/src/planning.test.tsx
+  - packages/tui/src/planning.tsx
+  - packages/tui/src/question-dialog.ts
+  - packages/tui/src/stream.ts
+  - packages/tui/src/transcript.test.ts
+  - packages/tui/src/transcript.ts
 priority: high
 type: feature
 ordinal: 458000
@@ -70,3 +78,18 @@ test_plan:
 - [x] #4 Every line of the conversation and of the question view wraps at the column width at word boundaries, with no broken or cut lines
 - [x] #5 Claude's markdown (headings, lists, bold, inline code, code blocks) renders in the TUI's colour roles, with no new colours
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-10 17:58 UTC
+- Criteria met: 5 of 5 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 124,649 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
