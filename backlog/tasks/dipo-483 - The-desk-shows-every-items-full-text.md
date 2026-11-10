@@ -1,10 +1,10 @@
 ---
 id: DIPO-483
 title: The desk shows every item's full text
-status: Parked
+status: In Progress
 assignee: []
 created_date: '2026-11-10 15:36'
-updated_date: '2026-11-10 17:10'
+updated_date: '2026-11-10 17:11'
 labels:
   - 'tier:S'
 milestone: m-6
@@ -55,10 +55,6 @@ test_plan:
     - kind: "manual"
       check: "On the scratch repository, park a story with a long question and open it on the Desk and with dipo desk"
       expect: "The whole question shows in the preview and in dipo desk, with no ellipsis and no tag text"
-park:
-  reason: "budget-exceeded"
-  from: "In Progress"
-  note: "turn cap (--max-turns) after 91 turns"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -81,4 +77,6 @@ Parked 2026-11-10 17:10 UTC: budget-exceeded
 - Review rounds: 0, failed 0 of 3
 - Budget used: 216,127 of 300,000 tokens; 91 of 90 turns; 8 of 45 minutes
 - Last good commit: 87e5e1fbdaaf67097389da0e1bbcfc1a2990c803
+
+Resumed 2026-11-10 17:11 UTC; grants: budget +150,000 tokens, +45 turns, +23 minutes; note: Good progress on commit 87e5e1fb (engine carries full text). Continue from there: finish the desk preview wrap/scroll, dipo desk full print, the question-fragment park fix and their tests, then close…
 <!-- SECTION:NOTES:END -->
