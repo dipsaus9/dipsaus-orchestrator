@@ -261,11 +261,6 @@ export type WorkerReportRead =
   | { readonly ok: true; readonly report: WorkerReport }
   | { readonly ok: false; readonly error: string };
 
-/**
- * Pure: a result's `structured_output` as a worker report (the door of W2 to W5): at most
- * `WORKER_REPORT_MAX_CHARS` as JSON, every string cleaned with `cleanDoorText`, then the strict
- * schema with its length caps, so an empty text after cleaning fails too.
- */
 /** The question parameter of a tool call that leaked into a report's summary (DIPO-470). */
 const LEAKED_QUESTION = /<parameter name="question">/;
 const LEAKED_SUMMARY_END = /<\/summary>\s*$/;
@@ -292,6 +287,11 @@ export function splitLeakedQuestion(output: unknown): unknown {
   return { ...report, summary: head === "" ? question : head, question };
 }
 
+/**
+ * Pure: a result's `structured_output` as a worker report (the door of W2 to W5): at most
+ * `WORKER_REPORT_MAX_CHARS` as JSON, every string cleaned with `cleanDoorText`, then the strict
+ * schema with its length caps, so an empty text after cleaning fails too.
+ */
 export function parseWorkerReport(output: unknown): WorkerReportRead {
   if (output === undefined || output === null) return { ok: false, error: "no structured_output" };
   let size: number;

@@ -97,10 +97,10 @@ function oneLine(text: string): string {
   return text.replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, " ").trim();
 }
 
-/** The park reasons whose resume note starts as the park's detail: the failing check, the paths. */
 /** The rows PgUp and PgDn move the desk's preview by (DIPO-483). */
 const DESK_SCROLL_STEP = 8;
 
+/** The park reasons whose resume note starts as the park's detail: the failing check, the paths. */
 const PREFILLED_PARKS: ReadonlySet<string> = new Set([
   "verify-failing",
   "conflict",
