@@ -1,10 +1,10 @@
 ---
 id: DIPO-485
 title: dipo offers to update itself when it is behind
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 15:36'
-updated_date: '2026-11-10 15:57'
+updated_date: '2026-11-10 16:35'
 labels:
   - 'tier:M'
 milestone: m-3
