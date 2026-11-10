@@ -321,10 +321,13 @@ describe("the desk order (0020)", () => {
         expect(ranks).toEqual(ranks.toSorted((a, b) => a - b));
         const byStory = (story: string, kind = "PARKED") =>
           items.find((item) => item.story === story && item.kind === kind);
-        expect(byStory("DIPO-7")?.blocks).toEqual([
-          StoryId.parse("DIPO-20"),
+        // DIPO-21 is Refined: it waits for the maintainer to set it Ready, so it is listed apart and
+        // not counted as blocked (DIPO-484).
+        expect(byStory("DIPO-7")?.blocks).toEqual([StoryId.parse("DIPO-20")]);
+        expect(byStory("DIPO-7")?.refined?.map((entry) => entry.story)).toEqual([
           StoryId.parse("DIPO-21"),
         ]);
+        expect(byStory("DIPO-6")?.refined).toBeUndefined();
         expect(byStory("DIPO-6")?.blocks).toEqual([StoryId.parse("DIPO-20")]);
         expect(byStory("DIPO-4")?.blocks).toEqual([]);
         expect(items[0]).toMatchObject({

@@ -112,16 +112,36 @@ export function shortId(id: string): string {
   return id.slice(id.lastIndexOf("-") + 1);
 }
 
-/** The mark after a dependency: `✗` parked, `→` moving by itself, none when it waits too. */
+/** What a Refined dependency is: it waits for the maintainer to set it Ready (DIPO-484). */
+export const REFINED_WORDS = "Refined, not Ready yet";
+
+/** The mark after a dependency: `✗` parked, `→` moving by itself, `◌` Refined, none when it waits too. */
 export function chainMark(node: ChainNode | undefined, ascii: boolean): string {
   if (node?.state === "parked") return ascii ? "x" : "✗";
   if (node?.state === "moving") return ascii ? ">" : "→";
+  if (node?.state === "refined") return ascii ? "o" : "◌";
   return "";
 }
 
 /** The Span role of a dependency's mark. */
-function markRole(node: ChainNode | undefined): "err" | "ok" | "dim" {
-  return node?.state === "parked" ? "err" : node?.state === "moving" ? "ok" : "dim";
+function markRole(node: ChainNode | undefined): "err" | "ok" | "acc" | "dim" {
+  if (node?.state === "parked") return "err";
+  if (node?.state === "moving") return "ok";
+  return node?.state === "refined" ? "acc" : "dim";
+}
+
+/** `Refined, not Ready yet: <first gate failure>` for a Refined dependency; null for any other. */
+export function refinedText(node: ChainNode | undefined): string | null {
+  if (node?.state !== "refined") return null;
+  return node.reason === undefined ? REFINED_WORDS : `${REFINED_WORDS}: ${node.reason}`;
+}
+
+/** One line per Refined dependency of `ids`: `449 Refined, not Ready yet: <first gate failure>`. */
+export function refinedLines(ids: readonly StoryId[], chain: Chain): string[] {
+  return ids.flatMap((id) => {
+    const text = refinedText(chain.nodes.find((candidate) => candidate.story === id));
+    return text === null ? [] : [`${id} ${text}`];
+  });
 }
 
 /** `needs 447✗, 449` as spans: the number, then its mark in err (parked) or ok (moving). */
@@ -138,6 +158,7 @@ export function needsSpans(
     if (i > 0) spans.push({ text: ", ", role: "dim" });
     spans.push({ text: short ? shortId(id) : id, role: mark === "" ? "dim" : markRole(node) });
     if (mark !== "") spans.push({ text: mark, role: markRole(node) });
+    if (node?.state === "refined") spans.push({ text: " Refined", role: markRole(node) });
   });
   return spans;
 }
@@ -175,6 +196,11 @@ export function upNextSpans(chain: Chain, arrow: string): Span[] | null {
   if (rest.length > 0) {
     spans.push({ text: `${spans.length > 0 ? ", " : ""}${rest.join(", ")}` });
   }
+  // A Refined story waits for the maintainer, not for a merge: the sentence says so (DIPO-484).
+  const refined = chain.rows.flatMap((row) => refinedLines(row.levels.flat(), chain));
+  if (refined.length > 0) {
+    spans.push({ text: `${spans.length > 0 ? "; " : ""}${refined.join("; ")}`, role: "acc" });
+  }
   return spans;
 }
 
@@ -194,14 +220,17 @@ export function chainPictureSpans(
       const node = chain.nodes.find((candidate) => candidate.story === id);
       if (i === 0) {
         // The first stories carry their state, padded so the arrows of the pieces line up.
-        const mark = node?.state === "parked" ? chainMark(node, ascii) : " ";
+        const mark =
+          node?.state === "parked" || node?.state === "refined" ? chainMark(node, ascii) : " ";
         spans.push({
           text: `${shortId(id)}${mark}`,
           ...(node?.state === "parked"
             ? { role: "err" as const }
             : node?.state === "moving"
               ? { role: "ok" as const }
-              : {}),
+              : node?.state === "refined"
+                ? { role: "acc" as const }
+                : {}),
         });
       } else {
         spans.push({ text: shortId(id) });

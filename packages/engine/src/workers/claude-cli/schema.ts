@@ -363,6 +363,7 @@ export const ClaudeWorkerEventSchema = z.union([
     problem: z
       .strictObject({
         kind: z.enum(["report", "contextFull", "error", "startFailed", "planLimit"]),
+        http429: z.literal(true).exactOptional(),
         detail: Name,
       })
       .exactOptional(),
@@ -380,6 +381,7 @@ export const ClaudeWorkerEventSchema = z.union([
     utilization: z.number().min(0).max(1).exactOptional(),
     resetsAt: Iso.exactOptional(),
     creditsRequired: z.literal(true).exactOptional(),
+    http429: z.literal(true).exactOptional(),
     scope: z
       .union([z.literal("session"), z.literal("weekly"), z.string().regex(/^model:[a-z0-9]+$/)])
       .exactOptional(),

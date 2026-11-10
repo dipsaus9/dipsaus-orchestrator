@@ -1,10 +1,10 @@
 ---
 id: DIPO-480
 title: A planning session knows the stories it filed
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-11-10 15:21'
-updated_date: '2026-11-10 15:57'
+updated_date: '2026-11-10 16:35'
 labels:
   - 'tier:M'
 milestone: m-3
@@ -20,6 +20,14 @@ references:
   - packages/engine/test/run/planning-filing.test.ts
   - packages/engine/test/run/planning-ready.test.ts
   - packages/engine/test/run/planning-world.ts
+modified_files:
+  - packages/engine/src/backlog/lane/planning.ts
+  - packages/engine/src/prompts/contract/planning-box.md
+  - packages/engine/src/records/planning-record.ts
+  - packages/engine/src/run/planning-session.ts
+  - packages/engine/src/story-store/planning.ts
+  - packages/engine/test/prompts/planning-contract.test.ts
+  - packages/engine/test/run/planning-filed-stories.test.ts
 priority: high
 type: bug
 ordinal: 452000
@@ -67,12 +75,27 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A new story, split or refined draft whose dependency is a story this planning session filed is filed even when that story's filing PR has not merged, and the filed task lists the dependency
-- [ ] #2 The session-story rule is one helper that both the dependency check and the Ready confirm (DIPO-451) use; the separate record lookup in the Ready confirm is removed
-- [ ] #3 An unknown id, a typo, a dropped draft and a story filed by another session that has not merged are still refused with planning.storyUnknown, each with a test
-- [ ] #4 Bypass forms have tests: a lower-case id resolves like its upper-case form, a proposal number instead of an id is refused, and a dependency on a proposal confirmed and then failed is refused
-- [ ] #5 A fail-closed test runs the real planning session with the real planning lane and the Backlog CLI on a fixture-built office (not planning-world's injected lane), proving --dep on an id whose filing PR has not merged, and Ready on one final confirm still sets both stories Ready after their filing PRs merged
-- [ ] #6 Before Claude's next turn after a filing change, its message lists each story the session filed or edited with id, title, dependencies, full text and its state, filed with the backlog PR open or on the base since a named commit; a fresh session's first message carries the same list; the box copy is not refreshed
-- [ ] #7 The planning contract says stories filed or merged after the copy's commit are in that list and not in the copy, so Claude never calls a listed story missing
-- [ ] #8 The planning contract names the planning view's Ready step in words and tells Claude never to name a TUI key, with a test that fails on a key name in the planning prompts
+- [x] #1 A new story, split or refined draft whose dependency is a story this planning session filed is filed even when that story's filing PR has not merged, and the filed task lists the dependency
+- [x] #2 The session-story rule is one helper that both the dependency check and the Ready confirm (DIPO-451) use; the separate record lookup in the Ready confirm is removed
+- [x] #3 An unknown id, a typo, a dropped draft and a story filed by another session that has not merged are still refused with planning.storyUnknown, each with a test
+- [x] #4 Bypass forms have tests: a lower-case id resolves like its upper-case form, a proposal number instead of an id is refused, and a dependency on a proposal confirmed and then failed is refused
+- [x] #5 A fail-closed test runs the real planning session with the real planning lane and the Backlog CLI on a fixture-built office (not planning-world's injected lane), proving --dep on an id whose filing PR has not merged, and Ready on one final confirm still sets both stories Ready after their filing PRs merged
+- [x] #6 Before Claude's next turn after a filing change, its message lists each story the session filed or edited with id, title, dependencies, full text and its state, filed with the backlog PR open or on the base since a named commit; a fresh session's first message carries the same list; the box copy is not refreshed
+- [x] #7 The planning contract says stories filed or merged after the copy's commit are in that list and not in the copy, so Claude never calls a listed story missing
+- [x] #8 The planning contract names the planning view's Ready step in words and tells Claude never to name a TUI key, with a test that fails on a key name in the planning prompts
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-11-10 16:35 UTC
+- Criteria met: 8 of 8 (as the worker reported them)
+- Loops: 0; CI attempts: 0 (red heads, reviewed or closed out, before this close-out)
+- Review rounds: 1, failed 0
+- Budget used: 174,748 of 800,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->

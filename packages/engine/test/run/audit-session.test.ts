@@ -18,6 +18,9 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 import { uncontained } from "../../src/box/firewall";
 import { REVIEW_CODE_DIR, REVIEW_SESSION_DIR } from "../../src/box/review-box";
 import type { BoxSession } from "../../src/box/workers";
+import { CAP_REFUSAL } from "../../src/box/model-proxy";
+import type { OfficeHandle } from "../../src/db/office";
+import { recordProxyRefusal } from "../../src/records/proxy-refusals";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import type { OfficeGit } from "../../src/git/office";
 import { freeSlots, placeHolders, slotHolders } from "../../src/run-state/places";
@@ -64,6 +67,20 @@ const initLine = line({
   plugins: [],
   skills: [],
 });
+
+/** A turn that ends by an HTTP 429 and an exit. */
+const TURN_429 =
+  line({
+    type: "result",
+    subtype: "error_during_execution",
+    session_id: "session-a",
+    is_error: true,
+    num_turns: 1,
+    terminal_reason: "error",
+    api_error_status: 429,
+    modelUsage: {},
+    permission_denials: [],
+  }) + exitLine(1);
 
 /** The audit's one turn: its words and the result with its structured answer. */
 function answerLines(answer: unknown): string {
@@ -116,6 +133,8 @@ interface AuditWorld {
   /** What the scripted host writes at its start; empty to answer nothing. */
   startLines: string;
   eventFile: string;
+  /** Runs when the scripted host starts, once the run and its agent are recorded. */
+  afterStart?: (run: RunId, handle: OfficeHandle) => void;
 }
 
 function auditBox(): BoxSession {
@@ -182,6 +201,7 @@ function auditWorld(t: TestState, dir: string): AuditWorld {
         const eventFile = join(runDir, "events.ndjson");
         mkdirSync(dirname(eventFile), { recursive: true });
         handle.immediate(() => started.record?.());
+        w.afterStart?.(RunId.parse(started.runId), handle);
         writeFileSync(eventFile, w.startLines);
         w.eventFile = eventFile;
         const host: LaunchedHost = {
@@ -349,6 +369,27 @@ describe("an idea's audit session (DIPO-452)", () => {
       expect(w.planning.sessions.view(w.planning.office.officeId as never)?.state).not.toBe(
         "ended",
       );
+    }));
+
+  it("names the plan's limit when its turn ends by a 429 and no refusal of the proxy is recorded (DIPO-484)", () =>
+    withWorld(async (w) => {
+      w.startLines = initLine + TURN_429;
+      const result = await settled(w, w.sessions.run(request(w)));
+      expect(result).toMatchObject({
+        kind: "failed",
+        reason: "the plan's limit stopped the session",
+      });
+    }));
+
+  it("ends capped with the proxy's reason when its turn ends by a 429 the proxy sent at its token cap (DIPO-484)", () =>
+    withWorld(async (w) => {
+      w.startLines = initLine + TURN_429;
+      w.afterStart = (run, handle) =>
+        handle.immediate(() =>
+          recordProxyRefusal(handle, run, CAP_REFUSAL, w.planning.t.clock.now()),
+        );
+      const result = await settled(w, w.sessions.run(request(w)));
+      expect(result).toMatchObject({ kind: "failed", reason: `ended capped: ${CAP_REFUSAL}` });
     }));
 
   it("is stopped at its minute cap, without an answer", () =>

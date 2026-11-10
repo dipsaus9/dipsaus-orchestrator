@@ -195,6 +195,11 @@ describe("dipo ideas (DIPO-452)", () => {
     const { deps, out } = fake(IDEAS);
     expect(await main(["ideas", "--json"], deps)).toBe(0);
     expect(JSON.parse(out[0] ?? "null")).toEqual(IDEAS);
+    // The cause of a failed or cut-off audit is in the JSON too (DIPO-484).
+    const read = JSON.parse(out[0] ?? "null") as { lastProblem?: string }[];
+    expect(read.map((idea) => idea.lastProblem).filter((problem) => problem !== undefined)).toEqual(
+      ["the audit session failed: dipo stopped it: its time cap"],
+    );
   });
 
   it("refuses an unknown state", async () => {

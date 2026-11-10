@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 
 import { DeskItem, type Event, Verdict } from "@dipsaus-orchestrator/contract";
 
-import { DESK_LIST_COLUMNS, DESK_READ_INTERVAL_MS, deskGroups, EMPTY_DESK } from "./desk";
+import { DESK_LIST_COLUMNS, DESK_READ_INTERVAL_MS, deskGroups, EMPTY_DESK, rowFacts } from "./desk";
 import { OFFICES } from "../test/support/fake-session";
 import { mount } from "../test/support/setup";
 
@@ -1241,5 +1241,25 @@ describe("Enter on a desk item", () => {
     expect(session.reads.find((read) => read.name === "story.diff")?.args).toMatchObject({
       story: KEY_24,
     });
+  });
+});
+
+describe("a row's second line with Refined dependents (DIPO-484)", () => {
+  it("counts blocked stories and Refined ones apart, so a story that waits for Ready never reads as blocked", () => {
+    const item = DeskItem.parse({
+      kind: "PARKED",
+      story: "DIPO-447",
+      reason: "budget-exceeded",
+      detail: "d",
+      since: "2026-11-10T10:00:00.000Z",
+      blocks: ["DIPO-448"],
+      refined: [{ story: "DIPO-449", reason: "no test plan" }],
+      actions: [],
+    });
+    expect(rowFacts(item, "Title", "·").second).toBe(
+      "budget-exceeded · blocks 1 · 1 Refined, not Ready yet",
+    );
+    const only = DeskItem.parse({ ...item, blocks: [] });
+    expect(rowFacts(only, "Title", "·").second).toBe("budget-exceeded · 1 Refined, not Ready yet");
   });
 });

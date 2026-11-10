@@ -15,14 +15,18 @@ import {
   DROP_KIND,
   EDIT_KIND,
   FILE_KIND,
+  FileTarget,
   HOLD_KIND,
   OPEN_STATES,
   PROPOSE_KIND,
   READY_KIND,
   REFINE_KIND,
+  RefineTarget,
   RESUME_KIND,
   REVISE_KIND,
+  ReviseTarget,
   type PlannedChange,
+  type PlannedFiling,
   type PlannedOutcome,
   type PlanningLane,
 } from "../../story-store/planning";
@@ -194,15 +198,40 @@ function flushOf(
 /** How far a journaled change got, as `PlanningLane.outcomeOf` says it (DIPO-450). */
 function outcomeOfEntry(entry: JournalEntry): PlannedOutcome {
   const { state, notice } = entry;
-  if (state === "pending" || state === "applied") return { outcome: "waiting", notice };
+  const merged = state === "merged";
+  if (state === "pending" || state === "applied") return { outcome: "waiting", notice, merged };
   if (state === "committed" || state === "pushed" || state === "merged") {
-    return { outcome: "applied", notice };
+    return { outcome: "applied", notice, merged };
   }
   // Dropped because the open branch holds its target state already: what it asks for holds.
   if (state === "dropped" && notice?.startsWith(ALREADY_ON_BRANCH) === true) {
-    return { outcome: "applied", notice };
+    return { outcome: "applied", notice, merged };
   }
-  return { outcome: "closed", notice };
+  return { outcome: "closed", notice, merged };
+}
+
+/** The journaled filings, refinements and revisions of the proposal `proposal` of `run` (DIPO-480). */
+function filingsOf(office: OfficeHandle, run: string, proposal: number): PlannedFiling[] {
+  const filings: PlannedFiling[] = [];
+  for (const entry of allEntries(office)) {
+    const schema =
+      entry.kind === FILE_KIND
+        ? FileTarget
+        : entry.kind === REFINE_KIND
+          ? RefineTarget
+          : entry.kind === REVISE_KIND
+            ? ReviseTarget
+            : null;
+    if (schema === null) continue;
+    const target = schema.safeParse(entry.target);
+    if (!target.success || target.data.run !== run || target.data.proposal !== proposal) continue;
+    filings.push({
+      kind: entry.kind,
+      target: target.data,
+      ...outcomeOfEntry(entry),
+    } as PlannedFiling);
+  }
+  return filings;
 }
 
 /** The office's `PlanningLane` on its `OfficeLane`. */
@@ -261,6 +290,7 @@ export function planningLane(lane: OfficeLane): PlanningLane {
       const entry = findEntry(lane.office, change.opId);
       return entry === null ? undefined : outcomeOfEntry(entry);
     },
+    filingsOf: (run, proposal) => filingsOf(lane.office, run, proposal),
     failedHold(key) {
       const failed = failedHold(lane.office, key);
       if (failed === null) return undefined;

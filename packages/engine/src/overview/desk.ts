@@ -78,7 +78,8 @@ import { profileDeskItems } from "../scan/profile-view";
 import { findStoryPr, latestStoryPr } from "../records/story-prs";
 import { doneElsewhereDeskItems } from "../worktree/done-elsewhere";
 import { MERGED_WHILE_PARKED, mergedParkDeskItems } from "../worktree/merged-parked";
-import { lifecycleOf } from "../views/story";
+import { activeStoryViews, lifecycleOf } from "../views/story";
+import { firstGateFailure } from "./chain";
 
 import { PLANNER_ROLE, REVIEWER_ROLE } from "../records/caps";
 import { openNotes } from "../records/decision-notes";
@@ -523,6 +524,8 @@ class DeskBuilder {
   readonly #sources: DeskSources;
   readonly #implemented: Implemented;
   readonly #dependents: Map<string, StoryId[]>;
+  /** The Refined stories by upper-case id, with their first failed Ready gate rule (DIPO-484). */
+  readonly #refined: Map<string, string | undefined>;
   readonly #items: Ranked[] = [];
   /** The time of the read, for the time left on a waiting question; none without one. */
   readonly #now: number | undefined;
@@ -537,6 +540,11 @@ class DeskBuilder {
     this.#sources = sources;
     this.#implemented = implemented;
     this.#dependents = dependentsByStory(office);
+    this.#refined = new Map(
+      activeStoryViews(office)
+        .filter((view) => view.column === "refined")
+        .map((view) => [String(view.story).toUpperCase(), firstGateFailure(view)]),
+    );
     this.#now = now;
   }
 
@@ -553,8 +561,20 @@ class DeskBuilder {
 
   /** Adds an item; its detail and hand text are cleaned and capped here, whoever built them. */
   #add(group: number, rank: number, sinceMs: number, item: DeskItem): void {
+    // A Refined story that depends on the item's story waits for the maintainer to set it Ready, so
+    // it is listed apart from what the item blocks (DIPO-484).
+    const refined = item.blocks.filter((id) => this.#refined.has(id.toUpperCase()));
     const clean: DeskItem = {
       ...item,
+      ...(refined.length === 0
+        ? {}
+        : {
+            blocks: item.blocks.filter((id) => !refined.includes(id)),
+            refined: refined.map((id) => {
+              const reason = this.#refined.get(id.toUpperCase());
+              return { story: id, ...(reason === undefined ? {} : { reason: deskLine(reason) }) };
+            }),
+          }),
       detail: deskLine(item.detail),
       ...(item.hand === undefined ? {} : { hand: deskLine(item.hand) }),
       ...(item.note === undefined

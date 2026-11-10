@@ -41,6 +41,7 @@ import { recordAgent } from "../records/agents";
 import { AUDITOR_ROLE } from "../records/caps";
 import type { RunEnd } from "../records/lifecycle";
 import { currentProfileId, endRun, insertRun, recordConfigSnapshot } from "../records/run-records";
+import { proxyRefusalOf } from "../records/proxy-refusals";
 import type { LaunchedHost } from "../records/worker-hosts";
 import { toJsonSchema } from "../workers/json-schema";
 import type { RunLaunchPaths, WorkerPort } from "../workers/port";
@@ -361,7 +362,18 @@ export class AuditSessions implements AuditSessionRunner {
     if (result.outcome === "done" && result.answer !== undefined) {
       return { kind: "answered", runId: run, answer: result.answer };
     }
-    const why = result.detail ?? result.park?.detail ?? `the session ended ${result.outcome}`;
+    // A 429 the model proxy sent at the audit's token cap is that cap, not the plan (DIPO-484).
+    const refusal =
+      result.outcome === "plan-limit" && result.http429 === true
+        ? proxyRefusalOf(audit.request.handle, run, audit.agent, this.#deps.clock.now())
+        : null;
+    if (refusal !== null) {
+      return { kind: "failed", runId: run, reason: `ended capped: ${refusal}` };
+    }
+    const why =
+      result.outcome === "plan-limit"
+        ? "the plan's limit stopped the session"
+        : (result.detail ?? result.park?.detail ?? `the session ended ${result.outcome}`);
     return { kind: "failed", runId: run, reason: why };
   }
 
