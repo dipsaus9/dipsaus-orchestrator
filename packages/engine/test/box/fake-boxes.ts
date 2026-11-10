@@ -106,7 +106,7 @@ export interface FakeBoxState {
 /** Changes each non-ASCII character in the names below `dir` to one `*`. */
 function mangleNames(dir: string): void {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const mangled = entry.name.replace(/[^\x00-\x7f]/gu, "*");
+    const mangled = entry.name.replace(/\P{ASCII}/gu, "*");
     const at = join(dir, entry.name);
     const now = mangled === entry.name ? at : join(dir, mangled);
     if (now !== at) renameSync(at, now);

@@ -1095,6 +1095,36 @@ describe("what the desk preview shows (DIPO-459)", () => {
       }
     }));
 
+  it("says on a NEXT UP item why the story's last start did not go on (DIPO-488)", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-1")]);
+        const items = desk(office, all, {
+          ...ALL_SOURCES,
+          nextUp: () => [
+            {
+              story: StoryId.parse("DIPO-1"),
+              key: keyOf(office, "DIPO-1"),
+              title: "One",
+              why: "first Ready story",
+              shared: [],
+              since: t.clock.now(),
+              failed: "DIPO-1 was not started: setup failed (the box's /work differs: docs/a….md)",
+            },
+          ],
+        });
+        expect(items.map((item) => item.detail)).toEqual([
+          expect.stringContaining(
+            "its last start failed: DIPO-1 was not started: setup failed (the box's /work differs: docs/a….md)",
+          ),
+        ]);
+      } finally {
+        t.state.close();
+      }
+    }));
+
   it("gives each action its consequence line, and a MERGE item its PR's checks and change", () =>
     withTempDir(async (dir) => {
       const t = await openTestState(dir);

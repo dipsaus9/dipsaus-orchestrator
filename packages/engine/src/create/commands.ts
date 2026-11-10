@@ -358,6 +358,7 @@ function nextUpOf(core: Core, story: StoryServices, runs: EngineRuns, workRun: W
     scheduling: () => core.lifecycle.state === "running",
     start: (ctx, key) => workRun.run(ctx, { stories: [key] }),
     starting: (office) => workRun.starting(office),
+    startFailure: (office, key) => workRun.startFailure(office, key),
     changedFiles: gitChangedFiles({ git: core.gitOf, stories: core.stories }),
     branchTips: gitBranchTips(core.gitOf),
     onChanged: core.onChanged,

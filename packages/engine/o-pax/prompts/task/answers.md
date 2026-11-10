@@ -1,3 +1,0 @@
-<answers>
-{{answers}}
-</answers>

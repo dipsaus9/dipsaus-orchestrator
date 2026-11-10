@@ -438,6 +438,8 @@ export class WorkRun {
   readonly #passes = new Map<OfficeId, BasePass>();
   /** The starts and base passes still under way, for `settled`. */
   readonly #inflight = new Set<Promise<unknown>>();
+  /** Why each story's last start did not go on, by office and key (`startFailure`). */
+  readonly #failures = new Map<string, string>();
 
   constructor(deps: WorkRunDeps) {
     this.#deps = deps;
@@ -446,6 +448,15 @@ export class WorkRun {
   /** Resolves once every start decided so far and every base pass has ended (tests, shutdown). */
   async settled(): Promise<void> {
     while (this.#inflight.size > 0) await Promise.allSettled(this.#inflight);
+  }
+
+  /**
+   * Why the last start of the story `key` did not go on (the claim's notice text, or the abort's),
+   * or undefined: the desk shows it on the story's NEXT UP item (DIPO-488). A start that went on
+   * clears it.
+   */
+  startFailure(office: OfficeId, key: string): string | undefined {
+    return this.#failures.get(`${office}/${key}`);
   }
 
   /** The keys of the office's stories decided to start whose run row is not in yet. */
@@ -925,6 +936,13 @@ export class WorkRun {
         taskFile: checked.taskFile,
       };
       const outcome = await this.#claim(ctx, input, checked, facts, checkout);
+      const failure = `${ctx.office.officeId}/${candidate.key}`;
+      if (outcome.ok) this.#failures.delete(failure);
+      else
+        this.#failures.set(
+          failure,
+          outcome.notice ?? ABORTED_BECAUSE[outcome.reason] ?? outcome.reason,
+        );
       if (!outcome.ok) {
         // The claim's own skips put their notice on the office; a silent one gets this one.
         this.#ended(

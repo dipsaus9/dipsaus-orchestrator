@@ -944,6 +944,10 @@ describe("the install in a box run's box before its worker (DIPO-294)", () => {
     );
     // The box output stays in the daemon's log, out of the notice.
     expect(skip.notice).not.toContain("lockfile had changes");
+    // The log says why too, not only that the box was deleted (DIPO-488).
+    expect(world.warnings).toEqual([
+      "a launch stopped before its worker started: the install (bun install --frozen-lockfile) exited 1 in the box",
+    ]);
     expect(world.boxCalls.map((call) => call.split(" ")[0])).toEqual([
       "create",
       "install",

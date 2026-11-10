@@ -86,6 +86,8 @@ interface World {
   changedReads: number;
   /** The start throws when set, as a failed `work.run` does. */
   startFails: boolean;
+  /** Why the last start of a story did not go on, by key (`WorkRun.startFailure`). */
+  failures: Map<string, string>;
   readonly nextUp: NextUp;
   readonly deps: ExecutorDeps;
   limit: number;
@@ -139,6 +141,7 @@ beforeEach(async () => {
       return { result: { started: [{ story: id, key, run }], skipped: [] } };
     },
     starting: () => [...w.starting],
+    startFailure: (_office, key) => w.failures.get(key),
     changedFiles: async () => {
       w.changedReads += 1;
       await w.changedGate;
@@ -162,6 +165,7 @@ beforeEach(async () => {
     changedGate: null,
     changedReads: 0,
     startFails: false,
+    failures: new Map(),
     nextUp,
     deps: {
       registry,
@@ -345,6 +349,14 @@ describe("which story is next up", () => {
       "next Ready story by milestone (m-10); priority high",
       "no milestone has a Ready story that can start before it; priority high",
     ]);
+  });
+
+  it("carries why a story's last start did not go on on its offer (DIPO-488)", async () => {
+    story("DIPO-1");
+    expect(await refresh()).toEqual(["DIPO-1"]);
+    expect(w.nextUp.offers(w.officeId)[0]?.failed).toBeUndefined();
+    w.failures.set(w.keys.get("DIPO-1") as string, "DIPO-1 was not started: setup failed (x)");
+    expect(w.nextUp.offers(w.officeId)[0]?.failed).toBe("DIPO-1 was not started: setup failed (x)");
   });
 
   it("never offers a story with a dependency not Done, a story not Ready or one already claimed", async () => {

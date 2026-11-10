@@ -183,7 +183,7 @@ export async function claimStory<S extends ClaimSetupDone = ClaimSetupDone>(
         request,
         "pickupCheckFailed",
         CLAIM_NOTICES.setupFailed,
-        `${request.story} was not started: setup failed (${failure.reason}). The claim was rolled back and the story stays Ready. To read the step's output, run \`dipo daemon log-level debug\`, start the story again, then run \`dipo daemon logs --level debug\`.`,
+        `${request.story} was not started: setup failed (${failure.reason}). The claim was rolled back and the story stays Ready.`,
         failure.log,
       );
     }

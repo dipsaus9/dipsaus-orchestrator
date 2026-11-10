@@ -101,6 +101,8 @@ export interface NextUpOffer {
   readonly hash: string;
   /** When it was first offered, in ms. */
   readonly since: number;
+  /** Why its last start did not go on (DIPO-488); absent when it never failed. */
+  readonly failed?: string;
 }
 
 export interface NextUpDeps {
@@ -124,6 +126,8 @@ export interface NextUpDeps {
    * (`WorkRun.starting`): they are not offered meanwhile. None without it.
    */
   readonly starting?: (office: OfficeId) => readonly string[];
+  /** Why the story's last start did not go on (`WorkRun.startFailure`); none without it. */
+  readonly startFailure?: (office: OfficeId, key: string) => string | undefined;
   /** The changed files of each running story, by run; none without it. */
   readonly changedFiles?: (
     office: OfficeId,
@@ -282,7 +286,11 @@ export class NextUp {
 
   /** The office's NEXT UP items now, in order. */
   offers(officeId: OfficeId): readonly NextUpOffer[] {
-    return this.#offices.get(officeId)?.offers ?? [];
+    const failure = this.#deps.startFailure;
+    return (this.#offices.get(officeId)?.offers ?? []).map((offer) => {
+      const failed = failure?.(officeId, offer.key);
+      return failed === undefined ? offer : { ...offer, failed };
+    });
   }
 
   /**
