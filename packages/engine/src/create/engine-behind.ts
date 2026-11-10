@@ -36,6 +36,9 @@ export interface EngineBehindCacheDeps {
 export interface KnownCount {
   readonly mainWorktree: string;
   readonly commits: number | null;
+  /** The base commit counted against and the subjects of the newest commits (DIPO-485). */
+  readonly tip?: string;
+  readonly titles?: readonly string[];
 }
 
 /** The `daemon.status` rows of `offices` in order: those with a count; the name is the basename. */
@@ -73,6 +76,11 @@ export class EngineBehindCache {
       if (!this.#known.has(office)) void this.refresh(office);
     }
     return engineBehindRows(offices, (office) => this.#known.get(office));
+  }
+
+  /** What the last read of `office` found, or undefined before any read (DIPO-485). */
+  known(office: OfficeId): KnownCount | undefined {
+    return this.#known.get(office);
   }
 
   /** Reads every loaded office again and forgets offices no longer loaded. */
@@ -144,7 +152,12 @@ export class EngineBehindCache {
     if (this.#stopped) return;
     switch (result.kind) {
       case "count":
-        this.#known.set(office, { mainWorktree: source.mainWorktree, commits: result.commits });
+        this.#known.set(office, {
+          mainWorktree: source.mainWorktree,
+          commits: result.commits,
+          tip: result.tip,
+          titles: result.titles,
+        });
         return;
       case "none":
         this.#known.set(office, { mainWorktree: source.mainWorktree, commits: null });

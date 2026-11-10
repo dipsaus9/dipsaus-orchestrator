@@ -217,6 +217,18 @@ export const daemonSetLogLevel = defineCommand({
   irreversible: false,
 });
 
+// Updates dipo from the base commit of `office` (DIPO-485, 0005): pauses new starts, builds the base
+// in a dipo-owned worktree, replaces the running binary with the new one and restarts the daemon
+// with `dipo daemon restart`. The reply names the commit built; it comes once the restart has begun.
+export const daemonUpdate = defineCommand({
+  name: "daemon.update",
+  level: "software",
+  args: z.object({ office: OfficeId }),
+  result: z.object({ commit: z.string().min(1), commits: Count }),
+  confirm: true,
+  irreversible: false,
+});
+
 export const daemonResumeStarts = defineCommand({
   name: "daemon.resumeStarts",
   level: "software",
@@ -369,6 +381,7 @@ export const softwareCommands = [
   daemonStop,
   daemonSetLogLevel,
   daemonResumeStarts,
+  daemonUpdate,
 ] as const;
 
 export const softwareReads = [engineHello, commandsDescribe, daemonStatus] as const;

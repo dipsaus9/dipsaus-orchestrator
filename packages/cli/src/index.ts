@@ -43,6 +43,7 @@ import { discardCommand, dropCommand, parkCommand } from "./story-commands";
 import { statsCommand } from "./stats-command";
 import { testCommand } from "./test-commands";
 import { systemTui } from "./tui-command";
+import { updateCommand } from "./update-command";
 import { watchCommand } from "./watch-command";
 import {
   compiledStamp,
@@ -114,6 +115,10 @@ Usage:
   dipo daemon resume-starts
                     lift every office's starts paused, so the daemon starts
                     work again
+  dipo update [--office <id>] [--yes]
+                    when nothing runs, build the base of the office (default: the
+                    current directory), replace this binary and restart the daemon
+                    on it; a failed build keeps the old binary
   dipo office open [path]
                     register the git repository with Backlog.md at path (default:
                     the current directory) as an office
@@ -483,6 +488,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "next") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return nextCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "update") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return updateCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "watch") {
     const { version } = versionInfo(deps.stamp, deps.runtime);

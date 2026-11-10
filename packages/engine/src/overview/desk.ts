@@ -118,6 +118,8 @@ export interface OfficeHandItem {
   /** When it began to wait, in ms. */
   readonly since: number;
   readonly hand: string;
+  /** The commands it offers, such as `dipo update` (DIPO-485); none when absent. */
+  readonly actions?: readonly { readonly command: string; readonly cli: string }[];
 }
 
 /** A story offered for a free run slot (`run/next-up.ts`), as the desk shows it. */
@@ -276,6 +278,8 @@ export const DESK_CONSEQUENCES: Readonly<Partial<Record<CommandName, string>>> =
     "Nothing starts until you confirm. Declined stories return once their task file changes.",
   "nextUp.decline": "Declined stories return once their task file changes.",
   "daemon.resumeStarts": "Lift it early, only if you raised your plan.",
+  "daemon.update":
+    "New starts pause, dipo builds the base, replaces its binary and restarts. A failed build keeps the old one.",
 };
 
 /** Whether a command is registered, so the desk may offer it. */
@@ -828,7 +832,9 @@ class DeskBuilder {
           detail: deskText(item.detail),
           since: iso(item.since),
           blocks: [],
-          actions: [],
+          actions: (item.actions ?? []).flatMap((action) =>
+            this.#action(action.command, action.cli),
+          ),
           hand: item.hand,
         });
       }

@@ -49,7 +49,10 @@ export const RETRYABLE_ERROR_CODES = [
 // engine instance would not load (its `office.json` names another id, or a load step failed;
 // `details` name the step), also on office-level commands and reads, and when a write of an office
 // file, such as `.dipo/office.local.yaml`, is refused (DIPO-27, DIPO-136); `office.markerInvalid`
-// for an `office.json` that is not a valid marker.
+// for an `office.json` that is not a valid marker. `daemon.updating` (DIPO-485): a start asked for
+// while dipo updates itself; `update.refused` (`daemon.update` refused before it began, `details.reason`
+// is `busy`, `updating`, `current` or `unavailable`) and `update.failed` (an install, build or check
+// failed; the old binary is kept and the pause lifted).
 export const SOFTWARE_ERROR_CODES = [
   "office.notProject",
   "office.pathMissing",
@@ -57,6 +60,9 @@ export const SOFTWARE_ERROR_CODES = [
   "office.refused",
   "office.markerInvalid",
   "scan.running",
+  "daemon.updating",
+  "update.refused",
+  "update.failed",
 ] as const;
 
 // Specific codes of office-level commands and reads, none retryable:

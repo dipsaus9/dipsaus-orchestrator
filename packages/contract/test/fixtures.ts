@@ -879,6 +879,7 @@ export const commandFixtures: Record<string, { args: unknown; result: unknown }>
   "daemon.stop": { args: { stopWorkers: false }, result: { state: "draining" } },
   "daemon.setLogLevel": { args: { level: "debug" }, result: { level: "debug" } },
   "daemon.resumeStarts": { args: {}, result: { state: "running" } },
+  "daemon.update": { args: { office: ids.office }, result: { commit: "1a2b3c4d5e6f", commits: 3 } },
   ...officeCommandFixtures,
 };
 

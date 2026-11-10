@@ -480,6 +480,8 @@ function startEngine(
       ...(io.buildCommit === undefined ? {} : { buildCommit: io.buildCommit }),
       startedAt: io.clock.now(),
       socket: place.socketPath,
+      // Only a compiled binary can replace itself (DIPO-485); from source there is none.
+      ...(selfCommand().length === 1 ? { executable: process.execPath } : {}),
       upgradePending: () => parts.upgrade.pending,
       requestStop: (request) => run.stops.request(request),
     },

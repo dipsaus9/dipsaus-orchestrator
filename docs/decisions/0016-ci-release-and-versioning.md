@@ -98,7 +98,7 @@ gh attestation verify <file> --repo dipsaus9/dipsaus-orchestrator \
 
 ## 5. Installing and `--version`
 
-- **The install script.** `curl -fsSL …/releases/latest/download/install.sh | sh` checks that it runs on macOS arm64, downloads the archive and `SHA256SUMS`, verifies the checksum, verifies the attestation when `gh` is installed, and installs to `${DIPO_INSTALL_DIR:-$HOME/.local/bin}` without sudo. `DIPO_VERSION` pins a version. There is no self-update.
+- **The install script.** `curl -fsSL …/releases/latest/download/install.sh | sh` checks that it runs on macOS arm64, downloads the archive and `SHA256SUMS`, verifies the checksum, verifies the attestation when `gh` is installed, and installs to `${DIPO_INSTALL_DIR:-$HOME/.local/bin}` without sudo. `DIPO_VERSION` pins a version. dipo updates itself only from the base commit of an office whose repository is dipo's source, when idle, on the maintainer's confirm; a release install updates with the install script.
 - **No notarization** before `1.0.0`: the binary is ad-hoc signed. `curl` sets no quarantine attribute, so Gatekeeper does not check it. A browser download needs `xattr -d com.apple.quarantine ./dipo`.
 - **`dipo --version`** prints `dipo <version> (<commit> <commit date>) bun <version> darwin-arm64`. A dev build adds `-dev`, and `--json` prints the same fields.
 
@@ -122,6 +122,7 @@ gh attestation verify <file> --repo dipsaus9/dipsaus-orchestrator \
 
 ## Replaced
 
+- "There is no self-update." (2026-10-24). Replaced by an update from the base commit of an office whose repository is dipo's source, when idle, on the maintainer's confirm (2026-11-10, DIPO-485, 0005); a release install still updates with the install script.
 - Four release targets: darwin-arm64, darwin-x64, linux-x64 and linux-arm64 (2026-10-10). Replaced by darwin-arm64 only (2026-10-24, 0004). The smoke jobs for the other three go, as do the glibc floor checks and the musl question.
 - `strict` on, with a merge slot that kept branches up to date at merge time (2026-10-10). `strict` turned off (2026-10-22). The slot was replaced by GitHub auto-merge (0002, 2026-10-24).
 - A PR brought up to date only on a conflict (2026-10-22). Replaced by dipo merging the base itself when it moved (0002, 2026-11-08, DIPO-464).

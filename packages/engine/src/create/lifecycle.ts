@@ -57,6 +57,8 @@ export interface DatabaseFailure {
 
 export class DaemonLifecycle {
   #state: DaemonState = "starting";
+  #updating = false;
+  readonly #resumed = new Set<() => void>();
   #reason: string;
   readonly #listeners = new Set<StateListener>();
   #inFlight = 0;
@@ -153,7 +155,46 @@ export class DaemonLifecycle {
         reason: this.#reason,
       });
     }
+    // An update (DIPO-485) pauses starts the same way, until it ends or the daemon restarts.
+    if (this.#updating) {
+      return engineError("daemon.updating", "dipo is updating; no new work starts.", {
+        state: this.#state,
+      });
+    }
     return null;
+  }
+
+  /**
+   * True while dipo updates itself (DIPO-485, 0005): new starts are paused, but the daemon is
+   * `running`, so every other command works.
+   */
+  get updating(): boolean {
+    return this.#updating;
+  }
+
+  /** True when the engine may start work now: `running`, and not updating (DIPO-485). */
+  schedules(): boolean {
+    return this.#state === "running" && !this.#updating;
+  }
+
+  /** Pauses new starts for an update; false when one is already paused for it. */
+  beginUpdate(): boolean {
+    if (this.#updating) return false;
+    this.#updating = true;
+    return true;
+  }
+
+  /** Lifts the update pause and tells the listeners that starts are possible again. */
+  endUpdate(): void {
+    if (!this.#updating) return;
+    this.#updating = false;
+    if (this.#state === "running") for (const listener of this.#resumed) listener();
+  }
+
+  /** Calls `listener` whenever an update ends without replacing the daemon. */
+  onSchedulingResumed(listener: () => void): () => void {
+    this.#resumed.add(listener);
+    return () => this.#resumed.delete(listener);
   }
 
   /**
