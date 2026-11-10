@@ -152,6 +152,11 @@ export interface ClaudeParseState {
    */
   readonly reportKind?: ReportKind;
   /**
+   * True when the session's plan passed `--json-schema` (DIPO-469): its answer comes back through
+   * the report tool, which `system/init` may then list. Absent or false lists none.
+   */
+  readonly reportBySchema?: boolean;
+  /**
    * True for a session in a box: the developer of a box run (DIPO-271; the run's adapter sets it on
    * every line) and every reviewer, whose session runs only in its reviewer box (0002; set from the
    * session's spec at its start). Each has only the placeholder key of `boxModelEnvironment`, which
@@ -237,6 +242,8 @@ export interface InitialStateOptions {
   readonly refuseSkills?: boolean;
   /** `review` for a reviewer session (0002); `implement` by default. */
   readonly reportKind?: ReportKind;
+  /** True when the session's plan passed `--json-schema` (DIPO-469); see `reportsBySchema`. */
+  readonly reportBySchema?: boolean;
   /** Classifier switches already recorded on the run (0008). */
   readonly acceptedModels?: readonly string[];
   /** Totals the session starts from. */
@@ -270,6 +277,7 @@ export function initialState(options: InitialStateOptions = {}): ClaudeParseStat
       ? {}
       : { reportKind: options.reportKind }),
     ...(options.placeholderKey === true ? { placeholderKey: true } : {}),
+    ...(options.reportBySchema === true ? { reportBySchema: true } : {}),
     pending: "",
     truncated: false,
     sessionId: null,
@@ -772,7 +780,11 @@ function init(value: unknown, state: ClaudeParseState): Step {
       next.initRejected === null &&
       (next.reportKind === "planning" || next.reportKind === "audit")
     ) {
-      const foreign = foreignTools(next.reportKind, msg.tools);
+      // The report tool is how a schema's answer comes back, not a tool the session works with: it
+      // is allowed exactly when the plan passed the schema (DIPO-469).
+      const listed =
+        next.reportBySchema === true ? msg.tools.filter((tool) => tool !== REPORT_TOOL) : msg.tools;
+      const foreign = foreignTools(next.reportKind, listed);
       if (foreign.length > 0) {
         const whose = next.reportKind === "audit" ? "an audit" : "a planning";
         next = {

@@ -39,7 +39,7 @@ import type { BoxSession } from "../../box/workers";
 import type { LaunchPlan, WorkerSpec } from "../types";
 import { PlanError } from "../types";
 import { userMessageLine } from "./encode";
-import { checkSpec, flagValue, INCLUDE_PARTIAL_MESSAGES } from "./plan";
+import { checkSpec, flagValue, INCLUDE_PARTIAL_MESSAGES, reportsBySchema } from "./plan";
 import { DISABLE_SLASH_COMMANDS } from "./skills";
 
 /** Claude Code in the box image: in the box user's npm prefix (DIPO-266, DIPO-334). */
@@ -94,7 +94,7 @@ export function boxClaudeArgv(spec: WorkerSpec, session: BoxSession): [string, .
     "--exclude-dynamic-system-prompt-sections",
     DISABLE_SLASH_COMMANDS,
     // A planning session answers the maintainer in text: its turns end in no report.
-    ...(spec.kind === "planning" ? [] : ["--json-schema", JSON.stringify(spec.reportSchema)]),
+    ...(reportsBySchema(spec.kind) ? ["--json-schema", JSON.stringify(spec.reportSchema)] : []),
   ];
 }
 
@@ -127,6 +127,9 @@ export function checkReadOnlyArgv(kind: string, argv: readonly string[]): void {
   const refused = flags.filter((flag) => READ_ONLY_REFUSED_FLAGS.includes(flag));
   if (refused.length > 0) {
     throw new PlanError(`a ${kind} session's plan may not pass ${refused.join(", ")}`);
+  }
+  if (!reportsBySchema(kind) && flags.includes("--json-schema")) {
+    throw new PlanError(`a ${kind} session's plan may not pass --json-schema: it answers in text`);
   }
   const tools = flags.flatMap((flag, index) => (flag === "--tools" ? [index] : []));
   const at = tools[0];

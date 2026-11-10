@@ -25,6 +25,15 @@ export const SETTINGS_FILE = "claude-settings.json";
 export const REPORT_SCHEMA_FILE = "report-schema.json";
 
 /**
+ * Whether a session of `kind` returns its answer through `--json-schema` (0008, DIPO-469): every
+ * kind but a planning session, which answers in text. Both plans, the read-only argv check and the
+ * adapter's parse state ask this one function, so the flag has one owner.
+ */
+export function reportsBySchema(kind: string): boolean {
+  return kind !== "planning";
+}
+
+/**
  * The flag that adds `stream_event` lines to the stream (DIPO-296): the live view reads each
  * message's final output count from them.
  */
@@ -422,8 +431,7 @@ function planSession(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
     systemFile,
     "--exclude-dynamic-system-prompt-sections",
     DISABLE_SLASH_COMMANDS,
-    "--json-schema",
-    JSON.stringify(spec.reportSchema),
+    ...(reportsBySchema(spec.kind) ? ["--json-schema", JSON.stringify(spec.reportSchema)] : []),
   ];
   return {
     argv,

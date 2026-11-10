@@ -13,7 +13,8 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { ManualClock } from "@dipsaus-orchestrator/testkit";
+import { ManualClock, readRecording } from "@dipsaus-orchestrator/testkit";
+import { join } from "node:path";
 
 import { uncontained } from "../../src/box/firewall";
 import { REVIEW_CODE_DIR, REVIEW_SESSION_DIR } from "../../src/box/review-box";
@@ -55,6 +56,14 @@ import {
 } from "./launch-fixtures";
 
 const BOX = "dipo-planning-agt-0002";
+/** The audit's init, derived from a live review init (DIPO-469; its meta.json says so). */
+const DERIVED_AUDIT_INIT = join(
+  import.meta.dir,
+  "..",
+  "recordings",
+  "claude-cli-derived",
+  "audit-init-derived",
+);
 const PATHS: RunLaunchPaths = {
   workdir: WORKDIR,
   mainCheckout: MAIN,
@@ -254,6 +263,17 @@ describe("bypass forms of the audit tools (DIPO-452)", () => {
 /** An audit session's parser state before its first line. */
 const state = () => initialState({ reportKind: "audit", placeholderKey: true });
 
+/**
+ * The audit's init as Claude Code lists it for a session with a schema (DIPO-469): the live review
+ * init, with the tools of the audit's plan and its report tool (see the fixture's meta).
+ */
+const derivedInit = (extra: readonly string[] = []) => {
+  const [first] = readRecording(DERIVED_AUDIT_INIT).lines;
+  const data = structuredClone(first?.data) as { tools: string[] };
+  data.tools = [...data.tools, ...extra];
+  return { t: 1, ch: "stdout" as const, data: `${JSON.stringify(data)}\n` };
+};
+
 /** A `system/init` line that lists `tools`. */
 const init = (tools: readonly string[]) => ({
   t: 1,
@@ -363,5 +383,83 @@ describe("the real worker port's audit launch, fail closed (DIPO-452)", () => {
       outcome: "done",
       answer,
     });
+  });
+
+  it("passes the init of an audit whose plan passed --json-schema, and reads its one answer (DIPO-469)", () => {
+    const adapter = port().adapter(PATHS, OFFICE_DEFAULTS);
+    const answer = { ideas: [{ idea: "cccccccccccc", verdict: "reject", reason: "covered" }] };
+    let parsed = port().initialState(auditSpec({ model: "haiku" }), undefined);
+    const lines = [
+      derivedInit(),
+      {
+        t: 2,
+        ch: "stdout" as const,
+        data: `${JSON.stringify({
+          type: "result",
+          subtype: "success",
+          session_id: "s",
+          is_error: false,
+          num_turns: 3,
+          terminal_reason: "completed",
+          permission_denials: [],
+          structured_output: answer,
+          modelUsage: {},
+        })}\n`,
+      },
+    ];
+    const events: string[] = [];
+    for (const line of lines) {
+      const step = adapter.interpret(line, parsed);
+      events.push(...step.events.map((event) => event.t));
+      parsed = step.state;
+    }
+    expect(events).toContain("started");
+    expect(events).not.toContain("initRejected");
+    expect(result(parsed as never, { code: 0, signal: null })).toMatchObject({
+      outcome: "done",
+      answer,
+    });
+  });
+
+  it("still rejects at init an audit with the report tool that also lists a writing, aliased or MCP tool (DIPO-469)", () => {
+    const adapter = port().adapter(PATHS, OFFICE_DEFAULTS);
+    const parsed = port().initialState(auditSpec({ model: "haiku" }), undefined);
+    for (const extra of ["Bash", "bash", "Edit", "Write", "Task", "mcp__x__y"]) {
+      const { events } = adapter.interpret(derivedInit([extra]), parsed);
+      expect(events).toContainEqual({
+        t: "initRejected",
+        reason: `tools ${extra} are not an audit session's`,
+      });
+    }
+  });
+
+  it("rejects the report tool where the plan passed no schema, and near-miss names where it did (DIPO-469)", () => {
+    const planning = interpret(
+      init([...PLANNING_TOOLS, "StructuredOutput"]),
+      initialState({ reportKind: "planning", placeholderKey: true }),
+    );
+    expect(planning.events).toContainEqual({
+      t: "initRejected",
+      reason: "tools StructuredOutput are not a planning session's",
+    });
+    expect(interpret(init([...PLANNING_TOOLS, "StructuredOutput"]), state()).events).toContainEqual(
+      { t: "initRejected", reason: "tools StructuredOutput are not an audit session's" },
+    );
+    for (const near of [
+      "structuredoutput",
+      "Structured_Output",
+      "StructuredOutputs",
+      "mcp__x__StructuredOutput",
+    ]) {
+      const withSchema = initialState({
+        reportKind: "audit",
+        placeholderKey: true,
+        reportBySchema: true,
+      });
+      expect(interpret(init([...PLANNING_TOOLS, near]), withSchema).events).toContainEqual({
+        t: "initRejected",
+        reason: `tools ${near} are not an audit session's`,
+      });
+    }
   });
 });
