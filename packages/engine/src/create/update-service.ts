@@ -84,7 +84,7 @@ export const UPDATE_DESK_KIND = "UPDATE DIPO";
  * running build and nothing runs; none otherwise.
  */
 export function updateDeskItems(
-  update: SelfUpdate | null,
+  update: Pick<SelfUpdate, "offer"> | null,
   office: OfficeId,
   now: number,
 ): OfficeHandItem[] {

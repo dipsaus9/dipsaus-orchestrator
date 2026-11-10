@@ -11,6 +11,7 @@ import {
   KNOWN_DESK_KINDS,
   RequestId,
   RunId,
+  type OfficeId,
   StoryId,
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
@@ -41,6 +42,11 @@ import {
   DESK_SOURCES,
 } from "../../src/overview/desk";
 import { viewsFeature } from "./views-feature";
+import { join } from "node:path";
+import { DaemonLifecycle } from "../../src/create/lifecycle";
+import { updateDeskItems } from "../../src/create/update-service";
+import { runningStoryCount, sessionRunCount } from "../../src/overview/summary";
+import { SelfUpdate } from "../../src/update/self-update";
 
 /** A desk action as the engine builds it: the command line and its consequence line (DIPO-459). */
 function deskAction(command: CommandName, cli: string) {
@@ -1209,6 +1215,69 @@ describe("what the desk preview shows (DIPO-459)", () => {
           "Accepting files it as a Backlog draft. You refine it in a triage session.",
           "Dismissing files nothing; dipo keeps it as dismissed, for retro.",
         ]);
+      } finally {
+        t.state.close();
+      }
+    }));
+});
+
+describe("the update item on the desk (DIPO-485)", () => {
+  const OFFER = {
+    commits: 3,
+    tip: "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+    titles: ["feat: c", "fix: b", "feat: a"],
+  };
+
+  it("is one item naming the commits' titles when nothing runs, and none while a run is open", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-1", { status: "In Progress" })]);
+        const lifecycle = new DaemonLifecycle();
+        lifecycle.transition("recovering", "test");
+        lifecycle.transition("running", "test");
+        const update = new SelfUpdate({
+          clock: t.clock,
+          logger: { info: () => {}, warn: () => {} },
+          lifecycle,
+          spawn: () => {
+            throw new Error("not started");
+          },
+          spawnDetached: () => {
+            throw new Error("not started");
+          },
+          env: {},
+          home: dir,
+          binary: join(dir, "dipo"),
+          restartLog: join(dir, "update.log"),
+          behind: () => OFFER,
+          running: () => ({
+            stories: runningStoryCount(office),
+            sessions: sessionRunCount(office),
+          }),
+          worktrees: { add: async () => {}, remove: async () => {} },
+        });
+        const sources: DeskSources = {
+          stories: backlogLayout,
+          ...DESK_SOURCES,
+          officeItems: (handle, now) => updateDeskItems(update, handle.officeId as OfficeId, now),
+        };
+        const at = t.clock.now();
+        const idle = desk(office, all, sources, at).filter((item) => item.kind === "UPDATE DIPO");
+        expect(idle).toHaveLength(1);
+        expect(idle[0]?.detail).toBe("update dipo (3 engine commits: feat: c; fix: b; feat: a)");
+        expect(idle[0]?.actions).toEqual([
+          {
+            command: "daemon.update",
+            cli: "dipo update",
+            consequence: DESK_CONSEQUENCES["daemon.update"],
+          },
+        ]);
+        startRun(t, office, "DIPO-1", dir);
+        expect(
+          desk(office, all, sources, at).filter((item) => item.kind === "UPDATE DIPO"),
+        ).toEqual([]);
       } finally {
         t.state.close();
       }
