@@ -1,10 +1,10 @@
 ---
 id: DIPO-470
 title: Idea audits are not refused by dipo's own token cap
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-11-10 10:16'
-updated_date: '2026-11-10 10:54'
+updated_date: '2026-11-10 10:55'
 labels:
   - 'tier:S'
 milestone: m-3
@@ -72,12 +72,12 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An idea audit session's model requests go through the model proxy (200) and count in the office's usage and spend, with no token cap, as a planning session's do
-- [ ] #2 One function next to the caps decides that a run has no token cap, keyed on the run's record (kind session and budget limit 0); scopeOf and capReached in proxied-usage.ts both ask it, and the planner-only role check it replaces is gone
-- [ ] #3 The old barrier still holds, with a test for each: a story run's developer over its budget gets 429, a reviewer over its own cap gets 429, a scan session over its real budget gets 429, and an address with no run row is refused as today
-- [ ] #4 Tests cover the bypass forms, each refused with 429 at its budget: a story run recorded with budget limit 0, an agent whose role is planner or auditor on a story run, and an agent with an unknown role
-- [ ] #5 A fail-closed test on the real path: the real startModelProxy, a fake upstream, a fixture-built office database and the real ledger forward an audit session's request (200) and refuse a developer at its cap (429, nothing forwarded)
-- [ ] #6 The 0008 line on the proxy's cap names the rule (a session run with no budget is never refused for a cap); the maintainer approves the wording in this story's PR
+- [x] #1 An idea audit session's model requests go through the model proxy (200) and count in the office's usage and spend, with no token cap, as a planning session's do
+- [x] #2 One function next to the caps decides that a run has no token cap, keyed on the run's record (kind session and budget limit 0); scopeOf and capReached in proxied-usage.ts both ask it, and the planner-only role check it replaces is gone
+- [x] #3 The old barrier still holds, with a test for each: a story run's developer over its budget gets 429, a reviewer over its own cap gets 429, a scan session over its real budget gets 429, and an address with no run row is refused as today
+- [x] #4 Tests cover the bypass forms, each refused with 429 at its budget: a story run recorded with budget limit 0, an agent whose role is planner or auditor on a story run, and an agent with an unknown role
+- [x] #5 A fail-closed test on the real path: the real startModelProxy, a fake upstream, a fixture-built office database and the real ledger forward an audit session's request (200) and refuse a developer at its cap (429, nothing forwarded)
+- [x] #6 The 0008 line on the proxy's cap names the rule (a session run with no budget is never refused for a cap); the maintainer approves the wording in this story's PR
 <!-- AC:END -->
 
 ## Implementation Notes
