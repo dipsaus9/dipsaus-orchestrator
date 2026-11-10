@@ -1,10 +1,10 @@
 ---
 id: DIPO-484
 title: dipo names the real cause of every failure
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 15:36'
-updated_date: '2026-11-10 15:57'
+updated_date: '2026-11-10 16:27'
 labels:
   - 'tier:M'
 milestone: m-3
