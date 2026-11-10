@@ -1,10 +1,10 @@
 ---
 id: DRAFT-3
-title: Count only audit-rejected ideas in the retro rejection total
+title: 'Say Ideas rejected in the retro heading, not Ideas the audit rejected'
 status: Draft
 assignee: []
 created_date: '2026-11-10 14:23'
-updated_date: '2026-11-10 16:14'
+updated_date: '2026-11-10 16:16'
 labels: []
 milestone: m-3
 dependencies: []
