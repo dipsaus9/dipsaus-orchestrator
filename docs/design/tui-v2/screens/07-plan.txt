@@ -6,7 +6,6 @@
  spend: in 12k · out 3k · cache write 1k · cache read 40k
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
  you> Skip the plugin marketplace for now. What's the smallest story that lets a worker use one skill?
-
  The smallest useful cut is a story that copies skills named in the story's
  references into the box.
  No discovery and no plugins. Two stories:
@@ -15,6 +14,7 @@
  [sel][acc]▌[/] [hi]**◆ Refuse a story whose skill is missing · S**[/][/]
 [sel][dim]     As maintainer I want the Ready gate to fail when a skill the story names is not in the repository so th…[/][/]
 [sel][acc]     c confirm   e edit   x decline   esc to the input[/][/]
+
 
 
 

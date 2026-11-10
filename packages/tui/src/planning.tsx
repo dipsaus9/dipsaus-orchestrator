@@ -60,7 +60,7 @@ import {
   freshDialog,
 } from "./question-dialog";
 import { SpanLine } from "./spans";
-import { foldCount, transcriptRows } from "./transcript";
+import { foldCount, type TranscriptRow, transcriptRows } from "./transcript";
 import { clockTime, glyphs } from "./views";
 
 const encoder = new TextEncoder();
@@ -106,19 +106,13 @@ export interface Planning {
   readonly transcript: string;
   /** What is under way: a start, a message or an end; null otherwise. */
   readonly sending: Sending | null;
-<<<<<<< 0667e3f4515a182a72857a6d80a3835f69e0d56f
   /** The Ready step, or null while the conversation has the keys. */
   readonly ending: EndStep | null;
-  /** The number of the focused card, or null while the input has focus (DIPO-487). */
-  readonly focused: number | null;
-=======
-  readonly confirmingEnd: boolean;
   /** The fold under the focus bar and the folds that are open (DIPO-486), by number. */
   readonly focus: number | null;
   readonly open: ReadonlySet<number>;
-  /** The number of the selected proposal, or null without one (DIPO-450). */
-  readonly selected: number | null;
->>>>>>> ed847e90e7c4813f76ddb9e76b845427e68593c0
+  /** The number of the focused card, or null while the input has focus (DIPO-487). */
+  readonly focused: number | null;
   /** The number of the proposal whose form the input holds, or null. */
   readonly editing: number | null;
   /** The stories fold-out is open. */
@@ -477,7 +471,6 @@ function useResets(
   useEffect(() => setDraft(""), [office]);
 }
 
-<<<<<<< 0667e3f4515a182a72857a6d80a3835f69e0d56f
 /** The keys of the Ready step (DIPO-487): it takes every key while it is open. */
 function useEnd(
   args: PlanningArgs,
@@ -540,7 +533,9 @@ function useEnd(
     else if ((input === "n" || input === "N") && ending.outcome === null)
       end("no story set Ready; ");
     else if (yes) accept(ending);
-=======
+  };
+}
+
 /**
  * The folds of the conversation (DIPO-486): the one under the focus bar and the ones open. Tab
  * walks the folds and Shift+Tab walks back, past the last the focus is off; Enter on an empty
@@ -572,7 +567,6 @@ function useFolds(transcript: string, run: string | null, office: string | null)
         return next;
       });
     },
->>>>>>> ed847e90e7c4813f76ddb9e76b845427e68593c0
   };
 }
 
@@ -588,14 +582,8 @@ export function usePlanning(args: PlanningArgs): Planning {
   const [rail, setRail] = useState(false);
   const [ending, setEnding] = useState<EndStep | null>(null);
   const { transcript, local } = useTranscript(args);
-<<<<<<< 0667e3f4515a182a72857a6d80a3835f69e0d56f
-
-  useResets(run, office, setEnding, setDraft);
-
-=======
   const fold = useFolds(transcript, run, office);
-  useResets(run, office, setConfirmingEnd, setDraft);
->>>>>>> ed847e90e7c4813f76ddb9e76b845427e68593c0
+  useResets(run, office, setEnding, setDraft);
   const kind = PLANNING_KINDS[kindIndex] ?? PLANNING_KINDS[0];
   const send: Send = (which, command, commandArgs, done) =>
     sendCommand(args, setSending, which, { command, args: commandArgs }, done);
@@ -644,11 +632,8 @@ export function usePlanning(args: PlanningArgs): Planning {
     if (cards.onKey(input, key)) return;
     if (key.tab) {
       if (view === null) setKindIndex((index) => (index + 1) % PLANNING_KINDS.length);
-<<<<<<< 0667e3f4515a182a72857a6d80a3835f69e0d56f
+      else if (key.shift) fold.move(1);
       else setRail((open) => !open);
-=======
-      else fold.move(key.shift ? -1 : 1);
->>>>>>> ed847e90e7c4813f76ddb9e76b845427e68593c0
       return;
     }
     const event = composerKey(draft, input, key, true);
@@ -668,19 +653,12 @@ export function usePlanning(args: PlanningArgs): Planning {
     draft,
     transcript,
     sending,
-<<<<<<< 0667e3f4515a182a72857a6d80a3835f69e0d56f
     ending,
+    focus: fold.focus,
+    open: fold.open,
     focused: cards.focused,
     editing: cards.editing,
     rail,
-=======
-    confirmingEnd,
-    focus: fold.focus,
-    open: fold.open,
-    selected: proposals.selected,
-    editing: proposals.editing,
-    readying: proposals.readying,
->>>>>>> ed847e90e7c4813f76ddb9e76b845427e68593c0
     dialog: questions.dialog,
     discuss: (text) => {
       setDraft(text);
@@ -752,7 +730,6 @@ export function refusalLines(view: PlanningView, columns: number, display: Displ
   ];
 }
 
-<<<<<<< 0667e3f4515a182a72857a6d80a3835f69e0d56f
 /** A proposal's title and proposed tier: what a card and the Ready step call it. */
 function proposalHead(proposal: PlanningProposalView["proposal"]): {
   title: string;
@@ -962,7 +939,8 @@ export function readyStepRows(
       };
     }),
   ];
-=======
+}
+
 /** The last `room` rows of the conversation; a focused fold above them pulls the window up to it. */
 function conversationRows(planning: Planning, columns: number, display: Display, room: number) {
   const { dot, ellipsis, bar, live } = glyphs(display.ascii);
@@ -978,7 +956,6 @@ function conversationRows(planning: Planning, columns: number, display: Display,
   const focused = all.findIndex((row) => planning.focus !== null && row.fold === planning.focus);
   const start = Math.min(Math.max(0, all.length - room), focused < 0 ? Infinity : focused);
   return all.slice(start, start + room);
->>>>>>> ed847e90e7c4813f76ddb9e76b845427e68593c0
 }
 
 export interface PlanningModeProps {
@@ -1002,8 +979,13 @@ function fitBlocks(blocks: readonly Block[], max: number): Row[] {
 }
 
 /** The answers of the session, or why there are none yet. */
-function Answers(props: { view: PlanningView; rows: readonly string[]; ellipsis: string }) {
-  const { view, rows, ellipsis } = props;
+function Answers(props: {
+  view: PlanningView;
+  rows: readonly TranscriptRow[];
+  ellipsis: string;
+  display: Display;
+}) {
+  const { view, rows, ellipsis, display } = props;
   if (rows.length === 0) {
     const none =
       view.state === "waiting" ? " no answers yet" : ` waiting for the answer${ellipsis}`;
@@ -1012,7 +994,7 @@ function Answers(props: { view: PlanningView; rows: readonly string[]; ellipsis:
   return (
     <>
       {rows.map((row, i) => (
-        <Text key={`row:${i}`} wrap="truncate-end">{` ${row}`}</Text>
+        <SpanLine key={`row:${i}`} spans={[{ text: " " }, ...row.spans]} display={display} />
       ))}
     </>
   );
@@ -1035,18 +1017,18 @@ export function PlanningMode(props: PlanningModeProps) {
   const { planning, display, columns } = props;
   const { view } = planning;
   const rule = (display.ascii ? "-" : "─").repeat(Math.max(1, columns - 2));
-<<<<<<< 0667e3f4515a182a72857a6d80a3835f69e0d56f
   const head = viewHead(planning, columns, display);
   const inputRows = planning.editing === null ? COMPOSER_ROWS : FORM_ROWS;
   const step =
     view !== null && planning.ending !== null
       ? readyStepRows(view, planning.ending, columns, display)
       : null;
-  const input =
+  const dialog =
     planning.dialog === null
-      ? composerRows(planning.draft, columns, inputRows)
-      : dialogLines(planning.dialog.block, planning.dialog.state, columns, display);
-  const foot = step?.length ?? input.length + (planning.editing === null ? 0 : 1);
+      ? null
+      : dialogRows(planning.dialog.block, planning.dialog.state, columns, display);
+  const inputLength = dialog?.length ?? composerRows(planning.draft, columns, inputRows).length;
+  const foot = step?.length ?? inputLength + (planning.editing === null ? 0 : 1);
   const extra: Row[] =
     view === null
       ? []
@@ -1058,10 +1040,7 @@ export function PlanningMode(props: PlanningModeProps) {
   const space = Math.max(1, props.height - head.length - foot - 2);
   const cards = fitBlocks(blocks, Math.max(1, space - extra.length - 1));
   const room = Math.max(0, space - cards.length - extra.length);
-  const rows =
-    view === null
-      ? []
-      : wrapLines(splitLines(planning.transcript), Math.max(10, columns - 2)).slice(-room);
+  const rows = view === null ? [] : conversationRows(planning, columns, display, room);
   const line = (row: Row, key: string) => (
     <Colored
       key={key}
@@ -1073,44 +1052,19 @@ export function PlanningMode(props: PlanningModeProps) {
       {` ${row.text}`}
     </Colored>
   );
-=======
-  const head =
-    view === null
-      ? [
-          "Planning: no open planning session",
-          `kind: ${PLANNING_KINDS.map((kind) => (kind === planning.kind ? `[${kind}]` : kind)).join("  ")}`,
-          "goal (what do you want to plan?):",
-        ]
-      : [...headLines(view, columns, display), ...refusalLines(view, columns, display)];
-  const inputRows = planning.editing === null && !planning.readying ? COMPOSER_ROWS : FORM_ROWS;
-  const dialog =
-    planning.dialog === null
-      ? null
-      : dialogRows(planning.dialog.block, planning.dialog.state, columns, display);
-  const inputLength = dialog?.length ?? composerRows(planning.draft, columns, inputRows).length;
-  const confirm = planning.confirmingEnd ? ["End the planning session? [y/N]"] : [];
-  // The proposals (DIPO-450) sit between the answers and the input; an edit says which it is.
-  const proposals = [
-    ...(view === null ? [] : proposalLines(view, planning.selected, columns, display)),
-    ...(view === null ? [] : readyLines(view, columns, display)),
-    ...(planning.readying ? ["setting stories Ready:"] : []),
-    ...(planning.editing === null ? [] : [`editing proposal ${planning.editing}:`]),
-  ];
-  const room = Math.max(
-    0,
-    props.height - head.length - inputLength - confirm.length - proposals.length - 2,
-  );
-  const rows = view === null ? [] : conversationRows(planning, columns, display, room);
->>>>>>> ed847e90e7c4813f76ddb9e76b845427e68593c0
   return (
     <Box flexDirection="column" height={props.height}>
       {head.map((text, i) => (
         <Text key={`head:${i}`} wrap="truncate-end">{` ${text}`}</Text>
       ))}
       <Text wrap="truncate-end">{` ${rule}`}</Text>
-<<<<<<< 0667e3f4515a182a72857a6d80a3835f69e0d56f
       {view === null ? null : (
-        <Answers view={view} rows={rows} ellipsis={glyphs(display.ascii).ellipsis} />
+        <Answers
+          view={view}
+          rows={rows}
+          ellipsis={glyphs(display.ascii).ellipsis}
+          display={display}
+        />
       )}
       {cards.map((row, i) => line(row, `card:${i}`))}
       {extra.map((row, i) => line(row, `extra:${i}`))}
@@ -1122,39 +1076,14 @@ export function PlanningMode(props: PlanningModeProps) {
           {planning.editing === null ? null : (
             <Text wrap="truncate-end">{` editing proposal ${planning.editing}:`}</Text>
           )}
-          {planning.dialog === null ? (
+          {dialog === null ? (
             <Composer draft={planning.draft} columns={columns} rows={inputRows} />
           ) : (
-            input.map((text, i) => (
-              <Text key={`dialog:${i}`} wrap="truncate-end">{` ${text}`}</Text>
+            dialog.map((spans, i) => (
+              <SpanLine key={`dialog:${i}`} spans={[{ text: " " }, ...spans]} display={display} />
             ))
           )}
         </>
-=======
-      {view === null
-        ? null
-        : rows.length === 0
-          ? [
-              <Text key="none" wrap="truncate-end">
-                {view.state === "waiting"
-                  ? " no answers yet"
-                  : ` waiting for the answer${glyphs(display.ascii).ellipsis}`}
-              </Text>,
-            ]
-          : rows.map((row, i) => (
-              <SpanLine key={`row:${i}`} spans={[{ text: " " }, ...row.spans]} display={display} />
-            ))}
-      {view === null ? null : <Text wrap="truncate-end">{` ${rule}`}</Text>}
-      {proposals.map((line, i) => (
-        <Text key={`proposal:${i}`} wrap="truncate-end">{` ${line}`}</Text>
-      ))}
-      {dialog === null ? (
-        <Composer draft={planning.draft} columns={columns} rows={inputRows} />
-      ) : (
-        dialog.map((line, i) => (
-          <SpanLine key={`dialog:${i}`} spans={[{ text: " " }, ...line]} display={display} />
-        ))
->>>>>>> ed847e90e7c4813f76ddb9e76b845427e68593c0
       )}
     </Box>
   );

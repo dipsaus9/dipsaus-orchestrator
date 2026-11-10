@@ -706,9 +706,10 @@ describe("the keys of the planning view (DIPO-479)", () => {
     expect(frame).not.toContain('"questions"');
     expect(frame).not.toContain("**");
 
-    // Tab focuses the first fold, Tab the second; Enter opens it and Enter shuts it again.
-    await ui.press("tab");
-    await ui.press("tab");
+    // Shift+Tab focuses the first fold, again the second (Tab opens the stories fold-out);
+    // Enter opens it and Enter shuts it again.
+    await ui.press("\u001b[Z");
+    await ui.press("\u001b[Z");
     await ui.press("enter");
     const open1 = await ui.waitFor("port-command.ts");
     expect(open1).not.toContain("⏎ full");
