@@ -3,10 +3,10 @@ id: DIPO-486
 title: >-
   The planning view shows the answer first, with folded details, clean questions
   and rendered markdown
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 15:46'
-updated_date: '2026-11-10 15:57'
+updated_date: '2026-11-10 17:51'
 labels:
   - 'tier:M'
 milestone: m-6
