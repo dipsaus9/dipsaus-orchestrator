@@ -1,10 +1,10 @@
 ---
 id: DIPO-488
 title: A long or unusual backlog file name never stops a run
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-11-10 16:34'
-updated_date: '2026-11-10 16:48'
+updated_date: '2026-11-10 17:02'
 labels:
   - 'tier:M'
 milestone: m-3
