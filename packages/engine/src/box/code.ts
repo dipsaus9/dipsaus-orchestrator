@@ -37,6 +37,8 @@ export const SYSTEM_TAR = "/usr/bin/tar";
 export const UNPACK_TIMEOUT_MS = 120_000;
 /** The prefix of a stage folder in dipo's temp root. */
 export const CODE_STAGE_PREFIX = "dipo-box-code-";
+/** The prefix of the folder that holds a packed folder's archive (`packFolder`). */
+export const CODE_PACK_PREFIX = "dipo-box-pack-";
 
 const COMMIT = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 /** Git's empty tree, as an attribute source that holds no `.gitattributes`. */
@@ -94,11 +96,11 @@ async function readAll(stream: ReadableStream<Uint8Array>): Promise<string> {
   return new Response(stream).text();
 }
 
-/** Unpacks `archive` into `into` with the system tar, within `UNPACK_TIMEOUT_MS`. */
-export async function unpack(deps: BoxCodeDeps, archive: string, into: string): Promise<void> {
+/** Runs the system tar with `args` within `UNPACK_TIMEOUT_MS`; `what` starts a failure's message. */
+async function runTar(deps: BoxCodeDeps, args: readonly string[], what: string): Promise<void> {
   const child = deps.spawn({
-    cmd: [deps.tar ?? SYSTEM_TAR, "-x", "-f", archive, "-C", into],
-    env: { PATH: "/usr/bin:/bin" },
+    cmd: [deps.tar ?? SYSTEM_TAR, ...args],
+    env: { PATH: "/usr/bin:/bin", COPYFILE_DISABLE: "1" },
   });
   let timer: TimerHandle | undefined;
   const timedOut = new Promise<"timeout">((resolve) => {
@@ -109,18 +111,52 @@ export async function unpack(deps: BoxCodeDeps, archive: string, into: string): 
     const result = await Promise.race([done, timedOut]);
     if (result === "timeout") {
       child.kill("SIGKILL");
-      throw new BoxError("box.timedOut", "unpacking the start commit for the box timed out.");
+      throw new BoxError("box.timedOut", `${what} timed out.`);
     }
     const [stderr, exit] = result;
     if (exit.code !== 0) {
-      throw new BoxError(
-        "box.failed",
-        `unpacking the start commit for the box failed: ${stderr.trim() || `exit ${exit.code}`}`,
-      );
+      throw new BoxError("box.failed", `${what} failed: ${stderr.trim() || `exit ${exit.code}`}`);
     }
   } finally {
     if (timer !== undefined) deps.clock.clearTimeout(timer);
   }
+}
+
+/** Unpacks `archive` into `into` with the system tar, within `UNPACK_TIMEOUT_MS`. */
+export async function unpack(deps: BoxCodeDeps, archive: string, into: string): Promise<void> {
+  await runTar(deps, ["-x", "-f", archive, "-C", into], "unpacking the start commit for the box");
+}
+
+/**
+ * The tar format that writes file names as they are, never converted: bsdtar's name for it on the
+ * Mac, GNU tar's on Linux, where only the tests run.
+ */
+export const ARCHIVE_FORMAT = process.platform === "darwin" ? "gnutar" : "gnu";
+
+/**
+ * Packs the contents of the folder `folder` into one archive file in a new folder under
+ * `tmpRoot` (DIPO-488), for `copyInAsUser`: the backend's folder copy changes a non-ASCII file
+ * name, one archive named in ASCII it does not. GNU format keeps each name's bytes, long ones too.
+ */
+export async function packFolder(
+  deps: BoxCodeDeps,
+  tmpRoot: string,
+  folder: string,
+): Promise<{ readonly file: string; remove(): Promise<void> }> {
+  const root = await mkdtemp(join(tmpRoot, CODE_PACK_PREFIX));
+  const remove = () => rm(root, { recursive: true, force: true });
+  const file = join(root, "files.tar");
+  try {
+    await runTar(
+      deps,
+      ["-c", `--format=${ARCHIVE_FORMAT}`, "-f", file, "-C", folder, "."],
+      "packing the code for the box",
+    );
+  } catch (error) {
+    await remove();
+    throw error;
+  }
+  return { file, remove };
 }
 
 /** True when `path` lies in `root` (both real paths). */

@@ -278,6 +278,7 @@ export {
   BOX_DIPO_DIR,
   BOX_WORKDIR,
   CODE_STAGE_PREFIX,
+  packFolder,
   stageBoxCode,
   SYSTEM_TAR,
   UNPACK_TIMEOUT_MS,

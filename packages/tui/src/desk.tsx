@@ -81,12 +81,15 @@ export const DESK_EVENTS: ReadonlySet<string> = new Set([
 
 /**
  * The `engine.notice` codes of the office's starts paused and its lift (0020, DIPO-359), and of a
- * story newly offered as next up (0010, DIPO-440).
+ * story newly offered as next up (0010, DIPO-440), and of a start that did not go on, whose reason
+ * its NEXT UP item shows (DIPO-488).
  */
 export const DESK_NOTICES: ReadonlySet<string> = new Set([
   "office.startsPaused",
   "office.startsResumed",
   "run.nextUp",
+  "setup.failed",
+  "run.startAborted",
 ]);
 
 /**

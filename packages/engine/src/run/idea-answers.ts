@@ -44,7 +44,7 @@ import type {
 } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import { dismissNote, notesByPrefix, type StoredNote } from "../records/decision-notes";
-import { answerIdea, ideasByPrefix } from "../records/ideas";
+import { answerIdea, cutWords, ideasByPrefix } from "../records/ideas";
 import type { PlanningLane, ProposedDraft } from "../story-store/planning";
 
 export const IDEA_UNKNOWN = "idea.unknown";
@@ -73,19 +73,13 @@ function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-/** `text` at most `max` characters long, ending in `…` when cut. */
-function capped(text: string, max: number): string {
-  const chars = Array.from(text);
-  return chars.length <= max ? text : `${chars.slice(0, max - 1).join("")}…`;
-}
-
 /**
  * A text from a worker, the audit or the maintainer as a draft carries it: cleaned of terminal
  * control characters (0008), on one line, with HTML comment marks broken up (Backlog.md finds its
  * sections by them), capped.
  */
 export function draftWords(text: string, max: number): string {
-  return capped(
+  return cutWords(
     oneLine(cleanText(text)).replaceAll("<!--", "< !--").replaceAll("-->", "-- >"),
     max,
   );

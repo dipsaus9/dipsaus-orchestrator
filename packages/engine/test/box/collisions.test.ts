@@ -6,6 +6,7 @@
 import { spawnSync } from "node:child_process";
 import {
   cpSync,
+  mkdtempSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -171,11 +172,13 @@ function folderBoxes(
     },
     stop: async () => {},
     exec: async (box, command) => {
-      const stage = command.find((part) => part.startsWith(`${BOX_STAGE_ROOT}/`));
+      const stage = command
+        .find((part) => part.startsWith(`${BOX_STAGE_ROOT}/`))
+        ?.replace(/\/files\.tar$/, "");
       if (stage !== undefined) {
-        if (command[0] === "/bin/cp") {
+        if (command[0] === "/bin/tar") {
           await w().onCopy?.();
-          expect(command.at(-1)).toBe("/work");
+          expect(command.at(-3)).toBe("/work");
           w().copies.push(box);
           cpSync(staged.get(stage)!, folder(box), { recursive: true, force: true });
         }
@@ -194,8 +197,14 @@ function folderBoxes(
     copyIn: async (_box, from, to) => {
       if (w().failCopy) throw new Error("the box is gone");
       expect(to.startsWith(`${BOX_STAGE_ROOT}/`)).toBe(true);
-      expect(from).toEndWith("/.");
-      staged.set(to, from.slice(0, -2));
+      expect(to).toEndWith("/files.tar");
+      // The archive is unpacked as the box's tar does, byte for byte.
+      const unpacked = mkdtempSync(join(process.env["DIPO_TMP"] ?? "/tmp", "fake-catch-up-"));
+      const result = spawnSync("tar", ["-x", "-f", from, "-C", unpacked], {
+        env: { PATH: "/usr/bin:/bin", LC_ALL: "C" },
+      });
+      if (result.status !== 0) throw new Error("tar failed");
+      staged.set(to.slice(0, -"/files.tar".length), unpacked);
     },
   };
 }

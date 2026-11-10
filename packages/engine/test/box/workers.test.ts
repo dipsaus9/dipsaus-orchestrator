@@ -30,6 +30,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   realpathSync,
   rmSync,
   statSync,
@@ -37,7 +38,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
 
@@ -120,7 +121,7 @@ import {
 } from "../../src/box/workers";
 import { BOX_GIT_ENV, BOX_GIT_INIT_TIMEOUT_MS, boxGitInitCommand } from "../../src/box/box-git";
 import { DIPO_PART_PATH } from "../../src/box/door";
-import { partModeCommand, stageCopyCommand } from "../../src/box/user";
+import { partModeCommand, stageUnpackCommand } from "../../src/box/user";
 import { BoxParts, type BoxPartsDeps } from "../../src/box/parts";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemClock } from "../../src/platform/clock";
@@ -249,6 +250,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
   if (options.gitignore !== undefined)
     writeFileSync(join(repo.dir, ".gitignore"), options.gitignore);
   for (const [path, text] of Object.entries(options.committed ?? {})) {
+    mkdirSync(dirname(join(repo.dir, path)), { recursive: true });
     writeFileSync(join(repo.dir, path), text);
   }
   const commit = await repo.commitAll("start");
@@ -651,11 +653,11 @@ describe("the box of a box run (criteria 4 and 10)", () => {
       expect(steps.map((step) => [step.command[0], step.options?.rootStep])).toEqual([
         ["/bin/mkdir", true],
         ["/bin/chown", true],
-        ["/bin/cp", undefined],
+        ["/bin/tar", undefined],
         ["/bin/rm", true],
       ]);
       const stage = steps[0]!.command.at(-1)!;
-      expect(steps[2]!.command).toEqual(stageCopyCommand(stage, "/work"));
+      expect(steps[2]!.command).toEqual(stageUnpackCommand(stage, "/work"));
       // dipo-part is root's, made runnable by a root step; nothing else of create runs as root.
       expect(w.boxes.execs.filter((exec) => exec.options?.rootStep === true)).toEqual([
         { box: BOX, command: partModeCommand(), options: { rootStep: true } },
@@ -1351,13 +1353,19 @@ async function treeWorld(
   install: (work: string) => void,
   limits?: BoxPartsDeps["limits"],
   listedFiles: readonly string[] = LISTED.map((file) => file.path),
+  extra: {
+    readonly committed?: Readonly<Record<string, string>>;
+    readonly mangleNames?: boolean;
+  } = {},
 ): Promise<World> {
   let parts: BoxParts | null = null;
   let boxes: FakeBoxes | null = null;
   const w = await world(repo, tmp, {
     gitignore: "node_modules/\n*.log\n",
+    ...(extra.committed === undefined ? {} : { committed: extra.committed }),
     boxes: {
       files: join(tmp, "box-files"),
+      ...(extra.mangleNames === true ? { mangleNames: true } : {}),
       live: (box, command) => {
         const work = (boxes as FakeBoxes).filesOf(box, "/work");
         if (command[0] === "tar") return { bytes: tarOf(work) };
@@ -2814,5 +2822,115 @@ describe("the box-address registry the model proxy counts by (DIPO-425)", () => 
       expect(error).toBeInstanceOf(BoxError);
       expect(String(error)).toContain("could not be counted");
       expect(w.workers.owner("192.168.65.9")).toBeNull();
+    }));
+});
+
+/** The file names of DIPO-488: non-ASCII, backticks, a path over 150 bytes, spaces and quotes. */
+const ODD_NAMES: Readonly<Record<string, string>> = {
+  "docs/ellipsis-only-l\u2026.md": "ellipsis\n",
+  "docs/Caf\u00e9 \u65e5\u672c\u8a9e.md": "other utf-8\n",
+  "docs/the-`open`-and-`shell`.md": "backticks\n",
+  [`docs/${"long-".repeat(10)}/${"segment-".repeat(12)}name.md`]: "long\n",
+  "docs/a name with spaces.md": "spaces\n",
+  'docs/it\'s "quoted".md': "quotes\n",
+  [`docs/all \`three\` \u2026 ${"x".repeat(150)}.md`]: "all\n",
+};
+
+describe("the check of /work with unusual file names (DIPO-488)", () => {
+  it("gives the box every name byte for byte, though the backend's folder copy changes a non-ASCII one", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await treeWorld(repo, tmp, () => undefined, undefined, [], {
+        committed: ODD_NAMES,
+        mangleNames: true,
+      });
+      await created(w);
+      const work = w.boxes.filesOf(BOX, "/work");
+      const tree = (
+        await w.git.run((session) =>
+          session.ok(session.repository, ["ls-tree", "-r", "-z", "--name-only", w.commit]),
+        )
+      )
+        .split("\0")
+        .filter((n) => n !== "");
+      for (const path of Object.keys(ODD_NAMES)) {
+        expect(tree).toContain(path);
+        expect(readFileSync(join(work, path), "utf8")).toBe(ODD_NAMES[path]!);
+      }
+      expect(await installIn(w)).toEqual({ ok: true });
+      expect(await w.workers.changedSinceStart({ ...TREE_FACTS, startSha: w.commit })).toEqual({
+        kind: "same",
+      });
+    }));
+
+  it("still sees a name the folder copy changed as a change, so the old copy could not pass", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await treeWorld(
+        repo,
+        tmp,
+        (work) => {
+          renameSync(
+            join(work, "docs", "ellipsis-only-l\u2026.md"),
+            join(work, "docs", "ellipsis-only-l*.md"),
+          );
+        },
+        undefined,
+        [],
+        { committed: ODD_NAMES },
+      );
+      await created(w);
+      expect(await installIn(w)).toEqual({ ok: true });
+      expect(await w.workers.changedSinceStart({ ...TREE_FACTS, startSha: w.commit })).toEqual({
+        kind: "changed",
+        paths: ["docs/ellipsis-only-l*.md", "docs/ellipsis-only-l\u2026.md"],
+      });
+    }));
+
+  it("names a changed, deleted or renamed file whatever its name holds", () =>
+    inBoxes(async (repo, tmp) => {
+      const names = Object.keys(ODD_NAMES);
+      const w = await treeWorld(
+        repo,
+        tmp,
+        (work) => {
+          writeFileSync(join(work, names[0]!), "changed\n");
+          writeFileSync(join(work, names[1]!), "changed\n");
+          writeFileSync(join(work, names[2]!), "changed\n");
+          writeFileSync(join(work, names[3]!), "changed\n");
+          rmSync(join(work, names[4]!));
+          renameSync(join(work, names[5]!), join(work, "docs", "renamed.md"));
+          writeFileSync(join(work, names[6]!), "changed\n");
+        },
+        undefined,
+        [],
+        { committed: ODD_NAMES },
+      );
+      await created(w);
+      expect(await installIn(w)).toEqual({ ok: true });
+      expect(await w.workers.changedSinceStart({ ...TREE_FACTS, startSha: w.commit })).toEqual({
+        kind: "changed",
+        paths: [...names, "docs/renamed.md"].toSorted(),
+      });
+    }));
+
+  it("still catches a rewritten lockfile, a generated tracked file and a deleted tracked file", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await treeWorld(
+        repo,
+        tmp,
+        (work) => {
+          writeFileSync(join(work, "bun.lock"), "rewritten\n");
+          writeFileSync(join(work, "src", "generated.ts"), "export const g = 1;\n");
+          rmSync(join(work, "docs", "ellipsis-only-l\u2026.md"));
+        },
+        undefined,
+        [],
+        { committed: { ...ODD_NAMES, "bun.lock": "{}\n", "src/generated.ts": "// old\n" } },
+      );
+      await created(w);
+      expect(await installIn(w)).toEqual({ ok: true });
+      expect(await w.workers.changedSinceStart({ ...TREE_FACTS, startSha: w.commit })).toEqual({
+        kind: "changed",
+        paths: ["bun.lock", "docs/ellipsis-only-l\u2026.md", "src/generated.ts"],
+      });
     }));
 });

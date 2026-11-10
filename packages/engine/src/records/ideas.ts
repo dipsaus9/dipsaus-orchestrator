@@ -58,20 +58,29 @@ export interface HeldIdea {
   readonly createdAt: number;
 }
 
-/** `text` at most `max` characters long, ending in `…` when cut. */
-function capped(text: string, max: number): string {
+/**
+ * `text` at most `max` characters long: over the cap it is cut at the last word boundary that
+ * fits (a word longer than the cap is cut where the cap falls), and nothing is added, so no mark
+ * outside ASCII ends up in a draft's title and so in its file name (DIPO-488).
+ */
+export function cutWords(text: string, max: number): string {
   const chars = Array.from(text);
-  return chars.length <= max ? text : `${chars.slice(0, max - 1).join("")}…`;
+  if (chars.length <= max) return text;
+  const head = chars.slice(0, max);
+  const boundary = /\s/u.test(chars[max] ?? "")
+    ? max
+    : head.findLastIndex((char) => /\s/u.test(char));
+  return (boundary > 0 ? head.slice(0, boundary) : head).join("").trimEnd();
 }
 
 /** An idea's title as held: cleaned, on one line, capped. */
 export function ideaTitle(text: string): string {
-  return capped(cleanText(text).replace(/\s+/g, " ").trim(), IDEA_CAPS.title);
+  return cutWords(cleanText(text).replace(/\s+/g, " ").trim(), IDEA_CAPS.title);
 }
 
 /** An idea's text as held: cleaned, trimmed, capped. */
 export function ideaText(text: string): string {
-  return capped(cleanText(text).trim(), IDEA_CAPS.text);
+  return cutWords(cleanText(text).trim(), IDEA_CAPS.text);
 }
 
 /** The id `idea` is held by, or null when its title or text is empty once cleaned. */
@@ -234,7 +243,7 @@ export function rejectIdea(
       {
         id,
         by: decision.by,
-        reason: capped(cleanText(decision.reason).trim(), IDEA_CAPS.reason),
+        reason: cutWords(cleanText(decision.reason).trim(), IDEA_CAPS.reason),
         run: decision.auditRun,
         at: decision.at,
       },
@@ -280,7 +289,7 @@ export function auditMissed(
        where office_id = $office_id and idea_id = $id and state = 'held'`,
       {
         id,
-        problem: capped(cleanText(missed.problem).trim(), IDEA_CAPS.reason),
+        problem: cutWords(cleanText(missed.problem).trim(), IDEA_CAPS.reason),
         run: missed.auditRun,
         at: missed.at,
       },

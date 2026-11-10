@@ -60,7 +60,7 @@ import {
 } from "node:fs";
 import { lookup } from "node:dns/promises";
 import { createServer, isIP, type Server } from "node:net";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 import { describe, expect, it } from "bun:test";
 
@@ -73,6 +73,7 @@ import {
   ensurePackageCache,
 } from "../../src/box/cache";
 import { ensureBoxImage } from "../../src/box/build-box";
+import { packFolder } from "../../src/box/code";
 import { describeBox } from "../../src/box/image";
 import { AppleContainerBoxes } from "../../src/box/apple-container";
 import { BoxError, type BoxExecOptions, boxName, isBoxTimedOut } from "../../src/box/port";
@@ -325,6 +326,70 @@ if (registers) {
             await boxes.delete(name).catch(() => {});
           }
           expect((await boxes.list()).map((box) => box.name)).not.toContain(name);
+        });
+      },
+      PULL_TIMEOUT_MS + 120_000,
+    );
+
+    it(
+      "keeps every file name of a copied folder byte for byte when it goes in as one archive (DIPO-488)",
+      async () => {
+        const env = cleanEnv();
+        const cliEnv = {
+          PATH: env["PATH"] ?? "/usr/bin:/bin:/usr/local/bin",
+          HOME: env["HOME"] ?? "/",
+        };
+        const boxes = new AppleContainerBoxes({
+          stateLabel: cleanup.stateLabel,
+          spawn: systemSpawn,
+          clock: systemClock,
+          env: cliEnv,
+        });
+        expect(await boxes.check()).toMatchObject({ ok: true });
+        const network = await boxes.network();
+        const runId = `build-t${crypto.randomUUID().slice(0, 8)}`;
+        const name = boxName(runId);
+        // A …-only name, a backticks-only name, a 150-byte-plus ASCII path, and one with all three.
+        const names = [
+          "docs/ellipsis-only-l\u2026.md",
+          "docs/the-`open`-and-`shell`.md",
+          `docs/${"long-".repeat(10)}/${"segment-".repeat(12)}name.md`,
+          `docs/all-three-\u2026-\`x\`-${"y".repeat(130)}.md`,
+        ];
+        await withTempDir(async (dir) => {
+          const code = join(dir, "code");
+          for (const path of names) {
+            mkdirSync(dirname(join(code, path)), { recursive: true });
+            writeFileSync(join(code, path), `${path}\n`);
+          }
+          try {
+            await boxes.create({ runId, image: IMAGE, network }, { timeoutMs: PULL_TIMEOUT_MS });
+            await boxes.start(name);
+            const archive = await packFolder({ spawn: systemSpawn, clock: systemClock }, dir, code);
+            try {
+              await boxes.copyIn(name, archive.file, "/tmp/files.tar");
+            } finally {
+              await archive.remove();
+            }
+            const unpacked = await boxes.exec(
+              name,
+              ["sh", "-c", "mkdir /tmp/out && tar -x -f /tmp/files.tar -C /tmp/out"],
+              { fullPrivilege: true },
+            );
+            expect(unpacked.code).toBe(0);
+            const found = await boxes.exec(name, ["find", "/tmp/out", "-type", "f", "-print0"], {
+              fullPrivilege: true,
+            });
+            expect(
+              found.stdout
+                .split("\0")
+                .filter((path) => path !== "")
+                .map((path) => path.slice("/tmp/out/".length))
+                .toSorted(),
+            ).toEqual(names.toSorted());
+          } finally {
+            await boxes.delete(name).catch(() => {});
+          }
         });
       },
       PULL_TIMEOUT_MS + 120_000,

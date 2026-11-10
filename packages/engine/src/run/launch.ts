@@ -417,6 +417,13 @@ export class RunLauncher {
       if (boxMade) await boxes?.discard(facts.runId, "its launch failed");
     };
     const fail = async (reason: string): Promise<ClaimSetupFailed> => {
+      // The reason is in the claim's notice; the log carries it too, with the run and the story.
+      this.#deps.warn?.("a launch stopped before its worker started", {
+        office: facts.office,
+        run: facts.runId,
+        story: claim.story,
+        reason,
+      });
       await discardBox();
       cleanup();
       return { ok: false, reason, log: `launch: ${reason}` };

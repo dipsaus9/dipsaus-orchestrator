@@ -134,6 +134,8 @@ export interface NextUpDeskItem {
   readonly shared: readonly { readonly story: string; readonly paths: readonly string[] }[];
   /** When it was first offered, in ms. */
   readonly since: number;
+  /** Why its last start did not go on (DIPO-488). */
+  readonly failed?: string;
 }
 
 /** An open merge gate, as `DeskSources.handMergeOnly` sees it. */
@@ -956,7 +958,11 @@ class DeskBuilder {
         kind: NEXT_UP_KIND,
         story: offer.story,
         key: offer.key,
-        detail: `${JSON.stringify(deskText(offer.title))} · ${offer.why} · ${sharedText(offer.shared)}`,
+        detail: `${JSON.stringify(deskText(offer.title))} · ${offer.why} · ${sharedText(offer.shared)}${
+          offer.failed === undefined
+            ? ""
+            : ` · its last start failed: ${cut(deskText(offer.failed), 200)}`
+        }`,
         since: iso(offer.since),
         blocks: this.#blocks(offer.story),
         actions: [

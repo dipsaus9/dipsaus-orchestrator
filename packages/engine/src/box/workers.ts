@@ -112,7 +112,7 @@ import {
   readBaseLockfile,
 } from "./cache";
 import { initBoxRepository } from "./box-git";
-import { BOX_DIPO_DIR, BOX_WORKDIR, type BoxCodeDeps, stageBoxCode } from "./code";
+import { BOX_DIPO_DIR, BOX_WORKDIR, type BoxCodeDeps, packFolder, stageBoxCode } from "./code";
 import { BoxDoor, type BoxDoorDeps, type DoorRead, installDipoPart } from "./door";
 import {
   PLANNING_BOX_RUN_PREFIX,
@@ -916,7 +916,9 @@ export class BoxWorkers {
       });
       try {
         // The box user's own copy (DIPO-334): `/work` is the worker's to write.
-        await copyInAsUser(boxes, name, staged.dir, BOX_WORKDIR);
+        await copyInAsUser(boxes, name, staged.dir, BOX_WORKDIR, (folder) =>
+          packFolder(this.#deps.code, this.#deps.tmpRoot, folder),
+        );
       } finally {
         await staged.remove();
       }

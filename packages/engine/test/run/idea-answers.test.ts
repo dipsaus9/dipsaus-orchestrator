@@ -570,10 +570,17 @@ describe("the draft of an accepted idea", () => {
       title: "x".repeat(400),
     });
     expect(Array.from(draft.title)).toHaveLength(120);
-    expect(draft.title.endsWith("…")).toBe(true);
+    expect(draft.title).toBe("x".repeat(120));
     const story = draft.description.split("\n").find((line) => line.startsWith("Story:")) ?? "";
     expect(Array.from(story.replace("Story: ", ""))).toHaveLength(500);
     expect(draft.references).toEqual(["src/a.ts", "src/b.ts"]);
+  });
+
+  it("cuts a long draft title on a word boundary with no … or other non-ASCII mark (DIPO-488)", () => {
+    const draft = ideaDraft({ ...withStory({}), title: "word ".repeat(100) });
+    expect(draft.title).toBe("word ".repeat(24).trim());
+    expect(draft.title).not.toContain("…");
+    expect(/^[ -~]*$/.test(draft.title)).toBe(true);
   });
 
   it("strips every leading mark and list number from the title, and gives an empty one a fallback", () => {
